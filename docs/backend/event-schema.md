@@ -29,7 +29,17 @@ Generated durable short links such as `/l/<code>` are tracked in [Generated Shor
 
 ## Event Times
 
-Event `startAt`, `doorsOpenAt`, and `endAt` are stored as timestamps. The optional `timezone` field is the canonical event timezone used by operators for public schedule display and by the event editor when parsing local `datetime-local` inputs.
+Timed events store `startAt`, optional `doorsOpenAt`, and optional `endAt` as timestamps. `scheduleKind` is `timed` or `date_only`; legacy rows without it are read as timed. `eventDate` is the authored `YYYY-MM-DD` calendar date. The optional `timezone` field supplies the authoring zone for timed events. Existing owner authoring remains a timed-event interface; contribution authoring adds the date-only write path separately.
+
+Date-only events omit `startAt`. Public cards show the authored date and `Time TBA` without converting it into the viewer's timezone. ICS emits `DTSTART;VALUE=DATE`; Discord exports the date and `Time TBA` without a Discord timestamp. Date-only events never activate watch playback, scheduled media workers, or instance telemetry windows. Public projections suppress stale timed fields and slots.
+
+`sortAt` is an internal index key, never a start instant or public JSON field. Timed rows use their start instant; date-only rows use a sortable UTC date key. Participant and world caches use `eventSortAt` and `eventSortEndAt`; timed slot playback keeps its own exact start and end instants. Date-only upcoming eligibility lasts until the authored date ends in UTC-12, so timezone-boundary viewers do not lose the listing early.
+
+### Schedule migration and rollout
+
+The Convex deployment variable `EVENT_DATE_ONLY_ENABLED` defaults to false. The deployment operator owns it. Deploy the widened schema and new indexes first, then invoke internal mutation `eventScheduleMigration:backfill` with `{ "batchSize": 100 }`. Persist its returned `phase` and `cursor`, passing both into the next call until `done` is true. The phases cover events, participants, worlds, slots, and search documents. Each transaction processes at most 100 rows and can be replayed. Verify completion and index readiness before setting the variable to `true`; recreate or roll back the switch by setting it to `false`. No secret or rotation is involved. Turning it off after date-only publication hides those records from legacy index listings, so disable new contribution writes first when rolling back.
+
+New date-only publication must call `requireDateOnlyEventsEnabled()` and `normalizeEventSchedule({ kind: "date_only", date })` from `convex/_eventSchedule.ts`, then write the canonical event, association sort caches, and search document in the same transaction. New timed contribution publication must require an explicitly selected timezone before normalization. `normalizeEventSchedule` itself remains a pure validator usable by migration and read paths. Existing timed writes dual-write the new schedule fields while reads retain the old indexes until the switch is enabled. This change does not run a deployed migration or enable publication automatically.
 
 `doorsOpenAt` is public and optional. When provided, it must be at or before `startAt`; it does not change the event start, slot offsets, participant associations, or event-world association timestamps.
 
@@ -37,7 +47,7 @@ The editor parses event date/time inputs in the named event timezone. A local ti
 
 Session rows remain canonical event-time schedule rows. The editor template uses relative minute offsets from `startAt`, not `doorsOpenAt`, so schedule storage and Discord timestamp generation remain tied to the canonical event/session timestamps.
 
-Private manager notes reuse the existing `notes` field. They are returned only by authorized event-management reads and accepted by authorized browser or API writes. They are excluded from public event pages, search documents, MCP documents, public API responses, calendar output, Discord export, link-preview metadata, and generated link-preview images. No migration or compatibility layer is needed because there is no existing deployed event data.
+Private manager notes reuse the existing `notes` field. They are returned only by authorized event-management reads and accepted by authorized browser or API writes. They are excluded from public event pages, search documents, MCP documents, public API responses, calendar output, Discord export, link-preview metadata, and generated link-preview images.
 
 ## Community Authority
 

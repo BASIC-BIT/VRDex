@@ -37,6 +37,8 @@ describe("public event share-card projection", () => {
       communityName: "Afterglow Social",
       title: "Afterglow Harbor Sessions",
       startAt: event.startAt,
+      scheduleKind: "timed",
+      eventDate: "2026-06-14",
       endAt: event.endAt,
       timezone: "America/New_York",
       status: "scheduled",

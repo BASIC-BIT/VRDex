@@ -106,3 +106,12 @@ export function parseZonedDateTimeInput(
 
   return Math.min(...matches);
 }
+// A calendar date is formatted in UTC solely to keep its authored day stable.
+// It must never be used as a playback, Discord, or event-start timestamp.
+export function formatCalendarDate(date: string): string {
+  const timestamp = Date.parse(`${date}T00:00:00.000Z`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(timestamp) || new Date(timestamp).toISOString().slice(0, 10) !== date) {
+    throw new Error("Event date must be a valid calendar date.");
+  }
+  return new Intl.DateTimeFormat("en", { timeZone: "UTC", month: "short", day: "numeric", year: "numeric" }).format(timestamp);
+}

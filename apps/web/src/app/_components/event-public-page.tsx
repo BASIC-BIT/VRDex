@@ -61,7 +61,9 @@ type DiscordTimestampSet = {
 export type PublicEventPreview = {
   slug?: string;
   title: string;
-  startAt: number;
+  startAt?: number;
+  scheduleKind?: "timed" | "date_only";
+  eventDate?: string;
   doorsOpenAt?: number;
   endAt?: number;
   timezone?: string;
@@ -243,8 +245,8 @@ export function EventPreviewCard({ event }: { event: PublicEventPreview }) {
         style={thumbnailStyle}
       >
         <div className="flex flex-wrap items-center gap-2 text-sm font-medium text-white/84">
-          <ViewerLocalEventDateTime timestamp={event.startAt} />
-          {event.doorsOpenAt !== undefined && event.doorsOpenAt < event.startAt ? <span>Doors <ViewerLocalEventTime timestamp={event.doorsOpenAt} /></span> : null}
+          <ViewerLocalEventDateTime timestamp={event.startAt} eventDate={event.eventDate} scheduleKind={event.scheduleKind} />
+          {event.startAt !== undefined && event.doorsOpenAt !== undefined && event.doorsOpenAt < event.startAt ? <span>Doors <ViewerLocalEventTime timestamp={event.doorsOpenAt} /></span> : null}
           {event.communityName ? <span>/ {event.communityName}</span> : null}
         </div>
         <h3 className="mt-4 text-2xl font-semibold tracking-[-0.04em]">
@@ -329,7 +331,7 @@ function EventPublicPageContent({ event }: { event: PublicEvent }) {
                 {event.status === "cancelled" ? (
                   <p className="mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-white">Cancelled</p>
                 ) : null}
-                <ViewerLocalEventDateTime className="text-sm uppercase tracking-[0.24em] text-white/70" timestamp={event.startAt} />
+                <ViewerLocalEventDateTime className="text-sm uppercase tracking-[0.24em] text-white/70" timestamp={event.startAt} eventDate={event.eventDate} scheduleKind={event.scheduleKind} />
                 <h1 className="mt-4 text-5xl leading-none font-semibold tracking-[-0.05em] sm:text-7xl">
                   {event.title}
                 </h1>
@@ -345,13 +347,13 @@ function EventPublicPageContent({ event }: { event: PublicEvent }) {
               <Eyebrow>When</Eyebrow>
               <dl className="mt-5 space-y-4 text-sm">
                 {event.doorsOpenAt === undefined ? null : <EventTimeDefinition label="Doors open" timestamp={event.doorsOpenAt} />}
-                <EventTimeDefinition label="Start" timestamp={event.startAt} />
-                <div className="grid gap-1 border-b border-border pb-4 sm:grid-cols-[7rem_1fr] sm:gap-4">
+                {event.startAt === undefined ? <div className="grid gap-1"><dt className="text-muted">Date</dt><dd><ViewerLocalEventDateTime eventDate={event.eventDate} scheduleKind={event.scheduleKind} /></dd></div> : <EventTimeDefinition label="Start" timestamp={event.startAt} />}
+                {event.scheduleKind === "date_only" ? null : <div className="grid gap-1 border-b border-border pb-4 sm:grid-cols-[7rem_1fr] sm:gap-4">
                   <dt className="text-muted">End</dt>
                   <dd className="font-medium">
                     {event.endAt ? <ViewerLocalEventDateTime timestamp={event.endAt} /> : "Not listed"}
                   </dd>
-                </div>
+                </div>}
               </dl>
             </Card>
           </div>

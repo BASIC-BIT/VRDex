@@ -115,7 +115,7 @@ type VrdexMcpServerOptions = {
 type PublicSearchResponse = z.infer<typeof PublicSearchResponseSchema>;
 type PublicSearchResult = PublicSearchResponse["results"][number];
 type PublicProfile = z.infer<typeof PublicProfileSchema>;
-type PublicEvent = z.infer<typeof PublicEventSchema>;
+type PublicEvent = z.infer<typeof PublicEventSchema> | import("../../../../../convex/_eventPublic").PublicEvent;
 type PublicWorld = z.infer<typeof PublicWorldSchema>;
 type McpDocumentFetchResponse = z.infer<typeof McpDocumentFetchResponseSchema>;
 type McpDocumentDescriptor =
@@ -777,7 +777,8 @@ function eventToMcpDocument(event: PublicEvent): McpDocumentFetchResponse | null
   addMcpDocumentLine(lines, "Slug", event.slug);
   addMcpDocumentLine(lines, "Community", event.communityName);
   addMcpDocumentLine(lines, "Community slug", event.communitySlug);
-  addMcpDocumentLine(lines, "Start", formatTimestampMs(event.startAt));
+  if (event.scheduleKind === "date_only") addMcpDocumentLine(lines, "Date", `${event.eventDate} (Time TBA)`);
+  else addMcpDocumentLine(lines, "Start", formatTimestampMs(event.startAt));
   addMcpDocumentLine(lines, "Doors open", formatTimestampMs(event.doorsOpenAt));
   addMcpDocumentLine(lines, "End", formatTimestampMs(event.endAt));
   addMcpDocumentLine(lines, "Timezone", event.timezone);
@@ -793,6 +794,8 @@ function eventToMcpDocument(event: PublicEvent): McpDocumentFetchResponse | null
       entityType: "event",
       slug: event.slug,
       startAt: event.startAt,
+      eventDate: event.eventDate,
+      scheduleKind: event.scheduleKind,
     },
     text: lines.join("\n"),
     title: event.title,

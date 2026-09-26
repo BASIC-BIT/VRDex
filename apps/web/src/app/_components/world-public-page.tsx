@@ -37,7 +37,9 @@ type PublicWorldEventPreview = {
   slug?: string;
   communitySlug?: string;
   title: string;
-  startAt: number;
+  startAt?: number;
+  eventDate?: string;
+  scheduleKind?: "timed" | "date_only";
   doorsOpenAt?: number;
   endAt?: number;
   timezone?: string;
@@ -228,7 +230,7 @@ function EventList({
               style={posterStyle}
             >
               <div className={`flex flex-wrap items-center gap-2 text-xs ${posterTextClass}`}>
-                <ViewerLocalEventDateTime timestamp={event.startAt} />
+                <ViewerLocalEventDateTime timestamp={event.startAt} eventDate={event.eventDate} scheduleKind={event.scheduleKind} />
                 <span aria-hidden="true">/</span>
                 <span>Confirmed venue</span>
               </div>

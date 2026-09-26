@@ -3,6 +3,7 @@
 import { useSyncExternalStore } from "react";
 
 import { cn } from "@/lib/cn";
+import { formatCalendarDate } from "@/lib/calendar/zoned-date-time";
 
 type ViewerLocalEventTimesProps = {
   timestamp: number;
@@ -59,8 +60,15 @@ function useViewerTimeZone(): string {
   return timeZone ?? "UTC";
 }
 
-export function ViewerLocalEventDateTime({ className, timestamp }: ViewerLocalEventTimesProps) {
+export function ViewerLocalEventDateTime({ className, timestamp, eventDate, scheduleKind }: {
+  className?: string; timestamp?: number; eventDate?: string; scheduleKind?: "timed" | "date_only";
+}) {
   const timeZone = useViewerTimeZone();
+
+  if (scheduleKind === "date_only" && eventDate !== undefined) {
+    return <time className={className} dateTime={eventDate}>{formatCalendarDate(eventDate)} · Time TBA</time>;
+  }
+  if (timestamp === undefined) return null;
 
   return (
     <time className={className} dateTime={new Date(timestamp).toISOString()}>

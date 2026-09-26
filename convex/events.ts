@@ -1,3 +1,4 @@
+import { dateOnlyEventsEnabled, eventDateForInstant, eventSortAt, eventSortEndAt, normalizeEventSchedule, publicEventSchedule } from "./_eventSchedule";
 import { eventProfileStreamChoices } from "./_eventPlayback";
 import { ConvexError, v } from "convex/values";
 
@@ -550,7 +551,9 @@ async function replaceEventWorldLink(
       .map((association) => db.delete(association._id)),
     ...preserved.map(({ association }) => db.patch(association._id, {
       eventStartAt: event.startAt,
+      eventSortAt: eventSortAt(event),
       eventEndAt: event.endAt ?? event.startAt,
+      eventSortEndAt: eventSortEndAt(event),
       eventPublicationState: event.publicationState,
       eventStatus: event.eventStatus,
       updatedAt: now,
@@ -565,7 +568,9 @@ async function replaceEventWorldLink(
     eventId: event._id,
     worldId: world._id,
     eventStartAt: event.startAt,
+    eventSortAt: eventSortAt(event),
     eventEndAt: event.endAt ?? event.startAt,
+    eventSortEndAt: eventSortEndAt(event),
     eventPublicationState: event.publicationState,
     eventStatus: event.eventStatus,
     sourceType: "community",
@@ -643,7 +648,9 @@ async function replaceEventParticipants(
       .map((participant) => db.delete(participant._id)),
     ...preserved.map(({ association }) => db.patch(association._id, {
       eventStartAt: event.startAt,
+      eventSortAt: eventSortAt(event),
       eventEndAt: event.endAt ?? event.startAt,
+      eventSortEndAt: eventSortEndAt(event),
       eventPublicationState: event.publicationState,
       eventStatus: event.eventStatus,
       updatedAt: now,
@@ -655,7 +662,9 @@ async function replaceEventParticipants(
       eventId: event._id,
       personProfileId: profile._id,
       eventStartAt: event.startAt,
+      eventSortAt: eventSortAt(event),
       eventEndAt: event.endAt ?? event.startAt,
+      eventSortEndAt: eventSortEndAt(event),
       eventPublicationState: event.publicationState,
       eventStatus: event.eventStatus,
       roleLabel: participant.roleLabel,
@@ -756,6 +765,7 @@ async function replaceEventSlots(
       await db.patch(preservedSlot._id, {
         selectedStreamId: slot.selectedStreamId,
         eventStartAt,
+        eventSortAt: eventStartAt,
         position: slot.position,
         startAt: slot.startAt,
         endAt: slot.endAt,
@@ -777,6 +787,7 @@ async function replaceEventSlots(
       ...optionalValue("selectedStreamId", slot.selectedStreamId),
       eventId,
       eventStartAt,
+      eventSortAt: eventStartAt,
       position: slot.position,
       startAt: slot.startAt,
       ...optionalValue("endAt", slot.endAt),
@@ -846,7 +857,9 @@ async function syncPreservedEventAssociations(
 
   const eventAssociationPatch = {
     eventStartAt: event.startAt,
+    eventSortAt: eventSortAt(event),
     eventEndAt: event.endAt ?? event.startAt,
+    eventSortEndAt: eventSortEndAt(event),
     eventPublicationState: event.publicationState,
     eventStatus: event.eventStatus,
     updatedAt: now,
@@ -854,7 +867,9 @@ async function syncPreservedEventAssociations(
   await Promise.all([
     ...worlds.map((association) => db.patch(association._id, eventAssociationPatch)),
     ...participants.map((participant) => db.patch(participant._id, eventAssociationPatch)),
-    ...slots.map((slot) => db.patch(slot._id, { eventStartAt: event.startAt, updatedAt: now })),
+    ...slots.map((slot) => db.patch(slot._id, {
+      eventStartAt: event.startAt, eventSortAt: eventSortAt(event), updatedAt: now,
+    })),
   ]);
 }
 
@@ -900,7 +915,7 @@ function toApiManagedEventSummary(event: Doc<"events">, community: Doc<"profiles
     id: event._id,
     slug: event.slug,
     title: event.title,
-    startAt: event.startAt,
+    ...publicEventSchedule(event),
     doorsOpenAt: event.doorsOpenAt,
     endAt: event.endAt,
     timezone: event.timezone,
@@ -1018,6 +1033,7 @@ async function updateCommunityEventForApiOwnerRecord(
     }
   }
 
+  if (event.startAt === undefined) throw new Error("Set an event time before using the timed event editor.");
   const normalizedUpdate = normalizeEventDraftUpdateInput(args);
   const input = sanitizeEventDraftInput(
     preserveOmittedEventDraftFields(normalizedUpdate, {
@@ -1077,7 +1093,7 @@ export const listCommunityManagedEventsForApiOwner = internalQuery({
     for (const community of communities) {
       const events = await ctx.db
         .query("events")
-        .withIndex("by_communityProfileId_startAt", (index) => index.eq("communityProfileId", community._id))
+        .withIndex(dateOnlyEventsEnabled() ? "by_communityProfileId_sortAt" : "by_communityProfileId_startAt", (index) => index.eq("communityProfileId", community._id))
         .order("desc")
         .take(limit);
 
@@ -1092,7 +1108,7 @@ export const listCommunityManagedEventsForApiOwner = internalQuery({
     }
 
     return records
-      .sort((first, second) => second.event.startAt - first.event.startAt || second.event.updatedAt - first.event.updatedAt)
+      .sort((first, second) => eventSortAt(second.event) - eventSortAt(first.event) || second.event.updatedAt - first.event.updatedAt)
       .slice(0, limit)
       .map(({ community, event }) => toApiManagedEventSummary(event, community));
   },
@@ -1115,7 +1131,7 @@ async function insertCommunityEventRecord(
   const eventId = await db.insert("events", {
     title: input.title,
     sortTitle: input.sortTitle,
-    startAt: input.startAt,
+    ...normalizeEventSchedule({ kind: "timed", startAt: input.startAt, date: eventDateForInstant(input.startAt, input.timezone), timeZone: input.timezone }),
     ...optionalValue("doorsOpenAt", input.doorsOpenAt),
     ...optionalValue("endAt", input.endAt),
     ...optionalValue("timezone", input.timezone),
@@ -1219,7 +1235,7 @@ async function updateCommunityEventRecord(
   await db.patch(event._id, {
     title: input.title,
     sortTitle: input.sortTitle,
-    startAt: input.startAt,
+    ...normalizeEventSchedule({ kind: "timed", startAt: input.startAt, date: eventDateForInstant(input.startAt, input.timezone), timeZone: input.timezone }),
     ...(shouldUpdate("doorsOpenAt") ? { doorsOpenAt: input.doorsOpenAt } : {}),
     ...(shouldUpdate("endAt") ? { endAt: input.endAt } : {}),
     ...(shouldUpdate("timezone") ? { timezone: input.timezone } : {}),
@@ -2079,30 +2095,30 @@ export const listPublicUpcoming = query({
     const [started, upcoming] = await Promise.all([
       ctx.db
         .query("events")
-        .withIndex("by_publicationState_eventStatus_startAt", (index) =>
+        .withIndex(dateOnlyEventsEnabled() ? "by_publicationState_eventStatus_sortAt" : "by_publicationState_eventStatus_startAt", (index) =>
           index
             .eq("publicationState", "published")
             .eq("eventStatus", "scheduled")
-            .lt("startAt", args.now),
+            .lt(dateOnlyEventsEnabled() ? "sortAt" : "startAt", args.now),
         )
         .order("desc")
         .take(candidateScanLimit),
       ctx.db
         .query("events")
-        .withIndex("by_publicationState_eventStatus_startAt", (index) =>
+        .withIndex(dateOnlyEventsEnabled() ? "by_publicationState_eventStatus_sortAt" : "by_publicationState_eventStatus_startAt", (index) =>
           index
             .eq("publicationState", "published")
             .eq("eventStatus", "scheduled")
-            .gte("startAt", args.now),
+            .gte(dateOnlyEventsEnabled() ? "sortAt" : "startAt", args.now),
         )
         .take(candidateScanLimit),
     ]);
     const ongoing = started
-      .filter((event) => (event.endAt ?? event.startAt) >= args.now)
+      .filter((event) => eventSortEndAt(event) >= args.now)
       .sort(
         (first, second) =>
-          (first.endAt ?? first.startAt) - (second.endAt ?? second.startAt) ||
-          first.startAt - second.startAt,
+          eventSortEndAt(first) - eventSortEndAt(second) ||
+          eventSortAt(first) - eventSortAt(second),
       );
     const events = [...ongoing, ...upcoming];
 
@@ -2615,7 +2631,7 @@ export const listManagedEvents = query({
         communities.map(async ({ profile }) => {
           const events = await ctx.db
             .query("events")
-            .withIndex("by_communityProfileId_startAt", (query) =>
+            .withIndex(dateOnlyEventsEnabled() ? "by_communityProfileId_sortAt" : "by_communityProfileId_startAt", (query) =>
               query.eq("communityProfileId", profile._id),
             )
             .order("desc")
@@ -2628,7 +2644,7 @@ export const listManagedEvents = query({
     return records
       .sort(
         (first, second) =>
-          second.event.startAt - first.event.startAt ||
+          eventSortAt(second.event) - eventSortAt(first.event) ||
           second.event.updatedAt - first.event.updatedAt,
       )
       .filter(({ event }) => event.slug !== undefined)
@@ -2637,7 +2653,7 @@ export const listManagedEvents = query({
         eventId: event._id,
         slug: event.slug,
         title: event.title,
-        startAt: event.startAt,
+        ...publicEventSchedule(event),
         endAt: event.endAt,
         publicationState: event.publicationState,
         status: event.eventStatus,
@@ -3285,6 +3301,7 @@ export const scheduleEventMediaWorker = mutation({
 
     const outputKey = optionalTrimmedText(args.outputKey, "Output key", 64)?.toLowerCase();
     const output = await getReadyEventMediaOutput(ctx.db, program, outputKey);
+    if (event.startAt === undefined || event.scheduleKind === "date_only") throw new Error("Set an event time before scheduling a media worker.");
     const schedule = sanitizeEventMediaWorkerSchedule({
       eventStartAt: event.startAt,
       scheduledStartAt: args.scheduledStartAt,

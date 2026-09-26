@@ -19,7 +19,9 @@ export type PublicActiveWorld = {
     title: string;
     slug?: string;
     communitySlug?: string;
-    startAt: number;
+    startAt?: number;
+  eventDate?: string;
+  scheduleKind?: "timed" | "date_only";
     doorsOpenAt?: number;
     endAt?: number;
     timezone?: string;
@@ -50,7 +52,7 @@ function ActiveWorldCard({ world }: { world: PublicActiveWorld }) {
           <Eyebrow className="text-white/62" tone="inverse">Next event</Eyebrow>
           <p className="mt-2 font-medium text-white">{world.nextEvent.title}</p>
           <p className="mt-1 text-sm text-white/72">
-            <ViewerLocalEventDateTime timestamp={world.nextEvent.startAt} />
+            <ViewerLocalEventDateTime timestamp={world.nextEvent.startAt} eventDate={world.nextEvent.eventDate} scheduleKind={world.nextEvent.scheduleKind} />
             {world.nextEvent.communityName ? ` by ${world.nextEvent.communityName}` : ""}
           </p>
         </div>

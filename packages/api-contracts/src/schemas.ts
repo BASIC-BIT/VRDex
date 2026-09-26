@@ -376,7 +376,20 @@ export const PublicEventWorldSummarySchema = z
   .passthrough()
   .meta({ description: "Public event world summary." });
 
-export const PublicEventPreviewSchema = z
+const EventDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => {
+  const timestamp = Date.parse(`${value}T00:00:00Z`);
+  return Number.isFinite(timestamp) && new Date(timestamp).toISOString().slice(0, 10) === value;
+}, "Expected a valid calendar date");
+
+function publicScheduleSchema<T extends z.ZodRawShape>(object: z.ZodObject<T>) {
+  return z.union([
+    object.extend({ scheduleKind: z.literal("timed").optional(), startAt: timestampMs, eventDate: EventDateSchema.optional() }),
+    object.extend({ scheduleKind: z.literal("date_only"), eventDate: EventDateSchema,
+      startAt: z.never().optional(), doorsOpenAt: z.never().optional(), endAt: z.never().optional() }),
+  ]);
+}
+
+const PublicEventPreviewObject = z
   .object({
     bannerImageUrl: absoluteOrRootRelativeUrl.optional(),
     communityAvatarAppearance: PublicProfileAvatarAppearanceSchema.optional(),
@@ -406,7 +419,9 @@ export const PublicEventPreviewSchema = z
     slug: slug.optional(),
     slotCount: z.number().int().nonnegative().optional(),
     source: PublicEventSourceSchema,
-    startAt: timestampMs,
+    startAt: timestampMs.optional(),
+    scheduleKind: z.enum(["timed", "date_only"]).optional(),
+    eventDate: EventDateSchema.optional(),
     status: z.enum(["scheduled", "cancelled"]).optional(),
     summary: z.string().optional(),
     thumbnailImageUrl: absoluteOrRootRelativeUrl.optional(),
@@ -417,8 +432,9 @@ export const PublicEventPreviewSchema = z
   .passthrough()
   .meta({
     description: "Compact public event card.",
-    id: "PublicEventPreview",
   });
+
+export const PublicEventPreviewSchema = publicScheduleSchema(PublicEventPreviewObject).meta({ id: "PublicEventPreview", description: "Compact public event card with a timed or date-only schedule." });
 
 export const EventWatchModeSchema = z.enum(["event_stream", "performer_sequence"]);
 export const EventPlaybackStreamSchema = z.object({
@@ -450,7 +466,7 @@ export const PublicEventWorldSchema = PublicEventWorldSummarySchema.extend({
     confirmationState: z.literal("confirmed"), confirmedAt: timestampMs.optional() }),
 });
 
-export const PublicEventSchema = PublicEventPreviewSchema.extend({
+const PublicEventObject = PublicEventPreviewObject.extend({
   authoredMediaLinks: z.array(PublicEventMediaLinkSchema).optional(),
   id: z.string(),
   mediaLinks: z.array(PublicEventMediaLinkSchema).optional(),
@@ -464,8 +480,9 @@ export const PublicEventSchema = PublicEventPreviewSchema.extend({
   .passthrough()
   .meta({
     description: "Public event detail response.",
-    id: "PublicEvent",
   });
+
+export const PublicEventSchema = publicScheduleSchema(PublicEventObject).meta({ id: "PublicEvent", description: "Public event detail response with a timed or date-only schedule." });
 
 export const PublicEventsResponseSchema = z
   .object({
@@ -885,7 +902,9 @@ export const PublicWorldEventPreviewSchema = z
     posterImageUrl: absoluteUrl.optional(),
     slug: slug.optional(),
     source: PublicEventSourceSchema,
-    startAt: timestampMs,
+    startAt: timestampMs.optional(),
+    scheduleKind: z.enum(["timed", "date_only"]).optional(),
+    eventDate: EventDateSchema.optional(),
     summary: z.string().optional(),
     thumbnailImageUrl: absoluteUrl.optional(),
     timezone: z.string().optional(),
@@ -935,7 +954,7 @@ export const PublicActiveWorldSchema = z
     activityLabel: z.literal("Hosting upcoming events"),
     displayName: z.string().min(1),
     heroImageUrl: absoluteUrl.optional(),
-    nextEvent: PublicEventPreviewSchema.omit({
+    nextEvent: publicScheduleSchema(PublicEventPreviewObject.omit({
       bannerImageUrl: true,
       communityImageUrl: true,
       participantCount: true,
@@ -944,7 +963,7 @@ export const PublicActiveWorldSchema = z
       summary: true,
       thumbnailImageUrl: true,
       worlds: true,
-    }).passthrough(),
+    }).passthrough()),
     slug,
     summary: z.string().optional(),
     tags: z.array(z.string()),
@@ -1117,7 +1136,9 @@ export const ApiMeEventSummarySchema = z
     id: z.string().min(1),
     slug: slug.optional(),
     title: z.string().min(1),
-    startAt: timestampMs,
+    startAt: timestampMs.optional(),
+    scheduleKind: z.enum(["timed", "date_only"]).optional(),
+    eventDate: EventDateSchema.optional(),
     doorsOpenAt: timestampMs.optional(),
     endAt: timestampMs.optional(),
     timezone: z.string().optional(),

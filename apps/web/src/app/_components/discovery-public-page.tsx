@@ -52,6 +52,8 @@ export type PublicSearchResult = {
   avatarAppearance?: AvatarAppearance;
   trustLabel?: "community_submitted" | "unclaimed" | "claimed_unverified" | "claimed_verified";
   startsAt?: number;
+  eventDate?: string;
+  scheduleKind?: "timed" | "date_only";
   source?: {
     sourceType?: string;
     label: string;
@@ -224,6 +226,7 @@ function TopNav() {
 }
 
 function publicScheduleStatus(event: PublicEventPreview, now: number): EventScheduleStatus {
+  if (event.scheduleKind === "date_only" || event.startAt === undefined) return "later";
   if (event.startAt <= now && (event.endAt ?? event.startAt) >= now) {
     return "now";
   }
@@ -262,7 +265,7 @@ function DiscoveryEventSchedule({ events, now }: { events: PublicEventPreview[];
             ) : undefined}
             status={publicScheduleStatus(event, now)}
             summary={event.summary}
-            time={<ViewerLocalEventDateTime timestamp={event.startAt} />}
+            time={<ViewerLocalEventDateTime timestamp={event.startAt} eventDate={event.eventDate} scheduleKind={event.scheduleKind} />}
             title={publicEventPath(event) ? (
               <TrackedDiscoveryLink
                 className="rounded-control text-section text-foreground underline decoration-transparent underline-offset-4 transition hover:text-accent-strong hover:decoration-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
@@ -302,7 +305,7 @@ function DiscoveryCard({
     >
       <ResultImage result={result} />
       <span className="flex min-w-0 flex-col gap-2">
-        {result.startsAt === undefined ? null : <ViewerLocalEventDateTime className="text-sm font-medium text-accent-strong" timestamp={result.startsAt} />}
+        {result.startsAt === undefined && result.eventDate === undefined ? null : <ViewerLocalEventDateTime className="text-sm font-medium text-accent-strong" timestamp={result.startsAt} eventDate={result.eventDate} scheduleKind={result.scheduleKind} />}
         <span className="text-xl font-semibold group-hover:text-accent-strong">
           {result.title}
         </span>
@@ -340,7 +343,7 @@ function SearchResultCard({ result }: { result: PublicSearchResult }) {
             <EntityTypeIcon result={result} />
           </span>
           {subtitle ? <span className="text-sm text-muted">{subtitle}</span> : null}
-          {result.startsAt === undefined ? null : <ViewerLocalEventDateTime className="text-sm text-accent-strong" timestamp={result.startsAt} />}
+          {result.startsAt === undefined && result.eventDate === undefined ? null : <ViewerLocalEventDateTime className="text-sm text-accent-strong" timestamp={result.startsAt} eventDate={result.eventDate} scheduleKind={result.scheduleKind} />}
           {result.summary ? <span className="line-clamp-2 text-sm leading-6 text-muted">{result.summary}</span> : null}
           {roleLabels.length > 0 ? <span className="text-xs text-muted">{roleLabels.join(" · ")}</span> : null}
         </span>

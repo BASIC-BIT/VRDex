@@ -1551,6 +1551,11 @@ export function getPlaywrightPublicEventFixture(slug: string): PublicEvent | nul
     return null;
   }
 
+  if (slug === "playwright-date-only-event") {
+    return { ...publicEvent, slug, title: "July Fourth Sessions", scheduleKind: "date_only", eventDate: "2026-07-04",
+      startAt: undefined, doorsOpenAt: undefined, endAt: undefined, slots: [], nextSlots: [], watchSurfaceEnabled: false };
+  }
+
   if (slug === eventSlug) {
     return publicEvent;
   }

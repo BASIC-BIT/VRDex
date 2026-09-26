@@ -1639,6 +1639,7 @@ export const associateEventInstance = mutation({
     if (!profile || profile.profileType !== "community" || !event || !session) throw new Error("Event or instance was not found.");
     if (event.communityProfileId !== profile._id || session.communityProfileId !== profile._id) throw new Error("Event and instance must belong to this community.");
     const actor = await requireCommunityCapability(ctx, profile._id);
+    if (event.startAt === undefined || event.scheduleKind === "date_only") throw new Error("Set an event time before associating instances.");
     const now = Date.now();
     const existing = await ctx.db.query("eventInstanceAssociations").withIndex("by_sessionId_state", (q) => q.eq("sessionId", session._id).eq("state", "confirmed")).first();
     if (existing && existing.eventId !== event._id) throw new Error("Instance is already confirmed for another event.");
@@ -1690,7 +1691,7 @@ export const reviewAssociationSuggestion = mutation({
     await ctx.db.patch(association._id, { state: args.state, actor, reviewedAt: now, updatedAt: now });
     if (requiresRollupRecompute) {
       const event = await ctx.db.get(association.eventId);
-      if (event) await ctx.scheduler.runAfter(0, internal.communityTelemetry.recomputeRollup, {
+      if (event && event.startAt !== undefined && event.scheduleKind !== "date_only") await ctx.scheduler.runAfter(0, internal.communityTelemetry.recomputeRollup, {
         communityProfileId: profile._id,
         eventId: event._id,
         grain: "event",
@@ -1765,6 +1766,7 @@ export const scheduleTelemetryEventWorkForCommunity = internalMutation({
       });
     let rollupsScheduled = 0;
     for (const event of page.page) {
+      if (event.startAt === undefined || event.scheduleKind === "date_only") continue;
       await ctx.scheduler.runAfter(0, internal.communityTelemetry.suggestEventAssociations, {
         eventId: event._id,
         now: args.now,
@@ -1945,7 +1947,7 @@ export const suggestEventAssociations = internalMutation({
   },
   handler: async (ctx, args) => {
     const event = await ctx.db.get(args.eventId);
-    if (!event?.communityProfileId) return [];
+    if (!event?.communityProfileId || event.startAt === undefined || event.scheduleKind === "date_only") return [];
     const eventWorlds = await ctx.db.query("eventWorlds").withIndex("by_eventId", (q) => q.eq("eventId", event._id)).collect();
     const worldIds = new Set(eventWorlds.filter((link) => link.confirmationState === "confirmed").map((link) => link.worldId as string));
     const now = args.now ?? Date.now();
@@ -1953,7 +1955,7 @@ export const suggestEventAssociations = internalMutation({
     const sessionsPage = await ctx.db.query("instanceSessions")
       .withIndex("by_communityProfileId_openedAt", (q) =>
         q.eq("communityProfileId", event.communityProfileId!)
-          .gte("openedAt", event.startAt - 6 * 60 * 60_000)
+          .gte("openedAt", event.startAt! - 6 * 60 * 60_000)
           .lte("openedAt", eventEndAt),
       )
       .paginate({

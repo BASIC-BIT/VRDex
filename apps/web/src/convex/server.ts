@@ -322,6 +322,8 @@ function fixtureEventShareCard(
     communityName: event.communityName ?? communitySlug,
     title: event.title,
     startAt: event.startAt,
+    eventDate: event.eventDate,
+    scheduleKind: event.scheduleKind,
     status: event.status ?? "scheduled",
     ...(event.endAt === undefined ? {} : { endAt: event.endAt }),
     ...(event.timezone === undefined ? {} : { timezone: event.timezone }),

@@ -1,3 +1,4 @@
+import { dateOnlyEventsEnabled, eventSortAt, eventSortEndAt } from "./_eventSchedule";
 import { v } from "convex/values";
 
 import { internalMutation, query, type QueryCtx } from "./_generated/server";
@@ -62,6 +63,14 @@ async function listDocumentsByType(
 }
 
 async function listUpcomingEventDocuments(ctx: QueryCtx, now: number) {
+  if (dateOnlyEventsEnabled()) {
+    const candidates = await ctx.db.query("searchDocuments")
+      .withIndex("by_publicState_entityType_sortAt", index => index.eq("publicState", "public").eq("entityType", "event").gte("sortAt", now - 36 * 60 * 60 * 1000))
+      .take(DISCOVERY_EVENT_SCAN_LIMIT);
+    return candidates.filter(document => document.scheduleKind === "date_only"
+      ? (document.sortAt ?? 0) + 36 * 60 * 60 * 1000 > now
+      : (document.startsAt ?? 0) >= now);
+  }
   return await ctx.db
     .query("searchDocuments")
     .withIndex("by_publicState_startsAt", (index) => index.eq("publicState", "public").gte("startsAt", now))
@@ -120,7 +129,10 @@ export const listDiscovery = query({
       projectedEvents.filter((result): result is NonNullable<typeof result> => result !== null),
     );
     const upcomingEvents = eventResults
-      .filter((event) => event.startsAt !== undefined && event.startsAt >= now)
+      .filter((event) => event.scheduleKind === "date_only"
+        ? eventSortEndAt(event) >= now
+        : event.startsAt !== undefined && event.startsAt >= now)
+      .sort((first, second) => eventSortAt({ ...first, startAt: first.startsAt }) - eventSortAt({ ...second, startAt: second.startsAt }))
       .slice(0, DISCOVERY_SECTION_LIMIT);
     const publicEventVocabularyKeys = new Set<string>();
     await Promise.all(

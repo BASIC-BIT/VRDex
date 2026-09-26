@@ -1,3 +1,4 @@
+import { eventSortAt, eventSortEndAt } from "./_eventSchedule";
 import type { Doc } from "./_generated/dataModel";
 import type { DatabaseReader, DatabaseWriter } from "./_generated/server";
 import type { PublicProfileMediaKit } from "./_profileAssets";
@@ -39,6 +40,8 @@ export type PublicSearchResult = {
   person?: NonNullable<ReturnType<typeof toProfileLookupResult>>;
   claimEligible?: boolean;
   startsAt?: number;
+  eventDate?: string;
+  scheduleKind?: "timed" | "date_only";
   score: number;
 };
 
@@ -372,7 +375,7 @@ export function createWorldSearchDocument(
 }
 
 export function vocabularyForEvent(event: Doc<"events">, roleLabels: string[] = []): VocabularyCandidate[] {
-  const inferredTags = [event.communityName, event.timezone, event.startAt >= Date.now() ? "Upcoming" : undefined];
+  const inferredTags = [event.communityName, event.timezone, eventSortEndAt(event) >= Date.now() ? "Upcoming" : undefined];
 
   return [
     ...createVocabularyCandidates("event_tag", inferredTags),
@@ -396,7 +399,7 @@ export function createEventSearchDocument(
   const routePath = event.slug === undefined || indexedCommunity === undefined
     ? "/"
     : eventPathForSlugs(indexedCommunity.slug, event.slug);
-  const isUpcoming = event.startAt >= Date.now();
+  const isUpcoming = eventSortEndAt(event) >= Date.now();
 
   return {
     entityType: "event",
@@ -431,11 +434,14 @@ export function createEventSearchDocument(
     ]),
     vocabularyKeys: collectVocabularyKeys(vocabulary),
     trustRank: event.sourceType === "manual" ? 30 : event.sourceType === "community" ? 20 : 16,
-    freshnessAt: event.startAt,
+    freshnessAt: eventSortAt(event),
     featuredRank: isUpcoming ? 42 : 8,
     sourceType: event.sourceType,
     sourceLabel: event.sourceLabel,
-    startsAt: event.startAt,
+    sortAt: eventSortAt(event),
+    ...optionalField("startsAt", event.scheduleKind === "date_only" ? undefined : event.startAt),
+    ...optionalField("eventDate", event.eventDate),
+    ...optionalField("scheduleKind", event.scheduleKind),
     updatedAt: event.updatedAt,
   };
 }
@@ -538,7 +544,9 @@ export function toPublicSearchResult(
     ...(document.entityType === "profile" && mediaKit
       ? { avatarAppearance: mediaKit.avatarAppearance }
       : {}),
-    ...optionalField("startsAt", document.startsAt),
+    ...optionalField("startsAt", document.scheduleKind === "date_only" ? undefined : document.startsAt),
+    ...optionalField("eventDate", document.eventDate),
+    ...optionalField("scheduleKind", document.scheduleKind),
     source:
       document.sourceType && document.sourceLabel
         ? { sourceType: document.sourceType, label: document.sourceLabel }
@@ -558,6 +566,9 @@ export function sortSearchResults(results: PublicSearchResult[]): PublicSearchRe
 }
 
 export async function upsertSearchDocument(db: DatabaseWriter, input: SearchDocumentInput) {
+  const patch = input.entityType === "event"
+    ? { ...input, startsAt: input.startsAt, eventDate: input.eventDate, scheduleKind: input.scheduleKind, sortAt: input.sortAt }
+    : input;
   const existingById = input.profileId
     ? await db
         .query("searchDocuments")
@@ -576,7 +587,7 @@ export async function upsertSearchDocument(db: DatabaseWriter, input: SearchDocu
         : null;
 
   if (existingById) {
-    await db.patch(existingById._id, input);
+    await db.patch(existingById._id, patch);
     return existingById._id;
   }
 
@@ -588,7 +599,7 @@ export async function upsertSearchDocument(db: DatabaseWriter, input: SearchDocu
     .unique();
 
   if (existing) {
-    await db.patch(existing._id, input);
+    await db.patch(existing._id, patch);
     return existing._id;
   }
 

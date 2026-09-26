@@ -58,7 +58,7 @@ export function formatDiscordEventPost({ canonicalUrl, event }: DiscordEventPost
     return null;
   }
 
-  const eventTime = createDiscordTimestampSet(event.startAt);
+  const eventTime = event.scheduleKind === "date_only" || event.startAt === undefined ? undefined : createDiscordTimestampSet(event.startAt);
   const lines = [
     `**${cleanPublicText(event.title)}**`,
     cleanPublicText(canonicalUrl),
@@ -77,17 +77,17 @@ export function formatDiscordEventPost({ canonicalUrl, event }: DiscordEventPost
     lines.push(`${worlds.length === 1 ? "World" : "Worlds"}: ${worlds.join(", ")}`);
   }
 
-  lines.push(`Time: ${eventTime.longDateTime} (${eventTime.relative})`);
+  lines.push(eventTime === undefined ? `Date: ${event.eventDate} (Time TBA)` : `Time: ${eventTime.longDateTime} (${eventTime.relative})`);
 
-  if (event.doorsOpenAt !== undefined) {
+  if (eventTime !== undefined && event.doorsOpenAt !== undefined) {
     lines.push(`Doors: ${createDiscordTimestampSet(event.doorsOpenAt).shortDateTime}`);
   }
 
-  if (event.endAt !== undefined) {
+  if (eventTime !== undefined && event.endAt !== undefined) {
     lines.push(`End: ${createDiscordTimestampSet(event.endAt).shortDateTime}`);
   }
 
-  const lineupLines = event.slots.length > 0
+  const lineupLines = eventTime !== undefined && event.slots.length > 0
     ? event.slots.map(formatSlotLine)
     : event.participants.map(formatParticipantLine);
 

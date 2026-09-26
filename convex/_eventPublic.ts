@@ -1,4 +1,5 @@
 import { eventProfileStreamChoices, resolveEventStream, type PlaybackStream } from "./_eventPlayback";
+import { dateOnlyEventsEnabled, eventSortAt, eventSortEndAt, publicEventSchedule, type StoredEventSchedule } from "./_eventSchedule";
 import { publicProfileOutboundLinks } from "./_profilePublic";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
@@ -58,7 +59,9 @@ type PublicEventSlotRecord = {
 export type PublicEventPreview = {
   slug?: string;
   title: string;
-  startAt: number;
+  startAt?: number;
+  scheduleKind?: "timed" | "date_only";
+  eventDate?: string;
   doorsOpenAt?: number;
   endAt?: number;
   timezone?: string;
@@ -164,22 +167,20 @@ export type PublicEvent = PublicEventPreview & {
   }>;
 };
 
-function eventEndsAt(event: Pick<Doc<"events">, "startAt" | "endAt">): number {
-  return event.endAt ?? event.startAt;
-}
+const eventEndsAt = eventSortEndAt;
 
 function compareCurrentFirstEvents(
-  first: Pick<Doc<"events">, "startAt" | "endAt">,
-  second: Pick<Doc<"events">, "startAt" | "endAt">,
+  first: StoredEventSchedule,
+  second: StoredEventSchedule,
   now: number,
 ): number {
-  const firstIsCurrent = first.startAt <= now;
-  const secondIsCurrent = second.startAt <= now;
+  const firstIsCurrent = first.scheduleKind !== "date_only" && eventSortAt(first) <= now;
+  const secondIsCurrent = second.scheduleKind !== "date_only" && eventSortAt(second) <= now;
 
   if (firstIsCurrent !== secondIsCurrent) return firstIsCurrent ? -1 : 1;
   return firstIsCurrent
-    ? eventEndsAt(first) - eventEndsAt(second) || first.startAt - second.startAt
-    : first.startAt - second.startAt;
+    ? eventEndsAt(first) - eventEndsAt(second) || eventSortAt(first) - eventSortAt(second)
+    : eventSortAt(first) - eventSortAt(second);
 }
 
 function publicMediaLinkKey(link: PublicEvent["mediaLinks"][number]) {
@@ -276,7 +277,7 @@ export function toPublicEventPreviewFromRecord(
   return {
     ...optionalField("slug", event.slug),
     title: event.title,
-    startAt: event.startAt,
+    ...publicEventSchedule(event),
     status: event.eventStatus,
     source: {
       sourceType: event.sourceType,
@@ -289,7 +290,7 @@ export function toPublicEventPreviewFromRecord(
     })),
     participantCount: participants.length,
     slotCount: slots.length,
-    nextSlots: [...slots]
+    nextSlots: (event.scheduleKind === "date_only" ? [] : [...slots])
       .filter(
         ({ slot }) =>
           options.now === undefined || (slot.endAt ?? slot.startAt) >= options.now,
@@ -314,8 +315,8 @@ export function toPublicEventPreviewFromRecord(
               },
             }),
       })),
-    ...optionalField("doorsOpenAt", event.doorsOpenAt),
-    ...optionalField("endAt", event.endAt),
+    ...optionalField("doorsOpenAt", event.scheduleKind === "date_only" ? undefined : event.doorsOpenAt),
+    ...optionalField("endAt", event.scheduleKind === "date_only" ? undefined : event.endAt),
     ...optionalField("timezone", event.timezone),
     ...optionalField("communityName", community?.displayName),
     ...optionalField("communitySlug", community?.slug),
@@ -355,7 +356,7 @@ export function toPublicEvent(record: PublicEventRecord): PublicEvent | null {
     id: record.event._id,
     slug: record.event.slug,
     watchMode: record.event.watchMode ?? "event_stream",
-    watchSurfaceEnabled: record.event.watchSurfaceEnabled ?? false,
+    watchSurfaceEnabled: record.event.scheduleKind !== "date_only" && (record.event.watchSurfaceEnabled ?? false),
     ...optionalField("authoredBannerImageUrl", authoredBannerImageUrl),
     ...optionalField("authoredThumbnailImageUrl", authoredThumbnailImageUrl),
     authoredMediaLinks,
@@ -395,7 +396,7 @@ export function toPublicEvent(record: PublicEventRecord): PublicEvent | null {
         },
       };
     }),
-    slots: record.slots
+    slots: (record.event.scheduleKind === "date_only" ? [] : record.slots)
       .sort((first, second) => first.slot.startAt - second.slot.startAt || first.slot.position - second.slot.position)
       .map(({ avatarAppearance, imageUrl: projectedImageUrl, profile, slot }) => {
         const sourceUrl = safeHttpsUrl(slot.sourceUrl);
@@ -787,7 +788,7 @@ export async function getPublicEventPreviews(
   );
   const orderedEvents = options.order === "input"
     ? eligibleEvents
-    : eligibleEvents.sort((first, second) => first.startAt - second.startAt);
+    : eligibleEvents.sort((first, second) => eventSortAt(first) - eventSortAt(second));
   const readableEvents = (
     await Promise.all(
       orderedEvents.map(async (event) => ({
@@ -821,23 +822,23 @@ export async function getPublicCommunityHostedEvents(
   const [startedCandidates, upcoming] = await Promise.all([
     db
       .query("events")
-      .withIndex("by_communityProfileId_publicationState_eventStatus_startAt", (query) =>
+      .withIndex(dateOnlyEventsEnabled() ? "by_communityProfileId_publicationState_eventStatus_sortAt" : "by_communityProfileId_publicationState_eventStatus_startAt", (query) =>
         query
           .eq("communityProfileId", communityProfileId)
           .eq("publicationState", "published")
           .eq("eventStatus", "scheduled")
-          .lt("startAt", now),
+          .lt(dateOnlyEventsEnabled() ? "sortAt" : "startAt", now),
       )
       .order("desc")
       .take(EVENT_ASSOCIATION_SCAN_LIMIT),
     db
       .query("events")
-      .withIndex("by_communityProfileId_publicationState_eventStatus_startAt", (query) =>
+      .withIndex(dateOnlyEventsEnabled() ? "by_communityProfileId_publicationState_eventStatus_sortAt" : "by_communityProfileId_publicationState_eventStatus_startAt", (query) =>
         query
           .eq("communityProfileId", communityProfileId)
           .eq("publicationState", "published")
           .eq("eventStatus", "scheduled")
-          .gte("startAt", now),
+          .gte(dateOnlyEventsEnabled() ? "sortAt" : "startAt", now),
       )
       .take(EVENT_ASSOCIATION_SCAN_LIMIT),
   ]);
@@ -860,30 +861,30 @@ export async function getPublicPersonUpcomingEvents(
   const [startedCandidates, upcoming] = await Promise.all([
     db
       .query("eventParticipants")
-      .withIndex("by_person_confirmation_publication_status_start", (query) =>
+      .withIndex(dateOnlyEventsEnabled() ? "by_person_confirmation_publication_status_sort" : "by_person_confirmation_publication_status_start", (query) =>
         query
           .eq("personProfileId", personProfileId)
           .eq("confirmationState", "confirmed")
           .eq("eventPublicationState", "published")
           .eq("eventStatus", "scheduled")
-          .lt("eventStartAt", now),
+          .lt(dateOnlyEventsEnabled() ? "eventSortAt" : "eventStartAt", now),
       )
       .order("desc")
       .take(EVENT_ASSOCIATION_SCAN_LIMIT),
     db
       .query("eventParticipants")
-      .withIndex("by_person_confirmation_publication_status_start", (query) =>
+      .withIndex(dateOnlyEventsEnabled() ? "by_person_confirmation_publication_status_sort" : "by_person_confirmation_publication_status_start", (query) =>
         query
           .eq("personProfileId", personProfileId)
           .eq("confirmationState", "confirmed")
           .eq("eventPublicationState", "published")
           .eq("eventStatus", "scheduled")
-          .gte("eventStartAt", now),
+          .gte(dateOnlyEventsEnabled() ? "eventSortAt" : "eventStartAt", now),
       )
       .take(EVENT_ASSOCIATION_SCAN_LIMIT),
   ]);
   const participantLinks = [
-    ...startedCandidates.filter((link) => link.eventEndAt >= now),
+    ...startedCandidates.filter((link) => (link.eventSortEndAt ?? link.eventEndAt ?? 0) >= now),
     ...upcoming,
   ];
   const events = (

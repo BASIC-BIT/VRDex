@@ -360,7 +360,7 @@ function initialSlotRows(event: EditableEvent | undefined): SlotFormRow[] {
 
   return event.slots.map((slot, index) => ({
     id: `stored-${slot.position}-${slot.startAt}-${index}`,
-    offsetMinutes: String(Math.round((slot.startAt - event.startAt) / 60_000)),
+    offsetMinutes: String(Math.round((slot.startAt - (event.startAt ?? slot.startAt)) / 60_000)),
     durationMinutes:
       slot.endAt === undefined
         ? ""
@@ -528,7 +528,7 @@ function ConnectedEventEditorForm({
   const [vrcdnOutputStatus, setVrcdnOutputStatus] = useState<VrcdnOutputStatus>({ kind: "idle" });
   const [timezone, setTimezone] = useState(event?.timezone ?? "UTC");
   const [doorsOpenBefore, setDoorsOpenBefore] = useState(event?.doorsOpenAt !== undefined);
-  const [doorsOpenMinutes, setDoorsOpenMinutes] = useState(() => event?.doorsOpenAt === undefined
+  const [doorsOpenMinutes, setDoorsOpenMinutes] = useState(() => event?.doorsOpenAt === undefined || event.startAt === undefined
     ? "15"
     : String(Math.max(0, Math.round((event.startAt - event.doorsOpenAt) / 60_000))));
   const [watchSurfaceEnabled, setWatchSurfaceEnabled] = useState(event?.watchSurfaceEnabled ?? false);

@@ -1097,7 +1097,10 @@ export default defineSchema({
     slug: v.optional(v.string()),
     title: v.string(),
     sortTitle: v.string(),
-    startAt: v.number(),
+    startAt: v.optional(v.number()),
+    scheduleKind: v.optional(v.union(v.literal("timed"), v.literal("date_only"))),
+    eventDate: v.optional(v.string()),
+    sortAt: v.optional(v.number()),
     doorsOpenAt: v.optional(v.number()),
     endAt: v.optional(v.number()),
     timezone: v.optional(v.string()),
@@ -1132,6 +1135,10 @@ export default defineSchema({
   })
     .index("by_slug", ["slug"])
     .index("by_publicationState_startAt", ["publicationState", "startAt"])
+    .index("by_publicationState_sortAt", ["publicationState", "sortAt"])
+    .index("by_publicationState_eventStatus_sortAt", ["publicationState", "eventStatus", "sortAt"])
+    .index("by_communityProfileId_sortAt", ["communityProfileId", "sortAt"])
+    .index("by_communityProfileId_publicationState_eventStatus_sortAt", ["communityProfileId", "publicationState", "eventStatus", "sortAt"])
     .index("by_publicationState_eventStatus_startAt", [
       "publicationState",
       "eventStatus",
@@ -1152,8 +1159,10 @@ export default defineSchema({
   eventWorlds: defineTable({
     eventId: v.id("events"),
     worldId: v.id("worlds"),
-    eventStartAt: v.number(),
-    eventEndAt: v.number(),
+    eventStartAt: v.optional(v.number()),
+    eventEndAt: v.optional(v.number()),
+    eventSortAt: v.optional(v.number()),
+    eventSortEndAt: v.optional(v.number()),
     eventPublicationState: publicationState,
     eventStatus,
     sourceType: eventSourceType,
@@ -1164,6 +1173,8 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_worldId", ["worldId"])
+    .index("by_world_confirmation_publication_status_sort", ["worldId", "confirmationState", "eventPublicationState", "eventStatus", "eventSortAt"])
+    .index("by_world_confirmation_publication_status_sortEnd", ["worldId", "confirmationState", "eventPublicationState", "eventStatus", "eventSortEndAt"])
     .index("by_eventId", ["eventId"])
     .index("by_worldId_confirmationState", ["worldId", "confirmationState"])
     .index("by_world_confirmation_publication_status_start", [
@@ -1193,8 +1204,10 @@ export default defineSchema({
   eventParticipants: defineTable({
     eventId: v.id("events"),
     personProfileId: v.id("profiles"),
-    eventStartAt: v.number(),
-    eventEndAt: v.number(),
+    eventStartAt: v.optional(v.number()),
+    eventEndAt: v.optional(v.number()),
+    eventSortAt: v.optional(v.number()),
+    eventSortEndAt: v.optional(v.number()),
     eventPublicationState: publicationState,
     eventStatus,
     roleLabel: v.string(),
@@ -1214,6 +1227,7 @@ export default defineSchema({
       "eventStatus",
       "eventStartAt",
     ])
+    .index("by_person_confirmation_publication_status_sort", ["personProfileId", "confirmationState", "eventPublicationState", "eventStatus", "eventSortAt"])
     .index("by_person_confirmation_publication_status_end", [
       "personProfileId",
       "confirmationState",
@@ -1224,7 +1238,8 @@ export default defineSchema({
   eventSlots: defineTable({
     selectedStreamId: v.optional(v.string()),
     eventId: v.id("events"),
-    eventStartAt: v.number(),
+    eventStartAt: v.optional(v.number()),
+    eventSortAt: v.optional(v.number()),
     position: v.number(),
     startAt: v.number(),
     endAt: v.optional(v.number()),
@@ -2846,6 +2861,9 @@ export default defineSchema({
     sourceType: v.optional(discoverySourceType),
     sourceLabel: v.optional(v.string()),
     startsAt: v.optional(v.number()),
+    sortAt: v.optional(v.number()),
+    eventDate: v.optional(v.string()),
+    scheduleKind: v.optional(v.union(v.literal("timed"), v.literal("date_only"))),
     updatedAt: v.number(),
   })
     .index("by_entityType_slug", ["entityType", "slug"])
@@ -2858,6 +2876,7 @@ export default defineSchema({
       "featuredRank",
     ])
     .index("by_publicState_startsAt", ["publicState", "startsAt"])
+    .index("by_publicState_entityType_sortAt", ["publicState", "entityType", "sortAt"])
     .searchIndex("search_text", {
       searchField: "searchText",
       filterFields: ["publicState", "entityType", "profileType"],

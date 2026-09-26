@@ -48,7 +48,7 @@ export function ManagedEventsPanel() {
                 {event.title}
               </Link>
               <p className="mt-1 text-sm text-muted">
-                {event.communityDisplayName} · <ViewerLocalEventDateTime timestamp={event.startAt} />
+                {event.communityDisplayName} · <ViewerLocalEventDateTime timestamp={event.startAt} eventDate={event.eventDate} scheduleKind={event.scheduleKind} />
               </p>
             </div>
             <span className="text-sm font-medium">{eventState(event)}</span>

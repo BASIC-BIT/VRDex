@@ -31,6 +31,13 @@ function createPublicEvent(overrides: Partial<PublicEvent> = {}): PublicEvent {
 }
 
 describe("Discord event post export", () => {
+  it("exports a date-only event with time TBA and no Discord timestamp", () => {
+    const result = formatDiscordEventPost({ canonicalUrl: "https://vrdex.net/c/club/e/july",
+      event: createPublicEvent({ scheduleKind: "date_only", eventDate: "2026-07-04", startAt: undefined }) });
+    assert.match(result!, /2026-07-04/);
+    assert.match(result!, /Time TBA/i);
+    assert.doesNotMatch(result!, /<t:/);
+  });
   it("does not generate a promotional post for a cancelled event", () => {
     assert.equal(
       formatDiscordEventPost({

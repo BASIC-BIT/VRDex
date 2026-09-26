@@ -2,11 +2,21 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  formatCalendarDate,
   formatZonedDateTimeInput,
   parseZonedDateTimeInput,
 } from "../../apps/web/src/lib/calendar/zoned-date-time";
 
 describe("event authoring time zones", () => {
+  it("keeps a date-only July 4 on July 4 for UTC-12 and UTC+14 viewers", () => {
+    const previous = process.env.TZ;
+    try {
+      for (const zone of ["Etc/GMT+12", "Pacific/Kiritimati"]) {
+        process.env.TZ = zone;
+        assert.equal(formatCalendarDate("2026-07-04"), "Jul 4, 2026");
+      }
+    } finally { if (previous === undefined) delete process.env.TZ; else process.env.TZ = previous; }
+  });
   it("converts local event times with the offset active on that date", () => {
     assert.equal(
       parseZonedDateTimeInput("2026-07-15T21:30", "America/New_York", "Event start time"),

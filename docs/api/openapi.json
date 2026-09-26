@@ -6852,6 +6852,17 @@
             "minimum": 0,
             "maximum": 9007199254740991
           },
+          "scheduleKind": {
+            "type": "string",
+            "enum": [
+              "timed",
+              "date_only"
+            ]
+          },
+          "eventDate": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
           "doorsOpenAt": {
             "type": "integer",
             "minimum": 0,
@@ -6940,7 +6951,6 @@
         "required": [
           "id",
           "title",
-          "startAt",
           "sourceType",
           "sourceLabel",
           "publicationState",
@@ -9631,719 +9641,736 @@
         "description": "List of public event cards."
       },
       "PublicEventPreview": {
-        "type": "object",
-        "properties": {
-          "bannerImageUrl": {
-            "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
-          },
-          "communityAvatarAppearance": {
+        "anyOf": [
+          {
             "type": "object",
             "properties": {
-              "borderColor": {
-                "type": "string"
+              "bannerImageUrl": {
+                "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
               },
-              "borderEnabled": {
-                "type": "boolean"
-              },
-              "borderSoftnessPx": {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 9007199254740991
-              },
-              "borderWidthPx": {
-                "type": "integer",
-                "exclusiveMinimum": 0,
-                "maximum": 9007199254740991
-              },
-              "radiusPercent": {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 50
-              }
-            },
-            "required": [
-              "borderColor",
-              "borderEnabled",
-              "borderSoftnessPx",
-              "borderWidthPx",
-              "radiusPercent"
-            ],
-            "additionalProperties": {},
-            "description": "Bounded public avatar presentation hints."
-          },
-          "communityImageUrl": {
-            "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
-          },
-          "communityName": {
-            "type": "string"
-          },
-          "communitySlug": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 160
-          },
-          "doorsOpenAt": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 9007199254740991
-          },
-          "endAt": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 9007199254740991
-          },
-          "participantCount": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 9007199254740991
-          },
-          "nextSlots": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "displayLabel": {
-                  "type": "string"
-                },
-                "endAt": {
-                  "type": "integer",
-                  "minimum": 0,
-                  "maximum": 9007199254740991
-                },
-                "performer": {
-                  "type": "object",
-                  "properties": {
-                    "displayName": {
-                      "type": "string"
-                    },
-                    "slug": {
-                      "type": "string",
-                      "minLength": 1,
-                      "maxLength": 160
-                    }
-                  },
-                  "required": [
-                    "displayName",
-                    "slug"
-                  ],
-                  "additionalProperties": false
-                },
-                "roleLabel": {
-                  "type": "string"
-                },
-                "startAt": {
-                  "type": "integer",
-                  "minimum": 0,
-                  "maximum": 9007199254740991
-                }
-              },
-              "required": [
-                "displayLabel",
-                "roleLabel",
-                "startAt"
-              ],
-              "additionalProperties": false
-            }
-          },
-          "posterImageUrl": {
-            "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
-          },
-          "slug": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 160
-          },
-          "slotCount": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 9007199254740991
-          },
-          "source": {
-            "type": "object",
-            "properties": {
-              "label": {
-                "type": "string",
-                "minLength": 1
-              },
-              "sourceType": {
-                "type": "string",
-                "enum": [
-                  "manual",
-                  "community",
-                  "partner",
-                  "import",
-                  "ai_suggested"
-                ],
-                "description": "Public event source class."
-              },
-              "url": {
-                "type": "string",
-                "format": "uri"
-              }
-            },
-            "required": [
-              "label",
-              "sourceType"
-            ],
-            "additionalProperties": {},
-            "description": "Public event source summary."
-          },
-          "startAt": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 9007199254740991
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "scheduled",
-              "cancelled"
-            ]
-          },
-          "summary": {
-            "type": "string"
-          },
-          "thumbnailImageUrl": {
-            "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
-          },
-          "timezone": {
-            "type": "string"
-          },
-          "title": {
-            "type": "string",
-            "minLength": 1
-          },
-          "worlds": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "displayName": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "slug": {
-                  "type": "string",
-                  "minLength": 1,
-                  "maxLength": 160
-                }
-              },
-              "required": [
-                "displayName",
-                "slug"
-              ],
-              "additionalProperties": {},
-              "description": "Public event world summary."
-            }
-          }
-        },
-        "required": [
-          "source",
-          "startAt",
-          "title"
-        ],
-        "additionalProperties": {},
-        "description": "Compact public event card."
-      },
-      "PublicEvent": {
-        "type": "object",
-        "properties": {
-          "bannerImageUrl": {
-            "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
-          },
-          "communityAvatarAppearance": {
-            "type": "object",
-            "properties": {
-              "borderColor": {
-                "type": "string"
-              },
-              "borderEnabled": {
-                "type": "boolean"
-              },
-              "borderSoftnessPx": {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 9007199254740991
-              },
-              "borderWidthPx": {
-                "type": "integer",
-                "exclusiveMinimum": 0,
-                "maximum": 9007199254740991
-              },
-              "radiusPercent": {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 50
-              }
-            },
-            "required": [
-              "borderColor",
-              "borderEnabled",
-              "borderSoftnessPx",
-              "borderWidthPx",
-              "radiusPercent"
-            ],
-            "additionalProperties": {},
-            "description": "Bounded public avatar presentation hints."
-          },
-          "communityImageUrl": {
-            "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
-          },
-          "communityName": {
-            "type": "string"
-          },
-          "communitySlug": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 160
-          },
-          "doorsOpenAt": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 9007199254740991
-          },
-          "endAt": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 9007199254740991
-          },
-          "participantCount": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 9007199254740991
-          },
-          "nextSlots": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "displayLabel": {
-                  "type": "string"
-                },
-                "endAt": {
-                  "type": "integer",
-                  "minimum": 0,
-                  "maximum": 9007199254740991
-                },
-                "performer": {
-                  "type": "object",
-                  "properties": {
-                    "displayName": {
-                      "type": "string"
-                    },
-                    "slug": {
-                      "type": "string",
-                      "minLength": 1,
-                      "maxLength": 160
-                    }
-                  },
-                  "required": [
-                    "displayName",
-                    "slug"
-                  ],
-                  "additionalProperties": false
-                },
-                "roleLabel": {
-                  "type": "string"
-                },
-                "startAt": {
-                  "type": "integer",
-                  "minimum": 0,
-                  "maximum": 9007199254740991
-                }
-              },
-              "required": [
-                "displayLabel",
-                "roleLabel",
-                "startAt"
-              ],
-              "additionalProperties": false
-            }
-          },
-          "posterImageUrl": {
-            "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
-          },
-          "slug": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 160
-          },
-          "slotCount": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 9007199254740991
-          },
-          "source": {
-            "type": "object",
-            "properties": {
-              "label": {
-                "type": "string",
-                "minLength": 1
-              },
-              "sourceType": {
-                "type": "string",
-                "enum": [
-                  "manual",
-                  "community",
-                  "partner",
-                  "import",
-                  "ai_suggested"
-                ],
-                "description": "Public event source class."
-              },
-              "url": {
-                "type": "string",
-                "format": "uri"
-              }
-            },
-            "required": [
-              "label",
-              "sourceType"
-            ],
-            "additionalProperties": {},
-            "description": "Public event source summary."
-          },
-          "startAt": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 9007199254740991
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "scheduled",
-              "cancelled"
-            ]
-          },
-          "summary": {
-            "type": "string"
-          },
-          "thumbnailImageUrl": {
-            "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
-          },
-          "timezone": {
-            "type": "string"
-          },
-          "title": {
-            "type": "string",
-            "minLength": 1
-          },
-          "worlds": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "displayName": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "slug": {
-                  "type": "string",
-                  "minLength": 1,
-                  "maxLength": 160
-                },
-                "tags": {
-                  "type": "array",
-                  "items": {
+              "communityAvatarAppearance": {
+                "type": "object",
+                "properties": {
+                  "borderColor": {
                     "type": "string"
+                  },
+                  "borderEnabled": {
+                    "type": "boolean"
+                  },
+                  "borderSoftnessPx": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "borderWidthPx": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "radiusPercent": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 50
                   }
                 },
-                "summary": {
-                  "type": "string"
-                },
-                "heroImageUrl": {
-                  "type": "string",
-                  "format": "uri"
-                },
-                "association": {
+                "required": [
+                  "borderColor",
+                  "borderEnabled",
+                  "borderSoftnessPx",
+                  "borderWidthPx",
+                  "radiusPercent"
+                ],
+                "additionalProperties": {},
+                "description": "Bounded public avatar presentation hints."
+              },
+              "communityImageUrl": {
+                "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+              },
+              "communityName": {
+                "type": "string"
+              },
+              "communitySlug": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160
+              },
+              "doorsOpenAt": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "endAt": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "participantCount": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "nextSlots": {
+                "type": "array",
+                "items": {
                   "type": "object",
                   "properties": {
-                    "sourceType": {
-                      "type": "string",
-                      "enum": [
-                        "manual",
-                        "community",
-                        "partner",
-                        "import",
-                        "ai_suggested"
+                    "displayLabel": {
+                      "type": "string"
+                    },
+                    "endAt": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "performer": {
+                      "type": "object",
+                      "properties": {
+                        "displayName": {
+                          "type": "string"
+                        },
+                        "slug": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 160
+                        }
+                      },
+                      "required": [
+                        "displayName",
+                        "slug"
                       ],
-                      "description": "Public event source class."
+                      "additionalProperties": false
                     },
-                    "confirmationState": {
-                      "type": "string",
-                      "const": "confirmed"
+                    "roleLabel": {
+                      "type": "string"
                     },
-                    "confirmedAt": {
+                    "startAt": {
                       "type": "integer",
                       "minimum": 0,
                       "maximum": 9007199254740991
                     }
                   },
                   "required": [
-                    "sourceType",
-                    "confirmationState"
+                    "displayLabel",
+                    "roleLabel",
+                    "startAt"
                   ],
                   "additionalProperties": false
                 }
               },
-              "required": [
-                "displayName",
-                "slug",
-                "tags",
-                "association"
-              ],
-              "additionalProperties": {}
-            }
-          },
-          "authoredMediaLinks": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "label": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "presentation": {
-                  "type": "string",
-                  "enum": [
-                    "open",
-                    "copy"
-                  ]
-                },
-                "type": {
-                  "type": "string",
-                  "enum": [
-                    "event_page",
-                    "watch",
-                    "stream",
-                    "vrcdn",
-                    "discord",
-                    "ticket",
-                    "other"
-                  ]
-                },
-                "url": {
-                  "type": "string",
-                  "format": "uri"
-                }
+              "posterImageUrl": {
+                "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
               },
-              "required": [
-                "label",
-                "presentation",
-                "type",
-                "url"
-              ],
-              "additionalProperties": {},
-              "description": "Public event media or outbound link."
-            }
-          },
-          "id": {
-            "type": "string"
-          },
-          "mediaLinks": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "label": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "presentation": {
-                  "type": "string",
-                  "enum": [
-                    "open",
-                    "copy"
-                  ]
-                },
-                "type": {
-                  "type": "string",
-                  "enum": [
-                    "event_page",
-                    "watch",
-                    "stream",
-                    "vrcdn",
-                    "discord",
-                    "ticket",
-                    "other"
-                  ]
-                },
-                "url": {
-                  "type": "string",
-                  "format": "uri"
-                }
+              "slug": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160
               },
-              "required": [
-                "label",
-                "presentation",
-                "type",
-                "url"
-              ],
-              "additionalProperties": {},
-              "description": "Public event media or outbound link."
-            }
-          },
-          "participants": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "slug": {
-                  "type": "string",
-                  "minLength": 1,
-                  "maxLength": 160
+              "slotCount": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "source": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "sourceType": {
+                    "type": "string",
+                    "enum": [
+                      "manual",
+                      "community",
+                      "partner",
+                      "import",
+                      "ai_suggested"
+                    ],
+                    "description": "Public event source class."
+                  },
+                  "url": {
+                    "type": "string",
+                    "format": "uri"
+                  }
                 },
-                "displayName": {
-                  "type": "string"
-                },
-                "trustLabel": {
-                  "type": "string",
-                  "enum": [
-                    "community_submitted",
-                    "unclaimed",
-                    "claimed_unverified",
-                    "claimed_verified"
-                  ]
-                },
-                "imageUrl": {
-                  "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
-                },
-                "avatarAppearance": {
+                "required": [
+                  "label",
+                  "sourceType"
+                ],
+                "additionalProperties": {},
+                "description": "Public event source summary."
+              },
+              "startAt": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "scheduleKind": {
+                "type": "string",
+                "const": "timed"
+              },
+              "eventDate": {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "scheduled",
+                  "cancelled"
+                ]
+              },
+              "summary": {
+                "type": "string"
+              },
+              "thumbnailImageUrl": {
+                "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+              },
+              "timezone": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1
+              },
+              "worlds": {
+                "type": "array",
+                "items": {
                   "type": "object",
                   "properties": {
-                    "borderColor": {
-                      "type": "string"
+                    "displayName": {
+                      "type": "string",
+                      "minLength": 1
                     },
-                    "borderEnabled": {
-                      "type": "boolean"
-                    },
-                    "borderSoftnessPx": {
-                      "type": "integer",
-                      "minimum": 0,
-                      "maximum": 9007199254740991
-                    },
-                    "borderWidthPx": {
-                      "type": "integer",
-                      "exclusiveMinimum": 0,
-                      "maximum": 9007199254740991
-                    },
-                    "radiusPercent": {
-                      "type": "integer",
-                      "minimum": 0,
-                      "maximum": 50
+                    "slug": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 160
                     }
                   },
                   "required": [
-                    "borderColor",
-                    "borderEnabled",
-                    "borderSoftnessPx",
-                    "borderWidthPx",
-                    "radiusPercent"
+                    "displayName",
+                    "slug"
                   ],
                   "additionalProperties": {},
-                  "description": "Bounded public avatar presentation hints."
-                },
-                "outboundLinks": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "properties": {
-                      "label": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "labelMode": {
-                        "type": "string",
-                        "enum": [
-                          "automatic",
-                          "custom"
-                        ]
-                      },
-                      "destination": {
-                        "type": "object",
-                        "properties": {
-                          "targetKey": {
-                            "type": "string"
-                          },
-                          "kind": {
-                            "type": "string",
-                            "enum": [
-                              "vrchat_user",
-                              "vrchat_group",
-                              "discord_guild"
-                            ]
-                          },
-                          "entityId": {
-                            "type": "string"
-                          },
-                          "name": {
-                            "type": "string"
-                          },
-                          "artworkUrl": {
-                            "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
-                          },
-                          "status": {
-                            "type": "string",
-                            "enum": [
-                              "pending",
-                              "resolved",
-                              "unavailable",
-                              "invalid"
-                            ]
-                          },
-                          "observedAt": {
-                            "type": "integer",
-                            "minimum": 0,
-                            "maximum": 9007199254740991
-                          }
-                        },
-                        "required": [
-                          "targetKey",
-                          "kind",
-                          "status"
-                        ],
-                        "additionalProperties": false
-                      },
-                      "source": {
-                        "type": "string"
-                      },
-                      "type": {
-                        "type": "string"
-                      },
-                      "url": {
-                        "type": "string",
-                        "format": "uri"
-                      }
-                    },
-                    "required": [
-                      "label",
-                      "url"
-                    ],
-                    "additionalProperties": {},
-                    "description": "A public outbound link."
+                  "description": "Public event world summary."
+                }
+              }
+            },
+            "required": [
+              "source",
+              "startAt",
+              "title"
+            ],
+            "additionalProperties": {}
+          },
+          {
+            "type": "object",
+            "properties": {
+              "bannerImageUrl": {
+                "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+              },
+              "communityAvatarAppearance": {
+                "type": "object",
+                "properties": {
+                  "borderColor": {
+                    "type": "string"
+                  },
+                  "borderEnabled": {
+                    "type": "boolean"
+                  },
+                  "borderSoftnessPx": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "borderWidthPx": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "radiusPercent": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 50
                   }
                 },
-                "roleLabel": {
-                  "type": "string"
+                "required": [
+                  "borderColor",
+                  "borderEnabled",
+                  "borderSoftnessPx",
+                  "borderWidthPx",
+                  "radiusPercent"
+                ],
+                "additionalProperties": {},
+                "description": "Bounded public avatar presentation hints."
+              },
+              "communityImageUrl": {
+                "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+              },
+              "communityName": {
+                "type": "string"
+              },
+              "communitySlug": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160
+              },
+              "doorsOpenAt": {
+                "not": {}
+              },
+              "endAt": {
+                "not": {}
+              },
+              "participantCount": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "nextSlots": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "displayLabel": {
+                      "type": "string"
+                    },
+                    "endAt": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "performer": {
+                      "type": "object",
+                      "properties": {
+                        "displayName": {
+                          "type": "string"
+                        },
+                        "slug": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 160
+                        }
+                      },
+                      "required": [
+                        "displayName",
+                        "slug"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "roleLabel": {
+                      "type": "string"
+                    },
+                    "startAt": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "displayLabel",
+                    "roleLabel",
+                    "startAt"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "posterImageUrl": {
+                "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+              },
+              "slug": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160
+              },
+              "slotCount": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "source": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "sourceType": {
+                    "type": "string",
+                    "enum": [
+                      "manual",
+                      "community",
+                      "partner",
+                      "import",
+                      "ai_suggested"
+                    ],
+                    "description": "Public event source class."
+                  },
+                  "url": {
+                    "type": "string",
+                    "format": "uri"
+                  }
                 },
-                "source": {
+                "required": [
+                  "label",
+                  "sourceType"
+                ],
+                "additionalProperties": {},
+                "description": "Public event source summary."
+              },
+              "startAt": {
+                "not": {}
+              },
+              "scheduleKind": {
+                "type": "string",
+                "const": "date_only"
+              },
+              "eventDate": {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "scheduled",
+                  "cancelled"
+                ]
+              },
+              "summary": {
+                "type": "string"
+              },
+              "thumbnailImageUrl": {
+                "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+              },
+              "timezone": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1
+              },
+              "worlds": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "displayName": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "slug": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 160
+                    }
+                  },
+                  "required": [
+                    "displayName",
+                    "slug"
+                  ],
+                  "additionalProperties": {},
+                  "description": "Public event world summary."
+                }
+              }
+            },
+            "required": [
+              "source",
+              "scheduleKind",
+              "eventDate",
+              "title"
+            ],
+            "additionalProperties": {}
+          }
+        ],
+        "description": "Compact public event card with a timed or date-only schedule."
+      },
+      "PublicEvent": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "bannerImageUrl": {
+                "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+              },
+              "communityAvatarAppearance": {
+                "type": "object",
+                "properties": {
+                  "borderColor": {
+                    "type": "string"
+                  },
+                  "borderEnabled": {
+                    "type": "boolean"
+                  },
+                  "borderSoftnessPx": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "borderWidthPx": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "radiusPercent": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 50
+                  }
+                },
+                "required": [
+                  "borderColor",
+                  "borderEnabled",
+                  "borderSoftnessPx",
+                  "borderWidthPx",
+                  "radiusPercent"
+                ],
+                "additionalProperties": {},
+                "description": "Bounded public avatar presentation hints."
+              },
+              "communityImageUrl": {
+                "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+              },
+              "communityName": {
+                "type": "string"
+              },
+              "communitySlug": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160
+              },
+              "doorsOpenAt": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "endAt": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "participantCount": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "nextSlots": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "displayLabel": {
+                      "type": "string"
+                    },
+                    "endAt": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "performer": {
+                      "type": "object",
+                      "properties": {
+                        "displayName": {
+                          "type": "string"
+                        },
+                        "slug": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 160
+                        }
+                      },
+                      "required": [
+                        "displayName",
+                        "slug"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "roleLabel": {
+                      "type": "string"
+                    },
+                    "startAt": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "displayLabel",
+                    "roleLabel",
+                    "startAt"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "posterImageUrl": {
+                "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+              },
+              "slug": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160
+              },
+              "slotCount": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "source": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "sourceType": {
+                    "type": "string",
+                    "enum": [
+                      "manual",
+                      "community",
+                      "partner",
+                      "import",
+                      "ai_suggested"
+                    ],
+                    "description": "Public event source class."
+                  },
+                  "url": {
+                    "type": "string",
+                    "format": "uri"
+                  }
+                },
+                "required": [
+                  "label",
+                  "sourceType"
+                ],
+                "additionalProperties": {},
+                "description": "Public event source summary."
+              },
+              "startAt": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "scheduleKind": {
+                "type": "string",
+                "const": "timed"
+              },
+              "eventDate": {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "scheduled",
+                  "cancelled"
+                ]
+              },
+              "summary": {
+                "type": "string"
+              },
+              "thumbnailImageUrl": {
+                "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+              },
+              "timezone": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1
+              },
+              "worlds": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "displayName": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "slug": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 160
+                    },
+                    "tags": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "summary": {
+                      "type": "string"
+                    },
+                    "heroImageUrl": {
+                      "type": "string",
+                      "format": "uri"
+                    },
+                    "association": {
+                      "type": "object",
+                      "properties": {
+                        "sourceType": {
+                          "type": "string",
+                          "enum": [
+                            "manual",
+                            "community",
+                            "partner",
+                            "import",
+                            "ai_suggested"
+                          ],
+                          "description": "Public event source class."
+                        },
+                        "confirmationState": {
+                          "type": "string",
+                          "const": "confirmed"
+                        },
+                        "confirmedAt": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": [
+                        "sourceType",
+                        "confirmationState"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "displayName",
+                    "slug",
+                    "tags",
+                    "association"
+                  ],
+                  "additionalProperties": {}
+                }
+              },
+              "authoredMediaLinks": {
+                "type": "array",
+                "items": {
                   "type": "object",
                   "properties": {
                     "label": {
                       "type": "string",
                       "minLength": 1
                     },
-                    "sourceType": {
+                    "presentation": {
                       "type": "string",
                       "enum": [
-                        "manual",
-                        "community",
-                        "partner",
-                        "import",
-                        "ai_suggested"
-                      ],
-                      "description": "Public event source class."
+                        "open",
+                        "copy"
+                      ]
+                    },
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "event_page",
+                        "watch",
+                        "stream",
+                        "vrcdn",
+                        "discord",
+                        "ticket",
+                        "other"
+                      ]
                     },
                     "url": {
                       "type": "string",
@@ -10352,89 +10379,63 @@
                   },
                   "required": [
                     "label",
-                    "sourceType"
+                    "presentation",
+                    "type",
+                    "url"
                   ],
                   "additionalProperties": {},
-                  "description": "Public event source summary."
+                  "description": "Public event media or outbound link."
                 }
               },
-              "required": [
-                "slug",
-                "displayName",
-                "trustLabel",
-                "outboundLinks",
-                "roleLabel",
-                "source"
-              ],
-              "additionalProperties": false
-            }
-          },
-          "slots": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "playbackKey": {
-                  "type": "string"
-                },
-                "position": {
-                  "type": "integer",
-                  "minimum": 0,
-                  "maximum": 9007199254740991
-                },
-                "startAt": {
-                  "type": "integer",
-                  "minimum": 0,
-                  "maximum": 9007199254740991
-                },
-                "endAt": {
-                  "type": "integer",
-                  "minimum": 0,
-                  "maximum": 9007199254740991
-                },
-                "displayLabel": {
-                  "type": "string"
-                },
-                "roleLabel": {
-                  "type": "string"
-                },
-                "discord": {
+              "id": {
+                "type": "string"
+              },
+              "mediaLinks": {
+                "type": "array",
+                "items": {
                   "type": "object",
                   "properties": {
-                    "shortTime": {
-                      "type": "string"
+                    "label": {
+                      "type": "string",
+                      "minLength": 1
                     },
-                    "longTime": {
-                      "type": "string"
+                    "presentation": {
+                      "type": "string",
+                      "enum": [
+                        "open",
+                        "copy"
+                      ]
                     },
-                    "shortDate": {
-                      "type": "string"
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "event_page",
+                        "watch",
+                        "stream",
+                        "vrcdn",
+                        "discord",
+                        "ticket",
+                        "other"
+                      ]
                     },
-                    "longDate": {
-                      "type": "string"
-                    },
-                    "shortDateTime": {
-                      "type": "string"
-                    },
-                    "longDateTime": {
-                      "type": "string"
-                    },
-                    "relative": {
-                      "type": "string"
+                    "url": {
+                      "type": "string",
+                      "format": "uri"
                     }
                   },
                   "required": [
-                    "shortTime",
-                    "longTime",
-                    "shortDate",
-                    "longDate",
-                    "shortDateTime",
-                    "longDateTime",
-                    "relative"
+                    "label",
+                    "presentation",
+                    "type",
+                    "url"
                   ],
-                  "additionalProperties": false
-                },
-                "performer": {
+                  "additionalProperties": {},
+                  "description": "Public event media or outbound link."
+                }
+              },
+              "participants": {
+                "type": "array",
+                "items": {
                   "type": "object",
                   "properties": {
                     "slug": {
@@ -10571,33 +10572,633 @@
                         "additionalProperties": {},
                         "description": "A public outbound link."
                       }
+                    },
+                    "roleLabel": {
+                      "type": "string"
+                    },
+                    "source": {
+                      "type": "object",
+                      "properties": {
+                        "label": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "sourceType": {
+                          "type": "string",
+                          "enum": [
+                            "manual",
+                            "community",
+                            "partner",
+                            "import",
+                            "ai_suggested"
+                          ],
+                          "description": "Public event source class."
+                        },
+                        "url": {
+                          "type": "string",
+                          "format": "uri"
+                        }
+                      },
+                      "required": [
+                        "label",
+                        "sourceType"
+                      ],
+                      "additionalProperties": {},
+                      "description": "Public event source summary."
                     }
                   },
                   "required": [
                     "slug",
                     "displayName",
                     "trustLabel",
-                    "outboundLinks"
+                    "outboundLinks",
+                    "roleLabel",
+                    "source"
                   ],
                   "additionalProperties": false
+                }
+              },
+              "slots": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "playbackKey": {
+                      "type": "string"
+                    },
+                    "position": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "startAt": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "endAt": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "displayLabel": {
+                      "type": "string"
+                    },
+                    "roleLabel": {
+                      "type": "string"
+                    },
+                    "discord": {
+                      "type": "object",
+                      "properties": {
+                        "shortTime": {
+                          "type": "string"
+                        },
+                        "longTime": {
+                          "type": "string"
+                        },
+                        "shortDate": {
+                          "type": "string"
+                        },
+                        "longDate": {
+                          "type": "string"
+                        },
+                        "shortDateTime": {
+                          "type": "string"
+                        },
+                        "longDateTime": {
+                          "type": "string"
+                        },
+                        "relative": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "shortTime",
+                        "longTime",
+                        "shortDate",
+                        "longDate",
+                        "shortDateTime",
+                        "longDateTime",
+                        "relative"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "performer": {
+                      "type": "object",
+                      "properties": {
+                        "slug": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 160
+                        },
+                        "displayName": {
+                          "type": "string"
+                        },
+                        "trustLabel": {
+                          "type": "string",
+                          "enum": [
+                            "community_submitted",
+                            "unclaimed",
+                            "claimed_unverified",
+                            "claimed_verified"
+                          ]
+                        },
+                        "imageUrl": {
+                          "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                        },
+                        "avatarAppearance": {
+                          "type": "object",
+                          "properties": {
+                            "borderColor": {
+                              "type": "string"
+                            },
+                            "borderEnabled": {
+                              "type": "boolean"
+                            },
+                            "borderSoftnessPx": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "borderWidthPx": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "radiusPercent": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 50
+                            }
+                          },
+                          "required": [
+                            "borderColor",
+                            "borderEnabled",
+                            "borderSoftnessPx",
+                            "borderWidthPx",
+                            "radiusPercent"
+                          ],
+                          "additionalProperties": {},
+                          "description": "Bounded public avatar presentation hints."
+                        },
+                        "outboundLinks": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "label": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "labelMode": {
+                                "type": "string",
+                                "enum": [
+                                  "automatic",
+                                  "custom"
+                                ]
+                              },
+                              "destination": {
+                                "type": "object",
+                                "properties": {
+                                  "targetKey": {
+                                    "type": "string"
+                                  },
+                                  "kind": {
+                                    "type": "string",
+                                    "enum": [
+                                      "vrchat_user",
+                                      "vrchat_group",
+                                      "discord_guild"
+                                    ]
+                                  },
+                                  "entityId": {
+                                    "type": "string"
+                                  },
+                                  "name": {
+                                    "type": "string"
+                                  },
+                                  "artworkUrl": {
+                                    "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                                  },
+                                  "status": {
+                                    "type": "string",
+                                    "enum": [
+                                      "pending",
+                                      "resolved",
+                                      "unavailable",
+                                      "invalid"
+                                    ]
+                                  },
+                                  "observedAt": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                  }
+                                },
+                                "required": [
+                                  "targetKey",
+                                  "kind",
+                                  "status"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "source": {
+                                "type": "string"
+                              },
+                              "type": {
+                                "type": "string"
+                              },
+                              "url": {
+                                "type": "string",
+                                "format": "uri"
+                              }
+                            },
+                            "required": [
+                              "label",
+                              "url"
+                            ],
+                            "additionalProperties": {},
+                            "description": "A public outbound link."
+                          }
+                        }
+                      },
+                      "required": [
+                        "slug",
+                        "displayName",
+                        "trustLabel",
+                        "outboundLinks"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "source": {
+                      "type": "object",
+                      "properties": {
+                        "label": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "sourceType": {
+                          "type": "string",
+                          "enum": [
+                            "manual",
+                            "community",
+                            "partner",
+                            "import",
+                            "ai_suggested"
+                          ],
+                          "description": "Public event source class."
+                        },
+                        "url": {
+                          "type": "string",
+                          "format": "uri"
+                        }
+                      },
+                      "required": [
+                        "label",
+                        "sourceType"
+                      ],
+                      "additionalProperties": {},
+                      "description": "Public event source summary."
+                    },
+                    "stream": {
+                      "type": "object",
+                      "properties": {
+                        "streamId": {
+                          "type": "string",
+                          "minLength": 2,
+                          "maxLength": 128
+                        },
+                        "pcUrl": {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        "questUrl": {
+                          "type": "string",
+                          "format": "uri"
+                        }
+                      },
+                      "required": [
+                        "streamId",
+                        "pcUrl",
+                        "questUrl"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "playbackKey",
+                    "position",
+                    "startAt",
+                    "displayLabel",
+                    "roleLabel",
+                    "discord",
+                    "source"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "watchMode": {
+                "default": "event_stream",
+                "type": "string",
+                "enum": [
+                  "event_stream",
+                  "performer_sequence"
+                ]
+              },
+              "watchSurfaceEnabled": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "slug",
+              "source",
+              "startAt",
+              "title",
+              "id",
+              "watchMode",
+              "watchSurfaceEnabled"
+            ],
+            "additionalProperties": {}
+          },
+          {
+            "type": "object",
+            "properties": {
+              "bannerImageUrl": {
+                "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+              },
+              "communityAvatarAppearance": {
+                "type": "object",
+                "properties": {
+                  "borderColor": {
+                    "type": "string"
+                  },
+                  "borderEnabled": {
+                    "type": "boolean"
+                  },
+                  "borderSoftnessPx": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "borderWidthPx": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "radiusPercent": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 50
+                  }
                 },
-                "source": {
+                "required": [
+                  "borderColor",
+                  "borderEnabled",
+                  "borderSoftnessPx",
+                  "borderWidthPx",
+                  "radiusPercent"
+                ],
+                "additionalProperties": {},
+                "description": "Bounded public avatar presentation hints."
+              },
+              "communityImageUrl": {
+                "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+              },
+              "communityName": {
+                "type": "string"
+              },
+              "communitySlug": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160
+              },
+              "doorsOpenAt": {
+                "not": {}
+              },
+              "endAt": {
+                "not": {}
+              },
+              "participantCount": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "nextSlots": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "displayLabel": {
+                      "type": "string"
+                    },
+                    "endAt": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "performer": {
+                      "type": "object",
+                      "properties": {
+                        "displayName": {
+                          "type": "string"
+                        },
+                        "slug": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 160
+                        }
+                      },
+                      "required": [
+                        "displayName",
+                        "slug"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "roleLabel": {
+                      "type": "string"
+                    },
+                    "startAt": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "displayLabel",
+                    "roleLabel",
+                    "startAt"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "posterImageUrl": {
+                "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+              },
+              "slug": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160
+              },
+              "slotCount": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "source": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "sourceType": {
+                    "type": "string",
+                    "enum": [
+                      "manual",
+                      "community",
+                      "partner",
+                      "import",
+                      "ai_suggested"
+                    ],
+                    "description": "Public event source class."
+                  },
+                  "url": {
+                    "type": "string",
+                    "format": "uri"
+                  }
+                },
+                "required": [
+                  "label",
+                  "sourceType"
+                ],
+                "additionalProperties": {},
+                "description": "Public event source summary."
+              },
+              "startAt": {
+                "not": {}
+              },
+              "scheduleKind": {
+                "type": "string",
+                "const": "date_only"
+              },
+              "eventDate": {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "scheduled",
+                  "cancelled"
+                ]
+              },
+              "summary": {
+                "type": "string"
+              },
+              "thumbnailImageUrl": {
+                "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+              },
+              "timezone": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1
+              },
+              "worlds": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "displayName": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "slug": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 160
+                    },
+                    "tags": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "summary": {
+                      "type": "string"
+                    },
+                    "heroImageUrl": {
+                      "type": "string",
+                      "format": "uri"
+                    },
+                    "association": {
+                      "type": "object",
+                      "properties": {
+                        "sourceType": {
+                          "type": "string",
+                          "enum": [
+                            "manual",
+                            "community",
+                            "partner",
+                            "import",
+                            "ai_suggested"
+                          ],
+                          "description": "Public event source class."
+                        },
+                        "confirmationState": {
+                          "type": "string",
+                          "const": "confirmed"
+                        },
+                        "confirmedAt": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": [
+                        "sourceType",
+                        "confirmationState"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "displayName",
+                    "slug",
+                    "tags",
+                    "association"
+                  ],
+                  "additionalProperties": {}
+                }
+              },
+              "authoredMediaLinks": {
+                "type": "array",
+                "items": {
                   "type": "object",
                   "properties": {
                     "label": {
                       "type": "string",
                       "minLength": 1
                     },
-                    "sourceType": {
+                    "presentation": {
                       "type": "string",
                       "enum": [
-                        "manual",
-                        "community",
-                        "partner",
-                        "import",
-                        "ai_suggested"
-                      ],
-                      "description": "Public event source class."
+                        "open",
+                        "copy"
+                      ]
+                    },
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "event_page",
+                        "watch",
+                        "stream",
+                        "vrcdn",
+                        "discord",
+                        "ticket",
+                        "other"
+                      ]
                     },
                     "url": {
                       "type": "string",
@@ -10606,71 +11207,550 @@
                   },
                   "required": [
                     "label",
-                    "sourceType"
+                    "presentation",
+                    "type",
+                    "url"
                   ],
                   "additionalProperties": {},
-                  "description": "Public event source summary."
-                },
-                "stream": {
+                  "description": "Public event media or outbound link."
+                }
+              },
+              "id": {
+                "type": "string"
+              },
+              "mediaLinks": {
+                "type": "array",
+                "items": {
                   "type": "object",
                   "properties": {
-                    "streamId": {
+                    "label": {
                       "type": "string",
-                      "minLength": 2,
-                      "maxLength": 128
+                      "minLength": 1
                     },
-                    "pcUrl": {
+                    "presentation": {
                       "type": "string",
-                      "format": "uri"
+                      "enum": [
+                        "open",
+                        "copy"
+                      ]
                     },
-                    "questUrl": {
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "event_page",
+                        "watch",
+                        "stream",
+                        "vrcdn",
+                        "discord",
+                        "ticket",
+                        "other"
+                      ]
+                    },
+                    "url": {
                       "type": "string",
                       "format": "uri"
                     }
                   },
                   "required": [
-                    "streamId",
-                    "pcUrl",
-                    "questUrl"
+                    "label",
+                    "presentation",
+                    "type",
+                    "url"
+                  ],
+                  "additionalProperties": {},
+                  "description": "Public event media or outbound link."
+                }
+              },
+              "participants": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "slug": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 160
+                    },
+                    "displayName": {
+                      "type": "string"
+                    },
+                    "trustLabel": {
+                      "type": "string",
+                      "enum": [
+                        "community_submitted",
+                        "unclaimed",
+                        "claimed_unverified",
+                        "claimed_verified"
+                      ]
+                    },
+                    "imageUrl": {
+                      "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                    },
+                    "avatarAppearance": {
+                      "type": "object",
+                      "properties": {
+                        "borderColor": {
+                          "type": "string"
+                        },
+                        "borderEnabled": {
+                          "type": "boolean"
+                        },
+                        "borderSoftnessPx": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "borderWidthPx": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "radiusPercent": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 50
+                        }
+                      },
+                      "required": [
+                        "borderColor",
+                        "borderEnabled",
+                        "borderSoftnessPx",
+                        "borderWidthPx",
+                        "radiusPercent"
+                      ],
+                      "additionalProperties": {},
+                      "description": "Bounded public avatar presentation hints."
+                    },
+                    "outboundLinks": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "label": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "labelMode": {
+                            "type": "string",
+                            "enum": [
+                              "automatic",
+                              "custom"
+                            ]
+                          },
+                          "destination": {
+                            "type": "object",
+                            "properties": {
+                              "targetKey": {
+                                "type": "string"
+                              },
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "vrchat_user",
+                                  "vrchat_group",
+                                  "discord_guild"
+                                ]
+                              },
+                              "entityId": {
+                                "type": "string"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "artworkUrl": {
+                                "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                              },
+                              "status": {
+                                "type": "string",
+                                "enum": [
+                                  "pending",
+                                  "resolved",
+                                  "unavailable",
+                                  "invalid"
+                                ]
+                              },
+                              "observedAt": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              }
+                            },
+                            "required": [
+                              "targetKey",
+                              "kind",
+                              "status"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "source": {
+                            "type": "string"
+                          },
+                          "type": {
+                            "type": "string"
+                          },
+                          "url": {
+                            "type": "string",
+                            "format": "uri"
+                          }
+                        },
+                        "required": [
+                          "label",
+                          "url"
+                        ],
+                        "additionalProperties": {},
+                        "description": "A public outbound link."
+                      }
+                    },
+                    "roleLabel": {
+                      "type": "string"
+                    },
+                    "source": {
+                      "type": "object",
+                      "properties": {
+                        "label": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "sourceType": {
+                          "type": "string",
+                          "enum": [
+                            "manual",
+                            "community",
+                            "partner",
+                            "import",
+                            "ai_suggested"
+                          ],
+                          "description": "Public event source class."
+                        },
+                        "url": {
+                          "type": "string",
+                          "format": "uri"
+                        }
+                      },
+                      "required": [
+                        "label",
+                        "sourceType"
+                      ],
+                      "additionalProperties": {},
+                      "description": "Public event source summary."
+                    }
+                  },
+                  "required": [
+                    "slug",
+                    "displayName",
+                    "trustLabel",
+                    "outboundLinks",
+                    "roleLabel",
+                    "source"
                   ],
                   "additionalProperties": false
                 }
               },
-              "required": [
-                "playbackKey",
-                "position",
-                "startAt",
-                "displayLabel",
-                "roleLabel",
-                "discord",
-                "source"
-              ],
-              "additionalProperties": false
-            }
-          },
-          "watchMode": {
-            "default": "event_stream",
-            "type": "string",
-            "enum": [
-              "event_stream",
-              "performer_sequence"
-            ]
-          },
-          "watchSurfaceEnabled": {
-            "type": "boolean"
+              "slots": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "playbackKey": {
+                      "type": "string"
+                    },
+                    "position": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "startAt": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "endAt": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "displayLabel": {
+                      "type": "string"
+                    },
+                    "roleLabel": {
+                      "type": "string"
+                    },
+                    "discord": {
+                      "type": "object",
+                      "properties": {
+                        "shortTime": {
+                          "type": "string"
+                        },
+                        "longTime": {
+                          "type": "string"
+                        },
+                        "shortDate": {
+                          "type": "string"
+                        },
+                        "longDate": {
+                          "type": "string"
+                        },
+                        "shortDateTime": {
+                          "type": "string"
+                        },
+                        "longDateTime": {
+                          "type": "string"
+                        },
+                        "relative": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "shortTime",
+                        "longTime",
+                        "shortDate",
+                        "longDate",
+                        "shortDateTime",
+                        "longDateTime",
+                        "relative"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "performer": {
+                      "type": "object",
+                      "properties": {
+                        "slug": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 160
+                        },
+                        "displayName": {
+                          "type": "string"
+                        },
+                        "trustLabel": {
+                          "type": "string",
+                          "enum": [
+                            "community_submitted",
+                            "unclaimed",
+                            "claimed_unverified",
+                            "claimed_verified"
+                          ]
+                        },
+                        "imageUrl": {
+                          "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                        },
+                        "avatarAppearance": {
+                          "type": "object",
+                          "properties": {
+                            "borderColor": {
+                              "type": "string"
+                            },
+                            "borderEnabled": {
+                              "type": "boolean"
+                            },
+                            "borderSoftnessPx": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "borderWidthPx": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "radiusPercent": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 50
+                            }
+                          },
+                          "required": [
+                            "borderColor",
+                            "borderEnabled",
+                            "borderSoftnessPx",
+                            "borderWidthPx",
+                            "radiusPercent"
+                          ],
+                          "additionalProperties": {},
+                          "description": "Bounded public avatar presentation hints."
+                        },
+                        "outboundLinks": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "label": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "labelMode": {
+                                "type": "string",
+                                "enum": [
+                                  "automatic",
+                                  "custom"
+                                ]
+                              },
+                              "destination": {
+                                "type": "object",
+                                "properties": {
+                                  "targetKey": {
+                                    "type": "string"
+                                  },
+                                  "kind": {
+                                    "type": "string",
+                                    "enum": [
+                                      "vrchat_user",
+                                      "vrchat_group",
+                                      "discord_guild"
+                                    ]
+                                  },
+                                  "entityId": {
+                                    "type": "string"
+                                  },
+                                  "name": {
+                                    "type": "string"
+                                  },
+                                  "artworkUrl": {
+                                    "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                                  },
+                                  "status": {
+                                    "type": "string",
+                                    "enum": [
+                                      "pending",
+                                      "resolved",
+                                      "unavailable",
+                                      "invalid"
+                                    ]
+                                  },
+                                  "observedAt": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                  }
+                                },
+                                "required": [
+                                  "targetKey",
+                                  "kind",
+                                  "status"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "source": {
+                                "type": "string"
+                              },
+                              "type": {
+                                "type": "string"
+                              },
+                              "url": {
+                                "type": "string",
+                                "format": "uri"
+                              }
+                            },
+                            "required": [
+                              "label",
+                              "url"
+                            ],
+                            "additionalProperties": {},
+                            "description": "A public outbound link."
+                          }
+                        }
+                      },
+                      "required": [
+                        "slug",
+                        "displayName",
+                        "trustLabel",
+                        "outboundLinks"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "source": {
+                      "type": "object",
+                      "properties": {
+                        "label": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "sourceType": {
+                          "type": "string",
+                          "enum": [
+                            "manual",
+                            "community",
+                            "partner",
+                            "import",
+                            "ai_suggested"
+                          ],
+                          "description": "Public event source class."
+                        },
+                        "url": {
+                          "type": "string",
+                          "format": "uri"
+                        }
+                      },
+                      "required": [
+                        "label",
+                        "sourceType"
+                      ],
+                      "additionalProperties": {},
+                      "description": "Public event source summary."
+                    },
+                    "stream": {
+                      "type": "object",
+                      "properties": {
+                        "streamId": {
+                          "type": "string",
+                          "minLength": 2,
+                          "maxLength": 128
+                        },
+                        "pcUrl": {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        "questUrl": {
+                          "type": "string",
+                          "format": "uri"
+                        }
+                      },
+                      "required": [
+                        "streamId",
+                        "pcUrl",
+                        "questUrl"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "playbackKey",
+                    "position",
+                    "startAt",
+                    "displayLabel",
+                    "roleLabel",
+                    "discord",
+                    "source"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "watchMode": {
+                "default": "event_stream",
+                "type": "string",
+                "enum": [
+                  "event_stream",
+                  "performer_sequence"
+                ]
+              },
+              "watchSurfaceEnabled": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "slug",
+              "source",
+              "scheduleKind",
+              "eventDate",
+              "title",
+              "id",
+              "watchMode",
+              "watchSurfaceEnabled"
+            ],
+            "additionalProperties": {}
           }
-        },
-        "required": [
-          "slug",
-          "source",
-          "startAt",
-          "title",
-          "id",
-          "watchMode",
-          "watchSurfaceEnabled"
         ],
-        "additionalProperties": {},
-        "description": "Public event detail response."
+        "description": "Public event detail response with a timed or date-only schedule."
       },
       "ApiEventWriteResponse": {
         "type": "object",
@@ -11003,6 +12083,17 @@
                   "minimum": 0,
                   "maximum": 9007199254740991
                 },
+                "scheduleKind": {
+                  "type": "string",
+                  "enum": [
+                    "timed",
+                    "date_only"
+                  ]
+                },
+                "eventDate": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                },
                 "summary": {
                   "type": "string"
                 },
@@ -11034,7 +12125,6 @@
               "required": [
                 "mediaLinks",
                 "source",
-                "startAt",
                 "title",
                 "worldAssociation"
               ],
@@ -11151,6 +12241,17 @@
                   "minimum": 0,
                   "maximum": 9007199254740991
                 },
+                "scheduleKind": {
+                  "type": "string",
+                  "enum": [
+                    "timed",
+                    "date_only"
+                  ]
+                },
+                "eventDate": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                },
                 "summary": {
                   "type": "string"
                 },
@@ -11182,7 +12283,6 @@
               "required": [
                 "mediaLinks",
                 "source",
-                "startAt",
                 "title",
                 "worldAssociation"
               ],
@@ -11230,170 +12330,351 @@
             "format": "uri"
           },
           "nextEvent": {
-            "type": "object",
-            "properties": {
-              "communityAvatarAppearance": {
+            "anyOf": [
+              {
                 "type": "object",
                 "properties": {
-                  "borderColor": {
+                  "communityAvatarAppearance": {
+                    "type": "object",
+                    "properties": {
+                      "borderColor": {
+                        "type": "string"
+                      },
+                      "borderEnabled": {
+                        "type": "boolean"
+                      },
+                      "borderSoftnessPx": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "borderWidthPx": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "radiusPercent": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 50
+                      }
+                    },
+                    "required": [
+                      "borderColor",
+                      "borderEnabled",
+                      "borderSoftnessPx",
+                      "borderWidthPx",
+                      "radiusPercent"
+                    ],
+                    "additionalProperties": {},
+                    "description": "Bounded public avatar presentation hints."
+                  },
+                  "communityName": {
                     "type": "string"
                   },
-                  "borderEnabled": {
-                    "type": "boolean"
+                  "communitySlug": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 160
                   },
-                  "borderSoftnessPx": {
+                  "doorsOpenAt": {
                     "type": "integer",
                     "minimum": 0,
                     "maximum": 9007199254740991
                   },
-                  "borderWidthPx": {
-                    "type": "integer",
-                    "exclusiveMinimum": 0,
-                    "maximum": 9007199254740991
-                  },
-                  "radiusPercent": {
+                  "endAt": {
                     "type": "integer",
                     "minimum": 0,
-                    "maximum": 50
-                  }
-                },
-                "required": [
-                  "borderColor",
-                  "borderEnabled",
-                  "borderSoftnessPx",
-                  "borderWidthPx",
-                  "radiusPercent"
-                ],
-                "additionalProperties": {},
-                "description": "Bounded public avatar presentation hints."
-              },
-              "communityName": {
-                "type": "string"
-              },
-              "communitySlug": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 160
-              },
-              "doorsOpenAt": {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 9007199254740991
-              },
-              "endAt": {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 9007199254740991
-              },
-              "nextSlots": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "properties": {
-                    "displayLabel": {
-                      "type": "string"
-                    },
-                    "endAt": {
-                      "type": "integer",
-                      "minimum": 0,
-                      "maximum": 9007199254740991
-                    },
-                    "performer": {
+                    "maximum": 9007199254740991
+                  },
+                  "nextSlots": {
+                    "type": "array",
+                    "items": {
                       "type": "object",
                       "properties": {
-                        "displayName": {
+                        "displayLabel": {
                           "type": "string"
                         },
-                        "slug": {
-                          "type": "string",
-                          "minLength": 1,
-                          "maxLength": 160
+                        "endAt": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "performer": {
+                          "type": "object",
+                          "properties": {
+                            "displayName": {
+                              "type": "string"
+                            },
+                            "slug": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 160
+                            }
+                          },
+                          "required": [
+                            "displayName",
+                            "slug"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "roleLabel": {
+                          "type": "string"
+                        },
+                        "startAt": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
                         }
                       },
                       "required": [
-                        "displayName",
-                        "slug"
+                        "displayLabel",
+                        "roleLabel",
+                        "startAt"
                       ],
                       "additionalProperties": false
-                    },
-                    "roleLabel": {
-                      "type": "string"
-                    },
-                    "startAt": {
-                      "type": "integer",
-                      "minimum": 0,
-                      "maximum": 9007199254740991
                     }
                   },
-                  "required": [
-                    "displayLabel",
-                    "roleLabel",
-                    "startAt"
-                  ],
-                  "additionalProperties": false
-                }
-              },
-              "slug": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 160
-              },
-              "source": {
-                "type": "object",
-                "properties": {
-                  "label": {
+                  "slug": {
                     "type": "string",
-                    "minLength": 1
+                    "minLength": 1,
+                    "maxLength": 160
                   },
-                  "sourceType": {
+                  "source": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "sourceType": {
+                        "type": "string",
+                        "enum": [
+                          "manual",
+                          "community",
+                          "partner",
+                          "import",
+                          "ai_suggested"
+                        ],
+                        "description": "Public event source class."
+                      },
+                      "url": {
+                        "type": "string",
+                        "format": "uri"
+                      }
+                    },
+                    "required": [
+                      "label",
+                      "sourceType"
+                    ],
+                    "additionalProperties": {},
+                    "description": "Public event source summary."
+                  },
+                  "startAt": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "scheduleKind": {
+                    "type": "string",
+                    "const": "timed"
+                  },
+                  "eventDate": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                  },
+                  "status": {
                     "type": "string",
                     "enum": [
-                      "manual",
-                      "community",
-                      "partner",
-                      "import",
-                      "ai_suggested"
-                    ],
-                    "description": "Public event source class."
+                      "scheduled",
+                      "cancelled"
+                    ]
                   },
-                  "url": {
+                  "timezone": {
+                    "type": "string"
+                  },
+                  "title": {
                     "type": "string",
-                    "format": "uri"
+                    "minLength": 1
                   }
                 },
                 "required": [
-                  "label",
-                  "sourceType"
+                  "source",
+                  "startAt",
+                  "title"
                 ],
-                "additionalProperties": {},
-                "description": "Public event source summary."
+                "additionalProperties": {}
               },
-              "startAt": {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 9007199254740991
-              },
-              "status": {
-                "type": "string",
-                "enum": [
-                  "scheduled",
-                  "cancelled"
-                ]
-              },
-              "timezone": {
-                "type": "string"
-              },
-              "title": {
-                "type": "string",
-                "minLength": 1
+              {
+                "type": "object",
+                "properties": {
+                  "communityAvatarAppearance": {
+                    "type": "object",
+                    "properties": {
+                      "borderColor": {
+                        "type": "string"
+                      },
+                      "borderEnabled": {
+                        "type": "boolean"
+                      },
+                      "borderSoftnessPx": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "borderWidthPx": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "radiusPercent": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 50
+                      }
+                    },
+                    "required": [
+                      "borderColor",
+                      "borderEnabled",
+                      "borderSoftnessPx",
+                      "borderWidthPx",
+                      "radiusPercent"
+                    ],
+                    "additionalProperties": {},
+                    "description": "Bounded public avatar presentation hints."
+                  },
+                  "communityName": {
+                    "type": "string"
+                  },
+                  "communitySlug": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 160
+                  },
+                  "doorsOpenAt": {
+                    "not": {}
+                  },
+                  "endAt": {
+                    "not": {}
+                  },
+                  "nextSlots": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "displayLabel": {
+                          "type": "string"
+                        },
+                        "endAt": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "performer": {
+                          "type": "object",
+                          "properties": {
+                            "displayName": {
+                              "type": "string"
+                            },
+                            "slug": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 160
+                            }
+                          },
+                          "required": [
+                            "displayName",
+                            "slug"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "roleLabel": {
+                          "type": "string"
+                        },
+                        "startAt": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": [
+                        "displayLabel",
+                        "roleLabel",
+                        "startAt"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "slug": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 160
+                  },
+                  "source": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "sourceType": {
+                        "type": "string",
+                        "enum": [
+                          "manual",
+                          "community",
+                          "partner",
+                          "import",
+                          "ai_suggested"
+                        ],
+                        "description": "Public event source class."
+                      },
+                      "url": {
+                        "type": "string",
+                        "format": "uri"
+                      }
+                    },
+                    "required": [
+                      "label",
+                      "sourceType"
+                    ],
+                    "additionalProperties": {},
+                    "description": "Public event source summary."
+                  },
+                  "startAt": {
+                    "not": {}
+                  },
+                  "scheduleKind": {
+                    "type": "string",
+                    "const": "date_only"
+                  },
+                  "eventDate": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "scheduled",
+                      "cancelled"
+                    ]
+                  },
+                  "timezone": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "source",
+                  "scheduleKind",
+                  "eventDate",
+                  "title"
+                ],
+                "additionalProperties": {}
               }
-            },
-            "required": [
-              "source",
-              "startAt",
-              "title"
-            ],
-            "additionalProperties": {}
+            ]
           },
           "slug": {
             "type": "string",
