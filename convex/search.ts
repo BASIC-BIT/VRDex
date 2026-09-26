@@ -64,12 +64,18 @@ async function listDocumentsByType(
 
 async function listUpcomingEventDocuments(ctx: QueryCtx, now: number) {
   if (dateOnlyEventsEnabled()) {
-    const candidates = await ctx.db.query("searchDocuments")
-      .withIndex("by_publicState_entityType_sortAt", index => index.eq("publicState", "public").eq("entityType", "event").gte("sortAt", now - 36 * 60 * 60 * 1000))
-      .take(DISCOVERY_EVENT_SCAN_LIMIT);
-    return candidates.filter(document => document.scheduleKind === "date_only"
-      ? (document.sortAt ?? 0) + 36 * 60 * 60 * 1000 > now
-      : (document.startsAt ?? 0) >= now);
+    const [future, dateOnlyLookback] = await Promise.all([
+      ctx.db.query("searchDocuments")
+        .withIndex("by_publicState_entityType_sortAt", index => index
+          .eq("publicState", "public").eq("entityType", "event").gte("sortAt", now))
+        .take(DISCOVERY_EVENT_SCAN_LIMIT),
+      ctx.db.query("searchDocuments")
+        .withIndex("by_publicState_entityType_scheduleKind_sortAt", index => index
+          .eq("publicState", "public").eq("entityType", "event").eq("scheduleKind", "date_only")
+          .gt("sortAt", now - 36 * 60 * 60 * 1000).lt("sortAt", now))
+        .take(DISCOVERY_EVENT_SCAN_LIMIT),
+    ]);
+    return [...dateOnlyLookback, ...future];
   }
   return await ctx.db
     .query("searchDocuments")

@@ -17,6 +17,55 @@ const dateOnly = { _id: "date-only", slug: "july-four", title: "July Four", sort
   eventStatus: "scheduled", publicationState: "published", sourceType: "community", sourceLabel: "Community",
   watchSurfaceEnabled: true, updatedAt: 1 } as unknown as Doc<"events">;
 
+it("keeps a future discovery event when 500 expired timed rows exhaust featured results", async () => {
+  const schema = (schemaModule as unknown as { default?: typeof schemaModule }).default ?? schemaModule;
+  const t = convexTest({ schema, modules: {
+    "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
+    "../../convex/search.ts": () => import("../../convex/search"),
+  } });
+  const now = 1783166400000;
+  const communityId = await t.run(async ctx => {
+    const communityId = await ctx.db.insert("profiles", {
+      slug: "discovery-club", displayName: "Discovery Club", sortName: "discovery club",
+      profileType: "community", community: { categoryTags: [] }, aliases: [], tags: [],
+      claimState: "unclaimed", creationSource: "self", publicationState: "published",
+      publicSurfacingState: "public", updatedAt: now,
+    });
+    const community = (await ctx.db.get(communityId))!;
+    // The only future event is oldest by creation order, outside the featured fallback.
+    for (let index = 0; index <= 500; index++) {
+      const startAt = index === 0 ? now + 3_600_000 : now - 35 * 3_600_000;
+      const eventId = await ctx.db.insert("events", {
+        slug: `review-event-${index}`, title: `Review Event ${index}`, sortTitle: `review event ${index}`,
+        ...readEventSchedule({ startAt }),
+        communityProfileId: communityId, eventStatus: "scheduled", publicationState: "published",
+        sourceType: "community", sourceLabel: "Community", updatedAt: now,
+      });
+      const document = createEventSearchDocument((await ctx.db.get(eventId))!, { community });
+      await ctx.db.insert("searchDocuments", { ...document, featuredRank: 42 });
+    }
+    return communityId;
+  });
+  const previous = process.env.EVENT_DATE_ONLY_ENABLED;
+  try {
+    for (const enabled of ["false", "true"]) {
+      process.env.EVENT_DATE_ONLY_ENABLED = enabled;
+      const discovery = await t.query(api.search.listDiscovery, { now });
+      assert.deepEqual(discovery.upcomingEvents.map(event => event.slug), ["review-event-0"], `switch=${enabled}`);
+    }
+    // A date-only event within the lookback must also survive those expired timed rows.
+    await t.run(async ctx => {
+      const { _id, ...fields } = dateOnly;
+      const eventId = await ctx.db.insert("events", { ...fields, communityProfileId: communityId });
+      const community = (await ctx.db.get(communityId))!;
+      const document = createEventSearchDocument((await ctx.db.get(eventId))!, { community });
+      await ctx.db.insert("searchDocuments", { ...document, featuredRank: 0 });
+    });
+    const discovery = await t.query(api.search.listDiscovery, { now });
+    assert.deepEqual(discovery.upcomingEvents.map(event => event.slug), ["july-four", "review-event-0"]);
+  } finally { if (previous === undefined) delete process.env.EVENT_DATE_ONLY_ENABLED; else process.env.EVENT_DATE_ONLY_ENABLED = previous; }
+});
+
 it("projects date-only events without an instant or live watch", () => {
   const result = toPublicEvent({ event: dateOnly, worlds: [], participants: [], slots: [] })!;
   assert.equal(result.scheduleKind, "date_only");

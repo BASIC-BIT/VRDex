@@ -2877,6 +2877,7 @@ export default defineSchema({
     ])
     .index("by_publicState_startsAt", ["publicState", "startsAt"])
     .index("by_publicState_entityType_sortAt", ["publicState", "entityType", "sortAt"])
+    .index("by_publicState_entityType_scheduleKind_sortAt", ["publicState", "entityType", "scheduleKind", "sortAt"])
     .searchIndex("search_text", {
       searchField: "searchText",
       filterFields: ["publicState", "entityType", "profileType"],
