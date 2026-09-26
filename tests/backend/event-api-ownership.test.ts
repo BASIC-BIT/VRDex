@@ -15,6 +15,7 @@ import { newClerkUserId } from "./_clerkTestIdentity";
 const modules = {
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
   "../../convex/events.ts": () => import("../../convex/events"),
+  "../../convex/communityTelemetry.ts": () => import("../../convex/communityTelemetry"),
   "../../convex/profileAssets.ts": () => import("../../convex/profileAssets"),
   "../../convex/search.ts": () => import("../../convex/search"),
 };
@@ -88,6 +89,177 @@ async function seedUser(t: ReturnType<typeof convexTest>, name: string) {
 }
 
 describe("API-created event ownership", () => {
+  it("recomputes an old confirmed recap after event start and end corrections", async () => {
+    const t = convexTest({ schema, modules });
+    const { identity, profileId, userId } = await seedOwnedCommunity(t);
+    const originalStart = Date.now() - 20 * 24 * 60 * 60_000;
+    const created = await t.withIdentity(identity).mutation(api.events.createCommunityEvent, {
+      title: "Past club event",
+      communitySlug: "faceless",
+      startAt: originalStart,
+      endAt: originalStart + 2 * 60 * 60_000,
+      published: true,
+    });
+    await t.run(async (ctx) => {
+      const integrationId = await ctx.db.insert("communityVrchatIntegrations", {
+        communityProfileId: profileId,
+        vrchatGroupId: "grp_00000000-0000-4000-8000-000000000001",
+        groupVisibility: "public",
+        joinPolicy: "free",
+        state: "active",
+        killSwitchEnabled: false,
+        requestsPerMinute: 4,
+        leaseGeneration: 0,
+        publicMetrics: {
+          currentPopulation: false, populationHistory: false, groupMemberCount: false,
+          groupMemberGrowth: false, eventRecaps: false,
+        },
+        consecutiveFailures: 0,
+        createdAt: originalStart - 60_000,
+        updatedAt: originalStart - 60_000,
+      });
+      const sessionId = await ctx.db.insert("instanceSessions", {
+        integrationId,
+        communityProfileId: profileId,
+        providerInstanceId: "old-event-instance",
+        providerLocation: "wrld_example:old-event-instance",
+        vrchatWorldId: "wrld_example",
+        source: "first_party",
+        state: "closed",
+        openedAt: originalStart,
+        lastObservedAt: originalStart + 150 * 60_000,
+        closedAt: originalStart + 160 * 60_000,
+        consecutiveMisses: 2,
+        updatedAt: originalStart + 160 * 60_000,
+      });
+      for (const [minute, population] of [[30, 2], [90, 8], [150, 12]]) {
+        await ctx.db.insert("instancePopulationObservations", {
+          integrationId,
+          sessionId,
+          idempotencyKey: `old-event-${minute}`,
+          providerInstanceId: "old-event-instance",
+          vrchatWorldId: "wrld_example",
+          population,
+          observedAt: originalStart + minute * 60_000,
+          source: "first_party",
+          collectorVersion: "test-v1",
+          coverageState: "observed",
+          fencingToken: 1,
+        });
+      }
+      await ctx.db.insert("eventInstanceAssociations", {
+        eventId: created.eventId,
+        sessionId,
+        communityProfileId: profileId,
+        source: "manual",
+        confidence: 1,
+        state: "confirmed",
+        createdAt: originalStart,
+        updatedAt: originalStart,
+      });
+    });
+    const rollupId = await t.mutation(internal.communityTelemetry.recomputeRollup, {
+      communityProfileId: profileId,
+      eventId: created.eventId,
+      grain: "event",
+      bucketStartAt: originalStart,
+      bucketEndAt: originalStart + 2 * 60 * 60_000,
+    });
+    assert.equal((await t.run((ctx) => ctx.db.get(rollupId)))?.peakConcurrency, 8);
+    const secondCommunityId = await t.run(async (ctx) => {
+      const id = await ctx.db.insert("profiles", {
+        slug: "second-owned-club",
+        displayName: "Second Owned Club",
+        sortName: "second owned club",
+        aliases: [], tags: [],
+        claimState: "claimed_verified", publicationState: "published",
+        publicSurfacingState: "public", creationSource: "self",
+        updatedAt: Date.now(), profileType: "community", community: { categoryTags: [] },
+      });
+      await ctx.db.insert("profileOwners", {
+        profileId: id, userId, roleKey: "owner", state: "active",
+        grantedAt: Date.now(), updatedAt: Date.now(),
+      });
+      return id;
+    });
+    const movable = await t.mutation(internal.events.createCommunityEventForApiOwner, {
+      actorKind: "personal_api_token",
+      ownerUserId: userId,
+      title: "Movable event",
+      communitySlug: "faceless",
+      startAt: originalStart,
+    });
+    await t.mutation(internal.events.updateCommunityEventForApiOwner, {
+      actorKind: "personal_api_token",
+      ownerUserId: userId,
+      currentSlug: movable.slug,
+      communitySlug: "second-owned-club",
+    });
+    assert.equal((await t.run((ctx) => ctx.db.get(movable.eventId)))?.communityProfileId, secondCommunityId);
+    await assert.rejects(t.mutation(internal.events.updateCommunityEventForApiOwner, {
+      actorKind: "personal_api_token",
+      ownerUserId: userId,
+      currentSlug: created.slug,
+      communitySlug: "second-owned-club",
+    }), /move this event to another community/);
+    assert.equal((await t.run((ctx) => ctx.db.get(created.eventId)))?.communityProfileId, profileId);
+    assert.notEqual(secondCommunityId, profileId);
+    const sweep = await t.mutation(internal.communityTelemetry.scheduleTelemetryEventWorkForCommunity, {
+      communityProfileId: profileId,
+      now: Date.now(),
+    });
+    assert.equal(sweep.events, 0, "the ordinary sweep cannot revisit this 20-day-old event");
+
+    await t.withIdentity(identity).mutation(api.events.updateCommunityEvent, {
+      currentSlug: created.slug,
+      title: "Past club event",
+      communitySlug: "faceless",
+      startAt: originalStart,
+      endAt: originalStart + 3 * 60 * 60_000,
+    });
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    await t.finishInProgressScheduledFunctions();
+    const afterEndEdit = await t.run((ctx) => ctx.db.get(rollupId));
+    assert.equal(afterEndEdit?.bucketEndAt, originalStart + 3 * 60 * 60_000);
+    assert.equal(afterEndEdit?.peakConcurrency, 12);
+
+    await t.withIdentity(identity).mutation(api.events.updateCommunityEvent, {
+      currentSlug: created.slug,
+      title: "Past club event",
+      communitySlug: "faceless",
+      startAt: originalStart + 60 * 60_000,
+      endAt: originalStart + 3 * 60 * 60_000,
+    });
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    await t.finishInProgressScheduledFunctions();
+    const afterStartEdit = await t.run((ctx) => ctx.db.get(rollupId));
+    assert.equal(afterStartEdit?.bucketStartAt, originalStart + 60 * 60_000);
+    assert.equal(afterStartEdit?.peakConcurrency, 12);
+
+    await t.mutation(internal.communityTelemetry.recomputeRollup, {
+      communityProfileId: profileId,
+      eventId: created.eventId,
+      grain: "event",
+      bucketStartAt: originalStart,
+      bucketEndAt: originalStart + 2 * 60 * 60_000,
+    });
+    const afterStaleJob = await t.run((ctx) => ctx.db.get(rollupId));
+    assert.equal(afterStaleJob?.bucketStartAt, originalStart + 60 * 60_000);
+    assert.equal(afterStaleJob?.bucketEndAt, originalStart + 3 * 60 * 60_000);
+    assert.equal(afterStaleJob?.peakConcurrency, 12);
+
+    await t.run((ctx) => ctx.db.patch(created.eventId, { communityProfileId: secondCommunityId }));
+    const movedEventJob = await t.mutation(internal.communityTelemetry.recomputeRollup, {
+      communityProfileId: profileId,
+      eventId: created.eventId,
+      grain: "event",
+      bucketStartAt: originalStart,
+      bucketEndAt: originalStart + 2 * 60 * 60_000,
+    });
+    assert.equal(movedEventJob, null);
+    assert.equal(await t.run((ctx) => ctx.db.get(rollupId)), null);
+  });
+
   it("lets a current community owner create a private draft with an audit record", async () => {
     const t = convexTest({ schema, modules });
     const { identity } = await seedOwnedCommunity(t);

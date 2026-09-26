@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
+import { useConvex, useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import type { FunctionReturnType, FunctionArgs } from "convex/server";
 import { api } from "@convex-generated-api";
 import { Button } from "@/components/ui/button";
@@ -316,6 +316,7 @@ function OperationEditor({
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const client = useConvex();
   const save = useMutation(api.clubOperations.edit);
   const isRoleEdit = "roleId" in payload;
   const [roleOffset, setRoleOffset] = useState(0);
@@ -373,11 +374,30 @@ function OperationEditor({
                 };
           setBusy(true);
           try {
+            let reviewedDueAt: number | undefined;
+            if (schedule.kind !== "immediate") {
+              const serverNow = await client.query(api.clubOperations.getScheduleClock, {
+                freshnessNonce: crypto.randomUUID(),
+              });
+              const scheduledEvent = schedule.kind === "event_relative"
+                ? eventItems.find((item) => item.id === schedule.eventId)
+                : null;
+              const scheduledAt = schedule.kind === "fixed"
+                ? schedule.dueAt
+                : scheduledEvent
+                  ? scheduledEvent.startAt + schedule.offsetMs
+                  : NaN;
+              if (!Number.isFinite(scheduledAt) || scheduledAt <= serverNow)
+                throw new Error("Choose a future time.");
+              if (schedule.kind === "event_relative")
+                reviewedDueAt = scheduledAt;
+            }
             await save({
               operationId: operation.id,
               expectedRevision,
               payload,
               schedule,
+              reviewedDueAt,
             });
             onClose();
           } catch (cause) {

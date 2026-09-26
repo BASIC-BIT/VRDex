@@ -315,6 +315,7 @@ describe("independent staff boundary checks", () => {
     await ownerClient.mutation(api.clubStaff.saveRole, {
       communitySlug: "test-club",
       roleId: admin._id,
+      expectedUpdatedAt: admin.updatedAt,
       label: "Admin",
       permissions: ["manage_staff"],
       assignableRoleIds: [event._id],
@@ -338,6 +339,7 @@ describe("independent staff boundary checks", () => {
     await ownerClient.mutation(api.clubStaff.saveRole, {
       communitySlug: "test-club",
       roleId: admin._id,
+      expectedUpdatedAt: (await t.run(ctx => ctx.db.get(admin._id)))!.updatedAt,
       label: "Admin",
       permissions: [],
       assignableRoleIds: [event._id],

@@ -16,6 +16,9 @@ legacy fixed rows remain valid. Editing a pending action to `immediate` records
 the previous revision and sets a new server-derived due time. Optional event
 association still enforces club ownership and cancellation. Event movement only
 rebases event-relative schedules, never a committed immediate due time.
+Explicit unpublished event associations require the club owner or
+`manage_events`, including enqueue and edit. Other operation staff can schedule
+against published events only.
 
 The invitation and instance-creation composers check fixed and event-relative
 future times against a fresh server clock; the post composer uses the same clock
@@ -39,6 +42,10 @@ underlying permissions; editing another person's action additionally requires
 previous revision and makes the editor the new authorizing subject. `cancel`
 also accepts claimed but not submitted actions. The shared paginated list only
 returns actions for which the current actor has the underlying permission.
+Event-relative edits include the exact future time shown during review and
+reject if the event moves before the edit transaction. Pending bulk recipient
+edits also reject a payload matching another action in that batch, including
+one already executed; standalone recipient edits remain available.
 
 Worker sequence, using the current integration lease and credential:
 

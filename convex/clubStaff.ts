@@ -444,6 +444,7 @@ export const saveRole = mutation({
   args: {
     ...base,
     roleId: v.optional(v.id("communityRoles")),
+    expectedUpdatedAt: v.optional(v.number()),
     label: v.string(),
     description: v.optional(v.string()),
     permissions: v.array(clubPermission),
@@ -463,6 +464,8 @@ export const saveRole = mutation({
       throw new Error("Invalid role details.");
     const roles = await roleSet(ctx, community._id, args.assignableRoleIds);
     const existingRole = args.roleId ? roles.find(role => role._id === args.roleId) : null;
+    if (existingRole && args.expectedUpdatedAt !== existingRole.updatedAt)
+      throw new Error("Refresh to continue.");
     if (args.permissions.some(permission =>
       !ASSIGNABLE_CLUB_PERMISSIONS.includes(permission) &&
       !(permission === "edit_community_profile" && existingRole?.permissions.includes(permission))))
@@ -484,7 +487,9 @@ export const saveRole = mutation({
           ? ["edit_community_profile" as const] : []),
       ])],
       assignableRoleIds: args.assignableRoleIds,
-      updatedAt: Date.now(),
+      updatedAt: existingRole
+        ? Math.max(Date.now(), existingRole.updatedAt + 1)
+        : Date.now(),
     };
     let id = args.roleId;
     if (id) await ctx.db.patch(id, fields);
@@ -534,7 +539,7 @@ export const deleteRole = mutation({
           assignableRoleIds: role.assignableRoleIds.filter(
             (id) => id !== args.roleId,
           ),
-          updatedAt: Date.now(),
+          updatedAt: Math.max(Date.now(), role.updatedAt + 1),
         });
     const visibility = await readClubVisibility(ctx.db, community._id);
     const changed: ClubCategory[] = [];

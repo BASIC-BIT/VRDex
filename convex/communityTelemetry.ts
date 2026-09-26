@@ -1609,12 +1609,24 @@ export const recomputeRollup = internalMutation({
     now: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    if (args.bucketEndAt <= args.bucketStartAt) throw new Error("Rollup window is invalid.");
-    const integration = await integrationForCommunity(ctx, args.communityProfileId);
-    if (!integration) throw new Error("Community telemetry is not connected.");
+    // Event jobs can wait behind a newer event edit. Use the event's current
+    // boundaries so an older queued job cannot restore a stale recap window.
+    const event = args.eventId ? await ctx.db.get(args.eventId) : null;
+    const currentEvent = event?.communityProfileId === args.communityProfileId ? event : null;
+    const bucketStartAt = currentEvent?.startAt ?? args.bucketStartAt;
+    const bucketEndAt = currentEvent
+      ? currentEvent.endAt ?? currentEvent.startAt + 6 * 60 * 60_000
+      : args.bucketEndAt;
+    if (bucketEndAt <= bucketStartAt) throw new Error("Rollup window is invalid.");
     const existing = args.eventId
       ? await ctx.db.query("communityTelemetryRollups").withIndex("by_eventId_rollupVersion", (q) => q.eq("eventId", args.eventId!).eq("rollupVersion", TELEMETRY_ROLLUP_VERSION)).first()
       : await ctx.db.query("communityTelemetryRollups").withIndex("by_communityProfileId_grain_bucketStartAt", (q) => q.eq("communityProfileId", args.communityProfileId).eq("grain", args.grain).eq("bucketStartAt", args.bucketStartAt)).first();
+    if (args.eventId && !currentEvent) {
+      if (existing?.communityProfileId === args.communityProfileId) await ctx.db.delete(existing._id);
+      return null;
+    }
+    const integration = await integrationForCommunity(ctx, args.communityProfileId);
+    if (!integration) throw new Error("Community telemetry is not connected.");
     let eventSessionIds: Set<string> | undefined;
     if (args.eventId) {
       const confirmed = await ctx.db
@@ -1630,18 +1642,18 @@ export const recomputeRollup = internalMutation({
     const population = await ctx.db
       .query("communityPopulationObservations")
       .withIndex("by_integrationId_observedAt", (q) =>
-        q.eq("integrationId", integration._id).gte("observedAt", args.bucketStartAt).lt("observedAt", args.bucketEndAt),
+        q.eq("integrationId", integration._id).gte("observedAt", bucketStartAt).lt("observedAt", bucketEndAt),
       )
       .collect();
     const memberCounts = await ctx.db
       .query("communityMemberCountObservations")
       .withIndex("by_integrationId_observedAt", (q) =>
-        q.eq("integrationId", integration._id).gte("observedAt", args.bucketStartAt).lt("observedAt", args.bucketEndAt),
+        q.eq("integrationId", integration._id).gte("observedAt", bucketStartAt).lt("observedAt", bucketEndAt),
       )
       .collect();
     const sessionPopulation = args.eventId
       ? await ctx.db.query("instancePopulationObservations").withIndex("by_integrationId_observedAt", (q) =>
-          q.eq("integrationId", integration._id).gte("observedAt", args.bucketStartAt).lt("observedAt", args.bucketEndAt),
+          q.eq("integrationId", integration._id).gte("observedAt", bucketStartAt).lt("observedAt", bucketEndAt),
         ).collect()
       : [];
     const scopedPopulation = eventSessionIds
@@ -1659,7 +1671,7 @@ export const recomputeRollup = internalMutation({
       instanceKey: "aggregate",
       worldId: "aggregate",
     }));
-    const metrics = computePopulationMetrics(points, args.bucketStartAt, args.bucketEndAt);
+    const metrics = computePopulationMetrics(points, bucketStartAt, bucketEndAt);
     const worldDistribution = new Map<string, number>();
     for (const point of scopedPopulation) {
       for (const world of point.worldDistribution) {
@@ -1683,8 +1695,8 @@ export const recomputeRollup = internalMutation({
       communityProfileId: args.communityProfileId,
       ...(args.eventId ? { eventId: args.eventId } : {}),
       grain: args.grain,
-      bucketStartAt: args.bucketStartAt,
-      bucketEndAt: args.bucketEndAt,
+      bucketStartAt,
+      bucketEndAt,
       rollupVersion: TELEMETRY_ROLLUP_VERSION,
       ...(metrics.currentPopulation === undefined ? {} : { currentPopulation: metrics.currentPopulation }),
       activeInstanceCount,

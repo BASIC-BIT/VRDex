@@ -145,9 +145,11 @@ display artifact and report `sourcePreserved=false`.
 user authority, and ownership of the target `communitySlug`. Event updates also
 require ownership of the event's current community. The first public write
 version only creates and updates events attached to owned community profiles; it
-does not create standalone submitter-only events. Event updates preserve
-fields and relations that are omitted from the PATCH body. Set an optional
-scalar or `worldSlug` to `null` to clear it. Supply an empty array to clear
+does not create standalone submitter-only events. A move to another owned
+community is refused while the event has confirmed group-instance associations,
+so its existing recap remains attached to the original group. Event updates
+preserve fields and relations that are omitted from the PATCH body. Set an
+optional scalar or `worldSlug` to `null` to clear it. Supply an empty array to clear
 `mediaLinks`; schedule and lineup replacements supply `slotLinks` and
 `participantLinks` together, using two empty arrays to clear both.
 

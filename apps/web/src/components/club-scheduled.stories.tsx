@@ -31,6 +31,7 @@ const subject = (token: string) => ({
 class ScheduledFixtureClient extends ConvexReactClient {
   private readonly fixtureListeners = new Set<() => void>();
   private readonly cache = new Map<string, unknown>();
+  private eventStartAt = Date.now() + 86400_000;
   private jobs = (
     ["pending", "pending", "indeterminate", "missed"] as const
   ).map((state, index) => ({
@@ -63,6 +64,7 @@ class ScheduledFixtureClient extends ConvexReactClient {
   constructor(
     private readonly pagedNotifications = false,
     immediate = false,
+    private readonly clockAhead = false,
   ) {
     super("https://fixture.invalid");
     if (immediate)
@@ -84,6 +86,10 @@ class ScheduledFixtureClient extends ConvexReactClient {
     this.cache.clear();
     this.fixtureListeners.forEach((callback) => callback());
   }
+  simulateEventMove() {
+    // Keep the subscribed picker snapshot unchanged to model a move during submit.
+    this.eventStartAt += 86400_000;
+  }
   private result(name: string, args?: unknown) {
     const key = name + JSON.stringify(args);
     if (this.cache.has(key)) return this.cache.get(key);
@@ -96,7 +102,7 @@ class ScheduledFixtureClient extends ConvexReactClient {
           {
             id: "fixture-event",
             title: "Afterhours Friday",
-            startAt: Date.now() + 86400_000,
+            startAt: this.eventStartAt,
             status: "scheduled",
           },
         ],
@@ -138,6 +144,15 @@ class ScheduledFixtureClient extends ConvexReactClient {
       journal: () => undefined,
     };
   }
+  override async query<Query extends FunctionReference<"query">>(
+    query: Query,
+    ..._args: ArgsAndOptions<Query, object>
+  ): Promise<FunctionReturnType<Query>> {
+    void _args;
+    if (getFunctionName(query) !== "clubOperations:getScheduleClock")
+      throw new Error(`Unmocked query ${getFunctionName(query)}`);
+    return (Date.now() + (this.clockAhead ? 2 * 86400_000 : 0)) as FunctionReturnType<Query>;
+  }
   override async mutation<Mutation extends FunctionReference<"mutation">>(
     mutation: Mutation,
     ...args: ArgsAndOptions<Mutation, MutationOptions<FunctionArgs<Mutation>>>
@@ -148,6 +163,10 @@ class ScheduledFixtureClient extends ConvexReactClient {
       const job = this.jobs.find((job) => job.id === value.operationId);
       if (job) {
         if (job.revision !== value.expectedRevision)
+          throw new Error("Refresh to continue.");
+        const schedule = value.schedule as { kind: string; offsetMs?: number };
+        if (schedule.kind === "event_relative" &&
+            value.reviewedDueAt !== this.eventStartAt + (schedule.offsetMs ?? 0))
           throw new Error("Refresh to continue.");
         Object.assign(job, {
           revision: job.revision + 1,
@@ -175,14 +194,18 @@ function ScheduledFixture({
   pagedNotifications = false,
   immediate = false,
   conflict = false,
+  clockAhead = false,
+  mutableEvent = false,
 }: {
   staff?: boolean;
   pagedNotifications?: boolean;
   immediate?: boolean;
   conflict?: boolean;
+  clockAhead?: boolean;
+  mutableEvent?: boolean;
 }) {
   const [client] = useState(
-    () => new ScheduledFixtureClient(pagedNotifications, immediate),
+    () => new ScheduledFixtureClient(pagedNotifications, immediate, clockAhead),
   );
   const data: WorkspaceData = {
     community: {
@@ -218,6 +241,11 @@ function ScheduledFixture({
                 Simulate other editor
               </button>
             ) : null}
+            {mutableEvent ? (
+              <button onClick={() => client.simulateEventMove()}>
+                Move event during submit
+              </button>
+            ) : null}
             <ClubScheduled />
           </ClubWorkspaceView>
         </PageContainer>
@@ -243,4 +271,10 @@ export const Immediate: Story = {
 
 export const ConcurrentEdit: Story = {
   render: () => <ScheduledFixture conflict />,
+};
+export const ClockAhead: Story = {
+  render: () => <ScheduledFixture clockAhead />,
+};
+export const MovedEvent: Story = {
+  render: () => <ScheduledFixture mutableEvent />,
 };

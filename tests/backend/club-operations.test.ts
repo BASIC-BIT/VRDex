@@ -1892,6 +1892,261 @@ it("immediate schedules use server time and preserve the original time on replay
   );
 });
 
+it("pending bulk recipient edits cannot duplicate pending or completed siblings", async () => {
+  const s = await setup();
+  await s.t.run((ctx) =>
+    ctx.db.patch(s.integrationId, { enabledFeatures: ["membership_management"] }),
+  );
+  const first = "usr_11111111-1111-1111-1111-111111111111";
+  const second = "usr_aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+  const third = "usr_33333333-3333-3333-3333-333333333333";
+  const schedule = { kind: "fixed" as const, dueAt: Date.now() + 3600000 };
+  await assert.rejects(
+    s.owner.mutation(ref("enqueue"), {
+      communityProfileId: s.communityProfileId,
+      requestId: "bulk_case_duplicate",
+      payloads: [
+        { kind: "invite_member", targetUserId: second },
+        { kind: "invite_member", targetUserId: second.toUpperCase().replace("USR", "usr") },
+      ],
+      schedule,
+    }),
+    /Duplicate recipient/,
+  );
+  const [firstId, secondId] = await s.owner.mutation(ref("enqueue"), {
+    communityProfileId: s.communityProfileId,
+    requestId: "bulk_edit_recipients",
+    payloads: [
+      { kind: "invite_member", targetUserId: first },
+      { kind: "invite_member", targetUserId: second },
+    ],
+    schedule,
+  });
+  const before = await s.t.run((ctx) => ctx.db.get(firstId));
+  await assert.rejects(
+    s.owner.mutation(ref("edit"), {
+      operationId: firstId,
+      expectedRevision: 1,
+      payload: { kind: "invite_member", targetUserId: second.toUpperCase().replace("USR", "usr") },
+      schedule,
+    }),
+    /Duplicate recipient/,
+  );
+  await s.t.run((ctx) => ctx.db.patch(secondId, { state: "succeeded" }));
+  await assert.rejects(
+    s.owner.mutation(ref("edit"), {
+      operationId: firstId,
+      expectedRevision: 1,
+      payload: { kind: "invite_member", targetUserId: second },
+      schedule,
+    }),
+    /Duplicate recipient/,
+  );
+  assert.deepEqual(await s.t.run((ctx) => ctx.db.get(firstId)), before);
+  assert.deepEqual(
+    await s.t.run((ctx) => ctx.db.query("clubOperationRevisions").take(10)),
+    [],
+  );
+  await s.owner.mutation(ref("edit"), {
+    operationId: firstId,
+    expectedRevision: 1,
+    payload: { kind: "invite_member", targetUserId: third },
+    schedule,
+  });
+  assert.deepEqual((await s.t.run((ctx) => ctx.db.get(firstId)))!.payload, {
+    kind: "invite_member", targetUserId: third,
+  });
+  assert.deepEqual((await s.t.run((ctx) => ctx.db.get(secondId)))!.payload, {
+    kind: "invite_member", targetUserId: second,
+  });
+
+  const [singleId] = await s.owner.mutation(ref("enqueue"), {
+    communityProfileId: s.communityProfileId,
+    requestId: "single_edit_recipient",
+    payloads: [{ kind: "invite_member", targetUserId: first }],
+    schedule,
+  });
+  await s.owner.mutation(ref("edit"), {
+    operationId: singleId,
+    expectedRevision: 1,
+    payload: { kind: "invite_member", targetUserId: second },
+    schedule,
+  });
+  assert.deepEqual((await s.t.run((ctx) => ctx.db.get(singleId)))!.payload, {
+    kind: "invite_member", targetUserId: second,
+  });
+});
+
+it("unpublished event schedules require event-management authority on enqueue and edit", async () => {
+  const s = await setup();
+  const staffSubject = {
+    subject: "inviter",
+    issuer: "https://test.clerk.accounts.dev",
+    tokenIdentifier: "https://test.clerk.accounts.dev|inviter",
+  };
+  const managerSubject = {
+    subject: "event-manager",
+    issuer: "https://test.clerk.accounts.dev",
+    tokenIdentifier: "https://test.clerk.accounts.dev|event-manager",
+  };
+  const eventStartAt = Date.now() + 3600000;
+  const eventId = await s.t.run(async (ctx) => {
+    await ctx.db.patch(s.integrationId, { enabledFeatures: ["membership_management"] });
+    await ctx.db.insert("users", { clerkUserId: staffSubject.subject });
+    await ctx.db.insert("users", { clerkUserId: managerSubject.subject });
+    await ctx.db.patch(s.roleId, { permissions: ["invite_group_members"] });
+    const managerRoleId = await ctx.db.insert("communityRoles", {
+      communityProfileId: s.communityProfileId,
+      key: "event-manager",
+      label: "Event manager",
+      permissions: ["invite_group_members", "manage_events", "manage_scheduled_actions"],
+      assignableRoleIds: [],
+      state: "active",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    for (const [subject, roleId] of [
+      [staffSubject, s.roleId],
+      [managerSubject, managerRoleId],
+    ] as const)
+      await ctx.db.insert("communityAuthorities", {
+        communityProfileId: s.communityProfileId,
+        subject,
+        subjectTokenIdentifier: subject.tokenIdentifier,
+        roleId,
+        state: "active",
+        grantedAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    return ctx.db.insert("events", {
+      slug: "private-schedule",
+      title: "Private schedule",
+      sortTitle: "private schedule",
+      communityProfileId: s.communityProfileId,
+      startAt: eventStartAt,
+      sourceType: "manual",
+      sourceLabel: "test",
+      eventStatus: "scheduled",
+      publicationState: "published",
+      updatedAt: Date.now(),
+    });
+  });
+  const staff = s.t.withIdentity(staffSubject);
+  const manager = s.t.withIdentity(managerSubject);
+  const payload = {
+    kind: "invite_member",
+    targetUserId: "usr_33333333-3333-3333-3333-333333333333",
+  };
+  const schedule = { kind: "event_relative", eventId, offsetMs: 0 };
+  const [staffOperationId] = await staff.mutation(ref("enqueue"), {
+    communityProfileId: s.communityProfileId,
+    requestId: "staff_public_event",
+    payloads: [payload],
+    schedule,
+  });
+  await s.t.run((ctx) => ctx.db.patch(eventId, { publicationState: "draft_private" }));
+  await assert.rejects(
+    staff.mutation(ref("enqueue"), {
+      communityProfileId: s.communityProfileId,
+      requestId: "staff_private_event",
+      payloads: [payload],
+      schedule,
+    }),
+    /Event unavailable/,
+  );
+  const before = await s.t.run((ctx) => ctx.db.get(staffOperationId));
+  await assert.rejects(
+    staff.mutation(ref("edit"), {
+      operationId: staffOperationId,
+      expectedRevision: 1,
+      payload,
+      schedule,
+    }),
+    /Event unavailable/,
+  );
+  assert.deepEqual(await s.t.run((ctx) => ctx.db.get(staffOperationId)), before);
+  for (const [caller, requestId] of [
+    [s.owner, "owner_private_event"],
+    [manager, "manager_private_event"],
+  ] as const) {
+    const [operationId] = await caller.mutation(ref("enqueue"), {
+      communityProfileId: s.communityProfileId,
+      requestId,
+      payloads: [payload],
+      schedule,
+    });
+    await caller.mutation(ref("edit"), {
+      operationId,
+      expectedRevision: 1,
+      payload,
+      schedule,
+      reviewedDueAt: eventStartAt,
+    });
+    assert.equal((await s.t.run((ctx) => ctx.db.get(operationId)))!.revision, 2);
+  }
+});
+
+it("event-relative edits reject missing or stale reviewed time without changing the action", async () => {
+  const s = await setup();
+  const reviewedDueAt = Date.now() + 3600000;
+  const eventId = await s.t.run((ctx) => ctx.db.insert("events", {
+    slug: "moving-edit-event",
+    title: "Moving edit event",
+    sortTitle: "moving edit event",
+    communityProfileId: s.communityProfileId,
+    startAt: reviewedDueAt,
+    sourceType: "manual",
+    sourceLabel: "test",
+    eventStatus: "scheduled",
+    publicationState: "published",
+    updatedAt: Date.now(),
+  }));
+  const payload = {
+    kind: "publish_post",
+    title: "Event post",
+    text: "Scheduled post",
+    visibility: "group",
+    sendNotification: false,
+  };
+  await s.t.run((ctx) => ctx.db.patch(s.integrationId, { enabledFeatures: ["posts"] }));
+  const [operationId] = await s.owner.mutation(ref("enqueue"), {
+    communityProfileId: s.communityProfileId,
+    requestId: "event_edit_drift",
+    payloads: [payload],
+    schedule: { kind: "fixed", dueAt: reviewedDueAt },
+  });
+  const schedule = { kind: "event_relative" as const, eventId, offsetMs: 0 };
+  const before = await s.t.run((ctx) => ctx.db.get(operationId));
+  await assert.rejects(
+    s.owner.mutation(ref("edit"), { operationId, expectedRevision: 1, payload, schedule }),
+    /Refresh to continue/,
+  );
+  await s.t.run((ctx) => ctx.db.patch(eventId, { startAt: reviewedDueAt + 3600000 }));
+  await assert.rejects(
+    s.owner.mutation(ref("edit"), {
+      operationId, expectedRevision: 1, payload, schedule, reviewedDueAt,
+    }),
+    /Refresh to continue/,
+  );
+  const pastAt = Date.now() - 60000;
+  await s.t.run((ctx) => ctx.db.patch(eventId, { startAt: pastAt }));
+  await assert.rejects(
+    s.owner.mutation(ref("edit"), {
+      operationId, expectedRevision: 1, payload, schedule,
+      reviewedDueAt: pastAt,
+    }),
+    /Invalid execution time/,
+  );
+  assert.deepEqual(await s.t.run((ctx) => ctx.db.get(operationId)), before);
+  assert.deepEqual(await s.t.run((ctx) => ctx.db.query("clubOperationRevisions").take(10)), []);
+  await s.t.run((ctx) => ctx.db.patch(eventId, { startAt: reviewedDueAt + 3600000 }));
+  await s.owner.mutation(ref("edit"), {
+    operationId, expectedRevision: 1, payload, schedule,
+    reviewedDueAt: reviewedDueAt + 3600000,
+  });
+  assert.equal((await s.t.run((ctx) => ctx.db.get(operationId)))!.dueAt, reviewedDueAt + 3600000);
+});
+
 it("immediate dependent invitations retain review, server ordering and event cancellation", async () => {
   const s = await queued();
   const creation = {
@@ -2321,7 +2576,7 @@ for (const kind of ["immediate", "fixed", "event_relative"] as const) {
     test.mock.method(Date, "now", () => editAt);
     const eventId = await s.t.run(ctx => ctx.db.insert("events", { slug: "deadline-event", title: "Deadline event", sortTitle: "deadline event", sourceType: "manual", sourceLabel: "test", communityProfileId: s.communityProfileId, startAt: editAt + 3600_000, publicationState: "published", eventStatus: "scheduled", updatedAt: editAt }));
     const schedule = kind === "immediate" ? { kind } : kind === "fixed" ? { kind, dueAt: editAt + 3600_000 } : { kind, eventId, offsetMs: 0 };
-    await s.owner.mutation(ref("edit"), { operationId: s.operationId, expectedRevision: 1, payload: original.payload, schedule });
+    await s.owner.mutation(ref("edit"), { operationId: s.operationId, expectedRevision: 1, payload: original.payload, schedule, ...(kind === "event_relative" ? { reviewedDueAt: editAt + 3600_000 } : {}) });
     test.mock.method(Date, "now", () => original.dueAt + 15 * 60_000 + 1);
     await s.t.mutation(ref("expireUnsent"), { state: "pending", scanStartedAt: editAt });
     assert.equal((await s.t.run(ctx => ctx.db.get(s.operationId)))!.state, "pending");

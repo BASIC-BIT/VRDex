@@ -151,6 +151,7 @@ async function dependencyTimingChanged(
 }
 async function scheduleTime(
   ctx: MutationCtx,
+  actor: ClubActor,
   communityProfileId: Id<"profiles">,
   schedule: Doc<"clubOperations">["schedule"],
   now: number,
@@ -166,7 +167,10 @@ async function scheduleTime(
     schedule.eventId &&
     (!event ||
       event.communityProfileId !== communityProfileId ||
-      event.eventStatus === "cancelled")
+      event.eventStatus === "cancelled" ||
+      (event.publicationState !== "published" &&
+        actor.kind !== "owner" &&
+        !actor.permissions.includes("manage_events")))
   )
     throw new Error("Event unavailable for this club.");
   const dueAt =
@@ -182,6 +186,15 @@ async function scheduleTime(
   )
     throw new Error("Invalid execution time.");
   return dueAt;
+}
+function batchPayloadKey(payload: OperationPayload) {
+  return JSON.stringify(
+    Object.entries(payload)
+      .map(([key, value]) =>
+        [key, key === "targetUserId" ? String(value).toLowerCase() : value],
+      )
+      .sort(([left], [right]) => String(left).localeCompare(String(right))),
+  );
 }
 export const enqueue = mutation({
   args: {
@@ -354,7 +367,7 @@ export async function enqueueClubOperations(
       args.schedule.eventId,
     );
     if (dependency) dependencies.set(dependency._id, dependency);
-    const key = JSON.stringify(payload);
+    const key = batchPayloadKey(payload);
     if (unique.has(key)) throw new Error("Duplicate recipient.");
     unique.add(key);
     if (
@@ -367,6 +380,7 @@ export async function enqueueClubOperations(
   const now = Date.now();
   const dueAt = await scheduleTime(
     ctx,
+    actor,
     args.communityProfileId,
     args.schedule,
     now,
@@ -420,6 +434,7 @@ export const edit = mutation({
     expectedRevision: v.number(),
     payload: clubOperationPayload,
     schedule: operationSchedule,
+    reviewedDueAt: v.optional(v.number()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -436,6 +451,26 @@ export const edit = mutation({
     const integration = await ctx.db.get(job.integrationId);
     if (!integration) throw new Error("Connection unavailable.");
     validatePayload(args.payload, integration.vrchatGroupId);
+    if ("targetUserId" in args.payload) {
+      const payloadKey = batchPayloadKey(args.payload);
+      const siblings = await ctx.db
+        .query("clubOperations")
+        .withIndex("by_community_requestId", (q) =>
+          q
+            .eq("communityProfileId", job.communityProfileId)
+            .eq("requestId", job.requestId),
+        )
+        .take(101);
+      if (
+        siblings.some(
+          (sibling) =>
+            sibling._id !== job._id &&
+            sibling.batchId === job.batchId &&
+            batchPayloadKey(sibling.payload) === payloadKey,
+        )
+      )
+        throw new Error("Duplicate recipient.");
+    }
     const dependency = await checkedDependency(
       ctx,
       integration,
@@ -456,10 +491,18 @@ export const edit = mutation({
     const now = Date.now();
     const dueAt = await scheduleTime(
       ctx,
+      actor,
       job.communityProfileId,
       args.schedule,
       now,
     );
+    if (
+      args.schedule.kind === "event_relative" &&
+      args.reviewedDueAt !== dueAt
+    )
+      throw new Error("Refresh to continue.");
+    if (args.schedule.kind === "event_relative" && dueAt <= now)
+      throw new Error("Invalid execution time.");
     if (dependency && dueAt < (await effectiveDueAt(ctx, dependency)))
       throw new Error("Invitations cannot run before instance creation.");
     await ctx.db.insert("clubOperationRevisions", {

@@ -169,3 +169,38 @@ test("an obsolete editor must close and reopen before saving a newer revision @s
   await expect(page.getByText("Reviewed title", { exact: true })).toBeVisible();
   await expect(page.getByRole("alert")).toHaveCount(0);
 });
+
+test("edited fixed and event times use a fresh server clock @storybook-visual", async ({ page }, testInfo) => {
+  await page.clock.setFixedTime(new Date("2026-09-23T10:00:00Z"));
+  await page.goto("/iframe.html?id=clubs-scheduled--clock-ahead&viewMode=story");
+  await page.getByRole("button", { name: "Edit action", exact: true }).first().click();
+  await page.getByLabel("Title", { exact: true }).fill("Should not publish");
+  await page.getByLabel("Timing", { exact: true }).selectOption("fixed");
+  await page.getByLabel("Execution time", { exact: true }).fill("2026-09-24T10:00");
+  await page.getByRole("button", { name: "Save action", exact: true }).click();
+  await expect(page.getByRole("alert")).toHaveText("Choose a future time.");
+  await expect(page.getByLabel("Title", { exact: true })).toHaveValue("Should not publish");
+
+  await page.getByLabel("Timing", { exact: true }).selectOption("event_relative");
+  await page.getByLabel("Event", { exact: true }).selectOption("fixture-event");
+  await page.getByLabel("Minutes after event start", { exact: true }).fill("0");
+  await page.getByRole("button", { name: "Save action", exact: true }).click();
+  await expect(page.getByRole("alert")).toHaveText("Choose a future time.");
+  await expect(page.getByLabel("Title", { exact: true })).toHaveValue("Should not publish");
+  await page.screenshot({
+    path: `../../.cache/artifacts/scheduled-clock-rejection-${testInfo.project.name}.png`,
+    fullPage: true,
+  });
+});
+
+test("a moved event rejects a stale scheduled edit @storybook-visual", async ({ page }) => {
+  await page.goto("/iframe.html?id=clubs-scheduled--moved-event&viewMode=story");
+  await page.getByRole("button", { name: "Edit action", exact: true }).first().click();
+  await page.getByLabel("Title", { exact: true }).fill("Stale event time");
+  await page.getByLabel("Timing", { exact: true }).selectOption("event_relative");
+  await page.getByLabel("Event", { exact: true }).selectOption("fixture-event");
+  await page.getByRole("button", { name: "Move event during submit" }).click();
+  await page.getByRole("button", { name: "Save action", exact: true }).click();
+  await expect(page.getByRole("alert")).toHaveText("Refresh to continue.");
+  await expect(page.getByLabel("Title", { exact: true })).toHaveValue("Stale event time");
+});

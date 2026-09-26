@@ -11,7 +11,9 @@ review. Enqueue retries retain the same request ID and reviewed schedule. Saved
 list edits do not change queued batches. Group, provider-visible existing instance,
 and selected instance creation destinations have separate inputs. Fixed and
 event-relative schedules show exact review times, and invitations cannot precede
-their selected creation. Confirmation checks a fresh server clock against the
+their selected creation. Selecting Now for a future instance creation resolves
+to a fixed send time at the creation's scheduled time, which the review shows.
+Confirmation checks a fresh server clock against the
 reviewed time and the currently loaded event-relative time before enqueue; the
 enqueue mutation also compares the reviewed event time with its current event read.
 Review closes if an event's time changed. The backend remains authoritative for

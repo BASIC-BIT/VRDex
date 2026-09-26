@@ -1,6 +1,7 @@
 import { eventProfileStreamChoices } from "./_eventPlayback";
 import { ConvexError, v } from "convex/values";
 import {syncClubEventOperations} from "./_clubOperationEvents";
+import { internal } from "./_generated/api";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import {
@@ -1219,6 +1220,15 @@ async function updateCommunityEventRecord(
     throw new Error("Event URL code is missing.");
   }
 
+  if (community._id !== event.communityProfileId) {
+    const confirmed = await db.query("eventInstanceAssociations")
+      .withIndex("by_eventId_state", (query) => query.eq("eventId", event._id).eq("state", "confirmed"))
+      .first();
+    if (confirmed) {
+      throw new Error("You do not have permission to move this event to another community.");
+    }
+  }
+
   await db.patch(event._id, {
     title: input.title,
     sortTitle: input.sortTitle,
@@ -1256,6 +1266,24 @@ async function updateCommunityEventRecord(
     throw new Error("Event update did not persist.");
   }
   if(updatedEvent.startAt!==event.startAt||updatedEvent.communityProfileId!==event.communityProfileId)await syncClubEventOperations(ctx,event._id);
+  if (
+    updatedEvent.communityProfileId !== undefined &&
+    (updatedEvent.startAt !== event.startAt || updatedEvent.endAt !== event.endAt)
+  ) {
+    const confirmed = await db.query("eventInstanceAssociations")
+      .withIndex("by_eventId_state", (query) => query.eq("eventId", event._id).eq("state", "confirmed"))
+      .first();
+    if (confirmed?.communityProfileId === updatedEvent.communityProfileId) {
+      await ctx.scheduler.runAfter(0, internal.communityTelemetry.recomputeRollup, {
+        communityProfileId: updatedEvent.communityProfileId,
+        eventId: event._id,
+        grain: "event",
+        bucketStartAt: updatedEvent.startAt,
+        bucketEndAt: updatedEvent.endAt ?? updatedEvent.startAt + 6 * 60 * 60_000,
+        now,
+      });
+    }
+  }
 
   const replaceWorld = shouldUpdate("worldSlug");
   const replaceSlots = shouldUpdate("slotLinks");

@@ -150,7 +150,9 @@ export function InvitationComposer({
       };
       destinationLabel = `Instance creation: ${metricTime(creation.dueAt)} · ${creation.payload.worldId}`;
     } else throw new Error("Choose an invitation destination.");
-    const serverNow = timing === "now" ? null : await getServerNow();
+    const serverNow = timing === "now" && target.kind !== "scheduled_instance"
+      ? null
+      : await getServerNow();
     let schedule: Enqueue["schedule"];
     let timeLabel: string;
     let reviewedDueAt: number | null = null;
@@ -174,8 +176,17 @@ export function InvitationComposer({
       };
       timeLabel = `${event.title}: ${metricTime(reviewedDueAt)} (${minutes} minutes from start)`;
     } else if (timing === "now") {
-      schedule = { kind: "immediate" };
-      timeLabel = "Now";
+      const creation = target.kind === "scheduled_instance"
+        ? creations.find((item) => item.id === target.creationOperationId)
+        : null;
+      if (creation && creation.dueAt > serverNow!) {
+        reviewedDueAt = creation.dueAt;
+        schedule = { kind: "fixed", dueAt: creation.dueAt };
+        timeLabel = metricTime(creation.dueAt);
+      } else {
+        schedule = { kind: "immediate" };
+        timeLabel = "Now";
+      }
     } else {
       const dueAt = new Date(date).getTime();
       if (!Number.isFinite(dueAt) || dueAt <= serverNow!)

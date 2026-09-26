@@ -233,11 +233,63 @@ describe("club staff and visibility", () => {
     }));
     await ownerClient.mutation(api.clubStaff.saveRole, {
       communitySlug: "test-club", roleId: admin._id, label: "Renamed admin",
+      expectedUpdatedAt: admin.updatedAt,
       permissions: ["manage_staff"], assignableRoleIds: [],
     });
     const saved = await t.run(ctx => ctx.db.get(admin._id));
     assert.equal(saved?.label, "Renamed admin");
     assert.deepEqual(saved?.permissions, ["manage_staff", "edit_community_profile"]);
+  });
+
+  it("rejects a stale role tab before it restores permissions or delegation", async () => {
+    const { t, ownerClient, admin, event } = await setup();
+    await t.run(ctx => ctx.db.patch(admin._id, {
+      assignableRoleIds: [event._id],
+      updatedAt: Date.now() + 10_000,
+    }));
+    const firstTab = (await ownerClient.query(api.clubStaff.getWorkspace, {
+      communitySlug: "test-club",
+    }))!.roles.find(role => role._id === admin._id)!;
+    const secondTab = { ...firstTab };
+
+    await ownerClient.mutation(api.clubStaff.saveRole, {
+      communitySlug: "test-club", roleId: firstTab._id,
+      expectedUpdatedAt: firstTab.updatedAt,
+      label: firstTab.label,
+      permissions: firstTab.permissions.filter(permission => permission !== "manage_staff"),
+      assignableRoleIds: [],
+    });
+    const afterFirstSave = (await t.run(ctx => ctx.db.get(admin._id)))!;
+    assert.ok(afterFirstSave.updatedAt > firstTab.updatedAt);
+    assert.equal(afterFirstSave.permissions.includes("manage_staff"), false);
+    assert.deepEqual(afterFirstSave.assignableRoleIds, []);
+
+    await assert.rejects(ownerClient.mutation(api.clubStaff.saveRole, {
+      communitySlug: "test-club", roleId: secondTab._id,
+      expectedUpdatedAt: secondTab.updatedAt,
+      label: "Renamed admin",
+      permissions: secondTab.permissions,
+      assignableRoleIds: secondTab.assignableRoleIds,
+    }), /Refresh to continue/);
+    await assert.rejects(ownerClient.mutation(api.clubStaff.saveRole, {
+      communitySlug: "test-club", roleId: secondTab._id,
+      label: "Renamed admin",
+      permissions: secondTab.permissions,
+      assignableRoleIds: secondTab.assignableRoleIds,
+    }), /Refresh to continue/);
+    assert.deepEqual((await t.run(ctx => ctx.db.get(admin._id)))!, afterFirstSave);
+
+    await ownerClient.mutation(api.clubStaff.saveRole, {
+      communitySlug: "test-club", roleId: admin._id,
+      expectedUpdatedAt: afterFirstSave.updatedAt,
+      label: "Renamed admin",
+      permissions: afterFirstSave.permissions,
+      assignableRoleIds: afterFirstSave.assignableRoleIds,
+    });
+    const refreshed = (await t.run(ctx => ctx.db.get(admin._id)))!;
+    assert.equal(refreshed.label, "Renamed admin");
+    assert.equal(refreshed.permissions.includes("manage_staff"), false);
+    assert.deepEqual(refreshed.assignableRoleIds, []);
   });
 
   it("grants multiple roles atomically and consumes invitations once", async () => {
@@ -281,6 +333,7 @@ describe("club staff and visibility", () => {
     await ownerClient.mutation(api.clubStaff.saveRole, {
       communitySlug: "test-club",
       roleId: admin._id,
+      expectedUpdatedAt: admin.updatedAt,
       label: "Admin",
       permissions: ["manage_staff"],
       assignableRoleIds: [event._id],
@@ -311,6 +364,7 @@ describe("club staff and visibility", () => {
     await ownerClient.mutation(api.clubStaff.saveRole, {
       communitySlug: "test-club",
       roleId: admin._id,
+      expectedUpdatedAt: (await t.run(ctx => ctx.db.get(admin._id)))!.updatedAt,
       label: "Admin",
       permissions: ["manage_staff"],
       assignableRoleIds: [],

@@ -163,7 +163,7 @@ export const setProviderRoleAllowlist = mutation({
       throw new Error("Invalid provider role IDs.");
     await ctx.db.patch(role._id, {
       permittedProviderRoleIds: [...new Set(args.providerRoleIds)],
-      updatedAt: Date.now(),
+      updatedAt: Math.max(Date.now(), role.updatedAt + 1),
     });
     return null;
   },

@@ -369,6 +369,45 @@ export const Staff: Story = {
     </PageShell>
   ),
 };
+function StaffStaleRoleFixture() {
+  const [workspace, setWorkspace] = useState<WorkspaceData>(data);
+  const [submittedToken, setSubmittedToken] = useState<number | null>(null);
+  const role = workspace.roles[0]!;
+  return (
+    <PageShell><PageContainer max="7xl">
+      <button type="button" onClick={() => setWorkspace(previous => ({
+        ...previous,
+        roles: previous.roles.map(item => item._id === adminId ? {
+          ...item,
+          permissions: item.permissions.filter(permission => permission !== "manage_staff"),
+          assignableRoleIds: [],
+          updatedAt: item.updatedAt + 1,
+        } : item),
+      }))}>Simulate other tab</button>
+      <output aria-label="Stored role permissions">{role.permissions.join(", ")}</output>
+      <output aria-label="Submitted role token">{submittedToken ?? "none"}</output>
+      <ClubWorkspaceView data={workspace} pathname="/account/communities/afterhours/staff">
+        <ClubStaffView
+          data={workspace}
+          invitations={{ results: [], status: "Exhausted", loadMore: () => undefined }}
+          actions={{
+            seed: noop,
+            save: async input => {
+              setSubmittedToken(input.expectedUpdatedAt ?? null);
+              if (input.expectedUpdatedAt !== role.updatedAt)
+                throw new Error("Refresh to continue.");
+            },
+            delete: async () => [],
+            invite: async () => ({ token: "fixture-invitation" }),
+            revokeInvite: noop,
+            revokeAssignment: noop,
+          }}
+        />
+      </ClubWorkspaceView>
+    </PageContainer></PageShell>
+  );
+}
+export const StaffStaleRole: Story = { render: () => <StaffStaleRoleFixture /> };
 const staffInvitations = Array.from({ length: 101 }, (_, index) => ({
   _id: `fixture-invite-${index}` as Id<"communityStaffInvitations">,
   roleIds: [adminId],

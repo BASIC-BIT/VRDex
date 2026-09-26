@@ -30,6 +30,7 @@ export type StaffInvitationPage = {
 };
 type RoleInput = {
   roleId?: Id<"communityRoles">;
+  expectedUpdatedAt?: number;
   label: string;
   description?: string;
   permissions: ClubPermission[];
@@ -76,6 +77,7 @@ function RoleEditor({
         event.preventDefault();
         onSave({
           roleId: role?._id,
+          expectedUpdatedAt: role?.updatedAt,
           label: label.trim(),
           description: description.trim() || undefined,
           permissions,
@@ -521,7 +523,7 @@ export function ClubStaffView({
             {editing !== "new" && editing?._id === role._id ? (
               <RoleEditor
                 key={role._id}
-                role={role}
+                role={editing}
                 roles={data.roles}
                 busy={busy}
                 onCancel={() => setEditing(null)}

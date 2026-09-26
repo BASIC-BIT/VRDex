@@ -226,10 +226,19 @@ test("instance-only staff review a creation with event-relative timing @storyboo
     page.getByRole("link", { name: "Open assigned bot in VRChat" }),
   ).toHaveAttribute("href", `https://vrchat.com/home/user/${alice}`);
   await page.getByRole("button", { name: "Review invitations", exact: true }).click();
-  await expect(page.getByRole("region", { name: "Review invitations" })).toContainText("Now");
+  await expect(page.getByRole("region", { name: "Review invitations" })).toContainText("9:30 PM");
+  await page.screenshot({
+    path: path.resolve(
+      process.cwd(),
+      "../../.cache/artifacts",
+      `invitation-creation-default-${isMobile ? "mobile" : "desktop"}.png`,
+    ),
+    fullPage: true,
+  });
   await page.getByRole("button", { name: "Confirm invitations" }).click();
-  await expect(page.getByRole("alert")).toContainText("Invitations cannot run before instance creation.");
-  await page.getByRole("button", { name: "Back to edit" }).click();
+  await expect(page.getByTestId("queued-review")).toHaveText(
+    "2 recipients · scheduled_instance · fixed",
+  );
   await page.getByLabel("Send invitations").selectOption("event");
   await page
     .getByRole("combobox", { name: "Event", exact: true })
