@@ -8,6 +8,7 @@ VRDex keeps small infrastructure stacks separate so credentials, blast radius, a
 - `vercel/`: Vercel project environment variables for the hosted web app.
 - `rate-limit-redis/`: Upstash Redis database and Vercel runtime env vars for hosted API/MCP rate-limit counters.
 - `profile-assets/`: private S3 profile media-kit asset bucket, Vercel OIDC runtime role, and hosted web env vars for profile asset storage.
+- `profile-assets-proof/`: dedicated non-production S3 bucket for the local media upload proof; CI validates only, while an operator plans and applies it locally after checking the AWS identity and bucket name.
 - `docs-site/`: Vercel docs project/domain and Route 53 DNS for `docs.vrdex.net`.
 - `web-domains/`: Vercel web project-domain bindings and Route 53 DNS for `vrdex.net` and `www.vrdex.net`.
 - `restream-worker/`: validation-only hosted restream worker benchmark foundation for ECR, ECS/Fargate, logs, roles, secret references, and the disabled kill switch.
