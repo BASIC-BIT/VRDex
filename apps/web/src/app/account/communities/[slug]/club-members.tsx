@@ -96,11 +96,12 @@ function MembersContent({
       { key: "bans", label: "Bans", permission: "manage_bans" },
     ] as const
   ).filter((tab) => can(tab.permission));
-  const tabs = !can("view_members") &&
-    (can("assign_vrchat_roles") || can("remove_group_members"))
+  const tabs = can("assign_vrchat_roles") || can("remove_group_members")
     ? [...permittedTabs, { key: "actions", label: "Actions" } as const]
     : permittedTabs;
+  const permissionAccess = `${owner}|${[...workspace.actor.permissions].sort().join("|")}`;
   const [selectedTab, setTab] = useState<Tab>(tabs[0]?.key ?? "members");
+  const [previousPermissionAccess, setPreviousPermissionAccess] = useState(permissionAccess);
   const tab = tabs.some((item) => item.key === selectedTab)
     ? selectedTab
     : (tabs[0]?.key ?? "members");
@@ -122,8 +123,9 @@ function MembersContent({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    if (selectedTab === tab) return;
+    if (selectedTab === tab && previousPermissionAccess === permissionAccess) return;
     setTab(tab);
+    setPreviousPermissionAccess(permissionAccess);
     setOffset(0);
     setHistory([]);
     setSelected([]);
@@ -132,7 +134,7 @@ function MembersContent({
     setRoleId("");
     setQuery("");
     setSearch("");
-  }, [selectedTab, tab]);
+  }, [selectedTab, tab, previousPermissionAccess, permissionAccess]);
   const enqueue = useMutation(api.clubOperations.enqueue);
   const cancel = useMutation(api.clubOperations.cancel);
   const params: ProviderReadParams | null = tab === "actions" ? null : {

@@ -150,7 +150,7 @@ class InvitationFixtureClient extends ConvexReactClient {
       };
     else if (name === "clubInvitations:preview") {
       const recipients = args.recipients as string[];
-      const unique = [...new Set(recipients)];
+      const unique = [...new Set(recipients.map((recipient) => recipient.toLowerCase()))];
       result = {
         recipients: unique,
         removedDuplicates: recipients.length - unique.length,
@@ -210,8 +210,12 @@ class InvitationFixtureClient extends ConvexReactClient {
         list,
       ];
       result = list._id;
-    } else if (name === "clubInvitations:removeList")
+    } else if (name === "clubInvitations:removeList") {
+      const prior = this.lists.find((list) => list._id === value.listId);
+      if (prior && prior.revision !== value.expectedRevision)
+        throw new Error("List changed. Reload before saving.");
       this.lists = this.lists.filter((list) => list._id !== value.listId);
+    }
     else if (name === "clubInvitations:enqueue") {
       const recipients = value.reviewedRecipients as string[];
       const id = `batch-${this.batches.length + 1}`;

@@ -69,6 +69,7 @@ export const removeList = mutation({
   args: {
     communityProfileId: v.id("profiles"),
     listId: v.id("clubRecipientLists"),
+    expectedRevision: v.number(),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -76,7 +77,11 @@ export const removeList = mutation({
     const list = await ctx.db.get(args.listId);
     if (list && list.communityProfileId !== args.communityProfileId)
       throw new Error("List unavailable.");
-    if (list) await ctx.db.delete(list._id);
+    if (list) {
+      if (list.revision !== args.expectedRevision)
+        throw new Error("List changed. Reload before saving.");
+      await ctx.db.delete(list._id);
+    }
     return null;
   },
 });
@@ -165,6 +170,7 @@ export const enqueue = mutation({
     reviewedRecipients: v.array(v.string()),
     destination: invitationDestination,
     schedule: operationSchedule,
+    reviewedDueAt: v.optional(v.number()),
   },
   returns: v.id("clubInvitationBatches"),
   handler: async (ctx, args) => {
@@ -176,6 +182,30 @@ export const enqueue = mutation({
         : "manage_instances",
     );
     const recipients = normalizeRecipients(args.reviewedRecipients);
+    if (args.reviewedDueAt !== undefined || args.schedule.kind === "event_relative") {
+      const prior = await ctx.db
+        .query("clubInvitationBatches")
+        .withIndex("by_community_request", (q) =>
+          q.eq("communityProfileId", args.communityProfileId).eq("requestId", args.requestId),
+        )
+        .unique();
+      if (!prior) {
+        if (!Number.isSafeInteger(args.reviewedDueAt) || args.reviewedDueAt! <= Date.now())
+          throw new Error("Refresh to continue.");
+        if (args.schedule.kind === "fixed" && args.schedule.dueAt !== args.reviewedDueAt)
+          throw new Error("Refresh to continue.");
+        if (args.schedule.kind === "event_relative") {
+          const event = await ctx.db.get(args.schedule.eventId);
+          if (
+            !event ||
+            event.communityProfileId !== args.communityProfileId ||
+            event.eventStatus === "cancelled" ||
+            event.startAt + args.schedule.offsetMs !== args.reviewedDueAt
+          )
+            throw new Error("Refresh to continue.");
+        }
+      }
+    }
     const operationIds = await enqueueClubOperations(ctx, {
       communityProfileId: args.communityProfileId,
       requestId: args.requestId,

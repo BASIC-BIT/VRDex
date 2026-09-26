@@ -40,6 +40,7 @@ class MembersFixtureClient extends ConvexReactClient {
     private readonly staff: boolean,
     private readonly readFailure: boolean,
     private permissions: WorkspaceData["actor"]["permissions"],
+    private readonly directoryReadFailure: boolean,
   ) {
     super("https://fixture.invalid");
   }
@@ -101,7 +102,7 @@ class MembersFixtureClient extends ConvexReactClient {
             ?.toLowerCase()
             .includes(params.search!.toLowerCase()),
         );
-      result = this.readFailure
+      result = this.readFailure || (this.directoryReadFailure && ["members", "search", "member"].includes(params.kind))
         ? {
             state: "failed",
             result: null,
@@ -192,11 +193,13 @@ class MembersFixtureClient extends ConvexReactClient {
 function MembersFixture({
   staff = false,
   readFailure = false,
+  directoryReadFailure = false,
   permissions,
   permissionSwitch = false,
 }: {
   staff?: boolean;
   readFailure?: boolean;
+  directoryReadFailure?: boolean;
   permissions?: WorkspaceData["actor"]["permissions"];
   permissionSwitch?: boolean;
 }) {
@@ -207,7 +210,7 @@ function MembersFixture({
       : []),
     [permissions, staff, limited],
   );
-  const [client] = useState(() => new MembersFixtureClient(staff, readFailure, actorPermissions));
+  const [client] = useState(() => new MembersFixtureClient(staff, readFailure, actorPermissions, directoryReadFailure));
   useLayoutEffect(() => client.setPermissions(actorPermissions), [client, actorPermissions]);
   const data: WorkspaceData = {
     community: {
@@ -271,4 +274,10 @@ export const LivePermissions: Story = {
 };
 export const ReadFailure: Story = {
   render: () => <MembersFixture readFailure />,
+};
+export const OwnerDirectoryUnavailable: Story = {
+  render: () => <MembersFixture directoryReadFailure />,
+};
+export const MixedRoleDirectoryUnavailable: Story = {
+  render: () => <MembersFixture staff directoryReadFailure permissions={["view_members", "assign_vrchat_roles", "remove_group_members"]} />,
 };

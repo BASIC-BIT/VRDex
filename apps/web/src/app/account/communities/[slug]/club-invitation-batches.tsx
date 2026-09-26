@@ -33,7 +33,7 @@ type Preview = FunctionReturnType<typeof api.clubInvitations.preview>;
 type Review = Pick<
   Enqueue,
   "reviewedRecipients" | "destination" | "schedule" | "requestId"
-> & { destinationLabel: string; timeLabel: string; duplicates: number };
+> & { destinationLabel: string; timeLabel: string; reviewedDueAt: number | null; duplicates: number };
 const MAX_AUTOMATIC_EMPTY_HISTORY_PAGES = 3;
 
 export function InvitationComposer({
@@ -73,7 +73,7 @@ export function InvitationComposer({
     listId?: Id<"clubRecipientLists">;
     expectedRevision?: number;
   }) => Promise<void>;
-  onRemoveList: (id: Id<"clubRecipientLists">) => Promise<void>;
+  onRemoveList: (id: Id<"clubRecipientLists">, expectedRevision: number) => Promise<void>;
   recipientEligibility?: (
     userId: string,
     destination: Enqueue["destination"],
@@ -153,6 +153,7 @@ export function InvitationComposer({
     const serverNow = timing === "now" ? null : await getServerNow();
     let schedule: Enqueue["schedule"];
     let timeLabel: string;
+    let reviewedDueAt: number | null = null;
     if (timing === "event") {
       const event = events.find((item) => item.id === eventId);
       const minutes = Number(offset);
@@ -163,14 +164,15 @@ export function InvitationComposer({
         !Number.isFinite(minutes)
       )
         throw new Error("Choose an event and a valid offset.");
-      if (event.startAt + minutes * 60000 <= serverNow!)
+      reviewedDueAt = event.startAt + minutes * 60000;
+      if (reviewedDueAt <= serverNow!)
         throw new Error("Choose a future invitation time.");
       schedule = {
         kind: "event_relative",
         eventId: event.id,
         offsetMs: minutes * 60000,
       };
-      timeLabel = `${event.title}: ${metricTime(event.startAt + minutes * 60000)} (${minutes} minutes from start)`;
+      timeLabel = `${event.title}: ${metricTime(reviewedDueAt)} (${minutes} minutes from start)`;
     } else if (timing === "now") {
       schedule = { kind: "immediate" };
       timeLabel = "Now";
@@ -178,6 +180,7 @@ export function InvitationComposer({
       const dueAt = new Date(date).getTime();
       if (!Number.isFinite(dueAt) || dueAt <= serverNow!)
         throw new Error("Choose a future invitation time.");
+      reviewedDueAt = dueAt;
       schedule = { kind: "fixed", dueAt };
       timeLabel = metricTime(dueAt);
     }
@@ -201,6 +204,7 @@ export function InvitationComposer({
       destinationLabel,
       schedule,
       timeLabel,
+      reviewedDueAt,
       duplicates: normalized.removedDuplicates,
       requestId: crypto.randomUUID(),
     });
@@ -287,6 +291,22 @@ export function InvitationComposer({
                 disabled={busy || !!reviewedInstanceUnavailable}
                 onClick={() =>
                   void run(async () => {
+                    if (review.reviewedDueAt !== null) {
+                      const serverNow = await getServerNow();
+                      const currentEvent = review.schedule.kind === "event_relative"
+                        ? events.find((event) => event.id === review.schedule.eventId)
+                        : null;
+                      if (review.reviewedDueAt <= serverNow ||
+                          (review.schedule.kind === "event_relative" &&
+                            (!currentEvent || currentEvent.status === "cancelled" ||
+                              currentEvent.startAt + review.schedule.offsetMs <= serverNow)))
+                        throw new Error("Choose a future invitation time.");
+                      if (review.schedule.kind === "event_relative" && currentEvent &&
+                          currentEvent.startAt + review.schedule.offsetMs !== review.reviewedDueAt) {
+                        setReview(null);
+                        throw new Error("Refresh to continue.");
+                      }
+                    }
                     await onEnqueue(review);
                     setReview(null);
                     setNotice("Invitations queued.");
@@ -392,7 +412,7 @@ export function InvitationComposer({
                       disabled={busy}
                       onClick={() =>
                         void run(async () => {
-                          await onRemoveList(deleting._id);
+                          await onRemoveList(deleting._id, deleting.revision);
                           setDeleting(null);
                           setEditing(null);
                           setName("");
@@ -864,6 +884,7 @@ function InvitationsContent() {
             reviewedRecipients,
             destination,
             schedule,
+            reviewedDueAt,
           }) => {
             const id = await enqueue({
               communityProfileId,
@@ -871,14 +892,15 @@ function InvitationsContent() {
               reviewedRecipients,
               destination,
               schedule,
+              reviewedDueAt: reviewedDueAt ?? undefined,
             });
             setSelected(id);
           }}
           onSaveList={async (args) => {
             await save({ communityProfileId, ...args });
           }}
-          onRemoveList={async (listId) => {
-            await remove({ communityProfileId, listId });
+          onRemoveList={async (listId, expectedRevision) => {
+            await remove({ communityProfileId, listId, expectedRevision });
           }}
           recipientEligibility={(userId, destination) => (
             <RecipientEligibility

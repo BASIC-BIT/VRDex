@@ -267,7 +267,7 @@ it("authorized saved lists return only declared fields across empty, populated a
   ]);
   assert.equal(pageTwo.isDone, true);
   for (const listId of ids)
-    await owner.mutation(ref("removeList"), { communityProfileId, listId });
+    await owner.mutation(ref("removeList"), { communityProfileId, listId, expectedRevision: 1 });
   assert.deepEqual((await read()).page, []);
 });
 async function setup() {
@@ -390,9 +390,89 @@ it("recipient selection deduplicates and rejects malformed or oversized explicit
     first,
     second,
   ]);
+  const mixedCase = "usr_AaAaAaAa-bBbB-cCcC-dDdD-eEeEeEeEeEeE";
+  assert.deepEqual(normalizeRecipients([mixedCase, mixedCase.toLowerCase()]), [
+    mixedCase.toLowerCase(),
+  ]);
   assert.throws(() => normalizeRecipients([]));
   assert.throws(() => normalizeRecipients(["all-members"]));
   assert.throws(() => normalizeRecipients(Array(101).fill(first)));
+});
+it("preview and enqueue use one canonical target for differently cased user IDs", async () => {
+  const { t, owner, communityProfileId } = await setup();
+  const mixedCase = "usr_AaAaAaAa-bBbB-cCcC-dDdD-eEeEeEeEeEeE";
+  const recipients = [mixedCase, mixedCase.toLowerCase()];
+  const preview = await owner.query(ref("preview"), { communityProfileId, recipients });
+  assert.deepEqual(preview, {
+    recipients: [mixedCase.toLowerCase()],
+    removedDuplicates: 1,
+  });
+  const batchId = await owner.mutation(ref("enqueue"), {
+    communityProfileId,
+    requestId: "case_insensitive_batch",
+    reviewedRecipients: recipients,
+    destination: { kind: "group" },
+    schedule: { kind: "fixed", dueAt: Date.now() + 60_000 },
+  });
+  const batch = await t.run((ctx) => ctx.db.get(batchId));
+  assert.deepEqual(batch!.recipients, [mixedCase.toLowerCase()]);
+  assert.equal(batch!.operationIds.length, 1);
+});
+it("event invitation enqueue keeps the exact reviewed time across event edits", async () => {
+  const { t, owner, communityProfileId } = await setup();
+  const reviewedDueAt = Date.now() + 3600_000;
+  const eventId = await t.run((ctx) => ctx.db.insert("events", {
+    slug: "invitation-event", title: "Invitation event", sortTitle: "invitation event",
+    sourceType: "manual", sourceLabel: "test", communityProfileId,
+    startAt: reviewedDueAt, publicationState: "published",
+    eventStatus: "scheduled", updatedAt: Date.now(),
+  }));
+  const args = {
+    communityProfileId,
+    requestId: "reviewed_event_batch",
+    reviewedRecipients: [first],
+    destination: { kind: "group" as const },
+    schedule: { kind: "event_relative" as const, eventId, offsetMs: 0 },
+    reviewedDueAt,
+  };
+  await t.run((ctx) => ctx.db.patch(eventId, { startAt: reviewedDueAt + 3600_000 }));
+  await assert.rejects(owner.mutation(ref("enqueue"), args), /Refresh to continue/);
+  assert.equal((await t.run((ctx) => ctx.db.query("clubOperations").collect())).length, 0);
+  await assert.rejects(owner.mutation(ref("enqueue"), { ...args, reviewedDueAt: undefined }), /Refresh to continue/);
+  const updated = { ...args, reviewedDueAt: reviewedDueAt + 3600_000 };
+  const batchId = await owner.mutation(ref("enqueue"), updated);
+  const batch = await t.run((ctx) => ctx.db.get(batchId));
+  const operation = await t.run((ctx) => ctx.db.get(batch!.operationIds[0]));
+  assert.equal(operation!.dueAt, updated.reviewedDueAt);
+  await t.run((ctx) => ctx.db.patch(eventId, { startAt: reviewedDueAt + 7200_000 }));
+  assert.equal(await owner.mutation(ref("enqueue"), updated), batchId);
+  await assert.rejects(owner.mutation(ref("enqueue"), {
+    ...updated, requestId: "expired_review_batch", reviewedDueAt: Date.now() - 1000,
+  }), /Refresh to continue/);
+  await assert.rejects(owner.mutation(ref("enqueue"), {
+    ...updated, requestId: "changed_fixed_review_batch",
+    schedule: { kind: "fixed", dueAt: reviewedDueAt + 9000_000 },
+  }), /Refresh to continue/);
+});
+it("a stale displayed recipient list cannot be deleted after another staff edit", async () => {
+  const { t, owner, communityProfileId } = await setup();
+  const listId = await owner.mutation(ref("saveList"), {
+    communityProfileId, name: "Guests", recipients: [first],
+  });
+  await owner.mutation(ref("saveList"), {
+    communityProfileId, listId, expectedRevision: 1,
+    name: "Updated guests", recipients: [second],
+  });
+  await assert.rejects(owner.mutation(ref("removeList"), {
+    communityProfileId, listId, expectedRevision: 1,
+  }), /List changed/);
+  const current = await t.run((ctx) => ctx.db.get(listId));
+  assert.equal(current?.revision, 2);
+  assert.deepEqual(current?.recipients, [second]);
+  await owner.mutation(ref("removeList"), {
+    communityProfileId, listId, expectedRevision: 2,
+  });
+  assert.equal(await t.run((ctx) => ctx.db.get(listId)), null);
 });
 it("reviewed recipients stay frozen when reusable lists change and enqueue retries are idempotent", async () => {
   const { t, owner, communityProfileId } = await setup();

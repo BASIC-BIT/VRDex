@@ -158,6 +158,24 @@ test("stale member pages disable new actions until refresh @storybook-visual", a
   ).toBeVisible();
 });
 
+for (const story of ["owner-directory-unavailable", "mixed-role-directory-unavailable"]) {
+  test(`${story} keeps direct actions available when the directory fails @storybook-visual`, async ({ page }) => {
+    await page.goto(`/iframe.html?id=clubs-members--${story}&viewMode=story`);
+    await expect(page.getByRole("alert")).toContainText("Unable to load data");
+    await expect(page.getByRole("tab", { name: "Directory", exact: true })).toBeVisible();
+    await page.getByRole("tab", { name: "Actions", exact: true }).click();
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    await expect(page.getByLabel("Search members")).toHaveCount(0);
+    await page.getByLabel("VRChat user ID").fill("usr_00000000-0000-0000-0000-000000000001");
+    await page.getByLabel("VRChat role").selectOption({ label: "DJ" });
+    await expect(page.getByRole("button", { name: "Assign role", exact: true })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Remove member", exact: true })).toBeEnabled();
+    await page.screenshot({ path: `../../.cache/artifacts/member-${story}-${test.info().project.name}.png`, fullPage: true });
+    await page.getByRole("button", { name: "Assign role", exact: true }).click();
+    await expect(page.getByText("Review action", { exact: true })).toBeVisible();
+  });
+}
+
 test("role-only staff can assign a permitted role by ID without a directory read @storybook-visual", async ({ page }) => {
   await page.goto("/iframe.html?id=clubs-members--role-only&viewMode=story");
   await expect(page.getByRole("heading", { name: "Members" })).toBeVisible();
@@ -211,6 +229,8 @@ test("live directory revocation switches to permitted actions without remounting
   await expect(page.getByText("Review action", { exact: true })).toBeVisible();
   await page.screenshot({ path: `../../.cache/artifacts/member-live-permissions-${test.info().project.name}.png`, fullPage: true });
   await page.getByRole("button", { name: "Switch permissions" }).click();
+  await expect(page.getByRole("tab", { name: "Directory", exact: true })).toBeVisible();
+  await page.getByRole("tab", { name: "Directory", exact: true }).click();
   await expect(page.getByLabel("Search members")).toBeVisible();
   await expect(page.getByText("Review action", { exact: true })).toHaveCount(0);
   await expect(page.getByText("1 selected", { exact: true })).toHaveCount(0);

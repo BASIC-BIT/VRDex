@@ -5,12 +5,18 @@ Local implementation is at `/account/communities/[slug]/invitations`. Staff need
 enabled feature. The existing staff invitation route is unchanged.
 
 The screen supports named explicit recipient lists with revision-aware updates,
-deletion confirmation, server validation and deduplication, and a frozen final
+revision-protected deletion confirmation, server validation and case-insensitive
+deduplication, and a frozen final
 review. Enqueue retries retain the same request ID and reviewed schedule. Saved
 list edits do not change queued batches. Group, provider-visible existing instance,
 and selected instance creation destinations have separate inputs. Fixed and
 event-relative schedules show exact review times, and invitations cannot precede
-their selected creation. Creation and event selectors support continued pagination.
+their selected creation. Confirmation checks a fresh server clock against the
+reviewed time and the currently loaded event-relative time before enqueue; the
+enqueue mutation also compares the reviewed event time with its current event read.
+Review closes if an event's time changed. The backend remains authoritative for
+current event state and timing. Creation and
+event selectors support continued pagination.
 
 Existing instances come from the narrow management read, independently of
 analytics access. Each reviewed instance recipient has an explicit eligibility
@@ -29,12 +35,14 @@ for older results.
 
 ## Evidence
 
-- Eight Playwright desktop/mobile checks passed in
+- Thirty-six Playwright desktop/mobile checks passed in
   `apps/web/e2e/club-invitation-batches.storybook.spec.ts`.
 - Connected workspace fixture tests exercise actual frontend hooks for saved-list
   reload, batch enqueue/history updates, per-recipient checks, and unsent cancellation.
 - Composer tests exercise deduplication, no enqueue before confirmation, selected
-  creation, early-time rejection, event-relative scheduling, and list deletion.
+  creation, early-time rejection at review and confirmation, moved events and
+  re-review when event time changes,
+  event-relative scheduling, and revision-protected list deletion.
 - Scoped ESLint and full web TypeScript checking passed on the final UI files.
 - Desktop and mobile screenshots were inspected. Recipient sections wrap, controls
   remain usable, and no horizontal page overflow occurred in browser checks.

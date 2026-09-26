@@ -140,6 +140,10 @@ test("connected invitation workspace saves lists and cancels only unsent outcome
   await page.getByRole("button", { name: "Confirm cancellation" }).click();
   await expect(page.getByText("Cancelled", { exact: true })).toBeVisible();
   await expect(page.getByText("Submitted", { exact: true })).toBeVisible();
+  await page.getByLabel("Saved list").selectOption("list-one");
+  await page.getByRole("button", { name: "Delete list", exact: true }).click();
+  await page.getByRole("button", { name: "Confirm deletion" }).click();
+  await expect(page.getByLabel("Saved list").locator("option")).toHaveCount(1);
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= innerWidth,
@@ -277,6 +281,72 @@ test("changed creation requires a fresh invitation review @storybook-visual", as
   await expect(review).toContainText("wrld_55555555-5555-5555-5555-555555555555");
   await page.getByRole("button", { name: "Confirm invitations" }).click();
   await expect(page.getByTestId("queued-review")).toHaveAttribute("data-creation-revision", "8");
+});
+
+test("an expired frozen invitation time must be reviewed again @storybook-visual", async ({ page }) => {
+  await page.goto("/iframe.html?id=clubs-invitation-batches--expiring-schedule&viewMode=story");
+  await page.getByLabel("Saved list").selectOption("list-one");
+  await page.getByLabel("Send invitations").selectOption("fixed");
+  await page.getByLabel("Invitation time").fill("2030-09-20T22:00");
+  await page.getByRole("button", { name: "Review invitations", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Review invitations" })).toBeVisible();
+  await page.getByRole("button", { name: "Advance server clock" }).click();
+  await page.getByRole("button", { name: "Confirm invitations" }).click();
+  await expect(page.getByRole("alert")).toHaveText("Choose a future invitation time.");
+  await expect(page.getByTestId("queued-review")).toHaveCount(0);
+});
+
+test("a moved event cannot submit an invitation whose current time is past @storybook-visual", async ({ page }) => {
+  await page.goto("/iframe.html?id=clubs-invitation-batches--moved-event&viewMode=story");
+  await page.getByLabel("Saved list").selectOption("list-one");
+  await page.getByLabel("Send invitations").selectOption("event");
+  await page.getByRole("combobox", { name: "Event", exact: true }).selectOption("event-one");
+  await page.getByRole("button", { name: "Review invitations", exact: true }).click();
+  await page.getByRole("button", { name: "Move event earlier" }).click();
+  await page.getByRole("button", { name: "Confirm invitations" }).click();
+  await expect(page.getByRole("alert")).toHaveText("Choose a future invitation time.");
+  await expect(page.getByTestId("queued-review")).toHaveCount(0);
+});
+
+test("a moved-later event requires a fresh invitation review @storybook-visual", async ({ page }) => {
+  await page.goto("/iframe.html?id=clubs-invitation-batches--moved-event&viewMode=story");
+  await page.getByLabel("Saved list").selectOption("list-one");
+  await page.getByLabel("Send invitations").selectOption("event");
+  await page.getByRole("combobox", { name: "Event", exact: true }).selectOption("event-one");
+  await page.getByRole("button", { name: "Review invitations", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Review invitations" })).toContainText("10:00 PM");
+  await page.getByRole("button", { name: "Move event later" }).click();
+  await page.getByRole("button", { name: "Confirm invitations" }).click();
+  await expect(page.getByRole("alert")).toHaveText("Refresh to continue.");
+  await expect(page.getByRole("region", { name: "Review invitations" })).toHaveCount(0);
+  await expect(page.getByTestId("queued-review")).toHaveCount(0);
+  await page.getByRole("button", { name: "Review invitations", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Review invitations" })).toContainText("11:00 PM");
+});
+
+test("deleting a list requires the revision shown at confirmation @storybook-visual", async ({ page, isMobile }) => {
+  await page.goto("/iframe.html?id=clubs-invitation-batches--changed-list&viewMode=story");
+  await page.getByLabel("Saved list").selectOption("list-one");
+  await page.getByRole("button", { name: "Delete list", exact: true }).click();
+  await page.getByRole("button", { name: "Change list from another session" }).click();
+  await page.getByRole("button", { name: "Confirm deletion" }).click();
+  await expect(page.getByRole("alert")).toHaveText("List changed. Reload before saving.");
+  await expect(page.getByLabel("Saved list").locator("option")).toHaveCount(2);
+  await page.screenshot({
+    path: path.resolve(process.cwd(), "../../.cache/artifacts", `invitation-stale-list-${isMobile ? "mobile" : "desktop"}.png`),
+    fullPage: true,
+  });
+});
+
+test("recipient review deduplicates user IDs regardless of hex case @storybook-visual", async ({ page }) => {
+  const mixedCase = "usr_AaAaAaAa-bBbB-cCcC-dDdD-eEeEeEeEeEeE";
+  await page.goto("/iframe.html?id=clubs-invitation-batches--composer&viewMode=story");
+  await page.getByLabel("VRChat user IDs").fill(`${mixedCase}\n${mixedCase.toLowerCase()}`);
+  await page.getByRole("button", { name: "Review invitations", exact: true }).click();
+  const review = page.getByRole("region", { name: "Review invitations" });
+  await expect(review).toContainText("Duplicates removed: 1");
+  await expect(review.getByRole("listitem")).toHaveCount(1);
+  await expect(review.getByRole("listitem")).toContainText(mixedCase.toLowerCase());
 });
 
 for (const skew of [-3600000, 3600000]) {

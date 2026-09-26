@@ -15,7 +15,7 @@ export const invitationDestination = v.union(
 );
 export function normalizeRecipients(values: string[]): string[] {
   if (values.length > 100) throw new Error("Select at most 100 recipients.");
-  const recipients = [...new Set(values.map((value) => value.trim()))];
+  const recipients = [...new Set(values.map((value) => value.trim().toLowerCase()))];
   if (
     !recipients.length ||
     recipients.some(

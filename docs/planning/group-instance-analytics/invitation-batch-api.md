@@ -1,20 +1,25 @@
 # Invitation batch backend contract
 
 The backend accepts only explicitly supplied VRChat user IDs. A list or preview
-contains at most 100 input entries. IDs are validated and deduplicated in input
-order. Lists are club-scoped; access requires group-invitation or instance-management
+contains at most 100 input entries. IDs are validated, normalized to lowercase,
+and deduplicated in input order. Lists are club-scoped; access requires group-invitation or instance-management
 authority. There is no all-members or all-friends audience source.
 
 ## Endpoints
 
 - `clubInvitations.saveList`: club ID, optional list ID and expected revision,
   name, recipient IDs. Updating a stale revision fails.
-- `clubInvitations.removeList`: club ID and list ID. Existing batches are unchanged.
+- `clubInvitations.removeList`: club ID, list ID, and the displayed revision.
+  A stale revision cannot delete a list changed by another staff member. Existing
+  batches are unchanged.
 - `clubInvitations.lists`: club ID and cursor pagination, at most 50 lists per page.
 - `clubInvitations.preview`: club ID and explicit recipient IDs. Returns normalized
   recipients and duplicate count. This is recipient selection, not provider eligibility.
 - `clubInvitations.enqueue`: club ID, request ID, reviewed recipient IDs, schedule,
-  and destination. Returns a batch ID. Destination is `group`, `instance` with
+  destination, and the reviewed due time for scheduled UI confirmations. The mutation
+  rejects elapsed or changed reviewed times before creating any operations. Event-relative
+  schedules require a reviewed due time. Returns a batch ID.
+  Destination is `group`, `instance` with
   world/instance IDs, or `scheduled_instance` with a creation-operation ID.
 - `clubInvitations.outcomes`: batch ID. Each entry contains operation ID, original
   reviewed user ID, current target user ID, state, code, and due time.
@@ -50,9 +55,10 @@ detaching them automatically.
 
 ## Verification
 
-Five focused backend tests cover input validation, snapshot immutability, enqueue
-idempotency, revision conflicts, nonstaff denial, feature-disabled atomicity, and
-cancellation that preserves submitted work. Backend TypeScript checking passes.
+Fourteen focused backend tests cover input validation, case-insensitive targets,
+snapshot immutability, enqueue idempotency, revision conflicts, stale deletion,
+nonstaff denial, feature-disabled atomicity, and cancellation that preserves
+submitted work. Backend TypeScript checking passes.
 Live invitations and the browser recipient-selection flow remain unverified.
 
 ## Invitation destination context

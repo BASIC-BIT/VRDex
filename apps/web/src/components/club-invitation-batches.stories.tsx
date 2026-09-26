@@ -10,7 +10,7 @@ const bob = "usr_22222222-2222-2222-2222-222222222222";
 type List = FunctionReturnType<
   typeof api.clubInvitations.lists
 >["page"][number];
-function Fixture({ instanceOnly = false, mutableCreation = false, expiringInstance = false, omittedInstance = false }: { instanceOnly?: boolean; mutableCreation?: boolean; expiringInstance?: boolean; omittedInstance?: boolean }) {
+function Fixture({ instanceOnly = false, mutableCreation = false, expiringInstance = false, omittedInstance = false, mutableClock = false, mutableList = false, mutableEvent = false }: { instanceOnly?: boolean; mutableCreation?: boolean; expiringInstance?: boolean; omittedInstance?: boolean; mutableClock?: boolean; mutableList?: boolean; mutableEvent?: boolean }) {
   const [lists, setLists] = useState<List[]>([
     {
       _id: "list-one" as Id<"clubRecipientLists">,
@@ -24,11 +24,13 @@ function Fixture({ instanceOnly = false, mutableCreation = false, expiringInstan
   const [creationRevision, setCreationRevision] = useState(7);
   const [instancesFresh, setInstancesFresh] = useState(true);
   const [instancePresent, setInstancePresent] = useState(true);
+  const [serverNow, setServerNow] = useState(Date.UTC(2026, 8, 14, 20));
+  const [eventStartAt, setEventStartAt] = useState(Date.UTC(2030, 8, 20, 22));
   return (
     <main className="mx-auto max-w-3xl p-5">
       <h1 className="mb-6 text-3xl font-semibold">Invitations</h1>
       <InvitationComposer
-        getServerNow={async () => Date.UTC(2026, 8, 14, 20)}
+        getServerNow={async () => serverNow}
         lists={lists}
         canGroup={!instanceOnly}
         canInstance
@@ -36,7 +38,7 @@ function Fixture({ instanceOnly = false, mutableCreation = false, expiringInstan
           {
             id: "event-one" as Id<"events">,
             title: "Friday Afterhours",
-            startAt: Date.UTC(2030, 8, 20, 22),
+            startAt: eventStartAt,
             status: "scheduled",
             vrchatWorldId: null,
           },
@@ -83,7 +85,7 @@ function Fixture({ instanceOnly = false, mutableCreation = false, expiringInstan
             recipients.some((id) => !/^usr_[0-9a-f-]{36}$/i.test(id))
           )
             throw new Error("Use 1 to 100 VRChat user IDs.");
-          const distinct = [...new Set(recipients)];
+          const distinct = [...new Set(recipients.map((recipient) => recipient.toLowerCase()))];
           return {
             recipients: distinct,
             removedDuplicates: recipients.length - distinct.length,
@@ -113,9 +115,11 @@ function Fixture({ instanceOnly = false, mutableCreation = false, expiringInstan
                 ],
           );
         }}
-        onRemoveList={async (id) =>
-          setLists((prior) => prior.filter((list) => list._id !== id))
-        }
+        onRemoveList={async (id, expectedRevision) => {
+          if (lists.find((list) => list._id === id)?.revision !== expectedRevision)
+            throw new Error("List changed. Reload before saving.");
+          setLists((prior) => prior.filter((list) => list._id !== id));
+        }}
         onEnqueue={async (review) => {
           if (review.destination.kind === "scheduled_instance") {
             if (review.destination.creationRevision !== creationRevision)
@@ -133,6 +137,28 @@ function Fixture({ instanceOnly = false, mutableCreation = false, expiringInstan
         <button onClick={() => setCreationRevision((revision) => revision + 1)}>
           Change creation
         </button>
+      ) : null}
+      {mutableClock ? (
+        <button onClick={() => setServerNow(Date.UTC(2031, 8, 20, 22))}>
+          Advance server clock
+        </button>
+      ) : null}
+      {mutableList ? (
+        <button onClick={() => setLists((prior) => prior.map((list) => ({
+          ...list, revision: list.revision + 1, recipients: [bob],
+        })))}>
+          Change list from another session
+        </button>
+      ) : null}
+      {mutableEvent ? (
+        <>
+          <button onClick={() => setEventStartAt(Date.UTC(2026, 8, 14, 19))}>
+            Move event earlier
+          </button>
+          <button onClick={() => setEventStartAt(Date.UTC(2030, 8, 20, 23))}>
+            Move event later
+          </button>
+        </>
       ) : null}
       {expiringInstance ? (
         <>
@@ -167,3 +193,6 @@ export const InstanceStaff: Story = { args: { instanceOnly: true } };
 export const ChangedCreation: Story = { args: { instanceOnly: true, mutableCreation: true } };
 export const ExpiringInstance: Story = { args: { instanceOnly: true, expiringInstance: true } };
 export const OmittedInstance: Story = { args: { instanceOnly: true, omittedInstance: true } };
+export const ExpiringSchedule: Story = { args: { mutableClock: true } };
+export const ChangedList: Story = { args: { mutableList: true } };
+export const MovedEvent: Story = { args: { mutableEvent: true } };
