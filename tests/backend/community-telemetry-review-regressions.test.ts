@@ -60,6 +60,15 @@ async function seedCommunity(t: ReturnType<typeof convexTest>) {
   });
 }
 
+async function grantVisibilityOwner(t: ReturnType<typeof convexTest>) {
+  await t.run(async ctx => {
+    const profile = await ctx.db.query("profiles").withIndex("by_slug", q => q.eq("slug", "faceless")).unique();
+    const user = await ctx.db.query("users").withIndex("clerkUserId", q => q.eq("clerkUserId", identity.subject)).unique();
+    const existing = await ctx.db.query("profileOwners").withIndex("by_profileId_roleKey_state", q => q.eq("profileId",profile!._id).eq("roleKey","owner").eq("state","active")).first();
+    if(!existing) await ctx.db.insert("profileOwners", {profileId:profile!._id,userId:user!._id,roleKey:"owner",state:"active",grantedAt:Date.now(),updatedAt:Date.now()});
+  });
+}
+
 async function registerAccount(t: ReturnType<typeof convexTest>) {
   return t.mutation(internal.communityTelemetry.registerCollectorAccount, {
     vrchatUserId: "usr_00000000-0000-4000-8000-999999999999",
@@ -190,6 +199,7 @@ describe("community telemetry review regressions", () => {
     const reconnected = await t.run((ctx) => ctx.db.get(integrationId));
     assert.ok((reconnected?.telemetryEpochStartedAt ?? 0) > firstEpoch);
 
+    await grantVisibilityOwner(t);
     await t.withIdentity(identity).mutation(api.communityTelemetry.setPublicMetric, {
       communitySlug: "faceless",
       metric: "currentPopulation",
@@ -230,8 +240,14 @@ describe("community telemetry review regressions", () => {
         communityProfileId,
         ...rollup(startedAt, "day"),
       });
+      const eventId = await ctx.db.insert("events", {
+        slug: "published-recap", title: "Published recap", sortTitle: "published recap",
+        startAt: startedAt, communityProfileId, sourceType: "manual", sourceLabel: "test",
+        eventStatus: "scheduled", publicationState: "published", updatedAt: startedAt,
+      });
       await ctx.db.insert("communityTelemetryRollups", {
         communityProfileId,
+        eventId,
         ...rollup(startedAt, "event"),
       });
       return startedAt;

@@ -1,3 +1,4 @@
+import { readClubVisibility } from "./_clubAccess";
 import { queueProfileLinkDestinations } from "./_profileLinkDestinationCache";
 import { Migrations } from "@convex-dev/migrations";
 import { components, internal } from "./_generated/api";
@@ -243,3 +244,13 @@ export const runAll = migrations.runner([
   internal.migrations.backfillDiscordWatermarkAppliedAt,
 ]);
 
+
+export const backfillClubDataVisibility = migrations.define({
+  table: "communityVrchatIntegrations",
+  migrateOne: async (ctx, integration) => {
+    const saved = await ctx.db.query("communityDataVisibility").withIndex("by_communityProfileId", q => q.eq("communityProfileId", integration.communityProfileId)).unique();
+    if (saved) return;
+    await ctx.db.insert("communityDataVisibility", {communityProfileId:integration.communityProfileId,categories:await readClubVisibility(ctx.db,integration.communityProfileId),updatedAt:Date.now()});
+  },
+});
+export const runBackfillClubDataVisibility = migrations.runner(internal.migrations.backfillClubDataVisibility);

@@ -12,6 +12,23 @@ import {
 } from "../../apps/web/src/lib/posthog";
 
 describe("PostHog privacy", () => {
+  it("redacts club invitation tokens from analytics and replay URLs", () => {
+    const invitation = "https://vrdex.example/account/communities/afterhours/invite/private-token?source=invite";
+    const redacted = "https://vrdex.example/account/communities/afterhours/invite/redacted";
+    assert.equal(sanitizeAnalyticsUrl(invitation), redacted);
+    assert.equal(sanitizeAnalyticsUrl("/account/communities/afterhours/invite/private-token"), "/account/communities/afterhours/invite/redacted");
+    const event = sanitizePostHogEvent({ properties: {
+      $current_url: invitation,
+      $set_once: { $initial_current_url: invitation },
+      $snapshot_data: [
+        { type: 4, data: { href: invitation } },
+        { type: 5, data: { tag: "$url_changed", payload: { href: invitation } } },
+      ],
+    } });
+    assert.equal(JSON.stringify(event).includes("private-token"), false);
+    assert.equal(event.properties.$current_url, redacted);
+  });
+
   it("keeps lifecycle capture a safe no-op without a configured client", () => {
     assert.doesNotThrow(() =>
       captureProductEvent(undefined, "auth_session_restore_completed", {

@@ -6,6 +6,7 @@
 // write search documents, one audit row per created profile. Gated to
 // loopback deployments so it can never run against a hosted backend.
 import type { Doc, Id } from "./_generated/dataModel";
+import {syncClubEventOperations} from "./_clubOperationEvents";
 import { internalMutation, type MutationCtx } from "./_generated/server";
 import { findSlugOwner } from "./_globalSlugs";
 import { requireLocalDeployment } from "./_localDeployment";
@@ -264,6 +265,7 @@ async function ensureEvents(
 
       eventId = existing._id;
       await ctx.db.patch(eventId, fields);
+      await syncClubEventOperations(ctx,eventId);
       counters.updated += 1;
     }
 

@@ -39,12 +39,14 @@ const telemetryWorker = httpAction(async (ctx, request) => {
   if (!authorizationRecord || !safeEqual(authorizationRecord.workerKeyHash, presentedHash)) {
     return json({ error: "unauthorized" }, 401);
   }
-  if (!authorizationRecord.enabled) return json({ error: "collector_disabled" }, 423);
-
   const body = await request.json().catch(() => null) as Record<string, unknown> | null;
   if (!body || typeof body.operation !== "string" || typeof body.workerId !== "string") {
     return json({ error: "invalid_request" }, 400);
   }
+  // Only recording a past submitted attempt may outlive account shutdown.
+  // The completion mutation still authenticates the current key and exact claim.
+  const completingClubOperation = body.operation === "club_operation_complete";
+  if (!authorizationRecord.enabled && !completingClubOperation) return json({ error: "collector_disabled" }, 423);
   // Re-read after the body, not only before it. The first check happens before
   // an attacker-controlled read of unbounded length, so a request authenticated
   // with a superseded key could hold its body open across a rotation and then
@@ -59,7 +61,7 @@ const telemetryWorker = httpAction(async (ctx, request) => {
   if (!currentAuthorization || !safeEqual(currentAuthorization.workerKeyHash, presentedHash)) {
     return json({ error: "unauthorized" }, 401);
   }
-  if (!currentAuthorization.enabled) return json({ error: "collector_disabled" }, 423);
+  if (!currentAuthorization.enabled && !completingClubOperation) return json({ error: "collector_disabled" }, 423);
 
   // The worker reports the VRChat identity recorded in its own secret. Pairing
   // one collector id with another account's secret ARN otherwise started a task
@@ -224,7 +226,40 @@ const telemetryWorker = httpAction(async (ctx, request) => {
     if (typeof body.integrationId !== "string" || typeof body.fencingToken !== "number") {
       return json({ error: "invalid_lease" }, 400);
     }
+    if (body.operation === "club_authority") {
+      return json(await ctx.runMutation(internal.clubConnection.recordAuthority, {
+        ...common,
+        workerKeyHash: presentedHash,
+        epochStartedAt: body.epochStartedAt,
+        authority: body.authority,
+      } as never));
+    }
+    if (body.operation === "club_read_claim" || body.operation === "club_read_complete") {
+      const worker = { ...common, workerKeyHash: presentedHash, epochStartedAt: body.epochStartedAt };
+      if (body.operation === "club_read_claim") return json(await ctx.runMutation(internal.clubProviderReads.claim, worker as never));
+      return json(await ctx.runMutation(internal.clubProviderReads.complete, {
+        ...worker, requestId: body.requestId, claimToken: body.claimToken, authority: body.authority, result: body.result, errorCode: body.errorCode,
+      } as never));
+    }
+    if (["club_operation_claim", "club_operation_authorize", "club_operation_complete", "club_operation_reject", "club_operation_defer"].includes(body.operation)) {
+      if (typeof body.epochStartedAt !== "number" || !Number.isSafeInteger(body.epochStartedAt)) return json({ error: "invalid_epoch" }, 400);
+      const worker = { ...common, workerKeyHash: presentedHash, epochStartedAt: body.epochStartedAt };
+      if (body.operation === "club_operation_claim") return json(await ctx.runMutation(internal.clubOperations.claim, worker as never));
+      if (body.operation === "club_operation_defer") return json(await ctx.runMutation(internal.clubOperations.deferClaim, {
+        ...worker, operationId: body.operationId, nonce: body.nonce, code: body.code, retryAfterMs: body.retryAfterMs,
+      } as never));
+      if (body.operation === "club_operation_reject") return json(await ctx.runMutation(internal.clubOperations.rejectClaim, {
+        ...worker, operationId: body.operationId, nonce: body.nonce, code: body.code,
+      } as never));
+      if (body.operation === "club_operation_authorize") return json(await ctx.runMutation(internal.clubOperations.authorizeSubmission, {
+        ...worker, operationId: body.operationId, nonce: body.nonce, authority: body.authority, friendship: body.friendship,
+      } as never));
+      return json(await ctx.runMutation(internal.clubOperations.complete, {
+        ...worker, operationId: body.operationId, nonce: body.nonce, status: body.status, code: body.code, result: body.result,
+      } as never));
+    }
     if (body.operation === "membership") {
+      // Group join readiness is distinct from the audit scan operations below.
       await ctx.runMutation(functions.recordMembershipResult, {
         ...common,
         state: body.state,
@@ -234,6 +269,13 @@ const telemetryWorker = httpAction(async (ctx, request) => {
         now,
       } as never);
       return json({ ok: true });
+    }
+    if (body.operation === "membership_scan_begin" || body.operation === "membership_scan_page" || body.operation === "membership_scan_resume" || body.operation === "membership_scan_finalize") {
+      const scope = {...common, workerKeyHash: presentedHash, epochStartedAt: body.epochStartedAt, groupId: body.groupId};
+      if (body.operation === "membership_scan_begin") return json(await ctx.runMutation(internal.clubMembership.beginScan, {...scope,startAt:body.startAt,endAt:body.endAt} as never));
+      if (body.operation === "membership_scan_resume") return json(await ctx.runMutation(internal.clubMembership.resumeScan, scope as never));
+      if (body.operation === "membership_scan_finalize") return json(await ctx.runMutation(internal.clubMembership.finalizeScanPage, {...scope,scanId:body.scanId,pageNumber:body.pageNumber} as never));
+      return json(await ctx.runMutation(internal.clubMembership.ingestBatch, {...scope,scanId:body.scanId,pageNumber:body.pageNumber,events:body.events,exhausted:body.exhausted,sourceCount:body.sourceCount,rawAuditIds:body.rawAuditIds,phase:body.phase} as never));
     }
     if (body.operation === "budget") {
       const result = await ctx.runMutation(functions.reserveRequestBudget, {
@@ -269,6 +311,7 @@ const telemetryWorker = httpAction(async (ctx, request) => {
       await ctx.runMutation(functions.recordPollFailure, {
         ...common,
         statusClass: body.statusClass,
+        telemetryOnly: body.telemetryOnly,
         coverageState: body.coverageState,
         nextPollAt: body.nextPollAt,
         backoffUntil: body.backoffUntil,

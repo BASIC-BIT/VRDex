@@ -127,7 +127,9 @@ export class VrchatClient {
     this.twoFactorAuthCookie = cookies.get("twoFactorAuth");
   }
 
-  async request(path, { method = "GET", body, maxResponseBytes } = {}) {
+  async request(path, { method = "GET", body, maxResponseBytes, allowEmptyResponse = false } = {}) {
+    // Empty-response endpoints still use a bounded body read and reject redirects.
+    if (allowEmptyResponse && !maxResponseBytes) maxResponseBytes = 1024 * 1024;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     this.requestCounts.total += 1;
@@ -174,7 +176,10 @@ export class VrchatClient {
     // telemetry stops, and the claimed batch stays stamped until a restart.
     try {
       if (!maxResponseBytes) return await response.json();
-      if (!response.body) throw new Error("Missing provider body.");
+      if (!response.body) {
+        if (allowEmptyResponse) return null;
+        throw new Error("Missing provider body.");
+      }
       const reader = response.body.getReader();
       const chunks = [];
       let length = 0;
@@ -190,6 +195,7 @@ export class VrchatClient {
       const bytes = new Uint8Array(length);
       let offset = 0;
       for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+      if (allowEmptyResponse && length === 0) return null;
       return JSON.parse(new TextDecoder().decode(bytes));
     }
     catch (error) {
