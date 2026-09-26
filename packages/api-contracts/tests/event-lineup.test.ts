@@ -28,3 +28,21 @@ it("checks known public slot types instead of accepting unknown roster payloads"
   assert.equal(PublicEventSchema.safeParse({ ...event, slots: [{ playbackKey: 123 }] }).success, false);
   assert.equal(PublicEventSchema.safeParse({ ...event, participants: [{ outboundLinks: "private" }] }).success, false);
 });
+
+it("retains ordered partial lineup rows and matched portrait data in the public contract", () => {
+  const lineup = [
+    { key: "guest", position: 0, displayLabel: "Guest" },
+    { key: "matched", position: 1, displayLabel: "Aurora", roleLabel: "DJ", startAt: 1000,
+      performer: { slug: "aurora", displayName: "Aurora", trustLabel: "unclaimed", imageUrl: "https://example.com/portrait.png", outboundLinks: [] } },
+  ];
+  const result = PublicEventSchema.parse({
+    id: "event", slug: "event", title: "Event", startAt: 1000, watchSurfaceEnabled: false, source: { sourceType: "community", label: "Fixture" }, lineup,
+  });
+  assert.deepEqual(result.lineup, lineup);
+});
+
+it("rejects malformed lineup times and missing performer labels", () => {
+  const event = { id: "event", slug: "event", title: "Event", startAt: 1000, watchSurfaceEnabled: false, source: { sourceType: "community", label: "Fixture" } };
+  assert.equal(PublicEventSchema.safeParse({ ...event, lineup: [{ key: "x", position: 0 }] }).success, false);
+  assert.equal(PublicEventSchema.safeParse({ ...event, lineup: [{ key: "x", position: 0, displayLabel: "Guest", startAt: "unknown" }] }).success, false);
+});

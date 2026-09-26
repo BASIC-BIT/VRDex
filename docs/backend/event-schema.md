@@ -93,7 +93,43 @@ Event schedule writes use `manage_events`; event media-control calls use `manage
 newest-first history without raw actor identifiers. The event editor presents
 that history to the current owner or active `manage_events` staff member.
 
-## Event Participants
+## Public lineup
+
+The public event `lineup[]` merges confirmed timed slots, ordered untimed
+`eventLineupEntries`, and legacy participant-only records. A participant already
+represented by a slot or untimed entry does not add another row. Multiple actual
+sets remain separate. Unmatched names stay visible without guessing a person;
+matched public people supply their discovery-visible portrait, appearance, and links.
+
+`replaceEventLineup(db, event, entries, now)` in `convex/_eventLineup.ts` replaces
+the complete authored lineup inside an authorized event mutation. Each entry has
+`clientKey`, `position`, `performerLabel`, and optional `personSlug`, `roleLabel`,
+`startAt`, and `endAt`. `sanitizeEventLineupInput` bounds and validates these values.
+Only a published, publicly surfaced person can be matched on write. Timed entries
+populate `eventSlots`; untimed entries use `eventLineupEntries` indexed by event
+and position. Matched people also populate `eventParticipants` with schedule sort
+caches for discovery. Date-only events accept untimed rows only. Existing timed
+sets retain their playback identity and selected stream when the person is unchanged.
+The legacy owner editor continues using its existing slot and participant writes.
+
+The public page shows one Lineup with optional local set times and portraits or
+initials. Performer names lead to their profiles. A collapsed DJ links section at
+the bottom groups unique VRCDN and Twitch targets; other socials remain on the
+person's profile. Event reference/calendar links and contextual watch stay separate.
+
+```mermaid
+flowchart LR
+  Direct[Direct event link] --> Event[Event page]
+  Discovery[Search or community events] --> Event
+  Event --> Lineup[Lineup]
+  Lineup --> Person[Person profile]
+  Person --> Event
+  Event --> Links[Expand DJ links]
+  Links --> Provider[Twitch or VRCDN copy targets]
+  Event --> Watch[Contextual live watch]
+```
+
+## Participant associations
 
 `eventParticipants` links person profiles to events. This keeps profile-facing event views derived from a canonical event record rather than making `appearance` the core object.
 

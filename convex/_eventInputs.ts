@@ -17,6 +17,41 @@ export const EVENT_MEDIA_LABEL_MAX_LENGTH = 80;
 export const EVENT_PARTICIPANT_MAX_COUNT = 80;
 export const EVENT_PARTICIPANT_ROLE_MAX_LENGTH = 48;
 
+export type EventLineupInput = Array<{
+  clientKey: string;
+  position: number;
+  performerLabel: string;
+  personSlug?: string;
+  roleLabel?: string;
+  startAt?: number;
+  endAt?: number;
+}>;
+
+export function sanitizeEventLineupInput(input: EventLineupInput): EventLineupInput {
+  if (input.length > EVENT_PARTICIPANT_MAX_COUNT) throw new Error("Lineup can include at most 80 entries.");
+  const keys = new Set<string>();
+  const positions = new Set<number>();
+  return input.map(entry => {
+    const clientKey = requireBoundedText(entry.clientKey, "Lineup row key", 1, 120);
+    if (keys.has(clientKey) || positions.has(entry.position)) throw new Error("Lineup keys and positions must be unique.");
+    if (!Number.isInteger(entry.position) || entry.position < 0 || entry.position >= EVENT_PARTICIPANT_MAX_COUNT) {
+      throw new Error("Lineup position must be an integer from 0 to 79.");
+    }
+    keys.add(clientKey);
+    positions.add(entry.position);
+    const startAt = entry.startAt === undefined ? undefined : requireValidTimestamp(entry.startAt, "Set start time");
+    const endAt = entry.endAt === undefined ? undefined : requireValidTimestamp(entry.endAt, "Set end time");
+    if (endAt !== undefined && (startAt === undefined || endAt <= startAt)) throw new Error("Set end time requires an earlier start time.");
+    return {
+      clientKey, position: entry.position,
+      performerLabel: requireBoundedText(entry.performerLabel, "Performer name", 1, 120),
+      ...optionalObjectField("personSlug", optionalBoundedText(entry.personSlug, "Person slug", 64)),
+      ...optionalObjectField("roleLabel", optionalBoundedText(entry.roleLabel, "Role", EVENT_PARTICIPANT_ROLE_MAX_LENGTH)),
+      ...optionalObjectField("startAt", startAt), ...optionalObjectField("endAt", endAt),
+    };
+  }).sort((a, b) => a.position - b.position);
+}
+
 type EventMediaLinkType =
   | "event_page"
   | "watch"

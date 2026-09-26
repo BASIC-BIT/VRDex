@@ -1235,7 +1235,17 @@ export default defineSchema({
       "eventStatus",
       "eventEndAt",
     ]),
+  eventLineupEntries: defineTable({
+    eventId: v.id("events"),
+    clientKey: v.string(),
+    position: v.number(),
+    performerLabel: v.string(),
+    personProfileId: v.optional(v.id("profiles")),
+    roleLabel: v.optional(v.string()),
+    updatedAt: v.number(),
+  }).index("by_eventId_position", ["eventId", "position"]),
   eventSlots: defineTable({
+    clientKey: v.optional(v.string()),
     selectedStreamId: v.optional(v.string()),
     eventId: v.id("events"),
     eventStartAt: v.optional(v.number()),

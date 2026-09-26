@@ -3,7 +3,7 @@ import { useQuery } from "convex/react";
 import Link from "next/link";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "@convex-generated-api";
-import { EventPerformerLinks } from "./event-performer-links";
+import { EventDjLinks } from "./event-dj-links";
 
 import {
   actionCardVariants,
@@ -100,6 +100,7 @@ export type PublicEventPreview = {
 };
 
 export type PublicEvent = Omit<PublicEventPreview, "worlds"> & {
+  lineup?: PublicEventLineupEntry[];
   id: string;
   slug: string;
   watchSurfaceEnabled: boolean;
@@ -303,6 +304,30 @@ export function EventBackendNotice({ kind }: { kind: "missing-url" | "error" }) 
   );
 }
 
+export type PublicEventLineupEntry = {
+  key: string;
+  position: number;
+  displayLabel: string;
+  roleLabel?: string;
+  startAt?: number;
+  endAt?: number;
+  performer?: PublicEvent["slots"][number]["performer"];
+};
+
+/** Legacy payloads remain usable while the backend and web deploy separately. */
+export function eventLineupForDisplay(event: PublicEvent): PublicEventLineupEntry[] {
+  if (event.lineup !== undefined) return event.lineup;
+  const slots = event.scheduleKind === "date_only" ? [] : event.slots;
+  const represented = new Set(slots.flatMap(slot => slot.performer ? [slot.performer.slug] : []));
+  return [
+    ...slots.map(slot => ({ ...slot, key: slot.playbackKey ?? `slot-${slot.position}-${slot.startAt}` })),
+    ...event.participants.filter(person => !represented.has(person.slug)).map((person, index) => ({
+      key: `person-${person.slug}`, position: slots.length + index, displayLabel: person.displayName,
+      roleLabel: person.roleLabel, performer: person,
+    })),
+  ];
+}
+
 export function EventPublicPage({ event: initialEvent }: { event: PublicEvent }) {
   const projection = useQuery(api.events.getPublicBySlug, { slug: initialEvent.slug });
   const event = projection === undefined ? initialEvent : projection;
@@ -310,6 +335,7 @@ export function EventPublicPage({ event: initialEvent }: { event: PublicEvent })
 }
 
 function EventPublicPageContent({ event }: { event: PublicEvent }) {
+  const lineup = eventLineupForDisplay(event);
   const bannerStyle = safeImageBackground(event.bannerImageUrl, eventPosterOverlay);
   const sourceUrl = safeHttpsUrl(event.source.url);
   const eventPath = publicEventPath(event);
@@ -398,46 +424,23 @@ function EventPublicPageContent({ event }: { event: PublicEvent }) {
           </div>
         </section>
 
-        {event.slots.length > 0 ? (
+        {lineup.length > 0 ? (
           <Card surface="white">
-            <Eyebrow>Schedule</Eyebrow>
+            <h2 className="text-xl font-semibold tracking-tight">Lineup</h2>
             <ol className="mt-5 divide-y divide-border">
-              {event.slots.map((slot) => (
-                <li className="grid min-w-0 gap-3 py-5 first:pt-0 sm:grid-cols-[10rem_minmax(0,1fr)]" key={slot.playbackKey ?? `${slot.position}-${slot.startAt}`}>
-                  <ViewerLocalEventTimeRange className="text-sm font-medium" endAt={slot.endAt} startAt={slot.startAt} />
+              {lineup.map((row) => (
+                <li className="flex min-w-0 items-center gap-4 py-4 first:pt-0 last:pb-0" key={row.key}>
+                  <EntityImage appearance={row.performer?.avatarAppearance} imageUrl={row.performer?.imageUrl} label={row.displayLabel} />
                   <div className="min-w-0">
-                    {slot.performer ? (
-                      <Link className={cn(inlineActionClassName, "[overflow-wrap:anywhere]")} href={`/${slot.performer.slug}`}>{slot.displayLabel}</Link>
-                    ) : <span className="font-semibold">{slot.displayLabel}</span>}
-                    <div className="mt-1 text-sm text-muted">{slot.roleLabel}</div>
-                    <EventPerformerLinks links={slot.performer?.outboundLinks ?? []} />
+                    {row.performer ? (
+                      <Link className={cn(inlineActionClassName, "[overflow-wrap:anywhere]")} href={`/${row.performer.slug}`}>{row.displayLabel}</Link>
+                    ) : <span className="font-semibold [overflow-wrap:anywhere]">{row.displayLabel}</span>}
+                    {row.roleLabel ? <div className="mt-1 text-sm text-muted">{row.roleLabel}</div> : null}
+                    {row.startAt !== undefined ? <ViewerLocalEventTimeRange className="mt-1 block text-sm text-muted" endAt={row.endAt} startAt={row.startAt} /> : null}
                   </div>
                 </li>
               ))}
             </ol>
-          </Card>
-        ) : null}
-
-        {event.participants.length > 0 ? (
-          <Card surface="white">
-            <Eyebrow>Participants</Eyebrow>
-            <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {event.participants.map((participant) => (
-                <div className="min-w-0" key={participant.slug}>
-                  <Link className={cn(actionCardVariants({ padding: "lg", variant: "accent" }), "flex items-center gap-3")} href={`/${participant.slug}`}>
-                    <EntityImage appearance={participant.avatarAppearance} imageUrl={participant.imageUrl} label={participant.displayName} />
-                    <span className="min-w-0">
-                      <span className="block text-lg font-semibold tracking-[-0.03em] text-accent-strong underline decoration-accent/45 underline-offset-4 group-hover:decoration-accent">
-                        {participant.displayName}
-                      </span>
-                      <span className="mt-2 block text-muted">{participant.roleLabel}</span>
-                      <span className={actionMetaClassName}>Profile</span>
-                    </span>
-                  </Link>
-                  <EventPerformerLinks links={participant.outboundLinks ?? []} />
-                </div>
-              ))}
-            </div>
           </Card>
         ) : null}
 
@@ -468,6 +471,7 @@ function EventPublicPageContent({ event }: { event: PublicEvent }) {
               ))}
           </div>
         </Card>
+        <EventDjLinks lineup={lineup} />
       </PageContainer>
     </PageShell>
   );

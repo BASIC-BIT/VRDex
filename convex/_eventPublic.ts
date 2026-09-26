@@ -40,6 +40,14 @@ export type PublicEventRecord = {
   worlds: Array<{ association: Doc<"eventWorlds">; world: Doc<"worlds"> }>;
   participants: PublicEventParticipantRecord[];
   slots: PublicEventSlotRecord[];
+  lineupEntries?: PublicEventLineupRecord[];
+};
+
+type PublicEventLineupRecord = {
+  entry: Doc<"eventLineupEntries">;
+  profile?: Doc<"profiles">;
+  imageUrl?: string;
+  avatarAppearance?: PublicProfileAvatarAppearance;
 };
 
 type PublicEventParticipantRecord = {
@@ -98,6 +106,7 @@ export type PublicEventPreview = {
 };
 
 export type PublicEvent = PublicEventPreview & {
+  lineup: PublicEventLineupEntry[];
   id: string;
   slug: string;
   watchMode: "event_stream" | "performer_sequence";
@@ -168,6 +177,50 @@ export type PublicEvent = PublicEventPreview & {
 };
 
 const eventEndsAt = eventSortEndAt;
+
+export type PublicEventLineupEntry = {
+  key: string;
+  position: number;
+  displayLabel: string;
+  roleLabel?: string;
+  startAt?: number;
+  endAt?: number;
+  performer?: NonNullable<PublicEvent["slots"][number]["performer"]>;
+};
+
+function publicLineup(record: PublicEventRecord): PublicEventLineupEntry[] {
+  const represented = new Set<Id<"profiles">>();
+  function performer(row: { profile?: Doc<"profiles">; imageUrl?: string; avatarAppearance?: PublicProfileAvatarAppearance }) {
+    const { profile } = row;
+    if (profile === undefined) return {};
+    represented.add(profile._id);
+    return { performer: {
+      slug: profile.slug, displayName: profile.displayName,
+      trustLabel: getProfileTrustLabel(profile.claimState, profile.creationSource),
+      outboundLinks: publicProfileOutboundLinks(profile, "discovery"),
+      ...optionalField("imageUrl", row.imageUrl ?? publicProfileCardImage(profile)),
+      ...optionalField("avatarAppearance", row.avatarAppearance),
+    } };
+  }
+  const rows: PublicEventLineupEntry[] = [
+    ...(record.event.scheduleKind === "date_only" ? [] : record.slots).map(row => ({
+      key: row.slot._id, position: row.slot.position, displayLabel: row.slot.displayLabel,
+      ...optionalField("roleLabel", row.slot.roleLabel || undefined),
+      startAt: row.slot.startAt, ...optionalField("endAt", row.slot.endAt), ...performer(row),
+    })),
+    ...(record.lineupEntries ?? []).map(row => ({
+      key: row.entry._id, position: row.entry.position, displayLabel: row.entry.performerLabel,
+      ...optionalField("roleLabel", row.entry.roleLabel), ...performer(row),
+    })),
+  ];
+  rows.sort((a, b) => a.position - b.position || (a.startAt ?? Infinity) - (b.startAt ?? Infinity));
+  for (const row of record.participants) {
+    if (represented.has(row.profile._id)) continue;
+    rows.push({ key: row.association._id, position: rows.length, displayLabel: row.profile.displayName,
+      ...optionalField("roleLabel", row.association.roleLabel || undefined), ...performer(row) });
+  }
+  return rows;
+}
 
 function compareCurrentFirstEvents(
   first: StoredEventSchedule,
@@ -335,7 +388,7 @@ export function toPublicEvent(record: PublicEventRecord): PublicEvent | null {
   }
 
   const roster = new Map<Id<"profiles">, { outboundLinks: ReturnType<typeof publicProfileOutboundLinks>; streamChoices: PlaybackStream[] }>();
-  for (const { profile } of [...record.participants, ...record.slots]) {
+  for (const { profile } of [...record.participants, ...record.slots, ...(record.lineupEntries ?? [])]) {
     if (profile !== undefined && !roster.has(profile._id)) {
       roster.set(profile._id, { outboundLinks: publicProfileOutboundLinks(profile, "discovery"), streamChoices: eventProfileStreamChoices(profile) });
     }
@@ -354,6 +407,7 @@ export function toPublicEvent(record: PublicEventRecord): PublicEvent | null {
   return {
     ...preview,
     id: record.event._id,
+    lineup: publicLineup(record),
     slug: record.event.slug,
     watchMode: record.event.watchMode ?? "event_stream",
     watchSurfaceEnabled: record.event.scheduleKind !== "date_only" && (record.event.watchSurfaceEnabled ?? false),
@@ -593,6 +647,23 @@ async function getPublicEventSlotRecords(
   return records.filter((record): record is PublicEventSlotRecord => record !== null);
 }
 
+async function getPublicEventLineupRecords(db: DatabaseReader, event: Doc<"events">, options: RosterLoadOptions): Promise<PublicEventLineupRecord[]> {
+  const entries = await db.query("eventLineupEntries")
+    .withIndex("by_eventId_position", q => q.eq("eventId", event._id)).take(EVENT_ASSOCIATION_LIMIT);
+  return Promise.all(entries.map(async entry => {
+    if (entry.personProfileId === undefined) return { entry };
+    const profile = await loadRosterProfile(db, entry.personProfileId, options);
+    if (profile === null || profile.profileType !== "person" || !canReadProfile("public", profile)) return { entry };
+    if (options.includeMediaKit === false) return { entry, profile, imageUrl: publicProfileCardImage(profile) };
+    const mediaKit = await loadRosterMediaKit(db, profile, options);
+    return { entry, profile,
+      imageUrl: mediaKit.profileImage?.imageUrl ?? mediaKit.primaryLogo?.imageUrl
+        ?? publicProfileCardImage(profile, mediaKit.automaticAvatarImageUrl),
+      avatarAppearance: mediaKit.avatarAppearance,
+    };
+  }));
+}
+
 async function getPublicEventMediaRecord(db: DatabaseReader, event: Doc<"events">) {
   if (event.eventStatus === "cancelled") {
     return { mediaOutputs: [] };
@@ -663,12 +734,13 @@ async function getPublicEventRecord(
     profileCache: new Map(),
     mediaKitCache: new Map(),
   };
-  const [community, worlds, participants, slots, media] = await Promise.all([
+  const [community, worlds, participants, slots, media, lineupEntries] = await Promise.all([
     getPublishedCommunity(db, event),
     getPublicEventWorldRecords(db, event),
     getPublicEventParticipantRecords(db, event, rosterOptions),
     getPublicEventSlotRecords(db, event, rosterOptions),
     getPublicEventMediaRecord(db, event),
+    getPublicEventLineupRecords(db, event, rosterOptions),
   ]);
 
   if (
@@ -693,6 +765,7 @@ async function getPublicEventRecord(
     worlds,
     participants,
     slots,
+    lineupEntries,
     ...media,
     ...optionalField("community", community),
     ...optionalField(

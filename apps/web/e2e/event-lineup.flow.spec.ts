@@ -1,10 +1,15 @@
 import { expect, test } from "@playwright/test";
 
-test("roster exposes links and copy actions without stream requests", async ({ page }) => {
+test("lineup keeps provider links collapsed without stream requests", async ({ page }) => {
   const streams: string[] = [];
   page.on("request", request => { if (/vrcdn|\.live\.ts/.test(request.url())) streams.push(request.url()); });
   await page.goto("/playwright/event-lineup");
-  await expect(page.getByRole("link", { name: "SoundCloud", exact: true })).toHaveCount(2);
+  await expect(page.getByRole("heading", { name: "Lineup", exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "SoundCloud", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Copy PC", exact: true }).first()).not.toBeVisible();
+  await page.locator("summary").filter({ hasText: "DJ links" }).click();
+  await expect(page.getByRole("link", { name: "Twitch", exact: true })).toHaveCount(1);
+  await page.locator("summary").filter({ hasText: "VRCDN · aurora" }).click();
   await expect(page.getByRole("button", { name: "Copy PC", exact: true }).first()).toBeVisible();
   await expect(page.getByRole("link", { name: "Private fixture link" })).toHaveCount(0);
   await expect(page.getByRole("link", { name: "Echo", exact: false })).toHaveCount(1);
@@ -54,6 +59,8 @@ test("unavailable choices survive unrelated saves and changing performer clears 
 test("roster copy controls work with keyboard without navigating", async ({ page, context }) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await page.goto("/playwright/event-lineup");
+  await page.locator("summary").filter({ hasText: "DJ links" }).click();
+  await page.locator("summary").filter({ hasText: "VRCDN · aurora" }).click();
   const copy = page.getByRole("button", { name: "Copy PC", exact: true }).first();
   await copy.focus();
   await expect(copy).toBeFocused();
@@ -63,8 +70,7 @@ test("roster copy controls work with keyboard without navigating", async ({ page
   await quest.focus();
   await page.keyboard.press("Space");
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe("https://stream.vrcdn.live/live/aurora.live.ts");
-  await page.getByRole("button", { name: "Copy Discord", exact: true }).click();
-  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe("nova.fixture");
+  await expect(page.getByRole("button", { name: "Copy Discord", exact: true })).toHaveCount(0);
   await expect(page).toHaveURL(/playwright\/event-lineup$/);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });

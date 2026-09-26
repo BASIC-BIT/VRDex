@@ -450,6 +450,11 @@ export const PublicEventPerformerSchema = z.object({
 export const PublicEventParticipantSchema = PublicEventPerformerSchema.extend({
   roleLabel: z.string(), source: PublicEventSourceSchema,
 });
+export const PublicEventLineupEntrySchema = z.object({
+  key: z.string(), position: z.number().int().nonnegative(), displayLabel: z.string(),
+  roleLabel: z.string().optional(), startAt: timestampMs.optional(), endAt: timestampMs.optional(),
+  performer: PublicEventPerformerSchema.optional(),
+}).passthrough();
 export const EventDiscordTimestampSchema = z.object({
   shortTime: z.string(), longTime: z.string(), shortDate: z.string(), longDate: z.string(),
   shortDateTime: z.string(), longDateTime: z.string(), relative: z.string(),
@@ -471,6 +476,7 @@ const PublicEventObject = PublicEventPreviewObject.extend({
   id: z.string(),
   mediaLinks: z.array(PublicEventMediaLinkSchema).optional(),
   participants: z.array(PublicEventParticipantSchema).optional(),
+  lineup: z.array(PublicEventLineupEntrySchema).optional(),
   slots: z.array(PublicEventSlotSchema).optional(),
   slug,
   watchMode: EventWatchModeSchema.default("event_stream"),

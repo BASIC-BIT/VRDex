@@ -17,7 +17,8 @@ const stream = (id: string) => {
 };
 const people = {
   aurora: { slug: "aurora", displayName: "Aurora", trustLabel: "claimed_verified" as const,
-    outboundLinks: [{ source: "owner_authored", label: "SoundCloud", type: "soundcloud", url: "https://soundcloud.com/aurora" }, { source: "owner_authored", label: "VRCDN", type: "vrcdn", url: "vrcdn:aurora" }] },
+    imageUrl: "/seed/fixture-avatar-luma.svg",
+    outboundLinks: [{ source: "owner_authored", label: "SoundCloud", type: "soundcloud", url: "https://soundcloud.com/aurora" }, { source: "owner_authored", label: "VRCDN", type: "vrcdn", url: "vrcdn:aurora" }, { source: "owner_authored", label: "Twitch", type: "twitch", url: "https://www.twitch.tv/aurora" }] },
   lumen: { slug: "lumen", displayName: "Lumen", trustLabel: "claimed_verified" as const,
     outboundLinks: [{ source: "owner_authored", label: "Main", type: "vrcdn", url: "vrcdn:lumen-main" }, { source: "owner_authored", label: "Visuals", type: "vrcdn", url: "vrcdn:lumen-visuals" }] },
   nova: { slug: "nova", displayName: "Nova", trustLabel: "claimed_verified" as const,
