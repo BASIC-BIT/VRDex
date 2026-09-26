@@ -213,6 +213,35 @@ it("expires drafts in bounded sweeps and retains publish receipts", async () => 
   assert.equal(await t.mutation(sweep, {}), 1);
   assert.ok(await t.run(ctx => ctx.db.get(result.receiptId)));
 });
+it("repairs a slugless legacy exact match before storing a routable replay receipt", async () => {
+  const { t, actor, communityId } = await fixture();
+  const existingId = await t.run(ctx => ctx.db.insert("events", {
+    title: complete.title, sortTitle: complete.title.toLowerCase(),
+    startAt: Date.parse("2027-10-15T18:00:00Z"), timezone: "UTC",
+    communityProfileId: communityId, summary: "Original event summary",
+    sourceType: "community", sourceLabel: "Community", publicationState: "published",
+    eventStatus: "scheduled", updatedAt: Date.now(),
+  }));
+  const draft = await actor.mutation(save, { patch: { ...complete, summary: "Duplicate draft summary" } });
+  const args = { draftId: draft.draftId, expectedVersion: 1, idempotencyKey: "slugless-legacy" };
+  const result = await actor.action(publish, args);
+  assert.equal(result.eventId, existingId);
+  assert.doesNotMatch(result.eventPath, /undefined/);
+  const repaired = await t.run(ctx => ctx.db.get(existingId));
+  assert.ok(repaired?.slug);
+  assert.equal(result.eventPath, `/public-club/events/${repaired.slug}`);
+  const publicEvent = await t.query(api.events.getPublicBySlug, { slug: repaired.slug });
+  assert.equal(publicEvent?.summary, "Original event summary");
+  assert.equal(publicEvent?.source.sourceType, "community");
+  const indexed = await t.run(ctx => ctx.db.query("searchDocuments").withIndex("by_eventId", q => q.eq("eventId", existingId)).unique());
+  assert.equal(indexed?.publicState, "public");
+  assert.equal(indexed?.routePath, result.eventPath);
+  assert.equal(indexed?.summary, "Original event summary");
+  const shortLink = await t.run(ctx => ctx.db.query("shortLinks").withIndex("by_targetEventId", q => q.eq("targetEventId", existingId)).unique());
+  assert.equal(shortLink?.code, repaired.slug);
+  assert.deepEqual(await actor.action(publish, args), result);
+  assert.deepEqual(await t.run(async ctx => [(await ctx.db.query("events").collect()).length, (await ctx.db.query("eventContributionReceipts").collect()).length]), [1, 1]);
+});
 it("enforces the shared target quota across independent contributor accounts", async () => {
   const { t, actor } = await fixture();
   for (let user = 0; user < 10; user++) {

@@ -85,6 +85,9 @@ implementation defaults, not promised product limits.
 Duplicate identity is the community ID, calendar date, and normalized title.
 Existing timed events without migrated date fields are checked in a bounded
 time window. An exact public match returns its event and one canonical receipt.
+If a legacy match has no slug, publication first creates its canonical route and
+refreshes search from the existing event and associations. It preserves that
+event's content instead of applying fields from the duplicate draft.
 An exact unpublished or cancelled match refuses recreation. A same-day title
 overlap or matching source URL produces a `NEAR_DUPLICATE` error with up to 20
 `choices` containing `eventId`, `title`, and `eventPath`. The contributor can save

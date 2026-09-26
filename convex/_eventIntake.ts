@@ -8,7 +8,7 @@ import { replaceEventLineup } from "./_eventLineup";
 import { reindexEventSearchDocument } from "./_searchDocuments";
 import { ensureShortLinkForTarget } from "./_shortLinks";
 import { eventPathForSlugs } from "./_eventPaths";
-import { replaceEventWorldLink } from "./events";
+import { eventParticipantRoleLabels, linkedPublishedEventWorld, replaceEventWorldLink } from "./events";
 
 export const EVENT_INTAKE_DRAFT_LIMIT = 20;
 export const EVENT_INTAKE_DRAFT_TTL_MS = 30 * 86_400_000;
@@ -110,11 +110,22 @@ export async function publishIntakeDraft(db: DatabaseWriter, actorUserId: Id<"us
       await replaceEventLineup(db, event, checked.lineup, now);
       await replaceEventWorldLink(db, event, checked.world, now);
       await reindexEventSearchDocument(db, event, { community, world: checked.world, roleLabels: checked.lineup.flatMap(entry => entry.roleLabel ? [entry.roleLabel] : []) }, now);
+    } else if (event.slug === undefined) {
+      // Legacy matches may predate canonical routes. Repair the existing row,
+      // retaining its content and associations rather than applying the draft.
+      const link = await ensureShortLinkForTarget(db, { targetType: "event", targetId: event._id }, now);
+      await db.patch(event._id, { slug: link.code });
+      event = { ...event, slug: link.code };
+      const [world, roleLabels] = await Promise.all([
+        linkedPublishedEventWorld(db, event._id), eventParticipantRoleLabels(db, event._id),
+      ]);
+      await reindexEventSearchDocument(db, event, { community, world, roleLabels }, now);
     }
+    if (event.slug === undefined) throw new Error("Published event requires a canonical route.");
     receipt = await db.query("eventContributionReceipts").withIndex("by_eventId", q => q.eq("eventId", event!._id)).unique();
     if (!receipt) {
       const receiptId = await db.insert("eventContributionReceipts", { actorUserId, draftId: draft._id, draftVersion: draft.version, eventId: event._id,
-        eventPath: eventPathForSlugs(community.slug, event.slug!), communityProfileId: community._id, fingerprint, createdAt: now });
+        eventPath: eventPathForSlugs(community.slug, event.slug), communityProfileId: community._id, fingerprint, createdAt: now });
       receipt = (await db.get(receiptId))!;
     }
     await db.patch(draft._id, { publishedReceiptId: receipt._id });

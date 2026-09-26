@@ -873,7 +873,7 @@ async function syncPreservedEventAssociations(
   ]);
 }
 
-async function eventParticipantRoleLabels(db: DatabaseReader, eventId: Id<"events">) {
+export async function eventParticipantRoleLabels(db: DatabaseReader, eventId: Id<"events">) {
   const participants = await db
     .query("eventParticipants")
     .withIndex("by_eventId", (query) => query.eq("eventId", eventId))
@@ -883,7 +883,7 @@ async function eventParticipantRoleLabels(db: DatabaseReader, eventId: Id<"event
   return participants.map((participant) => participant.roleLabel);
 }
 
-async function linkedPublishedEventWorld(db: DatabaseReader, eventId: Id<"events">) {
+export async function linkedPublishedEventWorld(db: DatabaseReader, eventId: Id<"events">) {
   const association = await db
     .query("eventWorlds")
     .withIndex("by_eventId", (query) => query.eq("eventId", eventId))
