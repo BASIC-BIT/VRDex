@@ -51,7 +51,7 @@ class InvitationFixtureClient extends ConvexReactClient {
       dueAt: number;
     }[]
   >();
-  constructor() {
+  constructor(private emptyHistoryPages = 0) {
     super("https://fixture.invalid");
   }
   result(name: string, args: Record<string, unknown>) {
@@ -70,8 +70,26 @@ class InvitationFixtureClient extends ConvexReactClient {
       };
     else if (name === "clubInvitations:lists")
       result = { page: this.lists, isDone: true, continueCursor: "" };
-    else if (name === "clubInvitations:batches")
-      result = { page: this.batches, isDone: true, continueCursor: "" };
+    else if (name === "clubInvitations:batches") {
+      const cursor = (args.paginationOpts as { cursor?: string | null })?.cursor;
+      const pageIndex = cursor ? Number(cursor.slice("history-".length)) : 0;
+      result = this.emptyHistoryPages
+        ? {
+            page: pageIndex < this.emptyHistoryPages
+              ? []
+              : [{
+                  id: "older-group-batch",
+                  createdAt: 1_790_000_000_000,
+                  recipientCount: 1,
+                  destinationKind: "group",
+                }],
+            isDone: pageIndex >= this.emptyHistoryPages,
+            continueCursor: pageIndex >= this.emptyHistoryPages
+              ? ""
+              : `history-${pageIndex + 1}`,
+          }
+        : { page: this.batches, isDone: true, continueCursor: "" };
+    }
     else if (name === "clubInvitations:outcomes")
       result = {
         recipients: this.outcomes.get(String(args.batchId)) ?? [],
@@ -232,8 +250,8 @@ class InvitationFixtureClient extends ConvexReactClient {
     return result as FunctionReturnType<Mutation>;
   }
 }
-function Workspace() {
-  const [client] = useState(() => new InvitationFixtureClient());
+function Workspace({ emptyHistoryPages = 0 }: { emptyHistoryPages?: number }) {
+  const [client] = useState(() => new InvitationFixtureClient(emptyHistoryPages));
   const data: WorkspaceData = {
     community: {
       _id: "club-one" as Id<"profiles">,
@@ -271,3 +289,5 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 export const Owner: Story = {};
+export const AutoHistory: Story = { args: { emptyHistoryPages: 1 } };
+export const BoundedHistory: Story = { args: { emptyHistoryPages: 4 } };

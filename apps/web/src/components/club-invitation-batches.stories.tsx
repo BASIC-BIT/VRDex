@@ -28,6 +28,7 @@ function Fixture({ instanceOnly = false, mutableCreation = false, expiringInstan
     <main className="mx-auto max-w-3xl p-5">
       <h1 className="mb-6 text-3xl font-semibold">Invitations</h1>
       <InvitationComposer
+        getServerNow={async () => Date.UTC(2026, 8, 14, 20)}
         lists={lists}
         canGroup={!instanceOnly}
         canInstance

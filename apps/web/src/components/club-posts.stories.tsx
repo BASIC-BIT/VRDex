@@ -7,6 +7,7 @@ function Preview() {
   return (
     <div className="mx-auto max-w-4xl p-5">
       <PostEditor
+        getServerNow={async () => Date.UTC(2026, 8, 14, 20)}
         initial={{
           title: "Afterhours this Friday",
           text: "Meet us at the Observatory. Doors open at 22:00.\n\nBring your friends and stay for the closing set.",

@@ -79,7 +79,7 @@ export function assessClubOperation(authority: OperationAuthority, operation: Cl
       provider.membershipStatus !== "member" || !Number.isFinite(authority.now) || !Number.isFinite(provider.observedAt) ||
       provider.observedAt > authority.now || authority.now - provider.observedAt > PROVIDER_AUTHORITY_MAX_AGE_MS) return deny("provider_authority");
   const changesProtectedMember = operation.kind === "assign_role" || operation.kind === "remove_role" || operation.kind === "remove_member" || operation.kind === "ban_member" || operation.kind === "unban_member";
-  if (changesProtectedMember && "targetUserId" in operation && (operation.targetUserId === authority.expectedBotUserId || operation.targetUserId === provider.ownerUserId)) return deny("protected_target");
+  if (changesProtectedMember && "targetUserId" in operation && (operation.targetUserId.toLowerCase() === authority.expectedBotUserId.toLowerCase() || operation.targetUserId.toLowerCase() === provider.ownerUserId?.toLowerCase())) return deny("protected_target");
   if ((operation.kind === "assign_role" || operation.kind === "remove_role") && authority.actorKind !== "owner" && !authority.permittedProviderRoleIds.includes(operation.roleId)) return deny("role_not_assignable");
   if (operation.kind === "create_instance" && ((operation.access === "public" && operation.groupVisibility !== "public") || (operation.roleRestricted && operation.access !== "members"))) return deny("invalid_instance_options");
   if (operation.kind === "invite_to_instance" && operation.friendship !== "friend") return deny("recipient_eligibility");

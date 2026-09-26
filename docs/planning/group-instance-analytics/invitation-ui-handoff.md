@@ -23,8 +23,9 @@ An invitation check does not claim that the recipient can enter the destination.
 History shows per-target pending, submitted, sent, failed, cancelled, missed, or
 unknown outcomes, with current and originally reviewed IDs when different.
 Unsent cancellation is confirmed explicitly and displayed only when the backend
-reports `canCancel`. Submitted work remains intact. History follows paginated
-batch cursors even when a filtered page is empty.
+reports `canCancel`. Submitted work remains intact. History automatically follows
+up to three empty filtered batch pages, then leaves `Load more batches` available
+for older results.
 
 ## Evidence
 

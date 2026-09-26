@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { useState } from "react";
+import { useLayoutEffect, useMemo, useState } from "react";
 import {
   ConvexProvider,
   ConvexReactClient,
@@ -20,6 +20,7 @@ import {
   type WorkspaceData,
 } from "@/app/account/communities/[slug]/club-workspace";
 import { PageContainer, PageShell } from "@/components/ui/page-shell";
+import { Button } from "@/components/ui/button";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import type {
   ProviderReadParams,
@@ -38,14 +39,20 @@ class MembersFixtureClient extends ConvexReactClient {
   constructor(
     private readonly staff: boolean,
     private readonly readFailure: boolean,
+    private permissions: WorkspaceData["actor"]["permissions"],
   ) {
     super("https://fixture.invalid");
+  }
+  setPermissions(permissions: WorkspaceData["actor"]["permissions"]) {
+    this.permissions = permissions;
   }
   private result(name: string, args: Record<string, unknown>) {
     const key = JSON.stringify([name, args]);
     if (this.cache.has(key)) return this.cache.get(key);
     let result: unknown;
-    if (name === "clubProviderReads:context")
+    if (name === "clubProviderReads:context") {
+      if (this.staff && this.permissions.length === 0)
+        throw new Error("Unauthorized context read");
       result = {
         enabledFeatures: ["membership_management"],
         permittedProviderRoleIds: [djRole],
@@ -55,6 +62,7 @@ class MembersFixtureClient extends ConvexReactClient {
           profileUrl: `https://vrchat.com/home/user/${user(99)}`,
         },
       };
+    }
     else if (name === "clubOperations:list")
       result = { page: this.jobs, isDone: true, continueCursor: "" };
     else if (name === "clubProviderReads:get") {
@@ -142,6 +150,11 @@ class MembersFixtureClient extends ConvexReactClient {
     const name = getFunctionName(mutation);
     let result: unknown = null;
     if (name === "clubProviderReads:request") {
+      if (
+        this.staff &&
+        !this.permissions.includes("view_members") &&
+        ["members", "search", "member"].includes((value.params as ProviderReadParams).kind)
+      ) throw new Error("Unauthorized directory read");
       const id = `fixture-read-${this.requests.size}`;
       this.requests.set(id, value.params as ProviderReadParams);
       result = id;
@@ -179,11 +192,23 @@ class MembersFixtureClient extends ConvexReactClient {
 function MembersFixture({
   staff = false,
   readFailure = false,
+  permissions,
+  permissionSwitch = false,
 }: {
   staff?: boolean;
   readFailure?: boolean;
+  permissions?: WorkspaceData["actor"]["permissions"];
+  permissionSwitch?: boolean;
 }) {
-  const [client] = useState(() => new MembersFixtureClient(staff, readFailure));
+  const [limited, setLimited] = useState(false);
+  const actorPermissions = useMemo<WorkspaceData["actor"]["permissions"]>(
+    () => permissions ?? (staff
+      ? limited ? ["assign_vrchat_roles"] : ["view_members", "assign_vrchat_roles"]
+      : []),
+    [permissions, staff, limited],
+  );
+  const [client] = useState(() => new MembersFixtureClient(staff, readFailure, actorPermissions));
+  useLayoutEffect(() => client.setPermissions(actorPermissions), [client, actorPermissions]);
   const data: WorkspaceData = {
     community: {
       _id: "fixture-club" as Id<"profiles">,
@@ -193,7 +218,7 @@ function MembersFixture({
     actor: {
       kind: staff ? "staff" : "owner",
       roleIds: [],
-      permissions: staff ? ["view_members", "assign_vrchat_roles"] : [],
+      permissions: actorPermissions,
     },
     roles: [],
     assignments: [],
@@ -208,6 +233,11 @@ function MembersFixture({
     <ConvexProvider client={client}>
       <PageShell>
         <PageContainer max="7xl">
+          {permissionSwitch ? (
+            <Button className="mb-4" onClick={() => setLimited((current) => !current)}>
+              Switch permissions
+            </Button>
+          ) : null}
           <ClubWorkspaceView
             data={data}
             pathname="/account/communities/afterhours/members"
@@ -227,6 +257,18 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 export const Owner: Story = { render: () => <MembersFixture /> };
 export const Staff: Story = { render: () => <MembersFixture staff /> };
+export const RoleOnly: Story = {
+  render: () => <MembersFixture staff permissions={["assign_vrchat_roles"]} />,
+};
+export const RemoveOnly: Story = {
+  render: () => <MembersFixture staff permissions={["remove_group_members"]} />,
+};
+export const NoAccess: Story = {
+  render: () => <MembersFixture staff permissions={[]} />,
+};
+export const LivePermissions: Story = {
+  render: () => <MembersFixture staff permissionSwitch />,
+};
 export const ReadFailure: Story = {
   render: () => <MembersFixture readFailure />,
 };

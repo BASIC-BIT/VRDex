@@ -1,15 +1,11 @@
 import { expect, test } from "@playwright/test";
-test("older notifications remain reachable after an empty filtered page @storybook-visual", async ({
+test("older notifications appear automatically after empty filtered pages @storybook-visual", async ({
   page,
 }, testInfo) => {
   await page.goto(
     "/iframe.html?id=clubs-scheduled--older-notifications&viewMode=story",
   );
   const section = page.getByRole("region", { name: "Action notifications" });
-  await expect(section).toBeVisible();
-  await section
-    .getByRole("button", { name: "Load more notifications" })
-    .click();
   await expect(
     section.getByRole("link", { name: "Publish post" }),
   ).toHaveAttribute("href", "/account/communities/afterhours/scheduled");

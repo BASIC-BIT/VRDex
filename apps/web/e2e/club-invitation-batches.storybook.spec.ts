@@ -3,6 +3,36 @@ import path from "node:path";
 const alice = "usr_11111111-1111-1111-1111-111111111111";
 const bob = "usr_22222222-2222-2222-2222-222222222222";
 
+test("fixed invitation time uses server clock when device time is skewed @storybook-visual", async ({ page }) => {
+  await page.clock.setFixedTime(new Date("2026-09-14T20:10:00Z"));
+  await page.goto("/iframe.html?id=clubs-invitation-batches--composer&viewMode=story");
+  await page.getByLabel("Saved list").selectOption("list-one");
+  await page.getByLabel("Send invitations").selectOption("fixed");
+  await page.getByLabel("Invitation time").fill("2026-09-14T20:05");
+  await page.getByRole("button", { name: "Review invitations", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Review invitations" })).toBeVisible();
+  await page.getByRole("button", { name: "Back to edit" }).click();
+  await page.clock.setFixedTime(new Date("2026-09-14T19:50:00Z"));
+  await page.getByLabel("Invitation time").fill("2026-09-14T19:55");
+  await page.getByRole("button", { name: "Review invitations", exact: true }).click();
+  await expect(page.getByRole("alert")).toHaveText("Choose a future invitation time.");
+  await expect(page.getByRole("region", { name: "Review invitations" })).toHaveCount(0);
+});
+
+test("invitation history advances past a filtered page without a click @storybook-visual", async ({ page }) => {
+  await page.goto("/iframe.html?id=clubs-invitations-workspace--auto-history&viewMode=story");
+  await expect(page.getByRole("button", { name: /1 recipients · Group/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Load more batches" })).toHaveCount(0);
+});
+
+test("invitation history keeps manual paging after bounded automatic scans @storybook-visual", async ({ page }) => {
+  await page.goto("/iframe.html?id=clubs-invitations-workspace--bounded-history&viewMode=story");
+  await expect(page.getByRole("button", { name: "Load more batches" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /1 recipients · Group/ })).toHaveCount(0);
+  await page.getByRole("button", { name: "Load more batches" }).click();
+  await expect(page.getByRole("button", { name: /1 recipients · Group/ })).toBeVisible();
+});
+
 test("an expired instance read cannot confirm an open invitation review @storybook-visual", async ({ page }) => {
   await page.goto("/iframe.html?id=clubs-invitation-batches--expiring-instance&viewMode=story");
   await page.getByLabel("Saved list").selectOption("list-one");

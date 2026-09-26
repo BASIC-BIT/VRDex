@@ -1,4 +1,21 @@
 import { test, expect } from "@playwright/test";
+test("fixed instance time uses server clock when device time is skewed @storybook-visual", async ({ page }) => {
+  await page.clock.setFixedTime(new Date("2026-09-14T20:10:00Z"));
+  await page.goto("/iframe.html?id=clubs-instance-actions--create&viewMode=story");
+  await page.getByLabel("VRChat world ID").fill("wrld_11111111-1111-1111-1111-111111111111");
+  await page.getByRole("combobox", { name: "Create", exact: true }).selectOption("fixed");
+  await page.getByLabel("Creation time").fill("2026-09-14T20:05");
+  await page.getByRole("button", { name: "Schedule instance" }).click();
+  await expect(page.getByRole("status")).toHaveText("Creation scheduled.");
+  await page.screenshot({
+    path: "../../.cache/artifacts/schedule-clock-instance-desktop.png",
+    fullPage: true,
+  });
+  await page.clock.setFixedTime(new Date("2026-09-14T19:50:00Z"));
+  await page.getByLabel("Creation time").fill("2026-09-14T19:55");
+  await page.getByRole("button", { name: "Schedule instance" }).click();
+  await expect(page.getByRole("alert")).toHaveText("Choose a future time.");
+});
 test("normal close requires confirmation and reports queued only @storybook-visual", async ({
   page,
 }) => {

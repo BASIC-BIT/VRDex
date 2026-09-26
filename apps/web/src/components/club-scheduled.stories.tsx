@@ -107,8 +107,14 @@ class ScheduledFixtureClient extends ConvexReactClient {
       const cursor = (args as { paginationOpts?: { cursor?: string } })
         ?.paginationOpts?.cursor;
       result =
-        this.pagedNotifications && !cursor
-          ? { page: [], isDone: false, continueCursor: "older-notifications" }
+        this.pagedNotifications && cursor !== "older-notifications-2"
+          ? {
+              page: [],
+              isDone: false,
+              continueCursor: cursor
+                ? "older-notifications-2"
+                : "older-notifications-1",
+            }
           : { page: this.notifications, isDone: true, continueCursor: "" };
     } else throw new Error(`Unmocked ${name}`);
     this.cache.set(key, result);

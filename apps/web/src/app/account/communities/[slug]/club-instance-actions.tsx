@@ -1,6 +1,6 @@
 "use client";
 import { useRef, useState } from "react";
-import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
+import { useConvex, useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import type { FunctionArgs } from "convex/server";
 import { api } from "@convex-generated-api";
 import type { Id } from "../../../../../../../convex/_generated/dataModel";
@@ -33,6 +33,7 @@ export function InstanceCreateForm({
   rolesReady,
   onLoadRoles,
   onSubmit,
+  getServerNow,
 }: {
   events: EventOption[];
   roles: { id: string; name?: string }[];
@@ -42,6 +43,7 @@ export function InstanceCreateForm({
     payload: CreatePayload,
     schedule: Submission["schedule"],
   ) => Promise<unknown>;
+  getServerNow: () => Promise<number>;
 }) {
   const [worldId, setWorldId] = useState("");
   const [worldOverridden, setWorldOverridden] = useState(false);
@@ -94,9 +96,10 @@ export function InstanceCreateForm({
       if (
         when !== "now" &&
         (scheduledAt === null ||
-          !Number.isFinite(scheduledAt) ||
-          scheduledAt <= Date.now())
+          !Number.isFinite(scheduledAt))
       )
+        throw new Error("Choose a future time.");
+      if (when !== "now" && scheduledAt! <= (await getServerNow()))
         throw new Error("Choose a future time.");
       const key = JSON.stringify([
         worldId,
@@ -433,6 +436,7 @@ function LiveInstanceManagement({
 function InstanceOperations() {
   const workspace = useClubWorkspace();
   const communityProfileId = workspace.community._id;
+  const client = useConvex();
   const context = useQuery(api.clubProviderReads.context, {
     communityProfileId,
   });
@@ -475,6 +479,11 @@ function InstanceOperations() {
             roles={roles.data?.items ?? []}
             rolesReady={!!roles.data && roles.fresh}
             onLoadRoles={() => setLoadRoles(true)}
+            getServerNow={() =>
+              client.query(api.clubOperations.getScheduleClock, {
+                freshnessNonce: crypto.randomUUID(),
+              })
+            }
             onSubmit={async (payload, schedule) => {
               const key = JSON.stringify([payload, schedule]);
               if (retry.current?.key !== key)

@@ -43,7 +43,9 @@ describe("club provider operation authority", () => {
     assert.equal(assessClubOperation(base, { kind: "assign_role", targetUserId: "usr_target", roleId: "grol_allowed" }).allowed, true);
     assert.equal(assessClubOperation(base, { kind: "assign_role", targetUserId: "usr_target", roleId: "grol_other" }).reason, "role_not_assignable");
     assert.equal(assessClubOperation(base, { kind: "remove_role", targetUserId: "usr_bot", roleId: "grol_allowed" }).reason, "protected_target");
+    assert.equal(assessClubOperation(base, { kind: "remove_role", targetUserId: "USR_BOT", roleId: "grol_allowed" }).reason, "protected_target");
     assert.equal(assessClubOperation({ ...base, actorKind: "owner" }, { kind: "assign_role", targetUserId: "usr_bot", roleId: "grol_allowed" }).reason, "protected_target");
+    assert.equal(assessClubOperation({ ...base, actorKind: "owner" }, { kind: "assign_role", targetUserId: "USR_OWNER", roleId: "grol_allowed" }).reason, "protected_target");
   });
   it("checks creation options independently and disallows public instances for private groups", () => {
     const base = authority({ permissions: ["manage_instances"], enabledFeatures: ["instances"] });

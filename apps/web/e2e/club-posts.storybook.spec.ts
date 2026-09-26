@@ -1,5 +1,20 @@
 import { expect, test } from "@playwright/test";
 import path from "node:path";
+test("fixed post time uses server clock when device time is skewed @storybook-visual", async ({ page }) => {
+  await page.clock.setFixedTime(new Date("2026-09-14T20:10:00Z"));
+  await page.goto("/iframe.html?id=clubs-posts--composer&viewMode=story");
+  await page.getByRole("combobox", { name: "Publish", exact: true }).selectOption("fixed");
+  await page.getByLabel("Publication time").fill("2026-09-14T20:05");
+  await page.getByRole("button", { name: "Schedule post" }).click();
+  await expect(page.getByRole("dialog", { name: "Confirm post" })).toBeVisible();
+  await page.getByRole("button", { name: "Confirm", exact: true }).click();
+  await expect(page.getByRole("status")).toHaveText("Post queued: fixed.");
+
+  await page.clock.setFixedTime(new Date("2026-09-14T19:50:00Z"));
+  await page.getByLabel("Publication time").fill("2026-09-14T19:55");
+  await page.getByRole("button", { name: "Schedule post" }).click();
+  await expect(page.getByRole("alert")).toHaveText("Choose a future date and time.");
+});
 test("posts workspace saves drafts and queues confirmed writes @storybook-visual", async ({
   page,
   isMobile,

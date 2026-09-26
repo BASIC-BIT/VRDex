@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import type { FunctionArgs } from "convex/server";
 import { api } from "@convex-generated-api";
@@ -20,7 +20,7 @@ type Payload = FunctionArgs<
   typeof api.clubOperations.enqueue
 >["payloads"][number];
 type Submission = FunctionArgs<typeof api.clubOperations.enqueue>;
-type Tab = "members" | "requests" | "invites" | "bans";
+type Tab = "members" | "requests" | "invites" | "bans" | "actions";
 const actionLabels: Record<string, string> = {
   approve_request: "Approve request",
   reject_request: "Reject request",
@@ -80,7 +80,7 @@ function MembersContent({
   const owner = workspace.actor.kind === "owner";
   const can = (permission: string) =>
     owner || workspace.actor.permissions.some((value) => value === permission);
-  const tabs = (
+  const permittedTabs = (
     [
       { key: "members", label: "Directory", permission: "view_members" },
       {
@@ -96,7 +96,14 @@ function MembersContent({
       { key: "bans", label: "Bans", permission: "manage_bans" },
     ] as const
   ).filter((tab) => can(tab.permission));
-  const [tab, setTab] = useState<Tab>(tabs[0]?.key ?? "members");
+  const tabs = !can("view_members") &&
+    (can("assign_vrchat_roles") || can("remove_group_members"))
+    ? [...permittedTabs, { key: "actions", label: "Actions" } as const]
+    : permittedTabs;
+  const [selectedTab, setTab] = useState<Tab>(tabs[0]?.key ?? "members");
+  const tab = tabs.some((item) => item.key === selectedTab)
+    ? selectedTab
+    : (tabs[0]?.key ?? "members");
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
   const [offset, setOffset] = useState(0);
@@ -106,6 +113,7 @@ function MembersContent({
   const [roleId, setRoleId] = useState("");
   const [roleOffset, setRoleOffset] = useState(0);
   const [inviteId, setInviteId] = useState("");
+  const [actionTargetId, setActionTargetId] = useState("");
   const [review, setReview] = useState<{
     submission: Submission;
     targets: ProviderItem[];
@@ -113,9 +121,21 @@ function MembersContent({
   } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (selectedTab === tab) return;
+    setTab(tab);
+    setOffset(0);
+    setHistory([]);
+    setSelected([]);
+    setDetail(null);
+    setReview(null);
+    setRoleId("");
+    setQuery("");
+    setSearch("");
+  }, [selectedTab, tab]);
   const enqueue = useMutation(api.clubOperations.enqueue);
   const cancel = useMutation(api.clubOperations.cancel);
-  const params: ProviderReadParams = {
+  const params: ProviderReadParams | null = tab === "actions" ? null : {
     kind: tab === "members" && query ? "search" : tab,
     n: 25,
     offset,
@@ -149,6 +169,10 @@ function MembersContent({
   const selectedRole = allowedRoles.find((role) => role.id === roleId);
   const currentMember = member.data?.items[0] ?? detail;
   const rows = read.data?.items ?? [];
+  const directTarget = actionTargetId.trim().toLowerCase();
+  const canActOnDirectTarget =
+    /^usr_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(directTarget) &&
+    !protectedIds.some((id) => id.toLowerCase() === directTarget);
   const chooseTab = (value: Tab) => {
     setTab(value);
     setOffset(0);
@@ -212,22 +236,24 @@ function MembersContent({
           </Button>
         </div>
       ) : null}
-      <div
-        className="flex flex-wrap gap-2"
-        role="tablist"
-        aria-label="Member management"
-      >
-        {tabs.map((item) => (
-          <Button
-            key={item.key}
-            role="tab"
-            aria-selected={tab === item.key}
-            onClick={() => chooseTab(item.key)}
-          >
-            {item.label}
-          </Button>
-        ))}
-      </div>
+      {tabs.length > 1 ? (
+        <div
+          className="flex flex-wrap gap-2"
+          role="tablist"
+          aria-label="Member management"
+        >
+          {tabs.map((item) => (
+            <Button
+              key={item.key}
+              role="tab"
+              aria-selected={tab === item.key}
+              onClick={() => chooseTab(item.key)}
+            >
+              {item.label}
+            </Button>
+          ))}
+        </div>
+      ) : null}
       {error ? (
         <Notice variant="error" role="alert">
           {error}
@@ -315,6 +341,72 @@ function MembersContent({
           </Button>
         </Card>
       ) : null}
+      {tab === "actions" ? (
+        <Card padding="lg">
+          <Field>
+            VRChat user ID
+            <Input
+              value={actionTargetId}
+              pattern="usr_[0-9a-fA-F-]{36}"
+              onChange={(event) => setActionTargetId(event.target.value)}
+            />
+          </Field>
+          {can("assign_vrchat_roles") ? (
+            <div className="mt-4 grid gap-3">
+              <Field>
+                VRChat role
+                <Select
+                  aria-label="VRChat role"
+                  value={roleId}
+                  onChange={(event) => setRoleId(event.target.value)}
+                >
+                  <option value="">Select role</option>
+                  {allowedRoles.map((role) => (
+                    <option value={role.id} key={role.id}>
+                      {role.name ?? role.id}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <ReadStatus read={roles} />
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  disabled={!canActOnDirectTarget || !selectedRole || !roles.fresh}
+                  onClick={() => prepare("assign_role", [{ id: directTarget, userId: directTarget }])}
+                >
+                  Assign role
+                </Button>
+                <Button
+                  disabled={!canActOnDirectTarget || !selectedRole || !roles.fresh}
+                  onClick={() => prepare("remove_role", [{ id: directTarget, userId: directTarget }])}
+                >
+                  Remove role
+                </Button>
+                {roles.data?.nextOffset != null ? (
+                  <Button onClick={() => { setRoleOffset(roles.data!.nextOffset!); setRoleId(""); }}>
+                    More roles
+                  </Button>
+                ) : null}
+                {roleOffset > 0 ? (
+                  <Button onClick={() => { setRoleOffset(0); setRoleId(""); }}>
+                    First roles
+                  </Button>
+                ) : null}
+                <Button onClick={roles.refresh}>Refresh roles</Button>
+              </div>
+            </div>
+          ) : null}
+          {can("remove_group_members") ? (
+            <Button
+              className="mt-4"
+              disabled={!canActOnDirectTarget}
+              onClick={() => prepare("remove_member", [{ id: directTarget, userId: directTarget }])}
+            >
+              Remove member
+            </Button>
+          ) : null}
+        </Card>
+      ) : (
       <Card padding="lg">
         <div className="flex flex-wrap items-end justify-between gap-4">
           {tab === "members" ? (
@@ -563,6 +655,8 @@ function MembersContent({
           </Button>
         </div>
       </Card>
+      )}
+      {tab !== "actions" || operations.results.some((item) => item.payload.kind in actionLabels) ? (
       <Card padding="lg">
         <SectionTitle>Recent actions</SectionTitle>
         <div className="mt-4 divide-y divide-border">
@@ -614,15 +708,28 @@ function MembersContent({
           <Button onClick={() => operations.loadMore(25)}>More actions</Button>
         ) : null}
       </Card>
+      ) : null}
     </div>
   );
 }
 
 export function ClubMembers() {
   const workspace = useClubWorkspace();
-  const context = useQuery(api.clubProviderReads.context, {
-    communityProfileId: workspace.community._id,
-  });
+  const canOpenMembers =
+    workspace.actor.kind === "owner" ||
+    ([
+      "view_members",
+      "approve_join_requests",
+      "invite_group_members",
+      "assign_vrchat_roles",
+      "remove_group_members",
+      "manage_bans",
+    ] as const).some((permission) => workspace.actor.permissions.includes(permission));
+  const context = useQuery(
+    api.clubProviderReads.context,
+    canOpenMembers ? { communityProfileId: workspace.community._id } : "skip",
+  );
+  if (!canOpenMembers) return <ClubAccessNotice />;
   if (context === undefined)
     return <Notice role="status">Loading member management…</Notice>;
   return (

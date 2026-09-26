@@ -13,6 +13,7 @@ function FormFixture() {
         <Card padding="lg" className="grid gap-5">
           <SectionTitle>New instance</SectionTitle>
           <InstanceCreateForm
+            getServerNow={async () => Date.UTC(2026, 8, 14, 20)}
             events={[
               {
                 id: "fixture-event" as Id<"events">,

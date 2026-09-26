@@ -158,6 +158,65 @@ test("stale member pages disable new actions until refresh @storybook-visual", a
   ).toBeVisible();
 });
 
+test("role-only staff can assign a permitted role by ID without a directory read @storybook-visual", async ({ page }) => {
+  await page.goto("/iframe.html?id=clubs-members--role-only&viewMode=story");
+  await expect(page.getByRole("heading", { name: "Members" })).toBeVisible();
+  await expect(page.getByRole("tablist")).toHaveCount(0);
+  await expect(page.getByLabel("Search members")).toHaveCount(0);
+  await page.getByLabel("VRChat user ID").fill("USR_00000000-0000-0000-0000-000000000099");
+  await page.getByLabel("VRChat role").selectOption({ label: "DJ" });
+  await expect(page.getByRole("option", { name: "Group admin" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Assign role", exact: true })).toBeDisabled();
+  await page.getByLabel("VRChat user ID").fill("usr_00000000-0000-0000-0000-000000000001");
+  await expect(page.getByRole("button", { name: "Assign role", exact: true })).toBeEnabled();
+  await page.screenshot({ path: `../../.cache/artifacts/member-role-only-${test.info().project.name}.png`, fullPage: true });
+  await page.getByRole("button", { name: "Assign role", exact: true }).click();
+  await expect(page.getByText("Review action", { exact: true })).toBeVisible();
+  await expect(page.getByText("usr_00000000-0000-0000-0000-000000000001", { exact: true })).toBeVisible();
+  await expect(page.locator("p").filter({ hasText: /^DJ$/ })).toBeVisible();
+  await page.getByRole("button", { name: "Confirm action" }).click();
+  await expect(page.getByText("Queued", { exact: true })).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});
+
+test("remove-only staff can remove a member by ID @storybook-visual", async ({ page }) => {
+  await page.goto("/iframe.html?id=clubs-members--remove-only&viewMode=story");
+  await page.getByLabel("VRChat user ID").fill("USR_00000000-0000-0000-0000-000000000099");
+  await expect(page.getByRole("button", { name: "Remove member", exact: true })).toBeDisabled();
+  await page.getByLabel("VRChat user ID").fill("usr_00000000-0000-0000-0000-000000000001");
+  await expect(page.getByLabel("VRChat role")).toHaveCount(0);
+  await page.getByRole("button", { name: "Remove member", exact: true }).click();
+  await expect(page.getByText("Review action", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Confirm action" }).click();
+  await expect(page.getByText("Queued", { exact: true })).toBeVisible();
+});
+
+test("unauthorized direct Members visit shows access notice without querying context @storybook-visual", async ({ page }) => {
+  await page.goto("/iframe.html?id=clubs-members--no-access&viewMode=story");
+  await expect(page.getByText("You do not have access to this page.", { exact: true })).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});
+
+test("live directory revocation switches to permitted actions without remounting @storybook-visual", async ({ page }) => {
+  await page.goto("/iframe.html?id=clubs-members--live-permissions&viewMode=story");
+  await expect(page.getByLabel("Search members")).toBeVisible();
+  await page.getByRole("checkbox", { name: "Select Riley" }).check();
+  await page.getByRole("button", { name: "Switch permissions" }).click();
+  await expect(page.getByLabel("VRChat user ID")).toBeVisible();
+  await expect(page.getByLabel("Search members")).toHaveCount(0);
+  await expect(page.getByText("1 selected", { exact: true })).toHaveCount(0);
+  await page.getByLabel("VRChat user ID").fill("usr_00000000-0000-0000-0000-000000000001");
+  await page.getByLabel("VRChat role").selectOption({ label: "DJ" });
+  await page.getByRole("button", { name: "Assign role", exact: true }).click();
+  await expect(page.getByText("Review action", { exact: true })).toBeVisible();
+  await page.screenshot({ path: `../../.cache/artifacts/member-live-permissions-${test.info().project.name}.png`, fullPage: true });
+  await page.getByRole("button", { name: "Switch permissions" }).click();
+  await expect(page.getByLabel("Search members")).toBeVisible();
+  await expect(page.getByText("Review action", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("1 selected", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});
+
 for (const skew of [-3600000, 3600000]) {
   test(`immediate member action with skew ${skew} @storybook-visual`, async ({
     page,

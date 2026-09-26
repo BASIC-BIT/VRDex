@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import Link from "next/link";
-import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
+import { useConvex, useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import { api } from "@convex-generated-api";
 import { Button } from "@/components/ui/button";
@@ -37,6 +37,7 @@ export function PostEditor({
   onSave,
   onQueue,
   onClose,
+  getServerNow,
 }: {
   initial?: Content;
   events?: EventOption[];
@@ -44,6 +45,7 @@ export function PostEditor({
   onSave: (content: Content) => Promise<void>;
   onQueue: (content: Content, schedule: Schedule) => Promise<void>;
   onClose: () => void;
+  getServerNow: () => Promise<number>;
 }) {
   const [content, setContent] = useState(initial),
     [preview, setPreview] = useState(false),
@@ -61,7 +63,7 @@ export function PostEditor({
       setError(e instanceof Error ? e.message : "Unable to save post.");
     }
   };
-  const schedule = (): Schedule => {
+  const schedule = async (): Promise<Schedule> => {
     if (timing === "event") {
       const event = events.find((e) => e.id === eventId);
       if (
@@ -78,7 +80,7 @@ export function PostEditor({
     }
     if (timing === "now") return { kind: "immediate" };
     const dueAt = new Date(date).getTime();
-    if (!Number.isFinite(dueAt) || dueAt <= Date.now())
+    if (!Number.isFinite(dueAt) || dueAt <= (await getServerNow()))
       throw new Error("Choose a future date and time.");
     return { kind: "fixed", dueAt };
   };
@@ -193,10 +195,10 @@ export function PostEditor({
           <Button
             variant="primary"
             disabled={busy || !content.title.trim() || !content.text.trim()}
-            onClick={() => {
+            onClick={async () => {
               setError(null);
               try {
-                schedule();
+                await schedule();
                 setConfirm(true);
               } catch (e) {
                 setError((e as Error).message);
@@ -251,7 +253,7 @@ export function PostEditor({
                 disabled={busy}
                 onClick={() =>
                   action(async () => {
-                    await onQueue(content, schedule());
+                    await onQueue(content, await schedule());
                     setConfirm(false);
                   })
                 }
@@ -276,6 +278,7 @@ export function PostEditor({
 function PostsContent() {
   const workspace = useClubWorkspace(),
     communityProfileId = workspace.community._id;
+  const client = useConvex();
   const drafts = usePaginatedQuery(
     api.clubPosts.list,
     { communityProfileId },
@@ -358,6 +361,11 @@ function PostsContent() {
           initial={editing.content}
           events={eventOptions.results}
           busy={busy}
+          getServerNow={() =>
+            client.query(api.clubOperations.getScheduleClock, {
+              freshnessNonce: crypto.randomUUID(),
+            })
+          }
           onClose={() => setEditing(null)}
           onSave={async (c) => {
             setBusy(true);

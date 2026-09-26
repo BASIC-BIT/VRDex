@@ -33,6 +33,15 @@ import {
   CLAIM_MS,
   type OperationPayload,
 } from "./_clubOperations";
+
+// A unique nonce prevents Convex from replaying a cached clock result when a
+// composer checks a schedule immediately before submission.
+export const getScheduleClock = query({
+  args: { freshnessNonce: v.string() },
+  returns: v.number(),
+  handler: async () => Date.now(),
+});
+
 async function patchOperation(
   ctx: MutationCtx,
   id: Id<"clubOperations">,

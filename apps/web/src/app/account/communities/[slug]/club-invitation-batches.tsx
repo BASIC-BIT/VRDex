@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   useConvex,
   useMutation,
@@ -34,6 +34,7 @@ type Review = Pick<
   Enqueue,
   "reviewedRecipients" | "destination" | "schedule" | "requestId"
 > & { destinationLabel: string; timeLabel: string; duplicates: number };
+const MAX_AUTOMATIC_EMPTY_HISTORY_PAGES = 3;
 
 export function InvitationComposer({
   lists,
@@ -46,6 +47,7 @@ export function InvitationComposer({
   botUrl,
   onPreview,
   onEnqueue,
+  getServerNow,
   onSaveList,
   onRemoveList,
   recipientEligibility,
@@ -64,6 +66,7 @@ export function InvitationComposer({
   botUrl?: string;
   onPreview: (recipients: string[]) => Promise<Preview>;
   onEnqueue: (review: Review) => Promise<void>;
+  getServerNow: () => Promise<number>;
   onSaveList: (list: {
     name: string;
     recipients: string[];
@@ -147,6 +150,7 @@ export function InvitationComposer({
       };
       destinationLabel = `Instance creation: ${metricTime(creation.dueAt)} · ${creation.payload.worldId}`;
     } else throw new Error("Choose an invitation destination.");
+    const serverNow = timing === "now" ? null : await getServerNow();
     let schedule: Enqueue["schedule"];
     let timeLabel: string;
     if (timing === "event") {
@@ -159,7 +163,7 @@ export function InvitationComposer({
         !Number.isFinite(minutes)
       )
         throw new Error("Choose an event and a valid offset.");
-      if (event.startAt + minutes * 60000 <= Date.now())
+      if (event.startAt + minutes * 60000 <= serverNow!)
         throw new Error("Choose a future invitation time.");
       schedule = {
         kind: "event_relative",
@@ -172,7 +176,7 @@ export function InvitationComposer({
       timeLabel = "Now";
     } else {
       const dueAt = new Date(date).getTime();
-      if (!Number.isFinite(dueAt) || dueAt <= Date.now())
+      if (!Number.isFinite(dueAt) || dueAt <= serverNow!)
         throw new Error("Choose a future invitation time.");
       schedule = { kind: "fixed", dueAt };
       timeLabel = metricTime(dueAt);
@@ -783,6 +787,20 @@ function InvitationsContent() {
     { communityProfileId },
     { initialNumItems: 20 },
   );
+  const batchResultCount = batches.results.length,
+    batchStatus = batches.status,
+    loadMoreBatches = batches.loadMore;
+  const automaticEmptyHistoryPages = useRef(0);
+  useEffect(() => {
+    if (
+      batchResultCount > 0 ||
+      batchStatus !== "CanLoadMore" ||
+      automaticEmptyHistoryPages.current >= MAX_AUTOMATIC_EMPTY_HISTORY_PAGES
+    )
+      return;
+    automaticEmptyHistoryPages.current++;
+    loadMoreBatches(20);
+  }, [batchResultCount, batchStatus, loadMoreBatches]);
   const events = usePaginatedQuery(
     api.clubProviderReads.listEvents,
     { communityProfileId },
@@ -823,6 +841,11 @@ function InvitationsContent() {
       ) : (
         <InvitationComposer
           lists={lists.results}
+          getServerNow={() =>
+            client.query(api.clubOperations.getScheduleClock, {
+              freshnessNonce: crypto.randomUUID(),
+            })
+          }
           events={events.results}
           instances={instances.fresh ? instances.data?.items ?? [] : []}
           instancesFresh={instances.fresh}
@@ -933,7 +956,10 @@ function InvitationsContent() {
             </div>
           ))}
         </div>
-        {batches.status === "LoadingFirstPage" ? <p>Loading history…</p> : null}
+        {(batches.status === "LoadingFirstPage" ||
+          (batches.status === "LoadingMore" && !batches.results.length)) ? (
+          <p>Loading history…</p>
+        ) : null}
         {batches.status === "Exhausted" && !batches.results.length ? (
           <p className="mt-4 text-sm text-muted">No invitation batches.</p>
         ) : null}

@@ -10,9 +10,10 @@ is withheld. Read state does not transfer to a new owner recipient.
 Each recipient's dismissal remains recorded if authority later returns to them.
 
 In-app history uses cursor pagination, with current recipient checks on each
-scanned page. An empty filtered page retains its continuation and the UI offers
-Load more notifications, so newer unrelated or dismissed rows cannot hide older
-accessible failures. Notification links open Scheduled actions, including for
+scanned page. The UI automatically follows up to five empty filtered pages to
+surface older accessible failures. Longer unrelated or dismissed prefixes retain
+their continuation and a manual Load more notifications control. Notification
+links open Scheduled actions, including for
 invitation-only staff who do not have member-directory permission.
 
 Email uses the existing AWS SES transport. BASIC approved the exact subject and
