@@ -1117,12 +1117,25 @@ export default defineSchema({
     draftVersion: v.number(), receiptId: v.id("eventContributionReceipts"), createdAt: v.number(),
   }).index("by_actor_key", ["actorUserId", "idempotencyKey"])
     .index("by_actor_createdAt", ["actorUserId", "createdAt"]),
+  eventReports: defineTable({
+    eventId: v.id("events"), communityProfileId: v.optional(v.id("profiles")),
+    actorUserId: v.optional(v.id("users")), reason: v.string(),
+    kind: v.union(v.literal("report"), v.literal("classifier_outage")), createdAt: v.number(),
+  }).index("by_createdAt", ["createdAt"])
+    .index("by_event_createdAt", ["eventId", "createdAt"])
+    .index("by_actor_createdAt", ["actorUserId", "createdAt"]),
+  eventContributionSuppressions: defineTable({
+    fingerprint: v.string(), eventId: v.id("events"), createdAt: v.number(), expiresAt: v.number(),
+  }).index("by_fingerprint_expiresAt", ["fingerprint", "expiresAt"])
+    .index("by_expiresAt", ["expiresAt"]),
   events: defineTable({
     venueLabel: v.optional(v.string()),
     contributorUserId: v.optional(v.id("users")),
     contributionVersion: v.optional(v.number()),
     contributionFingerprint: v.optional(v.string()),
     contributorEditsClosedAt: v.optional(v.number()),
+    contributorLockRevision: v.optional(v.number()),
+    moderationRemovedAt: v.optional(v.number()),
     slug: v.optional(v.string()),
     title: v.string(),
     sortTitle: v.string(),
@@ -1306,6 +1319,7 @@ export default defineSchema({
     ]),
   eventAuditEvents: defineTable({
     eventId: v.id("events"),
+    actorUserId: v.optional(v.id("users")),
     actor: v.optional(authSubject),
     actorSurface: v.union(
       v.literal("browser"),
@@ -1323,6 +1337,8 @@ export default defineSchema({
       v.literal("cancelled"),
       v.literal("restored"),
       v.literal("suppressed"),
+      v.literal("retracted"),
+      v.literal("taken_over"),
     ),
     changedFields: v.optional(v.array(v.string())),
     reason: v.optional(v.string()),

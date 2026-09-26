@@ -19,6 +19,7 @@ import {
   type AuthSubject,
 } from "./_communityAuthority";
 import { requireUser } from "./_identity";
+import { contributorStaffLock } from "./_eventContributorLock";
 import { requireActiveBrowserSessionSubject } from "./_browserSessionAuthority";
 import {
   apiWriteAuditActorKindValidator,
@@ -393,7 +394,7 @@ async function getPublishedPersonBySlug(db: DatabaseReader, slug: string) {
   return profile;
 }
 
-async function canUpdateEvent(
+export async function canUpdateEvent(
   db: DatabaseReader,
   event: Doc<"events">,
   subject: AuthSubject,
@@ -493,10 +494,11 @@ async function requireBrowserManagedCommunity(
   return community;
 }
 
-async function recordEventAuditEvent(
+export async function recordEventAuditEvent(
   db: DatabaseWriter,
   input: {
     eventId: Id<"events">;
+    actorUserId?: Id<"users">;
     actor?: AuthSubject;
     actorSurface: Doc<"eventAuditEvents">["actorSurface"];
     action: Doc<"eventAuditEvents">["action"];
@@ -507,6 +509,7 @@ async function recordEventAuditEvent(
 ) {
   await db.insert("eventAuditEvents", {
     eventId: input.eventId,
+    ...(input.actorUserId === undefined ? {} : { actorUserId: input.actorUserId }),
     ...(input.actor === undefined ? {} : { actor: input.actor }),
     actorSurface: input.actorSurface,
     action: input.action,
@@ -833,7 +836,7 @@ function participantLinksWithSlotPerformers(input: ReturnType<typeof sanitizeEve
   return links;
 }
 
-async function syncPreservedEventAssociations(
+export async function syncPreservedEventAssociations(
   db: DatabaseWriter,
   event: Doc<"events">,
   now: number,
@@ -1226,6 +1229,7 @@ async function updateCommunityEventRecord(
   } = options;
   const now = Date.now();
   const shouldUpdate = (field: keyof EventDraftInput) => updateFields === undefined || updateFields.has(field);
+  if (event.moderationRemovedAt !== undefined) throw new ConvexError({ code: "REMOVED_EVENT" });
   const slug = event.slug;
 
   if (slug === undefined) {
@@ -1263,6 +1267,7 @@ async function updateCommunityEventRecord(
           ...(publicationState === "published" ? { publishedAt: event.publishedAt ?? now } : {}),
         }),
     updatedAt: now,
+    ...contributorStaffLock(event, now),
   });
   const updatedEvent = await db.get(event._id);
   if (updatedEvent === null) {
@@ -2533,7 +2538,7 @@ export const createCommunityEvent = mutation({
   },
 });
 
-async function managedCommunitiesForBrowser(
+export async function managedCommunitiesForBrowser(
   ctx: QueryCtx,
   options: { includeNonPublic?: boolean } = {},
 ) {
@@ -3054,6 +3059,7 @@ export const setCommunityEventPublished = mutation({
   handler: async (ctx, args) => {
     const subject = await requireAuthenticatedSubject(ctx);
     const { event } = await getEditableEventBySlug(ctx, args.currentSlug, subject);
+    if (event.moderationRemovedAt !== undefined) throw new ConvexError({ code: "REMOVED_EVENT" });
     const now = Date.now();
     const publicationState = args.published
       ? ("published" as const)
@@ -3086,6 +3092,7 @@ export const setCommunityEventPublished = mutation({
       publicationState,
       ...(args.published ? { publishedAt: event.publishedAt ?? now } : {}),
       updatedAt: now,
+      ...contributorStaffLock(event, now),
     });
     const updated = await ctx.db.get(event._id);
     if (updated !== null) {
@@ -3139,6 +3146,7 @@ export const setCommunityEventCancelled = mutation({
   handler: async (ctx, args) => {
     const subject = await requireAuthenticatedSubject(ctx);
     const { event } = await getEditableEventBySlug(ctx, args.currentSlug, subject);
+    if (event.moderationRemovedAt !== undefined) throw new ConvexError({ code: "REMOVED_EVENT" });
     const eventStatus = args.cancelled
       ? ("cancelled" as const)
       : ("scheduled" as const);
@@ -3167,7 +3175,7 @@ export const setCommunityEventCancelled = mutation({
     }
 
     const now = Date.now();
-    await ctx.db.patch(event._id, { eventStatus, updatedAt: now });
+    await ctx.db.patch(event._id, { eventStatus, updatedAt: now, ...contributorStaffLock(event, now) });
     if (args.cancelled) {
       await settleEventMediaForCancellation(ctx.db, event, subject, now);
     }

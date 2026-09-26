@@ -5,6 +5,7 @@ import { internal } from "./_generated/api";
 const crons = cronJobs();
 
 crons.hourly("expire abandoned event intake drafts", { minuteUTC: 45 }, internal.eventIntake.expireDrafts, {});
+crons.hourly("expire removed event fingerprints", { minuteUTC: 50 }, internal.eventCorrections.expireEventSuppressions, {});
 
 crons.hourly(
   "community telemetry rollups",

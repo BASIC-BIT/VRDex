@@ -113,9 +113,84 @@ contributor source type. The existing association `confirmed` state means the
 association is published, not that a community owner endorsed it.
 
 Canonical contribution metadata is `contributorUserId`, `contributionVersion`,
-`contributionFingerprint`, and optional `contributorEditsClosedAt`. Scoped
-correction/takeover work must enforce these separately from community authority,
-rerun publication checks, and update public indexes in the same transaction.
-Published drafts are immutable; their content cannot be edited and republished
-to evade that correction boundary. Moderator removal and fingerprint retention
-remain the next delivery task.
+`contributionFingerprint`, optional `contributorEditsClosedAt`, and
+`contributorLockRevision`. Published drafts are immutable; use the correction
+commands below to change the canonical event.
+
+## Correction commands
+
+`eventCorrections.getOwnContributedEvent({eventId})` returns `eventId`,
+`updatedAt`, `contributionVersion`, and editable `fields` reconstructed from the
+canonical event and lineup. It never returns private source evidence.
+`updateOwnContributedEvent({eventId, expectedUpdatedAt, patch})` allows only the
+original contributor while the listing is published, scheduled, and not taken
+over by staff. It returns the new `updatedAt` and `contributionVersion`.
+
+The patch keys are `title`, `eventDate`, `timeTba`, `timezone`, `start`, `end`,
+`doors`, `venueLabel`, `worldSlug`, `sourceUrl`, `summary`, and `lineup`. Local
+times and lineup rows use the intake contract above. Omitted fields remain;
+empty or null optional text clears the field. Arrays replace as a unit. When
+switching to TBA, clear event/set times explicitly. Community attachment,
+source attribution, trust, private evidence, and watch controls are rejected.
+
+Every correction compares `expectedUpdatedAt`, validates the resulting complete
+listing with publication preflight (excluding itself from duplicate matches),
+and validates the lineup. It does not spend new-publication quota. An exact
+match to another listing returns `DUPLICATE_EVENT`; near matches return
+`NEAR_DUPLICATE`. The transaction updates canonical content, search and
+participant/world projections and records changed fields with actor identity.
+
+`retractOwnContributedEvent({eventId})` hides and audits the contributor's own
+listing before staff takeover. Community owners and `manage_events` staff retain
+the existing edit, cancel, unpublish and republish commands. Every staff content
+or publication/status change sets `contributorEditsClosedAt` and increments
+`contributorLockRevision` in the same transaction. The explicit
+`takeOverContributedEvent({eventId})` command closes editing without changing
+content. Subsequent contributor mutations return `CONTRIBUTOR_EDIT_CLOSED`,
+including mutations with a fresh revision. UI correction suggestions after
+takeover remain a separate workflow; a stale direct edit never becomes one
+automatically.
+
+Trusted transports can use internal `getActorContributedEvent`,
+`updateActorContributedEvent`, and `retractActorContributedEvent` with the same
+arguments plus `actorUserId`. Derive that ID from the authenticated credential,
+never the request body. The internal mutations record this ID in event audits.
+Browser commands derive their actor from the active session.
+
+## Reports and removal
+
+`reportEvent({eventId, reason})` accepts signed-out visitors, records identity
+when available, and returns `{accepted: true}`. Reasons must contain 5 to 500
+trimmed characters. Reports never change publication or automatically remove an
+event. Server-side rolling limits allow 20 reports per event per 24 hours,
+500 reports globally per hour, and 10 reports per signed-in account per 24 hours.
+These limits share the mutation transaction with the insert. No caller-supplied
+client key or IP is accepted, so rotating either cannot bypass the event/global
+bounds. A malicious caller can exhaust those shared limits and delay legitimate
+reports. A future trusted HTTP layer can add IP-based admission, but must retain
+these limits since the public Convex mutation remains directly callable.
+
+`listEventReports({cursor, limit})` accepts a null initial cursor and a limit
+from 1 to 100. Only community owners, `manage_events` staff and accounts with an
+active `super_admin` grant can read it. Staff see only their communities; moderators
+see all reports. Its page can be empty before `isDone` because authorization
+filters a bounded global page. Continue with `continueCursor`. Private
+`eventReports` rows may also carry `kind: classifier_outage` for a trusted
+classifier commit to insert. Neither reports nor outage flags enter public
+event projections.
+
+`removeContributedEvent({eventId, reason})` separately requires an active
+`super_admin` grant. Community event authority alone does not grant removal.
+The mutation hides the event, closes contributor editing, updates search and
+participant/world projections, and records the moderator and reason in the
+audit. Removed listings cannot be republished through ordinary staff commands.
+Public page and calendar-export reads return no event; upcoming, community,
+person and world feeds omit it. Already-cached exports retain their existing
+cache lifetime, and files already downloaded cannot be recalled.
+
+A removal stores the community/date/normalized-title fingerprint for 30 days.
+Preflight rejects matching publication even if the canonical row is gone. The
+hourly cleanup deletes at most 200 expired suppression records per run. Expired
+records stop blocking immediately, independent of cleanup backlog. The removed
+canonical row stays hidden. This is exact-match prevention, not fuzzy spam
+detection; title/date changes can evade it.

@@ -47,7 +47,7 @@ export function normalizeIntakePublication(raw: EventIntakePatch) {
 }
 
 /** All reads here run again inside the canonical publication transaction. */
-export async function preflightEventContribution(db: DatabaseReader, actorUserId: Id<"users">, raw: EventIntakePatch, now: number) {
+export async function preflightEventContribution(db: DatabaseReader, actorUserId: Id<"users">, raw: EventIntakePatch, now: number, correctingEventId?: Id<"events">) {
   if (await db.get(actorUserId) === null) throw new Error("A signed-in user is required.");
   const normalized = normalizeIntakePublication(raw);
   const { fields } = normalized;
@@ -56,7 +56,11 @@ export async function preflightEventContribution(db: DatabaseReader, actorUserId
   const world = fields.worldSlug ? await db.query("worlds").withIndex("by_slug", q => q.eq("slug", fields.worldSlug!)).unique() : undefined;
   if (fields.worldSlug && (!world || world.publicationState !== "published")) throw new Error("World match must be published.");
   const fingerprint = eventContributionFingerprint(community._id, fields.eventDate!, fields.title!);
-  const exact = await db.query("events").withIndex("by_contributionFingerprint", q => q.eq("contributionFingerprint", fingerprint)).first();
+  const suppression = await db.query("eventContributionSuppressions").withIndex("by_fingerprint_expiresAt", q => q.eq("fingerprint", fingerprint).gt("expiresAt", now)).first();
+  if (suppression) throw new ConvexError({ code: "REPOST_BLOCKED" });
+  const matches = await db.query("events").withIndex("by_contributionFingerprint", q => q.eq("contributionFingerprint", fingerprint)).take(101);
+  if (matches.length > 100) throw new ConvexError({ code: "TARGET_QUOTA" });
+  const exact = matches.find(event => event._id !== correctingEventId && event.moderationRemovedAt === undefined);
   if (exact && (exact.publicationState !== "published" || exact.eventStatus !== "scheduled")) throw new ConvexError({ code: "REPOST_BLOCKED" });
   if (exact) return { ...normalized, community, world: world ?? undefined, fingerprint, existing: exact };
   const dayStart = Date.parse(`${fields.eventDate}T00:00:00Z`);
@@ -65,8 +69,8 @@ export async function preflightEventContribution(db: DatabaseReader, actorUserId
     // Old timed records have no eventDate until the schedule backfill runs.
     db.query("events").withIndex("by_communityProfileId_startAt", q => q.eq("communityProfileId", community._id).gte("startAt", dayStart - 14 * 3_600_000).lt("startAt", dayStart + 38 * 3_600_000)).take(101),
   ]);
-  if (legacyWindow.length > 100) throw new ConvexError({ code: "TARGET_QUOTA" });
-  const sameDay = [...dated, ...legacyWindow.filter(event => !event.eventDate && event.startAt !== undefined && eventDateForInstant(event.startAt, event.timezone) === fields.eventDate)];
+  if (dated.length > 100 || legacyWindow.length > 100) throw new ConvexError({ code: "TARGET_QUOTA" });
+  const sameDay = [...dated, ...legacyWindow.filter(event => !event.eventDate && event.startAt !== undefined && eventDateForInstant(event.startAt, event.timezone) === fields.eventDate)].filter(event => event._id !== correctingEventId && event.moderationRemovedAt === undefined);
   if (sameDay.length > 100) throw new ConvexError({ code: "TARGET_QUOTA" });
   // Include owner/import events, which predate contribution fingerprints.
   const legacyExact = sameDay.find(event => eventContributionFingerprint(community._id, fields.eventDate!, event.title) === fingerprint);
@@ -78,6 +82,8 @@ export async function preflightEventContribution(db: DatabaseReader, actorUserId
     (similarTitle(event.title, fields.title!) || Boolean(fields.sourceUrl && event.sourceUrl === fields.sourceUrl)) &&
     !fields.duplicateAcknowledgements?.includes(event._id));
   if (near.length) throw new ConvexError({ code: "NEAR_DUPLICATE", choices: near.slice(0, 20).map(event => ({ eventId: event._id, title: event.title, eventPath: eventPathForSlugs(community.slug, event.slug!) })) });
+  // Corrections do not consume new-publication capacity, but retain target and duplicate checks.
+  if (correctingEventId) return { ...normalized, community, world: world ?? undefined, fingerprint, existing: undefined };
   const since = now - 86_400_000;
   const actorRecent = await db.query("eventContributionReceipts").withIndex("by_actor_createdAt", q => q.eq("actorUserId", actorUserId).gte("createdAt", since)).take(INTAKE_ACCOUNT_DAILY_LIMIT);
   if (actorRecent.length >= INTAKE_ACCOUNT_DAILY_LIMIT) throw new ConvexError({ code: "ACCOUNT_QUOTA" });
