@@ -7,6 +7,7 @@ import { canReadProfile } from "./_profilePermissions";
 import { getAccountFeatureAccess } from "./_accountFeatures";
 import { EventPosterDeclarationSchema, EVENT_POSTER_MAX_BYTES } from "../packages/api-contracts/src/event-intake";
 const DAY = 86_400_000;
+const ARTWORK_WRITE_MS = 10 * 60_000;
 const actor = { actorUserId: v.id("users") };
 const sourceArg = { posterAssetId: v.id("eventPosterSources") };
 export async function sourceExpiry(db: DatabaseReader, source: Doc<"eventPosterSources">) {
@@ -63,14 +64,15 @@ export const selectPosterArtwork = internalMutation({ args: { ...actor, ...sourc
   if (draft.publishedReceiptId) throw new Error("DRAFT_PUBLISHED");
   const source = await ownSource(ctx.db, args.actorUserId, args.posterAssetId);
   if (source.draftId !== draft._id || source.state !== "ready") throw new Error("POSTER_NOT_READY");
-  const previous = await ctx.db.query("eventPosterArtwork").withIndex("by_source", q => q.eq("sourceId", source._id)).take(1);
-  if (previous.length) {
-    if (previous[0]!.sourceId !== source._id || !["pending", "ready"].includes(previous[0]!.state)) throw new Error("ARTWORK_ALREADY_SELECTED");
-    return { artworkAssetId: previous[0]!._id, storageKey: previous[0]!.storageKey, expectedVersion: draft.version };
+  const previous = await ctx.db.query("eventPosterArtwork").withIndex("by_source", q => q.eq("sourceId", source._id)).order("desc").take(1);
+  const writeExpiresAt = Date.now() + ARTWORK_WRITE_MS;
+  if (previous[0] && ["pending", "ready"].includes(previous[0].state)) {
+    await ctx.db.patch(previous[0]._id, { expiresAt: Math.max(previous[0].expiresAt, writeExpiresAt + DAY) });
+    return { artworkAssetId: previous[0]._id, storageKey: previous[0].storageKey, expectedVersion: draft.version, writeExpiresAt };
   }
   const storageKey = `profile-assets/event-posters/artwork/${crypto.randomUUID()}.webp`;
-  const artworkAssetId = await ctx.db.insert("eventPosterArtwork", { actorUserId: args.actorUserId, draftId: draft._id, sourceId: source._id, storageKey, state: "pending", createdAt: Date.now(), expiresAt: Date.now() + DAY });
-  return { artworkAssetId, storageKey, expectedVersion: draft.version };
+  const artworkAssetId = await ctx.db.insert("eventPosterArtwork", { actorUserId: args.actorUserId, draftId: draft._id, sourceId: source._id, storageKey, state: "pending", createdAt: Date.now(), expiresAt: writeExpiresAt + DAY });
+  return { artworkAssetId, storageKey, expectedVersion: draft.version, writeExpiresAt };
 } });
 export const completeArtwork = internalMutation({ args: { ...actor, artworkAssetId: v.id("eventPosterArtwork"), expectedVersion: v.number(), sha256: v.string(), byteLength: v.number() }, returns: v.any(), handler: async (ctx, args) => {
   const artwork = await ctx.db.get(args.artworkAssetId);
@@ -148,6 +150,20 @@ export const claimAbandonedArtwork = internalMutation({ args: {}, returns: v.any
 } });
 export const confirmArtworkDeletion = internalMutation({ args: { artworkAssetId: v.id("eventPosterArtwork"), token: v.string() }, returns: v.null(), handler: async (ctx, args) => {
   const row = await ctx.db.get(args.artworkAssetId);
-  if (row?.state === "deleting" && row.cleanupToken === args.token) await ctx.db.patch(row._id, { state: "expired", storageKey: undefined, cleanupToken: undefined, cleanupLeaseUntil: undefined });
+  if (row?.state === "deleting" && row.cleanupToken === args.token) await ctx.db.patch(row._id, { state: "expired", cleanupToken: undefined, cleanupLeaseUntil: undefined });
   return null;
 } });
+
+// A late immutable write may finish after deletion. Keep the exact key on the tombstone
+// so a failed finalization can durably requeue it without trusting a caller-supplied key.
+export const recoverFailedArtworkWrite = internalMutation({
+  args: { ...actor, artworkAssetId: v.id("eventPosterArtwork") }, returns: v.null(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.artworkAssetId);
+    if (!row || row.actorUserId !== args.actorUserId) throw new Error("ARTWORK_NOT_FOUND");
+    if (row.state === "expired" || row.state === "deleting") {
+      await ctx.db.patch(row._id, { state: "deleting", expiresAt: Date.now(), cleanupToken: undefined, cleanupLeaseUntil: undefined });
+    }
+    return null;
+  },
+});

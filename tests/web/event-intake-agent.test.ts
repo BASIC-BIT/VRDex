@@ -142,3 +142,56 @@ it("completes the actual storage bridge from reserved upload through separately 
  assert.equal(puts.length,2);assert.match(puts[1],/^profile-assets\/event-posters\/artwork\//);
  assert.equal((await t.run(ctx=>ctx.db.get(draftId)))?.version,2);
 });
+
+it("renews stale artwork selection and recovers a key written after cleanup", async () => {
+ const {createEventPosterHandlers}=await import("../../apps/web/src/lib/server/event-poster-storage");
+ const {createHash}=await import("node:crypto");
+ const {default:sharp}=await import("sharp");
+ const {convexTest}=await import("convex-test");
+ const {internal}=await import("../../convex/_generated/api");
+ const schemaModule=await import("../../convex/schema");
+ const schema=(schemaModule.default as unknown as {default?:typeof schemaModule.default}).default??schemaModule.default;
+ const t=convexTest({schema,modules:{"../../convex/_generated/api.ts":()=>import("../../convex/_generated/api"),"../../convex/eventIntakeSources.ts":()=>import("../../convex/eventIntakeSources")}});
+ const {actorUserId,draftId}=await t.run(async ctx=>{const actorUserId=await ctx.db.insert("users",{clerkUserId:"race-actor"});const draftId=await ctx.db.insert("eventIntakeDrafts",{actorUserId,version:1,fields:{title:"Night"},provenance:[],createdAt:Date.now(),updatedAt:Date.now(),expiresAt:Date.now()+30*86400000});return{actorUserId,draftId};});
+ const body=await sharp({create:{width:8,height:8,channels:3,background:"blue"}}).png().toBuffer();
+ const objects=new Map<string,{body:Uint8Array;contentType:string}>();
+ let uploadKey="", phase="upload", preparationClaims=-1, writeAttempts=0;
+ const originalNow=Date.now;
+ const sweep=async()=>{const work=await t.mutation(internal.eventIntakeSources.claimAbandonedArtwork,{});for(const item of work){for(const key of item.storageKeys)objects.delete(key);await t.mutation(internal.eventIntakeSources.confirmArtworkDeletion,{artworkAssetId:item.artworkAssetId,token:item.token});}return work;};
+ const handlers=createEventPosterHandlers({authority:async()=>({actorUserId}),admin:{mutation:t.mutation,query:t.query},target:async input=>{uploadKey=input.storageKey;return{url:"https://s3.test",fields:{key:input.storageKey}};},read:async key=>{if(phase==="retry")preparationClaims=(await sweep()).length;if(phase==="expired-preparation"||phase==="expired-source-preparation")Date.now=()=>originalNow()+11*60000;return objects.get(key)??null;},put:async input=>{
+  writeAttempts++;
+  if(phase!=="upload")assert.ok(input.signal instanceof AbortSignal);
+  if(phase==="overrun"){
+   // Simulate a stalled write resuming after its reservation, deletion and confirmation.
+   await t.run(async ctx=>{const rows=await ctx.db.query("eventPosterArtwork").collect();const row=rows.find(row=>row.storageKey===input.storageKey)!;await ctx.db.patch(row._id,{expiresAt:0});await ctx.db.patch(draftId,{expiresAt:0});});
+   assert.equal((await sweep()).length,1);
+  }
+  objects.set(input.storageKey,{body:input.body,contentType:input.contentType});
+ }});
+ const started=await handlers.beginPosterUpload({draftId,contentType:"image/png",byteLength:body.length,sha256:createHash("sha256").update(body).digest("hex")});objects.set(uploadKey,{body,contentType:"image/png"});
+ phase="expired-source-preparation";
+ try { await assert.rejects(handlers.completePosterUpload({posterAssetId:started.posterAssetId}),/POSTER_WRITE_EXPIRED/); } finally { Date.now=originalNow; }
+ assert.equal(writeAttempts,0,"expired source preparation must never start a copy");
+ phase="upload";await handlers.completePosterUpload({posterAssetId:started.posterAssetId});
+ const args={actorUserId,draftId,posterAssetId:started.posterAssetId,expectedVersion:1};
+ const reserved=await t.mutation(internal.eventIntakeSources.selectPosterArtwork,args);
+ await t.run(ctx=>ctx.db.patch(reserved.artworkAssetId,{expiresAt:0}));
+ phase="retry";
+ await handlers.selectPosterArtwork(args);
+ assert.equal(preparationClaims,0,"renewal must prevent cleanup while the image is prepared");
+ phase="expired-preparation";
+ const attemptsBefore=writeAttempts;
+ try { await assert.rejects(handlers.selectPosterArtwork({...args,expectedVersion:2}),/ARTWORK_WRITE_EXPIRED/); } finally { Date.now=originalNow; }
+ assert.equal(writeAttempts,attemptsBefore,"expired preparation must never start an S3 write");
+ phase="overrun";
+ await assert.rejects(handlers.selectPosterArtwork({...args,expectedVersion:2}));
+ assert.equal(objects.has(reserved.storageKey!),true,"the deliberately late write recreates the object");
+ const recovery=await sweep();
+ assert.equal(recovery.length,1,"failed completion must retain a future deletion obligation");
+ assert.equal(objects.has(reserved.storageKey!),false);
+ await t.run(ctx=>ctx.db.patch(draftId,{expiresAt:Date.now()+86400000}));
+ phase="retry";
+ await handlers.selectPosterArtwork({...args,expectedVersion:2});
+ const latest=await t.run(ctx=>ctx.db.get(draftId));
+ assert.notEqual(latest?.artworkAssetId,reserved.artworkAssetId,"an expired prior selection must permit a fresh independent key");
+});

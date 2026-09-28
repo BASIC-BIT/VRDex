@@ -141,3 +141,20 @@ it("uses current event dates for retention and respects private reviewer reads",
  await assert.rejects(t.withIdentity({subject:"actor"}).query(get,{posterAssetId:source.posterAssetId}),/NOT_FOUND/);
  assert.equal((await t.mutation(ref("claimExpiredSources"),{})).length,1);
 });
+
+it("retries a deleting artwork with a fresh key and preserves the old cleanup claim",async()=>{
+ const{t,actorUserId,other,draftId}=await fixture();
+ const source=await t.mutation(ref("beginPosterUpload"),{actorUserId,draftId,contentType:"image/png",byteLength:128,sha256:"a".repeat(64)});
+ await t.mutation(ref("completePosterUpload"),{actorUserId,posterAssetId:source.posterAssetId,sha256:"a".repeat(64)});
+ const args={actorUserId,draftId,posterAssetId:source.posterAssetId,expectedVersion:1};
+ const old=await t.mutation(ref("selectPosterArtwork"),args);
+ await t.run(ctx=>ctx.db.patch(old.artworkAssetId,{expiresAt:0}));
+ const [claim]=await t.mutation(ref("claimAbandonedArtwork"),{});
+ const fresh=await t.mutation(ref("selectPosterArtwork"),args);
+ assert.notEqual(fresh.artworkAssetId,old.artworkAssetId);assert.notEqual(fresh.storageKey,old.storageKey);
+ assert.ok(fresh.writeExpiresAt>Date.now()&&fresh.writeExpiresAt<=Date.now()+600000);
+ await assert.rejects(t.mutation(ref("recoverFailedArtworkWrite"),{actorUserId:other,artworkAssetId:old.artworkAssetId}),/ARTWORK_NOT_FOUND/);
+ await t.mutation(ref("confirmArtworkDeletion"),{artworkAssetId:old.artworkAssetId,token:claim.token});
+ assert.equal((await t.run(ctx=>ctx.db.get(old.artworkAssetId)))?.state,"expired");
+ assert.equal((await t.run(ctx=>ctx.db.get(fresh.artworkAssetId)))?.state,"pending");
+});

@@ -64,7 +64,12 @@ and a report tied to that evidence's event. A hold must precede deletion claimin
 Passing null releases the hold after the dispute is resolved. Holds cover a
 specific private evidence item. They do not retain unrelated uploads. Published
 artwork has an independent record and is never included in source cleanup.
-Abandoned uncommitted artwork has its own bounded sweep.
+Abandoned uncommitted artwork has its own bounded sweep. Each selection reserves
+a ten-minute write window plus one day of cleanup grace, including retries of
+pending selections. The server rejects preparation that outlives the write window
+and passes its deadline to S3. Expired/deleting selections retry with a fresh key.
+Artwork tombstones retain their exact key so a failed late write can requeue
+deletion even after an earlier sweep confirmed it. Published artwork is unaffected.
 
 ## Extraction and classification
 
