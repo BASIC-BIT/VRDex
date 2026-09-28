@@ -21,6 +21,7 @@ flowchart LR
     Publish --> Event[Canonical event page]
     Event --> Correct[Original contributor correction or retraction]
     Event --> Staff[Staff takeover]
+    Staff --> Owner
     Staff --> Suggest[Contributor suggestion in report inbox]
     Event --> Report[Report event]
     Report --> Inbox[Scoped staff report inbox]
@@ -33,6 +34,13 @@ Timezones are selected from the runtime IANA list with city and regional aliases
 Abbreviations are search terms, not stored fixed offsets. Offsets use the event
 date. Repeated local hours require an occurrence choice and missing local hours
 cannot publish. Existing owner timestamps remain exact when unchanged.
+
+The owner editor loads contributed date-only events with Time TBA selected.
+Title, venue, artwork and lineup corrections preserve the authored date without
+a start instant. Turning off Time TBA requires a start time. Contributed untimed
+performers have editable names, optional person matches and roles, plus remove
+controls. Saves replace the canonical lineup and retain unchanged timed-set
+stream selections. Existing timed owner events keep the slot/participant editor.
 
 `getEventContributionAccess` returns capabilities only. Contributor identifiers
 stay out of the public event DTO. Correction mutations retain server authorization

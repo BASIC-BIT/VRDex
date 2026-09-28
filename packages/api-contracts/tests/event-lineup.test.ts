@@ -11,6 +11,13 @@ it("accepts date-only public schedules and rejects an invented instant", () => {
   assert.equal(PublicEventSchema.safeParse({ ...event, scheduleKind: "timed" }).success, false);
 });
 
+it("accepts owner date-only corrections and canonical lineup replacement", () => {
+  const patch = { scheduleKind: "date_only", eventDate: "2027-10-15", venueLabel: "Harbor", lineup: [{ clientKey: "guest", position: 0, performerLabel: "Guest" }], posterImageUrl: "/api/v0/events/event-id/artwork/artwork-id" };
+  assert.deepEqual(ApiEventUpdateRequestSchema.parse(patch), patch);
+  assert.equal(ApiEventUpdateRequestSchema.safeParse({ ...patch, posterImageUrl: "/arbitrary.png" }).success, false);
+  assert.equal(ApiEventUpdateRequestSchema.safeParse({ ...patch, participantLinks: [], slotLinks: [] }).success, false);
+});
+
 it("validates event stream inputs and preserves replacement clear semantics", () => {
   const draft = { title: "Lineup", communitySlug: "club", startAt: 1798761600000,
     watchMode: "performer_sequence", slotLinks: [{ displayLabel: "Set", startAt: 1798761600000, selectedStreamId: "alpha" }] };

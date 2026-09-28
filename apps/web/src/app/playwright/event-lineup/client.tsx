@@ -81,13 +81,15 @@ function fixtureClient() {
       localStorage.setItem(`${storageKey}-submission`, JSON.stringify(args));
       const error = localStorage.getItem("event-lineup-fixture-save-error");
       if (error) throw new Error(error);
-      const slots = (args.slotLinks as Array<Record<string, unknown>>).map((slot, index) => ({
+      const slots = ((args.slotLinks ?? (args.lineup as Array<Record<string, unknown>> | undefined)?.filter(row => row.startAt !== undefined).map(row => ({ ...row, displayLabel: row.performerLabel })) ?? []) as Array<Record<string, unknown>>).map((slot, index) => ({
         ...slot, position: index, playbackKey: `saved-${index}`, discord: previewEvent.slots[0]!.discord, source: previewEvent.source,
         performer: people[slot.personSlug as keyof typeof people],
         streamChoices: choices[slot.personSlug as keyof typeof choices] ?? [],
         selectedStreamId: slot.selectedStreamId ?? undefined,
       }));
-      event = { ...event, ...args, slots } as EditableEvent;
+      event = { ...event, ...args, slots,
+        ...(args.lineup === undefined ? {} : { lineup: (args.lineup as Array<Record<string, unknown>>).map(row => ({ ...row, key: row.clientKey, displayLabel: row.performerLabel, performer: people[row.personSlug as keyof typeof people] })) }),
+      } as EditableEvent;
       localStorage.setItem(storageKey, JSON.stringify(event));
       listeners.forEach(listener => listener());
       return { slug: event.slug, eventPath: "/playwright-afterglow-social/events/playwright-afterglow-harbor-sessions", preservedParticipantAssociationIds: [], preservedSlotAssociationIds: [], preservedWorldAssociationIds: [] };

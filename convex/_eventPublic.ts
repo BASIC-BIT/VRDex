@@ -205,7 +205,7 @@ function publicLineup(record: PublicEventRecord): PublicEventLineupEntry[] {
   }
   const rows: PublicEventLineupEntry[] = [
     ...(record.event.scheduleKind === "date_only" ? [] : record.slots).map(row => ({
-      key: row.slot._id, position: row.slot.position, displayLabel: row.slot.displayLabel,
+      key: row.slot._id, position: row.slot.position, displayLabel: /^Session \d+$/.test(row.slot.displayLabel) ? row.profile?.displayName ?? `Slot ${row.slot.position + 1}` : row.slot.displayLabel,
       ...optionalField("roleLabel", row.slot.roleLabel || undefined),
       startAt: row.slot.startAt, ...optionalField("endAt", row.slot.endAt), ...performer(row),
     })),
@@ -821,10 +821,13 @@ export async function getEventForEditor(
     ? null
     : {
         ...projected,
+        usesCanonicalLineup: event.sourceType === "contributor" || Boolean(record?.lineupEntries?.length) || slotAssociations.some(slot => slot.clientKey !== undefined),
+        lineup: projected.lineup.map(row => ({ ...row, key: record?.lineupEntries?.find(entry => entry.entry._id === row.key)?.entry.clientKey ?? row.key })),
         slots: projected.slots.map((slot) => {
           const source = record?.slots.find((entry) => entry.slot._id === slot.playbackKey);
           return {
             ...slot,
+            ...optionalField("clientKey", source?.slot.clientKey),
             ...optionalField("selectedStreamId", source?.slot.selectedStreamId),
             streamChoices: source?.profile === undefined ? [] : eventProfileStreamChoices(source.profile),
           };

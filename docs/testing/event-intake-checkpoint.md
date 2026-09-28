@@ -1,8 +1,8 @@
 # Contributed event intake checkpoint
 
-Date: 2026-09-28. Scope: Tasks 1 through 9 on
-`codex/event-contribution-ai-intake-design`, based on `ca9f361a2` plus the Task 9
-verification/docs diff. This is local evidence. Nothing here asserts deployment,
+Date: 2026-09-28. Scope: Tasks 1 through 9 and final review corrections on
+`codex/event-contribution-ai-intake-design`, based on `643191eac` plus the final
+owner-correction diff. This is local evidence. Nothing here asserts deployment,
 copy approval, hosted accuracy or merge readiness.
 
 ## Implemented journey
@@ -150,6 +150,48 @@ are not counted as passed checks. Added stream/watch selectors were corrected to
 assert collapsed DOM content by href and event stream suffix before the final pass.
 Existing NO_COLOR/FORCE_COLOR and Next middleware warnings remain; the docs build
 reports stale Browserslist data and untracked-file update dates, not broken links.
+
+## Final owner-correction review fixes
+
+The final branch review found gaps between contributor publication and the owner
+editor. Owner browser/API updates now preserve date-only schedules on ordinary
+corrections, accept explicit timed transitions, and replace canonical lineups.
+Staff can correct or remove unmatched untimed performers after takeover. Stable
+timed row keys preserve stored stream choices; changing/removing a person clears
+the previous choice, and a new choice must belong to the person's public streams.
+Owner updates validate retained root-relative artwork against its published
+server record and refresh contribution fingerprints after title/date/community
+changes. Discord export uses mixed/untimed canonical lineups. World event keys
+include the date, and public lineup projection replaces legacy generated Session
+labels with the matched name or Slot label.
+
+Focused tests failed first on missing owner `startAt`, missing Discord lineup,
+legacy Session labels and the missing owner date-only rollout guard. The desktop
+browser test first failed because the owner form had no Time TBA control.
+New transaction tests exercise both browser and API owner mutations, canonical
+replacement/removal after takeover, artwork retention/rejection, refreshed
+duplicate identity, stored-stream retention and cross-person clearing.
+
+Final-wave verification: backend 996 tests, web 586, API contracts 57 and MCP 10;
+backend/web/API/MCP typechecks, web lint and OpenAPI parity. The relevant browser
+run passed 56 desktop/mobile flows and unchanged snapshots, plus four public
+event/watch snapshots. No baseline update
+was needed. The first backend run had one obsolete source-text assertion for the
+old assignment syntax; real mutation coverage for omission/replacement remains.
+
+New desktop/mobile screenshots are under
+`apps/web/test-results/final-fix-reviewed/event-lineup.flow-staff-ed-45b3e--removing-contributed-names-{desktop,mobile}-chromium/staff-date-only-editor.png`.
+Visual inspection accepted both: the date and Time TBA state are visible, performer
+editing/removal is legible, controls stay inside the mobile viewport, and the save
+action remains reachable. The fixture exercises the actual form serialization
+and stores the submitted fields locally. It does not prove authenticated
+browser-to-Convex persistence or real artwork storage. Backend transaction tests
+provide the independent persistence/authority checks.
+
+New utility labels are `Add performer` and `Remove performer`; `Time TBA`, `Date`,
+`Venue`, `Performer`, `Person profile` and `Role` reuse the intake labels above.
+No new explanatory product sentence was added. Exact-copy shipping approval for
+the existing intake prose remains pending.
 
 ## Release and operator gates
 

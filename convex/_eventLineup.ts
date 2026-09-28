@@ -3,6 +3,7 @@ import type { DatabaseWriter } from "./_generated/server";
 import { sanitizeEventLineupInput, type EventLineupInput } from "./_eventInputs";
 import { eventSortAt, eventSortEndAt } from "./_eventSchedule";
 import { canReadProfile } from "./_profilePermissions";
+import { eventProfileStreamChoices } from "./_eventPlayback";
 
 export type { EventLineupInput } from "./_eventInputs";
 
@@ -38,7 +39,15 @@ export async function replaceEventLineup(
         slot.clientKey === entry.clientKey || (slot.clientKey === undefined && slot.startAt === entry.startAt
           && slot.personProfileId === profile?._id && (profile !== undefined || slot.displayLabel === entry.performerLabel))
       ));
+      const selectedStreamId = entry.selectedStreamId === undefined
+        ? (existing?.personProfileId === profile?._id ? existing?.selectedStreamId : undefined)
+        : entry.selectedStreamId ?? undefined;
+      if (selectedStreamId !== undefined && !(existing?.personProfileId === profile?._id && existing?.selectedStreamId === selectedStreamId) &&
+          (profile === undefined || !eventProfileStreamChoices(profile).some(choice => choice.streamId === selectedStreamId))) {
+        throw new Error("Selected stream must belong to the performer's public streams.");
+      }
       const fields = {
+        selectedStreamId,
         eventId: event._id, clientKey: entry.clientKey, position: entry.position,
         eventStartAt: event.startAt, eventSortAt: eventSortAt(event),
         startAt: entry.startAt, endAt: entry.endAt, personProfileId: profile?._id,
@@ -48,9 +57,7 @@ export async function replaceEventLineup(
       };
       if (existing !== undefined) {
         keptSlots.add(existing._id);
-        await db.patch(existing._id, { ...fields,
-          selectedStreamId: existing.personProfileId === profile?._id ? existing.selectedStreamId : undefined,
-        });
+        await db.patch(existing._id, fields);
       } else await db.insert("eventSlots", { ...fields, createdAt: now });
     } else {
       await db.insert("eventLineupEntries", {

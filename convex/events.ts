@@ -1,4 +1,4 @@
-import { dateOnlyEventsEnabled, eventDateForInstant, eventSortAt, eventSortEndAt, normalizeEventSchedule, publicEventSchedule } from "./_eventSchedule";
+import { dateOnlyEventsEnabled, eventDateForInstant, eventSortAt, eventSortEndAt, normalizeEventSchedule, publicEventSchedule, requireDateOnlyEventsEnabled } from "./_eventSchedule";
 import { eventProfileStreamChoices } from "./_eventPlayback";
 import { ConvexError, v } from "convex/values";
 
@@ -20,6 +20,8 @@ import {
 } from "./_communityAuthority";
 import { requireUser } from "./_identity";
 import { contributorStaffLock } from "./_eventContributorLock";
+import { replaceEventLineup } from "./_eventLineup";
+import { eventContributionFingerprint } from "./_eventContributionPreflight";
 import { requireActiveBrowserSessionSubject } from "./_browserSessionAuthority";
 import {
   apiWriteAuditActorKindValidator,
@@ -55,6 +57,8 @@ import {
   sanitizeEventDraftInput,
   type EventDraftInput,
   type EventDraftUpdateInput,
+  type EventOwnerDraftInput,
+  type SanitizedEventOwnerDraftInput,
   type SanitizedEventDraftInput,
 } from "./_eventInputs";
 import { findEventOperationSlots } from "./_eventOperations";
@@ -163,6 +167,15 @@ const eventDraftArgs = {
 
 const eventDraftUpdateArgs = {
   ...eventDraftArgs,
+  scheduleKind: v.optional(v.union(v.literal("timed"), v.literal("date_only"))),
+  eventDate: v.optional(v.string()),
+  venueLabel: v.optional(v.string()),
+  lineup: v.optional(v.array(v.object({
+    clientKey: v.string(), position: v.number(), performerLabel: v.string(),
+    personSlug: v.optional(v.string()), roleLabel: v.optional(v.string()),
+    startAt: v.optional(v.number()), endAt: v.optional(v.number()),
+    selectedStreamId: v.optional(v.union(v.string(), v.null())),
+  }))),
   title: v.optional(v.string()),
   startAt: v.optional(v.number()),
   doorsOpenAt: v.optional(v.union(v.number(), v.null())),
@@ -690,7 +703,7 @@ async function replaceEventParticipants(
 async function replaceEventSlots(
   db: DatabaseWriter,
   eventId: Id<"events">,
-  eventStartAt: number,
+  eventStartAt: number | undefined,
   slots: ReturnType<typeof sanitizeEventDraftInput>["slotLinks"],
   now: number,
   options: {
@@ -730,7 +743,7 @@ async function replaceEventSlots(
   const preservedSlotFor = (slot: (typeof slots)[number]) => slot.personSlug === undefined
     ? nonPublicExisting.find(({ slot: existingSlot }) =>
         existingSlot.position === slot.position &&
-        existingSlot.startAt - (options.previousEventStartAt ?? eventStartAt) === slot.startAt - eventStartAt &&
+        existingSlot.startAt - (options.previousEventStartAt ?? eventStartAt!) === slot.startAt - eventStartAt! &&
         (existingSlot.endAt === undefined ? undefined : existingSlot.endAt - existingSlot.startAt) ===
           (slot.endAt === undefined ? undefined : slot.endAt - slot.startAt) &&
         existingSlot.displayLabel === slot.displayLabel &&
@@ -898,9 +911,9 @@ export async function linkedPublishedEventWorld(db: DatabaseReader, eventId: Id<
 }
 
 function suppliedEventDraftFields(input: EventDraftUpdateInput) {
-  const fields = new Set<keyof EventDraftInput>();
+  const fields = new Set<keyof EventOwnerDraftInput>();
 
-  for (const field of Object.keys(eventDraftArgs) as Array<keyof EventDraftInput>) {
+  for (const field of Object.keys(eventDraftUpdateArgs) as Array<keyof EventOwnerDraftInput>) {
     if (Object.prototype.hasOwnProperty.call(input, field)) {
       fields.add(field);
     }
@@ -986,6 +999,29 @@ async function createCommunityEventForApiOwnerRecord(
   return { community, result };
 }
 
+async function sanitizeOwnerEventInput(db: DatabaseReader, event: Doc<"events">, input: EventOwnerDraftInput) {
+  const scheduleKind = input.scheduleKind ?? (input.startAt !== undefined ? "timed" : event.scheduleKind);
+  if (scheduleKind === "date_only" && event.scheduleKind !== "date_only") requireDateOnlyEventsEnabled();
+  const candidate = {
+    ...input,
+    scheduleKind,
+    startAt: scheduleKind === "date_only" ? input.startAt : input.startAt ?? event.startAt,
+    eventDate: input.eventDate ?? event.eventDate,
+  };
+  let storedArtwork: string | undefined;
+  if (candidate.posterImageUrl?.startsWith("/")) {
+    const match = candidate.posterImageUrl.match(/^\/api\/v0\/events\/([^/]+)\/artwork\/([^/]+)$/);
+    const id = match && db.normalizeId("eventPosterArtwork", match[2]);
+    const artwork = id ? await db.get(id) : null;
+    if (!match || match[1] !== event._id || candidate.posterImageUrl !== event.posterImageUrl || artwork?.state !== "published" || artwork.eventId !== event._id) {
+      throw new Error("Poster image URL must be a valid URL.");
+    }
+    storedArtwork = candidate.posterImageUrl;
+  }
+  const sanitized = sanitizeEventDraftInput({ ...candidate, ...(storedArtwork ? { posterImageUrl: undefined } : {}) });
+  return { ...sanitized, ...(storedArtwork ? { posterImageUrl: storedArtwork } : {}) };
+}
+
 async function updateCommunityEventForApiOwnerRecord(
   db: DatabaseWriter,
   args: EventDraftUpdateInput & {
@@ -1036,12 +1072,13 @@ async function updateCommunityEventForApiOwnerRecord(
     }
   }
 
-  if (event.startAt === undefined) throw new Error("Set an event time before using the timed event editor.");
   const normalizedUpdate = normalizeEventDraftUpdateInput(args);
-  const input = sanitizeEventDraftInput(
+  const input = await sanitizeOwnerEventInput(db, event,
     preserveOmittedEventDraftFields(normalizedUpdate, {
       title: event.title,
       startAt: event.startAt,
+      eventDate: event.eventDate,
+      venueLabel: event.venueLabel,
       communitySlug: currentCommunity.slug,
       doorsOpenAt: event.doorsOpenAt,
       endAt: event.endAt,
@@ -1202,7 +1239,7 @@ async function updateCommunityEventRecord(
   db: DatabaseWriter,
   options: {
     event: Doc<"events">;
-    input: SanitizedEventDraftInput;
+    input: SanitizedEventOwnerDraftInput;
     community: Doc<"profiles">;
     world?: Doc<"worlds">;
     publicationState?: Doc<"events">["publicationState"];
@@ -1211,7 +1248,7 @@ async function updateCommunityEventRecord(
     preserveParticipantAssociationIds?: Id<"eventParticipants">[];
     preserveSlotAssociationIds?: Id<"eventSlots">[];
     preserveWorldAssociationIds?: Id<"eventWorlds">[];
-    updateFields?: ReadonlySet<keyof EventDraftInput>;
+    updateFields?: ReadonlySet<keyof EventOwnerDraftInput>;
   },
 ) {
   const {
@@ -1228,7 +1265,7 @@ async function updateCommunityEventRecord(
     world,
   } = options;
   const now = Date.now();
-  const shouldUpdate = (field: keyof EventDraftInput) => updateFields === undefined || updateFields.has(field);
+  const shouldUpdate = (field: keyof EventOwnerDraftInput) => updateFields === undefined || updateFields.has(field);
   if (event.moderationRemovedAt !== undefined) throw new ConvexError({ code: "REMOVED_EVENT" });
   const slug = event.slug;
 
@@ -1236,10 +1273,15 @@ async function updateCommunityEventRecord(
     throw new Error("Event URL code is missing.");
   }
 
+  const schedule = input.scheduleKind === "date_only"
+    ? { ...normalizeEventSchedule({ kind: "date_only", date: input.eventDate! }), startAt: undefined }
+    : normalizeEventSchedule({ kind: "timed", startAt: input.startAt!, date: eventDateForInstant(input.startAt!, input.timezone), timeZone: input.timezone });
   await db.patch(event._id, {
     title: input.title,
     sortTitle: input.sortTitle,
-    ...normalizeEventSchedule({ kind: "timed", startAt: input.startAt, date: eventDateForInstant(input.startAt, input.timezone), timeZone: input.timezone }),
+    ...schedule,
+    ...(event.contributionFingerprint === undefined ? {} : { contributionFingerprint: eventContributionFingerprint(community._id, schedule.eventDate, input.title) }),
+    ...(shouldUpdate("venueLabel") ? { venueLabel: input.venueLabel } : {}),
     ...(shouldUpdate("doorsOpenAt") ? { doorsOpenAt: input.doorsOpenAt } : {}),
     ...(shouldUpdate("endAt") ? { endAt: input.endAt } : {}),
     ...(shouldUpdate("timezone") ? { timezone: input.timezone } : {}),
@@ -1275,8 +1317,10 @@ async function updateCommunityEventRecord(
   }
 
   const replaceWorld = shouldUpdate("worldSlug");
-  const replaceSlots = shouldUpdate("slotLinks");
-  const replaceParticipants = shouldUpdate("participantLinks");
+  const replaceLineup = input.lineup !== undefined;
+  const replaceSlots = !replaceLineup && shouldUpdate("slotLinks");
+  const replaceParticipants = !replaceLineup && shouldUpdate("participantLinks");
+  if (replaceLineup) await replaceEventLineup(db, updatedEvent, input.lineup!, now);
 
   if (replaceWorld) {
     await replaceEventWorldLink(db, updatedEvent, world, now, {
@@ -1302,8 +1346,8 @@ async function updateCommunityEventRecord(
   }
 
   await syncPreservedEventAssociations(db, updatedEvent, now, {
-    preserveParticipants: !replaceParticipants,
-    preserveSlots: !replaceSlots,
+    preserveParticipants: !replaceParticipants && !replaceLineup,
+    preserveSlots: !replaceSlots && !replaceLineup,
     preserveWorld: !replaceWorld,
   });
 
@@ -2861,7 +2905,7 @@ export const updateCommunityEvent = mutation({
     preservedParticipantAssociationIds: v.optional(v.array(v.id("eventParticipants"))),
     preservedSlotAssociationIds: v.optional(v.array(v.id("eventSlots"))),
     preservedWorldAssociationIds: v.optional(v.array(v.id("eventWorlds"))),
-    ...eventDraftArgs,
+    ...eventDraftUpdateArgs,
   },
   handler: async (ctx, args) => {
     const subject = await requireAuthenticatedSubject(ctx);
@@ -2882,7 +2926,7 @@ export const updateCommunityEvent = mutation({
       throw new Error("You do not have permission to update this event.");
     }
 
-    const input = sanitizeEventDraftInput(args);
+    const input = await sanitizeOwnerEventInput(ctx.db, event, { ...normalizeEventDraftUpdateInput(args), title: args.title ?? event.title });
     const currentCommunity = event.communityProfileId === undefined
       ? null
       : await ctx.db.get(event.communityProfileId);

@@ -573,6 +573,14 @@ export const ApiEventCreateRequestSchema = z
 
 export const ApiEventUpdateRequestSchema = ApiEventCreateRequestSchema.partial()
   .extend({
+    scheduleKind: z.enum(["timed", "date_only"]).optional(),
+    eventDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    venueLabel: z.string().max(160).optional(),
+    lineup: z.array(z.object({
+      clientKey: z.string().min(1).max(120), position: z.number().int().min(0).max(79),
+      performerLabel: z.string().min(1).max(120), personSlug: slug.optional(), roleLabel: z.string().max(48).optional(),
+      startAt: timestampMs.optional(), endAt: timestampMs.optional(), selectedStreamId: z.string().max(120).nullable().optional(),
+    }).strict()).max(80).optional(),
     doorsOpenAt: timestampMs.nullable().optional(),
     endAt: timestampMs.nullable().optional(),
     timezone: z.string().max(64).nullable().optional(),
@@ -580,13 +588,17 @@ export const ApiEventUpdateRequestSchema = ApiEventCreateRequestSchema.partial()
     summary: z.string().max(240).nullable().optional(),
     notes: z.string().max(1_200).nullable().optional().describe("Private notes visible only to authorized event managers."),
     sourceUrl: absoluteUrl.nullable().optional(),
-    posterImageUrl: absoluteUrl.nullable().optional(),
+    posterImageUrl: z.union([absoluteUrl, z.string().regex(/^\/api\/v0\/events\/[^/]+\/artwork\/[^/]+$/)]).nullable().optional(),
     bannerImageUrl: absoluteUrl.nullable().optional(),
     thumbnailImageUrl: absoluteUrl.nullable().optional(),
   })
   .superRefine((value, context) => {
     const replacesParticipants = value.participantLinks !== undefined;
     const replacesSlots = value.slotLinks !== undefined;
+
+    if (value.lineup !== undefined && (replacesParticipants || replacesSlots)) {
+      context.addIssue({ code: "custom", message: "Supply lineup or participantLinks and slotLinks, not both.", path: ["lineup"] });
+    }
 
     if (replacesParticipants !== replacesSlots) {
       context.addIssue({

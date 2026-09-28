@@ -44,8 +44,8 @@ describe("API platform review boundaries", () => {
     assert.match(events, /shouldUpdate\("watchSurfaceEnabled"\)/);
     assert.match(events, /shouldUpdate\("mediaLinks"\)/);
     assert.match(events, /const replaceWorld = shouldUpdate\("worldSlug"\)/);
-    assert.match(events, /const replaceSlots = shouldUpdate\("slotLinks"\)/);
-    assert.match(events, /const replaceParticipants = shouldUpdate\("participantLinks"\)/);
+    // Association preservation and canonical replacement are exercised by the
+    // real mutation tests in event-api-ownership and event-corrections.
     assert.match(events, /syncPreservedEventAssociations/);
   });
 

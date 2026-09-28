@@ -223,7 +223,7 @@ function EventList({
         return (
           <article
             className="overflow-hidden rounded-card border border-border bg-surface text-sm"
-            key={`${event.title}-${event.startAt}`}
+            key={`${event.slug ?? event.title}-${event.eventDate ?? event.startAt}`}
           >
             <div
               className="bg-[linear-gradient(135deg,var(--surface),var(--surface-raised))] bg-cover bg-center px-4 py-4"

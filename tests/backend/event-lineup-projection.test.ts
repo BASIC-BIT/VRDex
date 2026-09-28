@@ -61,6 +61,31 @@ it("keeps two real sets and unmatched timed names without duplicating a matched 
   assert.equal(event.slots?.length, 3);
 });
 
+it("replaces legacy generated session labels with the matched name or Slot label", async () => {
+  const { t, eventId, personId, read } = await fixture();
+  await t.run(async ({ db }) => {
+    for (const position of [0, 1]) await db.insert("eventSlots", { eventId, position, startAt: now + position * 1800000,
+      ...(position === 0 ? { personProfileId: personId } : {}), displayLabel: `Session ${position + 1}`, roleLabel: "DJ",
+      sourceType: "community", sourceLabel: "Fixture", confidence: 1, reviewState: "confirmed", updatedAt: now });
+  });
+  assert.deepEqual((await read()).lineup.map(row => row.displayLabel), ["Aurora", "Slot 2"]);
+});
+
+it("clears selected streams when a canonical row changes person or removes the match", async () => {
+  const { replaceEventLineup } = await import("../../convex/_eventLineup");
+  for (const personSlug of ["other", undefined]) {
+    const { t, eventId, personId } = await fixture();
+    await t.run(async ({ db }) => {
+      const { _id, _creationTime, ...person } = (await db.get(personId))!;
+      await db.insert("profiles", { ...person, slug: "other" });
+      await db.insert("eventSlots", { eventId, clientKey: "same", position: 0, startAt: now, personProfileId: personId,
+        selectedStreamId: "aurora-main", displayLabel: "Aurora", roleLabel: "DJ", sourceType: "community", sourceLabel: "Fixture", confidence: 1, reviewState: "confirmed", updatedAt: now });
+      await replaceEventLineup(db, (await db.get(eventId))!, [{ clientKey: "same", position: 0, performerLabel: "Guest", personSlug, startAt: now }], now);
+      assert.equal((await db.query("eventSlots").first())!.selectedStreamId, undefined);
+    });
+  }
+});
+
 it("writes ordered unmatched and matched untimed rows and preserves discovery", async () => {
   const { replaceEventLineup } = await import("../../convex/_eventLineup");
   const { t, read, eventId } = await fixture();

@@ -1,5 +1,44 @@
 import { expect, test } from "@playwright/test";
 
+test("staff editor preserves Time TBA and artwork while correcting or removing contributed names", async ({ page }, testInfo) => {
+  await page.addInitScript(() => {
+    if (localStorage.getItem("event-lineup-fixture-v1")) return;
+    localStorage.setItem("event-lineup-fixture-v1", JSON.stringify({
+      id: "event-contributed", slug: "contributed", title: "Contributed night", scheduleKind: "date_only", eventDate: "2027-10-15",
+      venueLabel: "Harbor", status: "scheduled", communitySlug: "afterglow", publicationState: "published",
+      source: { sourceType: "contributor", label: "Community-submitted" }, posterImageUrl: "/api/v0/events/event-contributed/artwork/artwork-owned",
+      watchSurfaceEnabled: false, watchMode: "event_stream", mediaLinks: [], authoredMediaLinks: [], worlds: [], participants: [], slots: [],
+      lineup: [{ key: "guest", position: 0, displayLabel: "Unmatched guest" }],
+      preservedParticipantAssociationIds: [], preservedSlotAssociationIds: [], preservedWorldAssociationIds: [],
+    }));
+  });
+  await page.goto("/playwright/event-lineup?editor");
+  await expect(page.getByRole("checkbox", { name: "Time TBA", exact: true })).toBeChecked();
+  await expect(page.getByLabel("Date", { exact: true })).toHaveValue("2027-10-15");
+  await page.getByLabel("Event title", { exact: true }).fill("Corrected night");
+  await page.getByLabel("Venue", { exact: true }).fill("New harbor");
+  await page.getByLabel("Performer", { exact: true }).fill("Corrected guest");
+  await page.screenshot({ path: testInfo.outputPath("staff-date-only-editor.png"), fullPage: true });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  await expect(page).toHaveURL(/playwright-afterglow-social\/events\/playwright-afterglow-harbor-sessions$/);
+  const payload = await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!));
+  expect(payload.scheduleKind).toBe("date_only");
+  expect(payload.startAt).toBeUndefined();
+  expect(payload.venueLabel).toBe("New harbor");
+  expect(payload.posterImageUrl).toBe("/api/v0/events/event-contributed/artwork/artwork-owned");
+  expect(payload.lineup[0].performerLabel).toBe("Corrected guest");
+  await page.goto("/playwright/event-lineup?editor");
+  await page.getByRole("button", { name: "Remove performer", exact: true }).click();
+  await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!).lineup)).toEqual([]);
+  await page.goto("/playwright/event-lineup?editor");
+  await page.getByRole("checkbox", { name: "Time TBA", exact: true }).uncheck();
+  await page.getByLabel("Start", { exact: true }).fill("2027-10-15T19:00");
+  await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!).scheduleKind)).toBe("timed");
+});
+
 test("lineup keeps provider links collapsed without stream requests", async ({ page }) => {
   const streams: string[] = [];
   page.on("request", request => { if (/vrcdn|\.live\.ts/.test(request.url())) streams.push(request.url()); });
@@ -58,6 +97,10 @@ test("unavailable choices survive unrelated saves and changing performer clears 
   await page.reload();
   await expect(page.getByLabel("Person", { exact: true }).nth(2)).toHaveValue("nova");
   await expect(page.getByLabel("Stream", { exact: true }).nth(2)).toHaveValue("");
+  await page.getByLabel("Person", { exact: true }).nth(2).fill("");
+  await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!).slotLinks[2].selectedStreamId)).toBe(null);
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!).slotLinks[2].personSlug)).toBeUndefined();
 });
 
 test("roster copy controls work with keyboard without navigating", async ({ page, context }) => {

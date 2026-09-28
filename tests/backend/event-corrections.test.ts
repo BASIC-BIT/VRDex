@@ -3,7 +3,7 @@ import { it } from "node:test";
 import { convexTest } from "convex-test";
 import { makeFunctionReference } from "convex/server";
 import schemaModule from "../../convex/schema";
-import { api } from "../../convex/_generated/api";
+import { api, internal } from "../../convex/_generated/api";
 import { getPublicCommunityHostedEvents, getPublicPersonUpcomingEvents } from "../../convex/_eventPublic";
 import { getPublicWorldEventContext } from "../../convex/_worldEvents";
 
@@ -13,6 +13,93 @@ const reports = makeFunctionReference<"query">("eventCorrections:listEventReport
 const save = makeFunctionReference<"mutation">("eventIntake:saveEventIntakeDraft");
 const publish = makeFunctionReference<"action">("eventIntake:publishEventIntake");
 const complete = { communitySlug: "club", title: "Night Flight", eventDate: "2027-10-15", timeTba: true };
+
+it("staff browser and API corrections preserve date-only events and canonical lineup", async () => {
+  for (const surface of ["browser", "api"] as const) {
+    const { t, staff, event, users } = await fixture();
+    await staff.mutation(command("takeOverContributedEvent"), { eventId: event._id });
+    const update = (patch: Record<string, unknown>) => surface === "browser"
+      ? staff.mutation(api.events.updateCommunityEvent, { currentSlug: event.slug!, title: event.title, communitySlug: "club", ...patch } as never)
+      : t.mutation(internal.events.updateCommunityEventForApiOwner, { actorKind: "personal_api_token", currentSlug: event.slug!, ownerUserId: users[1], ...patch } as never);
+    await update({ title: "Corrected", venueLabel: "New venue" });
+    let visible = (await t.query(api.events.getPublicBySlug, { slug: event.slug! }))!;
+    assert.equal(visible.scheduleKind, "date_only");
+    assert.equal(visible.eventDate, "2027-10-15");
+    assert.equal(visible.startAt, undefined);
+    assert.equal(visible.venueLabel, "New venue");
+    assert.equal(visible.lineup[0].displayLabel, "DJ");
+    await update({ lineup: [{ clientKey: "dj", position: 0, performerLabel: "Corrected guest" }] });
+    visible = (await t.query(api.events.getPublicBySlug, { slug: event.slug! }))!;
+    assert.deepEqual(visible.lineup.map(row => row.displayLabel), ["Corrected guest"]);
+    await update({ lineup: [] });
+    assert.deepEqual((await t.query(api.events.getPublicBySlug, { slug: event.slug! }))!.lineup, []);
+    await update({ startAt: Date.parse("2027-10-15T19:00:00Z"), timezone: "UTC" });
+    assert.equal((await t.query(api.events.getPublicBySlug, { slug: event.slug! }))!.scheduleKind, "timed");
+  }
+});
+
+it("owner corrections refresh duplicate identity after title, date and community changes", async () => {
+  const { t, contributor, event, users, communityId } = await fixture();
+  const elsewhere = await t.run(async ({ db }) => {
+    const { _id, _creationTime, ...fields } = (await db.get(communityId))!;
+    const id = await db.insert("profiles", { ...fields, slug: "elsewhere" });
+    await db.insert("profileOwners", { profileId: id, userId: users[1], roleKey: "owner", state: "active", grantedAt: Date.now(), updatedAt: Date.now() });
+    return id;
+  });
+  await t.mutation(internal.events.updateCommunityEventForApiOwner, { actorKind: "personal_api_token", ownerUserId: users[1], currentSlug: event.slug!, title: "Morning Dance", eventDate: "2027-10-16", communitySlug: "elsewhere" } as never);
+  assert.equal((await t.run(ctx => ctx.db.get(event._id)))!.contributionFingerprint, JSON.stringify([elsewhere, "2027-10-16", "morning dance"]));
+  const draft = await contributor.mutation(save, { patch: complete });
+  const result = await contributor.action(publish, { draftId: draft.draftId, expectedVersion: 1, idempotencyKey: "new-original" });
+  assert.notEqual(result.eventId, event._id);
+});
+
+it("owner browser and API edits preserve selected server artwork but reject arbitrary relative URLs", async () => {
+  const { t, staff, contributor, users } = await fixture();
+  const draft = await contributor.mutation(save, { patch: { ...complete, title: "Artwork night", eventDate: "2027-10-16" } });
+  const actorUserId = users[0];
+  const source = await t.mutation(internal.eventIntakeSources.beginPosterUpload, { actorUserId, draftId: draft.draftId, contentType: "image/png", byteLength: 100, sha256: "a".repeat(64) });
+  await t.mutation(internal.eventIntakeSources.completePosterUpload, { actorUserId, posterAssetId: source.posterAssetId, sha256: "a".repeat(64) });
+  const artwork = await t.mutation(internal.eventIntakeSources.selectPosterArtwork, { actorUserId, draftId: draft.draftId, posterAssetId: source.posterAssetId, expectedVersion: 1 });
+  await t.mutation(internal.eventIntakeSources.completeArtwork, { actorUserId, artworkAssetId: artwork.artworkAssetId, expectedVersion: 1, sha256: "b".repeat(64), byteLength: 90 });
+  const receipt = await contributor.action(publish, { draftId: draft.draftId, expectedVersion: 2, idempotencyKey: "artwork" });
+  const event = (await t.run(ctx => ctx.db.get(receipt.eventId)))!;
+  const posterImageUrl = `/api/v0/events/${event._id}/artwork/${artwork.artworkAssetId}`;
+  assert.equal(event.posterImageUrl, posterImageUrl);
+  await staff.mutation(api.events.updateCommunityEvent, { currentSlug: event.slug!, title: "Artwork correction", communitySlug: "club", posterImageUrl } as never);
+  await t.mutation(internal.events.updateCommunityEventForApiOwner, { actorKind: "personal_api_token", currentSlug: event.slug!, ownerUserId: users[1], title: "Another correction" });
+  assert.equal((await t.run(ctx => ctx.db.get(event._id)))!.posterImageUrl, posterImageUrl);
+  await assert.rejects(staff.mutation(api.events.updateCommunityEvent, { currentSlug: event.slug!, title: event.title, posterImageUrl: "/arbitrary.png" } as never), /Poster image URL/);
+});
+
+it("staff canonical lineup changes retain the slot and authorized stream on unrelated edits", async () => {
+  const { t, staff, event } = await fixture();
+  const startAt = Date.parse("2027-10-15T19:00:00Z");
+  const personId = await t.run(ctx => ctx.db.insert("profiles", { slug: "performer", displayName: "Performer", sortName: "performer", profileType: "person", person: { roleTags: [] }, aliases: [], tags: [], claimState: "unclaimed", publicationState: "published", publicSurfacingState: "public", creationSource: "community", updatedAt: Date.now() }));
+  await staff.mutation(api.events.updateCommunityEvent, { currentSlug: event.slug!, title: event.title, startAt, timezone: "UTC", communitySlug: "club", lineup: [{ clientKey: "set", position: 0, performerLabel: "DJ", personSlug: "performer", startAt }] });
+  const slot = await t.run(async ({ db }) => {
+    const slot = (await db.query("eventSlots").withIndex("by_eventId", q => q.eq("eventId", event._id)).first())!;
+    await db.patch(slot._id, { selectedStreamId: "previously-authorized" });
+    return slot;
+  });
+  await staff.mutation(api.events.updateCommunityEvent, { currentSlug: event.slug!, title: "Corrected", communitySlug: "club", startAt, timezone: "UTC", lineup: [{ clientKey: "set", position: 0, performerLabel: "Renamed", personSlug: "performer", startAt, selectedStreamId: "previously-authorized" }, { clientKey: "guest", position: 1, performerLabel: "Guest" }] });
+  const preserved = (await t.run(ctx => ctx.db.get(slot._id)))!;
+  assert.equal(preserved.personProfileId, personId);
+  assert.equal(preserved.selectedStreamId, "previously-authorized");
+  const editable = (await staff.query(api.events.getEditableBySlug, { slug: event.slug! }))!;
+  assert.equal(editable.usesCanonicalLineup, true);
+  assert.equal(editable.slots[0].clientKey, "set");
+  assert.equal(editable.lineup[1].key, "guest");
+  await assert.rejects(staff.mutation(api.events.updateCommunityEvent, { currentSlug: event.slug!, title: event.title, communitySlug: "club", startAt, timezone: "UTC", lineup: [{ clientKey: "set", position: 0, performerLabel: "DJ", personSlug: "performer", startAt, selectedStreamId: "unrelated-stream" }] }), /Selected stream/);
+});
+
+it("owner conversion to Time TBA respects the date-only rollout switch", async () => {
+  const { staff, event } = await fixture();
+  await staff.mutation(api.events.updateCommunityEvent, { currentSlug: event.slug!, title: event.title, communitySlug: "club", startAt: Date.parse("2027-10-15T19:00:00Z") });
+  process.env.EVENT_DATE_ONLY_ENABLED = "false";
+  try {
+    await assert.rejects(staff.mutation(api.events.updateCommunityEvent, { currentSlug: event.slug!, title: event.title, communitySlug: "club", scheduleKind: "date_only", eventDate: "2027-10-15", lineup: [] }), /not enabled/);
+  } finally { process.env.EVENT_DATE_ONLY_ENABLED = "true"; }
+});
 
 it("browser controls expose own editing, scoped staff takeover, and post-takeover suggestion", async () => {
   const { contributor, staff, other, moderator, event } = await fixture();
@@ -32,6 +119,7 @@ async function fixture() {
   const t = convexTest({ schema, modules: {
     "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
     "../../convex/eventIntake.ts": () => import("../../convex/eventIntake"),
+    "../../convex/eventIntakeSources.ts": () => import("../../convex/eventIntakeSources"),
     "../../convex/eventCorrections.ts": () => import("../../convex/eventCorrections"),
     "../../convex/events.ts": () => import("../../convex/events"),
     "../../convex/search.ts": () => import("../../convex/search"),

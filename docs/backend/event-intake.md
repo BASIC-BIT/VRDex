@@ -161,6 +161,22 @@ including mutations with a fresh revision. UI correction suggestions after
 takeover remain a separate workflow; a stale direct edit never becomes one
 automatically.
 
+Owner API/MCP updates retain date-only schedules when `startAt` is omitted.
+`eventDate` corrects a date-only event; supplying `startAt` explicitly changes it
+to a timed event. `venueLabel` is editable. The optional `lineup` replaces all
+canonical timed and untimed rows using stable `clientKey` values, names, optional
+public person matches, roles and absolute set timestamps. Use it instead of the
+legacy paired `slotLinks`/`participantLinks` arrays. An unchanged person's stored
+stream choice survives replacement; new choices must belong to their public
+streams, and changing/removing the person clears the old choice.
+
+The shared owner-update transaction refreshes an existing contribution fingerprint
+from the corrected community, date and title. Published server artwork URLs may
+be retained only when the exact current event URL resolves to that event's
+published artwork record. Arbitrary relative image URLs remain invalid. Discord
+exports use the unified lineup, with per-set timestamps only where available and
+legacy slots/participants as a fallback for older payloads.
+
 Trusted transports can use internal `getActorContributedEvent`,
 `updateActorContributedEvent`, and `retractActorContributedEvent` with the same
 arguments plus `actorUserId`. Derive that ID from the authenticated credential,

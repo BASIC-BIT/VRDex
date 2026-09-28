@@ -87,7 +87,10 @@ export function formatDiscordEventPost({ canonicalUrl, event }: DiscordEventPost
     lines.push(`End: ${createDiscordTimestampSet(event.endAt).shortDateTime}`);
   }
 
-  const lineupLines = eventTime !== undefined && event.slots.length > 0
+  const lineupLines = event.lineup !== undefined ? event.lineup.map(row => {
+    const range = row.startAt === undefined || eventTime === undefined ? "" : `${createDiscordTimestampSet(row.startAt).shortTime}${row.endAt === undefined ? "" : `-${createDiscordTimestampSet(row.endAt).shortTime}`} - `;
+    return `- ${range}${cleanPublicText(row.displayLabel)}${formatLabelSuffix(row.roleLabel ?? "")}`;
+  }) : eventTime !== undefined && event.slots.length > 0
     ? event.slots.map(formatSlotLine)
     : event.participants.map(formatParticipantLine);
 
