@@ -4,6 +4,7 @@ import Link from "next/link";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "@convex-generated-api";
 import { EventDjLinks } from "./event-dj-links";
+import { EventContributionControls } from "../events/event-contribution-controls";
 
 import {
   actionCardVariants,
@@ -100,6 +101,7 @@ export type PublicEventPreview = {
 };
 
 export type PublicEvent = Omit<PublicEventPreview, "worlds"> & {
+  venueLabel?: string;
   lineup?: PublicEventLineupEntry[];
   id: string;
   slug: string;
@@ -362,11 +364,14 @@ function EventPublicPageContent({ event }: { event: PublicEvent }) {
                   {event.title}
                 </h1>
                 {event.summary ? <p className="mt-4 max-w-2xl text-base leading-7 text-white/82 sm:text-lg">{event.summary}</p> : null}
+                {event.venueLabel ? <p className="mt-3 text-sm text-white/80">{event.venueLabel}</p> : null}
               </div>
             </div>
           </div>
         </section>
 
+        {event.source.sourceType === "contributor" ? <p className="text-sm text-muted">{event.source.label}</p> : null}
+        <EventContributionControls eventId={event.id} />
         <section className="grid items-start gap-4 lg:grid-cols-[0.9fr_1.1fr]">
           <div>
             <Card className="h-fit" surface="white">

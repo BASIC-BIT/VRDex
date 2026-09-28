@@ -1,6 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { EventTimezonePicker } from "../_components/event-timezone-picker";
+import { resolveEventLocalTime, selectEventLocalTime } from "../../../../../packages/api-contracts/src/event-intake";
 import type { ChangeEvent, FormEvent, ReactNode } from "react";
 import { useEffect, useState, useTransition } from "react";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
@@ -20,7 +23,6 @@ import { parseVrcdnStreamLinks } from "../../../../../convex/_vrcdnLinks";
 import {
   browserTimeZone,
   formatZonedDateTimeInput,
-  parseZonedDateTimeInput,
 } from "@/lib/calendar/zoned-date-time";
 import { resolveAuthoredEventEndAt } from "@/lib/calendar/event-end-time";
 import { serializeOtherEventParticipants } from "@/lib/calendar/event-participants";
@@ -143,6 +145,8 @@ function SlotStreamSelect({ row, invalid, onChange }: { row: SlotFormRow; invali
 }
 
 const userSafeErrorPatterns = [
+  /Ambiguous local time requires an earlier or later occurrence\./,
+  /Local time does not exist in this timezone\./,
   /Event changes require a signed-in user\./,
   /Event start time must be a valid timestamp\./,
   /Doors-open time must be a valid timestamp\./,
@@ -326,7 +330,7 @@ function parseParticipantLinks(value: string) {
 }
 
 function parseSlotRows(rows: SlotFormRow[], eventStartAt: number) {
-  return rows.map((row, index) => {
+  return rows.map((row) => {
       const offsetMinutes = parseInteger(row.offsetMinutes, "Slot offset minutes");
       const durationMinutes = optionalString(row.durationMinutes) === undefined
         ? undefined
@@ -339,7 +343,7 @@ function parseSlotRows(rows: SlotFormRow[], eventStartAt: number) {
         displayLabel:
           optionalString(row.displayLabel) ??
           optionalString(row.personSlug) ??
-          `Session ${index + 1}`,
+          "",
         roleLabel: optionalString(row.roleLabel) ?? "Participant",
         startAt,
         ...(durationMinutes === undefined ? {} : { endAt: startAt + durationMinutes * 60_000 }),
@@ -415,7 +419,7 @@ function createGeneratedSlotRows(
       offsetMinutes: String(offsetMinutes),
       durationMinutes: String(durationMinutes),
       personSlug: "",
-      displayLabel: `Session ${index + 1}`,
+      displayLabel: "",
       roleLabel: "Participant",
     };
   });
@@ -513,6 +517,10 @@ function ConnectedEventEditorForm({
   demoMode?: boolean;
   event?: EditableEvent;
 }) {
+  const router = useRouter();
+  const [eventDate, setEventDate] = useState(formatZonedDateTimeInput(event?.startAt, event?.timezone).slice(0, 10));
+  const [startLocal, setStartLocal] = useState(formatZonedDateTimeInput(event?.startAt, event?.timezone));
+  const [occurrence, setOccurrence] = useState<"earlier" | "later" | "">("");
   const createEvent = useMutation(api.events.createCommunityEvent);
   const updateEvent = useMutation(api.events.updateCommunityEvent);
   const setEventCancelled = useMutation(api.events.setCommunityEventCancelled);
@@ -677,8 +685,12 @@ function ConnectedEventEditorForm({
 
     try {
       const submittedTimezone = optionalString(stringField(formData.get("timezone")));
+      if (!submittedTimezone) throw new Error("Time zone must be a valid IANA time zone.");
       const timeZoneForParsing = submittedTimezone ?? browserTimeZone();
-      const startAt = parseZonedDateTimeInput(stringField(formData.get("startAt")), timeZoneForParsing, "Event start time");
+      const authoredStart = stringField(formData.get("startAt"));
+      const startAt = event?.startAt !== undefined && authoredStart === formatZonedDateTimeInput(event.startAt, event.timezone) && timezone === event.timezone
+        ? event.startAt
+        : selectEventLocalTime(authoredStart.slice(0, 10), { time: authoredStart.slice(11, 16), ...(occurrence ? { occurrence } : {}) }, timeZoneForParsing);
       const slotLinks = parseSlotRows(slotRows, startAt);
       const derivedEndAt = slotLinks.length === 0 || slotLinks.some((slot) => slot.endAt === undefined)
         ? undefined
@@ -746,6 +758,7 @@ function ConnectedEventEditorForm({
         }
       }
 
+      if (intent === "publish") router.replace(result.eventPath ?? `/${communitySlug}/events/${result.slug}`);
       startTransition(() =>
         setStatus({
           kind: "success",
@@ -799,6 +812,8 @@ function ConnectedEventEditorForm({
   }
 
   const isSubmitting = status.kind === "submitting";
+  let startChoices: number[] = [];
+  try { if (startLocal && timezone) startChoices = resolveEventLocalTime(startLocal.slice(0, 10), { time: startLocal.slice(11, 16) }, timezone); } catch { /* The form remains editable while incomplete. */ }
   const vrcdnOutputAccountOptions = vrcdnOutputAccounts ?? [];
   const vrcdnOutputAccountsLoading = vrcdnOutputAccounts === undefined;
   const canSaveVrcdnOutput =
@@ -848,12 +863,13 @@ function ConnectedEventEditorForm({
         <div className="grid gap-4 md:grid-cols-2">
         <Field>
           Start
-          <Input defaultValue={formatZonedDateTimeInput(event?.startAt, event?.timezone)} name="startAt" required type="datetime-local" />
+          <Input value={startLocal} name="startAt" required type="datetime-local" onChange={change => { setStartLocal(change.target.value); setEventDate(change.target.value.slice(0, 10)); setOccurrence(""); }} />
         </Field>
         <Field>
           Time zone
-          <Input name="timezone" onChange={(changeEvent) => setTimezone(changeEvent.currentTarget.value)} placeholder="America/New_York" value={timezone} />
+          <EventTimezonePicker value={timezone || null} date={eventDate || null} onChange={value => { setTimezone(value ?? ""); setOccurrence(""); }} />
         </Field>
+        {startChoices.length > 1 ? <Field>Repeated time<Select aria-label="Start occurrence" value={occurrence} onChange={change => setOccurrence(change.target.value as "earlier" | "later")}><option value="">Choose occurrence</option><option value="earlier">Earlier</option><option value="later">Later</option></Select></Field> : null}
         <label className="flex items-center gap-3 text-sm font-medium md:col-span-2">
           <input
             checked={doorsOpenBefore}
@@ -1146,7 +1162,7 @@ function ConnectedEventEditorForm({
         <div className="grid gap-4">
           <div className="grid gap-3 sm:grid-cols-2 sm:items-end">
             <Field className="text-xs text-muted">
-              Sessions
+              Slots
               <Input
                 className="bg-surface-strong text-foreground"
                 inputMode="numeric"
@@ -1182,7 +1198,7 @@ function ConnectedEventEditorForm({
             <Card className="grid gap-3" key={slot.id} padding="sm" surface="dashed">
               <div className="grid gap-3 sm:grid-cols-[minmax(8rem,0.35fr)_minmax(0,1fr)] sm:items-end">
                 <div className="pb-2">
-                  <h4 className="font-semibold">Session {index + 1}</h4>
+                  <h4 className="font-semibold">Slot {index + 1}</h4>
                   <span className="text-xs text-muted">+{slot.offsetMinutes} min · {slot.durationMinutes} min</span>
                 </div>
                 <Field className="text-xs text-muted">
@@ -1225,7 +1241,6 @@ function ConnectedEventEditorForm({
                         const value = eventTargetValue(changeEvent);
                         updateSlotRows((rows) => rows.map((row) => row.id === slot.id ? { ...row, displayLabel: value } : row));
                       }}
-                      required
                       value={slot.displayLabel}
                     />
                   </Field>
@@ -1248,7 +1263,7 @@ function ConnectedEventEditorForm({
 
         <details className="group rounded-control border border-border bg-surface px-4 py-3">
           <summary className="flex cursor-pointer list-none items-center justify-between gap-4 font-medium marker:hidden">
-            Other participants
+            Add untimed performers
             <span aria-hidden="true" className="text-muted transition group-open:rotate-45">+</span>
           </summary>
           <Field className="mt-4">

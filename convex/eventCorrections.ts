@@ -1,7 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery, mutation, query, type DatabaseReader, type DatabaseWriter } from "./_generated/server";
-import { requireActiveBrowserSessionSubject } from "./_browserSessionAuthority";
+import { activeBrowserSessionSubjectOrNull, requireActiveBrowserSessionSubject } from "./_browserSessionAuthority";
 import { currentUserOrNull, requireUser } from "./_identity";
 import type { AuthSubject } from "./_communityAuthority";
 import { getAccountFeatureAccess } from "./_accountFeatures";
@@ -123,6 +123,34 @@ async function ownCorrectionView(db: DatabaseReader, actorUserId: Id<"users">, e
 export const getOwnContributedEvent = query({ args: { eventId: v.id("events") }, handler: async (ctx, args) => ownCorrectionView(ctx.db, (await requireUser(ctx)).userId, args.eventId) });
 export const getActorContributedEvent = internalQuery({ args: { eventId: v.id("events"), actorUserId: v.id("users") }, handler: (ctx, args) => ownCorrectionView(ctx.db, args.actorUserId, args.eventId) });
 
+export const getEventContributionAccess = query({ args: { eventId: v.id("events") }, returns: v.object({ canCorrect: v.boolean(), canSuggest: v.boolean(), canTakeOver: v.boolean(), canRemove: v.boolean() }), handler: async (ctx, { eventId }) => {
+  const denied = { canCorrect: false, canSuggest: false, canTakeOver: false, canRemove: false };
+  const session = await activeBrowserSessionSubjectOrNull(ctx);
+  if (!session) return denied;
+  const { user, subject } = session;
+  const event = await ctx.db.get(eventId);
+  if (!event?.contributorUserId || event.publicationState !== "published" || event.moderationRemovedAt !== undefined) return denied;
+  const own = event.contributorUserId === user._id;
+  const open = event.contributorEditsClosedAt === undefined && event.eventStatus === "scheduled";
+  return { canCorrect: own && open, canSuggest: own && !open,
+    canTakeOver: open && await canUpdateEvent(ctx.db, event, subject, user._id),
+    canRemove: (await getAccountFeatureAccess(ctx.db, user._id)).superAdmin };
+} });
+
+export const listOwnContributions = query({ args: {}, handler: async ctx => {
+  const { userId } = await requireUser(ctx);
+  const events = await ctx.db.query("events").withIndex("by_contributorUserId", q => q.eq("contributorUserId", userId)).order("desc").take(100);
+  return Promise.all(events.map(async event => {
+    const community = event.communityProfileId ? await ctx.db.get(event.communityProfileId) : null;
+    return { eventId: event._id, title: event.title, published: event.publicationState === "published", eventPath: community && event.slug ? `/${community.slug}/events/${event.slug}` : null };
+  }));
+} });
+
+export const getEventReportAccess = query({ args: {}, returns: v.boolean(), handler: async ctx => {
+  const user = await currentUserOrNull(ctx);
+  return Boolean(user && ((await getAccountFeatureAccess(ctx.db, user._id)).superAdmin || (await managedCommunitiesForBrowser(ctx, { includeNonPublic: true })).length));
+} });
+
 export const takeOverContributedEvent = mutation({ args: { eventId: v.id("events") }, handler: async (ctx, args) => {
   const { userId, subject } = await requireActiveBrowserSessionSubject(ctx);
   const event = await ctx.db.get(args.eventId);
@@ -180,7 +208,12 @@ export const listEventReports = query({ args: { cursor: v.union(v.string(), v.nu
   const page = await ctx.db.query("eventReports").withIndex("by_createdAt").order("desc").paginate({ cursor: args.cursor, numItems: args.limit });
   const allowed = new Set(managed.map(item => item.profile._id));
   // Return the scan cursor, including empty pages. Never leak another community's reports.
-  return { ...page, page: page.page.filter(row => moderator || (row.communityProfileId && allowed.has(row.communityProfileId))) };
+  const visible = page.page.filter(row => moderator || (row.communityProfileId && allowed.has(row.communityProfileId)));
+  return { ...page, page: await Promise.all(visible.map(async row => {
+    const event = await ctx.db.get(row.eventId);
+    const community = row.communityProfileId ? await ctx.db.get(row.communityProfileId) : null;
+    return { ...row, eventTitle: event?.title, eventPath: event?.slug && community ? `/${community.slug}/events/${event.slug}` : undefined };
+  })) };
 } });
 
 export const expireEventSuppressions = internalMutation({ args: {}, handler: async ctx => {

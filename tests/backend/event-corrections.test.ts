@@ -13,6 +13,20 @@ const reports = makeFunctionReference<"query">("eventCorrections:listEventReport
 const save = makeFunctionReference<"mutation">("eventIntake:saveEventIntakeDraft");
 const publish = makeFunctionReference<"action">("eventIntake:publishEventIntake");
 const complete = { communitySlug: "club", title: "Night Flight", eventDate: "2027-10-15", timeTba: true };
+
+it("browser controls expose own editing, scoped staff takeover, and post-takeover suggestion", async () => {
+  const { contributor, staff, other, moderator, event } = await fixture();
+  const access = makeFunctionReference<"query">("eventCorrections:getEventContributionAccess");
+  assert.equal((await contributor.query(access, { eventId: event._id })).canCorrect, true);
+  assert.equal((await other.query(access, { eventId: event._id })).canCorrect, false);
+  assert.equal((await staff.query(access, { eventId: event._id })).canTakeOver, true);
+  assert.equal((await staff.query(access, { eventId: event._id })).canRemove, false);
+  assert.equal((await moderator.query(access, { eventId: event._id })).canRemove, true);
+  await staff.mutation(command("takeOverContributedEvent"), { eventId: event._id });
+  const closed = await contributor.query(access, { eventId: event._id });
+  assert.equal(closed.canCorrect, false);
+  assert.equal(closed.canSuggest, true);
+});
 async function fixture() {
   process.env.EVENT_DATE_ONLY_ENABLED = "true";
   const t = convexTest({ schema, modules: {

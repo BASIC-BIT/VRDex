@@ -238,6 +238,7 @@ function DiscoveryEventSchedule({ events, now }: { events: PublicEventPreview[];
   return (
     <section className="min-w-0 border-t border-border pt-6">
       <SectionTitle>Upcoming events</SectionTitle>
+      <Link href="/events/new" className="text-sm font-medium underline underline-offset-4">Add event</Link>
       <EventSchedule className="mt-5" empty="No events">
         {events.map((event) => (
           <EventScheduleRow
@@ -441,6 +442,7 @@ function DiscoverySection({
   return (
     <section className="min-w-0 border-t border-border pt-6">
       <SectionTitle>{title}</SectionTitle>
+      {surface === "upcoming_events" ? <Link href="/events/new" className="text-sm font-medium underline underline-offset-4">Add event</Link> : null}
       <div className={cn("mt-5 grid gap-4", columns === "responsive" ? "lg:grid-cols-2" : undefined)}>
         {results.length === 0 ? (
           <p className="text-sm leading-6 text-muted">{empty}</p>
@@ -566,6 +568,7 @@ export function SearchResultsPage({
     >
         {status === "live" ? null : <Card surface="dashed">{status === "missing-url" ? "Search data is not available in this environment yet." : "Search data is temporarily unavailable."}</Card>}
 
+        {activeFilter === "event" ? <Link className={buttonVariants({ variant: "primary" })} href="/events/new">Add event</Link> : null}
         {hasQuery ? (
           <section aria-label="Search results" className="space-y-5">
             <h2 className="text-2xl font-semibold tracking-[-0.03em]">Results for {query}</h2>

@@ -24,12 +24,12 @@ test("editor submits and reloads selected mode and source", async ({ page }) => 
   await expect(sources.nth(2)).toHaveValue("removed-source");
   await sources.nth(2).selectOption("lumen-visuals");
   await page.getByRole("button", { name: "Save changes", exact: true }).click();
-  await expect(page.getByRole("link", { name: /^View \/afterglow/ })).toBeVisible();
+  await expect(page).toHaveURL(/\/playwright-afterglow-social\/events\/playwright-afterglow-harbor-sessions$/);
   const payload = await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!));
   expect(payload.watchMode).toBe("performer_sequence");
   expect(payload.slotLinks[2].selectedStreamId).toBe("lumen-visuals");
   expect(payload.slotLinks[3].personSlug).toBeUndefined();
-  await page.reload();
+  await page.goto("/playwright/event-lineup?editor");
   await expect(page.getByLabel("Stream", { exact: true }).nth(2)).toHaveValue("lumen-visuals");
 });
 
@@ -37,14 +37,14 @@ test("unavailable choices survive unrelated saves and changing performer clears 
   await page.goto("/playwright/event-lineup?editor");
   await page.getByLabel("Event title", { exact: true }).fill("Afterglow updated");
   await page.getByRole("button", { name: "Save changes", exact: true }).click();
-  await expect(page.getByRole("link", { name: /^View \/afterglow/ })).toBeVisible();
-  await page.reload();
+  await expect(page).toHaveURL(/\/playwright-afterglow-social\/events\/playwright-afterglow-harbor-sessions$/);
+  await page.goto("/playwright/event-lineup?editor");
   const source = page.getByLabel("Stream", { exact: true }).nth(2);
   await expect(source).toHaveValue("removed-source");
   await source.selectOption("");
   await page.getByRole("button", { name: "Save changes", exact: true }).click();
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!).slotLinks[2].selectedStreamId)).toBe(null);
-  await page.reload();
+  await page.goto("/playwright/event-lineup?editor");
   await expect(page.getByLabel("Stream", { exact: true }).nth(2)).toHaveValue("");
   await page.getByLabel("Stream", { exact: true }).nth(2).selectOption("lumen-main");
   await page.getByLabel("Person", { exact: true }).nth(2).fill("nova");
@@ -84,8 +84,8 @@ test("performer sequence hides output operations and event stream restores them"
   await expect(page.getByRole("heading", { name: "VRCDN output", exact: true })).toBeVisible();
   await expect(page.getByLabel("Stream", { exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Save changes", exact: true }).click();
-  await expect(page.getByRole("link", { name: /^View \/afterglow/ })).toBeVisible();
-  await page.reload();
+  await expect(page).toHaveURL(/\/playwright-afterglow-social\/events\/playwright-afterglow-harbor-sessions$/);
+  await page.goto("/playwright/event-lineup?editor");
   await page.locator("summary").filter({ hasText: "Media and links" }).click();
   await expect(page.getByLabel("Watch mode", { exact: true })).toHaveValue("event_stream");
 });

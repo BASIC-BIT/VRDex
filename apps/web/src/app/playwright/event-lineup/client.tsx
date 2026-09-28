@@ -84,7 +84,7 @@ function fixtureClient() {
       event = { ...event, ...args, slots } as EditableEvent;
       localStorage.setItem(storageKey, JSON.stringify(event));
       listeners.forEach(listener => listener());
-      return { slug: event.slug, preservedParticipantAssociationIds: [], preservedSlotAssociationIds: [], preservedWorldAssociationIds: [] };
+      return { slug: event.slug, eventPath: "/playwright-afterglow-social/events/playwright-afterglow-harbor-sessions", preservedParticipantAssociationIds: [], preservedSlotAssociationIds: [], preservedWorldAssociationIds: [] };
     },
   } as unknown as ConvexReactClient;
 }

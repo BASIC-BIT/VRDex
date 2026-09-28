@@ -1178,6 +1178,7 @@ export default defineSchema({
     .index("by_slug", ["slug"])
     .index("by_publicationState_startAt", ["publicationState", "startAt"])
     .index("by_contributionFingerprint", ["contributionFingerprint"])
+    .index("by_contributorUserId", ["contributorUserId"])
     .index("by_communityProfileId_eventDate", ["communityProfileId", "eventDate"])
     .index("by_publicationState_sortAt", ["publicationState", "sortAt"])
     .index("by_publicationState_eventStatus_sortAt", ["publicationState", "eventStatus", "sortAt"])

@@ -192,7 +192,7 @@ export function sanitizeEventSlotInputs(
         displayLabel: requireBoundedText(
           slot.displayLabel,
           "Slot display label",
-          1,
+          0,
           EVENT_SLOT_LABEL_MAX_LENGTH,
         ),
         roleLabel: optionalBoundedText(slot.roleLabel, "Slot role", EVENT_SLOT_ROLE_MAX_LENGTH) ?? "Performer",
