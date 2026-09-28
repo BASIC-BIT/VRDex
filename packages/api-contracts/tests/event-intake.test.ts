@@ -1,7 +1,21 @@
 import assert from "node:assert/strict";
 import { it } from "node:test";
 import { apiScopes, normalizeDynamicMcpClientRegistration } from "../src/index";
-import { EventIntakePatchSchema, SaveEventIntakeDraftSchema, PublishEventIntakeSchema, resolveEventLocalTime, selectEventLocalTime } from "../src/event-intake";
+import { EventIntakePatchSchema, SaveEventIntakeDraftSchema, PublishEventIntakeSchema, EventPosterBytesSchema, EVENT_POSTER_MAX_BYTES, resolveEventLocalTime, selectEventLocalTime } from "../src/event-intake";
+
+for (const byteLength of [6 * 1024 * 1024, EVENT_POSTER_MAX_BYTES]) {
+  it(`accepts ${byteLength / 1024 / 1024} MiB poster content without overflowing the validator stack`, () => {
+    const input = { draftId: "draft", contentType: "image/png", base64: Buffer.alloc(byteLength, 0xa5).toString("base64") };
+    assert.equal(EventPosterBytesSchema.safeParse(input).success, true);
+  });
+}
+
+it("checks poster base64 alphabet, length, padding and encoded size", () => {
+  const parse = (base64: string) => EventPosterBytesSchema.safeParse({ draftId: "draft", contentType: "image/png", base64 }).success;
+  for (const base64 of ["TQ==", "TWE=", "TWFu", "+/8="]) assert.equal(parse(base64), true, base64);
+  for (const base64 of ["", "TQ", "TQ=", "T===", "====", "T=Fu", "TQ==TQ==", "TQ==\n", "TW-u", "TW_u", "TW u", "TWéu"]) assert.equal(parse(base64), false, base64);
+  assert.equal(parse(Buffer.alloc(EVENT_POSTER_MAX_BYTES + 1).toString("base64")), false);
+});
 
 it("offers event contribution as an explicit OAuth grant", () => {
   assert.ok((apiScopes as readonly string[]).includes("events:contribute"));

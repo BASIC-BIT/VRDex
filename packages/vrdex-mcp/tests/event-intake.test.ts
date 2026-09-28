@@ -43,4 +43,9 @@ test("poster bytes go only to a pinned HTTPS origin, without bearer headers or r
   const result=await client.uploadEventPosterBytes({ draftId:"draft",base64,contentType:"image/png" });
   assert.deepEqual(result,{ok:true,data:{posterAssetId:"poster"}});assert.equal(transfers,1);
   await assert.rejects(client.uploadEventPosterBytes({ draftId:"draft",base64,contentType:"image/jpeg" }),/type/);
+  // Nonzero padding bits decode to the same bytes but are not canonical base64.
+  const noncanonical = base64.slice(0, -2) + "J=";
+  assert.deepEqual(Buffer.from(noncanonical, "base64"), Buffer.from(base64, "base64"));
+  await assert.rejects(client.uploadEventPosterBytes({ draftId:"draft",base64:noncanonical,contentType:"image/png" }),/base64/);
+  assert.equal(transfers,1);
 });

@@ -129,7 +129,18 @@ export const eventIntakeOperations = {
 export type EventIntakeOperation = keyof typeof eventIntakeOperations;
 
 // Local clients explicitly supply the contents of their chosen file. No path or source URL is accepted.
+const EVENT_POSTER_MAX_BASE64_LENGTH = Math.ceil(EVENT_POSTER_MAX_BYTES / 3) * 4;
+function validPosterBase64(value: string): boolean {
+  if (value.length < 4 || value.length > EVENT_POSTER_MAX_BASE64_LENGTH || value.length % 4 !== 0) return false;
+  const padding = value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0;
+  // A character scan uses constant stack space even for the largest poster.
+  for (let i = 0; i < value.length - padding; i++) {
+    const code = value.charCodeAt(i);
+    if (!((code >= 65 && code <= 90) || (code >= 97 && code <= 122) || (code >= 48 && code <= 57) || code === 43 || code === 47)) return false;
+  }
+  return true;
+}
 export const EventPosterBytesSchema = z.strictObject({
   draftId: intakeId, contentType: EventPosterDeclarationSchema.shape.contentType,
-  base64: z.string().min(4).max(Math.ceil(EVENT_POSTER_MAX_BYTES / 3) * 4).regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/),
+  base64: z.string().min(4).max(EVENT_POSTER_MAX_BASE64_LENGTH).refine(validPosterBase64, "Invalid base64"),
 });
