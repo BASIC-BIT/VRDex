@@ -22,6 +22,20 @@ export async function POST(request: Request) {
   if (!admin || !isProfileAssetStorageConfigured())
     return new Response(null, { status: 503 });
   // No request body or client-selected keys. The worker obtains exact leased obligations.
+  const sources = await admin.mutation(internal.eventIntakeSources.claimExpiredSources, {});
+  for (const row of sources) {
+    try {
+      await deleteProfileAssetObjects(row.storageKeys);
+      await admin.mutation(internal.eventIntakeSources.confirmSourceDeletion, { posterAssetId: row.posterAssetId, token: row.token });
+    } catch { /* Keep the deletion obligation for retry. */ }
+  }
+  const artwork = await admin.mutation(internal.eventIntakeSources.claimAbandonedArtwork, {});
+  for (const row of artwork) {
+    try {
+      await deleteProfileAssetObjects(row.storageKeys);
+      await admin.mutation(internal.eventIntakeSources.confirmArtworkDeletion, { artworkAssetId: row.artworkAssetId, token: row.token });
+    } catch { /* Keep the deletion obligation for retry. */ }
+  }
   const work = await admin.mutation(internal.contributionCleanup.claim, {});
   const uploads = [];
   const proposals = [];

@@ -124,6 +124,7 @@ import type * as discordVerification from "../discordVerification.js";
 import type * as e2e from "../e2e.js";
 import type * as e2eMedia from "../e2eMedia.js";
 import type * as eventCorrections from "../eventCorrections.js";
+import type * as eventIntakeSources from "../eventIntakeSources.js";
 import type * as eventIntake from "../eventIntake.js";
 import type * as eventScheduleMigration from "../eventScheduleMigration.js";
 import type * as events from "../events.js";
@@ -284,6 +285,7 @@ declare const fullApi: ApiFromModules<{
   e2e: typeof e2e;
   e2eMedia: typeof e2eMedia;
   eventCorrections: typeof eventCorrections;
+  eventIntakeSources: typeof eventIntakeSources;
   eventIntake: typeof eventIntake;
   eventScheduleMigration: typeof eventScheduleMigration;
   events: typeof events;

@@ -58,6 +58,10 @@ export async function saveIntakeDraft(db: DatabaseWriter, actorUserId: Id<"users
   const provenance = [ ...(draft?.provenance ?? []).filter(item => !Object.prototype.hasOwnProperty.call(patch, item.field)),
     ...Object.keys(patch).filter(field => Object.prototype.hasOwnProperty.call(fields, field)).map(field => ({ field, kind: field === "tentative" ? "tentative" as const : "contributor" as const, version })) ];
   const values = { fields, provenance, version, updatedAt: now, expiresAt: now + EVENT_INTAKE_DRAFT_TTL_MS };
+  if (draft) {
+    const sources = await db.query("eventPosterSources").withIndex("by_draft_state", q => q.eq("draftId", draft._id).eq("state", "ready")).take(21);
+    for (const source of sources) if (source.state === "ready") await db.patch(source._id, { lastActivityAt: now, expiresAt: source.holdReportId ? Number.MAX_SAFE_INTEGER : Math.min(source.uploadedAt + 180 * 86_400_000, now + 86_400_000) });
+  }
   if (draft) { await db.patch(draft._id, values); return { draftId: draft._id, version }; }
   return { draftId: await db.insert("eventIntakeDrafts", { ...values, actorUserId, createdAt: now }), version };
 }
@@ -75,10 +79,7 @@ export async function replayIntakePublication(db: DatabaseReader, actorUserId: I
   return receiptResult((await db.get(prior.receiptId))!);
 }
 
-/** Optional content classification stays disabled until Task 6 supplies evaluated policy. */
-export async function classifyEventIntakeForPublication(_draft: { fields: EventIntakePatch; version: number }): Promise<{ decision: "disabled" | "allow" | "block" }> {
-  return { decision: "disabled" };
-}
+export { classifyEventIntakeForPublication } from "../apps/web/src/lib/server/event-intake-spam";
 
 export async function publishIntakeDraft(db: DatabaseWriter, actorUserId: Id<"users">, args: PublishIntakeArgs, now = Date.now()): Promise<PublishIntakeResult> {
   const prior = await replayIntakePublication(db, actorUserId, args);
@@ -127,6 +128,18 @@ export async function publishIntakeDraft(db: DatabaseWriter, actorUserId: Id<"us
       const receiptId = await db.insert("eventContributionReceipts", { actorUserId, draftId: draft._id, draftVersion: draft.version, eventId: event._id,
         eventPath: eventPathForSlugs(community.slug, event.slug), communityProfileId: community._id, fingerprint, createdAt: now });
       receipt = (await db.get(receiptId))!;
+    }
+    const sources = await db.query("eventPosterSources").withIndex("by_draft_state", q => q.eq("draftId", draft._id).eq("state", "ready")).take(21);
+    const eventDate = event.eventDate ? Date.parse(`${event.eventDate}T23:59:59.999Z`) : event.startAt!;
+    for (const source of sources) if (source.state === "ready") await db.patch(source._id, { eventId: event._id, expiresAt: source.holdReportId ? Number.MAX_SAFE_INTEGER : Math.min(source.uploadedAt + 180 * 86_400_000, eventDate + 30 * 86_400_000, now + 86_400_000) });
+    // An explicit selection belongs to this contributor's newly created event only.
+    if (draft.artworkAssetId && event.contributorUserId === actorUserId && receipt.draftId === draft._id) {
+      const artwork = await db.get(draft.artworkAssetId);
+      if (!artwork || artwork.actorUserId !== actorUserId || artwork.draftId !== draft._id || artwork.state !== "ready") throw new Error("ARTWORK_NOT_READY");
+      await db.patch(artwork._id, { state: "published", eventId: event._id });
+      const posterImageUrl = `/api/v0/events/${event._id}/artwork/${artwork._id}`;
+      await db.patch(event._id, { posterImageUrl });
+      await reindexEventSearchDocument(db, { ...event, posterImageUrl }, { community, world: checked.world, roleLabels: checked.lineup.flatMap(entry => entry.roleLabel ? [entry.roleLabel] : []) }, now);
     }
     await db.patch(draft._id, { publishedReceiptId: receipt._id });
   }

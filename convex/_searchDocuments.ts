@@ -5,7 +5,7 @@ import type { PublicProfileMediaKit } from "./_profileAssets";
 import { eventPathForSlugs } from "./_eventPaths";
 import type { toProfileLookupResult } from "./_profileLookup";
 import { visibleProfileField, visibleProfileList } from "./_profileFieldVisibility";
-import { firstSafeHttpsUrl, optionalField, safeHttpsUrl } from "./_publicFields";
+import { firstSafeHttpsUrl, firstSafePublicImageUrl, optionalField, safeHttpsUrl } from "./_publicFields";
 import { canReadProfile } from "./_profilePermissions";
 import type { ProfileTrustLabel } from "./_profileStates";
 import { getProfileBySlug } from "./_profileSlugs";
@@ -416,7 +416,7 @@ export function createEventSearchDocument(
     title: event.title,
     subtitle: event.communityName ?? indexedCommunity?.displayName ?? "Event",
     ...optionalField("summary", event.summary),
-    ...optionalField("imageUrl", firstSafeHttpsUrl(event.thumbnailImageUrl, event.posterImageUrl, event.bannerImageUrl)),
+    ...optionalField("imageUrl", firstSafePublicImageUrl(event.thumbnailImageUrl, event.posterImageUrl, event.bannerImageUrl)),
     searchText: weightedCorpus([
       { values: [event.title, event.slug], weight: 8 },
       { values: [event.communityName, indexedCommunity?.displayName], weight: 5 },

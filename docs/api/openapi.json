@@ -12376,8 +12376,7 @@
               "type": "object",
               "properties": {
                 "bannerImageUrl": {
-                  "type": "string",
-                  "format": "uri"
+                  "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
                 },
                 "communityName": {
                   "type": "string"
@@ -12436,8 +12435,7 @@
                   }
                 },
                 "posterImageUrl": {
-                  "type": "string",
-                  "format": "uri"
+                  "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
                 },
                 "slug": {
                   "type": "string",
@@ -12495,8 +12493,7 @@
                   "type": "string"
                 },
                 "thumbnailImageUrl": {
-                  "type": "string",
-                  "format": "uri"
+                  "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
                 },
                 "timezone": {
                   "type": "string"
@@ -12535,8 +12532,7 @@
               "type": "object",
               "properties": {
                 "bannerImageUrl": {
-                  "type": "string",
-                  "format": "uri"
+                  "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
                 },
                 "communityName": {
                   "type": "string"
@@ -12595,8 +12591,7 @@
                   }
                 },
                 "posterImageUrl": {
-                  "type": "string",
-                  "format": "uri"
+                  "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
                 },
                 "slug": {
                   "type": "string",
@@ -12654,8 +12649,7 @@
                   "type": "string"
                 },
                 "thumbnailImageUrl": {
-                  "type": "string",
-                  "format": "uri"
+                  "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
                 },
                 "timezone": {
                   "type": "string"

@@ -4,7 +4,7 @@ import { publicProfileOutboundLinks } from "./_profilePublic";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
 import { createDiscordTimestampSet, type DiscordTimestampSet } from "./_discordTimestamps";
-import { firstSafeHttpsUrl, optionalField, safeHttpsUrl } from "./_publicFields";
+import { firstSafeHttpsUrl, firstSafePublicImageUrl, optionalField, safeHttpsUrl, safePublicImageUrl } from "./_publicFields";
 import { visibleProfileField } from "./_profileFieldVisibility";
 import { canReadProfile } from "./_profilePermissions";
 import { getProfileTrustLabel } from "./_profileStates";
@@ -321,9 +321,9 @@ export function toPublicEventPreviewFromRecord(
 ): PublicEventPreview {
   const { community, event, participants, slots, worlds } = record;
   const sourceUrl = safeHttpsUrl(event.sourceUrl);
-  const posterImageUrl = safeHttpsUrl(event.posterImageUrl);
-  const bannerImageUrl = firstSafeHttpsUrl(event.bannerImageUrl, event.posterImageUrl);
-  const thumbnailImageUrl = firstSafeHttpsUrl(event.thumbnailImageUrl, event.posterImageUrl, event.bannerImageUrl);
+  const posterImageUrl = safePublicImageUrl(event.posterImageUrl);
+  const bannerImageUrl = firstSafePublicImageUrl(event.bannerImageUrl, event.posterImageUrl);
+  const thumbnailImageUrl = firstSafePublicImageUrl(event.thumbnailImageUrl, event.posterImageUrl, event.bannerImageUrl);
   const communityImageUrl =
     record.communityImageUrl ??
     (community === undefined ? undefined : publicProfileCardImage(community));
@@ -404,7 +404,7 @@ export function toPublicEvent(record: PublicEventRecord): PublicEvent | null {
         !new Set(["watch", "stream", "vrcdn"]).has(link.type),
     );
   const authoredBannerImageUrl = safeHttpsUrl(record.event.bannerImageUrl);
-  const authoredThumbnailImageUrl = safeHttpsUrl(record.event.thumbnailImageUrl);
+  const authoredThumbnailImageUrl = safePublicImageUrl(record.event.thumbnailImageUrl);
 
   return {
     ...preview,

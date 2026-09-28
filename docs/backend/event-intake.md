@@ -179,7 +179,7 @@ from 1 to 100. Only community owners, `manage_events` staff and accounts with an
 active `super_admin` grant can read it. Staff see only their communities; moderators
 see all reports. Its page can be empty before `isDone` because authorization
 filters a bounded global page. Continue with `continueCursor`. Private
-`eventReports` rows may also carry `kind: classifier_outage` for a trusted
+`eventReports` rows may also carry `kind: classifier_outage` or `classifier_sample` for a trusted
 classifier commit to insert. Neither reports nor outage flags enter public
 event projections.
 
@@ -199,3 +199,9 @@ hourly cleanup deletes at most 200 expired suppression records per run. Expired
 records stop blocking immediately, independent of cleanup backlog. The removed
 canonical row stays hidden. This is exact-match prevention, not fuzzy spam
 detection; title/date changes can evade it.
+
+## Private posters and optional extraction
+
+See [source storage and model controls](./event-intake-sources.md) for private
+upload intents, explicit artwork selection, retention, bounded extraction and
+default-off spam classification. The manual path has no model-key dependency.

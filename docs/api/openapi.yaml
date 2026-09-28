@@ -8067,8 +8067,7 @@ components:
             type: object
             properties:
               bannerImageUrl:
-                type: string
-                format: uri
+                $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
               communityName:
                 type: string
               doorsOpenAt:
@@ -8113,8 +8112,7 @@ components:
                   additionalProperties: {}
                   description: Public event media or outbound link.
               posterImageUrl:
-                type: string
-                format: uri
+                $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
               slug:
                 type: string
                 minLength: 1
@@ -8158,8 +8156,7 @@ components:
               summary:
                 type: string
               thumbnailImageUrl:
-                type: string
-                format: uri
+                $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
               timezone:
                 type: string
               title:
@@ -8187,8 +8184,7 @@ components:
             type: object
             properties:
               bannerImageUrl:
-                type: string
-                format: uri
+                $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
               communityName:
                 type: string
               doorsOpenAt:
@@ -8233,8 +8229,7 @@ components:
                   additionalProperties: {}
                   description: Public event media or outbound link.
               posterImageUrl:
-                type: string
-                format: uri
+                $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
               slug:
                 type: string
                 minLength: 1
@@ -8278,8 +8273,7 @@ components:
               summary:
                 type: string
               thumbnailImageUrl:
-                type: string
-                format: uri
+                $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
               timezone:
                 type: string
               title:

@@ -67,3 +67,25 @@ export function selectEventLocalTime(date: string, local: EventIntakeLocalTime, 
   if (choices.length > 1 && !local.occurrence) throw new Error("Ambiguous local time requires an earlier or later occurrence.");
   return local.occurrence === "later" ? choices[choices.length - 1]! : choices[0]!;
 }
+
+export const EVENT_POSTER_MAX_BYTES = 12 * 1024 * 1024;
+export const EventPosterDeclarationSchema = z.strictObject({
+  contentType: z.enum(["image/png", "image/jpeg", "image/webp"]),
+  byteLength: z.number().int().positive().max(EVENT_POSTER_MAX_BYTES),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/),
+});
+const fact = (max: number) => text(max).nullable();
+export const EventIntakeCandidateSchema = z.strictObject({
+  event: z.strictObject({
+    title: fact(120), communitySlug: fact(64), eventDate: fact(10),
+    start: fact(5), end: fact(5), timezone: fact(64), venueLabel: fact(120), summary: fact(240), sourceUrl: fact(2048),
+  }),
+  lineup: z.array(z.strictObject({
+    performerLabel: fact(120), personSlug: fact(64), roleLabel: fact(48), start: fact(5), end: fact(5),
+  })).max(80),
+  evidence: z.array(z.strictObject({ fieldPath: text(120), origin: z.enum(["text", "poster", "lookup", "calculation"]), excerpt: fact(500), assessment: z.enum(["explicit", "inferred", "conflicting"]) })).max(100),
+  questions: z.array(z.strictObject({ fieldPath: text(120), reason: text(500), alternatives: z.array(text(200)).max(10) })).max(100),
+});
+export type EventIntakeCandidate = z.infer<typeof EventIntakeCandidateSchema>;
+
+export const EventIntakeCandidateJsonSchema = z.toJSONSchema(EventIntakeCandidateSchema);

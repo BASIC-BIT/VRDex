@@ -1095,7 +1095,29 @@ export default defineSchema({
     .index("by_slug", ["slug"])
     .index("by_vrchatWorldId", ["vrchatWorldId"])
     .index("by_publicationState_sortName", ["publicationState", "sortName"]),
+  eventPosterSources: defineTable({
+    purpose: v.literal("event_poster"), actorUserId: v.id("users"), draftId: v.id("eventIntakeDrafts"),
+    contentType: v.string(), byteLength: v.number(), sha256: v.string(), reservedBytes: v.number(),
+    storageKey: v.optional(v.string()), uploadStorageKey: v.optional(v.string()),
+    state: v.union(v.literal("pending"), v.literal("ready"), v.literal("deleting"), v.literal("expired")),
+    uploadedAt: v.number(), expiresAt: v.number(), uploadExpiresAt: v.number(), lastActivityAt: v.number(),
+    holdReportId: v.optional(v.id("eventReports")), cleanupToken: v.optional(v.string()),
+    cleanupLeaseUntil: v.optional(v.number()), expiredAt: v.optional(v.number()), eventId: v.optional(v.id("events")),
+  }).index("by_actor_state", ["actorUserId", "state"])
+    .index("by_draft", ["draftId"]).index("by_draft_state", ["draftId", "state"]).index("by_state_expiresAt", ["state", "expiresAt"]),
+  eventPosterArtwork: defineTable({
+    actorUserId: v.id("users"), draftId: v.id("eventIntakeDrafts"), sourceId: v.id("eventPosterSources"),
+    storageKey: v.optional(v.string()), sha256: v.optional(v.string()), byteLength: v.optional(v.number()),
+    state: v.union(v.literal("pending"), v.literal("ready"), v.literal("published"), v.literal("deleting"), v.literal("expired")),
+    createdAt: v.number(), expiresAt: v.number(), eventId: v.optional(v.id("events")),
+    cleanupToken: v.optional(v.string()), cleanupLeaseUntil: v.optional(v.number()),
+  }).index("by_draft", ["draftId"]).index("by_source", ["sourceId"])
+    .index("by_state_expiresAt", ["state", "expiresAt"]),
+  eventIntakeModelAttempts: defineTable({
+    actorUserId: v.id("users"), draftId: v.id("eventIntakeDrafts"), createdAt: v.number(),
+  }).index("by_actor_createdAt", ["actorUserId", "createdAt"]).index("by_createdAt", ["createdAt"]),
   eventIntakeDrafts: defineTable({
+    artworkAssetId: v.optional(v.id("eventPosterArtwork")),
     actorUserId: v.id("users"), version: v.number(),
     // Validated by the shared strict EventIntakePatchSchema on every read/write.
     fields: v.any(),
@@ -1120,7 +1142,7 @@ export default defineSchema({
   eventReports: defineTable({
     eventId: v.id("events"), communityProfileId: v.optional(v.id("profiles")),
     actorUserId: v.optional(v.id("users")), reason: v.string(),
-    kind: v.union(v.literal("report"), v.literal("classifier_outage")), createdAt: v.number(),
+    kind: v.union(v.literal("report"), v.literal("classifier_outage"), v.literal("classifier_sample")), createdAt: v.number(),
   }).index("by_createdAt", ["createdAt"])
     .index("by_event_createdAt", ["eventId", "createdAt"])
     .index("by_actor_createdAt", ["actorUserId", "createdAt"]),

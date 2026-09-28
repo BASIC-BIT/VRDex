@@ -901,19 +901,19 @@ export const ApiSimpleErrorResponseSchema = z
 
 export const PublicWorldEventPreviewSchema = z
   .object({
-    bannerImageUrl: absoluteUrl.optional(),
+    bannerImageUrl: absoluteOrRootRelativeUrl.optional(),
     communityName: z.string().optional(),
     doorsOpenAt: timestampMs.optional(),
     endAt: timestampMs.optional(),
     mediaLinks: z.array(PublicEventMediaLinkSchema),
-    posterImageUrl: absoluteUrl.optional(),
+    posterImageUrl: absoluteOrRootRelativeUrl.optional(),
     slug: slug.optional(),
     source: PublicEventSourceSchema,
     startAt: timestampMs.optional(),
     scheduleKind: z.enum(["timed", "date_only"]).optional(),
     eventDate: EventDateSchema.optional(),
     summary: z.string().optional(),
-    thumbnailImageUrl: absoluteUrl.optional(),
+    thumbnailImageUrl: absoluteOrRootRelativeUrl.optional(),
     timezone: z.string().optional(),
     title: z.string().min(1),
     worldAssociation: z.object({ confirmationState: z.literal("confirmed") }).passthrough(),
