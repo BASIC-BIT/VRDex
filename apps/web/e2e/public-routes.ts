@@ -513,20 +513,15 @@ export async function expectEventPage(page: Page) {
   await expect(page.getByText(/Your time/i)).toHaveCount(0);
   await expect(page.getByText("Place", { exact: true })).toBeVisible();
   await expect(page.getByText("Schedule", { exact: true })).toBeVisible();
-  const isMobile = (page.viewportSize()?.width ?? 0) < 640;
-  const schedule = page.locator("section").filter({ hasText: "Schedule" });
-
-  if (isMobile) {
-    await expect(page.getByRole("columnheader", { name: "Session" })).toHaveCount(0);
-    await expect(schedule.getByText("2:00 AM - 2:45 AM", { exact: true }).first()).toBeVisible();
-    await expect(schedule.getByText("House", { exact: true }).first()).toBeVisible();
-  } else {
-    const scheduleTable = page.getByRole("table");
-    await expect(scheduleTable.getByRole("columnheader", { name: "Session" })).toBeVisible();
-    await expect(scheduleTable.getByRole("columnheader", { name: "Details" })).toBeVisible();
-    await expect(scheduleTable.getByRole("cell", { name: "2:00 AM - 2:45 AM" })).toBeVisible();
-    await expect(scheduleTable.getByRole("cell", { name: "House" })).toBeVisible();
-  }
+  const schedule = page.getByRole("list").filter({ has: page.getByRole("link", { name: "DJ Aurora", exact: true }) });
+  const slots = schedule.getByRole("listitem");
+  await expect(slots).toHaveCount(2);
+  await expect(slots.nth(0).getByRole("link", { name: "DJ Aurora", exact: true })).toHaveAttribute("href", "/playwright-dj-aurora");
+  await expect(slots.nth(0).getByText("House", { exact: true })).toBeVisible();
+  await expect(slots.nth(0).getByText("2:00 AM - 2:45 AM", { exact: true })).toBeVisible();
+  await expect(slots.nth(1).getByText("DJ Lumen", { exact: true })).toBeVisible();
+  await expect(slots.nth(1).getByText("Trance", { exact: true })).toBeVisible();
+  await expect(slots.nth(1).getByText("2:45 AM - 3:30 AM", { exact: true })).toBeVisible();
 
   await expect(page.getByText("Participants", { exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "DJ Aurora", exact: true }).first()).toBeVisible();

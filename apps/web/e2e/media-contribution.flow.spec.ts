@@ -56,7 +56,7 @@ function expectRefusal(response: Awaited<ReturnType<typeof rpc>>, text: string) 
 }
 
 async function grant(page: Page, request: APIRequestContext, origin: string, runId: string) {
-  const scopes = ["mcp:read", "mcp:write", "assets:contribute"];
+  const scopes = ["mcp:read", "assets:review:read", "mcp:write", "assets:contribute", "assets:review:write"];
   const redirectUri = `${origin}/oauth/e2e-callback`;
   const response = await page.request.post("/api/developer/oauth-apps", {
     headers: { origin },
@@ -248,12 +248,10 @@ test("contributor A submits and different owner B reviews media @media-lifecycle
   await pageB.goto("/account/media-review");
   const rejectFile = `/api/account/media-review/submissions/${rejectedCandidate.submission.submissionId}/file`;
   const rejectCard = pageB.locator("section").filter({ has: pageB.locator(`img[src="${rejectFile}"]`) });
-  await rejectCard.getByRole("button", { name: "Start review", exact: true }).click();
-  await pageB.getByRole("combobox", { name: "Status", exact: true }).selectOption("under_review");
   const privateRejection = `Private fixture rejection ${runId}`;
   const disposition = "Synthetic candidate rejected.";
   await rejectCard.getByLabel("Private review reason", { exact: true }).fill(privateRejection);
-  await rejectCard.getByLabel("Contributor-visible disposition", { exact: true }).fill(disposition);
+  await rejectCard.getByLabel("Public rejection reason", { exact: true }).fill(disposition);
   await rejectCard.getByRole("button", { name: "Reject", exact: true }).click();
   await expect.poll(async () => {
     const history = await call<{ submissions: Submission[] }>(request, authA.access_token, "vrdex_list_my_media_submissions", {});
@@ -272,12 +270,34 @@ test("contributor A submits and different owner B reviews media @media-lifecycle
   expect(reviewerHistory.submissions).toEqual([]);
   stages.push("different owner rejection, private reason isolation and no public rejected asset");
 
-  await pageB.getByRole("combobox", { name: "Status", exact: true }).selectOption("submitted");
-  const approveCard = pageB.locator("section").filter({ has: pageB.locator(`img[src="${privateFile}"]`) });
-  await approveCard.getByRole("button", { name: "Start review", exact: true }).click();
-  await pageB.getByRole("combobox", { name: "Status", exact: true }).selectOption("under_review");
-  await pageB.getByLabel("Private review reason", { exact: true }).fill("Synthetic two-user staging acceptance.");
-  await pageB.getByRole("button", { name: "Approve", exact: true }).click();
+  const review = await call<{ reviewVersion: string }>(request, authB.access_token, "vrdex_media_review_get", {
+    submissionId: submitted.submission.submissionId,
+  });
+  const preview = await rpc(request, authB.access_token, "vrdex_media_review_preview", {
+    submissionId: submitted.submission.submissionId,
+    expectedReviewVersion: review.reviewVersion,
+  });
+  expect(preview.result?.content?.some((item) => item.type === "image")).toBe(true);
+  const self = await rpc(request, authA.access_token, "vrdex_media_review_decide", {
+    submissionId: submitted.submission.submissionId,
+    expectedReviewVersion: review.reviewVersion,
+    decision: "approve",
+    privateReason: "Synthetic unauthorized review refusal.",
+    idempotencyKey: `${runId}-unauthorized-review`,
+  });
+  expectRefusal(self, "Profile media review access is required.");
+  const decisionInput = {
+    submissionId: submitted.submission.submissionId,
+    expectedReviewVersion: review.reviewVersion,
+    decision: "approve",
+    privateReason: "Synthetic two-user staging acceptance.",
+    idempotencyKey: `${runId}-accept`,
+  };
+  const accepted = await call<{ operationId: string; operationState: string; resourceId?: string }>(
+    request, authB.access_token, "vrdex_media_review_decide", decisionInput,
+  );
+  expect(accepted).toMatchObject({ operationState: "committed", resourceId: submitted.submission.submissionId });
+  expect(await call(request, authB.access_token, "vrdex_media_review_decide", decisionInput)).toEqual(accepted);
   await expect.poll(async () => {
     const history = await call<{ submissions: Submission[] }>(request, authA.access_token, "vrdex_list_my_media_submissions", {});
     return history.submissions.find((row) => row.submissionId === submitted.submission.submissionId)?.status;
@@ -289,7 +309,13 @@ test("contributor A submits and different owner B reviews media @media-lifecycle
   const published = await call<{ avatarImageUrl?: string }>(request, undefined, "vrdex_get_profile", { slug: profile.slug });
   expect(published.avatarImageUrl).toBeTruthy();
   expect((await request.get(published.avatarImageUrl!)).ok()).toBe(true);
-  stages.push("different owner browser approval and one public community_submitted asset");
+  await pageB.goto("/account/media-review");
+  await pageB.getByLabel("Status", { exact: true }).selectOption("approved");
+  const approvedCard = pageB.locator("section").filter({ has: pageB.locator(`img[src="${privateFile}"]`) });
+  await expect(approvedCard.locator(`img[src="${published.avatarImageUrl}"]`)).toBeVisible();
+  await pageB.goto(`/${profile.slug}`);
+  await expect(pageB.locator(`img[src="${published.avatarImageUrl}"]`).first()).toBeVisible();
+  stages.push("donor authorization refusal, native preview, replay-safe MCP approval and authenticated browser/public readback");
 
   const audit = await request.post("/api/e2e/media", { headers, data: { op: "inspect-audit", runId, profileId } });
   expect(audit.status()).toBe(200);

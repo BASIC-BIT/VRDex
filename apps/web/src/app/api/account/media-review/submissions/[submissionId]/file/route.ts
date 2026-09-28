@@ -29,7 +29,7 @@ function safeFileName(value: string): string {
   return value.trim().replace(/[^a-zA-Z0-9._ -]+/g, "-").replace(/^-+|-+$/g, "") || "candidate";
 }
 
-export async function GET(_request: Request, context: RouteContext) {
+export async function GET(request: Request, context: RouteContext) {
   const authToken = await convexAuthToken();
   if (authToken === undefined) {
     return Response.json({ error: "Sign in required." }, { status: 401 });
@@ -41,9 +41,19 @@ export async function GET(_request: Request, context: RouteContext) {
   const { submissionId } = await context.params;
   const convex = convexHttpClient();
   convex.setAuth(authToken);
-  const candidate = await convex.query(api.profileMediaSubmissions.getCandidateForStorage, {
-    submissionId: submissionId as Id<"profileMediaSubmissions">,
-  }).catch((error: unknown) => {
+  const params = new URL(request.url).searchParams;
+  const current = params.get("image") === "current";
+  const assetId = params.get("assetId"), reviewVersion = params.get("reviewVersion");
+  if (current && (!assetId || !reviewVersion))
+    return Response.json({ error: "MEDIA_UNAVAILABLE" }, { status: 404 });
+  const candidate = await (current
+    ? convex.query(api.profileMediaSubmissions.getCurrentForStorage, {
+      submissionId: submissionId as Id<"profileMediaSubmissions">,
+      assetId: assetId as Id<"profileAssets">, expectedReviewVersion: reviewVersion!,
+    }).then(value => value && ({ ...value, originalFileName: undefined }))
+    : convex.query(api.profileMediaSubmissions.getCandidateForStorage, {
+      submissionId: submissionId as Id<"profileMediaSubmissions">,
+    })).catch((error: unknown) => {
     if (error instanceof ConvexError && error.data?.code === "MEDIA_REVIEW_ACCESS_REQUIRED") {
       return "review_access_required" as const;
     }

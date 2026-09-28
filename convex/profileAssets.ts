@@ -529,6 +529,7 @@ export const cancelOwnedUploadIntent = mutation({
 
     if (
       intent === null ||
+      intent.issuer === "mcp_local" ||
       intent.uploadToken !== args.uploadToken ||
       intent.targetProfileId === undefined ||
       intent.state !== "pending" ||
@@ -620,7 +621,7 @@ export const claimUploadIntentForStorage = internalMutation({
   handler: async (ctx, args) => {
     const intent = await ctx.db.get(args.intentId);
 
-    if (intent === null || intent.uploadToken !== args.uploadToken) {
+    if (intent === null || intent.issuer == "mcp_local" || intent.uploadToken !== args.uploadToken) {
       return { status: "not_found" as const };
     }
 
@@ -769,6 +770,7 @@ export const getUploadIntentForDirectStorage = internalQuery({
     const now = Date.now();
     if (
       intent === null ||
+      intent.issuer === "mcp_local" ||
       intent.uploadToken !== args.uploadToken ||
       intent.state !== "pending" ||
       intent.expiresAt < now ||
@@ -794,7 +796,7 @@ export const getUploadIntentStateForStorageCleanup = internalQuery({
   },
   handler: async (ctx, args) => {
     const intent = await ctx.db.get(args.intentId);
-    if (intent === null || intent.uploadToken !== args.uploadToken) {
+    if (intent === null || intent.issuer == "mcp_local" || intent.uploadToken !== args.uploadToken) {
       return null;
     }
     if (intent.state === "consumed") {
@@ -817,6 +819,7 @@ export const releaseUploadIntentStorageClaim = internalMutation({
     const intent = await ctx.db.get(args.intentId);
     if (
       intent === null ||
+      intent.issuer === "mcp_local" ||
       intent.uploadToken !== args.uploadToken ||
       intent.processingToken !== args.processingToken ||
       intent.state !== "pending"
@@ -870,6 +873,7 @@ export const hasDuplicateAssetForUpload = query({
     const intent = await ctx.db.get(args.intentId);
     if (
       intent === null ||
+      intent.issuer === "mcp_local" ||
       intent.uploadToken !== args.uploadToken ||
       intent.targetProfileId === undefined ||
       intent.state !== "pending" ||

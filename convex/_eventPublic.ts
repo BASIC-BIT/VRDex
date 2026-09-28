@@ -1,3 +1,5 @@
+import { eventProfileStreamChoices, resolveEventStream, type PlaybackStream } from "./_eventPlayback";
+import { publicProfileOutboundLinks } from "./_profilePublic";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
 import { createDiscordTimestampSet, type DiscordTimestampSet } from "./_discordTimestamps";
@@ -95,6 +97,7 @@ export type PublicEventPreview = {
 export type PublicEvent = PublicEventPreview & {
   id: string;
   slug: string;
+  watchMode: "event_stream" | "performer_sequence";
   watchSurfaceEnabled: boolean;
   authoredBannerImageUrl?: string;
   authoredThumbnailImageUrl?: string;
@@ -123,6 +126,7 @@ export type PublicEvent = PublicEventPreview & {
     };
   }>;
   participants: Array<{
+    outboundLinks: ReturnType<typeof publicProfileOutboundLinks>;
     slug: string;
     displayName: string;
     roleLabel: string;
@@ -136,6 +140,8 @@ export type PublicEvent = PublicEventPreview & {
     };
   }>;
   slots: Array<{
+    playbackKey: string;
+    stream?: PlaybackStream;
     position: number;
     startAt: number;
     endAt?: number;
@@ -145,6 +151,7 @@ export type PublicEvent = PublicEventPreview & {
     performer?: {
       slug: string;
       displayName: string;
+      outboundLinks: ReturnType<typeof publicProfileOutboundLinks>;
       trustLabel: "community_submitted" | "unclaimed" | "claimed_unverified" | "claimed_verified";
       imageUrl?: string;
       avatarAppearance?: PublicProfileAvatarAppearance;
@@ -326,6 +333,12 @@ export function toPublicEvent(record: PublicEventRecord): PublicEvent | null {
     return null;
   }
 
+  const roster = new Map<Id<"profiles">, { outboundLinks: ReturnType<typeof publicProfileOutboundLinks>; streamChoices: PlaybackStream[] }>();
+  for (const { profile } of [...record.participants, ...record.slots]) {
+    if (profile !== undefined && !roster.has(profile._id)) {
+      roster.set(profile._id, { outboundLinks: publicProfileOutboundLinks(profile, "discovery"), streamChoices: eventProfileStreamChoices(profile) });
+    }
+  }
   const preview = toPublicEventPreviewFromRecord(record);
   const authoredMediaLinks = (record.event.mediaLinks ?? [])
     .flatMap(safePublicEventMediaLink)
@@ -341,6 +354,7 @@ export function toPublicEvent(record: PublicEventRecord): PublicEvent | null {
     ...preview,
     id: record.event._id,
     slug: record.event.slug,
+    watchMode: record.event.watchMode ?? "event_stream",
     watchSurfaceEnabled: record.event.watchSurfaceEnabled ?? false,
     ...optionalField("authoredBannerImageUrl", authoredBannerImageUrl),
     ...optionalField("authoredThumbnailImageUrl", authoredThumbnailImageUrl),
@@ -369,6 +383,7 @@ export function toPublicEvent(record: PublicEventRecord): PublicEvent | null {
       return {
         slug: profile.slug,
         displayName: profile.displayName,
+        outboundLinks: roster.get(profile._id)!.outboundLinks,
         roleLabel: association.roleLabel,
         trustLabel: getProfileTrustLabel(profile.claimState, profile.creationSource),
         ...optionalField("imageUrl", imageUrl),
@@ -389,6 +404,9 @@ export function toPublicEvent(record: PublicEventRecord): PublicEvent | null {
           (profile === undefined ? undefined : publicProfileCardImage(profile));
 
         return {
+          playbackKey: slot._id,
+          ...optionalField("stream", profile === undefined || record.event.eventStatus === "cancelled" || record.event.publicationState !== "published"
+            ? undefined : resolveEventStream(roster.get(profile._id)!.streamChoices, slot.selectedStreamId)),
           position: slot.position,
           startAt: slot.startAt,
           ...optionalField("endAt", slot.endAt),
@@ -401,6 +419,7 @@ export function toPublicEvent(record: PublicEventRecord): PublicEvent | null {
                 performer: {
                   slug: profile.slug,
                   displayName: profile.displayName,
+                  outboundLinks: roster.get(profile._id)!.outboundLinks,
                   trustLabel: getProfileTrustLabel(profile.claimState, profile.creationSource),
                   ...optionalField("imageUrl", imageUrl),
                   ...optionalField("avatarAppearance", avatarAppearance),
@@ -458,10 +477,30 @@ async function getPublicEventWorldRecords(db: DatabaseReader, event: Doc<"events
   );
 }
 
+type RosterLoadOptions = {
+  includeMediaKit?: boolean;
+  profileCache?: Map<Id<"profiles">, Promise<Doc<"profiles"> | null>>;
+  mediaKitCache?: Map<Id<"profiles">, ReturnType<typeof getPublicProfileMediaKit>>;
+};
+function loadRosterProfile(db: DatabaseReader, id: Id<"profiles">, options: RosterLoadOptions) {
+  const existing = options.profileCache?.get(id);
+  if (existing !== undefined) return existing;
+  const pending = db.get(id);
+  options.profileCache?.set(id, pending);
+  return pending;
+}
+function loadRosterMediaKit(db: DatabaseReader, profile: Doc<"profiles">, options: RosterLoadOptions) {
+  const existing = options.mediaKitCache?.get(profile._id);
+  if (existing !== undefined) return existing;
+  const pending = getPublicProfileMediaKit(db, profile, { surface: "discovery" });
+  options.mediaKitCache?.set(profile._id, pending);
+  return pending;
+}
+
 async function getPublicEventParticipantRecords(
   db: DatabaseReader,
   event: Doc<"events">,
-  options: { includeMediaKit?: boolean } = {},
+  options: RosterLoadOptions = {},
 ) {
   const associations = await db
     .query("eventParticipants")
@@ -471,7 +510,7 @@ async function getPublicEventParticipantRecords(
 
   const records: Array<PublicEventParticipantRecord | null> = await Promise.all(
     associations.map(async (association) => {
-      const profile = await db.get(association.personProfileId);
+      const profile = await loadRosterProfile(db, association.personProfileId, options);
 
       if (
         profile === null ||
@@ -489,7 +528,7 @@ async function getPublicEventParticipantRecords(
         };
       }
 
-      const mediaKit = await getPublicProfileMediaKit(db, profile, { surface: "discovery" });
+      const mediaKit = await loadRosterMediaKit(db, profile, options);
       return {
         association,
         profile,
@@ -506,7 +545,7 @@ async function getPublicEventParticipantRecords(
 async function getPublicEventSlotRecords(
   db: DatabaseReader,
   event: Doc<"events">,
-  options: { includeMediaKit?: boolean } = {},
+  options: RosterLoadOptions = {},
 ) {
   const slots = await db
     .query("eventSlots")
@@ -521,7 +560,7 @@ async function getPublicEventSlotRecords(
         return { slot };
       }
 
-      const profile = await db.get(slot.personProfileId);
+      const profile = await loadRosterProfile(db, slot.personProfileId, options);
 
       if (
         profile === null ||
@@ -539,7 +578,7 @@ async function getPublicEventSlotRecords(
         };
       }
 
-      const mediaKit = await getPublicProfileMediaKit(db, profile, { surface: "discovery" });
+      const mediaKit = await loadRosterMediaKit(db, profile, options);
       return {
         slot,
         profile,
@@ -618,15 +657,16 @@ async function getPublicEventRecord(
     return null;
   }
 
+  const rosterOptions: RosterLoadOptions = {
+    includeMediaKit: options.includeAssociationMediaKits,
+    profileCache: new Map(),
+    mediaKitCache: new Map(),
+  };
   const [community, worlds, participants, slots, media] = await Promise.all([
     getPublishedCommunity(db, event),
     getPublicEventWorldRecords(db, event),
-    getPublicEventParticipantRecords(db, event, {
-      includeMediaKit: options.includeAssociationMediaKits,
-    }),
-    getPublicEventSlotRecords(db, event, {
-      includeMediaKit: options.includeAssociationMediaKits,
-    }),
+    getPublicEventParticipantRecords(db, event, rosterOptions),
+    getPublicEventSlotRecords(db, event, rosterOptions),
     getPublicEventMediaRecord(db, event),
   ]);
 
@@ -705,6 +745,14 @@ export async function getEventForEditor(
     ? null
     : {
         ...projected,
+        slots: projected.slots.map((slot) => {
+          const source = record?.slots.find((entry) => entry.slot._id === slot.playbackKey);
+          return {
+            ...slot,
+            ...optionalField("selectedStreamId", source?.slot.selectedStreamId),
+            streamChoices: source?.profile === undefined ? [] : eventProfileStreamChoices(source.profile),
+          };
+        }),
         ...(community?.profileType === "community"
           ? {
               communityName: community.displayName,

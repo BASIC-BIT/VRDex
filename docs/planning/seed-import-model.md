@@ -260,3 +260,57 @@ Still deferred:
 - public reviewer-facing APIs
 - owner claim/handoff confirmation for imported fields
 - community candidate publication (person candidates only today)
+
+## Contributor collections
+
+The ordinary MCP collection workflow is separate from internal seed operations.
+It stages actor-owned `profile_create`, `profile_links`, and `media` items. It does
+not grant seed lookup, source-publication permission, or access to bulk publication.
+Each revision carries its own source-use declaration. `private_only` evidence
+cannot publish, and an earlier submitted item does not authorize later appends.
+
+The companion tools are `vrdex_contribution_batch_create`,
+`vrdex_contribution_batch_append`, `vrdex_contribution_batch_get`,
+`vrdex_contribution_batch_items`, `vrdex_contribution_batch_archive`,
+`vrdex_contribution_item_revise`, and `vrdex_contribution_item_submit`.
+The actor, batch, item key, and revision determine replay identity across OAuth
+clients. Every operation checks current delegated authority and verified email.
+Read tools expose bounded status and mapping data, without private source references.
+
+Append accepts 1 to 50 items. Item listing uses indexed cursors with a maximum page
+size of 40. The ordinary ceiling is 1,000 active rows and 10,000 retained revisions
+per actor. Trusted ceiling constants are 10,000 rows and 100,000 revisions, reserved
+for the later grant and measured-policy rollout. Each normalized revision is at
+most 8 KiB, and each item retains at most five revisions. Transactional actor
+counters charge terminal and deferred rows while their batch remains active.
+Archiving releases active row capacity, while receipts, revisions, held evidence,
+and existing media submissions remain. Payload retention and purge integration
+belongs to the collection cleanup rollout. Until actual purge, bytes remain charged.
+`reconcilePage` provides bounded read-only accounting pages for operator comparison,
+not an automatic repair using a potentially inconsistent multi-page snapshot.
+
+Profile creation requires an explicit `new_identity` resolution and evidence.
+An ambiguous resolution or an existing same-type normalized display name returns
+`NEEDS_REVIEW`, without choosing an existing profile. Publication calls the same
+community-profile helper used by browser and MCP. Link proposals add normalized
+destinations, preserve stored links and their provenance, enforce the existing
+20-link maximum, and refuse stale target snapshots. Profile publication and the
+immutable item attempt commit in one mutation. Unexpected exceptions roll back
+both; they are never caught to persist a refusal after partial publication.
+
+Media items reference the existing media submission lifecycle. A dependent item
+names the earlier profile-create item with `dependsOnItemKey`; its committed mapping
+supplies the actual profile ID and revision. Local and URL uploads require the
+staged content type, byte length, SHA-256, credit, placement, and exact item revision.
+URL imports reserve capacity before the bounded fetch, then use the same quarantine
+and sealing bridge as local uploads. Both person profile images and community
+primary logos are supported. A revised item cannot finalize an older upload.
+Revisions require any existing attempt to be terminal. A successfully created profile
+cannot be recreated by revising its item. Archive does not cancel admitted uploads.
+
+The Convex switch `VRDEX_CONTRIBUTION_BATCHES_ENABLED` defaults to unset/false.
+Its owner is the VRDex operator. Enablement requires BASIC's approval after the
+complete collection checkpoint; recreation uses the checked deployment environment
+configuration with this exact variable. It is not a secret and needs no rotation.
+Keep it false alongside disabled upload intake until the remaining workflow,
+cleanup, grant, and capacity tasks have passed staging verification.

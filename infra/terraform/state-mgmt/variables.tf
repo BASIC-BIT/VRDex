@@ -33,10 +33,22 @@ variable "profile_asset_bucket_name" {
   default     = null
 }
 
+variable "staging_profile_asset_bucket_name" {
+  description = "Separate staging S3 bucket name Terraform CI may manage. Defaults to vrdex-profile-assets-staging plus account id."
+  type        = string
+  default     = null
+}
+
 variable "profile_asset_runtime_role_name" {
   description = "IAM role name Terraform CI may manage for Vercel profile asset runtime access."
   type        = string
   default     = "vrdex-vercel-profile-assets"
+}
+
+variable "staging_profile_asset_runtime_role_name" {
+  description = "Staging IAM runtime role name Terraform CI may manage."
+  type        = string
+  default     = "vrdex-vercel-profile-assets-staging"
 }
 
 variable "vercel_team_slug" {

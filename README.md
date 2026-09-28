@@ -20,6 +20,7 @@
 - install workspace dependencies: `pnpm install`
 - install git hooks after dependency changes if needed: `pnpm prepare`
 - bootstrap an anonymous local Convex deployment and run the backend health query: `pnpm bootstrap:backend:local`
+- seed the local backend with fake profiles, a world, and events: `pnpm seed:local` (it boots and exits its own backend, so run it before the watcher below)
 - keep the local Convex backend watcher running: `pnpm dev:backend:local`
 - run the one-shot local Convex health check alias: `pnpm run:backend:health:local`
 - typecheck Convex backend files: `pnpm typecheck:backend`
@@ -35,6 +36,8 @@
 - smoke public routes with Playwright: `pnpm test:e2e`
 - capture public route screenshots with Playwright: `pnpm test:e2e:visual`
 - run the baseline local verification pass: `pnpm verify`
+
+New here? Read [docs/engineering/local-development.md](docs/engineering/local-development.md) for the full contributor setup, including what needs no credentials and how to add your own Clerk instance.
 
 Convex writes repo-root deployment configuration to `.env.local` during local setup and keeps anonymous local state under `.convex-home/` plus `.convex-tmp/`. Keep all of those uncommitted. The committed `convex/_generated/` files are expected to stay clean after `pnpm check:backend:generated`.
 

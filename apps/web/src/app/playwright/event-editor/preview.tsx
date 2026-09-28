@@ -7,7 +7,7 @@ import type { EditableEvent } from "../../events/event-editor-form";
 
 const previewClient = new ConvexReactClient("https://playwright-preview.convex.cloud");
 
-const previewEvent: EditableEvent = {
+export const previewEvent: EditableEvent = {
   id: "event-editor-preview",
   slug: "harbor-sessions-7k2m4q",
   title: "Afterglow Harbor Sessions",

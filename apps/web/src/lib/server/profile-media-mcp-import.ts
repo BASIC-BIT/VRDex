@@ -323,6 +323,20 @@ export async function completeMcpProfileMediaSubmissionImport(
     claim.storageKey,
   ];
 
+  const permit = await adminConvex.mutation(
+    internal.contributionCapacity.claimSourceFetch,
+    { intentId: claim.intentId },
+  );
+  if (!permit.allowed) {
+    await adminConvex.mutation(
+      internal.profileMediaSubmissions.retryMcpMediaSubmissionImport,
+      { intentId: claim.intentId, processingToken },
+    ).catch(() => false);
+    throw new McpProfileMediaImportError(
+      "CONTRIBUTION_HOST_RATE", "indeterminate", "CONTRIBUTION_HOST_RATE",
+    );
+  }
+
   try {
     const upload = await fetchContributionSource(fetchSource, claim.sourceUrl);
     const prepared = await prepareContributionAsset(prepareAsset, upload.body, upload.mimeType);

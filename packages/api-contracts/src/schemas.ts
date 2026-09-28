@@ -420,15 +420,46 @@ export const PublicEventPreviewSchema = z
     id: "PublicEventPreview",
   });
 
+export const EventWatchModeSchema = z.enum(["event_stream", "performer_sequence"]);
+export const EventPlaybackStreamSchema = z.object({
+  streamId: z.string().min(2).max(128), pcUrl: absoluteUrl, questUrl: absoluteUrl,
+});
+export const PublicEventPerformerSchema = z.object({
+  slug, displayName: z.string(),
+  trustLabel: z.enum(["community_submitted", "unclaimed", "claimed_unverified", "claimed_verified"]),
+  imageUrl: absoluteOrRootRelativeUrl.optional(),
+  avatarAppearance: PublicProfileAvatarAppearanceSchema.optional(),
+  outboundLinks: z.array(PublicOutboundLinkSchema),
+});
+export const PublicEventParticipantSchema = PublicEventPerformerSchema.extend({
+  roleLabel: z.string(), source: PublicEventSourceSchema,
+});
+export const EventDiscordTimestampSchema = z.object({
+  shortTime: z.string(), longTime: z.string(), shortDate: z.string(), longDate: z.string(),
+  shortDateTime: z.string(), longDateTime: z.string(), relative: z.string(),
+});
+export const PublicEventSlotSchema = z.object({
+  playbackKey: z.string(), position: z.number().int().nonnegative(),
+  startAt: timestampMs, endAt: timestampMs.optional(), displayLabel: z.string(), roleLabel: z.string(),
+  discord: EventDiscordTimestampSchema, performer: PublicEventPerformerSchema.optional(),
+  source: PublicEventSourceSchema, stream: EventPlaybackStreamSchema.optional(),
+});
+export const PublicEventWorldSchema = PublicEventWorldSummarySchema.extend({
+  tags: z.array(z.string()), summary: z.string().optional(), heroImageUrl: absoluteUrl.optional(),
+  association: z.object({ sourceType: PublicEventSourceTypeSchema,
+    confirmationState: z.literal("confirmed"), confirmedAt: timestampMs.optional() }),
+});
+
 export const PublicEventSchema = PublicEventPreviewSchema.extend({
   authoredMediaLinks: z.array(PublicEventMediaLinkSchema).optional(),
   id: z.string(),
   mediaLinks: z.array(PublicEventMediaLinkSchema).optional(),
-  participants: z.array(z.unknown()).optional(),
-  slots: z.array(z.unknown()).optional(),
+  participants: z.array(PublicEventParticipantSchema).optional(),
+  slots: z.array(PublicEventSlotSchema).optional(),
   slug,
+  watchMode: EventWatchModeSchema.default("event_stream"),
   watchSurfaceEnabled: z.boolean(),
-  worlds: z.array(z.unknown()).optional(),
+  worlds: z.array(PublicEventWorldSchema).optional(),
 })
   .passthrough()
   .meta({
@@ -462,6 +493,7 @@ export const ApiEventCreateRequestSchema = z
     posterImageUrl: absoluteUrl.optional(),
     bannerImageUrl: absoluteUrl.optional(),
     thumbnailImageUrl: absoluteUrl.optional(),
+    watchMode: EventWatchModeSchema.optional(),
     watchSurfaceEnabled: z.boolean().optional(),
     mediaLinks: z
       .array(
@@ -494,6 +526,7 @@ export const ApiEventCreateRequestSchema = z
       .array(
         z
           .object({
+            selectedStreamId: z.string().min(2).max(128).nullable().optional(),
             personSlug: slug.optional(),
             displayLabel: z.string().min(1).max(120),
             roleLabel: z.string().max(48).optional(),
@@ -1096,6 +1129,7 @@ export const ApiMeEventSummarySchema = z
     sourceLabel: z.string().min(1),
     publicationState: ProfilePublicationStateSchema,
     status: z.enum(["scheduled", "cancelled"]),
+    watchMode: EventWatchModeSchema.default("event_stream"),
     watchSurfaceEnabled: z.boolean(),
     createdAt: timestampMs.optional(),
     publishedAt: timestampMs.optional(),

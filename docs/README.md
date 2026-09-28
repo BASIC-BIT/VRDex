@@ -20,6 +20,7 @@ This repo keeps durable markdown under `docs/` so product, developer, engineerin
 - `docs/developers/public-api.md` - public API posture, versioning, client classes, and rate-limiting direction
 - `docs/developers/vrdex-mcp-read-tools.md` - hosted read-only VRDex MCP tools and private/local MCP direction
 - `docs/developers/vrdex-mcp-event-writes.md` - authenticated local MCP event-write contract and operator runbook
+- `docs/engineering/local-development.md` - contributor setup that runs the whole app locally with no cloud account
 - `docs/engineering/service-map.md` - cross-link map for services, docs, and implementation surfaces
 - `docs/deployment/aws-baseline.md` - first-pass AWS service baseline for SES and private S3 profile assets
 - `docs/deployment/docs-site.md` - Docusaurus docs deployment runbook for `docs.vrdex.net`
@@ -31,6 +32,7 @@ This repo keeps durable markdown under `docs/` so product, developer, engineerin
 
 Useful starting points:
 
+- `docs/engineering/local-development.md` - start here as a new contributor: prerequisites, five commands, checks, and previews
 - `docs/agentic/contributor-workflow.md` - contributor contract and onboarding pointer
 - root `README.md` - current workspace bootstrap commands, including the initial web app
 - `apps/docs` - Docusaurus scaffold that serves the canonical markdown from `docs/`

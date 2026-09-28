@@ -11,6 +11,10 @@ on:
         description: Issue comment id that requested the preview.
         required: false
         type: string
+      head_sha:
+        description: Head commit the maintainer reviewed when they requested the preview. Required for fork heads.
+        required: false
+        type: string
   workflow_call:
     inputs:
       pull_number:
@@ -19,6 +23,10 @@ on:
         type: string
       comment_id:
         description: Issue comment id that requested the preview.
+        required: false
+        type: string
+      head_sha:
+        description: Head commit the maintainer reviewed when they requested the preview. Required for fork heads.
         required: false
         type: string
     outputs:
@@ -50,6 +58,7 @@ jobs:
       convex_preview_url: ${{ steps.convex-preview.outputs.convex_url }}
       deployment_url: ${{ steps.deploy.outputs.url }}
       head_sha: ${{ steps.pr.outputs.head_sha }}
+      is_fork: ${{ steps.pr.outputs.is_fork }}
       pr_number: ${{ steps.pr.outputs.pr_number }}
 
     steps:
@@ -57,6 +66,7 @@ jobs:
         id: pr
         uses: actions/github-script@v9
         env:
+          INPUT_HEAD_SHA: ${{ inputs.head_sha }}
           INPUT_PULL_NUMBER: ${{ inputs.pull_number }}
         with:
           script: |
@@ -73,11 +83,10 @@ jobs:
               pull_number: pullNumber,
             });
 
-            if (pull.head.repo?.full_name !== `${context.repo.owner}/${context.repo.repo}`) {
-              core.setFailed(
-                "On-demand previews only run for branches inside this repository. Mirror a fork PR to a trusted branch first.",
-              );
-              return;
+            const isFork = pull.head.repo?.full_name !== `${context.repo.owner}/${context.repo.repo}`;
+            core.setOutput('is_fork', isFork ? 'true' : 'false');
+            if (isFork) {
+              core.notice(`Fork head ${pull.head.repo?.full_name}@${pull.head.sha}: hosted E2E helpers withheld.`);
             }
 
             if (pull.state !== "open") {
@@ -87,13 +96,31 @@ jobs:
               return;
             }
 
-            core.setOutput("head_sha", pull.head.sha);
+            // The maintainer reviewed a specific commit before commenting. If the
+            // head moved since then, the reviewed diff is not what would build,
+            // so refuse rather than deploy unreviewed code with our credentials.
+            const requestedSha = String(process.env.INPUT_HEAD_SHA || "").trim();
+            if (isFork && !requestedSha) {
+              core.setFailed(
+                "Fork heads require the reviewed head_sha; trigger the preview with the @vrdex preview comment.",
+              );
+              return;
+            }
+            if (requestedSha && requestedSha !== pull.head.sha) {
+              core.setFailed(
+                `Head moved since the request (${requestedSha} vs ${pull.head.sha}); re-review and re-trigger.`,
+              );
+              return;
+            }
+
+            core.setOutput("head_sha", requestedSha || pull.head.sha);
             core.setOutput("head_ref", pull.head.ref);
             core.setOutput("pr_number", String(pull.number));
 
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          persist-credentials: false
           ref: ${{ steps.pr.outputs.head_sha }}
 
       - name: Check Vercel deployment secrets
@@ -168,9 +195,9 @@ jobs:
         if: steps.convex-preview.outputs.convex_url != ''
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY_PREVIEW }}
-          HOSTED_E2E_AUTH_HELPERS: ${{ vars.VRDEX_HOSTED_E2E_AUTH_HELPERS }}
-          HOSTED_E2E_BROWSER_TOKEN: ${{ secrets.VRDEX_HOSTED_E2E_BROWSER_TOKEN }}
-          HOSTED_E2E_DEVELOPER_CREDENTIALS: ${{ vars.VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS }}
+          HOSTED_E2E_AUTH_HELPERS: ${{ steps.pr.outputs.is_fork == 'false' && vars.VRDEX_HOSTED_E2E_AUTH_HELPERS || '' }}
+          HOSTED_E2E_BROWSER_TOKEN: ${{ steps.pr.outputs.is_fork == 'false' && secrets.VRDEX_HOSTED_E2E_BROWSER_TOKEN || '' }}
+          HOSTED_E2E_DEVELOPER_CREDENTIALS: ${{ steps.pr.outputs.is_fork == 'false' && vars.VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS || '' }}
           PREVIEW_NAME: pr-${{ steps.pr.outputs.pr_number }}
         run: |
           set -euo pipefail
@@ -230,7 +257,7 @@ jobs:
           HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
           PREVIEW_NAME: pr-${{ steps.pr.outputs.pr_number }}
-          VRDEX_E2E_BROWSER_TOKEN: ${{ secrets.VRDEX_HOSTED_E2E_BROWSER_TOKEN }}
+          VRDEX_E2E_BROWSER_TOKEN: ${{ steps.pr.outputs.is_fork == 'false' && secrets.VRDEX_HOSTED_E2E_BROWSER_TOKEN || '' }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
@@ -303,6 +330,8 @@ jobs:
           COMMENT_ID: ${{ inputs.comment_id }}
           DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
           HEAD_REF: ${{ steps.pr.outputs.head_ref }}
+          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+          IS_FORK: ${{ steps.pr.outputs.is_fork }}
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
         with:
           script: |
@@ -311,16 +340,19 @@ jobs:
             const repo = context.repo.repo;
             const issue_number = Number(process.env.PR_NUMBER);
             const deploymentUrl = process.env.DEPLOYMENT_URL;
+            const isFork = process.env.IS_FORK === "true";
 
             const runUrl = `https://github.com/${owner}/${repo}/actions/runs/${context.runId}`;
             const body = [
               marker,
               "## On-demand Vercel preview",
-              `Branch \`${process.env.HEAD_REF}\`.`,
+              `Branch \`${process.env.HEAD_REF}\` at \`${process.env.HEAD_SHA}\`${isFork ? " (fork head; hosted E2E lane skipped)" : ""}`,
               `Preview URL: ${deploymentUrl}`,
               `Deployment identity: ${deploymentUrl}/api/deployment`,
               "",
-              `Hosted MCP preview smoke runs after this deploy in the same run: ${runUrl}`,
+              isFork
+                ? "Hosted MCP preview smoke is skipped for fork heads; it needs the hosted end-to-end credentials this build runs without."
+                : `Hosted MCP preview smoke runs after this deploy in the same run: ${runUrl}`,
               "This workflow is dispatched, so its jobs do not appear as pull request status checks. Open the run to read the smoke result.",
               "",
               "Comment `@vrdex preview` or `/vercel-preview` on this pull request for a fresh deployment.",
@@ -415,7 +447,7 @@ jobs:
     # Gate on a real deployment URL rather than the aggregate job result, so a
     # deploy that succeeded but whose comment step failed is still smoked, and a
     # deploy that produced no URL is correctly skipped.
-    if: ${{ !cancelled() && needs.deploy-preview.outputs.deployment_url != '' }}
+    if: ${{ !cancelled() && needs.deploy-preview.outputs.deployment_url != '' && needs.deploy-preview.outputs.is_fork == 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -426,6 +458,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          persist-credentials: false
           ref: ${{ needs.deploy-preview.outputs.head_sha }}
 
       - name: Check hosted MCP smoke target
