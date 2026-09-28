@@ -112,14 +112,29 @@ describe("bounded staging media fixture", () => {
   });
 
   it("advances only the exact rejected staging URL fixture to worker cleanup", async () => {
-    const { t, args, intent } = await seed();
+    const { t, args, intent, users } = await seed();
     const proof = { ...args, submissionId: intent.submissionId };
     await assert.rejects(t.mutation(internal.e2eMedia.makeRejectedFixtureDue, proof), /Exact rejected URL fixture/);
     const future = Date.now() + 30 * 24 * 60 * 60 * 1000;
     await t.run(async (ctx) => {
-      await ctx.db.patch(intent.intentId, { issuer: "mcp_local" });
+      const row = (await ctx.db.get(intent.intentId))!;
+      await ctx.db.patch(intent.intentId, {
+        state: "uploaded",
+        originalFileName: undefined,
+        sourceUrl: (await ctx.db.get(intent.submissionId))!.sourceUrl,
+        mcpActorUserId: users.contributorId,
+        mcpIdempotencyKeyHash: "a".repeat(64),
+        requestedBy: { issuer: "vrdex:api", subject: String(users.contributorId), tokenIdentifier: `api:${users.contributorId}` },
+      });
+      const reservation = (await ctx.db.query("contributionUploadReservations")
+        .withIndex("by_intentId", (q) => q.eq("intentId", intent.intentId)).unique())!;
+      await ctx.db.patch(reservation._id, { state: "committed" });
+      assert.equal(row.issuer, undefined);
       await ctx.db.patch(intent.submissionId, { status: "rejected", blobDeleteAfter: future });
     });
+    await t.run((ctx) => ctx.db.patch(intent.intentId, { issuer: "mcp_local" }));
+    await assert.rejects(t.mutation(internal.e2eMedia.makeRejectedFixtureDue, proof), /Exact rejected URL fixture/);
+    await t.run((ctx) => ctx.db.patch(intent.intentId, { issuer: undefined }));
     const due = await t.mutation(internal.e2eMedia.makeRejectedFixtureDue, proof);
     assert.ok(due.storageKeys.length > 0);
     assert.ok((await t.run((ctx) => ctx.db.get(intent.submissionId)))!.blobDeleteAfter! < Date.now());

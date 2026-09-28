@@ -131,6 +131,7 @@ export const makeRejectedFixtureDue = internalMutation({
     const data = await cleanupRows(ctx, args);
     const submission = data.submissions.find((row) => row._id === args.submissionId);
     const intent = data.intents.find((row) => row._id === submission?.uploadIntentId);
+    const reservation = data.reservations.find((row) => row.intentId === intent?._id);
     if (
       data.submissions.length !== 1 ||
       data.intents.length !== 1 ||
@@ -139,7 +140,18 @@ export const makeRejectedFixtureDue = internalMutation({
       submission.blobCleanupToken !== undefined ||
       submission.blobDeleteAfter === undefined ||
       submission.blobDeleteAfter <= Date.now() ||
-      intent?.issuer !== "mcp_local" ||
+      !intent ||
+      intent.issuer !== undefined ||
+      intent.state !== "uploaded" || // Rejected URL proposals retain their uploaded intent.
+      intent.originalFileName !== undefined ||
+      intent.targetProfileId !== args.profileId ||
+      intent.targetSubmissionId !== submission._id ||
+      intent.mcpActorUserId !== submission.submitterUserId ||
+      intent.mcpIdempotencyKeyHash === undefined ||
+      intent.sourceUrl === undefined ||
+      intent.sourceUrl !== submission.sourceUrl ||
+      intent.requestedBy.issuer !== "vrdex:api" ||
+      reservation?.state !== "committed" ||
       !intent.quarantineStorageKey ||
       data.storageKeys.length === 0
     ) throw new Error("Exact rejected URL fixture required.");
