@@ -1,5 +1,34 @@
 import { expect, test } from "@playwright/test";
 
+for (const mode of ["draft", "correction"] as const) {
+  test(`${mode} retains its editing revision across query refresh @flow`, async ({ page }) => {
+    await page.goto(`/playwright/event-intake?revision=${mode}`);
+    if (mode === "correction") await page.getByRole("button", { name: "Correct event", exact: true }).click();
+    await page.getByLabel("Event title", { exact: true }).fill("My local edit");
+    await page.getByRole("button", { name: "Update elsewhere" }).click();
+    await expect(page.getByText("Query refreshed", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("Venue", { exact: true })).toHaveValue("Original venue");
+    await page.getByRole("button", { name: mode === "draft" ? "Save draft" : "Save changes", exact: true }).click();
+    await expect(page.getByRole("status").filter({ hasText: "This draft changed elsewhere." })).toBeVisible();
+    await expect(page.getByLabel("Event title", { exact: true })).toHaveValue("My local edit");
+    const submission = await page.evaluate(() => JSON.parse(sessionStorage.getItem("event-intake-revision-submission")!));
+    expect(submission[mode === "draft" ? "expectedVersion" : "expectedUpdatedAt"]).toBe(1);
+  });
+}
+
+test("draft advances its revision only after a successful local save @flow", async ({ page }) => {
+  await page.goto("/playwright/event-intake?revision=draft");
+  await page.getByLabel("Event title", { exact: true }).fill("First edit");
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  await expect(page.getByRole("status")).toHaveText("Draft saved");
+  await page.getByLabel("Event title", { exact: true }).fill("Second edit");
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  await expect(page.getByRole("status")).toHaveText("Draft saved");
+  const submission = await page.evaluate(() => JSON.parse(sessionStorage.getItem("event-intake-revision-submission")!));
+  expect(submission.expectedVersion).toBe(2);
+  expect(submission.patch.title).toBe("Second edit");
+});
+
 test("owner timezone keyboard search stores a region, not EST @flow", async ({ page }) => {
   await page.goto("/playwright/event-editor");
   await page.getByLabel("Start", { exact: true }).fill("2026-07-15T20:00");

@@ -30,8 +30,10 @@ export function IntakeTime({ label, value, date, timezone, onChange }: { label: 
   </div>;
 }
 
-export function EventIntakeFieldsForm({ initialFields, correction = false, onSave, onPublish }: { initialFields: EventIntakeFields; correction?: boolean; onSave?: (fields: EventIntakeFields) => Promise<void>; onPublish: (fields: EventIntakeFields) => Promise<void> }) {
+export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, correction = false, onSave, onPublish }: { initialFields: EventIntakeFields; initialRevision?: number; correction?: boolean; onSave?: (fields: EventIntakeFields, revision: number) => Promise<void>; onPublish: (fields: EventIntakeFields, revision: number) => Promise<void> }) {
   const [fields, setFields] = useState(initialFields);
+  // Keep the revision paired with the fields loaded when editing began.
+  const [revision] = useState(initialRevision);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [duplicates, setDuplicates] = useState<Array<{ eventId: string; title: string; eventPath: string }>>([]);
@@ -45,8 +47,8 @@ export function EventIntakeFieldsForm({ initialFields, correction = false, onSav
         for (const local of [fields.start, fields.end, fields.doors, ...(fields.lineup ?? []).flatMap(row => [row.start, row.end])]) {
           if (local) { if (!fields.timezone) throw new Error("Choose a time zone."); selectEventLocalTime(fields.eventDate, local, fields.timezone); }
         }
-        await onPublish(fields);
-      } else { await onSave?.(fields); setMessage("Draft saved"); }
+        await onPublish(fields, revision);
+      } else { await onSave?.(fields, revision); setMessage("Draft saved"); }
     } catch (error) {
       if (error instanceof ConvexError && typeof error.data === "object" && error.data && "code" in error.data) {
         if (error.data.code === "NEAR_DUPLICATE" && "choices" in error.data) { setDuplicates(error.data.choices as typeof duplicates); setMessage("Check similar events before publishing."); }
@@ -71,7 +73,7 @@ export function EventIntakeFieldsForm({ initialFields, correction = false, onSav
     <Field>Description<Textarea value={fields.summary ?? ""} maxLength={240} onChange={event => set("summary", event.target.value)} /></Field>
     <Field>Source URL<Input type="url" value={fields.sourceUrl ?? ""} onChange={event => set("sourceUrl", event.target.value)} /></Field>
     {!correction ? <details><summary className="cursor-pointer font-medium">Source text</summary><Textarea aria-label="Source text" className="mt-3" value={fields.sourceText ?? ""} maxLength={12000} onChange={event => set("sourceText", event.target.value)} /></details> : null}
-    <section className="grid gap-4"><h2 className="text-xl font-semibold">Lineup</h2>
+    <section className="grid gap-4"><h2 className="text-xl font-semibold">Slots</h2>
       {(fields.lineup ?? []).map((row, index) => <fieldset key={row.clientKey} className="grid gap-3 rounded-control border border-border p-4"><legend className="px-1">Slot {index + 1}</legend>
         <Field>Performer<Input value={row.performerLabel ?? ""} onChange={event => set("lineup", fields.lineup!.map(item => item.clientKey === row.clientKey ? { ...item, performerLabel: event.target.value } : item))} /></Field>
         <Field>Person profile<Input value={row.personSlug ?? ""} onChange={event => set("lineup", fields.lineup!.map(item => item.clientKey === row.clientKey ? { ...item, personSlug: event.target.value } : item))} /></Field>
@@ -94,18 +96,18 @@ function ConnectedIntake({ draftId, initialCommunitySlug }: { draftId?: string; 
   const publish = useAction(api.eventIntake.publishEventIntake);
   const saved = useRef<{ draftId: Id<"eventIntakeDrafts">; version: number; fields: string } | null>(null);
   const request = useRef<{ key: string; version: number } | null>(null);
-  async function saveFields(fields: EventIntakeFields) {
+  async function saveFields(fields: EventIntakeFields, initialVersion: number) {
     const serialized = JSON.stringify(fields);
     if (saved.current?.fields === serialized) return saved.current;
-    const current = saved.current ?? (loaded ? { draftId: loaded._id, version: loaded.version } : null);
+    const current = saved.current ?? (loaded ? { draftId: loaded._id, version: initialVersion } : null);
     const result = await save({ ...(current ? { draftId: current.draftId, expectedVersion: current.version } : {}), patch: fields });
     saved.current = { ...result, fields: serialized };
     window.history.replaceState(null, "", `/events/new?draft=${result.draftId}`);
     return saved.current;
   }
   if (draftId && loaded === undefined) return <p aria-busy="true">Loading draft…</p>;
-  return <EventIntakeFieldsForm initialFields={loaded?.fields ?? { communitySlug: initialCommunitySlug, timeTba: false }} onSave={async fields => { await saveFields(fields); }} onPublish={async fields => {
-    const current = await saveFields(fields);
+  return <EventIntakeFieldsForm initialFields={loaded?.fields ?? { communitySlug: initialCommunitySlug, timeTba: false }} initialRevision={loaded?.version} onSave={async (fields, revision) => { await saveFields(fields, revision); }} onPublish={async (fields, revision) => {
+    const current = await saveFields(fields, revision);
     if (request.current?.version !== current.version) request.current = { version: current.version, key: crypto.randomUUID() };
     const result = await publish({ draftId: current.draftId, expectedVersion: current.version, idempotencyKey: request.current.key });
     router.replace(result.eventPath);

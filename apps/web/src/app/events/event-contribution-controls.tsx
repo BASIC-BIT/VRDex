@@ -13,11 +13,11 @@ function CorrectionForm({ eventId, onDone }: { eventId: Id<"events">; onDone: ()
   const event = useQuery(api.eventCorrections.getOwnContributedEvent, { eventId });
   const update = useMutation(api.eventCorrections.updateOwnContributedEvent);
   if (!event) return <p aria-busy="true">Loading…</p>;
-  return <EventIntakeFieldsForm correction initialFields={event.fields} onPublish={async fields => {
+  return <EventIntakeFieldsForm correction initialFields={event.fields} initialRevision={event.updatedAt} onPublish={async (fields, revision) => {
     const patch = { ...fields };
     delete patch.communitySlug; delete patch.sourceText; delete patch.posterSourceId;
     delete patch.tentative; delete patch.questions; delete patch.duplicateAcknowledgements;
-    await update({ eventId, expectedUpdatedAt: event.updatedAt, patch, duplicateAcknowledgements: fields.duplicateAcknowledgements?.map(id => id as Id<"events">) }); onDone();
+    await update({ eventId, expectedUpdatedAt: revision, patch, duplicateAcknowledgements: fields.duplicateAcknowledgements?.map(id => id as Id<"events">) }); onDone();
   }} />;
 }
 
