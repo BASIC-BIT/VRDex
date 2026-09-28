@@ -24,7 +24,9 @@ The invitation and instance-creation composers check fixed and event-relative
 future times against a fresh server clock; the post composer uses the same clock
 for its fixed-time check. Each clock query uses a unique nonce rather than a
 cached result. The enqueue mutation still enforces the authoritative execution
-window, including time elapsed in transit.
+window, including time elapsed in transit. Event-relative enqueue also requires
+the exact future due time shown at confirmation and rejects if the event moves
+before the mutation. Identical request-ID retries return the original IDs first.
 
 The post composer retains the saved draft revision when retrying unchanged
 content and timing after an ambiguous queue response. Queue replay validates the

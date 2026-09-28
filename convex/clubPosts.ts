@@ -216,6 +216,7 @@ export const queue = mutation({
     draftId: v.id("clubPostDrafts"),
     expectedRevision: v.number(),
     schedule: operationSchedule,
+    reviewedDueAt: v.optional(v.number()),
   },
   returns: v.id("clubOperations"),
   handler: async (ctx, args) => {
@@ -237,6 +238,7 @@ export const queue = mutation({
           : { kind: "publish_post", ...content },
       ],
       schedule: args.schedule,
+      reviewedDueAt: args.reviewedDueAt,
     });
     await ctx.db.patch(draft._id, {
       queuedRevision: draft.revision,

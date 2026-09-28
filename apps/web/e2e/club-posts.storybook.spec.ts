@@ -15,6 +15,32 @@ test("fixed post time uses server clock when device time is skewed @storybook-vi
   await page.getByRole("button", { name: "Schedule post" }).click();
   await expect(page.getByRole("alert")).toHaveText("Choose a future date and time.");
 });
+test("event-relative post must still be future at review and confirmation @storybook-visual", async ({ page }) => {
+  await page.clock.setFixedTime(new Date("2026-09-18T21:31:00Z"));
+  await page.goto("/iframe.html?id=clubs-posts--live-clock&viewMode=story");
+  await page.getByRole("combobox", { name: "Publish", exact: true }).selectOption("event");
+  await page.getByRole("combobox", { name: "Event", exact: true }).selectOption("fixture-event");
+  await page.getByLabel("Minutes after event start").fill("-30");
+  await page.getByRole("button", { name: "Schedule post" }).click();
+  await expect(page.getByRole("alert")).toHaveText("Choose a future date and time.");
+  await expect(page.getByRole("dialog", { name: "Confirm post" })).toHaveCount(0);
+
+  await page.clock.setFixedTime(new Date("2026-09-18T21:29:00Z"));
+  await page.getByRole("button", { name: "Schedule post" }).click();
+  await expect(page.getByRole("dialog", { name: "Confirm post" })).toBeVisible();
+  await page.clock.setFixedTime(new Date("2026-09-18T21:31:00Z"));
+  await page.getByRole("button", { name: "Confirm", exact: true }).click();
+  await expect(page.getByRole("alert")).toHaveText("Choose a future date and time.");
+  await expect(page.getByRole("status")).toHaveCount(0);
+
+  await page.clock.setFixedTime(new Date("2026-09-18T21:20:00Z"));
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await page.getByRole("button", { name: "Schedule post" }).click();
+  await page.getByRole("button", { name: "Move event start" }).click();
+  await page.getByRole("button", { name: "Confirm", exact: true }).click();
+  await expect(page.getByRole("alert")).toHaveText("Refresh to continue.");
+  await expect(page.getByRole("status")).toHaveCount(0);
+});
 test("posts workspace saves drafts and queues confirmed writes @storybook-visual", async ({
   page,
   isMobile,

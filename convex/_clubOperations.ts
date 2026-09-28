@@ -126,7 +126,7 @@ export function validatePayload(op: OperationPayload, groupId: string) {
   if ("roleIds" in op && op.roleIds) {
     if (
       op.roleIds.length > 100 ||
-      new Set(op.roleIds).size !== op.roleIds.length
+      new Set(op.roleIds.map((roleId) => roleId.toLowerCase())).size !== op.roleIds.length
     )
       throw new Error("Invalid role selection.");
     op.roleIds.forEach((x) => id(x, "grol"));

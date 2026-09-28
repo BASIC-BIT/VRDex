@@ -211,6 +211,7 @@ export const enqueue = mutation({
       requestId: args.requestId,
       payloads: payloads(args.destination, recipients),
       schedule: args.schedule,
+      reviewedDueAt: args.reviewedDueAt,
     });
     const prior = await ctx.db
       .query("clubInvitationBatches")

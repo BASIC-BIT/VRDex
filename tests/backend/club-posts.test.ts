@@ -264,3 +264,31 @@ it("immediate post queue replays its saved revision and rejects changed timing",
     /request/i,
   );
 });
+
+it("event-relative post queue keeps the reviewed time across event edits", async () => {
+  const { t, publisher, communityProfileId } = await setup();
+  const reviewedDueAt = Date.now() + 3600_000;
+  const eventId = await t.run((ctx) => ctx.db.insert("events", {
+    slug: "post-event", title: "Post event", sortTitle: "post event",
+    sourceType: "manual", sourceLabel: "test", communityProfileId,
+    startAt: reviewedDueAt + 30 * 60_000, publicationState: "published",
+    eventStatus: "scheduled", updatedAt: Date.now(),
+  }));
+  const draft = await publisher.mutation(ref("save"), {
+    communityProfileId, clientId: "relative_post", content,
+  });
+  const args = {
+    communityProfileId, draftId: draft.id, expectedRevision: draft.revision,
+    schedule: { kind: "event_relative" as const, eventId, offsetMs: -30 * 60_000 },
+    reviewedDueAt,
+  };
+  await t.run((ctx) => ctx.db.patch(eventId, { startAt: reviewedDueAt + 90 * 60_000 }));
+  await assert.rejects(publisher.mutation(ref("queue"), args), /Refresh to continue/);
+  await assert.rejects(publisher.mutation(ref("queue"), { ...args, reviewedDueAt: undefined }), /Refresh to continue/);
+  assert.equal((await t.run((ctx) => ctx.db.get(draft.id)))?.operationId, undefined);
+  const updated = { ...args, reviewedDueAt: reviewedDueAt + 60 * 60_000 };
+  const id = await publisher.mutation(ref("queue"), updated);
+  assert.equal((await t.run((ctx) => ctx.db.get(id)))?.dueAt, updated.reviewedDueAt);
+  await t.run((ctx) => ctx.db.patch(eventId, { startAt: reviewedDueAt + 150 * 60_000 }));
+  assert.equal(await publisher.mutation(ref("queue"), updated), id);
+});

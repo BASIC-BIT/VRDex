@@ -202,6 +202,7 @@ export const enqueue = mutation({
     requestId: v.string(),
     payloads: v.array(clubOperationPayload),
     schedule: operationSchedule,
+    reviewedDueAt: v.optional(v.number()),
   },
   returns: v.array(v.id("clubOperations")),
   handler: enqueueClubOperations,
@@ -303,6 +304,7 @@ export async function enqueueClubOperations(
     requestId: string;
     payloads: OperationPayload[];
     schedule: Doc<"clubOperations">["schedule"];
+    reviewedDueAt?: number;
   },
 ) {
   if (
@@ -385,6 +387,9 @@ export async function enqueueClubOperations(
     args.schedule,
     now,
   );
+  if (args.schedule.kind === "event_relative" &&
+      (args.reviewedDueAt !== dueAt || dueAt <= now))
+    throw new Error("Refresh to continue.");
   for (const dependency of dependencies.values())
     if (dueAt < (await effectiveDueAt(ctx, dependency)))
       throw new Error("Invitations cannot run before instance creation.");

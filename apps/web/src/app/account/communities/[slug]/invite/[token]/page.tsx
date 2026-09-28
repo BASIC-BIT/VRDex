@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { ClubInvitation } from "../../club-invitation";
 import {
   BrandLink,
@@ -6,6 +7,15 @@ import {
   PageShell,
 } from "@/components/ui/page-shell";
 import { ClubErrorBoundary } from "../../club-workspace";
+
+export const metadata: Metadata = {
+  title: "Staff invitation | VRDex",
+  referrer: "no-referrer",
+  robots: {
+    follow: false,
+    index: false,
+  },
+};
 
 export default async function InvitationPage({
   params,

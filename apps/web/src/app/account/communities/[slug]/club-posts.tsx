@@ -43,13 +43,13 @@ export function PostEditor({
   events?: EventOption[];
   busy?: boolean;
   onSave: (content: Content) => Promise<void>;
-  onQueue: (content: Content, schedule: Schedule) => Promise<void>;
+  onQueue: (content: Content, schedule: Schedule, reviewedDueAt?: number) => Promise<void>;
   onClose: () => void;
   getServerNow: () => Promise<number>;
 }) {
   const [content, setContent] = useState(initial),
     [preview, setPreview] = useState(false),
-    [confirm, setConfirm] = useState(false),
+    [reviewed, setReviewed] = useState<{ schedule: Schedule; reviewedDueAt?: number } | null>(null),
     [error, setError] = useState<string | null>(null);
   const [timing, setTiming] = useState("now"),
     [date, setDate] = useState(""),
@@ -63,7 +63,7 @@ export function PostEditor({
       setError(e instanceof Error ? e.message : "Unable to save post.");
     }
   };
-  const schedule = async (): Promise<Schedule> => {
+  const schedule = async (): Promise<{ schedule: Schedule; reviewedDueAt?: number }> => {
     if (timing === "event") {
       const event = events.find((e) => e.id === eventId);
       if (
@@ -72,17 +72,23 @@ export function PostEditor({
         !Number.isFinite(Number(offset))
       )
         throw new Error("Choose an event and a valid offset.");
+      const reviewedDueAt = event.startAt + Number(offset) * 60000;
+      if (reviewedDueAt <= (await getServerNow()))
+        throw new Error("Choose a future date and time.");
       return {
-        kind: "event_relative",
-        eventId: event.id,
-        offsetMs: Number(offset) * 60000,
+        schedule: {
+          kind: "event_relative",
+          eventId: event.id,
+          offsetMs: Number(offset) * 60000,
+        },
+        reviewedDueAt,
       };
     }
-    if (timing === "now") return { kind: "immediate" };
+    if (timing === "now") return { schedule: { kind: "immediate" } };
     const dueAt = new Date(date).getTime();
     if (!Number.isFinite(dueAt) || dueAt <= (await getServerNow()))
       throw new Error("Choose a future date and time.");
-    return { kind: "fixed", dueAt };
+    return { schedule: { kind: "fixed", dueAt } };
   };
   return (
     <Card padding="lg">
@@ -198,8 +204,7 @@ export function PostEditor({
             onClick={async () => {
               setError(null);
               try {
-                await schedule();
-                setConfirm(true);
+                setReviewed(await schedule());
               } catch (e) {
                 setError((e as Error).message);
               }
@@ -231,7 +236,7 @@ export function PostEditor({
             </p>
           </article>
         ) : null}
-        {confirm ? (
+        {reviewed ? (
           <div
             role="dialog"
             aria-label="Confirm post"
@@ -253,14 +258,16 @@ export function PostEditor({
                 disabled={busy}
                 onClick={() =>
                   action(async () => {
-                    await onQueue(content, await schedule());
-                    setConfirm(false);
+                    if (JSON.stringify(await schedule()) !== JSON.stringify(reviewed))
+                      throw new Error("Refresh to continue.");
+                    await onQueue(content, reviewed.schedule, reviewed.reviewedDueAt);
+                    setReviewed(null);
                   })
                 }
               >
                 Confirm
               </Button>
-              <Button disabled={busy} onClick={() => setConfirm(false)}>
+              <Button disabled={busy} onClick={() => setReviewed(null)}>
                 Cancel
               </Button>
             </div>
@@ -377,7 +384,7 @@ function PostsContent() {
               setBusy(false);
             }
           }}
-          onQueue={async (c, schedule) => {
+          onQueue={async (c, schedule, reviewedDueAt) => {
             setBusy(true);
             try {
               const previous = editing.queueAttempt;
@@ -397,6 +404,7 @@ function PostsContent() {
                 draftId: draft.id,
                 expectedRevision: draft.revision,
                 schedule,
+                reviewedDueAt,
               });
               setEditing(null);
               setNotice("Post queued.");

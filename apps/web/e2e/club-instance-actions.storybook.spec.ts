@@ -91,6 +91,7 @@ test("instance options and event-relative schedule preserve reviewed values @sto
     eventId: "fixture-event",
     offsetMs: -2700000,
   });
+  expect(submitted.reviewedDueAt).toBe(now.getTime() + 7 * 86400_000 - 45 * 60_000);
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= innerWidth,
@@ -100,6 +101,22 @@ test("instance options and event-relative schedule preserve reviewed values @sto
     path: `../../.cache/artifacts/instance-actions-${test.info().project.name}.png`,
     fullPage: true,
   });
+});
+test("instance review keeps the displayed time when an event moves during submission @storybook-visual", async ({ page }) => {
+  const now = new Date("2026-09-14T20:00:00Z");
+  await page.clock.setFixedTime(now);
+  await page.goto("/iframe.html?id=clubs-instance-actions--create-moving-event&viewMode=story");
+  await page.getByLabel("VRChat world ID").fill("wrld_11111111-1111-1111-1111-111111111111");
+  await page.getByLabel("Linked event").selectOption("fixture-event");
+  await page.getByRole("combobox", { name: "Create", exact: true }).selectOption("event_relative");
+  const reviewedDueAt = now.getTime() + 7 * 86400_000 - 30 * 60_000;
+  await page.getByRole("button", { name: "Schedule instance" }).click();
+  await page.getByRole("button", { name: "Move event" }).click();
+  await expect(page.getByTestId("instance-scheduled-time").locator("time"))
+    .toHaveAttribute("datetime", new Date(reviewedDueAt + 3600000).toISOString());
+  await expect(page.getByRole("status")).toHaveText("Creation scheduled.");
+  const submitted = JSON.parse((await page.getByTestId("submitted-payload").textContent()) ?? "{}");
+  expect(submitted.reviewedDueAt).toBe(reviewedDueAt);
 });
 test("invalid world and missing event do not submit @storybook-visual", async ({
   page,
@@ -217,6 +234,7 @@ test("known event worlds prefill, switch and clear without replacing a staff ove
     eventId: "fixture-event",
     offsetMs: -2700000,
   });
+  expect(submitted.reviewedDueAt).toBe(Date.parse("2026-09-21T19:15:00.000Z"));
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= innerWidth,

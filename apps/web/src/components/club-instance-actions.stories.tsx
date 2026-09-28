@@ -4,16 +4,20 @@ import { InstanceCreateForm } from "@/app/account/communities/[slug]/club-instan
 import { Card, SectionTitle } from "@/components/ui/card";
 import { PageContainer, PageShell } from "@/components/ui/page-shell";
 import type { Id } from "../../../../convex/_generated/dataModel";
-function FormFixture() {
+function FormFixture({ movable = false }: { movable?: boolean }) {
   const [payload, setPayload] = useState("");
-  const [eventStartAt] = useState(() => Date.now() + 7 * 86400_000);
+  const [eventStartAt, setEventStartAt] = useState(() => Date.now() + 7 * 86400_000);
   return (
     <PageShell>
       <PageContainer max="3xl">
         <Card padding="lg" className="grid gap-5">
           <SectionTitle>New instance</SectionTitle>
+          {movable ? <button type="button" onClick={() => setEventStartAt((time) => time + 3600000)}>Move event</button> : null}
           <InstanceCreateForm
-            getServerNow={async () => Date.UTC(2026, 8, 14, 20)}
+            getServerNow={async () => {
+              if (movable) await new Promise((resolve) => setTimeout(resolve, 300));
+              return Date.UTC(2026, 8, 14, 20);
+            }}
             events={[
               {
                 id: "fixture-event" as Id<"events">,
@@ -56,8 +60,8 @@ function FormFixture() {
             ]}
             rolesReady
             onLoadRoles={() => {}}
-            onSubmit={async (value, schedule) => {
-              setPayload(JSON.stringify({ value, schedule }));
+            onSubmit={async (value, schedule, reviewedDueAt) => {
+              setPayload(JSON.stringify({ value, schedule, reviewedDueAt }));
             }}
           />
           <output data-testid="submitted-payload" hidden>
@@ -75,3 +79,4 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 export const Create: Story = { render: () => <FormFixture /> };
+export const CreateMovingEvent: Story = { render: () => <FormFixture movable /> };

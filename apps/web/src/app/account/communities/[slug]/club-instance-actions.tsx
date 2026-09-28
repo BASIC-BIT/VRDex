@@ -42,6 +42,7 @@ export function InstanceCreateForm({
   onSubmit: (
     payload: CreatePayload,
     schedule: Submission["schedule"],
+    reviewedDueAt?: number,
   ) => Promise<unknown>;
   getServerNow: () => Promise<number>;
 }) {
@@ -145,7 +146,8 @@ export function InstanceCreateForm({
                   },
         };
       setPending(true);
-      await onSubmit(retry.current.payload, retry.current.schedule);
+      await onSubmit(retry.current.payload, retry.current.schedule,
+        when === "event_relative" ? scheduledAt! : undefined);
       retry.current = null;
       setMessage(when === "now" ? "Creation queued." : "Creation scheduled.");
     } catch (cause) {
@@ -484,7 +486,7 @@ function InstanceOperations() {
                 freshnessNonce: crypto.randomUUID(),
               })
             }
-            onSubmit={async (payload, schedule) => {
+            onSubmit={async (payload, schedule, reviewedDueAt) => {
               const key = JSON.stringify([payload, schedule]);
               if (retry.current?.key !== key)
                 retry.current = { key, requestId: crypto.randomUUID() };
@@ -493,6 +495,7 @@ function InstanceOperations() {
                 requestId: retry.current.requestId,
                 payloads: [payload],
                 schedule,
+                reviewedDueAt,
               });
               retry.current = null;
             }}
