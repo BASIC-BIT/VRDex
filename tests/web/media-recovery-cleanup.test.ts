@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { retryMediaFixtureDelete } from "../../apps/web/e2e/media-recovery-cleanup";
+import { mediaCleanupFailure, retryMediaFixtureDelete } from "../../apps/web/e2e/media-recovery-cleanup";
+
+test("recovery reports only an allowlisted cleanup stage", () => {
+  assert.equal(mediaCleanupFailure(409, { stage: "finish_cleanup" }),
+    "Media cleanup must succeed before identity deletion (HTTP 409, stage finish_cleanup)");
+  assert.equal(mediaCleanupFailure(409, { stage: "\nsecret" }),
+    "Media cleanup must succeed before identity deletion (HTTP 409, stage unknown)");
+});
 
 test("recovery waits for a live signed transfer before retrying DELETE", async () => {
   let time = 1_000;

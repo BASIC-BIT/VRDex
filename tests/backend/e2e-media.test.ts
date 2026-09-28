@@ -283,6 +283,113 @@ describe("bounded staging media fixture", () => {
     );
     assert.ok(await t.run((ctx) => ctx.db.get(receipts.unrelatedReceipt)));
   });
+  it("removes exact fixture review records and keeps other submissions' receipts", async () => {
+    const { t, args, users, intent } = await seed();
+    const other = await t.mutation(api.e2e.submitProfile, {
+      secret, runId: "media-other-review", profileType: "person", displayName: "Other media test",
+    });
+    const records = await t.run(async (ctx) => {
+      const submission = (await ctx.db.get(intent.submissionId))!;
+      const { _id, _creationTime, ...fields } = submission;
+      const otherSubmissionId = await ctx.db.insert("profileMediaSubmissions", {
+        ...fields, profileId: other.profileId, uploadIntentId: undefined,
+      });
+      const receipt = {
+        actorUserId: users.reviewerId, idempotencyKey: "review-fixture", inputHash: "hash",
+        submissionId: intent.submissionId,
+        receipt: { operationId: "review-fixture", operationState: "committed" as const },
+        createdAt: Date.now(),
+      };
+      const reviewReceipt = await ctx.db.insert("mediaReviewReceipts", receipt);
+      const unrelatedReceipt = await ctx.db.insert("mediaReviewReceipts", {
+        ...receipt, idempotencyKey: "other-review", submissionId: otherSubmissionId,
+      });
+      const rebase = await ctx.db.insert("mediaReviewRebases", {
+        submissionId: intent.submissionId, actorUserId: users.reviewerId,
+        priorTargetUpdatedAt: 1, currentTargetUpdatedAt: 2,
+        priorTargetSnapshot: "prior", currentTargetSnapshot: "current",
+        currentPlacementSnapshot: "placement", priorReviewVersion: "v1",
+        reviewRevision: 1, createdAt: Date.now(),
+      });
+      const evidence = await ctx.db.insert("mediaPublicationEvidence", {
+        submissionId: intent.submissionId, actorUserId: users.reviewerId,
+        candidateVersion: "v1", identityConfirmed: true, attributionConfirmed: true,
+        publicationPermitted: true, noKnownRestrictions: true, createdAt: Date.now(),
+      });
+      const restriction = await ctx.db.insert("mediaPublicationRestrictions", {
+        profileId: args.profileId, submissionId: intent.submissionId,
+        actorUserId: users.reviewerId, kind: "rejection", createdAt: Date.now(),
+      });
+      const unrelatedRestriction = await ctx.db.insert("mediaPublicationRestrictions", {
+        profileId: other.profileId, submissionId: otherSubmissionId,
+        actorUserId: users.reviewerId, kind: "rejection", createdAt: Date.now(),
+      });
+      return { reviewReceipt, unrelatedReceipt, rebase, evidence, restriction, unrelatedRestriction };
+    });
+    const prepared = await t.mutation(internal.e2eMedia.prepareCleanup, args);
+    await t.mutation(internal.e2eMedia.finishCleanup, {
+      ...args, deletedStorageKeys: prepared.storageKeys,
+    });
+    for (const id of [records.reviewReceipt, records.rebase, records.evidence, records.restriction])
+      assert.equal(await t.run((ctx) => ctx.db.get(id)), null);
+    assert.ok(await t.run((ctx) => ctx.db.get(records.unrelatedReceipt)));
+    assert.ok(await t.run((ctx) => ctx.db.get(records.unrelatedRestriction)));
+  });
+  it("refuses review records written by an actor outside the fixture", async () => {
+    const { t, args, intent } = await seed();
+    const rebaseId = await t.run(async (ctx) => {
+      const actorUserId = await ctx.db.insert("users", {
+        clerkUserId: newClerkUserId(), email: "ordinary@example.test",
+      });
+      return ctx.db.insert("mediaReviewRebases", {
+        submissionId: intent.submissionId, actorUserId,
+        priorTargetUpdatedAt: 1, currentTargetUpdatedAt: 2,
+        priorTargetSnapshot: "prior", currentTargetSnapshot: "current",
+        currentPlacementSnapshot: "placement", priorReviewVersion: "v1",
+        reviewRevision: 1, createdAt: Date.now(),
+      });
+    });
+    await assert.rejects(t.mutation(internal.e2eMedia.prepareCleanup, args), /Unscoped media fixture review row/);
+    assert.ok(await t.run((ctx) => ctx.db.get(rebaseId)));
+    assert.equal((await t.run((ctx) => ctx.db.get(args.profileId)))?.publicationState, "published");
+  });
+  it("refuses a foreign review receipt tied to the fixture submission", async () => {
+    const { t, args, intent } = await seed();
+    const receiptId = await t.run(async (ctx) => {
+      const actorUserId = await ctx.db.insert("users", {
+        clerkUserId: newClerkUserId(), email: "ordinary@example.test",
+      });
+      return ctx.db.insert("mediaReviewReceipts", {
+        actorUserId, idempotencyKey: "foreign-review", inputHash: "hash",
+        submissionId: intent.submissionId,
+        receipt: { operationId: "foreign-review", operationState: "committed" },
+        createdAt: Date.now(),
+      });
+    });
+    await assert.rejects(t.mutation(internal.e2eMedia.prepareCleanup, args), /Unscoped media fixture review row/);
+    assert.ok(await t.run((ctx) => ctx.db.get(receiptId)));
+    assert.equal((await t.run((ctx) => ctx.db.get(args.profileId)))?.publicationState, "published");
+  });
+  it("refuses a publication restriction for a foreign submission on the fixture profile", async () => {
+    const { t, args, users, intent } = await seed();
+    const other = await t.mutation(api.e2e.submitProfile, {
+      secret, runId: "media-other-restriction", profileType: "person", displayName: "Other media test",
+    });
+    const restrictionId = await t.run(async (ctx) => {
+      const submission = (await ctx.db.get(intent.submissionId))!;
+      const { _id, _creationTime, ...fields } = submission;
+      const foreignSubmissionId = await ctx.db.insert("profileMediaSubmissions", {
+        ...fields, profileId: other.profileId, uploadIntentId: undefined,
+      });
+      return ctx.db.insert("mediaPublicationRestrictions", {
+        profileId: args.profileId, submissionId: foreignSubmissionId,
+        actorUserId: users.reviewerId, kind: "rejection", createdAt: Date.now(),
+      });
+    });
+    await assert.rejects(t.mutation(internal.e2eMedia.prepareCleanup, args), /Unscoped media fixture publication restriction/);
+    assert.ok(await t.run((ctx) => ctx.db.get(restrictionId)));
+    assert.equal((await t.run((ctx) => ctx.db.get(args.profileId)))?.publicationState, "published");
+  });
   it("rejects production even when the ordinary helper production override is set", async () => {
     const { t, args } = await seed();
     process.env.CONVEX_CLOUD_URL = "https://production.convex.cloud";

@@ -3,7 +3,7 @@ import { request } from "@playwright/test";
 import { cleanupClerkTestAccountData, deleteClerkTestAccountByEmail } from "./clerk-auth";
 import { mediaFixtureRunId } from "./media-run-id";
 import { assertClerkTestTenant } from "./clerk-tenant";
-import { retryMediaFixtureDelete } from "./media-recovery-cleanup";
+import { mediaCleanupFailure, retryMediaFixtureDelete } from "./media-recovery-cleanup";
 
 // Explicit operator recovery only. This script never creates fixtures or deploys.
 async function main() {
@@ -35,7 +35,8 @@ async function main() {
       // Even an absent profile must pass the server's no-dependent-media check.
       const response = await retryMediaFixtureDelete(() =>
         client.delete("/api/e2e/media", { headers, data: { runId, profileId: expectedProfileId } }));
-      assert.equal(response.status(), 200, "Media cleanup must succeed before identity deletion");
+      if (response.status() !== 200)
+        throw new Error(mediaCleanupFailure(response.status(), await response.json().catch(() => null)));
       const result = await response.json();
       assert.equal(result.deletedMedia, true);
       assert.equal(await lookup(), null, "Fixture must be absent after cleanup");

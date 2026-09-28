@@ -8,6 +8,7 @@ import {
   signInClerkTestAccount,
 } from "./clerk-auth";
 import { mediaFixtureRunId } from "./media-run-id";
+import { mediaCleanupFailure } from "./media-recovery-cleanup";
 
 // Deliberately opt-in: a normal hosted smoke must not create media or claim fixtures.
 const cleanupOnly = process.env.VRDEX_E2E_MEDIA_CLEANUP_PROOF === "true";
@@ -183,7 +184,10 @@ test("contributor A submits and different owner B reviews media @media-lifecycle
           fixture.expiringTransfer = undefined;
         }
       }
-      if (cleanupErrors.length === 0 && !cleanup?.ok()) cleanupErrors.push("media/profile cleanup");
+      if (cleanupErrors.length === 0 && !cleanup?.ok())
+        cleanupErrors.push(cleanup
+          ? mediaCleanupFailure(cleanup.status(), await cleanup.json().catch(() => null))
+          : "media/profile cleanup (no response)");
       if (cleanup?.ok()) {
         const result = await cleanup.json() as { alreadyDeleted?: boolean; deletedObjects?: number; releasedReservations?: number };
         if (!result.alreadyDeleted && fixture.expectedReservations !== undefined &&

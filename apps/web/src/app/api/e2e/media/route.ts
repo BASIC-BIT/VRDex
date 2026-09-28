@@ -35,11 +35,13 @@ const unavailable = () =>
     { error: "Staging media fixture is unavailable." },
     { status: 403 },
   );
-const failed = () =>
+type CleanupStage = "prepare_cleanup" | "delete_objects" | "verify_objects" | "finish_cleanup" | "profile_cleanup";
+const failed = (stage?: CleanupStage) =>
   NextResponse.json(
     {
       error:
         "Staging media fixture operation failed. Preserve the run ID and retry cleanup.",
+      ...(stage ? { stage } : {}),
     },
     { status: 409 },
   );
@@ -85,6 +87,7 @@ async function execute(request: NextRequest, cleanup: boolean) {
     runId: body.runId,
     profileId: body.profileId as Id<"profiles">,
   };
+  let cleanupStage: CleanupStage = "prepare_cleanup";
   try {
     const client = convexAdminHttpClient();
     if (!cleanup && body.op === "lookup") {
@@ -103,14 +106,18 @@ async function execute(request: NextRequest, cleanup: boolean) {
       if ((prepared.safeDeleteAfter ?? 0) > Date.now())
         return NextResponse.json({ error: "Fixture signed transfer may still be valid.",
           retryAt: prepared.safeDeleteAfter }, { status: 409 });
+      cleanupStage = "delete_objects";
       if (prepared.storageKeys.length)
         await deleteProfileAssetObjects(prepared.storageKeys);
+      cleanupStage = "verify_objects";
       for (const key of prepared.storageKeys)
         if (await headProfileAssetObject(key)) throw new Error("Fixture object remains after deletion.");
+      cleanupStage = "finish_cleanup";
       const finished = await client.mutation(internal.e2eMedia.finishCleanup, {
         ...args,
         deletedStorageKeys: prepared.storageKeys,
       });
+      cleanupStage = "profile_cleanup";
       const result = await client.mutation(api.e2e.cleanupProfileBySlug, {
         secret,
         slug: finished.slug,
@@ -174,7 +181,7 @@ async function execute(request: NextRequest, cleanup: boolean) {
       { status: 400 },
     );
   } catch {
-    return failed();
+    return failed(cleanup ? cleanupStage : undefined);
   }
 }
 

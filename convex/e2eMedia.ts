@@ -476,6 +476,31 @@ async function cleanupRows(
       q.eq("email", `${args.runId}-contributor+clerk_test@e2e.vrdex.net`),
     )
     .unique();
+  const reviewer = await ctx.db.query("users")
+    .withIndex("email", (q) => q.eq("email", `${args.runId}-reviewer+clerk_test@e2e.vrdex.net`))
+    .unique();
+  const disposableActors = new Set([contributor?._id, reviewer?._id]);
+  const reviewRows = await Promise.all(data.submissions.map(async (submission) => {
+    const [rebases, reviewReceipts, publicationEvidence] = await Promise.all([
+      ctx.db.query("mediaReviewRebases")
+        .withIndex("by_submissionId", (q) => q.eq("submissionId", submission._id)).take(21),
+      ctx.db.query("mediaReviewReceipts")
+        .withIndex("by_submissionId", (q) => q.eq("submissionId", submission._id)).take(21),
+      ctx.db.query("mediaPublicationEvidence")
+        .withIndex("by_submissionId", (q) => q.eq("submissionId", submission._id)).take(21),
+    ]);
+    if (rebases.length > 20 || reviewReceipts.length > 20 || publicationEvidence.length > 20 ||
+      [...rebases, ...reviewReceipts, ...publicationEvidence]
+        .some((row) => !disposableActors.has(row.actorUserId)))
+      throw new Error("Unscoped media fixture review row.");
+    return { rebases, reviewReceipts, publicationEvidence };
+  }));
+  const submissionIds = new Set(data.submissions.map((row) => row._id));
+  const publicationRestrictions = await ctx.db.query("mediaPublicationRestrictions")
+    .withIndex("by_profileId_kind", (q) => q.eq("profileId", args.profileId)).take(21);
+  if (publicationRestrictions.length > 20 || publicationRestrictions.some((row) =>
+    !submissionIds.has(row.submissionId) || !disposableActors.has(row.actorUserId)))
+    throw new Error("Unscoped media fixture publication restriction.");
   // Refusal receipts have no profile ID, so the exact disposable actor is the
   // boundary. Normal account cleanup does not remove this idempotency namespace.
   const refusalReceipts =
@@ -489,7 +514,13 @@ async function cleanupRows(
           .take(21);
   if (refusalReceipts.length > 20)
     throw new Error("Media fixture receipt bound exceeded.");
-  return { profile, ...data, refusalReceipts, storageKeys: [...keys].sort() };
+  return {
+    profile, ...data, refusalReceipts, publicationRestrictions,
+    reviewRebases: reviewRows.flatMap((row) => row.rebases),
+    reviewReceipts: reviewRows.flatMap((row) => row.reviewReceipts),
+    publicationEvidence: reviewRows.flatMap((row) => row.publicationEvidence),
+    storageKeys: [...keys].sort(),
+  };
 }
 
 export const prepareCleanup = internalMutation({
@@ -582,6 +613,10 @@ export const finishCleanup = internalMutation({
     for (const row of [
       ...data.placements,
       ...data.assets,
+      ...data.reviewRebases,
+      ...data.reviewReceipts,
+      ...data.publicationEvidence,
+      ...data.publicationRestrictions,
       ...data.submissions,
       ...data.intents,
       ...data.refusalReceipts,

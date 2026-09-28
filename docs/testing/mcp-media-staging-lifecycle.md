@@ -190,7 +190,9 @@ the metadata needed for recovery. The helper never returns object keys. It
 accepts `profile-assets/quarantine/local/<uuid>` only for the exact fixture's
 `mcp_local` intent and refuses reservations belonging to other actors or batches.
 
-Cleanup removes the fixture's operational data, not its historical telemetry.
+Cleanup removes the fixture's operational data, including review receipts,
+rebases, publication evidence and restrictions linked to its submissions, not
+its historical telemetry.
 The existing `apiWriteAuditEvents` and `mcpToolEvents` ledgers retain synthetic
 actor and target IDs after the referenced fixture rows are deleted. These are
 historical request records; cleanup does not promise zero residual telemetry.

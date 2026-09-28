@@ -1,5 +1,13 @@
 type CleanupResponse = { status(): number; json(): Promise<unknown> };
 
+export function mediaCleanupFailure(status: number, body: unknown) {
+  const stage = body && typeof body === "object" && "stage" in body &&
+    typeof body.stage === "string" &&
+    /^(prepare_cleanup|delete_objects|verify_objects|finish_cleanup|profile_cleanup)$/.test(body.stage)
+    ? body.stage : "unknown";
+  return `Media cleanup must succeed before identity deletion (HTTP ${status}, stage ${stage})`;
+}
+
 export async function retryMediaFixtureDelete<T extends CleanupResponse>(
   attempt: () => Promise<T>,
   now = Date.now,
