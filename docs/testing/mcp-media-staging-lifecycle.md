@@ -169,8 +169,10 @@ expires intents and refuses active processing/cleanup leases or legal holds.
 It retains the original `mcp_local` expiry until the signed POST is no longer
 usable. A retryable cleanup response carries the deadline; no object or ledger
 row is deleted before that deadline. This can take about ten minutes.
-If direct transfer or completion fails, cleanup releases only the run's pending
-upload reservation after that deadline and only when no storage lease is active.
+If direct transfer fails before completion claims storage work, cleanup releases
+only the run's pending upload reservation after that deadline, provided no
+storage token or lease is active. A failure after completion claims storage work
+retains its processing token and requires operator recovery.
 Storage deletion precedes row deletion so a failed object deletion retains
 the metadata needed for recovery. The helper never returns object keys. It
 accepts `profile-assets/quarantine/local/<uuid>` only for the exact fixture's
