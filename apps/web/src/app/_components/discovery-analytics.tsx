@@ -138,7 +138,7 @@ export function DiscoverySearchForm({
         />
         {isOpen && suggestions.length > 0 ? (
           <div
-            className="absolute z-30 mt-2 grid w-full overflow-hidden rounded-card border border-border bg-surface shadow-panel"
+            className="absolute z-30 mt-2 grid w-full overflow-hidden rounded-card border border-border bg-surface-strong shadow-panel"
             id={listboxId}
             role="listbox"
           >
@@ -146,8 +146,8 @@ export function DiscoverySearchForm({
               <button
                 aria-selected={activeIndex === index}
                 className={cn(
-                  "grid gap-1 px-4 py-3 text-left hover:bg-surface-strong",
-                  activeIndex === index ? "bg-surface-strong" : undefined,
+                  "grid gap-1 px-4 py-3 text-left hover:bg-surface-elevated",
+                  activeIndex === index ? "bg-surface-elevated" : undefined,
                 )}
                 id={`${listboxId}-${index}`}
                 key={`${result.entityType}:${result.slug}`}

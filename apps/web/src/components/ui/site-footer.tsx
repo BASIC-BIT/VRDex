@@ -28,7 +28,7 @@ const FOOTER_LINK_CLASS = "text-muted underline-offset-4 transition hover:text-f
 
 export function SiteFooter() {
   return (
-    <footer className="border-t border-border px-4 py-8 text-sm sm:px-10 lg:px-16">
+    <footer className="mt-auto border-t border-border px-4 py-8 text-sm sm:px-10 lg:px-16">
       <nav
         aria-label="Site"
         className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-x-6 gap-y-3"

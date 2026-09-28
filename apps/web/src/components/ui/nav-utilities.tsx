@@ -5,7 +5,7 @@ import { Search } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 
 import { api } from "@convex-generated-api";
 import {
@@ -48,12 +48,20 @@ function NavSearch() {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const listboxId = useId();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const toggleRef = useRef<HTMLButtonElement>(null);
   const { activeIndex, setActiveIndex, suggestions } = useSearchSuggestions(query, "all");
 
-  function close() {
+  // `restoreFocus` for the closes a keyboard user makes from inside the box.
+  // Unmounting the focused input otherwise drops focus to <body>, and the next
+  // Tab starts from the top of the page.
+  function close({ restoreFocus = false } = {}) {
     setIsOpen(false);
     setQuery("");
     setActiveIndex(-1);
+    if (restoreFocus) {
+      toggleRef.current?.focus();
+    }
   }
 
   function selectSuggestion(result: SearchSuggestion) {
@@ -67,7 +75,10 @@ function NavSearch() {
   }
 
   return (
-    <div className="relative flex items-center">
+    // No `relative` here: the listbox spans `NavUtilities` instead, so it starts
+    // under the input and ends under the account control. Anchored to this box
+    // it overhung the left edge of a phone screen.
+    <div className="flex min-w-0 items-center">
       {isOpen ? (
         <input
           aria-activedescendant={activeIndex >= 0 ? `${listboxId}-${activeIndex}` : undefined}
@@ -76,21 +87,28 @@ function NavSearch() {
           aria-expanded={suggestions.length > 0}
           aria-label="Search VRDex"
           autoFocus
+          ref={inputRef}
           // `starting:` is the mount-time half of the slide; the element opens at
           // zero width and transitions to full on its first frame, with no effect
-          // and no ref to schedule it.
-          className="h-10 w-48 rounded-control border border-border bg-surface px-3 text-sm text-foreground opacity-100 outline-none transition-[width,opacity] duration-200 placeholder:text-muted focus:border-accent focus-visible:ring-2 focus-visible:ring-accent/20 sm:w-64 starting:w-0 starting:opacity-0"
+          // to schedule it.
+          className="h-10 w-48 min-w-0 rounded-control border border-border bg-surface px-3 text-sm text-foreground opacity-100 outline-none transition-[width,opacity] duration-200 placeholder:text-muted focus:border-accent focus-visible:ring-2 focus-visible:ring-accent/20 sm:w-64 starting:w-0 starting:opacity-0"
           placeholder="Search..."
           role="combobox"
           value={query}
-          onBlur={() => window.setTimeout(close, 100)}
+          // Delayed so a tap on an option lands first. Checked against the live
+          // input so a reopen inside the delay is not closed by the old blur.
+          onBlur={() => window.setTimeout(() => {
+            if (document.activeElement !== inputRef.current) {
+              close();
+            }
+          }, 100)}
           onChange={(event) => {
             setQuery(event.currentTarget.value);
             setActiveIndex(-1);
           }}
           onKeyDown={(event) => {
             if (event.key === "Escape") {
-              close();
+              close({ restoreFocus: true });
               return;
             }
             if (event.key === "ArrowDown" && suggestions.length > 0) {
@@ -113,21 +131,21 @@ function NavSearch() {
       <button
         aria-expanded={isOpen}
         aria-label="Search"
-        className={cn(buttonVariants({ variant: "ghost" }), "size-10 p-0")}
+        className={cn(buttonVariants({ variant: "ghost" }), "size-10 shrink-0 p-0")}
+        ref={toggleRef}
         title="Search"
         type="button"
         // Keep focus on the input so clicking the toggle is one close, not a
         // blur-scheduled close racing a click that reopens.
         onMouseDown={(event) => event.preventDefault()}
-        onClick={() => isOpen ? close() : setIsOpen(true)}
+        onClick={() => isOpen ? close({ restoreFocus: true }) : setIsOpen(true)}
       >
         <Search aria-hidden="true" className="size-4" />
       </button>
       {isOpen && suggestions.length > 0 ? (
-        // `z-50` because the nav itself is sticky at `z-40`, and right-aligned
-        // because the icon sits at the right edge of the viewport.
+        // `z-50` because the nav itself is sticky at `z-40`.
         <div
-          className="absolute top-full right-0 z-50 mt-2 grid min-w-72 overflow-hidden rounded-card border border-border bg-surface shadow-panel"
+          className="absolute inset-x-0 top-full z-50 mt-2 grid overflow-hidden rounded-card border border-border bg-surface-strong shadow-panel"
           id={listboxId}
           role="listbox"
         >
@@ -135,8 +153,8 @@ function NavSearch() {
             <button
               aria-selected={activeIndex === index}
               className={cn(
-                "grid gap-1 px-4 py-3 text-left hover:bg-surface-strong",
-                activeIndex === index ? "bg-surface-strong" : undefined,
+                "grid gap-1 px-4 py-3 text-left hover:bg-surface-elevated",
+                activeIndex === index ? "bg-surface-elevated" : undefined,
               )}
               id={`${listboxId}-${index}`}
               key={`${result.entityType}:${result.slug}`}
@@ -194,10 +212,14 @@ function AccountControl({ mode }: { mode: "auto" | "signed-out" }) {
 
 export function NavUtilities({ accountMode = "auto" }: { accountMode?: "auto" | "signed-out" }) {
   return (
-    <div className="ml-auto flex shrink-0 items-center justify-end gap-1">
+    // `min-w-0` so an open search can shrink to fit a phone-width row; the fixed
+    // controls are grouped `shrink-0` so the input is the only thing that gives.
+    <div className="relative ml-auto flex min-w-0 items-center justify-end gap-1">
       <NavSearch />
-      <ThemeToggle className="size-10 p-0" />
-      <AccountControl mode={accountMode} />
+      <div className="flex shrink-0 items-center gap-1">
+        <ThemeToggle className="size-10 p-0" />
+        <AccountControl mode={accountMode} />
+      </div>
     </div>
   );
 }
