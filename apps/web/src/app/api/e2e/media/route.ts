@@ -100,6 +100,9 @@ async function execute(request: NextRequest, cleanup: boolean) {
       if (prepared.profileMissing) {
         return NextResponse.json({ deleted: true, deletedMedia: true, alreadyDeleted: true });
       }
+      if ((prepared.safeDeleteAfter ?? 0) > Date.now())
+        return NextResponse.json({ error: "Fixture signed transfer may still be valid.",
+          retryAt: prepared.safeDeleteAfter }, { status: 409 });
       if (prepared.storageKeys.length)
         await deleteProfileAssetObjects(prepared.storageKeys);
       for (const key of prepared.storageKeys)

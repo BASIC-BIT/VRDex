@@ -102,8 +102,9 @@ without tokens, source bytes, account IDs or profile IDs.
 Automatic retries are disabled so a cleanup failure cannot become a successful
 flaky run that leaves an earlier fixture behind. CI media reports use separate
 paths from the ordinary staging health and auth-session reports.
-Cleanup runs in `afterEach` with a separate two-minute budget, so the test's
-timeout does not consume its recovery time. Browser contexts close before
+Cleanup runs in `afterEach` with a separate 13-minute budget for direct uploads
+(two minutes in cleanup-only mode), so the test's timeout does not consume its
+recovery time. Browser contexts close before
 cleanup to prevent user reprovisioning. Cleanup uses the independent API request
 context; subsequent evidence attachments use `testInfo`, not a live browser.
 
@@ -144,7 +145,8 @@ context; subsequent evidence attachments use `testInfo`, not a live browser.
    retained audit rows. This is bounded fixture evidence, not a global audit.
 6. Revoking A's grant refuses subsequent authenticated status reads while
    anonymous profile reads remain available.
-7. Cleanup deletes and HEAD-checks each exact fixture S3 object, releases both
+7. Cleanup freezes the fixture, waits until the minted S3 POST expires, confirms
+   a replay is refused, then deletes and HEAD-checks each exact fixture object. It releases both
    upload reservations and their actor, target, deployment and published charges,
    then removes media rows before the existing profile/account cleanup removes
    its synthetic identities.
@@ -164,6 +166,9 @@ separate evidence.
 The fixture is restricted to exact `e2e:<runId>` profile attribution and
 run-linked test email addresses. Cleanup first makes the profile ineligible,
 expires intents and refuses active processing/cleanup leases or legal holds.
+It retains the original `mcp_local` expiry until the signed POST is no longer
+usable. A retryable cleanup response carries the deadline; no object or ledger
+row is deleted before that deadline. This can take about ten minutes.
 Storage deletion precedes row deletion so a failed object deletion retains
 the metadata needed for recovery. The helper never returns object keys. It
 accepts `profile-assets/quarantine/local/<uuid>` only for the exact fixture's

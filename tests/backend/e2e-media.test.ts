@@ -364,7 +364,8 @@ describe("bounded staging media fixture", () => {
     const { t, args, intent, users } = await seed();
     const quarantineStorageKey = "profile-assets/quarantine/local/123e4567-e89b-42d3-a456-426614174000";
     const reservationId = await t.run(async (ctx) => {
-      await ctx.db.patch(intent.intentId, { issuer: "mcp_local", quarantineStorageKey });
+      await ctx.db.patch(intent.intentId, { issuer: "mcp_local", quarantineStorageKey,
+        expiresAt: Date.now() - 120_000 });
       const reservation = (await ctx.db.query("contributionUploadReservations").first())!;
       await changeContributionCharge(ctx.db, reservation, 476 - reservation.chargedBytes, 0);
       await ctx.db.patch(reservation._id, {
@@ -382,6 +383,29 @@ describe("bounded staging media fixture", () => {
       (await t.run((ctx) => ctx.db.query("contributionCapacity").collect())).map((row) => [row.scope, row.bytes, row.processing]),
       [[`actor:${users.reviewerId}`, 12, 0]],
     );
+  });
+
+  it("freezes a direct upload but retains its signed expiry until deletion is safe", async () => {
+    const { t, args, intent } = await seed();
+    const expiresAt = Date.now() + 5 * 60_000;
+    await t.run((ctx) => ctx.db.patch(intent.intentId, {
+      issuer: "mcp_local", expiresAt,
+      quarantineStorageKey: "profile-assets/quarantine/local/123e4567-e89b-42d3-a456-426614174000",
+    }));
+    const prepared = await t.mutation(internal.e2eMedia.prepareCleanup, args);
+    assert.equal(prepared.safeDeleteAfter, expiresAt + 60_000);
+    assert.equal((await t.run((ctx) => ctx.db.get(intent.intentId)))?.expiresAt, expiresAt);
+    assert.equal((await t.run((ctx) => ctx.db.get(intent.intentId)))?.state, "expired");
+    await assert.rejects(t.mutation(internal.e2eMedia.finishCleanup, {
+      ...args, deletedStorageKeys: prepared.storageKeys,
+    }), /signed transfer may still be valid/);
+    assert.ok(await t.run((ctx) => ctx.db.get(intent.intentId)));
+    const retried = await t.mutation(internal.e2eMedia.prepareCleanup, args);
+    assert.equal(retried.safeDeleteAfter, prepared.safeDeleteAfter);
+    await t.run((ctx) => ctx.db.patch(intent.intentId, { expiresAt: Date.now() - 61_000 }));
+    const safe = await t.mutation(internal.e2eMedia.prepareCleanup, args);
+    await t.mutation(internal.e2eMedia.finishCleanup, { ...args, deletedStorageKeys: safe.storageKeys });
+    assert.equal(await t.run((ctx) => ctx.db.get(intent.intentId)), null);
   });
 
   it("refuses unscoped local keys, non-fixture reservations, and active upload leases", async () => {

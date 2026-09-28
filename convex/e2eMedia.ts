@@ -11,6 +11,12 @@ import { changeContributionCharge, localUploadModes } from "./_contributionCapac
 
 // Deliberately pinned: this fixture has no production override.
 const STAGING_URL = "https://scrupulous-corgi-247.convex.cloud";
+// The S3 POST policy can outlive the Convex intent by clock skew.
+const SIGNED_TRANSFER_SKEW_MS = 60_000;
+function signedTransferSafeAfter(intents: { issuer?: string; expiresAt: number }[]) {
+  return intents.reduce((safeAfter, intent) => intent.issuer === "mcp_local"
+    ? Math.max(safeAfter, intent.expiresAt + SIGNED_TRANSFER_SKEW_MS) : safeAfter, 0);
+}
 const fixtureArgs = {
   secret: v.string(),
   runId: v.string(),
@@ -424,7 +430,8 @@ export const prepareCleanup = internalMutation({
     for (const intent of data.intents)
       await ctx.db.patch(intent._id, {
         state: "expired",
-        expiresAt: now - 1,
+        // Preserve the mint deadline so retries cannot delete a replayable S3 key.
+        expiresAt: intent.issuer === "mcp_local" ? intent.expiresAt : now - 1,
         updatedAt: now,
       });
     for (const submission of data.submissions)
@@ -434,7 +441,8 @@ export const prepareCleanup = internalMutation({
         expiresAt: now - 1,
         updatedAt: now,
       });
-    return { storageKeys: data.storageKeys, profileMissing: false };
+    return { storageKeys: data.storageKeys, profileMissing: false,
+      safeDeleteAfter: signedTransferSafeAfter(data.intents) };
   },
 });
 
@@ -450,6 +458,8 @@ export const finishCleanup = internalMutation({
         JSON.stringify([...new Set(args.deletedStorageKeys)].sort())
     )
       throw new Error("Fixture cleanup changed or was not prepared.");
+    if (Date.now() < signedTransferSafeAfter(data.intents))
+      throw new Error("Fixture signed transfer may still be valid.");
     for (const row of data.reservations) {
       if (row.chargedBytes || row.processing)
         await changeContributionCharge(ctx.db, row, -row.chargedBytes, row.processing ? -1 : 0);

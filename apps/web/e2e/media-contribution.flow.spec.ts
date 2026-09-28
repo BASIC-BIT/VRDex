@@ -17,7 +17,7 @@ test.describe.configure({ retries: 0 }); // Cleanup failure must never become a 
 
 let cleanupFixture: (() => Promise<void>) | undefined;
 test.afterEach(async () => {
-  test.setTimeout(120_000); // Separate teardown budget even when the test times out.
+  test.setTimeout(cleanupOnly ? 120_000 : 13 * 60_000); // A minted S3 POST must expire before teardown.
   await cleanupFixture?.();
   cleanupFixture = undefined;
 });
@@ -123,7 +123,8 @@ test("contributor A submits and different owner B reviews media @media-lifecycle
   console.info(`Media recovery run: ${runId}`);
   const emails: string[] = [];
   const contexts = await Promise.all([browser.newContext({ baseURL }), browser.newContext({ baseURL })]);
-  const fixture: { profileId?: string; profileSlug?: string; expectedReservations?: number } = {};
+  const fixture: { profileId?: string; profileSlug?: string; expectedReservations?: number;
+    expiringTransfer?: { url: string; fields: Record<string, string>; fileField: "file"; image: Buffer } } = {};
   const stages: string[] = [];
   cleanupFixture = async () => {
     const { profileId, profileSlug } = fixture;
@@ -133,7 +134,28 @@ test("contributor A submits and different owner B reviews media @media-lifecycle
     const closed = await Promise.allSettled(contexts.map((context) => context.close()));
     if (closed.some((result) => result.status === "rejected")) cleanupErrors.push("browser context closure");
     if (profileId) {
-      const cleanup = await request.delete("/api/e2e/media", { headers, data: { runId, profileId } }).catch(() => undefined);
+      let cleanup: Awaited<ReturnType<typeof request.delete>> | undefined;
+      const deadline = Date.now() + 12 * 60_000;
+      while (Date.now() < deadline) {
+        const attempt = await request.delete("/api/e2e/media", { headers, data: { runId, profileId } }).catch(() => undefined);
+        if (attempt?.status() !== 409) { cleanup = attempt; break; }
+        const pending = await attempt.json().catch(() => null) as { retryAt?: number } | null;
+        if (typeof pending?.retryAt !== "number") { cleanup = attempt; break; }
+        const retryAt = pending.retryAt;
+        await new Promise((resolve) => setTimeout(resolve,
+          Math.min(60_000, Math.max(1_000, retryAt - Date.now() + 1_000))));
+        if (fixture.expiringTransfer && Date.now() >= retryAt) {
+          const replay = await request.post(fixture.expiringTransfer.url, { multipart: {
+            ...fixture.expiringTransfer.fields,
+            [fixture.expiringTransfer.fileField]: {
+              name: "fixture.png", mimeType: "image/png", buffer: fixture.expiringTransfer.image,
+            },
+          } }).catch(() => undefined);
+          if (replay?.status() !== 403) cleanupErrors.push("expired minted S3 POST replay refusal");
+          else stages.push("expired minted S3 POST replay refused before exact object deletion");
+          fixture.expiringTransfer = undefined;
+        }
+      }
       if (!cleanup?.ok()) cleanupErrors.push("media/profile cleanup");
       else {
         const result = await cleanup.json() as { alreadyDeleted?: boolean; deletedObjects?: number; releasedReservations?: number };
@@ -290,6 +312,7 @@ test("contributor A submits and different owner B reviews media @media-lifecycle
   });
   expect(completed.operationState).toBe("committed");
   expect(completed.resourceId).toBeTruthy();
+  fixture.expiringTransfer = { ...target.transfer, image };
   expect(await call<UploadReceipt>(request, authA.access_token, "vrdex_media_upload_complete", {
     intentId: target.intentId, idempotencyKey: directKey,
   })).toEqual(completed);
