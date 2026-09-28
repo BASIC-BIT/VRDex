@@ -5170,6 +5170,45 @@ components:
                 - startAt
                 - endAt
               additionalProperties: false
+            instanceHistory:
+              maxItems: 20
+              type: array
+              items:
+                type: object
+                properties:
+                  world:
+                    anyOf:
+                      - type: object
+                        properties:
+                          slug:
+                            type: string
+                            minLength: 1
+                            maxLength: 160
+                          displayName:
+                            type: string
+                            minLength: 1
+                        required:
+                          - slug
+                          - displayName
+                        additionalProperties: false
+                      - type: "null"
+                  openedAt:
+                    type: integer
+                    minimum: 0
+                    maximum: 9007199254740991
+                  lastObservedAt:
+                    type: integer
+                    minimum: 0
+                    maximum: 9007199254740991
+                  closedAt:
+                    type: integer
+                    minimum: 0
+                    maximum: 9007199254740991
+                required:
+                  - world
+                  - openedAt
+                  - lastObservedAt
+                additionalProperties: false
             eventRecaps:
               type: array
               items:
