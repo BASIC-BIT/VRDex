@@ -468,7 +468,7 @@ test("contributor A submits and different owner B reviews media @media-lifecycle
   expect(published.avatarImageUrl).toBeTruthy();
   expect((await request.get(published.avatarImageUrl!)).ok()).toBe(true);
   await pageB.goto("/account/media-review");
-  await pageB.getByLabel("Status", { exact: true }).selectOption("approved");
+  await pageB.getByRole("combobox", { name: "Status", exact: true }).selectOption("approved");
   const approvedCard = pageB.locator("section").filter({ has: pageB.locator(`img[src="${privateFile}"]`) });
   await expect(approvedCard.locator(`img[src="${published.avatarImageUrl}"]`)).toBeVisible();
   await pageB.goto(`/${profile.slug}`);
