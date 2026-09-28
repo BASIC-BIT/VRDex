@@ -940,7 +940,7 @@ function ConnectedEventEditorForm({
         <span>
           <span className="block font-medium text-foreground">Promote a watch surface during the event window</span>
           <span className="mt-1 block text-xs leading-5 text-muted">
-            Keep this off unless stream capacity is ready for public viewers. Links still appear in the normal links section.
+            Keep this off unless stream capacity is ready for public viewers.
           </span>
         </span>
       </label>

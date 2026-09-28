@@ -6,7 +6,7 @@ import type { PublicEventLineupEntry } from "./event-public-page";
 
 type DjTarget = { key: string; label: string; url: string; pcUrl?: string; questUrl?: string };
 
-function djTarget(url: string): DjTarget | undefined {
+export function eventDjTarget(url: string): DjTarget | undefined {
   const stream = parseVrcdnStreamLinks(url);
   if (stream !== null) return stream.directVideoUrl
     ? { key: `vrcdn:${stream.directVideoUrl}`, label: "VRCDN", url: stream.directVideoUrl }
@@ -21,14 +21,14 @@ function djTarget(url: string): DjTarget | undefined {
   } catch { return; }
 }
 
-/** Only discovery-visible links supplied with the public lineup are considered. */
-export function EventDjLinks({ lineup }: { lineup: PublicEventLineupEntry[] }) {
+/** Only public event links and discovery-visible performer links are considered. */
+export function EventDjLinks({ lineup, eventLinks = [], eventTitle = "" }: { lineup: PublicEventLineupEntry[]; eventLinks?: Array<{ url: string }>; eventTitle?: string }) {
   const groups = new Map<string, { name: string; targets: DjTarget[] }>();
   const seen = new Set<string>();
   for (const row of lineup) {
     if (!row.performer) continue;
     for (const link of row.performer.outboundLinks ?? []) {
-      const target = djTarget(link.url);
+      const target = eventDjTarget(link.url);
       if (target === undefined || seen.has(target.key)) continue;
       seen.add(target.key);
       const group = groups.get(row.performer.slug) ?? { name: row.performer.displayName, targets: [] };
@@ -36,6 +36,14 @@ export function EventDjLinks({ lineup }: { lineup: PublicEventLineupEntry[] }) {
       groups.set(row.performer.slug, group);
     }
   }
+  const eventTargets: DjTarget[] = [];
+  for (const link of eventLinks) {
+    const target = eventDjTarget(link.url);
+    if (target === undefined || seen.has(target.key)) continue;
+    seen.add(target.key);
+    eventTargets.push(target);
+  }
+  if (eventTargets.length) groups.set("event:", { name: eventTitle, targets: eventTargets });
   if (groups.size === 0) return null;
   return <details className="rounded-panel border border-border bg-surface-strong p-5 sm:p-6">
     <summary className="cursor-pointer font-semibold focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent">DJ links</summary>

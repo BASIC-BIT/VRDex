@@ -12,7 +12,7 @@ const useFixtureAuth = () => ({ isLoading: false, isAuthenticated: true, fetchAc
 
 // Exercise the connected forms and reactive queries with a local transport.
 // The matching backend conflict checks have their own Convex tests.
-function revisionFixture(sourceMode?: string) {
+function revisionFixture(sourceMode?: string, staff = false) {
   let fields: EventIntakePatch = { communitySlug: "afterglow", title: "Original title", eventDate: "2027-07-15", timeTba: true, venueLabel: "Original venue" };
   if (sourceMode) fields = {};
   let version = 1;
@@ -20,7 +20,7 @@ function revisionFixture(sourceMode?: string) {
   let draft = { artworkSourceId: typeof sessionStorage !== "undefined" ? sessionStorage.getItem("fixture-artwork-source") ?? undefined : undefined, _id: "fixture-draft", version, fields, artworkAssetId: typeof sessionStorage !== "undefined" && sessionStorage.getItem("fixture-artwork") ? "art" : undefined };
   let event = { eventId: "fixture-event", updatedAt: version, fields };
   const listeners = new Set<() => void>();
-  const access = { canCorrect: true, canSuggest: false, canTakeOver: false, canRemove: false };
+  let access = { canCorrect: !staff, canSuggest: false, canTakeOver: staff, canRemove: staff };
   const empty: unknown[] = [];
   const refresh = (patch: EventIntakePatch) => {
     fields = { ...fields, ...patch };
@@ -55,6 +55,12 @@ function revisionFixture(sourceMode?: string) {
     async mutation(mutation: FunctionReference<"mutation">, args: Record<string, unknown>) {
       const name = getFunctionName(mutation);
       sessionStorage.setItem("event-intake-revision-submission", JSON.stringify(args));
+      if (name === "eventCorrections:takeOverContributedEvent") {
+        access = { ...access, canTakeOver: false };
+        listeners.forEach(listener => listener());
+        return true;
+      }
+      if (name === "eventCorrections:removeContributedEvent") return true;
       const expected = name === "eventIntake:saveEventIntakeDraft" ? args.expectedVersion : args.expectedUpdatedAt;
       if (expected !== version) throw new ConvexError({ code: "VERSION_CONFLICT" });
       refresh(args.patch as EventIntakePatch);
@@ -95,8 +101,8 @@ function revisionFixture(sourceMode?: string) {
   return { client, refresh, transport };
 }
 
-export function EventIntakeRevisionPreview({ correction, sourceMode }: { correction: boolean; sourceMode?: string }) {
-  const [fixture] = useState(() => revisionFixture(sourceMode));
+export function EventIntakeRevisionPreview({ correction, sourceMode, staff = false }: { correction: boolean; sourceMode?: string; staff?: boolean }) {
+  const [fixture] = useState(() => revisionFixture(sourceMode, staff));
   useEffect(() => {
     if (!sourceMode) return;
     const original = window.fetch;

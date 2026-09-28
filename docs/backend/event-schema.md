@@ -6,14 +6,14 @@ Current recommendation and implementation note for `#34`, `#35`, `#36`, `#93`, `
 
 ## Event Records
 
-Events are the primary scheduling object. They are not modeled as appearances or profile-page blocks. Sessions are child schedule records under the canonical event.
+Events are the primary scheduling object. They are not modeled as appearances or profile-page blocks. Timed slots are child schedule records under the canonical event.
 
 Current event fields include:
 
 - automatically generated event code for `/<community>/events/<event-code>`
   public routes (stored in the existing `slug` field)
 - title and sort title
-- start time, optional doors-open time, and optional end time
+- timed start, optional doors/end, or an explicit date-only schedule
 - optional canonical event time zone
 - optional linked community profile
 - optional public description (stored as `summary`)
@@ -23,7 +23,8 @@ Current event fields include:
 - typed media links
 - publication state
 - scheduled or cancelled event status
-- submitter identity for provenance, not lasting authority on a community-linked event
+- submitter identity for provenance; contributed events separately track scoped
+  contributor editing until staff takeover
 
 Generated durable short links such as `/l/<code>` are tracked in [Generated Short Links](./generated-short-links.md). An event uses that same generated code in its canonical community-scoped URL. Event codes are not editable.
 
@@ -45,7 +46,7 @@ New date-only publication must call `requireDateOnlyEventsEnabled()` and `normal
 
 `doorsOpenAt` is public and optional. When provided, it must be at or before `startAt`; it does not change the event start, slot offsets, participant associations, or event-world association timestamps.
 
-The editor parses event date/time inputs in the named event timezone. A local time skipped by a daylight-saving transition is invalid; for a repeated local time, the editor consistently chooses the earlier occurrence. Public event cards, pages, and set times render directly in the viewer's local timezone; they do not repeat a canonical-timezone line.
+The editor parses event date/time inputs in the named event timezone. A local time skipped by a daylight-saving transition is invalid; a repeated local time requires an explicit earlier/later choice. An unchanged owner timestamp keeps its exact instant. Public event cards, pages, and set times render directly in the viewer's local timezone; they do not repeat a canonical-timezone line.
 
 Session rows remain canonical event-time schedule rows. The editor template uses relative minute offsets from `startAt`, not `doorsOpenAt`, so schedule storage and Discord timestamp generation remain tied to the canonical event/session timestamps.
 
@@ -53,7 +54,27 @@ Private manager notes reuse the existing `notes` field. They are returned only b
 
 ## Community Authority
 
-Event writes require the current community owner or an active authority carrying `manage_events`. The original submitter is provenance only and has no lasting authority when community ownership changes. An event without a linked community has no browser management path; there is no legacy-data migration or compatibility path because no such deployed data exists.
+Owner event writes require the current community owner or an active authority
+carrying `manage_events`. Contribution publication is separate: any signed-in
+account can publish for a public community through versioned intake after
+preflight, without verified email. User-scoped API/MCP credentials need
+`events:contribute`, not `events:write`.
+
+The contributor can correct title, schedule, venue, source URL, description and
+lineup, or retract their own event before staff takeover. They cannot reattach a
+community, change provenance/trust, or control private notes, streams or media.
+Staff edits and explicit takeover close direct editing. Later corrections enter
+the existing report inbox. Staff can remove immediately; platform removal requires
+a separate active moderator grant. Reports alone never retract a listing.
+Publication and correction update canonical rows and public indexes atomically.
+Removal hides public detail, discovery, community/person/world lists and feeds.
+Exact fingerprints suppress immediate recreation; this is not fuzzy spam detection.
+
+Contribution association `confirmed` state permits established public queries; it
+does not assert owner confirmation. The event retains `sourceType=contributor`.
+Private actor IDs and poster evidence never enter the public event DTO. See
+[source retention](./event-intake-sources.md) and the
+[integrated checkpoint](../testing/event-intake-checkpoint.md).
 
 The browser editor obtains its community choices from
 `events:listManagedCommunities`, which combines active ownership and active
@@ -85,7 +106,7 @@ Starter capabilities:
 
 Owner-only actions include ownership transfer, owner removal, destructive community deletion/suppression, capability policy changes that could remove owner control, and any final sensitive billing authority that can terminate or transfer the community's account-level relationship. Ownership transfer should require an explicit acceptance flow rather than a silent reassignment.
 
-Event schedule writes use `manage_events`; event media-control calls use `manage_event_media` or a scoped event token; read-only operator panels can use `view_event_operations`. Creating a browser event always starts a `draft_private` record attached to an authorized community. Publish, unpublish, cancel, and restore actions recheck the same current authority.
+Event schedule writes use `manage_events`; event media-control calls use `manage_event_media` or a scoped event token; read-only operator panels can use `view_event_operations`. Owner browser creation starts a `draft_private` event attached to an authorized community. Contribution drafting uses a separate private intake row and publication creates the public event in one transaction. Publish, unpublish, cancel, and restore actions recheck the same current authority.
 
 `eventAuditEvents` records creation, updates, slot replacement, publication, cancellation, and restoration with the actor, surface (`browser`, `api`, `mcp`, `operator`, or `system`), changed fields, optional reason, and timestamp. Existing events have no fabricated history before this table's rollout.
 
@@ -278,7 +299,7 @@ Selection order is deterministic:
 2. first `stream` link in saved media-link order
 3. first `vrcdn` link in saved media-link order
 
-The promoted link remains visible in the normal links section so viewers can still scan the complete event link set.
+Event-authored VRCDN/Twitch stream targets join performer links in the collapsed DJ links accordion, deduplicated by normalized target. Other event links remain in ordinary Links. This classification does not change the contextual watch player.
 
 Embeds are limited to explicitly supported providers:
 
@@ -441,6 +462,14 @@ Public world and Home activity surfaces should continue to use only:
 - HTTPS-filtered public URLs
 
 Automatic world inference, live VRChat presence, scraped popularity, and private attendance data remain non-goals for this slice.
+
+## Unified public lineup
+
+Canonical timed slots preserve playback identity. Untimed or unmatched entries use
+ordered `eventLineupEntries`; matched entries retain a public person reference.
+The shared lineup adapter projects both, preserves repeated sets and removes only
+participant-only duplicates. Public rows show a portrait/fallback, name, optional
+role and local set time. They do not repeat outbound links under every performer.
 
 ## Performer streams and roster links
 

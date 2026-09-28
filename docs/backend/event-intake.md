@@ -99,9 +99,11 @@ the reviewed IDs in `duplicateAcknowledgements` and publish that new version.
 Unrelated same-day titles do not prompt. Candidate scans fail closed above their
 100-row bounds.
 
-The action has a disabled `classifyEventIntakeForPublication` hook. It performs
-no model call. A future classifier must bind its result to the checked draft
-version and run within evaluated cost/availability policy. The internal
+The action calls `classifyEventIntakeForPublication`, defaulting to off. Optional
+shadow mode records samples/outages without blocking. Blocking additionally
+requires an approved measured evaluation and explicit threshold. Decisions bind
+to the checked draft version; outages retain deterministic publication and record
+an operator flag. See [source/model controls](./event-intake-sources.md). The internal
 `commitPublishIntake` mutation always rechecks version and deterministic preflight.
 It atomically writes the canonical event, short link, lineup, world association,
 search document, receipt, and actor-bound request binding. Concurrent duplicate
@@ -209,3 +211,9 @@ detection; title/date changes can evade it.
 See [source storage and model controls](./event-intake-sources.md) for private
 upload intents, explicit artwork selection, retention, bounded extraction and
 default-off spam classification. The manual path has no model-key dependency.
+
+## Integrated verification
+
+The [Task 9 checkpoint](../testing/event-intake-checkpoint.md) separates local
+transaction, transport and browser fixtures from hosted/storage/provider proof.
+The connected production journey and exact public copy approval remain open.

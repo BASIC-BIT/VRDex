@@ -12,7 +12,9 @@ flowchart LR
     Account[Account events] --> Add
     Direct[Direct community or draft link] --> Auth[Sign in if needed]
     Add --> Auth
-    Auth --> Intake[Manual intake]
+    Auth --> Intake[Manual, text or private poster intake]
+    Intake --> Review[Accept tentative fields or edit manually]
+    Review --> Intake
     Intake --> Save[Save draft and resume URL]
     Save --> Intake
     Intake --> Publish[Publish]
@@ -39,8 +41,10 @@ the subsequent suggestion goes through `reportEvent`, not a second store.
 `/account/events/reports` checks staff access before querying its paginated inbox.
 
 Manual intake remains available without extraction. Source text is private draft
-input. Task 6 extraction still needs to attach tentative candidates and explicit
-acceptance to this form. Date-only publishing remains subject to the backend
+input. `/api/event-intake` binds extraction and private poster operations to the
+website session. Candidates remain tentative until accepted; artwork requires
+a separate action on the currently previewed source. Replacing a poster never
+selects it as artwork. See [source handling](../backend/event-intake-sources.md). Date-only publishing remains subject to the backend
 `EVENT_DATE_ONLY_ENABLED` gate.
 
 Browser fixtures test form behavior and navigation without a live Convex backend.
@@ -48,3 +52,7 @@ The intake fixture uses session storage. The owner fixture exercises the real
 editor serialization through a local Convex transport. Neither proves a live
 authenticated backend journey. Backend tests independently cover authorization,
 publication, corrections, reports, and takeover.
+
+The [integrated checkpoint](../testing/event-intake-checkpoint.md) records desktop/mobile
+fixture screenshots, exact copy awaiting approval and the connected hosted journey
+that remains unverified. Fixed public fixtures do not prove write persistence.

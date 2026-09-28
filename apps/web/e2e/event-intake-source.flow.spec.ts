@@ -20,6 +20,13 @@ test("text extraction stays tentative, survives save, accepts explicitly, and ke
   await page.goto("/playwright/event-intake?source=text");
   await expect(page.getByLabel("Event title", {exact:true})).toHaveValue("Afterglow Night revised");
   await expect(page.getByText("timezone: Which time zone?", {exact:true})).toBeVisible();
+  await page.getByLabel("Community", { exact: true }).fill("playwright-afterglow-social");
+  await page.getByLabel("Date", { exact: true }).fill("2027-10-15");
+  await page.getByRole("checkbox", { name: "Time TBA", exact: true }).check();
+  await page.getByRole("button", { name: "Publish event", exact: true }).click();
+  await expect(page).toHaveURL(/playwright-afterglow-harbor-sessions$/);
+  expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("fixture-published")!).title)).toBe("Afterglow Night revised");
+  await expect(page.getByRole("heading", { name: "Afterglow Harbor Sessions", exact: true })).toBeVisible();
 });
 
 test("poster remains private until separate artwork choice and manual fallback remains editable @flow", async ({ page }, info) => {
@@ -45,7 +52,7 @@ test("poster remains private until separate artwork choice and manual fallback r
   await expect(page.getByText("Artwork selected",{exact:true})).toBeVisible();
   await page.getByLabel("Community",{exact:true}).fill("playwright-afterglow-social");
   await page.getByLabel("Date",{exact:true}).fill("2027-10-15");
-  await page.getByLabel("Time TBA").check();
+  await page.getByRole("checkbox", { name: "Time TBA", exact: true }).check();
   await page.getByRole("button",{name:"Publish event",exact:true}).click();
   await expect(page).toHaveURL(/playwright-afterglow-harbor-sessions$/);
 });

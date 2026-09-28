@@ -38,6 +38,20 @@ Manual draft and publication routes work without model credentials. See
 [source storage and extraction](../backend/event-intake-sources.md) for opt-in
 model settings and private evidence retention.
 
+## Schedule and correction readback
+
+A date-only public event has `scheduleKind: "date_only"` and `eventDate`, with no
+`startAt`. Do not synthesize midnight or activate watch playback. Calendar export
+uses a date value with Time TBA; timed events retain exact instants. Lineup readback
+preserves ordered timed, untimed and unmatched entries.
+
+Staff takeover closes contributor updates/retraction even with a fresh revision.
+A contributor can submit a correction suggestion through the event report flow;
+it does not edit the canonical event. Removal excludes the event from public
+lookup, search and feeds. Scope/version/actor parity is covered locally; hosted
+OAuth and connected browser proof remain outstanding in the
+[checkpoint](../testing/event-intake-checkpoint.md).
+
 ## Status
 
 Current direction for [#39](https://github.com/BASIC-BIT/VRDex/issues/39).

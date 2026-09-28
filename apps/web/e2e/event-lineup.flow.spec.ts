@@ -7,7 +7,11 @@ test("lineup keeps provider links collapsed without stream requests", async ({ p
   await expect(page.getByRole("heading", { name: "Lineup", exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "SoundCloud", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Copy PC", exact: true }).first()).not.toBeVisible();
+  await expect(page.getByRole("link", { name: "Tickets", exact: false })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Repeated Twitch", exact: false })).toHaveCount(0);
+  await expect(page.locator("summary", { hasText: /event-only$/ })).not.toBeVisible();
   await page.locator("summary").filter({ hasText: "DJ links" }).click();
+  await expect(page.locator("summary", { hasText: /event-only$/ })).toBeVisible();
   await expect(page.getByRole("link", { name: "Twitch", exact: true })).toHaveCount(1);
   await page.locator("summary").filter({ hasText: "VRCDN · aurora" }).click();
   await expect(page.getByRole("button", { name: "Copy PC", exact: true }).first()).toBeVisible();

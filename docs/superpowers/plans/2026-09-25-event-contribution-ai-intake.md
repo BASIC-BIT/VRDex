@@ -125,6 +125,7 @@ flowchart LR
 - [ ] Run `node --import tsx --test tests/web/event-timezone-picker.test.ts` and the focused Playwright flow; confirm new cases fail.
 - [ ] Replace `/events/new` redirect with signed-in intake. Add discoverable `Add event` entry on events browse, community page (including a community with no hosted events yet), and account events; preserve return URL across auth. Keep manual entry available when extraction is disabled. Draft save remains on the form; publish navigates with `router.replace(result.eventPath)` only after success.
 - [ ] Replace freeform timezone editing with the searchable listbox and alias index. Update owner editor labels to `Slots` and `Slot N`, use an untimed lineup action instead of `Other participants`, and stop saving generated `Session N` as a performer name. Show venue and contributor source metadata when supplied. Add own-event correction/retraction, event report, staff takeover/removal, and a staff-only report list from Task 4. Keep media-worker Session labels in operator controls.
+- [ ] After staff takeover closes direct contributor editing, offer a `Suggest correction` action that submits the contributor's proposed change through Task 4's existing `reportEvent` inbox without mutating the event. Staff can review it alongside reports. Do not add a second suggestion store for this first slice.
 - [ ] Run web tests, `pnpm typecheck:web`, focused e2e, and desktop/mobile visual tests. Review screenshots with a VLM; commit as `feat: make event contribution easy to enter and publish`.
 
 ## Task 6: Private poster evidence and bounded extraction agent
@@ -142,27 +143,49 @@ flowchart LR
 
 ## Task 7: API and MCP parity
 
-**Files:** Create `apps/web/src/lib/server/event-intake-api.ts`, the nine API routes from the file map, `tests/backend/hosted-mcp-event-intake.test.ts`, and `tests/web/event-intake-api.test.ts`; modify scope catalogs, OAuth handling, `apps/web/src/lib/server/vrdex-mcp.ts`, `packages/vrdex-mcp/src/server.ts`, `packages/api-contracts/src/openapi.ts`, and MCP/API docs.
+**Files:** Create `apps/web/src/lib/server/event-intake-api.ts`, the nine API routes from the file map, the public selected-artwork read route at `apps/web/src/app/api/v0/events/[slug]/artwork/[artworkAssetId]/route.ts` (this route's `slug` segment carries the event ID), `tests/backend/hosted-mcp-event-intake.test.ts`, and `tests/web/event-intake-api.test.ts`; modify scope catalogs, OAuth handling, `apps/web/src/lib/server/vrdex-mcp.ts`, `packages/vrdex-mcp/src/server.ts`, `packages/api-contracts/src/openapi.ts`, and MCP/API docs.
 
 **Interfaces:** API routes and hosted MCP call Task 3/4 actor-bound commands, Task 6 extraction/upload/artwork selection, and return the same `draftId`, `version`, `eventPath`, and receipt fields. Register `vrdex_event_intake_draft_save`, `_draft_get`, `_extract`, `_publish`, `_poster_upload_begin`, `_poster_upload_complete`, `_artwork_select`, `_event_update`, and `_event_retract`. They require `mcp:write` plus `events:contribute` for writes; readback uses user-scoped `events:contribute` plus `mcp:read`. Keep `vrdex_event_create`/`_update` under `events:write` and community authority. The event report route uses Task 4's visitor abuse controls.
 
 - [ ] Write failing tests for token/scope combinations, minting and using `events:contribute` without verified email, user-scoped actor checks, OAuth scope challenge, owner-tool non-regression, website/MCP draft interoperability, idempotent publish receipt, upload purpose isolation, and readback after lost response. Test the local MCP wrapper against the same wire schemas.
 - [ ] Run `node --conditions=import --import tsx --test tests/backend/hosted-mcp-event-intake.test.ts`, `node --import tsx --test tests/web/event-intake-api.test.ts`, and `pnpm test:api-contracts`; confirm new cases fail.
-- [ ] Add `events:contribute` to all mirrored API/OAuth catalogs and consent UI, but do not add it to owner `events:write` semantics. Implement thin API routes and hosted/local MCP adapters over the shared Convex commands. Keep the poster bridge local-file capable and reject arbitrary remote URL fetch.
+- [ ] Add `events:contribute` to all mirrored API/OAuth catalogs and consent UI, but do not add it to owner `events:write` semantics. Implement thin API routes and hosted/local MCP adapters over the shared Convex commands. Keep the local poster bridge capable of uploading explicitly supplied image bytes from a chosen file, without reading filesystem paths or fetching remote source URLs. Bind uploads to an exact configured HTTPS storage origin, with no bearer header or redirects.
+- [ ] Serve explicitly selected artwork through the public route only when Task 6's `publicArtwork` query confirms the requested event, artwork, and current public visibility. The route must not expose private source bytes.
 - [ ] Update generated OpenAPI, `docs/developers/public-api.md`, `docs/developers/vrdex-mcp-event-writes.md`, `docs/developers/hosted-mcp-oauth-writes.md`, and `docs/deployment/convex-environments.md`. Document expected secret names, self-hosted manual fallback, and replay semantics.
 - [ ] Run focused tests, `pnpm verify:api-contracts`, `pnpm verify:vrdex-mcp`, both typechecks, and an MCP client smoke against a local fixture. Commit as `feat: expose event intake through API and MCP`.
 
-## Task 8: Full journey, docs, and one-PR handoff
+## Task 8: Website text and poster intake
+
+**Files:** Modify `apps/web/src/app/events/event-intake-form.tsx` and event browser fixtures/tests; add the smallest website-session adapter needed for private upload and extraction, plus focused web tests.
+
+**Interfaces:** Website and MCP use the same Task 6 draft, candidate, source, and artwork commands. The browser derives actor identity from the signed-in website session and never asks for a personal API token.
+
+- [ ] Write failing web/browser tests for pasted text, chosen poster upload, tentative candidate review, unresolved questions, explicit acceptance into confirmed fields, separate artwork selection, and no-AI-key manual fallback. Include privacy and stale-version checks.
+- [ ] Complete the unified manual/text/poster journey: paste text or upload a private poster, request extraction, inspect tentative fields and unresolved questions beside the source, deliberately accept or edit fields into the existing draft, and keep publish a separate action. Expose the separate explicit `Use as event artwork` action without selecting artwork as a side effect. Use the existing website session to derive actor identity server-side for private commands; the browser must not supply an actor ID. Keep private source responses no-store.
+- [ ] Verify text/poster and manual fallback paths on desktop/mobile, capture screenshots, review them visually, run focused suites and both typechecks, and commit as `feat: finish website event intake`.
+
+## Task 9: Full journey, docs, and one-PR handoff
 
 **Files:** Modify event snapshots/e2e files, `docs/backend/event-schema.md`, `docs/planning/event-routing-and-authoring.md`, `docs/developers/public-api.md`, `docs/developers/vrdex-mcp-event-writes.md`, deployment docs, and the plan's fixture/results note; create `docs/testing/event-intake-checkpoint.md`.
 
-**Interfaces:** No new public API. This task verifies Tasks 1-7 as one releasable path and records any gated model/classifier features separately from manual publication.
+**Interfaces:** No new public API. Verify Tasks 1-8 as one releasable path and record gated model/classifier features separately from manual publication.
 
 - [ ] Run the full backend, web, API-contract, and MCP suites; both typechecks; lint; OpenAPI check; docs build; and focused Playwright journeys. Include a direct URL and public search/community readback immediately after publish, staff takeover/removal, and the date-only export/watch behavior.
-- [ ] Capture desktop/mobile event editor, public lineup, closed/open DJ-links, and date-only event screenshots. Perform visual review before accepting baselines. Show the exact new public sentences to BASIC and record approval before shipping.
+- [ ] Capture desktop/mobile event editor, public lineup, closed/open DJ-links, date-only event, and text/poster intake screenshots. Perform visual review before accepting baselines. Show the exact new public sentences to BASIC and record approval before shipping.
 - [ ] Verify a staged migration/backfill plan, `events:contribute` scopes, retention cleanup, feature switches, bounded cost metrics, and operator kill switches. Record which checks are local fixture proof and which need hosted or paid-provider evidence. Do not present a passed test as a deployed/live result.
-- [ ] Update public/developer/deployment docs wherever behavior changed, run `git diff --check`, and commit as `docs: verify contributed event journey`. Push the one branch and open one PR with the final behavior and non-routine verification evidence. After any review fixes, follow `AGENTS.md` review-thread and 30-minute exact-head readiness rules.
+- [ ] Update public/developer/deployment docs wherever behavior changed, run `git diff --check`, and commit as `docs: verify contributed event journey`. Include the separate profile-editor UX follow-up note below as documentation only. Push the one branch and open one PR with final behavior and non-routine verification evidence. After review fixes, follow `AGENTS.md` review-thread and 30-minute exact-head readiness rules.
 
 ## Execution handoff
 
-Tasks 1-4 establish durable data and authority; Task 5 makes the manual journey usable; Tasks 6-7 add extraction and MCP/API parity; Task 8 proves the complete slice. Do not stop at a manual-only checkpoint or split it into a second PR. If the model fixture gate fails, ship the agent disabled with an explicit follow-up; self-hosters without a model key always retain manual publication. The optional spam classifier may remain off if its false-block evaluation is poor.
+Tasks 1-4 establish durable data and authority; Task 5 makes the manual journey usable; Tasks 6-7 add extraction and MCP/API parity; Task 8 finishes website intake; Task 9 proves the complete slice. Do not stop at a manual-only checkpoint or split it into a second PR. If the model fixture gate fails, ship the agent disabled with an explicit follow-up; self-hosters without a model key always retain manual publication. The optional spam classifier may remain off if its false-block evaluation is poor.
+
+## Ending task: profile editor UX follow-up note
+
+After the event implementation and before the Task 9 one-PR handoff, inspect `https://vrdex.net/nyakuma/edit` and the user-provided screenshot of its empty media contribution form. Write a concise, separate planning note describing the current profile-edit page flow and a proposed progressive-disclosure approach. Cover an `Add image or video` entry instead of an always-open empty media form, a similarly discoverable `Add link` action, roles in an accordion, and tags lower in the hierarchy. Record the duplicate `Media contributions` heading visible in the screenshot and distinguish observations from proposals. Include a page-and-action flow diagram and open product-copy questions. This ending task is documentation only; do not refactor the profile editor as part of the event implementation PR.
+
+## Integrated fixture results
+
+The [Task 9 checkpoint](../../testing/event-intake-checkpoint.md) records full local
+suite results, browser fixture limitations, screenshot review, exact public copy
+awaiting BASIC approval and deployment/provider gates. The profile editor follow-up
+is [documentation only](../../planning/profile-editor-progressive-disclosure-2026-09-28.md).

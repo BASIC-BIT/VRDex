@@ -31,6 +31,12 @@ const hiddenLinksProfile = {
 } as Doc<"profiles">;
 const fixtureEvent: EditableEvent = {
   ...previewEvent,
+  mediaLinks: [
+    ...previewEvent.mediaLinks,
+    { type: "vrcdn", label: "Event stream", url: "vrcdn:event-only", presentation: "copy" },
+    { type: "watch", label: "Repeated Twitch", url: "https://twitch.tv/aurora", presentation: "open" },
+    { type: "ticket", label: "Tickets", url: "https://example.com/tickets", presentation: "open" },
+  ],
   watchSurfaceEnabled: true,
   watchMode: "performer_sequence" as const,
   slots: previewEvent.slots.map((slot, index) => ({

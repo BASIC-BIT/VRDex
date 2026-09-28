@@ -32,6 +32,42 @@ save, edit, and publish manually without model credentials or poster storage.
 No hosted write, deployment, migration, model call, or production storage test
 is implied by the local adapter tests.
 
+## Event intake staged release checks
+
+1. Deploy the widened schedule schema/indexes and same-branch web/backend adapters
+   with extraction disabled and spam mode off. Keep contribution entry unavailable
+   until the target is ready. There is no dedicated global contribution kill switch
+   in this slice; a deployment rollback or route-level operational restriction must
+   be planned separately from the model switches.
+2. Run `eventScheduleMigration:backfill` in bounded pages, persisting each returned
+   phase/cursor until `done`. Replays are safe. Verify indexes are ready, then set
+   `EVENT_DATE_ONLY_ENABLED=true`. Run timed and date-only public URL, search,
+   community, person/world, ICS, Discord and no-watch checks on that target.
+3. Verify signed-in contribution without staff/email verification and user-scoped
+   `events:contribute` credentials. Confirm `events:write` still enforces community
+   authority, stale updates fail, staff takeover locks the contributor, and removal
+   hides public projections. Use deliberately approved staging event data.
+4. Before poster intake, verify the private bucket/CORS/signing origin, upload
+   completion and expiry, private reads, separate artwork choice and deletion
+   worker. Exercise report holds and expired/pending artwork cleanup, including a
+   late storage write. Local fake-storage tests do not establish hosted behavior.
+5. Keep `VRDEX_EVENT_INTAKE_AI_ENABLED=false` and `VRDEX_EVENT_SPAM_MODE=off` until
+   a consented provider evaluation has measured quality, false matches/blocks,
+   latency, tokens and cost. Set blocking threshold/baseline only after review.
+   Extraction has four turns, three read-only tool calls, 6,000 output tokens per
+   turn and a 20-second timeout per provider request. Classification caps output
+   at 300 tokens. The shared actor allowance is 20 model attempts per rolling day.
+   These caps bound calls; `costUsd: null` means cost has not been measured.
+
+For incident response, disable extraction and/or set spam mode off independently;
+manual publication remains available under deterministic preflight. Do not turn
+`EVENT_DATE_ONLY_ENABLED` off after publishing date-only rows without first
+restricting new contribution writes and checking how legacy listings will hide
+existing date-only rows. Source retention/cleanup must continue during model
+shutdown. None of these deployment steps was executed by the local checkpoint.
+See [source controls](../backend/event-intake-sources.md) and
+[verification evidence](../testing/event-intake-checkpoint.md).
+
 ## Locked Decision
 
 VRDex keeps four Convex execution targets separate:

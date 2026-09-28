@@ -3,7 +3,7 @@ import { useQuery } from "convex/react";
 import Link from "next/link";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "@convex-generated-api";
-import { EventDjLinks } from "./event-dj-links";
+import { EventDjLinks, eventDjTarget } from "./event-dj-links";
 import { EventContributionControls } from "../events/event-contribution-controls";
 
 import {
@@ -464,7 +464,7 @@ function EventPublicPageContent({ event }: { event: PublicEvent }) {
                   <span className={actionMetaClassName}>Reference link</span>
                 </a>
               ) : null}
-              {event.mediaLinks.map((link) => (
+              {event.mediaLinks.filter(link => eventDjTarget(link.url) === undefined).map((link) => (
                 <a className={actionCardVariants({ variant: "accent" })} href={vrcdnPlaybackHref(link.url) ?? link.url} key={`${link.type}-${link.url}`} rel="noreferrer" target="_blank">
                   <span className={actionLabelClassName}>
                     {link.label}
@@ -476,7 +476,7 @@ function EventPublicPageContent({ event }: { event: PublicEvent }) {
               ))}
           </div>
         </Card>
-        <EventDjLinks lineup={lineup} />
+        <EventDjLinks lineup={lineup} eventLinks={event.mediaLinks} eventTitle={event.title} />
       </PageContainer>
     </PageShell>
   );

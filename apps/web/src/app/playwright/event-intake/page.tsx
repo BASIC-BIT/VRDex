@@ -5,6 +5,6 @@ export default async function EventIntakeFixturePage({ searchParams }: { searchP
   if (process.env.VRDEX_ENABLE_PLAYWRIGHT_FIXTURES !== "true") notFound();
   const { revision, source } = await searchParams;
   if (source) return <EventIntakeRevisionPreview correction={false} sourceMode={source} />;
-  if (revision) return <EventIntakeRevisionPreview correction={revision === "correction"} />;
+  if (revision) return <EventIntakeRevisionPreview correction={revision === "correction" || revision === "staff"} staff={revision === "staff"} />;
   return <EventIntakePreview />;
 }
