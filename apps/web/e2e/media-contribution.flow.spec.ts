@@ -151,8 +151,11 @@ test("contributor A submits and different owner B reviews media @media-lifecycle
               name: "fixture.png", mimeType: "image/png", buffer: fixture.expiringTransfer.image,
             },
           } }).catch(() => undefined);
-          if (replay?.status() !== 403) cleanupErrors.push("expired minted S3 POST replay refusal");
-          else stages.push("expired minted S3 POST replay refused before exact object deletion");
+          if (replay?.status() !== 403) {
+            cleanupErrors.push("expired minted S3 POST replay refusal");
+            break; // Preserve the frozen fixture and its object keys for recovery.
+          }
+          stages.push("expired minted S3 POST replay refused before exact object deletion");
           fixture.expiringTransfer = undefined;
         }
       }
