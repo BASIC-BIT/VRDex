@@ -5,6 +5,7 @@ import { convexTest } from "convex-test";
 
 import { api, internal } from "../../convex/_generated/api";
 import schemaModule from "../../convex/schema";
+import { PublicCommunityTelemetrySchema } from "../../packages/api-contracts/src/schemas";
 
 import { newClerkUserId } from "./_clerkTestIdentity";
 const modules = {
@@ -99,6 +100,102 @@ function rollup(bucketStartAt: number, grain: "hour" | "day" | "event") {
 }
 
 describe("community telemetry review regressions", () => {
+  it("projects only owner-public, bounded instance history through anonymous profile reads", async () => {
+    const t = convexTest({ schema, modules });
+    const communityProfileId = await seedCommunity(t);
+    await registerAccount(t);
+    const integrationId = await t.withIdentity(identity).mutation(api.communityTelemetry.connectGroup, {
+      communitySlug: "faceless",
+      vrchatGroupId: "grp_00000000-0000-4000-8000-000000000001",
+      groupVisibility: "public",
+      joinPolicy: "free",
+    });
+    const read = () => t.query(api.communityTelemetry.getPublicForCommunity, { communitySlug: "faceless" });
+    assert.equal(await read(), null);
+
+    const epoch = await t.run(async (ctx) => {
+      const integration = (await ctx.db.get(integrationId))!;
+      const epoch = integration.telemetryEpochStartedAt ?? integration.createdAt;
+      const worldFields = {
+        displayName: "Visible World", sortName: "visible world", tags: [],
+        vrchatWorldId: "wrld_00000000-0000-4000-8000-000000000001",
+        visibilityStatus: "public" as const, platformCompatibility: [], media: [],
+        creatorAttributions: [], outboundLinks: [], creationSource: "self" as const,
+        updatedAt: epoch,
+      };
+      const publishedWorldId = await ctx.db.insert("worlds", {
+        ...worldFields, slug: "visible-world", publicationState: "published",
+      });
+      const draftWorldId = await ctx.db.insert("worlds", {
+        ...worldFields, slug: "draft-world", publicationState: "draft_private",
+      });
+      for (let index = 0; index < 26; index += 1) {
+        const openedAt = index === 0 ? epoch - 1 : epoch + index;
+        await ctx.db.insert("instanceSessions", {
+          integrationId, communityProfileId,
+          providerInstanceId: `private-instance-${index}`,
+          providerLocation: `private-location-${index}`,
+          vrchatWorldId: worldFields.vrchatWorldId,
+          worldId: index === 25 ? draftWorldId : publishedWorldId,
+          source: "first_party", state: "closed", openedAt,
+          lastObservedAt: openedAt, closedAt: openedAt + 1,
+          consecutiveMisses: 2, updatedAt: openedAt + 1,
+        });
+      }
+      const visibility = await ctx.db.insert("communityDataVisibility", {
+        communityProfileId,
+        categories: {
+          current_population: { audience: "staff", staffRoleIds: null },
+          population_history: { audience: "staff", staffRoleIds: null },
+          group_size: { audience: "staff", staffRoleIds: null },
+          instance_history: { audience: "public", staffRoleIds: null },
+          membership_movement: { audience: "staff", staffRoleIds: null },
+          individual_membership_history: { audience: "owner", staffRoleIds: null },
+          event_recaps: { audience: "staff", staffRoleIds: null },
+        },
+        updatedAt: epoch,
+      });
+      assert.ok(visibility);
+      return epoch;
+    });
+
+    const publicTelemetry = await read();
+    assert.equal(publicTelemetry?.instanceHistory?.length, 20);
+    assert.equal(publicTelemetry?.instanceHistory?.[0]?.world, null);
+    assert.deepEqual(publicTelemetry?.instanceHistory?.[1]?.world, {
+      slug: "visible-world", displayName: "Visible World",
+    });
+    assert.equal(JSON.stringify(publicTelemetry).includes("private-instance"), false);
+    assert.equal(JSON.stringify(publicTelemetry).includes("private-location"), false);
+    assert.equal("populationHistory" in publicTelemetry!, false);
+    assert.equal(PublicCommunityTelemetrySchema.safeParse(publicTelemetry).success, true);
+    assert.deepEqual((await t.query(api.profiles.getPublicBySlug, { slug: "faceless" }))?.telemetry, publicTelemetry);
+
+    await t.run(async (ctx) => {
+      const integration = (await ctx.db.get(integrationId))!;
+      const { _id, _creationTime, ...fields } = integration;
+      const otherIntegrationId = await ctx.db.insert("communityVrchatIntegrations", {
+        ...fields, vrchatGroupId: "grp_00000000-0000-4000-8000-000000000002",
+      });
+      await ctx.db.insert("instanceSessions", {
+        integrationId: otherIntegrationId, communityProfileId,
+        providerInstanceId: "other-integration-private", providerLocation: "other-integration-private",
+        vrchatWorldId: "wrld_00000000-0000-4000-8000-000000000002",
+        source: "first_party", state: "closed", openedAt: epoch + 100,
+        lastObservedAt: epoch + 100, closedAt: epoch + 101,
+        consecutiveMisses: 2, updatedAt: epoch + 101,
+      });
+    });
+    assert.equal((await read())?.instanceHistory?.length, 20);
+    assert.equal((await read())?.instanceHistory?.[0]?.openedAt, epoch + 25);
+    assert.equal(JSON.stringify(await read()).includes("other-integration-private"), false);
+    await t.run((ctx) => ctx.db.patch(integrationId, { telemetryEpochStartedAt: epoch + 20 }));
+    assert.equal((await read())?.instanceHistory?.length, 6);
+
+    await t.run((ctx) => ctx.db.patch(integrationId, { enabledFeatures: ["instances"] }));
+    assert.equal(await read(), null);
+  });
+
   it("starts a fresh telemetry epoch on reconnect and supports lean public profile reads", async () => {
     const t = convexTest({ schema, modules });
     const communityProfileId = await seedCommunity(t);

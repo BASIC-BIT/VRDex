@@ -96,7 +96,7 @@ function MembersContent({
       { key: "bans", label: "Bans", permission: "manage_bans" },
     ] as const
   ).filter((tab) => can(tab.permission));
-  const tabs = can("assign_vrchat_roles") || can("remove_group_members")
+  const tabs = can("assign_vrchat_roles") || can("remove_group_members") || can("manage_bans")
     ? [...permittedTabs, { key: "actions", label: "Actions" } as const]
     : permittedTabs;
   const permissionAccess = `${owner}|${[...workspace.actor.permissions].sort().join("|")}`;
@@ -405,6 +405,15 @@ function MembersContent({
               onClick={() => prepare("remove_member", [{ id: directTarget, userId: directTarget }])}
             >
               Remove member
+            </Button>
+          ) : null}
+          {can("manage_bans") ? (
+            <Button
+              className="mt-4"
+              disabled={!canActOnDirectTarget}
+              onClick={() => prepare("ban_member", [{ id: directTarget, userId: directTarget }])}
+            >
+              Ban member
             </Button>
           ) : null}
         </Card>

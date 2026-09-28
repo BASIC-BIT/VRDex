@@ -1760,6 +1760,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_integrationId_state", ["integrationId", "state"])
+    .index("by_integrationId_openedAt", ["integrationId", "openedAt"])
     .index("by_integrationId_state_openedAt", ["integrationId", "state", "openedAt"])
     .index("by_integrationId_state_lastObservedAt", ["integrationId", "state", "lastObservedAt"])
     .index("by_integrationId_providerInstanceId_state", ["integrationId", "providerInstanceId", "state"])

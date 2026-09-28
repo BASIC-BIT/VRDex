@@ -226,6 +226,35 @@ test("remove-only staff can remove a member by ID @storybook-visual", async ({ p
   await expect(page.getByText("Queued", { exact: true })).toBeVisible();
 });
 
+test("ban-only staff can ban by ID without directory access @storybook-visual", async ({ page }) => {
+  await page.goto("/iframe.html?id=clubs-members--ban-only&viewMode=story");
+  await expect(page.getByRole("tab", { name: "Directory" })).toHaveCount(0);
+  await expect(page.getByRole("tab", { name: "Bans" })).toBeVisible();
+  await page.getByRole("tab", { name: "Actions" }).click();
+  await expect(page.getByLabel("Search members")).toHaveCount(0);
+  await expect(page.getByLabel("VRChat role")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Remove member" })).toHaveCount(0);
+  const target = page.getByLabel("VRChat user ID");
+  const ban = page.getByRole("button", { name: "Ban member", exact: true });
+  await target.fill("bad-id");
+  await expect(ban).toBeDisabled();
+  await target.fill("USR_00000000-0000-0000-0000-000000000099");
+  await expect(ban).toBeDisabled();
+  await target.fill("usr_00000000-0000-0000-0000-000000000001");
+  await expect(ban).toBeEnabled();
+  await ban.click();
+  await expect(page.getByText("Review action", { exact: true })).toBeVisible();
+  await expect(page.getByText("usr_00000000-0000-0000-0000-000000000001", { exact: true })).toBeVisible();
+  await expect(page.getByText("Queued", { exact: true })).toHaveCount(0);
+  await page.screenshot({ path: `../../.cache/artifacts/member-ban-only-${test.info().project.name}.png`, fullPage: true });
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(page.getByText("Review action", { exact: true })).toHaveCount(0);
+  await ban.click();
+  await page.getByRole("button", { name: "Confirm action" }).click();
+  await expect(page.getByText("Queued", { exact: true })).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});
+
 test("unauthorized direct Members visit shows access notice without querying context @storybook-visual", async ({ page }) => {
   await page.goto("/iframe.html?id=clubs-members--no-access&viewMode=story");
   await expect(page.getByText("You do not have access to this page.", { exact: true })).toBeVisible();

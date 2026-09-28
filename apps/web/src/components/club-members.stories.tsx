@@ -270,6 +270,9 @@ export const RoleOnly: Story = {
 export const RemoveOnly: Story = {
   render: () => <MembersFixture staff permissions={["remove_group_members"]} />,
 };
+export const BanOnly: Story = {
+  render: () => <MembersFixture staff permissions={["manage_bans"]} />,
+};
 export const NoAccess: Story = {
   render: () => <MembersFixture staff permissions={[]} />,
 };

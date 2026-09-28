@@ -9,6 +9,7 @@ import { MediaPreviewImage } from "./media-preview-image";
 import { ProfileAvatarImage } from "./profile-avatar-image";
 import { ProfileVrcdnStreams } from "./profile-vrcdn-streams";
 import { ProfilePrivateRecord } from "./profile-private-record";
+import { ViewerLocalEventDateTime } from "./viewer-local-event-times";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, Eyebrow, SectionHeading } from "@/components/ui/card";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
@@ -189,6 +190,12 @@ type PublicCommunityProfile = PublicProfileBase & {
     populationHistory?: Array<{ startAt: number; currentPopulation?: number; peakConcurrency: number; coverageRatio: number }>;
     groupMemberCount?: { value: number; observedAt: number };
     groupMemberGrowth?: { value: number; startAt: number; endAt: number };
+    instanceHistory?: Array<{
+      world: { slug: string; displayName: string } | null;
+      openedAt: number;
+      lastObservedAt: number;
+      closedAt?: number;
+    }>;
     eventRecaps?: Array<{
       event?: { slug: string; title: string };
       startAt: number;
@@ -304,6 +311,17 @@ function CommunityActivity({ telemetry }: { telemetry: NonNullable<PublicCommuni
           })}
         </div>
         <p className="mt-2 text-xs text-muted">Hourly peak population · gaps remain unfilled</p>
+      </div> : null}
+      {telemetry.instanceHistory && telemetry.instanceHistory.length > 0 ? <div className="mt-7">
+        <h3 className="text-sm font-semibold">Recent instances</h3>
+        <ul className="mt-3 grid gap-3 sm:grid-cols-2">
+          {telemetry.instanceHistory.map((session, index) => <li key={`${session.openedAt}-${index}`}>
+            <Card padding="sm" surface="strong">
+              {session.world ? <Link className="font-medium hover:underline" href={`/worlds/${session.world.slug}`}>{session.world.displayName}</Link> : <p className="font-medium">VRChat instance</p>}
+              <p className="mt-2 text-sm text-muted"><ViewerLocalEventDateTime timestamp={session.openedAt} /></p>
+            </Card>
+          </li>)}
+        </ul>
       </div> : null}
       {telemetry.eventRecaps && telemetry.eventRecaps.length > 0 ? <div className="mt-7 grid gap-3 sm:grid-cols-2">{telemetry.eventRecaps.map((recap) => <Card key={`${recap.event?.slug ?? "event"}-${recap.startAt}`} padding="sm" surface="strong"><p className="font-medium">{recap.event?.title ?? "Event recap"}</p><p className="mt-2 text-sm text-muted">Peak {recap.peakConcurrency.toLocaleString()} · {recap.playerHours.toFixed(1)} player hours · {Math.round(recap.durationMinutes)} min · {Math.round(recap.coverageRatio * 100)}% coverage</p></Card>)}</div> : null}
     </section>

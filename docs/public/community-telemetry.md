@@ -28,6 +28,7 @@ Everything is private by default. The club owner chooses which categories are pu
 
 - current population
 - population history
+- recent instance history
 - group member count
 - group member growth
 - confirmed event recaps
