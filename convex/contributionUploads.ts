@@ -622,6 +622,7 @@ export async function failReservation(
   ctx: MutationCtx,
   row: Doc<"contributionUploadReservations">,
   code: string,
+  workerStopped = false,
 ) {
   if (row.receipt) return row.receipt;
   const result = receipt(row.intentId, code);
@@ -629,6 +630,7 @@ export async function failReservation(
   await ctx.db.patch(row._id, {
     state: "failed",
     processing: false,
+    ...(workerStopped ? { processingToken: undefined } : {}),
     receipt: result,
   });
   if (row.batchRevisionId) {
@@ -642,6 +644,12 @@ export async function failReservation(
       });
   }
   const intent = await ctx.db.get(row.intentId);
+  if (workerStopped && row.processingToken !== undefined &&
+    intent?.processingToken === row.processingToken)
+    await ctx.db.patch(intent._id, {
+      processingToken: undefined,
+      processingStartedAt: undefined,
+    });
   if (intent?.targetSubmissionId) {
     const submission = await ctx.db.get(intent.targetSubmissionId);
     if (submission?.status === "upload_pending")
@@ -665,7 +673,7 @@ export const fail = internalMutation({
       .withIndex("by_intentId", (q) => q.eq("intentId", args.intentId))
       .unique();
     if (row && row.processingToken === args.processingToken)
-      await failReservation(ctx, row, "UPLOAD_VALIDATION_FAILED");
+      await failReservation(ctx, row, "UPLOAD_VALIDATION_FAILED", true);
     return null;
   },
 });
@@ -755,7 +763,7 @@ export const complete = internalMutation({
     )
       throw new ConvexError({ code: "UPLOAD_UNAVAILABLE" });
     if (row.expiresAt <= Date.now())
-      return await failReservation(ctx, row, "UPLOAD_EXPIRED");
+      return await failReservation(ctx, row, "UPLOAD_EXPIRED", true);
     const intent = (await ctx.db.get(row.intentId))!;
     await target(
       ctx,
@@ -811,6 +819,7 @@ export const complete = internalMutation({
       state: "committed",
       chargedBytes: bytes,
       processing: false,
+      processingToken: undefined,
       receipt: committed,
     });
     return committed;

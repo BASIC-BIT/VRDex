@@ -424,7 +424,13 @@ test("contributor A submits and different owner B reviews media @media-lifecycle
     privateReason: "Synthetic unauthorized review refusal.",
     idempotencyKey: `${runId}-unauthorized-review`,
   });
-  expectRefusal(self, "Profile media review access is required.");
+  expect(self.status).toBe(200);
+  expect(self.error).toBeUndefined();
+  expect(self.result?.isError).toBe(true);
+  expect(self.result?.structuredContent).toMatchObject({
+    operationState: "refused", code: "MEDIA_REVIEW_ACCESS_REQUIRED",
+    retryCategory: "authority", nextAction: "restore_access",
+  });
   const decisionInput = {
     submissionId: submitted.submission.submissionId,
     expectedReviewVersion: review.reviewVersion,

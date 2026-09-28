@@ -501,6 +501,36 @@ describe("bounded staging media fixture", () => {
     assert.deepEqual(await t.run((ctx) => ctx.db.query("contributionCapacity").collect()), []);
   });
 
+  it("accepts a legacy committed token only after the upload receipt and intent prove completion", async () => {
+    const { t, args, intent } = await seed();
+    const reservationId = await t.run(async (ctx) => {
+      await ctx.db.patch(intent.intentId, {
+        issuer: "mcp_local", state: "uploaded", processingToken: undefined,
+        quarantineStorageKey: "profile-assets/quarantine/local/123e4567-e89b-42d3-a456-426614174000",
+      });
+      const row = (await ctx.db.query("contributionUploadReservations").first())!;
+      await ctx.db.patch(row._id, {
+        state: "committed", processing: false, processingToken: "old-worker",
+        receipt: { operationId: String(intent.intentId), operationState: "committed", resourceId: String(intent.submissionId) },
+      });
+      return row._id;
+    });
+    await t.run((ctx) => ctx.db.patch(reservationId, { receipt: undefined }));
+    await assert.rejects(t.mutation(internal.e2eMedia.prepareCleanup, args), /active storage work/);
+    await t.run((ctx) => ctx.db.patch(reservationId, {
+      receipt: { operationId: String(intent.intentId), operationState: "committed", resourceId: String(intent.submissionId) },
+      processing: true,
+    }));
+    await assert.rejects(t.mutation(internal.e2eMedia.prepareCleanup, args), /active storage work/);
+    await t.run((ctx) => ctx.db.patch(reservationId, { processing: false }));
+    await t.run((ctx) => ctx.db.patch(intent.intentId, { processingToken: "active-worker" }));
+    await assert.rejects(t.mutation(internal.e2eMedia.prepareCleanup, args), /active storage work/);
+    await t.run((ctx) => ctx.db.patch(intent.intentId, { processingToken: undefined }));
+    const prepared = await t.mutation(internal.e2eMedia.prepareCleanup, args);
+    assert.equal(prepared.profileMissing, false);
+    assert.equal((await t.run((ctx) => ctx.db.get(args.profileId)))?.publicationState, "draft_private");
+  });
+
   it("refuses unscoped local keys, non-fixture reservations, and active upload leases", async () => {
     const { t, args, intent, users } = await seed();
     const reservationId = await t.run(async (ctx) => {

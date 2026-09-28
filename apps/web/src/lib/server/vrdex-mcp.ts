@@ -1070,7 +1070,7 @@ const definiteMediaReviewErrorCodes = new Map<string, [
   ["MEDIA_CONTRIBUTIONS_DISABLED", ["unavailable", "none"]],
   ["MEDIA_REVIEW_ACCESS_REQUIRED", ["authority", "restore_access"]],
   ["MEDIA_MODERATOR_REQUIRED", ["authority", "restore_access"]],
-  ["MEDIA_SELF_REVIEW", ["authority", "restore_access"]],
+  ["MEDIA_SELF_REVIEW", ["authority", "none"]],
   ["MEDIA_PROFILE_CHANGED", ["stale", "inspect_current"]],
   ["MEDIA_PUBLISH_ACCESS_REQUIRED", ["authority", "restore_access"]],
   ["MEDIA_RESOURCE_UNAVAILABLE", ["unavailable", "inspect_current"]],
@@ -1331,7 +1331,7 @@ function mcpConvexErrorCode(error: unknown) {
   // Hosted Convex can omit errorData while retaining the serialized ConvexError
   // in its message. Decode only that envelope, never relay the message or stack.
   const match = error instanceof Error && error.message.match(
-    /^\[Request ID: [^\]\r\n]+\] Server Error Uncaught ConvexError: (\{[^\r\n]*\})(?:\r?\n|$)/,
+    /^\[Request ID: [^\]\r\n]+\] Server Error(?: |\r?\n)Uncaught ConvexError: (\{[^\r\n]*\})(?:\r?\n|$)/,
   );
   if (!match) return null;
   try {

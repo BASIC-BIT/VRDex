@@ -75,7 +75,7 @@ jobs:
     name: Deploy Staging
     if: (github.event_name == 'workflow_dispatch' && !inputs.media_recovery) || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - name: Checkout

@@ -104,6 +104,14 @@ function pendingFixtureUpload(data: Awaited<ReturnType<typeof rows>>,
     data.intents.some((intent) => intent._id === row.intentId && intent.issuer === "mcp_local");
 }
 
+function committedUploadWithLegacyToken(data: Awaited<ReturnType<typeof rows>>,
+  row: (Awaited<ReturnType<typeof rows>>)["reservations"][number]) {
+  return row.state === "committed" && !row.processing &&
+    row.receipt?.operationState === "committed" &&
+    row.receipt.operationId === String(row.intentId) &&
+    data.intents.some((intent) => intent._id === row.intentId && intent.processingToken === undefined);
+}
+
 export const findFixture = internalQuery({
   args: { secret: v.string(), runId: v.string() },
   handler: async (ctx, args) => {
@@ -383,7 +391,8 @@ async function cleanupRows(
     data.intents.some((i) => i.processingToken !== undefined) ||
     data.reservations.some((r) => (r.processing &&
       !(allowPendingLocal && pendingFixtureUpload(data, r))) || r.state === "processing" ||
-      r.processingToken !== undefined || r.signingToken !== undefined ||
+      (r.processingToken !== undefined && !committedUploadWithLegacyToken(data, r)) ||
+      r.signingToken !== undefined ||
       r.cleanupToken !== undefined || r.cleanupLeaseUntil !== undefined) ||
     data.submissions.some(
       (s) => s.blobCleanupToken !== undefined || s.legalHoldAt !== undefined,
