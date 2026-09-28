@@ -211,10 +211,11 @@ it("invalid publication leaves the draft unqueued", async () => {
 it("preserves the provider post target and notification choice for queued edits", async () => {
   const { t, publisher, communityProfileId } = await setup();
   const providerPostId = "not_11111111-1111-1111-1111-111111111111";
+  const providerPostUpdatedAt = "2026-09-28T12:00:00Z";
   const draft = await publisher.mutation(ref("save"), {
     communityProfileId,
     clientId: "edit_client",
-    content: { ...content, providerPostId, sendNotification: true },
+    content: { ...content, providerPostId, providerPostUpdatedAt, providerPostPageOffset: 20, sendNotification: true },
   });
   const id = await publisher.mutation(ref("queue"), {
     communityProfileId,
@@ -225,7 +226,17 @@ it("preserves the provider post target and notification choice for queued edits"
   const operation = await t.run((ctx) => ctx.db.get(id));
   assert.equal(operation?.payload.kind, "edit_post");
   assert.equal(operation?.payload.postId, providerPostId);
+  assert.equal(operation?.payload.expectedUpdatedAt, providerPostUpdatedAt);
+  assert.equal(operation?.payload.postPageOffset, 20);
   assert.equal(operation?.payload.sendNotification, true);
+});
+it("rejects provider edits without a reviewed post version", async () => {
+  const { publisher, communityProfileId } = await setup();
+  await assert.rejects(publisher.mutation(ref("save"), {
+    communityProfileId,
+    clientId: "unversioned_edit",
+    content: { ...content, providerPostId: "not_11111111-1111-1111-1111-111111111111" },
+  }), /Invalid draft content/);
 });
 
 it("immediate post queue replays its saved revision and rejects changed timing", async (test) => {

@@ -112,11 +112,25 @@ test("mixed-case role UUIDs use the current provider ID for assign and remove", 
 });
 test("post create/edit use modern posts and explicit notification choice; delete preserves target", async () => {
   for (const kind of ["publish_post", "edit_post", "delete_post"]) {
-    const operation = { kind, ...(kind !== "publish_post" ? { postId } : {}), ...(kind !== "delete_post" ? { title: "Tonight", text: "Doors open", visibility: "group", sendNotification: false, roleIds: [roleId] } : {}) };
-    const { adapter, calls } = fixture({ response: kind === "delete_post" ? success : { id: postId, groupId, title: "Tonight", text: "Doors open" } });
+    const operation = { kind, ...(kind !== "publish_post" ? { postId, expectedUpdatedAt: "2026-01-01T00:00:00Z", postPageOffset: 20 } : {}), ...(kind !== "delete_post" ? { title: "Tonight", text: "Doors open", visibility: "group", sendNotification: false, roleIds: [roleId] } : {}) };
+    const { adapter, calls } = fixture({ handler: (path, options) => path.includes("/posts?") ? { posts: [{ id: postId, groupId, updatedAt: operation.expectedUpdatedAt }], total: 21 } : options?.method ? kind === "delete_post" ? success : { id: postId, groupId, title: "Tonight", text: "Doors open" } : undefined });
     assert.equal((await adapter.execute(operation)).status, "succeeded");
     assert.match(calls.at(-1).path, /\/posts/);
+    if (kind !== "publish_post") assert.match(calls.at(-2).path, /\/posts\?n=20&offset=20$/);
     if (kind !== "delete_post") assert.equal(calls.at(-1).body.sendNotification, false);
+  }
+});
+test("post changes, missing versions and shifted pages prevent edits and deletion", async () => {
+  for (const kind of ["edit_post", "delete_post"]) {
+    const operation = { kind, postId, expectedUpdatedAt: "2026-01-01T00:00:00Z", postPageOffset: 20, ...(kind === "edit_post" ? { title: "Tonight", text: "Doors open", visibility: "group", sendNotification: false } : {}) };
+    for (const posts of [[{ id: postId, groupId, updatedAt: "2026-01-02T00:00:00Z" }], []]) {
+      const { adapter, calls } = fixture({ handler: (path) => path.includes("/posts?") ? { posts, total: posts.length } : undefined });
+      assert.deepEqual(await adapter.execute(operation), { status: "rejected", code: "post_changed" });
+      assert.equal(calls.some((call) => call.method), false);
+    }
+    const legacy = fixture();
+    assert.equal((await legacy.adapter.execute({ ...operation, expectedUpdatedAt: undefined })).status, "rejected");
+    assert.equal(legacy.calls.length, 0);
   }
 });
 test("instance creation enforces group scope and option dependencies; normal close never hard-closes", async () => {
@@ -164,6 +178,11 @@ test("instance invites check friendship and live destination, validate sent noti
 test("group ownership does not prevent receiving an eligible instance invitation", async () => {
   const { adapter } = fixture({ response: { id: postId, type: "invite", receiverUserId: uid(2), senderUserId: uid(1) } });
   assert.equal((await adapter.execute({ kind: "invite_to_instance", targetUserId: uid(2), worldId, instanceId, messageSlot: 0 })).status, "succeeded");
+});
+
+test("instance invite confirmation accepts provider IDs with different UUID casing", async () => {
+  const { adapter } = fixture({ response: { id: postId, type: "invite", receiverUserId: uid(3), senderUserId: uid(1) } });
+  assert.equal((await adapter.execute({ kind: "invite_to_instance", targetUserId: uid(3).toUpperCase().replace("USR_", "usr_"), worldId, instanceId })).status, "succeeded");
 });
 
 test("inconsistent pagination cannot return a nonadvancing continuation", async () => {

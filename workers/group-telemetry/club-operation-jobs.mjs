@@ -10,7 +10,7 @@ export async function executeClubOperation({ assignment, provider, control, expe
   const claim = { ...scope, operationId: job.operationId, nonce: job.nonce };
   // Authenticate first, then reserve the grant read and all remaining checks
   // together with the write. No refresh loop can consume the write's slot.
-  const freshRequestCount = job.payload.kind === "invite_to_instance" ? 4 : job.payload.kind === "close_instance" ? 3 : 2;
+  const freshRequestCount = job.payload.kind === "invite_to_instance" ? 4 : ["close_instance", "edit_post", "delete_post"].includes(job.payload.kind) ? 3 : 2;
   if (Math.min(accountBudget.limit, integrationBudget.limit, assignment.requestsPerMinute ?? Infinity) < freshRequestCount) {
     await control.send("club_operation_reject", { ...claim, code: "operation_budget_too_low" });
     return { processed: true, status: "rejected", code: "operation_budget_too_low" };

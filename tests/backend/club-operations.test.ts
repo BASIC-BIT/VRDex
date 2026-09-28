@@ -2029,7 +2029,7 @@ it("operation role arrays reject mixed-case duplicates before enqueue or edit", 
   const payloads = [
     { kind: "create_instance", worldId: "wrld_44444444-4444-4444-4444-444444444444", access: "members", region: "us" },
     { kind: "publish_post", title: "Post", text: "Body", visibility: "group", sendNotification: false },
-    { kind: "edit_post", postId: "not_33333333-3333-3333-3333-333333333333", title: "Post", text: "Body", visibility: "group", sendNotification: false },
+    { kind: "edit_post", postId: "not_33333333-3333-3333-3333-333333333333", expectedUpdatedAt: "2026-09-28T12:00:00Z", postPageOffset: 0, title: "Post", text: "Body", visibility: "group", sendNotification: false },
   ];
   for (const payload of payloads) {
     const valid = { ...payload, roleIds: [roleId] };
@@ -2558,6 +2558,87 @@ it("pending edits reject another authorized editor's obsolete revision without s
   const after = await s.t.run((ctx) => ctx.db.get(s.operationId));
   assert.equal(after!.revision, original!.revision + 2);
   assert.deepEqual(after!.payload, { ...payload, worldId: worldB });
+});
+
+it("finished event-relative instance creation keeps its execution time after an event moves", async () => {
+  const s = await queued();
+  const now = Date.now();
+  const worldId = "wrld_44444444-4444-4444-4444-444444444444";
+  const eventId = await s.t.run(async (ctx) => {
+    const eventId = await ctx.db.insert("events", {
+      slug: "finished-creation-event", title: "Finished creation", sortTitle: "finished creation",
+      communityProfileId: s.communityProfileId, startAt: now - 60_000,
+      sourceType: "manual", sourceLabel: "test", eventStatus: "scheduled",
+      publicationState: "published", updatedAt: now,
+    });
+    await ctx.db.patch(s.operationId, {
+      payload: { kind: "create_instance", worldId, access: "members", region: "us" },
+      schedule: { kind: "event_relative", eventId, offsetMs: 0 },
+      eventId, dueAt: now - 60_000, readyAt: now - 60_000,
+    });
+    return eventId;
+  });
+  const args = {
+    communityProfileId: s.communityProfileId,
+    requestId: "moved_creation_invite",
+    payloads: [{ kind: "invite_to_created_instance", creationOperationId: s.operationId,
+      creationRevision: 1, targetUserId: "usr_55555555-5555-5555-5555-555555555555" }],
+    schedule: { kind: "immediate" },
+  };
+  await s.t.run((ctx) => ctx.db.patch(eventId, { startAt: now + 3600_000 }));
+  await assert.rejects(s.owner.mutation(ref("enqueue"), args), /before instance creation/);
+  await s.t.run((ctx) => ctx.db.patch(s.operationId, {
+    state: "succeeded", completedAt: now,
+    result: { worldId, instanceId: "123~group(grp_11111111-1111-1111-1111-111111111111)~groupAccessType(members)" },
+  }));
+  const [inviteId] = await s.owner.mutation(ref("enqueue"), args);
+  assert.equal((await s.t.run((ctx) => ctx.db.get(inviteId)))!.state, "pending");
+  const claim = await s.t.mutation(ref("claim"), s.worker);
+  assert.equal(claim.operationId, inviteId);
+});
+
+it("disconnect settles future and claimed actions without touching submitted outcomes", async (test) => {
+  const s = await queued();
+  const claim = await s.t.mutation(ref("claim"), s.worker);
+  assert.equal(claim.operationId, s.operationId);
+  const futureIds = await s.t.run(async (ctx) => {
+    const { _id, _creationTime, ...base } = (await ctx.db.get(s.operationId))!;
+    const ids = [];
+    for (let i = 0; i < 55; i++)
+      ids.push(await ctx.db.insert("clubOperations", {
+        ...base, requestId: `future_${i}`, batchId: `future_${i}`,
+        schedule: { kind: "fixed", dueAt: Date.now() + 3600_000 },
+        dueAt: Date.now() + 3600_000, readyAt: Date.now() + 3600_000,
+        state: "pending", claim: undefined,
+      }));
+    await ctx.db.insert("clubOperations", {
+      ...base, requestId: "submitted_future", batchId: "submitted_future",
+      state: "submitted", submittedAt: Date.now(),
+    });
+    return ids;
+  });
+  await s.owner.mutation(makeFunctionReference<any>("communityTelemetry:disconnectGroup"), {
+    communitySlug: "connection-club",
+  });
+  assert.equal((await s.t.run((ctx) => ctx.db.get(s.operationId)))!.state, "rejected");
+  await assert.rejects(s.owner.mutation(ref("edit"), {
+    operationId: futureIds[54], expectedRevision: 1,
+    payload: (await s.t.run((ctx) => ctx.db.get(futureIds[54])))!.payload,
+    schedule: { kind: "fixed", dueAt: Date.now() + 3600_000 },
+  }), /Connection unavailable|no longer pending/);
+  test.mock.timers.tick(1);
+  await s.t.finishInProgressScheduledFunctions();
+  for (const id of futureIds) {
+    const job = (await s.t.run((ctx) => ctx.db.get(id)))!;
+    assert.equal(job.state, "rejected");
+    assert.equal(job.code, "connection_changed");
+    assert.equal(job.claim, undefined);
+  }
+  const submitted = await s.t.run((ctx) => ctx.db.query("clubOperations")
+    .withIndex("by_community_requestId", (q) =>
+      q.eq("communityProfileId", s.communityProfileId).eq("requestId", "submitted_future"))
+    .unique());
+  assert.equal(submitted!.state, "submitted");
 });
 it("cancellation rejects a stale reviewed revision without changing the edited action", async () => {
   const s = await queued();

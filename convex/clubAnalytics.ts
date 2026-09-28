@@ -922,6 +922,7 @@ export const listEventRecaps = query({
     if (!state.integration || args.endAt <= state.epoch)
       return { page: [], isDone: true, continueCursor: "" };
     const opts = checkedPagination(args.paginationOpts);
+    const managesEvents = state.actor.kind === "owner" || state.actor.permissions.includes("manage_events");
     const startAt = Math.max(args.startAt, state.epoch);
     let anchor: { at: number; createdAt: number; id: Id<"communityTelemetryRollups"> } | null = null;
     if (opts.cursor) {
@@ -970,7 +971,7 @@ export const listEventRecaps = query({
         if (!row.eventId) continue;
         const event = await ctx.db.get(row.eventId);
         if (!event || event.communityProfileId !== state.community._id ||
-          event.publicationState !== "published") continue;
+          (!managesEvents && event.publicationState !== "published")) continue;
         page.push({
           id: row._id,
           eventId: event._id,

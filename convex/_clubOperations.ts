@@ -28,8 +28,8 @@ export const clubOperationPayload = v.union(
   v.object({ kind: v.literal("assign_role"), ...target, roleId: v.string() }),
   v.object({ kind: v.literal("remove_role"), ...target, roleId: v.string() }),
   v.object({ kind: v.literal("publish_post"), ...post }),
-  v.object({ kind: v.literal("edit_post"), postId: v.string(), ...post }),
-  v.object({ kind: v.literal("delete_post"), postId: v.string() }),
+  v.object({ kind: v.literal("edit_post"), postId: v.string(), expectedUpdatedAt: v.optional(v.string()), postPageOffset: v.optional(v.number()), ...post }),
+  v.object({ kind: v.literal("delete_post"), postId: v.string(), expectedUpdatedAt: v.optional(v.string()), postPageOffset: v.optional(v.number()) }),
   v.object({
     kind: v.literal("create_instance"),
     worldId: v.string(),
@@ -120,6 +120,11 @@ export function validatePayload(op: OperationPayload, groupId: string) {
   if ("roleId" in op) id(op.roleId, "grol");
   if ("worldId" in op) id(op.worldId, "wrld");
   if ("postId" in op) id(op.postId, "not");
+  if (op.kind === "edit_post" || op.kind === "delete_post") {
+    if (!op.expectedUpdatedAt || op.expectedUpdatedAt.length > 100 || !Number.isFinite(Date.parse(op.expectedUpdatedAt)) ||
+        !Number.isSafeInteger(op.postPageOffset) || op.postPageOffset! < 0 || op.postPageOffset! > 10_000_000)
+      throw new Error("Refresh to continue.");
+  }
   if ("calendarEntryId" in op && op.calendarEntryId)
     id(op.calendarEntryId, "cal");
   if ("imageId" in op && op.imageId) id(op.imageId, "file");

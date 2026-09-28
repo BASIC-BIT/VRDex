@@ -1633,7 +1633,7 @@ export default defineSchema({
   }).index("by_scopeKey", ["scopeKey"]),
   clubPostDrafts: defineTable({
     communityProfileId:v.id("profiles"),creatorTokenIdentifier:v.string(),clientId:v.string(),
-    title:v.string(),text:v.string(),visibility:v.union(v.literal("public"),v.literal("group")),sendNotification:v.boolean(),imageId:v.optional(v.string()),roleIds:v.optional(v.array(v.string())),providerPostId:v.optional(v.string()),
+    title:v.string(),text:v.string(),visibility:v.union(v.literal("public"),v.literal("group")),sendNotification:v.boolean(),imageId:v.optional(v.string()),roleIds:v.optional(v.array(v.string())),providerPostId:v.optional(v.string()),providerPostUpdatedAt:v.optional(v.string()),providerPostPageOffset:v.optional(v.number()),
     revision:v.number(),queuedRevision:v.optional(v.number()),operationId:v.optional(v.id("clubOperations")),createdAt:v.number(),updatedAt:v.number(),
   }).index("by_creator",["communityProfileId","creatorTokenIdentifier","updatedAt"])
     .index("by_client",["communityProfileId","creatorTokenIdentifier","clientId"]),

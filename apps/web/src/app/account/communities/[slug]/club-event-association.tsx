@@ -16,8 +16,9 @@ export function ClubEventAssociation({
 }) {
   const data = useClubWorkspace();
   const allowed =
-    data.actor.kind === "owner" ||
-    data.actor.permissions.includes("manage_events");
+    data.readableCategories.includes("event_recaps") &&
+    (data.actor.kind === "owner" ||
+      data.actor.permissions.includes("manage_events"));
   const events = usePaginatedQuery(
     api.clubProviderReads.listEvents,
     allowed ? { communityProfileId: data.community._id } : "skip",

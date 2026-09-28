@@ -75,6 +75,10 @@ credential generation remains historical evidence. This exception permits only
 terminal completion through disabled-account HTTP admission; claim,
 authorization, rejection before submission and deferral retain their existing
 execution gates. Completion cannot authorize another provider write.
+Disconnect rejects pending and claimed actions from the old connection epoch,
+including future actions, in bounded pages. Reconnect repeats the cleanup for
+any old-epoch rows left behind. Submitted attempts keep their separate outcome
+recovery path, and a disconnected action cannot be edited into new work.
 The exception covers every disabled account state, including provisioning,
 degraded, cooldown, auth_required, quarantined, retiring and retired. A replacement
 worker key can report the original exact claim; the superseded key cannot.
@@ -148,6 +152,8 @@ old invitation and use the invitation composer to review and create a new one.
 Older pending invitations without caller review evidence or a stored dependency
 revision fail closed and require the same cancellation and recreation flow.
 Only a succeeded creation in the same integration epoch can supply the concrete destination returned to the worker.
+Once creation has been submitted, its stored execution time stays fixed when the
+event moves; pending and claimed creations continue to follow event schedule edits.
 The destination must match the planned world and connected group; failures and
 unknown outcomes never substitute another instance. Submission rechecks the
 dependency. A linked creation's event association also applies to remaining

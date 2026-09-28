@@ -7,4 +7,6 @@ export const postDraftContent = v.object({
   imageId: v.optional(v.string()),
   roleIds: v.optional(v.array(v.string())),
   providerPostId: v.optional(v.string()),
+  providerPostUpdatedAt: v.optional(v.string()),
+  providerPostPageOffset: v.optional(v.number()),
 });

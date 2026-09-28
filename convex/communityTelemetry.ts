@@ -1,4 +1,5 @@
 import { transitionCoverage } from "./_collectionCoverage";
+import { rejectConnectionOperations } from "./clubOperations";
 import { resolveClubActor, readClubVisibility, canReadCategory, requireClubPermission } from "./_clubAccess";
 import { CLUB_CATEGORIES, LEGACY_CATEGORY_MAP, clubCategory } from "./_clubModel";
 import { ConvexError, v } from "convex/values";
@@ -575,6 +576,12 @@ export const connectGroup = mutation({
     } as const;
     let integrationId: Id<"communityVrchatIntegrations">;
     if (existing) {
+      for (const state of ["pending", "claimed"] as const)
+        await rejectConnectionOperations(ctx, {
+          integrationId: existing._id,
+          epochStartedAt: existing.telemetryEpochStartedAt ?? existing.createdAt,
+          state,
+        });
       await ctx.db.patch(existing._id, { ...values, disconnectedAt: undefined });
       integrationId = existing._id;
     } else {
@@ -612,6 +619,12 @@ export const disconnectGroup = mutation({
     const now = Date.now();
     const lease = await activeLeaseForIntegration(ctx, integration._id);
     if (lease) await ctx.db.patch(lease._id, { state: "released", releasedAt: now, updatedAt: now });
+    for (const state of ["pending", "claimed"] as const)
+      await rejectConnectionOperations(ctx, {
+        integrationId: integration._id,
+        epochStartedAt: integration.telemetryEpochStartedAt ?? integration.createdAt,
+        state,
+      });
     await ctx.db.patch(integration._id, {
       state: integration.assignedCollectorAccountId ? "disconnecting" : "disconnected",
       killSwitchEnabled: false,
@@ -686,6 +699,12 @@ export const recordMembershipResult = internalMutation({
     const integration = await ctx.db.get(args.integrationId);
     if (!integration) throw new Error("Integration was not found.");
     if (args.state === "disconnected") {
+      for (const state of ["pending", "claimed"] as const)
+        await rejectConnectionOperations(ctx, {
+          integrationId: integration._id,
+          epochStartedAt: integration.telemetryEpochStartedAt ?? integration.createdAt,
+          state,
+        });
       if (integration.assignedCollectorAccountId) {
         const account = await ctx.db.get(integration.assignedCollectorAccountId);
         if (account) await ctx.db.patch(account._id, {
@@ -1891,7 +1910,11 @@ export const getInstanceEventAssociation = query({
   handler: async (ctx, args) => {
     const profile = await ctx.db.query("profiles").withIndex("by_slug", q => q.eq("slug", args.communitySlug)).unique();
     if (!profile) throw new Error("You do not have access to this action.");
-    requireClubPermission(await resolveClubActor(ctx, profile._id), "manage_events");
+    const clubActor = await resolveClubActor(ctx, profile._id);
+    requireClubPermission(clubActor, "manage_events");
+    const visibility = await readClubVisibility(ctx.db, profile._id);
+    if (!canReadCategory(clubActor, visibility, "event_recaps"))
+      throw new Error("You do not have access to this category.");
     const session = await ctx.db.get(args.sessionId);
     if (!profile || !session || session.communityProfileId !== profile._id) throw new Error("Instance was not found.");
     const integration = await integrationForCommunity(ctx, profile._id);
@@ -1919,6 +1942,9 @@ export const associateEventInstance = mutation({
     if (!profile || profile.profileType !== "community") throw new Error("You do not have access to this action.");
     const clubActor = await resolveClubActor(ctx, profile._id);
     requireClubPermission(clubActor, "manage_events");
+    const visibility = await readClubVisibility(ctx.db, profile._id);
+    if (!canReadCategory(clubActor, visibility, "event_recaps"))
+      throw new Error("You do not have access to this category.");
     if (!event || !session) throw new Error("Event or instance was not found.");
     if (event.communityProfileId !== profile._id || session.communityProfileId !== profile._id) throw new Error("Event and instance must belong to this community.");
     const integration = await integrationForCommunity(ctx, profile._id);

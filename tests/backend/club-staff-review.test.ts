@@ -157,6 +157,8 @@ describe("independent staff boundary checks", () => {
     }
     await t.run(ctx => ctx.db.patch(role._id, { permissions: ["manage_events"] }));
     for (const manager of [client, ownerClient]) {
+      const recaps = await manager.query(api.clubAnalytics.listEventRecaps, { communitySlug: "test-club", startAt: epoch, endAt: now + 10_000, paginationOpts: { numItems: 10, cursor: null } });
+      assert.deepEqual(recaps.page.map(r => r.eventId), [seeded.events[1], seeded.events[0]]);
       const data = (await manager.query(api.communityTelemetry.getPrivateDashboard, { communitySlug: "test-club", now }))!;
       assert.deepEqual(new Set(data.associations.map(a => a.state)), new Set(["suggested", "confirmed", "rejected"]));
       assert.ok(data.events.some(e => e._id === seeded.events[1]));
@@ -186,7 +188,8 @@ describe("independent staff boundary checks", () => {
     assert.deepEqual(denied.rollups, []);
     await assert.rejects(client.query(api.clubAnalytics.listAssociationSuggestions, { communitySlug: "test-club", paginationOpts: { numItems: 10, cursor: null } }));
     await assert.rejects(client.query(api.clubAnalytics.listEventRecaps, { communitySlug: "test-club", startAt: epoch, endAt: now, paginationOpts: { numItems: 10, cursor: null } }));
-    assert.equal((await client.query(api.communityTelemetry.getInstanceEventAssociation, { communitySlug: "test-club", sessionId: seeded.sessionId }))!.eventId, seeded.events[0]);
+    await assert.rejects(client.query(api.communityTelemetry.getInstanceEventAssociation, { communitySlug: "test-club", sessionId: seeded.sessionId }), /access to this category/);
+    await assert.rejects(client.mutation(api.communityTelemetry.associateEventInstance, { communitySlug: "test-club", eventId: seeded.events[0]!, sessionId: seeded.sessionId }), /access to this category/);
     assert.ok((await ownerClient.query(api.communityTelemetry.getPrivateDashboard, { communitySlug: "test-club", now }))!.associations.length);
     await t.run(ctx => ctx.db.patch(seeded.assignmentId, { state: "revoked" }));
     await assert.rejects(dashboard());

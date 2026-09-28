@@ -153,6 +153,22 @@ test("an instance that closes during a budget wait receives no invitation", asyn
   assert.equal(order.includes("club_operation_authorize"), false);
   assert.equal(destinationReads, 1);
 });
+test("queued post edits reserve a fresh read and refuse a changed provider version", async () => {
+  const { args, order, sends } = setup({ limit: 3 });
+  const postId = "not_00000000-0000-0000-0000-000000000001";
+  const send = args.control.send;
+  args.control.send = async (op, body) => op === "club_operation_claim"
+    ? { ...await send(op, body), payload: { kind: "edit_post", postId, expectedUpdatedAt: "2026-01-01T00:00:00Z", postPageOffset: 0,
+      title: "Post", text: "Body", visibility: "group", sendNotification: false } }
+    : send(op, body);
+  const request = args.provider.request;
+  args.provider.request = async (path, options) => path.includes("/posts?")
+    ? { posts: [{ id: postId, groupId, updatedAt: "2026-01-02T00:00:00Z" }], total: 1 }
+    : request(path, options);
+  assert.deepEqual(await executeClubOperation(args), { processed: true, status: "rejected", code: "post_changed" });
+  assert.equal(order.includes("provider-write"), false);
+  assert.deepEqual(sends.filter((item) => item.op === "budget").map((item) => item.body.requestCount), [1, 3]);
+});
 
 function invitationSetup(limit) {
   const state = setup({ limit });

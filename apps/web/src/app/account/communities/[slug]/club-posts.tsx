@@ -317,7 +317,7 @@ function PostsContent() {
       queueAttempt?: { content: Content; schedule: Schedule; draft: Draft };
     } | null>(null),
     [deleting, setDeleting] = useState<
-      (ProviderItem & { requestId: string }) | null
+      (ProviderItem & { requestId: string; postPageOffset: number }) | null
     >(null),
     [busy, setBusy] = useState(false),
     [notice, setNotice] = useState<string | null>(null),
@@ -525,7 +525,7 @@ function PostsContent() {
               <div className="mt-4 flex gap-2">
                 <Button
                   size="sm"
-                  disabled={!read.fresh}
+                  disabled={!read.fresh || !p.updatedAt}
                   onClick={() =>
                     setEditing({
                       key: crypto.randomUUID(),
@@ -536,6 +536,8 @@ function PostsContent() {
                           p.visibility === "public" ? "public" : "group",
                         sendNotification: false,
                         providerPostId: p.id,
+                        providerPostUpdatedAt: p.updatedAt,
+                        providerPostPageOffset: offset,
                         ...(p.roleIds ? { roleIds: p.roleIds } : {}),
                         ...(p.imageId ? { imageId: p.imageId } : {}),
                       },
@@ -546,11 +548,12 @@ function PostsContent() {
                 </Button>
                 <Button
                   size="sm"
-                  disabled={!read.fresh}
+                  disabled={!read.fresh || !p.updatedAt}
                   onClick={() =>
                     setDeleting({
                       ...p,
                       requestId: crypto.randomUUID(),
+                      postPageOffset: offset,
                     })
                   }
                 >
@@ -594,7 +597,7 @@ function PostsContent() {
                   await enqueue({
                     communityProfileId,
                     requestId: deleting.requestId,
-                    payloads: [{ kind: "delete_post", postId: deleting.id }],
+                    payloads: [{ kind: "delete_post", postId: deleting.id, expectedUpdatedAt: deleting.updatedAt, postPageOffset: deleting.postPageOffset }],
                     schedule: { kind: "immediate" },
                   });
                   setDeleting(null);

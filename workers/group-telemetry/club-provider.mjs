@@ -194,6 +194,11 @@ export class ClubProvider {
       }
       if (operation.kind === "create_instance" && operation.access === "public" && authority.group.privacy !== "default") fail("group_visibility");
       if (operation.kind === "close_instance") await this.readDestination(operation);
+      if (operation.kind === "edit_post" || operation.kind === "delete_post") {
+        const page = await this.readPage("posts", { n: 20, offset: operation.postPageOffset });
+        const post = page.items.find((item) => item.id === operation.postId);
+        if (!post || post.updatedAt !== operation.expectedUpdatedAt) fail("post_changed");
+      }
       let friendship, eligibilityObservedAt;
       if (operation.kind === "invite_to_instance") {
         const eligibility = await this.getInstanceInviteEligibility(operation);
@@ -232,7 +237,8 @@ export class ClubProvider {
       if (op.kind === "ban_member" || op.kind === "unban_member") validate = (result) => { this.scoped(result); if (result.groupId !== this.groupId || result.userId !== op.targetUserId) fail("schema_drift"); id(result.id, "gmem"); };
       if (op.kind === "assign_role" || op.kind === "remove_role") validate = (result) => { const granted = ids(result, "grol"); if (granted.some((roleId) => roleId.toLowerCase() === op.roleId.toLowerCase()) !== (op.kind === "assign_role")) fail("schema_drift"); };
     } else if (["publish_post", "edit_post", "delete_post"].includes(op.kind)) {
-      keys(op, ["kind", ...(op.kind !== "publish_post" ? ["postId"] : []), ...(op.kind !== "delete_post" ? ["title", "text", "visibility", "sendNotification", "imageId", "roleIds"] : [])]);
+      keys(op, ["kind", ...(op.kind !== "publish_post" ? ["postId", "expectedUpdatedAt", "postPageOffset"] : []), ...(op.kind !== "delete_post" ? ["title", "text", "visibility", "sendNotification", "imageId", "roleIds"] : [])]);
+      if (op.kind !== "publish_post" && (typeof op.expectedUpdatedAt !== "string" || !Number.isFinite(Date.parse(op.expectedUpdatedAt)) || !Number.isSafeInteger(op.postPageOffset) || op.postPageOffset < 0 || op.postPageOffset > 10_000_000)) fail("invalid_input");
       path = `${this.base}/posts${op.kind !== "publish_post" ? `/${enc(id(op.postId, "not"))}` : ""}`;
       method = op.kind === "publish_post" ? "POST" : op.kind === "edit_post" ? "PUT" : "DELETE";
       permissions = ["group-announcement-manage"];
@@ -262,7 +268,7 @@ export class ClubProvider {
       } else {
         path = `/invite/${enc(id(op.targetUserId, "usr"))}`; method = "POST"; body = { instanceId: destination };
         if (op.messageSlot !== undefined) { if (!Number.isInteger(op.messageSlot) || op.messageSlot < 0 || op.messageSlot > 11) fail(); body.messageSlot = op.messageSlot; }
-        validate = (result) => { object(result); id(result.id, "not"); if (result.type !== "invite" || result.receiverUserId !== op.targetUserId || result.senderUserId !== this.expectedUserId) fail("schema_drift"); };
+        validate = (result) => { object(result); id(result.id, "not"); if (result.type !== "invite" || typeof result.receiverUserId !== "string" || result.receiverUserId.toLowerCase() !== op.targetUserId.toLowerCase() || typeof result.senderUserId !== "string" || result.senderUserId.toLowerCase() !== this.expectedUserId.toLowerCase()) fail("schema_drift"); };
       }
     } else fail("unsupported_operation");
     return { path, method, body, permissions, roleIds, validate, allowEmptyResponse };

@@ -253,6 +253,12 @@ it("reports when the latest retained group member count was observed", async tes
 it("event recaps fill visible pages past hidden newer rows and preserve equal-time cursors", async () => {
   const s = await setup();
   await s.t.run(async ctx => {
+    const authority = await ctx.db.query("communityAuthorities")
+      .withIndex("by_communityProfileId_state", q => q.eq("communityProfileId", s.communityProfileId).eq("state", "active"))
+      .first();
+    await ctx.db.patch(authority!._id, { capabilities: ["manage_integrations"] });
+  });
+  await s.t.run(async ctx => {
     for (const [title, offset, publicationState] of [
       ["Published older", 1000, "published"],
       ["Published tie one", 3000, "published"],
@@ -292,7 +298,7 @@ it("event recaps fill visible pages past hidden newer rows and preserve equal-ti
   let cursor: string | null = null;
   const titles: string[] = [];
   for (let index = 0; index < 5; index++) {
-    const result = await s.owner.query(api.clubAnalytics.listEventRecaps, {
+    const result = await s.staff.query(api.clubAnalytics.listEventRecaps, {
       communitySlug: "analytics", startAt: epoch, endAt: epoch + 86400_000,
       paginationOpts: { numItems: 1, cursor },
     });

@@ -70,6 +70,8 @@ function view(d: Doc<"clubPostDrafts">, operationState: string | null = null) {
       ...(d.imageId ? { imageId: d.imageId } : {}),
       ...(d.roleIds ? { roleIds: d.roleIds } : {}),
       ...(d.providerPostId ? { providerPostId: d.providerPostId } : {}),
+      ...(d.providerPostUpdatedAt ? { providerPostUpdatedAt: d.providerPostUpdatedAt } : {}),
+      ...(d.providerPostPageOffset !== undefined ? { providerPostPageOffset: d.providerPostPageOffset } : {}),
     },
     revision: d.revision,
     operationId: d.operationId ?? null,
@@ -136,6 +138,9 @@ export const save = mutation({
       c.text.length > 10000 ||
       (c.imageId?.length ?? 0) > 100 ||
       (c.providerPostId?.length ?? 0) > 100 ||
+      (c.providerPostId ? !c.providerPostUpdatedAt || c.providerPostPageOffset === undefined : c.providerPostUpdatedAt !== undefined || c.providerPostPageOffset !== undefined) ||
+      (c.providerPostUpdatedAt !== undefined && (c.providerPostUpdatedAt.length > 100 || !Number.isFinite(Date.parse(c.providerPostUpdatedAt)))) ||
+      (c.providerPostPageOffset !== undefined && (!Number.isSafeInteger(c.providerPostPageOffset) || c.providerPostPageOffset < 0 || c.providerPostPageOffset > 10_000_000)) ||
       (c.roleIds?.length ?? 0) > 100 ||
       c.roleIds?.some((id) => id.length > 100)
     )
@@ -155,6 +160,8 @@ export const save = mutation({
         imageId: c.imageId,
         roleIds: c.roleIds,
         providerPostId: c.providerPostId,
+        providerPostUpdatedAt: c.providerPostUpdatedAt,
+        providerPostPageOffset: c.providerPostPageOffset,
         revision: draft.revision + 1,
         updatedAt: Date.now(),
       });
@@ -177,6 +184,8 @@ export const save = mutation({
         previous.sendNotification !== c.sendNotification ||
         previous.imageId !== c.imageId ||
         previous.providerPostId !== c.providerPostId ||
+        previous.providerPostUpdatedAt !== c.providerPostUpdatedAt ||
+        previous.providerPostPageOffset !== c.providerPostPageOffset ||
         JSON.stringify(previous.roleIds ?? []) !==
           JSON.stringify(c.roleIds ?? [])
       )
@@ -234,7 +243,7 @@ export const queue = mutation({
       requestId: `post_${draft._id}_${draft.revision}`,
       payloads: [
         draft.providerPostId
-          ? { kind: "edit_post", postId: draft.providerPostId, ...content }
+          ? { kind: "edit_post", postId: draft.providerPostId, expectedUpdatedAt: draft.providerPostUpdatedAt, postPageOffset: draft.providerPostPageOffset, ...content }
           : { kind: "publish_post", ...content },
       ],
       schedule: args.schedule,

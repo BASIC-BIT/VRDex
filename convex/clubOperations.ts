@@ -50,6 +50,52 @@ async function patchOperation(
   await ctx.db.patch(id, patch);
   await recordClubOperationFailure(ctx, id);
 }
+export async function rejectConnectionOperations(
+  ctx: MutationCtx,
+  args: {
+    integrationId: Id<"communityVrchatIntegrations">;
+    epochStartedAt: number;
+    state: "pending" | "claimed";
+    cursor?: string | null;
+  },
+) {
+  const query = ctx.db.query("clubOperations")
+    .withIndex("by_integration_state_dueAt", (q) =>
+      q.eq("integrationId", args.integrationId).eq("state", args.state));
+  const initial = args.cursor === undefined ? await query.take(51) : null;
+  const page = initial
+    ? { page: initial.slice(0, 50), isDone: initial.length <= 50, continueCursor: null }
+    : await query.paginate({ numItems: 50, cursor: args.cursor ?? null });
+  const now = Date.now();
+  for (const job of page.page) {
+    if (job.epochStartedAt > args.epochStartedAt || job.submittedAt !== undefined) continue;
+    await patchOperation(ctx, job._id, {
+      state: "rejected",
+      claim: undefined,
+      code: "connection_changed",
+      completedAt: now,
+      updatedAt: now,
+    });
+  }
+  if (!page.isDone)
+    await ctx.scheduler.runAfter(0, internal.clubOperations.rejectConnectionOperationsPage, {
+      ...args,
+      cursor: page.continueCursor,
+    });
+}
+export const rejectConnectionOperationsPage = internalMutation({
+  args: {
+    integrationId: v.id("communityVrchatIntegrations"),
+    epochStartedAt: v.number(),
+    state: v.union(v.literal("pending"), v.literal("claimed")),
+    cursor: v.optional(v.union(v.null(), v.string())),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await rejectConnectionOperations(ctx, args);
+    return null;
+  },
+});
 const worker = {
   epochStartedAt: v.number(),
   collectorAccountId: v.id("collectorAccounts"),
@@ -134,7 +180,8 @@ export function canManageClubOperation(
   }
 }
 async function effectiveDueAt(ctx: MutationCtx, job: Doc<"clubOperations">) {
-  if (job.schedule.kind !== "event_relative") return job.dueAt;
+  if (job.schedule.kind !== "event_relative" ||
+      (job.state !== "pending" && job.state !== "claimed")) return job.dueAt;
   const event = await ctx.db.get(job.schedule.eventId);
   return event ? event.startAt + job.schedule.offsetMs : job.dueAt;
 }
@@ -454,7 +501,9 @@ export const edit = mutation({
       throw new Error("Refresh to continue.");
     human(actor, args.payload);
     const integration = await ctx.db.get(job.integrationId);
-    if (!integration) throw new Error("Connection unavailable.");
+    if (!integration || !["active", "degraded"].includes(integration.state) ||
+        job.epochStartedAt !== (integration.telemetryEpochStartedAt ?? integration.createdAt))
+      throw new Error("Connection unavailable.");
     validatePayload(args.payload, integration.vrchatGroupId);
     if ("targetUserId" in args.payload) {
       const payloadKey = batchPayloadKey(args.payload);
