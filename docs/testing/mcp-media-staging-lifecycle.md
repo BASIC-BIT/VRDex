@@ -82,6 +82,19 @@ exact candidate branch with this input enabled. It deploys that branch through
 the existing staging lane and runs the test with the repository's existing
 Clerk/E2E secrets and `github.sha` pin. Automatic main deployments do not opt in.
 
+Before enabling direct uploads, use the separate default-off
+`media_cleanup_proof` input. Keep `VRDEX_CONTRIBUTION_UPLOADS_ENABLED` and
+`VRDEX_MEDIA_UPLOAD_CLEANUP_READY` off. The normal URL submission path needs
+staging intake temporarily unpaused, because the same contribution policy
+applies to URL submissions. The proof creates one run-linked URL import,
+rejects it as the synthetic profile owner, advances only that rejected
+fixture's cleanup deadline, invokes the configured cleanup worker, and checks
+both Convex completion and exact S3 object absence. Its guarded helper is
+pinned to the designated staging Convex deployment and cannot alter production
+retention. Restore the staging intake pause after the run until the direct
+upload rollout is ready. A reachability-only worker response is not deletion
+evidence.
+
 The test is separate from the ordinary `@flow` lane and requires explicit
 opt-in. OAuth exchange traces and video recording are disabled. Its evidence
 attachment contains the candidate, completed assertions and cleanup result,

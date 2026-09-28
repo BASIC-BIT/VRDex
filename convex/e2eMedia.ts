@@ -103,17 +103,54 @@ export const findFixture = internalQuery({
 });
 
 export const preflight = internalQuery({
-  args: { secret: v.string() },
+  args: { secret: v.string(), cleanupOnly: v.optional(v.boolean()) },
   handler: async (_ctx, args) => {
     guard(args.secret);
     if (
       process.env.VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED !== "true" ||
       process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED !== "true" ||
-      !localUploadModes().contributor ||
+      (!args.cleanupOnly && !localUploadModes().contributor) ||
       process.env.VRDEX_CONTRIBUTION_INTAKE_PAUSED === "true"
     )
       throw new Error("Media fixture flags are unavailable.");
     return { ready: true };
+  },
+});
+
+// Exercise retention cleanup with one rejected, run-linked URL import. This
+// staging fixture changes only the deadline, never the production policy.
+export const makeRejectedFixtureDue = internalMutation({
+  args: { ...fixtureArgs, submissionId: v.id("profileMediaSubmissions") },
+  handler: async (ctx, args) => {
+    const data = await cleanupRows(ctx, args);
+    const submission = data.submissions.find((row) => row._id === args.submissionId);
+    const intent = data.intents.find((row) => row._id === submission?.uploadIntentId);
+    if (
+      data.submissions.length !== 1 ||
+      data.intents.length !== 1 ||
+      submission?.status !== "rejected" ||
+      submission.blobDeletedAt !== undefined ||
+      submission.blobCleanupToken !== undefined ||
+      submission.blobDeleteAfter === undefined ||
+      submission.blobDeleteAfter <= Date.now() ||
+      intent?.issuer !== "mcp_local" ||
+      !intent.quarantineStorageKey ||
+      data.storageKeys.length === 0
+    ) throw new Error("Exact rejected URL fixture required.");
+    await ctx.db.patch(submission._id, { blobDeleteAfter: Date.now() - 1 });
+    return { storageKeys: data.storageKeys };
+  },
+});
+
+export const inspectRejectedFixtureDeletion = internalQuery({
+  args: { ...fixtureArgs, submissionId: v.id("profileMediaSubmissions") },
+  handler: async (ctx, args) => {
+    const data = await cleanupRows(ctx, args);
+    const submission = data.submissions.find((row) => row._id === args.submissionId);
+    if (data.submissions.length !== 1 || !submission || submission.status !== "rejected")
+      throw new Error("Exact rejected URL fixture required.");
+    return { blobDeleted: submission.blobDeletedAt !== undefined,
+      storageKeys: data.storageKeys };
   },
 });
 

@@ -10,7 +10,8 @@ import {
 import { mediaFixtureRunId } from "./media-run-id";
 
 // Deliberately opt-in: a normal hosted smoke must not create media or claim fixtures.
-const enabled = process.env.VRDEX_E2E_MEDIA_LIFECYCLE === "true";
+const cleanupOnly = process.env.VRDEX_E2E_MEDIA_CLEANUP_PROOF === "true";
+const enabled = cleanupOnly || process.env.VRDEX_E2E_MEDIA_LIFECYCLE === "true";
 test.use({ trace: "off", video: "off", actionTimeout: 15_000, navigationTimeout: 30_000 }); // OAuth exchanges must not enter retained traces.
 test.describe.configure({ retries: 0 }); // Cleanup failure must never become a successful flaky run.
 
@@ -92,7 +93,9 @@ async function grant(page: Page, request: APIRequestContext, origin: string, run
 }
 
 test("contributor A submits and different owner B reviews media @media-lifecycle", async ({ browser, request, baseURL }, testInfo) => {
-  test.skip(!enabled, "Explicit VRDEX_E2E_MEDIA_LIFECYCLE=true is required.");
+  test.skip(!enabled, "Explicit media lifecycle or cleanup proof opt-in is required.");
+  if (cleanupOnly && process.env.VRDEX_E2E_MEDIA_LIFECYCLE === "true")
+    throw new Error("Select one media proof mode.");
   test.setTimeout(240_000);
   if (baseURL !== "https://staging.vrdex.net") throw new Error("Media lifecycle requires the designated staging origin.");
   if (!clerkTestAuthAvailability().available) throw new Error("Staging Clerk test auth is required.");
@@ -102,7 +105,7 @@ test("contributor A submits and different owner B reviews media @media-lifecycle
   const headers = { "x-vrdex-e2e-token": token };
   const deployment = await request.get("/api/deployment");
   expect((await deployment.json()).commit).toBe(expectedCommit);
-  const preflight = await request.get("/api/e2e/media", { headers });
+  const preflight = await request.get(cleanupOnly ? "/api/e2e/media?mode=cleanup" : "/api/e2e/media", { headers });
   expect(preflight.status(), "Staging media flags, storage and fixture preflight").toBe(200);
   const sourceUrl = `${baseURL}/test-media/profile-image.png`;
   const source = await request.get(sourceUrl);
@@ -236,6 +239,29 @@ test("contributor A submits and different owner B reviews media @media-lifecycle
   await pageA.goto("/account/media-review");
   await expect(pageA.getByText("Profile media review access is required.")).toBeVisible();
   stages.push("caller-only status, public isolation and contributor review refusal");
+
+  if (cleanupOnly) {
+    fixture.expectedReservations = 1;
+    const assign = await request.post("/api/e2e/media", { headers, data: { op: "assign-review-owner", runId, profileId, reviewerEmail: b.email } });
+    expect(assign.status(), "Assign only this synthetic profile to B").toBe(200);
+    await pageB.goto("/account/media-review");
+    const file = `/api/account/media-review/submissions/${rejectedCandidate.submission.submissionId}/file`;
+    const card = pageB.locator("section").filter({ has: pageB.locator(`img[src="${file}"]`) });
+    await card.getByLabel("Private review reason", { exact: true }).fill("Synthetic worker cleanup proof.");
+    await card.getByRole("button", { name: "Reject", exact: true }).click();
+    await expect.poll(async () => {
+      const history = await call<{ submissions: Submission[] }>(request, authA.access_token, "vrdex_list_my_media_submissions", {});
+      return history.submissions.find((row) => row.submissionId === rejectedCandidate.submission.submissionId)?.status;
+    }).toBe("rejected");
+    const proof = await request.post("/api/e2e/media", { headers, data: {
+      op: "worker-cleanup-proof", runId, profileId,
+      submissionId: rejectedCandidate.submission.submissionId,
+    } });
+    expect(proof.status(), "Worker must delete the exact rejected fixture").toBe(200);
+    expect(await proof.json()).toMatchObject({ workerDeleted: true });
+    stages.push("rejected URL import deleted by authenticated cleanup worker with DB and S3 readback");
+    return;
+  }
 
   // Let the normal creation cooldown expire before the second proposal.
   // The refused key is durable and must not be reused for this request.

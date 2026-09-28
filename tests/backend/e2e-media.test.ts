@@ -103,8 +103,28 @@ describe("bounded staging media fixture", () => {
   it("preflights direct uploads and refuses paused intake before creating accounts", async () => {
     const { t } = await seed();
     assert.deepEqual(await t.query(internal.e2eMedia.preflight, { secret }), { ready: true });
-    process.env.VRDEX_CONTRIBUTION_INTAKE_PAUSED = "true";
+    delete process.env.VRDEX_MEDIA_UPLOAD_CLEANUP_READY;
+    assert.deepEqual(await t.query(internal.e2eMedia.preflight, { secret, cleanupOnly: true }), { ready: true });
     await assert.rejects(t.query(internal.e2eMedia.preflight, { secret }), /flags are unavailable/);
+    process.env.VRDEX_CONTRIBUTION_INTAKE_PAUSED = "true";
+    await assert.rejects(t.query(internal.e2eMedia.preflight, { secret, cleanupOnly: true }), /flags are unavailable/);
+    enable();
+  });
+
+  it("advances only the exact rejected staging URL fixture to worker cleanup", async () => {
+    const { t, args, intent } = await seed();
+    const proof = { ...args, submissionId: intent.submissionId };
+    await assert.rejects(t.mutation(internal.e2eMedia.makeRejectedFixtureDue, proof), /Exact rejected URL fixture/);
+    const future = Date.now() + 30 * 24 * 60 * 60 * 1000;
+    await t.run(async (ctx) => {
+      await ctx.db.patch(intent.intentId, { issuer: "mcp_local" });
+      await ctx.db.patch(intent.submissionId, { status: "rejected", blobDeleteAfter: future });
+    });
+    const due = await t.mutation(internal.e2eMedia.makeRejectedFixtureDue, proof);
+    assert.ok(due.storageKeys.length > 0);
+    assert.ok((await t.run((ctx) => ctx.db.get(intent.submissionId)))!.blobDeleteAfter! < Date.now());
+    assert.deepEqual((await t.query(internal.e2eMedia.inspectRejectedFixtureDeletion, proof)).blobDeleted, false);
+    await assert.rejects(t.mutation(internal.e2eMedia.makeRejectedFixtureDue, proof), /Exact rejected URL fixture/);
     enable();
   });
   it("checks only the run contributor's bounded audit rows without returning identifiers", async () => {

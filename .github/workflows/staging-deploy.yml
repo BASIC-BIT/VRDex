@@ -14,6 +14,10 @@ on:
         description: Run the approved synthetic two-user media lifecycle after deployment
         type: boolean
         default: false
+      media_cleanup_proof:
+        description: Prove rejected URL media deletion by the staging cleanup worker before direct uploads are enabled
+        type: boolean
+        default: false
       media_recovery:
         description: Recover only the approved media-33990507621-1 fixture without deployment
         type: boolean
@@ -401,8 +405,8 @@ jobs:
           VRDEX_E2E_RUN_ID: staging-auth-session-${{ github.run_id }}-${{ github.run_attempt }}
         run: pnpm test:e2e:hosted:auth-session
 
-      - name: Run approved two-user media lifecycle
-        if: steps.gate.outputs.enabled == 'true' && github.event_name == 'workflow_dispatch' && inputs.media_lifecycle
+      - name: Run opt-in staging media proof
+        if: steps.gate.outputs.enabled == 'true' && github.event_name == 'workflow_dispatch' && (inputs.media_lifecycle || inputs.media_cleanup_proof)
         working-directory: apps/web
         env:
           PLAYWRIGHT_BASE_URL: ${{ steps.gate.outputs.hosted_base_url }}
@@ -410,7 +414,8 @@ jobs:
           PLAYWRIGHT_OUTPUT_DIR: test-results-media-lifecycle
           PLAYWRIGHT_HTML_REPORT_DIR: playwright-report-media-lifecycle
           PLAYWRIGHT_JSON_REPORT_FILE: playwright-artifacts/results-media-lifecycle.json
-          VRDEX_E2E_MEDIA_LIFECYCLE: "true"
+          VRDEX_E2E_MEDIA_LIFECYCLE: ${{ inputs.media_lifecycle }}
+          VRDEX_E2E_MEDIA_CLEANUP_PROOF: ${{ inputs.media_cleanup_proof }}
           VRDEX_E2E_EXPECTED_COMMIT: ${{ github.sha }}
           VRDEX_ENABLE_E2E_AUTH_HELPERS: ${{ vars.VRDEX_HOSTED_E2E_AUTH_HELPERS }}
           VRDEX_ENABLE_E2E_CLERK_AUTH: ${{ vars.VRDEX_HOSTED_E2E_CLERK_AUTH }}
