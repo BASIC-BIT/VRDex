@@ -10,6 +10,10 @@ const posthogHost = (process.env.NEXT_PUBLIC_POSTHOG_HOST?.trim() || "https://us
 const posthogAssetsHost = posthogHost
   .replace("://us.i.posthog.com", "://us-assets.i.posthog.com")
   .replace("://eu.i.posthog.com", "://eu-assets.i.posthog.com");
+const bearerRouteHeaders = [
+  { key: "Referrer-Policy", value: "no-referrer" },
+  { key: "X-Robots-Tag", value: "noindex, nofollow" },
+];
 
 const nextConfig: NextConfig = {
   devIndicators: process.env.VRDEX_ENABLE_PLAYWRIGHT_FIXTURES === "true" ? false : undefined,
@@ -19,6 +23,11 @@ const nextConfig: NextConfig = {
         source: "/api/v0/:path*",
         headers: [...apiV0CorsHeaders],
       },
+      ...[
+        "/account/communities/:slug/invite/:token",
+        "/sign-in/:path*",
+        "/sign-up/:path*",
+      ].map((source) => ({ source, headers: bearerRouteHeaders })),
     ];
   },
   outputFileTracingRoot: workspaceRoot,
