@@ -39,9 +39,12 @@ change. Close and reopen the editor to review the current payload and schedule;
 reactive queue updates never rebase the stale form. The editor needs the original and new
 underlying permissions; editing another person's action additionally requires
 `manage_scheduled_actions` unless the editor is the owner. The edit stores the
-previous revision and makes the editor the new authorizing subject. `cancel`
-also accepts claimed but not submitted actions. The shared paginated list only
-returns actions for which the current actor has the underlying permission.
+previous revision and makes the editor the new authorizing subject. Single-action
+`cancel` requires the revision shown when cancellation was selected and rejects
+a later edit with `Refresh to continue.` It also accepts claimed but not submitted
+actions. Batch cancellation reads current operations within one transaction.
+The shared paginated list only returns actions for which the current actor has
+the underlying permission.
 Event-relative edits include the exact future time shown during review and
 reject if the event moves before the edit transaction. Pending bulk recipient
 edits also reject a payload matching another action in that batch, including

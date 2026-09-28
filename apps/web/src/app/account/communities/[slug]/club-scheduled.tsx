@@ -617,7 +617,7 @@ export function ClubScheduled() {
               onClick={async () => {
                 setBusy(true);
                 try {
-                  await cancel({ operationId: confirmCancel.id });
+                  await cancel({ operationId: confirmCancel.id, expectedRevision: confirmCancel.revision });
                   setConfirmCancel(null);
                 } catch (cause) {
                   setError(

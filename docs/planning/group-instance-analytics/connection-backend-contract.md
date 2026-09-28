@@ -5,7 +5,9 @@ It returns independent enabled features, current own-member evidence, baseline
 readiness and role assignment allowlists. Legacy integrations default to
 analytics alone. Feature selection does not grant staff or bot permissions.
 
-`setFeatures` has the same human gate. `setProviderRoleAllowlist` is owner-only,
+`setFeature` has the same human gate. It applies one explicit feature value
+against the current integration, preserving changes made from other tabs.
+`setProviderRoleAllowlist` is owner-only,
 accepts existing active VRDex roles in that club and bounded VRChat role IDs.
 It lowercases provider role IDs before deduplication and storage. The caller
 must submit the role's displayed `updatedAt`; a stale full-list replacement is

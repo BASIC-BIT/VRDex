@@ -19,6 +19,11 @@ const identity = (name: string) => ({
   issuer: "https://club-test.clerk.accounts.dev",
   tokenIdentifier: `https://club-test.clerk.accounts.dev|user_${name}`,
 });
+const verifiedIdentity = (subject: ReturnType<typeof identity>) => ({
+  ...subject,
+  email: `${subject.subject}@example.com`,
+  emailVerified: true,
+});
 async function setup() {
   const t = convexTest({ schema, modules });
   const owner = identity("owner"),
@@ -29,7 +34,10 @@ async function setup() {
       clerkUserId: owner.subject,
     });
     for (const subject of [delegate, recipient])
-      await ctx.db.insert("users", { clerkUserId: subject.subject });
+      await ctx.db.insert("users", {
+        clerkUserId: subject.subject,
+        email: `${subject.subject}@example.com`,
+      });
     const id = await ctx.db.insert("profiles", {
       slug: "test-club",
       displayName: "Test club",
@@ -78,7 +86,7 @@ describe("club staff and visibility", () => {
   it("lists only active canonical staff workspaces and excludes owned clubs", async () => {
     const { t, ownerClient, recipient, event, communityProfileId } =
       await setup();
-    const client = t.withIdentity(recipient);
+    const client = t.withIdentity(verifiedIdentity(recipient));
     assert.deepEqual(await t.query(api.clubStaff.listStaffWorkspaces, {}), {
       workspaces: [],
       hasMore: false,
@@ -300,7 +308,7 @@ describe("club staff and visibility", () => {
     );
     const stored = await t.run((ctx) => ctx.db.get(invite.invitationId));
     assert.notEqual(stored!.tokenHash, invite.token);
-    const client = t.withIdentity(recipient);
+    const client = t.withIdentity(verifiedIdentity(recipient));
     await client.mutation(api.clubStaff.acceptStaffInvitation, {
       communitySlug: "test-club",
       token: invite.token,
@@ -328,6 +336,38 @@ describe("club staff and visibility", () => {
       /owner/,
     );
   });
+  it("requires a currently verified email before accepting staff roles", async () => {
+    const { t, ownerClient, recipient, event } = await setup();
+    const invite = await ownerClient.mutation(
+      api.clubStaff.createStaffInvitation,
+      { communitySlug: "test-club", roleIds: [event._id] },
+    );
+    const user = await t.run((ctx) =>
+      ctx.db.query("users")
+        .withIndex("clerkUserId", (q) => q.eq("clerkUserId", recipient.subject))
+        .unique(),
+    );
+    await t.run((ctx) =>
+      ctx.db.patch(user!._id, { emailVerificationTime: Date.now() }),
+    );
+    await assert.rejects(
+      t.withIdentity(recipient).mutation(api.clubStaff.acceptStaffInvitation, {
+        communitySlug: "test-club",
+        token: invite.token,
+      }),
+      { data: { code: "EMAIL_NOT_VERIFIED" } },
+    );
+    assert.equal((await t.run((ctx) => ctx.db.get(invite.invitationId)))!.state, "pending");
+    assert.deepEqual(
+      (await t.withIdentity(recipient).query(api.clubStaff.listStaffWorkspaces, {})).workspaces,
+      [],
+    );
+    await t.withIdentity(verifiedIdentity(recipient)).mutation(
+      api.clubStaff.acceptStaffInvitation,
+      { communitySlug: "test-club", token: invite.token },
+    );
+    assert.equal((await t.run((ctx) => ctx.db.get(invite.invitationId)))!.state, "accepted");
+  });
   it("revalidates inviter delegation at acceptance and denies self-assignment", async () => {
     const { t, ownerClient, delegate, recipient, admin, event } = await setup();
     await ownerClient.mutation(api.clubStaff.saveRole, {
@@ -343,19 +383,19 @@ describe("club staff and visibility", () => {
       { communitySlug: "test-club", roleIds: [admin._id] },
     );
     await t
-      .withIdentity(delegate)
+      .withIdentity(verifiedIdentity(delegate))
       .mutation(api.clubStaff.acceptStaffInvitation, {
         communitySlug: "test-club",
         token: bootstrap.token,
       });
     const invitation = await t
-      .withIdentity(delegate)
+      .withIdentity(verifiedIdentity(delegate))
       .mutation(api.clubStaff.createStaffInvitation, {
         communitySlug: "test-club",
         roleIds: [event._id],
       });
     await assert.rejects(
-      t.withIdentity(delegate).mutation(api.clubStaff.acceptStaffInvitation, {
+      t.withIdentity(verifiedIdentity(delegate)).mutation(api.clubStaff.acceptStaffInvitation, {
         communitySlug: "test-club",
         token: invitation.token,
       }),
@@ -370,7 +410,7 @@ describe("club staff and visibility", () => {
       assignableRoleIds: [],
     });
     await assert.rejects(
-      t.withIdentity(recipient).mutation(api.clubStaff.acceptStaffInvitation, {
+      t.withIdentity(verifiedIdentity(recipient)).mutation(api.clubStaff.acceptStaffInvitation, {
         communitySlug: "test-club",
         token: invitation.token,
       }),
@@ -460,7 +500,7 @@ describe("club staff and visibility", () => {
       { communitySlug: "test-club", roleIds: [event._id] },
     );
     await t
-      .withIdentity(recipient)
+      .withIdentity(verifiedIdentity(recipient))
       .mutation(api.clubStaff.acceptStaffInvitation, {
         communitySlug: "test-club",
         token: invite.token,
@@ -499,7 +539,7 @@ describe("club staff and visibility", () => {
     const invite = await ownerClient.mutation(api.clubStaff.createStaffInvitation, {
       communitySlug: "test-club", roleIds: [event._id],
     });
-    await t.withIdentity(recipient).mutation(api.clubStaff.acceptStaffInvitation, {
+    await t.withIdentity(verifiedIdentity(recipient)).mutation(api.clubStaff.acceptStaffInvitation, {
       communitySlug: "test-club", token: invite.token,
     });
     await ownerClient.mutation(api.clubStaff.setCategoryVisibility, {
@@ -533,7 +573,7 @@ describe("club staff and visibility", () => {
       { communitySlug: "test-club", roleIds: [event._id] },
     );
     await t
-      .withIdentity(recipient)
+      .withIdentity(verifiedIdentity(recipient))
       .mutation(api.clubStaff.acceptStaffInvitation, {
         communitySlug: "test-club",
         token: invite.token,

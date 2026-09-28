@@ -5,10 +5,8 @@ import { paginationOptsValidator } from "convex/server";
 import { mutation, query } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
-import {
-  activeBrowserSessionSubjectOrNull,
-  requireActiveBrowserSessionSubject,
-} from "./_browserSessionAuthority";
+import { activeBrowserSessionSubjectOrNull } from "./_browserSessionAuthority";
+import { requireVerifiedActiveBrowserSession } from "./_claimSession";
 import {
   activeClubRoles,
   assignableRoleIdsFor,
@@ -746,7 +744,7 @@ export const acceptStaffInvitation = mutation({
   args: { ...base, token: v.string() },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const session = await requireActiveBrowserSessionSubject(ctx);
+    const session = await requireVerifiedActiveBrowserSession(ctx);
     const found = await invitation(ctx, args.communitySlug, args.token);
     if (!found) throw invalid();
     const { invite, community } = found;

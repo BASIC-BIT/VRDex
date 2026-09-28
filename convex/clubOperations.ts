@@ -535,28 +535,31 @@ export const edit = mutation({
   },
 });
 export const cancel = mutation({
-  args: { operationId: v.id("clubOperations") },
+  args: { operationId: v.id("clubOperations"), expectedRevision: v.number() },
   returns: v.null(),
   handler: cancelClubOperation,
 });
 export async function cancelClubOperation(
   ctx: MutationCtx,
-  args: { operationId: Id<"clubOperations"> },
+  args: { operationId: Id<"clubOperations">; expectedRevision: number },
 ) {
   const job = await ctx.db.get(args.operationId);
   if (!job) throw new Error("Action not found.");
   const actor = await resolveClubActor(ctx, job.communityProfileId);
-  return cancelLoadedClubOperation(ctx, job, actor, job.communityProfileId);
+  return cancelLoadedClubOperation(ctx, job, actor, job.communityProfileId, args.expectedRevision);
 }
 export async function cancelLoadedClubOperation(
   ctx: MutationCtx,
   job: Doc<"clubOperations">,
   actor: ClubActor,
   expectedCommunityProfileId: Id<"profiles">,
+  expectedRevision?: number,
 ) {
   if (job.communityProfileId !== expectedCommunityProfileId)
     throw new Error("Action not found.");
   editPermission(actor, job);
+  if (expectedRevision !== undefined && expectedRevision !== job.revision)
+    throw new Error("Refresh to continue.");
   if (job.state === "cancelled") return null;
   if (job.state !== "pending" && job.state !== "claimed")
     throw new Error("Action has already been submitted.");

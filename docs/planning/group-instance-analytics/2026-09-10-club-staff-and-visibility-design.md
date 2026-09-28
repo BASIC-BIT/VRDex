@@ -121,7 +121,7 @@ New table `communityStaffInvitations`:
 
 Minting: the owner, or a staff member with `manage_staff` whose assignable union contains every requested role, calls `createStaffInvitation`. The mutation returns the raw token once; only the hash is stored. The page shows the link `/account/communities/[slug]/invite/[token]` with a copy control.
 
-Accepting: a signed-in user with an active browser session opens the link. `acceptStaffInvitation` verifies the hash, state and expiry, refuses if the user is the community owner or already holds any of the roles, creates one authority row per role with `grantedBySubject` set to the inviter, and marks the invitation accepted. The link is dead afterwards.
+Accepting: a signed-in user with an active browser session and a currently verified email opens the link. `acceptStaffInvitation` verifies the hash, state and expiry, refuses if the user is the community owner or already holds any of the roles, creates one authority row per role with `grantedBySubject` set to the inviter, and marks the invitation accepted. The link is dead afterwards.
 
 Revoking: the owner, or the inviter, or a `manage_staff` holder whose assignable union covers the invitation's roles. Expired invitations are shown as expired by comparing `expiresAt` at read time; no cron.
 

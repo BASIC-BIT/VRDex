@@ -116,16 +116,15 @@ export const get = query({
     };
   },
 });
-export const setFeatures = mutation({
+export const setFeature = mutation({
   args: {
     communityProfileId: v.id("profiles"),
-    enabledFeatures: v.array(integrationFeature),
+    feature: integrationFeature,
+    enabled: v.boolean(),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
     await access(ctx, args.communityProfileId);
-    if (args.enabledFeatures.length > 4)
-      throw new Error("Invalid feature selection.");
     const integration = await ctx.db
       .query("communityVrchatIntegrations")
       .withIndex("by_communityProfileId", (q) =>
@@ -133,8 +132,11 @@ export const setFeatures = mutation({
       )
       .unique();
     if (!integration) throw new Error("Connect a group first.");
+    const enabledFeatures = enabledClubFeatures(integration);
     await ctx.db.patch(integration._id, {
-      enabledFeatures: FEATURES.filter((f) => args.enabledFeatures.includes(f)),
+      enabledFeatures: FEATURES.filter((feature) =>
+        feature === args.feature ? args.enabled : enabledFeatures.includes(feature),
+      ),
       updatedAt: Date.now(),
     });
     return null;

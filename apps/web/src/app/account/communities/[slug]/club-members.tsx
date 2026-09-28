@@ -690,7 +690,7 @@ function MembersContent({
                     size="sm"
                     onClick={async () => {
                       try {
-                        await cancel({ operationId: operation.id });
+                        await cancel({ operationId: operation.id, expectedRevision: operation.revision });
                       } catch (cause) {
                         setError(
                           cause instanceof Error

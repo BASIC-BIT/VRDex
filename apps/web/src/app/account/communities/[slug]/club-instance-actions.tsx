@@ -553,7 +553,7 @@ function InstanceOperations() {
                   size="sm"
                   onClick={async () => {
                     try {
-                      await cancel({ operationId: job.id });
+                      await cancel({ operationId: job.id, expectedRevision: job.revision });
                     } catch {
                       setError("Unable to cancel action.");
                     }

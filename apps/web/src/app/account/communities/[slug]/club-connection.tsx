@@ -229,7 +229,7 @@ export function ClubConnection() {
     connection?.authority?.observedAt,
     60_000,
   );
-  const setFeatures = useMutation(api.clubConnection.setFeatures);
+  const setFeature = useMutation(api.clubConnection.setFeature);
   const setRoles = useMutation(api.clubConnection.setProviderRoleAllowlist);
   return (
     <div className="grid gap-6">
@@ -243,7 +243,7 @@ export function ClubConnection() {
           data={data}
           connection={connection}
           authorityFresh={authorityFresh}
-          actions={{ setFeatures, setRoles }}
+          actions={{ setFeature, setRoles }}
         />
       ) : null}
     </div>

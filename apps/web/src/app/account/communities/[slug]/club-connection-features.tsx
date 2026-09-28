@@ -13,8 +13,8 @@ export type ConnectionFeatures = NonNullable<
   FunctionReturnType<typeof api.clubConnection.get>
 >;
 type Actions = {
-  setFeatures: (
-    args: FunctionArgs<typeof api.clubConnection.setFeatures>,
+  setFeature: (
+    args: FunctionArgs<typeof api.clubConnection.setFeature>,
   ) => Promise<unknown>;
   setRoles: (
     args: FunctionArgs<typeof api.clubConnection.setProviderRoleAllowlist>,
@@ -124,17 +124,13 @@ export function ClubConnectionFeatures({
                   checked={feature.enabled}
                   disabled={busy}
                   onChange={async (event) => {
-                    const enabledFeatures = event.target.checked
-                      ? [...connection.enabledFeatures, feature.feature]
-                      : connection.enabledFeatures.filter(
-                          (id) => id !== feature.feature,
-                        );
                     setBusy(true);
                     setError(null);
                     try {
-                      await actions.setFeatures({
+                      await actions.setFeature({
                         communityProfileId: data.community._id,
-                        enabledFeatures,
+                        feature: feature.feature,
+                        enabled: event.target.checked,
                       });
                     } catch (cause) {
                       setError(

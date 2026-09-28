@@ -192,9 +192,10 @@ it("integration staff configure features but cannot expand provider role grants"
     });
   });
   const staff = s.t.withIdentity(subject);
-  await staff.mutation(ref("setFeatures"), {
+  await staff.mutation(ref("setFeature"), {
     communityProfileId: s.communityProfileId,
-    enabledFeatures: ["analytics", "posts"],
+    feature: "posts",
+    enabled: true,
   });
   await assert.rejects(
     staff.mutation(ref("setProviderRoleAllowlist"), {
@@ -209,7 +210,7 @@ it("integration staff configure features but cannot expand provider role grants"
     staff.query(ref("get"), { communityProfileId: s.communityProfileId }),
   );
 });
-it("preserves analytics default, owner configures independent features and rejects anonymous access", async () => {
+it("preserves analytics default and other tab's feature changes", async () => {
   const s = await setup();
   assert.deepEqual(
     (
@@ -222,9 +223,25 @@ it("preserves analytics default, owner configures independent features and rejec
   await assert.rejects(
     s.t.query(ref("get"), { communityProfileId: s.communityProfileId }),
   );
-  await s.owner.mutation(ref("setFeatures"), {
+  await s.owner.mutation(ref("setFeature"), {
     communityProfileId: s.communityProfileId,
-    enabledFeatures: ["posts", "instances"],
+    feature: "posts",
+    enabled: true,
+  });
+  await s.owner.mutation(ref("setFeature"), {
+    communityProfileId: s.communityProfileId,
+    feature: "instances",
+    enabled: true,
+  });
+  await s.owner.mutation(ref("setFeature"), {
+    communityProfileId: s.communityProfileId,
+    feature: "analytics",
+    enabled: false,
+  });
+  await s.owner.mutation(ref("setFeature"), {
+    communityProfileId: s.communityProfileId,
+    feature: "posts",
+    enabled: true,
   });
   assert.deepEqual(
     (

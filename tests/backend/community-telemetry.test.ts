@@ -145,6 +145,49 @@ describe("community telemetry control plane", () => {
     );
   });
 
+  it("rejects malformed group IDs and conflicting connection retries", async () => {
+    const t = convexTest({ schema, modules });
+    await seedCommunity(t);
+    const accountId = await registerAccount(t);
+    const connect = (vrchatGroupId: string, groupVisibility: "public" | "private", joinPolicy: "free" | "request" | "invite") =>
+      t.withIdentity(identity).mutation(api.communityTelemetry.connectGroup, {
+        communitySlug: "faceless", vrchatGroupId, groupVisibility, joinPolicy,
+      });
+    const firstGroup = "grp_00000000-0000-4000-8000-000000000001";
+    const secondGroup = "grp_00000000-0000-4000-8000-000000000002";
+
+    await assert.rejects(connect("grp_not-a-real-id", "public", "free"), /VRChat group ID is invalid/);
+    const attempts = await Promise.allSettled([
+      connect(firstGroup, "public", "free"),
+      connect(secondGroup, "private", "request"),
+    ]);
+    assert.equal(attempts.filter((attempt) => attempt.status === "fulfilled").length, 1);
+    assert.equal(attempts.filter((attempt) => attempt.status === "rejected").length, 1);
+    const integration = await t.run(async (ctx) =>
+      (await ctx.db.query("communityVrchatIntegrations").collect())[0]);
+    assert.ok(integration);
+    assert.equal(await connect(integration.vrchatGroupId, integration.groupVisibility, integration.joinPolicy), integration._id);
+    await assert.rejects(connect(integration.vrchatGroupId === firstGroup ? secondGroup : firstGroup,
+      integration.groupVisibility, integration.joinPolicy), /Refresh to continue\./);
+    await assert.rejects(connect(integration.vrchatGroupId,
+      integration.groupVisibility === "public" ? "private" : "public", integration.joinPolicy),
+    /Refresh to continue\./);
+    await assert.rejects(connect(integration.vrchatGroupId, integration.groupVisibility,
+      integration.joinPolicy === "free" ? "request" : "free"),
+    /Refresh to continue\./);
+    await t.run((ctx) => ctx.db.patch(integration._id, { state: "blocked" }));
+    await assert.rejects(connect(integration.vrchatGroupId, integration.groupVisibility, integration.joinPolicy),
+      /Refresh to continue\./);
+    await t.withIdentity(identity).mutation(api.communityTelemetry.disconnectGroup, { communitySlug: "faceless" });
+    assert.equal((await t.run((ctx) => ctx.db.get(integration._id)))?.state, "disconnecting");
+    await assert.rejects(connect(integration.vrchatGroupId, integration.groupVisibility, integration.joinPolicy),
+      /Refresh to continue\./);
+    await t.run(async (ctx) => {
+      assert.equal((await ctx.db.query("communityVrchatIntegrations").collect()).length, 1);
+      assert.equal((await ctx.db.get(accountId))?.assignedGroupCount, 1);
+    });
+  });
+
   it("hides retained public telemetry when analytics is disabled while owners and staff keep history", async () => {
     const t = convexTest({ schema, modules });
     const communityProfileId = await seedCommunity(t);

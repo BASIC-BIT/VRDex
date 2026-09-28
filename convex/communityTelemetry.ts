@@ -42,6 +42,7 @@ import { requireActiveBrowserSessionSubject } from "./_browserSessionAuthority";
 import { getPublicCommunityTelemetry } from "./_communityTelemetryPublic";
 import { canReadProfile } from "./_profilePermissions";
 import { userOwnsProfile } from "./_profileOwnership";
+import { normalizeVrchatTargetId } from "./_vrchatIdentity";
 
 const publicMetricValidator = v.union(
   v.literal("currentPopulation"),
@@ -530,7 +531,10 @@ export const connectGroup = mutation({
     if (!profile || profile.profileType !== "community") throw new Error("Community profile was not found.");
     const actor = await requireCommunityCapability(ctx, profile._id);
     const now = Date.now();
-    const vrchatGroupId = validateExternalId(args.vrchatGroupId, "grp_", "VRChat group ID");
+    const vrchatGroupId = normalizeVrchatTargetId(args.vrchatGroupId, "vrchat_group");
+    if (!args.vrchatGroupId.trim().startsWith("grp_") || !vrchatGroupId) {
+      throw new Error("VRChat group ID is invalid.");
+    }
     const duplicates = await ctx.db
       .query("communityVrchatIntegrations")
       .withIndex("by_vrchatGroupId", (q) => q.eq("vrchatGroupId", vrchatGroupId))
@@ -539,7 +543,15 @@ export const connectGroup = mutation({
       throw new Error("That VRChat group is already connected to another community.");
     }
     const existing = await integrationForCommunity(ctx, profile._id);
-    if (existing && existing.state !== "disconnected") return existing._id;
+    if (existing && existing.state !== "disconnected") {
+      if (existing.state === "disconnecting" || existing.state === "blocked" ||
+          existing.vrchatGroupId !== vrchatGroupId ||
+          existing.groupVisibility !== args.groupVisibility ||
+          existing.joinPolicy !== args.joinPolicy) {
+        throw new Error("Refresh to continue.");
+      }
+      return existing._id;
+    }
     const account = await chooseCollectorAccount(ctx);
     if (!account) throw new Error("No healthy collector account currently has reserved capacity.");
     const state = args.joinPolicy === "invite" ? "awaiting_invite" : "connecting";

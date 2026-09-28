@@ -319,15 +319,22 @@ function ConnectionFeatureFixture({
               connection={connection}
               authorityFresh={!expired}
               actions={{
-                setFeatures: async (args) => {
-                  setConnection((previous) => ({
-                    ...previous,
-                    enabledFeatures: args.enabledFeatures,
-                    features: previous.features.map((feature) => ({
-                      ...feature,
-                      enabled: args.enabledFeatures.includes(feature.feature),
-                    })),
-                  }));
+                setFeature: async (args) => {
+                  setConnection((previous) => {
+                    const enabledFeatures = previous.enabledFeatures.filter(
+                      (feature) => feature !== args.feature,
+                    );
+                    if (args.enabled) enabledFeatures.push(args.feature);
+                    return {
+                      ...previous,
+                      enabledFeatures,
+                      features: previous.features.map((feature) =>
+                        feature.feature === args.feature
+                          ? { ...feature, enabled: args.enabled }
+                          : feature,
+                      ),
+                    };
+                  });
                 },
                 setRoles: async (args) => {
                   setSubmittedRoleToken(args.expectedUpdatedAt);

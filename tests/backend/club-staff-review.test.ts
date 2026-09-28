@@ -20,6 +20,11 @@ const identity = (name: string) => ({
   issuer: "https://club-test.clerk.accounts.dev",
   tokenIdentifier: `https://club-test.clerk.accounts.dev|user_${name}`,
 });
+const verifiedIdentity = (subject: ReturnType<typeof identity>) => ({
+  ...subject,
+  email: `${subject.subject}@example.com`,
+  emailVerified: true,
+});
 async function setup() {
   const t = convexTest({ schema, modules });
   const owner = identity("owner"),
@@ -30,7 +35,10 @@ async function setup() {
       clerkUserId: owner.subject,
     });
     for (const subject of [delegate, recipient])
-      await ctx.db.insert("users", { clerkUserId: subject.subject });
+      await ctx.db.insert("users", {
+        clerkUserId: subject.subject,
+        email: `${subject.subject}@example.com`,
+      });
     const id = await ctx.db.insert("profiles", {
       slug: "test-club",
       displayName: "Test club",
@@ -280,7 +288,7 @@ describe("independent staff boundary checks", () => {
           { communitySlug: "test-club", roleIds: [event._id] },
         );
         await t
-          .withIdentity(recipient)
+          .withIdentity(verifiedIdentity(recipient))
           .mutation(api.clubStaff.acceptStaffInvitation, {
             communitySlug: "test-club",
             token: prior.token,
@@ -288,7 +296,7 @@ describe("independent staff boundary checks", () => {
       }
       await assert.rejects(
         t
-          .withIdentity(recipient)
+          .withIdentity(verifiedIdentity(recipient))
           .mutation(api.clubStaff.acceptStaffInvitation, {
             communitySlug: "test-club",
             token: invite.token,
@@ -326,13 +334,13 @@ describe("independent staff boundary checks", () => {
       { communitySlug: "test-club", roleIds: [admin._id] },
     );
     await t
-      .withIdentity(delegate)
+      .withIdentity(verifiedIdentity(delegate))
       .mutation(api.clubStaff.acceptStaffInvitation, {
         communitySlug: "test-club",
         token: first.token,
       });
     const invite = await t
-      .withIdentity(delegate)
+      .withIdentity(verifiedIdentity(delegate))
       .mutation(api.clubStaff.createStaffInvitation, {
         communitySlug: "test-club",
         roleIds: [event._id],
@@ -347,7 +355,7 @@ describe("independent staff boundary checks", () => {
     });
     await assert.rejects(
       t
-        .withIdentity(recipient)
+        .withIdentity(verifiedIdentity(recipient))
         .mutation(api.clubStaff.acceptStaffInvitation, {
           communitySlug: "test-club",
           token: invite.token,
@@ -368,7 +376,7 @@ describe("independent staff boundary checks", () => {
       { communitySlug: "test-club", roleIds: [event._id] },
     );
     await t
-      .withIdentity(recipient)
+      .withIdentity(verifiedIdentity(recipient))
       .mutation(api.clubStaff.acceptStaffInvitation, {
         communitySlug: "test-club",
         token: invite.token,

@@ -1074,7 +1074,7 @@ it("ordinary invitation edits preserve review and cannot approve a changed paren
     payload: { ...editedPayload, creationOperationId: otherCreation },
     schedule: editedSchedule,
   }), /Instance creation is unavailable/);
-  await s.owner.mutation(ref("cancel"), { operationId: otherCreation });
+  await s.owner.mutation(ref("cancel"), { operationId: otherCreation, expectedRevision: 1 });
   await s.owner.mutation(ref("edit"), {
     expectedRevision: 1,
     operationId: s.operationId, payload: { ...creation, worldId: worldB }, schedule,
@@ -1088,7 +1088,7 @@ it("ordinary invitation edits preserve review and cannot approve a changed paren
     }), /Instance creation is unavailable/);
   }
   assert.deepEqual(await s.t.run((ctx) => ctx.db.get(inviteId)), edited);
-  await s.owner.mutation(ref("cancel"), { operationId: inviteId });
+  await s.owner.mutation(ref("cancel"), { operationId: inviteId, expectedRevision: 2 });
   const [replacement] = await s.owner.mutation(ref("enqueue"), {
     communityProfileId: s.communityProfileId, requestId: "rereview_invite",
     payloads: [{ ...editedPayload, creationRevision: 2 }], schedule,
@@ -2433,6 +2433,31 @@ it("pending edits reject another authorized editor's obsolete revision without s
   const after = await s.t.run((ctx) => ctx.db.get(s.operationId));
   assert.equal(after!.revision, original!.revision + 2);
   assert.deepEqual(after!.payload, { ...payload, worldId: worldB });
+});
+it("cancellation rejects a stale reviewed revision without changing the edited action", async () => {
+  const s = await queued();
+  const original = await s.t.run((ctx) => ctx.db.get(s.operationId));
+  const editedPayload = { ...original!.payload, title: "Edited post" };
+  await s.owner.mutation(ref("edit"), {
+    operationId: s.operationId,
+    expectedRevision: original!.revision,
+    payload: editedPayload,
+    schedule: original!.schedule,
+  });
+  const edited = await s.t.run((ctx) => ctx.db.get(s.operationId));
+  await assert.rejects(
+    s.owner.mutation(ref("cancel"), {
+      operationId: s.operationId,
+      expectedRevision: original!.revision,
+    }),
+    /Refresh to continue/,
+  );
+  assert.deepEqual(await s.t.run((ctx) => ctx.db.get(s.operationId)), edited);
+  await s.owner.mutation(ref("cancel"), {
+    operationId: s.operationId,
+    expectedRevision: edited!.revision,
+  });
+  assert.equal((await s.t.run((ctx) => ctx.db.get(s.operationId)))!.state, "cancelled");
 });
 it("telemetry-only failures preserve management availability and fresh authorization", async () => {
   const s = await queued();
