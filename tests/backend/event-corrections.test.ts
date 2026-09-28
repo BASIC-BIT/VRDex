@@ -189,6 +189,33 @@ it("suppresses immediate recreation with expiring fingerprint even after canonic
   await t.run(ctx => ctx.db.patch(rows[0]._id, { expiresAt: Date.now() - 1 }));
   assert.ok((await contributor.action(publish, { draftId: draft.draftId, expectedVersion: 1, idempotencyKey: "repost" })).eventId);
 });
+it("suppresses the current listing after staff correction and moderator removal", async () => {
+  const { staff, moderator, contributor, event } = await fixture();
+  await staff.mutation(api.events.updateCommunityEvent, {
+    currentSlug: event.slug!, title: "Morning Dance", communitySlug: "club",
+    startAt: Date.parse("2027-10-16T19:00:00Z"), timezone: "UTC",
+  });
+  await moderator.mutation(command("removeContributedEvent"), { eventId: event._id, reason: "False event" });
+  const draft = await contributor.mutation(save, { patch: {
+    communitySlug: "club", title: "Morning Dance", eventDate: "2027-10-16",
+    timeTba: false, start: { time: "19:00" }, timezone: "UTC",
+  } });
+  await assert.rejects(contributor.action(publish, { draftId: draft.draftId, expectedVersion: 1, idempotencyKey: "staff-corrected-repost" }), /REPOST_BLOCKED/);
+});
+it("corrects an acknowledged near duplicate with explicit confirmation outside the content patch", async () => {
+  const { t, contributor, event } = await fixture();
+  const draft = await contributor.mutation(save, { patch: { ...complete, title: "Night Flight Afterparty", duplicateAcknowledgements: [event._id] } });
+  const result = await contributor.action(publish, { draftId: draft.draftId, expectedVersion: 1, idempotencyKey: "near-duplicate" });
+  assert.notEqual(result.eventId, event._id);
+  const published = (await t.run(ctx => ctx.db.get(result.eventId)))!;
+  const args = { eventId: published._id, expectedUpdatedAt: published.updatedAt, patch: { summary: "Updated afterparty details" } };
+  await assert.rejects(contributor.mutation(command("updateOwnContributedEvent"), args), /NEAR_DUPLICATE/);
+  await assert.rejects(contributor.mutation(command("updateOwnContributedEvent"), { ...args, patch: { ...args.patch, duplicateAcknowledgements: [event._id] } }), /PATCH_FIELD/);
+  await contributor.mutation(command("updateOwnContributedEvent"), { ...args, duplicateAcknowledgements: [event._id] });
+  const updated = (await t.run(ctx => ctx.db.get(result.eventId)))!;
+  assert.equal(updated.summary, args.patch.summary);
+  await assert.rejects(contributor.mutation(command("updateOwnContributedEvent"), { ...args, expectedUpdatedAt: updated.updatedAt, patch: { title: event.title }, duplicateAcknowledgements: [event._id] }), /DUPLICATE_EVENT/);
+});
 it("internal correction adapters bind audit identity to the authenticated transport actor", async () => {
   const { t, event, users } = await fixture();
   await t.mutation(makeFunctionReference<"mutation">("eventCorrections:updateActorContributedEvent"), { actorUserId: users[0], eventId: event._id, expectedUpdatedAt: event.updatedAt, patch: { summary: "Via API" } });

@@ -122,7 +122,7 @@ commands below to change the canonical event.
 `eventCorrections.getOwnContributedEvent({eventId})` returns `eventId`,
 `updatedAt`, `contributionVersion`, and editable `fields` reconstructed from the
 canonical event and lineup. It never returns private source evidence.
-`updateOwnContributedEvent({eventId, expectedUpdatedAt, patch})` allows only the
+`updateOwnContributedEvent({eventId, expectedUpdatedAt, patch, duplicateAcknowledgements?})` allows only the
 original contributor while the listing is published, scheduled, and not taken
 over by staff. It returns the new `updatedAt` and `contributionVersion`.
 
@@ -137,7 +137,11 @@ Every correction compares `expectedUpdatedAt`, validates the resulting complete
 listing with publication preflight (excluding itself from duplicate matches),
 and validates the lineup. It does not spend new-publication quota. An exact
 match to another listing returns `DUPLICATE_EVENT`; near matches return
-`NEAR_DUPLICATE`. The transaction updates canonical content, search and
+`NEAR_DUPLICATE`. Retry with the reviewed event IDs in the optional command-level
+`duplicateAcknowledgements` array, bounded to 100 IDs, outside `patch`. Confirm
+near matches again for each correction, including previously acknowledged
+publication matches. This does not bypass exact duplicate or suppression checks.
+The transaction updates canonical content, search and
 participant/world projections and records changed fields with actor identity.
 
 `retractOwnContributedEvent({eventId})` hides and audits the contributor's own
@@ -188,7 +192,8 @@ Public page and calendar-export reads return no event; upcoming, community,
 person and world feeds omit it. Already-cached exports retain their existing
 cache lifetime, and files already downloaded cannot be recalled.
 
-A removal stores the community/date/normalized-title fingerprint for 30 days.
+A removal computes the community/date/normalized-title fingerprint from the
+current canonical event, including staff corrections, and stores it for 30 days.
 Preflight rejects matching publication even if the canonical row is gone. The
 hourly cleanup deletes at most 200 expired suppression records per run. Expired
 records stop blocking immediately, independent of cleanup backlog. The removed

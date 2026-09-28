@@ -6,7 +6,7 @@ import { currentUserOrNull, requireUser } from "./_identity";
 import type { AuthSubject } from "./_communityAuthority";
 import { getAccountFeatureAccess } from "./_accountFeatures";
 import { sanitizeEventIntakePatch } from "./_eventIntake";
-import { preflightEventContribution } from "./_eventContributionPreflight";
+import { eventContributionFingerprint, preflightEventContribution } from "./_eventContributionPreflight";
 import { eventDateForInstant, requireDateOnlyEventsEnabled } from "./_eventSchedule";
 import { resolveEventLocalTime, type EventIntakePatch, type EventIntakeLocalTime } from "../packages/api-contracts/src/event-intake";
 import { replaceEventLineup } from "./_eventLineup";
@@ -17,7 +17,7 @@ import { canUpdateEvent, eventParticipantRoleLabels, linkedPublishedEventWorld, 
 
 export const REMOVED_EVENT_SUPPRESSION_MS = 30 * 86_400_000;
 const patchKeys = new Set(["title", "eventDate", "timeTba", "timezone", "start", "end", "doors", "venueLabel", "worldSlug", "sourceUrl", "summary", "lineup"]);
-const updateArgs = { eventId: v.id("events"), expectedUpdatedAt: v.number(), patch: v.any() };
+const updateArgs = { eventId: v.id("events"), expectedUpdatedAt: v.number(), patch: v.any(), duplicateAcknowledgements: v.optional(v.array(v.id("events"))) };
 
 async function ownEvent(db: DatabaseReader, actorUserId: Id<"users">, eventId: Id<"events">) {
   const event = await db.get(eventId);
@@ -68,14 +68,14 @@ async function refreshProjections(db: DatabaseWriter, event: Doc<"events">, now:
   await reindexEventSearchDocument(db, event, { community: community ?? undefined, world, roleLabels }, now);
 }
 
-export async function updateActorContribution(db: DatabaseWriter, actorUserId: Id<"users">, args: { eventId: Id<"events">; expectedUpdatedAt: number; patch: unknown }, actor?: AuthSubject) {
+export async function updateActorContribution(db: DatabaseWriter, actorUserId: Id<"users">, args: { eventId: Id<"events">; expectedUpdatedAt: number; patch: unknown; duplicateAcknowledgements?: Id<"events">[] }, actor?: AuthSubject) {
   const event = await ownEvent(db, actorUserId, args.eventId);
   if (event.updatedAt !== args.expectedUpdatedAt) throw new ConvexError({ code: "VERSION_CONFLICT" });
   if (event.publicationState !== "published" || event.eventStatus !== "scheduled") throw new ConvexError({ code: "CONTRIBUTOR_EDIT_CLOSED" });
   if (!args.patch || typeof args.patch !== "object" || Array.isArray(args.patch) || Object.keys(args.patch).some(key => !patchKeys.has(key))) throw new ConvexError({ code: "PATCH_FIELD" });
   const patch = sanitizeEventIntakePatch(args.patch);
   if (!Object.keys(patch).length) throw new ConvexError({ code: "PATCH_FIELD" });
-  const fields = { ...await correctionFields(db, event), ...patch };
+  const fields = { ...await correctionFields(db, event), ...patch, duplicateAcknowledgements: args.duplicateAcknowledgements };
   const now = Math.max(Date.now(), event.updatedAt + 1);
   const checked = await preflightEventContribution(db, actorUserId, fields, now, event._id);
   if (checked.existing) throw new ConvexError({ code: "DUPLICATE_EVENT", eventId: checked.existing._id });
@@ -140,11 +140,12 @@ export const removeContributedEvent = mutation({ args: { eventId: v.id("events")
   const reason = args.reason.trim();
   if (reason.length < 5 || reason.length > 500) throw new Error("A removal reason of 5 to 500 characters is required.");
   const event = await ctx.db.get(args.eventId);
-  if (!event?.contributorUserId || !event.contributionFingerprint) throw new Error("Contributed event not found.");
+  if (!event?.contributorUserId || !event.communityProfileId) throw new Error("Contributed event not found.");
   if (event.moderationRemovedAt !== undefined) return { eventId: event._id, changed: false };
   const now = Math.max(Date.now(), event.updatedAt + 1);
   await ctx.db.patch(event._id, { publicationState: "draft_private", moderationRemovedAt: now, ...contributorStaffLock(event, now) });
-  await ctx.db.insert("eventContributionSuppressions", { fingerprint: event.contributionFingerprint, eventId: event._id, createdAt: now, expiresAt: now + REMOVED_EVENT_SUPPRESSION_MS });
+  const fingerprint = eventContributionFingerprint(event.communityProfileId, event.eventDate ?? eventDateForInstant(event.startAt!, event.timezone), event.title);
+  await ctx.db.insert("eventContributionSuppressions", { fingerprint, eventId: event._id, createdAt: now, expiresAt: now + REMOVED_EVENT_SUPPRESSION_MS });
   await refreshProjections(ctx.db, (await ctx.db.get(event._id))!, now);
   await recordEventAuditEvent(ctx.db, { eventId: event._id, actor: subject, actorSurface: "browser", action: "suppressed", changedFields: ["publicationState", "moderationRemovedAt"], reason, now });
   return { eventId: event._id, changed: true };
