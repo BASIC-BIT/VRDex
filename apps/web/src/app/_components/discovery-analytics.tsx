@@ -113,6 +113,11 @@ export function DiscoverySearchForm({
           }}
           onFocus={() => setIsOpen(true)}
           onKeyDown={(event) => {
+            // An IME uses these keys to pick and confirm candidates; they are
+            // not combobox moves until composition ends.
+            if (event.nativeEvent.isComposing) {
+              return;
+            }
             if (event.key === "Escape") {
               setIsOpen(false);
               setActiveIndex(-1);

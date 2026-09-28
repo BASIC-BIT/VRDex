@@ -107,6 +107,11 @@ function NavSearch() {
             setActiveIndex(-1);
           }}
           onKeyDown={(event) => {
+            // An IME uses these keys to pick and confirm candidates; they are
+            // not combobox moves until composition ends.
+            if (event.nativeEvent.isComposing) {
+              return;
+            }
             if (event.key === "Escape") {
               close({ restoreFocus: true });
               return;
