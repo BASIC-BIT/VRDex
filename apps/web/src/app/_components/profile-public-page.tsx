@@ -317,7 +317,7 @@ function CommunityActivity({ telemetry }: { telemetry: NonNullable<PublicCommuni
         <ul className="mt-3 grid gap-3 sm:grid-cols-2">
           {telemetry.instanceHistory.map((session, index) => <li key={`${session.openedAt}-${index}`}>
             <Card padding="sm" surface="strong">
-              {session.world ? <Link className="font-medium hover:underline" href={`/worlds/${session.world.slug}`}>{session.world.displayName}</Link> : <p className="font-medium">VRChat instance</p>}
+              {session.world ? <Link className="font-medium hover:underline" href={`/${session.world.slug}`}>{session.world.displayName}</Link> : <p className="font-medium">VRChat instance</p>}
               <p className="mt-2 text-sm text-muted"><ViewerLocalEventDateTime timestamp={session.openedAt} /></p>
             </Card>
           </li>)}
