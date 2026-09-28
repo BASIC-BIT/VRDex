@@ -504,7 +504,9 @@ export const finishCleanup = internalMutation({
     ]) {
       const capacity = await ctx.db.query("contributionCapacity")
         .withIndex("by_scope", (q) => q.eq("scope", scope)).unique();
-      if (capacity?.bytes === 0 && capacity.processing === 0) await ctx.db.delete(capacity._id);
+      if (capacity?.bytes === 0 && capacity.processing === 0 &&
+        capacity.byteLimit === undefined && capacity.processingLimit === undefined)
+        await ctx.db.delete(capacity._id);
     }
     for (const row of [
       ...data.placements,

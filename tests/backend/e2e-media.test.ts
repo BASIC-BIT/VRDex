@@ -386,7 +386,9 @@ describe("bounded staging media fixture", () => {
       await ctx.db.patch(reservation._id, {
         chargedBytes: 476, quarantineBytes: 476, publishedBytes: 200, state: "committed",
       });
-      await ctx.db.insert("contributionCapacity", { scope: "published", bytes: 200, processing: 0 });
+      await ctx.db.insert("contributionCapacity", {
+        scope: "published", bytes: 200, processing: 0, byteLimit: 1000, processingLimit: 5,
+      });
       await ctx.db.insert("contributionCapacity", { scope: `actor:${users.reviewerId}`, bytes: 12, processing: 0 });
       return reservation._id;
     });
@@ -395,8 +397,9 @@ describe("bounded staging media fixture", () => {
     await t.mutation(internal.e2eMedia.finishCleanup, { ...args, deletedStorageKeys: prepared.storageKeys });
     assert.equal(await t.run((ctx) => ctx.db.get(reservationId)), null);
     assert.deepEqual(
-      (await t.run((ctx) => ctx.db.query("contributionCapacity").collect())).map((row) => [row.scope, row.bytes, row.processing]),
-      [[`actor:${users.reviewerId}`, 12, 0]],
+      (await t.run((ctx) => ctx.db.query("contributionCapacity").collect()))
+        .map((row) => [row.scope, row.bytes, row.processing, row.byteLimit, row.processingLimit]),
+      [["published", 0, 0, 1000, 5], [`actor:${users.reviewerId}`, 12, 0, undefined, undefined]],
     );
   });
 
