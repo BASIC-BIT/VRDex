@@ -14,6 +14,33 @@ function runMcpProbe(script: string) {
     },
   });
 }
+it("hosted review writes return safe refusals and preserve uncertain outcomes", () => {
+  const output = runMcpProbe(`
+    import assert from "node:assert/strict";
+    import { getFunctionName } from "convex/server";
+    import { createVrdexMcpHandler } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+    const events=[];
+    let failure=new Error('[Request ID: hosted] Server Error Uncaught ConvexError: {"code":"MEDIA_REVIEW_ACCESS_REQUIRED","message":"Profile media review access is required."}\\n at private-review.ts:42');
+    const handler=createVrdexMcpHandler({verifyContributorEmail:async()=>true,adminConvex:{
+      query:async()=>null,
+      mutation:async(ref,args)=>{if(getFunctionName(ref)==="mcpToolEvents:recordWriteInvocation"){events.push(args);return null;}throw failure;},
+    }});
+    const authInfo={token:"secret",clientId:"client",scopes:["mcp:write","assets:review:write"],resource:new URL("https://app.example.test/mcp"),extra:{subjectType:"user",userId:"user",tokenId:"token",requestId:"request"}};
+    async function call(id){const response=await handler.fetch(new Request("https://app.example.test/mcp",{method:"POST",headers:{accept:"application/json, text/event-stream","content-type":"application/json"},body:JSON.stringify({jsonrpc:"2.0",id,method:"tools/call",params:{name:"vrdex_media_review_decide",arguments:{submissionId:"submission",expectedReviewVersion:"version",decision:"reject",privateReason:"Reviewed",idempotencyKey:"key"}}})}),{authInfo});const body=await response.text();return JSON.parse(body.split(/\\r?\\n/).find(line=>line.startsWith("data: "))?.slice(6)??body).result;}
+    const denied=await call(1);
+    assert.equal(denied.isError,true);
+    assert.equal(denied.content[0].text,"Profile media review access is required.");
+    assert.equal(events.at(-1).result,"denied");
+    failure=new Error("transport lost after possible commit\\n at private-transport.ts:19");
+    const uncertain=await call(2);
+    assert.equal(uncertain.isError,true);
+    assert.equal(uncertain.structuredContent.operationState,"in_progress");
+    assert.equal(events.at(-1).result,"indeterminate");
+    assert.doesNotMatch(JSON.stringify(uncertain),/private-transport|transport lost|secret/);
+    await handler.close();console.log("safe hosted review errors passed");
+  `);
+  assert.match(output, /safe hosted review errors passed/);
+});
 it("registered upload tools preserve actionable uncertainty, validation, capacity and stale state without secrets", () => {
   const output = runMcpProbe(`
     import assert from "node:assert/strict";

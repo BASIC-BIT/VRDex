@@ -1321,9 +1321,20 @@ function isMcpWriteDenied(error: unknown) {
 }
 
 function mcpConvexErrorCode(error: unknown) {
-  return isRecord(error) && isRecord(error.data) && typeof error.data.code === "string"
-    ? error.data.code
-    : null;
+  if (isRecord(error) && isRecord(error.data) && typeof error.data.code === "string")
+    return error.data.code;
+  // Hosted Convex can omit errorData while retaining the serialized ConvexError
+  // in its message. Decode only that envelope, never relay the message or stack.
+  const match = error instanceof Error && error.message.match(
+    /^\[Request ID: [^\]\r\n]+\] Server Error Uncaught ConvexError: (\{[^\r\n]*\})(?:\r?\n|$)/,
+  );
+  if (!match) return null;
+  try {
+    const data: unknown = JSON.parse(match[1]);
+    return isRecord(data) && typeof data.code === "string" ? data.code : null;
+  } catch {
+    return null;
+  }
 }
 
 function mcpConvexErrorMessage(error: unknown) {
@@ -1948,7 +1959,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     principal: HostedMcpPrincipal,
     input: unknown,
     operation: () => Promise<T>,
-  ): Promise<T> => {
+  ) => {
     const idempotencyKey = isRecord(input)
       ? typeof input.idempotencyKey === "string" ? input.idempotencyKey
         : toolName === "vrdex_contribution_capacity_request" && typeof input.key === "string" ? input.key
@@ -1966,11 +1977,21 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       await recordHostedMcpWriteInvocation({ ...details, result: hostedMcpWriteOutcome(response) });
       return response;
     } catch (error) {
+      const denied = isDefiniteHostedMediaReviewDenial(toolName, error);
       await recordHostedMcpWriteInvocation({
         ...details,
-        result: isDefiniteHostedMediaReviewDenial(toolName, error) ? "denied" : "indeterminate",
+        result: denied ? "denied" : "indeterminate",
       });
-      throw error;
+      if (denied) return {
+        content: [{
+          type: "text" as const,
+          text: mcpConvexErrorCode(error) === "MEDIA_REVIEW_ACCESS_REQUIRED"
+            ? "Profile media review access is required."
+            : "Decision refused.",
+        }],
+        isError: true as const,
+      };
+      return safeCommandError(null, idempotencyKey ?? toolName);
     }
   };
   const completeProfileMediaImport =
