@@ -318,6 +318,26 @@ test("staging deploy parses and audits main before provider mutation", () => {
   assert.match(steps[fixtureIndex]?.run ?? "", /hostedSmokeFixtures:ensurePublicSearchFixture/);
 });
 
+test("staging media recovery accepts exact fixture inputs without deploying", () => {
+  const workflow = parseYaml(readFileSync(".github/workflows/staging-deploy.yml", "utf8")) as {
+    on?: { workflow_dispatch?: { inputs?: Record<string, { default?: string }> } };
+    jobs?: Record<string, { if?: string; steps?: Array<{ env?: Record<string, string>; run?: string }> }>;
+  };
+  const inputs = workflow.on?.workflow_dispatch?.inputs;
+  const recovery = workflow.jobs?.["recover-media"];
+  const deploy = workflow.jobs?.["deploy-staging"];
+  const step = recovery?.steps?.find((item) => item.run === "pnpm exec tsx e2e/media-recovery.ts");
+
+  assert.equal(inputs?.media_recovery_run_id?.default, "media-33990507621-1");
+  assert.equal(inputs?.media_recovery_profile_id?.default, "m5773mvep4dkdqc6mx9w9q9yh58dv5aj");
+  assert.equal(inputs?.media_recovery_expected_commit?.default, "267be4ea8526a9a5ab4e17e76a666fd490f271c3");
+  assert.equal(step?.env?.MEDIA_RECOVERY_RUN_ID, "${{ inputs.media_recovery_run_id }}");
+  assert.equal(step?.env?.MEDIA_RECOVERY_PROFILE_ID, "${{ inputs.media_recovery_profile_id }}");
+  assert.equal(step?.env?.MEDIA_RECOVERY_EXPECTED_COMMIT, "${{ inputs.media_recovery_expected_commit }}");
+  assert.match(recovery?.if ?? "", /inputs\.media_recovery/);
+  assert.match(deploy?.if ?? "", /!inputs\.media_recovery/);
+});
+
 test("web environment example inventories every required staged variable", () => {
   const example = readFileSync("apps/web/.env.example", "utf8");
 
