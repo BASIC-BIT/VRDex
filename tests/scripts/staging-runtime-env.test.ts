@@ -321,7 +321,7 @@ test("staging deploy parses and audits main before provider mutation", () => {
 test("staging media recovery accepts exact fixture inputs without deploying", () => {
   const workflow = parseYaml(readFileSync(".github/workflows/staging-deploy.yml", "utf8")) as {
     on?: { workflow_dispatch?: { inputs?: Record<string, { default?: string }> } };
-    jobs?: Record<string, { if?: string; steps?: Array<{ env?: Record<string, string>; run?: string }> }>;
+    jobs?: Record<string, { if?: string; "timeout-minutes"?: number; steps?: Array<{ env?: Record<string, string>; run?: string }> }>;
   };
   const inputs = workflow.on?.workflow_dispatch?.inputs;
   const recovery = workflow.jobs?.["recover-media"];
@@ -334,6 +334,7 @@ test("staging media recovery accepts exact fixture inputs without deploying", ()
   assert.equal(step?.env?.MEDIA_RECOVERY_RUN_ID, "${{ inputs.media_recovery_run_id }}");
   assert.equal(step?.env?.MEDIA_RECOVERY_PROFILE_ID, "${{ inputs.media_recovery_profile_id }}");
   assert.equal(step?.env?.MEDIA_RECOVERY_EXPECTED_COMMIT, "${{ inputs.media_recovery_expected_commit }}");
+  assert.ok((recovery?.["timeout-minutes"] ?? 0) >= 20, "Recovery job must outlive the signed-transfer retry window");
   assert.match(recovery?.if ?? "", /inputs\.media_recovery/);
   assert.match(deploy?.if ?? "", /!inputs\.media_recovery/);
 });

@@ -202,13 +202,15 @@ the Convex identities. Teardown checks account absence in both Convex and Clerk;
 a successful DELETE response alone is insufficient evidence.
 
 Run `33990507621` passed the lifecycle assertions but independently revealed
-recreated user rows during teardown. It has an approved `media_recovery` dispatch
-mode in Staging Deploy. It skips the deployment job entirely and invokes
-`apps/web/e2e/media-recovery.ts` with that run's fixed profile ID and deployed
-commit. It uses existing Actions secrets, the normal guarded media DELETE, and
-account cleanup only after media/profile absence is verified. It cannot serve
-as a general recovery command for another run without a reviewed change to its
-identity pins. Dispatch requires the operator's exact recovery approval.
+recreated user rows during teardown. Staging Deploy has a `media_recovery`
+dispatch mode. It skips deployment and passes the operator-supplied exact run ID,
+profile ID, and deployed commit to `apps/web/e2e/media-recovery.ts`. The workflow
+defaults identify run `33990507621` only; override all three inputs for another
+run. The script verifies those values against the live staging deployment and
+fixture before cleanup. It uses existing Actions secrets and the guarded media
+DELETE, waiting up to 12 minutes if a signed upload is still valid. Account
+cleanup begins only after media/profile absence is verified. Dispatch requires
+the operator's exact recovery approval.
 Before any deletion, an authenticated Clerk domains lookup must identify the
 same primary Frontend API as the pinned deployment. A development key prefix
 or an empty user lookup is insufficient. A failed, malformed, or mismatched

@@ -51,7 +51,7 @@ jobs:
     name: Recover approved staging media fixture
     if: github.event_name == 'workflow_dispatch' && inputs.media_recovery
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v6
