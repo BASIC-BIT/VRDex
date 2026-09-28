@@ -51,7 +51,8 @@ limited to that candidate and the assertions described below.
 - Deploy the candidate's web and backend together, then pin
   `VRDEX_E2E_EXPECTED_COMMIT` to its full SHA. The test refuses a mismatch.
 - Enable the existing media-kit and media-submission flags in the web and
-  backend as required by their normal import/review paths. Verify storage is
+  backend. Enable contributor uploads and the cleanup-ready flag in Convex only
+  after verifying the cleanup worker. Intake must be unpaused. Verify storage is
   configured. The fixture preflight runs before account creation.
 - The synthetic images are static 64px solid-color PNGs at
   `/test-media/profile-image.png` and `/test-media/rejected-image.png`.
@@ -98,11 +99,13 @@ context; subsequent evidence attachments use `testInfo`, not a live browser.
 1. A and B have separate Clerk identities and browser contexts. Each authorizes
    only `mcp:read assets:review:read mcp:write assets:contribute
    assets:review:write`.
-2. A submits an image to an unclaimed person. Same-key replay returns the same
+2. A submits a URL image to an unclaimed person. Same-key replay returns the same
    submission; conflicting reuse and stale revisions are refused. One immediate
    new-key request must return the exact sanitized cooldown message. After
-   waiting 31 seconds without changing rate policy, A submits the second image
-   under a new key. This is submission-cooldown evidence, not transport-wide
+   waiting 31 seconds without changing rate policy, A reserves the second image
+   with `vrdex_media_upload_begin`, posts its bytes to the minted S3 endpoint,
+   and finalizes with `vrdex_media_upload_complete`. The completion receipt
+   replays unchanged. This is submission-cooldown evidence, not transport-wide
    HTTP 429 or daily-quota exhaustion coverage.
 3. A can read the submission; B cannot enumerate it. Public profile projection
    contains no new image before review, and anonymous/A review-file requests
@@ -111,25 +114,27 @@ context; subsequent evidence attachments use `testInfo`, not a live browser.
    evidence. A cannot enter the review queue.
 4. The fixture assigns only that synthetic profile to B after submission.
    Further contributor submissions to the claimed target are refused. B rejects
-   the second image through normal browser controls. A sees the contributor
+   the URL image through normal browser controls. A sees the contributor
    disposition but not the private reason; B's caller-only history stays empty.
    No public asset exists after rejection, and public projection excludes the
-   source URLs and review reasons. The MCP preview returns stored candidate
-   pixels as native image content for the inspected version. A's MCP approval
-   is refused because A has no review authority. B approves the first image through MCP,
+   source URLs and review reasons. The MCP preview returns the direct upload's
+   stored pixels as native image content for the inspected version. A's MCP approval
+   is refused because A has no review authority. B approves the direct image through MCP,
    replays the same receipt, and the browser and public readback show one public
    asset with `community_submitted` provenance.
 5. The staging-only audit inspector bounds each ledger read to 101 rows for
    the exact run-linked contributor and refuses overflow above 100. It checks
    field allowlists and absence of URL/bearer/image-data markers and the fixture's
    source URLs, private notes, upload tokens and storage keys. It returns only
-   counts and a redaction boolean, requiring two accepted submission audit rows
+   counts and a redaction boolean, requiring one accepted URL-submission audit row
    and recorded denied tool calls. It never returns ledger payloads or removes
    retained audit rows. This is bounded fixture evidence, not a global audit.
 6. Revoking A's grant refuses subsequent authenticated status reads while
    anonymous profile reads remain available.
-7. Cleanup removes only the run's fixture objects and media rows before the
-   existing profile/account cleanup removes its synthetic identities.
+7. Cleanup deletes and HEAD-checks each exact fixture S3 object, releases both
+   upload reservations and their actor, target, deployment and published charges,
+   then removes media rows before the existing profile/account cleanup removes
+   its synthetic identities.
 
 Assigning fixture ownership is setup for media authorization testing. It is
 not evidence that the real claiming process succeeded. Unclaimed-profile
@@ -147,7 +152,9 @@ The fixture is restricted to exact `e2e:<runId>` profile attribution and
 run-linked test email addresses. Cleanup first makes the profile ineligible,
 expires intents and refuses active processing/cleanup leases or legal holds.
 Storage deletion precedes row deletion so a failed object deletion retains
-the metadata needed for recovery. The helper never returns object keys.
+the metadata needed for recovery. The helper never returns object keys. It
+accepts `profile-assets/quarantine/local/<uuid>` only for the exact fixture's
+`mcp_local` intent and refuses reservations belonging to other actors or batches.
 
 Cleanup removes the fixture's operational data, not its historical telemetry.
 The existing `apiWriteAuditEvents` and `mcpToolEvents` ledgers retain synthetic

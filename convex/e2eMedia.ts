@@ -7,6 +7,7 @@ import {
 } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { getProfileBySlug } from "./_profileSlugs";
+import { changeContributionCharge, localUploadModes } from "./_contributionCapacity";
 
 // Deliberately pinned: this fixture has no production override.
 const STAGING_URL = "https://scrupulous-corgi-247.convex.cloud";
@@ -81,7 +82,11 @@ async function rows(ctx: QueryCtx, profileId: Id<"profiles">) {
     )
   )
     throw new Error("Media fixture bound exceeded.");
-  return { intents, submissions, assets, placements, owners };
+  const reservations = (await Promise.all(intents.map((intent) => ctx.db
+    .query("contributionUploadReservations")
+    .withIndex("by_intentId", (q) => q.eq("intentId", intent._id))
+    .unique()))).filter((row) => row !== null);
+  return { intents, submissions, assets, placements, owners, reservations };
 }
 
 export const findFixture = internalQuery({
@@ -103,7 +108,9 @@ export const preflight = internalQuery({
     guard(args.secret);
     if (
       process.env.VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED !== "true" ||
-      process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED !== "true"
+      process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED !== "true" ||
+      !localUploadModes().contributor ||
+      process.env.VRDEX_CONTRIBUTION_INTAKE_PAUSED === "true"
     )
       throw new Error("Media fixture flags are unavailable.");
     return { ready: true };
@@ -163,6 +170,7 @@ export const inspect = internalQuery({
     return {
       counts: {
         intents: data.intents.length,
+        reservations: data.reservations.length,
         submissions: data.submissions.length,
         assets: data.assets.length,
         placements: data.placements.length,
@@ -246,6 +254,9 @@ async function cleanupRows(
   // known to have stopped; age alone cannot make external deletion safe.
   if (
     data.intents.some((i) => i.processingToken !== undefined) ||
+    data.reservations.some((r) => r.processing || r.state === "processing" ||
+      r.processingToken !== undefined || r.signingToken !== undefined ||
+      r.cleanupToken !== undefined || r.cleanupLeaseUntil !== undefined) ||
     data.submissions.some(
       (s) => s.blobCleanupToken !== undefined || s.legalHoldAt !== undefined,
     )
@@ -260,6 +271,16 @@ async function cleanupRows(
       !data.intents.some((i) => i._id === submission.uploadIntentId)
     )
       throw new Error("Unscoped fixture intent.");
+  }
+  for (const reservation of data.reservations) {
+    const actor = await ctx.db.get(reservation.actorUserId);
+    if (reservation.profileId !== profile._id || reservation.mode !== "contributor" ||
+      reservation.batchRevisionId !== undefined || reservation.allowanceId !== undefined ||
+      actor?.email !== `${args.runId}-contributor+clerk_test@e2e.vrdex.net` ||
+      !data.intents.some((intent) => intent._id === reservation.intentId &&
+        data.submissions.some((submission) => submission.uploadIntentId === intent._id &&
+          submission.submitterUserId === reservation.actorUserId)))
+      throw new Error("Non-fixture upload reservation.");
   }
   for (const owner of data.owners) {
     const user = await ctx.db.get(owner.userId);
@@ -289,10 +310,10 @@ async function cleanupRows(
       if (!key) continue;
       if (
         key.includes("..") ||
-        !(
-          key.startsWith(`profile-assets/${date}/${token}/`) ||
-          key.startsWith(`profile-assets/quarantine/${date}/${token}/`)
-        )
+        !(key.startsWith(`profile-assets/${date}/${token}/`) ||
+          key.startsWith(`profile-assets/quarantine/${date}/${token}/`) ||
+          (intent.issuer === "mcp_local" && key === intent.quarantineStorageKey &&
+            /^profile-assets\/quarantine\/local\/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(key)))
       )
         throw new Error("Unscoped fixture storage key.");
       keys.add(key);
@@ -392,6 +413,26 @@ export const finishCleanup = internalMutation({
         JSON.stringify([...new Set(args.deletedStorageKeys)].sort())
     )
       throw new Error("Fixture cleanup changed or was not prepared.");
+    for (const row of data.reservations) {
+      if (row.chargedBytes || row.processing)
+        await changeContributionCharge(ctx.db, row, -row.chargedBytes, row.processing ? -1 : 0);
+      if (row.publishedBytes) {
+        const published = await ctx.db.query("contributionCapacity")
+          .withIndex("by_scope", (q) => q.eq("scope", "published")).unique();
+        if (!published || published.bytes < row.publishedBytes)
+          throw new Error("Fixture published charge is invalid.");
+        await ctx.db.patch(published._id, { bytes: published.bytes - row.publishedBytes });
+      }
+      await ctx.db.delete(row._id);
+    }
+    for (const scope of [
+      ...new Set(data.reservations.flatMap((row) =>
+        [`actor:${row.actorUserId}`, `target:${row.profileId}`, "deployment", "published"])),
+    ]) {
+      const capacity = await ctx.db.query("contributionCapacity")
+        .withIndex("by_scope", (q) => q.eq("scope", scope)).unique();
+      if (capacity?.bytes === 0 && capacity.processing === 0) await ctx.db.delete(capacity._id);
+    }
     for (const row of [
       ...data.placements,
       ...data.assets,
@@ -400,6 +441,6 @@ export const finishCleanup = internalMutation({
       ...data.refusalReceipts,
     ])
       await ctx.db.delete(row._id);
-    return { slug: data.profile.slug, deletedMedia: true };
+    return { slug: data.profile.slug, deletedMedia: true, releasedReservations: data.reservations.length };
   },
 });

@@ -4,6 +4,7 @@ import { convexTest } from "convex-test";
 import { api, internal } from "../../convex/_generated/api";
 import schemaModule from "../../convex/schema";
 import { newClerkUserId } from "./_clerkTestIdentity";
+import { changeContributionCharge } from "../../convex/_contributionCapacity";
 
 const schema =
   (schemaModule as unknown as { default?: typeof schemaModule }).default ??
@@ -28,8 +29,13 @@ function enable() {
     "VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED",
     "VRDEX_PROFILE_MEDIA_DIRECT_UPLOAD_ENABLED",
     "VRDEX_PROFILE_MEDIA_KIT_ENABLED",
+    "VRDEX_CONTRIBUTION_UPLOADS_ENABLED",
+    "VRDEX_MEDIA_UPLOAD_CLEANUP_READY",
   ])
     process.env[key] = "true";
+  process.env.VRDEX_MEDIA_CLEANUP_URL = "https://example.test/api/internal/media-cleanup";
+  process.env.VRDEX_MEDIA_CLEANUP_TOKEN = "test-only";
+  delete process.env.VRDEX_CONTRIBUTION_INTAKE_PAUSED;
 }
 
 async function seed() {
@@ -82,10 +88,25 @@ async function seed() {
       credit: "Fixture credit",
       expectedProfileUpdatedAt: record!.updatedAt,
     });
+  await t.run(async (ctx) => {
+    const reservation = await ctx.db.query("contributionUploadReservations")
+      .withIndex("by_intentId", (q) => q.eq("intentId", intent.intentId)).unique();
+    if (reservation) {
+      await changeContributionCharge(ctx.db, reservation, 0, -1);
+      await ctx.db.patch(reservation._id, { processing: false, state: "failed" });
+    }
+  });
   return { t, args, users, intent };
 }
 
 describe("bounded staging media fixture", () => {
+  it("preflights direct uploads and refuses paused intake before creating accounts", async () => {
+    const { t } = await seed();
+    assert.deepEqual(await t.query(internal.e2eMedia.preflight, { secret }), { ready: true });
+    process.env.VRDEX_CONTRIBUTION_INTAKE_PAUSED = "true";
+    await assert.rejects(t.query(internal.e2eMedia.preflight, { secret }), /flags are unavailable/);
+    enable();
+  });
   it("checks only the run contributor's bounded audit rows without returning identifiers", async () => {
     const { t, args, users } = await seed();
     const event = {
@@ -317,6 +338,50 @@ describe("bounded staging media fixture", () => {
     assert.equal(await t.run((ctx) => ctx.db.get(intent.intentId)), null);
     assert.equal(await t.run((ctx) => ctx.db.get(intent.submissionId)), null);
     assert.ok(await t.run((ctx) => ctx.db.get(args.profileId)));
+  });
+
+  it("removes a completed local fixture upload, its exact S3 keys, and every capacity charge", async () => {
+    const { t, args, intent, users } = await seed();
+    const quarantineStorageKey = "profile-assets/quarantine/local/123e4567-e89b-42d3-a456-426614174000";
+    const reservationId = await t.run(async (ctx) => {
+      await ctx.db.patch(intent.intentId, { issuer: "mcp_local", quarantineStorageKey });
+      const reservation = (await ctx.db.query("contributionUploadReservations").first())!;
+      await changeContributionCharge(ctx.db, reservation, 476 - reservation.chargedBytes, 0);
+      await ctx.db.patch(reservation._id, {
+        chargedBytes: 476, quarantineBytes: 476, publishedBytes: 200, state: "committed",
+      });
+      await ctx.db.insert("contributionCapacity", { scope: "published", bytes: 200, processing: 0 });
+      await ctx.db.insert("contributionCapacity", { scope: `actor:${users.reviewerId}`, bytes: 12, processing: 0 });
+      return reservation._id;
+    });
+    const prepared = await t.mutation(internal.e2eMedia.prepareCleanup, args);
+    assert.ok(prepared.storageKeys.includes(quarantineStorageKey));
+    await t.mutation(internal.e2eMedia.finishCleanup, { ...args, deletedStorageKeys: prepared.storageKeys });
+    assert.equal(await t.run((ctx) => ctx.db.get(reservationId)), null);
+    assert.deepEqual(
+      (await t.run((ctx) => ctx.db.query("contributionCapacity").collect())).map((row) => [row.scope, row.bytes, row.processing]),
+      [[`actor:${users.reviewerId}`, 12, 0]],
+    );
+  });
+
+  it("refuses unscoped local keys, non-fixture reservations, and active upload leases", async () => {
+    const { t, args, intent, users } = await seed();
+    const reservationId = await t.run(async (ctx) => {
+      await ctx.db.patch(intent.intentId, {
+        issuer: "mcp_local", quarantineStorageKey: "profile-assets/quarantine/local/not-a-uuid",
+      });
+      return (await ctx.db.query("contributionUploadReservations").first())!._id;
+    });
+    await assert.rejects(t.mutation(internal.e2eMedia.prepareCleanup, args), /Unscoped fixture storage key/);
+    await t.run((ctx) => ctx.db.patch(intent.intentId, {
+      quarantineStorageKey: "profile-assets/quarantine/local/123e4567-e89b-42d3-a456-426614174000",
+    }));
+    await t.run((ctx) => ctx.db.patch(reservationId, { actorUserId: users.reviewerId }));
+    await assert.rejects(t.mutation(internal.e2eMedia.prepareCleanup, args), /Non-fixture upload reservation/);
+    await t.run((ctx) => ctx.db.patch(reservationId, { actorUserId: users.contributorId, cleanupToken: "worker" }));
+    await assert.rejects(t.mutation(internal.e2eMedia.prepareCleanup, args), /active storage work/);
+    await t.run((ctx) => ctx.db.patch(reservationId, { cleanupToken: undefined, processing: true }));
+    await assert.rejects(t.mutation(internal.e2eMedia.prepareCleanup, args), /active storage work/);
   });
 
   it("does not expose storage credentials or private proposal data in inspection", async () => {

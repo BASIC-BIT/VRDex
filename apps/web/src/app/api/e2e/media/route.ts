@@ -4,6 +4,7 @@ import type { Id } from "../../../../../../../convex/_generated/dataModel";
 import { convexAdminHttpClient } from "@/lib/server/convex-http";
 import {
   deleteProfileAssetObjects,
+  headProfileAssetObject,
   isProfileAssetStorageConfigured,
 } from "@/lib/server/profile-asset-storage";
 
@@ -96,10 +97,12 @@ async function execute(request: NextRequest, cleanup: boolean) {
         args,
       );
       if (prepared.profileMissing) {
-        return NextResponse.json({ deleted: true, deletedMedia: true });
+        return NextResponse.json({ deleted: true, deletedMedia: true, alreadyDeleted: true });
       }
       if (prepared.storageKeys.length)
         await deleteProfileAssetObjects(prepared.storageKeys);
+      for (const key of prepared.storageKeys)
+        if (await headProfileAssetObject(key)) throw new Error("Fixture object remains after deletion.");
       const finished = await client.mutation(internal.e2eMedia.finishCleanup, {
         ...args,
         deletedStorageKeys: prepared.storageKeys,
@@ -111,6 +114,8 @@ async function execute(request: NextRequest, cleanup: boolean) {
       return NextResponse.json({
         deleted: result.deleted,
         deletedMedia: finished.deletedMedia,
+        deletedObjects: prepared.storageKeys.length,
+        releasedReservations: finished.releasedReservations,
       });
     }
     if (body.op === "inspect")
