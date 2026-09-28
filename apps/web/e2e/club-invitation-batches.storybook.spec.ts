@@ -65,6 +65,7 @@ test("staff can load older pending invitations past the first hundred @storybook
   await page.goto("/iframe.html?id=clubs-workspace--staff-invitations&viewMode=story");
   const revoke = page.getByRole("button", { name: "Revoke invitation" });
   await expect(revoke).toHaveCount(50);
+  await page.clock.setFixedTime(new Date(Date.now() + 8 * 86400_000));
   await page.getByRole("button", { name: "Load more invitations" }).click();
   await expect(revoke).toHaveCount(100);
   await page.getByRole("button", { name: "Load more invitations" }).click();

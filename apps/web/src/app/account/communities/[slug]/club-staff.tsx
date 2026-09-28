@@ -400,11 +400,6 @@ export function ClubStaffView({
         ) : (
           <div className="mt-3 grid gap-3">
             {invitations.results.map((invitation) => {
-              const state =
-                invitation.state === "pending" &&
-                invitation.expiresAt <= Date.now()
-                  ? "expired"
-                  : invitation.state;
               const canRevoke =
                 owner ||
                 invitation.createdBySubject.tokenIdentifier ===
@@ -422,11 +417,11 @@ export function ClubStaffView({
                         .join(", ")}
                     </span>
                     <p className="mt-1 text-xs text-muted">
-                      {state} ·{" "}
+                      {invitation.state} ·{" "}
                       {new Date(invitation.expiresAt).toLocaleDateString()}
                     </p>
                   </div>
-                  {state === "pending" && canRevoke ? (
+                  {invitation.state === "pending" && canRevoke ? (
                     <Button
                       size="sm"
                       disabled={busy}

@@ -1977,6 +1977,46 @@ it("pending bulk recipient edits cannot duplicate pending or completed siblings"
   });
 });
 
+it("role batches reject mixed-case provider role duplicates on enqueue and edit", async () => {
+  const s = await setup();
+  await s.t.run((ctx) =>
+    ctx.db.patch(s.integrationId, { enabledFeatures: ["membership_management"] }),
+  );
+  const targetUserId = "usr_aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+  const roleId = "grol_aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+  const otherRoleId = "grol_bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+  const upperRoleId = roleId.toUpperCase().replace("GROL", "grol");
+  const schedule = { kind: "fixed" as const, dueAt: Date.now() + 3600000 };
+  for (const kind of ["assign_role", "remove_role"] as const) {
+    const args = {
+      communityProfileId: s.communityProfileId,
+      payloads: [
+        { kind, targetUserId, roleId },
+        { kind, targetUserId, roleId: upperRoleId },
+      ],
+      schedule,
+    };
+    await assert.rejects(
+      s.owner.mutation(ref("enqueue"), { ...args, requestId: `duplicate_${kind}` }),
+      /Duplicate recipient/,
+    );
+    const [, secondId] = await s.owner.mutation(ref("enqueue"), {
+      ...args,
+      requestId: `edit_${kind}`,
+      payloads: [args.payloads[0], { ...args.payloads[1], roleId: otherRoleId }],
+    });
+    await assert.rejects(
+      s.owner.mutation(ref("edit"), {
+        operationId: secondId,
+        expectedRevision: 1,
+        payload: { kind, targetUserId, roleId: upperRoleId },
+        schedule,
+      }),
+      /Duplicate recipient/,
+    );
+  }
+});
+
 it("unpublished event schedules require event-management authority on enqueue and edit", async () => {
   const s = await setup();
   const staffSubject = {

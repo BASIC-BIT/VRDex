@@ -191,7 +191,7 @@ function batchPayloadKey(payload: OperationPayload) {
   return JSON.stringify(
     Object.entries(payload)
       .map(([key, value]) =>
-        [key, key === "targetUserId" ? String(value).toLowerCase() : value],
+        [key, key === "targetUserId" || key === "roleId" ? String(value).toLowerCase() : value],
       )
       .sort(([left], [right]) => String(left).localeCompare(String(right))),
   );
