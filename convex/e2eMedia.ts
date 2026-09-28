@@ -8,6 +8,7 @@ import {
 import type { Id } from "./_generated/dataModel";
 import { getProfileBySlug } from "./_profileSlugs";
 import { changeContributionCharge, localUploadModes } from "./_contributionCapacity";
+import { failReservation } from "./contributionUploads";
 
 // Deliberately pinned: this fixture has no production override.
 const STAGING_URL = "https://scrupulous-corgi-247.convex.cloud";
@@ -93,6 +94,14 @@ async function rows(ctx: QueryCtx, profileId: Id<"profiles">) {
     .withIndex("by_intentId", (q) => q.eq("intentId", intent._id))
     .unique()))).filter((row) => row !== null);
   return { intents, submissions, assets, placements, owners, reservations };
+}
+
+function pendingFixtureUpload(data: Awaited<ReturnType<typeof rows>>,
+  row: (Awaited<ReturnType<typeof rows>>)["reservations"][number]) {
+  return row.state === "pending" && row.processing &&
+    row.processingToken === undefined && row.signingToken === undefined &&
+    row.cleanupToken === undefined && row.cleanupLeaseUntil === undefined &&
+    data.intents.some((intent) => intent._id === row.intentId && intent.issuer === "mcp_local");
 }
 
 export const findFixture = internalQuery({
@@ -301,6 +310,7 @@ export const inspectAudit = internalQuery({
 async function cleanupRows(
   ctx: QueryCtx,
   args: { secret: string; runId: string; profileId: Id<"profiles"> },
+  allowPendingLocal = false,
 ) {
   const profile = await fixture(ctx, args);
   const data = await rows(ctx, profile._id);
@@ -309,7 +319,8 @@ async function cleanupRows(
   // known to have stopped; age alone cannot make external deletion safe.
   if (
     data.intents.some((i) => i.processingToken !== undefined) ||
-    data.reservations.some((r) => r.processing || r.state === "processing" ||
+    data.reservations.some((r) => (r.processing &&
+      !(allowPendingLocal && pendingFixtureUpload(data, r))) || r.state === "processing" ||
       r.processingToken !== undefined || r.signingToken !== undefined ||
       r.cleanupToken !== undefined || r.cleanupLeaseUntil !== undefined) ||
     data.submissions.some(
@@ -424,8 +435,12 @@ export const prepareCleanup = internalMutation({
       }
       return { storageKeys: [], profileMissing: true };
     }
-    const data = await cleanupRows(ctx, args);
+    const data = await cleanupRows(ctx, args, true);
     const now = Date.now();
+    const safeDeleteAfter = signedTransferSafeAfter(data.intents);
+    if (now >= safeDeleteAfter)
+      for (const row of data.reservations)
+        if (pendingFixtureUpload(data, row)) await failReservation(ctx, row, "UPLOAD_EXPIRED");
     // Freeze new submissions and ordinary owner authority before any external IO.
     await ctx.db.patch(args.profileId, {
       publicationState: "draft_private",
@@ -453,8 +468,7 @@ export const prepareCleanup = internalMutation({
         expiresAt: now - 1,
         updatedAt: now,
       });
-    return { storageKeys: data.storageKeys, profileMissing: false,
-      safeDeleteAfter: signedTransferSafeAfter(data.intents) };
+    return { storageKeys: data.storageKeys, profileMissing: false, safeDeleteAfter };
   },
 });
 

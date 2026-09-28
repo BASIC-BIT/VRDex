@@ -304,6 +304,7 @@ test("contributor A submits and different owner B reviews media @media-lifecycle
   expect(target.transfer.fileField).toBe("file");
   expect(new URL(target.transfer.url).protocol).toBe("https:");
   expect(target.expiresAt).toBeGreaterThan(Date.now());
+  fixture.expiringTransfer = { ...target.transfer, image }; // Recover even if transport or completion fails.
   const transfer = await request.post(target.transfer.url, {
     multipart: {
       ...target.transfer.fields,
@@ -316,7 +317,6 @@ test("contributor A submits and different owner B reviews media @media-lifecycle
   });
   expect(completed.operationState).toBe("committed");
   expect(completed.resourceId).toBeTruthy();
-  fixture.expiringTransfer = { ...target.transfer, image };
   expect(await call<UploadReceipt>(request, authA.access_token, "vrdex_media_upload_complete", {
     intentId: target.intentId, idempotencyKey: directKey,
   })).toEqual(completed);
