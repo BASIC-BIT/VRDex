@@ -54,6 +54,10 @@ export type ApiWriteAuditResourceType =
   | "profile_media_submission";
 
 export const mcpWriteToolNameValidator = v.union(
+  v.literal("vrdex_event_intake_draft_save"), v.literal("vrdex_event_intake_extract"),
+  v.literal("vrdex_event_intake_publish"), v.literal("vrdex_event_intake_poster_upload_begin"),
+  v.literal("vrdex_event_intake_poster_upload_complete"), v.literal("vrdex_event_intake_artwork_select"),
+  v.literal("vrdex_event_intake_event_update"), v.literal("vrdex_event_intake_event_retract"),
   v.literal("vrdex_event_create"),
   v.literal("vrdex_event_update"),
   v.literal("vrdex_profile_update"),
@@ -82,6 +86,9 @@ export const mcpWriteToolNameValidator = v.union(
 );
 
 export type McpWriteToolName =
+  | "vrdex_event_intake_draft_save" | "vrdex_event_intake_extract" | "vrdex_event_intake_publish"
+  | "vrdex_event_intake_poster_upload_begin" | "vrdex_event_intake_poster_upload_complete"
+  | "vrdex_event_intake_artwork_select" | "vrdex_event_intake_event_update" | "vrdex_event_intake_event_retract"
   | "vrdex_event_create"
   | "vrdex_event_update"
   | "vrdex_profile_update"

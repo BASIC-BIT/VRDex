@@ -1,4 +1,5 @@
 import { fromJsonSchema, McpServer } from "@modelcontextprotocol/server";
+import { eventIntakeOperations, EventPosterBytesSchema, type EventIntakeOperation } from "@vrdex/api-contracts";
 import {
   ApiEventCreateRequestSchema,
   ApiEventUpdateRequestSchema,
@@ -191,6 +192,35 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     name: "vrdex",
     version: "0.5.0",
   });
+  if (config.bearerToken) {
+    for (const operation of Object.keys(eventIntakeOperations) as EventIntakeOperation[]) {
+      const contract = eventIntakeOperations[operation];
+      server.registerTool(`vrdex_event_intake_${operation}`, {
+        title: `Event intake ${operation.replaceAll("_", " ")}`,
+        inputSchema: fromJsonSchema<Record<string, unknown>>(mcpOutputJsonSchemaForZodSchema(contract.input)), outputSchema: mcpOutputSchema<Record<string, unknown>>(contract.output),
+        annotations: { readOnlyHint: operation === "draft_get", destructiveHint: operation === "event_retract", idempotentHint: operation === "draft_get" || operation === "publish" },
+      }, async input => {
+        try {
+          const result = await apiClient.eventIntake(operation, input);
+          return result.ok ? mcpJsonResult<Record<string, unknown>>(contract.output, result.data, config.outputMode) : mcpApiError(result);
+        } catch {
+          return { isError: true, content: [{ type: "text" as const, text: "Event intake response unavailable. Read the draft before retrying; replay publication with the same version and idempotency key." }] };
+        }
+      });
+    }
+
+    server.registerTool("vrdex_event_intake_poster_upload_bytes", {
+      title: "Upload event poster bytes", inputSchema: EventPosterBytesSchema,
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+    }, async input => {
+      try {
+        const result = await apiClient.uploadEventPosterBytes(input);
+        return result.ok ? mcpJsonResult(eventIntakeOperations.poster_upload_complete.output, result.data, config.outputMode) : mcpApiError(result);
+      } catch {
+        return { isError: true, content: [{ type: "text" as const, text: "Poster upload failed. Supply PNG, JPEG, or WebP bytes and configure the upload origin." }] };
+      }
+    });
+  }
 
   server.registerTool(
     "vrdex_search",

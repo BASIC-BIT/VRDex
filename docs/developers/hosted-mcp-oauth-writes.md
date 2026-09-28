@@ -12,7 +12,7 @@ candidates until same-branch preview and staging evidence is complete and
 BASIC explicitly approves the exact candidate for production. Because there is
 no MCP-only switch, merge or production promotion is the enablement decision.
 
-Six write tools are registered: `vrdex_event_create`, `vrdex_event_update`,
+The owner/profile write tools include `vrdex_event_create`, `vrdex_event_update`,
 `vrdex_profile_update`, `vrdex_profile_submit`, `vrdex_profile_media_manage`,
 and `vrdex_profile_media_submit`. The last is the Issue 297 candidate: it is
 listed unconditionally, so merge or production promotion is its enablement,
@@ -23,6 +23,14 @@ and the credentialed local stdio bridge are unaffected. Profile media management
 is hosted-only in this slice.
 
 ## Scopes
+
+Event intake adds the distinct `events:contribute` grant to personal API tokens,
+OAuth registration, consent, and dynamic MCP clients. Hosted intake writes need
+`mcp:write events:contribute`; private draft readback needs
+`mcp:read events:contribute`. Missing grants produce an OAuth scope challenge.
+The credential must represent a user. No verified-email gate is added, and the
+scope cannot authorize owner `vrdex_event_create` or `vrdex_event_update` tools.
+See [event intake tools and replay](./vrdex-mcp-event-writes.md#contribution-intake).
 
 `mcp:write` is the transport half and grants nothing alone -- it says a hosted
 session may call write tools at all, not which ones. A client pairs it with the

@@ -1,5 +1,37 @@
 # Convex Environments
 
+## Event intake adapter configuration
+
+Deploy the web adapters and same-branch Convex intake commands together. Web
+requires `CONVEX_URL` or `NEXT_PUBLIC_CONVEX_URL` and its existing server-only
+`CONVEX_ADMIN_TOKEN`, `CONVEX_DEPLOY_KEY`, or `CONVEX_SELF_HOSTED_ADMIN_KEY`.
+Operators own these credentials; recreate or rotate them using the target's
+Convex deployment settings and replace the web secret before revoking the old
+value. Do not expose an admin credential to MCP clients.
+
+Personal-token validation retains `VRDEX_API_TOKEN_PEPPER`; hosted OAuth retains
+`VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY` and `VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KID`.
+The deployment operator maintains and rotates these through the existing API
+and OAuth secret configuration. Event contribution adds no separate secret or
+verified-email requirement.
+
+Poster operations use the existing private S3 bucket, region, and IAM role.
+The local MCP bytes helper additionally requires the non-secret
+`VRDEX_EVENT_POSTER_UPLOAD_ORIGIN`, set to that deployment's exact HTTPS upload
+origin. It accepts explicit image bytes, never a path or remote source URL, and
+refuses redirects or an origin mismatch.
+
+`OPENAI_API_KEY`, `VRDEX_EVENT_INTAKE_AI_ENABLED`, and `VRDEX_EVENT_INTAKE_MODEL`
+settings belong to the web server; spam settings belong to Convex. Both model
+paths remain off by default. The private cleanup worker needs its existing
+`VRDEX_MEDIA_CLEANUP_TOKEN` on both ends. Exact defaults, ownership, retention,
+and secret recreation are documented in
+[event intake sources](../backend/event-intake-sources.md). Self-hosters can
+save, edit, and publish manually without model credentials or poster storage.
+
+No hosted write, deployment, migration, model call, or production storage test
+is implied by the local adapter tests.
+
 ## Locked Decision
 
 VRDex keeps four Convex execution targets separate:

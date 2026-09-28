@@ -32,6 +32,2407 @@ tags:
   - name: Developer
     description: Authenticated developer credential-management surfaces.
 paths:
+  /api/v0/event-intake:
+    post:
+      operationId: eventIntake_draft_save
+      tags: &a4
+        - Events
+      summary: Event intake draft save
+      description: Requires a user-scoped credential with events:contribute. No verified-email or community ownership requirement. Publication retries must preserve draftId, expectedVersion, and idempotencyKey.
+      security: &a5
+        - bearerAuth: []
+        - oauth2:
+            - events:contribute
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                draftId:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+                expectedVersion:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+                patch:
+                  type: object
+                  properties:
+                    communitySlug:
+                      anyOf:
+                        - type: string
+                          maxLength: 64
+                        - type: "null"
+                    title:
+                      anyOf:
+                        - type: string
+                          maxLength: 120
+                        - type: "null"
+                    eventDate:
+                      anyOf:
+                        - type: string
+                          maxLength: 10
+                        - type: "null"
+                    timeTba:
+                      anyOf:
+                        - type: boolean
+                        - type: "null"
+                    timezone:
+                      anyOf:
+                        - type: string
+                          maxLength: 64
+                        - type: "null"
+                    start:
+                      anyOf:
+                        - type: object
+                          properties:
+                            time:
+                              type: string
+                              pattern: ^([01]\d|2[0-3]):[0-5]\d$
+                            dayOffset:
+                              type: integer
+                              minimum: -1
+                              maximum: 7
+                            occurrence:
+                              type: string
+                              enum:
+                                - earlier
+                                - later
+                          required:
+                            - time
+                          additionalProperties: false
+                        - type: "null"
+                    end:
+                      anyOf:
+                        - type: object
+                          properties:
+                            time:
+                              type: string
+                              pattern: ^([01]\d|2[0-3]):[0-5]\d$
+                            dayOffset:
+                              type: integer
+                              minimum: -1
+                              maximum: 7
+                            occurrence:
+                              type: string
+                              enum:
+                                - earlier
+                                - later
+                          required:
+                            - time
+                          additionalProperties: false
+                        - type: "null"
+                    doors:
+                      anyOf:
+                        - type: object
+                          properties:
+                            time:
+                              type: string
+                              pattern: ^([01]\d|2[0-3]):[0-5]\d$
+                            dayOffset:
+                              type: integer
+                              minimum: -1
+                              maximum: 7
+                            occurrence:
+                              type: string
+                              enum:
+                                - earlier
+                                - later
+                          required:
+                            - time
+                          additionalProperties: false
+                        - type: "null"
+                    venueLabel:
+                      anyOf:
+                        - type: string
+                          maxLength: 120
+                        - type: "null"
+                    summary:
+                      anyOf:
+                        - type: string
+                          maxLength: 240
+                        - type: "null"
+                    sourceUrl:
+                      anyOf:
+                        - type: string
+                          maxLength: 2048
+                        - type: "null"
+                    worldSlug:
+                      anyOf:
+                        - type: string
+                          maxLength: 64
+                        - type: "null"
+                    sourceText:
+                      anyOf:
+                        - type: string
+                          maxLength: 12000
+                        - type: "null"
+                    posterSourceId:
+                      anyOf:
+                        - type: string
+                          maxLength: 200
+                        - type: "null"
+                    lineup:
+                      anyOf:
+                        - maxItems: 80
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              clientKey:
+                                type: string
+                                minLength: 1
+                                maxLength: 120
+                              position:
+                                type: integer
+                                minimum: 0
+                                maximum: 79
+                              performerLabel:
+                                anyOf:
+                                  - type: string
+                                    maxLength: 120
+                                  - type: "null"
+                              personSlug:
+                                anyOf:
+                                  - type: string
+                                    maxLength: 64
+                                  - type: "null"
+                              roleLabel:
+                                anyOf:
+                                  - type: string
+                                    maxLength: 48
+                                  - type: "null"
+                              start:
+                                anyOf:
+                                  - type: object
+                                    properties:
+                                      time:
+                                        type: string
+                                        pattern: ^([01]\d|2[0-3]):[0-5]\d$
+                                      dayOffset:
+                                        type: integer
+                                        minimum: -1
+                                        maximum: 7
+                                      occurrence:
+                                        type: string
+                                        enum:
+                                          - earlier
+                                          - later
+                                    required:
+                                      - time
+                                    additionalProperties: false
+                                  - type: "null"
+                              end:
+                                anyOf:
+                                  - type: object
+                                    properties:
+                                      time:
+                                        type: string
+                                        pattern: ^([01]\d|2[0-3]):[0-5]\d$
+                                      dayOffset:
+                                        type: integer
+                                        minimum: -1
+                                        maximum: 7
+                                      occurrence:
+                                        type: string
+                                        enum:
+                                          - earlier
+                                          - later
+                                    required:
+                                      - time
+                                    additionalProperties: false
+                                  - type: "null"
+                            required:
+                              - clientKey
+                              - position
+                            additionalProperties: false
+                        - type: "null"
+                    tentative:
+                      anyOf:
+                        - type: object
+                          properties:
+                            communitySlug:
+                              anyOf:
+                                - type: string
+                                  maxLength: 64
+                                - type: "null"
+                            title:
+                              anyOf:
+                                - type: string
+                                  maxLength: 120
+                                - type: "null"
+                            eventDate:
+                              anyOf:
+                                - type: string
+                                  maxLength: 10
+                                - type: "null"
+                            timeTba:
+                              anyOf:
+                                - type: boolean
+                                - type: "null"
+                            timezone:
+                              anyOf:
+                                - type: string
+                                  maxLength: 64
+                                - type: "null"
+                            start:
+                              anyOf:
+                                - type: object
+                                  properties:
+                                    time:
+                                      type: string
+                                      pattern: ^([01]\d|2[0-3]):[0-5]\d$
+                                    dayOffset:
+                                      type: integer
+                                      minimum: -1
+                                      maximum: 7
+                                    occurrence:
+                                      type: string
+                                      enum:
+                                        - earlier
+                                        - later
+                                  required:
+                                    - time
+                                  additionalProperties: false
+                                - type: "null"
+                            end:
+                              anyOf:
+                                - type: object
+                                  properties:
+                                    time:
+                                      type: string
+                                      pattern: ^([01]\d|2[0-3]):[0-5]\d$
+                                    dayOffset:
+                                      type: integer
+                                      minimum: -1
+                                      maximum: 7
+                                    occurrence:
+                                      type: string
+                                      enum:
+                                        - earlier
+                                        - later
+                                  required:
+                                    - time
+                                  additionalProperties: false
+                                - type: "null"
+                            doors:
+                              anyOf:
+                                - type: object
+                                  properties:
+                                    time:
+                                      type: string
+                                      pattern: ^([01]\d|2[0-3]):[0-5]\d$
+                                    dayOffset:
+                                      type: integer
+                                      minimum: -1
+                                      maximum: 7
+                                    occurrence:
+                                      type: string
+                                      enum:
+                                        - earlier
+                                        - later
+                                  required:
+                                    - time
+                                  additionalProperties: false
+                                - type: "null"
+                            venueLabel:
+                              anyOf:
+                                - type: string
+                                  maxLength: 120
+                                - type: "null"
+                            summary:
+                              anyOf:
+                                - type: string
+                                  maxLength: 240
+                                - type: "null"
+                            sourceUrl:
+                              anyOf:
+                                - type: string
+                                  maxLength: 2048
+                                - type: "null"
+                            worldSlug:
+                              anyOf:
+                                - type: string
+                                  maxLength: 64
+                                - type: "null"
+                            sourceText:
+                              anyOf:
+                                - type: string
+                                  maxLength: 12000
+                                - type: "null"
+                            posterSourceId:
+                              anyOf:
+                                - type: string
+                                  maxLength: 200
+                                - type: "null"
+                            lineup:
+                              anyOf:
+                                - maxItems: 80
+                                  type: array
+                                  items:
+                                    type: object
+                                    properties:
+                                      clientKey:
+                                        type: string
+                                        minLength: 1
+                                        maxLength: 120
+                                      position:
+                                        type: integer
+                                        minimum: 0
+                                        maximum: 79
+                                      performerLabel:
+                                        anyOf:
+                                          - type: string
+                                            maxLength: 120
+                                          - type: "null"
+                                      personSlug:
+                                        anyOf:
+                                          - type: string
+                                            maxLength: 64
+                                          - type: "null"
+                                      roleLabel:
+                                        anyOf:
+                                          - type: string
+                                            maxLength: 48
+                                          - type: "null"
+                                      start:
+                                        anyOf:
+                                          - type: object
+                                            properties:
+                                              time:
+                                                type: string
+                                                pattern: ^([01]\d|2[0-3]):[0-5]\d$
+                                              dayOffset:
+                                                type: integer
+                                                minimum: -1
+                                                maximum: 7
+                                              occurrence:
+                                                type: string
+                                                enum:
+                                                  - earlier
+                                                  - later
+                                            required:
+                                              - time
+                                            additionalProperties: false
+                                          - type: "null"
+                                      end:
+                                        anyOf:
+                                          - type: object
+                                            properties:
+                                              time:
+                                                type: string
+                                                pattern: ^([01]\d|2[0-3]):[0-5]\d$
+                                              dayOffset:
+                                                type: integer
+                                                minimum: -1
+                                                maximum: 7
+                                              occurrence:
+                                                type: string
+                                                enum:
+                                                  - earlier
+                                                  - later
+                                            required:
+                                              - time
+                                            additionalProperties: false
+                                          - type: "null"
+                                    required:
+                                      - clientKey
+                                      - position
+                                    additionalProperties: false
+                                - type: "null"
+                          additionalProperties: false
+                        - type: "null"
+                    questions:
+                      anyOf:
+                        - maxItems: 20
+                          type: array
+                          items:
+                            type: string
+                            maxLength: 500
+                        - type: "null"
+                    duplicateAcknowledgements:
+                      anyOf:
+                        - maxItems: 100
+                          type: array
+                          items:
+                            type: string
+                            minLength: 1
+                            maxLength: 200
+                        - type: "null"
+                  additionalProperties: false
+              required:
+                - patch
+              additionalProperties: false
+      responses:
+        "200": &a6
+          description: Actor-scoped result.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  draftId:
+                    type: string
+                    minLength: 1
+                    maxLength: 200
+                  version:
+                    type: integer
+                    exclusiveMinimum: 0
+                    maximum: 9007199254740991
+                required:
+                  - draftId
+                  - version
+                additionalProperties: false
+        "400": &a1
+          description: The request was malformed or used an unsupported bearer-token location.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "401": &a7
+          description: User credential required.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "403": &a8
+          description: Missing scope or actor authority.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "404": &a2
+          description: The requested public resource was not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "409": &a9
+          description: Stale version, changed idempotency input, or staff takeover.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "429": &a3
+          description: The request exceeded a rate limit.
+          headers:
+            Retry-After:
+              description: Delay in seconds before retrying.
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "503": &a10
+          description: Response unavailable; read the draft before retrying and preserve the publication key and version.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+  /api/v0/event-intake/{draftId}:
+    get:
+      operationId: eventIntake_draft_get
+      tags:
+        - Events
+      summary: Event intake draft get
+      description: Requires a user-scoped credential with events:contribute. No verified-email or community ownership requirement. Publication retries must preserve draftId, expectedVersion, and idempotencyKey.
+      security:
+        - bearerAuth: []
+        - oauth2:
+            - events:contribute
+      parameters:
+        - name: draftId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Actor-scoped result.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  draftId:
+                    type: string
+                    minLength: 1
+                    maxLength: 200
+                  version:
+                    type: integer
+                    exclusiveMinimum: 0
+                    maximum: 9007199254740991
+                  fields:
+                    type: object
+                    properties:
+                      communitySlug:
+                        anyOf:
+                          - type: string
+                            maxLength: 64
+                          - type: "null"
+                      title:
+                        anyOf:
+                          - type: string
+                            maxLength: 120
+                          - type: "null"
+                      eventDate:
+                        anyOf:
+                          - type: string
+                            maxLength: 10
+                          - type: "null"
+                      timeTba:
+                        anyOf:
+                          - type: boolean
+                          - type: "null"
+                      timezone:
+                        anyOf:
+                          - type: string
+                            maxLength: 64
+                          - type: "null"
+                      start:
+                        anyOf:
+                          - type: object
+                            properties:
+                              time:
+                                type: string
+                                pattern: ^([01]\d|2[0-3]):[0-5]\d$
+                              dayOffset:
+                                type: integer
+                                minimum: -1
+                                maximum: 7
+                              occurrence:
+                                type: string
+                                enum:
+                                  - earlier
+                                  - later
+                            required:
+                              - time
+                            additionalProperties: false
+                          - type: "null"
+                      end:
+                        anyOf:
+                          - type: object
+                            properties:
+                              time:
+                                type: string
+                                pattern: ^([01]\d|2[0-3]):[0-5]\d$
+                              dayOffset:
+                                type: integer
+                                minimum: -1
+                                maximum: 7
+                              occurrence:
+                                type: string
+                                enum:
+                                  - earlier
+                                  - later
+                            required:
+                              - time
+                            additionalProperties: false
+                          - type: "null"
+                      doors:
+                        anyOf:
+                          - type: object
+                            properties:
+                              time:
+                                type: string
+                                pattern: ^([01]\d|2[0-3]):[0-5]\d$
+                              dayOffset:
+                                type: integer
+                                minimum: -1
+                                maximum: 7
+                              occurrence:
+                                type: string
+                                enum:
+                                  - earlier
+                                  - later
+                            required:
+                              - time
+                            additionalProperties: false
+                          - type: "null"
+                      venueLabel:
+                        anyOf:
+                          - type: string
+                            maxLength: 120
+                          - type: "null"
+                      summary:
+                        anyOf:
+                          - type: string
+                            maxLength: 240
+                          - type: "null"
+                      sourceUrl:
+                        anyOf:
+                          - type: string
+                            maxLength: 2048
+                          - type: "null"
+                      worldSlug:
+                        anyOf:
+                          - type: string
+                            maxLength: 64
+                          - type: "null"
+                      sourceText:
+                        anyOf:
+                          - type: string
+                            maxLength: 12000
+                          - type: "null"
+                      posterSourceId:
+                        anyOf:
+                          - type: string
+                            maxLength: 200
+                          - type: "null"
+                      lineup:
+                        anyOf:
+                          - maxItems: 80
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                clientKey:
+                                  type: string
+                                  minLength: 1
+                                  maxLength: 120
+                                position:
+                                  type: integer
+                                  minimum: 0
+                                  maximum: 79
+                                performerLabel:
+                                  anyOf:
+                                    - type: string
+                                      maxLength: 120
+                                    - type: "null"
+                                personSlug:
+                                  anyOf:
+                                    - type: string
+                                      maxLength: 64
+                                    - type: "null"
+                                roleLabel:
+                                  anyOf:
+                                    - type: string
+                                      maxLength: 48
+                                    - type: "null"
+                                start:
+                                  anyOf:
+                                    - type: object
+                                      properties:
+                                        time:
+                                          type: string
+                                          pattern: ^([01]\d|2[0-3]):[0-5]\d$
+                                        dayOffset:
+                                          type: integer
+                                          minimum: -1
+                                          maximum: 7
+                                        occurrence:
+                                          type: string
+                                          enum:
+                                            - earlier
+                                            - later
+                                      required:
+                                        - time
+                                      additionalProperties: false
+                                    - type: "null"
+                                end:
+                                  anyOf:
+                                    - type: object
+                                      properties:
+                                        time:
+                                          type: string
+                                          pattern: ^([01]\d|2[0-3]):[0-5]\d$
+                                        dayOffset:
+                                          type: integer
+                                          minimum: -1
+                                          maximum: 7
+                                        occurrence:
+                                          type: string
+                                          enum:
+                                            - earlier
+                                            - later
+                                      required:
+                                        - time
+                                      additionalProperties: false
+                                    - type: "null"
+                              required:
+                                - clientKey
+                                - position
+                              additionalProperties: false
+                          - type: "null"
+                      tentative:
+                        anyOf:
+                          - type: object
+                            properties:
+                              communitySlug:
+                                anyOf:
+                                  - type: string
+                                    maxLength: 64
+                                  - type: "null"
+                              title:
+                                anyOf:
+                                  - type: string
+                                    maxLength: 120
+                                  - type: "null"
+                              eventDate:
+                                anyOf:
+                                  - type: string
+                                    maxLength: 10
+                                  - type: "null"
+                              timeTba:
+                                anyOf:
+                                  - type: boolean
+                                  - type: "null"
+                              timezone:
+                                anyOf:
+                                  - type: string
+                                    maxLength: 64
+                                  - type: "null"
+                              start:
+                                anyOf:
+                                  - type: object
+                                    properties:
+                                      time:
+                                        type: string
+                                        pattern: ^([01]\d|2[0-3]):[0-5]\d$
+                                      dayOffset:
+                                        type: integer
+                                        minimum: -1
+                                        maximum: 7
+                                      occurrence:
+                                        type: string
+                                        enum:
+                                          - earlier
+                                          - later
+                                    required:
+                                      - time
+                                    additionalProperties: false
+                                  - type: "null"
+                              end:
+                                anyOf:
+                                  - type: object
+                                    properties:
+                                      time:
+                                        type: string
+                                        pattern: ^([01]\d|2[0-3]):[0-5]\d$
+                                      dayOffset:
+                                        type: integer
+                                        minimum: -1
+                                        maximum: 7
+                                      occurrence:
+                                        type: string
+                                        enum:
+                                          - earlier
+                                          - later
+                                    required:
+                                      - time
+                                    additionalProperties: false
+                                  - type: "null"
+                              doors:
+                                anyOf:
+                                  - type: object
+                                    properties:
+                                      time:
+                                        type: string
+                                        pattern: ^([01]\d|2[0-3]):[0-5]\d$
+                                      dayOffset:
+                                        type: integer
+                                        minimum: -1
+                                        maximum: 7
+                                      occurrence:
+                                        type: string
+                                        enum:
+                                          - earlier
+                                          - later
+                                    required:
+                                      - time
+                                    additionalProperties: false
+                                  - type: "null"
+                              venueLabel:
+                                anyOf:
+                                  - type: string
+                                    maxLength: 120
+                                  - type: "null"
+                              summary:
+                                anyOf:
+                                  - type: string
+                                    maxLength: 240
+                                  - type: "null"
+                              sourceUrl:
+                                anyOf:
+                                  - type: string
+                                    maxLength: 2048
+                                  - type: "null"
+                              worldSlug:
+                                anyOf:
+                                  - type: string
+                                    maxLength: 64
+                                  - type: "null"
+                              sourceText:
+                                anyOf:
+                                  - type: string
+                                    maxLength: 12000
+                                  - type: "null"
+                              posterSourceId:
+                                anyOf:
+                                  - type: string
+                                    maxLength: 200
+                                  - type: "null"
+                              lineup:
+                                anyOf:
+                                  - maxItems: 80
+                                    type: array
+                                    items:
+                                      type: object
+                                      properties:
+                                        clientKey:
+                                          type: string
+                                          minLength: 1
+                                          maxLength: 120
+                                        position:
+                                          type: integer
+                                          minimum: 0
+                                          maximum: 79
+                                        performerLabel:
+                                          anyOf:
+                                            - type: string
+                                              maxLength: 120
+                                            - type: "null"
+                                        personSlug:
+                                          anyOf:
+                                            - type: string
+                                              maxLength: 64
+                                            - type: "null"
+                                        roleLabel:
+                                          anyOf:
+                                            - type: string
+                                              maxLength: 48
+                                            - type: "null"
+                                        start:
+                                          anyOf:
+                                            - type: object
+                                              properties:
+                                                time:
+                                                  type: string
+                                                  pattern: ^([01]\d|2[0-3]):[0-5]\d$
+                                                dayOffset:
+                                                  type: integer
+                                                  minimum: -1
+                                                  maximum: 7
+                                                occurrence:
+                                                  type: string
+                                                  enum:
+                                                    - earlier
+                                                    - later
+                                              required:
+                                                - time
+                                              additionalProperties: false
+                                            - type: "null"
+                                        end:
+                                          anyOf:
+                                            - type: object
+                                              properties:
+                                                time:
+                                                  type: string
+                                                  pattern: ^([01]\d|2[0-3]):[0-5]\d$
+                                                dayOffset:
+                                                  type: integer
+                                                  minimum: -1
+                                                  maximum: 7
+                                                occurrence:
+                                                  type: string
+                                                  enum:
+                                                    - earlier
+                                                    - later
+                                              required:
+                                                - time
+                                              additionalProperties: false
+                                            - type: "null"
+                                      required:
+                                        - clientKey
+                                        - position
+                                      additionalProperties: false
+                                  - type: "null"
+                            additionalProperties: false
+                          - type: "null"
+                      questions:
+                        anyOf:
+                          - maxItems: 20
+                            type: array
+                            items:
+                              type: string
+                              maxLength: 500
+                          - type: "null"
+                      duplicateAcknowledgements:
+                        anyOf:
+                          - maxItems: 100
+                            type: array
+                            items:
+                              type: string
+                              minLength: 1
+                              maxLength: 200
+                          - type: "null"
+                    additionalProperties: false
+                  publishedReceiptId:
+                    type: string
+                    minLength: 1
+                    maxLength: 200
+                  artworkAssetId:
+                    type: string
+                    minLength: 1
+                    maxLength: 200
+                required:
+                  - draftId
+                  - version
+                  - fields
+                additionalProperties: false
+        "400": *a1
+        "401":
+          description: User credential required.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "403":
+          description: Missing scope or actor authority.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "404": *a2
+        "409":
+          description: Stale version, changed idempotency input, or staff takeover.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "429": *a3
+        "503":
+          description: Response unavailable; read the draft before retrying and preserve the publication key and version.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+    patch:
+      operationId: eventIntake_draft_patch
+      tags: *a4
+      summary: Event intake draft save
+      description: Requires a user-scoped credential with events:contribute. No verified-email or community ownership requirement. Publication retries must preserve draftId, expectedVersion, and idempotencyKey.
+      security: *a5
+      parameters:
+        - name: draftId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                expectedVersion:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+                patch:
+                  type: object
+                  properties:
+                    communitySlug:
+                      anyOf:
+                        - type: string
+                          maxLength: 64
+                        - type: "null"
+                    title:
+                      anyOf:
+                        - type: string
+                          maxLength: 120
+                        - type: "null"
+                    eventDate:
+                      anyOf:
+                        - type: string
+                          maxLength: 10
+                        - type: "null"
+                    timeTba:
+                      anyOf:
+                        - type: boolean
+                        - type: "null"
+                    timezone:
+                      anyOf:
+                        - type: string
+                          maxLength: 64
+                        - type: "null"
+                    start:
+                      anyOf:
+                        - type: object
+                          properties:
+                            time:
+                              type: string
+                              pattern: ^([01]\d|2[0-3]):[0-5]\d$
+                            dayOffset:
+                              type: integer
+                              minimum: -1
+                              maximum: 7
+                            occurrence:
+                              type: string
+                              enum:
+                                - earlier
+                                - later
+                          required:
+                            - time
+                          additionalProperties: false
+                        - type: "null"
+                    end:
+                      anyOf:
+                        - type: object
+                          properties:
+                            time:
+                              type: string
+                              pattern: ^([01]\d|2[0-3]):[0-5]\d$
+                            dayOffset:
+                              type: integer
+                              minimum: -1
+                              maximum: 7
+                            occurrence:
+                              type: string
+                              enum:
+                                - earlier
+                                - later
+                          required:
+                            - time
+                          additionalProperties: false
+                        - type: "null"
+                    doors:
+                      anyOf:
+                        - type: object
+                          properties:
+                            time:
+                              type: string
+                              pattern: ^([01]\d|2[0-3]):[0-5]\d$
+                            dayOffset:
+                              type: integer
+                              minimum: -1
+                              maximum: 7
+                            occurrence:
+                              type: string
+                              enum:
+                                - earlier
+                                - later
+                          required:
+                            - time
+                          additionalProperties: false
+                        - type: "null"
+                    venueLabel:
+                      anyOf:
+                        - type: string
+                          maxLength: 120
+                        - type: "null"
+                    summary:
+                      anyOf:
+                        - type: string
+                          maxLength: 240
+                        - type: "null"
+                    sourceUrl:
+                      anyOf:
+                        - type: string
+                          maxLength: 2048
+                        - type: "null"
+                    worldSlug:
+                      anyOf:
+                        - type: string
+                          maxLength: 64
+                        - type: "null"
+                    sourceText:
+                      anyOf:
+                        - type: string
+                          maxLength: 12000
+                        - type: "null"
+                    posterSourceId:
+                      anyOf:
+                        - type: string
+                          maxLength: 200
+                        - type: "null"
+                    lineup:
+                      anyOf:
+                        - maxItems: 80
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              clientKey:
+                                type: string
+                                minLength: 1
+                                maxLength: 120
+                              position:
+                                type: integer
+                                minimum: 0
+                                maximum: 79
+                              performerLabel:
+                                anyOf:
+                                  - type: string
+                                    maxLength: 120
+                                  - type: "null"
+                              personSlug:
+                                anyOf:
+                                  - type: string
+                                    maxLength: 64
+                                  - type: "null"
+                              roleLabel:
+                                anyOf:
+                                  - type: string
+                                    maxLength: 48
+                                  - type: "null"
+                              start:
+                                anyOf:
+                                  - type: object
+                                    properties:
+                                      time:
+                                        type: string
+                                        pattern: ^([01]\d|2[0-3]):[0-5]\d$
+                                      dayOffset:
+                                        type: integer
+                                        minimum: -1
+                                        maximum: 7
+                                      occurrence:
+                                        type: string
+                                        enum:
+                                          - earlier
+                                          - later
+                                    required:
+                                      - time
+                                    additionalProperties: false
+                                  - type: "null"
+                              end:
+                                anyOf:
+                                  - type: object
+                                    properties:
+                                      time:
+                                        type: string
+                                        pattern: ^([01]\d|2[0-3]):[0-5]\d$
+                                      dayOffset:
+                                        type: integer
+                                        minimum: -1
+                                        maximum: 7
+                                      occurrence:
+                                        type: string
+                                        enum:
+                                          - earlier
+                                          - later
+                                    required:
+                                      - time
+                                    additionalProperties: false
+                                  - type: "null"
+                            required:
+                              - clientKey
+                              - position
+                            additionalProperties: false
+                        - type: "null"
+                    tentative:
+                      anyOf:
+                        - type: object
+                          properties:
+                            communitySlug:
+                              anyOf:
+                                - type: string
+                                  maxLength: 64
+                                - type: "null"
+                            title:
+                              anyOf:
+                                - type: string
+                                  maxLength: 120
+                                - type: "null"
+                            eventDate:
+                              anyOf:
+                                - type: string
+                                  maxLength: 10
+                                - type: "null"
+                            timeTba:
+                              anyOf:
+                                - type: boolean
+                                - type: "null"
+                            timezone:
+                              anyOf:
+                                - type: string
+                                  maxLength: 64
+                                - type: "null"
+                            start:
+                              anyOf:
+                                - type: object
+                                  properties:
+                                    time:
+                                      type: string
+                                      pattern: ^([01]\d|2[0-3]):[0-5]\d$
+                                    dayOffset:
+                                      type: integer
+                                      minimum: -1
+                                      maximum: 7
+                                    occurrence:
+                                      type: string
+                                      enum:
+                                        - earlier
+                                        - later
+                                  required:
+                                    - time
+                                  additionalProperties: false
+                                - type: "null"
+                            end:
+                              anyOf:
+                                - type: object
+                                  properties:
+                                    time:
+                                      type: string
+                                      pattern: ^([01]\d|2[0-3]):[0-5]\d$
+                                    dayOffset:
+                                      type: integer
+                                      minimum: -1
+                                      maximum: 7
+                                    occurrence:
+                                      type: string
+                                      enum:
+                                        - earlier
+                                        - later
+                                  required:
+                                    - time
+                                  additionalProperties: false
+                                - type: "null"
+                            doors:
+                              anyOf:
+                                - type: object
+                                  properties:
+                                    time:
+                                      type: string
+                                      pattern: ^([01]\d|2[0-3]):[0-5]\d$
+                                    dayOffset:
+                                      type: integer
+                                      minimum: -1
+                                      maximum: 7
+                                    occurrence:
+                                      type: string
+                                      enum:
+                                        - earlier
+                                        - later
+                                  required:
+                                    - time
+                                  additionalProperties: false
+                                - type: "null"
+                            venueLabel:
+                              anyOf:
+                                - type: string
+                                  maxLength: 120
+                                - type: "null"
+                            summary:
+                              anyOf:
+                                - type: string
+                                  maxLength: 240
+                                - type: "null"
+                            sourceUrl:
+                              anyOf:
+                                - type: string
+                                  maxLength: 2048
+                                - type: "null"
+                            worldSlug:
+                              anyOf:
+                                - type: string
+                                  maxLength: 64
+                                - type: "null"
+                            sourceText:
+                              anyOf:
+                                - type: string
+                                  maxLength: 12000
+                                - type: "null"
+                            posterSourceId:
+                              anyOf:
+                                - type: string
+                                  maxLength: 200
+                                - type: "null"
+                            lineup:
+                              anyOf:
+                                - maxItems: 80
+                                  type: array
+                                  items:
+                                    type: object
+                                    properties:
+                                      clientKey:
+                                        type: string
+                                        minLength: 1
+                                        maxLength: 120
+                                      position:
+                                        type: integer
+                                        minimum: 0
+                                        maximum: 79
+                                      performerLabel:
+                                        anyOf:
+                                          - type: string
+                                            maxLength: 120
+                                          - type: "null"
+                                      personSlug:
+                                        anyOf:
+                                          - type: string
+                                            maxLength: 64
+                                          - type: "null"
+                                      roleLabel:
+                                        anyOf:
+                                          - type: string
+                                            maxLength: 48
+                                          - type: "null"
+                                      start:
+                                        anyOf:
+                                          - type: object
+                                            properties:
+                                              time:
+                                                type: string
+                                                pattern: ^([01]\d|2[0-3]):[0-5]\d$
+                                              dayOffset:
+                                                type: integer
+                                                minimum: -1
+                                                maximum: 7
+                                              occurrence:
+                                                type: string
+                                                enum:
+                                                  - earlier
+                                                  - later
+                                            required:
+                                              - time
+                                            additionalProperties: false
+                                          - type: "null"
+                                      end:
+                                        anyOf:
+                                          - type: object
+                                            properties:
+                                              time:
+                                                type: string
+                                                pattern: ^([01]\d|2[0-3]):[0-5]\d$
+                                              dayOffset:
+                                                type: integer
+                                                minimum: -1
+                                                maximum: 7
+                                              occurrence:
+                                                type: string
+                                                enum:
+                                                  - earlier
+                                                  - later
+                                            required:
+                                              - time
+                                            additionalProperties: false
+                                          - type: "null"
+                                    required:
+                                      - clientKey
+                                      - position
+                                    additionalProperties: false
+                                - type: "null"
+                          additionalProperties: false
+                        - type: "null"
+                    questions:
+                      anyOf:
+                        - maxItems: 20
+                          type: array
+                          items:
+                            type: string
+                            maxLength: 500
+                        - type: "null"
+                    duplicateAcknowledgements:
+                      anyOf:
+                        - maxItems: 100
+                          type: array
+                          items:
+                            type: string
+                            minLength: 1
+                            maxLength: 200
+                        - type: "null"
+                  additionalProperties: false
+              required:
+                - expectedVersion
+                - patch
+              additionalProperties: false
+      responses:
+        "200": *a6
+        "400": *a1
+        "401": *a7
+        "403": *a8
+        "404": *a2
+        "409": *a9
+        "429": *a3
+        "503": *a10
+  /api/v0/event-intake/{draftId}/extract:
+    post:
+      operationId: eventIntake_extract
+      tags:
+        - Events
+      summary: Event intake extract
+      description: Requires a user-scoped credential with events:contribute. No verified-email or community ownership requirement. Publication retries must preserve draftId, expectedVersion, and idempotencyKey.
+      security:
+        - bearerAuth: []
+        - oauth2:
+            - events:contribute
+      parameters:
+        - name: draftId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sourceText:
+                  type: string
+                  maxLength: 12000
+                posterAssetId:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+              additionalProperties: false
+      responses:
+        "200":
+          description: Actor-scoped result.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  event:
+                    type: object
+                    properties:
+                      title:
+                        anyOf:
+                          - type: string
+                            maxLength: 120
+                          - type: "null"
+                      communitySlug:
+                        anyOf:
+                          - type: string
+                            maxLength: 64
+                          - type: "null"
+                      eventDate:
+                        anyOf:
+                          - type: string
+                            maxLength: 10
+                          - type: "null"
+                      start:
+                        anyOf:
+                          - type: string
+                            maxLength: 5
+                          - type: "null"
+                      end:
+                        anyOf:
+                          - type: string
+                            maxLength: 5
+                          - type: "null"
+                      timezone:
+                        anyOf:
+                          - type: string
+                            maxLength: 64
+                          - type: "null"
+                      venueLabel:
+                        anyOf:
+                          - type: string
+                            maxLength: 120
+                          - type: "null"
+                      summary:
+                        anyOf:
+                          - type: string
+                            maxLength: 240
+                          - type: "null"
+                      sourceUrl:
+                        anyOf:
+                          - type: string
+                            maxLength: 2048
+                          - type: "null"
+                    required:
+                      - title
+                      - communitySlug
+                      - eventDate
+                      - start
+                      - end
+                      - timezone
+                      - venueLabel
+                      - summary
+                      - sourceUrl
+                    additionalProperties: false
+                  lineup:
+                    maxItems: 80
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        performerLabel:
+                          anyOf:
+                            - type: string
+                              maxLength: 120
+                            - type: "null"
+                        personSlug:
+                          anyOf:
+                            - type: string
+                              maxLength: 64
+                            - type: "null"
+                        roleLabel:
+                          anyOf:
+                            - type: string
+                              maxLength: 48
+                            - type: "null"
+                        start:
+                          anyOf:
+                            - type: string
+                              maxLength: 5
+                            - type: "null"
+                        end:
+                          anyOf:
+                            - type: string
+                              maxLength: 5
+                            - type: "null"
+                      required:
+                        - performerLabel
+                        - personSlug
+                        - roleLabel
+                        - start
+                        - end
+                      additionalProperties: false
+                  evidence:
+                    maxItems: 100
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        fieldPath:
+                          type: string
+                          maxLength: 120
+                        origin:
+                          type: string
+                          enum:
+                            - text
+                            - poster
+                            - lookup
+                            - calculation
+                        excerpt:
+                          anyOf:
+                            - type: string
+                              maxLength: 500
+                            - type: "null"
+                        assessment:
+                          type: string
+                          enum:
+                            - explicit
+                            - inferred
+                            - conflicting
+                      required:
+                        - fieldPath
+                        - origin
+                        - excerpt
+                        - assessment
+                      additionalProperties: false
+                  questions:
+                    maxItems: 100
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        fieldPath:
+                          type: string
+                          maxLength: 120
+                        reason:
+                          type: string
+                          maxLength: 500
+                        alternatives:
+                          maxItems: 10
+                          type: array
+                          items:
+                            type: string
+                            maxLength: 200
+                      required:
+                        - fieldPath
+                        - reason
+                        - alternatives
+                      additionalProperties: false
+                required:
+                  - event
+                  - lineup
+                  - evidence
+                  - questions
+                additionalProperties: false
+        "400": *a1
+        "401":
+          description: User credential required.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "403":
+          description: Missing scope or actor authority.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "404": *a2
+        "409":
+          description: Stale version, changed idempotency input, or staff takeover.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "429": *a3
+        "503":
+          description: Response unavailable; read the draft before retrying and preserve the publication key and version.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+  /api/v0/event-intake/{draftId}/publish:
+    post:
+      operationId: eventIntake_publish
+      tags:
+        - Events
+      summary: Event intake publish
+      description: Requires a user-scoped credential with events:contribute. No verified-email or community ownership requirement. Publication retries must preserve draftId, expectedVersion, and idempotencyKey.
+      security:
+        - bearerAuth: []
+        - oauth2:
+            - events:contribute
+      parameters:
+        - name: draftId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                expectedVersion:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+                idempotencyKey:
+                  type: string
+                  minLength: 1
+                  maxLength: 128
+                  pattern: ^[A-Za-z0-9._:-]+$
+              required:
+                - expectedVersion
+                - idempotencyKey
+              additionalProperties: false
+      responses:
+        "200":
+          description: Actor-scoped result.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  eventId:
+                    type: string
+                    minLength: 1
+                    maxLength: 200
+                  eventPath:
+                    type: string
+                    maxLength: 2048
+                  receiptId:
+                    type: string
+                    minLength: 1
+                    maxLength: 200
+                required:
+                  - eventId
+                  - eventPath
+                  - receiptId
+                additionalProperties: false
+        "400": *a1
+        "401":
+          description: User credential required.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "403":
+          description: Missing scope or actor authority.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "404": *a2
+        "409":
+          description: Stale version, changed idempotency input, or staff takeover.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "429": *a3
+        "503":
+          description: Response unavailable; read the draft before retrying and preserve the publication key and version.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+  /api/v0/event-intake/{draftId}/poster-upload/begin:
+    post:
+      operationId: eventIntake_poster_upload_begin
+      tags:
+        - Events
+      summary: Event intake poster upload begin
+      description: Requires a user-scoped credential with events:contribute. No verified-email or community ownership requirement. Publication retries must preserve draftId, expectedVersion, and idempotencyKey.
+      security:
+        - bearerAuth: []
+        - oauth2:
+            - events:contribute
+      parameters:
+        - name: draftId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                contentType:
+                  type: string
+                  enum:
+                    - image/png
+                    - image/jpeg
+                    - image/webp
+                byteLength:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 12582912
+                sha256:
+                  type: string
+                  pattern: ^[a-f0-9]{64}$
+              required:
+                - contentType
+                - byteLength
+                - sha256
+              additionalProperties: false
+      responses:
+        "200":
+          description: Actor-scoped result.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  posterAssetId:
+                    type: string
+                    minLength: 1
+                    maxLength: 200
+                  expiresAt:
+                    type: number
+                  transfer:
+                    type: object
+                    properties:
+                      method:
+                        type: string
+                        const: POST
+                      url:
+                        type: string
+                        format: uri
+                      fields:
+                        type: object
+                        propertyNames:
+                          type: string
+                        additionalProperties:
+                          type: string
+                      fileField:
+                        type: string
+                        const: file
+                    required:
+                      - method
+                      - url
+                      - fields
+                      - fileField
+                    additionalProperties: false
+                required:
+                  - posterAssetId
+                  - expiresAt
+                  - transfer
+                additionalProperties: false
+        "400": *a1
+        "401":
+          description: User credential required.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "403":
+          description: Missing scope or actor authority.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "404": *a2
+        "409":
+          description: Stale version, changed idempotency input, or staff takeover.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "429": *a3
+        "503":
+          description: Response unavailable; read the draft before retrying and preserve the publication key and version.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+  /api/v0/event-intake/{draftId}/poster-upload/complete:
+    post:
+      operationId: eventIntake_poster_upload_complete
+      tags:
+        - Events
+      summary: Event intake poster upload complete
+      description: Requires a user-scoped credential with events:contribute. No verified-email or community ownership requirement. Publication retries must preserve draftId, expectedVersion, and idempotencyKey.
+      security:
+        - bearerAuth: []
+        - oauth2:
+            - events:contribute
+      parameters:
+        - name: draftId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                posterAssetId:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+              required:
+                - posterAssetId
+              additionalProperties: false
+      responses:
+        "200":
+          description: Actor-scoped result.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  posterAssetId:
+                    type: string
+                    minLength: 1
+                    maxLength: 200
+                required:
+                  - posterAssetId
+                additionalProperties: false
+        "400": *a1
+        "401":
+          description: User credential required.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "403":
+          description: Missing scope or actor authority.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "404": *a2
+        "409":
+          description: Stale version, changed idempotency input, or staff takeover.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "429": *a3
+        "503":
+          description: Response unavailable; read the draft before retrying and preserve the publication key and version.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+  /api/v0/event-intake/{draftId}/artwork:
+    post:
+      operationId: eventIntake_artwork_select
+      tags:
+        - Events
+      summary: Event intake artwork select
+      description: Requires a user-scoped credential with events:contribute. No verified-email or community ownership requirement. Publication retries must preserve draftId, expectedVersion, and idempotencyKey.
+      security:
+        - bearerAuth: []
+        - oauth2:
+            - events:contribute
+      parameters:
+        - name: draftId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                posterAssetId:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+                expectedVersion:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+              required:
+                - posterAssetId
+                - expectedVersion
+              additionalProperties: false
+      responses:
+        "200":
+          description: Actor-scoped result.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  artworkAssetId:
+                    type: string
+                    minLength: 1
+                    maxLength: 200
+                  version:
+                    type: integer
+                    exclusiveMinimum: 0
+                    maximum: 9007199254740991
+                required:
+                  - artworkAssetId
+                  - version
+                additionalProperties: false
+        "400": *a1
+        "401":
+          description: User credential required.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "403":
+          description: Missing scope or actor authority.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "404": *a2
+        "409":
+          description: Stale version, changed idempotency input, or staff takeover.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "429": *a3
+        "503":
+          description: Response unavailable; read the draft before retrying and preserve the publication key and version.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+  /api/v0/events/{slug}/contribution:
+    patch:
+      operationId: eventIntake_event_update
+      tags:
+        - Events
+      summary: Event intake event update
+      description: Requires a user-scoped credential with events:contribute. No verified-email or community ownership requirement. Publication retries must preserve draftId, expectedVersion, and idempotencyKey.
+      security:
+        - bearerAuth: []
+        - oauth2:
+            - events:contribute
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                expectedUpdatedAt:
+                  type: number
+                patch:
+                  type: object
+                  properties:
+                    title:
+                      anyOf:
+                        - type: string
+                          maxLength: 120
+                        - type: "null"
+                    eventDate:
+                      anyOf:
+                        - type: string
+                          maxLength: 10
+                        - type: "null"
+                    timeTba:
+                      anyOf:
+                        - type: boolean
+                        - type: "null"
+                    timezone:
+                      anyOf:
+                        - type: string
+                          maxLength: 64
+                        - type: "null"
+                    start:
+                      anyOf:
+                        - type: object
+                          properties:
+                            time:
+                              type: string
+                              pattern: ^([01]\d|2[0-3]):[0-5]\d$
+                            dayOffset:
+                              type: integer
+                              minimum: -1
+                              maximum: 7
+                            occurrence:
+                              type: string
+                              enum:
+                                - earlier
+                                - later
+                          required:
+                            - time
+                          additionalProperties: false
+                        - type: "null"
+                    end:
+                      anyOf:
+                        - type: object
+                          properties:
+                            time:
+                              type: string
+                              pattern: ^([01]\d|2[0-3]):[0-5]\d$
+                            dayOffset:
+                              type: integer
+                              minimum: -1
+                              maximum: 7
+                            occurrence:
+                              type: string
+                              enum:
+                                - earlier
+                                - later
+                          required:
+                            - time
+                          additionalProperties: false
+                        - type: "null"
+                    doors:
+                      anyOf:
+                        - type: object
+                          properties:
+                            time:
+                              type: string
+                              pattern: ^([01]\d|2[0-3]):[0-5]\d$
+                            dayOffset:
+                              type: integer
+                              minimum: -1
+                              maximum: 7
+                            occurrence:
+                              type: string
+                              enum:
+                                - earlier
+                                - later
+                          required:
+                            - time
+                          additionalProperties: false
+                        - type: "null"
+                    venueLabel:
+                      anyOf:
+                        - type: string
+                          maxLength: 120
+                        - type: "null"
+                    worldSlug:
+                      anyOf:
+                        - type: string
+                          maxLength: 64
+                        - type: "null"
+                    sourceUrl:
+                      anyOf:
+                        - type: string
+                          maxLength: 2048
+                        - type: "null"
+                    summary:
+                      anyOf:
+                        - type: string
+                          maxLength: 240
+                        - type: "null"
+                    lineup:
+                      anyOf:
+                        - maxItems: 80
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              clientKey:
+                                type: string
+                                minLength: 1
+                                maxLength: 120
+                              position:
+                                type: integer
+                                minimum: 0
+                                maximum: 79
+                              performerLabel:
+                                anyOf:
+                                  - type: string
+                                    maxLength: 120
+                                  - type: "null"
+                              personSlug:
+                                anyOf:
+                                  - type: string
+                                    maxLength: 64
+                                  - type: "null"
+                              roleLabel:
+                                anyOf:
+                                  - type: string
+                                    maxLength: 48
+                                  - type: "null"
+                              start:
+                                anyOf:
+                                  - type: object
+                                    properties:
+                                      time:
+                                        type: string
+                                        pattern: ^([01]\d|2[0-3]):[0-5]\d$
+                                      dayOffset:
+                                        type: integer
+                                        minimum: -1
+                                        maximum: 7
+                                      occurrence:
+                                        type: string
+                                        enum:
+                                          - earlier
+                                          - later
+                                    required:
+                                      - time
+                                    additionalProperties: false
+                                  - type: "null"
+                              end:
+                                anyOf:
+                                  - type: object
+                                    properties:
+                                      time:
+                                        type: string
+                                        pattern: ^([01]\d|2[0-3]):[0-5]\d$
+                                      dayOffset:
+                                        type: integer
+                                        minimum: -1
+                                        maximum: 7
+                                      occurrence:
+                                        type: string
+                                        enum:
+                                          - earlier
+                                          - later
+                                    required:
+                                      - time
+                                    additionalProperties: false
+                                  - type: "null"
+                            required:
+                              - clientKey
+                              - position
+                            additionalProperties: false
+                        - type: "null"
+                  additionalProperties: false
+                duplicateAcknowledgements:
+                  maxItems: 100
+                  type: array
+                  items:
+                    type: string
+                    minLength: 1
+                    maxLength: 200
+              required:
+                - expectedUpdatedAt
+                - patch
+              additionalProperties: false
+      responses:
+        "200":
+          description: Actor-scoped result.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  eventId:
+                    type: string
+                    minLength: 1
+                    maxLength: 200
+                  updatedAt:
+                    type: number
+                  changed:
+                    type: boolean
+                required:
+                  - eventId
+                additionalProperties: false
+        "400": *a1
+        "401":
+          description: User credential required.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "403":
+          description: Missing scope or actor authority.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "404": *a2
+        "409":
+          description: Stale version, changed idempotency input, or staff takeover.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "429": *a3
+        "503":
+          description: Response unavailable; read the draft before retrying and preserve the publication key and version.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+    delete:
+      operationId: eventIntake_event_retract
+      tags:
+        - Events
+      summary: Event intake event retract
+      description: Requires a user-scoped credential with events:contribute. No verified-email or community ownership requirement. Publication retries must preserve draftId, expectedVersion, and idempotencyKey.
+      security:
+        - bearerAuth: []
+        - oauth2:
+            - events:contribute
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Actor-scoped result.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  eventId:
+                    type: string
+                    minLength: 1
+                    maxLength: 200
+                  updatedAt:
+                    type: number
+                  changed:
+                    type: boolean
+                required:
+                  - eventId
+                additionalProperties: false
+        "400": *a1
+        "401":
+          description: User credential required.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "403":
+          description: Missing scope or actor authority.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "404": *a2
+        "409":
+          description: Stale version, changed idempotency input, or staff takeover.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "429": *a3
+        "503":
+          description: Response unavailable; read the draft before retrying and preserve the publication key and version.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+  /api/v0/events/{slug}/report:
+    post:
+      operationId: reportEvent
+      tags:
+        - Events
+      summary: Report an event
+      security: []
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  minLength: 5
+                  maxLength: 500
+              required:
+                - reason
+              additionalProperties: false
+      responses:
+        "200":
+          description: Report accepted subject to visitor event/global caps.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accepted:
+                    type: boolean
+                required:
+                  - accepted
+                additionalProperties: false
+        "400": *a1
+        "404": *a2
+        "429": *a3
+  /api/v0/events/{slug}/artwork/{artworkAssetId}:
+    get:
+      operationId: getSelectedEventArtwork
+      tags:
+        - Events
+      summary: Read selected public event artwork
+      security: []
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          description: Internal event ID, as returned in the publication receipt. The shared Next.js segment is named slug.
+          schema:
+            type: string
+        - name: artworkAssetId
+          in: path
+          required: true
+          description: Selected artwork ID.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Explicitly selected WebP artwork for this currently public event. Private source evidence is never returned. Responses are not cached.
+          content:
+            image/webp:
+              schema: &a13
+                type: string
+                format: binary
+        "400": *a1
+        "404": *a2
+        "429": *a3
   /api/v0/openapi.json:
     get:
       operationId: getOpenApiDocument
@@ -84,18 +2485,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiProblem"
-        "429": &a1
-          description: The request exceeded a rate limit.
-          headers:
-            Retry-After:
-              description: Delay in seconds before retrying.
-              schema:
-                type: integer
-                minimum: 1
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiProblem"
+        "429": *a3
   /api/v0/me/profiles:
     get:
       operationId: listCurrentApiUserProfiles
@@ -123,12 +2513,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiMeProfilesResponse"
-        "400": &a2
-          description: The request was malformed or used an unsupported bearer-token location.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiProblem"
+        "400": *a1
         "401":
           description: Bearer authentication is required or invalid.
           content:
@@ -141,7 +2526,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiProblem"
-        "429": *a1
+        "429": *a3
   /api/v0/me/communities:
     get:
       operationId: listCurrentApiUserCommunities
@@ -169,7 +2554,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiMeCommunitiesResponse"
-        "400": *a2
+        "400": *a1
         "401":
           description: Bearer authentication is required or invalid.
           content:
@@ -182,7 +2567,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiProblem"
-        "429": *a1
+        "429": *a3
   /api/v0/me/events:
     get:
       operationId: listCurrentApiUserEvents
@@ -211,7 +2596,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiMeEventsResponse"
-        "400": *a2
+        "400": *a1
         "401":
           description: Bearer authentication is required or invalid.
           content:
@@ -224,7 +2609,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiProblem"
-        "429": *a1
+        "429": *a3
   /api/v0/developer/tokens:
     get:
       operationId: listCurrentDeveloperApiTokens
@@ -232,7 +2617,7 @@ paths:
         - Developer
       summary: List current developer API tokens
       description: Returns user-owned personal API token metadata for a bearer credential with user authority and developer:read scope.
-      security: &a4
+      security: &a12
         - bearerAuth: []
         - oauth2:
             - developer:read
@@ -258,7 +2643,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/DeveloperTokensResponse"
-        "400": *a2
+        "400": *a1
         "401":
           description: Bearer authentication is required or invalid.
           content:
@@ -271,14 +2656,14 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiProblem"
-        "429": *a1
+        "429": *a3
     post:
       operationId: createCurrentDeveloperApiToken
       tags:
         - Developer
       summary: Create a current developer API token
       description: Creates a user-owned personal API token for a bearer credential with user authority and developer:write scope. The raw token value is returned once.
-      security: &a3
+      security: &a11
         - bearerAuth: []
         - oauth2:
             - developer:write
@@ -313,7 +2698,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiProblem"
-        "429": *a1
+        "429": *a3
   /api/v0/developer/tokens/{tokenId}:
     delete:
       operationId: revokeCurrentDeveloperApiToken
@@ -321,7 +2706,7 @@ paths:
         - Developer
       summary: Revoke a current developer API token
       description: Revokes a user-owned personal API token for a bearer credential with user authority and developer:write scope.
-      security: *a3
+      security: *a11
       parameters:
         - in: path
           name: tokenId
@@ -338,7 +2723,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/DeveloperTokenResponse"
-        "400": *a2
+        "400": *a1
         "401":
           description: Bearer authentication is required or invalid.
           content:
@@ -357,7 +2742,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiProblem"
-        "429": *a1
+        "429": *a3
   /api/v0/developer/oauth-apps:
     get:
       operationId: listCurrentDeveloperOAuthApps
@@ -365,7 +2750,7 @@ paths:
         - Developer
       summary: List current developer OAuth apps
       description: Returns user-owned and community-owned OAuth application metadata for a bearer credential with user authority and developer:read scope.
-      security: *a4
+      security: *a12
       parameters:
         - in: query
           name: includeRevoked
@@ -388,7 +2773,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/DeveloperOAuthAppsResponse"
-        "400": *a2
+        "400": *a1
         "401":
           description: Bearer authentication is required or invalid.
           content:
@@ -401,14 +2786,14 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiProblem"
-        "429": *a1
+        "429": *a3
     post:
       operationId: createCurrentDeveloperOAuthApp
       tags:
         - Developer
       summary: Create a current developer OAuth app
       description: Creates a user-owned OAuth application, or a community-owned OAuth application when ownerCommunitySlug is supplied, for a bearer credential with user authority and developer:write scope. Confidential clients receive a one-time client secret value.
-      security: *a3
+      security: *a11
       requestBody:
         required: true
         content:
@@ -446,7 +2831,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiProblem"
-        "429": *a1
+        "429": *a3
   /api/v0/developer/oauth-apps/{clientId}:
     patch:
       operationId: updateCurrentDeveloperOAuthApp
@@ -454,7 +2839,7 @@ paths:
         - Developer
       summary: Update a current developer OAuth app
       description: Updates editable metadata, redirect URIs, allowed grants, and allowed scopes for a user-owned or community-owned OAuth application.
-      security: *a3
+      security: *a11
       parameters:
         - in: path
           name: clientId
@@ -501,14 +2886,14 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiProblem"
-        "429": *a1
+        "429": *a3
     delete:
       operationId: revokeCurrentDeveloperOAuthApp
       tags:
         - Developer
       summary: Revoke a current developer OAuth app
       description: Revokes a user-owned or community-owned OAuth application and its active secrets for a bearer credential with user authority and developer:write scope.
-      security: *a3
+      security: *a11
       parameters:
         - in: path
           name: clientId
@@ -525,7 +2910,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/DeveloperOAuthAppResponse"
-        "400": *a2
+        "400": *a1
         "401":
           description: Bearer authentication is required or invalid.
           content:
@@ -544,7 +2929,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiProblem"
-        "429": *a1
+        "429": *a3
   /api/v0/developer/oauth-apps/{clientId}/secrets:
     post:
       operationId: createCurrentDeveloperOAuthAppSecret
@@ -552,7 +2937,7 @@ paths:
         - Developer
       summary: Create a current developer OAuth app secret
       description: Creates an additional client secret for a user-owned or community-owned confidential OAuth application. The raw client secret value is returned once.
-      security: *a3
+      security: *a11
       parameters:
         - in: path
           name: clientId
@@ -599,7 +2984,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiProblem"
-        "429": *a1
+        "429": *a3
   /api/v0/search:
     get:
       operationId: searchPublicCatalog
@@ -641,14 +3026,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PublicSearchResponse"
-        "400": *a2
-        "404": &a5
-          description: The requested public resource was not found.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiProblem"
-        "429": *a1
+        "400": *a1
+        "404": *a2
+        "429": *a3
         "503":
           description: The public search backend is temporarily unavailable.
           content:
@@ -678,9 +3058,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PublicProfile"
-        "400": *a2
-        "404": *a5
-        "429": *a1
+        "400": *a1
+        "404": *a2
+        "429": *a3
     patch:
       operationId: updateCurrentUserProfile
       tags:
@@ -744,7 +3124,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiProblem"
-        "429": *a1
+        "429": *a3
         "500":
           description: The profile update could not be completed.
           content:
@@ -807,7 +3187,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiProblem"
-        "429": *a1
+        "429": *a3
         "500":
           description: The profile submission could not be completed.
           content:
@@ -837,9 +3217,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PublicProfileAssetsResponse"
-        "400": *a2
-        "404": *a5
-        "429": *a1
+        "400": *a1
+        "404": *a2
+        "429": *a3
   /api/v0/profiles/{slug}/assets/{assetId}/file:
     get:
       operationId: downloadPublicProfileAssetFile
@@ -870,23 +3250,21 @@ paths:
           description: The stored public profile asset file.
           content:
             image/png:
-              schema: &a6
-                type: string
-                format: binary
+              schema: *a13
             image/jpeg:
-              schema: *a6
+              schema: *a13
             image/webp:
-              schema: *a6
+              schema: *a13
             image/svg+xml:
-              schema: *a6
-        "400": *a2
+              schema: *a13
+        "400": *a1
         "404":
           description: The profile asset or stored object was not found.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiSimpleErrorResponse"
-        "429": *a1
+        "429": *a3
         "501":
           description: Profile asset storage is not configured for this deployment.
           content:
@@ -952,7 +3330,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiProblem"
-        "429": *a1
+        "429": *a3
   /api/v0/profiles/{slug}/logos:
     get:
       operationId: getPublicProfileLogos
@@ -976,9 +3354,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PublicProfileLogosResponse"
-        "400": *a2
-        "404": *a5
-        "429": *a1
+        "400": *a1
+        "404": *a2
+        "429": *a3
   /api/v0/profiles/{slug}/logos.zip:
     get:
       operationId: downloadPublicProfileLogosZip
@@ -1001,15 +3379,15 @@ paths:
           description: A ZIP archive containing public profile logos.
           content:
             application/zip:
-              schema: *a6
-        "400": *a2
+              schema: *a13
+        "400": *a1
         "404":
           description: The profile, logos, or stored logo objects were not found.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiSimpleErrorResponse"
-        "429": *a1
+        "429": *a3
         "501":
           description: Profile asset storage is not configured for this deployment.
           content:
@@ -1049,7 +3427,7 @@ paths:
               required:
                 - file
               properties:
-                file: *a6
+                file: *a13
       responses:
         "200":
           description: Completed profile media upload result.
@@ -1143,7 +3521,7 @@ paths:
         - Assets
       summary: Probe profile asset upload storage
       description: Returns deployment health for the profile asset upload storage backend.
-      security: &a9
+      security: &a16
         - bearerAuth: []
         - oauth2:
             - public:read
@@ -1155,7 +3533,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiProfileAssetStorageProbeResponse"
-        "400": *a2
+        "400": *a1
         "401":
           description: An optional bearer credential was supplied but is invalid.
           content:
@@ -1168,7 +3546,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiProblem"
-        "429": *a1
+        "429": *a3
         "500":
           description: Bearer verification or API rate limiting is unavailable.
           content:
@@ -1210,9 +3588,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PublicProfile"
-        "400": *a2
-        "404": *a5
-        "429": *a1
+        "400": *a1
+        "404": *a2
+        "429": *a3
   /api/v0/people/{slug}/events:
     get:
       operationId: listPublicPersonEvents
@@ -1237,9 +3615,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PublicEventsResponse"
-        "400": *a2
-        "404": *a5
-        "429": *a1
+        "400": *a1
+        "404": *a2
+        "429": *a3
   /api/v0/communities/{slug}:
     get:
       operationId: getPublicCommunityProfileBySlug
@@ -1263,9 +3641,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PublicProfile"
-        "400": *a2
-        "404": *a5
-        "429": *a1
+        "400": *a1
+        "404": *a2
+        "429": *a3
   /api/v0/communities/{slug}/events:
     get:
       operationId: listPublicCommunityEvents
@@ -1298,9 +3676,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PublicEventsResponse"
-        "400": *a2
-        "404": *a5
-        "429": *a1
+        "400": *a1
+        "404": *a2
+        "429": *a3
   /api/v0/events/{slug}:
     get:
       operationId: getPublicEventBySlug
@@ -1324,16 +3702,16 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PublicEvent"
-        "400": *a2
-        "404": *a5
-        "429": *a1
+        "400": *a1
+        "404": *a2
+        "429": *a3
     patch:
       operationId: updateCurrentUserCommunityEvent
       tags:
         - Events
       summary: Update a current user's community event
       description: Updates a public event attached to a community profile owned by a bearer credential with user authority and events:write scope. Optional fields and relations omitted from the PATCH body are preserved.
-      security: &a7
+      security: &a14
         - bearerAuth: []
         - oauth2:
             - events:write
@@ -1384,7 +3762,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiProblem"
-        "429": *a1
+        "429": *a3
   /api/v0/events:
     post:
       operationId: createCurrentUserCommunityEvent
@@ -1392,7 +3770,7 @@ paths:
         - Events
       summary: Create a current user's community event
       description: Creates a public event attached to a community profile owned by a bearer credential with user authority and events:write scope.
-      security: *a7
+      security: *a14
       requestBody:
         required: true
         content:
@@ -1424,7 +3802,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiProblem"
-        "429": *a1
+        "429": *a3
   /api/v0/events/upcoming:
     get:
       operationId: listPublicUpcomingEvents
@@ -1447,9 +3825,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PublicEventsResponse"
-        "400": *a2
-        "404": *a5
-        "429": *a1
+        "400": *a1
+        "404": *a2
+        "429": *a3
   /api/v0/worlds/{slug}:
     get:
       operationId: getPublicWorldBySlug
@@ -1473,9 +3851,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PublicWorld"
-        "400": *a2
-        "404": *a5
-        "429": *a1
+        "400": *a1
+        "404": *a2
+        "429": *a3
   /api/v0/worlds/{slug}/events:
     get:
       operationId: getPublicWorldEventsBySlug
@@ -1499,9 +3877,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PublicWorldEventsResponse"
-        "400": *a2
-        "404": *a5
-        "429": *a1
+        "400": *a1
+        "404": *a2
+        "429": *a3
   /api/v0/worlds/active:
     get:
       operationId: listPublicActiveWorlds
@@ -1524,9 +3902,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PublicActiveWorldsResponse"
-        "400": *a2
-        "404": *a5
-        "429": *a1
+        "400": *a1
+        "404": *a2
+        "429": *a3
   /api/v0/claims/{slug}/status:
     get:
       operationId: getPublicClaimStatus
@@ -1550,9 +3928,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PublicClaimStatusResponse"
-        "400": *a2
-        "404": *a5
-        "429": *a1
+        "400": *a1
+        "404": *a2
+        "429": *a3
   /api/v0/time/parse:
     post:
       operationId: parseTemporalExpression
@@ -1560,7 +3938,7 @@ paths:
         - Time
       summary: Parse a natural-language time expression
       description: Returns a canonical instant, range, clarification, or a 202 continuation while the scale-to-zero model warms. Closed beta requires a verified user-owned personal token with time:parse.
-      security: &a8
+      security: &a15
         - bearerAuth: []
       parameters:
         - in: header
@@ -2099,7 +4477,7 @@ paths:
                   - estimatedWaitSeconds
                   - expiresAt
                 additionalProperties: false
-        "400": *a2
+        "400": *a1
         "401":
           description: A valid personal API token is required.
           content:
@@ -2118,7 +4496,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiProblem"
-        "429": *a1
+        "429": *a3
         "500":
           description: The temporal service is not fully configured.
           content:
@@ -2143,7 +4521,7 @@ paths:
       tags:
         - Time
       summary: Get an accepted temporal parse
-      security: *a8
+      security: *a15
       parameters:
         - in: path
           name: continuationToken
@@ -2641,7 +5019,7 @@ paths:
                   - estimatedWaitSeconds
                   - expiresAt
                 additionalProperties: false
-        "400": *a2
+        "400": *a1
         "401":
           description: A valid personal API token is required.
           content:
@@ -2666,7 +5044,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiProblem"
-        "429": *a1
+        "429": *a3
         "503":
           description: The accepted parse failed because inference is unavailable.
           content:
@@ -2686,7 +5064,7 @@ paths:
         - Usage
       summary: Get API and MCP rate-limit policy information
       description: Returns the default route-class policy table and the current request's effective API rate-limit window.
-      security: *a9
+      security: *a16
       responses:
         "200":
           description: Rate-limit policy and current caller window.
@@ -2694,9 +5072,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiRateLimitUsageResponse"
-        "400": *a2
-        "404": *a5
-        "429": *a1
+        "400": *a1
+        "404": *a2
+        "429": *a3
 components:
   schemas:
     DeveloperTokenCreateRequest:
@@ -2719,6 +5097,7 @@ components:
               - community:write
               - events:read
               - events:write
+              - events:contribute
               - assets:read
               - assets:write
               - assets:contribute
@@ -2795,6 +5174,7 @@ components:
               - community:write
               - events:read
               - events:write
+              - events:contribute
               - assets:read
               - assets:write
               - assets:contribute
@@ -2877,6 +5257,7 @@ components:
               - community:write
               - events:read
               - events:write
+              - events:contribute
               - assets:read
               - assets:write
               - assets:contribute
@@ -3493,6 +5874,29 @@ components:
         - communitySlug
         - startAt
       description: Create a public event attached to a community profile owned by the current authenticated API user.
+    ApiProblem:
+      type: object
+      properties:
+        detail:
+          type: string
+        instance:
+          type: string
+        status:
+          type: integer
+          minimum: 100
+          maximum: 599
+        title:
+          type: string
+          minLength: 1
+        type:
+          type: string
+          minLength: 1
+      required:
+        - status
+        - title
+        - type
+      additionalProperties: false
+      description: RFC 9457 problem details error response.
     ApiMeResponse:
       type: object
       properties:
@@ -3534,6 +5938,7 @@ components:
                   - community:write
                   - events:read
                   - events:write
+                  - events:contribute
                   - assets:read
                   - assets:write
                   - assets:contribute
@@ -3594,6 +5999,7 @@ components:
                   - community:write
                   - events:read
                   - events:write
+                  - events:contribute
                   - assets:read
                   - assets:write
                   - assets:contribute
@@ -3676,29 +6082,6 @@ components:
         - windowMs
       additionalProperties: false
       description: The caller's current rate-limit window for this request.
-    ApiProblem:
-      type: object
-      properties:
-        detail:
-          type: string
-        instance:
-          type: string
-        status:
-          type: integer
-          minimum: 100
-          maximum: 599
-        title:
-          type: string
-          minLength: 1
-        type:
-          type: string
-          minLength: 1
-      required:
-        - status
-        - title
-        - type
-      additionalProperties: false
-      description: RFC 9457 problem details error response.
     ApiMeProfilesResponse:
       type: object
       properties:
@@ -4093,6 +6476,7 @@ components:
               - community:write
               - events:read
               - events:write
+              - events:contribute
               - assets:read
               - assets:write
               - assets:contribute
@@ -4273,6 +6657,7 @@ components:
               - community:write
               - events:read
               - events:write
+              - events:contribute
               - assets:read
               - assets:write
               - assets:contribute
@@ -8792,6 +11177,7 @@ components:
             community:write: community:write
             events:read: events:read
             events:write: events:write
+            events:contribute: events:contribute
             assets:read: assets:read
             assets:write: assets:write
             assets:contribute: assets:contribute

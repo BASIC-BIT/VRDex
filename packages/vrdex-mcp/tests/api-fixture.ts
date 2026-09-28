@@ -62,6 +62,20 @@ async function handleFixtureRequest(
     searchParams: url.searchParams,
   });
 
+  if (url.pathname === "/api/v0/event-intake" && request.method === "POST") {
+    assert.equal(request.headers.authorization, "Bearer vrdx_stdio_token");
+    writeJson(response, 200, { draftId: "intake-fixture", version: 1 }); return;
+  }
+  if (url.pathname === "/api/v0/event-intake/intake-fixture") {
+    assert.equal(request.headers.authorization, "Bearer vrdx_stdio_token");
+    writeJson(response, 200, { draftId: "intake-fixture", version: 1, fields: { title: "Night" } }); return;
+  }
+  if (url.pathname === "/api/v0/event-intake/intake-fixture/publish") {
+    assert.equal(request.headers.authorization, "Bearer vrdx_stdio_token");
+    assert.deepEqual(body, { expectedVersion: 1, idempotencyKey: "fixture-key" });
+    writeJson(response, 200, { eventId: "event-fixture", eventPath: "/events/fixture", receiptId: "receipt-fixture" }); return;
+  }
+
   if (url.pathname.endsWith("/api/v0/search")) {
     writeJson(response, 200, {
       query: url.searchParams.get("q") ?? "",

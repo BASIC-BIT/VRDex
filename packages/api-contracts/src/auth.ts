@@ -7,6 +7,7 @@ export const apiScopes = [
   "community:write",
   "events:read",
   "events:write",
+  "events:contribute",
   "assets:read",
   "assets:write",
   "assets:contribute",

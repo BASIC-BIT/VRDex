@@ -1,4 +1,6 @@
 import type { z } from "@vrdex/api-contracts";
+import { eventIntakeOperations, EventPosterBytesSchema, EventPosterUploadSchema, EVENT_POSTER_MAX_BYTES, type EventIntakeOperation } from "@vrdex/api-contracts";
+import { createHash } from "node:crypto";
 import {
   ApiEventCreateRequestSchema,
   ApiEventUpdateRequestSchema,
@@ -123,7 +125,7 @@ export function createVrdexApiClient(options: ApiClientOptions) {
       authenticate?: boolean;
       body?: unknown;
       idempotencyKey?: string;
-      method?: "GET" | "PATCH" | "POST";
+      method?: "GET" | "PATCH" | "POST" | "DELETE";
       searchParams?: Record<string, number | string | undefined>;
     } = {},
   ): Promise<VrdexApiResult<T>> {
@@ -177,7 +179,46 @@ export function createVrdexApiClient(options: ApiClientOptions) {
     return request(schema, path, { authenticate: false, searchParams });
   }
 
+  async function eventIntake(operation: EventIntakeOperation, raw: unknown) {
+    const contract = eventIntakeOperations[operation];
+    const input = contract.input.parse(raw);
+    const body: Record<string, unknown> = { ...input };
+    const path = contract.path.replace(/\{(\w+)\}/g, (_match, key: string) => {
+      const value = body[key];
+      delete body[key];
+      return encodeURIComponent(String(value));
+    });
+    return request<unknown>(contract.output, path, { method: contract.method,
+      ...(contract.method === "GET" || contract.method === "DELETE" ? {} : { body }),
+    });
+  }
   return {
+    eventIntake,
+    async uploadEventPosterBytes(raw: unknown) {
+      if (!options.posterUploadOrigin) throw new Error("Configure the poster upload origin.");
+      const allowed = new URL(options.posterUploadOrigin);
+      if (allowed.protocol !== "https:" || allowed.username || allowed.password || allowed.origin !== options.posterUploadOrigin) throw new Error("Invalid poster upload origin.");
+      const input = EventPosterBytesSchema.parse(raw);
+      const bytes = Buffer.from(input.base64, "base64");
+      if (!bytes.length || bytes.length > EVENT_POSTER_MAX_BYTES || bytes.toString("base64") !== input.base64) throw new Error("Invalid poster base64.");
+      const detected = bytes.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10])) ? "image/png"
+        : bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255 ? "image/jpeg"
+          : bytes.subarray(0,4).toString() === "RIFF" && bytes.subarray(8,12).toString() === "WEBP" ? "image/webp" : null;
+      if (detected !== input.contentType) throw new Error("Poster type mismatch.");
+      const begun = await eventIntake("poster_upload_begin", { draftId: input.draftId, contentType: input.contentType, byteLength: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") });
+      if (!begun.ok) return begun;
+      const target = EventPosterUploadSchema.parse(begun.data);
+      const url = new URL(target.transfer.url);
+      if (url.protocol !== "https:" || url.username || url.password || url.origin !== allowed.origin) throw new Error("Unexpected poster upload origin.");
+      const form = new FormData();
+      for (const [key, value] of Object.entries(target.transfer.fields)) form.append(key, value);
+      form.append(target.transfer.fileField, new Blob([new Uint8Array(bytes)], { type: input.contentType }), "poster");
+      // Only the pinned storage origin receives these caller-supplied bytes. Never send the API bearer token.
+      const uploaded = await fetcher(url, { method: "POST", body: form, redirect: "error" });
+      if (!uploaded.ok) throw new Error("Poster upload failed.");
+      // The server fully decodes and validates the image before accepting it.
+      return eventIntake("poster_upload_complete", { draftId: input.draftId, posterAssetId: target.posterAssetId });
+    },
     get apiBaseUrl() {
       return options.apiBaseUrl;
     },

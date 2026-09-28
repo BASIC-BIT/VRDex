@@ -89,3 +89,47 @@ export const EventIntakeCandidateSchema = z.strictObject({
 export type EventIntakeCandidate = z.infer<typeof EventIntakeCandidateSchema>;
 
 export const EventIntakeCandidateJsonSchema = z.toJSONSchema(EventIntakeCandidateSchema);
+
+const intakeId = text(200).min(1);
+const version = z.number().int().positive();
+export const EventIntakeDraftIdSchema = z.strictObject({ draftId: intakeId });
+export const ExtractEventIntakeSchema = EventIntakeDraftIdSchema.extend({ sourceText: text(12_000).optional(), posterAssetId: intakeId.optional() });
+export const BeginEventPosterUploadSchema = EventIntakeDraftIdSchema.extend(EventPosterDeclarationSchema.shape);
+export const CompleteEventPosterUploadSchema = EventIntakeDraftIdSchema.extend({ posterAssetId: intakeId });
+export const SelectEventArtworkSchema = CompleteEventPosterUploadSchema.extend({ expectedVersion: version });
+export const UpdateEventContributionSchema = z.strictObject({
+  slug: text(200).min(1), expectedUpdatedAt: z.number(),
+  patch: EventIntakeFieldsSchema.pick({ title: true, eventDate: true, timeTba: true, timezone: true, start: true, end: true, doors: true, venueLabel: true, worldSlug: true, sourceUrl: true, summary: true, lineup: true }),
+  duplicateAcknowledgements: z.array(intakeId).max(100).optional(),
+});
+export const RetractEventContributionSchema = z.strictObject({ slug: text(200).min(1) });
+export const ReportEventSchema = z.strictObject({ reason: text(500).min(5) });
+export const SavedEventIntakeSchema = z.object({ draftId: intakeId, version });
+export const EventIntakeDraftSchema = SavedEventIntakeSchema.extend({
+  fields: EventIntakePatchSchema, publishedReceiptId: intakeId.optional(), artworkAssetId: intakeId.optional(),
+});
+export const PublishedEventIntakeSchema = z.object({ eventId: intakeId, eventPath: text(2048), receiptId: intakeId });
+export const EventPosterUploadSchema = z.object({ posterAssetId: intakeId, expiresAt: z.number(), transfer: z.object({
+  method: z.literal("POST"), url: z.url(), fields: z.record(z.string(), z.string()), fileField: z.literal("file"),
+}) });
+export const EventContributionResultSchema = z.object({ eventId: intakeId, updatedAt: z.number().optional(), changed: z.boolean().optional() });
+
+// These contracts are shared by REST and hosted/local MCP adapters.
+export const eventIntakeOperations = {
+  draft_save: { input: SaveEventIntakeDraftSchema, output: SavedEventIntakeSchema, method: "POST", path: "/event-intake" },
+  draft_get: { input: EventIntakeDraftIdSchema, output: EventIntakeDraftSchema, method: "GET", path: "/event-intake/{draftId}" },
+  extract: { input: ExtractEventIntakeSchema, output: EventIntakeCandidateSchema, method: "POST", path: "/event-intake/{draftId}/extract" },
+  publish: { input: PublishEventIntakeSchema, output: PublishedEventIntakeSchema, method: "POST", path: "/event-intake/{draftId}/publish" },
+  poster_upload_begin: { input: BeginEventPosterUploadSchema, output: EventPosterUploadSchema, method: "POST", path: "/event-intake/{draftId}/poster-upload/begin" },
+  poster_upload_complete: { input: CompleteEventPosterUploadSchema, output: z.object({ posterAssetId: intakeId }), method: "POST", path: "/event-intake/{draftId}/poster-upload/complete" },
+  artwork_select: { input: SelectEventArtworkSchema, output: z.object({ artworkAssetId: intakeId, version }), method: "POST", path: "/event-intake/{draftId}/artwork" },
+  event_update: { input: UpdateEventContributionSchema, output: EventContributionResultSchema, method: "PATCH", path: "/events/{slug}/contribution" },
+  event_retract: { input: RetractEventContributionSchema, output: EventContributionResultSchema, method: "DELETE", path: "/events/{slug}/contribution" },
+} as const;
+export type EventIntakeOperation = keyof typeof eventIntakeOperations;
+
+// Local clients explicitly supply the contents of their chosen file. No path or source URL is accepted.
+export const EventPosterBytesSchema = z.strictObject({
+  draftId: intakeId, contentType: EventPosterDeclarationSchema.shape.contentType,
+  base64: z.string().min(4).max(Math.ceil(EVENT_POSTER_MAX_BYTES / 3) * 4).regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/),
+});

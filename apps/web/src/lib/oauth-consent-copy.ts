@@ -11,6 +11,7 @@ const oauthScopeLabels: Record<string, string> = {
   "developer:write": "Create, update, and revoke developer credentials and OAuth apps",
   "events:read": "Read event data",
   "events:write": "Create and edit your events",
+  "events:contribute": "Contribute events",
   "mcp:read": "Read public VRDex data through MCP",
   "mcp:write": "Use VRDex MCP write tools",
   // This one is now reachable by dynamic MCP clients, which ask for it to call

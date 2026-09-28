@@ -7,6 +7,7 @@ export type VrdexMcpOutputMode = "compact" | "detail";
 export type VrdexMcpConfig = {
   apiBaseUrl: string;
   bearerToken?: string;
+  posterUploadOrigin?: string;
   outputMode: VrdexMcpOutputMode;
 };
 
@@ -101,5 +102,6 @@ export function loadVrdexMcpConfig(env: VrdexMcpEnv = process.env, options: Load
     apiBaseUrl: normalizeApiBaseUrl(firstNonEmpty(env.VRDEX_API_BASE_URL, env.VRDEX_PUBLIC_API_BASE_URL)),
     bearerToken: directToken ?? fileToken,
     outputMode: parseOutputMode(env.VRDEX_MCP_OUTPUT_MODE),
+    ...(nonEmpty(env.VRDEX_EVENT_POSTER_UPLOAD_ORIGIN) ? { posterUploadOrigin: nonEmpty(env.VRDEX_EVENT_POSTER_UPLOAD_ORIGIN) } : {}),
   };
 }

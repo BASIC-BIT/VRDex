@@ -32,7 +32,7 @@ export const dynamicMcpDefaultClientScopes = ["public:read", "mcp:read"] as cons
  * `/api/v0/me/profiles` asks for, so there is one rule rather than two, and its
  * consent line already says what it grants.
  */
-export const dynamicMcpDualUseResourceScopes = ["assets:contribute"] as const;
+export const dynamicMcpDualUseResourceScopes = ["assets:contribute", "events:contribute"] as const;
 export const dynamicMcpClientScopes = [
   ...dynamicMcpDefaultClientScopes,
   "profile:read",

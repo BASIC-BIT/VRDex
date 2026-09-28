@@ -1,5 +1,45 @@
 # VRDex MCP Event Writes
 
+## Contribution intake
+
+Hosted and local MCP register the same nine intake tools, using the shared REST
+schemas and actor-bound commands:
+
+- `vrdex_event_intake_draft_save`
+- `vrdex_event_intake_draft_get`
+- `vrdex_event_intake_extract`
+- `vrdex_event_intake_publish`
+- `vrdex_event_intake_poster_upload_begin`
+- `vrdex_event_intake_poster_upload_complete`
+- `vrdex_event_intake_artwork_select`
+- `vrdex_event_intake_event_update`
+- `vrdex_event_intake_event_retract`
+
+Hosted writes need user-delegated `mcp:write events:contribute`; draft readback
+needs `mcp:read events:contribute`. Local tools call the API using a user-owned
+token with `events:contribute`. Neither path requires verified email. The owner
+tools below still require `events:write` and community authority.
+
+Website and MCP drafts interoperate. Save the returned `draftId` and `version`.
+Publication returns `eventId`, `eventPath`, and `receiptId`. After a lost response,
+read the draft and replay publication with the same version and idempotency key.
+Never make a new draft or key just because the response was lost. Poster upload
+and extraction do not select public artwork; call `artwork_select` deliberately.
+
+The local-only `vrdex_event_intake_poster_upload_bytes` helper accepts `draftId`,
+`contentType`, and base64 content explicitly supplied from a chosen local file.
+It never reads filesystem paths or fetches source URLs. Set
+`VRDEX_EVENT_POSTER_UPLOAD_ORIGIN` to the exact HTTPS S3 upload origin used by
+your deployment, with no trailing slash. The helper rejects another origin,
+credentials, and redirects; it sends no API bearer token to storage. PNG, JPEG,
+and WebP signatures and a 12 MiB limit are checked locally. Completion fully
+decodes the image and checks its declared MIME, length, and digest server-side.
+Clients unable to send bounded image content can use the begin/complete tools
+with their own explicitly authorized file transfer.
+
+These are local implementation and fixture checks. Hosted storage, provider
+accuracy, and production behavior require separate deployment evidence.
+
 ## Status
 
 Implementation checkpoint for

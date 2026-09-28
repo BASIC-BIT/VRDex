@@ -1,6 +1,16 @@
 import assert from "node:assert/strict";
 import { it } from "node:test";
+import { apiScopes, normalizeDynamicMcpClientRegistration } from "../src/index";
 import { EventIntakePatchSchema, SaveEventIntakeDraftSchema, PublishEventIntakeSchema, resolveEventLocalTime, selectEventLocalTime } from "../src/event-intake";
+
+it("offers event contribution as an explicit OAuth grant", () => {
+  assert.ok((apiScopes as readonly string[]).includes("events:contribute"));
+  for (const scope of ["mcp:read events:contribute", "mcp:write events:contribute"]) {
+    const client = normalizeDynamicMcpClientRegistration({ client_name: "Intake", redirect_uris: ["http://127.0.0.1/callback"], scope });
+    assert.ok(client.allowedScopes.includes("events:contribute"));
+    assert.ok(!client.allowedScopes.includes("events:write"));
+  }
+});
 
 it("accepts poster-only, partial and explicit clearing patches", () => {
   assert.deepEqual(EventIntakePatchSchema.parse({ posterSourceId: "private-source" }), { posterSourceId: "private-source" });

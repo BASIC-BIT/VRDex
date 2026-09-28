@@ -1,5 +1,7 @@
 import { createDocument, type ZodOpenApiObject, type ZodOpenApiResponsesObject } from "zod-openapi";
 import { stringify as stringifyYaml } from "yaml";
+import { z } from "zod";
+import { eventIntakeOperations, ReportEventSchema } from "./event-intake";
 
 import { oauthApiScopes } from "./auth";
 import {
@@ -54,7 +56,6 @@ import {
   ProfileAssetUploadTokenHeaderSchema,
   SearchQueryParamsSchema,
   SlugPathParamsSchema,
-  type z,
 } from "./schemas";
 import {
   ApiIdempotencyHeaderSchema,
@@ -158,6 +159,34 @@ const developerWriteSecurity: Array<Record<string, string[]>> = [
   { oauth2: ["developer:write"] },
 ];
 
+const eventIntakePaths: NonNullable<ZodOpenApiObject["paths"]> = {};
+for (const [operation, contract] of Object.entries(eventIntakeOperations)) {
+  const path = `/api/v0${contract.path}`;
+  const pathNames = [...contract.path.matchAll(/\{(\w+)\}/g)].map(match => match[1]!);
+  const body = z.strictObject(Object.fromEntries(Object.entries(contract.input.shape).filter(([name]) => !pathNames.includes(name))));
+  eventIntakePaths[path] ??= {};
+  eventIntakePaths[path][contract.method.toLowerCase() as "get" | "post" | "patch" | "delete"] = {
+    operationId: `eventIntake_${operation}`, tags: ["Events"], summary: `Event intake ${operation.replaceAll("_", " ")}`,
+    description: "Requires a user-scoped credential with events:contribute. No verified-email or community ownership requirement. Publication retries must preserve draftId, expectedVersion, and idempotencyKey.",
+    security: [{ bearerAuth: [] }, { oauth2: ["events:contribute"] }],
+    parameters: pathNames.map(name => ({ name, in: "path" as const, required: true, schema: { type: "string" as const } })),
+    ...(contract.method === "GET" || contract.method === "DELETE" ? {} : { requestBody: { required: true, content: jsonContent(body) } }),
+    responses: {
+      "200": { description: "Actor-scoped result.", content: jsonContent(contract.output) },
+      ...publicReadProblemResponses,
+      "401": { description: "User credential required.", content: jsonContent(ApiProblemSchema) },
+      "403": { description: "Missing scope or actor authority.", content: jsonContent(ApiProblemSchema) },
+      "409": { description: "Stale version, changed idempotency input, or staff takeover.", content: jsonContent(ApiProblemSchema) },
+      "503": { description: "Response unavailable; read the draft before retrying and preserve the publication key and version.", content: jsonContent(ApiProblemSchema) },
+    },
+  };
+}
+eventIntakePaths["/api/v0/event-intake/{draftId}"]!.patch = {
+  ...eventIntakePaths["/api/v0/event-intake"]!.post!, operationId: "eventIntake_draft_patch",
+  parameters: [{ name: "draftId", in: "path", required: true, schema: { type: "string" } }],
+  requestBody: { required: true, content: jsonContent(z.strictObject({ expectedVersion: z.number().int().positive(), patch: eventIntakeOperations.draft_save.input.shape.patch })) },
+};
+
 export const openApiSource = {
   openapi: "3.1.0",
   info: {
@@ -190,6 +219,20 @@ export const openApiSource = {
     { name: "Developer", description: "Authenticated developer credential-management surfaces." },
   ],
   paths: {
+    ...eventIntakePaths,
+    "/api/v0/events/{slug}/report": {
+      post: { operationId: "reportEvent", tags: ["Events"], summary: "Report an event", security: [],
+        parameters: [{ name: "slug", in: "path", required: true, schema: { type: "string" } }],
+        requestBody: { required: true, content: jsonContent(ReportEventSchema) },
+        responses: { "200": { description: "Report accepted subject to visitor event/global caps.", content: jsonContent(z.object({ accepted: z.boolean() })) }, ...publicReadProblemResponses },
+      },
+    },
+    "/api/v0/events/{slug}/artwork/{artworkAssetId}": {
+      get: { operationId: "getSelectedEventArtwork", tags: ["Events"], summary: "Read selected public event artwork", security: [],
+        parameters: ["slug", "artworkAssetId"].map(name => ({ name, in: "path" as const, required: true, description: name === "slug" ? "Internal event ID, as returned in the publication receipt. The shared Next.js segment is named slug." : "Selected artwork ID.", schema: { type: "string" as const } })),
+        responses: { "200": { description: "Explicitly selected WebP artwork for this currently public event. Private source evidence is never returned. Responses are not cached.", content: binaryContent("image/webp") }, ...publicReadProblemResponses },
+      },
+    },
     "/api/v0/openapi.json": {
       get: {
         operationId: "getOpenApiDocument",
