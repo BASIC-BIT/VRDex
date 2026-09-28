@@ -273,6 +273,7 @@ test("contributor A submits and different owner B reviews media @media-lifecycle
     const file = `/api/account/media-review/submissions/${rejectedCandidate.submission.submissionId}/file`;
     const card = pageB.locator("section").filter({ has: pageB.locator(`img[src="${file}"]`) });
     await card.getByLabel("Private review reason", { exact: true }).fill("Synthetic worker cleanup proof.");
+    await card.getByLabel("Public rejection reason", { exact: true }).fill("Synthetic candidate rejected.");
     await card.getByRole("button", { name: "Reject", exact: true }).click();
     await expect.poll(async () => {
       const history = await call<{ submissions: Submission[] }>(request, authA.access_token, "vrdex_list_my_media_submissions", {});
