@@ -33,7 +33,7 @@ export function IntakeTime({ label, value, date, timezone, onChange }: { label: 
   </div>;
 }
 
-export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, correction = false, onSave, onPublish, onSource, initialArtworkSelected }: { initialFields: EventIntakeFields; initialRevision?: number; correction?: boolean; onSource?: IntakeSourceAction; initialArtworkSelected?: boolean; onSave?: (fields: EventIntakeFields, revision: number) => Promise<void>; onPublish: (fields: EventIntakeFields, revision: number) => Promise<void> }) {
+export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, correction = false, onSave, onPublish, onSource, initialArtworkSourceId }: { initialFields: EventIntakeFields; initialRevision?: number; correction?: boolean; onSource?: IntakeSourceAction; initialArtworkSourceId?: string; onSave?: (fields: EventIntakeFields, revision: number) => Promise<void>; onPublish: (fields: EventIntakeFields, revision: number) => Promise<void> }) {
   const [fields, setFields] = useState(initialFields);
   // Keep the revision paired with the fields loaded when editing began.
   const [revision] = useState(initialRevision);
@@ -66,7 +66,7 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
   }
   return <form className="grid gap-6" onSubmit={event => { event.preventDefault(); void submit(true); }}>
     <fieldset disabled={busy} className="grid min-w-0 gap-6">
-    {onSource ? <EventIntakeSource fields={fields} revision={revision} onChange={setFields} action={onSource} busy={busy} setBusy={setBusy} setMessage={setMessage} initialArtworkSelected={initialArtworkSelected} /> : null}
+    {onSource ? <EventIntakeSource fields={fields} revision={revision} onChange={setFields} action={onSource} busy={busy} setBusy={setBusy} setMessage={setMessage} initialArtworkSourceId={initialArtworkSourceId} /> : null}
     <Field>Community<CommunityInput value={fields.communitySlug ?? ""} disabled={correction} onChange={value => set("communitySlug", value)} /></Field>
     <Field>Event title<Input value={fields.title ?? ""} maxLength={120} onChange={event => set("title", event.target.value)} /></Field>
     <Field>Date<Input type="date" value={fields.eventDate ?? ""} onChange={event => set("eventDate", event.target.value)} /></Field>
@@ -127,13 +127,13 @@ function ConnectedIntake({ draftId, initialCommunitySlug }: { draftId?: string; 
       await websiteIntakeCommand("poster_upload_complete", { draftId: current.draftId, posterAssetId: upload.posterAssetId });
       const next = { ...staged, posterSourceId: upload.posterAssetId };
       await saveFields(next, revision);
-      return { fields: next, artworkSelected: false };
+      return { fields: next };
     }
     const current = await saveFields(fields, revision);
     if (action === "artwork") {
       const result = await websiteIntakeCommand("artwork_select", { draftId: current.draftId, posterAssetId: fields.posterSourceId, expectedVersion: current.version });
       saved.current = { ...current, version: result.version };
-      return { artworkSelected: true };
+      return { artworkSourceId: fields.posterSourceId ?? undefined };
     }
     const candidate = EventIntakeCandidateSchema.parse(await websiteIntakeCommand("extract", { draftId: current.draftId, ...(fields.sourceText ? { sourceText: fields.sourceText } : {}), ...(fields.posterSourceId ? { posterAssetId: fields.posterSourceId } : {}) }));
     const next = { ...fields, ...candidatePatch(candidate) };
@@ -142,7 +142,7 @@ function ConnectedIntake({ draftId, initialCommunitySlug }: { draftId?: string; 
     return { fields: next, candidate };
   };
   if (draftId && loaded === undefined) return <p aria-busy="true">Loading draft…</p>;
-  return <EventIntakeFieldsForm initialFields={loaded?.fields ?? { communitySlug: initialCommunitySlug, timeTba: false }} initialRevision={loaded?.version} onSource={sourceAction} initialArtworkSelected={Boolean(loaded?.artworkAssetId)} onSave={async (fields, revision) => { await saveFields(fields, revision); }} onPublish={async (fields, revision) => {
+  return <EventIntakeFieldsForm initialFields={loaded?.fields ?? { communitySlug: initialCommunitySlug, timeTba: false }} initialRevision={loaded?.version} onSource={sourceAction} initialArtworkSourceId={loaded?.artworkSourceId} onSave={async (fields, revision) => { await saveFields(fields, revision); }} onPublish={async (fields, revision) => {
     const current = await saveFields(fields, revision);
     if (request.current?.version !== current.version) request.current = { version: current.version, key: crypto.randomUUID() };
     const result = await publish({ draftId: current.draftId, expectedVersion: current.version, idempotencyKey: request.current.key });

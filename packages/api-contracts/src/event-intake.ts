@@ -108,7 +108,7 @@ export const RetractEventContributionSchema = z.strictObject({ slug: text(200).m
 export const ReportEventSchema = z.strictObject({ reason: text(500).min(5) });
 export const SavedEventIntakeSchema = z.object({ draftId: intakeId, version });
 export const EventIntakeDraftSchema = SavedEventIntakeSchema.extend({
-  fields: EventIntakePatchSchema, publishedReceiptId: intakeId.optional(), artworkAssetId: intakeId.optional(),
+  fields: EventIntakePatchSchema, publishedReceiptId: intakeId.optional(), artworkAssetId: intakeId.optional(), artworkSourceId: intakeId.optional(),
 });
 export const PublishedEventIntakeSchema = z.object({ eventId: intakeId, eventPath: text(2048), receiptId: intakeId });
 export const EventPosterUploadSchema = z.object({ posterAssetId: intakeId, expiresAt: z.number(), transfer: z.object({

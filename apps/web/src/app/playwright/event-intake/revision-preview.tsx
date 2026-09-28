@@ -17,7 +17,7 @@ function revisionFixture(sourceMode?: string) {
   if (sourceMode) fields = {};
   let version = 1;
   if (sourceMode && typeof sessionStorage !== "undefined") { const stored = sessionStorage.getItem("fixture-source-draft"); if (stored) ({fields, version} = JSON.parse(stored)); }
-  let draft = { _id: "fixture-draft", version, fields, artworkAssetId: typeof sessionStorage !== "undefined" && sessionStorage.getItem("fixture-artwork") ? "art" : undefined };
+  let draft = { artworkSourceId: typeof sessionStorage !== "undefined" ? sessionStorage.getItem("fixture-artwork-source") ?? undefined : undefined, _id: "fixture-draft", version, fields, artworkAssetId: typeof sessionStorage !== "undefined" && sessionStorage.getItem("fixture-artwork") ? "art" : undefined };
   let event = { eventId: "fixture-event", updatedAt: version, fields };
   const listeners = new Set<() => void>();
   const access = { canCorrect: true, canSuggest: false, canTakeOver: false, canRemove: false };
@@ -67,17 +67,23 @@ function revisionFixture(sourceMode?: string) {
     const { operation, input: args } = JSON.parse(String(init?.body));
     if ("actorUserId" in args) throw new Error("Browser actor forbidden");
     switch (operation) {
-      case "poster_upload_begin": return Response.json({ posterAssetId: "poster", expiresAt: Date.now() + 60000, transfer: { method: "POST", url: `${location.origin}/fixture-upload`, fields: {}, fileField: "file" } });
-      case "poster_upload_complete": return Response.json({ posterAssetId: "poster" });
+      case "poster_upload_begin": {
+        const count = Number(sessionStorage.getItem("fixture-upload-count") ?? "0") + 1;
+        sessionStorage.setItem("fixture-upload-count", String(count));
+        return Response.json({ posterAssetId: `poster-${count}`, expiresAt: Date.now() + 60000, transfer: { method: "POST", url: `${location.origin}/fixture-upload`, fields: {}, fileField: "file" } });
+      }
+      case "poster_upload_complete": return Response.json({ posterAssetId: args.posterAssetId });
       case "poster_read": {
         if (sourceMode === "preview-failure") return Response.json({}, { status: 503 });
+        if (sourceMode === "replacement-delay" && args.posterAssetId === "poster-2") await new Promise<void>(resolve => window.addEventListener("release-poster-preview", () => resolve(), { once: true }));
         const response = await fetch("/test-media/event-poster.png");
         const dataUrl = await new Promise<string>(resolve => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); void response.blob().then(blob => reader.readAsDataURL(blob)); });
-        return Response.json({ dataUrl });
+        return Response.json({ dataUrl: `${dataUrl}#${args.posterAssetId}` });
       }
       case "artwork_select":
         if (args.expectedVersion !== version) return Response.json({}, { status: 409 });
-        draft = { ...draft, artworkAssetId: "art" };
+        draft = { ...draft, artworkAssetId: "art", artworkSourceId: args.posterAssetId };
+        sessionStorage.setItem("fixture-artwork-source", args.posterAssetId);
         refresh({}); sessionStorage.setItem("fixture-artwork", "selected");
         return Response.json({ artworkAssetId: "art", version });
       case "extract":

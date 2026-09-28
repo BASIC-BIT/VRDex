@@ -63,6 +63,10 @@ manual edits remain available. Draft writes retain the version paired with the
 source/form. A concurrent edit refuses candidate persistence instead of overwriting
 it. Missing model configuration leaves manual editing and publication available.
 Artwork selection is a distinct action that advances the saved draft version.
+Draft reads return the selected artwork source ID independently of the current
+private poster. Replacing a poster does not select it or clear an earlier explicit
+artwork choice. The browser marks only that exact source selected and waits for
+the current source preview before enabling its artwork action.
 
 ```mermaid
 flowchart LR

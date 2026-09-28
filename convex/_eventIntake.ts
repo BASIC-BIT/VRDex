@@ -39,7 +39,9 @@ export async function getActorIntakeDraft(db: DatabaseReader, actorUserId: Id<"u
   if (!await db.get(actorUserId)) throw new Error("A signed-in user is required.");
   const draft = await db.get(draftId);
   if (!draft || draft.actorUserId !== actorUserId || draft.expiresAt <= now) throw new Error("Draft not found.");
-  return { ...draft, fields: sanitizeEventIntakePatch(draft.fields) };
+  const artwork = draft.artworkAssetId ? await db.get(draft.artworkAssetId) : null;
+  const artworkSourceId = artwork?.draftId === draft._id && artwork.actorUserId === actorUserId && ["ready", "published"].includes(artwork.state) ? artwork.sourceId : undefined;
+  return { ...draft, artworkSourceId, fields: sanitizeEventIntakePatch(draft.fields) };
 }
 export async function saveIntakeDraft(db: DatabaseWriter, actorUserId: Id<"users">, args: { draftId?: Id<"eventIntakeDrafts">; expectedVersion?: number; patch: unknown }, now = Date.now()) {
   if (!await db.get(actorUserId)) throw new Error("A signed-in user is required.");

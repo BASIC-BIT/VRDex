@@ -158,3 +158,24 @@ it("retries a deleting artwork with a fresh key and preserves the old cleanup cl
  assert.equal((await t.run(ctx=>ctx.db.get(old.artworkAssetId)))?.state,"expired");
  assert.equal((await t.run(ctx=>ctx.db.get(fresh.artworkAssetId)))?.state,"pending");
 });
+
+it("returns the selected artwork source independently of the current poster after replacement", async () => {
+ const {t,actorUserId,draftId}=await fixture();
+ const makeSource=async()=>{
+  const source=await t.mutation(ref("beginPosterUpload"),{actorUserId,draftId,contentType:"image/png",byteLength:128,sha256:"a".repeat(64)});
+  await t.mutation(ref("completePosterUpload"),{actorUserId,posterAssetId:source.posterAssetId,sha256:"a".repeat(64)});
+  return source.posterAssetId;
+ };
+ const a=await makeSource();const b=await makeSource();
+ const select=async(posterAssetId:string,expectedVersion:number)=>{
+  const selected=await t.mutation(ref("selectPosterArtwork"),{actorUserId,draftId,posterAssetId,expectedVersion});
+  await t.mutation(ref("completeArtwork"),{actorUserId,artworkAssetId:selected.artworkAssetId,expectedVersion,sha256:"b".repeat(64),byteLength:100});
+ };
+ await select(a,1);
+ await t.mutation(makeFunctionReference<"mutation">("eventIntake:saveActorDraft"),{actorUserId,draftId,expectedVersion:2,patch:{posterSourceId:b}});
+ const read=()=>t.withIdentity({subject:"actor"}).query(makeFunctionReference<"query">("eventIntake:getEventIntakeDraft"),{draftId});
+ assert.equal((await read()).artworkSourceId,a);
+ assert.equal((await read()).fields.posterSourceId,b);
+ await select(b,3);
+ assert.equal((await read()).artworkSourceId,b);
+});

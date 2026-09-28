@@ -6,27 +6,29 @@ import { Field, Input, Textarea } from "@/components/ui/field";
 import { BACKEND_ERROR_COPY } from "@/lib/error-copy";
 import type { EventIntakePatch, EventIntakeCandidate } from "../../../../../packages/api-contracts/src/event-intake";
 
-export type IntakeSourceAction = (action: "extract" | "upload" | "artwork" | "read", fields: EventIntakePatch, revision: number, file?: File) => Promise<{ fields?: EventIntakePatch; preview?: string; candidate?: EventIntakeCandidate; artworkSelected?: boolean }>;
+export type IntakeSourceAction = (action: "extract" | "upload" | "artwork" | "read", fields: EventIntakePatch, revision: number, file?: File) => Promise<{ fields?: EventIntakePatch; preview?: string; candidate?: EventIntakeCandidate; artworkSourceId?: string }>;
 const labels: Record<string, string> = { title: "Event title", communitySlug: "Community", eventDate: "Date", start: "Start time", end: "End time", timezone: "Time zone", venueLabel: "Venue", summary: "Description", sourceUrl: "Source URL", lineup: "Slots" };
 function valueText(value: unknown): string {
   if (Array.isArray(value)) return value.map(row => [row.performerLabel, row.personSlug, row.roleLabel, valueText(row.start), valueText(row.end)].filter(Boolean).join(" · ")).join("\n");
   if (value && typeof value === "object" && "time" in value) return String(value.time);
   return value == null ? "" : String(value);
 }
-export function EventIntakeSource({ fields, revision, onChange, action, busy, setBusy, setMessage, initialArtworkSelected = false }: {
+export function EventIntakeSource({ fields, revision, onChange, action, busy, setBusy, setMessage, initialArtworkSourceId }: {
   fields: EventIntakePatch; revision: number; onChange: (fields: EventIntakePatch) => void; action: IntakeSourceAction;
-  busy: boolean; setBusy: (busy: boolean) => void; setMessage: (message: string) => void; initialArtworkSelected?: boolean;
+  busy: boolean; setBusy: (busy: boolean) => void; setMessage: (message: string) => void; initialArtworkSourceId?: string;
 }) {
-  const [preview, setPreview] = useState("");
+  const [preview, setPreview] = useState<{ sourceId: string; url: string } | null>(null);
   const [evidence, setEvidence] = useState<EventIntakeCandidate["evidence"]>([]);
   const unavailable = fields.questions?.some(question => question.startsWith("source: ")) ?? false;
-  const [artworkSelected, setArtworkSelected] = useState(initialArtworkSelected);
+  const [artworkSourceId, setArtworkSourceId] = useState(initialArtworkSourceId);
   const [readSource] = useState(() => action);
   const posterSourceId = fields.posterSourceId;
+  const previewUrl = preview && preview.sourceId === posterSourceId ? preview.url : "";
+  const artworkSelected = Boolean(posterSourceId && artworkSourceId === posterSourceId);
   useEffect(() => {
     if (!posterSourceId) return;
     let active = true;
-    void readSource("read", { posterSourceId }, revision).then(result => { if (active) setPreview(result.preview ?? ""); }).catch(() => { if (active) setPreview(""); });
+    void readSource("read", { posterSourceId }, revision).then(result => { if (active) setPreview({ sourceId: posterSourceId, url: result.preview ?? "" }); }).catch(() => { if (active) setPreview(null); });
     return () => { active = false; };
   }, [readSource, posterSourceId, revision]);
   async function run(kind: "extract" | "upload" | "artwork", file?: File) {
@@ -34,9 +36,8 @@ export function EventIntakeSource({ fields, revision, onChange, action, busy, se
     try {
       const result = await action(kind, fields, revision, file);
       if (result.fields) onChange(result.fields);
-      if (result.preview) setPreview(result.preview);
       if (result.candidate) { setEvidence(result.candidate.evidence); }
-      if (result.artworkSelected !== undefined) setArtworkSelected(result.artworkSelected);
+      if (result.artworkSourceId) setArtworkSourceId(result.artworkSourceId);
     } catch (error) {
       setMessage(error instanceof ConvexError && typeof error.data === "object" && error.data && "code" in error.data && error.data.code === "VERSION_CONFLICT"
         ? "This draft changed elsewhere. Reload before saving." : error instanceof Error && error.message === "INVALID_POSTER" ? "Choose a PNG, JPEG or WebP image up to 12 MB." : BACKEND_ERROR_COPY);
@@ -49,11 +50,11 @@ export function EventIntakeSource({ fields, revision, onChange, action, busy, se
         <Button type="button" variant="secondary" disabled={busy || (!fields.sourceText?.trim() && !fields.posterSourceId)} onClick={() => void run("extract")}>Extract details</Button>
         {unavailable ? <p role="status" className="text-sm text-muted">Extraction unavailable</p> : null}
       </div>
-      <div className="grid content-start gap-3">{preview ? <><p className="text-sm text-muted">Private source</p>
+      <div className="grid content-start gap-3">{previewUrl ? <><p className="text-sm text-muted">Private source</p>
         {/* Private data URL already contains the validated image. */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={preview} alt="Source poster" className="max-h-80 w-full rounded-control object-contain" /></> : null}
-        {fields.posterSourceId ? artworkSelected ? <p className="text-sm">Artwork selected</p> : <Button type="button" variant="secondary" disabled={busy} onClick={() => void run("artwork")}>Use as event artwork</Button> : null}
+        <img src={previewUrl} alt="Source poster" className="max-h-80 w-full rounded-control object-contain" /></> : null}
+        {fields.posterSourceId ? artworkSelected ? <p className="text-sm">Artwork selected</p> : <Button type="button" variant="secondary" disabled={busy || !previewUrl} onClick={() => void run("artwork")}>Use as event artwork</Button> : null}
       </div>
     </div>
     {fields.tentative && Object.keys(fields.tentative).length ? <section className="grid gap-3"><h2 className="text-xl font-semibold">Tentative details</h2>
