@@ -1061,23 +1061,28 @@ const mcpMediaReviewWriteToolNames = new Set<string>([
   "vrdex_media_submission_publish",
   "vrdex_media_submission_declare",
 ]);
-const definiteMediaReviewErrorCodes = new Set([
-  "MEDIA_DELEGATION_DENIED",
-  "MEDIA_EMAIL_UNVERIFIED",
-  "MEDIA_CONTRIBUTIONS_DISABLED",
-  "MEDIA_REVIEW_ACCESS_REQUIRED",
-  "MEDIA_MODERATOR_REQUIRED",
-  "MEDIA_SELF_REVIEW",
-  "MEDIA_PROFILE_CHANGED",
-  "MEDIA_PUBLISH_ACCESS_REQUIRED",
-  "MEDIA_RESOURCE_UNAVAILABLE",
-  "MEDIA_REVIEW_ACTOR_UNAVAILABLE",
+const definiteMediaReviewErrorCodes = new Map<string, [
+  "authority" | "stale" | "unavailable",
+  "restore_access" | "inspect_current" | "none",
+]>([
+  ["MEDIA_DELEGATION_DENIED", ["authority", "restore_access"]],
+  ["MEDIA_EMAIL_UNVERIFIED", ["authority", "restore_access"]],
+  ["MEDIA_CONTRIBUTIONS_DISABLED", ["unavailable", "none"]],
+  ["MEDIA_REVIEW_ACCESS_REQUIRED", ["authority", "restore_access"]],
+  ["MEDIA_MODERATOR_REQUIRED", ["authority", "restore_access"]],
+  ["MEDIA_SELF_REVIEW", ["authority", "restore_access"]],
+  ["MEDIA_PROFILE_CHANGED", ["stale", "inspect_current"]],
+  ["MEDIA_PUBLISH_ACCESS_REQUIRED", ["authority", "restore_access"]],
+  ["MEDIA_RESOURCE_UNAVAILABLE", ["unavailable", "inspect_current"]],
+  ["MEDIA_REVIEW_ACTOR_UNAVAILABLE", ["authority", "restore_access"]],
 ]);
 
-function isDefiniteHostedMediaReviewDenial(toolName: string, error: unknown) {
-  if (!mcpMediaReviewWriteToolNames.has(toolName)) return false;
+function hostedMediaReviewDenial(toolName: string, error: unknown) {
   const code = mcpConvexErrorCode(error);
-  return code !== null && definiteMediaReviewErrorCodes.has(code);
+  const action = mcpMediaReviewWriteToolNames.has(toolName) && code !== null
+    ? definiteMediaReviewErrorCodes.get(code)
+    : undefined;
+  return code !== null && action !== undefined ? { code, action } : null;
 }
 
 function mcpJsonResult<T>(schema: ResponseSchema<T>, value: unknown) {
@@ -1977,20 +1982,26 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       await recordHostedMcpWriteInvocation({ ...details, result: hostedMcpWriteOutcome(response) });
       return response;
     } catch (error) {
-      const denied = isDefiniteHostedMediaReviewDenial(toolName, error);
+      const denial = hostedMediaReviewDenial(toolName, error);
       await recordHostedMcpWriteInvocation({
         ...details,
-        result: denied ? "denied" : "indeterminate",
+        result: denial === null ? "indeterminate" : "denied",
       });
-      if (denied) return {
-        content: [{
-          type: "text" as const,
-          text: mcpConvexErrorCode(error) === "MEDIA_REVIEW_ACCESS_REQUIRED"
-            ? "Profile media review access is required."
-            : "Decision refused.",
-        }],
-        isError: true as const,
-      };
+      if (denial !== null) {
+        const receipt = commandReceiptSchema.parse({
+          operationId: idempotencyKey ?? toolName,
+          operationState: "refused",
+          code: denial.code,
+          retryable: false,
+          retryCategory: denial.action[0],
+          nextAction: denial.action[1],
+        });
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(receipt) }],
+          structuredContent: receipt,
+          isError: true as const,
+        };
+      }
       return safeCommandError(null, idempotencyKey ?? toolName);
     }
   };

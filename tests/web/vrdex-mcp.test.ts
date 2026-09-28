@@ -29,10 +29,23 @@ it("hosted review writes return safe refusals and preserve uncertain outcomes", 
     async function call(id){const response=await handler.fetch(new Request("https://app.example.test/mcp",{method:"POST",headers:{accept:"application/json, text/event-stream","content-type":"application/json"},body:JSON.stringify({jsonrpc:"2.0",id,method:"tools/call",params:{name:"vrdex_media_review_decide",arguments:{submissionId:"submission",expectedReviewVersion:"version",decision:"reject",privateReason:"Reviewed",idempotencyKey:"key"}}})}),{authInfo});const body=await response.text();return JSON.parse(body.split(/\\r?\\n/).find(line=>line.startsWith("data: "))?.slice(6)??body).result;}
     const denied=await call(1);
     assert.equal(denied.isError,true);
-    assert.equal(denied.content[0].text,"Profile media review access is required.");
+    assert.equal(denied.structuredContent.operationState,"refused");
+    assert.equal(denied.structuredContent.code,"MEDIA_REVIEW_ACCESS_REQUIRED");
+    assert.equal(denied.structuredContent.nextAction,"restore_access");
+    assert.doesNotMatch(JSON.stringify(denied),/private-review|Request ID|secret/);
     assert.equal(events.at(-1).result,"denied");
+    failure=new Error('[Request ID: hosted] Server Error Uncaught ConvexError: {"code":"MEDIA_PROFILE_CHANGED","message":"private detail"}\\n at private-review.ts:42');
+    const stale=await call(2);
+    assert.equal(stale.structuredContent.code,"MEDIA_PROFILE_CHANGED");
+    assert.equal(stale.structuredContent.nextAction,"inspect_current");
+    assert.doesNotMatch(JSON.stringify(stale),/private detail|private-review|Request ID/);
+    failure=new Error('[Request ID: hosted] Server Error Uncaught ConvexError: {"code":"MEDIA_UNKNOWN","message":"private detail"}\\n at private-review.ts:42');
+    const unknownCode=await call(3);
+    assert.equal(unknownCode.structuredContent.operationState,"in_progress");
+    assert.equal(events.at(-1).result,"indeterminate");
+    assert.doesNotMatch(JSON.stringify(unknownCode),/MEDIA_UNKNOWN|private detail|private-review|Request ID/);
     failure=new Error("transport lost after possible commit\\n at private-transport.ts:19");
-    const uncertain=await call(2);
+    const uncertain=await call(4);
     assert.equal(uncertain.isError,true);
     assert.equal(uncertain.structuredContent.operationState,"in_progress");
     assert.equal(events.at(-1).result,"indeterminate");
@@ -83,14 +96,17 @@ it("registered selected review stops at live backend OAuth revocation and denies
  const result=await call("vrdex_media_review_decide_selected",{decisions});assert.equal(result.structuredContent.receipts[0].operationState,"committed");assert.notEqual(result.structuredContent.receipts[1].operationState,"committed");assert.equal((await t.run(ctx=>ctx.db.get(second))).status,"submitted");assert.equal(writes,1);
  const events=await t.run(ctx=>ctx.db.query("mcpToolEvents").collect());const event=events.find(row=>row.toolName==="vrdex_media_review_decide_selected");assert.equal(event?.result,"indeterminate");assert.equal(event?.actorUserId,s.moderatorUserId);assert.equal(event?.oauthClientId,"client");assert.equal(event?.oauthTokenId,"review");assert.equal(event?.requestId,"request");
  const revoked=await call("vrdex_media_review_decide",decisions[0]);assert.equal(revoked.isError,true);assert.equal(forwardedCodes.at(-1),"MEDIA_DELEGATION_DENIED");
+ assert.equal(revoked.structuredContent.code,"MEDIA_DELEGATION_DENIED");
  let decideEvents=(await t.run(ctx=>ctx.db.query("mcpToolEvents").collect())).filter(row=>row.toolName==="vrdex_media_review_decide");assert.equal(decideEvents.at(-1)?.result,"denied");assert.equal(decideEvents.at(-1)?.actorUserId,s.moderatorUserId);
  await t.run(ctx=>ctx.db.insert("oauthAccessTokens",{tokenId:"contributor-review",clientId:"client",userId:s.contributorUserId,subjectType:"user",resource:"https://app.example.test/mcp",scopes:["mcp:write","assets:review:write"],status:"active",issuedAt:Date.now(),expiresAt:Date.now()+600000}));
  const contributorAuth={...authInfo,scopes:["mcp:write","assets:review:write"],extra:{...authInfo.extra,userId:s.contributorUserId,tokenId:"contributor-review"}};
  const noAccess=await call("vrdex_media_review_decide",decisions[0],handler,contributorAuth);assert.equal(noAccess.isError,true);assert.equal(forwardedCodes.at(-1),"MEDIA_REVIEW_ACCESS_REQUIRED");
+ assert.equal(noAccess.structuredContent.code,"MEDIA_REVIEW_ACCESS_REQUIRED");
  decideEvents=(await t.run(ctx=>ctx.db.query("mcpToolEvents").collect())).filter(row=>row.toolName==="vrdex_media_review_decide");assert.equal(decideEvents.at(-1)?.result,"denied");assert.equal(decideEvents.at(-1)?.actorUserId,s.contributorUserId);
  await t.run(ctx=>ctx.db.patch(token,{status:"active"}));
  const unverifiedHandler=createVrdexMcpHandler({verifyContributorEmail:async()=>false,adminConvex:{query:(ref,args)=>t.query(ref,args),mutation:throughHttp}});
  const unverified=await call("vrdex_media_review_decide",decisions[0],unverifiedHandler);assert.equal(unverified.isError,true);assert.equal(forwardedCodes.at(-1),"MEDIA_EMAIL_UNVERIFIED");
+ assert.equal(unverified.structuredContent.code,"MEDIA_EMAIL_UNVERIFIED");
  decideEvents=(await t.run(ctx=>ctx.db.query("mcpToolEvents").collect())).filter(row=>row.toolName==="vrdex_media_review_decide");assert.equal(decideEvents.at(-1)?.result,"denied");
  const transportHandler=createVrdexMcpHandler({verifyContributorEmail:async()=>true,adminConvex:{query:(ref,args)=>t.query(ref,args),mutation:(ref,args)=>getFunctionName(ref)==="profileMediaSubmissions:decideForMcpActor"?Promise.reject(new Error("transport lost")):t.mutation(ref,args)}});
  const transport=await call("vrdex_media_review_decide",decisions[0],transportHandler);assert.equal(transport.isError,true);
@@ -3264,6 +3280,9 @@ it("registered publication and withdrawal record definite backend refusals", () 
       if(name==="vrdex_media_submission_declare")await t.run(ctx=>ctx.db.delete(grantId));
       const result=await call(name,input,who);assert.equal(result.isError,true,name);
       assert.deepEqual(forwarded.at(-1),{code,message},name);
+      assert.equal(result.structuredContent.operationState,"refused",name);
+      assert.equal(result.structuredContent.code,code,name);
+      assert.equal(result.structuredContent.nextAction,code==="MEDIA_RESOURCE_UNAVAILABLE"?"inspect_current":"restore_access",name);
       const events=(await t.run(ctx=>ctx.db.query("mcpToolEvents").collect())).filter(row=>row.toolName===name);
       assert.equal(events.at(-1)?.result,"denied",name);
     }
@@ -3271,6 +3290,7 @@ it("registered publication and withdrawal record definite backend refusals", () 
     const missing=await call("vrdex_media_submission_publish",{...args,idempotencyKey:"missing"},publisher);
     assert.equal(missing.isError,true);
     assert.deepEqual(forwarded.at(-1),{code:"MEDIA_RESOURCE_UNAVAILABLE",message:"Media contribution unavailable."});
+    assert.equal(missing.structuredContent.code,"MEDIA_RESOURCE_UNAVAILABLE");
     const events=(await t.run(ctx=>ctx.db.query("mcpToolEvents").collect())).filter(row=>row.toolName==="vrdex_media_submission_publish");
     assert.equal(events.at(-1)?.result,"denied");
     await handler.close();console.log("publication and withdrawal refusals passed");
