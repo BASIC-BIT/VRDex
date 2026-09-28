@@ -143,9 +143,10 @@ function NavSearch() {
         <Search aria-hidden="true" className="size-4" />
       </button>
       {isOpen && suggestions.length > 0 ? (
-        // `z-50` because the nav itself is sticky at `z-40`.
+        // `z-50` because the nav itself is sticky at `z-40`. Height-capped and
+        // scrollable because the page cannot scroll it into view: the nav is stuck.
         <div
-          className="absolute inset-x-0 top-full z-50 mt-2 grid overflow-hidden rounded-card border border-border bg-surface-strong shadow-panel"
+          className="absolute inset-x-0 top-full z-50 mt-2 grid max-h-[calc(100dvh-10rem)] overflow-y-auto rounded-card border border-border bg-surface-strong shadow-panel"
           id={listboxId}
           role="listbox"
         >
@@ -158,6 +159,9 @@ function NavSearch() {
               )}
               id={`${listboxId}-${index}`}
               key={`${result.entityType}:${result.slug}`}
+              // `aria-activedescendant` moves the highlight without moving
+              // focus, so nothing scrolls a capped list to follow the arrows.
+              ref={activeIndex === index ? (element) => element?.scrollIntoView({ block: "nearest" }) : undefined}
               role="option"
               type="button"
               onMouseDown={(event) => event.preventDefault()}
