@@ -33,6 +33,22 @@ test("older notifications appear automatically after empty filtered pages @story
   await section.getByRole("button", { name: "Dismiss" }).click();
   await expect(section).toHaveCount(0);
 });
+test("pending actions remain reachable after older history pages @storybook-visual", async ({ page }, testInfo) => {
+  await page.goto("/iframe.html?id=clubs-scheduled--older-pending&viewMode=story");
+  await page.getByRole("tab", { name: "Pending", exact: true }).click();
+  await expect(page.getByText("No actions in this view.")).toHaveCount(0);
+  await page.getByRole("button", { name: "More actions" }).click();
+  await expect(page.getByText("Doors open", { exact: true })).toBeVisible();
+  await expect(page.getByText("Afterhours recap", { exact: true })).toHaveCount(0);
+  await page.screenshot({ path: `../../.cache/artifacts/scheduled-pending-pages-${testInfo.project.name}.png`, fullPage: true });
+});
+test("history actions appear automatically after a pending page @storybook-visual", async ({ page }, testInfo) => {
+  await page.goto("/iframe.html?id=clubs-scheduled--older-history&viewMode=story");
+  await page.getByRole("tab", { name: "History", exact: true }).click();
+  await expect(page.getByText("Last call", { exact: true })).toBeVisible();
+  await expect(page.getByText("Doors open", { exact: true })).toHaveCount(0);
+  await page.screenshot({ path: `../../.cache/artifacts/scheduled-history-pages-${testInfo.project.name}.png`, fullPage: true });
+});
 test("scheduled edits preserve real queue outcomes and support event-relative timing @storybook-visual", async ({
   page,
 }) => {

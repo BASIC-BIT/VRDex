@@ -67,6 +67,7 @@ class ScheduledFixtureClient extends ConvexReactClient {
     private readonly clockAhead = false,
     private readonly roleEdit = false,
     private readonly onRoleSubmitted: (roleId: string) => void = () => undefined,
+    private readonly delayedActions?: { view: "pending" | "history"; pages: number },
   ) {
     super("https://fixture.invalid");
     if (immediate)
@@ -104,8 +105,20 @@ class ScheduledFixtureClient extends ConvexReactClient {
     const key = name + JSON.stringify(args);
     if (this.cache.has(key)) return this.cache.get(key);
     let result: unknown;
-    if (name === "clubOperations:list")
-      result = { page: this.jobs, isDone: true, continueCursor: "" };
+    if (name === "clubOperations:list") {
+      const cursor = (args as { paginationOpts?: { cursor?: string } })?.paginationOpts?.cursor;
+      const pageIndex = cursor ? Number(cursor.slice("actions-".length)) : 0;
+      const waiting = this.delayedActions && pageIndex < this.delayedActions.pages;
+      const pending = this.delayedActions?.view === "pending";
+      result = {
+        page: this.delayedActions
+          ? waiting ? pageIndex === 0 ? this.jobs.slice(pending ? 2 : 0, pending ? 4 : 2) : []
+            : this.jobs.slice(pending ? 0 : 2, pending ? 2 : 4)
+          : this.jobs,
+        isDone: !waiting,
+        continueCursor: waiting ? `actions-${pageIndex + 1}` : "",
+      };
+    }
     else if (name === "clubProviderReads:context")
       result = { permittedProviderRoleIds: ["grol_aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"] };
     else if (name === "clubProviderReads:get")
@@ -225,6 +238,7 @@ function ScheduledFixture({
   clockAhead = false,
   mutableEvent = false,
   roleEdit = false,
+  delayedActions,
 }: {
   staff?: boolean;
   pagedNotifications?: boolean;
@@ -233,10 +247,11 @@ function ScheduledFixture({
   clockAhead?: boolean;
   mutableEvent?: boolean;
   roleEdit?: boolean;
+  delayedActions?: { view: "pending" | "history"; pages: number };
 }) {
   const [submittedRoleId, setSubmittedRoleId] = useState("");
   const [client] = useState(
-    () => new ScheduledFixtureClient(pagedNotifications, immediate, clockAhead, roleEdit, setSubmittedRoleId),
+    () => new ScheduledFixtureClient(pagedNotifications, immediate, clockAhead, roleEdit, setSubmittedRoleId, delayedActions),
   );
   const data: WorkspaceData = {
     community: {
@@ -295,6 +310,12 @@ export const Owner: Story = { render: () => <ScheduledFixture /> };
 export const Staff: Story = { render: () => <ScheduledFixture staff /> };
 export const OlderNotifications: Story = {
   render: () => <ScheduledFixture pagedNotifications />,
+};
+export const OlderPending: Story = {
+  render: () => <ScheduledFixture delayedActions={{ view: "pending", pages: 6 }} />,
+};
+export const OlderHistory: Story = {
+  render: () => <ScheduledFixture delayedActions={{ view: "history", pages: 1 }} />,
 };
 
 export const Immediate: Story = {

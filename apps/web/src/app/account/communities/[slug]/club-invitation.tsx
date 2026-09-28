@@ -7,7 +7,7 @@ import { api } from "@convex-generated-api";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, SectionTitle } from "@/components/ui/card";
 import { Notice } from "@/components/ui/notice";
-import { invitationSignInHref } from "./club-workspace-model";
+import { invitationAcceptanceError, invitationSignInHref } from "./club-workspace-model";
 
 export function ClubInvitation({
   communitySlug,
@@ -25,7 +25,7 @@ export function ClubInvitation({
   const accept = useMutation(api.clubStaff.acceptStaffInvitation);
   const router = useRouter();
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ReturnType<typeof invitationAcceptanceError> | null>(null);
   if (invitation === undefined || isLoading)
     return <Notice role="status">Loading invitation…</Notice>;
   if (!invitation)
@@ -45,7 +45,12 @@ export function ClubInvitation({
       </ul>
       {error ? (
         <Notice className="mt-4" variant="error" role="alert">
-          {error}
+          {error.message}
+          {error.recoveryHref ? (
+            <Link className="ml-2 underline" href={error.recoveryHref}>
+              Open account
+            </Link>
+          ) : null}
         </Notice>
       ) : null}
       {isAuthenticated ? (
@@ -61,11 +66,7 @@ export function ClubInvitation({
                 `/account/communities/${encodeURIComponent(communitySlug)}`,
               );
             } catch (cause) {
-              setError(
-                cause instanceof Error
-                  ? cause.message
-                  : "This invitation is no longer valid.",
-              );
+              setError(invitationAcceptanceError(cause));
               setBusy(false);
             }
           }}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useConvex, useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import type { FunctionReturnType, FunctionArgs } from "convex/server";
 import { api } from "@convex-generated-api";
@@ -41,6 +41,7 @@ const statusLabels = {
   cancelled: "Cancelled",
   missed: "Missed",
 };
+const MAX_AUTO_EMPTY_PAGES = 5;
 
 function PayloadFields({
   payload,
@@ -547,6 +548,28 @@ export function ClubScheduled() {
         ? ["pending", "claimed", "submitted"].includes(operation.state)
         : !["pending", "claimed", "submitted"].includes(operation.state)),
   );
+  const autoPaging = useRef({
+    communityId: workspace.community._id,
+    view,
+    lastResults: undefined as typeof operations.results | undefined,
+    pages: 0,
+  });
+  const { results, status, loadMore } = operations;
+  useEffect(() => {
+    const paging = autoPaging.current;
+    if (paging.communityId !== workspace.community._id || paging.view !== view) {
+      paging.communityId = workspace.community._id;
+      paging.view = view;
+      paging.lastResults = undefined;
+      paging.pages = 0;
+    }
+    if (visible.length === 0 && status === "CanLoadMore" &&
+        paging.pages < MAX_AUTO_EMPTY_PAGES && paging.lastResults !== results) {
+      paging.lastResults = results;
+      paging.pages++;
+      loadMore(25);
+    }
+  }, [loadMore, results, status, view, visible.length, workspace.community._id]);
   return (
     <div className="grid gap-6">
       <h1 className="text-3xl font-semibold">Scheduled actions</h1>
@@ -715,9 +738,10 @@ export function ClubScheduled() {
             </div>
           ))}
         </div>
-        {operations.status === "LoadingFirstPage" ? (
+        {operations.status === "LoadingFirstPage" ||
+        (operations.status === "LoadingMore" && visible.length === 0) ? (
           <Notice role="status">Loading actions…</Notice>
-        ) : visible.length === 0 ? (
+        ) : operations.status === "Exhausted" && visible.length === 0 ? (
           <Notice variant="dashed">No actions in this view.</Notice>
         ) : null}
         {operations.status === "CanLoadMore" ? (

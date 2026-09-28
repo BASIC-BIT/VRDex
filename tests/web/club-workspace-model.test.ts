@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { ConvexError } from "convex/values";
 import {
   availablePermissions,
   clubNavigation,
+  invitationAcceptanceError,
   invitationSignInHref,
 } from "../../apps/web/src/app/account/communities/[slug]/club-workspace-model";
 
@@ -83,4 +85,15 @@ test("invitation sign-in preserves the exact local route without accepting an ex
     url.searchParams.get("returnTo"),
     "/account/communities/afterhours/invite/a%2Fb%3Fc%23d",
   );
+});
+
+test("staff invitation email refusal offers account recovery without serializing Convex data", () => {
+  assert.deepEqual(
+    invitationAcceptanceError(new ConvexError({ code: "EMAIL_NOT_VERIFIED" })),
+    { message: "Verify your email first", recoveryHref: "/account" },
+  );
+  assert.deepEqual(invitationAcceptanceError(new Error("Invitation expired")), {
+    message: "Invitation expired",
+    recoveryHref: null,
+  });
 });

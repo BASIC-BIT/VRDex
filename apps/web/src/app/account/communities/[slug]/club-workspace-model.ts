@@ -1,3 +1,5 @@
+import { claimErrorCode } from "../../../../lib/claim-errors";
+
 export function clubNavigation(
   slug: string,
   owner: boolean,
@@ -88,6 +90,16 @@ export function clubNavigation(
 
 export function invitationSignInHref(slug: string, token: string) {
   return `/sign-in?returnTo=${encodeURIComponent(`/account/communities/${encodeURIComponent(slug)}/invite/${encodeURIComponent(token)}`)}`;
+}
+
+export function invitationAcceptanceError(error: unknown) {
+  if (claimErrorCode(error) === "EMAIL_NOT_VERIFIED")
+    return { message: "Verify your email first", recoveryHref: "/account" };
+
+  return {
+    message: error instanceof Error ? error.message : "This invitation is no longer valid.",
+    recoveryHref: null,
+  };
 }
 
 export const categoryLabels = {
