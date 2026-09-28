@@ -1,5 +1,34 @@
 import { expect, test } from "@playwright/test";
 import path from "node:path";
+test("post confirmation rejects content changed after review @storybook-visual", async ({ page, isMobile }) => {
+  await page.goto("/iframe.html?id=clubs-posts--composer&viewMode=story");
+  await page.getByRole("button", { name: "Publish now" }).click();
+  const confirmation = page.getByRole("dialog", { name: "Confirm post" });
+  await expect(confirmation).toContainText("Afterhours this Friday");
+  await page.getByRole("textbox", { name: "Title", exact: true }).fill("Changed title");
+  await page.getByRole("button", { name: "Confirm", exact: true }).click();
+  await expect(page.getByRole("alert")).toHaveText("Refresh to continue.");
+  await expect(page.getByRole("status")).toHaveCount(0);
+  await page.getByRole("button", { name: "Publish now" }).click();
+  await expect(confirmation).toContainText("Changed title");
+  await page.getByRole("combobox", { name: "Audience" }).selectOption("public");
+  await page.getByRole("button", { name: "Confirm", exact: true }).click();
+  await expect(page.getByRole("alert")).toHaveText("Refresh to continue.");
+  await expect(page.getByRole("status")).toHaveCount(0);
+  await page.getByRole("button", { name: "Publish now" }).click();
+  await expect(confirmation).toContainText("Public");
+  await page.getByRole("checkbox", { name: "Notify group members" }).check();
+  await page.getByRole("button", { name: "Confirm", exact: true }).click();
+  await expect(page.getByRole("alert")).toHaveText("Refresh to continue.");
+  await expect(page.getByRole("status")).toHaveCount(0);
+  await page.getByRole("button", { name: "Publish now" }).click();
+  await page.screenshot({
+    path: path.resolve(process.cwd(), "../../.cache/artifacts", `post-review-confirmation-${isMobile ? "mobile" : "desktop"}.png`),
+    fullPage: true,
+  });
+  await page.getByRole("button", { name: "Confirm", exact: true }).click();
+  await expect(page.getByRole("status")).toHaveText("Post queued: immediate.");
+});
 test("fixed post time uses server clock when device time is skewed @storybook-visual", async ({ page }) => {
   await page.clock.setFixedTime(new Date("2026-09-14T20:10:00Z"));
   await page.goto("/iframe.html?id=clubs-posts--composer&viewMode=story");

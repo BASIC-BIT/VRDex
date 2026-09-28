@@ -216,6 +216,7 @@ test("@flow real analytics history and persisted personal dashboard", async ({
       category: "group_size",
       audience: "owner",
       staffRoleIds: null,
+      expected: workspace.visibility.group_size,
     });
     const restricted = await staffClient.query(
       query("clubAnalytics:getBucket"),

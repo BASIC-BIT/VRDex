@@ -20,10 +20,11 @@ const collector = source.slice(
 const bot = "usr_00000000-0000-0000-0000-000000000001";
 const group = "grp_00000000-0000-0000-0000-000000000001";
 
-async function run(jobKind, fault, stage = "preflight", retryAfterMs = 300000) {
+async function run(jobKind, fault, stage = "preflight", retryAfterMs = 300000, dueOperations = 1) {
   const calls = [],
     recorded = [];
   const startedAt = Date.now();
+  let claimedOperations = 0;
   const sandbox = {
     Date,
     RequestBudget,
@@ -58,6 +59,7 @@ async function run(jobKind, fault, stage = "preflight", retryAfterMs = 300000) {
             category: "authentication",
           });
         if (path === "/auth/user") return { id: bot };
+        if (options?.method) return { id: `post-${claimedOperations}` };
         if (path.includes("/posts?")) return { posts: [], total: 0 };
         return {
           id: group,
@@ -86,10 +88,10 @@ async function run(jobKind, fault, stage = "preflight", retryAfterMs = 300000) {
         calls.push(op);
         recorded.push({ op, args });
         if (op === "club_operation_claim")
-          return jobKind === "operation"
+          return jobKind === "operation" && claimedOperations++ < dueOperations
             ? {
-                operationId: "job",
-                nonce: "nonce",
+                operationId: `job-${claimedOperations}`,
+                nonce: `nonce-${claimedOperations}`,
                 executeBefore: Date.now() + 900000,
                 payload: {
                   kind: "publish_post",
@@ -148,6 +150,42 @@ async function run(jobKind, fault, stage = "preflight", retryAfterMs = 300000) {
   });
   return { calls, recorded, startedAt };
 }
+
+test("one lease drains several due operations before analytics advances the poll", async () => {
+  const { calls, startedAt } = await run("operation", null, "preflight", 300000, 25);
+  assert.equal(calls.filter((op) => op === "provider-write").length, 25);
+  assert.equal(calls.filter((op) => op === "club_operation_complete").length, 25);
+  assert.ok(calls.lastIndexOf("club_operation_complete") < calls.indexOf("aggregate"));
+  assert.ok(Date.now() - startedAt < 15 * 60_000);
+});
+
+test("drain renews its lease before a follow-on budget wait consumes the deadline", async () => {
+  const drain = source.slice(
+    source.indexOf("async function checkClubOperations("),
+    source.indexOf("async function collect("),
+  );
+  let now = 1_000_000;
+  let claimed = 0;
+  const check = runInNewContext(drain + "\ncheckClubOperations;", {
+    Date: { now: () => now },
+    stopping: false,
+    secret: { vrchatUserId: bot },
+    accountBudget: new RequestBudget(100),
+    provider: {},
+    control: {},
+    pauseWithHeartbeats: async () => {},
+    executeClubOperation: async () => {
+      claimed++;
+      now += 90_000;
+      return { processed: true };
+    },
+  });
+  await check({}, new RequestBudget(100), now + 240_000);
+  assert.equal(claimed, 2);
+  claimed = 0;
+  await check({}, new RequestBudget(100), now + 30_000);
+  assert.equal(claimed, 1, "the first due job still gets the remaining pass");
+});
 
 for (const retryAfterMs of [30 * 60_000, 60 * 60_000]) {
   test(`real operation wrapper preserves ${retryAfterMs}ms backoff after terminal deferral`, async () => {

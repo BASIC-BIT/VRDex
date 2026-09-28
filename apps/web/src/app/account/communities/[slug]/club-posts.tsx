@@ -49,7 +49,7 @@ export function PostEditor({
 }) {
   const [content, setContent] = useState(initial),
     [preview, setPreview] = useState(false),
-    [reviewed, setReviewed] = useState<{ schedule: Schedule; reviewedDueAt?: number } | null>(null),
+    [reviewed, setReviewed] = useState<{ content: Content; schedule: Schedule; reviewedDueAt?: number } | null>(null),
     [error, setError] = useState<string | null>(null);
   const [timing, setTiming] = useState("now"),
     [date, setDate] = useState(""),
@@ -204,7 +204,7 @@ export function PostEditor({
             onClick={async () => {
               setError(null);
               try {
-                setReviewed(await schedule());
+                setReviewed({ content: structuredClone(content), ...(await schedule()) });
               } catch (e) {
                 setError((e as Error).message);
               }
@@ -243,24 +243,37 @@ export function PostEditor({
             className="border-t border-border pt-4"
           >
             <p className="font-medium">
-              {content.providerPostId
+              {reviewed.content.providerPostId
                 ? "Queue changes to this post?"
                 : "Queue this post?"}
             </p>
             <p className="mt-2 text-sm text-muted">
-              {content.sendNotification
+              {reviewed.content.sendNotification
                 ? "Group members will be notified."
                 : "No group notification."}
             </p>
+            <article className="mt-3 border-y border-border py-3">
+              <h3 className="font-semibold">{reviewed.content.title}</h3>
+              <p className="mt-2 whitespace-pre-wrap break-words text-sm">
+                {reviewed.content.text}
+              </p>
+              <p className="mt-2 text-xs text-muted">
+                {reviewed.content.visibility === "group" ? "Group" : "Public"}
+              </p>
+            </article>
             <div className="mt-3 flex gap-3">
               <Button
                 variant="primary"
                 disabled={busy}
                 onClick={() =>
                   action(async () => {
-                    if (JSON.stringify(await schedule()) !== JSON.stringify(reviewed))
+                    if (
+                      JSON.stringify(content) !== JSON.stringify(reviewed.content) ||
+                      JSON.stringify(await schedule()) !==
+                        JSON.stringify({ schedule: reviewed.schedule, reviewedDueAt: reviewed.reviewedDueAt })
+                    )
                       throw new Error("Refresh to continue.");
-                    await onQueue(content, reviewed.schedule, reviewed.reviewedDueAt);
+                    await onQueue(reviewed.content, reviewed.schedule, reviewed.reviewedDueAt);
                     setReviewed(null);
                   })
                 }

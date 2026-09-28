@@ -136,6 +136,7 @@ describe("independent staff boundary checks", () => {
     for (const category of CLUB_CATEGORIES) await ownerClient.mutation(api.clubStaff.setCategoryVisibility, {
       communitySlug: "test-club", category, audience: "staff",
       staffRoleIds: category === "event_recaps" ? [role._id] : [admin._id],
+      expected: { audience: category === "individual_membership_history" ? "owner" : "staff", staffRoleIds: null },
     });
     const client = t.withIdentity(recipient);
     const dashboard = () => client.query(api.communityTelemetry.getPrivateDashboard, { communitySlug: "test-club", now });
@@ -178,7 +179,7 @@ describe("independent staff boundary checks", () => {
     assert.deepEqual((await dashboard())!.events.map(e => e._id), [seeded.events[0]]);
     assert.deepEqual((await dashboard())!.rollups.map(r => r.eventId), [seeded.events[0]]);
     await t.run(ctx => ctx.db.patch(role._id, { permissions: ["manage_events"] }));
-    await ownerClient.mutation(api.clubStaff.setCategoryVisibility, { communitySlug: "test-club", category: "event_recaps", audience: "staff", staffRoleIds: [admin._id] });
+    await ownerClient.mutation(api.clubStaff.setCategoryVisibility, { communitySlug: "test-club", category: "event_recaps", audience: "staff", staffRoleIds: [admin._id], expected: { audience: "staff", staffRoleIds: [role._id] } });
     const denied = (await dashboard())!;
     assert.deepEqual(denied.associations, []);
     assert.deepEqual(denied.events, []);
@@ -245,6 +246,7 @@ describe("independent staff boundary checks", () => {
         category: "group_size",
         audience: "staff",
         staffRoleIds: [role],
+        expected: { audience: "staff", staffRoleIds: null },
       }),
     );
     await assert.rejects(
@@ -388,6 +390,7 @@ describe("independent staff boundary checks", () => {
         audience: "staff",
         staffRoleIds:
           category === "current_population" ? [event._id] : [admin._id],
+        expected: { audience: category === "individual_membership_history" ? "owner" : "staff", staffRoleIds: null },
       });
     const now = Date.now();
     await t.run(async (ctx) => {

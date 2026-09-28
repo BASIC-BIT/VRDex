@@ -207,6 +207,7 @@ describe("compact instance summaries", () => {
       category: "instance_history",
       audience: "owner",
       staffRoleIds: null,
+      expected: { audience: "staff", staffRoleIds: null },
     });
     const args = {
       communitySlug: "analytics",

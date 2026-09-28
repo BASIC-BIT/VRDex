@@ -20,14 +20,14 @@ it("instance list clock requires category access and returns only fresh server t
   const s = await setup();
   const args = { communitySlug: "analytics", freshnessNonce: "first-owner" };
   assert.equal(await s.owner.query(api.clubAnalytics.getInstanceListClock, args), now);
-  await s.owner.mutation(api.clubStaff.setCategoryVisibility, { communitySlug: "analytics", category: "instance_history", audience: "owner", staffRoleIds: null });
+  await s.owner.mutation(api.clubStaff.setCategoryVisibility, { communitySlug: "analytics", category: "instance_history", audience: "owner", staffRoleIds: null, expected: { audience: "staff", staffRoleIds: null } });
   await assert.rejects(s.staff.query(api.clubAnalytics.getInstanceListClock, args));
-  await s.owner.mutation(api.clubStaff.setCategoryVisibility, { communitySlug: "analytics", category: "instance_history", audience: "staff", staffRoleIds: null });
+  await s.owner.mutation(api.clubStaff.setCategoryVisibility, { communitySlug: "analytics", category: "instance_history", audience: "staff", staffRoleIds: null, expected: { audience: "owner", staffRoleIds: null } });
   assert.equal(await s.staff.query(api.clubAnalytics.getInstanceListClock, args), now);
   await s.t.run(ctx => ctx.db.delete(s.integrationId));
   now += 600_000;
   assert.equal(await s.owner.query(api.clubAnalytics.getInstanceListClock, { ...args, freshnessNonce: "remount" }), now);
-  await s.owner.mutation(api.clubStaff.setCategoryVisibility, { communitySlug: "analytics", category: "instance_history", audience: "owner", staffRoleIds: null });
+  await s.owner.mutation(api.clubStaff.setCategoryVisibility, { communitySlug: "analytics", category: "instance_history", audience: "owner", staffRoleIds: null, expected: { audience: "staff", staffRoleIds: null } });
   await assert.rejects(s.staff.query(api.clubAnalytics.getInstanceListClock, args));
   await assert.rejects(s.t.query(api.clubAnalytics.getInstanceListClock, args));
 });
@@ -41,6 +41,7 @@ async function freshSessionSetup() {
   }));
   await s.owner.mutation(api.clubStaff.setCategoryVisibility, {
     communitySlug: "analytics", category: "instance_history", audience: "staff", staffRoleIds: null,
+    expected: { audience: "staff", staffRoleIds: null },
   });
   return { ...s, sessionId };
 }
@@ -158,7 +159,7 @@ it("session freshness ignores group-only success and revokes on collection stop,
   assert.equal((await detail())!.liveObservedAt, null);
   assert.equal((await detail())!.state, "open");
   assert.equal((await detail())!.closedAt, null);
-  await s.owner.mutation(api.clubStaff.setCategoryVisibility, { communitySlug: "analytics", category: "instance_history", audience: "owner", staffRoleIds: null });
+  await s.owner.mutation(api.clubStaff.setCategoryVisibility, { communitySlug: "analytics", category: "instance_history", audience: "owner", staffRoleIds: null, expected: { audience: "staff", staffRoleIds: null } });
   assert.equal(await s.staff.query(api.clubAnalytics.getInstance, { communitySlug: "analytics", sessionId: s.sessionId }), null);
   await assert.rejects(s.staff.query(api.clubAnalytics.listInstances, { communitySlug: "analytics", kind: "history", paginationOpts: { numItems: 1, cursor: null } }));
   await assert.rejects(s.staff.query(api.clubAnalytics.getInstanceSeries, { communitySlug: "analytics", sessionId: s.sessionId, startAt: epoch, endAt: now, paginationOpts: { numItems: 1, cursor: null } }));
@@ -531,6 +532,7 @@ describe("club analytics range and permissions", () => {
         category,
         audience: "owner",
         staffRoleIds: null,
+        expected: { audience: "staff", staffRoleIds: null },
       });
     }
     const recaps = await staff.query(api.clubAnalytics.listEventRecaps, {
@@ -598,18 +600,21 @@ describe("club analytics range and permissions", () => {
       category: "population_history",
       audience: "owner",
       staffRoleIds: null,
+      expected: { audience: "staff", staffRoleIds: null },
     });
     await owner.mutation(api.clubStaff.setCategoryVisibility, {
       communitySlug: "analytics",
       category: "group_size",
       audience: "owner",
       staffRoleIds: null,
+      expected: { audience: "staff", staffRoleIds: null },
     });
     await owner.mutation(api.clubStaff.setCategoryVisibility, {
       communitySlug: "analytics",
       category: "membership_movement",
       audience: "owner",
       staffRoleIds: null,
+      expected: { audience: "staff", staffRoleIds: null },
     });
     const result = await staff.query(api.clubAnalytics.getBucket, {
       communitySlug: "analytics",
@@ -744,6 +749,7 @@ describe("club analytics range and permissions", () => {
       category: "instance_history",
       audience: "owner",
       staffRoleIds: null,
+      expected: { audience: "staff", staffRoleIds: null },
     });
     const staff = t.withIdentity({
       subject: "user_staff",

@@ -332,6 +332,7 @@ describe("club staff and visibility", () => {
         category: "group_size",
         audience: "public",
         staffRoleIds: null,
+        expected: { audience: "staff", staffRoleIds: null },
       }),
       /owner/,
     );
@@ -467,6 +468,7 @@ describe("club staff and visibility", () => {
       category: "event_recaps",
       audience: "public",
       staffRoleIds: null,
+      expected: { audience: "staff", staffRoleIds: null },
     });
     const workspace = await ownerClient.query(api.clubStaff.getWorkspace, {
       communitySlug: "test-club",
@@ -489,6 +491,7 @@ describe("club staff and visibility", () => {
         category: "individual_membership_history",
         audience: "public",
         staffRoleIds: null,
+        expected: { audience: "owner", staffRoleIds: null },
       }),
       /cannot be public/,
     );
@@ -510,6 +513,7 @@ describe("club staff and visibility", () => {
       category: "group_size",
       audience: "staff",
       staffRoleIds: [event._id],
+      expected: { audience: "staff", staffRoleIds: null },
     });
     assert.deepEqual(
       await ownerClient.mutation(api.clubStaff.deleteRole, {
@@ -531,6 +535,29 @@ describe("club staff and visibility", () => {
       null,
     );
   });
+  it("rejects a stale visibility edit that would restore removed staff access", async () => {
+    const { ownerClient, admin, event } = await setup();
+    const moderator = (await ownerClient.query(api.clubStaff.getWorkspace, {
+      communitySlug: "test-club",
+    }))!.roles.find(role => role.presetKey === "moderator")!;
+    const first = { audience: "staff" as const, staffRoleIds: null };
+    const selected = { audience: "staff" as const, staffRoleIds: [admin._id, event._id] };
+    await ownerClient.mutation(api.clubStaff.setCategoryVisibility, {
+      communitySlug: "test-club", category: "group_size", ...selected, expected: first,
+    });
+    await ownerClient.mutation(api.clubStaff.setCategoryVisibility, {
+      communitySlug: "test-club", category: "group_size", audience: "staff",
+      staffRoleIds: [admin._id], expected: selected,
+    });
+    await assert.rejects(ownerClient.mutation(api.clubStaff.setCategoryVisibility, {
+      communitySlug: "test-club", category: "group_size", audience: "staff",
+      staffRoleIds: [admin._id, event._id, moderator._id], expected: selected,
+    }), /Refresh to continue/);
+    const workspace = await ownerClient.query(api.clubStaff.getWorkspace, {
+      communitySlug: "test-club",
+    });
+    assert.deepEqual(workspace!.visibility!.group_size.staffRoleIds, [admin._id]);
+  });
   it("rejects a stale deletion after another tab edits the role", async () => {
     const { t, ownerClient, recipient, event } = await setup();
     const original = (await ownerClient.query(api.clubStaff.getWorkspace, {
@@ -545,6 +572,7 @@ describe("club staff and visibility", () => {
     await ownerClient.mutation(api.clubStaff.setCategoryVisibility, {
       communitySlug: "test-club", category: "group_size",
       audience: "staff", staffRoleIds: [event._id],
+      expected: { audience: "staff", staffRoleIds: null },
     });
     await ownerClient.mutation(api.clubStaff.saveRole, {
       communitySlug: "test-club", roleId: event._id,

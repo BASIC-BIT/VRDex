@@ -1,5 +1,5 @@
 import schema from "./schema";
-import { clubVisibility, clubSubject } from "./_clubModel";
+import { categoryVisibility, clubVisibility, clubSubject } from "./_clubModel";
 import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import { mutation, query } from "./_generated/server";
@@ -671,6 +671,7 @@ export const setCategoryVisibility = mutation({
     category: clubCategory,
     audience: clubAudience,
     staffRoleIds: v.union(v.null(), v.array(v.id("communityRoles"))),
+    expected: categoryVisibility,
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -681,12 +682,18 @@ export const setCategoryVisibility = mutation({
       args.audience === "public"
     )
       throw new Error("Individual membership history cannot be public.");
+    const categories = await readClubVisibility(ctx.db, community._id);
+    const current = categories[args.category];
+    if (
+      current.audience !== args.expected.audience ||
+      JSON.stringify(current.staffRoleIds) !== JSON.stringify(args.expected.staffRoleIds)
+    )
+      throw new Error("Refresh to continue.");
     if (args.staffRoleIds !== null) {
       if (!args.staffRoleIds.length)
         throw new Error("Choose at least one role.");
       await roleSet(ctx, community._id, args.staffRoleIds);
     }
-    const categories = await readClubVisibility(ctx.db, community._id);
     categories[args.category] = {
       audience: args.audience,
       staffRoleIds: args.audience === "staff" ? args.staffRoleIds : null,

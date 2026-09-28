@@ -30,6 +30,8 @@ Invitation routes sit outside the protected workspace route group so a recipient
 
 Each category has a public, staff or owner audience. A staff audience can include all staff or selected roles. Individual membership history cannot be public. The default is all staff for aggregate categories and owner-only for individual membership history.
 
+Category saves compare the owner's displayed setting with the current value and reject stale updates, including edits made after another owner tab removes staff access.
+
 Until a visibility row exists, existing integration publication flags supply the corresponding public settings. The first category edit preserves those settings for untouched categories. Backend projections enforce visibility; navigation and hidden controls are not authorization boundaries.
 
 The public projection continues to suppress telemetry after disconnect. Permanent retention does not make retained data public and does not bypass connection-epoch filtering.

@@ -179,10 +179,15 @@ async function checkClubReads(assignment, integrationBudget, deadline) {
 }
 
 async function checkClubOperations(assignment, integrationBudget, deadline) {
-  const outcome = await executeClubOperation({ assignment, provider, control, expectedUserId: secret.vrchatUserId, accountBudget, integrationBudget, pause: pauseWithHeartbeats, shouldStop: () => stopping, deadline });
-  if (outcome.code === "authentication") await reportDeadSession();
-  if (["rate_limit", "membership"].includes(outcome.code))
-    throw new VrchatProviderError("Club operation stopped collection.", { category: outcome.code, status: outcome.httpStatus, retryAfterMs: outcome.retryAfterMs });
+  // Stop before claiming another job if a budget-window wait could consume
+  // the remaining pass. The first job still gets the whole deadline.
+  for (let processed = 0; processed < 100 && !stopping && Date.now() + (processed ? 60_000 : 0) < deadline; processed++) {
+    const outcome = await executeClubOperation({ assignment, provider, control, expectedUserId: secret.vrchatUserId, accountBudget, integrationBudget, pause: pauseWithHeartbeats, shouldStop: () => stopping, deadline });
+    if (outcome.code === "authentication") await reportDeadSession();
+    if (["rate_limit", "membership"].includes(outcome.code))
+      throw new VrchatProviderError("Club operation stopped collection.", { category: outcome.code, status: outcome.httpStatus, retryAfterMs: outcome.retryAfterMs });
+    if (!outcome.processed) break;
+  }
 }
 
 async function collect(assignment) {

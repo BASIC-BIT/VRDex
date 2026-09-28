@@ -148,7 +148,7 @@ Categories and defaults:
 
 Nothing is public by default. The validator rejects `public` for `individual_membership_history` and rejects an empty role array.
 
-Only the owner edits visibility. `setCategoryVisibility` takes one category and its new value and writes an action log entry.
+Only the owner edits visibility. `setCategoryVisibility` takes one category, its displayed value, and its new value. It rejects a stale edit and writes an action log entry for a successful change.
 
 ### Migration from `publicMetrics`
 

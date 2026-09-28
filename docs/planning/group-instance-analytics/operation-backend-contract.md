@@ -106,6 +106,12 @@ Remaining work more than 15 minutes past its scheduled time becomes missed.
 This is a per-target limit, including unsent batch recipients: the accepted
 Q31-Q33 decision in the discovery document explicitly says to mark remaining
 work missed after the grace window. Starting a batch does not exempt its tail.
+The collector drains due actions within each four-minute collection pass and
+keeps a group eligible for the next claim while queued actions remain. This
+does not guarantee a 100-recipient batch completes within the grace window:
+the default group budget is four provider requests per minute, and an instance
+invite reserves four.
+Other provider work can lower throughput further.
 Preflight claims last up to four minutes, capped by the active integration
 lease. Submitted-write uncertainty remains two minutes. Definite transient
 preflight failures may retry at most twice, respecting provider backoff and

@@ -19,6 +19,10 @@ type VisibilityInput = {
   category: Category;
   audience: "public" | "staff" | "owner";
   staffRoleIds: Id<"communityRoles">[] | null;
+  expected: {
+    audience: "public" | "staff" | "owner";
+    staffRoleIds: Id<"communityRoles">[] | null;
+  };
 };
 type Save = (input: VisibilityInput) => Promise<unknown>;
 
@@ -29,7 +33,7 @@ function VisibilityRow({
   save,
 }: {
   category: Category;
-  value: Omit<VisibilityInput, "category">;
+  value: VisibilityInput["expected"];
   roles: WorkspaceData["roles"];
   save: Save;
 }) {
@@ -116,6 +120,7 @@ function VisibilityRow({
                 category,
                 audience,
                 staffRoleIds: audience === "staff" ? selected : null,
+                expected: value,
               });
               setError(false);
               setMessage("Saved.");
