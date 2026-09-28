@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ConvexProviderWithAuth, type ConvexReactClient } from "convex/react";
 import { getFunctionName, type FunctionReference } from "convex/server";
 import { ConvexError } from "convex/values";
@@ -12,10 +12,12 @@ const useFixtureAuth = () => ({ isLoading: false, isAuthenticated: true, fetchAc
 
 // Exercise the connected forms and reactive queries with a local transport.
 // The matching backend conflict checks have their own Convex tests.
-function revisionFixture() {
+function revisionFixture(sourceMode?: string) {
   let fields: EventIntakePatch = { communitySlug: "afterglow", title: "Original title", eventDate: "2027-07-15", timeTba: true, venueLabel: "Original venue" };
+  if (sourceMode) fields = {};
   let version = 1;
-  let draft = { _id: "fixture-draft", version, fields };
+  if (sourceMode && typeof sessionStorage !== "undefined") { const stored = sessionStorage.getItem("fixture-source-draft"); if (stored) ({fields, version} = JSON.parse(stored)); }
+  let draft = { _id: "fixture-draft", version, fields, artworkAssetId: typeof sessionStorage !== "undefined" && sessionStorage.getItem("fixture-artwork") ? "art" : undefined };
   let event = { eventId: "fixture-event", updatedAt: version, fields };
   const listeners = new Set<() => void>();
   const access = { canCorrect: true, canSuggest: false, canTakeOver: false, canRemove: false };
@@ -25,6 +27,7 @@ function revisionFixture() {
     version += 1;
     draft = { ...draft, version, fields };
     event = { ...event, updatedAt: version, fields };
+    if (sourceMode) sessionStorage.setItem("fixture-source-draft", JSON.stringify({ fields, version }));
     listeners.forEach(listener => listener());
   };
   const client = {
@@ -44,6 +47,11 @@ function revisionFixture() {
         journal: () => undefined,
       };
     },
+    async action(_action: unknown, args: { expectedVersion: number }) {
+      if (args.expectedVersion !== version) throw new ConvexError({ code: "VERSION_CONFLICT" });
+      sessionStorage.setItem("fixture-published", JSON.stringify(fields));
+      return { eventPath: "/playwright-afterglow-social/events/playwright-afterglow-harbor-sessions" };
+    },
     async mutation(mutation: FunctionReference<"mutation">, args: Record<string, unknown>) {
       const name = getFunctionName(mutation);
       sessionStorage.setItem("event-intake-revision-submission", JSON.stringify(args));
@@ -53,14 +61,46 @@ function revisionFixture() {
       return name === "eventIntake:saveEventIntakeDraft" ? { draftId: draft._id, version } : { eventId: event.eventId, updatedAt: version };
     },
   } as unknown as ConvexReactClient;
-  return { client, refresh };
+
+  const transport: typeof fetch = async (input, init) => {
+    if (String(input).endsWith("/fixture-upload")) return new Response(null, { status: 204 });
+    const { operation, input: args } = JSON.parse(String(init?.body));
+    if ("actorUserId" in args) throw new Error("Browser actor forbidden");
+    switch (operation) {
+      case "poster_upload_begin": return Response.json({ posterAssetId: "poster", expiresAt: Date.now() + 60000, transfer: { method: "POST", url: `${location.origin}/fixture-upload`, fields: {}, fileField: "file" } });
+      case "poster_upload_complete": return Response.json({ posterAssetId: "poster" });
+      case "poster_read": {
+        if (sourceMode === "preview-failure") return Response.json({}, { status: 503 });
+        const response = await fetch("/test-media/event-poster.png");
+        const dataUrl = await new Promise<string>(resolve => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); void response.blob().then(blob => reader.readAsDataURL(blob)); });
+        return Response.json({ dataUrl });
+      }
+      case "artwork_select":
+        if (args.expectedVersion !== version) return Response.json({}, { status: 409 });
+        draft = { ...draft, artworkAssetId: "art" };
+        refresh({}); sessionStorage.setItem("fixture-artwork", "selected");
+        return Response.json({ artworkAssetId: "art", version });
+      case "extract":
+        if (sourceMode === "stale") refresh({ venueLabel: "Changed elsewhere" });
+        return Response.json({ event: { title: sourceMode === "poster" ? null : "Afterglow Night", communitySlug: null, eventDate: null, start: null, end: null, timezone: null, venueLabel: null, summary: null, sourceUrl: null }, lineup: [], evidence: [{ fieldPath: "event.title", origin: "text", excerpt: "Afterglow Night", assessment: "explicit" }], questions: [{ fieldPath: sourceMode === "poster" ? "source" : "timezone", reason: sourceMode === "poster" ? "disabled" : "Which time zone?", alternatives: [] }] });
+      default: throw new Error("Unexpected fixture operation");
+    }
+  };
+  return { client, refresh, transport };
 }
 
-export function EventIntakeRevisionPreview({ correction }: { correction: boolean }) {
-  const [fixture] = useState(revisionFixture);
+export function EventIntakeRevisionPreview({ correction, sourceMode }: { correction: boolean; sourceMode?: string }) {
+  const [fixture] = useState(() => revisionFixture(sourceMode));
+  useEffect(() => {
+    if (!sourceMode) return;
+    const original = window.fetch;
+    window.fetch = (input, init) => ["/api/event-intake", `${location.origin}/fixture-upload`].includes(String(input)) ? fixture.transport(input, init) : original(input, init);
+    return () => { window.fetch = original; };
+  }, [fixture, sourceMode]);
   const [refreshed, setRefreshed] = useState(false);
   return <ConvexProviderWithAuth client={fixture.client} useAuth={useFixtureAuth}>
     <main className="mx-auto max-w-3xl p-5">
+      {sourceMode ? <h1 className="mb-6 text-3xl font-semibold">Add event</h1> : null}
       <button onClick={() => { fixture.refresh({ venueLabel: "New venue" }); setRefreshed(true); }}>Update elsewhere</button>
       {refreshed ? <output>Query refreshed</output> : null}
       {correction ? <EventContributionControls eventId="fixture-event" /> : <EventIntakeForm draftId="fixture-draft" />}

@@ -257,3 +257,20 @@ it("enforces the shared target quota across independent contributor accounts", a
   const draft = await actor.mutation(save, { patch: complete });
   await assert.rejects(actor.action(publish, { draftId: draft.draftId, expectedVersion: 1, idempotencyKey: "target-over" }), /TARGET_QUOTA/);
 });
+
+it("bounds and expires declared poster-only drafts without making them public", async () => {
+  const { t, actor } = await fixture();
+  const declaration = { contentType: "image/png", byteLength: 100, sha256: "a".repeat(64) };
+  const draft = await actor.mutation(save, { patch: { posterDeclaration: declaration } });
+  const loaded = await actor.query(get, { draftId: draft.draftId });
+  assert.deepEqual(loaded.fields, { posterDeclaration: declaration });
+  await assert.rejects(actor.action(publish, { draftId: draft.draftId, expectedVersion: 1, idempotencyKey: "poster-incomplete" }));
+  await assert.rejects(t.withIdentity({ subject: "other-user" }).query(get, { draftId: draft.draftId }));
+  await assert.rejects(actor.mutation(save, { patch: { posterDeclaration: { ...declaration, byteLength: 13 * 1024 * 1024 } } }));
+  assert.equal((await t.run(ctx => ctx.db.query("events").collect())).length, 0);
+  for (let i = 1; i < 20; i++) await actor.mutation(save, { patch: { posterDeclaration: declaration } });
+  await assert.rejects(actor.mutation(save, { patch: { posterDeclaration: declaration } }), /DRAFT_QUOTA/);
+  await t.run(ctx => ctx.db.patch(draft.draftId, { expiresAt: Date.now() - 1 }));
+  await t.mutation(makeFunctionReference<"mutation">("eventIntake:expireDrafts"), {});
+  assert.equal(await t.run(ctx => ctx.db.get(draft.draftId)), null);
+});

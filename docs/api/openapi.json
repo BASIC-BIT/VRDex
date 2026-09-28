@@ -317,6 +317,41 @@
                           }
                         ]
                       },
+                      "posterDeclaration": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "contentType": {
+                                "type": "string",
+                                "enum": [
+                                  "image/png",
+                                  "image/jpeg",
+                                  "image/webp"
+                                ]
+                              },
+                              "byteLength": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0,
+                                "maximum": 12582912
+                              },
+                              "sha256": {
+                                "type": "string",
+                                "pattern": "^[a-f0-9]{64}$"
+                              }
+                            },
+                            "required": [
+                              "contentType",
+                              "byteLength",
+                              "sha256"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
                       "lineup": {
                         "anyOf": [
                           {
@@ -666,6 +701,41 @@
                                   }
                                 ]
                               },
+                              "posterDeclaration": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "contentType": {
+                                        "type": "string",
+                                        "enum": [
+                                          "image/png",
+                                          "image/jpeg",
+                                          "image/webp"
+                                        ]
+                                      },
+                                      "byteLength": {
+                                        "type": "integer",
+                                        "exclusiveMinimum": 0,
+                                        "maximum": 12582912
+                                      },
+                                      "sha256": {
+                                        "type": "string",
+                                        "pattern": "^[a-f0-9]{64}$"
+                                      }
+                                    },
+                                    "required": [
+                                      "contentType",
+                                      "byteLength",
+                                      "sha256"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
                               "lineup": {
                                 "anyOf": [
                                   {
@@ -805,11 +875,11 @@
                       "questions": {
                         "anyOf": [
                           {
-                            "maxItems": 20,
+                            "maxItems": 100,
                             "type": "array",
                             "items": {
                               "type": "string",
-                              "maxLength": 500
+                              "maxLength": 2800
                             }
                           },
                           {
@@ -1220,6 +1290,41 @@
                             }
                           ]
                         },
+                        "posterDeclaration": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "contentType": {
+                                  "type": "string",
+                                  "enum": [
+                                    "image/png",
+                                    "image/jpeg",
+                                    "image/webp"
+                                  ]
+                                },
+                                "byteLength": {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0,
+                                  "maximum": 12582912
+                                },
+                                "sha256": {
+                                  "type": "string",
+                                  "pattern": "^[a-f0-9]{64}$"
+                                }
+                              },
+                              "required": [
+                                "contentType",
+                                "byteLength",
+                                "sha256"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "lineup": {
                           "anyOf": [
                             {
@@ -1569,6 +1674,41 @@
                                     }
                                   ]
                                 },
+                                "posterDeclaration": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "contentType": {
+                                          "type": "string",
+                                          "enum": [
+                                            "image/png",
+                                            "image/jpeg",
+                                            "image/webp"
+                                          ]
+                                        },
+                                        "byteLength": {
+                                          "type": "integer",
+                                          "exclusiveMinimum": 0,
+                                          "maximum": 12582912
+                                        },
+                                        "sha256": {
+                                          "type": "string",
+                                          "pattern": "^[a-f0-9]{64}$"
+                                        }
+                                      },
+                                      "required": [
+                                        "contentType",
+                                        "byteLength",
+                                        "sha256"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
                                 "lineup": {
                                   "anyOf": [
                                     {
@@ -1708,11 +1848,11 @@
                         "questions": {
                           "anyOf": [
                             {
-                              "maxItems": 20,
+                              "maxItems": 100,
                               "type": "array",
                               "items": {
                                 "type": "string",
-                                "maxLength": 500
+                                "maxLength": 2800
                               }
                             },
                             {
@@ -2099,6 +2239,41 @@
                           }
                         ]
                       },
+                      "posterDeclaration": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "contentType": {
+                                "type": "string",
+                                "enum": [
+                                  "image/png",
+                                  "image/jpeg",
+                                  "image/webp"
+                                ]
+                              },
+                              "byteLength": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0,
+                                "maximum": 12582912
+                              },
+                              "sha256": {
+                                "type": "string",
+                                "pattern": "^[a-f0-9]{64}$"
+                              }
+                            },
+                            "required": [
+                              "contentType",
+                              "byteLength",
+                              "sha256"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
                       "lineup": {
                         "anyOf": [
                           {
@@ -2448,6 +2623,41 @@
                                   }
                                 ]
                               },
+                              "posterDeclaration": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "contentType": {
+                                        "type": "string",
+                                        "enum": [
+                                          "image/png",
+                                          "image/jpeg",
+                                          "image/webp"
+                                        ]
+                                      },
+                                      "byteLength": {
+                                        "type": "integer",
+                                        "exclusiveMinimum": 0,
+                                        "maximum": 12582912
+                                      },
+                                      "sha256": {
+                                        "type": "string",
+                                        "pattern": "^[a-f0-9]{64}$"
+                                      }
+                                    },
+                                    "required": [
+                                      "contentType",
+                                      "byteLength",
+                                      "sha256"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
                               "lineup": {
                                 "anyOf": [
                                   {
@@ -2587,11 +2797,11 @@
                       "questions": {
                         "anyOf": [
                           {
-                            "maxItems": 20,
+                            "maxItems": 100,
                             "type": "array",
                             "items": {
                               "type": "string",
-                              "maxLength": 500
+                              "maxLength": 2800
                             }
                           },
                           {

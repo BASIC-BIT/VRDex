@@ -42,12 +42,16 @@ objects and the lineup array replace their previous value as a unit. A lineup
 row has a stable `clientKey`, `position`, and optional performer, role and times.
 Those structural fields alone do not constitute a meaningful draft.
 
-One meaningful input is enough to save. `sourceText` and `posterSourceId` remain
-private. The poster reference is an opaque integration reference, not a public
+One meaningful input is enough to save. `sourceText`, `posterSourceId`, and a
+bounded `posterDeclaration` of MIME/bytes/SHA-256 remain private. The declaration
+allows a poster-only draft before upload and inherits ordinary draft quotas and
+expiry. It does not confirm source bytes or satisfy publication minimums. The poster reference is an opaque integration reference, not a public
 artwork URL or permission to read storage. The source service must validate its
 actor and purpose before reading or attaching any source bytes. `tentative` holds
 candidate fields separately; only ordinary fields can become canonical.
-`questions` holds unresolved extraction questions. The server records the last
+`questions` holds up to 100 unresolved extraction questions, with 2,800 characters
+per question to preserve the field, reason, and alternatives without truncation.
+The overall draft payload limit still applies. The server records the last
 authored version and whether each top-level field is tentative or contributor
 authored in `provenance`.
 

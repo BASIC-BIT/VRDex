@@ -1,8 +1,7 @@
 # Event intake sources and model controls
 
-Task 6 supplies internal backend operations and authenticated server adapters.
-Task 7 connects website/MCP routes and renders candidate review. These operations
-must not be called with an actor ID copied from request JSON.
+The backend operations and authenticated adapters share one private intake contract.
+Website and MCP callers must never supply actor identity in request JSON.
 
 ## Upload and artwork boundaries
 
@@ -35,13 +34,54 @@ attaches only a ready selected derivative to a newly contributed canonical event
 An exact duplicate belonging to another draft never inherits the new draft's art.
 Ordinary poster upload, extraction and publication never select artwork.
 
-Task 7 must serve the canonical path
+The public artwork route serves the canonical path
 `/api/v0/events/{eventId}/artwork/{artworkAssetId}` through
 `eventIntakeSources.publicArtwork`. Check the returned asset's event association
-against the route and honor public visibility. Private source routes use the
-session-authorized `getPosterSource` query and private/no-store headers. Do not
+against the route and honor public visibility. The website private source command uses the session-derived actor with
+`readActorSource` and private/no-store responses. Do not
 expose source or quarantine keys through public file routes. Selected artwork is
 still stored privately in S3; the validated application route serves public bytes.
+
+## Website intake
+
+`POST /api/event-intake` derives the actor from the signed-in website session.
+It accepts only extraction, poster begin/complete, private preview, and artwork
+selection commands. Same-origin POST is required, JSON requests have a 64 KB
+streaming cap, and responses use `private, no-store`. It reuses the API/MCP
+commands and validates the same strict inputs. No personal API token is needed.
+
+The browser hashes the chosen file and saves a private `posterDeclaration` before
+requesting upload. This validated MIME/size/digest input supports a poster-only
+draft without inventing event fields. Existing draft quotas, expiry, and publish
+minimums apply, including when upload fails. The browser transfers only the chosen
+file to the signed target, with no session credentials and no redirects. Completion
+validates the actual bytes before a source reference is saved.
+
+Extraction saves candidate fields under `tentative`, with unresolved questions.
+Accept copies an individual field or the reviewed lineup into confirmed fields;
+manual edits remain available. Draft writes retain the version paired with the
+source/form. A concurrent edit refuses candidate persistence instead of overwriting
+it. Missing model configuration leaves manual editing and publication available.
+Artwork selection is a distinct action that advances the saved draft version.
+
+```mermaid
+flowchart LR
+  A[Events, community or direct contribute link] --> B[Sign in and return]
+  B --> C[Manual fields, paste text or choose poster]
+  C --> D[Private versioned draft]
+  D --> E[Extract tentative details and questions]
+  E --> F[Review source and accept or edit fields]
+  E -->|Unavailable| F
+  D -->|Choose poster as artwork| G[Separate artwork selection]
+  G --> F
+  F --> D
+  F --> H[Publish]
+  H --> I[Canonical event page]
+```
+
+Exact newly authored public copy still requires BASIC approval before shipping.
+Local fixture screenshots prove the browser states, not hosted session/storage or
+model accuracy.
 
 ## Retention and deletion
 

@@ -1,6 +1,13 @@
 import { z } from "zod";
 import { ApiIdempotencyKeySchema } from "./temporal";
 
+export const EVENT_POSTER_MAX_BYTES = 12 * 1024 * 1024;
+export const EventPosterDeclarationSchema = z.strictObject({
+  contentType: z.enum(["image/png", "image/jpeg", "image/webp"]),
+  byteLength: z.number().int().positive().max(EVENT_POSTER_MAX_BYTES),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/),
+});
+
 const text = (max: number) => z.string().trim().max(max);
 const nullable = <T extends z.ZodType>(schema: T) => schema.nullable().optional();
 export const EventIntakeLocalTimeSchema = z.strictObject({
@@ -20,12 +27,13 @@ export const EventIntakeFieldsSchema = z.strictObject({
   venueLabel: nullable(text(120)), summary: nullable(text(240)), sourceUrl: nullable(text(2048)),
   worldSlug: nullable(text(64)),
   sourceText: nullable(text(12_000)), posterSourceId: nullable(text(200)),
+  posterDeclaration: nullable(EventPosterDeclarationSchema),
   lineup: nullable(z.array(EventIntakeLineupSchema).max(80)),
 });
 export const EventIntakePatchSchema = EventIntakeFieldsSchema.extend({
   // Candidates are private and never become canonical until copied into ordinary fields.
   tentative: nullable(EventIntakeFieldsSchema),
-  questions: nullable(z.array(text(500)).max(20)),
+  questions: nullable(z.array(text(2800)).max(100)),
   duplicateAcknowledgements: nullable(z.array(text(200).min(1)).max(100)),
 }).strict();
 export const SaveEventIntakeDraftSchema = z.strictObject({
@@ -68,12 +76,6 @@ export function selectEventLocalTime(date: string, local: EventIntakeLocalTime, 
   return local.occurrence === "later" ? choices[choices.length - 1]! : choices[0]!;
 }
 
-export const EVENT_POSTER_MAX_BYTES = 12 * 1024 * 1024;
-export const EventPosterDeclarationSchema = z.strictObject({
-  contentType: z.enum(["image/png", "image/jpeg", "image/webp"]),
-  byteLength: z.number().int().positive().max(EVENT_POSTER_MAX_BYTES),
-  sha256: z.string().regex(/^[a-f0-9]{64}$/),
-});
 const fact = (max: number) => text(max).nullable();
 export const EventIntakeCandidateSchema = z.strictObject({
   event: z.strictObject({
