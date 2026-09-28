@@ -64,6 +64,7 @@ class PostsFixtureClient extends ConvexReactClient {
               title: "Welcome to Afterhours",
               text: "Our next gathering is Friday.",
               visibility: "group",
+              updatedAt: "2026-09-28T12:00:00Z",
             },
           ],
           nextOffset: null,
