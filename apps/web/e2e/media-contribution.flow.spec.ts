@@ -408,9 +408,22 @@ test("contributor A submits and different owner B reviews media @media-lifecycle
   expect(reviewerHistory.submissions).toEqual([]);
   stages.push("different owner rejection, private reason isolation and no public rejected asset");
 
-  const review = await call<{ reviewVersion: string }>(request, authB.access_token, "vrdex_media_review_get", {
+  const reviewBeforeRebase = await call<{ reviewVersion: string }>(request, authB.access_token, "vrdex_media_review_get", {
     submissionId: submitted.submission.submissionId,
   });
+  const rebaseInput = {
+    submissionId: submitted.submission.submissionId,
+    expectedReviewVersion: reviewBeforeRebase.reviewVersion,
+    idempotencyKey: `${runId}-rebase`,
+  };
+  const rebased = await call<UploadReceipt>(request, authB.access_token, "vrdex_media_review_rebase", rebaseInput);
+  expect(rebased).toMatchObject({ operationState: "committed", resourceId: submitted.submission.submissionId });
+  expect(await call(request, authB.access_token, "vrdex_media_review_rebase", rebaseInput)).toEqual(rebased);
+  const review = await call<{ reviewVersion: string; targetProfileUpdatedAt: number; currentProfileUpdatedAt: number }>(
+    request, authB.access_token, "vrdex_media_review_get", { submissionId: submitted.submission.submissionId },
+  );
+  expect(review.reviewVersion).not.toBe(reviewBeforeRebase.reviewVersion);
+  expect(review.targetProfileUpdatedAt).toBe(review.currentProfileUpdatedAt);
   const preview = await rpc(request, authB.access_token, "vrdex_media_review_preview", {
     submissionId: submitted.submission.submissionId,
     expectedReviewVersion: review.reviewVersion,
@@ -460,7 +473,7 @@ test("contributor A submits and different owner B reviews media @media-lifecycle
   await expect(approvedCard.locator(`img[src="${published.avatarImageUrl}"]`)).toBeVisible();
   await pageB.goto(`/${profile.slug}`);
   await expect(pageB.locator(`img[src="${published.avatarImageUrl}"]`).first()).toBeVisible();
-  stages.push("donor authorization refusal, native preview, replay-safe MCP approval and authenticated browser/public readback");
+  stages.push("donor authorization refusal, replay-safe MCP rebase and approval, native preview and authenticated browser/public readback");
 
   const audit = await request.post("/api/e2e/media", { headers, data: { op: "inspect-audit", runId, profileId } });
   expect(audit.status()).toBe(200);
