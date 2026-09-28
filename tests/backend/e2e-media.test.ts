@@ -16,6 +16,7 @@ const modules = {
   "../../convex/profileAssets.ts": () => import("../../convex/profileAssets"),
   "../../convex/profileMediaSubmissions.ts": () =>
     import("../../convex/profileMediaSubmissions"),
+  "../../convex/contributionCleanup.ts": () => import("../../convex/contributionCleanup"),
 };
 const secret = "media-fixture-unit-secret";
 const runId = "media-unit-123";
@@ -141,6 +142,45 @@ describe("bounded staging media fixture", () => {
     assert.deepEqual((await t.query(internal.e2eMedia.inspectRejectedFixtureDeletion, proof)).blobDeleted, false);
     await assert.rejects(t.mutation(internal.e2eMedia.makeRejectedFixtureDue, proof), /Exact rejected URL fixture/);
     enable();
+  });
+  it("reclaims only an expired pending local fixture through the worker uploads branch", async () => {
+    const { t, args, intent, users } = await seed();
+    const storageKey = "profile-assets/quarantine/local/123e4567-e89b-42d3-a456-426614174000";
+    const proof = { ...args, intentId: intent.intentId };
+    const expiresAt = Date.now() + 60_000;
+    const reservationId = await t.run(async (ctx) => {
+      await ctx.db.patch(intent.intentId, { issuer: "mcp_local", quarantineStorageKey: storageKey,
+        state: "pending", expiresAt });
+      await ctx.db.patch(intent.submissionId, { sourceKind: "local" });
+      const row = (await ctx.db.query("contributionUploadReservations")
+        .withIndex("by_intentId", (q) => q.eq("intentId", intent.intentId)).unique())!;
+      await changeContributionCharge(ctx.db, row, 0, 1);
+      await ctx.db.patch(row._id, { state: "pending", processing: true,
+        quarantineBytes: 512, expiresAt, cleanupAfter: expiresAt + 86_400_000 });
+      return row._id;
+    });
+    await assert.rejects(t.mutation(internal.e2eMedia.makePendingFixtureDue, proof), /Exact expired pending upload fixture/);
+    await t.run((ctx) => ctx.db.patch(reservationId, { actorUserId: users.reviewerId }));
+    await assert.rejects(t.mutation(internal.e2eMedia.makePendingFixtureDue, proof), /Non-fixture upload reservation/);
+    await t.run(async (ctx) => {
+      await ctx.db.patch(reservationId, { actorUserId: users.contributorId });
+      const expired = Date.now() - 61_000;
+      await ctx.db.patch(intent.intentId, { expiresAt: expired });
+      await ctx.db.patch(reservationId, { expiresAt: expired, cleanupAfter: expired + 86_400_000 });
+    });
+    assert.deepEqual(await t.mutation(internal.e2eMedia.makePendingFixtureDue, proof), { storageKey });
+    const claimed = await t.mutation(internal.contributionCleanup.claim, {});
+    assert.equal(claimed.uploads.length, 1);
+    assert.ok(claimed.uploads[0].keys.includes(storageKey));
+    await t.mutation(internal.contributionCleanup.confirm, {
+      uploads: [{ reservationId: claimed.uploads[0].reservationId, token: claimed.uploads[0].token }],
+      proposals: claimed.proposals.map(({ submissionId, cleanupToken }) => ({ submissionId, cleanupToken })),
+    });
+    assert.deepEqual(await t.query(internal.e2eMedia.inspectPendingFixtureCleanup, proof), {
+      state: "failed", code: "UPLOAD_EXPIRED", chargedBytes: 0, quarantineBytes: 0,
+      processing: false, cleanupLeaseActive: false, cleanupDeferred: true,
+      actorBytes: 0, actorProcessing: 0, targetBytes: 0, targetProcessing: 0,
+    });
   });
   it("checks only the run contributor's bounded audit rows without returning identifiers", async () => {
     const { t, args, users } = await seed();

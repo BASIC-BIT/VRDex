@@ -142,6 +142,22 @@ async function execute(request: NextRequest, cleanup: boolean) {
         throw new Error("Cleanup worker did not delete exact fixture objects.");
       return NextResponse.json({ workerDeleted: true, deletedObjects: before.storageKeys.length });
     }
+    if (body.op === "worker-upload-proof" && typeof body.intentId === "string") {
+      const proofArgs = { ...args, intentId: body.intentId as Id<"profileAssetUploadIntents"> };
+      const before = await client.mutation(internal.e2eMedia.makePendingFixtureDue, proofArgs);
+      if (!await headProfileAssetObject(before.storageKey))
+        throw new Error("Pending fixture has no stored object.");
+      const sweep = await client.action(internal.contributionCleanup.sweep, {});
+      const after = await client.query(internal.e2eMedia.inspectPendingFixtureCleanup, proofArgs);
+      if (!sweep.configured || !sweep.ok || await headProfileAssetObject(before.storageKey) ||
+        after.state !== "failed" || after.code !== "UPLOAD_EXPIRED" ||
+        after.chargedBytes !== 0 || after.quarantineBytes !== 0 || after.processing ||
+        after.cleanupLeaseActive || !after.cleanupDeferred ||
+        after.actorBytes !== 0 || after.actorProcessing !== 0 ||
+        after.targetBytes !== 0 || after.targetProcessing !== 0)
+        throw new Error("Cleanup worker did not reclaim the exact pending upload.");
+      return NextResponse.json({ workerReclaimedUpload: true });
+    }
     if (
       body.op === "assign-review-owner" &&
       typeof body.reviewerEmail === "string"

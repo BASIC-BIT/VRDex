@@ -95,6 +95,18 @@ retention. Restore the staging intake pause after the run until the direct
 upload rollout is ready. A reachability-only worker response is not deletion
 evidence.
 
+After cleanup readiness and contributor uploads are enabled in staging, use
+the separate default-off `media_upload_cleanup_proof` input. It creates one
+run-linked contributor upload on its own synthetic profile, posts bytes to the
+minted S3 endpoint, and leaves completion pending. Cleanup waits for the signed
+POST to expire, confirms replay is refused, advances only that reservation's
+cleanup deadline, then calls the authenticated worker. The proof checks that
+the exact object is absent and the reservation is failed with `UPLOAD_EXPIRED`,
+zero charged/quarantine bytes, no active processing, and zero actor/target
+capacity. The ordinary fixture teardown then removes the remaining rows and
+accounts. This uses a separate profile because baseline policy permits only
+two open submissions on the two-user review fixture.
+
 The test is separate from the ordinary `@flow` lane and requires explicit
 opt-in. OAuth exchange traces and video recording are disabled. Its evidence
 attachment contains the candidate, completed assertions and cleanup result,
@@ -103,7 +115,7 @@ Automatic retries are disabled so a cleanup failure cannot become a successful
 flaky run that leaves an earlier fixture behind. CI media reports use separate
 paths from the ordinary staging health and auth-session reports.
 Cleanup runs in `afterEach` with a separate 13-minute budget for direct uploads
-(two minutes in cleanup-only mode), so the test's timeout does not consume its
+(two minutes in rejected-URL cleanup mode), so the test's timeout does not consume its
 recovery time. Browser contexts close before
 cleanup to prevent user reprovisioning. Cleanup uses the independent API request
 context; subsequent evidence attachments use `testInfo`, not a live browser.

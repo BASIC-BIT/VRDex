@@ -11,7 +11,8 @@ import { mediaFixtureRunId } from "./media-run-id";
 
 // Deliberately opt-in: a normal hosted smoke must not create media or claim fixtures.
 const cleanupOnly = process.env.VRDEX_E2E_MEDIA_CLEANUP_PROOF === "true";
-const enabled = cleanupOnly || process.env.VRDEX_E2E_MEDIA_LIFECYCLE === "true";
+const uploadCleanupOnly = process.env.VRDEX_E2E_MEDIA_UPLOAD_CLEANUP_PROOF === "true";
+const enabled = cleanupOnly || uploadCleanupOnly || process.env.VRDEX_E2E_MEDIA_LIFECYCLE === "true";
 test.use({ trace: "off", video: "off", actionTimeout: 15_000, navigationTimeout: 30_000 }); // OAuth exchanges must not enter retained traces.
 test.describe.configure({ retries: 0 }); // Cleanup failure must never become a successful flaky run.
 
@@ -94,7 +95,7 @@ async function grant(page: Page, request: APIRequestContext, origin: string, run
 
 test("contributor A submits and different owner B reviews media @media-lifecycle", async ({ browser, request, baseURL }, testInfo) => {
   test.skip(!enabled, "Explicit media lifecycle or cleanup proof opt-in is required.");
-  if (cleanupOnly && process.env.VRDEX_E2E_MEDIA_LIFECYCLE === "true")
+  if ([cleanupOnly, uploadCleanupOnly, process.env.VRDEX_E2E_MEDIA_LIFECYCLE === "true"].filter(Boolean).length !== 1)
     throw new Error("Select one media proof mode.");
   test.setTimeout(240_000);
   if (baseURL !== "https://staging.vrdex.net") throw new Error("Media lifecycle requires the designated staging origin.");
@@ -124,7 +125,8 @@ test("contributor A submits and different owner B reviews media @media-lifecycle
   const emails: string[] = [];
   const contexts = await Promise.all([browser.newContext({ baseURL }), browser.newContext({ baseURL })]);
   const fixture: { profileId?: string; profileSlug?: string; expectedReservations?: number;
-    expiringTransfer?: { url: string; fields: Record<string, string>; fileField: "file"; image: Buffer } } = {};
+    expiringTransfer?: { url: string; fields: Record<string, string>; fileField: "file"; image: Buffer };
+    pendingUpload?: { intentId: string; safeAfter: number } } = {};
   const stages: string[] = [];
   cleanupFixture = async () => {
     const { profileId, profileSlug } = fixture;
@@ -134,9 +136,31 @@ test("contributor A submits and different owner B reviews media @media-lifecycle
     const closed = await Promise.allSettled(contexts.map((context) => context.close()));
     if (closed.some((result) => result.status === "rejected")) cleanupErrors.push("browser context closure");
     if (profileId) {
+      if (fixture.pendingUpload && fixture.expiringTransfer && cleanupErrors.length === 0) {
+        while (Date.now() < fixture.pendingUpload.safeAfter)
+          await new Promise((resolve) => setTimeout(resolve,
+            Math.min(60_000, Math.max(1_000, fixture.pendingUpload!.safeAfter - Date.now() + 1_000))));
+        const replay = await request.post(fixture.expiringTransfer.url, { multipart: {
+          ...fixture.expiringTransfer.fields,
+          [fixture.expiringTransfer.fileField]: {
+            name: "fixture.png", mimeType: "image/png", buffer: fixture.expiringTransfer.image,
+          },
+        } }).catch(() => undefined);
+        if (replay?.status() !== 403) cleanupErrors.push("expired abandoned S3 POST replay refusal");
+        else {
+          fixture.expiringTransfer = undefined;
+          const proof = await request.post("/api/e2e/media", { headers, data: {
+            op: "worker-upload-proof", runId, profileId, intentId: fixture.pendingUpload.intentId,
+          } }).catch(() => undefined);
+          const result = await proof?.json().catch(() => null) as { workerReclaimedUpload?: boolean } | null | undefined;
+          if (!proof?.ok() || !result?.workerReclaimedUpload)
+            cleanupErrors.push("authenticated abandoned upload worker cleanup");
+          else stages.push("abandoned direct S3 upload reclaimed by worker with exact object and capacity readback");
+        }
+      }
       let cleanup: Awaited<ReturnType<typeof request.delete>> | undefined;
       const deadline = Date.now() + 12 * 60_000;
-      while (Date.now() < deadline) {
+      while (cleanupErrors.length === 0 && Date.now() < deadline) {
         const attempt = await request.delete("/api/e2e/media", { headers, data: { runId, profileId } }).catch(() => undefined);
         if (attempt?.status() !== 409) { cleanup = attempt; break; }
         const pending = await attempt.json().catch(() => null) as { retryAt?: number } | null;
@@ -159,8 +183,8 @@ test("contributor A submits and different owner B reviews media @media-lifecycle
           fixture.expiringTransfer = undefined;
         }
       }
-      if (!cleanup?.ok()) cleanupErrors.push("media/profile cleanup");
-      else {
+      if (cleanupErrors.length === 0 && !cleanup?.ok()) cleanupErrors.push("media/profile cleanup");
+      if (cleanup?.ok()) {
         const result = await cleanup.json() as { alreadyDeleted?: boolean; deletedObjects?: number; releasedReservations?: number };
         if (!result.alreadyDeleted && fixture.expectedReservations !== undefined &&
           (result.releasedReservations !== fixture.expectedReservations || !result.deletedObjects))
@@ -220,6 +244,28 @@ test("contributor A submits and different owner B reviews media @media-lifecycle
   fixture.profileId = profileId;
   fixture.profileSlug = profile.slug;
   const before = await call<{ updatedAt: number; avatarImageUrl?: string }>(request, undefined, "vrdex_get_profile", { slug: profile.slug });
+  if (uploadCleanupOnly) {
+    const image = await source.body();
+    const target = await call<UploadTarget>(request, authA.access_token, "vrdex_media_upload_begin", {
+      mode: "contributor", profileId, expectedUpdatedAt: before.updatedAt,
+      placement: "profile_image", contentType: "image/png", byteLength: image.byteLength,
+      sha256: createHash("sha256").update(image).digest("hex"),
+      credit: "VRDex synthetic staging fixture", sourceDescription: "Synthetic solid-color profile image",
+      idempotencyKey: `${runId}-abandoned`,
+    });
+    expect(target.transfer.method).toBe("POST");
+    expect(target.expiresAt).toBeGreaterThan(Date.now());
+    fixture.expiringTransfer = { ...target.transfer, image };
+    const transfer = await request.post(target.transfer.url, { multipart: {
+      ...target.transfer.fields,
+      [target.transfer.fileField]: { name: "fixture.png", mimeType: "image/png", buffer: image },
+    } });
+    expect([201, 204], "Abandoned S3 multipart transfer").toContain(transfer.status());
+    fixture.pendingUpload = { intentId: target.intentId, safeAfter: target.expiresAt + 60_000 };
+    fixture.expectedReservations = 1;
+    stages.push("run-scoped contributor upload posted to minted S3 endpoint and left pending");
+    return;
+  }
   const input = {
     slug: profile.slug, expectedUpdatedAt: before.updatedAt, idempotencyKey: `${runId}-image`,
     sourceUrl: rejectionSourceUrl,

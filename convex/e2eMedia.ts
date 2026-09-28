@@ -181,6 +181,68 @@ export const inspectRejectedFixtureDeletion = internalQuery({
   },
 });
 
+// Advance only a signed, abandoned local transfer after its S3 POST can no
+// longer be replayed. The worker must reclaim its object and capacity.
+export const makePendingFixtureDue = internalMutation({
+  args: { ...fixtureArgs, intentId: v.id("profileAssetUploadIntents") },
+  handler: async (ctx, args) => {
+    const data = await cleanupRows(ctx, args, true);
+    const intent = data.intents.find((row) => row._id === args.intentId);
+    const reservation = data.reservations.find((row) => row.intentId === args.intentId);
+    const submission = data.submissions.find((row) => row.uploadIntentId === args.intentId);
+    const now = Date.now();
+    if (data.intents.length !== 1 || data.reservations.length !== 1 ||
+      data.submissions.length !== 1 || !intent || !reservation || !submission ||
+      intent.issuer !== "mcp_local" || intent.state !== "pending" ||
+      intent.targetProfileId !== args.profileId || intent.targetSubmissionId !== submission._id ||
+      submission.sourceKind !== "local" ||
+      !(submission.status === "upload_pending" ||
+        (submission.status === "superseded" && submission.expiresAt < now &&
+          submission.blobDeletedAt === undefined && submission.blobDeleteAfter !== undefined)) ||
+      !pendingFixtureUpload(data, reservation) ||
+      reservation.expiresAt !== intent.expiresAt ||
+      reservation.cleanupAfter !== intent.expiresAt + 24 * 60 * 60 * 1000 ||
+      reservation.chargedBytes <= 0 || reservation.quarantineBytes <= 0 ||
+      reservation.publishedBytes !== undefined ||
+      !intent.quarantineStorageKey ||
+      now < intent.expiresAt + SIGNED_TRANSFER_SKEW_MS ||
+      reservation.cleanupAfter <= now)
+      throw new Error("Exact expired pending upload fixture required.");
+    await ctx.db.patch(reservation._id, { cleanupAfter: now - 1 });
+    return { storageKey: intent.quarantineStorageKey };
+  },
+});
+
+export const inspectPendingFixtureCleanup = internalQuery({
+  args: { ...fixtureArgs, intentId: v.id("profileAssetUploadIntents") },
+  handler: async (ctx, args) => {
+    const data = await cleanupRows(ctx, args);
+    const reservation = data.reservations.find((row) => row.intentId === args.intentId);
+    if (data.intents.length !== 1 || data.reservations.length !== 1 ||
+      data.submissions.length !== 1 || !reservation)
+      throw new Error("Exact pending upload fixture required.");
+    const [actor, target] = await Promise.all([
+      ctx.db.query("contributionCapacity")
+        .withIndex("by_scope", (q) => q.eq("scope", `actor:${reservation.actorUserId}`)).unique(),
+      ctx.db.query("contributionCapacity")
+        .withIndex("by_scope", (q) => q.eq("scope", `target:${args.profileId}`)).unique(),
+    ]);
+    return {
+      state: reservation.state,
+      code: reservation.receipt?.code,
+      chargedBytes: reservation.chargedBytes,
+      quarantineBytes: reservation.quarantineBytes,
+      processing: reservation.processing,
+      cleanupLeaseActive: reservation.cleanupToken !== undefined || reservation.cleanupLeaseUntil !== undefined,
+      cleanupDeferred: reservation.cleanupAfter > Date.now() + 23 * 60 * 60 * 1000,
+      actorBytes: actor?.bytes ?? 0,
+      actorProcessing: actor?.processing ?? 0,
+      targetBytes: target?.bytes ?? 0,
+      targetProcessing: target?.processing ?? 0,
+    };
+  },
+});
+
 export const assignReviewOwner = internalMutation({
   args: { ...fixtureArgs, reviewerEmail: v.string() },
   handler: async (ctx, args) => {
