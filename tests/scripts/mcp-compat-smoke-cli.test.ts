@@ -20,6 +20,14 @@ const expectedTools = [
 const expectedWriteTools = [
   "vrdex_event_create",
   "vrdex_event_update",
+  "vrdex_event_intake_draft_save",
+  "vrdex_event_intake_extract",
+  "vrdex_event_intake_publish",
+  "vrdex_event_intake_poster_upload_begin",
+  "vrdex_event_intake_poster_upload_complete",
+  "vrdex_event_intake_artwork_select",
+  "vrdex_event_intake_event_update",
+  "vrdex_event_intake_event_retract",
   "vrdex_profile_media_manage",
   "vrdex_profile_media_submit",
   "vrdex_profile_update",
@@ -30,6 +38,14 @@ const expectedWriteTools = [
 const writeToolScopes: Record<string, string> = {
   vrdex_event_create: "events:write",
   vrdex_event_update: "events:write",
+  vrdex_event_intake_draft_save: "events:contribute",
+  vrdex_event_intake_extract: "events:contribute",
+  vrdex_event_intake_publish: "events:contribute",
+  vrdex_event_intake_poster_upload_begin: "events:contribute",
+  vrdex_event_intake_poster_upload_complete: "events:contribute",
+  vrdex_event_intake_artwork_select: "events:contribute",
+  vrdex_event_intake_event_update: "events:contribute",
+  vrdex_event_intake_event_retract: "events:contribute",
   vrdex_profile_media_manage: "assets:write",
   vrdex_profile_media_submit: "assets:contribute",
   vrdex_profile_update: "profile:write",
@@ -38,10 +54,14 @@ const writeToolScopes: Record<string, string> = {
 // Reads, but of the caller's own inventory, so they advertise a scope pair
 // rather than the anonymous public-read pair every other read carries.
 const expectedOwnedReadTools = [
+  "vrdex_event_intake_draft_get",
+  "vrdex_event_intake_event_get",
   "vrdex_list_my_media_submissions",
   "vrdex_list_my_profiles",
 ];
 const ownedReadToolScopes: Record<string, string> = {
+  vrdex_event_intake_draft_get: "events:contribute",
+  vrdex_event_intake_event_get: "events:contribute",
   vrdex_list_my_media_submissions: "assets:contribute",
   vrdex_list_my_profiles: "profile:read",
 };
@@ -145,7 +165,7 @@ async function startHostedFailureFixture() {
       writeJson(response, 200, {
         authorization_servers: [origin],
         resource: `${origin}/mcp`,
-        scopes_supported: ["mcp:read", "profile:read", "mcp:write", "assets:write", "assets:contribute", "events:write", "profile:write", "profile:contribute"],
+        scopes_supported: ["mcp:read", "profile:read", "mcp:write", "assets:write", "assets:contribute", "events:write", "events:contribute", "profile:write", "profile:contribute"],
       });
       return;
     }
@@ -291,7 +311,7 @@ async function startHostedSuccessFixture() {
       writeJson(response, 200, {
         authorization_servers: [origin],
         resource: `${origin}/mcp`,
-        scopes_supported: ["mcp:read", "profile:read", "mcp:write", "assets:write", "assets:contribute", "events:write", "profile:write", "profile:contribute"],
+        scopes_supported: ["mcp:read", "profile:read", "mcp:write", "assets:write", "assets:contribute", "events:write", "events:contribute", "profile:write", "profile:contribute"],
       });
       return;
     }
