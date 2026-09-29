@@ -1061,23 +1061,28 @@ const mcpMediaReviewWriteToolNames = new Set<string>([
   "vrdex_media_submission_publish",
   "vrdex_media_submission_declare",
 ]);
-const definiteMediaReviewErrorCodes = new Set([
-  "MEDIA_DELEGATION_DENIED",
-  "MEDIA_EMAIL_UNVERIFIED",
-  "MEDIA_CONTRIBUTIONS_DISABLED",
-  "MEDIA_REVIEW_ACCESS_REQUIRED",
-  "MEDIA_MODERATOR_REQUIRED",
-  "MEDIA_SELF_REVIEW",
-  "MEDIA_PROFILE_CHANGED",
-  "MEDIA_PUBLISH_ACCESS_REQUIRED",
-  "MEDIA_RESOURCE_UNAVAILABLE",
-  "MEDIA_REVIEW_ACTOR_UNAVAILABLE",
+const definiteMediaReviewErrorCodes = new Map<string, [
+  "authority" | "stale" | "unavailable",
+  "restore_access" | "inspect_current" | "none",
+]>([
+  ["MEDIA_DELEGATION_DENIED", ["authority", "restore_access"]],
+  ["MEDIA_EMAIL_UNVERIFIED", ["authority", "restore_access"]],
+  ["MEDIA_CONTRIBUTIONS_DISABLED", ["unavailable", "none"]],
+  ["MEDIA_REVIEW_ACCESS_REQUIRED", ["authority", "restore_access"]],
+  ["MEDIA_MODERATOR_REQUIRED", ["authority", "restore_access"]],
+  ["MEDIA_SELF_REVIEW", ["authority", "none"]],
+  ["MEDIA_PROFILE_CHANGED", ["stale", "inspect_current"]],
+  ["MEDIA_PUBLISH_ACCESS_REQUIRED", ["authority", "restore_access"]],
+  ["MEDIA_RESOURCE_UNAVAILABLE", ["unavailable", "inspect_current"]],
+  ["MEDIA_REVIEW_ACTOR_UNAVAILABLE", ["authority", "restore_access"]],
 ]);
 
-function isDefiniteHostedMediaReviewDenial(toolName: string, error: unknown) {
-  if (!mcpMediaReviewWriteToolNames.has(toolName)) return false;
+function hostedMediaReviewDenial(toolName: string, error: unknown) {
   const code = mcpConvexErrorCode(error);
-  return code !== null && definiteMediaReviewErrorCodes.has(code);
+  const action = mcpMediaReviewWriteToolNames.has(toolName) && code !== null
+    ? definiteMediaReviewErrorCodes.get(code)
+    : undefined;
+  return code !== null && action !== undefined ? { code, action } : null;
 }
 
 function mcpJsonResult<T>(schema: ResponseSchema<T>, value: unknown) {
@@ -1321,9 +1326,20 @@ function isMcpWriteDenied(error: unknown) {
 }
 
 function mcpConvexErrorCode(error: unknown) {
-  return isRecord(error) && isRecord(error.data) && typeof error.data.code === "string"
-    ? error.data.code
-    : null;
+  if (isRecord(error) && isRecord(error.data) && typeof error.data.code === "string")
+    return error.data.code;
+  // Hosted Convex can omit errorData while retaining the serialized ConvexError
+  // in its message. Decode only that envelope, never relay the message or stack.
+  const match = error instanceof Error && error.message.match(
+    /^\[Request ID: [^\]\r\n]+\] Server Error(?: |\r?\n)Uncaught ConvexError: (\{[^\r\n]*\})(?:\r?\n|$)/,
+  );
+  if (!match) return null;
+  try {
+    const data: unknown = JSON.parse(match[1]);
+    return isRecord(data) && typeof data.code === "string" ? data.code : null;
+  } catch {
+    return null;
+  }
 }
 
 function mcpConvexErrorMessage(error: unknown) {
@@ -1948,7 +1964,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     principal: HostedMcpPrincipal,
     input: unknown,
     operation: () => Promise<T>,
-  ): Promise<T> => {
+  ) => {
     const idempotencyKey = isRecord(input)
       ? typeof input.idempotencyKey === "string" ? input.idempotencyKey
         : toolName === "vrdex_contribution_capacity_request" && typeof input.key === "string" ? input.key
@@ -1966,11 +1982,47 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       await recordHostedMcpWriteInvocation({ ...details, result: hostedMcpWriteOutcome(response) });
       return response;
     } catch (error) {
+      const denial = hostedMediaReviewDenial(toolName, error);
       await recordHostedMcpWriteInvocation({
         ...details,
-        result: isDefiniteHostedMediaReviewDenial(toolName, error) ? "denied" : "indeterminate",
+        result: denial === null ? "indeterminate" : "denied",
       });
-      throw error;
+      let result;
+      if (denial !== null) {
+        const receipt = commandReceiptSchema.parse({
+          operationId: idempotencyKey ?? toolName,
+          operationState: "refused",
+          code: denial.code,
+          retryable: false,
+          retryCategory: denial.action[0],
+          nextAction: denial.action[1],
+        });
+        result = {
+          content: [{ type: "text" as const, text: JSON.stringify(receipt) }],
+          structuredContent: receipt,
+          isError: true as const,
+        };
+      } else {
+        result = safeCommandError(null, idempotencyKey ?? toolName);
+      }
+      if (toolName === "vrdex_media_review_decide_selected") {
+        const receipt = commandReceiptSchema.parse(result.structuredContent);
+        const decisions = isRecord(input) && Array.isArray(input.decisions)
+          ? input.decisions.slice(0, 20) : [];
+        const receipts = (decisions.length ? decisions : [null]).map((decision, index) => ({
+          ...receipt,
+          operationId: isRecord(decision) && typeof decision.idempotencyKey === "string"
+            ? decision.idempotencyKey.slice(0, 200) || toolName
+            : `${toolName}:${index + 1}`,
+        }));
+        const batch = { receipts };
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(batch) }],
+          structuredContent: batch,
+          isError: true as const,
+        };
+      }
+      return result;
     }
   };
   const completeProfileMediaImport =
