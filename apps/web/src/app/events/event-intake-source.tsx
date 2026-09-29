@@ -34,6 +34,7 @@ export function EventIntakeSource({ fields, revision, onChange, action, busy, se
   busy: boolean; setBusy: (busy: boolean) => void; setMessage: (message: string) => void; initialArtworkSourceId?: string;
   onPreview: (url: string | undefined) => void; onExtract: () => void;
 }) {
+  const [pendingCompletions, setPendingCompletions] = useState<string[]>([]);
   const [previews, setPreviews] = useState<Record<string, string>>({});
   const [artworkSourceId, setArtworkSourceId] = useState<string | null | undefined>(initialArtworkSourceId);
   const [readSource] = useState(() => action);
@@ -55,11 +56,19 @@ export function EventIntakeSource({ fields, revision, onChange, action, busy, se
     let current = fields;
     try {
       for (const file of kind === "upload" ? files : [undefined]) {
-        const result = await action(kind, sourceId ? { ...current, posterSourceId: sourceId } : current, revision, file, staged => { current = staged; onChange(staged); });
+        let pendingId = sourceId;
+        const result = await action(kind, sourceId ? { ...current, posterSourceId: sourceId } : current, revision, file, staged => {
+          current = staged; onChange(staged);
+          if (kind === "upload") {
+            pendingId = sourceIds(staged).at(-1);
+            if (pendingId) setPendingCompletions(ids => [...ids, pendingId!]);
+          }
+        });
+        if (pendingId) setPendingCompletions(ids => ids.filter(id => id !== pendingId));
         if (result.fields) { current = result.fields; onChange(current); }
         if (result.artworkSourceId !== undefined) setArtworkSourceId(result.artworkSourceId);
       }
-      if (kind === "extract") onExtract();
+      if (kind === "extract" && !current.questions?.some(question => question.startsWith("source: "))) onExtract();
     } catch (error) {
       setMessage(error instanceof ConvexError && typeof error.data === "object" && error.data && "code" in error.data && error.data.code === "VERSION_CONFLICT"
         ? "This draft changed elsewhere. Reload before saving." : error instanceof Error && error.message === "INVALID_POSTER" ? "Choose a PNG, JPEG or WebP image up to 12 MB." : BACKEND_ERROR_COPY);
@@ -74,7 +83,7 @@ export function EventIntakeSource({ fields, revision, onChange, action, busy, se
       <img src={previews[id]} alt={`Source poster ${index + 1}`} className="h-40 w-full rounded-control object-contain" /></> : <p className="text-sm text-muted">Image {index + 1}</p>}
       <div className="flex flex-wrap items-center gap-2">
         {artworkSourceId === id ? <span className="text-sm font-medium">Artwork</span> : <Button type="button" variant="secondary" aria-label={`Use image ${index + 1} as artwork`} disabled={busy || !previews[id]} onClick={() => void run("artwork", [], id)}>Use artwork</Button>}
-        {!previews[id] ? <Button type="button" variant="secondary" aria-label={`Retry image ${index + 1}`} disabled={busy} onClick={() => void run("retry", [], id)}>Retry</Button> : null}
+        {pendingCompletions.includes(id) || !previews[id] ? <Button type="button" variant="secondary" aria-label={`Retry image ${index + 1}`} disabled={busy} onClick={() => void run("retry", [], id)}>Retry</Button> : null}
         <Button type="button" variant="secondary" aria-label={`Remove image ${index + 1}`} disabled={busy} onClick={() => void run("remove", [], id)}>Remove</Button>
       </div>
     </div>)}</div>

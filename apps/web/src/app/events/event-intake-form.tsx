@@ -15,14 +15,14 @@ import { EventIntakeSource, EventIntakeSuggestions, sourceIds, type IntakeSource
 import { candidatePatch, posterDeclaration, websiteIntakeCommand, EventIntakeCandidateSchema } from "@/lib/event-intake-source";
 import { EventPosterUploadSchema } from "../../../../../packages/api-contracts/src/event-intake";
 import { EventEditorSteps, type EventEditorStep } from "./event-editor-steps";
-import { EventEditorPreview } from "./event-editor-preview";
+import { EventEditorPreview, eventLocalDate } from "./event-editor-preview";
 import { ProfileAvatarImage } from "../_components/profile-avatar-image";
 import { BACKEND_ERROR_COPY } from "@/lib/error-copy";
 
 function CommunityInput({ value, disabled, onChange }: { value: string; disabled: boolean; onChange: (value: string) => void }) {
   const id = useId();
   const matches = useQuery(api.search.searchUniversal, !disabled && value.trim().length >= 2 ? { query: value.trim(), entityType: "profile", profileType: "community", limit: 8 } : "skip");
-  return <><Input list={id} value={value} disabled={disabled} maxLength={64} onChange={event => onChange(event.target.value)} placeholder="Search communities" /><datalist id={id}>{matches?.map(match => <option key={match.slug} value={match.slug} label={match.title} />)}</datalist></>;
+  return <><Input name="communitySlug" list={id} value={value} disabled={disabled} maxLength={64} onChange={event => onChange(event.target.value)} placeholder="Search communities" /><datalist id={id}>{matches?.map(match => <option key={match.slug} value={match.slug} label={match.title} />)}</datalist></>;
 }
 
 function PerformerInput({ label, slug, onLabel, onSlug }: { label: string; slug: string; onLabel: (value: string) => void; onSlug: (value: string) => void }) {
@@ -40,9 +40,9 @@ export function IntakeTime({ label, value, date, timezone, onChange }: { label: 
   let choices: number[] = [];
   try { if (date && timezone && value) choices = resolveEventLocalTime(date, value, timezone); } catch { /* Incomplete fields remain editable. */ }
   const base = date ? Date.parse(`${date}T00:00:00Z`) : NaN;
-  const selectedDate = Number.isFinite(base) ? new Date(base + (value?.dayOffset ?? 0) * 86_400_000).toISOString().slice(0, 10) : "";
+  const selectedDate = eventLocalDate(date, value);
   return <div className="grid gap-2"><div className="grid grid-cols-2 gap-3">
-    <Field>{label}<Input type="time" value={value?.time ?? ""} onChange={event => onChange(event.target.value ? { ...value, time: event.target.value, occurrence: undefined } : null)} /></Field>
+    <Field>{label}<Input name={label} type="time" value={value?.time ?? ""} onChange={event => onChange(event.target.value ? { ...value, time: event.target.value, occurrence: undefined } : null)} /></Field>
     <Field>Date<Input aria-label={`${label} date`} type="date" value={selectedDate} disabled={!value || !Number.isFinite(base)} min={Number.isFinite(base) ? new Date(base - 86_400_000).toISOString().slice(0, 10) : undefined} max={Number.isFinite(base) ? new Date(base + 7 * 86_400_000).toISOString().slice(0, 10) : undefined} onChange={event => { if (value && event.target.value) onChange({ ...value, dayOffset: (Date.parse(`${event.target.value}T00:00:00Z`) - base) / 86_400_000, occurrence: undefined }); }} /></Field>
   </div>{value && date && timezone && choices.length === 0 ? <p className="text-sm text-danger">This local time does not exist.</p> : null}
     {choices.length > 1 ? <Field>Repeated time<Select aria-label={`${label} occurrence`} value={value?.occurrence ?? ""} onChange={event => { if (value) onChange({ ...value, occurrence: event.target.value as "earlier" | "later" }); }}><option value="">Choose occurrence</option>{choices.map((instant, index) => <option key={instant} value={index === 0 ? "earlier" : "later"}>{index === 0 ? "Earlier" : "Later"} ({new Date(instant).toISOString().slice(11, 16)} UTC)</option>)}</Select></Field> : null}
@@ -50,6 +50,7 @@ export function IntakeTime({ label, value, date, timezone, onChange }: { label: 
 }
 
 export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, correction = false, onSave, onPublish, onSource, initialArtworkSourceId }: { initialFields: EventIntakeFields; initialRevision?: number; correction?: boolean; onSource?: IntakeSourceAction; initialArtworkSourceId?: string; onSave?: (fields: EventIntakeFields, revision: number) => Promise<void>; onPublish: (fields: EventIntakeFields, revision: number) => Promise<void> }) {
+  const form = useRef<HTMLFormElement>(null);
   const [fields, setFields] = useState(initialFields);
   const steps: EventEditorStep[] = onSource ? ["Source", "Details", "Lineup", "Review"] : ["Details", "Lineup", "Review"];
   const [activeStep, setActiveStep] = useState<EventEditorStep>(steps[0]);
@@ -61,16 +62,33 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
   const [message, setMessage] = useState("");
   const [duplicates, setDuplicates] = useState<Array<{ eventId: string; title: string; eventPath: string }>>([]);
   const set = <K extends keyof EventIntakeFields>(key: K, value: EventIntakeFields[K]) => setFields(current => ({ ...current, [key]: value }));
+  function reveal(step: EventEditorStep, selector: string) {
+    setActiveStep(step);
+    requestAnimationFrame(() => form.current?.querySelector<HTMLElement>(selector)?.focus());
+  }
   async function submit(publish: boolean) {
     setBusy(true); setMessage("");
     try {
       if (publish) {
-        if (!fields.communitySlug || !fields.title || !fields.eventDate) { setActiveStep("Details"); throw new Error("Add a community, title and date."); }
-        if (!fields.timeTba && (!fields.timezone || !fields.start)) { setActiveStep("Details"); throw new Error("Choose a time zone and start time, or Time TBA."); }
-        for (const local of [fields.start, fields.end, fields.doors, ...(fields.lineup ?? []).flatMap(row => [row.start, row.end])]) {
+        if (!fields.communitySlug || !fields.title || !fields.eventDate) { reveal("Details", `[name="${!fields.communitySlug ? "communitySlug" : !fields.title ? "title" : "eventDate"}"]`); throw new Error("Add a community, title and date."); }
+        if (!fields.timeTba && (!fields.timezone || !fields.start)) { reveal("Details", !fields.timezone ? '[aria-label="Time zone"]' : '[name="Start time"]'); throw new Error("Choose a time zone and start time, or Time TBA."); }
+        const times = [
+          { local: fields.start, label: "Start time", step: "Details" },
+          { local: fields.end, label: "End time", step: "Details" },
+          { local: fields.doors, label: "Doors open", step: "Details" },
+          ...(fields.lineup ?? []).flatMap((row, index) => [
+            { local: row.start, label: `Slot ${index + 1} start`, step: "Lineup" },
+            { local: row.end, label: `Slot ${index + 1} end`, step: "Lineup" },
+          ]),
+        ];
+        for (const { local, label, step } of times) {
           if (local) {
             try { if (!fields.timezone) throw new Error("Choose a time zone."); selectEventLocalTime(fields.eventDate, local, fields.timezone); }
-            catch (error) { setActiveStep((fields.lineup ?? []).some(row => row.start === local || row.end === local) ? "Lineup" : "Details"); throw error; }
+            catch (error) {
+              if (!fields.timezone) reveal("Details", '[aria-label="Time zone"]');
+              else reveal(step as EventEditorStep, error instanceof Error && error.message.startsWith("Ambiguous local time") ? `[aria-label="${label} occurrence"]` : `[name="${label}"]`);
+              throw error;
+            }
           }
         }
         await onPublish(fields, revision);
@@ -87,15 +105,15 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
     }
     finally { setBusy(false); }
   }
-  return <form className="grid gap-6" onInvalidCapture={event => { const panel = (event.target as HTMLElement).closest<HTMLElement>("[data-step]"); if (panel) setActiveStep(panel.dataset.step as EventEditorStep); }} onSubmit={event => { event.preventDefault(); if (!stepped || activeStep === "Review") void submit(true); else setActiveStep(steps[steps.indexOf(activeStep) + 1]); }}>
+  return <form ref={form} className="grid gap-6" onInvalidCapture={event => { const target = event.target as HTMLElement; const panel = target.closest<HTMLElement>("[data-step]"); if (panel) { event.preventDefault(); setActiveStep(panel.dataset.step as EventEditorStep); requestAnimationFrame(() => target.focus()); } }} onSubmit={event => { event.preventDefault(); if (!stepped || activeStep === "Review") void submit(true); else setActiveStep(steps[steps.indexOf(activeStep) + 1]); }}>
     <fieldset disabled={busy} className="grid min-w-0 gap-6">
     <EventEditorSteps steps={stepped ? steps : []} activeStep={activeStep} onSelect={setActiveStep} preview={stepped ? <EventEditorPreview fields={fields} artwork={artwork} /> : undefined}>
     <div className="grid gap-6">
     <div hidden={stepped && activeStep !== "Source"}>{onSource ? <EventIntakeSource fields={fields} revision={revision} onChange={setFields} action={onSource} busy={busy} setBusy={setBusy} setMessage={setMessage} initialArtworkSourceId={initialArtworkSourceId} onPreview={setArtwork} onExtract={() => setActiveStep("Details")} /> : null}</div>
     <div hidden={stepped && activeStep !== "Details"} data-step="Details"><section className="grid gap-4"><h2 className="text-xl font-semibold">Details</h2>{onSource ? <EventIntakeSuggestions fields={fields} onChange={setFields} /> : null}
     <Field>Community<CommunityInput value={fields.communitySlug ?? ""} disabled={correction} onChange={value => set("communitySlug", value)} /></Field>
-    <Field>Event title<Input value={fields.title ?? ""} maxLength={120} onChange={event => set("title", event.target.value)} /></Field>
-    <Field>Date<Input type="date" value={fields.eventDate ?? ""} onChange={event => set("eventDate", event.target.value)} /></Field>
+    <Field>Event title<Input name="title" value={fields.title ?? ""} maxLength={120} onChange={event => set("title", event.target.value)} /></Field>
+    <Field>Date<Input name="eventDate" type="date" value={fields.eventDate ?? ""} onChange={event => set("eventDate", event.target.value)} /></Field>
     <label className="flex items-center gap-2"><input type="checkbox" checked={fields.timeTba ?? false} onChange={event => setFields(current => ({ ...current, timeTba: event.target.checked, ...(event.target.checked ? { start: null, end: null, doors: null, lineup: current.lineup?.map(row => ({ ...row, start: null, end: null })) } : {}) }))} />Time TBA</label>
     <div className="grid gap-2"><span className="text-sm font-medium">Time zone</span><EventTimezonePicker value={fields.timezone ?? null} date={fields.eventDate ?? null} onChange={value => set("timezone", value)} /></div>
     {!fields.timeTba ? <><IntakeTime label="Start time" value={fields.start} date={fields.eventDate} timezone={fields.timezone} onChange={value => set("start", value)} /><IntakeTime label="End time" value={fields.end} date={fields.eventDate} timezone={fields.timezone} onChange={value => set("end", value)} /><IntakeTime label="Doors open" value={fields.doors} date={fields.eventDate} timezone={fields.timezone} onChange={value => set("doors", value)} /></> : null}
@@ -117,7 +135,7 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
     </div>
     <div hidden={stepped && activeStep !== "Review"} data-step="Review" className="space-y-5">
     {stepped ? <section className="grid gap-4"><h2 className="text-xl font-semibold">Review</h2><div className="grid gap-4 rounded-control border border-border p-4">
-      <div className="flex items-start justify-between gap-4"><div><h3 className="font-semibold">{fields.title || "Event title"}</h3><p className="text-sm text-muted">{[fields.communitySlug, fields.eventDate, fields.timeTba ? "Time TBA" : fields.start?.time, fields.timezone, fields.venueLabel].filter(Boolean).join(" · ")}</p></div><Button type="button" variant="secondary" onClick={() => setActiveStep("Details")}>Edit details</Button></div>
+      <div className="flex items-start justify-between gap-4"><div><h3 className="font-semibold">{fields.title || "Event title"}</h3><p className="text-sm text-muted">{[fields.communitySlug, eventLocalDate(fields.eventDate, fields.timeTba ? null : fields.start), fields.timeTba ? "Time TBA" : fields.start?.time, fields.timezone, fields.venueLabel].filter(Boolean).join(" · ")}</p></div><Button type="button" variant="secondary" onClick={() => setActiveStep("Details")}>Edit details</Button></div>
       {fields.summary ? <p className="text-sm">{fields.summary}</p> : null}
       <div className="flex items-start justify-between gap-4 border-t border-border pt-4"><div><h3 className="font-semibold">Lineup</h3>{fields.lineup?.map(row => <p key={row.clientKey} className="text-sm">{row.performerLabel || row.personSlug}</p>)}</div><Button type="button" variant="secondary" onClick={() => setActiveStep("Lineup")}>Edit lineup</Button></div>
     </div></section> : null}
@@ -177,7 +195,8 @@ function ConnectedIntake({ draftId, initialCommunitySlug }: { draftId?: string; 
       const ids = sourceIds(next).filter(id => id !== targetSourceId);
       next = { ...next, posterSourceIds: ids, posterSourceId: ids[0] ?? null, tentative: null, questions: null, evidence: null };
     }
-    const current = await saveFields(next, revision);
+    // Replay completion against its saved version before persisting any later local edits.
+    const current = action === "retry" && saved.current ? saved.current : await saveFields(next, revision);
     if (action === "retry") {
       const result = await websiteIntakeCommand("poster_upload_complete", { draftId: current.draftId, posterAssetId: targetSourceId, expectedVersion: current.version });
       saved.current = { ...current, version: result.version };

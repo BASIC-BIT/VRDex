@@ -105,6 +105,10 @@ for (const mode of ["stale", "upload-stale"]) test(`${mode} preserves external e
     await page.getByRole("button", { name: "Extract details" }).click();
   } else await page.getByLabel("Poster", { exact: true }).setInputFiles(upload);
   await expect(page.getByRole("status")).toContainText("This draft changed elsewhere.");
+  if (mode === "upload-stale") {
+    await page.getByRole("button", { name: "Retry image 1", exact: true }).click();
+    await expect(page.getByRole("status")).toContainText("This draft changed elsewhere.");
+  }
   await step(page, "Details");
   await expect(page.getByLabel("Event title", { exact: true })).toHaveValue("");
   await expect(page.getByRole("button", { name: "Accept Event title" })).toHaveCount(0);
@@ -126,6 +130,7 @@ test("review routes missing fields back to details and repeated times require oc
   await step(page, "Review");
   await page.getByRole("button", { name: "Publish event", exact: true }).click();
   await expect(page.getByLabel("Event title", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Community", { exact: true })).toBeFocused();
   await page.getByLabel("Event title", { exact: true }).fill("Repeated hour");
   await page.getByLabel("Community", { exact: true }).fill("afterglow");
   await page.getByLabel("Date", { exact: true }).fill("2027-11-07");
@@ -137,6 +142,7 @@ test("review routes missing fields back to details and repeated times require oc
   await page.getByRole("button", { name: "Publish event", exact: true }).click();
   await expect(page.getByLabel("Start time occurrence")).toBeVisible();
   await expect(page.getByRole("status")).toContainText("Ambiguous local time");
+  await expect(page.getByLabel("Start time occurrence")).toBeFocused();
   await page.getByLabel("Start time occurrence").selectOption("later");
   await page.getByRole("button", { name: "Save draft", exact: true }).click();
   await expect(page.getByRole("status")).toHaveText("Draft saved");
@@ -191,4 +197,75 @@ test("image-only drafts upload before any manual details @flow @fixture", async 
   await expect(page.getByRole("img", { name: "Event artwork", exact: true })).toHaveAttribute("src", /#poster-1$/);
   await page.getByRole("button", { name: "Save draft", exact: true }).click();
   await expect(page.getByRole("status")).toHaveText("Draft saved");
+});
+
+
+test("lost completion response permits retry with a visible preview and later edits @flow @fixture", async ({ page }, info) => {
+  await page.goto("/playwright/event-intake?source=completion-response-lost");
+  await page.getByLabel("Poster", { exact: true }).setInputFiles(upload);
+  await expect(page.getByRole("status")).toBeVisible();
+  await expect(page.getByAltText("Source poster 1", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Retry image 1", exact: true })).toBeVisible();
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({ path: info.outputPath("completion-retry.png"), fullPage: true, animations: "disabled" });
+  await step(page, "Details");
+  await page.getByLabel("Event title", { exact: true }).fill("Edited after completion");
+  await step(page, "Source");
+  await page.getByRole("button", { name: "Retry image 1", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Retry image 1", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("img", { name: "Event artwork", exact: true })).toHaveAttribute("src", /#poster-1$/);
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  await expect(page.getByRole("status")).toHaveText("Draft saved");
+  expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("fixture-source-draft")!).fields.title)).toBe("Edited after completion");
+});
+
+test("unavailable extraction keeps visible feedback and manual continuation @flow @fixture", async ({ page }, info) => {
+  await page.goto("/playwright/event-intake?source=poster");
+  await page.getByLabel("Poster", { exact: true }).setInputFiles(upload);
+  await expect(page.getByRole("img", { name: "Event artwork", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Extract details" }).click();
+  await expect(page.getByRole("status")).toHaveText("Extraction unavailable");
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({ path: info.outputPath("extraction-unavailable.png"), fullPage: true, animations: "disabled" });
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(page.getByLabel("Event title", { exact: true })).toBeVisible();
+  await page.getByLabel("Event title", { exact: true }).fill("Manual event");
+});
+
+test("review shows the confirmed start date after midnight @flow @fixture", async ({ page }, info) => {
+  await page.goto("/playwright/event-intake?source=text");
+  await step(page, "Details");
+  await page.getByLabel("Event title", { exact: true }).fill("After midnight");
+  await page.getByLabel("Date", { exact: true }).fill("2027-10-15");
+  await page.getByLabel("Start time", { exact: true }).fill("00:30");
+  await page.getByLabel("Start time date", { exact: true }).fill("2027-10-16");
+  await step(page, "Review");
+  await expect(page.locator('[data-step="Review"]')).toContainText("2027-10-16");
+  await expect(page.locator('[data-step="Review"]')).not.toContainText("2027-10-15");
+  await expect(page.getByRole("complementary", { name: "Event preview" })).toContainText("2027-10-16");
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({ path: info.outputPath("review-start-date.png"), fullPage: true, animations: "disabled" });
+});
+
+
+test("publish focuses invalid lineup time and hidden native field @flow @fixture", async ({ page }) => {
+  await page.goto("/playwright/event-intake?source=text");
+  await step(page, "Details");
+  await page.getByLabel("Event title", { exact: true }).fill("Spring event");
+  await page.getByLabel("Community", { exact: true }).fill("afterglow");
+  await page.getByLabel("Date", { exact: true }).fill("2027-03-14");
+  await page.getByRole("combobox", { name: "Time zone", exact: true }).fill("America/New_York");
+  await page.getByRole("option").first().click();
+  await page.getByLabel("Start time", { exact: true }).fill("01:00");
+  await step(page, "Lineup");
+  await page.getByRole("button", { name: "Add performer" }).click();
+  await page.getByLabel("Slot 1 start", { exact: true }).fill("02:30");
+  await step(page, "Review");
+  await page.getByRole("button", { name: "Publish event", exact: true }).click();
+  await expect(page.getByLabel("Slot 1 start", { exact: true })).toBeFocused();
+  await step(page, "Details");
+  await page.getByLabel("Source URL", { exact: true }).fill("invalid-url");
+  await step(page, "Review");
+  await page.getByRole("button", { name: "Publish event", exact: true }).click();
+  await expect(page.getByLabel("Source URL", { exact: true })).toBeFocused();
 });

@@ -18,6 +18,8 @@ function revisionFixture(correction: boolean, sourceMode?: string, staff = false
   if (correction) fields.lineup = [{ clientKey: "private-person", position: 0, performerLabel: "Private performer" }];
   if (sourceMode) fields = {};
   let version = 1;
+  let completion: { sourceId: string; version: number } | undefined;
+  let droppedCompletion = false;
   if (sourceMode && typeof sessionStorage !== "undefined") { const stored = sessionStorage.getItem("fixture-source-draft"); if (stored) ({fields, version} = JSON.parse(stored)); }
   let draft = { artworkSourceId: typeof sessionStorage !== "undefined" ? sessionStorage.getItem("fixture-artwork-source") ?? undefined : undefined, _id: "fixture-draft", version, fields, artworkAssetId: typeof sessionStorage !== "undefined" && sessionStorage.getItem("fixture-artwork") ? "art" : undefined };
   let event = { eventId: "fixture-event", updatedAt: version, fields };
@@ -95,12 +97,14 @@ function revisionFixture(correction: boolean, sourceMode?: string, staff = false
         return Response.json({ posterAssetId: `poster-${count}`, expiresAt: Date.now() + 60000, transfer: { method: "POST", url: `${location.origin}/fixture-upload`, fields: {}, fileField: "file" } });
       }
       case "poster_upload_complete":
-        if (args.expectedVersion !== undefined && args.expectedVersion !== version) return Response.json({}, { status: 409 });
+        if (args.expectedVersion !== undefined && args.expectedVersion !== version && !(completion && completion.sourceId === args.posterAssetId && completion.version === version && args.expectedVersion === version - 1)) return Response.json({}, { status: 409 });
         if (!draft.artworkSourceId && fields.posterSourceIds?.[0] === args.posterAssetId) {
           draft = { ...draft, artworkSourceId: args.posterAssetId, artworkAssetId: "art" };
           sessionStorage.setItem("fixture-artwork-source", args.posterAssetId);
           refresh({});
+          completion = { sourceId: args.posterAssetId, version };
         }
+        if (sourceMode === "completion-response-lost" && !droppedCompletion) { droppedCompletion = true; throw new TypeError("Failed to fetch"); }
         return Response.json({ posterAssetId: args.posterAssetId, version, artworkAssetId: draft.artworkSourceId === args.posterAssetId ? "art" : undefined });
       case "poster_read": {
         if (sourceMode === "preview-failure") return Response.json({}, { status: 503 });

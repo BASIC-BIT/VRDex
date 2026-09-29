@@ -2,6 +2,11 @@
 import type { EventIntakePatch, EventIntakeLocalTime } from "../../../../../packages/api-contracts/src/event-intake";
 import { selectEventLocalTime } from "../../../../../packages/api-contracts/src/event-intake";
 
+export function eventLocalDate(date?: string | null, value?: EventIntakeLocalTime | null) {
+  const base = date ? Date.parse(`${date}T00:00:00Z`) : NaN;
+  return Number.isFinite(base) ? new Date(base + (value?.dayOffset ?? 0) * 86_400_000).toISOString().slice(0, 10) : "";
+}
+
 export function EventEditorPreview({ fields, artwork }: { fields: EventIntakePatch; artwork?: string }) {
   function time(local?: EventIntakeLocalTime | null) {
     if (!local || !fields.eventDate || !fields.timezone) return "";
@@ -15,7 +20,7 @@ export function EventEditorPreview({ fields, artwork }: { fields: EventIntakePat
     {fields.title ? <h3 className="break-words text-2xl font-semibold">{fields.title}</h3> : null}
     <div className="grid gap-2 text-sm text-muted">
       {fields.communitySlug ? <p>{fields.communitySlug}</p> : null}
-      {fields.eventDate ? <p>{time(fields.start) || fields.eventDate}{fields.timeTba ? " · Time TBA" : ""}</p> : null}
+      {fields.eventDate ? <p>{time(fields.start) || eventLocalDate(fields.eventDate, fields.timeTba ? null : fields.start)}{fields.timeTba ? " · Time TBA" : ""}</p> : null}
       {fields.venueLabel ? <p>{fields.venueLabel}</p> : null}
     </div>
     {fields.summary ? <p className="break-words text-sm">{fields.summary}</p> : null}
