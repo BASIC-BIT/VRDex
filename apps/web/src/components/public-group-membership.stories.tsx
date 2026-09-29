@@ -54,3 +54,11 @@ export const AdjacentLongInterval: Story = { render: () => <Preview value={{ ...
     { observedAt: Date.UTC(2026, 8, 11, 23), value: 1040 },
   ],
 } }} /> };
+
+export const SampledHistory: Story = { render: () => <Preview value={{ ...profile, groupMembership: {
+  latest: { observedAt: Date.UTC(2026, 8, 15), value: 1040 },
+  points: [
+    { observedAt: Date.UTC(2026, 8, 10), value: 975 },
+    { observedAt: Date.UTC(2026, 8, 15), value: 1040, sampledBefore: true },
+  ],
+} }} /> };

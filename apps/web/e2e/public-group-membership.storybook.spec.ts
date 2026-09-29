@@ -57,3 +57,11 @@ test("skipped UTC day uses a dotted segment even over 35 hours @storybook-visual
   await expect(page.locator('.recharts-line-curve[stroke="var(--accent)"]')).toHaveCount(1);
   await expect(page.locator('.recharts-line-curve[stroke-dasharray="3 4"]')).toHaveCount(0);
 });
+
+test("sampled observations keep a solid trend without an unobserved claim @storybook-visual", async ({ page }) => {
+  await page.goto(story("sampled-history"));
+  await expect(page.locator('.recharts-line-curve[stroke="var(--accent)"]')).toHaveCount(1);
+  await expect(page.locator('.recharts-line-curve[stroke-dasharray="3 4"]')).toHaveCount(0);
+  await expect(page.getByText("Unobserved", { exact: true })).toHaveCount(0);
+  await expect(page.locator(".recharts-line-dots circle")).toHaveCount(2);
+});

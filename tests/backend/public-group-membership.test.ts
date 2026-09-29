@@ -3,7 +3,7 @@ import { it } from "node:test";
 import { convexTest } from "convex-test";
 import { api } from "../../convex/_generated/api";
 import { defaultClubVisibility } from "../../convex/_clubModel";
-import { getPublicGroupMembership } from "../../convex/_communityTelemetryPublic";
+import { getPublicCommunityTelemetry, getPublicGroupMembership } from "../../convex/_communityTelemetryPublic";
 import schemaModule from "../../convex/schema";
 import { newClerkUserId } from "./_clerkTestIdentity";
 
@@ -162,7 +162,8 @@ it("skips whole-span bucket reads for a short history", async () => {
 
 it("merges current-epoch connected observations and keeps earliest and latest in a bounded series", async () => {
   const s = await setup();
-  const start = s.now - 1_000_000;
+  const day = 86_400_000;
+  const start = s.now - 1012 * day;
   await s.t.run(async (ctx) => {
     await ctx.db.insert("communityDataVisibility", {
       communityProfileId: s.firstId,
@@ -184,24 +185,100 @@ it("merges current-epoch connected observations and keeps earliest and latest in
       vrchatGroupId: groupA, memberCount, observedAt, source: "first_party",
       collectorVersion: "test", coverageState: "observed", fencingToken: 1,
     });
-    await connected(start - 1, 1);
-    await connected(start + 1, 2);
+    await connected(start - day, 1);
+    await connected(start + day, 2);
     for (let i = 0; i < 1009; i++) await ctx.db.insert("vrchatGroupMemberSnapshots", {
-      vrchatGroupId: groupA, memberCount: i + 3, observedAt: start + 2 + i,
+      vrchatGroupId: groupA, memberCount: i + 3, observedAt: start + (2 + i) * day,
     });
-    await connected(start + 1011, 999);
+    await connected(start + 1011 * day, 999);
     await ctx.db.insert("vrchatGroupMemberSnapshots", {
-      vrchatGroupId: groupA, memberCount: 1013, observedAt: start + 1011,
+      vrchatGroupId: groupA, memberCount: 1013, observedAt: start + 1011 * day,
     });
   });
+  let groupReads = 0;
+  let connectedReads = 0;
+  const membership = await s.t.run((ctx) => getPublicGroupMembership(new Proxy(ctx.db, {
+    get(target, property) {
+      if (property === "query") return (table: Parameters<typeof target.query>[0]) => {
+        if (table === "vrchatGroupMemberSnapshots") groupReads++;
+        if (table === "communityMemberCountObservations") connectedReads++;
+        return target.query(table);
+      };
+      return Reflect.get(target, property);
+    },
+  }), s.firstId));
   const profile = await s.read("first-group");
-  const membership = profile?.groupMembership;
+  assert.equal(groupReads, 10, "two endpoint reads and eight historical windows");
+  assert.equal(connectedReads, 2, "unsaturated connected history needs no window reads");
   assert.equal(membership?.points.length, 500);
-  assert.deepEqual(membership?.points[0], { observedAt: start + 1, value: 2 });
-  assert.ok(membership?.points.some((point) => point.observedAt === start + 44 && point.value === 45),
-    "a representative older observation survives beyond the recent 500 rows");
-  assert.deepEqual(membership?.latest, { observedAt: start + 1011, value: 1013 });
+  assert.deepEqual(membership?.points[0], { observedAt: start + day, value: 2 });
+  assert.ok(membership?.points.some((point) =>
+    point.observedAt === start + 128 * day && point.value === 129 && point.sampledBefore),
+    "the older sampled span is marked, so the chart does not call known observations unobserved");
+  assert.deepEqual(membership?.latest, { observedAt: start + 1011 * day, value: 1013 });
   assert.deepEqual(membership?.points.at(-1), membership?.latest);
   assert.equal(membership?.points.some((point) => point.value === 1), false);
   assert.equal(profile?.telemetry, undefined);
+});
+
+it("does not expose old integration membership after the primary group changes", async () => {
+  const s = await setup();
+  const observedAt = s.now - 60_000;
+  await s.t.run(async (ctx) => {
+    await ctx.db.insert("communityDataVisibility", {
+      communityProfileId: s.firstId,
+      categories: {
+        ...defaultClubVisibility(),
+        group_size: { audience: "public", staffRoleIds: null },
+        membership_movement: { audience: "public", staffRoleIds: null },
+        population_history: { audience: "public", staffRoleIds: null },
+      },
+      updatedAt: s.now,
+    });
+    const integrationId = await ctx.db.insert("communityVrchatIntegrations", {
+      communityProfileId: s.firstId, vrchatGroupId: groupA,
+      groupVisibility: "public", joinPolicy: "free", state: "active",
+      killSwitchEnabled: false, requestsPerMinute: 10, leaseGeneration: 1,
+      publicMetrics: { currentPopulation: false, populationHistory: true, groupMemberCount: true,
+        groupMemberGrowth: true, eventRecaps: false },
+      consecutiveFailures: 0, createdAt: s.now - 120_000, updatedAt: s.now,
+    });
+    for (const [i, count] of [10, 12].entries()) await ctx.db.insert("communityMemberCountObservations", {
+      integrationId, communityProfileId: s.firstId, idempotencyKey: `old-${i}`,
+      vrchatGroupId: groupA, memberCount: count, observedAt: observedAt + i,
+      source: "first_party", collectorVersion: "test", coverageState: "observed", fencingToken: 1,
+    });
+    await ctx.db.insert("communityTelemetryRollups", {
+      communityProfileId: s.firstId, grain: "hour",
+      bucketStartAt: observedAt, bucketEndAt: observedAt + 60_000,
+      rollupVersion: "community-telemetry-v1", activeInstanceCount: 0,
+      peakConcurrency: 0, playerMinutes: 0, coverageRatio: 1,
+      groupMemberCount: 12, groupMemberGrowth: 2, worldDistribution: [], computedAt: s.now,
+    });
+    const link = (await ctx.db.query("profileExternalLinks")
+      .withIndex("by_profileId_assetType_state", (q) => q
+        .eq("profileId", s.firstId).eq("assetType", "vrchat_group").eq("state", "active"))
+      .first())!;
+    await ctx.db.patch(link._id, { assetExternalId: groupB });
+    await ctx.db.insert("vrchatGroupMemberSnapshots", {
+      vrchatGroupId: groupB, memberCount: 55, observedAt: s.now,
+    });
+  });
+  const stale = await s.t.run((ctx) => getPublicCommunityTelemetry(ctx.db, s.firstId, s.now));
+  assert.equal(stale?.groupMemberCount, undefined);
+  assert.equal(stale?.groupMemberGrowth, undefined);
+  assert.equal(stale?.populationHistory?.[0]?.groupMemberCount, undefined);
+  assert.equal(stale?.populationHistory?.[0]?.groupMemberGrowth, undefined);
+  assert.equal((await s.read("first-group"))?.groupMembership?.latest.value, 55);
+  await s.t.run(async (ctx) => {
+    const link = (await ctx.db.query("profileExternalLinks")
+      .withIndex("by_profileId_assetType_state", (q) => q
+        .eq("profileId", s.firstId).eq("assetType", "vrchat_group").eq("state", "active"))
+      .first())!;
+    await ctx.db.patch(link._id, { assetExternalId: groupA });
+  });
+  const matching = await s.t.run((ctx) => getPublicCommunityTelemetry(ctx.db, s.firstId, s.now));
+  assert.equal(matching?.groupMemberCount?.value, 12);
+  assert.equal(matching?.groupMemberGrowth?.value, 2);
+  assert.equal(matching?.populationHistory?.[0]?.groupMemberCount, 12);
 });

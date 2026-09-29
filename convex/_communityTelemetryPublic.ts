@@ -64,9 +64,10 @@ export async function getPublicGroupMembership(
   const sampleGroup = groupRecent.length === 500 && groupFirst?.observedAt !== groupRecent[499]?.observedAt;
   const sampleConnected = connectedRecent.length === 500 &&
     connectedFirst?.observedAt !== connectedRecent[499]?.observedAt;
-  // Sample the whole span only when a source has observations beyond its recent 500.
-  const width = Math.max(1, Math.ceil((lastAt - firstAt + 1) / 24));
-  const historical = await Promise.all(Array.from({ length: sampleGroup || sampleConnected ? 24 : 0 }, async (_, i) => {
+  // Eight windows per saturated source keep long views useful without a read per day.
+  const historicalWindows = 8;
+  const width = Math.max(1, Math.ceil((lastAt - firstAt + 1) / historicalWindows));
+  const historical = await Promise.all(Array.from({ length: sampleGroup || sampleConnected ? historicalWindows : 0 }, async (_, i) => {
     const start = firstAt + i * width;
     const end = Math.min(lastAt + 1, start + width);
     if (start >= end) return { group: null, member: null };
@@ -106,7 +107,20 @@ export async function getPublicGroupMembership(
   const remaining = Math.max(0, 500 - required.length);
   const sampled = optional.length <= remaining ? optional : Array.from({ length: remaining }, (_, i) =>
     optional[Math.floor(i * (optional.length - 1) / Math.max(1, remaining - 1))]!);
-  const points = [...required, ...sampled].sort((a, b) => a.observedAt - b.observedAt);
+  const selected = [...required, ...sampled].sort((a, b) => a.observedAt - b.observedAt);
+  const indexByTime = new Map(allPoints.map((point, index) => [point.observedAt, index]));
+  const truncatedRanges = [
+    sampleGroup ? [groupFirst!.observedAt, groupRecent[499]!.observedAt] : null,
+    sampleConnected ? [connectedFirst!.observedAt, connectedRecent[499]!.observedAt] : null,
+  ].filter((range): range is number[] => range !== null);
+  const points = selected.map((point, index) => {
+    const previous = selected[index - 1];
+    if (!previous) return point;
+    const omittedKnownPoint = indexByTime.get(point.observedAt)! - indexByTime.get(previous.observedAt)! > 1;
+    const crossesTruncatedHistory = truncatedRanges.some(([first, oldestRecent]) =>
+      previous.observedAt < oldestRecent! && point.observedAt > first!);
+    return omittedKnownPoint || crossesTruncatedHistory ? { ...point, sampledBefore: true as const } : point;
+  });
   const latest = allPoints[allPoints.length - 1]!;
   const groupCreatedAt = groupRecent.find((row) => row.groupCreatedAt !== undefined)?.groupCreatedAt
     ?? groupFirst?.groupCreatedAt;
@@ -162,7 +176,13 @@ export async function getPublicCommunityTelemetry(
     .first();
   if (!integration || (integration.enabledFeatures && !integration.enabledFeatures.includes("analytics"))) return null;
   const visibility = await readClubVisibility(db, communityProfileId);
-  const publicMetrics = { currentPopulation: visibility.current_population.audience === "public", populationHistory: visibility.population_history.audience === "public", groupMemberCount: visibility.group_size.audience === "public", groupMemberGrowth: visibility.membership_movement.audience === "public", instanceHistory: visibility.instance_history.audience === "public", eventRecaps: visibility.event_recaps.audience === "public" };
+  const links = await db.query("profileExternalLinks")
+    .withIndex("by_profileId_assetType_state", (q) => q
+      .eq("profileId", communityProfileId).eq("assetType", "vrchat_group").eq("state", "active"))
+    .take(100);
+  const primaryGroupId = links.find((link) => link.linkRole === "primary")?.assetExternalId;
+  const memberGroupMatches = !primaryGroupId || primaryGroupId === integration.vrchatGroupId;
+  const publicMetrics = { currentPopulation: visibility.current_population.audience === "public", populationHistory: visibility.population_history.audience === "public", groupMemberCount: memberGroupMatches && visibility.group_size.audience === "public", groupMemberGrowth: memberGroupMatches && visibility.membership_movement.audience === "public", instanceHistory: visibility.instance_history.audience === "public", eventRecaps: visibility.event_recaps.audience === "public" };
   if (
     integration.state === "disconnecting" ||
     integration.state === "disconnected" ||

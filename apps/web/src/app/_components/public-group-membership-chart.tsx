@@ -13,7 +13,7 @@ import {
 export type GroupMembership = {
   groupCreatedAt?: number;
   latest: { value: number; observedAt: number };
-  points: Array<{ observedAt: number; value: number }>;
+  points: Array<{ observedAt: number; value: number; sampledBefore?: true }>;
 };
 
 const date = (at: number) => new Date(at).toLocaleDateString("en-US", {
@@ -36,7 +36,7 @@ export function PublicGroupMembershipChart({ membership }: { membership: GroupMe
   for (const [index, point] of observations.entries()) {
     const previous = observations[index - 1];
     const skippedDay = previous && Math.floor(point.observedAt / 86_400_000) - Math.floor(previous.observedAt / 86_400_000) > 1;
-    if (skippedDay) {
+    if (skippedDay && !point.sampledBefore) {
       observedLine.push({ observedAt: previous.observedAt + 1, value: null });
       if (unobservedLine.length) unobservedLine.push({ observedAt: previous.observedAt + 1, value: null });
       unobservedLine.push(previous, point);

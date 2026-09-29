@@ -204,7 +204,11 @@ export const PublicCommunityTelemetrySchema = z.object({
 export const PublicGroupMembershipSchema = z.object({
   groupCreatedAt: timestampMs.optional(),
   latest: z.object({ value: z.number().int().nonnegative(), observedAt: timestampMs }),
-  points: z.array(z.object({ observedAt: timestampMs, value: z.number().int().nonnegative() })).max(500),
+  points: z.array(z.object({
+    observedAt: timestampMs,
+    value: z.number().int().nonnegative(),
+    sampledBefore: z.literal(true).optional(),
+  })).max(500),
 }).meta({ description: "Timestamped observed membership for the primary linked VRChat group." });
 
 export const PublicProfileSchema = z
