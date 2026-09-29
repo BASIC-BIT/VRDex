@@ -1,5 +1,5 @@
 import { AppearancePanel } from "./appearance-panel";
-import { DEMO_WORKSPACE_PROFILES, ProfileWorkspace } from "../profile-workspace";
+import { ProfileWorkspace } from "../profile-workspace";
 import { Card } from "@/components/ui/card";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
 
@@ -27,7 +27,7 @@ export default async function AppearancePage({
           activeProfileId={initialProfileId}
           mediaKitEnabled={mediaKitEnabled}
           previewProfiles={demoMode ? [
-            ...DEMO_WORKSPACE_PROFILES,
+            { profileId: "demo", slug: "playwright-dj-aurora", displayName: "DJ Aurora", profileType: "person" },
             { profileId: "demo-community", slug: "playwright-night-shift", displayName: "Night Shift", profileType: "community" },
           ] : undefined}
           tab="personalization"
