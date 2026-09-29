@@ -1,4 +1,5 @@
 import { ConvexError, v } from "convex/values";
+import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery, mutation, query, type DatabaseReader, type DatabaseWriter, type MutationCtx } from "./_generated/server";
 import { activeBrowserSessionSubjectOrNull, requireActiveBrowserSessionSubject } from "./_browserSessionAuthority";
@@ -102,6 +103,16 @@ export async function updateActorContribution(ctx: MutationCtx, actorUserId: Id<
   if (updated.startAt !== event.startAt) {
     await syncClubEventOperations(ctx, event._id);
     if (updated.startAt === undefined) await settleEventMediaForCancellation(db, event, actor, now);
+    if (updated.startAt === undefined && event.startAt !== undefined && event.communityProfileId) {
+      const confirmed = await db.query("eventInstanceAssociations")
+        .withIndex("by_eventId_state", q => q.eq("eventId", event._id).eq("state", "confirmed")).first();
+      if (confirmed?.communityProfileId === event.communityProfileId) {
+        await ctx.scheduler.runAfter(0, internal.communityTelemetry.recomputeRollup, {
+          communityProfileId: event.communityProfileId, eventId: event._id, grain: "event",
+          bucketStartAt: event.startAt, bucketEndAt: event.endAt ?? event.startAt + 6 * 60 * 60_000, now,
+        });
+      }
+    }
   }
   if (patch.worldSlug !== undefined) await replaceEventWorldLink(db, updated, checked.world, now, { confirmationState: "unconfirmed" });
   await refreshProjections(db, updated, now);

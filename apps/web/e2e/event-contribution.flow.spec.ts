@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 for (const mode of ["draft", "correction"] as const) {
-  test(`${mode} retains its editing revision across query refresh @flow`, async ({ page }) => {
+  test(`${mode} retains its editing revision across query refresh @flow @fixture`, async ({ page }) => {
     await page.goto(`/playwright/event-intake?revision=${mode}`);
     if (mode === "correction") await page.getByRole("button", { name: "Correct event", exact: true }).click();
     await page.getByLabel("Event title", { exact: true }).fill("My local edit");
@@ -16,7 +16,7 @@ for (const mode of ["draft", "correction"] as const) {
   });
 }
 
-test("draft advances its revision only after a successful local save @flow", async ({ page }) => {
+test("draft advances its revision only after a successful local save @flow @fixture", async ({ page }) => {
   await page.goto("/playwright/event-intake?revision=draft");
   await page.getByLabel("Event title", { exact: true }).fill("First edit");
   await page.getByRole("button", { name: "Save draft", exact: true }).click();
@@ -29,7 +29,7 @@ test("draft advances its revision only after a successful local save @flow", asy
   expect(submission.patch.title).toBe("Second edit");
 });
 
-test("owner timezone keyboard search stores a region, not EST @flow", async ({ page }) => {
+test("owner timezone keyboard search stores a region, not EST @flow @fixture", async ({ page }) => {
   await page.goto("/playwright/event-editor");
   await page.getByLabel("Start", { exact: true }).fill("2026-07-15T20:00");
   const timezone = page.getByRole("combobox", { name: "Time zone" });
@@ -42,20 +42,20 @@ test("owner timezone keyboard search stores a region, not EST @flow", async ({ p
   await expect(page.locator('input[name="timezone"]')).toHaveValue("");
 });
 
-test("direct intake auth preserves community and draft @flow", async ({ page }) => {
+test("direct intake auth preserves community and draft @flow @fixture", async ({ page }) => {
   await page.goto("/events/new?community=afterglow&draft=saved-draft");
   await expect(page).toHaveURL(/\/sign-in\?/);
   expect(new URL(page.url()).searchParams.get("returnTo")).toBe("/events/new?community=afterglow&draft=saved-draft");
 });
 
-test("community and Events expose intake entry @flow", async ({ page }) => {
+test("community and Events expose intake entry @flow @fixture", async ({ page }) => {
   await page.goto("/search?type=event");
   await expect(page.getByRole("link", { name: "Add event", exact: true })).toHaveAttribute("href", "/events/new");
   await page.goto("/playwright-afterglow-social");
   await expect(page.getByRole("link", { name: "Add event", exact: true })).toHaveAttribute("href", "/events/new?community=playwright-afterglow-social");
 });
 
-test("intake draft resumes, date-only publishes directly, and has no mobile overflow @flow", async ({ page }, testInfo) => {
+test("intake draft resumes, date-only publishes directly, and has no mobile overflow @flow @fixture", async ({ page }, testInfo) => {
   await page.goto("/playwright/event-intake");
   await expect(page.getByLabel("Community", { exact: true })).toHaveValue("playwright-afterglow-social");
   await page.getByLabel("Event title", { exact: true }).fill("Summer gathering");
@@ -76,7 +76,7 @@ test("intake draft resumes, date-only publishes directly, and has no mobile over
   await expect(page.getByRole("heading", { name: "Afterglow Harbor Sessions", exact: true })).toBeVisible();
 });
 
-test("ambiguous start requires occurrence and gap is refused @flow", async ({ page }) => {
+test("ambiguous start requires occurrence and gap is refused @flow @fixture", async ({ page }) => {
   await page.goto("/playwright/event-intake");
   await page.getByLabel("Event title").fill("Autumn gathering");
   await page.getByLabel("Date", { exact: true }).fill("2026-11-01");
@@ -95,7 +95,7 @@ test("ambiguous start requires occurrence and gap is refused @flow", async ({ pa
 
 // The public pages below use pre-existing server fixtures. This checks navigation
 // and readback UI; backend event-intake.test.ts checks actual publication/indexing.
-test("manual publish reads back direct URL, search and community fixtures @flow", async ({ page }) => {
+test("manual publish reads back direct URL, search and community fixtures @flow @fixture", async ({ page }) => {
   const eventPath = "/playwright-afterglow-social/events/playwright-afterglow-harbor-sessions";
   await page.goto("/playwright/event-intake");
   await page.getByLabel("Event title", { exact: true }).fill("Afterglow Harbor Sessions");
@@ -112,7 +112,7 @@ test("manual publish reads back direct URL, search and community fixtures @flow"
   await expect(page.locator(`a[href="${eventPath}"]`).first()).toBeVisible();
 });
 
-test("staff controls confirm takeover and removal through connected fixture @flow", async ({ page }) => {
+test("staff controls confirm takeover and removal through connected fixture @flow @fixture", async ({ page }) => {
   await page.goto("/playwright/event-intake?revision=staff");
   page.on("dialog", dialog => dialog.accept());
   await expect(page.getByRole("button", { name: "Correct event", exact: true })).toHaveCount(0);
@@ -126,7 +126,7 @@ test("staff controls confirm takeover and removal through connected fixture @flo
   await expect(page).toHaveURL(/\/(account\/events|sign-in)(\?|$)/);
 });
 
-test("date-only public fixture keeps its date, calendar export and no watch player @flow", async ({ page }, info) => {
+test("date-only public fixture keeps its date, calendar export and no watch player @flow @fixture", async ({ page }, info) => {
   const path = "/playwright-afterglow-social/events/playwright-date-only-event";
   await page.goto(path);
   await expect(page.getByRole("heading", { name: "July Fourth Sessions", exact: true })).toBeVisible();

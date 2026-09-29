@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("text extraction stays tentative, survives save, accepts explicitly, and keeps questions @flow", async ({ page }, info) => {
+test("text extraction stays tentative, survives save, accepts explicitly, and keeps questions @flow @fixture", async ({ page }, info) => {
   await page.goto("/playwright/event-intake?source=text");
   await page.getByLabel("Source text", { exact: true }).fill("Afterglow Night on October 15. Time TBA. Aurora plays.");
   await page.getByRole("button", { name: "Extract details" }).click();
@@ -29,7 +29,7 @@ test("text extraction stays tentative, survives save, accepts explicitly, and ke
   await expect(page.getByRole("heading", { name: "Afterglow Harbor Sessions", exact: true })).toBeVisible();
 });
 
-test("poster remains private until separate artwork choice and manual fallback remains editable @flow", async ({ page }, info) => {
+test("poster remains private until separate artwork choice and manual fallback remains editable @flow @fixture", async ({ page }, info) => {
   await page.goto("/playwright/event-intake?source=poster");
   await page.getByLabel("Poster", {exact:true}).setInputFiles("public/test-media/event-poster.png");
   await expect(page.getByAltText("Source poster")).toBeVisible();
@@ -57,7 +57,7 @@ test("poster remains private until separate artwork choice and manual fallback r
   await expect(page).toHaveURL(/playwright-afterglow-harbor-sessions$/);
 });
 
-test("stale extraction never applies candidate fields @flow", async ({ page }) => {
+test("stale extraction never applies candidate fields @flow @fixture", async ({ page }) => {
   await page.goto("/playwright/event-intake?source=stale");
   await page.getByLabel("Source text",{exact:true}).fill("Original source");
   await page.getByRole("button",{name:"Extract details"}).click();
@@ -67,7 +67,7 @@ test("stale extraction never applies candidate fields @flow", async ({ page }) =
 });
 
 
-test("uploaded source remains usable when preview fails @flow", async ({ page }) => {
+test("uploaded source remains usable when preview fails @flow @fixture", async ({ page }) => {
   await page.goto("/playwright/event-intake?source=preview-failure");
   await page.getByLabel("Poster",{exact:true}).setInputFiles("public/test-media/event-poster.png");
   await expect(page.getByRole("button",{name:"Use as event artwork"})).toBeDisabled();
@@ -76,7 +76,7 @@ test("uploaded source remains usable when preview fails @flow", async ({ page })
 });
 
 
-test("replacement poster remains unselected after resume until explicit selection @flow", async ({ page }) => {
+test("replacement poster remains unselected after resume until explicit selection @flow @fixture", async ({ page }) => {
   await page.goto("/playwright/event-intake?source=replacement");
   const upload = page.getByLabel("Poster", { exact: true });
   const select = page.getByRole("button", { name: "Use as event artwork" });
@@ -95,7 +95,7 @@ test("replacement poster remains unselected after resume until explicit selectio
   expect(await page.evaluate(() => sessionStorage.getItem("fixture-artwork-source"))).toBe("poster-2");
 });
 
-test("replacement preview never shows the old source or enables artwork before the new image @flow", async ({ page }, info) => {
+test("replacement preview never shows the old source or enables artwork before the new image @flow @fixture", async ({ page }, info) => {
   await page.goto("/playwright/event-intake?source=replacement-delay");
   const upload = page.getByLabel("Poster", { exact: true });
   await upload.setInputFiles("public/test-media/event-poster.png");

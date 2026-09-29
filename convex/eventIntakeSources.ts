@@ -90,7 +90,7 @@ export const publicArtwork = query({ args: { artworkAssetId: v.id("eventPosterAr
   const artwork = await ctx.db.get(args.artworkAssetId);
   const event = artwork?.eventId ? await ctx.db.get(artwork.eventId) : null;
   const community = event?.communityProfileId ? await ctx.db.get(event.communityProfileId) : null;
-  if (artwork?.state !== "published" || !event || event.publicationState !== "published" || event.moderationRemovedAt !== undefined || !community || !canReadProfile("public", community)) return null;
+  if (artwork?.state !== "published" || !event || event.publicationState !== "published" || event.moderationRemovedAt !== undefined || event.posterImageUrl !== `/api/v0/events/${event._id}/artwork/${artwork._id}` || !community || !canReadProfile("public", community)) return null;
   return { eventId: event._id, storageKey: artwork.storageKey, contentType: "image/webp", byteLength: artwork.byteLength };
 } });
 export const authorizeExtraction = internalMutation({ args: { ...actor, draftId: v.id("eventIntakeDrafts"), posterAssetId: v.optional(v.id("eventPosterSources")) }, returns: v.any(), handler: async (ctx, args) => {

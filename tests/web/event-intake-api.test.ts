@@ -77,6 +77,9 @@ it("shares actor-bound drafts, receipts and correction authority across website 
     assert.ok(first?.receiptId);assert.deepEqual(await commands("publish",args),first);
     assert.deepEqual((await t.run(ctx=>ctx.db.query("eventAuditEvents").collect())).map(row=>[row.action,row.actorSurface]),[["created","mcp"]]);
     assert.deepEqual((await call("vrdex_event_intake_publish",args)).structuredContent,first);
+    const refused=await call("vrdex_event_intake_draft_save",{draftId:saved.draftId,expectedVersion:1,patch:{title:"Late edit"}});
+    assert.equal(refused.isError,true);
+    assert.equal(refused.structuredContent?.isError,undefined);
     const read=await commands("draft_get",{draftId:saved.draftId});assert.equal(read.publishedReceiptId,first.receiptId);
     assert.equal((await t.run(ctx=>ctx.db.query("events").collect())).length,1);
     const event=await t.run(ctx=>ctx.db.get(first.eventId));
@@ -136,5 +139,6 @@ it("retains bounded duplicate choices and distinguishes a lost response from inv
     assert.equal(duplicate.status,409);assert.match((await duplicate.json()).detail,/Existing night/);
     const lost=eventIntakeErrorResponse(new Error("secret transport exception"));assert.equal(lost.status,503);assert.doesNotMatch(await lost.text(),/secret/);
     assert.equal(eventIntakeErrorResponse(new ConvexError({code:"DUPLICATE_EVENT",eventId:"event"})).status,409);
+    assert.equal(eventIntakeErrorResponse(new RangeError("Invalid time zone specified: Not/AZone")).status,400);
   `);
 });

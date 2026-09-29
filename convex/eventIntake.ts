@@ -20,9 +20,9 @@ export const getActorDraft = internalQuery({ args: { ...actorArg, draftId: v.id(
 const classificationValidator = v.object({ draftId: v.string(), draftVersion: v.number(), decision: v.union(v.literal("disabled"), v.literal("allow"), v.literal("block")), reviewReason: v.optional(v.union(v.literal("classifier_outage"), v.literal("classifier_sample"))) });
 export const commitPublishIntake = internalMutation({ args: { ...actorArg, ...actorSurfaceArg, ...publishArgs, classification: v.optional(classificationValidator) }, returns: published, handler: async (ctx, { actorUserId, actorSurface, classification, ...args }) => {
   if (classification && (classification.draftId !== args.draftId || classification.draftVersion !== args.expectedVersion)) throw new Error("CLASSIFICATION_VERSION_CONFLICT");
-  if (classification?.decision === "block") throw new Error("CONTENT_BLOCKED");
   const replay = await replayIntakePublication(ctx.db, actorUserId, args);
   if (replay) return replay;
+  if (classification?.decision === "block") throw new Error("CONTENT_BLOCKED");
   const result = await publishIntakeDraft(ctx.db, actorUserId, args, Date.now(), actorSurface);
   if (classification?.reviewReason) {
     const event = await ctx.db.get(result.eventId);

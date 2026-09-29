@@ -93,6 +93,8 @@ it("publishes private evidence without artwork and attaches only a separately va
    const searchDoc=await t.run(ctx=>ctx.db.query("searchDocuments").first());
    assert.equal(searchDoc?.imageUrl,event?.posterImageUrl);
    assert.equal((await t.query(makeFunctionReference<"query">("eventIntakeSources:publicArtwork"),{artworkAssetId:artwork.artworkAssetId})).storageKey,artwork.storageKey);
+   await t.run(ctx=>ctx.db.patch(published.eventId,{posterImageUrl:undefined}));
+   assert.equal(await t.query(makeFunctionReference<"query">("eventIntakeSources:publicArtwork"),{artworkAssetId:artwork.artworkAssetId}),null);
   }else assert.equal(event?.posterImageUrl,undefined);
   const evidence=await t.run(ctx=>ctx.db.get(source.posterAssetId));assert.equal(evidence?.eventId,published.eventId);
   assert.ok(evidence!.expiresAt<=Date.now()+86400000);
@@ -123,6 +125,7 @@ it("rejects stale classifier decisions and atomically records outage reports whi
  assert.equal((await t.run(ctx=>ctx.db.query("eventReports").collect()))[0]?.eventId,result.eventId);
  await t.mutation(commit,args);
  assert.equal((await t.run(ctx=>ctx.db.query("eventReports").collect())).length,1);
+ assert.deepEqual(await t.mutation(commit,{...args,classification:{draftId,draftVersion:1,decision:"block"}}),result);
 });
 
 it("uses current event dates for retention and respects private reviewer reads",async()=>{

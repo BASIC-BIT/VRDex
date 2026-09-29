@@ -5,6 +5,15 @@ merge with `main` at `326fe66e3` on `codex/event-contribution-ai-intake-design`.
 This is local evidence. Nothing here asserts deployment,
 copy approval, hosted accuracy or merge readiness.
 
+The follow-up review fixes keep committed publication receipts replayable after
+a later classifier result, settle owner media work when a timed event becomes
+Time TBA, invalidate contributor event recaps on that transition, return a
+client error for invalid IANA zones, preserve MCP tool errors, and serve selected
+artwork only while the event still references it. Focused backend and web tests
+cover those transitions. The new event Playwright flows use local fixtures and
+carry the `@fixture` tag, so the hosted mutation suite does not run them against
+an older shared staging deployment.
+
 ## Implemented journey
 
 Any signed-in account can save a partial private draft for any public community,
@@ -46,8 +55,8 @@ Commands run in the isolated worktree, without hosted credentials or paid calls:
 
 | Command | Result |
 | --- | --- |
-| `pnpm test:backend` | 1,206 passed, zero failed/skipped after review fixes |
-| `pnpm test:web` | 601 passed, zero failed/skipped after merge |
+| `pnpm test:backend` | 1,221 passed, zero failed/skipped after review fixes |
+| `pnpm test:web` | 607 passed, zero failed/skipped after review fixes |
 | `pnpm test:api-contracts` | 57 passed, zero failed/skipped after merge |
 | `pnpm test:vrdex-mcp` | 10 passed, including local stdio and fake-transport upload |
 | `pnpm typecheck:backend` | Passed |
@@ -241,6 +250,12 @@ requests a stop for an active session, using the existing cancellation path.
 REST and MCP retraction retries resolve the actor's hidden event and return
 `changed: false` after the first successful retraction. Targeted tests failed
 on each gap before the fixes and passed afterward.
+
+The merged CI visual pass found a stale `Sessions` assertion after the approved
+`Slots` rename. The corrected desktop and mobile editor test passes locally.
+Twenty snapshot comparisons differed in text rasterization between Windows
+captures and the Linux runner. Their Linux captures were identical across the
+initial CI attempt and retry, visually inspected, and adopted as baselines.
 
 ## Release and operator gates
 

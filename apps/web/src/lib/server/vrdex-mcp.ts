@@ -2102,6 +2102,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
         const structuredContent = toolName === "vrdex_event_intake_draft_get"
           ? await execute(operation, input)
           : await recordNewWrite(toolName, principal, input, () => execute(operation, input));
+        if ("isError" in structuredContent && structuredContent.isError === true) return structuredContent;
         return { content: [{ type: "text" as const, text: JSON.stringify(structuredContent) }], structuredContent };
       } catch (error) {
         const response = await eventIntakeErrorResponse(error).json();

@@ -1335,6 +1335,9 @@ async function updateCommunityEventRecord(
   if (updatedEvent.startAt !== event.startAt || updatedEvent.communityProfileId !== event.communityProfileId) {
     await syncClubEventOperations(ctx, event._id);
   }
+  if (event.startAt !== undefined && updatedEvent.startAt === undefined) {
+    await settleEventMediaForCancellation(db, event, undefined, now);
+  }
   if (
     updatedEvent.communityProfileId !== undefined &&
     (updatedEvent.startAt !== event.startAt || updatedEvent.endAt !== event.endAt)
