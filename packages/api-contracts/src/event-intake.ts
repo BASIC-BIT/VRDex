@@ -2,6 +2,7 @@ import { z } from "zod";
 import { ApiIdempotencyKeySchema } from "./temporal";
 
 export const EVENT_POSTER_MAX_BYTES = 12 * 1024 * 1024;
+export const EVENT_INTAKE_MAX_POSTERS = 5;
 export const EventPosterDeclarationSchema = z.strictObject({
   contentType: z.enum(["image/png", "image/jpeg", "image/webp"]),
   byteLength: z.number().int().positive().max(EVENT_POSTER_MAX_BYTES),
@@ -10,7 +11,8 @@ export const EventPosterDeclarationSchema = z.strictObject({
 
 const text = (max: number) => z.string().trim().max(max);
 const nullable = <T extends z.ZodType>(schema: T) => schema.nullable().optional();
-const posterIds = z.array(text(200).min(1)).max(5).refine(ids => new Set(ids).size === ids.length, "Poster IDs must be unique.");
+const posterIds = z.array(text(200).min(1)).max(EVENT_INTAKE_MAX_POSTERS).refine(ids => new Set(ids).size === ids.length, "Poster IDs must be unique.");
+const EventIntakeEvidenceSchema = z.array(z.strictObject({ fieldPath: text(120), origin: z.enum(["text", "poster", "lookup", "calculation"]), posterIndex: z.number().int().min(0).max(EVENT_INTAKE_MAX_POSTERS - 1).nullable(), excerpt: text(500).nullable(), assessment: z.enum(["explicit", "inferred", "conflicting"]) })).max(40);
 const consistentPosterIds = (value: { posterSourceId?: string | null; posterSourceIds?: string[] | null }) =>
   value.posterSourceId === undefined || value.posterSourceIds === undefined || value.posterSourceId === (value.posterSourceIds?.[0] ?? null);
 export const EventIntakeLocalTimeSchema = z.strictObject({
@@ -37,6 +39,7 @@ export const EventIntakeFieldsSchema = EventIntakeFieldsBaseSchema.refine(consis
 export const EventIntakePatchSchema = EventIntakeFieldsSchema.safeExtend({
   // Candidates are private and never become canonical until copied into ordinary fields.
   tentative: nullable(EventIntakeFieldsSchema),
+  evidence: nullable(EventIntakeEvidenceSchema),
   questions: nullable(z.array(text(2800)).max(100)),
   duplicateAcknowledgements: nullable(z.array(text(200).min(1)).max(100)),
 }).strict().refine(consistentPosterIds, "Poster source IDs disagree.");
@@ -90,7 +93,7 @@ export const EventIntakeCandidateSchema = z.strictObject({
   lineup: z.array(z.strictObject({
     performerLabel: fact(120), personSlug: fact(64), roleLabel: fact(48), start: fact(5), end: fact(5), startDate: candidateDate, endDate: candidateDate,
   })).max(80),
-  evidence: z.array(z.strictObject({ fieldPath: text(120), origin: z.enum(["text", "poster", "lookup", "calculation"]), posterIndex: z.number().int().min(0).max(4).nullable(), excerpt: fact(500), assessment: z.enum(["explicit", "inferred", "conflicting"]) })).max(40),
+  evidence: EventIntakeEvidenceSchema,
   questions: z.array(z.strictObject({ fieldPath: text(120), reason: text(500), alternatives: z.array(text(200)).max(10) })).max(100),
 });
 export type EventIntakeCandidate = z.infer<typeof EventIntakeCandidateSchema>;

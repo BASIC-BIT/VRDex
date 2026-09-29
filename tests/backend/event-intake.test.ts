@@ -142,6 +142,16 @@ it("bounds drafts, rejects authority and unsafe URLs, and preserves tentative va
   for (let i = 1; i < 20; i++) await actor.mutation(save, { patch: { title: `Draft ${i}` } });
   await assert.rejects(actor.mutation(save, { patch: { title: "Over quota" } }), /DRAFT_QUOTA/);
 });
+it("keeps accepted fields but clears stale discovery when source text changes", async () => {
+  const { actor } = await fixture();
+  const evidence = [{ fieldPath: "event.title", origin: "text", posterIndex: null, excerpt: "Night", assessment: "explicit" }];
+  const draft = await actor.mutation(save, { patch: { title: "My title", sourceText: "Night", tentative: { title: "Night" }, evidence, questions: ["event.date: unknown"] } });
+  assert.deepEqual((await actor.query(get, { draftId: draft.draftId })).fields.evidence, evidence);
+  await actor.mutation(save, { draftId: draft.draftId, expectedVersion: draft.version, patch: { sourceText: "New flyer" } });
+  const fields = (await actor.query(get, { draftId: draft.draftId })).fields;
+  assert.equal(fields.title, "My title"); assert.equal(fields.tentative, undefined);
+  assert.equal(fields.evidence, undefined); assert.equal(fields.questions, undefined);
+});
 it("requires explicit DST selection and cross-midnight day offsets for timed events and lineup", async () => {
   const { t, actor } = await fixture();
   const draft = await actor.mutation(save, { patch: { ...complete, eventDate: "2027-11-07", timeTba: false, timezone: "America/New_York", start: { time: "01:30" } } });

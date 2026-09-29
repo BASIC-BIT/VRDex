@@ -69,6 +69,33 @@ it("passes poster instructions only as private image input and cannot execute mu
  }});
  assert.equal(calls,1);assert.equal(result.questions[0]?.reason,"invalid_tool");
 });
+it("sends authorized text and ordered images in one bounded request",async()=>{
+ const reads:string[]=[]; let authorized:string[]=[]; let requests=0;
+ const candidate=blank(); candidate.evidence=[{fieldPath:"event.title",origin:"poster",posterIndex:1,excerpt:"Night",assessment:"explicit"}];
+ const result=await extractEventIntake({draftId:"draft",sourceText:"Doors at 8",posterAssetIds:["first","second"]},{...base,
+  authorize:async input=>{authorized=input.posterAssetIds??[];return{actorUserId:"actor",version:1};},
+  readPoster:async id=>{reads.push(id);return "data:image/png;base64,AAAA";},
+  fetchImplementation:async(_url:unknown,init:RequestInit)=>{requests++;const body=JSON.parse(String(init.body));
+   assert.deepEqual(body.input[0].content,[{type:"input_text",text:"Doors at 8"},
+    {type:"input_image",image_url:"data:image/png;base64,AAAA",detail:"high"},
+    {type:"input_image",image_url:"data:image/png;base64,AAAA",detail:"high"}]);return response(candidate);}
+ });
+ assert.deepEqual(authorized,["first","second"]);assert.deepEqual(reads,["first","second"]);assert.equal(requests,1);assert.equal(result.evidence[0]?.posterIndex,1);
+});
+it("rejects invalid poster evidence and image limits before provider work",async()=>{
+ let requests=0;const deps={...base,readPoster:async()=>"data:image/png;base64,AAAA",fetchImplementation:async()=>{requests++;return response(blank());}};
+ const bad=blank();bad.evidence=[{fieldPath:"event.title",origin:"poster",posterIndex:2,excerpt:"Night",assessment:"explicit"}];
+ assert.equal((await extractEventIntake({draftId:"draft",posterAssetIds:["first"]},{...deps,fetchImplementation:async()=>{requests++;return response(bad);}})).questions[0]?.reason,"invalid_response");
+ await assert.rejects(extractEventIntake({draftId:"draft",posterAssetIds:["a","b","c","d","e","f"]},deps),/EXTRACTION_INPUT_INVALID/);
+ const huge="data:image/png;base64,"+"A".repeat(20*1024*1024);
+ assert.equal((await extractEventIntake({draftId:"draft",posterAssetIds:["a","b"]},{...deps,readPoster:async()=>huge})).questions[0]?.reason,"invalid_poster");
+ assert.equal(requests,1);
+});
+it("attributes singular legacy poster evidence to its only image",async()=>{
+ const candidate=blank();candidate.evidence=[{fieldPath:"event.title",origin:"poster",posterIndex:null,excerpt:"Night",assessment:"explicit"}];
+ const result=await extractEventIntake({draftId:"draft",posterAssetId:"legacy"},{...base,readPoster:async()=>"data:image/png;base64,AAAA",fetchImplementation:async()=>response(candidate)});
+ assert.equal(result.evidence[0]?.posterIndex,0);
+});
 it("refuses tool floods and invalid lookup arguments before callback execution",async()=>{
  let lookups=0;
  for(const output of [[{type:"function_call",name:"search_people",call_id:"bad",arguments:JSON.stringify({query:"x",limit:100})}],Array.from({length:4},(_,i)=>({type:"function_call",name:"search_people",call_id:String(i),arguments:JSON.stringify({query:"x",limit:1})}))]) {

@@ -145,12 +145,20 @@ search callbacks; `extractEventIntake` returns only `{event,lineup,evidence,ques
 The strict nullable candidate schema is shared in `packages/api-contracts`.
 Nothing in this loop writes confirmed draft fields or publishes an event.
 
-The Responses loop sends source text and a sanitized inline image as untrusted
-user input. It uses `store:false`, no provider file upload, strict structured
-output, no mutation tools, at most three tool calls and four model turns. The
-callbacks return at most five public people or communities, or zero/one/multiple
+The Responses loop sends optional source text followed by up to five authorized,
+ordered, sanitized inline images in one discovery run. Prepared image data URLs
+have a 20 MB aggregate limit before the provider call. It uses `store:false`, no
+provider file upload, strict structured output, no mutation tools, at most
+three tool calls and four model turns. The callbacks return at most five public
+people or communities, or zero/one/multiple
 UTC instants. Candidate slugs must appear in the corresponding actual lookup
-results. Ambiguous times remain questions with both alternatives. Timezone
+results. Poster evidence indexes must refer to an image in the authorized order.
+Tentative values, up to 40 private evidence entries, and unresolved questions
+survive draft resume without changing accepted fields. Editing source text or
+image order clears those discovery results while retaining accepted fields.
+Explicit candidate dates become bounded day offsets only when the event date,
+timezone, and local instant are valid; undated times keep no inferred offset.
+Ambiguous times remain questions with both alternatives. Timezone
 abbreviations are clues and cannot silently select an instant.
 
 Refusals, incomplete/malformed output, provider errors and absent credentials

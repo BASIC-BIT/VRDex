@@ -68,6 +68,17 @@ it("saves ordered pending sources for one draft and checks every source before e
  await assert.rejects(t.mutation(auth,{actorUserId,draftId,posterAssetIds:[first.posterAssetId,second.posterAssetId]}),/NOT_FOUND/);
  assert.equal((await t.run(ctx=>ctx.db.query("eventIntakeModelAttempts").collect())).length,1);
 });
+it("clears evidence and suggestions when the ordered poster list changes",async()=>{
+ const{t,actorUserId,draftId}=await fixture();
+ const make=()=>t.mutation(ref("beginPosterUpload"),{actorUserId,draftId,contentType:"image/png",byteLength:128,sha256:"a".repeat(64)});
+ const first=await make(),second=await make();
+ const save=makeFunctionReference<"mutation">("eventIntake:saveActorDraft");
+ await t.mutation(save,{actorUserId,draftId,expectedVersion:1,patch:{posterSourceIds:[first.posterAssetId,second.posterAssetId]}});
+ await t.mutation(save,{actorUserId,draftId,expectedVersion:2,patch:{tentative:{title:"Extracted"},evidence:[{fieldPath:"event.title",origin:"poster",posterIndex:1,excerpt:null,assessment:"explicit"}],questions:["event.title: check"]}});
+ await t.mutation(save,{actorUserId,draftId,expectedVersion:3,patch:{posterSourceIds:[second.posterAssetId,first.posterAssetId]}});
+ const fields=(await t.run(ctx=>ctx.db.get(draftId)))?.fields;
+ assert.equal(fields.title,"Night");assert.equal(fields.tentative,undefined);assert.equal(fields.evidence,undefined);assert.equal(fields.questions,undefined);
+});
 it("reserves bytes before signing and rejects expired upload completion", async()=>{
  const{t,actorUserId,draftId}=await fixture();
  const args={actorUserId,draftId,contentType:"image/webp",byteLength:12*1024*1024,sha256:"a".repeat(64)};

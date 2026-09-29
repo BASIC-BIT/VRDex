@@ -510,6 +510,48 @@ paths:
                                 - type: "null"
                           additionalProperties: false
                         - type: "null"
+                    evidence:
+                      anyOf:
+                        - maxItems: 40
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              fieldPath:
+                                type: string
+                                maxLength: 120
+                              origin:
+                                type: string
+                                enum:
+                                  - text
+                                  - poster
+                                  - lookup
+                                  - calculation
+                              posterIndex:
+                                anyOf:
+                                  - type: integer
+                                    minimum: 0
+                                    maximum: 4
+                                  - type: "null"
+                              excerpt:
+                                anyOf:
+                                  - type: string
+                                    maxLength: 500
+                                  - type: "null"
+                              assessment:
+                                type: string
+                                enum:
+                                  - explicit
+                                  - inferred
+                                  - conflicting
+                            required:
+                              - fieldPath
+                              - origin
+                              - posterIndex
+                              - excerpt
+                              - assessment
+                            additionalProperties: false
+                        - type: "null"
                     questions:
                       anyOf:
                         - maxItems: 100
@@ -1083,6 +1125,48 @@ paths:
                                   - type: "null"
                             additionalProperties: false
                           - type: "null"
+                      evidence:
+                        anyOf:
+                          - maxItems: 40
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                fieldPath:
+                                  type: string
+                                  maxLength: 120
+                                origin:
+                                  type: string
+                                  enum:
+                                    - text
+                                    - poster
+                                    - lookup
+                                    - calculation
+                                posterIndex:
+                                  anyOf:
+                                    - type: integer
+                                      minimum: 0
+                                      maximum: 4
+                                    - type: "null"
+                                excerpt:
+                                  anyOf:
+                                    - type: string
+                                      maxLength: 500
+                                    - type: "null"
+                                assessment:
+                                  type: string
+                                  enum:
+                                    - explicit
+                                    - inferred
+                                    - conflicting
+                              required:
+                                - fieldPath
+                                - origin
+                                - posterIndex
+                                - excerpt
+                                - assessment
+                              additionalProperties: false
+                          - type: "null"
                       questions:
                         anyOf:
                           - maxItems: 100
@@ -1618,6 +1702,48 @@ paths:
                                     additionalProperties: false
                                 - type: "null"
                           additionalProperties: false
+                        - type: "null"
+                    evidence:
+                      anyOf:
+                        - maxItems: 40
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              fieldPath:
+                                type: string
+                                maxLength: 120
+                              origin:
+                                type: string
+                                enum:
+                                  - text
+                                  - poster
+                                  - lookup
+                                  - calculation
+                              posterIndex:
+                                anyOf:
+                                  - type: integer
+                                    minimum: 0
+                                    maximum: 4
+                                  - type: "null"
+                              excerpt:
+                                anyOf:
+                                  - type: string
+                                    maxLength: 500
+                                  - type: "null"
+                              assessment:
+                                type: string
+                                enum:
+                                  - explicit
+                                  - inferred
+                                  - conflicting
+                            required:
+                              - fieldPath
+                              - origin
+                              - posterIndex
+                              - excerpt
+                              - assessment
+                            additionalProperties: false
                         - type: "null"
                     questions:
                       anyOf:

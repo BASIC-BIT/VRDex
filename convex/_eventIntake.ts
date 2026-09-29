@@ -16,6 +16,7 @@ const omitEmpty = (value: unknown): unknown => {
   if (value === null || value === "") return undefined;
   if (Array.isArray(value)) return value.map(omitEmpty);
   if (typeof value === "object" && value !== null) return Object.fromEntries(Object.entries(value).flatMap(([key, item]) => {
+    if (key === "evidence" && Array.isArray(item)) return [[key, item]];
     const cleaned = omitEmpty(item); return cleaned === undefined ? [] : [[key, cleaned]];
   }));
   return value;
@@ -24,7 +25,7 @@ function hasMeaningfulInput(value: unknown): boolean {
   if (typeof value === "string") return value.length > 0;
   if (Array.isArray(value)) return value.some(hasMeaningfulInput);
   if (typeof value !== "object" || value === null) return false;
-  return Object.entries(value).some(([key, item]) => !["clientKey", "position", "dayOffset", "occurrence", "timeTba", "questions", "duplicateAcknowledgements"].includes(key) && hasMeaningfulInput(item));
+  return Object.entries(value).some(([key, item]) => !["clientKey", "position", "dayOffset", "occurrence", "timeTba", "questions", "evidence", "duplicateAcknowledgements"].includes(key) && hasMeaningfulInput(item));
 }
 export function sanitizeEventIntakePatch(raw: unknown): EventIntakePatch {
   const patch = EventIntakePatchSchema.parse(raw);
@@ -59,7 +60,13 @@ export async function saveIntakeDraft(db: DatabaseWriter, actorUserId: Id<"users
   }
   const sourceFields = Object.prototype.hasOwnProperty.call(patch, "posterSourceIds") ? { posterSourceId: patch.posterSourceIds?.[0] ?? null }
     : Object.prototype.hasOwnProperty.call(patch, "posterSourceId") ? { posterSourceIds: null } : {};
-  const fields = omitEmpty({ ...draft?.fields, ...patch, ...sourceFields }) as EventIntakePatch;
+  const previousSources = draft?.fields.posterSourceIds ?? (draft?.fields.posterSourceId ? [draft.fields.posterSourceId] : []);
+  const nextSources = patch.posterSourceIds !== undefined ? patch.posterSourceIds ?? []
+    : patch.posterSourceId !== undefined ? patch.posterSourceId ? [patch.posterSourceId] : [] : previousSources;
+  const sourceChanged = Boolean(draft && ((patch.sourceText !== undefined && (patch.sourceText ?? "") !== (draft.fields.sourceText ?? ""))
+    || JSON.stringify(nextSources) !== JSON.stringify(previousSources)));
+  const fields = omitEmpty({ ...draft?.fields, ...patch, ...sourceFields,
+    ...(sourceChanged ? { tentative: null, questions: null, evidence: null } : {}) }) as EventIntakePatch;
   if (!hasMeaningfulInput(fields)) throw new Error("A draft needs at least one meaningful field.");
   if (JSON.stringify(fields).length > 48_000) throw new Error("Draft exceeds storage limit.");
   if (!draft) {
