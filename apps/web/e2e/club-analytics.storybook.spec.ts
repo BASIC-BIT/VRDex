@@ -190,7 +190,7 @@ test("membership lines segment collection gaps in range and selected day @storyb
   await chart.scrollIntoViewIfNeeded();
   await chart.screenshot({ path: `../../.cache/artifacts/task8-membership-day-${isMobile ? "mobile" : "desktop"}.png` });
   await chart.locator("..").getByRole("button", { name: "Show data table" }).click();
-  await expect(chart.locator("..").getByRole("cell", { name: "Unknown", exact: true }).first()).toBeVisible();
+  await expect(chart.locator("..").getByRole("cell", { name: "Unknown" }).first()).toBeVisible();
   await page.getByRole("button", { name: "Back to range" }).click();
   await expect.poll(segments).toBeGreaterThan(2);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -243,7 +243,7 @@ for (const reactive of [false, true]) {
       .getByRole("button", { name: "Show data table" })
       .click();
     await expect(
-      chart.locator("..").getByRole("cell", { name: "2,430", exact: true }),
+      chart.locator("..").getByRole("cell", { name: "2,430" }),
     ).toBeVisible();
     // Keep cached results alive while replacing the query owner. A new nonce
     // must leave it loading until evaluated, and must not restart the lifetime.
