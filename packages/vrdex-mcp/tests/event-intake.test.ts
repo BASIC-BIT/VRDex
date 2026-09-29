@@ -41,7 +41,7 @@ test("poster bytes go only to a pinned HTTPS origin, without bearer headers or r
   let transfers = 0;
   const client = createVrdexApiClient({ apiBaseUrl: "http://127.0.0.1/api/v0", bearerToken: "secret", outputMode: "compact", posterUploadOrigin: "https://storage.example", fetch: async (url, init) => {
     if (String(url).endsWith("/begin")) return Response.json({ posterAssetId: "poster", expiresAt: Date.now()+600000, transfer: { method: "POST", url: uploadOrigin + "/upload", fields: { key: "private-source" }, fileField: "file" } });
-    if (String(url).endsWith("/complete")) return Response.json({ posterAssetId: "poster" });
+    if (String(url).endsWith("/complete")) return Response.json({ posterAssetId: "poster", version: 2 });
     assert.equal(new URL(String(url)).origin,"https://storage.example");
     assert.equal(new Headers(init?.headers).has("authorization"),false);
     assert.equal(init?.redirect,"error");
@@ -52,7 +52,7 @@ test("poster bytes go only to a pinned HTTPS origin, without bearer headers or r
   assert.equal(transfers,0);
   uploadOrigin="https://storage.example";
   const result=await client.uploadEventPosterBytes({ draftId:"draft",base64,contentType:"image/png" });
-  assert.deepEqual(result,{ok:true,data:{posterAssetId:"poster"}});assert.equal(transfers,1);
+  assert.deepEqual(result,{ok:true,data:{posterAssetId:"poster",version:2}});assert.equal(transfers,1);
   await assert.rejects(client.uploadEventPosterBytes({ draftId:"draft",base64,contentType:"image/jpeg" }),/type/);
   // Nonzero padding bits decode to the same bytes but are not canonical base64.
   const noncanonical = base64.slice(0, -2) + "J=";

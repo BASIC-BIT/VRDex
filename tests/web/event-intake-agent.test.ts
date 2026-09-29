@@ -133,16 +133,21 @@ it("completes the actual storage bridge from reserved upload through separately 
  const body=await sharp({create:{width:8,height:8,channels:3,background:"blue"}}).png().toBuffer();
  const objects=new Map<string,{body:Uint8Array;contentType:string}>();
  const puts:string[]=[];
+ let failArtwork=true;
  let uploadKey="";
- const handlers=createEventPosterHandlers({authority:async()=>({actorUserId}),admin:{mutation:t.mutation,query:t.query},target:async input=>{uploadKey=input.storageKey;assert.ok(input.expiresAt-Date.now()<=600000);return{url:"https://s3.test",fields:{key:input.storageKey}};},read:async key=>objects.get(key)??null,put:async input=>{assert.equal(input.cacheControl,"private, no-store");puts.push(input.storageKey);objects.set(input.storageKey,{body:input.body,contentType:input.contentType});}});
+ const handlers=createEventPosterHandlers({authority:async()=>({actorUserId}),admin:{mutation:t.mutation,query:t.query},target:async input=>{uploadKey=input.storageKey;assert.ok(input.expiresAt-Date.now()<=600000);return{url:"https://s3.test",fields:{key:input.storageKey}};},read:async key=>objects.get(key)??null,put:async input=>{assert.equal(input.cacheControl,"private, no-store");puts.push(input.storageKey);if(input.storageKey.includes("/artwork/")&&failArtwork){failArtwork=false;throw Error("STORAGE_UNAVAILABLE");}objects.set(input.storageKey,{body:input.body,contentType:input.contentType});}});
  const started=await handlers.beginPosterUpload({draftId,contentType:"image/png",byteLength:body.length,sha256:createHash("sha256").update(body).digest("hex")});
  objects.set(uploadKey,{body,contentType:"image/png"});
- await handlers.completePosterUpload({posterAssetId:started.posterAssetId});
- assert.equal(puts.length,1);assert.notEqual(puts[0],uploadKey);
+ await assert.rejects(handlers.completePosterUpload({posterAssetId:started.posterAssetId}),/STORAGE_UNAVAILABLE/);
+ assert.equal((await t.run(ctx=>ctx.db.get(draftId)))?.version,1);
+ const completed=await handlers.completePosterUpload({posterAssetId:started.posterAssetId});
+ assert.equal(completed.version,2);assert.ok(completed.artworkAssetId);
+ assert.equal(puts.length,3);assert.notEqual(puts[0],uploadKey);assert.equal(puts[1],puts[2]);
  assert.match(await handlers.readPoster(started.posterAssetId),/^data:image\/webp;base64,/);
- assert.equal((await t.run(ctx=>ctx.db.query("eventPosterArtwork").collect())).length,0);
- await handlers.selectPosterArtwork({draftId,posterAssetId:started.posterAssetId,expectedVersion:1});
- assert.equal(puts.length,2);assert.match(puts[1],/^profile-assets\/event-posters\/artwork\//);
+ assert.equal((await t.run(ctx=>ctx.db.query("eventPosterArtwork").collect())).length,1);
+ assert.equal((await handlers.completePosterUpload({posterAssetId:started.posterAssetId})).version,2);
+ assert.equal(puts.length,3,"retry must not recopy a ready source or derivative");
+ assert.match(puts[1],/^profile-assets\/event-posters\/artwork\//);
  assert.equal((await t.run(ctx=>ctx.db.get(draftId)))?.version,2);
 });
 
@@ -171,7 +176,10 @@ it("renews stale artwork selection and recovers a key written after cleanup", as
   }
   objects.set(input.storageKey,{body:input.body,contentType:input.contentType});
  }});
- const started=await handlers.beginPosterUpload({draftId,contentType:"image/png",byteLength:body.length,sha256:createHash("sha256").update(body).digest("hex")});objects.set(uploadKey,{body,contentType:"image/png"});
+ const declaration={draftId,contentType:"image/png",byteLength:body.length,sha256:createHash("sha256").update(body).digest("hex")};
+ const pending=await handlers.beginPosterUpload(declaration);
+ const started=await handlers.beginPosterUpload(declaration);objects.set(uploadKey,{body,contentType:"image/png"});
+ await t.run(ctx=>ctx.db.patch(draftId,{fields:{title:"Night",posterSourceIds:[pending.posterAssetId,started.posterAssetId],posterSourceId:pending.posterAssetId}}));
  phase="expired-source-preparation";
  try { await assert.rejects(handlers.completePosterUpload({posterAssetId:started.posterAssetId}),/POSTER_WRITE_EXPIRED/); } finally { Date.now=originalNow; }
  assert.equal(writeAttempts,0,"expired source preparation must never start a copy");

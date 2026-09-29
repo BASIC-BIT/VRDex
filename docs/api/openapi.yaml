@@ -2161,8 +2161,17 @@ paths:
                     type: string
                     minLength: 1
                     maxLength: 200
+                  artworkAssetId:
+                    type: string
+                    minLength: 1
+                    maxLength: 200
+                  version:
+                    type: integer
+                    exclusiveMinimum: 0
+                    maximum: 9007199254740991
                 required:
                   - posterAssetId
+                  - version
                 additionalProperties: false
         "400": *a1
         "401":
@@ -2216,9 +2225,11 @@ paths:
               type: object
               properties:
                 posterAssetId:
-                  type: string
-                  minLength: 1
-                  maxLength: 200
+                  anyOf:
+                    - type: string
+                      minLength: 1
+                      maxLength: 200
+                    - type: "null"
                 expectedVersion:
                   type: integer
                   exclusiveMinimum: 0
@@ -2236,9 +2247,11 @@ paths:
                 type: object
                 properties:
                   artworkAssetId:
-                    type: string
-                    minLength: 1
-                    maxLength: 200
+                    anyOf:
+                      - type: string
+                        minLength: 1
+                        maxLength: 200
+                      - type: "null"
                   version:
                     type: integer
                     exclusiveMinimum: 0

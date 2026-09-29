@@ -69,7 +69,11 @@ export async function saveIntakeDraft(db: DatabaseWriter, actorUserId: Id<"users
   const version = (draft?.version ?? 0) + 1;
   const provenance = [ ...(draft?.provenance ?? []).filter(item => !Object.prototype.hasOwnProperty.call(patch, item.field)),
     ...Object.keys(patch).filter(field => Object.prototype.hasOwnProperty.call(fields, field)).map(field => ({ field, kind: field === "tentative" ? "tentative" as const : "contributor" as const, version })) ];
-  const values = { fields, provenance, version, updatedAt: now, expiresAt: now + EVENT_INTAKE_DRAFT_TTL_MS };
+  const ordered = fields.posterSourceIds;
+  const removedArtwork = Array.isArray(ordered) && draft?.artworkSourceId && !ordered.includes(draft.artworkSourceId);
+  const removedIntent = Array.isArray(ordered) && draft?.artworkIntentSourceId && !ordered.includes(draft.artworkIntentSourceId);
+  const values = { fields, provenance, version, updatedAt: now, expiresAt: now + EVENT_INTAKE_DRAFT_TTL_MS,
+    ...(removedArtwork ? { artworkAssetId: undefined } : {}), ...(removedIntent ? { artworkIntentSourceId: undefined } : {}) };
   if (draft) {
     const sources = await db.query("eventPosterSources").withIndex("by_draft_state", q => q.eq("draftId", draft._id).eq("state", "ready")).take(21);
     for (const source of sources) if (source.state === "ready") await db.patch(source._id, { lastActivityAt: now, expiresAt: source.holdReportId ? Number.MAX_SAFE_INTEGER : Math.min(source.uploadedAt + 180 * 86_400_000, now + 86_400_000) });
@@ -104,6 +108,8 @@ export async function publishIntakeDraft(db: DatabaseWriter, actorUserId: Id<"us
   if (recentRequests.length >= 100) throw new ConvexError({ code: "REQUEST_QUOTA" });
   const draft = await getActorIntakeDraft(db, actorUserId, args.draftId, now);
   if (draft.version !== args.expectedVersion) throw new ConvexError({ code: "VERSION_CONFLICT" });
+  if (draft.artworkIntentSourceId) throw new Error("ARTWORK_NOT_READY");
+  if (draft.fields.posterSourceIds?.length && !draft.artworkAssetId) throw new Error("ARTWORK_NOT_READY");
   let receipt = draft.publishedReceiptId ? await db.get(draft.publishedReceiptId) : null;
   let createdEvent = false;
   if (!receipt) {
@@ -157,7 +163,7 @@ export async function publishIntakeDraft(db: DatabaseWriter, actorUserId: Id<"us
     // An explicit selection belongs to this contributor's newly created event only.
     if (draft.artworkAssetId && event.contributorUserId === actorUserId && receipt.draftId === draft._id) {
       const artwork = await db.get(draft.artworkAssetId);
-      if (!artwork || artwork.actorUserId !== actorUserId || artwork.draftId !== draft._id || artwork.state !== "ready") throw new Error("ARTWORK_NOT_READY");
+      if (!artwork || artwork.actorUserId !== actorUserId || artwork.draftId !== draft._id || artwork.state !== "ready" || (Array.isArray(draft.fields.posterSourceIds) && !draft.fields.posterSourceIds.includes(artwork.sourceId))) throw new Error("ARTWORK_NOT_READY");
       await db.patch(artwork._id, { state: "published", eventId: event._id, expiresAt: now + 86_400_000 });
       const posterImageUrl = `/api/v0/events/${event._id}/artwork/${artwork._id}`;
       await db.patch(event._id, { posterImageUrl });

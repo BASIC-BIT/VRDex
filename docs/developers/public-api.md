@@ -15,8 +15,8 @@ Application-only credentials cannot use these routes.
 | `POST /api/v0/event-intake/{draftId}/extract` | Propose fields from supplied text or the draft's private poster. |
 | `POST /api/v0/event-intake/{draftId}/publish` | Publish with `expectedVersion` and `idempotencyKey`. |
 | `POST /api/v0/event-intake/{draftId}/poster-upload/begin` | Reserve a private image upload with MIME type, byte count, and SHA-256. |
-| `POST /api/v0/event-intake/{draftId}/poster-upload/complete` | Validate and freeze the uploaded source for that draft. |
-| `POST /api/v0/event-intake/{draftId}/artwork` | Explicitly select and validate a separate public artwork derivative. |
+| `POST /api/v0/event-intake/{draftId}/poster-upload/complete` | Validate the source, prepare first-image artwork when eligible, and return the draft version. |
+| `POST /api/v0/event-intake/{draftId}/artwork` | Select another source, or pass `posterAssetId: null` after removal to choose the next ready image or clear artwork. |
 | `GET /api/v0/events/{slug}/contribution` | Read the actor's canonical editable fields and `updatedAt` revision. |
 | `PATCH /api/v0/events/{slug}/contribution` | Correct the actor's contribution before staff takeover, using `expectedUpdatedAt`. |
 | `DELETE /api/v0/events/{slug}/contribution` | Retract the actor's contribution before staff takeover. |

@@ -112,8 +112,8 @@ it("publishes private evidence without artwork and attaches only a separately va
    artwork=await t.mutation(ref("selectPosterArtwork"),{actorUserId,draftId,posterAssetId:source.posterAssetId,expectedVersion:1});
    assert.equal(await t.query(makeFunctionReference<"query">("eventIntakeSources:publicArtwork"),{artworkAssetId:artwork.artworkAssetId}),null);
    await t.mutation(ref("completeArtwork"),{actorUserId,artworkAssetId:artwork.artworkAssetId,expectedVersion:1,sha256:"b".repeat(64),byteLength:100});
-  }
-  const published=await t.mutation(makeFunctionReference<"mutation">("eventIntake:commitPublishIntake"),{actorUserId,draftId,expectedVersion:explicit?2:1,idempotencyKey:"publish"});
+  } else await t.mutation(ref("selectPosterArtwork"),{actorUserId,draftId,posterAssetId:null,expectedVersion:1});
+  const published=await t.mutation(makeFunctionReference<"mutation">("eventIntake:commitPublishIntake"),{actorUserId,draftId,expectedVersion:2,idempotencyKey:"publish"});
   const event=await t.run(ctx=>ctx.db.get(published.eventId));
   if(explicit){
    assert.equal(event?.posterImageUrl,`/api/v0/events/${published.eventId}/artwork/${artwork.artworkAssetId}`);
@@ -158,7 +158,8 @@ it("rejects stale classifier decisions and atomically records outage reports whi
  const duplicate=await t.run(ctx=>ctx.db.insert("eventIntakeDrafts",{actorUserId,version:1,fields:{title:"Night",communitySlug:"club",eventDate:"2027-10-15",timeTba:true,summary:"Discarded text"},provenance:[],createdAt:Date.now(),updatedAt:Date.now(),expiresAt:Date.now()+86400000}));
  const discarded=await t.mutation(ref("beginPosterUpload"),{actorUserId,draftId:duplicate,contentType:"image/png",byteLength:128,sha256:"a".repeat(64)});
  await t.mutation(ref("completePosterUpload"),{actorUserId,posterAssetId:discarded.posterAssetId,sha256:"a".repeat(64)});
- assert.equal((await t.mutation(commit,{actorUserId,draftId:duplicate,expectedVersion:1,idempotencyKey:"duplicate",classification:{draftId:duplicate,draftVersion:1,decision:"allow",reviewReason:"classifier_sample"}})).eventId,result.eventId);
+ await t.mutation(ref("selectPosterArtwork"),{actorUserId,draftId:duplicate,posterAssetId:null,expectedVersion:1});
+ assert.equal((await t.mutation(commit,{actorUserId,draftId:duplicate,expectedVersion:2,idempotencyKey:"duplicate",classification:{draftId:duplicate,draftVersion:2,decision:"allow",reviewReason:"classifier_sample"}})).eventId,result.eventId);
  assert.equal((await t.run(ctx=>ctx.db.get(discarded.posterAssetId)))?.eventId,undefined);
  assert.equal((await t.run(ctx=>ctx.db.query("eventReports").collect())).length,1);
  assert.deepEqual(await t.mutation(commit,{...args,classification:{draftId,draftVersion:1,decision:"block"}}),result);
@@ -243,4 +244,103 @@ it("returns the selected artwork source independently of the current poster afte
  assert.equal((await read()).fields.posterSourceId,b);
  await select(b,3);
  assert.equal((await read()).artworkSourceId,b);
+});
+
+it("keeps ordered artwork on the first source and allows explicit reselection", async () => {
+ const {t,actorUserId,draftId}=await fixture();
+ const make=async()=>t.mutation(ref("beginPosterUpload"),{actorUserId,draftId,contentType:"image/png",byteLength:128,sha256:"a".repeat(64)});
+ const first=await make(), second=await make();
+ const save=makeFunctionReference<"mutation">("eventIntake:saveActorDraft");
+ await t.mutation(save,{actorUserId,draftId,expectedVersion:1,patch:{posterSourceIds:[first.posterAssetId,second.posterAssetId]}});
+ const complete=async(posterAssetId:string)=>t.mutation(ref("completePosterUpload"),{actorUserId,posterAssetId,sha256:"a".repeat(64)});
+ assert.equal((await complete(second.posterAssetId)).autoSourceId,undefined);
+ const ready=await complete(first.posterAssetId);
+ assert.equal(ready.autoSourceId,first.posterAssetId);
+ const auto=await t.mutation(ref("selectPosterArtwork"),{actorUserId,draftId,posterAssetId:first.posterAssetId,expectedVersion:ready.version,automatic:true});
+ assert.equal((await t.mutation(ref("completeArtwork"),{actorUserId,artworkAssetId:auto.artworkAssetId,expectedVersion:ready.version,sha256:"b".repeat(64),byteLength:100,automatic:true})).version,3);
+ assert.equal((await complete(second.posterAssetId)).autoSourceId,undefined);
+ const explicit=await t.mutation(ref("selectPosterArtwork"),{actorUserId,draftId,posterAssetId:second.posterAssetId,expectedVersion:3});
+ assert.equal((await t.mutation(ref("completeArtwork"),{actorUserId,artworkAssetId:explicit.artworkAssetId,expectedVersion:3,sha256:"b".repeat(64),byteLength:100})).version,4);
+ assert.equal((await complete(first.posterAssetId)).autoSourceId,undefined);
+ assert.equal((await t.run(ctx=>ctx.db.get(draftId)))?.artworkAssetId,explicit.artworkAssetId);
+});
+
+it("clears removed artwork, chooses the next ready image, and rejects stale completions", async () => {
+ const {t,actorUserId,draftId}=await fixture();
+ const make=async()=>t.mutation(ref("beginPosterUpload"),{actorUserId,draftId,contentType:"image/png",byteLength:128,sha256:"a".repeat(64)});
+ const first=await make(), second=await make(), third=await make();
+ const save=makeFunctionReference<"mutation">("eventIntake:saveActorDraft");
+ await t.mutation(save,{actorUserId,draftId,expectedVersion:1,patch:{posterSourceIds:[first.posterAssetId,second.posterAssetId,third.posterAssetId]}});
+ const complete=async(posterAssetId:string)=>t.mutation(ref("completePosterUpload"),{actorUserId,posterAssetId,sha256:"a".repeat(64)});
+ await complete(first.posterAssetId);await complete(third.posterAssetId);
+ const initial=await t.mutation(ref("selectPosterArtwork"),{actorUserId,draftId,posterAssetId:first.posterAssetId,expectedVersion:2,automatic:true});
+ await t.mutation(ref("completeArtwork"),{actorUserId,artworkAssetId:initial.artworkAssetId,expectedVersion:2,sha256:"b".repeat(64),byteLength:100,automatic:true});
+ await t.mutation(save,{actorUserId,draftId,expectedVersion:3,patch:{posterSourceIds:[second.posterAssetId,third.posterAssetId]}});
+ assert.equal((await t.run(ctx=>ctx.db.get(draftId)))?.artworkAssetId,undefined);
+ await assert.rejects(t.mutation(ref("completeArtwork"),{actorUserId,artworkAssetId:initial.artworkAssetId,expectedVersion:2,sha256:"b".repeat(64),byteLength:100,automatic:true}),/VERSION_CONFLICT|POSTER_/);
+ const next=await t.mutation(ref("selectPosterArtwork"),{actorUserId,draftId,posterAssetId:null,expectedVersion:4});
+ assert.equal(next.sourceId,third.posterAssetId);
+ await t.mutation(ref("completeArtwork"),{actorUserId,artworkAssetId:next.artworkAssetId,expectedVersion:4,sha256:"c".repeat(64),byteLength:100});
+ await t.mutation(save,{actorUserId,draftId,expectedVersion:5,patch:{posterSourceIds:[]}});
+ assert.deepEqual(await t.mutation(ref("selectPosterArtwork"),{actorUserId,draftId,posterAssetId:null,expectedVersion:6}),{artworkAssetId:null,version:6});
+ assert.equal((await complete(first.posterAssetId)).autoSourceId,undefined);
+});
+
+it("lets a pending explicit choice beat automatic completion and rejects foreign selection", async () => {
+ const {t,actorUserId,other,draftId}=await fixture();
+ const make=async()=>t.mutation(ref("beginPosterUpload"),{actorUserId,draftId,contentType:"image/png",byteLength:128,sha256:"a".repeat(64)});
+ const first=await make(), second=await make();
+ const otherDraft=await t.run(ctx=>ctx.db.insert("eventIntakeDrafts",{actorUserId,version:1,fields:{title:"Other"},provenance:[],createdAt:Date.now(),updatedAt:Date.now(),expiresAt:Date.now()+86400000}));
+ const foreign=await t.mutation(ref("beginPosterUpload"),{actorUserId,draftId:otherDraft,contentType:"image/png",byteLength:128,sha256:"a".repeat(64)});
+ const complete=async(posterAssetId:string)=>t.mutation(ref("completePosterUpload"),{actorUserId,posterAssetId,sha256:"a".repeat(64)});
+ await complete(first.posterAssetId);await complete(second.posterAssetId);await complete(foreign.posterAssetId);
+ await assert.rejects(t.mutation(ref("selectPosterArtwork"),{actorUserId,draftId,posterAssetId:foreign.posterAssetId,expectedVersion:1}),/POSTER_/);
+ await assert.rejects(t.mutation(ref("selectPosterArtwork"),{actorUserId:other,draftId,posterAssetId:first.posterAssetId,expectedVersion:1}));
+ const auto=await t.mutation(ref("selectPosterArtwork"),{actorUserId,draftId,posterAssetId:first.posterAssetId,expectedVersion:1,automatic:true});
+ const explicit=await t.mutation(ref("selectPosterArtwork"),{actorUserId,draftId,posterAssetId:second.posterAssetId,expectedVersion:1});
+ await assert.rejects(t.mutation(ref("completeArtwork"),{actorUserId,artworkAssetId:auto.artworkAssetId,expectedVersion:1,sha256:"b".repeat(64),byteLength:100,automatic:true}),/VERSION_CONFLICT/);
+ const selected=await t.mutation(ref("completeArtwork"),{actorUserId,artworkAssetId:explicit.artworkAssetId,expectedVersion:1,sha256:"c".repeat(64),byteLength:100});
+ assert.equal(selected.version,2);
+ assert.equal((await t.run(ctx=>ctx.db.get(draftId)))?.artworkAssetId,explicit.artworkAssetId);
+});
+
+it("does not let a late legacy completion replace a newer singular source", async () => {
+ const {t,actorUserId,draftId}=await fixture();
+ const make=async()=>t.mutation(ref("beginPosterUpload"),{actorUserId,draftId,contentType:"image/png",byteLength:128,sha256:"a".repeat(64)});
+ const old=await make(), current=await make();
+ await t.mutation(makeFunctionReference<"mutation">("eventIntake:saveActorDraft"),{actorUserId,draftId,expectedVersion:1,patch:{posterSourceId:current.posterAssetId}});
+ const completed=await t.mutation(ref("completePosterUpload"),{actorUserId,posterAssetId:old.posterAssetId,sha256:"a".repeat(64)});
+ assert.equal(completed.autoSourceId,undefined);
+ assert.equal((await t.mutation(ref("selectPosterArtwork"),{actorUserId,draftId,posterAssetId:old.posterAssetId,expectedVersion:completed.version,automatic:true})).skipped,true);
+});
+
+it("refuses publication if selected artwork is outside the ordered source list", async () => {
+ process.env.EVENT_DATE_ONLY_ENABLED="true";
+ const {t,actorUserId,draftId}=await fixture();
+ const source=await t.mutation(ref("beginPosterUpload"),{actorUserId,draftId,contentType:"image/png",byteLength:128,sha256:"a".repeat(64)});
+ await t.mutation(ref("completePosterUpload"),{actorUserId,posterAssetId:source.posterAssetId,sha256:"a".repeat(64)});
+ const selected=await t.mutation(ref("selectPosterArtwork"),{actorUserId,draftId,posterAssetId:source.posterAssetId,expectedVersion:1});
+ await t.mutation(ref("completeArtwork"),{actorUserId,artworkAssetId:selected.artworkAssetId,expectedVersion:1,sha256:"b".repeat(64),byteLength:100});
+ await t.run(async ctx=>{
+  await ctx.db.insert("profiles",{slug:"club",displayName:"Club",sortName:"club",profileType:"community",community:{categoryTags:[]},aliases:[],tags:[],claimState:"unclaimed",publicationState:"published",publicSurfacingState:"public",creationSource:"community",updatedAt:Date.now()});
+  await ctx.db.patch(draftId,{fields:{title:"Night",communitySlug:"club",eventDate:"2027-10-15",timeTba:true,posterSourceIds:[]}});
+ });
+ await assert.rejects(t.mutation(makeFunctionReference<"mutation">("eventIntake:commitPublishIntake"),{actorUserId,draftId,expectedVersion:2,idempotencyKey:"stale-art"}),/ARTWORK_NOT_READY/);
+ assert.equal((await t.run(ctx=>ctx.db.query("events").collect())).length,0);
+});
+
+it("does not publish while artwork preparation is unfinished", async () => {
+ process.env.EVENT_DATE_ONLY_ENABLED="true";
+ const {t,actorUserId,draftId}=await fixture();
+ await t.run(async ctx=>{
+  await ctx.db.insert("profiles",{slug:"club",displayName:"Club",sortName:"club",profileType:"community",community:{categoryTags:[]},aliases:[],tags:[],claimState:"unclaimed",publicationState:"published",publicSurfacingState:"public",creationSource:"community",updatedAt:Date.now()});
+  await ctx.db.patch(draftId,{fields:{title:"Night",communitySlug:"club",eventDate:"2027-10-15",timeTba:true}});
+ });
+ const source=await t.mutation(ref("beginPosterUpload"),{actorUserId,draftId,contentType:"image/png",byteLength:128,sha256:"a".repeat(64)});
+ await t.mutation(ref("completePosterUpload"),{actorUserId,posterAssetId:source.posterAssetId,sha256:"a".repeat(64)});
+ const selected=await t.mutation(ref("selectPosterArtwork"),{actorUserId,draftId,posterAssetId:source.posterAssetId,expectedVersion:1,automatic:true});
+ const publish=makeFunctionReference<"mutation">("eventIntake:commitPublishIntake");
+ await assert.rejects(t.mutation(publish,{actorUserId,draftId,expectedVersion:1,idempotencyKey:"pending"}),/ARTWORK_NOT_READY/);
+ await t.mutation(ref("completeArtwork"),{actorUserId,artworkAssetId:selected.artworkAssetId,expectedVersion:1,sha256:"b".repeat(64),byteLength:100,automatic:true});
+ assert.ok((await t.mutation(publish,{actorUserId,draftId,expectedVersion:2,idempotencyKey:"ready"})).eventId);
 });

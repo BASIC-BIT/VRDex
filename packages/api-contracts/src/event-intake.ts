@@ -104,7 +104,7 @@ export const ExtractEventIntakeSchema = EventIntakeDraftIdSchema.extend({ source
   .refine(value => !value.posterAssetId || !value.posterAssetIds || value.posterAssetIds[0] === value.posterAssetId, "Poster asset IDs disagree.");
 export const BeginEventPosterUploadSchema = EventIntakeDraftIdSchema.extend(EventPosterDeclarationSchema.shape);
 export const CompleteEventPosterUploadSchema = EventIntakeDraftIdSchema.extend({ posterAssetId: intakeId });
-export const SelectEventArtworkSchema = CompleteEventPosterUploadSchema.extend({ expectedVersion: version });
+export const SelectEventArtworkSchema = CompleteEventPosterUploadSchema.omit({ posterAssetId: true }).extend({ posterAssetId: intakeId.nullable(), expectedVersion: version });
 export const UpdateEventContributionSchema = z.strictObject({
   slug: text(200).min(1), expectedUpdatedAt: z.number(),
   patch: EventIntakeFieldsBaseSchema.pick({ title: true, eventDate: true, timeTba: true, timezone: true, start: true, end: true, doors: true, venueLabel: true, worldSlug: true, sourceUrl: true, summary: true, lineup: true }),
@@ -131,8 +131,8 @@ export const eventIntakeOperations = {
   extract: { input: ExtractEventIntakeSchema, output: EventIntakeCandidateSchema, method: "POST", path: "/event-intake/{draftId}/extract" },
   publish: { input: PublishEventIntakeSchema, output: PublishedEventIntakeSchema, method: "POST", path: "/event-intake/{draftId}/publish" },
   poster_upload_begin: { input: BeginEventPosterUploadSchema, output: EventPosterUploadSchema, method: "POST", path: "/event-intake/{draftId}/poster-upload/begin" },
-  poster_upload_complete: { input: CompleteEventPosterUploadSchema, output: z.object({ posterAssetId: intakeId }), method: "POST", path: "/event-intake/{draftId}/poster-upload/complete" },
-  artwork_select: { input: SelectEventArtworkSchema, output: z.object({ artworkAssetId: intakeId, version }), method: "POST", path: "/event-intake/{draftId}/artwork" },
+  poster_upload_complete: { input: CompleteEventPosterUploadSchema, output: z.object({ posterAssetId: intakeId, artworkAssetId: intakeId.optional(), version }), method: "POST", path: "/event-intake/{draftId}/poster-upload/complete" },
+  artwork_select: { input: SelectEventArtworkSchema, output: z.object({ artworkAssetId: intakeId.nullable(), version }), method: "POST", path: "/event-intake/{draftId}/artwork" },
   event_get: { input: GetEventContributionSchema, output: EventContributionReadSchema, method: "GET", path: "/events/{slug}/contribution" },
   event_update: { input: UpdateEventContributionSchema, output: EventContributionResultSchema, method: "PATCH", path: "/events/{slug}/contribution" },
   event_retract: { input: RetractEventContributionSchema, output: EventContributionResultSchema, method: "DELETE", path: "/events/{slug}/contribution" },

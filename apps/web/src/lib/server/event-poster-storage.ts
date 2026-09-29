@@ -41,35 +41,41 @@ export function createEventPosterHandlers(deps: Dependencies) {
     },
     async completePosterUpload(input: { posterAssetId: Id<"eventPosterSources"> }) {
       const source = await own(input.posterAssetId);
-      if (source.state === "ready") return { posterAssetId: input.posterAssetId };
-      if (!source.uploadStorageKey || !source.storageKey) throw new Error("POSTER_NOT_READY");
-      const object = await read(source.uploadStorageKey);
-      if (!object || object.contentType !== source.contentType || (object.contentLength !== undefined && object.contentLength !== source.byteLength)) throw new Error("POSTER_SOURCE_MISMATCH");
-      await validatePosterBytes(object.body, source);
-      // A signed upload can still be replayed; freeze the digest-checked bytes under a different immutable key.
-      const remaining = source.uploadExpiresAt - Date.now();
-      if (remaining <= 0) throw new Error("POSTER_WRITE_EXPIRED");
-      await put({ storageKey: source.storageKey, body: object.body, contentType: source.contentType, cacheControl: "private, no-store", signal: AbortSignal.timeout(remaining) });
-      await admin().mutation(internal.eventIntakeSources.completePosterUpload, { ...await deps.authority(), posterAssetId: input.posterAssetId, sha256: source.sha256 });
-      return { posterAssetId: input.posterAssetId };
+      if (source.state !== "ready") {
+        if (!source.uploadStorageKey || !source.storageKey) throw new Error("POSTER_NOT_READY");
+        const object = await read(source.uploadStorageKey);
+        if (!object || object.contentType !== source.contentType || (object.contentLength !== undefined && object.contentLength !== source.byteLength)) throw new Error("POSTER_SOURCE_MISMATCH");
+        await validatePosterBytes(object.body, source);
+        // A signed upload can still be replayed; freeze the digest-checked bytes under a different immutable key.
+        const remaining = source.uploadExpiresAt - Date.now();
+        if (remaining <= 0) throw new Error("POSTER_WRITE_EXPIRED");
+        await put({ storageKey: source.storageKey, body: object.body, contentType: source.contentType, cacheControl: "private, no-store", signal: AbortSignal.timeout(remaining) });
+      }
+      const completed = await admin().mutation(internal.eventIntakeSources.completePosterUpload, { ...await deps.authority(), posterAssetId: input.posterAssetId, sha256: source.sha256 });
+      if (!completed.autoSourceId) return { posterAssetId: input.posterAssetId, ...(completed.artworkAssetId ? { artworkAssetId: completed.artworkAssetId } : {}), version: completed.version };
+      const selected = await this.selectPosterArtwork({ draftId: source.draftId, posterAssetId: input.posterAssetId, expectedVersion: completed.version, automatic: true });
+      return { posterAssetId: input.posterAssetId, ...(selected.artworkAssetId ? { artworkAssetId: selected.artworkAssetId } : {}), version: selected.version };
     },
     async readPoster(posterAssetId: Id<"eventPosterSources">) {
       const { display } = await bytes(posterAssetId);
       return `data:${display.mimeType};base64,${Buffer.from(display.body).toString("base64")}`;
     },
-    async selectPosterArtwork(input: { draftId: Id<"eventIntakeDrafts">; posterAssetId: Id<"eventPosterSources">; expectedVersion: number }) {
+    async selectPosterArtwork(input: { draftId: Id<"eventIntakeDrafts">; posterAssetId: Id<"eventPosterSources"> | null; expectedVersion: number; automatic?: boolean }) {
       const authority = await deps.authority();
       const selected = await admin().mutation(internal.eventIntakeSources.selectPosterArtwork, { ...input, ...authority });
+      if (selected.skipped || selected.artworkAssetId === null) return { artworkAssetId: selected.artworkAssetId ?? null, version: selected.version };
+      if (!selected.artworkAssetId) throw new Error("ARTWORK_NOT_READY");
+      const artworkAssetId: Id<"eventPosterArtwork"> = selected.artworkAssetId;
       try {
         if (!selected.storageKey) throw new Error("ARTWORK_NOT_READY");
-        const { display } = await bytes(input.posterAssetId);
+        const { display } = await bytes(selected.sourceId);
         const remaining = selected.writeExpiresAt - Date.now();
         if (remaining <= 0) throw new Error("ARTWORK_WRITE_EXPIRED");
         await put({ storageKey: selected.storageKey, body: display.body, contentType: display.mimeType, cacheControl: "private, no-store", signal: AbortSignal.timeout(remaining) });
-        return await admin().mutation(internal.eventIntakeSources.completeArtwork, { ...await deps.authority(), artworkAssetId: selected.artworkAssetId, expectedVersion: selected.expectedVersion, sha256: display.contentSha256, byteLength: display.body.byteLength });
+        return await admin().mutation(internal.eventIntakeSources.completeArtwork, { ...await deps.authority(), artworkAssetId, expectedVersion: selected.expectedVersion, sha256: display.contentSha256, byteLength: display.body.byteLength, automatic: input.automatic });
       } catch (error) {
         // Use the original authenticated actor even if session revalidation failed.
-        await admin().mutation(internal.eventIntakeSources.recoverFailedArtworkWrite, { ...authority, artworkAssetId: selected.artworkAssetId });
+        await admin().mutation(internal.eventIntakeSources.recoverFailedArtworkWrite, { ...authority, artworkAssetId });
         throw error;
       }
     },

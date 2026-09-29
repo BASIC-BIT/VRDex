@@ -1138,6 +1138,7 @@ export default defineSchema({
   }).index("by_actor_createdAt", ["actorUserId", "createdAt"]).index("by_createdAt", ["createdAt"]),
   eventIntakeDrafts: defineTable({
     artworkAssetId: v.optional(v.id("eventPosterArtwork")),
+    artworkIntentSourceId: v.optional(v.id("eventPosterSources")),
     actorUserId: v.id("users"), version: v.number(),
     // Validated by the shared strict EventIntakePatchSchema on every read/write.
     fields: v.any(),

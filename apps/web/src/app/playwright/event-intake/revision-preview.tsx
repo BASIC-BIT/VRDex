@@ -79,7 +79,7 @@ function revisionFixture(correction: boolean, sourceMode?: string, staff = false
         sessionStorage.setItem("fixture-upload-count", String(count));
         return Response.json({ posterAssetId: `poster-${count}`, expiresAt: Date.now() + 60000, transfer: { method: "POST", url: `${location.origin}/fixture-upload`, fields: {}, fileField: "file" } });
       }
-      case "poster_upload_complete": return Response.json({ posterAssetId: args.posterAssetId });
+      case "poster_upload_complete": return Response.json({ posterAssetId: args.posterAssetId, version });
       case "poster_read": {
         if (sourceMode === "preview-failure") return Response.json({}, { status: 503 });
         if (sourceMode === "replacement-delay" && args.posterAssetId === "poster-2") await new Promise<void>(resolve => window.addEventListener("release-poster-preview", () => resolve(), { once: true }));
@@ -95,7 +95,7 @@ function revisionFixture(correction: boolean, sourceMode?: string, staff = false
         return Response.json({ artworkAssetId: "art", version });
       case "extract":
         if (sourceMode === "stale") refresh({ venueLabel: "Changed elsewhere" });
-        return Response.json({ event: { title: sourceMode === "poster" ? null : "Afterglow Night", communitySlug: null, eventDate: null, start: null, end: null, timezone: null, venueLabel: null, summary: null, sourceUrl: null }, lineup: [], evidence: [{ fieldPath: "event.title", origin: "text", excerpt: "Afterglow Night", assessment: "explicit" }], questions: [{ fieldPath: sourceMode === "poster" ? "source" : "timezone", reason: sourceMode === "poster" ? "disabled" : "Which time zone?", alternatives: [] }] });
+        return Response.json({ event: { title: sourceMode === "poster" ? null : "Afterglow Night", communitySlug: null, eventDate: null, start: null, end: null, startDate: null, endDate: null, timezone: null, venueLabel: null, summary: null, sourceUrl: null }, lineup: [], evidence: [{ fieldPath: "event.title", origin: "text", posterIndex: null, excerpt: "Afterglow Night", assessment: "explicit" }], questions: [{ fieldPath: sourceMode === "poster" ? "source" : "timezone", reason: sourceMode === "poster" ? "disabled" : "Which time zone?", alternatives: [] }] });
       default: throw new Error("Unexpected fixture operation");
     }
   };

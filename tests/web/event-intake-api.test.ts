@@ -115,6 +115,16 @@ it("rejects a poster completion bound to another draft", () => {
     await assert.rejects(run("poster_upload_begin",{draftId:"draft",sourceUrl:"https://internal.example/",contentType:"image/png",byteLength:1,sha256:"a".repeat(64)}));
   `);
 });
+it("accepts artwork clearing and returns its draft version", () => {
+  probe(`import assert from "node:assert/strict";
+    import {createEventIntakeCommands} from "./apps/web/src/lib/server/event-intake-api.ts";
+    const calls=[];
+    const run=createEventIntakeCommands({actorUserId:"actor",admin:{query:async()=>null,mutation:async(_ref,args)=>{calls.push(args);return{artworkAssetId:null,version:4};},action:async()=>null}});
+    assert.deepEqual(await run("artwork_select",{draftId:"draft",posterAssetId:null,expectedVersion:3}),{artworkAssetId:null,version:4});
+    assert.equal(calls[0].posterAssetId,null);
+    assert.equal(calls[0].actorUserId,"actor");
+  `);
+});
 it("forwards ordered and legacy extraction sources to actor authorization", () => {
   probe(`import assert from "node:assert/strict";
     import {createEventIntakeCommands} from "./apps/web/src/lib/server/event-intake-api.ts";

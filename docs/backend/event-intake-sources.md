@@ -27,12 +27,26 @@ source actor or an active `super_admin` reviewer. Profile-media intent consumers
 cannot promote these records because event evidence uses its own purpose-bound
 table and no profile asset row.
 
-Artwork is a separate explicit action with draft/version/actor/source checks.
-It reserves an independent key, validates the source again, writes a sanitized
-WebP derivative, and then commits the versioned draft selection. Publication
-attaches only a ready selected derivative to a newly contributed canonical event.
-An exact duplicate belonging to another draft never inherits the new draft's art.
-Ordinary poster upload, extraction and publication never select artwork.
+Save `posterSourceIds` in the chosen order before completing uploads. Completion
+prepares the first image's artwork once that image is ready, regardless of which
+upload finishes first. A legacy single-image completion also prepares artwork.
+The command returns the current draft `version` and, when that source is selected,
+`artworkAssetId`. A failed derivative write fails completion and blocks
+publication while artwork preparation is pending. Retry the same completion to
+finish it, or remove the image. A ready source never needs another quarantine
+copy on retry.
+
+Automatic and explicit selection use the same actor/draft checks, independent
+key, sanitized WebP derivative, and versioned commit. An explicit choice can
+replace the automatic choice. `artwork_select` with `posterAssetId: null` clears
+artwork when the ordered list is empty; with remaining images, it prepares the
+first ready image in order. Concurrent or stale selections fail with a version
+conflict, and a pending explicit choice prevents an automatic completion from
+winning the race. Publication accepts only a ready derivative whose source is
+still in the ordered list. A nonempty ordered list without ready artwork blocks
+publication. An exact duplicate belonging to another draft never
+inherits the new draft's art. Private evidence and public artwork retain
+independent records and cleanup.
 
 The public artwork route serves the canonical path
 `/api/v0/events/{eventId}/artwork/{artworkAssetId}` through
@@ -54,19 +68,22 @@ The browser hashes the chosen file and saves a private `posterDeclaration` befor
 requesting upload. This validated MIME/size/digest input supports a poster-only
 draft without inventing event fields. Existing draft quotas, expiry, and publish
 minimums apply, including when upload fails. The browser transfers only the chosen
-file to the signed target, with no session credentials and no redirects. Completion
-validates the actual bytes before a source reference is saved.
+file to the signed target, with no session credentials and no redirects. Ordered
+clients save their selected source IDs before completing uploads, then hand off
+completion's returned version to the next draft save. Legacy single-image clients
+can still save the source reference after completion.
 
 Extraction saves candidate fields under `tentative`, with unresolved questions.
 Accept copies an individual field or the reviewed lineup into confirmed fields;
 manual edits remain available. Draft writes retain the version paired with the
 source/form. A concurrent edit refuses candidate persistence instead of overwriting
 it. Missing model configuration leaves manual editing and publication available.
-Artwork selection is a distinct action that advances the saved draft version.
-Draft reads return the selected artwork source ID independently of the current
-private poster. Replacing a poster does not select it or clear an earlier explicit
-artwork choice. The browser marks only that exact source selected and waits for
-the current source preview before enabling its artwork action.
+An explicit artwork change advances the saved draft version. Draft reads return
+the selected artwork source ID independently of the private source list.
+Removing the selected source from an ordered list clears its draft selection;
+the client can call `artwork_select` with null to prepare the next ready image.
+The browser marks only the selected source and waits for its preview before
+enabling an explicit change.
 
 ```mermaid
 flowchart LR
@@ -76,7 +93,9 @@ flowchart LR
   D --> E[Extract tentative details and questions]
   E --> F[Review source and accept or edit fields]
   E -->|Unavailable| F
-  D -->|Choose poster as artwork| G[Separate artwork selection]
+  D -->|Complete first selected image| G[Automatic artwork preparation]
+  D -->|Change or remove primary| J[Explicit artwork selection]
+  J --> G
   G --> F
   F --> D
   F --> H[Publish]

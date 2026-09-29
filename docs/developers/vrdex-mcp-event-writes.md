@@ -25,8 +25,11 @@ community authority.
 Website and MCP drafts interoperate. Save the returned `draftId` and `version`.
 Publication returns `eventId`, `eventPath`, and `receiptId`. After a lost response,
 read the draft and replay publication with the same version and idempotency key.
-Never make a new draft or key just because the response was lost. Poster upload
-and extraction do not select public artwork; call `artwork_select` deliberately.
+Never make a new draft or key just because the response was lost. Save ordered
+`posterSourceIds` before upload completion, then use the completion response's
+`version` for the next save. The first ready image in that order becomes artwork.
+Use `artwork_select` to switch it, or pass `posterAssetId: null` after removal
+to choose the next ready source or clear artwork when the list is empty.
 Call `event_get` with the published slug to obtain `updatedAt` before
 `event_update`; pass that revision as `expectedUpdatedAt`.
 

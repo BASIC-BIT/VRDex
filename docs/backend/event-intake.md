@@ -42,7 +42,8 @@ objects and the lineup array replace their previous value as a unit. A lineup
 row has a stable `clientKey`, `position`, and optional performer, role and times.
 Those structural fields alone do not constitute a meaningful draft.
 
-One meaningful input is enough to save. `sourceText`, `posterSourceId`, and a
+One meaningful input is enough to save. `sourceText`, an ordered list of up to
+five unique `posterSourceIds`, the legacy `posterSourceId`, and a
 bounded `posterDeclaration` of MIME/bytes/SHA-256 remain private. The declaration
 allows a poster-only draft before upload and inherits ordinary draft quotas and
 expiry. It does not confirm source bytes or satisfy publication minimums. The poster reference is an opaque integration reference, not a public
@@ -115,8 +116,10 @@ Creating a new canonical event also records its actor and transport surface in
 
 Published records have `sourceType: "contributor"` and source label
 `Community-submitted`. Public projections omit contributor identity, private
-source text, poster references and draft provenance. Private source posters
-never become event artwork implicitly. Participants and worlds retain the
+source text, poster references and draft provenance. The first image in a
+saved source order becomes artwork after verified upload and WebP preparation,
+unless the contributor explicitly selects another. Private source posters
+remain separate evidence. Participants and worlds retain the
 contributor source type. Contributor-selected world associations start
 `unconfirmed`: they appear on the event page but not as confirmed world-page
 activity until staff confirm them. Contributor corrections to that world also
@@ -244,7 +247,7 @@ detection; title/date changes can evade it.
 ## Private posters and optional extraction
 
 See [source storage and model controls](./event-intake-sources.md) for private
-upload intents, explicit artwork selection, retention, bounded extraction and
+upload intents, automatic and explicit artwork selection, retention, bounded extraction and
 default-off spam classification. The manual path has no model-key dependency.
 
 ## Integrated verification
