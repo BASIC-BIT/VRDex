@@ -28,12 +28,15 @@ export async function checkGroupMemberSnapshot({
     group = await provider.getGroup(job.vrchatGroupId);
   } catch (error) {
     let retryAfterMs;
+    let canComplete = true;
     if (error?.category === "rate_limit") {
       retryAfterMs = Math.min(Math.max(error.retryAfterMs ?? 60_000, 1_000), 5 * 60_000);
-      await control.send("proof_rate_limit", { retryAfterMs, now: clock() }).catch(() => null);
+      const cooldown = await control.send("proof_rate_limit", { retryAfterMs, now: clock() }).catch(() => null);
+      // Leave the lease to expire if the shared cooldown could not be recorded.
+      canComplete = cooldown?.recorded === true;
     }
     // A failed provider read never supplies a count or a zero.
-    await control.send("group_member_complete", { ...lease, observedAt: clock() });
+    if (canComplete) await control.send("group_member_complete", { ...lease, observedAt: clock() });
     if (error?.category === "authentication") await reportDeadSession();
     if (retryAfterMs) await pauseWithHeartbeats(retryAfterMs);
     logEvent({ event: "collector_group_member_snapshot", outcome: "provider_unavailable" });

@@ -42,7 +42,7 @@ export async function getPublicGroupMembership(
     .withIndex("by_vrchatGroupId_observedAt", (q) => q.eq("vrchatGroupId", groupId));
   const connected = integration?.vrchatGroupId === groupId ? integration : null;
   const epochStart = connected ? connected.telemetryEpochStartedAt ?? connected.createdAt : 0;
-  const [groupRecent, groupFirst, connectedRecent, connectedFirst] = await Promise.all([
+  const [groupRecent, groupFirst, connectedRecent, connectedFirst, groupMetadata] = await Promise.all([
     groupQuery().order("desc").take(500),
     groupQuery().order("asc").first(),
     connected
@@ -57,6 +57,9 @@ export async function getPublicGroupMembership(
           .gte("observedAt", epochStart))
         .order("asc").first()
       : Promise.resolve(null),
+    db.query("vrchatGroupMemberMetadata")
+      .withIndex("by_vrchatGroupId", (q) => q.eq("vrchatGroupId", groupId))
+      .unique(),
   ]);
   const firstAt = Math.min(groupFirst?.observedAt ?? Infinity, connectedFirst?.observedAt ?? Infinity);
   const lastAt = Math.max(groupRecent[0]?.observedAt ?? -Infinity, connectedRecent[0]?.observedAt ?? -Infinity);
@@ -122,7 +125,8 @@ export async function getPublicGroupMembership(
     return omittedKnownPoint || crossesTruncatedHistory ? { ...point, sampledBefore: true as const } : point;
   });
   const latest = allPoints[allPoints.length - 1]!;
-  const groupCreatedAt = groupRecent.find((row) => row.groupCreatedAt !== undefined)?.groupCreatedAt
+  const groupCreatedAt = groupMetadata?.groupCreatedAt
+    ?? groupRecent.find((row) => row.groupCreatedAt !== undefined)?.groupCreatedAt
     ?? groupFirst?.groupCreatedAt;
   return {
     ...(groupCreatedAt === undefined ? {} : { groupCreatedAt }),

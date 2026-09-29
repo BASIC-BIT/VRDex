@@ -42,6 +42,38 @@ test("provider failure completes without a count", async () => {
   assert.equal("memberCount" in calls.at(-1).value, false);
 });
 
+for (const cooldownResponse of [true, false, "failure"]) {
+  test(`429 ${cooldownResponse === true ? "completes after" : "keeps the lease when"} shared cooldown publication ${cooldownResponse === false ? "is rejected" : cooldownResponse === "failure" ? "fails" : "succeeds"}`, async () => {
+    const calls = [];
+    const pauses = [];
+    const control = { send: async (operation, value) => {
+      calls.push({ operation, value });
+      if (operation === "group_member_claim") return { linkId: "link", leaseToken: "token", vrchatGroupId: "grp_00000000-0000-4000-8000-000000000001" };
+      if (operation === "proof_budget") return { granted: true };
+      if (operation === "proof_rate_limit") {
+        if (cooldownResponse === "failure") throw new Error("control unavailable");
+        return { recorded: cooldownResponse };
+      }
+      if (operation === "group_member_complete" || operation === "group_member_release") return true;
+      throw new Error(operation);
+    } };
+    const budget = { retryAfterMs: () => 0, tryConsume: () => true };
+    const result = await checkGroupMemberSnapshot({
+      control, provider: { getGroup: async () => { throw Object.assign(new Error("throttled"), { category: "rate_limit", retryAfterMs: 120_000 }); } },
+      accountBudget: budget, metadataBudget: budget, heartbeat: async () => {}, isStopping: () => false,
+      reportDeadSession: async () => {}, pauseWithHeartbeats: async ms => { pauses.push(ms); },
+      logEvent: () => {}, clock: () => 1_000,
+    });
+    assert.equal(result, 1);
+    assert.deepEqual(calls.map(call => call.operation), [
+      "group_member_claim", "proof_budget", "proof_rate_limit",
+      ...(cooldownResponse === true ? ["group_member_complete"] : []),
+    ]);
+    if (cooldownResponse === true) assert.equal("memberCount" in calls.at(-1).value, false);
+    assert.deepEqual(pauses, [120_000]);
+  });
+}
+
 test("a control failure releases an unread claim and remains a loop failure", async () => {
   const calls = [];
   const control = { send: async operation => {

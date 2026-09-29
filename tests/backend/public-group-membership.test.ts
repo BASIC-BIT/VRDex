@@ -88,6 +88,44 @@ it("shares group observations while applying Group size visibility per profile",
   ]);
 });
 
+it("uses retained creation metadata after an unchanged count without leaking across groups or visibility", async () => {
+  const s = await setup();
+  await s.t.run(async (ctx) => {
+    await ctx.db.insert("communityDataVisibility", {
+      communityProfileId: s.firstId,
+      categories: { ...defaultClubVisibility(), group_size: { audience: "public", staffRoleIds: null } },
+      updatedAt: s.now,
+    });
+    await ctx.db.insert("vrchatGroupMemberSnapshots", {
+      vrchatGroupId: groupA, memberCount: 42, observedAt: s.now - 1000,
+    });
+  });
+  assert.equal((await s.read("first-group"))?.groupMembership?.groupCreatedAt, undefined);
+
+  await s.t.run(async (ctx) => {
+    await ctx.db.insert("vrchatGroupMemberMetadata", {
+      vrchatGroupId: groupA, groupCreatedAt: s.now - 100_000,
+      lastObservedAt: s.now, updatedAt: s.now,
+    });
+  });
+  const membership = (await s.read("first-group"))?.groupMembership;
+  assert.equal(membership?.groupCreatedAt, s.now - 100_000);
+  assert.deepEqual(membership?.points, [{ observedAt: s.now - 1000, value: 42 }]);
+  assert.equal((await s.read("second-group"))?.groupMembership, undefined);
+
+  await s.t.run(async (ctx) => {
+    const link = (await ctx.db.query("profileExternalLinks")
+      .withIndex("by_profileId_assetType_state", (q) => q
+        .eq("profileId", s.firstId).eq("assetType", "vrchat_group").eq("state", "active"))
+      .first())!;
+    await ctx.db.patch(link._id, { assetExternalId: groupB });
+    await ctx.db.insert("vrchatGroupMemberSnapshots", {
+      vrchatGroupId: groupB, memberCount: 7, observedAt: s.now,
+    });
+  });
+  assert.equal((await s.read("first-group"))?.groupMembership?.groupCreatedAt, undefined);
+});
+
 it("does not revive a removed primary link through integration fallback", async () => {
   const s = await setup();
   await s.t.run(async (ctx) => {
