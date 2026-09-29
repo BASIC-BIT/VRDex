@@ -39,6 +39,23 @@ test("staff editor preserves Time TBA and artwork while correcting or removing c
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!).scheduleKind)).toBe("timed");
 });
 
+test("staff title edit does not confirm an untouched contributed lineup", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("event-lineup-fixture-v1", JSON.stringify({
+    id: "event-contributed", slug: "contributed", title: "Contributed night", scheduleKind: "date_only", eventDate: "2027-10-15",
+    status: "scheduled", communitySlug: "afterglow", publicationState: "published",
+    source: { sourceType: "contributor", label: "Community-submitted" },
+    watchSurfaceEnabled: false, watchMode: "event_stream", mediaLinks: [], authoredMediaLinks: [], worlds: [], participants: [], slots: [],
+    lineup: [{ key: "guest", position: 0, displayLabel: "Guest", performer: { slug: "nova" } }],
+    preservedParticipantAssociationIds: [], preservedSlotAssociationIds: [], preservedWorldAssociationIds: [],
+  })));
+  await page.goto("/playwright/event-lineup?editor");
+  await page.getByLabel("Event title", { exact: true }).fill("Corrected night");
+  await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("event-lineup-fixture-v1-submission"))).not.toBeNull();
+  const payload = await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!));
+  expect(payload.lineup).toBeUndefined();
+});
+
 test("lineup keeps provider links collapsed without stream requests", async ({ page }) => {
   const streams: string[] = [];
   page.on("request", request => { if (/vrcdn|\.live\.ts/.test(request.url())) streams.push(request.url()); });

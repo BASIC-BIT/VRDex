@@ -45,7 +45,7 @@ export function ManagedEventsPanel() {
       {events === undefined ? <p aria-busy="true" className="text-sm text-muted">Loading events…</p> : null}
       {events?.length === 0 && contributions?.length === 0 ? <Notice>No events</Notice> : null}
       <div className="grid gap-3">
-        {contributions?.map(event => <Card key={event.eventId} padding="sm">{event.published && event.eventPath ? <Link className="font-semibold underline-offset-4 hover:underline" href={event.eventPath}>{event.title}</Link> : <span>{event.title} · Retracted</span>}</Card>)}
+        {contributions?.filter(event => !events?.some(managed => managed.eventId === event.eventId)).map(event => <Card key={event.eventId} padding="sm">{event.published && event.eventPath ? <Link className="font-semibold underline-offset-4 hover:underline" href={event.eventPath}>{event.title}</Link> : <span>{event.title} · Retracted</span>}</Card>)}
         {events?.map((event) => (
           <Card className="flex flex-wrap items-center justify-between gap-4" key={event.eventId} padding="sm">
             <div>

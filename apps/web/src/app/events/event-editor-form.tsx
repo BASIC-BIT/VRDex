@@ -553,6 +553,7 @@ function ConnectedEventEditorForm({
   const [vrcdnOutput, setVrcdnOutput] = useState<VrcdnOutputFormState>(() => createInitialVrcdnOutputForm(event));
   const [slotRows, setSlotRows] = useState(() => initialSlotRows(event));
   const [slotRowsDirty, setSlotRowsDirty] = useState(Boolean(event?.slots.length));
+  const [lineupEdited, setLineupEdited] = useState(false);
   const [scheduleChanged, setScheduleChanged] = useState(false);
   const [slotTemplate, setSlotTemplate] = useState(() => initialSlotTemplate(event));
   const slotTemplateIsValid = isValidSlotTemplate(slotTemplate);
@@ -611,6 +612,7 @@ function ConnectedEventEditorForm({
       setSlotTemplate({ ...nextTemplate, count: String(boundedCount) });
       setSlotRows(createGeneratedSlotRows(boundedCount, duration));
       setSlotRowsDirty(false);
+      setLineupEdited(true);
       setScheduleChanged(true);
     } catch {
       setSlotTemplate(nextTemplate);
@@ -620,6 +622,12 @@ function ConnectedEventEditorForm({
   function updateSlotRows(updater: (rows: SlotFormRow[]) => SlotFormRow[]) {
     setSlotRows((rows) => updater(rows));
     setSlotRowsDirty(true);
+    setLineupEdited(true);
+  }
+
+  function updateUntimedRows(updater: (rows: typeof untimedRows) => typeof untimedRows) {
+    setUntimedRows(updater);
+    setLineupEdited(true);
   }
 
   async function onSaveVrcdnOutput() {
@@ -735,15 +743,15 @@ function ConnectedEventEditorForm({
         watchSurfaceEnabled,
         watchMode,
         mediaLinks: parseMediaLinks(mediaLinksText),
-        ...(usesCanonicalLineup ? { lineup: [
+        ...(usesCanonicalLineup && (lineupEdited || startAt !== event?.startAt) ? { lineup: [
           ...slotRows.map((row, index) => ({
             clientKey: row.id, position: row.position ?? index, performerLabel: row.displayLabel || row.personSlug, personSlug: optionalString(row.personSlug), roleLabel: optionalString(row.roleLabel),
             ...(!timeTba ? { startAt: slotLinks[index]!.startAt, endAt: slotLinks[index]!.endAt, selectedStreamId: slotLinks[index]!.selectedStreamId } : {}),
           })),
           ...untimedRows.map(row => ({ ...row, personSlug: optionalString(row.personSlug), roleLabel: optionalString(row.roleLabel) })),
-        ].sort((a, b) => a.position - b.position).map((row, position) => ({ ...row, position })) } : {
+        ].sort((a, b) => a.position - b.position).map((row, position) => ({ ...row, position })) } : !usesCanonicalLineup ? {
           participantLinks: parseParticipantLinks(stringField(formData.get("participantLinks"))), slotLinks,
-        }),
+        } : {}),
       };
       const result = event
           ? await updateEvent({
@@ -1285,12 +1293,12 @@ function ConnectedEventEditorForm({
 
         {usesCanonicalLineup ? <div className="grid gap-4">
           {untimedRows.map(row => <Card key={row.clientKey} className="grid gap-3" padding="sm" surface="dashed">
-            <Field>Performer<Input required value={row.performerLabel} onChange={change => setUntimedRows(rows => rows.map(item => item.clientKey === row.clientKey ? { ...item, performerLabel: change.target.value } : item))} /></Field>
-            <Field>Person profile<PersonProfileInput inputId={`untimed-${row.clientKey}`} value={row.personSlug} onChange={personSlug => setUntimedRows(rows => rows.map(item => item.clientKey === row.clientKey ? { ...item, personSlug } : item))} /></Field>
-            <Field>Role<Input value={row.roleLabel} onChange={change => setUntimedRows(rows => rows.map(item => item.clientKey === row.clientKey ? { ...item, roleLabel: change.target.value } : item))} /></Field>
-            <Button type="button" variant="secondary" onClick={() => setUntimedRows(rows => rows.filter(item => item.clientKey !== row.clientKey))}>Remove performer</Button>
+            <Field>Performer<Input required value={row.performerLabel} onChange={change => updateUntimedRows(rows => rows.map(item => item.clientKey === row.clientKey ? { ...item, performerLabel: change.target.value } : item))} /></Field>
+            <Field>Person profile<PersonProfileInput inputId={`untimed-${row.clientKey}`} value={row.personSlug} onChange={personSlug => updateUntimedRows(rows => rows.map(item => item.clientKey === row.clientKey ? { ...item, personSlug } : item))} /></Field>
+            <Field>Role<Input value={row.roleLabel} onChange={change => updateUntimedRows(rows => rows.map(item => item.clientKey === row.clientKey ? { ...item, roleLabel: change.target.value } : item))} /></Field>
+            <Button type="button" variant="secondary" onClick={() => updateUntimedRows(rows => rows.filter(item => item.clientKey !== row.clientKey))}>Remove performer</Button>
           </Card>)}
-          <Button type="button" variant="secondary" onClick={() => setUntimedRows(rows => [...rows, { clientKey: crypto.randomUUID(), position: Math.max(-1, ...rows.map(row => row.position), ...slotRows.map(row => row.position ?? 0)) + 1, performerLabel: "", personSlug: "", roleLabel: "" }])}>Add performer</Button>
+          <Button type="button" variant="secondary" onClick={() => updateUntimedRows(rows => [...rows, { clientKey: crypto.randomUUID(), position: Math.max(-1, ...rows.map(row => row.position), ...slotRows.map(row => row.position ?? 0)) + 1, performerLabel: "", personSlug: "", roleLabel: "" }])}>Add performer</Button>
         </div> : <details className="group rounded-control border border-border bg-surface px-4 py-3">
           <summary className="flex cursor-pointer list-none items-center justify-between gap-4 font-medium marker:hidden">
             Add untimed performers

@@ -44,6 +44,13 @@ an event time exists. The new contribution GET route also extends the developer
 API reference, so its inspected desktop and mobile screenshot baselines were
 updated.
 
+A later review found that an already confirmed instance survived a transition
+to Time TBA. Contributor and staff edits now return those associations to the
+suggested state; restoring a time requires staff reconfirmation before an event
+recap returns. Staff content-only saves omit the untouched canonical lineup so
+they cannot confirm contributed person links by accident. The account event
+list also shows a contributor-managed event only once.
+
 The exact-head review then found three more edges: a lineup edit could discard
 a hidden performer match, cancel/restore could lose contributed role and world
 search context, and a malformed artwork ID could fail before the public 404

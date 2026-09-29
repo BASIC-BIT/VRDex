@@ -92,6 +92,26 @@ it("staff canonical lineup changes retain the slot and authorized stream on unre
   await assert.rejects(staff.mutation(api.events.updateCommunityEvent, { currentSlug: event.slug!, title: event.title, communitySlug: "club", startAt, timezone: "UTC", lineup: [{ clientKey: "set", position: 0, performerLabel: "DJ", personSlug: "performer", startAt, selectedStreamId: "unrelated-stream" }] }), /Selected stream/);
 });
 
+it("staff content-only edits leave contributed performer links unconfirmed", async () => {
+  const { t, staff, contributor, event } = await fixture();
+  await t.run(({ db }) => db.insert("profiles", {
+    slug: "guest", displayName: "Guest", sortName: "guest", profileType: "person",
+    person: { roleTags: [] }, aliases: [], tags: [], claimState: "unclaimed",
+    publicationState: "published", publicSurfacingState: "public",
+    creationSource: "community", updatedAt: Date.now(),
+  }));
+  await contributor.mutation(command("updateOwnContributedEvent"), {
+    eventId: event._id, expectedUpdatedAt: event.updatedAt,
+    patch: { lineup: [{ clientKey: "dj", position: 0, performerLabel: "DJ", personSlug: "guest" }] },
+  });
+  assert.equal((await t.run(ctx => ctx.db.query("eventParticipants").withIndex("by_eventId", q => q.eq("eventId", event._id)).first()))?.confirmationState, "unconfirmed");
+  await staff.mutation(api.events.updateCommunityEvent, {
+    currentSlug: event.slug!, title: "New title", communitySlug: "club",
+  });
+  const association = await t.run(ctx => ctx.db.query("eventParticipants").withIndex("by_eventId", q => q.eq("eventId", event._id)).first());
+  assert.equal(association?.confirmationState, "unconfirmed");
+});
+
 it("owner conversion to Time TBA respects the date-only rollout switch", async () => {
   const { staff, event } = await fixture();
   await staff.mutation(api.events.updateCommunityEvent, { currentSlug: event.slug!, title: event.title, communitySlug: "club", startAt: Date.parse("2027-10-15T19:00:00Z") });
@@ -340,20 +360,37 @@ it("converting a contributed event to Time TBA cancels its queued media start", 
   assert.equal(state.session?.status, "ended");
   assert.equal(state.start?.status, "cancelled");
 });
-it("contributor Time TBA correction invalidates an existing event recap", async () => {
-  const { t, contributor, communityId, event } = await fixture();
-  await contributor.mutation(command("updateOwnContributedEvent"), { eventId: event._id, expectedUpdatedAt: event.updatedAt, patch: { timeTba: null, timezone: "UTC", start: { time: "19:00" } } });
-  const timed = (await t.run(ctx => ctx.db.get(event._id)))!;
-  await t.run(async ctx => {
-    const integrationId = await ctx.db.insert("communityVrchatIntegrations", { communityProfileId: communityId, vrchatGroupId: "grp_test", groupVisibility: "public", joinPolicy: "free", state: "active", killSwitchEnabled: false, requestsPerMinute: 4, leaseGeneration: 0, publicMetrics: { currentPopulation: false, populationHistory: false, groupMemberCount: false, groupMemberGrowth: false, eventRecaps: false }, consecutiveFailures: 0, createdAt: Date.now(), updatedAt: Date.now() });
-    const sessionId = await ctx.db.insert("instanceSessions", { integrationId, communityProfileId: communityId, providerInstanceId: "test", providerLocation: "wrld_test:test", vrchatWorldId: "wrld_test", source: "first_party", state: "closed", openedAt: timed.startAt!, lastObservedAt: timed.startAt!, consecutiveMisses: 2, updatedAt: Date.now() });
-    await ctx.db.insert("eventInstanceAssociations", { eventId: event._id, sessionId, communityProfileId: communityId, source: "manual", confidence: 1, state: "confirmed", createdAt: Date.now(), updatedAt: Date.now() });
-    await ctx.db.insert("communityTelemetryRollups", { communityProfileId: communityId, eventId: event._id, grain: "event", bucketStartAt: timed.startAt!, bucketEndAt: timed.startAt! + 3600000, rollupVersion: "community-telemetry-v1", activeInstanceCount: 1, peakConcurrency: 1, playerMinutes: 1, coverageRatio: 1, worldDistribution: [], computedAt: Date.now() });
-  });
-  await contributor.mutation(command("updateOwnContributedEvent"), { eventId: event._id, expectedUpdatedAt: timed.updatedAt, patch: { timeTba: true, start: null } });
-  await new Promise<void>(resolve => setTimeout(resolve, 0));
-  await t.finishInProgressScheduledFunctions();
-  assert.equal(await t.run(ctx => ctx.db.query("communityTelemetryRollups").first()), null);
+it("Time TBA retires confirmed instances and a restored time needs reconfirmation", async () => {
+  for (const editor of ["contributor", "staff"] as const) {
+    const { t, contributor, staff, communityId, event } = await fixture();
+    await contributor.mutation(command("updateOwnContributedEvent"), { eventId: event._id, expectedUpdatedAt: event.updatedAt, patch: { timeTba: null, timezone: "UTC", start: { time: "19:00" } } });
+    const timed = (await t.run(ctx => ctx.db.get(event._id)))!;
+    await t.run(async ctx => {
+      const integrationId = await ctx.db.insert("communityVrchatIntegrations", { communityProfileId: communityId, vrchatGroupId: "grp_test", groupVisibility: "public", joinPolicy: "free", state: "active", killSwitchEnabled: false, requestsPerMinute: 4, leaseGeneration: 0, publicMetrics: { currentPopulation: false, populationHistory: false, groupMemberCount: false, groupMemberGrowth: false, eventRecaps: false }, consecutiveFailures: 0, createdAt: Date.now(), updatedAt: Date.now() });
+      const sessionId = await ctx.db.insert("instanceSessions", { integrationId, communityProfileId: communityId, providerInstanceId: "test", providerLocation: "wrld_test:test", vrchatWorldId: "wrld_test", source: "first_party", state: "closed", openedAt: timed.startAt!, lastObservedAt: timed.startAt!, consecutiveMisses: 2, updatedAt: Date.now() });
+      await ctx.db.insert("eventInstanceAssociations", { eventId: event._id, sessionId, communityProfileId: communityId, source: "manual", confidence: 1, state: "confirmed", createdAt: Date.now(), updatedAt: Date.now() });
+      await ctx.db.insert("communityTelemetryRollups", { communityProfileId: communityId, eventId: event._id, grain: "event", bucketStartAt: timed.startAt!, bucketEndAt: timed.startAt! + 3600000, rollupVersion: "community-telemetry-v1", activeInstanceCount: 1, peakConcurrency: 1, playerMinutes: 1, coverageRatio: 1, worldDistribution: [], computedAt: Date.now() });
+    });
+    if (editor === "contributor") {
+      await contributor.mutation(command("updateOwnContributedEvent"), { eventId: event._id, expectedUpdatedAt: timed.updatedAt, patch: { timeTba: true, start: null } });
+    } else {
+      await staff.mutation(api.events.updateCommunityEvent, { currentSlug: event.slug!, title: event.title, communitySlug: "club", scheduleKind: "date_only", eventDate: "2027-10-15" });
+    }
+    await new Promise<void>(resolve => setTimeout(resolve, 0));
+    await t.finishInProgressScheduledFunctions();
+    assert.equal(await t.run(ctx => ctx.db.query("communityTelemetryRollups").first()), null);
+    const association = (await t.run(ctx => ctx.db.query("eventInstanceAssociations").first()))!;
+    assert.equal(association.state, "suggested");
+    const dateOnly = (await t.run(ctx => ctx.db.get(event._id)))!;
+    if (editor === "contributor") {
+      await contributor.mutation(command("updateOwnContributedEvent"), { eventId: event._id, expectedUpdatedAt: dateOnly.updatedAt, patch: { timeTba: false, start: { time: "19:00" }, timezone: "UTC" } });
+    } else {
+      await staff.mutation(api.events.updateCommunityEvent, { currentSlug: event.slug!, title: event.title, communitySlug: "club", startAt: timed.startAt!, timezone: "UTC" });
+    }
+    await new Promise<void>(resolve => setTimeout(resolve, 0));
+    await t.finishInProgressScheduledFunctions();
+    assert.equal(await t.run(ctx => ctx.db.query("communityTelemetryRollups").first()), null);
+  }
 });
 it("contributor end-time corrections recompute a confirmed event recap", async () => {
   const { t, contributor, communityId, event } = await fixture();

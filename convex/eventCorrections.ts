@@ -16,7 +16,7 @@ import { syncClubEventOperations } from "./_clubOperationEvents";
 import { reindexEventSearchDocument } from "./_searchDocuments";
 import { canReadProfile } from "./_profilePermissions";
 import { getEventBySlug } from "./_eventSlugs";
-import { canUpdateEvent, eventParticipantRoleLabels, linkedPublishedEventWorld, managedCommunitiesForBrowser, reconcileEventMediaScheduleChange, recordEventAuditEvent, replaceEventWorldLink, settleEventMediaForCancellation, syncPreservedEventAssociations } from "./events";
+import { canUpdateEvent, eventParticipantRoleLabels, linkedPublishedEventWorld, managedCommunitiesForBrowser, reconcileEventMediaScheduleChange, recordEventAuditEvent, replaceEventWorldLink, retireConfirmedEventInstanceAssociations, settleEventMediaForCancellation, syncPreservedEventAssociations } from "./events";
 
 export const REMOVED_EVENT_SUPPRESSION_MS = 30 * 86_400_000;
 const patchKeys = new Set(["title", "eventDate", "timeTba", "timezone", "start", "end", "doors", "venueLabel", "worldSlug", "sourceUrl", "summary", "lineup"]);
@@ -117,6 +117,9 @@ export async function updateActorContribution(ctx: MutationCtx, actorUserId: Id<
         });
       }
     }
+  }
+  if (event.startAt !== undefined && updated.startAt === undefined) {
+    await retireConfirmedEventInstanceAssociations(db, event._id, now);
   }
   if (patch.worldSlug !== undefined) await replaceEventWorldLink(db, updated, checked.world, now, { confirmationState: "unconfirmed" });
   await refreshProjections(db, updated, now, checked.lineup.flatMap(entry => entry.roleLabel ? [entry.roleLabel] : []));

@@ -914,6 +914,13 @@ export async function linkedPublishedEventWorld(db: DatabaseReader, eventId: Id<
   return world?.publicationState === "published" ? world : undefined;
 }
 
+export async function retireConfirmedEventInstanceAssociations(db: DatabaseWriter, eventId: Id<"events">, now: number) {
+  const confirmed = await db.query("eventInstanceAssociations")
+    .withIndex("by_eventId_state", query => query.eq("eventId", eventId).eq("state", "confirmed"))
+    .collect();
+  await Promise.all(confirmed.map(association => db.patch(association._id, { state: "suggested", updatedAt: now })));
+}
+
 async function eventSearchAssociations(db: DatabaseReader, event: Doc<"events">) {
   if (event.sourceType !== "contributor") {
     const [world, roleLabels] = await Promise.all([
@@ -1371,6 +1378,9 @@ async function updateCommunityEventRecord(
         now,
       });
     }
+  }
+  if (event.startAt !== undefined && updatedEvent.startAt === undefined) {
+    await retireConfirmedEventInstanceAssociations(db, event._id, now);
   }
 
   const replaceWorld = shouldUpdate("worldSlug");
@@ -3109,6 +3119,7 @@ export const updateCommunityEvent = mutation({
       input,
       community,
       world,
+      updateFields: suppliedEventDraftFields(args),
       preserveCommunityName: preserveLoadedCommunity,
       preserveNonPublicAssociations: true,
       preserveParticipantAssociationIds: args.preservedParticipantAssociationIds,
