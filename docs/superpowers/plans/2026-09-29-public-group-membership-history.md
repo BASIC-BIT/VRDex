@@ -44,7 +44,7 @@
 
 **Files:** convex/_communityTelemetryPublic.ts or a focused helper, convex/profiles.ts, packages/api-contracts/src/schemas.ts, public projection tests.
 
-**Interface:** Public profile groupMembership?: { groupCreatedAt?: number; latest: { value: number; observedAt: number }; points: Array<{ observedAt: number; value: number }> }. Return at most 500 observed points, with earliest and latest retained; document range sampling if needed.
+**Interface:** Public profile `groupMembership?: { groupCreatedAt?: number; latest: { value: number; observedAt: number }; points: Array<{ observedAt: number; value: number }> }`. Return at most 500 observed points, with earliest and latest retained; document range sampling if needed.
 
 - [ ] Write failing tests for Group size public vs nonpublic, unconnected link, changed link, and per-profile visibility.
 - [ ] Resolve primary active link, with connected integration fallback, and read group snapshots plus existing connected observations through indexes.
