@@ -81,6 +81,15 @@ export async function setProfileSurfacing(
     return null;
   }
 
+  if (!isPubliclySurfaced(profile) && isPubliclySurfaced(updated) && updated.profileType === "community") {
+    const links = await db.query("profileExternalLinks")
+      .withIndex("by_profileId_assetType_state", (q) => q
+        .eq("profileId", profile._id).eq("assetType", "vrchat_group").eq("state", "active"))
+      .take(100);
+    const primary = links.find((link) => link.linkRole === "primary");
+    if (primary) await db.patch(primary._id, { nextMemberPollAt: undefined });
+  }
+
   await upsertSearchDocument(db, createProfileSearchDocument(updated));
 
   // Both directions, because this moves profiles back as well as away. Releasing

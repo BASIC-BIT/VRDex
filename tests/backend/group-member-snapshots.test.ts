@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { it } from "node:test";
 import { convexTest } from "convex-test";
 import { internal } from "../../convex/_generated/api";
+import { setProfileSurfacing } from "../../convex/_profileSurfacing";
 import schemaModule from "../../convex/schema";
 
 const schema = (schemaModule as unknown as { default?: typeof schemaModule }).default ?? schemaModule;
@@ -75,6 +76,18 @@ it("provider failure preserves the last point", async () => {
   const rows = await t.run(ctx => ctx.db.query("vrchatGroupMemberSnapshots")
     .withIndex("by_vrchatGroupId_observedAt", q => q.eq("vrchatGroupId", GROUP)).collect());
   assert.deepEqual(rows.map(row => [row.memberCount, row.observedAt]), [[42, NOW]]);
+});
+
+it("restoring a public community makes its first group read due immediately", async () => {
+  const { t, worker, profileId } = await fixture();
+  await t.run(async (ctx) => ctx.db.patch(profileId, { publicSurfacingState: "archived" }));
+  assert.equal(await t.mutation(internal.groupMemberSnapshots.claim, { worker, now: NOW }), null);
+  await t.run(async (ctx) => {
+    const profile = (await ctx.db.get(profileId))!;
+    await setProfileSurfacing(ctx.db, profile, { state: "public", reason: "restored", now: NOW + 60_000 });
+  });
+  const claim = await t.mutation(internal.groupMemberSnapshots.claim, { worker, now: NOW + 60_000 });
+  assert.equal(claim?.vrchatGroupId, GROUP);
 });
 
 it("private visibility is not claimed and shared groups reuse a fresh point", async () => {
