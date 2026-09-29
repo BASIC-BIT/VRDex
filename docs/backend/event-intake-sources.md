@@ -108,6 +108,10 @@ and a report tied to that evidence's event. A hold must precede deletion claimin
 Passing null releases the hold after the dispute is resolved. Holds cover a
 specific private evidence item. They do not retain unrelated uploads. Published
 artwork has an independent record and is never included in source cleanup.
+Published artwork is rechecked daily. The worker renews a derivative still
+selected by a published event and deletes it after deselection or retraction.
+If an unpublished event still points to that derivative, cleanup clears the
+stale poster URL before deleting the object.
 Abandoned uncommitted artwork has its own bounded sweep. Each selection reserves
 a ten-minute write window plus one day of cleanup grace, including retries of
 pending selections. The server rejects preparation that outlives the write window
