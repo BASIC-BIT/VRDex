@@ -8,6 +8,7 @@ import { ClubProvider } from "./club-provider.mjs";
 import { readClubProviderJob } from "./club-read-jobs.mjs";
 import { executeClubOperation } from "./club-operation-jobs.mjs";
 import { checkDestinationMetadata } from "./destination-jobs.mjs";
+import { checkGroupMemberSnapshot } from "./group-member-jobs.mjs";
 import { resolveProfileLinkDestination } from "./profile-link-destination.mjs";
 import { COLLECTOR_PROTOCOL_VERSION, RequestBudget, TelemetryControlClient, boundedProviderCategory, collectorAuthRequiredEvent, collectorLoopFailureEvent, collectorRestartEvent, collectorRuntimeMetadata, collectorShouldRestart, failureDisposition, pollId, randomPollDelayMs, retryDelayMs, sessionCheckDelayMs } from "./runtime.mjs";
 
@@ -323,6 +324,7 @@ async function collect(assignment) {
         observedAt: snapshot.observedAt,
         collectorVersion: COLLECTOR_PROTOCOL_VERSION,
         groupMemberCount: snapshot.group.memberCount,
+        ...(snapshot.group.groupCreatedAt === undefined ? {} : { groupCreatedAt: snapshot.group.groupCreatedAt }),
         instances: snapshot.instances,
         nextPollAt,
       });
@@ -690,8 +692,13 @@ while (!stopping) {
       accountBudget, metadataBudget: proofBudget, heartbeat,
       isStopping: () => stopping, reportDeadSession, pauseWithHeartbeats, logEvent,
     });
+    loopPhase = "group_member_metadata";
+    const groupMemberCount = stopping ? 0 : await checkGroupMemberSnapshot({
+      control, provider, accountBudget, metadataBudget: proofBudget, heartbeat,
+      isStopping: () => stopping, reportDeadSession, pauseWithHeartbeats, logEvent,
+    });
     controlFailures = 0;
-    await pause(assignmentCount > 0 || proofCount > 0 || destinationCount > 0 ? 1_000 : 10_000);
+    await pause(assignmentCount > 0 || proofCount > 0 || destinationCount > 0 || groupMemberCount > 0 ? 1_000 : 10_000);
   } catch (error) {
     controlFailures += 1;
     logEvent(collectorLoopFailureEvent(error, loopPhase, controlFailures));

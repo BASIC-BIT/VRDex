@@ -21,3 +21,13 @@ test("empty-success opt-in preserves JSON parsing and rejects malformed or overs
   await assert.rejects(client(" ".repeat(21)).request("/test", options), { category: "schema_drift" });
   await assert.rejects(client("", 403).request("/test", options), { status: 403 });
 });
+
+test("group metadata retains a validated creation timestamp without requiring membership", async () => {
+  const groupId = "grp_00000000-0000-4000-8000-000000000001";
+  const group = await client(JSON.stringify({
+    id: groupId, memberCount: 42, membershipStatus: "inactive", privacy: "default",
+    createdAt: "2022-01-02T03:04:05.000Z",
+  })).getGroup(groupId);
+  assert.equal(group.memberCount, 42);
+  assert.equal(group.groupCreatedAt, Date.parse("2022-01-02T03:04:05.000Z"));
+});

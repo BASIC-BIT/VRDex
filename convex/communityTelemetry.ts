@@ -1,6 +1,7 @@
 import { transitionCoverage } from "./_collectionCoverage";
 import { rejectConnectionOperations } from "./clubOperations";
 import { resolveClubActor, readClubVisibility, canReadCategory, requireClubPermission } from "./_clubAccess";
+import { recordGroupMemberObservation } from "./_groupMemberSnapshots";
 import { CLUB_CATEGORIES, LEGACY_CATEGORY_MAP, clubCategory } from "./_clubModel";
 import { ConvexError, v } from "convex/values";
 import schema from "./schema";
@@ -1223,6 +1224,7 @@ export const ingestAggregatePoll = internalMutation({
     collectorVersion: v.string(),
     source: telemetrySourceValidator,
     groupMemberCount: v.number(),
+    groupCreatedAt: v.optional(v.number()),
     instances: v.array(aggregateInstanceValidator),
     nextPollAt: v.number(),
     now: v.optional(v.number()),
@@ -1241,6 +1243,7 @@ export const ingestAggregatePoll = internalMutation({
       args.observedAt > now + 5 * 60_000 ||
       !Number.isSafeInteger(args.groupMemberCount) ||
       args.groupMemberCount < 0 ||
+      (args.groupCreatedAt !== undefined && (!Number.isSafeInteger(args.groupCreatedAt) || args.groupCreatedAt < 0 || args.groupCreatedAt > args.observedAt)) ||
       args.instances.length > 200
     ) {
       throw new Error("Aggregate poll counts are malformed.");
@@ -1314,6 +1317,12 @@ export const ingestAggregatePoll = internalMutation({
         fencingToken: args.fencingToken,
       });
     }
+    await recordGroupMemberObservation(ctx.db, {
+      vrchatGroupId: integration.vrchatGroupId,
+      memberCount: args.groupMemberCount,
+      observedAt: args.observedAt,
+      ...(args.groupCreatedAt === undefined ? {} : { groupCreatedAt: args.groupCreatedAt }),
+    });
     const seen = new Set<string>();
     const epochStartedAt = integration.telemetryEpochStartedAt ?? integration.createdAt;
     for (const item of args.instances) {

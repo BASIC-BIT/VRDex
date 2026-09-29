@@ -368,6 +368,8 @@ export async function linkProfileToAsset(
       state: "active",
       removedAt: undefined,
       linkRole,
+      ...(options.assetType === "vrchat_group" && linkRole === "primary" && (active === null || active.linkRole !== "primary")
+        ? { nextMemberPollAt: undefined } : {}),
       ...(options.assetDisplayName !== undefined
         ? { assetDisplayName: options.assetDisplayName }
         : {}),
@@ -438,7 +440,7 @@ export async function removeProfileLink(
     const next = remaining.find((candidate) => candidate._id !== link._id);
 
     if (next !== undefined) {
-      await db.patch(next._id, { linkRole: "primary", updatedAt: now });
+      await db.patch(next._id, { linkRole: "primary", ...(assetType === "vrchat_group" ? { nextMemberPollAt: undefined } : {}), updatedAt: now });
     }
   }
 

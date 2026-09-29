@@ -1712,6 +1712,20 @@ export default defineSchema({
     .index("by_vrchatGroupId", ["vrchatGroupId"])
     .index("by_assignedCollectorAccountId_state", ["assignedCollectorAccountId", "state"])
     .index("by_state_nextPollAt", ["state", "nextPollAt"]),
+  vrchatGroupMemberMetadata: defineTable({
+    vrchatGroupId: v.string(),
+    groupCreatedAt: v.optional(v.number()),
+    lastObservedAt: v.optional(v.number()),
+    claimToken: v.optional(v.string()),
+    claimExpiresAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  }).index("by_vrchatGroupId", ["vrchatGroupId"]),
+  vrchatGroupMemberSnapshots: defineTable({
+    vrchatGroupId: v.string(),
+    memberCount: v.number(),
+    observedAt: v.number(),
+    groupCreatedAt: v.optional(v.number()),
+  }).index("by_vrchatGroupId_observedAt", ["vrchatGroupId", "observedAt"]),
   collectorAccountLeases: defineTable({
     integrationId: v.id("communityVrchatIntegrations"),
     collectorAccountId: v.id("collectorAccounts"),
@@ -2724,6 +2738,9 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
     removedAt: v.optional(v.number()),
+    nextMemberPollAt: v.optional(v.number()),
+    memberPollLeaseToken: v.optional(v.string()),
+    memberPollWorkerId: v.optional(v.string()),
   })
     .index("by_profileId_state", ["profileId", "state"])
     .index("by_profileId_assetType_state", ["profileId", "assetType", "state"])
@@ -2733,6 +2750,7 @@ export default defineSchema({
       "assetType",
       "assetExternalId",
     ])
+    .index("by_assetType_state_linkRole_nextMemberPollAt", ["assetType", "state", "linkRole", "nextMemberPollAt"])
     .index("by_linkedByUserId", ["linkedByUserId"]),
   profileSuppressionRequests: defineTable({
     profileId: v.optional(v.id("profiles")),

@@ -567,6 +567,7 @@ describe("community telemetry control plane", () => {
       collectorVersion: "test-v1",
       source: "first_party" as const,
       groupMemberCount: 100,
+      groupCreatedAt: claimAt - 86_400_000,
       nextPollAt: claimAt + 60_000,
       now: claimAt + 1_000,
     };
@@ -592,6 +593,11 @@ describe("community telemetry control plane", () => {
       }],
     });
     assert.equal(first.duplicate, false);
+    const groupSnapshots = await t.run(ctx => ctx.db.query("vrchatGroupMemberSnapshots")
+      .withIndex("by_vrchatGroupId_observedAt", q => q.eq("vrchatGroupId", "grp_00000000-0000-4000-8000-000000000001")).collect());
+    assert.deepEqual(groupSnapshots.map(row => [row.memberCount, row.observedAt, row.groupCreatedAt]), [
+      [100, claimAt + 1_000, claimAt - 86_400_000],
+    ]);
     await grantVisibilityOwner(t);
     await t.withIdentity(identity).mutation(api.communityTelemetry.setPublicMetric, {
       communitySlug: "faceless", metric: "currentPopulation", enabled: true,

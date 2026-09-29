@@ -712,6 +712,13 @@ export const setCategoryVisibility = mutation({
         categories,
         updatedAt: Date.now(),
       });
+    if (args.category === "group_size" && args.audience === "public") {
+      const links = await ctx.db.query("profileExternalLinks")
+        .withIndex("by_profileId_assetType_state", q => q.eq("profileId", community._id).eq("assetType", "vrchat_group").eq("state", "active"))
+        .take(100);
+      const primary = links.find(link => link.linkRole === "primary");
+      if (primary) await ctx.db.patch(primary._id, { nextMemberPollAt: undefined });
+    }
     await log(ctx, community._id, actor, "visibility_changed", {
       category: args.category,
       audience: categories[args.category].audience,
