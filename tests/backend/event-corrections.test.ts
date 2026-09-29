@@ -249,9 +249,15 @@ it("unrelated corrections retain a performer match that became private", async (
     eventId: event._id, expectedUpdatedAt: current.updatedAt,
     patch: { summary: "Updated summary" },
   });
+  const lineupEdit = (await t.run(({ db }) => db.get(event._id)))!;
+  await contributor.mutation(command("updateOwnContributedEvent"), {
+    eventId: event._id, expectedUpdatedAt: lineupEdit.updatedAt,
+    patch: { lineup: [{ ...own.fields.lineup[0]!, roleLabel: "Host" }] },
+  });
   const lineup = await t.run(({ db }) => db.query("eventLineupEntries")
     .withIndex("by_eventId_position", q => q.eq("eventId", event._id)).collect());
   assert.equal(lineup[0]?.personProfileId, personId);
+  assert.equal(lineup[0]?.roleLabel, "Host");
   assert.equal((await t.query(api.events.getPublicBySlug, { slug: event.slug! }))?.lineup[0]?.performer, undefined);
 });
 it("contributor schedule corrections rebase then cancel event-relative club actions", async () => {
@@ -617,6 +623,18 @@ it("updates participant and world feeds atomically on correction and removal", a
   assert.equal((await t.run(ctx => getPublicWorldEventContext(ctx.db, worldId, Date.now()))).upcoming.length, 0);
   const associations = await t.run(async ctx => [...await ctx.db.query("eventParticipants").collect(), ...await ctx.db.query("eventWorlds").collect()]);
   assert.ok(associations.every(row => row.eventPublicationState === "draft_private"));
+});
+it("restoring a contributed event keeps authored role and world search terms", async () => {
+  const { t, contributor, staff, event } = await fixture();
+  await t.run(ctx => ctx.db.insert("worlds", { slug: "starlight-cavern", displayName: "Starlight Cavern", sortName: "starlight cavern", tags: [], publicationState: "published", visibilityStatus: "public", platformCompatibility: [], media: [], creatorAttributions: [], outboundLinks: [], creationSource: "community", updatedAt: Date.now() }));
+  await contributor.mutation(command("updateOwnContributedEvent"), { eventId: event._id, expectedUpdatedAt: event.updatedAt, patch: {
+    worldSlug: "starlight-cavern", lineup: [{ clientKey: "dj", position: 0, performerLabel: "DJ", roleLabel: "Host" }],
+  } });
+  await staff.mutation(api.events.setCommunityEventCancelled, { currentSlug: event.slug!, cancelled: true, reason: "Host postponed" });
+  await staff.mutation(api.events.setCommunityEventCancelled, { currentSlug: event.slug!, cancelled: false });
+  const document = await t.run(ctx => ctx.db.query("searchDocuments").withIndex("by_eventId", q => q.eq("eventId", event._id)).first());
+  assert.ok(document?.vocabularyKeys.some(key => key.includes("host")));
+  assert.match(document?.searchText ?? "", /starlight/i);
 });
 it("corrections bypass publication quota but reject a collision with another canonical event", async () => {
   const { t, contributor, event } = await fixture();

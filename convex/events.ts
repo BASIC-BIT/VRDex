@@ -914,6 +914,21 @@ export async function linkedPublishedEventWorld(db: DatabaseReader, eventId: Id<
   return world?.publicationState === "published" ? world : undefined;
 }
 
+async function eventSearchAssociations(db: DatabaseReader, event: Doc<"events">) {
+  if (event.sourceType !== "contributor") {
+    const [world, roleLabels] = await Promise.all([
+      linkedPublishedEventWorld(db, event._id), eventParticipantRoleLabels(db, event._id),
+    ]);
+    return { world, roleLabels };
+  }
+  const [world, slots, untimed] = await Promise.all([
+    linkedPublishedEventWorld(db, event._id, true),
+    db.query("eventSlots").withIndex("by_eventId", q => q.eq("eventId", event._id)).take(81),
+    db.query("eventLineupEntries").withIndex("by_eventId_position", q => q.eq("eventId", event._id)).take(81),
+  ]);
+  return { world, roleLabels: [...slots, ...untimed].map(row => row.roleLabel ?? "").filter(Boolean) };
+}
+
 function suppliedEventDraftFields(input: EventDraftUpdateInput) {
   const fields = new Set<keyof EventOwnerDraftInput>();
 
@@ -1406,10 +1421,7 @@ async function updateCommunityEventRecord(
     preserveWorld: !replaceWorld,
   });
 
-  const [roleLabels, indexedWorld] = await Promise.all([
-    eventParticipantRoleLabels(db, event._id),
-    linkedPublishedEventWorld(db, event._id),
-  ]);
+  const { world: indexedWorld, roleLabels } = await eventSearchAssociations(db, updatedEvent);
   await reindexEventSearchDocument(
     db,
     updatedEvent,
@@ -3246,20 +3258,18 @@ export const setCommunityEventPublished = mutation({
         preserveSlots: false,
         preserveWorld: true,
       });
-      const [community, world, roleLabels] = await Promise.all([
+      const [community, associations] = await Promise.all([
         updated.communityProfileId === undefined
           ? undefined
           : ctx.db.get(updated.communityProfileId),
-        linkedPublishedEventWorld(ctx.db, updated._id),
-        eventParticipantRoleLabels(ctx.db, updated._id),
+        eventSearchAssociations(ctx.db, updated),
       ]);
       await reindexEventSearchDocument(
         ctx.db,
         updated,
         {
           community: community?.profileType === "community" ? community : undefined,
-          world,
-          roleLabels,
+          ...associations,
         },
         now,
       );
@@ -3332,20 +3342,18 @@ export const setCommunityEventCancelled = mutation({
         preserveSlots: false,
         preserveWorld: true,
       });
-      const [community, world, roleLabels] = await Promise.all([
+      const [community, associations] = await Promise.all([
         updated.communityProfileId === undefined
           ? undefined
           : ctx.db.get(updated.communityProfileId),
-        linkedPublishedEventWorld(ctx.db, updated._id),
-        eventParticipantRoleLabels(ctx.db, updated._id),
+        eventSearchAssociations(ctx.db, updated),
       ]);
       await reindexEventSearchDocument(
         ctx.db,
         updated,
         {
           community: community?.profileType === "community" ? community : undefined,
-          world,
-          roleLabels,
+          ...associations,
         },
         now,
       );

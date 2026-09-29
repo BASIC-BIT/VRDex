@@ -130,7 +130,7 @@ export function eventIntakeErrorResponse(error: unknown) {
 export async function readEventArtwork(eventId: string, artworkAssetId: string, deps: {
   query?: ReturnType<typeof convexHttpClient>["query"]; read?: typeof getProfileAssetObject;
 } = {}) {
-  const args = { artworkAssetId: artworkAssetId as Id<"eventPosterArtwork"> };
+  const args = { artworkAssetId };
   const artwork = deps.query ? await deps.query(api.eventIntakeSources.publicArtwork, args) : await convexHttpClient().query(api.eventIntakeSources.publicArtwork, args);
   if (!artwork || artwork.eventId !== eventId || !artwork.storageKey) return problem(404, "Not found");
   const object = await (deps.read ?? getProfileAssetObject)(artwork.storageKey);

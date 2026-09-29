@@ -36,6 +36,11 @@ an event time exists. The new contribution GET route also extends the developer
 API reference, so its inspected desktop and mobile screenshot baselines were
 updated.
 
+The exact-head review then found three more edges: a lineup edit could discard
+a hidden performer match, cancel/restore could lose contributed role and world
+search context, and a malformed artwork ID could fail before the public 404
+path. Regression tests now cover each path.
+
 ## Implemented journey
 
 Any signed-in account can save a partial private draft for any public community,
@@ -77,7 +82,7 @@ Commands run in the isolated worktree, without hosted credentials or paid calls:
 
 | Command | Result |
 | --- | --- |
-| `pnpm test:backend` | 1,224 passed, zero failed/skipped after review fixes |
+| `pnpm test:backend` | 1,225 passed, zero failed/skipped after review fixes |
 | `pnpm test:web` | 607 passed, zero failed/skipped after review fixes |
 | `pnpm test:api-contracts` | 58 passed, zero failed/skipped after review fixes |
 | `pnpm test:vrdex-mcp` | 10 passed, including local stdio and fake-transport upload |

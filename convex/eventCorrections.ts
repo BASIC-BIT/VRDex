@@ -92,15 +92,15 @@ export async function updateActorContribution(ctx: MutationCtx, actorUserId: Id<
     contributionFingerprint: checked.fingerprint, contributionVersion: (event.contributionVersion ?? 0) + 1, updatedAt: now,
   });
   const updated = (await db.get(event._id))!;
-  const preserved = patch.lineup === undefined ? await Promise.all([
+  const preserved = await Promise.all([
     db.query("eventSlots").withIndex("by_eventId", q => q.eq("eventId", event._id)).collect(),
     db.query("eventParticipants").withIndex("by_eventId", q => q.eq("eventId", event._id)).collect(),
-  ]) : null;
-  await replaceEventLineup(db, updated, checked.lineup, now, preserved ? {
+  ]);
+  await replaceEventLineup(db, updated, checked.lineup, now, {
     preserveSlotAssociationIds: preserved[0].map(row => row._id),
     preserveParticipantAssociationIds: preserved[1].map(row => row._id),
     confirmPersonLinks: false,
-  } : { confirmPersonLinks: false });
+  });
   if (updated.startAt !== event.startAt) {
     await syncClubEventOperations(ctx, event._id);
     await reconcileEventMediaScheduleChange(db, event, updated.startAt, actor, now);

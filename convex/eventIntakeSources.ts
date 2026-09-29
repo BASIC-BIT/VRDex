@@ -86,8 +86,10 @@ export const completeArtwork = internalMutation({ args: { ...actor, artworkAsset
   await ctx.db.patch(draft._id, { artworkAssetId: artwork._id, version: draft.version + 1, updatedAt: Date.now(), expiresAt: Date.now() + 30 * DAY });
   return { artworkAssetId: artwork._id, version: draft.version + 1 };
 } });
-export const publicArtwork = query({ args: { artworkAssetId: v.id("eventPosterArtwork") }, returns: v.any(), handler: async (ctx, args) => {
-  const artwork = await ctx.db.get(args.artworkAssetId);
+export const publicArtwork = query({ args: { artworkAssetId: v.string() }, returns: v.any(), handler: async (ctx, args) => {
+  const artworkId = ctx.db.normalizeId("eventPosterArtwork", args.artworkAssetId);
+  if (!artworkId) return null;
+  const artwork = await ctx.db.get(artworkId);
   const event = artwork?.eventId ? await ctx.db.get(artwork.eventId) : null;
   const community = event?.communityProfileId ? await ctx.db.get(event.communityProfileId) : null;
   if (artwork?.state !== "published" || !event || event.publicationState !== "published" || event.moderationRemovedAt !== undefined || event.posterImageUrl !== `/api/v0/events/${event._id}/artwork/${artwork._id}` || !community || !canReadProfile("public", community)) return null;

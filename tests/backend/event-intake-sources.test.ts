@@ -95,6 +95,7 @@ it("publishes private evidence without artwork and attaches only a separately va
    const searchDoc=await t.run(ctx=>ctx.db.query("searchDocuments").first());
    assert.equal(searchDoc?.imageUrl,event?.posterImageUrl);
    assert.equal((await t.query(makeFunctionReference<"query">("eventIntakeSources:publicArtwork"),{artworkAssetId:artwork.artworkAssetId})).storageKey,artwork.storageKey);
+   assert.equal(await t.query(makeFunctionReference<"query">("eventIntakeSources:publicArtwork"),{artworkAssetId:"not-a-convex-id"}),null);
    await t.run(ctx=>ctx.db.patch(published.eventId,{posterImageUrl:undefined}));
    assert.equal(await t.query(makeFunctionReference<"query">("eventIntakeSources:publicArtwork"),{artworkAssetId:artwork.artworkAssetId}),null);
   }else assert.equal(event?.posterImageUrl,undefined);
