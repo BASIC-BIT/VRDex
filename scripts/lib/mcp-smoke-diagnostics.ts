@@ -20,6 +20,7 @@ export function isExpectedOAuthAuthorizationRedirect(location: string, issuerVal
       const returnTargets = [
         ...redirect.searchParams.getAll("returnTo"),
         ...redirect.searchParams.getAll("next"),
+        ...redirect.searchParams.getAll("redirectTo"),
       ];
       return returnTargets.length === 1
         && isSameIssuerAuthorizationUrl(returnTargets[0]!, issuer, true);

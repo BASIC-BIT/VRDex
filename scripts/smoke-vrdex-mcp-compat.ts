@@ -700,18 +700,19 @@ function requestedHostedOAuthScopes(metadata: HostedOAuthMetadata) {
   // discovered clients and the smoke none the wiser.
   const resourceWrites = [...new Set(Object.values(writeToolResourceScopes))]
     .filter((scope) => metadata.scopes.includes(scope));
+  const ownedReads = [...new Set(Object.values(ownedReadToolScopes).flatMap((scopes) =>
+    Array.isArray(scopes) ? scopes : [scopes],
+  ))].filter((scope) => metadata.scopes.includes(scope));
 
-  return [
+  return [...new Set([
     "mcp:read",
     "public:read",
-    // Same reasoning one scope down: without it a discovered client lists the
-    // owned-inventory tool and is refused by it, which is the shape that leaves
-    // an owner unable to read the revision their own update has to pin.
-    ...(metadata.scopes.includes("profile:read") ? ["profile:read"] : []),
+    // Request every advertised scope required by a classified owned-read tool.
+    ...ownedReads,
     ...(metadata.scopes.includes("mcp:write") && resourceWrites.length > 0
       ? ["mcp:write", ...resourceWrites]
       : []),
-  ];
+  ])];
 }
 
 async function smokeHostedDynamicClientRegistration(
@@ -799,8 +800,12 @@ async function smokeHostedClientMetadataDocument(
     metadata.issuer,
     "/.well-known/oauth-client/vrdex-mcp-public-client",
   ).toString();
+  const clientMetadata = await fetch(clientMetadataUrl, { headers: { accept: "application/json" } });
+  await assertHttpStatus(clientMetadata, 200, "Client ID Metadata Document");
+  const clientMetadataBody = await responseJson(clientMetadata, "Client ID Metadata Document");
+  assert.equal(stringField(clientMetadataBody.client_id, "client metadata id"), clientMetadataUrl);
   const authorizationUrl = new URL(metadata.authorizationEndpoint);
-  const requestedScopes = requestedHostedOAuthScopes(metadata);
+  const requestedScopes = stringField(clientMetadataBody.scope, "client metadata scope").split(/\s+/);
 
   authorizationUrl.searchParams.set("response_type", "code");
   authorizationUrl.searchParams.set("client_id", clientMetadataUrl);

@@ -335,13 +335,17 @@ async function startHostedSuccessFixture(extraToolName?: string) {
     }
 
     if (request.method === "POST" && url.pathname === "/oauth/register") {
+      const registration = JSON.parse(await readRequestBody(request)) as { scope?: string };
+      assert.ok(registration.scope?.split(/\s+/).includes("assets:review:read"));
       writeJson(response, 201, {
         client_id: "vrdx_app_0123456789abcdef01234567",
         client_name: "VRDex MCP Client",
         grant_types: ["authorization_code"],
         redirect_uris: ["http://localhost:8765/callback"],
         response_types: ["code"],
-        scope: "public:read mcp:read mcp:write events:write",
+        authorization_server: origin,
+        resource: `${origin}/mcp`,
+        scope: registration.scope,
         token_endpoint_auth_method: "none",
       });
       return;
@@ -497,6 +501,25 @@ async function startHostedSuccessFixture(extraToolName?: string) {
 }
 
 describe("MCP compatibility smoke CLI", () => {
+  it("requests classified owned-read scopes during hosted DCR", async () => {
+    const fixture = await startHostedSuccessFixture();
+
+    try {
+      const result = await runSmokeAsync([
+        "--hosted-only",
+        "--hosted-url",
+        `${fixture.origin}/mcp`,
+        "--dcr",
+      ]);
+
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stdout, /\| Hosted Dynamic Client Registration \| pass \|/);
+      assert.match(result.stdout, /assets:review:read/);
+    } finally {
+      await fixture.close();
+    }
+  });
+
   it("reports one generic local protocol smoke without claiming client compatibility", () => {
     const result = runSmoke([]);
 

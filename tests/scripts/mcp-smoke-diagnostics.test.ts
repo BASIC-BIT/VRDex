@@ -45,6 +45,20 @@ describe("MCP smoke diagnostics", () => {
       ),
       true,
     );
+    assert.equal(
+      isExpectedOAuthAuthorizationRedirect(
+        "https://preview.example/sign-in?redirectTo=%2Foauth%2Fauthorize%3Fclient_id%3Dmetadata-url",
+        "https://preview.example",
+      ),
+      true,
+    );
+    assert.equal(
+      isExpectedOAuthAuthorizationRedirect(
+        "https://preview.example/sign-in?returnTo=%2Foauth%2Fauthorize&redirectTo=%2Foauth%2Fauthorize",
+        "https://preview.example",
+      ),
+      false,
+    );
   });
 
   it("summarizes tool-error content and structured content", () => {
