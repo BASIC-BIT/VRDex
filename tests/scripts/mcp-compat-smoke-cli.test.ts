@@ -4,6 +4,8 @@ import { once } from "node:events";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { describe, it } from "node:test";
 
+import { smokeHostedClientMetadataDocument } from "../../scripts/smoke-vrdex-mcp-compat";
+
 const expectedTools = [
   "search",
   "fetch",
@@ -14,17 +16,9 @@ const expectedTools = [
   "vrdex_get_world",
   "vrdex_list_active_worlds",
 ];
-// A correct hosted deployment registers all six unconditionally, so the
-// success fixture has to model all six: the smoke now fails a deployment that
+// A correct hosted deployment registers all write tools unconditionally, so the
+// success fixture has to model all of them: the smoke now fails a deployment that
 // is missing one, which is the whole point of asserting rather than flagging.
-const expectedWriteTools = [
-  "vrdex_event_create",
-  "vrdex_event_update",
-  "vrdex_profile_media_manage",
-  "vrdex_profile_media_submit",
-  "vrdex_profile_update",
-  "vrdex_profile_submit",
-];
 // Per tool, mirroring the server. A fixture that gave every write tool the same
 // pair would keep passing a server that had stopped distinguishing them.
 const writeToolScopes: Record<string, string> = {
@@ -34,17 +28,61 @@ const writeToolScopes: Record<string, string> = {
   vrdex_profile_media_submit: "assets:contribute",
   vrdex_profile_update: "profile:write",
   vrdex_profile_submit: "profile:contribute",
+  vrdex_contribution_capacity_request: "assets:contribute",
+  vrdex_contribution_batch_create: "assets:contribute",
+  vrdex_contribution_batch_append: "assets:contribute",
+  vrdex_contribution_batch_archive: "assets:contribute",
+  vrdex_contribution_item_submit: "assets:contribute",
+  vrdex_contribution_item_revise: "assets:contribute",
+  vrdex_media_upload_begin: "assets:contribute",
+  vrdex_media_upload_complete: "assets:contribute",
+  vrdex_media_review_decide: "assets:review:write",
+  vrdex_media_review_rebase: "assets:review:write",
+  vrdex_media_review_decide_selected: "assets:review:write",
+  vrdex_media_submission_withdraw: "assets:contribute",
+  vrdex_media_submission_publish: "assets:publish",
+  vrdex_media_submission_declare: "assets:publish",
 };
+const expectedWriteTools = Object.keys(writeToolScopes);
 // Reads, but of the caller's own inventory, so they advertise a scope pair
 // rather than the anonymous public-read pair every other read carries.
-const expectedOwnedReadTools = [
-  "vrdex_list_my_media_submissions",
-  "vrdex_list_my_profiles",
-];
-const ownedReadToolScopes: Record<string, string> = {
+const contributionCollectionReadScopes = ["profile:contribute", "assets:contribute", "assets:review:read"];
+const ownedReadToolScopes: Record<string, string | string[]> = {
+  vrdex_contribution_capacity: contributionCollectionReadScopes,
+  vrdex_contribution_capacity_requests: contributionCollectionReadScopes,
+  vrdex_contribution_status: contributionCollectionReadScopes,
+  vrdex_contribution_batch_get: contributionCollectionReadScopes,
+  vrdex_contribution_batch_items: contributionCollectionReadScopes,
   vrdex_list_my_media_submissions: "assets:contribute",
   vrdex_list_my_profiles: "profile:read",
+  vrdex_get_my_media_submission: "assets:contribute",
+  vrdex_media_review_assignments: "assets:review:read",
+  vrdex_media_review_list: "assets:review:read",
+  vrdex_media_review_get: "assets:review:read",
+  vrdex_media_review_preview: "assets:review:read",
+  vrdex_media_submission_get: "assets:publish",
+  vrdex_media_submission_preview: "assets:publish",
 };
+const expectedOwnedReadTools = Object.keys(ownedReadToolScopes);
+
+function securitySchemesForTool(name: string) {
+  if (expectedWriteTools.includes(name)) {
+    const scopes = name.startsWith("vrdex_contribution_")
+      ? ["profile:contribute", "assets:contribute"].map((scope) => ["mcp:write", scope])
+      : name === "vrdex_media_upload_begin" || name === "vrdex_media_upload_complete"
+        ? ["assets:write", "assets:contribute"].map((scope) => ["mcp:write", scope])
+        : [["mcp:write", writeToolScopes[name]]];
+    if (name === "vrdex_contribution_batch_append") {
+      scopes.push(["mcp:write", "assets:contribute", "profile:contribute"]);
+    }
+    return scopes.map((scope) => ({ scopes: scope, type: "oauth2" }));
+  }
+  if (expectedOwnedReadTools.includes(name)) {
+    const scopes = ownedReadToolScopes[name];
+    return (Array.isArray(scopes) ? scopes : [scopes]).map((scope) => ({ scopes: ["mcp:read", scope], type: "oauth2" }));
+  }
+  return [{ type: "noauth" }, { scopes: ["mcp:read"], type: "oauth2" }];
+}
 
 function smokeEnv() {
   return {
@@ -145,7 +183,7 @@ async function startHostedFailureFixture() {
       writeJson(response, 200, {
         authorization_servers: [origin],
         resource: `${origin}/mcp`,
-        scopes_supported: ["mcp:read", "profile:read", "mcp:write", "assets:write", "assets:contribute", "events:write", "profile:write", "profile:contribute"],
+        scopes_supported: ["mcp:read", "profile:read", "mcp:write", "assets:write", "assets:contribute", "assets:review:read", "assets:review:write", "assets:publish", "events:write", "profile:write", "profile:contribute"],
       });
       return;
     }
@@ -218,16 +256,7 @@ async function startHostedFailureFixture() {
           // the write tools out made the smoke abort on the tool list before it
           // reached the read failures this test is about.
           tools: [...expectedTools, ...expectedOwnedReadTools, ...expectedWriteTools].map((name) => ({
-            _meta: {
-              securitySchemes: expectedWriteTools.includes(name)
-                ? [{ scopes: ["mcp:write", writeToolScopes[name]], type: "oauth2" }]
-                : expectedOwnedReadTools.includes(name)
-                ? [{ scopes: ["mcp:read", ownedReadToolScopes[name]], type: "oauth2" }]
-                : [
-                  { type: "noauth" },
-                  { scopes: ["mcp:read"], type: "oauth2" },
-                ],
-            },
+            _meta: { securitySchemes: securitySchemesForTool(name) },
             name,
           })),
         },
@@ -282,7 +311,7 @@ async function startHostedFailureFixture() {
   };
 }
 
-async function startHostedSuccessFixture() {
+async function startHostedSuccessFixture(extraToolName?: string, omittedScope?: string) {
   const server = createServer(async (request, response) => {
     const origin = `http://${request.headers.host}`;
     const url = new URL(request.url ?? "/", origin);
@@ -291,7 +320,7 @@ async function startHostedSuccessFixture() {
       writeJson(response, 200, {
         authorization_servers: [origin],
         resource: `${origin}/mcp`,
-        scopes_supported: ["mcp:read", "profile:read", "mcp:write", "assets:write", "assets:contribute", "events:write", "profile:write", "profile:contribute"],
+        scopes_supported: ["mcp:read", "profile:read", "mcp:write", "assets:write", "assets:contribute", "assets:review:read", "assets:review:write", "assets:publish", "events:write", "profile:write", "profile:contribute"].filter((scope) => scope !== omittedScope),
       });
       return;
     }
@@ -308,13 +337,17 @@ async function startHostedSuccessFixture() {
     }
 
     if (request.method === "POST" && url.pathname === "/oauth/register") {
+      const registration = JSON.parse(await readRequestBody(request)) as { scope?: string };
+      assert.ok(registration.scope?.split(/\s+/).includes("assets:review:read"));
       writeJson(response, 201, {
         client_id: "vrdx_app_0123456789abcdef01234567",
         client_name: "VRDex MCP Client",
         grant_types: ["authorization_code"],
         redirect_uris: ["http://localhost:8765/callback"],
         response_types: ["code"],
-        scope: "public:read mcp:read mcp:write events:write",
+        authorization_server: origin,
+        resource: `${origin}/mcp`,
+        scope: registration.scope,
         token_endpoint_auth_method: "none",
       });
       return;
@@ -367,17 +400,8 @@ async function startHostedSuccessFixture() {
         id: body.id,
         jsonrpc: "2.0",
         result: {
-          tools: [...expectedTools, ...expectedOwnedReadTools, ...expectedWriteTools].map((name) => ({
-            _meta: {
-              securitySchemes: expectedWriteTools.includes(name)
-                ? [{ scopes: ["mcp:write", writeToolScopes[name]], type: "oauth2" }]
-                : expectedOwnedReadTools.includes(name)
-                ? [{ scopes: ["mcp:read", ownedReadToolScopes[name]], type: "oauth2" }]
-                : [
-                    { type: "noauth" },
-                    { scopes: ["mcp:read"], type: "oauth2" },
-                  ],
-            },
+          tools: [...expectedTools, ...expectedOwnedReadTools, ...expectedWriteTools, ...(extraToolName ? [extraToolName] : [])].map((name) => ({
+            _meta: { securitySchemes: securitySchemesForTool(name) },
             name,
           })),
         },
@@ -479,6 +503,93 @@ async function startHostedSuccessFixture() {
 }
 
 describe("MCP compatibility smoke CLI", () => {
+  it("fetches and validates the HTTPS CIMD document and authorization redirect", async () => {
+    const issuer = "https://app.example.test";
+    const clientId = `${issuer}/.well-known/oauth-client/vrdex-mcp-public-client`;
+    const metadata = {
+      authorizationEndpoint: `${issuer}/oauth/authorize`,
+      issuer,
+      registrationEndpoint: `${issuer}/oauth/register`,
+      resource: `${issuer}/mcp`,
+      scopes: ["mcp:read"],
+    };
+    const options = {
+      clientMetadataDocument: true,
+      continueOnFailure: false,
+      dynamicRegistration: false,
+      hostedOnly: true,
+      hostedDataPublicReads: false,
+      hostedSearchQuery: "club",
+    };
+    const run = async (status = 200, returnedId = clientId, scope = "mcp:read public:read", location = `${issuer}/sign-in?next=/oauth/authorize`) => {
+      const originalFetch = globalThis.fetch;
+      const results: { details: string; name: string; status: "fail" | "pass" | "skip" }[] = [];
+      let requests = 0;
+      globalThis.fetch = async (input, init) => {
+        const url = new URL(String(input));
+        requests += 1;
+        if (requests === 1) {
+          assert.equal(url.toString(), clientId);
+          assert.deepEqual(init?.headers, { accept: "application/json" });
+          return Response.json({ client_id: returnedId, scope }, { status });
+        }
+        assert.equal(requests, 2);
+        assert.equal(url.origin + url.pathname, metadata.authorizationEndpoint);
+        assert.equal(url.searchParams.get("client_id"), clientId);
+        assert.equal(url.searchParams.get("scope"), "mcp:read public:read");
+        assert.equal(url.searchParams.get("redirect_uri"), "http://localhost:8765/callback");
+        assert.equal(url.searchParams.get("resource"), metadata.resource);
+        assert.equal(init?.redirect, "manual");
+        return new Response(null, { status: 302, headers: { location } });
+      };
+      try {
+        await smokeHostedClientMetadataDocument(metadata, options, results);
+        return results;
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    };
+
+    assert.match((await run())[0]?.details ?? "", /accepted for scopes=mcp:read public:read/);
+    await assert.rejects(run(404), /expected HTTP 200, got HTTP 404/);
+    await assert.rejects(run(200, `${issuer}/wrong-client`), /wrong-client/);
+    await assert.rejects(run(200, clientId, "mcp:write"), /mcp:read/);
+    await assert.rejects(run(200, clientId, "mcp:read public:read", "https://attacker.example/sign-in?next=/oauth/authorize"), /unexpected authentication redirect/);
+  });
+
+  it("rejects protected-resource metadata missing a classified owned-read scope before DCR", async () => {
+    const fixture = await startHostedSuccessFixture(undefined, "assets:review:read");
+
+    try {
+      const result = await runSmokeAsync(["--hosted-only", "--hosted-url", `${fixture.origin}/mcp`, "--dcr"]);
+
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /metadata omits assets:review:read, required by vrdex_contribution_capacity/);
+      assert.doesNotMatch(result.stdout, /Hosted Dynamic Client Registration/);
+    } finally {
+      await fixture.close();
+    }
+  });
+
+  it("requests classified owned-read scopes during hosted DCR", async () => {
+    const fixture = await startHostedSuccessFixture();
+
+    try {
+      const result = await runSmokeAsync([
+        "--hosted-only",
+        "--hosted-url",
+        `${fixture.origin}/mcp`,
+        "--dcr",
+      ]);
+
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stdout, /\| Hosted Dynamic Client Registration \| pass \|/);
+      assert.match(result.stdout, /assets:review:read/);
+    } finally {
+      await fixture.close();
+    }
+  });
+
   it("reports one generic local protocol smoke without claiming client compatibility", () => {
     const result = runSmoke([]);
 
@@ -558,6 +669,19 @@ describe("MCP compatibility smoke CLI", () => {
       assert.match(result.stdout, /\| Hosted OpenAI-compatible search\/fetch \| pass \|/);
       assert.match(result.stdout, /query="afterglow"/);
       assert.match(result.stdout, /id=profile:community:afterglow/);
+    } finally {
+      await fixture.close();
+    }
+  });
+
+  it("rejects an unclassified hosted tool even when it advertises public-read metadata", async () => {
+    const fixture = await startHostedSuccessFixture("vrdex_future_private_read");
+
+    try {
+      const result = await runSmokeAsync(["--hosted-only", "--hosted-url", `${fixture.origin}/mcp`]);
+
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /Hosted tool vrdex_future_private_read is unclassified/);
     } finally {
       await fixture.close();
     }
