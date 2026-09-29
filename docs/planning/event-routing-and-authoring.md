@@ -1,6 +1,6 @@
 # Event Routing And Authoring
 
-Future editor direction (2026-09-29): [visual reference](./event-editor-visual-reference-2026-09-29.md). The current one-poster, separate-artwork-selection flow described below remains implemented behavior. BASIC's newer direction combines text and multiple images in one discovery run and treats the event poster as artwork without a separate opt-in.
+Contributor editor (2026-09-29): [visual reference](./event-editor-visual-reference-2026-09-29.md). Contributor creation now uses Source, Details, Lineup, and Review inside the existing header and footer. Owner/staff and correction presentation remain separate pending the next implementation tasks.
 
 ## Status
 
@@ -21,7 +21,7 @@ Current implementation incorporates the 2026-08-31 owner-editor decisions and th
 - Event URLs use the automatically generated seven-character short-link code.
 - Event URL codes are not editable and do not occupy the root profile and world
   slug namespace.
-- The browser editor calls the session area `Schedule`, not `Program`, `Lineup`,
+- The owner browser editor calls the session area `Schedule`, not `Program`, `Lineup`,
   or `Set times`.
 - The browser editor has one public Description field. Private notes are visible
   only to authorized event managers.
@@ -49,10 +49,27 @@ contribution needs a community, title and known date. An explicit Time TBA state
 needs no timezone; timed publication needs an IANA timezone and resolved local
 time. The date-only backend switch must be enabled after its migration.
 
-Manual entry, pasted text and private posters share a versioned draft. Extraction
-proposes tentative fields for explicit acceptance or editing. Uploading or parsing
-a poster never selects public artwork. Publish goes directly to the canonical
-event page; save draft stays in the editor. Unknown dates remain drafts.
+Manual entry, pasted text and up to five ordered private poster images share one
+controlled versioned draft across the contributor steps. One extraction submits
+all current text and images together. Details and Lineup retain tentative values
+for explicit acceptance, source evidence, and unresolved questions on resume.
+Changing sources invalidates suggestions and evidence while keeping accepted fields.
+
+The first chosen image becomes artwork after verified upload and processing.
+Contributors can explicitly select another primary image or remove an image.
+Removing the primary selects the first remaining image; removing a secondary
+preserves the explicit primary. Private evidence and public artwork derivatives
+remain separate. Uploads, primary changes, and saves retain draft version checks.
+
+Lineup rows show matched public profile pictures with a name fallback. Native
+local dates and times map to the existing day-offset contract; numeric offsets
+are not exposed. Repeated hours retain an explicit occurrence choice. The side
+preview uses viewer-local timed dates and moves below the editor on narrow screens.
+
+Review links back to Details and Lineup. Preflight reveals missing or unresolved
+fields; similar events appear only after the existing duplicate check finds them.
+Publish goes directly to the canonical event page. Save draft remains available
+at every step and stays in the editor. Unknown dates remain drafts.
 
 ```mermaid
 flowchart LR
@@ -60,8 +77,17 @@ flowchart LR
   Community[Community page] --> Add
   Direct[Direct community or draft link] --> Auth[Sign in if needed and return]
   Add --> Auth
-  Auth --> Intake[Manual, text or private poster draft]
-  Intake --> Review[Accept or edit tentative details]
+  Auth --> Source[Source: text and images, or manual entry]
+  Source --> Details[Details: accept or edit]
+  Details --> Lineup[Lineup: people and local dates]
+  Lineup --> Review[Review]
+  Review --> Details
+  Review --> Lineup
+  Source --> Saved[Save draft and resume]
+  Details --> Saved
+  Lineup --> Saved
+  Review --> Saved
+  Saved --> Source
   Review --> Publish[Preflight and publish]
   Publish --> Public[Canonical event page]
   Public --> Discovery[Public search and community events]

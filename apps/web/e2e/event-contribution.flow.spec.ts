@@ -3,6 +3,7 @@ import { expect, test } from "@playwright/test";
 for (const mode of ["draft", "correction"] as const) {
   test(`${mode} retains its editing revision across query refresh @flow @fixture`, async ({ page }) => {
     await page.goto(`/playwright/event-intake?revision=${mode}`);
+    if (mode === "draft") await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Details", exact: true }).click();
     if (mode === "correction") await page.getByRole("button", { name: "Correct event", exact: true }).click();
     await page.getByLabel("Event title", { exact: true }).fill("My local edit");
     await page.getByRole("button", { name: "Update elsewhere" }).click();
@@ -18,6 +19,7 @@ for (const mode of ["draft", "correction"] as const) {
 
 test("draft advances its revision only after a successful local save @flow @fixture", async ({ page }) => {
   await page.goto("/playwright/event-intake?revision=draft");
+  await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Details", exact: true }).click();
   await page.getByLabel("Event title", { exact: true }).fill("First edit");
   await page.getByRole("button", { name: "Save draft", exact: true }).click();
   await expect(page.getByRole("status")).toHaveText("Draft saved");
@@ -69,8 +71,9 @@ test("intake draft resumes, date-only publishes directly, and has no mobile over
   await page.getByLabel("Event title", { exact: true }).fill("Summer gathering");
   await page.getByLabel("Date", { exact: true }).fill("2027-07-15");
   await page.getByLabel("Time TBA").check();
+  await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Lineup", exact: true }).click();
   await page.getByRole("button", { name: "Add performer" }).click();
-  await page.getByLabel("Performer", { exact: true }).fill("Aurora");
+  await page.getByRole("textbox", { name: "Performer", exact: true }).fill("Aurora");
   await page.getByRole("button", { name: "Save draft", exact: true }).click();
   await expect(page.getByRole("status")).toHaveText("Draft saved");
   await page.reload();
@@ -79,6 +82,7 @@ test("intake draft resumes, date-only publishes directly, and has no mobile over
   await page.evaluate(() => window.scrollTo(0, 0));
   await expect(page.getByRole("heading", { name: "Add event", exact: true })).toBeInViewport();
   await page.screenshot({ path: testInfo.outputPath("event-intake.png"), fullPage: true });
+  await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Review", exact: true }).click();
   await page.getByRole("button", { name: "Publish event", exact: true }).click();
   await expect(page).toHaveURL(/\/playwright-afterglow-social\/events\/playwright-afterglow-harbor-sessions$/);
   await expect(page.getByRole("heading", { name: "Afterglow Harbor Sessions", exact: true })).toBeVisible();
@@ -91,12 +95,14 @@ test("ambiguous start requires occurrence and gap is refused @flow @fixture", as
   const timezone = page.getByRole("combobox", { name: "Time zone" });
   await timezone.fill("EST"); await timezone.press("ArrowDown"); await timezone.press("Enter");
   await page.getByLabel("Start time", { exact: true }).fill("01:30");
+  await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Review", exact: true }).click();
   await page.getByRole("button", { name: "Publish event" }).click();
   await expect(page.getByRole("status")).toContainText("Ambiguous local time");
   await page.getByLabel("Start time occurrence").selectOption("later");
   await page.getByLabel("Date", { exact: true }).fill("2027-03-14");
   await page.getByLabel("Start time", { exact: true }).fill("02:30");
   await expect(page.getByText("This local time does not exist.", { exact: true })).toBeVisible();
+  await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Review", exact: true }).click();
   await page.getByRole("button", { name: "Publish event" }).click();
   await expect(page.getByRole("status")).toContainText("Local time does not exist");
 });
@@ -109,6 +115,7 @@ test("manual publish reads back direct URL, search and community fixtures @flow 
   await page.getByLabel("Event title", { exact: true }).fill("Afterglow Harbor Sessions");
   await page.getByLabel("Date", { exact: true }).fill("2027-07-15");
   await page.getByLabel("Time TBA").check();
+  await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Review", exact: true }).click();
   await page.getByRole("button", { name: "Publish event", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`${eventPath}$`));
   await page.reload();
