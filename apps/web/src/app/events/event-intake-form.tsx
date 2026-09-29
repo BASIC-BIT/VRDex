@@ -124,7 +124,7 @@ function ConnectedIntake({ draftId, initialCommunitySlug }: { draftId?: string; 
       body.append(upload.transfer.fileField, file);
       const response = await fetch(upload.transfer.url, { method: "POST", body, credentials: "omit", redirect: "error" });
       if (!response.ok) throw new Error("UPLOAD_FAILED");
-      const completed = await websiteIntakeCommand("poster_upload_complete", { draftId: current.draftId, posterAssetId: upload.posterAssetId });
+      const completed = await websiteIntakeCommand("poster_upload_complete", { draftId: current.draftId, posterAssetId: upload.posterAssetId, expectedVersion: current.version });
       saved.current = { ...current, version: completed.version };
       const next = { ...staged, posterSourceId: upload.posterAssetId, tentative: undefined, questions: undefined };
       await saveFields(next, revision);

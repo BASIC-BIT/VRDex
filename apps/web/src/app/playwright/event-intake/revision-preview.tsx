@@ -70,7 +70,10 @@ function revisionFixture(correction: boolean, sourceMode?: string, staff = false
   } as unknown as ConvexReactClient;
 
   const transport: typeof fetch = async (input, init) => {
-    if (String(input).endsWith("/fixture-upload")) return new Response(null, { status: 204 });
+    if (String(input).endsWith("/fixture-upload")) {
+      if (sourceMode === "upload-stale") refresh({ venueLabel: "Changed elsewhere" });
+      return new Response(null, { status: 204 });
+    }
     const { operation, input: args } = JSON.parse(String(init?.body));
     if ("actorUserId" in args) throw new Error("Browser actor forbidden");
     switch (operation) {
@@ -79,7 +82,9 @@ function revisionFixture(correction: boolean, sourceMode?: string, staff = false
         sessionStorage.setItem("fixture-upload-count", String(count));
         return Response.json({ posterAssetId: `poster-${count}`, expiresAt: Date.now() + 60000, transfer: { method: "POST", url: `${location.origin}/fixture-upload`, fields: {}, fileField: "file" } });
       }
-      case "poster_upload_complete": return Response.json({ posterAssetId: args.posterAssetId, version });
+      case "poster_upload_complete":
+        if (args.expectedVersion !== undefined && args.expectedVersion !== version) return Response.json({}, { status: 409 });
+        return Response.json({ posterAssetId: args.posterAssetId, version });
       case "poster_read": {
         if (sourceMode === "preview-failure") return Response.json({}, { status: 503 });
         if (sourceMode === "replacement-delay" && args.posterAssetId === "poster-2") await new Promise<void>(resolve => window.addEventListener("release-poster-preview", () => resolve(), { once: true }));

@@ -265,6 +265,30 @@ it("keeps ordered artwork on the first source and allows explicit reselection", 
  assert.equal((await t.run(ctx=>ctx.db.get(draftId)))?.artworkAssetId,explicit.artworkAssetId);
 });
 
+it("rejects an external draft edit during upload completion and automatic selection", async () => {
+ const {t,actorUserId,draftId}=await fixture();
+ const source=await t.mutation(ref("beginPosterUpload"),{actorUserId,draftId,contentType:"image/png",byteLength:128,sha256:"a".repeat(64)});
+ await t.run(ctx=>ctx.db.patch(draftId,{version:2,fields:{title:"Edited elsewhere"}}));
+ await assert.rejects(t.mutation(ref("completePosterUpload"),{actorUserId,posterAssetId:source.posterAssetId,sha256:"a".repeat(64),expectedVersion:1}),/VERSION_CONFLICT/);
+ assert.equal((await t.run(ctx=>ctx.db.get(source.posterAssetId)))?.state,"pending");
+ const completed=await t.mutation(ref("completePosterUpload"),{actorUserId,posterAssetId:source.posterAssetId,sha256:"a".repeat(64),expectedVersion:2});
+ await t.run(ctx=>ctx.db.patch(draftId,{version:3,fields:{title:"Edited again"}}));
+ await assert.rejects(t.mutation(ref("selectPosterArtwork"),{actorUserId,draftId,posterAssetId:source.posterAssetId,expectedVersion:completed.version,automatic:true}),/VERSION_CONFLICT/);
+ assert.deepEqual((await t.run(ctx=>ctx.db.get(draftId)))?.fields,{title:"Edited again"});
+});
+
+it("replays versioned completion after its own automatic artwork revision", async () => {
+ const {t,actorUserId,draftId}=await fixture();
+ const source=await t.mutation(ref("beginPosterUpload"),{actorUserId,draftId,contentType:"image/png",byteLength:128,sha256:"a".repeat(64)});
+ const args={actorUserId,posterAssetId:source.posterAssetId,sha256:"a".repeat(64),expectedVersion:1};
+ const completed=await t.mutation(ref("completePosterUpload"),args);
+ const selected=await t.mutation(ref("selectPosterArtwork"),{actorUserId,draftId,posterAssetId:source.posterAssetId,expectedVersion:completed.version,automatic:true});
+ await t.mutation(ref("completeArtwork"),{actorUserId,artworkAssetId:selected.artworkAssetId,expectedVersion:1,sha256:"b".repeat(64),byteLength:100,automatic:true});
+ const replay=await t.mutation(ref("completePosterUpload"),args);
+ assert.equal(replay.version,2);
+ assert.equal(replay.artworkAssetId,selected.artworkAssetId);
+});
+
 it("clears removed artwork, chooses the next ready image, and rejects stale completions", async () => {
  const {t,actorUserId,draftId}=await fixture();
  const make=async()=>t.mutation(ref("beginPosterUpload"),{actorUserId,draftId,contentType:"image/png",byteLength:128,sha256:"a".repeat(64)});

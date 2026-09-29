@@ -103,7 +103,7 @@ export const EventIntakeDraftIdSchema = z.strictObject({ draftId: intakeId });
 export const ExtractEventIntakeSchema = EventIntakeDraftIdSchema.extend({ sourceText: text(12_000).optional(), posterAssetId: intakeId.optional(), posterAssetIds: posterIds.optional() })
   .refine(value => !value.posterAssetId || !value.posterAssetIds || value.posterAssetIds[0] === value.posterAssetId, "Poster asset IDs disagree.");
 export const BeginEventPosterUploadSchema = EventIntakeDraftIdSchema.extend(EventPosterDeclarationSchema.shape);
-export const CompleteEventPosterUploadSchema = EventIntakeDraftIdSchema.extend({ posterAssetId: intakeId });
+export const CompleteEventPosterUploadSchema = EventIntakeDraftIdSchema.extend({ posterAssetId: intakeId, expectedVersion: version.optional() });
 export const SelectEventArtworkSchema = CompleteEventPosterUploadSchema.omit({ posterAssetId: true }).extend({ posterAssetId: intakeId.nullable(), expectedVersion: version });
 export const UpdateEventContributionSchema = z.strictObject({
   slug: text(200).min(1), expectedUpdatedAt: z.number(),

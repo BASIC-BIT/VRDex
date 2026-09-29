@@ -43,11 +43,12 @@ export const beginPosterUpload = internalMutation({
 });
 export const readActorSource = internalQuery({ args: { ...actor, ...sourceArg }, returns: v.any(), handler: (ctx, args) => ownSource(ctx.db, args.actorUserId, args.posterAssetId) });
 // Internal completion is called only by the server bridge after full decoding and digest verification.
-export const completePosterUpload = internalMutation({ args: { ...actor, ...sourceArg, sha256: v.string() }, returns: v.any(), handler: async (ctx, args) => {
+export const completePosterUpload = internalMutation({ args: { ...actor, ...sourceArg, sha256: v.string(), expectedVersion: v.optional(v.number()) }, returns: v.any(), handler: async (ctx, args) => {
   const source = await ownSource(ctx.db, args.actorUserId, args.posterAssetId);
   if (source.sha256 !== args.sha256) throw new Error("POSTER_DIGEST_MISMATCH");
   const draft = await getActorIntakeDraft(ctx.db, args.actorUserId, source.draftId);
   if (draft.publishedReceiptId) throw new Error("DRAFT_PUBLISHED");
+  if (args.expectedVersion !== undefined && draft.version !== args.expectedVersion && !(source.state === "ready" && draft.artworkSourceId === source._id && draft.artworkAssetId && draft.version === args.expectedVersion + 1)) throw new Error("VERSION_CONFLICT");
   if (source.state !== "ready") await ctx.db.patch(source._id, { state: "ready", lastActivityAt: draft.updatedAt, expiresAt: Math.min(source.uploadedAt + 180 * DAY, draft.updatedAt + 30 * DAY, Date.now() + DAY) });
   const ordered = draft.fields.posterSourceIds as string[] | undefined;
   const first = ordered ? ordered[0] : draft.fields.posterSourceId;
@@ -65,7 +66,7 @@ export const getPosterSource = query({ args: sourceArg, returns: v.any(), handle
 export const selectPosterArtwork = internalMutation({ args: { ...actor, posterAssetId: v.union(v.id("eventPosterSources"), v.null()), draftId: v.id("eventIntakeDrafts"), expectedVersion: v.number(), automatic: v.optional(v.boolean()) }, returns: v.any(), handler: async (ctx, args) => {
   const draft = await getActorIntakeDraft(ctx.db, args.actorUserId, args.draftId);
   if (draft.publishedReceiptId) throw new Error("DRAFT_PUBLISHED");
-  if (!args.automatic && draft.version !== args.expectedVersion) throw new Error("VERSION_CONFLICT");
+  if (draft.version !== args.expectedVersion) throw new Error("VERSION_CONFLICT");
   const ordered = draft.fields.posterSourceIds as string[] | undefined;
   let sourceId = args.posterAssetId;
   if (sourceId === null) {

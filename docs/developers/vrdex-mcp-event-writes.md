@@ -27,7 +27,9 @@ Publication returns `eventId`, `eventPath`, and `receiptId`. After a lost respon
 read the draft and replay publication with the same version and idempotency key.
 Never make a new draft or key just because the response was lost. Save ordered
 `posterSourceIds` before upload completion, then use the completion response's
-`version` for the next save. The first ready image in that order becomes artwork.
+`version` for the next save. Pass the saved draft `version` as `expectedVersion`
+to completion when another editor may change the draft during upload. The first
+image in that order becomes artwork once ready.
 Use `artwork_select` to switch it, or pass `posterAssetId: null` after removal
 to choose the next ready source or clear artwork when the list is empty.
 Call `event_get` with the published slug to obtain `updatedAt` before

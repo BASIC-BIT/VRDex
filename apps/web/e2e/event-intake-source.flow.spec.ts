@@ -66,6 +66,15 @@ test("stale extraction never applies candidate fields @flow @fixture", async ({ 
   await expect(page.getByRole("heading",{name:"Tentative details"})).toHaveCount(0);
 });
 
+test("upload completion preserves an external draft edit @flow @fixture", async ({ page }) => {
+  await page.goto("/playwright/event-intake?source=upload-stale");
+  await page.getByLabel("Poster", { exact: true }).setInputFiles("public/test-media/event-poster.png");
+  await expect(page.getByRole("status")).toContainText("This draft changed elsewhere.");
+  const saved = await page.evaluate(() => JSON.parse(sessionStorage.getItem("fixture-source-draft")!));
+  expect(saved.fields.venueLabel).toBe("Changed elsewhere");
+  expect(saved.fields.posterSourceId).toBeUndefined();
+});
+
 
 test("uploaded source remains usable when preview fails @flow @fixture", async ({ page }) => {
   await page.goto("/playwright/event-intake?source=preview-failure");

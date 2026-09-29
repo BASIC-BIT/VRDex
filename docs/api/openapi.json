@@ -3957,6 +3957,11 @@
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 200
+                  },
+                  "expectedVersion": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
                   }
                 },
                 "required": [
@@ -4117,6 +4122,11 @@
               "schema": {
                 "type": "object",
                 "properties": {
+                  "expectedVersion": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
                   "posterAssetId": {
                     "anyOf": [
                       {
@@ -4128,16 +4138,11 @@
                         "type": "null"
                       }
                     ]
-                  },
-                  "expectedVersion": {
-                    "type": "integer",
-                    "exclusiveMinimum": 0,
-                    "maximum": 9007199254740991
                   }
                 },
                 "required": [
-                  "posterAssetId",
-                  "expectedVersion"
+                  "expectedVersion",
+                  "posterAssetId"
                 ],
                 "additionalProperties": false
               }

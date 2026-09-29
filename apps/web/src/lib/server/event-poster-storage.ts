@@ -39,7 +39,7 @@ export function createEventPosterHandlers(deps: Dependencies) {
       const transfer = await (deps.target ?? createProfileAssetDirectUploadTarget)({ storageKey: reserved.uploadStorageKey, contentType: declaration.contentType, byteSize: declaration.byteLength, expiresAt: reserved.expiresAt });
       return { posterAssetId: reserved.posterAssetId, expiresAt: reserved.expiresAt, transfer: { method: "POST" as const, ...transfer, fileField: "file" } };
     },
-    async completePosterUpload(input: { posterAssetId: Id<"eventPosterSources"> }) {
+    async completePosterUpload(input: { posterAssetId: Id<"eventPosterSources">; expectedVersion?: number }) {
       const source = await own(input.posterAssetId);
       if (source.state !== "ready") {
         if (!source.uploadStorageKey || !source.storageKey) throw new Error("POSTER_NOT_READY");
@@ -51,7 +51,7 @@ export function createEventPosterHandlers(deps: Dependencies) {
         if (remaining <= 0) throw new Error("POSTER_WRITE_EXPIRED");
         await put({ storageKey: source.storageKey, body: object.body, contentType: source.contentType, cacheControl: "private, no-store", signal: AbortSignal.timeout(remaining) });
       }
-      const completed = await admin().mutation(internal.eventIntakeSources.completePosterUpload, { ...await deps.authority(), posterAssetId: input.posterAssetId, sha256: source.sha256 });
+      const completed = await admin().mutation(internal.eventIntakeSources.completePosterUpload, { ...await deps.authority(), posterAssetId: input.posterAssetId, sha256: source.sha256, expectedVersion: input.expectedVersion });
       if (!completed.autoSourceId) return { posterAssetId: input.posterAssetId, ...(completed.artworkAssetId ? { artworkAssetId: completed.artworkAssetId } : {}), version: completed.version };
       const selected = await this.selectPosterArtwork({ draftId: source.draftId, posterAssetId: input.posterAssetId, expectedVersion: completed.version, automatic: true });
       return { posterAssetId: input.posterAssetId, ...(selected.artworkAssetId ? { artworkAssetId: selected.artworkAssetId } : {}), version: selected.version };
