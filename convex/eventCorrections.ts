@@ -245,11 +245,10 @@ export const listEventReports = query({ args: { cursor: v.union(v.string(), v.nu
   const managed = moderator ? [] : await managedCommunitiesForBrowser(ctx, { includeNonPublic: true });
   if (!moderator && !managed.length) throw new ConvexError({ code: "EVENT_STAFF_REQUIRED" });
   if (!Number.isInteger(args.limit) || args.limit < 1 || args.limit > 100) throw new Error("Report limit must be 1 to 100.");
-  const page = await ctx.db.query("eventReports").withIndex("by_createdAt").order("desc").paginate({ cursor: args.cursor, numItems: args.limit });
-  const allowed = new Set(managed.map(item => item.profile._id));
-  // Return the scan cursor, including empty pages. Never leak another community's reports.
-  const visible = page.page.filter(row => moderator || (row.communityProfileId && allowed.has(row.communityProfileId)));
-  return { ...page, page: await Promise.all(visible.map(async row => {
+  const reports = ctx.db.query("eventReports").withIndex("by_createdAt").order("desc");
+  const scoped = moderator ? reports : reports.filter(q => q.or(...managed.map(item => q.eq(q.field("communityProfileId"), item.profile._id))));
+  const page = await scoped.paginate({ cursor: args.cursor, numItems: args.limit });
+  return { ...page, page: await Promise.all(page.page.map(async row => {
     const event = await ctx.db.get(row.eventId);
     const community = row.communityProfileId ? await ctx.db.get(row.communityProfileId) : null;
     return { ...row, eventTitle: event?.title, eventPath: event?.slug && community ? `/${community.slug}/events/${event.slug}` : undefined };

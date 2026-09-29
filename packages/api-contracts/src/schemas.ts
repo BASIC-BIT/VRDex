@@ -286,16 +286,23 @@ export const PublicSearchEntityTypeSchema = z
   .enum(["profile", "world", "event"])
   .meta({ description: "Search result entity class." });
 
+const EventDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => {
+  const timestamp = Date.parse(`${value}T00:00:00Z`);
+  return Number.isFinite(timestamp) && new Date(timestamp).toISOString().slice(0, 10) === value;
+}, "Expected a valid calendar date");
+
 export const PublicSearchResultSchema = z
   .object({
     avatarAppearance: PublicProfileAvatarAppearanceSchema.optional(),
     entityType: PublicSearchEntityTypeSchema,
+    eventDate: EventDateSchema.optional(),
     imageUrl: absoluteOrRootRelativeUrl.optional(),
     logoImageUrl: absoluteOrRootRelativeUrl.optional(),
     profileImageUrl: absoluteOrRootRelativeUrl.optional(),
     profileType: ProfileTypeSchema.optional(),
     routePath: z.string().min(1),
     score: z.number(),
+    scheduleKind: z.enum(["timed", "date_only"]).optional(),
     slug,
     source: SourceSummarySchema.optional(),
     startsAt: timestampMs.optional(),
@@ -381,11 +388,6 @@ export const PublicEventWorldSummarySchema = z
   })
   .passthrough()
   .meta({ description: "Public event world summary." });
-
-const EventDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => {
-  const timestamp = Date.parse(`${value}T00:00:00Z`);
-  return Number.isFinite(timestamp) && new Date(timestamp).toISOString().slice(0, 10) === value;
-}, "Expected a valid calendar date");
 
 function publicScheduleSchema<T extends z.ZodRawShape>(object: z.ZodObject<T>) {
   return z.union([

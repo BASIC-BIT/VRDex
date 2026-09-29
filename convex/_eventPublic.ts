@@ -517,7 +517,7 @@ async function getPublicEventWorldRecords(db: DatabaseReader, event: Doc<"events
     .take(EVENT_ASSOCIATION_LIMIT);
 
   const records = await Promise.all(
-    associations.filter(association => association.confirmationState !== "disputed").map(async (association) => {
+    associations.filter(association => association.confirmationState === "confirmed" || (event.sourceType === "contributor" && association.sourceType === "contributor" && association.confirmationState === "unconfirmed")).map(async (association) => {
       const world = await db.get(association.worldId);
 
       if (world === null || world.publicationState !== "published") {

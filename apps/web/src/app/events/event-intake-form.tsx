@@ -97,7 +97,7 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
 
 function ConnectedIntake({ draftId, initialCommunitySlug }: { draftId?: string; initialCommunitySlug?: string }) {
   const router = useRouter();
-  const loaded = useQuery(api.eventIntake.getEventIntakeDraft, draftId ? { draftId: draftId as Id<"eventIntakeDrafts"> } : "skip");
+  const loaded = useQuery(api.eventIntake.getEventIntakeDraft, draftId ? { draftId } : "skip");
   const save = useMutation(api.eventIntake.saveEventIntakeDraft);
   const publish = useAction(api.eventIntake.publishEventIntake);
   const saved = useRef<{ draftId: Id<"eventIntakeDrafts">; version: number; fields: string } | null>(null);
@@ -142,6 +142,7 @@ function ConnectedIntake({ draftId, initialCommunitySlug }: { draftId?: string; 
     return { fields: next, candidate };
   };
   if (draftId && loaded === undefined) return <p aria-busy="true">Loading draft…</p>;
+  if (draftId && loaded === null) return <Notice>Unavailable</Notice>;
   return <EventIntakeFieldsForm initialFields={loaded?.fields ?? { communitySlug: initialCommunitySlug, timeTba: false }} initialRevision={loaded?.version} onSource={sourceAction} initialArtworkSourceId={loaded?.artworkSourceId} onSave={async (fields, revision) => { await saveFields(fields, revision); }} onPublish={async (fields, revision) => {
     const current = await saveFields(fields, revision);
     if (request.current?.version !== current.version) request.current = { version: current.version, key: crypto.randomUUID() };

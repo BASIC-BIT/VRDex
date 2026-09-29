@@ -32,6 +32,14 @@ async function fixture() {
 }
 const complete = { communitySlug: "public-club", title: "Night Flight", eventDate: "2027-10-15", timeTba: true };
 
+it("returns an unavailable draft for a malformed browser draft link", async () => {
+  const { actor, t } = await fixture();
+  assert.equal(await actor.query(get, { draftId: "not-a-convex-id" }), null);
+  const saved = await actor.mutation(save, { patch: complete });
+  await t.run(ctx => ctx.db.delete(saved.draftId));
+  assert.equal(await actor.query(get, { draftId: saved.draftId }), null);
+});
+
 it("saves a private poster-only draft and refuses wholly empty durable drafts", async () => {
   const { t, actor } = await fixture();
   const result = await actor.mutation(save, { patch: { posterSourceId: "source-1" } });
@@ -39,7 +47,7 @@ it("saves a private poster-only draft and refuses wholly empty durable drafts", 
   assert.equal((await actor.query(get, { draftId: result.draftId })).fields.posterSourceId, "source-1");
   await assert.rejects(actor.mutation(save, { patch: { title: " " } }), /meaningful/i);
   await assert.rejects(t.query(get, { draftId: result.draftId }));
-  await assert.rejects(t.withIdentity({ subject: "other-user" }).query(get, { draftId: result.draftId }));
+  assert.equal(await t.withIdentity({ subject: "other-user" }).query(get, { draftId: result.draftId }), null);
 });
 it("merges omitted fields, clears null and empty strings and rejects stale versions", async () => {
   const { actor } = await fixture();
@@ -193,6 +201,11 @@ it("keeps a selected public world and contributor attribution in the atomic publ
   assert.equal(publicEvent?.worlds[0]?.association.confirmationState, "unconfirmed");
   const association = await t.run(ctx => ctx.db.query("eventWorlds").first());
   assert.equal(association?.confirmedAt, undefined);
+  await t.run(ctx => ctx.db.patch(association!._id, { sourceType: "manual" }));
+  assert.equal((await t.query(api.events.getPublicBySlug, { slug: event!.slug! }))?.worlds.length, 0);
+  await t.run(ctx => ctx.db.patch(association!._id, { sourceType: "contributor" }));
+  await t.run(ctx => ctx.db.patch(result.eventId, { sourceType: "manual" }));
+  assert.equal((await t.query(api.events.getPublicBySlug, { slug: event!.slug! }))?.worlds.length, 0);
 });
 it("enforces account publication quota and leaves the over-quota draft resumable", async () => {
   const { actor } = await fixture();
@@ -302,7 +315,7 @@ it("bounds and expires declared poster-only drafts without making them public", 
   const loaded = await actor.query(get, { draftId: draft.draftId });
   assert.deepEqual(loaded.fields, { posterDeclaration: declaration });
   await assert.rejects(actor.action(publish, { draftId: draft.draftId, expectedVersion: 1, idempotencyKey: "poster-incomplete" }));
-  await assert.rejects(t.withIdentity({ subject: "other-user" }).query(get, { draftId: draft.draftId }));
+  assert.equal(await t.withIdentity({ subject: "other-user" }).query(get, { draftId: draft.draftId }), null);
   await assert.rejects(actor.mutation(save, { patch: { posterDeclaration: { ...declaration, byteLength: 13 * 1024 * 1024 } } }));
   assert.equal((await t.run(ctx => ctx.db.query("events").collect())).length, 0);
   for (let i = 1; i < 20; i++) await actor.mutation(save, { patch: { posterDeclaration: declaration } });

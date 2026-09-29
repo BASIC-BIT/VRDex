@@ -13,7 +13,13 @@ const saved = v.object({ draftId: v.id("eventIntakeDrafts"), version: v.number()
 const published = v.object({ eventId: v.id("events"), eventPath: v.string(), receiptId: v.id("eventContributionReceipts") });
 
 export const saveEventIntakeDraft = mutation({ args: saveArgs, returns: saved, handler: async (ctx, args) => saveIntakeDraft(ctx.db, (await requireUser(ctx)).userId, args) });
-export const getEventIntakeDraft = query({ args: { draftId: v.id("eventIntakeDrafts") }, returns: v.any(), handler: async (ctx, args) => getActorIntakeDraft(ctx.db, (await requireUser(ctx)).userId, args.draftId) });
+export const getEventIntakeDraft = query({ args: { draftId: v.string() }, returns: v.any(), handler: async (ctx, args) => {
+  const { userId } = await requireUser(ctx);
+  const draftId = ctx.db.normalizeId("eventIntakeDrafts", args.draftId);
+  if (!draftId) return null;
+  const draft = await ctx.db.get(draftId);
+  return draft && draft.actorUserId === userId && draft.expiresAt > Date.now() ? getActorIntakeDraft(ctx.db, userId, draftId) : null;
+} });
 export const currentIntakeActor = internalQuery({ args: {}, returns: v.id("users"), handler: async ctx => (await requireUser(ctx)).userId });
 export const saveActorDraft = internalMutation({ args: { ...actorArg, ...saveArgs }, returns: saved, handler: (ctx, args) => saveIntakeDraft(ctx.db, args.actorUserId, args) });
 export const getActorDraft = internalQuery({ args: { ...actorArg, draftId: v.id("eventIntakeDrafts") }, returns: v.any(), handler: (ctx, args) => getActorIntakeDraft(ctx.db, args.actorUserId, args.draftId) });

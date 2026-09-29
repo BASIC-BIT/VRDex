@@ -157,5 +157,14 @@ it("retains bounded duplicate choices and distinguishes a lost response from inv
     assert.equal(eventIntakeErrorResponse(new Error("Lineup match must be a published public person.")).status,400);
     assert.equal(eventIntakeErrorResponse(new Error('Validator error: Expected ID for table "eventIntakeDrafts", got bad-id')).status,400);
     assert.equal(eventIntakeErrorResponse(new Error("Source URL must be a safe HTTPS URL.")).status,400);
+    assert.equal(eventIntakeErrorResponse(new Error("Set end time requires an earlier start time.")).status,400);
+  `);
+});
+
+it("returns a bad request for malformed report JSON", () => {
+  probe(`import assert from "node:assert/strict";
+    import {reportEventRequest} from "./apps/web/src/lib/server/event-intake-api.ts";
+    const response=await reportEventRequest(new Request("https://app.example.test/api/v0/events/night/report",{method:"POST",headers:{"content-type":"application/json"},body:"{"}),"night");
+    assert.equal(response.status,400);
   `);
 });

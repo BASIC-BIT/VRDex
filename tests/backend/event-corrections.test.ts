@@ -522,6 +522,19 @@ it("signed-out reports are bounded, never auto-remove and are private to staff/m
   for (let i = 0; i < 18; i++) await t.mutation(command("reportEvent"), { ...args, reason: `Other report ${i}` });
   await assert.rejects(t.mutation(command("reportEvent"), { ...args, reason: "Exceeds limit" }), /REPORT_QUOTA/);
 });
+it("paginates staff reports after applying community scope", async () => {
+  const { t, staff, event } = await fixture();
+  await t.run(async ctx => {
+    const own = (await ctx.db.get(event.communityProfileId!))!;
+    const { _id, _creationTime, ...fields } = own;
+    const elsewhere = await ctx.db.insert("profiles", { ...fields, slug: "elsewhere" });
+    await ctx.db.insert("eventReports", { eventId: event._id, communityProfileId: own._id, kind: "report", reason: "Own report", createdAt: 1 });
+    for (let i = 0; i < 30; i++) await ctx.db.insert("eventReports", { eventId: event._id, communityProfileId: elsewhere, kind: "report", reason: "Other report", createdAt: i + 2 });
+  });
+  const page = await staff.query(reports, { cursor: null, limit: 5 });
+  assert.deepEqual(page.page.map((row: { reason: string }) => row.reason), ["Own report"]);
+  assert.equal(page.isDone, true);
+});
 it("classifier flags do not consume visitor report quotas", async () => {
   const { t, contributor, event, users } = await fixture();
   await t.run(async ({ db }) => {
