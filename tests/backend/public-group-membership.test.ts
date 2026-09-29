@@ -87,6 +87,40 @@ it("shares group observations while applying Group size visibility per profile",
   ]);
 });
 
+it("does not revive a removed primary link through integration fallback", async () => {
+  const s = await setup();
+  await s.t.run(async (ctx) => {
+    for (const profileId of [s.firstId, s.secondId]) {
+      await ctx.db.insert("communityDataVisibility", {
+        communityProfileId: profileId,
+        categories: { ...defaultClubVisibility(), group_size: { audience: "public", staffRoleIds: null } },
+        updatedAt: s.now,
+      });
+      await ctx.db.insert("communityVrchatIntegrations", {
+        communityProfileId: profileId, vrchatGroupId: groupA,
+        groupVisibility: "public", joinPolicy: "free", state: "active",
+        killSwitchEnabled: false, requestsPerMinute: 10, leaseGeneration: 1,
+        publicMetrics: { currentPopulation: false, populationHistory: false,
+          groupMemberCount: false, groupMemberGrowth: false, eventRecaps: false },
+        consecutiveFailures: 0, createdAt: s.now, updatedAt: s.now,
+      });
+      const link = (await ctx.db.query("profileExternalLinks")
+        .withIndex("by_profileId_assetType_state", (q) => q
+          .eq("profileId", profileId).eq("assetType", "vrchat_group").eq("state", "active"))
+        .first())!;
+      if (profileId === s.firstId) await ctx.db.patch(link._id, { state: "removed", removedAt: s.now });
+      else await ctx.db.delete(link._id); // A legacy connection with no link row ever.
+    }
+    await ctx.db.insert("vrchatGroupMemberSnapshots", {
+      vrchatGroupId: groupA, memberCount: 50, observedAt: s.now,
+    });
+  });
+  assert.equal((await s.read("first-group"))?.groupMembership, undefined);
+  assert.deepEqual((await s.read("second-group"))?.groupMembership?.latest, {
+    observedAt: s.now, value: 50,
+  });
+});
+
 it("merges current-epoch connected observations and keeps earliest and latest in a bounded series", async () => {
   const s = await setup();
   const start = s.now - 1_000_000;

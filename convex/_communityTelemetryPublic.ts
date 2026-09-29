@@ -24,11 +24,16 @@ export async function getPublicGroupMembership(
     .withIndex("by_profileId_assetType_state", (q) => q
       .eq("profileId", communityProfileId).eq("assetType", "vrchat_group").eq("state", "active"))
     .take(100);
+  const primaryGroupId = primary.find((link) => link.linkRole === "primary")?.assetExternalId;
+  const removedLink = primaryGroupId ? null : await db.query("profileExternalLinks")
+    .withIndex("by_profileId_assetType_state", (q) => q
+      .eq("profileId", communityProfileId).eq("assetType", "vrchat_group").eq("state", "removed"))
+    .first();
   const integration = await db.query("communityVrchatIntegrations")
     .withIndex("by_communityProfileId", (q) => q.eq("communityProfileId", communityProfileId))
     .first();
-  const groupId = primary.find((link) => link.linkRole === "primary")?.assetExternalId
-    ?? (integration?.state !== "disconnected" && integration?.state !== "disconnecting"
+  const groupId = primaryGroupId
+    ?? (!removedLink && integration?.state !== "disconnected" && integration?.state !== "disconnecting"
       ? integration?.vrchatGroupId : undefined);
   if (!groupId) return null;
 
