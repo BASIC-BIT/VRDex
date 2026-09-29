@@ -310,8 +310,19 @@ it("converting a contributed event to Time TBA cancels its queued media start", 
   });
   const scheduled = await staff.mutation(api.events.scheduleEventMediaWorker, { currentSlug: event.slug! });
   const current = (await t.run(ctx => ctx.db.get(event._id)))!;
+  const movedStartAt = Date.parse("2027-10-15T20:00:00Z");
   await contributor.mutation(command("updateOwnContributedEvent"), {
     eventId: event._id, expectedUpdatedAt: current.updatedAt,
+    patch: { start: { time: "20:00" } },
+  });
+  const moved = (await t.run(ctx => ctx.db.get(event._id)))!;
+  const rebased = await t.run(async ctx => ({ session: await ctx.db.get(scheduled.sessionId), start: scheduled.startCommandId ? await ctx.db.get(scheduled.startCommandId) : null }));
+  assert.equal(moved.startAt, movedStartAt);
+  assert.equal(rebased.session?.scheduledStartAt, movedStartAt - (current.startAt! - scheduled.scheduledStartAt));
+  assert.equal(rebased.session?.readyDeadlineAt, scheduled.readyDeadlineAt + (movedStartAt - current.startAt!));
+  assert.equal(rebased.start?.availableAt, rebased.session?.scheduledStartAt);
+  await contributor.mutation(command("updateOwnContributedEvent"), {
+    eventId: event._id, expectedUpdatedAt: moved.updatedAt,
     patch: { timeTba: true, start: null, end: null, doors: null },
   });
   const state = await t.run(async ctx => ({
@@ -337,6 +348,21 @@ it("contributor Time TBA correction invalidates an existing event recap", async 
   await new Promise<void>(resolve => setTimeout(resolve, 0));
   await t.finishInProgressScheduledFunctions();
   assert.equal(await t.run(ctx => ctx.db.query("communityTelemetryRollups").first()), null);
+});
+it("contributor end-time corrections recompute a confirmed event recap", async () => {
+  const { t, contributor, communityId, event } = await fixture();
+  await contributor.mutation(command("updateOwnContributedEvent"), { eventId: event._id, expectedUpdatedAt: event.updatedAt, patch: { timeTba: null, timezone: "UTC", start: { time: "19:00" }, end: { time: "21:00" } } });
+  const timed = (await t.run(ctx => ctx.db.get(event._id)))!;
+  await t.run(async ctx => {
+    const sessionId = await ctx.db.insert("instanceSessions", { integrationId: await ctx.db.insert("communityVrchatIntegrations", { communityProfileId: communityId, vrchatGroupId: "grp_test_end", groupVisibility: "public", joinPolicy: "free", state: "active", killSwitchEnabled: false, requestsPerMinute: 4, leaseGeneration: 0, publicMetrics: { currentPopulation: false, populationHistory: false, groupMemberCount: false, groupMemberGrowth: false, eventRecaps: false }, consecutiveFailures: 0, createdAt: Date.now(), updatedAt: Date.now() }), communityProfileId: communityId, providerInstanceId: "test", providerLocation: "wrld_test:test", vrchatWorldId: "wrld_test", source: "first_party", state: "closed", openedAt: timed.startAt!, lastObservedAt: timed.startAt!, consecutiveMisses: 2, updatedAt: Date.now() });
+    await ctx.db.insert("eventInstanceAssociations", { eventId: event._id, sessionId, communityProfileId: communityId, source: "manual", confidence: 1, state: "confirmed", createdAt: Date.now(), updatedAt: Date.now() });
+    await ctx.db.insert("communityTelemetryRollups", { communityProfileId: communityId, eventId: event._id, grain: "event", bucketStartAt: timed.startAt!, bucketEndAt: timed.endAt!, rollupVersion: "community-telemetry-v1", activeInstanceCount: 1, peakConcurrency: 1, playerMinutes: 1, coverageRatio: 1, worldDistribution: [], computedAt: Date.now() });
+  });
+  await contributor.mutation(command("updateOwnContributedEvent"), { eventId: event._id, expectedUpdatedAt: timed.updatedAt, patch: { end: { time: "22:00" } } });
+  await new Promise<void>(resolve => setTimeout(resolve, 0));
+  await t.finishInProgressScheduledFunctions();
+  const rollup = await t.run(ctx => ctx.db.query("communityTelemetryRollups").first());
+  assert.equal(rollup?.bucketEndAt, Date.parse("2027-10-15T22:00:00Z"));
 });
 it("rejects attachment, provenance, trust, watch and private evidence changes", async () => {
   const { contributor, event } = await fixture();

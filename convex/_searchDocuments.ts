@@ -143,7 +143,9 @@ function publicProfileImageUrl(profile: Doc<"profiles">): string | undefined {
 }
 
 function effectiveFeaturedRank(document: Doc<"searchDocuments">): number {
-  if (document.entityType === "event" && document.startsAt !== undefined && document.startsAt < Date.now()) {
+  if (document.entityType === "event" && (document.scheduleKind === "date_only"
+    ? eventSortEndAt(document) < Date.now()
+    : document.startsAt !== undefined && document.startsAt < Date.now())) {
     return Math.min(document.featuredRank, 8);
   }
 

@@ -12,8 +12,9 @@ const useFixtureAuth = () => ({ isLoading: false, isAuthenticated: true, fetchAc
 
 // Exercise the connected forms and reactive queries with a local transport.
 // The matching backend conflict checks have their own Convex tests.
-function revisionFixture(sourceMode?: string, staff = false) {
+function revisionFixture(correction: boolean, sourceMode?: string, staff = false) {
   let fields: EventIntakePatch = { communitySlug: "afterglow", title: "Original title", eventDate: "2027-07-15", timeTba: true, venueLabel: "Original venue" };
+  if (correction) fields.lineup = [{ clientKey: "private-person", position: 0, performerLabel: "Private performer" }];
   if (sourceMode) fields = {};
   let version = 1;
   if (sourceMode && typeof sessionStorage !== "undefined") { const stored = sessionStorage.getItem("fixture-source-draft"); if (stored) ({fields, version} = JSON.parse(stored)); }
@@ -102,7 +103,7 @@ function revisionFixture(sourceMode?: string, staff = false) {
 }
 
 export function EventIntakeRevisionPreview({ correction, sourceMode, staff = false }: { correction: boolean; sourceMode?: string; staff?: boolean }) {
-  const [fixture] = useState(() => revisionFixture(sourceMode, staff));
+  const [fixture] = useState(() => revisionFixture(correction, sourceMode, staff));
   useEffect(() => {
     if (!sourceMode) return;
     const original = window.fetch;

@@ -74,6 +74,12 @@ it("projects date-only events without an instant or live watch", () => {
   assert.equal(Object.hasOwn(result, "sortAt"), false);
   assert.equal(result.watchSurfaceEnabled, false);
 });
+it("demotes an expired date-only featured search row without reindexing", () => {
+  const start = Date.now() - 40 * 60 * 60_000;
+  const document = { entityType: "event", featuredRank: 42, trustRank: 16, sortAt: start, scheduleKind: "date_only", exactTokens: [], vocabularyKeys: [], title: "Past event", slug: "past-event", publicState: "public" } as unknown as Doc<"searchDocuments">;
+  const future = { ...document, sortAt: Date.now() + 60_000 };
+  assert.equal(toPublicSearchResult(future, undefined).score - toPublicSearchResult(document, undefined).score, 34);
+});
 
 it("does not leak stale timed controls from a date-only record", () => {
   const event = { ...dateOnly, startAt: 1783123200000, doorsOpenAt: 1783123200000, endAt: 1783209600000 };

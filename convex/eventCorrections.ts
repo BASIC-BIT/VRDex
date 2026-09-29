@@ -16,7 +16,7 @@ import { syncClubEventOperations } from "./_clubOperationEvents";
 import { reindexEventSearchDocument } from "./_searchDocuments";
 import { canReadProfile } from "./_profilePermissions";
 import { getEventBySlug } from "./_eventSlugs";
-import { canUpdateEvent, eventParticipantRoleLabels, linkedPublishedEventWorld, managedCommunitiesForBrowser, recordEventAuditEvent, replaceEventWorldLink, settleEventMediaForCancellation, syncPreservedEventAssociations } from "./events";
+import { canUpdateEvent, eventParticipantRoleLabels, linkedPublishedEventWorld, managedCommunitiesForBrowser, reconcileEventMediaScheduleChange, recordEventAuditEvent, replaceEventWorldLink, settleEventMediaForCancellation, syncPreservedEventAssociations } from "./events";
 
 export const REMOVED_EVENT_SUPPRESSION_MS = 30 * 86_400_000;
 const patchKeys = new Set(["title", "eventDate", "timeTba", "timezone", "start", "end", "doors", "venueLabel", "worldSlug", "sourceUrl", "summary", "lineup"]);
@@ -102,14 +102,17 @@ export async function updateActorContribution(ctx: MutationCtx, actorUserId: Id<
   } : {});
   if (updated.startAt !== event.startAt) {
     await syncClubEventOperations(ctx, event._id);
-    if (updated.startAt === undefined) await settleEventMediaForCancellation(db, event, actor, now);
-    if (updated.startAt === undefined && event.startAt !== undefined && event.communityProfileId) {
+    await reconcileEventMediaScheduleChange(db, event, updated.startAt, actor, now);
+  }
+  if (updated.communityProfileId && (updated.startAt !== event.startAt || updated.endAt !== event.endAt)) {
+    const rollupStartAt = updated.startAt ?? event.startAt;
+    if (rollupStartAt !== undefined) {
       const confirmed = await db.query("eventInstanceAssociations")
         .withIndex("by_eventId_state", q => q.eq("eventId", event._id).eq("state", "confirmed")).first();
-      if (confirmed?.communityProfileId === event.communityProfileId) {
+      if (confirmed?.communityProfileId === updated.communityProfileId) {
         await ctx.scheduler.runAfter(0, internal.communityTelemetry.recomputeRollup, {
-          communityProfileId: event.communityProfileId, eventId: event._id, grain: "event",
-          bucketStartAt: event.startAt, bucketEndAt: event.endAt ?? event.startAt + 6 * 60 * 60_000, now,
+          communityProfileId: updated.communityProfileId, eventId: event._id, grain: "event",
+          bucketStartAt: rollupStartAt, bucketEndAt: updated.endAt ?? event.endAt ?? rollupStartAt + 6 * 60 * 60_000, now,
         });
       }
     }

@@ -14,6 +14,14 @@ cover those transitions. The new event Playwright flows use local fixtures and
 carry the `@fixture` tag, so the hosted mutation suite does not run them against
 an older shared staging deployment.
 
+The next review pass found four boundary cases: browser corrections sent the
+whole readback, queued media kept its old time after a contributor shift, recaps
+kept old timed boundaries, and date-only search rows kept their initial featured
+rank after expiry. Corrections now submit only changed fields, rebase queued
+media times, recompute recaps after start or end changes, and demote expired
+date-only rows at read time. Focused backend and desktop/mobile browser tests
+cover those cases.
+
 ## Implemented journey
 
 Any signed-in account can save a partial private draft for any public community,
@@ -55,7 +63,7 @@ Commands run in the isolated worktree, without hosted credentials or paid calls:
 
 | Command | Result |
 | --- | --- |
-| `pnpm test:backend` | 1,221 passed, zero failed/skipped after review fixes |
+| `pnpm test:backend` | 1,223 passed, zero failed/skipped after review fixes |
 | `pnpm test:web` | 607 passed, zero failed/skipped after review fixes |
 | `pnpm test:api-contracts` | 57 passed, zero failed/skipped after merge |
 | `pnpm test:vrdex-mcp` | 10 passed, including local stdio and fake-transport upload |

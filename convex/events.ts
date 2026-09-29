@@ -1335,8 +1335,8 @@ async function updateCommunityEventRecord(
   if (updatedEvent.startAt !== event.startAt || updatedEvent.communityProfileId !== event.communityProfileId) {
     await syncClubEventOperations(ctx, event._id);
   }
-  if (event.startAt !== undefined && updatedEvent.startAt === undefined) {
-    await settleEventMediaForCancellation(db, event, undefined, now);
+  if (updatedEvent.startAt !== event.startAt) {
+    await reconcileEventMediaScheduleChange(db, event, updatedEvent.startAt, undefined, now);
   }
   if (
     updatedEvent.communityProfileId !== undefined &&
@@ -1894,6 +1894,29 @@ export async function settleEventMediaForCancellation(
   if (program.publicLinks.length > 0) {
     await db.patch(program._id, { publicLinks: [], updatedAt: now });
   }
+}
+
+export async function reconcileEventMediaScheduleChange(
+  db: DatabaseWriter, event: Doc<"events">, startAt: number | undefined,
+  actor: AuthSubject | undefined, now: number,
+) {
+  if (startAt === undefined) return settleEventMediaForCancellation(db, event, actor, now);
+  if (event.startAt === undefined) return;
+  const program = await getLatestEventMediaProgram(db, event._id);
+  if (!program) return;
+  const session = await getOpenEventMediaSession(db, program);
+  if (session?.status !== "scheduled") return;
+  const startCommand = await db.query("eventMediaCommands")
+    .withIndex("by_sessionId_status_createdAt", q => q.eq("sessionId", session._id).eq("status", "queued"))
+    .filter(q => q.eq(q.field("commandType"), "start_program")).first();
+  if (!startCommand || session.scheduledStartAt === undefined || session.readyDeadlineAt === undefined) {
+    return settleEventMediaForCancellation(db, event, actor, now);
+  }
+  const delta = startAt - event.startAt;
+  await Promise.all([
+    db.patch(session._id, { scheduledStartAt: session.scheduledStartAt + delta, readyDeadlineAt: session.readyDeadlineAt + delta, updatedAt: now }),
+    db.patch(startCommand._id, { availableAt: (startCommand.availableAt ?? session.scheduledStartAt) + delta, updatedAt: now }),
+  ]);
 }
 
 function workerSessionStatus(session: Doc<"eventMediaSessions">) {

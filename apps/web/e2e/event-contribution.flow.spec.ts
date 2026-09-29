@@ -28,6 +28,14 @@ test("draft advances its revision only after a successful local save @flow @fixt
   expect(submission.expectedVersion).toBe(2);
   expect(submission.patch.title).toBe("Second edit");
 });
+test("title-only correction omits an unchanged hidden-person lineup @flow @fixture", async ({ page }) => {
+  await page.goto("/playwright/event-intake?revision=correction");
+  await page.getByRole("button", { name: "Correct event", exact: true }).click();
+  await page.getByLabel("Event title", { exact: true }).fill("Corrected title");
+  await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  const submission = await page.evaluate(() => JSON.parse(sessionStorage.getItem("event-intake-revision-submission")!));
+  expect(submission.patch).toEqual({ title: "Corrected title" });
+});
 
 test("owner timezone keyboard search stores a region, not EST @flow @fixture", async ({ page }) => {
   await page.goto("/playwright/event-editor");

@@ -17,6 +17,10 @@ function CorrectionForm({ eventId, onDone }: { eventId: Id<"events">; onDone: ()
     const patch = { ...fields };
     delete patch.communitySlug; delete patch.sourceText; delete patch.posterSourceId;
     delete patch.tentative; delete patch.questions; delete patch.duplicateAcknowledgements;
+    for (const key of Object.keys(patch) as Array<keyof typeof patch>) {
+      if (JSON.stringify(patch[key]) === JSON.stringify(event.fields[key])) delete patch[key];
+    }
+    if (!Object.keys(patch).length) { onDone(); return; }
     await update({ eventId, expectedUpdatedAt: revision, patch, duplicateAcknowledgements: fields.duplicateAcknowledgements?.map(id => id as Id<"events">) }); onDone();
   }} />;
 }
