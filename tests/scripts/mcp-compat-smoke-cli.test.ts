@@ -309,7 +309,7 @@ async function startHostedFailureFixture() {
   };
 }
 
-async function startHostedSuccessFixture(extraToolName?: string) {
+async function startHostedSuccessFixture(extraToolName?: string, omittedScope?: string) {
   const server = createServer(async (request, response) => {
     const origin = `http://${request.headers.host}`;
     const url = new URL(request.url ?? "/", origin);
@@ -318,7 +318,7 @@ async function startHostedSuccessFixture(extraToolName?: string) {
       writeJson(response, 200, {
         authorization_servers: [origin],
         resource: `${origin}/mcp`,
-        scopes_supported: ["mcp:read", "profile:read", "mcp:write", "assets:write", "assets:contribute", "assets:review:read", "assets:review:write", "assets:publish", "events:write", "profile:write", "profile:contribute"],
+        scopes_supported: ["mcp:read", "profile:read", "mcp:write", "assets:write", "assets:contribute", "assets:review:read", "assets:review:write", "assets:publish", "events:write", "profile:write", "profile:contribute"].filter((scope) => scope !== omittedScope),
       });
       return;
     }
@@ -501,6 +501,20 @@ async function startHostedSuccessFixture(extraToolName?: string) {
 }
 
 describe("MCP compatibility smoke CLI", () => {
+  it("rejects protected-resource metadata missing a classified owned-read scope before DCR", async () => {
+    const fixture = await startHostedSuccessFixture(undefined, "assets:review:read");
+
+    try {
+      const result = await runSmokeAsync(["--hosted-only", "--hosted-url", `${fixture.origin}/mcp`, "--dcr"]);
+
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /metadata omits assets:review:read, required by vrdex_contribution_capacity/);
+      assert.doesNotMatch(result.stdout, /Hosted Dynamic Client Registration/);
+    } finally {
+      await fixture.close();
+    }
+  });
+
   it("requests classified owned-read scopes during hosted DCR", async () => {
     const fixture = await startHostedSuccessFixture();
 

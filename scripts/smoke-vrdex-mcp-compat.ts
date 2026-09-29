@@ -1133,6 +1133,18 @@ async function smokeHostedHttp(results: SmokeResult[], options: SmokeOptions) {
     }
   }
 
+  for (const toolName of ownedReadToolNames) {
+    const resourceScopes = ownedReadToolScopes[toolName];
+
+    for (const resourceScope of Array.isArray(resourceScopes) ? resourceScopes : [resourceScopes]) {
+      assert.equal(
+        metadata.scopes.includes(resourceScope),
+        true,
+        `Hosted protected-resource metadata omits ${resourceScope}, required by ${toolName}.`,
+      );
+    }
+  }
+
   await runHostedDiagnosticStep(results, options, "Hosted Dynamic Client Registration", () =>
     smokeHostedDynamicClientRegistration(metadata, options, results),
   );
