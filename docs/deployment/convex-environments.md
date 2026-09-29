@@ -193,6 +193,17 @@ A Convex deployment that sends through SES must set:
 
 The hosted SES baseline is documented in `docs/deployment/ses-auth-email.md` and `docs/deployment/aws-baseline.md`. Store secret values in Convex env, never in git.
 
+Club operation failure emails reuse the same SES sender, region and credential
+chain. They additionally require `VRDEX_CLUB_OPERATION_EMAIL_ENABLED=true` and
+`VRDEX_SITE_URL` set to the deployment's HTTPS public origin. The flag defaults
+off; leave it off until the exact message copy and delivery smoke test are
+approved. The five-minute cron claims up to 20 messages per run, rechecks each
+recipient's access, and never automatically replays an uncertain send. The
+deployment operator owns enabling, recreating and rotating this configuration
+through the existing Convex environment and IAM process. See
+[operation notifications](../planning/group-instance-analytics/operation-notifications.md)
+for exact copy and delivery behavior.
+
 ## Hosted E2E Helpers
 
 Hosted mutation-backed Playwright runs use only the shared development/staging target. Do not enable these helpers in production.

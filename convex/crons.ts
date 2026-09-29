@@ -4,6 +4,24 @@ import { internal } from "./_generated/api";
 
 const crons = cronJobs();
 
+// Each pass also covers rows created before independent deadline recovery.
+for (const state of ["pending", "claimed"] as const) {
+  crons.interval(
+    `expire unsent club operations: ${state}`,
+    { minutes: 1 },
+    internal.clubOperations.expireUnsent,
+    { state },
+  );
+}
+
+// Delivery is inert until the documented email opt-in is configured.
+crons.interval(
+  "deliver club operation notifications",
+  { minutes: 5 },
+  internal.clubNotificationEmail.deliver,
+  {},
+);
+
 crons.hourly(
   "community telemetry rollups",
   { minuteUTC: 10 },
@@ -41,13 +59,6 @@ crons.daily(
   "delete expired claim lifecycle diagnostics",
   { hourUTC: 4, minuteUTC: 10 },
   internal.claimAnalytics.sweepClaimLifecycleEvents,
-  {},
-);
-
-crons.daily(
-  "community telemetry raw compaction",
-  { hourUTC: 4, minuteUTC: 20 },
-  internal.communityTelemetry.scheduleTelemetryCompaction,
   {},
 );
 

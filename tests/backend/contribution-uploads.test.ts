@@ -110,6 +110,12 @@ it("fences transient acquisition reset and releases permanent failure capacity e
   );
   assert.ok(rows.every((row) => row.processing === 0));
   assert.ok(rows.some((row) => row.bytes > 0));
+  const failed = await f.t.run(async (ctx) => ({
+    reservation: await ctx.db.query("contributionUploadReservations").first(),
+    intent: await ctx.db.get(f.begun.intentId),
+  }));
+  assert.equal(failed.reservation?.processingToken, undefined);
+  assert.equal(failed.intent?.processingToken, undefined);
 });
 
 it("rechecks current ownership before replaying a completed admission", async () => {
@@ -320,6 +326,8 @@ it("seals one private proposal with concurrent completions and reconciles retain
   assert.equal(state.submissions[0].sourceKind, "local");
   assert.equal(state.reservation?.chargedBytes, 1324);
   assert.equal(state.reservation?.processing, false);
+  assert.equal(state.reservation?.processingToken, undefined);
+  assert.equal((await f.t.run((ctx) => ctx.db.get(f.begun.intentId)))?.processingToken, undefined);
 });
 
 for (const mismatch of [

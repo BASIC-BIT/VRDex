@@ -59,6 +59,21 @@ export const TwitchProfile: Story = {
   }} /></ConvexProviderWithAuth>,
 };
 
+export const PublicInstanceHistory: Story = {
+  render: () => <ConvexProviderWithAuth client={previewClient} useAuth={usePreviewAuth}>
+    <ProfilePublicPage embedded mediaKitGalleryEnabled={true} profile={{
+      profileType: "community", slug: "afterglow", displayName: "Afterglow Social",
+      aliases: [], tags: [], genres: [], trustLabel: "claimed_verified",
+      community: { categoryTags: [] }, outboundLinks: [], worldCredits: [],
+      upcomingEvents: [], hostedEvents: [],
+      telemetry: { freshness: "stale", instanceHistory: [
+        { world: { slug: "neon-harbor", displayName: "Neon Harbor" }, openedAt: Date.UTC(2026, 8, 27, 22), lastObservedAt: Date.UTC(2026, 8, 27, 23) },
+        { world: null, openedAt: Date.UTC(2026, 8, 26, 22), lastObservedAt: Date.UTC(2026, 8, 26, 23), closedAt: Date.UTC(2026, 8, 26, 23) },
+      ] },
+    }} />
+  </ConvexProviderWithAuth>,
+};
+
 export const History: Story = {
   render: () => <div className="mx-auto max-w-2xl">
     <ProfileHistory history={[{ id: "example", action: "profile_updated", actor: "Example DJ", createdAt: 1788739200000 }]} />

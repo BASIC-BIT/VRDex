@@ -386,15 +386,10 @@ resource "aws_iam_role_policy" "vercel_profile_assets" {
 
 data "aws_iam_policy_document" "vercel_profile_assets_staging" {
   statement {
-    sid       = "CheckProfileAssetStorageProbe"
+    # HeadObject needs bucket listing to distinguish a deleted fixture key from AccessDenied.
+    sid       = "CheckStagingProfileAssetObjects"
     actions   = ["s3:ListBucket"]
     resources = [aws_s3_bucket.profile_assets_staging.arn]
-
-    condition {
-      test     = "StringEquals"
-      variable = "s3:prefix"
-      values   = [local.storage_probe_key]
-    }
   }
 
   statement {

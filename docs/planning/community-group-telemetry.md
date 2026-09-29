@@ -12,6 +12,7 @@ Implementation contract for [epic #176](https://github.com/BASIC-BIT/VRDex/issue
 - Service-account proof authentication uses a tokenized loopback browser on the operator's workstation. Passwords and verification codes stay in that process. The resulting session cookies, immutable account ID, and save time are stored under an account alias in the operating-system credential vault, validated before reuse, and never written to a plaintext fallback.
 - Collection is continuous and aggregate-only: group member count, visible group instances, world/instance identifiers, and population counts.
 - Private operator analytics ship first. Every public telemetry surface defaults off and is controlled independently by an authorized community operator.
+- Disabling analytics stops all public telemetry immediately, including previously opted-in historical metrics and event recaps. Authorized owners and staff retain private history; enabling analytics again restores the existing public visibility choices.
 - Missing or stale coverage is data quality, not zero attendance.
 - Person-level presence and VRCX donation are separate data families. Aggregate records do not contain usernames.
 
@@ -76,9 +77,9 @@ Counts are provider observations and may be delayed or approximate. Queues and i
 
 ## Retention
 
-- Exact group and per-instance observations: 90 days after their hourly rollup exists.
-- Session boundaries, coverage windows, compacted member-count changes, and rollups remain queryable so gaps and lifecycle history do not disappear during compaction.
-- Hourly rollups: 18 months.
+- Exact group and per-instance observations are retained permanently; rollups do not replace or expire raw history.
+- Session boundaries, coverage windows, member-count changes, and rollups are retained permanently.
+- No age-based deletion applies. Deletion workflows are a separate, deferred capability.
 - Daily rollups and confirmed event recaps: retained while the community integration/history remains retained.
 - Disconnect stops new collection and public presentation immediately. Historical private data is retained by default until an authorized deletion workflow is requested; this behavior is shown before disconnect.
 
@@ -86,7 +87,7 @@ Compaction may remove redundant heartbeats only after an equivalent rollup exist
 
 ## Security and operations
 
-- `manage_integrations` authorizes connect, disconnect, private dashboard reads, event association, and visibility changes.
+- `manage_integrations` authorizes connection management. Event association requires `manage_events`; association lists also require recap visibility. Private dashboard reads admit owners and staff with category-specific projections. Visibility changes require ownership. See the [current staff boundary](../backend/club-staff-workspace.md#data-visibility).
 - The real-provider proof never persists service-account passwords or verification codes. It stores only the session cookies, immutable account ID, and save time in the account-scoped operating-system credential vault; malformed, expired, or mismatched sessions are removed. `--fresh-login` bypasses the saved session, `--clear-session` deletes it, and `--auth-from-env` remains a trusted development escape hatch that bypasses the vault.
 - The disabled production worker contract supports one account session secret in AWS Secrets Manager, with Convex storing only its ARN/reference and generation. Activating durable session storage requires explicit provider approval; passwords and TOTP seeds are never stored.
 - Logs and audit records contain status classes, request counts, sanitized error categories, and opaque account aliases; raw headers, cookies, credentials, provider payloads, and private observations are excluded.
