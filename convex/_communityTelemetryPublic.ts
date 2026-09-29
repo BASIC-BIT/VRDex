@@ -39,35 +39,70 @@ export async function getPublicGroupMembership(
 
   const groupQuery = () => db.query("vrchatGroupMemberSnapshots")
     .withIndex("by_vrchatGroupId_observedAt", (q) => q.eq("vrchatGroupId", groupId));
+  const connected = integration?.vrchatGroupId === groupId ? integration : null;
+  const epochStart = connected ? connected.telemetryEpochStartedAt ?? connected.createdAt : 0;
   const [groupRecent, groupFirst, connectedRecent, connectedFirst] = await Promise.all([
     groupQuery().order("desc").take(500),
     groupQuery().order("asc").first(),
-    integration?.vrchatGroupId === groupId
+    connected
       ? db.query("communityMemberCountObservations")
-        .withIndex("by_integrationId_observedAt", (q) => q.eq("integrationId", integration._id)
-          .gte("observedAt", integration.telemetryEpochStartedAt ?? integration.createdAt))
+        .withIndex("by_integrationId_observedAt", (q) => q.eq("integrationId", connected._id)
+          .gte("observedAt", epochStart))
         .order("desc").take(500)
       : Promise.resolve([]),
-    integration?.vrchatGroupId === groupId
+    connected
       ? db.query("communityMemberCountObservations")
-        .withIndex("by_integrationId_observedAt", (q) => q.eq("integrationId", integration._id)
-          .gte("observedAt", integration.telemetryEpochStartedAt ?? integration.createdAt))
+        .withIndex("by_integrationId_observedAt", (q) => q.eq("integrationId", connected._id)
+          .gte("observedAt", epochStart))
         .order("asc").first()
       : Promise.resolve(null),
   ]);
+  const firstAt = Math.min(groupFirst?.observedAt ?? Infinity, connectedFirst?.observedAt ?? Infinity);
+  const lastAt = Math.max(groupRecent[0]?.observedAt ?? -Infinity, connectedRecent[0]?.observedAt ?? -Infinity);
+  if (!Number.isFinite(firstAt) || !Number.isFinite(lastAt)) return null;
+  // Twenty-four indexed windows retain actual older observations even after recent rows exceed 500.
+  const width = Math.max(1, Math.ceil((lastAt - firstAt + 1) / 24));
+  const historical = await Promise.all(Array.from({ length: 24 }, async (_, i) => {
+    const start = firstAt + i * width;
+    const end = Math.min(lastAt + 1, start + width);
+    if (start >= end) return { group: null, member: null };
+    const [group, member] = await Promise.all([
+      db.query("vrchatGroupMemberSnapshots")
+        .withIndex("by_vrchatGroupId_observedAt", (q) => q.eq("vrchatGroupId", groupId)
+          .gte("observedAt", start).lt("observedAt", end))
+        .first(),
+      connected && end > epochStart
+        ? db.query("communityMemberCountObservations")
+          .withIndex("by_integrationId_observedAt", (q) => q.eq("integrationId", connected._id)
+            .gte("observedAt", Math.max(start, epochStart)).lt("observedAt", end))
+          .first()
+        : Promise.resolve(null),
+    ]);
+    return { group, member };
+  }));
   const observations = new Map<number, number>();
-  for (const row of [...connectedRecent, ...(connectedFirst ? [connectedFirst] : [])]) {
+  for (const row of [...connectedRecent, ...(connectedFirst ? [connectedFirst] : []),
+    ...historical.flatMap((sample) => sample.member ? [sample.member] : [])]) {
     if (row.vrchatGroupId === groupId) observations.set(row.observedAt, row.memberCount);
   }
-  for (const row of [...groupRecent, ...(groupFirst ? [groupFirst] : [])]) {
+  for (const row of [...groupRecent, ...(groupFirst ? [groupFirst] : []),
+    ...historical.flatMap((sample) => sample.group ? [sample.group] : [])]) {
     observations.set(row.observedAt, row.memberCount);
   }
   const allPoints = [...observations].sort(([a], [b]) => a - b)
     .map(([observedAt, value]) => ({ observedAt, value }));
   if (allPoints.length === 0) return null;
-  // ponytail: recent 500 rows per source plus the first; use range queries if deep drill-down is needed.
-  const points = allPoints.length <= 500 ? allPoints : Array.from({ length: 500 }, (_, i) =>
-    allPoints[Math.floor(i * (allPoints.length - 1) / 499)]!);
+  const historicalTimes = new Set(historical.flatMap(({ group, member }) =>
+    [group?.observedAt, member?.vrchatGroupId === groupId ? member.observedAt : undefined]
+      .filter((at): at is number => at !== undefined)));
+  historicalTimes.add(allPoints[0]!.observedAt);
+  historicalTimes.add(allPoints[allPoints.length - 1]!.observedAt);
+  const required = allPoints.filter((point) => historicalTimes.has(point.observedAt));
+  const optional = allPoints.filter((point) => !historicalTimes.has(point.observedAt));
+  const remaining = Math.max(0, 500 - required.length);
+  const sampled = optional.length <= remaining ? optional : Array.from({ length: remaining }, (_, i) =>
+    optional[Math.floor(i * (optional.length - 1) / Math.max(1, remaining - 1))]!);
+  const points = [...required, ...sampled].sort((a, b) => a.observedAt - b.observedAt);
   const latest = allPoints[allPoints.length - 1]!;
   const groupCreatedAt = groupRecent.find((row) => row.groupCreatedAt !== undefined)?.groupCreatedAt
     ?? groupFirst?.groupCreatedAt;

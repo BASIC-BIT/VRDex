@@ -146,19 +146,21 @@ it("merges current-epoch connected observations and keeps earliest and latest in
     });
     await connected(start - 1, 1);
     await connected(start + 1, 2);
-    for (let i = 0; i < 510; i++) await ctx.db.insert("vrchatGroupMemberSnapshots", {
+    for (let i = 0; i < 1010; i++) await ctx.db.insert("vrchatGroupMemberSnapshots", {
       vrchatGroupId: groupA, memberCount: i + 3, observedAt: start + 2 + i,
     });
-    await connected(start + 511, 999);
+    await connected(start + 1011, 999);
     await ctx.db.insert("vrchatGroupMemberSnapshots", {
-      vrchatGroupId: groupA, memberCount: 513, observedAt: start + 511,
+      vrchatGroupId: groupA, memberCount: 1013, observedAt: start + 1011,
     });
   });
   const profile = await s.read("first-group");
   const membership = profile?.groupMembership;
   assert.equal(membership?.points.length, 500);
   assert.deepEqual(membership?.points[0], { observedAt: start + 1, value: 2 });
-  assert.deepEqual(membership?.latest, { observedAt: start + 511, value: 513 });
+  assert.ok(membership?.points.some((point) => point.observedAt === start + 44 && point.value === 45),
+    "a representative older observation survives beyond the recent 500 rows");
+  assert.deepEqual(membership?.latest, { observedAt: start + 1011, value: 1013 });
   assert.deepEqual(membership?.points.at(-1), membership?.latest);
   assert.equal(membership?.points.some((point) => point.value === 1), false);
   assert.equal(profile?.telemetry, undefined);
