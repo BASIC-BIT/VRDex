@@ -30,40 +30,43 @@ export function PublicGroupMembershipChart({ membership }: { membership: GroupMe
   if (!first) return null;
 
   const bridge = membership.groupCreatedAt !== undefined && membership.groupCreatedAt < first.observedAt;
-  type ChartPoint = { at: number; observed: number | null; unobserved: number | null };
-  const points: ChartPoint[] = [
-    ...(bridge ? [{ at: membership.groupCreatedAt!, observed: null, unobserved: 0 }] : []),
-    ...observations.flatMap((point, index): ChartPoint[] => {
-      const previous = observations[index - 1];
-      return [
-        ...(previous && point.observedAt - previous.observedAt > 36 * 60 * 60 * 1000
-          ? [{ at: previous.observedAt + 1, observed: null, unobserved: null }]
-          : []),
-        { at: point.observedAt, observed: point.value, unobserved: bridge && index === 0 ? point.value : null },
-      ];
-    }),
-  ];
+  type Point = { observedAt: number; value: number | null };
+  const observedLine: Point[] = [];
+  const unobservedLine: Point[] = bridge ? [{ observedAt: membership.groupCreatedAt!, value: 0 }, first] : [];
+  for (const [index, point] of observations.entries()) {
+    const previous = observations[index - 1];
+    const skippedDay = previous && Math.floor(point.observedAt / 86_400_000) - Math.floor(previous.observedAt / 86_400_000) > 1;
+    if (skippedDay) {
+      observedLine.push({ observedAt: previous.observedAt + 1, value: null });
+      if (unobservedLine.length) unobservedLine.push({ observedAt: previous.observedAt + 1, value: null });
+      unobservedLine.push(previous, point);
+    }
+    observedLine.push(point);
+  }
+  const axisPoints = bridge ? [{ observedAt: membership.groupCreatedAt!, value: 0 }, ...observations] : observations;
 
   return <div className="min-w-0">
     <h3 className="text-sm font-semibold">Total group membership</h3>
-    {bridge ? <p className="mt-2 text-xs text-muted"><span className="mr-1 inline-block w-5 border-t-2 border-dotted border-muted align-middle" />Unobserved</p> : null}
+    {unobservedLine.length > 0 ? <p className="mt-2 text-xs text-muted"><span className="mr-1 inline-block w-5 border-t-2 border-dotted border-muted align-middle" />Unobserved</p> : null}
     <div className="mt-3 h-64 min-w-0" role="group" aria-label="Total group membership">
       <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-        <LineChart data={points} accessibilityLayer margin={{ top: 12, right: 12, left: 0, bottom: 0 }}>
+        <LineChart data={axisPoints} accessibilityLayer margin={{ top: 12, right: 12, left: 0, bottom: 0 }}>
           <CartesianGrid stroke="var(--border)" vertical={false} />
-          <XAxis dataKey="at" type="number" domain={["dataMin", "dataMax"]} tickFormatter={date} tickLine={false} axisLine={false} minTickGap={28} tick={{ fill: "var(--muted)", fontSize: 11 }} />
+          <XAxis dataKey="observedAt" type="number" domain={["dataMin", "dataMax"]} tickFormatter={date} tickCount={3} tickLine={false} axisLine={false} minTickGap={28} tick={{ fill: "var(--muted)", fontSize: 11 }} />
           <YAxis width={48} allowDecimals={false} domain={[0, "dataMax"]} tickLine={false} axisLine={false} tick={{ fill: "var(--muted)", fontSize: 11 }} />
-          <Tooltip cursor={false} content={({ active, payload }) => {
-            if (!active || !payload?.length) return null;
-            const point = payload[0]?.payload as (typeof points)[number] | undefined;
+          <Tooltip cursor={false} content={({ active, label }) => {
+            if (!active || typeof label !== "number") return null;
+            const isCreation = bridge && label === membership.groupCreatedAt;
+            const point = isCreation ? { observedAt: label, value: 0 } : observations.find((item) => item.observedAt === label);
             if (!point) return null;
             return <div className="rounded-card border border-border bg-surface px-3 py-2 text-sm shadow-panel">
-              <p className="text-muted">{date(point.at)}</p>
-              <p className="mt-1 font-medium">{point.observed === null ? "Unobserved" : `${point.observed.toLocaleString()} Group members`}</p>
+              <p className="text-muted">{date(point.observedAt)}</p>
+              {isCreation ? <p className="mt-1 text-muted">Unobserved</p> : null}
+              <p className="mt-1 font-medium">{point.value.toLocaleString()} Group members</p>
             </div>;
           }} />
-          {bridge ? <Line dataKey="unobserved" name="Unobserved" type="linear" stroke="var(--muted)" strokeWidth={2} strokeDasharray="3 4" dot={false} activeDot={false} isAnimationActive={false} /> : null}
-          <Line dataKey="observed" name="Group members" type="linear" stroke="var(--accent)" strokeWidth={2} dot={{ r: 3, fill: "var(--accent)" }} isAnimationActive={false} />
+          {unobservedLine.length > 0 ? <Line data={unobservedLine} dataKey="value" name="Unobserved" type="linear" stroke="var(--muted)" strokeWidth={2} strokeDasharray="3 4" dot={bridge ? { r: 3, fill: "var(--muted)" } : false} activeDot={false} isAnimationActive={false} /> : null}
+          <Line data={observedLine} dataKey="value" name="Group members" type="linear" stroke="var(--accent)" strokeWidth={2} dot={{ r: 3, fill: "var(--accent)" }} isAnimationActive={false} />
         </LineChart>
       </ResponsiveContainer>
     </div>

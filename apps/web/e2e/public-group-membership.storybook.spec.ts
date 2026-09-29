@@ -26,6 +26,10 @@ test("a single observation and missing creation time remain honest @storybook-vi
   await page.locator(".recharts-line-dots circle").last().hover();
   await expect(page.getByText("1,234 Group members")).toBeVisible();
   await expect(page.locator(".recharts-tooltip-wrapper").getByText("Sep 28, 2026")).toBeVisible();
+  await page.locator(".recharts-line-dots circle").first().hover();
+  await expect(page.locator(".recharts-tooltip-wrapper").getByText("Unobserved", { exact: true })).toBeVisible();
+  await expect(page.locator(".recharts-tooltip-wrapper").getByText("0 Group members")).toBeVisible();
+  await expect(page.locator(".recharts-tooltip-wrapper").getByText("Sep 21, 2026")).toBeVisible();
   await testInfo.attach("single-observation", { body: await page.screenshot({ fullPage: true }), contentType: "image/png" });
 
   await page.goto(story("unknown-creation"));
@@ -34,8 +38,18 @@ test("a single observation and missing creation time remain honest @storybook-vi
   await expect(page.locator(".recharts-line")).toHaveCount(1);
 });
 
-test("missing daily observations break the solid line @storybook-visual", async ({ page }) => {
+test("skipped UTC day uses a dotted segment even over 35 hours @storybook-visual", async ({ page }, testInfo) => {
   await page.goto(story("missing-days"));
-  const path = await page.locator('.recharts-line-curve[stroke="var(--accent)"]').getAttribute("d");
-  expect(path?.match(/M/g)).toHaveLength(2);
+  await expect(page.locator(".recharts-line")).toHaveCount(2);
+  await expect(page.locator('.recharts-line-curve[stroke="var(--accent)"]')).toHaveCount(1);
+  const observedPath = await page.locator('.recharts-line-curve[stroke="var(--accent)"]').getAttribute("d");
+  expect(observedPath?.match(/M/g)).toHaveLength(2);
+  await expect(page.locator('.recharts-line-dots circle')).toHaveCount(3);
+  await expect(page.locator('.recharts-line-curve[stroke-dasharray="3 4"]')).toHaveCount(1);
+  await expect(page.getByText("Unobserved", { exact: true })).toBeVisible();
+  await testInfo.attach("membership-missing-days", { body: await page.screenshot({ fullPage: true }), contentType: "image/png" });
+
+  await page.goto(story("adjacent-long-interval"));
+  await expect(page.locator('.recharts-line-curve[stroke="var(--accent)"]')).toHaveCount(1);
+  await expect(page.locator('.recharts-line-curve[stroke-dasharray="3 4"]')).toHaveCount(0);
 });

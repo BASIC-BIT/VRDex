@@ -40,10 +40,17 @@ export const Neither: Story = { render: () => <Preview value={{ ...profile, tele
 export const SingleObservation: Story = { render: () => <Preview value={{ ...profile, groupMembership: { ...profile.groupMembership!, points: [profile.groupMembership!.latest] } }} /> };
 export const UnknownCreation: Story = { render: () => <Preview value={{ ...profile, groupMembership: { ...profile.groupMembership!, groupCreatedAt: undefined } }} /> };
 export const MissingDays: Story = { render: () => <Preview value={{ ...profile, groupMembership: {
-  latest: { observedAt: Date.UTC(2026, 8, 16), value: 1040 },
+  latest: { observedAt: Date.UTC(2026, 8, 12, 10), value: 1040 },
+  points: [
+    { observedAt: Date.UTC(2026, 8, 10, 22), value: 975 },
+    { observedAt: Date.UTC(2026, 8, 10, 23), value: 990 },
+    { observedAt: Date.UTC(2026, 8, 12, 10), value: 1040 },
+  ],
+} }} /> };
+export const AdjacentLongInterval: Story = { render: () => <Preview value={{ ...profile, groupMembership: {
+  latest: { observedAt: Date.UTC(2026, 8, 11, 23), value: 1040 },
   points: [
     { observedAt: Date.UTC(2026, 8, 10), value: 975 },
-    { observedAt: Date.UTC(2026, 8, 11), value: 990 },
-    { observedAt: Date.UTC(2026, 8, 16), value: 1040 },
+    { observedAt: Date.UTC(2026, 8, 11, 23), value: 1040 },
   ],
 } }} /> };
