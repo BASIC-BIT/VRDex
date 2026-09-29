@@ -64,10 +64,12 @@ function subscribeToLocation(callback: () => void) {
 function subscribeToNow(callback: () => void) {
   const timeoutId = window.setTimeout(callback, 0);
   const intervalId = window.setInterval(callback, 60_000);
+  document.addEventListener("visibilitychange", callback);
 
   return () => {
     window.clearTimeout(timeoutId);
     window.clearInterval(intervalId);
+    document.removeEventListener("visibilitychange", callback);
   };
 }
 
@@ -91,11 +93,11 @@ function useBrowserHostname() {
   return useSyncExternalStore(subscribeToLocation, getBrowserHostname, getServerHostname);
 }
 
-function useCurrentTimestamp() {
+export function useCurrentTimestamp() {
   return useSyncExternalStore(subscribeToNow, getBrowserNow, getServerNow);
 }
 
-function isInScheduledWatchWindow({
+export function isInScheduledWatchWindow({
   doorsOpenAt,
   endAt,
   now,

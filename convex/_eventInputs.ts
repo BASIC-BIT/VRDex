@@ -72,6 +72,7 @@ export type EventDraftInput = {
   posterImageUrl?: string;
   bannerImageUrl?: string;
   thumbnailImageUrl?: string;
+  watchMode?: "event_stream" | "performer_sequence";
   watchSurfaceEnabled?: boolean;
   mediaLinks?: EventMediaLinkInput[];
   participantLinks?: EventParticipantInput[];
@@ -137,6 +138,7 @@ export type SanitizedEventDraftInput = {
   posterImageUrl?: string;
   bannerImageUrl?: string;
   thumbnailImageUrl?: string;
+  watchMode: "event_stream" | "performer_sequence";
   watchSurfaceEnabled: boolean;
   mediaLinks: SanitizedEventMediaLink[];
   participantLinks: SanitizedEventParticipantInput[];
@@ -428,6 +430,7 @@ export function sanitizeEventDraftInput(input: EventDraftInput): SanitizedEventD
     ...optionalObjectField("posterImageUrl", optionalHttpsUrl(input.posterImageUrl, "Poster image URL")),
     ...optionalObjectField("bannerImageUrl", optionalHttpsUrl(input.bannerImageUrl, "Banner image URL")),
     ...optionalObjectField("thumbnailImageUrl", optionalHttpsUrl(input.thumbnailImageUrl, "Thumbnail image URL")),
+    watchMode: sanitizeWatchMode(input.watchMode),
     watchSurfaceEnabled: input.watchSurfaceEnabled ?? false,
     mediaLinks: sanitizeEventMediaLinks(input.mediaLinks),
     participantLinks,
@@ -438,4 +441,10 @@ export function sanitizeEventDraftInput(input: EventDraftInput): SanitizedEventD
 
 function optionalObjectField<T>(key: string, value: T | undefined): Record<string, T> {
   return value === undefined ? {} : { [key]: value };
+}
+
+function sanitizeWatchMode(value: EventDraftInput["watchMode"]): SanitizedEventDraftInput["watchMode"] {
+  if (value === undefined) return "event_stream";
+  if (value !== "event_stream" && value !== "performer_sequence") throw new Error("Invalid event watch mode.");
+  return value;
 }

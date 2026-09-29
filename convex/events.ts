@@ -1,4 +1,7 @@
+import { eventProfileStreamChoices } from "./_eventPlayback";
 import { ConvexError, v } from "convex/values";
+import {syncClubEventOperations} from "./_clubOperationEvents";
+import { internal } from "./_generated/api";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import {
@@ -117,6 +120,7 @@ const eventDraftArgs = {
   posterImageUrl: v.optional(v.string()),
   bannerImageUrl: v.optional(v.string()),
   thumbnailImageUrl: v.optional(v.string()),
+  watchMode: v.optional(v.union(v.literal("event_stream"), v.literal("performer_sequence"))),
   watchSurfaceEnabled: v.optional(v.boolean()),
   mediaLinks: v.optional(
     v.array(
@@ -142,6 +146,7 @@ const eventDraftArgs = {
   slotLinks: v.optional(
     v.array(
       v.object({
+        selectedStreamId: v.optional(v.union(v.string(), v.null())),
         personSlug: v.optional(v.string()),
         displayLabel: v.string(),
         roleLabel: v.optional(v.string()),
@@ -739,8 +744,19 @@ async function replaceEventSlots(
       ? undefined
       : await getPublishedPersonBySlug(db, slot.personSlug);
 
+    // An unchanged stored choice may have become unavailable since authoring.
+    // Retain it, but validate every new choice against discovery-visible links.
+    if (slot.selectedStreamId !== undefined && slot.selectedStreamId !== preservedSlot?.selectedStreamId) {
+      const sourceProfile = profile ?? (preservedSlot?.personProfileId === undefined ? null : await db.get(preservedSlot.personProfileId));
+      if (sourceProfile == null || !canReadProfile("public", sourceProfile) ||
+          !eventProfileStreamChoices(sourceProfile).some((choice) => choice.streamId === slot.selectedStreamId)) {
+        throw new Error("Selected stream must belong to the performer's public streams.");
+      }
+    }
+
     if (preservedSlot !== undefined) {
       await db.patch(preservedSlot._id, {
+        selectedStreamId: slot.selectedStreamId,
         eventStartAt,
         position: slot.position,
         startAt: slot.startAt,
@@ -760,6 +776,7 @@ async function replaceEventSlots(
     }
 
     await db.insert("eventSlots", {
+      ...optionalValue("selectedStreamId", slot.selectedStreamId),
       eventId,
       eventStartAt,
       position: slot.position,
@@ -897,6 +914,7 @@ function toApiManagedEventSummary(event: Doc<"events">, community: Doc<"profiles
     sourceLabel: event.sourceLabel,
     publicationState: event.publicationState,
     status: event.eventStatus,
+    watchMode: event.watchMode ?? "event_stream",
     watchSurfaceEnabled: event.watchSurfaceEnabled ?? false,
     createdAt: event.createdAt,
     publishedAt: event.publishedAt,
@@ -953,13 +971,14 @@ async function createCommunityEventForApiOwnerRecord(
 }
 
 async function updateCommunityEventForApiOwnerRecord(
-  db: DatabaseWriter,
+  ctx: MutationCtx,
   args: EventDraftUpdateInput & {
     currentSlug: string;
     ownerUserId: Id<"users">;
     actorSurface?: "api" | "mcp";
   },
 ) {
+  const {db}=ctx;
   const validation = validateEventSlug(args.currentSlug);
 
   if (!validation.ok) {
@@ -1018,6 +1037,7 @@ async function updateCommunityEventForApiOwnerRecord(
       posterImageUrl: event.posterImageUrl,
       bannerImageUrl: event.bannerImageUrl,
       thumbnailImageUrl: event.thumbnailImageUrl,
+      watchMode: event.watchMode ?? "event_stream",
       watchSurfaceEnabled: event.watchSurfaceEnabled ?? false,
       mediaLinks: event.mediaLinks ?? [],
     }),
@@ -1026,7 +1046,7 @@ async function updateCommunityEventForApiOwnerRecord(
   const world = updateFields.has("worldSlug")
     ? await getPublishedWorldBySlug(db, input.worldSlug)
     : await linkedPublishedEventWorld(db, event._id);
-  const result = await updateCommunityEventRecord(db, { event, input, community, world, updateFields });
+  const result = await updateCommunityEventRecord(ctx, { event, input, community, world, updateFields });
   await recordEventAuditEvent(db, {
     eventId: event._id,
     actor: apiOwnerAuthSubject(args.ownerUserId),
@@ -1109,6 +1129,7 @@ async function insertCommunityEventRecord(
     ...optionalValue("posterImageUrl", input.posterImageUrl),
     ...optionalValue("bannerImageUrl", input.bannerImageUrl),
     ...optionalValue("thumbnailImageUrl", input.thumbnailImageUrl),
+    watchMode: input.watchMode,
     watchSurfaceEnabled: input.watchSurfaceEnabled,
     mediaLinks: input.mediaLinks,
     sourceType: "community",
@@ -1162,7 +1183,7 @@ async function insertCommunityEventRecord(
 }
 
 async function updateCommunityEventRecord(
-  db: DatabaseWriter,
+  ctx: MutationCtx,
   options: {
     event: Doc<"events">;
     input: SanitizedEventDraftInput;
@@ -1177,6 +1198,7 @@ async function updateCommunityEventRecord(
     updateFields?: ReadonlySet<keyof EventDraftInput>;
   },
 ) {
+  const {db}=ctx;
   const {
     community,
     event,
@@ -1198,6 +1220,15 @@ async function updateCommunityEventRecord(
     throw new Error("Event URL code is missing.");
   }
 
+  if (community._id !== event.communityProfileId) {
+    const confirmed = await db.query("eventInstanceAssociations")
+      .withIndex("by_eventId_state", (query) => query.eq("eventId", event._id).eq("state", "confirmed"))
+      .first();
+    if (confirmed) {
+      throw new Error("You do not have permission to move this event to another community.");
+    }
+  }
+
   await db.patch(event._id, {
     title: input.title,
     sortTitle: input.sortTitle,
@@ -1217,6 +1248,7 @@ async function updateCommunityEventRecord(
     ...(shouldUpdate("posterImageUrl") ? { posterImageUrl: input.posterImageUrl } : {}),
     ...(shouldUpdate("bannerImageUrl") ? { bannerImageUrl: input.bannerImageUrl } : {}),
     ...(shouldUpdate("thumbnailImageUrl") ? { thumbnailImageUrl: input.thumbnailImageUrl } : {}),
+    ...(shouldUpdate("watchMode") ? { watchMode: input.watchMode } : {}),
     ...(shouldUpdate("watchSurfaceEnabled") ? { watchSurfaceEnabled: input.watchSurfaceEnabled } : {}),
     ...(shouldUpdate("mediaLinks") ? { mediaLinks: input.mediaLinks } : {}),
     ...(shouldUpdate("sourceLabel") ? { sourceLabel: input.sourceLabel } : {}),
@@ -1232,6 +1264,25 @@ async function updateCommunityEventRecord(
   const updatedEvent = await db.get(event._id);
   if (updatedEvent === null) {
     throw new Error("Event update did not persist.");
+  }
+  if(updatedEvent.startAt!==event.startAt||updatedEvent.communityProfileId!==event.communityProfileId)await syncClubEventOperations(ctx,event._id);
+  if (
+    updatedEvent.communityProfileId !== undefined &&
+    (updatedEvent.startAt !== event.startAt || updatedEvent.endAt !== event.endAt)
+  ) {
+    const confirmed = await db.query("eventInstanceAssociations")
+      .withIndex("by_eventId_state", (query) => query.eq("eventId", event._id).eq("state", "confirmed"))
+      .first();
+    if (confirmed?.communityProfileId === updatedEvent.communityProfileId) {
+      await ctx.scheduler.runAfter(0, internal.communityTelemetry.recomputeRollup, {
+        communityProfileId: updatedEvent.communityProfileId,
+        eventId: event._id,
+        grain: "event",
+        bucketStartAt: updatedEvent.startAt,
+        bucketEndAt: updatedEvent.endAt ?? updatedEvent.startAt + 6 * 60 * 60_000,
+        now,
+      });
+    }
   }
 
   const replaceWorld = shouldUpdate("worldSlug");
@@ -2503,28 +2554,48 @@ async function managedCommunitiesForBrowser(
   options: { includeNonPublic?: boolean } = {},
 ) {
   const { subject, user } = await requireActiveBrowserSessionSubject(ctx);
-  const [owners, authorities] = await Promise.all([
-    ctx.db
+  const owners = await ctx.db
         .query("profileOwners")
         .withIndex("by_userId_state", (query) =>
           query.eq("userId", user._id).eq("state", "active"),
         )
-        .take(100),
-    ctx.db
-        .query("communityAuthorities")
-        .withIndex("by_subjectTokenIdentifier_state", (query) =>
-          query.eq("subjectTokenIdentifier", subject.tokenIdentifier).eq("state", "active"),
-        )
-        .take(100),
-  ]);
+        .take(100);
+  // Bound communities, not raw assignments: one club may have 100 roles.
+  // Seek past each community key so duplicate assignments cannot crowd out
+  // later clubs. Never silently return an incomplete inventory at the bound.
+  const authorities: Doc<"communityAuthorities">[] = [];
+  let afterCommunity: Id<"profiles"> | undefined;
+  for (let communityCount = 0; ; communityCount++) {
+    const next = await ctx.db.query("communityAuthorities")
+      .withIndex("by_subjectTokenIdentifier_state_communityProfileId", q => {
+        const prefix = q.eq("subjectTokenIdentifier", subject.tokenIdentifier).eq("state", "active");
+        return afterCommunity ? prefix.gt("communityProfileId", afterCommunity) : prefix;
+      }).first();
+    if (!next) break;
+    if (communityCount === 100) throw new Error("Managed community inventory requires pagination.");
+    const assignments = await ctx.db.query("communityAuthorities")
+      .withIndex("by_subjectTokenIdentifier_state_communityProfileId", q =>
+        q.eq("subjectTokenIdentifier", subject.tokenIdentifier).eq("state", "active").eq("communityProfileId", next.communityProfileId),
+      ).take(101);
+    if (assignments.length > 100) throw new Error("Community authority assignments require pagination.");
+    // At most 4,000 assignment reads plus 4,000 role reads, leaving room
+    // for profile and event inventory reads in callers of this helper.
+    if (authorities.length + assignments.length > 4000)
+      throw new Error("Managed community inventory requires pagination.");
+    authorities.push(...assignments);
+    afterCommunity = next.communityProfileId;
+  }
   const roleByProfileId = new Map<Id<"profiles">, string>();
   for (const owner of owners) roleByProfileId.set(owner.profileId, "Owner");
   for (const authority of authorities) {
+    if(authority.subject.subject !== subject.subject || authority.subject.issuer !== subject.issuer) continue;
+    const role = authority.roleId ? await ctx.db.get(authority.roleId) : null;
+    const permissions = authority.roleId ? (role?.state === "active" && role.communityProfileId === authority.communityProfileId ? role.permissions : []) : (authority.capabilities ?? []);
     if (
-      authority.capabilities.includes("manage_events") &&
+      permissions.includes("manage_events") &&
       !roleByProfileId.has(authority.communityProfileId)
     ) {
-      roleByProfileId.set(authority.communityProfileId, authority.roleLabel);
+      roleByProfileId.set(authority.communityProfileId, role?.label ?? authority.roleLabel ?? "Staff");
     }
   }
   const profiles = await Promise.all(
@@ -2728,7 +2799,7 @@ export const updateCommunityEventForApiOwner = internalMutation({
   },
   handler: async (ctx, args) => {
     const { community, event, result } = await updateCommunityEventForApiOwnerRecord(
-      ctx.db,
+      ctx,
       args,
     );
     await recordApiWriteAuditEvent(ctx.db, {
@@ -2777,7 +2848,7 @@ export const updateCommunityEventForMcpOwner = internalMutation({
 
     try {
       ({ community, event, result } = await updateCommunityEventForApiOwnerRecord(
-        ctx.db,
+        ctx,
         { ...args, actorSurface: "mcp" },
       ));
     } catch {
@@ -2907,7 +2978,7 @@ export const updateCommunityEvent = mutation({
         : ("draft_private" as const);
     const publicationChanged =
       publicationState !== undefined && publicationState !== event.publicationState;
-    const result = await updateCommunityEventRecord(ctx.db, {
+    const result = await updateCommunityEventRecord(ctx, {
       event,
       input,
       community,
@@ -3133,6 +3204,7 @@ export const setCommunityEventCancelled = mutation({
 
     const now = Date.now();
     await ctx.db.patch(event._id, { eventStatus, updatedAt: now });
+    await syncClubEventOperations(ctx,event._id,args.cancelled);
     if (args.cancelled) {
       await settleEventMediaForCancellation(ctx.db, event, subject, now);
     }
@@ -3576,5 +3648,17 @@ export const markEventMediaWorkerEnded = mutation({
       sessionId: session._id,
       status,
     };
+  },
+});
+
+// Event authoring can only select streams already exposed on discovery surfaces.
+export const getPersonStreamChoices = query({
+  args: { slug: v.string() },
+  returns: v.array(v.object({ streamId: v.string(), pcUrl: v.string(), questUrl: v.string() })),
+  handler: async (ctx, args) => {
+    if (args.slug.length > 64) return [];
+    const profile = await ctx.db.query("profiles").withIndex("by_slug", (q) => q.eq("slug", args.slug)).unique();
+    if (profile === null || profile.profileType !== "person" || !canReadProfile("public", profile)) return [];
+    return eventProfileStreamChoices(profile);
   },
 });

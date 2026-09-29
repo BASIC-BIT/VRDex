@@ -35,6 +35,8 @@ resource it means to write:
 | `vrdex_profile_submit` | `mcp:write` + `profile:contribute` |
 | `vrdex_profile_media_manage` | `mcp:write` + `assets:write` |
 | `vrdex_profile_media_submit` | `mcp:write` + `assets:contribute` |
+| `vrdex_media_review_decide` | `mcp:write` + `assets:review:write` |
+| `vrdex_media_submission_withdraw` | `mcp:write` + `assets:contribute` |
 
 `profile:write` is bounded by what its consent screen says: "Edit your profiles".
 Reaching a profile the user does not own, whether by correcting an unclaimed one
@@ -186,6 +188,10 @@ validated address, including redirects to another host. Redirect count,
 timeout, size, MIME, and decoded-image checks still apply. It sends no browser
 cookies, authorization headers, or referrer from the source request.
 
+`vrdex_media_upload_begin` requires a nonblank source URL or a source
+description. A local file can use the description without a URL. Mixed media
+and profile batch appends require both contribution grants.
+
 A completed same-request replay works after source expiry without fetching
 again. An unfinished import still needs a usable URL. A changed query is a
 different request. After a definite terminal source refusal, use a fresh URL
@@ -212,7 +218,20 @@ asset, including placement and profile-field visibility checks.
 Owner media management and community contribution remain separate authority
 paths. The owner tool cannot target an unclaimed profile. The contributor tool
 cannot target a claimed profile, review its own proposal, or publish media.
-Review and moderation remain browser-only.
+Media review uses three authenticated read tools and one decision tool. The
+queue, detail and native preview tools require `mcp:read` plus
+`assets:review:read`. Each call rechecks the user delegation, current OAuth
+token and client, resource authority, and current verified-email state. Preview
+also requires the detail's opaque `reviewVersion`. It reads only the authorized
+stored candidate, verifies its content hash and version again, and returns a
+bounded PNG rendition. It never fetches the proposal source URL or returns a
+storage key. Decisions require `mcp:write` plus `assets:review:write` and use the
+same durable receipt transition as the website. An identical key can recover a
+lost response; a refused receipt remains refused.
+
+`vrdex_media_submission_withdraw` is the contributor's own command. It requires
+`mcp:write` plus `assets:contribute`, rechecks authorship in the transaction,
+and does not grant or depend on review authority.
 
 ## Authorization contract
 
@@ -321,7 +340,15 @@ intentional same-key recovery safe but do not authorize automatic retry.
   filenames, hashes, storage keys, processing tokens, or upload credentials.
 - `mcpToolEvents` records accepted, denied, indeterminate, or readback-warning outcomes
   without request bodies, raw keys, tokens, event content, or network
-  identities.
+  identities. Known precommit media review, publication, and withdrawal
+  authority or resource refusals are denied with a coded command receipt and
+  `nextAction`, without forwarding the backend message or stack. Transport
+  failures, unknown errors, and failures after a write may have committed remain
+  indeterminate.
+  For selected decisions, any `in_progress` receipt makes the aggregate
+  indeterminate; otherwise any refused receipt makes it denied, including when
+  another item committed. A write-event recording failure does not change the
+  command response.
 - Existing OAuth validation events cover invalid, expired, revoked,
   wrong-resource, and under-scoped tokens.
 - Authorization-code exchange failures log only a bounded rejection category;

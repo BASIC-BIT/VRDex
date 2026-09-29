@@ -13,6 +13,7 @@ import {
 type AuthorityRow = {
   communityProfileId: Id<"profiles">;
   subjectTokenIdentifier: string;
+  subject: AuthSubject;
   state: "active" | "revoked";
   capabilities: CommunityCapability[];
 };
@@ -60,6 +61,7 @@ describe("community authority helpers", () => {
       {
         communityProfileId,
         subjectTokenIdentifier: subject.tokenIdentifier,
+        subject,
         state: "active",
         capabilities: ["manage_profile"],
       },
@@ -74,12 +76,14 @@ describe("community authority helpers", () => {
       {
         communityProfileId,
         subjectTokenIdentifier: subject.tokenIdentifier,
+        subject,
         state: "active",
         capabilities: ["manage_roster"],
       },
       {
         communityProfileId,
         subjectTokenIdentifier: subject.tokenIdentifier,
+        subject,
         state: "active",
         capabilities: ["manage_event_media"],
       },

@@ -1,7 +1,8 @@
 # MCP media staging lifecycle
 
 The opt-in `apps/web/e2e/media-contribution.flow.spec.ts` exercises a real
-user-delegated OAuth contribution and a different Clerk user's browser review.
+user-delegated OAuth contribution and a different Clerk user's browser and MCP
+review.
 It uses only synthetic accounts, a synthetic person profile and the existing
 solid-color fixture images. It does not prove a live VRChat claim or a real VRCDN
 stream transition.
@@ -50,7 +51,8 @@ limited to that candidate and the assertions described below.
 - Deploy the candidate's web and backend together, then pin
   `VRDEX_E2E_EXPECTED_COMMIT` to its full SHA. The test refuses a mismatch.
 - Enable the existing media-kit and media-submission flags in the web and
-  backend as required by their normal import/review paths. Verify storage is
+  backend. Enable contributor uploads and the cleanup-ready flag in Convex only
+  after verifying the cleanup worker. Intake must be unpaused. Verify storage is
   configured. The fixture preflight runs before account creation.
 - The synthetic images are static 64px solid-color PNGs at
   `/test-media/profile-image.png` and `/test-media/rejected-image.png`.
@@ -80,6 +82,31 @@ exact candidate branch with this input enabled. It deploys that branch through
 the existing staging lane and runs the test with the repository's existing
 Clerk/E2E secrets and `github.sha` pin. Automatic main deployments do not opt in.
 
+Before enabling direct uploads, use the separate default-off
+`media_cleanup_proof` input. Keep `VRDEX_CONTRIBUTION_UPLOADS_ENABLED` and
+`VRDEX_MEDIA_UPLOAD_CLEANUP_READY` off. The normal URL submission path needs
+staging intake temporarily unpaused, because the same contribution policy
+applies to URL submissions. The proof creates one run-linked URL import,
+rejects it as the synthetic profile owner, advances only that rejected
+fixture's cleanup deadline, invokes the configured cleanup worker, and checks
+both Convex completion and exact S3 object absence. Its guarded helper is
+pinned to the designated staging Convex deployment and cannot alter production
+retention. Restore the staging intake pause after the run until the direct
+upload rollout is ready. A reachability-only worker response is not deletion
+evidence.
+
+After cleanup readiness and contributor uploads are enabled in staging, use
+the separate default-off `media_upload_cleanup_proof` input. It creates one
+run-linked contributor upload on its own synthetic profile, posts bytes to the
+minted S3 endpoint, and leaves completion pending. Cleanup waits for the signed
+POST to expire, confirms replay is refused, advances only that reservation's
+cleanup deadline, then calls the authenticated worker. The proof checks that
+the exact object is absent and the reservation is failed with `UPLOAD_EXPIRED`,
+zero charged/quarantine bytes, no active processing, and zero actor/target
+capacity. The ordinary fixture teardown then removes the remaining rows and
+accounts. This uses a separate profile because baseline policy permits only
+two open submissions on the two-user review fixture.
+
 The test is separate from the ordinary `@flow` lane and requires explicit
 opt-in. OAuth exchange traces and video recording are disabled. Its evidence
 attachment contains the candidate, completed assertions and cleanup result,
@@ -87,20 +114,24 @@ without tokens, source bytes, account IDs or profile IDs.
 Automatic retries are disabled so a cleanup failure cannot become a successful
 flaky run that leaves an earlier fixture behind. CI media reports use separate
 paths from the ordinary staging health and auth-session reports.
-Cleanup runs in `afterEach` with a separate two-minute budget, so the test's
-timeout does not consume its recovery time. Browser contexts close before
+Cleanup runs in `afterEach` with a separate 13-minute budget for direct uploads
+(two minutes in rejected-URL cleanup mode), so the test's timeout does not consume its
+recovery time. Browser contexts close before
 cleanup to prevent user reprovisioning. Cleanup uses the independent API request
 context; subsequent evidence attachments use `testInfo`, not a live browser.
 
 ## What the test proves
 
 1. A and B have separate Clerk identities and browser contexts. Each authorizes
-   only `mcp:read mcp:write assets:contribute`.
-2. A submits an image to an unclaimed person. Same-key replay returns the same
+   only `mcp:read assets:review:read mcp:write assets:contribute
+   assets:review:write`.
+2. A submits a URL image to an unclaimed person. Same-key replay returns the same
    submission; conflicting reuse and stale revisions are refused. One immediate
    new-key request must return the exact sanitized cooldown message. After
-   waiting 31 seconds without changing rate policy, A submits the second image
-   under a new key. This is submission-cooldown evidence, not transport-wide
+   waiting 31 seconds without changing rate policy, A reserves the second image
+   with `vrdex_media_upload_begin`, posts its bytes to the minted S3 endpoint,
+   and finalizes with `vrdex_media_upload_complete`. The completion receipt
+   replays unchanged. This is submission-cooldown evidence, not transport-wide
    HTTP 429 or daily-quota exhaustion coverage.
 3. A can read the submission; B cannot enumerate it. Public profile projection
    contains no new image before review, and anonymous/A review-file requests
@@ -109,22 +140,28 @@ context; subsequent evidence attachments use `testInfo`, not a live browser.
    evidence. A cannot enter the review queue.
 4. The fixture assigns only that synthetic profile to B after submission.
    Further contributor submissions to the claimed target are refused. B rejects
-   the second image through normal browser controls. A sees the contributor
+   the URL image through normal browser controls. A sees the contributor
    disposition but not the private reason; B's caller-only history stays empty.
    No public asset exists after rejection, and public projection excludes the
-   source URLs and review reasons. B approves the first image, creating one
-   public asset with `community_submitted` provenance.
+   source URLs and review reasons. The MCP preview returns the direct upload's
+   stored pixels as native image content for the inspected version. A's MCP approval
+   is refused because A has no review authority. B approves the direct image through MCP,
+   replays the same receipt, and the browser and public readback show one public
+   asset with `community_submitted` provenance.
 5. The staging-only audit inspector bounds each ledger read to 101 rows for
    the exact run-linked contributor and refuses overflow above 100. It checks
    field allowlists and absence of URL/bearer/image-data markers and the fixture's
    source URLs, private notes, upload tokens and storage keys. It returns only
-   counts and a redaction boolean, requiring two accepted submission audit rows
+   counts and a redaction boolean, requiring one accepted URL-submission audit row
    and recorded denied tool calls. It never returns ledger payloads or removes
    retained audit rows. This is bounded fixture evidence, not a global audit.
 6. Revoking A's grant refuses subsequent authenticated status reads while
    anonymous profile reads remain available.
-7. Cleanup removes only the run's fixture objects and media rows before the
-   existing profile/account cleanup removes its synthetic identities.
+7. Cleanup freezes the fixture, waits until the minted S3 POST expires, confirms
+   a replay is refused, then deletes and HEAD-checks each exact fixture object. It releases both
+   upload reservations and their actor, target, deployment and published charges,
+   then removes media rows before the existing profile/account cleanup removes
+   its synthetic identities.
 
 Assigning fixture ownership is setup for media authorization testing. It is
 not evidence that the real claiming process succeeded. Unclaimed-profile
@@ -141,10 +178,21 @@ separate evidence.
 The fixture is restricted to exact `e2e:<runId>` profile attribution and
 run-linked test email addresses. Cleanup first makes the profile ineligible,
 expires intents and refuses active processing/cleanup leases or legal holds.
+It retains the original `mcp_local` expiry until the signed POST is no longer
+usable. A retryable cleanup response carries the deadline; no object or ledger
+row is deleted before that deadline. This can take about ten minutes.
+If direct transfer fails before completion claims storage work, cleanup releases
+only the run's pending upload reservation after that deadline, provided no
+storage token or lease is active. A failure after completion claims storage work
+retains its processing token and requires operator recovery.
 Storage deletion precedes row deletion so a failed object deletion retains
-the metadata needed for recovery. The helper never returns object keys.
+the metadata needed for recovery. The helper never returns object keys. It
+accepts `profile-assets/quarantine/local/<uuid>` only for the exact fixture's
+`mcp_local` intent and refuses reservations belonging to other actors or batches.
 
-Cleanup removes the fixture's operational data, not its historical telemetry.
+Cleanup removes the fixture's operational data, including review receipts,
+rebases, publication evidence and restrictions linked to its submissions, not
+its historical telemetry.
 The existing `apiWriteAuditEvents` and `mcpToolEvents` ledgers retain synthetic
 actor and target IDs after the referenced fixture rows are deleted. These are
 historical request records; cleanup does not promise zero residual telemetry.
@@ -156,13 +204,15 @@ the Convex identities. Teardown checks account absence in both Convex and Clerk;
 a successful DELETE response alone is insufficient evidence.
 
 Run `33990507621` passed the lifecycle assertions but independently revealed
-recreated user rows during teardown. It has an approved `media_recovery` dispatch
-mode in Staging Deploy. It skips the deployment job entirely and invokes
-`apps/web/e2e/media-recovery.ts` with that run's fixed profile ID and deployed
-commit. It uses existing Actions secrets, the normal guarded media DELETE, and
-account cleanup only after media/profile absence is verified. It cannot serve
-as a general recovery command for another run without a reviewed change to its
-identity pins. Dispatch requires the operator's exact recovery approval.
+recreated user rows during teardown. Staging Deploy has a `media_recovery`
+dispatch mode. It skips deployment and passes the operator-supplied exact run ID,
+profile ID, and deployed commit to `apps/web/e2e/media-recovery.ts`. The workflow
+defaults identify run `33990507621` only; override all three inputs for another
+run. The script verifies those values against the live staging deployment and
+fixture before cleanup. It uses existing Actions secrets and the guarded media
+DELETE, waiting up to 12 minutes if a signed upload is still valid. Account
+cleanup begins only after media/profile absence is verified. Dispatch requires
+the operator's exact recovery approval.
 Before any deletion, an authenticated Clerk domains lookup must identify the
 same primary Frontend API as the pinned deployment. A development key prefix
 or an empty user lookup is insufficient. A failed, malformed, or mismatched

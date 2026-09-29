@@ -13,6 +13,16 @@ output "profile_asset_runtime_role_arn" {
   value       = aws_iam_role.vercel_profile_assets.arn
 }
 
+output "staging_profile_asset_bucket_name" {
+  description = "Private S3 bucket for hosted staging profile assets."
+  value       = aws_s3_bucket.profile_assets_staging.bucket
+}
+
+output "staging_profile_asset_runtime_role_arn" {
+  description = "IAM role ARN used by hosted staging Vercel functions for profile asset S3 access."
+  value       = aws_iam_role.vercel_profile_assets_staging.arn
+}
+
 output "managed_profile_asset_environment_keys" {
   description = "Vercel environment variable names managed by this stack for profile asset storage."
   value       = keys(local.runtime_env_values)

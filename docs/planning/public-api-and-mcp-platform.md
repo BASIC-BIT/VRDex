@@ -875,6 +875,11 @@ Current protected hosted tools:
 
 Deferred hosted tools:
 
+The local-file transfer and media-review exclusions below have a proposed
+revision in [trusted contributors and bulk contributions](./trusted-contributors-and-bulk-contributions.md),
+including [upload-intent bridge issue #340](https://github.com/BASIC-BIT/VRDex/issues/340).
+Those proposals do not make the tools available or approve credential exposure.
+
 - owner event inventory beyond public reads
 - local-file media upload without a trusted out-of-band binary bridge
 - unclaimed-profile media contribution and review

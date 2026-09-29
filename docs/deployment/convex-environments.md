@@ -193,6 +193,17 @@ A Convex deployment that sends through SES must set:
 
 The hosted SES baseline is documented in `docs/deployment/ses-auth-email.md` and `docs/deployment/aws-baseline.md`. Store secret values in Convex env, never in git.
 
+Club operation failure emails reuse the same SES sender, region and credential
+chain. They additionally require `VRDEX_CLUB_OPERATION_EMAIL_ENABLED=true` and
+`VRDEX_SITE_URL` set to the deployment's HTTPS public origin. The flag defaults
+off; leave it off until the exact message copy and delivery smoke test are
+approved. The five-minute cron claims up to 20 messages per run, rechecks each
+recipient's access, and never automatically replays an uncertain send. The
+deployment operator owns enabling, recreating and rotating this configuration
+through the existing Convex environment and IAM process. See
+[operation notifications](../planning/group-instance-analytics/operation-notifications.md)
+for exact copy and delivery behavior.
+
 ## Hosted E2E Helpers
 
 Hosted mutation-backed Playwright runs use only the shared development/staging target. Do not enable these helpers in production.
@@ -386,7 +397,24 @@ GitHub Actions repository settings for the optional authenticated smoke:
 - `VRDEX_PRODUCTION_AUTH_SMOKE_PROVIDER` is retired: the account page no longer renders linked providers, because Clerk shows them only inside its own profile modal. The smoke asserts the management affordance instead of a provider label
 - secret `VRDEX_PRODUCTION_AUTH_SMOKE_STORAGE_STATE_B64`: base64-encoded Playwright `storageState` JSON from a dedicated production test account
 
-The lane remains skipped unless both `VRDEX_PRODUCTION_SMOKE_BASE_URL` and `VRDEX_PRODUCTION_AUTH_SMOKE_STORAGE_STATE_B64` are configured. Do not store OAuth credentials in CI, and do not enable production mutation helper routes for this check.
+The authenticated smoke runs only on an explicit manual dispatch with
+`production_auth=true`. Use `target=production-smoke` to run this check without
+staging mutation checks. Configuring both settings does not enable recurring
+authenticated runs. An explicit request fails if either setting is missing.
+
+The deployment operator owns the dedicated account and renewal of its browser
+state. The secret contains only that account's Clerk session cookies, including
+the HttpOnly `__client` cookie on the Clerk Frontend API domain. Do not store
+account passwords, OAuth credentials, Clerk API keys, or sign-in tickets in this
+secret, and do not enable production mutation helper routes. Normal page loading
+may provision or refresh the test account's Convex identity row; the smoke makes
+no profile edits or other authored data writes.
+
+Follow the [production authenticated account smoke runbook](./vercel-preview.md#production-authenticated-account-smoke)
+for isolated-context capture, fresh-browser verification after the captured JWT
+expires, the manual dispatch command, and secret renewal. Email or an authorized
+Clerk sign-in ticket can establish the session; a passing account smoke does not
+prove OAuth sign-in or provider linkage.
 
 ### Setting secret values without corrupting them
 

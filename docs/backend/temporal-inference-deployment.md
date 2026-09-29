@@ -8,8 +8,9 @@ product owner's explicit approval.
 
 ## Artifact and image
 
-1. Resolve the repository's missing root license-file issue before public model
-   publication.
+1. Give any public model publication its own license and provenance metadata,
+   preserving base-model upstream terms. The root `LICENSE` (MIT) covers this
+   repository code only.
 2. Download the promoted adapter release and verify SHA-256
    `d933bd524bbf95a4521f243a61cdf3e196fea08133d00fd4a72e0db30160e598`.
 3. Move the adapter to an organization-owned Hugging Face repository.

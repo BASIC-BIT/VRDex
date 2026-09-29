@@ -1,3 +1,4 @@
+import { createVrcdnStreamLinks } from "./_vrcdnLinks";
 import { normalizeProfileInlineText, sanitizeProfileTextList } from "./_profileSubmissions";
 
 export const EVENT_SLOT_MAX_COUNT = 80;
@@ -9,6 +10,7 @@ export const EVENT_SLOT_TEMPLATE_MAX_COUNT = 80;
 export const EVENT_SLOT_TEMPLATE_MAX_DURATION_MINUTES = 24 * 60;
 
 export type EventSlotInput = {
+  selectedStreamId?: string | null;
   personSlug?: string;
   displayLabel: string;
   roleLabel?: string;
@@ -20,6 +22,7 @@ export type EventSlotInput = {
 };
 
 export type SanitizedEventSlotInput = {
+  selectedStreamId?: string;
   position: number;
   personSlug?: string;
   displayLabel: string;
@@ -163,6 +166,10 @@ export function sanitizeEventSlotInputs(
         maxItems: 1,
         maxLength: 64,
       })[0];
+      const selectedStreamId = slot.selectedStreamId == null ? undefined : createVrcdnStreamLinks(slot.selectedStreamId)?.streamId;
+      if (slot.selectedStreamId != null && selectedStreamId === undefined) {
+        throw new Error("Selected stream ID is invalid.");
+      }
       const startAt = requireValidTimestamp(slot.startAt, "Slot start time");
       const endAt = slot.endAt === undefined ? undefined : requireValidTimestamp(slot.endAt, "Slot end time");
 
@@ -180,6 +187,7 @@ export function sanitizeEventSlotInputs(
 
       return {
         position: index,
+        ...(selectedStreamId === undefined ? {} : { selectedStreamId }),
         ...(personSlug ? { personSlug } : {}),
         displayLabel: requireBoundedText(
           slot.displayLabel,

@@ -7,125 +7,13 @@ import { ConvexError } from "convex/values";
 import { api, internal } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import { assertProfileAssetIntentCapacity } from "../../convex/_profileAssets";
-import schemaModule from "../../convex/schema";
 import { newClerkUserId } from "./_clerkTestIdentity";
 
 process.env.VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED = "true";
 process.env.VRDEX_PROFILE_MEDIA_DIRECT_UPLOAD_ENABLED = "true";
 process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "true";
 
-const modules = {
-  "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
-  "../../convex/profileAssets.ts": () => import("../../convex/profileAssets"),
-  "../../convex/profileMediaSubmissions.ts": () => import("../../convex/profileMediaSubmissions"),
-};
-const schema = (schemaModule as unknown as { default?: typeof schemaModule }).default ?? schemaModule;
-const NOW = Date.parse("2026-08-26T12:00:00.000Z");
-const FIRST_REVIEW_PAGE = { paginationOpts: { numItems: 40, cursor: null } } as const;
-const TARGET_PROFILE_SNAPSHOT = {
-  targetProfileSlug: "community-dj",
-  targetProfileDisplayName: "Community DJ",
-} as const;
-
-async function seed(t: ReturnType<typeof convexTest>, profileType: "person" | "community" = "person") {
-  return await t.run(async (ctx) => {
-    const profileId = await ctx.db.insert("profiles", {
-      profileType,
-      slug: profileType === "person" ? "community-dj" : "community-club",
-      displayName: profileType === "person" ? "Community DJ" : "Community Club",
-      sortName: profileType === "person" ? "community dj" : "community club",
-      aliases: [],
-      tags: [],
-      claimState: "unclaimed",
-      publicationState: "published",
-      publicSurfacingState: "public",
-      creationSource: "community",
-      ...(profileType === "person"
-        ? { person: { roleTags: ["DJ"] } }
-        : { community: { categoryTags: [] } }),
-      updatedAt: NOW,
-    });
-    const contributorClerkId = newClerkUserId();
-    const contributorUserId = await ctx.db.insert("users", {
-      clerkUserId: contributorClerkId,
-      email: "contributor@example.test",
-      emailVerificationTime: NOW,
-    });
-    const moderatorClerkId = newClerkUserId();
-    const moderatorUserId = await ctx.db.insert("users", {
-      clerkUserId: moderatorClerkId,
-      email: "moderator@example.test",
-      emailVerificationTime: NOW,
-    });
-    await ctx.db.insert("accountFeatureGrants", {
-      userId: moderatorUserId,
-      feature: "super_admin",
-      state: "active",
-      grantedBy: { tokenIdentifier: "test:operator", issuer: "test", subject: "operator" },
-      grantedAt: NOW,
-      updatedAt: NOW,
-    });
-    return {
-      profileId,
-      contributorUserId,
-      moderatorUserId,
-      contributorIdentity: {
-        subject: contributorClerkId,
-        email: "contributor@example.test",
-        emailVerified: true,
-        issuer: "test",
-        tokenIdentifier: `test|${contributorUserId}`,
-      },
-      moderatorIdentity: {
-        subject: moderatorClerkId,
-        email: "moderator@example.test",
-        emailVerified: true,
-        issuer: "test",
-        tokenIdentifier: `test|${moderatorUserId}`,
-      },
-    };
-  });
-}
-
-async function createAndUpload(
-  t: ReturnType<typeof convexTest>,
-  seeded: Awaited<ReturnType<typeof seed>>,
-  hash = "proposal-hash",
-) {
-  const intent = await t.withIdentity(seeded.contributorIdentity).mutation(
-    api.profileMediaSubmissions.createUploadIntent,
-    {
-      profileId: seeded.profileId,
-      requestedPlacement: "profile_image",
-      originalFileName: "artist.webp",
-      mimeType: "image/webp",
-      byteSize: 512,
-      sourceUrl: "https://artist.example/press",
-      altText: "Portrait of Community DJ.",
-      credit: "Community DJ press kit",
-      expectedProfileUpdatedAt: NOW,
-    },
-  );
-  const pendingSubmission = await t.run((ctx) => ctx.db.get(intent.submissionId));
-  const processingToken = `processing-${crypto.randomUUID()}`;
-  const claim = await t.mutation(internal.profileAssets.claimUploadIntentForStorage, {
-    intentId: intent.intentId,
-    uploadToken: intent.uploadToken,
-    processingToken,
-  });
-  assert.equal(claim.status, "claimed");
-  const completed = await t.mutation(internal.profileAssets.markUploadIntentUploaded, {
-    intentId: intent.intentId,
-    uploadToken: intent.uploadToken,
-    processingToken,
-    mimeType: "image/webp",
-    byteSize: 512,
-    contentSha256: hash,
-    width: 800,
-    height: 800,
-  });
-  return { intent, completed, pendingExpiresAt: pendingSubmission?.expiresAt };
-}
+import { modules, schema, NOW, FIRST_REVIEW_PAGE, TARGET_PROFILE_SNAPSHOT, seed, createAndUpload } from "./_mediaReviewFixture";
 
 describe("unclaimed-profile media submissions", () => {
   it("does not revive a contribution withdrawn while its upload is processing", async () => {
@@ -968,12 +856,14 @@ describe("unclaimed-profile media submissions", () => {
     });
     const { intent } = await createAndUpload(t, seeded, "twelfth-slot-replacement");
 
-    await t.withIdentity(seeded.moderatorIdentity).mutation(api.profileMediaSubmissions.decide, {
-      submissionId: intent.submissionId,
-      decision: "approve",
-      expectedProfileUpdatedAt: NOW,
-      privateReason: "Replacement approved.",
+    const reviewer = t.withIdentity(seeded.moderatorIdentity);
+    const detail = await reviewer.query(api.profileMediaSubmissions.reviewDetail, { submissionId: intent.submissionId });
+    assert.ok(detail);
+    const receipt = await reviewer.mutation(api.profileMediaSubmissions.decideWithReceipt, {
+      submissionId: intent.submissionId, expectedReviewVersion: detail.reviewVersion, decision: "approve",
+      privateReason: "Replacement approved.", idempotencyKey: "replacement-at-capacity",
     });
+    assert.equal(receipt.operationState, "committed");
 
     const activeAssets = await t.run((ctx) =>
       ctx.db
@@ -1426,4 +1316,209 @@ describe("unclaimed-profile media submissions", () => {
       );
     });
   });
+});
+
+describe("shared review receipts", () => {
+  it("commits once and replays the same receipt after a lost response", async () => {
+    const t = convexTest({ schema, modules });
+    const seeded = await seed(t);
+    const { intent } = await createAndUpload(t, seeded);
+    const reviewer = t.withIdentity(seeded.moderatorIdentity);
+    const detail = await reviewer.query(
+      api.profileMediaSubmissions.reviewDetail,
+      { submissionId: intent.submissionId },
+    );
+    assert.ok(detail);
+    const command = {
+      submissionId: intent.submissionId,
+      expectedReviewVersion: detail.reviewVersion,
+      decision: "approve" as const,
+      privateReason: "Verified credit",
+      idempotencyKey: "lost-response",
+    };
+    const first = await reviewer.mutation(
+      api.profileMediaSubmissions.decideWithReceipt,
+      command,
+    );
+    assert.equal(first.operationState, "committed");
+    assert.deepEqual(
+      await reviewer.mutation(
+        api.profileMediaSubmissions.decideWithReceipt,
+        command,
+      ),
+      first,
+    );
+    const second = await reviewer.mutation(
+      api.profileMediaSubmissions.decideWithReceipt,
+      { ...command, idempotencyKey: "second-review" },
+    );
+    assert.equal(second.code, "already_decided");
+    const assets = await t.run((ctx) =>
+      ctx.db.query("profileAssets").collect(),
+    );
+    assert.equal(assets.length, 1);
+    assert.equal(
+      (
+        await reviewer.mutation(api.profileMediaSubmissions.decideWithReceipt, {
+          ...command,
+          privateReason: "Changed",
+        })
+      ).code,
+      "idempotency_conflict",
+    );
+  });
+  it("persists a stale refusal even after the profile is restored", async () => {
+    const t = convexTest({ schema, modules });
+    const seeded = await seed(t);
+    const { intent } = await createAndUpload(t, seeded);
+    const reviewer = t.withIdentity(seeded.moderatorIdentity);
+    const detail = await reviewer.query(
+      api.profileMediaSubmissions.reviewDetail,
+      { submissionId: intent.submissionId },
+    );
+    assert.ok(detail);
+    await t.run((ctx) =>
+      ctx.db.patch(seeded.profileId, { updatedAt: NOW + 1 }),
+    );
+    const command = {
+      submissionId: intent.submissionId,
+      expectedReviewVersion: detail.reviewVersion,
+      decision: "approve" as const,
+      privateReason: "Verified credit",
+      idempotencyKey: "stale",
+    };
+    const receipt = await reviewer.mutation(
+      api.profileMediaSubmissions.decideWithReceipt,
+      command,
+    );
+    assert.equal(receipt.code, "review_changed");
+    await t.run((ctx) => ctx.db.patch(seeded.profileId, { updatedAt: NOW }));
+    assert.deepEqual(
+      await reviewer.mutation(
+        api.profileMediaSubmissions.decideWithReceipt,
+        command,
+      ),
+      receipt,
+    );
+  });
+});
+
+it("persists capacity refusal after capacity becomes available", async () => {
+  const t = convexTest({ schema, modules });
+  const seeded = await seed(t);
+  const { intent } = await createAndUpload(t, seeded);
+  const assets = await t.run(async (ctx) => {
+    const result: Id<"profileAssets">[] = [];
+    for (let i = 0; i < 12; i++)
+      result.push(
+        await ctx.db.insert("profileAssets", {
+          profileId: seeded.profileId,
+          storageKey: `gallery/${i}.webp`,
+          mimeType: "image/webp",
+          byteSize: 100,
+          visibility: "public",
+          source: "owner_authored",
+          uploadedBy: {
+            tokenIdentifier: "test:owner",
+            issuer: "test",
+            subject: "owner",
+          },
+          uploadedAt: NOW,
+          state: "active",
+          updatedAt: NOW,
+        }),
+      );
+    return result;
+  });
+  const reviewer = t.withIdentity(seeded.moderatorIdentity);
+  const detail = await reviewer.query(
+    api.profileMediaSubmissions.reviewDetail,
+    { submissionId: intent.submissionId },
+  );
+  assert.ok(detail);
+  const command = {
+    submissionId: intent.submissionId,
+    expectedReviewVersion: detail.reviewVersion,
+    decision: "approve" as const,
+    privateReason: "Ready",
+    idempotencyKey: "full",
+  };
+  const receipt = await reviewer.mutation(
+    api.profileMediaSubmissions.decideWithReceipt,
+    command,
+  );
+  assert.equal(receipt.code, "capacity_exceeded");
+  await t.run((ctx) => ctx.db.patch(assets[0]!, { state: "deleted" }));
+  assert.deepEqual(
+    await reviewer.mutation(
+      api.profileMediaSubmissions.decideWithReceipt,
+      command,
+    ),
+    receipt,
+  );
+  assert.equal(
+    (await t.run((ctx) => ctx.db.get(intent.submissionId)))?.approvedAssetId,
+    undefined,
+  );
+  assert.equal(
+    (await t.run((ctx) => ctx.db.get(intent.intentId)))?.state,
+    "uploaded",
+  );
+});
+
+it("does not credit singleton retirement when the old asset still has a gallery placement", async () => {
+  const t = convexTest({ schema, modules });
+  const seeded = await seed(t);
+  await t.run(async (ctx) => {
+    for (let i = 0; i < 12; i++) {
+      const assetId = await ctx.db.insert("profileAssets", {
+        profileId: seeded.profileId,
+        storageKey: `capacity/${i}.webp`,
+        mimeType: "image/webp",
+        byteSize: 100,
+        visibility: "public",
+        source: "owner_authored",
+        uploadedBy: {
+          tokenIdentifier: "test:owner",
+          issuer: "test",
+          subject: "owner",
+        },
+        uploadedAt: NOW,
+        state: "active",
+        updatedAt: NOW,
+      });
+      if (i === 0)
+        for (const placement of ["profile_image", "gallery"] as const)
+          await ctx.db.insert("profileAssetPlacements", {
+            profileId: seeded.profileId,
+            assetId,
+            placement,
+            position: 0,
+            state: "active",
+            updatedAt: NOW,
+          });
+    }
+  });
+  const { intent } = await createAndUpload(t, seeded);
+  const reviewer = t.withIdentity(seeded.moderatorIdentity);
+  const detail = await reviewer.query(
+    api.profileMediaSubmissions.reviewDetail,
+    { submissionId: intent.submissionId },
+  );
+  assert.ok(detail);
+  const receipt = await reviewer.mutation(
+    api.profileMediaSubmissions.decideWithReceipt,
+    {
+      submissionId: intent.submissionId,
+      expectedReviewVersion: detail.reviewVersion,
+      decision: "approve",
+      privateReason: "Ready",
+      idempotencyKey: "shared-placement-full",
+    },
+  );
+  assert.equal(receipt.code, "capacity_exceeded");
+  assert.equal(
+    (await t.run((ctx) => ctx.db.get(intent.intentId)))?.state,
+    "uploaded",
+  );
 });

@@ -36,6 +36,7 @@ const sidebars = {
       label: "Engineering Docs",
       items: [
         "engineering/README",
+        "engineering/local-development",
         "engineering/service-map",
         {
           type: "category",

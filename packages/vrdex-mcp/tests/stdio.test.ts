@@ -1,3 +1,4 @@
+import { lineupRoster } from "./api-fixture";
 import assert from "node:assert/strict";
 import { createInterface } from "node:readline";
 import { spawn } from "node:child_process";
@@ -195,6 +196,10 @@ test("serves VRDex tools over stdio and calls the configured API base URL", asyn
       readOnlyHint: true,
     });
     assert.equal(listedTools.every((tool) => !hasLegacySchemaId(tool.outputSchema)), true);
+    const eventOutputSchema = JSON.stringify(listedTools.find((tool) => tool.name === "vrdex_get_event")?.outputSchema);
+    for (const field of ["playbackKey", "streamId", "outboundLinks", "watchMode"]) {
+      assert.ok(eventOutputSchema.includes(field), `Event output schema declares ${field}`);
+    }
     assert.deepEqual(listedTools.find((tool) => tool.name === "vrdex_profile_update")?.annotations, {
       destructiveHint: true,
       idempotentHint: false,
@@ -256,7 +261,7 @@ test("serves VRDex tools over stdio and calls the configured API base URL", asyn
       (profile.result as { structuredContent?: { telemetry?: { currentPopulation?: { value?: number } } } }).structuredContent?.telemetry?.currentPopulation?.value,
       42,
     );
-    await callTool({
+    const eventRead = await callTool({
       id: 5,
       messages,
       name: "vrdex_get_event",
@@ -265,6 +270,10 @@ test("serves VRDex tools over stdio and calls the configured API base URL", asyn
       stderr,
       toolArgs: { slug: "club-night" },
     });
+    const eventResult = eventRead.result as { structuredContent: typeof lineupRoster; content: Array<{ text: string }> };
+    assert.deepEqual(eventResult.structuredContent.slots, lineupRoster.slots);
+    assert.equal(eventResult.structuredContent.watchMode, "performer_sequence");
+    assert.deepEqual(JSON.parse(eventResult.content[0]!.text).slots, lineupRoster.slots);
     await callTool({
       id: 6,
       messages,
@@ -314,6 +323,7 @@ test("serves VRDex tools over stdio and calls the configured API base URL", asyn
         startAt: 1_798_761_600_000,
         title: "Club Night",
         watchSurfaceEnabled: false,
+        ...lineupRoster,
       },
       eventId: "event_created",
       eventPath: "/events/created-club-night",

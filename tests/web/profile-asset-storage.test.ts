@@ -6,9 +6,13 @@ import {
   shouldCleanupFailedProfileAssetUpload,
   shouldInspectFailedProfileAssetUpload,
   storedProfileAssetMatchesUpload,
+  createProfileAssetDirectUploadTarget,
 } from "../../apps/web/src/lib/server/profile-asset-storage";
 
 describe("profile asset storage", () => {
+  it("refuses expired multipart capabilities before touching storage", async () => {
+    await assert.rejects(createProfileAssetDirectUploadTarget({ storageKey: "test", contentType: "image/png", byteSize: 512, expiresAt: Date.now() - 1 }), /expired/);
+  });
   it("matches idempotent uploads by byte size, content type, and checksum", () => {
     const body = new TextEncoder().encode("image bytes");
     const checksum = profileAssetUploadChecksum(body);

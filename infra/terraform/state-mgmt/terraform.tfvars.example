@@ -7,6 +7,12 @@ github_repository = "BASIC-BIT/VRDex"
 route53_zone_id   = "Z0000000000000000000"
 ses_domain_name   = "vrdex.net"
 
+# Optional overrides. Defaults use the AWS account ID and match profile-assets.
+# profile_asset_bucket_name = "vrdex-profile-assets-123456789012"
+# staging_profile_asset_bucket_name = "vrdex-profile-assets-staging-123456789012"
+# profile_asset_runtime_role_name = "vrdex-vercel-profile-assets"
+# staging_profile_asset_runtime_role_name = "vrdex-vercel-profile-assets-staging"
+
 tags = {
   Environment = "production"
 }

@@ -13,6 +13,7 @@ import {
 } from "./_profilePermissions";
 import {
   profileLinkDestinationKey,
+  PROFILE_LINK_MAX_COUNT,
   sanitizeProfileLinks,
   sanitizeProfileLinksLeniently,
   type ProfileLinkSource,
@@ -770,12 +771,50 @@ export async function applyApiProfileUpdate(
     now: number;
   },
 ) {
-  const { db } = ctx;
   const sanitized = sanitizeApiProfileUpdateInput(
     options.profile,
     options.input,
     options.subject ?? "claimed_owner",
   );
+  return await persistProfileUpdate(ctx, options, sanitized);
+}
+
+/** Append only validated new links, retaining exact server-owned stored rows. */
+export async function appendCommunityProfileLinks(
+  ctx: MutationCtx,
+  profile: Doc<"profiles">,
+  additions: unknown,
+  now: number,
+) {
+  const links = sanitizeProfileLinks(additions, "community_submitted");
+  requireEditableFields(profile, ["outboundLinks"], "community_submitter");
+  const merged = [...(profile.outboundLinks ?? [])];
+  const destinations = new Set(merged.map(profileLinkDestinationKey));
+  for (const link of links) {
+    const destination = profileLinkDestinationKey(link);
+    if (!destinations.has(destination)) {
+      merged.push(link);
+      destinations.add(destination);
+    }
+  }
+  if (merged.length > PROFILE_LINK_MAX_COUNT) throw new Error("BATCH_LINK_LIMIT");
+  return await persistProfileUpdate(
+    ctx,
+    { profile, now },
+    {
+      changedFields:
+        merged.length === (profile.outboundLinks ?? []).length ? [] : ["outboundLinks"],
+      patch: { outboundLinks: merged },
+    },
+  );
+}
+
+async function persistProfileUpdate(
+  ctx: MutationCtx,
+  options: { profile: Doc<"profiles">; now: number },
+  sanitized: SanitizedApiProfileUpdate,
+) {
+  const { db } = ctx;
 
   // Nothing to write, so nothing to reindex either. A save that changed no
   // value should not bump `updatedAt` or touch the search document.

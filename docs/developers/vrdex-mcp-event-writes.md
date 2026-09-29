@@ -141,3 +141,9 @@ the separate provider-approval and non-empty-instance gates.
 - Restart the MCP client after rotating the configured credential.
 - OAuth access tokens remain short-lived and resource-bound; rotate them
   through the normal authorization and refresh-token flow.
+
+## Performer sequence authoring
+
+Existing event create/update tools accept `watchMode: "event_stream" | "performer_sequence"` and per-slot `selectedStreamId`. Use a normalized VRCDN ID from that performer's discovery-visible links. `null` clears a supplied row's explicit choice. Omitting schedule collections preserves saved choices; replacing schedule data still requires both `participantLinks` and `slotLinks`. These fields add no permission or tool, and owner authority plus `events:write` remain required. MCP create continues to publish atomically.
+
+A removed explicit stream stays unavailable rather than selecting another source. The event readback contains effective `watchMode`, typed participant/performer `outboundLinks`, and each slot's `playbackKey` plus optional canonical `stream`. Event roster visibility excludes unlisted and private links. Direct video files are roster links but are not live stream choices.

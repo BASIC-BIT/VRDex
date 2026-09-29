@@ -1,3 +1,8 @@
+import { clubPermission, clubVisibility, clubSubject } from "./_clubModel";
+import { providerReadParams, providerReadPage } from "./_clubProviderReads";
+import { integrationFeature, storedAuthority } from "./_clubConnection";
+import {clubOperationPayload,operationSchedule,operationState} from "./_clubOperations";
+import { contributionTables } from "./_contributionTables";
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
@@ -420,6 +425,9 @@ const accountFeature = v.union(
   v.literal("super_admin"),
   v.literal("view_private_seed_lookup"),
   v.literal("use_temporal_parsing_beta"),
+  v.literal("media_reviewer"),
+  v.literal("trusted_publisher"),
+  v.literal("trusted_contributor"),
 );
 
 const temporalParseJobStatus = v.union(
@@ -697,6 +705,20 @@ const sharedProfileFields = {
 };
 
 export default defineSchema({
+  clubProviderReadRequests: defineTable({
+    communityProfileId: v.id("profiles"), integrationId: v.id("communityVrchatIntegrations"),
+    subject: clubSubject, params: providerReadParams, requestKey: v.string(),
+    epochStartedAt: v.number(), state: v.union(v.literal("pending"),v.literal("running"),v.literal("succeeded"),v.literal("failed")),
+    createdAt: v.number(), expiresAt: v.number(),
+    collectorAccountId: v.optional(v.id("collectorAccounts")), credentialGeneration: v.optional(v.number()),
+    workerId: v.optional(v.string()), fencingToken: v.optional(v.number()),
+    claimedAt: v.optional(v.number()), claimToken: v.optional(v.string()),
+    result: v.optional(providerReadPage), errorCode: v.optional(v.string()),
+  }).index("by_subject_key_createdAt", ["subject.tokenIdentifier", "requestKey", "createdAt"])
+    .index("by_subject_createdAt", ["subject.tokenIdentifier", "createdAt"])
+    .index("by_integration_state_createdAt", ["integrationId", "state", "createdAt"])
+    .index("by_expiresAt", ["expiresAt"]),
+  ...contributionTables,
   profileLinkDestinationReferences: defineTable({ key: v.string(), profileId: v.id("profiles") }).index("by_key_profile", ["key", "profileId"]).index("by_profile", ["profileId"]),
   profileLinkDestinations: defineTable({
     key: v.string(),
@@ -779,6 +801,7 @@ export default defineSchema({
     .index("by_creationSource_claimState", ["creationSource", "claimState"])
     .index("by_profileType_sortName", ["profileType", "sortName"]),
   profileAssetUploadIntents: defineTable({
+    issuer: v.optional(v.union(v.literal("legacy"), v.literal("mcp_local"))),
     uploadToken: v.string(),
     requestedBy: authSubject,
     targetProfileId: v.optional(v.id("profiles")),
@@ -847,7 +870,63 @@ export default defineSchema({
       "mcpIdempotencyKeyHash",
     ])
     .index("by_requestedBy", ["requestedBy.tokenIdentifier"]),
+  contributionCapacity: defineTable({
+    scope: v.string(), bytes: v.number(), processing: v.number(),
+    byteLimit: v.optional(v.number()), processingLimit: v.optional(v.number()),
+  }).index("by_scope", ["scope"]),
+  contributionUploadReservations: defineTable({
+    intentId: v.id("profileAssetUploadIntents"), actorUserId: v.id("users"),
+    batchRevisionId: v.optional(v.id("contributionItemRevisions")),
+    allowanceId: v.optional(v.id("contributionCapacityRequests")),
+    profileId: v.id("profiles"), oauthClientId: v.string(),
+    idempotencyKey: v.string(), fingerprint: v.string(),
+    mode: v.union(v.literal("owner"), v.literal("contributor")),
+    expectedUpdatedAt: v.number(), declaredBytes: v.number(), declaredType: v.string(), sha256: v.string(),
+    capacityRevokedAt: v.optional(v.number()), publishedBytes: v.optional(v.number()), ledgerVersion: v.optional(v.number()),
+    chargedBytes: v.number(), quarantineBytes: v.number(), processing: v.boolean(),
+    state: v.union(v.literal("pending"), v.literal("processing"), v.literal("committed"), v.literal("failed")),
+    receipt: v.optional(v.object({ operationId: v.string(), operationState: v.union(v.literal("committed"), v.literal("refused"), v.literal("in_progress")), resourceId: v.optional(v.string()), code: v.optional(v.string()) })),
+    processingToken: v.optional(v.string()), completionKey: v.optional(v.string()),
+    signingToken: v.optional(v.string()),
+    cleanupAfter: v.number(), cleanupToken: v.optional(v.string()), cleanupLeaseUntil: v.optional(v.number()),
+    expiresAt: v.number(), createdAt: v.number(),
+  }).index("by_intentId", ["intentId"])
+    .index("by_actor_client_key", ["actorUserId", "oauthClientId", "idempotencyKey"])
+    .index("by_actor_createdAt", ["actorUserId", "createdAt"])
+    .index("by_cleanupAfter", ["cleanupAfter"]),
+  mediaReviewRebases: defineTable({
+    submissionId:v.id("profileMediaSubmissions"),actorUserId:v.id("users"),
+    priorTargetUpdatedAt:v.number(),currentTargetUpdatedAt:v.number(),
+    priorPlacementAssetId:v.optional(v.id("profileAssets")),currentPlacementAssetId:v.optional(v.id("profileAssets")),
+    priorTargetSnapshot:v.string(),currentTargetSnapshot:v.string(),currentPlacementSnapshot:v.string(),
+    priorReviewVersion:v.string(),reviewRevision:v.number(),createdAt:v.number(),
+  }).index("by_submissionId",["submissionId"]),
+  mediaReviewReceipts: defineTable({
+    actorUserId: v.id("users"), idempotencyKey: v.string(), inputHash: v.string(),
+    submissionId: v.id("profileMediaSubmissions"),
+    receipt: v.object({ operationId: v.string(), operationState: v.union(v.literal("committed"), v.literal("refused"), v.literal("in_progress")), resourceId: v.optional(v.string()), code: v.optional(v.string()) }),
+    createdAt: v.number(),
+  }).index("by_actorUserId_idempotencyKey", ["actorUserId", "idempotencyKey"])
+    .index("by_submissionId", ["submissionId"]),
+  mediaPublicationEvidence: defineTable({
+    submissionId: v.id("profileMediaSubmissions"), actorUserId: v.id("users"),
+    candidateVersion: v.string(), identityConfirmed: v.boolean(), attributionConfirmed: v.boolean(),
+    publicationPermitted: v.boolean(), noKnownRestrictions: v.boolean(), createdAt: v.number(),
+  }).index("by_submissionId", ["submissionId"]),
+  mediaPublicationRestrictions: defineTable({
+    profileId: v.id("profiles"), contentSha256: v.optional(v.string()),
+    submissionId: v.id("profileMediaSubmissions"), actorUserId: v.id("users"),
+    kind: v.union(v.literal("rejection"), v.literal("suppression"), v.literal("dispute"), v.literal("identity")),
+    correctionOfOperationId: v.optional(v.string()), createdAt: v.number(),
+  }).index("by_profileId_kind", ["profileId", "kind"]).index("by_contentSha256", ["contentSha256"])
+    .index("by_contentSha256_kind", ["contentSha256", "kind"]),
   profileMediaSubmissions: defineTable({
+    publicationEvidenceId: v.optional(v.id("mediaPublicationEvidence")),
+    publicationMethod: v.optional(v.union(v.literal("trusted_publisher"), v.literal("independent_review"))),
+    publicationActorUserId: v.optional(v.id("users")),
+    publicationEvidenceRevision: v.optional(v.string()), publicationOperationId: v.optional(v.string()),
+    priorRestrictionId: v.optional(v.id("mediaPublicationRestrictions")),
+    reviewRevision: v.optional(v.number()),
     profileId: v.id("profiles"),
     targetProfileSlug: v.string(),
     targetProfileDisplayName: v.string(),
@@ -856,7 +935,9 @@ export default defineSchema({
     uploadIntentId: v.optional(v.id("profileAssetUploadIntents")),
     requestedPlacement: profileAssetPlacement,
     originalFileName: v.optional(v.string()),
-    sourceUrl: v.string(),
+    sourceUrl: v.optional(v.string()),
+    sourceKind: v.optional(v.union(v.literal("url"), v.literal("local"))),
+    sourceDescription: v.optional(v.string()),
     label: v.optional(v.string()),
     altText: v.optional(v.string()),
     credit: v.string(),
@@ -888,11 +969,14 @@ export default defineSchema({
     .index("by_submitterUserId_status_expiresAt", ["submitterUserId", "status", "expiresAt"])
     .index("by_submitterUserId_createdAt", ["submitterUserId", "createdAt"])
     .index("by_status_createdAt", ["status", "createdAt"])
+    .index("by_status_expiresAt", ["status", "expiresAt"])
     .index("by_blobDeleteAfter", ["blobDeleteAfter"])
     .index("by_cleanupEligibility_blobDeleteAfter", ["blobDeletedAt", "legalHoldAt", "blobDeleteAfter"])
     .index("by_profileId_contentSha256_status", ["profileId", "contentSha256", "status"])
     .index("by_profileId_contentSha256_createdAt", ["profileId", "contentSha256", "createdAt"])
-    .index("by_contentSha256", ["contentSha256"]),
+    .index("by_contentSha256", ["contentSha256"])
+    .index("by_contentSha256_status", ["contentSha256", "status"])
+    .index("by_publicationMethod_actor", ["publicationMethod", "publicationActorUserId"]),
   profileAssets: defineTable({
     profileId: v.id("profiles"),
     storageKey: v.string(),
@@ -927,6 +1011,8 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_profileId", ["profileId"])
+    .index("by_contentSha256_suppressed", ["contentSha256", "moderatorSuppressedAt"])
+    .index("by_profileId_contentSha256_state", ["profileId", "contentSha256", "state"])
     .index("by_profileId_state_visibility", ["profileId", "state", "visibility"]),
   profileAssetPlacements: defineTable({
     profileId: v.id("profiles"),
@@ -943,6 +1029,7 @@ export default defineSchema({
       "position",
     ])
     .index("by_profileId_state", ["profileId", "state"])
+    .index("by_assetId_state_placement", ["assetId", "state", "placement"])
     .index("by_assetId", ["assetId"]),
   profileAssetDisplayPreferences: defineTable({
     profileId: v.id("profiles"),
@@ -1039,6 +1126,7 @@ export default defineSchema({
     posterImageUrl: v.optional(v.string()),
     bannerImageUrl: v.optional(v.string()),
     thumbnailImageUrl: v.optional(v.string()),
+    watchMode: v.optional(v.union(v.literal("event_stream"), v.literal("performer_sequence"))),
     watchSurfaceEnabled: v.optional(v.boolean()),
     mediaLinks: v.optional(
       v.array(
@@ -1073,6 +1161,7 @@ export default defineSchema({
       "endAt",
     ])
     .index("by_communityProfileId_startAt", ["communityProfileId", "startAt"])
+    .index("by_communityProfileId_publicationState_startAt", ["communityProfileId", "publicationState", "startAt"])
     .index("by_communityProfileId_publicationState_eventStatus_startAt", [
       "communityProfileId",
       "publicationState",
@@ -1152,6 +1241,7 @@ export default defineSchema({
       "eventEndAt",
     ]),
   eventSlots: defineTable({
+    selectedStreamId: v.optional(v.string()),
     eventId: v.id("events"),
     eventStartAt: v.number(),
     position: v.number(),
@@ -1437,9 +1527,12 @@ export default defineSchema({
     communityProfileId: v.id("profiles"),
     subjectTokenIdentifier: v.string(),
     subject: authSubject,
-    roleKey: v.string(),
-    roleLabel: v.string(),
-    capabilities: v.array(communityCapability),
+    roleKey: v.optional(v.string()),
+    roleLabel: v.optional(v.string()),
+    capabilities: v.optional(v.array(communityCapability)),
+    roleId: v.optional(v.id("communityRoles")),
+    grantedBySubject: v.optional(clubSubject),
+    revokedBySubject: v.optional(clubSubject),
     state: communityAuthorityState,
     grantedAt: v.number(),
     revokedAt: v.optional(v.number()),
@@ -1452,6 +1545,33 @@ export default defineSchema({
       "state",
       "communityProfileId",
     ]),
+  communityDashboardPreferences: defineTable({
+    communityProfileId:v.id("profiles"),scope:v.union(v.literal("club"),v.literal("personal")),subjectTokenIdentifier:v.string(),widgets:v.array(v.string()),rangeDays:v.union(v.literal(7),v.literal(30),v.literal(90)),updatedAt:v.number(),
+  }).index("by_communityProfileId_scope_subject",["communityProfileId","scope","subjectTokenIdentifier"]),
+  clubOperations:defineTable({dependencyId:v.optional(v.id("clubOperations")),dependencyRevision:v.optional(v.number()),readyAt:v.number(),preflightAttempts:v.optional(v.number()),retryAt:v.optional(v.number()),communityProfileId:v.id("profiles"),integrationId:v.id("communityVrchatIntegrations"),epochStartedAt:v.number(),requestId:v.string(),batchId:v.string(),payload:clubOperationPayload,schedule:operationSchedule,eventId:v.optional(v.id("events")),dueAt:v.number(),actor:clubSubject,createdBy:clubSubject,revision:v.number(),state:operationState,claim:v.optional(v.object({nonce:v.string(),collectorAccountId:v.id("collectorAccounts"),credentialGeneration:v.number(),workerId:v.string(),fencingToken:v.number(),expiresAt:v.number()})),submittedAt:v.optional(v.number()),completedAt:v.optional(v.number()),code:v.optional(v.string()),result:v.optional(v.object({worldId:v.optional(v.string()),instanceId:v.optional(v.string()),postId:v.optional(v.string())})),createdAt:v.number(),updatedAt:v.number()})
+    .index("by_state_createdAt",["state","createdAt"])
+    .index("by_integration_state_dueAt",["integrationId","state","dueAt"])
+    .index("by_integration_state_readyAt",["integrationId","state","readyAt"])
+    .index("by_community_createdAt",["communityProfileId","createdAt"])
+    .index("by_community_requestId",["communityProfileId","requestId"])
+    .index("by_event_state",["eventId","state"])
+    .index("by_event",["eventId"]),
+  clubOperationNotifications: defineTable({communityProfileId:v.id("profiles"),batchId:v.string(),operationId:v.id("clubOperations"),emailNextAttemptAt:v.number(),revision:v.number(),outcome:v.union(v.literal("rejected"),v.literal("indeterminate"),v.literal("missed")),createdAt:v.number(),readBy:v.array(v.string()),emailState:v.union(v.literal("pending"),v.literal("submitted"),v.literal("sent"),v.literal("suppressed"),v.literal("indeterminate")),emailRecipient:v.optional(v.string())}).index("by_operation_revision_outcome",["operationId","revision","outcome"]).index("by_community_createdAt",["communityProfileId","createdAt"]).index("by_emailState",["emailState","emailNextAttemptAt"]).index("by_batch_recipient",["communityProfileId","batchId","revision","outcome","emailRecipient"]),
+  clubOperationRevisions:defineTable({operationId:v.id("clubOperations"),revision:v.number(),actor:clubSubject,payload:clubOperationPayload,schedule:operationSchedule,dueAt:v.number(),createdAt:v.number()}).index("by_operation_revision",["operationId","revision"]),
+  communityRoles: defineTable({
+    permittedProviderRoleIds: v.optional(v.array(v.string())),
+    communityProfileId:v.id("profiles"),key:v.string(),label:v.string(),description:v.optional(v.string()),
+    permissions:v.array(clubPermission),assignableRoleIds:v.array(v.id("communityRoles")),
+    presetKey:v.optional(v.union(v.literal("admin"),v.literal("moderator"),v.literal("event_staff"))),
+    state:v.union(v.literal("active"),v.literal("deleted")),createdAt:v.number(),updatedAt:v.number(),
+  }).index("by_communityProfileId_state",["communityProfileId","state"]),
+  communityDataVisibility:defineTable({communityProfileId:v.id("profiles"),categories:clubVisibility,updatedAt:v.number()}).index("by_communityProfileId",["communityProfileId"]),
+  communityStaffInvitations:defineTable({
+    communityProfileId:v.id("profiles"),tokenHash:v.string(),roleIds:v.array(v.id("communityRoles")),createdBySubject:clubSubject,
+    createdAt:v.number(),expiresAt:v.number(),state:v.union(v.literal("pending"),v.literal("accepted"),v.literal("revoked"),v.literal("expired")),
+    acceptedBySubject:v.optional(clubSubject),acceptedAt:v.optional(v.number()),revokedAt:v.optional(v.number()),revokedBySubject:v.optional(clubSubject),
+  }).index("by_tokenHash",["tokenHash"]).index("by_communityProfileId_state",["communityProfileId","state"]),
+  communityActionLog:defineTable({communityProfileId:v.id("profiles"),actorSubject:clubSubject,action:v.string(),details:v.record(v.string(),v.union(v.string(),v.array(v.string()),v.null())),targetSubject:v.optional(clubSubject),roleId:v.optional(v.id("communityRoles")),createdAt:v.number()}).index("by_communityProfileId_createdAt",["communityProfileId","createdAt"]),
   collectorFleetSettings: defineTable({
     destinationWorkDueAt: v.optional(v.number()),
     key: v.literal("global"),
@@ -1512,7 +1632,61 @@ export default defineSchema({
     requestCount: v.number(),
     updatedAt: v.number(),
   }).index("by_scopeKey", ["scopeKey"]),
+  clubPostDrafts: defineTable({
+    communityProfileId:v.id("profiles"),creatorTokenIdentifier:v.string(),clientId:v.string(),
+    title:v.string(),text:v.string(),visibility:v.union(v.literal("public"),v.literal("group")),sendNotification:v.boolean(),imageId:v.optional(v.string()),roleIds:v.optional(v.array(v.string())),providerPostId:v.optional(v.string()),providerPostUpdatedAt:v.optional(v.string()),providerPostPageOffset:v.optional(v.number()),
+    revision:v.number(),queuedRevision:v.optional(v.number()),operationId:v.optional(v.id("clubOperations")),createdAt:v.number(),updatedAt:v.number(),
+  }).index("by_creator",["communityProfileId","creatorTokenIdentifier","updatedAt"])
+    .index("by_client",["communityProfileId","creatorTokenIdentifier","clientId"]),
+  communityMembershipScans: defineTable({
+    integrationId: v.id("communityVrchatIntegrations"),
+    epochStartedAt: v.number(),
+    groupId: v.string(),
+    startAt: v.number(),
+    endAt: v.number(),
+    nextPage: v.number(),
+    nextOffset: v.optional(v.number()),
+    phase: v.optional(v.union(v.literal("collect"), v.literal("verify"), v.literal("finalize"))),
+    passHash: v.optional(v.number()),
+    referenceHash: v.optional(v.number()),
+    referenceCount: v.optional(v.number()),
+    finalPageCount: v.optional(v.number()),
+    workerId: v.optional(v.string()),
+    fencingToken: v.optional(v.number()),
+    complete: v.boolean(),
+    createdAt: v.number(),
+  }).index("by_scope_complete", ["integrationId", "epochStartedAt", "complete"])
+    .index("by_scope_window", ["integrationId", "epochStartedAt", "startAt", "endAt"]),
+  communityMembershipVerificationPages: defineTable({
+    scanId: v.id("communityMembershipScans"),
+    pageNumber: v.number(),
+    auditIds: v.array(v.string()),
+  }).index("by_scan_page", ["scanId", "pageNumber"]),
+  communityMembershipEvents: defineTable({
+    integrationId: v.id("communityVrchatIntegrations"),
+    epochStartedAt: v.number(),
+    groupId: v.string(),
+    auditId: v.string(),
+    eventType: v.string(),
+    occurredAt: v.number(),
+    targetUserId: v.optional(v.string()),
+    targetDisplayName: v.optional(v.string()),
+    receivedAt: v.number(),
+    verified: v.boolean(),
+  }).index("by_audit", ["integrationId", "epochStartedAt", "auditId"])
+    .index("by_time", ["integrationId", "epochStartedAt", "occurredAt"])
+    .index("by_verified_time", ["integrationId", "epochStartedAt", "verified", "occurredAt"]),
+  communityMembershipCoverage: defineTable({
+    integrationId: v.id("communityVrchatIntegrations"),
+    epochStartedAt: v.number(),
+    day: v.number(),
+    intervals: v.array(v.object({ startAt: v.number(), endAt: v.number() })),
+    checkpoint: v.optional(v.string()),
+    updatedAt: v.number(),
+  }).index("by_day", ["integrationId", "epochStartedAt", "day"]),
   communityVrchatIntegrations: defineTable({
+    enabledFeatures: v.optional(v.array(integrationFeature)),
+    providerAuthority: v.optional(storedAuthority),
     communityProfileId: v.id("profiles"),
     vrchatGroupId: v.string(),
     groupVisibility: vrchatGroupVisibilityValidator,
@@ -1526,6 +1700,7 @@ export default defineSchema({
     lastSuccessfulObservationAt: v.optional(v.number()),
     lastAttemptAt: v.optional(v.number()),
     nextPollAt: v.optional(v.number()),
+    lastClaimedAt: v.optional(v.number()),
     consecutiveFailures: v.number(),
     backoffUntil: v.optional(v.number()),
     disconnectedAt: v.optional(v.number()),
@@ -1586,6 +1761,9 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_integrationId_state", ["integrationId", "state"])
+    .index("by_integrationId_openedAt", ["integrationId", "openedAt"])
+    .index("by_integrationId_state_openedAt", ["integrationId", "state", "openedAt"])
+    .index("by_integrationId_state_lastObservedAt", ["integrationId", "state", "lastObservedAt"])
     .index("by_integrationId_providerInstanceId_state", ["integrationId", "providerInstanceId", "state"])
     .index("by_integrationId_providerLocation_state", ["integrationId", "providerLocation", "state"])
     .index("by_integrationId_providerLocation_state_openedAt", [
@@ -1597,6 +1775,7 @@ export default defineSchema({
     .index("by_communityProfileId_openedAt", ["communityProfileId", "openedAt"])
     .index("by_worldId_openedAt", ["worldId", "openedAt"]),
   collectionCoverageWindows: defineTable({
+    observedThroughAt: v.optional(v.number()),
     integrationId: v.id("communityVrchatIntegrations"),
     state: coverageStateValidator,
     reason: v.optional(v.string()),
@@ -1658,6 +1837,27 @@ export default defineSchema({
     .index("by_sessionId_state", ["sessionId", "state"])
     .index("by_communityProfileId_state", ["communityProfileId", "state"])
     .index("by_communityProfileId_createdAt", ["communityProfileId", "createdAt"]),
+  communityTelemetryEventRecapJobs: defineTable({
+    eventId: v.id("events"),
+    communityProfileId: v.id("profiles"),
+    integrationId: v.id("communityVrchatIntegrations"),
+    bucketStartAt: v.number(),
+    bucketEndAt: v.number(),
+    cursor: v.optional(v.string()),
+    pendingAt: v.optional(v.number()),
+    pendingTotal: v.number(),
+    pendingHasValid: v.boolean(),
+    pendingSessions: v.array(v.id("instanceSessions")),
+    previousAt: v.optional(v.number()),
+    previousTotal: v.optional(v.number()),
+    currentPopulation: v.optional(v.number()),
+    peakConcurrency: v.number(),
+    playerMinutes: v.number(),
+    measuredMs: v.number(),
+    activeInstanceCount: v.number(),
+    worldDistribution: v.array(v.object({ vrchatWorldId: v.string(), samples: v.number() })),
+    computedAt: v.number(),
+  }).index("by_eventId", ["eventId"]),
   communityTelemetryRollups: defineTable({
     communityProfileId: v.id("profiles"),
     eventId: v.optional(v.id("events")),
@@ -2841,4 +3041,6 @@ export default defineSchema({
     .index("by_targetProfileId", ["targetProfileId"])
     .index("by_targetWorldId", ["targetWorldId"])
     .index("by_targetEventId", ["targetEventId"]),
+  clubRecipientLists: defineTable({communityProfileId:v.id("profiles"),name:v.string(),recipients:v.array(v.string()),revision:v.number(),updatedAt:v.number()}).index("by_community",["communityProfileId"]),
+  clubInvitationBatches: defineTable({communityProfileId:v.id("profiles"),requestId:v.string(),recipients:v.array(v.string()),operationIds:v.array(v.id("clubOperations")),createdAt:v.number()}).index("by_community_request",["communityProfileId","requestId"]).index("by_community_createdAt",["communityProfileId","createdAt"]),
 });

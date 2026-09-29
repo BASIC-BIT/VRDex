@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 
 import { EventBackendNotice, EventPublicPage } from "../../../_components/event-public-page";
 import { fetchPublicEventBySlug, fetchPublicEventShareCard } from "@/convex/server";
+import { getPlaywrightPublicEventFixture } from "@/convex/playwright-fixtures";
+import { PublicEventFixture } from "../../../playwright/public-event/client";
 import { eventShareMetadata } from "@/lib/event-share-card";
 
 export const dynamic = "force-dynamic";
@@ -34,6 +36,10 @@ export default async function CommunityEventPage({
 
   if (result.event === null || result.event.communitySlug !== slug) {
     notFound();
+  }
+
+  if (getPlaywrightPublicEventFixture(eventSlug)) {
+    return <PublicEventFixture event={result.event} />;
   }
 
   return <EventPublicPage event={result.event} />;

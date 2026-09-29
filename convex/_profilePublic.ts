@@ -1,5 +1,5 @@
 import type { Doc } from "./_generated/dataModel";
-import { visibleProfileField, visibleProfileList } from "./_profileFieldVisibility";
+import { visibleProfileField, visibleProfileList, type ProfileVisibilitySurface } from "./_profileFieldVisibility";
 import { optionalField, safeHttpsUrl } from "./_publicFields";
 import { safePublicLinkUrl } from "./_vrcdnLinks";
 import { getProfileTrustLabel } from "./_profileStates";
@@ -18,6 +18,13 @@ function publicProfileGenres(profile: Doc<"profiles">) {
     ...optionalField("displayLabel", genre.displayLabel),
     ...optionalField("featured", genre.featured === true ? true : undefined),
   }));
+}
+
+export function publicProfileOutboundLinks(profile: Doc<"profiles">, surface: ProfileVisibilitySurface) {
+  return visibleProfileList(profile, "outboundLinks", profile.outboundLinks ?? [], surface).flatMap((link) => {
+    const linkUrl = safePublicLinkUrl(link.url);
+    return linkUrl === undefined ? [] : [{ ...link, url: linkUrl }];
+  });
 }
 
 export function toPublicProfile(profile: Doc<"profiles">) {
@@ -48,20 +55,7 @@ export function toPublicProfile(profile: Doc<"profiles">) {
     // notice the other, and `outboundLinks` replaces the whole list.
     updatedAt: profile.updatedAt,
     ...optionalField("source", source),
-    outboundLinks: visibleProfileList(
-      profile,
-      "outboundLinks",
-      profile.outboundLinks ?? [],
-      "profile_page",
-    ).flatMap((link) => {
-      const linkUrl = safePublicLinkUrl(link.url);
-
-      if (linkUrl === undefined) {
-        return [];
-      }
-
-      return [{ ...link, url: linkUrl }];
-    }),
+    outboundLinks: publicProfileOutboundLinks(profile, "profile_page"),
     ...optionalField(
       "headline",
       visibleProfileField(profile, "headline", profile.headline, "profile_page"),
