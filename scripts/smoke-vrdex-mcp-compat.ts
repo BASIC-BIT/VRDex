@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { resolve } from "node:path";
 import { createInterface } from "node:readline";
+import { fileURLToPath } from "node:url";
 
 import { startVrdexMcpApiFixture } from "../packages/vrdex-mcp/tests/api-fixture";
 import {
@@ -771,7 +773,7 @@ async function smokeHostedDynamicClientRegistration(
   });
 }
 
-async function smokeHostedClientMetadataDocument(
+export async function smokeHostedClientMetadataDocument(
   metadata: HostedOAuthMetadata,
   options: SmokeOptions,
   results: SmokeResult[],
@@ -806,6 +808,7 @@ async function smokeHostedClientMetadataDocument(
   assert.equal(stringField(clientMetadataBody.client_id, "client metadata id"), clientMetadataUrl);
   const authorizationUrl = new URL(metadata.authorizationEndpoint);
   const requestedScopes = stringField(clientMetadataBody.scope, "client metadata scope").split(/\s+/);
+  assert.deepEqual(requestedScopes, ["mcp:read", "public:read"]);
 
   authorizationUrl.searchParams.set("response_type", "code");
   authorizationUrl.searchParams.set("client_id", clientMetadataUrl);
@@ -1207,7 +1210,9 @@ async function main() {
   }
 }
 
-main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : error);
-  process.exitCode = 1;
-});
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((error: unknown) => {
+    console.error(error instanceof Error ? error.message : error);
+    process.exitCode = 1;
+  });
+}

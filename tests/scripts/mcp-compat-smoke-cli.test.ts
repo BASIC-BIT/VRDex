@@ -4,6 +4,8 @@ import { once } from "node:events";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { describe, it } from "node:test";
 
+import { smokeHostedClientMetadataDocument } from "../../scripts/smoke-vrdex-mcp-compat";
+
 const expectedTools = [
   "search",
   "fetch",
@@ -501,6 +503,60 @@ async function startHostedSuccessFixture(extraToolName?: string, omittedScope?: 
 }
 
 describe("MCP compatibility smoke CLI", () => {
+  it("fetches and validates the HTTPS CIMD document and authorization redirect", async () => {
+    const issuer = "https://app.example.test";
+    const clientId = `${issuer}/.well-known/oauth-client/vrdex-mcp-public-client`;
+    const metadata = {
+      authorizationEndpoint: `${issuer}/oauth/authorize`,
+      issuer,
+      registrationEndpoint: `${issuer}/oauth/register`,
+      resource: `${issuer}/mcp`,
+      scopes: ["mcp:read"],
+    };
+    const options = {
+      clientMetadataDocument: true,
+      continueOnFailure: false,
+      dynamicRegistration: false,
+      hostedOnly: true,
+      hostedDataPublicReads: false,
+      hostedSearchQuery: "club",
+    };
+    const run = async (status = 200, returnedId = clientId, scope = "mcp:read public:read", location = `${issuer}/sign-in?next=/oauth/authorize`) => {
+      const originalFetch = globalThis.fetch;
+      const results: { details: string; name: string; status: "fail" | "pass" | "skip" }[] = [];
+      let requests = 0;
+      globalThis.fetch = async (input, init) => {
+        const url = new URL(String(input));
+        requests += 1;
+        if (requests === 1) {
+          assert.equal(url.toString(), clientId);
+          assert.deepEqual(init?.headers, { accept: "application/json" });
+          return Response.json({ client_id: returnedId, scope }, { status });
+        }
+        assert.equal(requests, 2);
+        assert.equal(url.origin + url.pathname, metadata.authorizationEndpoint);
+        assert.equal(url.searchParams.get("client_id"), clientId);
+        assert.equal(url.searchParams.get("scope"), "mcp:read public:read");
+        assert.equal(url.searchParams.get("redirect_uri"), "http://localhost:8765/callback");
+        assert.equal(url.searchParams.get("resource"), metadata.resource);
+        assert.equal(init?.redirect, "manual");
+        return new Response(null, { status: 302, headers: { location } });
+      };
+      try {
+        await smokeHostedClientMetadataDocument(metadata, options, results);
+        return results;
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    };
+
+    assert.match((await run())[0]?.details ?? "", /accepted for scopes=mcp:read public:read/);
+    await assert.rejects(run(404), /expected HTTP 200, got HTTP 404/);
+    await assert.rejects(run(200, `${issuer}/wrong-client`), /wrong-client/);
+    await assert.rejects(run(200, clientId, "mcp:write"), /mcp:read/);
+    await assert.rejects(run(200, clientId, "mcp:read public:read", "https://attacker.example/sign-in?next=/oauth/authorize"), /unexpected authentication redirect/);
+  });
+
   it("rejects protected-resource metadata missing a classified owned-read scope before DCR", async () => {
     const fixture = await startHostedSuccessFixture(undefined, "assets:review:read");
 
