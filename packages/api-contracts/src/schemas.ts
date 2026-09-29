@@ -201,6 +201,12 @@ export const PublicCommunityTelemetrySchema = z.object({
   })).optional(),
 }).meta({ description: "Independently opted-in aggregate telemetry for a public community profile." });
 
+export const PublicGroupMembershipSchema = z.object({
+  groupCreatedAt: timestampMs.optional(),
+  latest: z.object({ value: z.number().int().nonnegative(), observedAt: timestampMs }),
+  points: z.array(z.object({ observedAt: timestampMs, value: z.number().int().nonnegative() })).max(500),
+}).meta({ description: "Timestamped observed membership for the primary linked VRChat group." });
+
 export const PublicProfileSchema = z
   .object({
     aliases: z.array(z.string()).optional(),
@@ -210,6 +216,7 @@ export const PublicProfileSchema = z
     bio: z.string().optional(),
     displayName: z.string().min(1),
     genres: z.array(PublicGenreSchema).optional(),
+    groupMembership: PublicGroupMembershipSchema.optional(),
     hostedEvents: z.array(z.unknown()).optional(),
     /** The stable profile identity, matching `PublicEvent.id`. */
     id: z.string(),

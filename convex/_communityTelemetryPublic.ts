@@ -12,6 +12,67 @@ export const PUBLIC_TELEMETRY_DEFINITIONS = {
   eventRecaps: { unit: "mixed", grain: "confirmed_event", gapPolicy: "coverage_ratio_is_explicit" },
 } as const;
 
+/** Group counts are shared; the profile's own Group size setting grants access. */
+export async function getPublicGroupMembership(
+  db: DatabaseReader,
+  communityProfileId: Id<"profiles">,
+) {
+  const visibility = await readClubVisibility(db, communityProfileId);
+  if (visibility.group_size.audience !== "public") return null;
+
+  const primary = await db.query("profileExternalLinks")
+    .withIndex("by_profileId_assetType_state", (q) => q
+      .eq("profileId", communityProfileId).eq("assetType", "vrchat_group").eq("state", "active"))
+    .take(100);
+  const integration = await db.query("communityVrchatIntegrations")
+    .withIndex("by_communityProfileId", (q) => q.eq("communityProfileId", communityProfileId))
+    .first();
+  const groupId = primary.find((link) => link.linkRole === "primary")?.assetExternalId
+    ?? (integration?.state !== "disconnected" && integration?.state !== "disconnecting"
+      ? integration?.vrchatGroupId : undefined);
+  if (!groupId) return null;
+
+  const groupQuery = () => db.query("vrchatGroupMemberSnapshots")
+    .withIndex("by_vrchatGroupId_observedAt", (q) => q.eq("vrchatGroupId", groupId));
+  const [groupRecent, groupFirst, connectedRecent, connectedFirst] = await Promise.all([
+    groupQuery().order("desc").take(500),
+    groupQuery().order("asc").first(),
+    integration?.vrchatGroupId === groupId
+      ? db.query("communityMemberCountObservations")
+        .withIndex("by_integrationId_observedAt", (q) => q.eq("integrationId", integration._id)
+          .gte("observedAt", integration.telemetryEpochStartedAt ?? integration.createdAt))
+        .order("desc").take(500)
+      : Promise.resolve([]),
+    integration?.vrchatGroupId === groupId
+      ? db.query("communityMemberCountObservations")
+        .withIndex("by_integrationId_observedAt", (q) => q.eq("integrationId", integration._id)
+          .gte("observedAt", integration.telemetryEpochStartedAt ?? integration.createdAt))
+        .order("asc").first()
+      : Promise.resolve(null),
+  ]);
+  const observations = new Map<number, number>();
+  for (const row of [...connectedRecent, ...(connectedFirst ? [connectedFirst] : [])]) {
+    if (row.vrchatGroupId === groupId) observations.set(row.observedAt, row.memberCount);
+  }
+  for (const row of [...groupRecent, ...(groupFirst ? [groupFirst] : [])]) {
+    observations.set(row.observedAt, row.memberCount);
+  }
+  const allPoints = [...observations].sort(([a], [b]) => a - b)
+    .map(([observedAt, value]) => ({ observedAt, value }));
+  if (allPoints.length === 0) return null;
+  // ponytail: recent 500 rows per source plus the first; use range queries if deep drill-down is needed.
+  const points = allPoints.length <= 500 ? allPoints : Array.from({ length: 500 }, (_, i) =>
+    allPoints[Math.floor(i * (allPoints.length - 1) / 499)]!);
+  const latest = allPoints[allPoints.length - 1]!;
+  const groupCreatedAt = groupRecent.find((row) => row.groupCreatedAt !== undefined)?.groupCreatedAt
+    ?? groupFirst?.groupCreatedAt;
+  return {
+    ...(groupCreatedAt === undefined ? {} : { groupCreatedAt }),
+    latest,
+    points,
+  };
+}
+
 function publicRollup(rollup: {
   bucketStartAt: number;
   bucketEndAt: number;
