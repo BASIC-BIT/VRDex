@@ -241,9 +241,9 @@ and [source controls](../backend/event-intake-sources.md).
   behavior, not model accuracy. Paid field accuracy, identity errors, false-block
   rates, latency and cost per publish are unmeasured. Keep extraction and blocking
   disabled until the consented evaluation and release review are complete.
-- Exact copy approval below remains open. Push, PR, deployment, paid calls and
-  actual uploads are outside this task. The controller owns final review and any
-  authorized delivery. The 30-minute exact-head PR readiness gate still applies.
+- Exact copy approval below remains open. Deployment, paid calls and actual
+  uploads remain release checks. The 30-minute exact-head PR readiness gate
+  still applies.
 
 ## Exact public copy for BASIC review
 
