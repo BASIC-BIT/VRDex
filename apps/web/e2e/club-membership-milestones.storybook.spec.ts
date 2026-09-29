@@ -16,3 +16,13 @@ test("staff membership graph marks founding and recent observation @storybook-vi
   await expect(page.getByRole("table").getByText(/Today/)).toBeVisible();
   await testInfo.attach("staff-membership-milestones", { body: await page.screenshot({ fullPage: true }), contentType: "image/png" });
 });
+
+test("same-day founding bridge uses distinct time coordinates @storybook-visual", async ({ page }, testInfo) => {
+  await page.goto("/iframe.html?id=clubs-membership-milestones--same-day&viewMode=story");
+  const line = page.locator(".recharts-reference-line line");
+  await expect(line).toHaveCount(1);
+  const start = await line.getAttribute("x1");
+  const end = await line.getAttribute("x2");
+  expect(start).not.toBe(end);
+  await testInfo.attach("staff-same-day-membership-bridge", { body: await page.screenshot({ fullPage: true }), contentType: "image/png" });
+});

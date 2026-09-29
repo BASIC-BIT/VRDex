@@ -70,11 +70,12 @@ export function ClubChart({
           >
             <CartesianGrid stroke="var(--border)" vertical={false} />
             {founding && firstAfterFounding ? <ReferenceLine segment={[
-              { x: founding.label, y: founding.value! },
-              { x: firstAfterFounding.label, y: firstAfterFounding.value! },
+              { x: founding.at, y: founding.value! },
+              { x: firstAfterFounding.at, y: firstAfterFounding.value! },
             ]} stroke="var(--muted)" strokeWidth={2} strokeDasharray="3 4" /> : null}
             <XAxis
-              dataKey="label"
+              dataKey="at"
+              tickFormatter={(at: number) => points.find((point) => point.at === at)?.label ?? ""}
               tickLine={false}
               axisLine={false}
               tick={{ fill: "var(--muted)", fontSize: 11 }}
@@ -102,7 +103,7 @@ export function ClubChart({
               labelFormatter={(axisLabel, payload) => {
                 const point = payload?.[0]?.payload as ClubChartPoint | undefined;
                 return point?.founding ? `Group founded · ${metricTime(point.at)}`
-                  : point?.today ? `Today · ${metricTime(point.at)}` : axisLabel;
+                  : point?.today ? `Today · ${metricTime(point.at)}` : point?.label ?? axisLabel;
               }}
             />
             {kind === "bar" ? (

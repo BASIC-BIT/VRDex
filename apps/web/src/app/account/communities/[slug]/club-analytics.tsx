@@ -351,6 +351,11 @@ export function ClubAnalyticsContent({
     context.preferences.rangeDays,
   );
   const [customize, setCustomize] = useState(false);
+  const [clockNow, setClockNow] = useState(Date.now);
+  useEffect(() => {
+    const timer = setInterval(() => setClockNow(Date.now()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
   const can = (category: (typeof context.readableCategories)[number]) =>
     context.readableCategories.includes(category);
   const membershipAttempt = useClubDisplayAttempt(
@@ -419,7 +424,7 @@ export function ClubAnalyticsContent({
   );
   const memberPoints = markMembershipMilestones(
     membershipRangePoints(loaded, membershipCoverageFresh),
-    { groupCreatedAt: context.groupCreatedAt, latestObservedAt: context.current.groupMemberObservedAt, ...bounds, now: context.now },
+    { groupCreatedAt: context.groupCreatedAt, latestObservedAt: context.current.groupMemberObservedAt, ...bounds, now: clockNow },
   );
   const selectDay = (at: number) =>
     update({ day: localDateKey(new Date(at)), instance: null });
@@ -573,7 +578,7 @@ export function ClubAnalyticsContent({
                         kind="members"
                         groupCreatedAt={context.groupCreatedAt}
                         latestObservedAt={context.current.groupMemberObservedAt}
-                        now={context.now}
+                        now={clockNow}
                       />
                     ) : loading ? (
                       <Notice role="status">Loading membership…</Notice>

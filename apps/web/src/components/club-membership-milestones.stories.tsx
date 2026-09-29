@@ -27,3 +27,13 @@ export const Range: Story = {
     <div className="mt-5"><ClubChart points={points} label="Group members" showIsolatedPoints /></div>
   </Card>,
 };
+
+export const SameDay: Story = {
+  render: () => <Card padding="lg" className="max-w-4xl">
+    <SectionTitle>Total group membership</SectionTitle>
+    <div className="mt-5"><ClubChart points={markMembershipMilestones(
+      [{ at: Date.UTC(2026, 8, 29, 18), value: 12, label: "Sep 29" }],
+      { groupCreatedAt: Date.UTC(2026, 8, 29, 12), latestObservedAt: Date.UTC(2026, 8, 29, 18), startAt: Date.UTC(2026, 8, 29), endAt: Date.UTC(2026, 8, 30), now: Date.UTC(2026, 8, 29, 19) },
+    )} label="Group members" showIsolatedPoints /></div>
+  </Card>,
+};
