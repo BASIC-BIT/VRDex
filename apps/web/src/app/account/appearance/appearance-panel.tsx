@@ -19,7 +19,7 @@ const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 
 type AppearanceProfile = {
   hasPublicProfile: boolean;
-  profileId: Id<"profiles"> | "demo" | "playwright-profile";
+  profileId: Id<"profiles"> | "demo" | "demo-community" | "playwright-profile";
   profileType: "person" | "community";
   slug: string;
   displayName: string;
@@ -100,6 +100,17 @@ const demoProfiles: AppearanceProfile[] = [
       borderSoftnessPx: 12,
       radiusPercent: 18,
     },
+    sectionOrder: defaultSectionOrder,
+    showMemberCount: true,
+    showMemberHistory: true,
+  },
+  {
+    hasPublicProfile: true,
+    profileId: "demo-community",
+    profileType: "community",
+    slug: "playwright-night-shift",
+    displayName: "Night Shift",
+    avatarAppearance: defaultAvatarAppearance,
     sectionOrder: defaultSectionOrder,
     showMemberCount: true,
     showMemberHistory: true,
@@ -261,6 +272,7 @@ function AppearanceEditor({
       !selectedProfile ||
       demo ||
       selectedProfile.profileId === "demo" ||
+      selectedProfile.profileId === "demo-community" ||
       selectedProfile.profileId === "playwright-profile"
     ) {
       return;

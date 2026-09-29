@@ -26,7 +26,10 @@ export default async function AppearancePage({
         <ProfileWorkspace
           activeProfileId={initialProfileId}
           mediaKitEnabled={mediaKitEnabled}
-          previewProfiles={demoMode ? DEMO_WORKSPACE_PROFILES : undefined}
+          previewProfiles={demoMode ? [
+            ...DEMO_WORKSPACE_PROFILES,
+            { profileId: "demo-community", slug: "playwright-night-shift", displayName: "Night Shift", profileType: "community" },
+          ] : undefined}
           tab="personalization"
         >
           <Card className="shadow-hero" padding="lg">
