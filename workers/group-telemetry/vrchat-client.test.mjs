@@ -50,3 +50,11 @@ test("group metadata rejects a different well-formed group ID", async () => {
     id: returnedGroupId, memberCount: 42, membershipStatus: "inactive",
   })).getGroup(requestedGroupId), { category: "schema_drift" });
 });
+
+test("group metadata accepts a case-variant ID and preserves the requested ID", async () => {
+  const groupId = "grp_abcdefab-cdef-4abc-8def-abcdefabcdef";
+  const group = await client(JSON.stringify({
+    id: groupId.toUpperCase().replace("GRP_", "grp_"), memberCount: 42, membershipStatus: "inactive",
+  })).getGroup(groupId);
+  assert.equal(group.groupId, groupId);
+});
