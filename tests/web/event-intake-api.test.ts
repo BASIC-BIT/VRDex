@@ -158,6 +158,7 @@ it("retains bounded duplicate choices and distinguishes a lost response from inv
     assert.equal(eventIntakeErrorResponse(new Error('Validator error: Expected ID for table "eventIntakeDrafts", got bad-id')).status,400);
     assert.equal(eventIntakeErrorResponse(new Error("Source URL must be a safe HTTPS URL.")).status,400);
     assert.equal(eventIntakeErrorResponse(new Error("Set end time requires an earlier start time.")).status,400);
+    assert.equal(eventIntakeErrorResponse(new Error("EXTRACTION_INPUT_INVALID")).status,400);
   `);
 });
 

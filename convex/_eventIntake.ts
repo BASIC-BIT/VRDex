@@ -140,14 +140,16 @@ export async function publishIntakeDraft(db: DatabaseWriter, actorUserId: Id<"us
         eventPath: eventPathForSlugs(community.slug, event.slug), communityProfileId: community._id, fingerprint, createdAt: now });
       receipt = (await db.get(receiptId))!;
     }
-    const sources = await db.query("eventPosterSources").withIndex("by_draft_state", q => q.eq("draftId", draft._id).eq("state", "ready")).take(21);
-    const eventDate = event.eventDate ? Date.parse(`${event.eventDate}T23:59:59.999Z`) : event.startAt!;
-    for (const source of sources) if (source.state === "ready") await db.patch(source._id, { eventId: event._id, expiresAt: source.holdReportId ? Number.MAX_SAFE_INTEGER : Math.min(source.uploadedAt + 180 * 86_400_000, eventDate + 30 * 86_400_000, now + 86_400_000) });
+    if (createdEvent) {
+      const sources = await db.query("eventPosterSources").withIndex("by_draft_state", q => q.eq("draftId", draft._id).eq("state", "ready")).take(21);
+      const eventDate = event.eventDate ? Date.parse(`${event.eventDate}T23:59:59.999Z`) : event.startAt!;
+      for (const source of sources) if (source.state === "ready") await db.patch(source._id, { eventId: event._id, expiresAt: source.holdReportId ? Number.MAX_SAFE_INTEGER : Math.min(source.uploadedAt + 180 * 86_400_000, eventDate + 30 * 86_400_000, now + 86_400_000) });
+    }
     // An explicit selection belongs to this contributor's newly created event only.
     if (draft.artworkAssetId && event.contributorUserId === actorUserId && receipt.draftId === draft._id) {
       const artwork = await db.get(draft.artworkAssetId);
       if (!artwork || artwork.actorUserId !== actorUserId || artwork.draftId !== draft._id || artwork.state !== "ready") throw new Error("ARTWORK_NOT_READY");
-      await db.patch(artwork._id, { state: "published", eventId: event._id });
+      await db.patch(artwork._id, { state: "published", eventId: event._id, expiresAt: now + 86_400_000 });
       const posterImageUrl = `/api/v0/events/${event._id}/artwork/${artwork._id}`;
       await db.patch(event._id, { posterImageUrl });
       await reindexEventSearchDocument(db, { ...event, posterImageUrl }, { community, world: checked.world, roleLabels: checked.lineup.flatMap(entry => entry.roleLabel ? [entry.roleLabel] : []) }, now);

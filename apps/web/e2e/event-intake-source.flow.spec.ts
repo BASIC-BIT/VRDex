@@ -82,10 +82,15 @@ test("replacement poster remains unselected after resume until explicit selectio
   const select = page.getByRole("button", { name: "Use as event artwork" });
   await upload.setInputFiles("public/test-media/event-poster.png");
   await expect(page.getByAltText("Source poster")).toBeVisible();
+  await page.getByRole("button", { name: "Extract details" }).click();
+  await expect(page.getByRole("heading", { name: "Tentative details" })).toBeVisible();
   await select.click();
   await expect(page.getByText("Artwork selected", { exact: true })).toBeVisible();
   await upload.setInputFiles("public/test-media/event-poster.png");
   await expect(page.getByAltText("Source poster")).toHaveAttribute("src", /#poster-2$/);
+  await expect(page.getByRole("heading", { name: "Tentative details" })).toHaveCount(0);
+  await expect(page.getByText("timezone: Which time zone?", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Source evidence", { exact: true })).toHaveCount(0);
   await page.goto("/playwright/event-intake?source=replacement");
   await expect(page.getByAltText("Source poster")).toHaveAttribute("src", /#poster-2$/);
   await expect(page.getByText("Artwork selected", { exact: true })).toHaveCount(0);
@@ -93,6 +98,21 @@ test("replacement poster remains unselected after resume until explicit selectio
   expect(await page.evaluate(() => sessionStorage.getItem("fixture-artwork-source"))).toBe("poster-1");
   await select.click();
   expect(await page.evaluate(() => sessionStorage.getItem("fixture-artwork-source"))).toBe("poster-2");
+});
+
+test("changing source text clears extracted candidates and evidence @flow @fixture", async ({ page }, info) => {
+  test.slow();
+  await page.goto("/playwright/event-intake?source=text");
+  await page.getByLabel("Source text", { exact: true }).fill("Old event poster text");
+  await page.getByRole("button", { name: "Extract details" }).click();
+  await expect(page.getByRole("heading", { name: "Tentative details" })).toBeVisible();
+  await page.goto("/playwright/event-intake?source=text");
+  await expect(page.getByRole("heading", { name: "Tentative details" })).toBeVisible();
+  await page.getByRole("textbox", { name: "Source text", exact: true }).fill("Different event poster text");
+  await expect(page.getByRole("heading", { name: "Tentative details" })).toHaveCount(0);
+  await expect(page.getByText("timezone: Which time zone?", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Source evidence", { exact: true })).toHaveCount(0);
+  await page.screenshot({ path: info.outputPath("changed-source.png"), fullPage: true });
 });
 
 test("replacement preview never shows the old source or enables artwork before the new image @flow @fixture", async ({ page }, info) => {

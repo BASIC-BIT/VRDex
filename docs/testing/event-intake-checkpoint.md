@@ -5,6 +5,14 @@ merge with `main` at `326fe66e3` on `codex/event-contribution-ai-intake-design`.
 This is local evidence. Nothing here asserts deployment,
 copy approval, hosted accuracy or merge readiness.
 
+Post-review boundary fixes keep malformed or stale draft links on an unavailable
+state, page staff reports within their managed communities, declare date-only
+search fields in OpenAPI, and limit unconfirmed public world links to contributor
+associations. Empty extraction requests return 400. Changing source text or
+replacing a poster clears old extracted candidates and evidence. Exact duplicate
+drafts retain their private poster evidence under draft retention, and the daily
+artwork cleanup retires published derivatives after deselection or retraction.
+
 The follow-up review fixes keep committed publication receipts replayable after
 a later classifier result, settle owner media work when a timed event becomes
 Time TBA, invalidate contributor event recaps on that transition, return a

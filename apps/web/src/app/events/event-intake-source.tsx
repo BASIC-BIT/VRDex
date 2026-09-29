@@ -36,7 +36,8 @@ export function EventIntakeSource({ fields, revision, onChange, action, busy, se
     try {
       const result = await action(kind, fields, revision, file);
       if (result.fields) onChange(result.fields);
-      if (result.candidate) { setEvidence(result.candidate.evidence); }
+      if (result.candidate) setEvidence(result.candidate.evidence);
+      else if (kind === "upload") setEvidence([]);
       if (result.artworkSourceId) setArtworkSourceId(result.artworkSourceId);
     } catch (error) {
       setMessage(error instanceof ConvexError && typeof error.data === "object" && error.data && "code" in error.data && error.data.code === "VERSION_CONFLICT"
@@ -45,7 +46,7 @@ export function EventIntakeSource({ fields, revision, onChange, action, busy, se
   }
   return <section className="grid min-w-0 gap-4 border-b border-border pb-6" aria-label="Event source">
     <div className="grid min-w-0 gap-4 sm:grid-cols-2">
-      <div className="grid content-start gap-3"><Field>Source text<Textarea value={fields.sourceText ?? ""} maxLength={12000} rows={5} onChange={event => onChange({ ...fields, sourceText: event.target.value })} /></Field>
+      <div className="grid content-start gap-3"><Field>Source text<Textarea value={fields.sourceText ?? ""} maxLength={12000} rows={5} onChange={event => { onChange({ ...fields, sourceText: event.target.value, tentative: undefined, questions: undefined }); setEvidence([]); }} /></Field>
         <Field>Poster<Input type="file" accept="image/png,image/jpeg,image/webp" onChange={event => { const file = event.target.files?.[0]; if (file) void run("upload", file); event.target.value = ""; }} /></Field>
         <Button type="button" variant="secondary" disabled={busy || (!fields.sourceText?.trim() && !fields.posterSourceId)} onClick={() => void run("extract")}>Extract details</Button>
         {unavailable ? <p role="status" className="text-sm text-muted">Extraction unavailable</p> : null}

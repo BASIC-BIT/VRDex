@@ -140,12 +140,18 @@ export const confirmSourceDeletion = internalMutation({ args: { ...sourceArg, to
 } });
 export const claimAbandonedArtwork = internalMutation({ args: {}, returns: v.any(), handler: async ctx => {
   const now = Date.now();
-  const rows = (await Promise.all((["pending", "ready", "deleting"] as const).map(state => ctx.db.query("eventPosterArtwork").withIndex("by_state_expiresAt", q => q.eq("state", state).lte("expiresAt", now)).take(50)))).flat();
+  const rows = (await Promise.all((["pending", "ready", "published", "deleting"] as const).map(state => ctx.db.query("eventPosterArtwork").withIndex("by_state_expiresAt", q => q.eq("state", state).lte("expiresAt", now)).take(50)))).flat();
   const work = [];
   for (const row of rows) {
     if ((row.cleanupLeaseUntil ?? 0) > now) continue;
     const draft = await ctx.db.get(row.draftId);
     if (row.state === "ready" && draft?.artworkAssetId === row._id && draft.expiresAt > now) { await ctx.db.patch(row._id, { expiresAt: draft.expiresAt }); continue; }
+    if (row.state === "published") {
+      const event = row.eventId ? await ctx.db.get(row.eventId) : null;
+      const selected = event?.posterImageUrl === `/api/v0/events/${row.eventId}/artwork/${row._id}`;
+      if (selected && event.publicationState === "published" && event.moderationRemovedAt === undefined) { await ctx.db.patch(row._id, { expiresAt: now + DAY }); continue; }
+      if (selected && event) await ctx.db.patch(event._id, { posterImageUrl: undefined });
+    }
     const token = crypto.randomUUID();
     await ctx.db.patch(row._id, { state: "deleting", cleanupToken: token, cleanupLeaseUntil: now + 60_000 });
     work.push({ artworkAssetId: row._id, token, storageKeys: row.storageKey ? [row.storageKey] : [] });

@@ -129,9 +129,38 @@ it("rejects stale classifier decisions and atomically records outage reports whi
  await t.mutation(commit,args);
  assert.equal((await t.run(ctx=>ctx.db.query("eventReports").collect())).length,1);
  const duplicate=await t.run(ctx=>ctx.db.insert("eventIntakeDrafts",{actorUserId,version:1,fields:{title:"Night",communitySlug:"club",eventDate:"2027-10-15",timeTba:true,summary:"Discarded text"},provenance:[],createdAt:Date.now(),updatedAt:Date.now(),expiresAt:Date.now()+86400000}));
+ const discarded=await t.mutation(ref("beginPosterUpload"),{actorUserId,draftId:duplicate,contentType:"image/png",byteLength:128,sha256:"a".repeat(64)});
+ await t.mutation(ref("completePosterUpload"),{actorUserId,posterAssetId:discarded.posterAssetId,sha256:"a".repeat(64)});
  assert.equal((await t.mutation(commit,{actorUserId,draftId:duplicate,expectedVersion:1,idempotencyKey:"duplicate",classification:{draftId:duplicate,draftVersion:1,decision:"allow",reviewReason:"classifier_sample"}})).eventId,result.eventId);
+ assert.equal((await t.run(ctx=>ctx.db.get(discarded.posterAssetId)))?.eventId,undefined);
  assert.equal((await t.run(ctx=>ctx.db.query("eventReports").collect())).length,1);
  assert.deepEqual(await t.mutation(commit,{...args,classification:{draftId,draftVersion:1,decision:"block"}}),result);
+});
+
+it("retires a published derivative after deselection or retraction", async () => {
+ for (const change of ["deselect", "retract"] as const) {
+ const {t,actorUserId,draftId}=await fixture();
+ await t.run(async ctx=>{
+  await ctx.db.insert("profiles",{slug:"club",displayName:"Club",sortName:"club",profileType:"community",community:{categoryTags:[]},aliases:[],tags:[],claimState:"unclaimed",publicationState:"published",publicSurfacingState:"public",creationSource:"community",updatedAt:Date.now()});
+  await ctx.db.patch(draftId,{fields:{title:"Night",communitySlug:"club",eventDate:"2027-10-15",timeTba:true}});
+ });
+ process.env.EVENT_DATE_ONLY_ENABLED="true";
+ const source=await t.mutation(ref("beginPosterUpload"),{actorUserId,draftId,contentType:"image/png",byteLength:128,sha256:"a".repeat(64)});
+ await t.mutation(ref("completePosterUpload"),{actorUserId,posterAssetId:source.posterAssetId,sha256:"a".repeat(64)});
+ const selected=await t.mutation(ref("selectPosterArtwork"),{actorUserId,draftId,posterAssetId:source.posterAssetId,expectedVersion:1});
+ await t.mutation(ref("completeArtwork"),{actorUserId,artworkAssetId:selected.artworkAssetId,expectedVersion:1,sha256:"b".repeat(64),byteLength:100});
+ const published=await t.mutation(makeFunctionReference<"mutation">("eventIntake:commitPublishIntake"),{actorUserId,draftId,expectedVersion:2,idempotencyKey:"artwork"});
+ await t.run(ctx=>ctx.db.patch(selected.artworkAssetId,{expiresAt:0}));
+ assert.deepEqual(await t.mutation(ref("claimAbandonedArtwork"),{}),[]);
+ assert.ok((await t.run(ctx=>ctx.db.get(selected.artworkAssetId)))!.expiresAt>Date.now());
+ await t.run(ctx=>ctx.db.patch(published.eventId,change==="deselect"?{posterImageUrl:undefined}:{publicationState:"draft_private"}));
+ await t.run(ctx=>ctx.db.patch(selected.artworkAssetId,{expiresAt:0}));
+ const [claim]=await t.mutation(ref("claimAbandonedArtwork"),{});
+ assert.deepEqual(claim.storageKeys,[selected.storageKey]);
+ assert.equal((await t.run(ctx=>ctx.db.get(published.eventId)))?.posterImageUrl,undefined);
+ await t.mutation(ref("confirmArtworkDeletion"),{artworkAssetId:selected.artworkAssetId,token:claim.token});
+ assert.equal((await t.run(ctx=>ctx.db.get(selected.artworkAssetId)))?.state,"expired");
+ }
 });
 
 it("uses current event dates for retention and respects private reviewer reads",async()=>{
