@@ -17,7 +17,8 @@ const stream = (id: string) => {
 };
 const people = {
   aurora: { slug: "aurora", displayName: "Aurora", trustLabel: "claimed_verified" as const,
-    outboundLinks: [{ source: "owner_authored", label: "SoundCloud", type: "soundcloud", url: "https://soundcloud.com/aurora" }, { source: "owner_authored", label: "VRCDN", type: "vrcdn", url: "vrcdn:aurora" }] },
+    imageUrl: "/seed/fixture-avatar-luma.svg",
+    outboundLinks: [{ source: "owner_authored", label: "SoundCloud", type: "soundcloud", url: "https://soundcloud.com/aurora" }, { source: "owner_authored", label: "VRCDN", type: "vrcdn", url: "vrcdn:aurora" }, { source: "owner_authored", label: "Twitch", type: "twitch", url: "https://www.twitch.tv/aurora" }] },
   lumen: { slug: "lumen", displayName: "Lumen", trustLabel: "claimed_verified" as const,
     outboundLinks: [{ source: "owner_authored", label: "Main", type: "vrcdn", url: "vrcdn:lumen-main" }, { source: "owner_authored", label: "Visuals", type: "vrcdn", url: "vrcdn:lumen-visuals" }] },
   nova: { slug: "nova", displayName: "Nova", trustLabel: "claimed_verified" as const,
@@ -30,6 +31,12 @@ const hiddenLinksProfile = {
 } as Doc<"profiles">;
 const fixtureEvent: EditableEvent = {
   ...previewEvent,
+  mediaLinks: [
+    ...previewEvent.mediaLinks,
+    { type: "vrcdn", label: "Event stream", url: "vrcdn:event-only", presentation: "copy" },
+    { type: "watch", label: "Repeated Twitch", url: "https://twitch.tv/aurora", presentation: "open" },
+    { type: "ticket", label: "Tickets", url: "https://example.com/tickets", presentation: "open" },
+  ],
   watchSurfaceEnabled: true,
   watchMode: "performer_sequence" as const,
   slots: previewEvent.slots.map((slot, index) => ({
@@ -74,16 +81,18 @@ function fixtureClient() {
       localStorage.setItem(`${storageKey}-submission`, JSON.stringify(args));
       const error = localStorage.getItem("event-lineup-fixture-save-error");
       if (error) throw new Error(error);
-      const slots = (args.slotLinks as Array<Record<string, unknown>>).map((slot, index) => ({
+      const slots = ((args.slotLinks ?? (args.lineup as Array<Record<string, unknown>> | undefined)?.filter(row => row.startAt !== undefined).map(row => ({ ...row, displayLabel: row.performerLabel })) ?? []) as Array<Record<string, unknown>>).map((slot, index) => ({
         ...slot, position: index, playbackKey: `saved-${index}`, discord: previewEvent.slots[0]!.discord, source: previewEvent.source,
         performer: people[slot.personSlug as keyof typeof people],
         streamChoices: choices[slot.personSlug as keyof typeof choices] ?? [],
         selectedStreamId: slot.selectedStreamId ?? undefined,
       }));
-      event = { ...event, ...args, slots } as EditableEvent;
+      event = { ...event, ...args, slots,
+        ...(args.lineup === undefined ? {} : { lineup: (args.lineup as Array<Record<string, unknown>>).map(row => ({ ...row, key: row.clientKey, displayLabel: row.performerLabel, performer: people[row.personSlug as keyof typeof people] })) }),
+      } as EditableEvent;
       localStorage.setItem(storageKey, JSON.stringify(event));
       listeners.forEach(listener => listener());
-      return { slug: event.slug, preservedParticipantAssociationIds: [], preservedSlotAssociationIds: [], preservedWorldAssociationIds: [] };
+      return { slug: event.slug, eventPath: "/playwright-afterglow-social/events/playwright-afterglow-harbor-sessions", preservedParticipantAssociationIds: [], preservedSlotAssociationIds: [], preservedWorldAssociationIds: [] };
     },
   } as unknown as ConvexReactClient;
 }

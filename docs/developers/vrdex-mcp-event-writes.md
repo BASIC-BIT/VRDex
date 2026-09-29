@@ -1,5 +1,64 @@
 # VRDex MCP Event Writes
 
+## Contribution intake
+
+Hosted and local MCP register the same ten intake tools, using the shared REST
+schemas and actor-bound commands:
+
+- `vrdex_event_intake_draft_save`
+- `vrdex_event_intake_draft_get`
+- `vrdex_event_intake_extract`
+- `vrdex_event_intake_publish`
+- `vrdex_event_intake_poster_upload_begin`
+- `vrdex_event_intake_poster_upload_complete`
+- `vrdex_event_intake_artwork_select`
+- `vrdex_event_intake_event_get`
+- `vrdex_event_intake_event_update`
+- `vrdex_event_intake_event_retract`
+
+Hosted writes need user-delegated `mcp:write events:contribute`; draft and
+contribution reads need `mcp:read events:contribute`. Local tools call the API
+using a user-owned token with `events:contribute`. Neither path requires
+verified email. The owner tools below still require `events:write` and
+community authority.
+
+Website and MCP drafts interoperate. Save the returned `draftId` and `version`.
+Publication returns `eventId`, `eventPath`, and `receiptId`. After a lost response,
+read the draft and replay publication with the same version and idempotency key.
+Never make a new draft or key just because the response was lost. Poster upload
+and extraction do not select public artwork; call `artwork_select` deliberately.
+Call `event_get` with the published slug to obtain `updatedAt` before
+`event_update`; pass that revision as `expectedUpdatedAt`.
+
+The local-only `vrdex_event_intake_poster_upload_bytes` helper accepts `draftId`,
+`contentType`, and base64 content explicitly supplied from a chosen local file.
+It never reads filesystem paths or fetches source URLs. Set
+`VRDEX_EVENT_POSTER_UPLOAD_ORIGIN` to the exact HTTPS S3 upload origin used by
+your deployment, with no trailing slash. The helper rejects another origin,
+credentials, and redirects; it sends no API bearer token to storage. PNG, JPEG,
+and WebP signatures and a 12 MiB limit are checked locally. Completion fully
+decodes the image and checks its declared MIME, length, and digest server-side.
+Clients unable to send bounded image content can use the begin/complete tools
+with their own explicitly authorized file transfer.
+
+These are local implementation and fixture checks. Hosted storage, provider
+accuracy, and production behavior require separate deployment evidence.
+
+## Schedule and correction readback
+
+A date-only public event has `scheduleKind: "date_only"` and `eventDate`, with no
+`startAt`. Do not synthesize midnight or activate watch playback. Calendar export
+uses a date value with Time TBA; timed events retain exact instants. Lineup readback
+preserves ordered timed, untimed and unmatched entries.
+
+Staff takeover closes contributor updates/retraction even with a fresh revision.
+A contributor can retry a successful retraction; the replay returns `changed: false`.
+A contributor can submit a correction suggestion through the event report flow;
+it does not edit the canonical event. Removal excludes the event from public
+lookup, search and feeds. Scope/version/actor parity is covered locally; hosted
+OAuth and connected browser proof remain outstanding in the
+[checkpoint](../testing/event-intake-checkpoint.md).
+
 ## Status
 
 Implementation checkpoint for

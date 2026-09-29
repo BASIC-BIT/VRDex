@@ -1,6 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { EventTimezonePicker } from "../_components/event-timezone-picker";
+import { resolveEventLocalTime, selectEventLocalTime } from "../../../../../packages/api-contracts/src/event-intake";
 import type { ChangeEvent, FormEvent, ReactNode } from "react";
 import { useEffect, useState, useTransition } from "react";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
@@ -20,7 +23,6 @@ import { parseVrcdnStreamLinks } from "../../../../../convex/_vrcdnLinks";
 import {
   browserTimeZone,
   formatZonedDateTimeInput,
-  parseZonedDateTimeInput,
 } from "@/lib/calendar/zoned-date-time";
 import { resolveAuthoredEventEndAt } from "@/lib/calendar/event-end-time";
 import { serializeOtherEventParticipants } from "@/lib/calendar/event-participants";
@@ -51,7 +53,8 @@ type VrcdnOutputFormState = {
 };
 
 export type EditableEvent = Omit<PublicEvent, "slots"> & {
-  slots: Array<PublicEvent["slots"][number] & { selectedStreamId?: string; streamChoices?: PlaybackStream[] }>;
+  usesCanonicalLineup?: boolean;
+  slots: Array<PublicEvent["slots"][number] & { clientKey?: string; selectedStreamId?: string; streamChoices?: PlaybackStream[] }>;
   notes?: string;
   preservedCommunityProfileId?: Id<"profiles">;
   preservedParticipantAssociationIds: Id<"eventParticipants">[];
@@ -68,6 +71,7 @@ type EventAssociationSnapshot = Pick<
 >;
 
 type SlotFormRow = {
+  position?: number;
   selectedStreamId?: string;
   streamChoices?: PlaybackStream[];
   id: string;
@@ -143,6 +147,8 @@ function SlotStreamSelect({ row, invalid, onChange }: { row: SlotFormRow; invali
 }
 
 const userSafeErrorPatterns = [
+  /Ambiguous local time requires an earlier or later occurrence\./,
+  /Local time does not exist in this timezone\./,
   /Event changes require a signed-in user\./,
   /Event start time must be a valid timestamp\./,
   /Doors-open time must be a valid timestamp\./,
@@ -326,7 +332,7 @@ function parseParticipantLinks(value: string) {
 }
 
 function parseSlotRows(rows: SlotFormRow[], eventStartAt: number) {
-  return rows.map((row, index) => {
+  return rows.map((row) => {
       const offsetMinutes = parseInteger(row.offsetMinutes, "Slot offset minutes");
       const durationMinutes = optionalString(row.durationMinutes) === undefined
         ? undefined
@@ -339,7 +345,7 @@ function parseSlotRows(rows: SlotFormRow[], eventStartAt: number) {
         displayLabel:
           optionalString(row.displayLabel) ??
           optionalString(row.personSlug) ??
-          `Session ${index + 1}`,
+          "",
         roleLabel: optionalString(row.roleLabel) ?? "Participant",
         startAt,
         ...(durationMinutes === undefined ? {} : { endAt: startAt + durationMinutes * 60_000 }),
@@ -359,8 +365,9 @@ function initialSlotRows(event: EditableEvent | undefined): SlotFormRow[] {
   }
 
   return event.slots.map((slot, index) => ({
-    id: `stored-${slot.position}-${slot.startAt}-${index}`,
-    offsetMinutes: String(Math.round((slot.startAt - event.startAt) / 60_000)),
+    position: slot.position,
+    id: slot.clientKey ?? slot.playbackKey ?? `stored-${slot.position}-${slot.startAt}-${index}`,
+    offsetMinutes: String(Math.round((slot.startAt - (event.startAt ?? slot.startAt)) / 60_000)),
     durationMinutes:
       slot.endAt === undefined
         ? ""
@@ -415,7 +422,7 @@ function createGeneratedSlotRows(
       offsetMinutes: String(offsetMinutes),
       durationMinutes: String(durationMinutes),
       personSlug: "",
-      displayLabel: `Session ${index + 1}`,
+      displayLabel: "",
       roleLabel: "Participant",
     };
   });
@@ -513,6 +520,15 @@ function ConnectedEventEditorForm({
   demoMode?: boolean;
   event?: EditableEvent;
 }) {
+  const router = useRouter();
+  const [eventDate, setEventDate] = useState(event?.eventDate ?? formatZonedDateTimeInput(event?.startAt, event?.timezone).slice(0, 10));
+  const [timeTba, setTimeTba] = useState(event?.scheduleKind === "date_only");
+  const usesCanonicalLineup = event?.usesCanonicalLineup ?? event?.source.sourceType === "contributor";
+  const [untimedRows, setUntimedRows] = useState(() => (event?.lineup ?? []).filter(row => row.startAt === undefined).map(row => ({
+    clientKey: row.key, position: row.position, performerLabel: row.displayLabel, personSlug: row.performer?.slug ?? "", roleLabel: row.roleLabel ?? "",
+  })));
+  const [startLocal, setStartLocal] = useState(formatZonedDateTimeInput(event?.startAt, event?.timezone));
+  const [occurrence, setOccurrence] = useState<"earlier" | "later" | "">("");
   const createEvent = useMutation(api.events.createCommunityEvent);
   const updateEvent = useMutation(api.events.updateCommunityEvent);
   const setEventCancelled = useMutation(api.events.setCommunityEventCancelled);
@@ -528,7 +544,7 @@ function ConnectedEventEditorForm({
   const [vrcdnOutputStatus, setVrcdnOutputStatus] = useState<VrcdnOutputStatus>({ kind: "idle" });
   const [timezone, setTimezone] = useState(event?.timezone ?? "UTC");
   const [doorsOpenBefore, setDoorsOpenBefore] = useState(event?.doorsOpenAt !== undefined);
-  const [doorsOpenMinutes, setDoorsOpenMinutes] = useState(() => event?.doorsOpenAt === undefined
+  const [doorsOpenMinutes, setDoorsOpenMinutes] = useState(() => event?.doorsOpenAt === undefined || event.startAt === undefined
     ? "15"
     : String(Math.max(0, Math.round((event.startAt - event.doorsOpenAt) / 60_000))));
   const [watchSurfaceEnabled, setWatchSurfaceEnabled] = useState(event?.watchSurfaceEnabled ?? false);
@@ -537,6 +553,7 @@ function ConnectedEventEditorForm({
   const [vrcdnOutput, setVrcdnOutput] = useState<VrcdnOutputFormState>(() => createInitialVrcdnOutputForm(event));
   const [slotRows, setSlotRows] = useState(() => initialSlotRows(event));
   const [slotRowsDirty, setSlotRowsDirty] = useState(Boolean(event?.slots.length));
+  const [lineupEdited, setLineupEdited] = useState(false);
   const [scheduleChanged, setScheduleChanged] = useState(false);
   const [slotTemplate, setSlotTemplate] = useState(() => initialSlotTemplate(event));
   const slotTemplateIsValid = isValidSlotTemplate(slotTemplate);
@@ -595,6 +612,7 @@ function ConnectedEventEditorForm({
       setSlotTemplate({ ...nextTemplate, count: String(boundedCount) });
       setSlotRows(createGeneratedSlotRows(boundedCount, duration));
       setSlotRowsDirty(false);
+      setLineupEdited(true);
       setScheduleChanged(true);
     } catch {
       setSlotTemplate(nextTemplate);
@@ -604,6 +622,12 @@ function ConnectedEventEditorForm({
   function updateSlotRows(updater: (rows: SlotFormRow[]) => SlotFormRow[]) {
     setSlotRows((rows) => updater(rows));
     setSlotRowsDirty(true);
+    setLineupEdited(true);
+  }
+
+  function updateUntimedRows(updater: (rows: typeof untimedRows) => typeof untimedRows) {
+    setUntimedRows(updater);
+    setLineupEdited(true);
   }
 
   async function onSaveVrcdnOutput() {
@@ -677,20 +701,24 @@ function ConnectedEventEditorForm({
 
     try {
       const submittedTimezone = optionalString(stringField(formData.get("timezone")));
+      if (!timeTba && !submittedTimezone) throw new Error("Time zone must be a valid IANA time zone.");
       const timeZoneForParsing = submittedTimezone ?? browserTimeZone();
-      const startAt = parseZonedDateTimeInput(stringField(formData.get("startAt")), timeZoneForParsing, "Event start time");
-      const slotLinks = parseSlotRows(slotRows, startAt);
+      const authoredStart = stringField(formData.get("startAt"));
+      const startAt = timeTba ? undefined : event?.startAt !== undefined && authoredStart === formatZonedDateTimeInput(event.startAt, event.timezone) && timezone === event.timezone
+        ? event.startAt
+        : selectEventLocalTime(authoredStart.slice(0, 10), { time: authoredStart.slice(11, 16), ...(occurrence ? { occurrence } : {}) }, timeZoneForParsing);
+      const slotLinks = startAt === undefined ? [] : parseSlotRows(slotRows, startAt);
       const derivedEndAt = slotLinks.length === 0 || slotLinks.some((slot) => slot.endAt === undefined)
         ? undefined
         : Math.max(...slotLinks.map((slot) => slot.endAt!));
-      const endAt = resolveAuthoredEventEndAt({
+      const endAt = startAt === undefined ? undefined : resolveAuthoredEventEndAt({
         startAt,
         derivedEndAt,
         previousStartAt: event?.startAt,
         previousEndAt: event?.endAt,
         scheduleChanged,
       });
-      const doorsOffsetMinutes = doorsOpenBefore
+      const doorsOffsetMinutes = !timeTba && doorsOpenBefore
         ? parseInteger(doorsOpenMinutes, "Doors-open offset minutes")
         : undefined;
       if (doorsOffsetMinutes !== undefined && doorsOffsetMinutes < 0) {
@@ -702,7 +730,7 @@ function ConnectedEventEditorForm({
         startAt,
         ...(doorsOffsetMinutes === undefined
           ? {}
-          : { doorsOpenAt: startAt - doorsOffsetMinutes * 60_000 }),
+          : { doorsOpenAt: startAt! - doorsOffsetMinutes * 60_000 }),
         endAt,
         timezone: submittedTimezone,
         summary: optionalString(stringField(formData.get("summary"))),
@@ -715,8 +743,15 @@ function ConnectedEventEditorForm({
         watchSurfaceEnabled,
         watchMode,
         mediaLinks: parseMediaLinks(mediaLinksText),
-        participantLinks: parseParticipantLinks(stringField(formData.get("participantLinks"))),
-        slotLinks,
+        ...(usesCanonicalLineup && (lineupEdited || startAt !== event?.startAt) ? { lineup: [
+          ...slotRows.map((row, index) => ({
+            clientKey: row.id, position: row.position ?? index, performerLabel: row.displayLabel || row.personSlug, personSlug: optionalString(row.personSlug), roleLabel: optionalString(row.roleLabel),
+            ...(!timeTba ? { startAt: slotLinks[index]!.startAt, endAt: slotLinks[index]!.endAt, selectedStreamId: slotLinks[index]!.selectedStreamId } : {}),
+          })),
+          ...untimedRows.map(row => ({ ...row, personSlug: optionalString(row.personSlug), roleLabel: optionalString(row.roleLabel) })),
+        ].sort((a, b) => a.position - b.position).map((row, position) => ({ ...row, position })) } : !usesCanonicalLineup ? {
+          participantLinks: parseParticipantLinks(stringField(formData.get("participantLinks"))), slotLinks,
+        } : {}),
       };
       const result = event
           ? await updateEvent({
@@ -729,8 +764,21 @@ function ConnectedEventEditorForm({
                 ? { published: false }
                 : {}),
             ...payload,
+            preserveLineupConfirmation: usesCanonicalLineup && !lineupEdited && startAt !== event.startAt,
+            doorsOpenAt: doorsOffsetMinutes === undefined ? null : startAt! - doorsOffsetMinutes * 60_000,
+            endAt: endAt ?? null,
+            summary: payload.summary ?? null,
+            notes: payload.notes ?? null,
+            sourceLabel: payload.sourceLabel ?? "",
+            sourceUrl: payload.sourceUrl ?? null,
+            posterImageUrl: payload.posterImageUrl ?? null,
+            bannerImageUrl: payload.bannerImageUrl ?? null,
+            thumbnailImageUrl: payload.thumbnailImageUrl ?? null,
+            scheduleKind: timeTba ? "date_only" : "timed",
+            ...(timeTba ? { eventDate } : {}),
+            venueLabel: optionalString(stringField(formData.get("venueLabel"))) ?? "",
           })
-        : await createEvent({ ...payload, published: intent === "publish" });
+        : await createEvent({ ...payload, startAt: startAt!, published: intent === "publish" });
 
       if (event !== undefined && (intent === "publish" || intent === "draft")) {
         setIsPublished(intent === "publish");
@@ -746,6 +794,7 @@ function ConnectedEventEditorForm({
         }
       }
 
+      if (intent === "publish") router.replace(result.eventPath ?? `/${communitySlug}/events/${result.slug}`);
       startTransition(() =>
         setStatus({
           kind: "success",
@@ -799,6 +848,8 @@ function ConnectedEventEditorForm({
   }
 
   const isSubmitting = status.kind === "submitting";
+  let startChoices: number[] = [];
+  try { if (startLocal && timezone) startChoices = resolveEventLocalTime(startLocal.slice(0, 10), { time: startLocal.slice(11, 16) }, timezone); } catch { /* The form remains editable while incomplete. */ }
   const vrcdnOutputAccountOptions = vrcdnOutputAccounts ?? [];
   const vrcdnOutputAccountsLoading = vrcdnOutputAccounts === undefined;
   const canSaveVrcdnOutput =
@@ -834,6 +885,7 @@ function ConnectedEventEditorForm({
           Description
           <Textarea className="min-h-24" defaultValue={event?.summary} name="summary" />
         </Field>
+        {usesCanonicalLineup ? <Field>Venue<Input defaultValue={event?.venueLabel} name="venueLabel" /></Field> : null}
 
         <details className="group rounded-control border border-border bg-surface px-4 py-3">
           <summary className="flex cursor-pointer list-none items-center justify-between gap-4 font-medium marker:hidden">
@@ -845,15 +897,18 @@ function ConnectedEventEditorForm({
       </EditorSection>
 
       <EditorSection title="Timing">
+        {usesCanonicalLineup || event?.scheduleKind === "date_only" ? <label className="flex items-center gap-3 text-sm font-medium"><input checked={timeTba} onChange={change => setTimeTba(change.target.checked)} type="checkbox" />Time TBA</label> : null}
         <div className="grid gap-4 md:grid-cols-2">
+        {timeTba ? <Field>Date<Input type="date" required value={eventDate} onChange={change => setEventDate(change.target.value)} /></Field> : <>
         <Field>
           Start
-          <Input defaultValue={formatZonedDateTimeInput(event?.startAt, event?.timezone)} name="startAt" required type="datetime-local" />
+          <Input value={startLocal} name="startAt" required type="datetime-local" onChange={change => { setStartLocal(change.target.value); setEventDate(change.target.value.slice(0, 10)); setOccurrence(""); }} />
         </Field>
         <Field>
           Time zone
-          <Input name="timezone" onChange={(changeEvent) => setTimezone(changeEvent.currentTarget.value)} placeholder="America/New_York" value={timezone} />
+          <EventTimezonePicker value={timezone || null} date={eventDate || null} onChange={value => { setTimezone(value ?? ""); setOccurrence(""); }} />
         </Field>
+        {startChoices.length > 1 ? <Field>Repeated time<Select aria-label="Start occurrence" value={occurrence} onChange={change => setOccurrence(change.target.value as "earlier" | "later")}><option value="">Choose occurrence</option><option value="earlier">Earlier</option><option value="later">Later</option></Select></Field> : null}
         <label className="flex items-center gap-3 text-sm font-medium md:col-span-2">
           <input
             checked={doorsOpenBefore}
@@ -876,6 +931,7 @@ function ConnectedEventEditorForm({
             />
           </Field>
         ) : null}
+        </>}
         </div>
       </EditorSection>
 
@@ -924,7 +980,7 @@ function ConnectedEventEditorForm({
         <span>
           <span className="block font-medium text-foreground">Promote a watch surface during the event window</span>
           <span className="mt-1 block text-xs leading-5 text-muted">
-            Keep this off unless stream capacity is ready for public viewers. Links still appear in the normal links section.
+            Keep this off unless stream capacity is ready for public viewers.
           </span>
         </span>
       </label>
@@ -1143,10 +1199,10 @@ function ConnectedEventEditorForm({
       </EditorDisclosure>
 
       <EditorSection title="Schedule">
-        <div className="grid gap-4">
+        <div className="grid gap-4" hidden={timeTba}>
           <div className="grid gap-3 sm:grid-cols-2 sm:items-end">
             <Field className="text-xs text-muted">
-              Sessions
+              Slots
               <Input
                 className="bg-surface-strong text-foreground"
                 inputMode="numeric"
@@ -1182,7 +1238,7 @@ function ConnectedEventEditorForm({
             <Card className="grid gap-3" key={slot.id} padding="sm" surface="dashed">
               <div className="grid gap-3 sm:grid-cols-[minmax(8rem,0.35fr)_minmax(0,1fr)] sm:items-end">
                 <div className="pb-2">
-                  <h4 className="font-semibold">Session {index + 1}</h4>
+                  <h4 className="font-semibold">Slot {index + 1}</h4>
                   <span className="text-xs text-muted">+{slot.offsetMinutes} min · {slot.durationMinutes} min</span>
                 </div>
                 <Field className="text-xs text-muted">
@@ -1225,7 +1281,6 @@ function ConnectedEventEditorForm({
                         const value = eventTargetValue(changeEvent);
                         updateSlotRows((rows) => rows.map((row) => row.id === slot.id ? { ...row, displayLabel: value } : row));
                       }}
-                      required
                       value={slot.displayLabel}
                     />
                   </Field>
@@ -1246,16 +1301,24 @@ function ConnectedEventEditorForm({
           </div>
         </div>
 
-        <details className="group rounded-control border border-border bg-surface px-4 py-3">
+        {usesCanonicalLineup ? <div className="grid gap-4">
+          {untimedRows.map(row => <Card key={row.clientKey} className="grid gap-3" padding="sm" surface="dashed">
+            <Field>Performer<Input required value={row.performerLabel} onChange={change => updateUntimedRows(rows => rows.map(item => item.clientKey === row.clientKey ? { ...item, performerLabel: change.target.value } : item))} /></Field>
+            <Field>Person profile<PersonProfileInput inputId={`untimed-${row.clientKey}`} value={row.personSlug} onChange={personSlug => updateUntimedRows(rows => rows.map(item => item.clientKey === row.clientKey ? { ...item, personSlug } : item))} /></Field>
+            <Field>Role<Input value={row.roleLabel} onChange={change => updateUntimedRows(rows => rows.map(item => item.clientKey === row.clientKey ? { ...item, roleLabel: change.target.value } : item))} /></Field>
+            <Button type="button" variant="secondary" onClick={() => updateUntimedRows(rows => rows.filter(item => item.clientKey !== row.clientKey))}>Remove performer</Button>
+          </Card>)}
+          <Button type="button" variant="secondary" onClick={() => updateUntimedRows(rows => [...rows, { clientKey: crypto.randomUUID(), position: Math.max(-1, ...rows.map(row => row.position), ...slotRows.map(row => row.position ?? 0)) + 1, performerLabel: "", personSlug: "", roleLabel: "" }])}>Add performer</Button>
+        </div> : <details className="group rounded-control border border-border bg-surface px-4 py-3">
           <summary className="flex cursor-pointer list-none items-center justify-between gap-4 font-medium marker:hidden">
-            Other participants
+            Add untimed performers
             <span aria-hidden="true" className="text-muted transition group-open:rotate-45">+</span>
           </summary>
           <Field className="mt-4">
             Linked person profiles
             <Textarea className="min-h-24" defaultValue={serializeOtherEventParticipants(event)} name="participantLinks" placeholder="dj-aurora | Performer&#10;vj-lumen | Staff" />
           </Field>
-        </details>
+        </details>}
       </EditorSection>
 
       {event === undefined ? null : (

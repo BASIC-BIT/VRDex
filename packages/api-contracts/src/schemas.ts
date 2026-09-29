@@ -50,11 +50,11 @@ export const ProfileCreationSourceSchema = z
   .meta({ description: "How the profile was originally created." });
 
 export const PublicSourceTypeSchema = z
-  .enum(["manual", "owner", "community", "partner", "import", "moderator", "ai_suggested"])
+  .enum(["manual", "owner", "community", "partner", "import", "moderator", "ai_suggested", "contributor"])
   .meta({ description: "Public source or provenance class." });
 
 export const PublicEventSourceTypeSchema = z
-  .enum(["manual", "community", "partner", "import", "ai_suggested"])
+  .enum(["manual", "community", "partner", "import", "ai_suggested", "contributor"])
   .meta({ description: "Public event source class." });
 
 export const SourceSummarySchema = z
@@ -286,16 +286,23 @@ export const PublicSearchEntityTypeSchema = z
   .enum(["profile", "world", "event"])
   .meta({ description: "Search result entity class." });
 
+const EventDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => {
+  const timestamp = Date.parse(`${value}T00:00:00Z`);
+  return Number.isFinite(timestamp) && new Date(timestamp).toISOString().slice(0, 10) === value;
+}, "Expected a valid calendar date");
+
 export const PublicSearchResultSchema = z
   .object({
     avatarAppearance: PublicProfileAvatarAppearanceSchema.optional(),
     entityType: PublicSearchEntityTypeSchema,
+    eventDate: EventDateSchema.optional(),
     imageUrl: absoluteOrRootRelativeUrl.optional(),
     logoImageUrl: absoluteOrRootRelativeUrl.optional(),
     profileImageUrl: absoluteOrRootRelativeUrl.optional(),
     profileType: ProfileTypeSchema.optional(),
     routePath: z.string().min(1),
     score: z.number(),
+    scheduleKind: z.enum(["timed", "date_only"]).optional(),
     slug,
     source: SourceSummarySchema.optional(),
     startsAt: timestampMs.optional(),
@@ -382,7 +389,15 @@ export const PublicEventWorldSummarySchema = z
   .passthrough()
   .meta({ description: "Public event world summary." });
 
-export const PublicEventPreviewSchema = z
+function publicScheduleSchema<T extends z.ZodRawShape>(object: z.ZodObject<T>) {
+  return z.union([
+    object.extend({ scheduleKind: z.literal("timed").optional(), startAt: timestampMs, eventDate: EventDateSchema.optional() }),
+    object.extend({ scheduleKind: z.literal("date_only"), eventDate: EventDateSchema,
+      startAt: z.never().optional(), doorsOpenAt: z.never().optional(), endAt: z.never().optional() }),
+  ]);
+}
+
+const PublicEventPreviewObject = z
   .object({
     bannerImageUrl: absoluteOrRootRelativeUrl.optional(),
     communityAvatarAppearance: PublicProfileAvatarAppearanceSchema.optional(),
@@ -412,7 +427,10 @@ export const PublicEventPreviewSchema = z
     slug: slug.optional(),
     slotCount: z.number().int().nonnegative().optional(),
     source: PublicEventSourceSchema,
-    startAt: timestampMs,
+    startAt: timestampMs.optional(),
+    venueLabel: z.string().optional(),
+    scheduleKind: z.enum(["timed", "date_only"]).optional(),
+    eventDate: EventDateSchema.optional(),
     status: z.enum(["scheduled", "cancelled"]).optional(),
     summary: z.string().optional(),
     thumbnailImageUrl: absoluteOrRootRelativeUrl.optional(),
@@ -423,8 +441,9 @@ export const PublicEventPreviewSchema = z
   .passthrough()
   .meta({
     description: "Compact public event card.",
-    id: "PublicEventPreview",
   });
+
+export const PublicEventPreviewSchema = publicScheduleSchema(PublicEventPreviewObject).meta({ id: "PublicEventPreview", description: "Compact public event card with a timed or date-only schedule." });
 
 export const EventWatchModeSchema = z.enum(["event_stream", "performer_sequence"]);
 export const EventPlaybackStreamSchema = z.object({
@@ -440,6 +459,11 @@ export const PublicEventPerformerSchema = z.object({
 export const PublicEventParticipantSchema = PublicEventPerformerSchema.extend({
   roleLabel: z.string(), source: PublicEventSourceSchema,
 });
+export const PublicEventLineupEntrySchema = z.object({
+  key: z.string(), position: z.number().int().nonnegative(), displayLabel: z.string(),
+  roleLabel: z.string().optional(), startAt: timestampMs.optional(), endAt: timestampMs.optional(),
+  performer: PublicEventPerformerSchema.optional(),
+}).passthrough();
 export const EventDiscordTimestampSchema = z.object({
   shortTime: z.string(), longTime: z.string(), shortDate: z.string(), longDate: z.string(),
   shortDateTime: z.string(), longDateTime: z.string(), relative: z.string(),
@@ -453,14 +477,15 @@ export const PublicEventSlotSchema = z.object({
 export const PublicEventWorldSchema = PublicEventWorldSummarySchema.extend({
   tags: z.array(z.string()), summary: z.string().optional(), heroImageUrl: absoluteUrl.optional(),
   association: z.object({ sourceType: PublicEventSourceTypeSchema,
-    confirmationState: z.literal("confirmed"), confirmedAt: timestampMs.optional() }),
+    confirmationState: z.enum(["confirmed", "unconfirmed"]), confirmedAt: timestampMs.optional() }),
 });
 
-export const PublicEventSchema = PublicEventPreviewSchema.extend({
+const PublicEventObject = PublicEventPreviewObject.extend({
   authoredMediaLinks: z.array(PublicEventMediaLinkSchema).optional(),
   id: z.string(),
   mediaLinks: z.array(PublicEventMediaLinkSchema).optional(),
   participants: z.array(PublicEventParticipantSchema).optional(),
+  lineup: z.array(PublicEventLineupEntrySchema).optional(),
   slots: z.array(PublicEventSlotSchema).optional(),
   slug,
   watchMode: EventWatchModeSchema.default("event_stream"),
@@ -470,8 +495,9 @@ export const PublicEventSchema = PublicEventPreviewSchema.extend({
   .passthrough()
   .meta({
     description: "Public event detail response.",
-    id: "PublicEvent",
   });
+
+export const PublicEventSchema = publicScheduleSchema(PublicEventObject).meta({ id: "PublicEvent", description: "Public event detail response with a timed or date-only schedule." });
 
 export const PublicEventsResponseSchema = z
   .object({
@@ -555,6 +581,14 @@ export const ApiEventCreateRequestSchema = z
 
 export const ApiEventUpdateRequestSchema = ApiEventCreateRequestSchema.partial()
   .extend({
+    scheduleKind: z.enum(["timed", "date_only"]).optional(),
+    eventDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    venueLabel: z.string().max(160).optional(),
+    lineup: z.array(z.object({
+      clientKey: z.string().min(1).max(120), position: z.number().int().min(0).max(79),
+      performerLabel: z.string().min(1).max(120), personSlug: slug.optional(), roleLabel: z.string().max(48).optional(),
+      startAt: timestampMs.optional(), endAt: timestampMs.optional(), selectedStreamId: z.string().max(120).nullable().optional(),
+    }).strict()).max(80).optional(),
     doorsOpenAt: timestampMs.nullable().optional(),
     endAt: timestampMs.nullable().optional(),
     timezone: z.string().max(64).nullable().optional(),
@@ -562,13 +596,17 @@ export const ApiEventUpdateRequestSchema = ApiEventCreateRequestSchema.partial()
     summary: z.string().max(240).nullable().optional(),
     notes: z.string().max(1_200).nullable().optional().describe("Private notes visible only to authorized event managers."),
     sourceUrl: absoluteUrl.nullable().optional(),
-    posterImageUrl: absoluteUrl.nullable().optional(),
+    posterImageUrl: z.union([absoluteUrl, z.string().regex(/^\/api\/v0\/events\/[^/]+\/artwork\/[^/]+$/)]).nullable().optional(),
     bannerImageUrl: absoluteUrl.nullable().optional(),
     thumbnailImageUrl: absoluteUrl.nullable().optional(),
   })
   .superRefine((value, context) => {
     const replacesParticipants = value.participantLinks !== undefined;
     const replacesSlots = value.slotLinks !== undefined;
+
+    if (value.lineup !== undefined && (replacesParticipants || replacesSlots)) {
+      context.addIssue({ code: "custom", message: "Supply lineup or participantLinks and slotLinks, not both.", path: ["lineup"] });
+    }
 
     if (replacesParticipants !== replacesSlots) {
       context.addIssue({
@@ -883,17 +921,19 @@ export const ApiSimpleErrorResponseSchema = z
 
 export const PublicWorldEventPreviewSchema = z
   .object({
-    bannerImageUrl: absoluteUrl.optional(),
+    bannerImageUrl: absoluteOrRootRelativeUrl.optional(),
     communityName: z.string().optional(),
     doorsOpenAt: timestampMs.optional(),
     endAt: timestampMs.optional(),
     mediaLinks: z.array(PublicEventMediaLinkSchema),
-    posterImageUrl: absoluteUrl.optional(),
+    posterImageUrl: absoluteOrRootRelativeUrl.optional(),
     slug: slug.optional(),
     source: PublicEventSourceSchema,
-    startAt: timestampMs,
+    startAt: timestampMs.optional(),
+    scheduleKind: z.enum(["timed", "date_only"]).optional(),
+    eventDate: EventDateSchema.optional(),
     summary: z.string().optional(),
-    thumbnailImageUrl: absoluteUrl.optional(),
+    thumbnailImageUrl: absoluteOrRootRelativeUrl.optional(),
     timezone: z.string().optional(),
     title: z.string().min(1),
     worldAssociation: z.object({ confirmationState: z.literal("confirmed") }).passthrough(),
@@ -941,7 +981,7 @@ export const PublicActiveWorldSchema = z
     activityLabel: z.literal("Hosting upcoming events"),
     displayName: z.string().min(1),
     heroImageUrl: absoluteUrl.optional(),
-    nextEvent: PublicEventPreviewSchema.omit({
+    nextEvent: publicScheduleSchema(PublicEventPreviewObject.omit({
       bannerImageUrl: true,
       communityImageUrl: true,
       participantCount: true,
@@ -950,7 +990,7 @@ export const PublicActiveWorldSchema = z
       summary: true,
       thumbnailImageUrl: true,
       worlds: true,
-    }).passthrough(),
+    }).passthrough()),
     slug,
     summary: z.string().optional(),
     tags: z.array(z.string()),
@@ -1123,7 +1163,9 @@ export const ApiMeEventSummarySchema = z
     id: z.string().min(1),
     slug: slug.optional(),
     title: z.string().min(1),
-    startAt: timestampMs,
+    startAt: timestampMs.optional(),
+    scheduleKind: z.enum(["timed", "date_only"]).optional(),
+    eventDate: EventDateSchema.optional(),
     doorsOpenAt: timestampMs.optional(),
     endAt: timestampMs.optional(),
     timezone: z.string().optional(),

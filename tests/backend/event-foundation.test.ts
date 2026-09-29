@@ -880,6 +880,9 @@ describe("public event projection", () => {
     const preview = toPublicEventPreviewFromRecord({ event, worlds: [], participants: [], slots: [] });
 
     assert.equal(preview.slug, "afterglow-harbor-sessions-2026-06-14");
+    assert.equal(preview.scheduleKind, "timed");
+    assert.equal(preview.eventDate, "2026-06-14");
+    assert.equal(preview.startAt, Date.UTC(2026, 5, 14, 22, 0, 0));
     assert.equal(preview.doorsOpenAt, Date.UTC(2026, 5, 14, 21, 30, 0));
     assert.equal(preview.participantCount, 0);
     assert.deepEqual(preview.worlds, []);

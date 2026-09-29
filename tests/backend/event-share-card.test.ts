@@ -37,6 +37,8 @@ describe("public event share-card projection", () => {
       communityName: "Afterglow Social",
       title: "Afterglow Harbor Sessions",
       startAt: event.startAt,
+      scheduleKind: "timed",
+      eventDate: "2026-06-14",
       endAt: event.endAt,
       timezone: "America/New_York",
       status: "scheduled",
@@ -58,6 +60,12 @@ describe("public event share-card projection", () => {
 
     assert.equal(projected?.status, "cancelled");
     assert.equal(projected?.artworkImageUrl, "https://media.example.test/banner.png");
+  });
+
+  it("keeps selected same-origin poster artwork for the generated preview", () => {
+    const posterImageUrl = "/api/v0/events/event-id/artwork/artwork-id";
+    const projected = toPublicEventShareCard({ ...event, posterImageUrl } as Doc<"events">, community);
+    assert.equal(projected?.artworkImageUrl, posterImageUrl);
   });
 
   it("rejects drafts, missing codes, mismatched communities, and non-community owners", () => {

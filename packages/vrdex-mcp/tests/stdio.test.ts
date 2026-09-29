@@ -176,6 +176,11 @@ test("serves VRDex tools over stdio and calls the configured API base URL", asyn
     assert.deepEqual(
       listedTools.map((tool) => tool.name),
       [
+        "vrdex_event_intake_draft_save", "vrdex_event_intake_draft_get",
+        "vrdex_event_intake_extract", "vrdex_event_intake_publish",
+        "vrdex_event_intake_poster_upload_begin", "vrdex_event_intake_poster_upload_complete",
+        "vrdex_event_intake_artwork_select", "vrdex_event_intake_event_get", "vrdex_event_intake_event_update",
+        "vrdex_event_intake_event_retract", "vrdex_event_intake_poster_upload_bytes",
         "vrdex_search",
         "vrdex_get_profile",
         "vrdex_get_event",
@@ -511,6 +516,12 @@ test("serves VRDex tools over stdio and calls the configured API base URL", asyn
     });
     assert.equal(fixture.captured[8]?.method, "PATCH");
     assert.deepEqual(fixture.captured[8]?.body, { summary: null });
+    const saved = await callTool({ id: 30, messages, name: "vrdex_event_intake_draft_save", onMessage, send, stderr, toolArgs: { patch: { title: "Night" } } });
+    assert.deepEqual((saved.result as { structuredContent: unknown }).structuredContent, { draftId: "intake-fixture", version: 1 });
+    const intake = await callTool({ id: 31, messages, name: "vrdex_event_intake_draft_get", onMessage, send, stderr, toolArgs: { draftId: "intake-fixture" } });
+    assert.deepEqual((intake.result as { structuredContent: unknown }).structuredContent, { draftId: "intake-fixture", version: 1, fields: { title: "Night" } });
+    const published = await callTool({ id: 32, messages, name: "vrdex_event_intake_publish", onMessage, send, stderr, toolArgs: { draftId: "intake-fixture", expectedVersion: 1, idempotencyKey: "fixture-key" } });
+    assert.deepEqual((published.result as { structuredContent: unknown }).structuredContent, { eventId: "event-fixture", eventPath: "/events/fixture", receiptId: "receipt-fixture" });
     const exited = new Promise<number | null>((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error("stdio did not exit on EOF")), 5_000);
       child.once("exit", (code) => { clearTimeout(timeout); resolve(code); });

@@ -358,6 +358,7 @@ const profilePublicSection = v.union(
 );
 
 const eventSourceType = v.union(
+  v.literal("contributor"),
   v.literal("manual"),
   v.literal("community"),
   v.literal("partner"),
@@ -366,6 +367,7 @@ const eventSourceType = v.union(
 );
 
 const discoverySourceType = v.union(
+  v.literal("contributor"),
   v.literal("owner"),
   v.literal("community"),
   v.literal("partner"),
@@ -1111,11 +1113,79 @@ export default defineSchema({
     .index("by_slug", ["slug"])
     .index("by_vrchatWorldId", ["vrchatWorldId"])
     .index("by_publicationState_sortName", ["publicationState", "sortName"]),
+  eventPosterSources: defineTable({
+    purpose: v.literal("event_poster"), actorUserId: v.id("users"), draftId: v.id("eventIntakeDrafts"),
+    contentType: v.string(), byteLength: v.number(), sha256: v.string(), reservedBytes: v.number(),
+    storageKey: v.optional(v.string()), uploadStorageKey: v.optional(v.string()),
+    state: v.union(v.literal("pending"), v.literal("ready"), v.literal("deleting"), v.literal("expired")),
+    uploadedAt: v.number(), expiresAt: v.number(), uploadExpiresAt: v.number(), lastActivityAt: v.number(),
+    holdReportId: v.optional(v.id("eventReports")), cleanupToken: v.optional(v.string()),
+    cleanupLeaseUntil: v.optional(v.number()), expiredAt: v.optional(v.number()), eventId: v.optional(v.id("events")),
+  }).index("by_actor_state", ["actorUserId", "state"])
+    .index("by_draft", ["draftId"]).index("by_draft_state", ["draftId", "state"]).index("by_state_expiresAt", ["state", "expiresAt"]),
+  eventPosterArtwork: defineTable({
+    actorUserId: v.id("users"), draftId: v.id("eventIntakeDrafts"), sourceId: v.id("eventPosterSources"),
+    storageKey: v.optional(v.string()), sha256: v.optional(v.string()), byteLength: v.optional(v.number()),
+    state: v.union(v.literal("pending"), v.literal("ready"), v.literal("published"), v.literal("deleting"), v.literal("expired")),
+    createdAt: v.number(), expiresAt: v.number(), eventId: v.optional(v.id("events")),
+    cleanupToken: v.optional(v.string()), cleanupLeaseUntil: v.optional(v.number()),
+  }).index("by_draft", ["draftId"]).index("by_source", ["sourceId"])
+    .index("by_state_expiresAt", ["state", "expiresAt"]),
+  eventIntakeModelAttempts: defineTable({
+    actorUserId: v.id("users"), draftId: v.id("eventIntakeDrafts"), createdAt: v.number(),
+  }).index("by_actor_createdAt", ["actorUserId", "createdAt"]).index("by_createdAt", ["createdAt"]),
+  eventIntakeDrafts: defineTable({
+    artworkAssetId: v.optional(v.id("eventPosterArtwork")),
+    actorUserId: v.id("users"), version: v.number(),
+    // Validated by the shared strict EventIntakePatchSchema on every read/write.
+    fields: v.any(),
+    provenance: v.array(v.object({ field: v.string(), kind: v.union(v.literal("contributor"), v.literal("tentative")), version: v.number() })),
+    publishedReceiptId: v.optional(v.id("eventContributionReceipts")),
+    createdAt: v.number(), updatedAt: v.number(), expiresAt: v.number(),
+  }).index("by_actor_updatedAt", ["actorUserId", "updatedAt"])
+    .index("by_actor_expiresAt", ["actorUserId", "expiresAt"])
+    .index("by_expiresAt", ["expiresAt"]),
+  eventContributionReceipts: defineTable({
+    actorUserId: v.id("users"), draftId: v.id("eventIntakeDrafts"), draftVersion: v.number(),
+    eventId: v.id("events"), eventPath: v.string(), communityProfileId: v.id("profiles"),
+    fingerprint: v.string(), createdAt: v.number(),
+  }).index("by_actor_createdAt", ["actorUserId", "createdAt"])
+    .index("by_community_createdAt", ["communityProfileId", "createdAt"])
+    .index("by_eventId", ["eventId"]),
+  eventIntakePublishRequests: defineTable({
+    actorUserId: v.id("users"), idempotencyKey: v.string(), draftId: v.id("eventIntakeDrafts"),
+    draftVersion: v.number(), receiptId: v.id("eventContributionReceipts"), createdAt: v.number(),
+  }).index("by_actor_key", ["actorUserId", "idempotencyKey"])
+    .index("by_actor_createdAt", ["actorUserId", "createdAt"]),
+  eventReports: defineTable({
+    eventId: v.id("events"), communityProfileId: v.optional(v.id("profiles")),
+    actorUserId: v.optional(v.id("users")), reason: v.string(),
+    kind: v.union(v.literal("report"), v.literal("classifier_outage"), v.literal("classifier_sample")), createdAt: v.number(),
+  }).index("by_createdAt", ["createdAt"])
+    .index("by_event_createdAt", ["eventId", "createdAt"])
+    .index("by_actor_createdAt", ["actorUserId", "createdAt"])
+    .index("by_kind_createdAt", ["kind", "createdAt"])
+    .index("by_kind_event_createdAt", ["kind", "eventId", "createdAt"])
+    .index("by_kind_actor_createdAt", ["kind", "actorUserId", "createdAt"]),
+  eventContributionSuppressions: defineTable({
+    fingerprint: v.string(), eventId: v.id("events"), createdAt: v.number(), expiresAt: v.number(),
+  }).index("by_fingerprint_expiresAt", ["fingerprint", "expiresAt"])
+    .index("by_expiresAt", ["expiresAt"]),
   events: defineTable({
+    venueLabel: v.optional(v.string()),
+    contributorUserId: v.optional(v.id("users")),
+    contributionVersion: v.optional(v.number()),
+    contributionFingerprint: v.optional(v.string()),
+    contributorEditsClosedAt: v.optional(v.number()),
+    contributorLockRevision: v.optional(v.number()),
+    moderationRemovedAt: v.optional(v.number()),
     slug: v.optional(v.string()),
     title: v.string(),
     sortTitle: v.string(),
-    startAt: v.number(),
+    startAt: v.optional(v.number()),
+    scheduleKind: v.optional(v.union(v.literal("timed"), v.literal("date_only"))),
+    eventDate: v.optional(v.string()),
+    sortAt: v.optional(v.number()),
     doorsOpenAt: v.optional(v.number()),
     endAt: v.optional(v.number()),
     timezone: v.optional(v.string()),
@@ -1150,6 +1220,13 @@ export default defineSchema({
   })
     .index("by_slug", ["slug"])
     .index("by_publicationState_startAt", ["publicationState", "startAt"])
+    .index("by_contributionFingerprint", ["contributionFingerprint"])
+    .index("by_contributorUserId", ["contributorUserId"])
+    .index("by_communityProfileId_eventDate", ["communityProfileId", "eventDate"])
+    .index("by_publicationState_sortAt", ["publicationState", "sortAt"])
+    .index("by_publicationState_eventStatus_sortAt", ["publicationState", "eventStatus", "sortAt"])
+    .index("by_communityProfileId_sortAt", ["communityProfileId", "sortAt"])
+    .index("by_communityProfileId_publicationState_eventStatus_sortAt", ["communityProfileId", "publicationState", "eventStatus", "sortAt"])
     .index("by_publicationState_eventStatus_startAt", [
       "publicationState",
       "eventStatus",
@@ -1171,8 +1248,10 @@ export default defineSchema({
   eventWorlds: defineTable({
     eventId: v.id("events"),
     worldId: v.id("worlds"),
-    eventStartAt: v.number(),
-    eventEndAt: v.number(),
+    eventStartAt: v.optional(v.number()),
+    eventEndAt: v.optional(v.number()),
+    eventSortAt: v.optional(v.number()),
+    eventSortEndAt: v.optional(v.number()),
     eventPublicationState: publicationState,
     eventStatus,
     sourceType: eventSourceType,
@@ -1183,6 +1262,8 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_worldId", ["worldId"])
+    .index("by_world_confirmation_publication_status_sort", ["worldId", "confirmationState", "eventPublicationState", "eventStatus", "eventSortAt"])
+    .index("by_world_confirmation_publication_status_sortEnd", ["worldId", "confirmationState", "eventPublicationState", "eventStatus", "eventSortEndAt"])
     .index("by_eventId", ["eventId"])
     .index("by_worldId_confirmationState", ["worldId", "confirmationState"])
     .index("by_world_confirmation_publication_status_start", [
@@ -1212,8 +1293,10 @@ export default defineSchema({
   eventParticipants: defineTable({
     eventId: v.id("events"),
     personProfileId: v.id("profiles"),
-    eventStartAt: v.number(),
-    eventEndAt: v.number(),
+    eventStartAt: v.optional(v.number()),
+    eventEndAt: v.optional(v.number()),
+    eventSortAt: v.optional(v.number()),
+    eventSortEndAt: v.optional(v.number()),
     eventPublicationState: publicationState,
     eventStatus,
     roleLabel: v.string(),
@@ -1233,6 +1316,7 @@ export default defineSchema({
       "eventStatus",
       "eventStartAt",
     ])
+    .index("by_person_confirmation_publication_status_sort", ["personProfileId", "confirmationState", "eventPublicationState", "eventStatus", "eventSortAt"])
     .index("by_person_confirmation_publication_status_end", [
       "personProfileId",
       "confirmationState",
@@ -1240,10 +1324,21 @@ export default defineSchema({
       "eventStatus",
       "eventEndAt",
     ]),
+  eventLineupEntries: defineTable({
+    eventId: v.id("events"),
+    clientKey: v.string(),
+    position: v.number(),
+    performerLabel: v.string(),
+    personProfileId: v.optional(v.id("profiles")),
+    roleLabel: v.optional(v.string()),
+    updatedAt: v.number(),
+  }).index("by_eventId_position", ["eventId", "position"]),
   eventSlots: defineTable({
+    clientKey: v.optional(v.string()),
     selectedStreamId: v.optional(v.string()),
     eventId: v.id("events"),
-    eventStartAt: v.number(),
+    eventStartAt: v.optional(v.number()),
+    eventSortAt: v.optional(v.number()),
     position: v.number(),
     startAt: v.number(),
     endAt: v.optional(v.number()),
@@ -1269,6 +1364,7 @@ export default defineSchema({
     ]),
   eventAuditEvents: defineTable({
     eventId: v.id("events"),
+    actorUserId: v.optional(v.id("users")),
     actor: v.optional(authSubject),
     actorSurface: v.union(
       v.literal("browser"),
@@ -1286,6 +1382,8 @@ export default defineSchema({
       v.literal("cancelled"),
       v.literal("restored"),
       v.literal("suppressed"),
+      v.literal("retracted"),
+      v.literal("taken_over"),
     ),
     changedFields: v.optional(v.array(v.string())),
     reason: v.optional(v.string()),
@@ -2975,6 +3073,9 @@ export default defineSchema({
     sourceType: v.optional(discoverySourceType),
     sourceLabel: v.optional(v.string()),
     startsAt: v.optional(v.number()),
+    sortAt: v.optional(v.number()),
+    eventDate: v.optional(v.string()),
+    scheduleKind: v.optional(v.union(v.literal("timed"), v.literal("date_only"))),
     updatedAt: v.number(),
   })
     .index("by_entityType_slug", ["entityType", "slug"])
@@ -2987,6 +3088,8 @@ export default defineSchema({
       "featuredRank",
     ])
     .index("by_publicState_startsAt", ["publicState", "startsAt"])
+    .index("by_publicState_entityType_sortAt", ["publicState", "entityType", "sortAt"])
+    .index("by_publicState_entityType_scheduleKind_sortAt", ["publicState", "entityType", "scheduleKind", "sortAt"])
     .searchIndex("search_text", {
       searchField: "searchText",
       filterFields: ["publicState", "entityType", "profileType"],

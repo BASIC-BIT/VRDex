@@ -3,7 +3,8 @@ import { useQuery } from "convex/react";
 import Link from "next/link";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "@convex-generated-api";
-import { EventPerformerLinks } from "./event-performer-links";
+import { EventDjLinks, eventDjTarget } from "./event-dj-links";
+import { EventContributionControls } from "../events/event-contribution-controls";
 
 import {
   actionCardVariants,
@@ -29,7 +30,7 @@ import {
   ViewerLocalEventTimeRange,
 } from "./viewer-local-event-times";
 
-type EventSourceType = "manual" | "community" | "partner" | "import" | "ai_suggested";
+type EventSourceType = "manual" | "community" | "partner" | "import" | "ai_suggested" | "contributor";
 type EventMediaLinkType =
   | "event_page"
   | "watch"
@@ -61,7 +62,9 @@ type DiscordTimestampSet = {
 export type PublicEventPreview = {
   slug?: string;
   title: string;
-  startAt: number;
+  startAt?: number;
+  scheduleKind?: "timed" | "date_only";
+  eventDate?: string;
   doorsOpenAt?: number;
   endAt?: number;
   timezone?: string;
@@ -98,6 +101,8 @@ export type PublicEventPreview = {
 };
 
 export type PublicEvent = Omit<PublicEventPreview, "worlds"> & {
+  venueLabel?: string;
+  lineup?: PublicEventLineupEntry[];
   id: string;
   slug: string;
   watchSurfaceEnabled: boolean;
@@ -124,7 +129,7 @@ export type PublicEvent = Omit<PublicEventPreview, "worlds"> & {
     heroImageUrl?: string;
     association: {
       sourceType: EventSourceType;
-      confirmationState: "confirmed";
+      confirmationState: "confirmed" | "unconfirmed";
       confirmedAt?: number;
     };
   }>;
@@ -243,8 +248,8 @@ export function EventPreviewCard({ event }: { event: PublicEventPreview }) {
         style={thumbnailStyle}
       >
         <div className="flex flex-wrap items-center gap-2 text-sm font-medium text-white/84">
-          <ViewerLocalEventDateTime timestamp={event.startAt} />
-          {event.doorsOpenAt !== undefined && event.doorsOpenAt < event.startAt ? <span>Doors <ViewerLocalEventTime timestamp={event.doorsOpenAt} /></span> : null}
+          <ViewerLocalEventDateTime timestamp={event.startAt} eventDate={event.eventDate} scheduleKind={event.scheduleKind} />
+          {event.startAt !== undefined && event.doorsOpenAt !== undefined && event.doorsOpenAt < event.startAt ? <span>Doors <ViewerLocalEventTime timestamp={event.doorsOpenAt} /></span> : null}
           {event.communityName ? <span>/ {event.communityName}</span> : null}
         </div>
         <h3 className="mt-4 text-2xl font-semibold tracking-[-0.04em]">
@@ -301,6 +306,30 @@ export function EventBackendNotice({ kind }: { kind: "missing-url" | "error" }) 
   );
 }
 
+export type PublicEventLineupEntry = {
+  key: string;
+  position: number;
+  displayLabel: string;
+  roleLabel?: string;
+  startAt?: number;
+  endAt?: number;
+  performer?: PublicEvent["slots"][number]["performer"];
+};
+
+/** Legacy payloads remain usable while the backend and web deploy separately. */
+export function eventLineupForDisplay(event: PublicEvent): PublicEventLineupEntry[] {
+  if (event.lineup !== undefined) return event.lineup;
+  const slots = event.scheduleKind === "date_only" ? [] : event.slots;
+  const represented = new Set(slots.flatMap(slot => slot.performer ? [slot.performer.slug] : []));
+  return [
+    ...slots.map(slot => ({ ...slot, key: slot.playbackKey ?? `slot-${slot.position}-${slot.startAt}` })),
+    ...event.participants.filter(person => !represented.has(person.slug)).map((person, index) => ({
+      key: `person-${person.slug}`, position: slots.length + index, displayLabel: person.displayName,
+      roleLabel: person.roleLabel, performer: person,
+    })),
+  ];
+}
+
 export function EventPublicPage({ event: initialEvent }: { event: PublicEvent }) {
   const projection = useQuery(api.events.getPublicBySlug, { slug: initialEvent.slug });
   const event = projection === undefined ? initialEvent : projection;
@@ -308,6 +337,7 @@ export function EventPublicPage({ event: initialEvent }: { event: PublicEvent })
 }
 
 function EventPublicPageContent({ event }: { event: PublicEvent }) {
+  const lineup = eventLineupForDisplay(event);
   const bannerStyle = safeImageBackground(event.bannerImageUrl, eventPosterOverlay);
   const sourceUrl = safeHttpsUrl(event.source.url);
   const eventPath = publicEventPath(event);
@@ -329,29 +359,32 @@ function EventPublicPageContent({ event }: { event: PublicEvent }) {
                 {event.status === "cancelled" ? (
                   <p className="mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-white">Cancelled</p>
                 ) : null}
-                <ViewerLocalEventDateTime className="text-sm uppercase tracking-[0.24em] text-white/70" timestamp={event.startAt} />
+                <ViewerLocalEventDateTime className="text-sm uppercase tracking-[0.24em] text-white/70" timestamp={event.startAt} eventDate={event.eventDate} scheduleKind={event.scheduleKind} />
                 <h1 className="mt-4 text-5xl leading-none font-semibold tracking-[-0.05em] sm:text-7xl">
                   {event.title}
                 </h1>
                 {event.summary ? <p className="mt-4 max-w-2xl text-base leading-7 text-white/82 sm:text-lg">{event.summary}</p> : null}
+                {event.venueLabel ? <p className="mt-3 text-sm text-white/80">{event.venueLabel}</p> : null}
               </div>
             </div>
           </div>
         </section>
 
+        {event.source.sourceType === "contributor" ? <p className="text-sm text-muted">{event.source.label}</p> : null}
+        <EventContributionControls eventId={event.id} />
         <section className="grid items-start gap-4 lg:grid-cols-[0.9fr_1.1fr]">
           <div>
             <Card className="h-fit" surface="white">
               <Eyebrow>When</Eyebrow>
               <dl className="mt-5 space-y-4 text-sm">
                 {event.doorsOpenAt === undefined ? null : <EventTimeDefinition label="Doors open" timestamp={event.doorsOpenAt} />}
-                <EventTimeDefinition label="Start" timestamp={event.startAt} />
-                <div className="grid gap-1 border-b border-border pb-4 sm:grid-cols-[7rem_1fr] sm:gap-4">
+                {event.startAt === undefined ? <div className="grid gap-1"><dt className="text-muted">Date</dt><dd><ViewerLocalEventDateTime eventDate={event.eventDate} scheduleKind={event.scheduleKind} /></dd></div> : <EventTimeDefinition label="Start" timestamp={event.startAt} />}
+                {event.scheduleKind === "date_only" ? null : <div className="grid gap-1 border-b border-border pb-4 sm:grid-cols-[7rem_1fr] sm:gap-4">
                   <dt className="text-muted">End</dt>
                   <dd className="font-medium">
                     {event.endAt ? <ViewerLocalEventDateTime timestamp={event.endAt} /> : "Not listed"}
                   </dd>
-                </div>
+                </div>}
               </dl>
             </Card>
           </div>
@@ -396,46 +429,23 @@ function EventPublicPageContent({ event }: { event: PublicEvent }) {
           </div>
         </section>
 
-        {event.slots.length > 0 ? (
+        {lineup.length > 0 ? (
           <Card surface="white">
-            <Eyebrow>Schedule</Eyebrow>
+            <h2 className="text-xl font-semibold tracking-tight">Lineup</h2>
             <ol className="mt-5 divide-y divide-border">
-              {event.slots.map((slot) => (
-                <li className="grid min-w-0 gap-3 py-5 first:pt-0 sm:grid-cols-[10rem_minmax(0,1fr)]" key={slot.playbackKey ?? `${slot.position}-${slot.startAt}`}>
-                  <ViewerLocalEventTimeRange className="text-sm font-medium" endAt={slot.endAt} startAt={slot.startAt} />
+              {lineup.map((row) => (
+                <li className="flex min-w-0 items-center gap-4 py-4 first:pt-0 last:pb-0" key={row.key}>
+                  <EntityImage appearance={row.performer?.avatarAppearance} imageUrl={row.performer?.imageUrl} label={row.displayLabel} />
                   <div className="min-w-0">
-                    {slot.performer ? (
-                      <Link className={cn(inlineActionClassName, "[overflow-wrap:anywhere]")} href={`/${slot.performer.slug}`}>{slot.displayLabel}</Link>
-                    ) : <span className="font-semibold">{slot.displayLabel}</span>}
-                    <div className="mt-1 text-sm text-muted">{slot.roleLabel}</div>
-                    <EventPerformerLinks links={slot.performer?.outboundLinks ?? []} />
+                    {row.performer ? (
+                      <Link className={cn(inlineActionClassName, "[overflow-wrap:anywhere]")} href={`/${row.performer.slug}`}>{row.displayLabel}</Link>
+                    ) : <span className="font-semibold [overflow-wrap:anywhere]">{row.displayLabel}</span>}
+                    {row.roleLabel ? <div className="mt-1 text-sm text-muted">{row.roleLabel}</div> : null}
+                    {row.startAt !== undefined ? <ViewerLocalEventTimeRange className="mt-1 block text-sm text-muted" endAt={row.endAt} startAt={row.startAt} /> : null}
                   </div>
                 </li>
               ))}
             </ol>
-          </Card>
-        ) : null}
-
-        {event.participants.length > 0 ? (
-          <Card surface="white">
-            <Eyebrow>Participants</Eyebrow>
-            <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {event.participants.map((participant) => (
-                <div className="min-w-0" key={participant.slug}>
-                  <Link className={cn(actionCardVariants({ padding: "lg", variant: "accent" }), "flex items-center gap-3")} href={`/${participant.slug}`}>
-                    <EntityImage appearance={participant.avatarAppearance} imageUrl={participant.imageUrl} label={participant.displayName} />
-                    <span className="min-w-0">
-                      <span className="block text-lg font-semibold tracking-[-0.03em] text-accent-strong underline decoration-accent/45 underline-offset-4 group-hover:decoration-accent">
-                        {participant.displayName}
-                      </span>
-                      <span className="mt-2 block text-muted">{participant.roleLabel}</span>
-                      <span className={actionMetaClassName}>Profile</span>
-                    </span>
-                  </Link>
-                  <EventPerformerLinks links={participant.outboundLinks ?? []} />
-                </div>
-              ))}
-            </div>
           </Card>
         ) : null}
 
@@ -454,7 +464,7 @@ function EventPublicPageContent({ event }: { event: PublicEvent }) {
                   <span className={actionMetaClassName}>Reference link</span>
                 </a>
               ) : null}
-              {event.mediaLinks.map((link) => (
+              {event.mediaLinks.filter(link => eventDjTarget(link.url) === undefined).map((link) => (
                 <a className={actionCardVariants({ variant: "accent" })} href={vrcdnPlaybackHref(link.url) ?? link.url} key={`${link.type}-${link.url}`} rel="noreferrer" target="_blank">
                   <span className={actionLabelClassName}>
                     {link.label}
@@ -466,6 +476,7 @@ function EventPublicPageContent({ event }: { event: PublicEvent }) {
               ))}
           </div>
         </Card>
+        <EventDjLinks lineup={lineup} eventLinks={event.mediaLinks} eventTitle={event.title} />
       </PageContainer>
     </PageShell>
   );

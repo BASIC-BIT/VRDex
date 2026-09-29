@@ -31,6 +31,25 @@ function createPublicEvent(overrides: Partial<PublicEvent> = {}): PublicEvent {
 }
 
 describe("Discord event post export", () => {
+  it("exports canonical mixed and date-only lineups with timestamps only on timed rows", () => {
+    const lineup = [
+      { key: "one", position: 0, displayLabel: "Unmatched guest" },
+      { key: "two", position: 1, displayLabel: "Aurora", startAt: 1781474400000, endAt: 1781477100000, roleLabel: "DJ" },
+      { key: "three", position: 2, displayLabel: "Closing guest" },
+    ];
+    const mixed = formatDiscordEventPost({ canonicalUrl: "https://vrdex.net/event", event: createPublicEvent({ lineup }) })!;
+    assert.match(mixed, /Lineup:\n- Unmatched guest\n- <t:1781474400:t>-<t:1781477100:t> - Aurora - DJ\n- Closing guest/);
+    const untimed = formatDiscordEventPost({ canonicalUrl: "https://vrdex.net/event", event: createPublicEvent({ scheduleKind: "date_only", eventDate: "2027-10-15", startAt: undefined, lineup: [lineup[0], lineup[2]] }) })!;
+    assert.match(untimed, /Lineup:\n- Unmatched guest\n- Closing guest/);
+    assert.doesNotMatch(untimed, /<t:/);
+  });
+  it("exports a date-only event with time TBA and no Discord timestamp", () => {
+    const result = formatDiscordEventPost({ canonicalUrl: "https://vrdex.net/c/club/e/july",
+      event: createPublicEvent({ scheduleKind: "date_only", eventDate: "2026-07-04", startAt: undefined }) });
+    assert.match(result!, /2026-07-04/);
+    assert.match(result!, /Time TBA/i);
+    assert.doesNotMatch(result!, /<t:/);
+  });
   it("does not generate a promotional post for a cancelled event", () => {
     assert.equal(
       formatDiscordEventPost({

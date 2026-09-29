@@ -512,7 +512,7 @@ export async function expectEventPage(page: Page) {
   await expect(page.getByText(/Jun 15, 2:00 AM UTC/i).first()).toBeVisible();
   await expect(page.getByText(/Your time/i)).toHaveCount(0);
   await expect(page.getByText("Place", { exact: true })).toBeVisible();
-  await expect(page.getByText("Schedule", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Lineup", exact: true })).toBeVisible();
   const schedule = page.getByRole("list").filter({ has: page.getByRole("link", { name: "DJ Aurora", exact: true }) });
   const slots = schedule.getByRole("listitem");
   await expect(slots).toHaveCount(2);
@@ -523,7 +523,7 @@ export async function expectEventPage(page: Page) {
   await expect(slots.nth(1).getByText("Trance", { exact: true })).toBeVisible();
   await expect(slots.nth(1).getByText("2:45 AM - 3:30 AM", { exact: true })).toBeVisible();
 
-  await expect(page.getByText("Participants", { exact: true })).toBeVisible();
+  await expect(page.getByText("Participants", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("link", { name: "DJ Aurora", exact: true }).first()).toBeVisible();
   await expect(page.getByText("Neon Harbor", { exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: /Add to calendar/i })).toHaveAttribute(
@@ -532,9 +532,8 @@ export async function expectEventPage(page: Page) {
   );
   await expect(page.getByRole("link", { name: "Edit event" })).toHaveCount(0);
   await expect(page.getByText("Afterglow watch link", { exact: true })).toBeVisible();
-  await expect(
-    page.locator('a[href="https://stream.vrcdn.live/live/playwright-afterglow-harbor-sessions.live.ts"]'),
-  ).toBeVisible();
+  await expect(page.locator("summary", { hasText: "DJ links" })).toBeVisible();
+  await expect(page.locator('a[href="https://stream.vrcdn.live/live/playwright-afterglow-harbor-sessions.live.ts"]')).toHaveCount(0);
   await expect(page.getByText("Watch now", { exact: true })).toHaveCount(0);
 }
 
@@ -558,7 +557,9 @@ export async function expectEventWatchPage(page: Page) {
   // This used to assert an `https://vrcdn.live/<id>` href, which answered 404.
   await expect(page.getByRole("link", { name: "Open stream" })).toHaveCount(0);
   await expect(page.getByText("YouTube archive link", { exact: true })).toBeVisible();
-  await expect(page.getByText("Twitch channel link", { exact: true })).toBeVisible();
+  await expect(page.locator('a[href="https://www.twitch.tv/twitchdev"]')).toHaveCount(1);
+  await expect(page.locator('a[href="https://www.twitch.tv/twitchdev"]')).not.toBeVisible();
+  await expect(page.locator("summary", { hasText: "DJ links" })).toBeVisible();
 }
 
 export async function expectVrcdnMediaLinkPreviewPage(page: Page) {

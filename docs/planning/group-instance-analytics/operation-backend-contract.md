@@ -20,6 +20,13 @@ Explicit unpublished event associations require the club owner or
 `manage_events`, including enqueue and edit. Other operation staff can schedule
 against published events only.
 
+Event-relative actions require an exact event start. Date-only events are
+excluded from the timed club event picker and cannot accept relative actions.
+Changing an event to Time TBA cancels pending or claimed relative actions with
+`event_time_tba`. Restoring a time does not revive a cancelled provider write;
+staff must create a newly reviewed action. Fixed actions are not cancelled
+solely because an associated event becomes date-only.
+
 The invitation and instance-creation composers check fixed and event-relative
 future times against a fresh server clock; the post composer uses the same clock
 for its fixed-time check. Each clock query uses a unique nonce rather than a

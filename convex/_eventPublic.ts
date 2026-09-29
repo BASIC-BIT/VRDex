@@ -1,9 +1,10 @@
 import { eventProfileStreamChoices, resolveEventStream, type PlaybackStream } from "./_eventPlayback";
+import { dateOnlyEventsEnabled, eventSortAt, eventSortEndAt, publicEventSchedule, type StoredEventSchedule } from "./_eventSchedule";
 import { publicProfileOutboundLinks } from "./_profilePublic";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
 import { createDiscordTimestampSet, type DiscordTimestampSet } from "./_discordTimestamps";
-import { firstSafeHttpsUrl, optionalField, safeHttpsUrl } from "./_publicFields";
+import { firstSafeHttpsUrl, firstSafePublicImageUrl, optionalField, safeHttpsUrl, safePublicImageUrl } from "./_publicFields";
 import { visibleProfileField } from "./_profileFieldVisibility";
 import { canReadProfile } from "./_profilePermissions";
 import { getProfileTrustLabel } from "./_profileStates";
@@ -18,7 +19,7 @@ const EVENT_ASSOCIATION_LIMIT = 80;
 const EVENT_ASSOCIATION_SCAN_LIMIT = 500;
 const EVENT_PREVIEW_MAX_LIMIT = EVENT_ASSOCIATION_LIMIT;
 
-type PublicEventSourceType = "manual" | "community" | "partner" | "import" | "ai_suggested";
+type PublicEventSourceType = "manual" | "community" | "partner" | "import" | "ai_suggested" | "contributor";
 type PublicEventMediaLinkType =
   | "event_page"
   | "watch"
@@ -39,6 +40,14 @@ export type PublicEventRecord = {
   worlds: Array<{ association: Doc<"eventWorlds">; world: Doc<"worlds"> }>;
   participants: PublicEventParticipantRecord[];
   slots: PublicEventSlotRecord[];
+  lineupEntries?: PublicEventLineupRecord[];
+};
+
+type PublicEventLineupRecord = {
+  entry: Doc<"eventLineupEntries">;
+  profile?: Doc<"profiles">;
+  imageUrl?: string;
+  avatarAppearance?: PublicProfileAvatarAppearance;
 };
 
 type PublicEventParticipantRecord = {
@@ -56,9 +65,12 @@ type PublicEventSlotRecord = {
 };
 
 export type PublicEventPreview = {
+  venueLabel?: string;
   slug?: string;
   title: string;
-  startAt: number;
+  startAt?: number;
+  scheduleKind?: "timed" | "date_only";
+  eventDate?: string;
   doorsOpenAt?: number;
   endAt?: number;
   timezone?: string;
@@ -95,6 +107,7 @@ export type PublicEventPreview = {
 };
 
 export type PublicEvent = PublicEventPreview & {
+  lineup: PublicEventLineupEntry[];
   id: string;
   slug: string;
   watchMode: "event_stream" | "performer_sequence";
@@ -121,7 +134,7 @@ export type PublicEvent = PublicEventPreview & {
     heroImageUrl?: string;
     association: {
       sourceType: PublicEventSourceType;
-      confirmationState: "confirmed";
+      confirmationState: "confirmed" | "unconfirmed";
       confirmedAt?: number;
     };
   }>;
@@ -164,22 +177,64 @@ export type PublicEvent = PublicEventPreview & {
   }>;
 };
 
-function eventEndsAt(event: Pick<Doc<"events">, "startAt" | "endAt">): number {
-  return event.endAt ?? event.startAt;
+const eventEndsAt = eventSortEndAt;
+
+export type PublicEventLineupEntry = {
+  key: string;
+  position: number;
+  displayLabel: string;
+  roleLabel?: string;
+  startAt?: number;
+  endAt?: number;
+  performer?: NonNullable<PublicEvent["slots"][number]["performer"]>;
+};
+
+function publicLineup(record: PublicEventRecord): PublicEventLineupEntry[] {
+  const represented = new Set<Id<"profiles">>();
+  function performer(row: { profile?: Doc<"profiles">; imageUrl?: string; avatarAppearance?: PublicProfileAvatarAppearance }) {
+    const { profile } = row;
+    if (profile === undefined) return {};
+    represented.add(profile._id);
+    return { performer: {
+      slug: profile.slug, displayName: profile.displayName,
+      trustLabel: getProfileTrustLabel(profile.claimState, profile.creationSource),
+      outboundLinks: publicProfileOutboundLinks(profile, "discovery"),
+      ...optionalField("imageUrl", row.imageUrl ?? publicProfileCardImage(profile)),
+      ...optionalField("avatarAppearance", row.avatarAppearance),
+    } };
+  }
+  const rows: PublicEventLineupEntry[] = [
+    ...(record.event.scheduleKind === "date_only" ? [] : record.slots).map(row => ({
+      key: row.slot._id, position: row.slot.position, displayLabel: /^Session \d+$/.test(row.slot.displayLabel) ? row.profile?.displayName ?? `Slot ${row.slot.position + 1}` : row.slot.displayLabel,
+      ...optionalField("roleLabel", row.slot.roleLabel || undefined),
+      startAt: row.slot.startAt, ...optionalField("endAt", row.slot.endAt), ...performer(row),
+    })),
+    ...(record.lineupEntries ?? []).map(row => ({
+      key: row.entry._id, position: row.entry.position, displayLabel: row.entry.performerLabel,
+      ...optionalField("roleLabel", row.entry.roleLabel), ...performer(row),
+    })),
+  ];
+  rows.sort((a, b) => a.position - b.position || (a.startAt ?? Infinity) - (b.startAt ?? Infinity));
+  for (const row of record.participants) {
+    if (represented.has(row.profile._id)) continue;
+    rows.push({ key: row.association._id, position: rows.length, displayLabel: row.profile.displayName,
+      ...optionalField("roleLabel", row.association.roleLabel || undefined), ...performer(row) });
+  }
+  return rows;
 }
 
 function compareCurrentFirstEvents(
-  first: Pick<Doc<"events">, "startAt" | "endAt">,
-  second: Pick<Doc<"events">, "startAt" | "endAt">,
+  first: StoredEventSchedule,
+  second: StoredEventSchedule,
   now: number,
 ): number {
-  const firstIsCurrent = first.startAt <= now;
-  const secondIsCurrent = second.startAt <= now;
+  const firstIsCurrent = first.scheduleKind !== "date_only" && eventSortAt(first) <= now;
+  const secondIsCurrent = second.scheduleKind !== "date_only" && eventSortAt(second) <= now;
 
   if (firstIsCurrent !== secondIsCurrent) return firstIsCurrent ? -1 : 1;
   return firstIsCurrent
-    ? eventEndsAt(first) - eventEndsAt(second) || first.startAt - second.startAt
-    : first.startAt - second.startAt;
+    ? eventEndsAt(first) - eventEndsAt(second) || eventSortAt(first) - eventSortAt(second)
+    : eventSortAt(first) - eventSortAt(second);
 }
 
 function publicMediaLinkKey(link: PublicEvent["mediaLinks"][number]) {
@@ -266,9 +321,9 @@ export function toPublicEventPreviewFromRecord(
 ): PublicEventPreview {
   const { community, event, participants, slots, worlds } = record;
   const sourceUrl = safeHttpsUrl(event.sourceUrl);
-  const posterImageUrl = safeHttpsUrl(event.posterImageUrl);
-  const bannerImageUrl = firstSafeHttpsUrl(event.bannerImageUrl, event.posterImageUrl);
-  const thumbnailImageUrl = firstSafeHttpsUrl(event.thumbnailImageUrl, event.posterImageUrl, event.bannerImageUrl);
+  const posterImageUrl = safePublicImageUrl(event.posterImageUrl);
+  const bannerImageUrl = firstSafePublicImageUrl(event.bannerImageUrl, event.posterImageUrl);
+  const thumbnailImageUrl = firstSafePublicImageUrl(event.thumbnailImageUrl, event.posterImageUrl, event.bannerImageUrl);
   const communityImageUrl =
     record.communityImageUrl ??
     (community === undefined ? undefined : publicProfileCardImage(community));
@@ -276,7 +331,8 @@ export function toPublicEventPreviewFromRecord(
   return {
     ...optionalField("slug", event.slug),
     title: event.title,
-    startAt: event.startAt,
+    ...optionalField("venueLabel", event.venueLabel),
+    ...publicEventSchedule(event),
     status: event.eventStatus,
     source: {
       sourceType: event.sourceType,
@@ -289,7 +345,7 @@ export function toPublicEventPreviewFromRecord(
     })),
     participantCount: participants.length,
     slotCount: slots.length,
-    nextSlots: [...slots]
+    nextSlots: (event.scheduleKind === "date_only" ? [] : [...slots])
       .filter(
         ({ slot }) =>
           options.now === undefined || (slot.endAt ?? slot.startAt) >= options.now,
@@ -314,8 +370,8 @@ export function toPublicEventPreviewFromRecord(
               },
             }),
       })),
-    ...optionalField("doorsOpenAt", event.doorsOpenAt),
-    ...optionalField("endAt", event.endAt),
+    ...optionalField("doorsOpenAt", event.scheduleKind === "date_only" ? undefined : event.doorsOpenAt),
+    ...optionalField("endAt", event.scheduleKind === "date_only" ? undefined : event.endAt),
     ...optionalField("timezone", event.timezone),
     ...optionalField("communityName", community?.displayName),
     ...optionalField("communitySlug", community?.slug),
@@ -334,7 +390,7 @@ export function toPublicEvent(record: PublicEventRecord): PublicEvent | null {
   }
 
   const roster = new Map<Id<"profiles">, { outboundLinks: ReturnType<typeof publicProfileOutboundLinks>; streamChoices: PlaybackStream[] }>();
-  for (const { profile } of [...record.participants, ...record.slots]) {
+  for (const { profile } of [...record.participants, ...record.slots, ...(record.lineupEntries ?? [])]) {
     if (profile !== undefined && !roster.has(profile._id)) {
       roster.set(profile._id, { outboundLinks: publicProfileOutboundLinks(profile, "discovery"), streamChoices: eventProfileStreamChoices(profile) });
     }
@@ -348,14 +404,15 @@ export function toPublicEvent(record: PublicEventRecord): PublicEvent | null {
         !new Set(["watch", "stream", "vrcdn"]).has(link.type),
     );
   const authoredBannerImageUrl = safeHttpsUrl(record.event.bannerImageUrl);
-  const authoredThumbnailImageUrl = safeHttpsUrl(record.event.thumbnailImageUrl);
+  const authoredThumbnailImageUrl = safePublicImageUrl(record.event.thumbnailImageUrl);
 
   return {
     ...preview,
     id: record.event._id,
+    lineup: publicLineup(record),
     slug: record.event.slug,
     watchMode: record.event.watchMode ?? "event_stream",
-    watchSurfaceEnabled: record.event.watchSurfaceEnabled ?? false,
+    watchSurfaceEnabled: record.event.scheduleKind !== "date_only" && (record.event.watchSurfaceEnabled ?? false),
     ...optionalField("authoredBannerImageUrl", authoredBannerImageUrl),
     ...optionalField("authoredThumbnailImageUrl", authoredThumbnailImageUrl),
     authoredMediaLinks,
@@ -369,8 +426,8 @@ export function toPublicEvent(record: PublicEventRecord): PublicEvent | null {
         tags: world.tags,
         association: {
           sourceType: association.sourceType,
-          confirmationState: "confirmed" as const,
-          ...optionalField("confirmedAt", association.confirmedAt),
+          confirmationState: association.confirmationState === "confirmed" ? "confirmed" as const : "unconfirmed" as const,
+          ...optionalField("confirmedAt", association.confirmationState === "confirmed" ? association.confirmedAt : undefined),
         },
         ...optionalField("summary", world.summary),
         ...optionalField("heroImageUrl", heroImageUrl),
@@ -395,7 +452,7 @@ export function toPublicEvent(record: PublicEventRecord): PublicEvent | null {
         },
       };
     }),
-    slots: record.slots
+    slots: (record.event.scheduleKind === "date_only" ? [] : record.slots)
       .sort((first, second) => first.slot.startAt - second.slot.startAt || first.slot.position - second.slot.position)
       .map(({ avatarAppearance, imageUrl: projectedImageUrl, profile, slot }) => {
         const sourceUrl = safeHttpsUrl(slot.sourceUrl);
@@ -457,11 +514,10 @@ async function getPublicEventWorldRecords(db: DatabaseReader, event: Doc<"events
   const associations = await db
     .query("eventWorlds")
     .withIndex("by_eventId", (query) => query.eq("eventId", event._id))
-    .filter((query) => query.eq(query.field("confirmationState"), "confirmed"))
     .take(EVENT_ASSOCIATION_LIMIT);
 
   const records = await Promise.all(
-    associations.map(async (association) => {
+    associations.filter(association => association.confirmationState === "confirmed" || (event.sourceType === "contributor" && association.sourceType === "contributor" && association.confirmationState === "unconfirmed")).map(async (association) => {
       const world = await db.get(association.worldId);
 
       if (world === null || world.publicationState !== "published") {
@@ -592,6 +648,23 @@ async function getPublicEventSlotRecords(
   return records.filter((record): record is PublicEventSlotRecord => record !== null);
 }
 
+async function getPublicEventLineupRecords(db: DatabaseReader, event: Doc<"events">, options: RosterLoadOptions): Promise<PublicEventLineupRecord[]> {
+  const entries = await db.query("eventLineupEntries")
+    .withIndex("by_eventId_position", q => q.eq("eventId", event._id)).take(EVENT_ASSOCIATION_LIMIT);
+  return Promise.all(entries.map(async entry => {
+    if (entry.personProfileId === undefined) return { entry };
+    const profile = await loadRosterProfile(db, entry.personProfileId, options);
+    if (profile === null || profile.profileType !== "person" || !canReadProfile("public", profile)) return { entry };
+    if (options.includeMediaKit === false) return { entry, profile, imageUrl: publicProfileCardImage(profile) };
+    const mediaKit = await loadRosterMediaKit(db, profile, options);
+    return { entry, profile,
+      imageUrl: mediaKit.profileImage?.imageUrl ?? mediaKit.primaryLogo?.imageUrl
+        ?? publicProfileCardImage(profile, mediaKit.automaticAvatarImageUrl),
+      avatarAppearance: mediaKit.avatarAppearance,
+    };
+  }));
+}
+
 async function getPublicEventMediaRecord(db: DatabaseReader, event: Doc<"events">) {
   if (event.eventStatus === "cancelled") {
     return { mediaOutputs: [] };
@@ -662,12 +735,13 @@ async function getPublicEventRecord(
     profileCache: new Map(),
     mediaKitCache: new Map(),
   };
-  const [community, worlds, participants, slots, media] = await Promise.all([
+  const [community, worlds, participants, slots, media, lineupEntries] = await Promise.all([
     getPublishedCommunity(db, event),
     getPublicEventWorldRecords(db, event),
     getPublicEventParticipantRecords(db, event, rosterOptions),
     getPublicEventSlotRecords(db, event, rosterOptions),
     getPublicEventMediaRecord(db, event),
+    getPublicEventLineupRecords(db, event, rosterOptions),
   ]);
 
   if (
@@ -692,6 +766,7 @@ async function getPublicEventRecord(
     worlds,
     participants,
     slots,
+    lineupEntries,
     ...media,
     ...optionalField("community", community),
     ...optionalField(
@@ -745,10 +820,13 @@ export async function getEventForEditor(
     ? null
     : {
         ...projected,
+        usesCanonicalLineup: event.sourceType === "contributor" || Boolean(record?.lineupEntries?.length) || slotAssociations.some(slot => slot.clientKey !== undefined),
+        lineup: projected.lineup.map(row => ({ ...row, key: record?.lineupEntries?.find(entry => entry.entry._id === row.key)?.entry.clientKey ?? row.key })),
         slots: projected.slots.map((slot) => {
           const source = record?.slots.find((entry) => entry.slot._id === slot.playbackKey);
           return {
             ...slot,
+            ...optionalField("clientKey", source?.slot.clientKey),
             ...optionalField("selectedStreamId", source?.slot.selectedStreamId),
             streamChoices: source?.profile === undefined ? [] : eventProfileStreamChoices(source.profile),
           };
@@ -787,7 +865,7 @@ export async function getPublicEventPreviews(
   );
   const orderedEvents = options.order === "input"
     ? eligibleEvents
-    : eligibleEvents.sort((first, second) => first.startAt - second.startAt);
+    : eligibleEvents.sort((first, second) => eventSortAt(first) - eventSortAt(second));
   const readableEvents = (
     await Promise.all(
       orderedEvents.map(async (event) => ({
@@ -821,23 +899,23 @@ export async function getPublicCommunityHostedEvents(
   const [startedCandidates, upcoming] = await Promise.all([
     db
       .query("events")
-      .withIndex("by_communityProfileId_publicationState_eventStatus_startAt", (query) =>
+      .withIndex(dateOnlyEventsEnabled() ? "by_communityProfileId_publicationState_eventStatus_sortAt" : "by_communityProfileId_publicationState_eventStatus_startAt", (query) =>
         query
           .eq("communityProfileId", communityProfileId)
           .eq("publicationState", "published")
           .eq("eventStatus", "scheduled")
-          .lt("startAt", now),
+          .lt(dateOnlyEventsEnabled() ? "sortAt" : "startAt", now),
       )
       .order("desc")
       .take(EVENT_ASSOCIATION_SCAN_LIMIT),
     db
       .query("events")
-      .withIndex("by_communityProfileId_publicationState_eventStatus_startAt", (query) =>
+      .withIndex(dateOnlyEventsEnabled() ? "by_communityProfileId_publicationState_eventStatus_sortAt" : "by_communityProfileId_publicationState_eventStatus_startAt", (query) =>
         query
           .eq("communityProfileId", communityProfileId)
           .eq("publicationState", "published")
           .eq("eventStatus", "scheduled")
-          .gte("startAt", now),
+          .gte(dateOnlyEventsEnabled() ? "sortAt" : "startAt", now),
       )
       .take(EVENT_ASSOCIATION_SCAN_LIMIT),
   ]);
@@ -860,30 +938,30 @@ export async function getPublicPersonUpcomingEvents(
   const [startedCandidates, upcoming] = await Promise.all([
     db
       .query("eventParticipants")
-      .withIndex("by_person_confirmation_publication_status_start", (query) =>
+      .withIndex(dateOnlyEventsEnabled() ? "by_person_confirmation_publication_status_sort" : "by_person_confirmation_publication_status_start", (query) =>
         query
           .eq("personProfileId", personProfileId)
           .eq("confirmationState", "confirmed")
           .eq("eventPublicationState", "published")
           .eq("eventStatus", "scheduled")
-          .lt("eventStartAt", now),
+          .lt(dateOnlyEventsEnabled() ? "eventSortAt" : "eventStartAt", now),
       )
       .order("desc")
       .take(EVENT_ASSOCIATION_SCAN_LIMIT),
     db
       .query("eventParticipants")
-      .withIndex("by_person_confirmation_publication_status_start", (query) =>
+      .withIndex(dateOnlyEventsEnabled() ? "by_person_confirmation_publication_status_sort" : "by_person_confirmation_publication_status_start", (query) =>
         query
           .eq("personProfileId", personProfileId)
           .eq("confirmationState", "confirmed")
           .eq("eventPublicationState", "published")
           .eq("eventStatus", "scheduled")
-          .gte("eventStartAt", now),
+          .gte(dateOnlyEventsEnabled() ? "eventSortAt" : "eventStartAt", now),
       )
       .take(EVENT_ASSOCIATION_SCAN_LIMIT),
   ]);
   const participantLinks = [
-    ...startedCandidates.filter((link) => link.eventEndAt >= now),
+    ...startedCandidates.filter((link) => (link.eventSortEndAt ?? link.eventEndAt ?? 0) >= now),
     ...upcoming,
   ];
   const events = (

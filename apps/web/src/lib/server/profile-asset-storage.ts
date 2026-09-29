@@ -31,6 +31,7 @@ type ProfileAssetUpload = {
   body: Uint8Array;
   contentType: string;
   cacheControl?: string;
+  signal?: AbortSignal;
 };
 
 type StorageProbeResult =
@@ -223,6 +224,7 @@ export async function putProfileAssetObject(input: ProfileAssetUpload) {
         IfNoneMatch: "*",
         Metadata: { "vrdex-sha256": checksum },
       }),
+      { abortSignal: input.signal },
     );
   } catch (error) {
     if (!isConditionalWriteConflict(error)) {
@@ -234,6 +236,7 @@ export async function putProfileAssetObject(input: ProfileAssetUpload) {
         Bucket: config.bucket,
         Key: input.storageKey,
       }),
+      { abortSignal: input.signal },
     );
 
     if (!storedProfileAssetMatchesUpload(object, input, checksum)) {

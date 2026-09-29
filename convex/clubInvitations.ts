@@ -200,6 +200,8 @@ export const enqueue = mutation({
             !event ||
             event.communityProfileId !== args.communityProfileId ||
             event.eventStatus === "cancelled" ||
+            event.startAt === undefined ||
+            event.scheduleKind === "date_only" ||
             event.startAt + args.schedule.offsetMs !== args.reviewedDueAt
           )
             throw new Error("Refresh to continue.");

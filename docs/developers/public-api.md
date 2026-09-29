@@ -1,5 +1,62 @@
 # Public API Posture
 
+## Event contribution intake
+
+User-owned personal tokens and user-delegated API-resource OAuth tokens can
+request `events:contribute`. This grants private intake and contribution access
+without verified email or community ownership. It does not grant `events:write`.
+Application-only credentials cannot use these routes.
+
+| Route | Operation |
+| --- | --- |
+| `POST /api/v0/event-intake` | Save a partial draft, optionally using `draftId` and `expectedVersion` to update it. |
+| `GET /api/v0/event-intake/{draftId}` | Read the actor's draft and published receipt ID. |
+| `PATCH /api/v0/event-intake/{draftId}` | Update a draft with `expectedVersion` and `patch`. |
+| `POST /api/v0/event-intake/{draftId}/extract` | Propose fields from supplied text or the draft's private poster. |
+| `POST /api/v0/event-intake/{draftId}/publish` | Publish with `expectedVersion` and `idempotencyKey`. |
+| `POST /api/v0/event-intake/{draftId}/poster-upload/begin` | Reserve a private image upload with MIME type, byte count, and SHA-256. |
+| `POST /api/v0/event-intake/{draftId}/poster-upload/complete` | Validate and freeze the uploaded source for that draft. |
+| `POST /api/v0/event-intake/{draftId}/artwork` | Explicitly select and validate a separate public artwork derivative. |
+| `GET /api/v0/events/{slug}/contribution` | Read the actor's canonical editable fields and `updatedAt` revision. |
+| `PATCH /api/v0/events/{slug}/contribution` | Correct the actor's contribution before staff takeover, using `expectedUpdatedAt`. |
+| `DELETE /api/v0/events/{slug}/contribution` | Retract the actor's contribution before staff takeover. |
+| `POST /api/v0/events/{slug}/report` | Submit a visitor report under the existing event/global abuse caps. |
+
+Schemas come from `packages/api-contracts/src/event-intake.ts`. Omission preserves
+a draft field, `null` clears it, and candidates remain tentative. Saving returns
+`draftId` and `version`; publishing returns `eventId`, `eventPath`, and `receiptId`.
+After a lost response, read the draft or replay publication with the exact same
+draft, version, and key. A changed request with the same key conflicts.
+
+`GET /api/v0/events/{eventId}/artwork/{artworkAssetId}` returns only the separately
+selected WebP for that currently public event. It checks both IDs and current
+visibility on every request and sends `private, no-store`. The Next.js directory
+and OpenAPI parameter are named `slug` because event routes share one dynamic
+segment, but this artwork URL takes the receipt's internal `eventId`. Private
+source bytes are never served by this route.
+
+Manual draft and publication routes work without model credentials. See
+[source storage and extraction](../backend/event-intake-sources.md) for opt-in
+model settings and private evidence retention.
+
+## Schedule and correction readback
+
+A date-only public event has `scheduleKind: "date_only"` and `eventDate`, with no
+`startAt`. Do not synthesize midnight or activate watch playback. Calendar export
+uses a date value with Time TBA; timed events retain exact instants. Lineup readback
+preserves ordered timed, untimed and unmatched entries.
+
+Staff takeover closes contributor updates/retraction even with a fresh revision.
+Read the actor-scoped contribution endpoint before each correction and pass its
+`updatedAt` as `expectedUpdatedAt`. Contributor person matches remain visible in
+the event lineup but unconfirmed on the person's profile until staff review.
+A contributor can retry a successful retraction; the replay returns `changed: false`.
+A contributor can submit a correction suggestion through the event report flow;
+it does not edit the canonical event. Removal excludes the event from public
+lookup, search and feeds. Scope/version/actor parity is covered locally; hosted
+OAuth and connected browser proof remain outstanding in the
+[checkpoint](../testing/event-intake-checkpoint.md).
+
 ## Status
 
 Current direction for [#39](https://github.com/BASIC-BIT/VRDex/issues/39).

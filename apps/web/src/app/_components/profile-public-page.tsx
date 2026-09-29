@@ -485,9 +485,10 @@ export function ProfilePublicPage({ profile, mediaKitGalleryEnabled, embedded = 
     ["events", "media_kit", "worlds"].includes(section),
   );
   const secondarySections: Partial<Record<ProfilePublicSectionKey, ReactNode>> = {
-    events: eventPreviews.length > 0 ? (
+    events: eventPreviews.length > 0 || !isPerson ? (
       <section className="border-t border-border py-8">
         <SectionHeading>{isPerson ? "Upcoming events" : "Hosted events"}</SectionHeading>
+        {!isPerson ? <Link className={buttonVariants({ variant: "secondary", size: "sm" })} href={`/events/new?community=${encodeURIComponent(profile.slug)}`}>Add event</Link> : null}
         <div className="mt-5 grid gap-3 lg:grid-cols-2">
           {eventPreviews.map((event) => (
             <EventPreviewCard event={event} key={`${event.slug ?? event.title}-${event.startAt}`} />

@@ -6,6 +6,7 @@ import { fetchProfileAssetSourceUrl } from "./profile-asset-source-import";
 import { validateAndNormalizeProfileAsset } from "./profile-asset-validation";
 
 const fixtureAssetPath = /^\/api\/e2e\/fixture-assets\/[^/]+$/;
+const publishedArtworkPath = /^\/api\/v0\/events\/[^/]+\/artwork\/[^/]+$/;
 const eventShareImagePath = /^\/[^/]+\/events\/[^/]+\/opengraph-image\/?$/;
 const artworkBounds = { height: 574, width: 414 } as const;
 const remoteArtworkMaxInputPixels = 4_096 ** 2;
@@ -16,7 +17,7 @@ const remoteArtworkFormats = new Map([
 ]);
 
 export type EventShareArtworkSource = {
-  kind: "fixture" | "remote";
+  kind: "fixture" | "published" | "remote";
   url: URL;
 };
 
@@ -47,6 +48,11 @@ export function eventShareArtworkSource(
       return { kind: "fixture", url };
     }
 
+    if (imageUrl === url.pathname && url.origin === siteUrl.origin &&
+        publishedArtworkPath.test(url.pathname)) {
+      return { kind: "published", url };
+    }
+
     const absoluteUrl = new URL(imageUrl);
 
     if (
@@ -63,7 +69,7 @@ export function eventShareArtworkSource(
   }
 }
 
-async function fetchFixtureArtwork(url: URL) {
+async function fetchSameOriginArtwork(url: URL) {
   const response = await fetch(url, {
     cache: "no-store",
     redirect: "error",
@@ -71,12 +77,12 @@ async function fetchFixtureArtwork(url: URL) {
   const mimeType = response.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
 
   if (!response.ok || !mimeType) {
-    throw new Error("Event share artwork fixture was unavailable.");
+    throw new Error("Event share artwork was unavailable.");
   }
 
   const body = new Uint8Array(await response.arrayBuffer());
   if (body.byteLength === 0 || body.byteLength > PROFILE_ASSET_MAX_STORED_BYTES) {
-    throw new Error("Event share artwork fixture size was invalid.");
+    throw new Error("Event share artwork size was invalid.");
   }
 
   return { body, mimeType };
@@ -143,8 +149,8 @@ export async function inlineEventShareArtwork(
   const source = eventShareArtworkSource(imageUrl, siteUrl);
   if (!source) return undefined;
 
-  const upload = source.kind === "fixture"
-    ? await fetchFixtureArtwork(source.url)
+  const upload = source.kind !== "remote"
+    ? await fetchSameOriginArtwork(source.url)
     : await fetchProfileAssetSourceUrl(source.url.href, {
         assertSourceUrl: (url) => {
           if (isEventShareImageUrl(url)) {

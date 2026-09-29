@@ -1481,7 +1481,7 @@ async function telemetryDashboardData(ctx: QueryCtx, profile: Doc<"profiles">, n
     ctx.db.query("communityTelemetryRollups").withIndex("by_communityProfileId_grain_bucketStartAt", (q) => q.eq("communityProfileId", profile._id).eq("grain", "day").gte("bucketStartAt", epochStartedAt)).order("desc").take(400),
     ctx.db.query("communityTelemetryRollups").withIndex("by_communityProfileId_grain_bucketStartAt", (q) => q.eq("communityProfileId", profile._id).eq("grain", "event").gte("bucketStartAt", epochStartedAt)).order("desc").take(200),
     ctx.db.query("eventInstanceAssociations").withIndex("by_communityProfileId_createdAt", (q) => q.eq("communityProfileId", profile._id).gte("createdAt", epochStartedAt)).order("desc").take(200),
-    ctx.db.query("events").withIndex("by_communityProfileId_startAt", (q) => q.eq("communityProfileId", profile._id)).order("desc").take(100),
+    ctx.db.query("events").withIndex("by_communityProfileId_startAt", (q) => q.eq("communityProfileId", profile._id).gte("startAt", 0)).order("desc").take(100),
   ]);
   const rollups = [...hourlyRollups, ...dailyRollups, ...eventRollups]
     .sort((left, right) => left.bucketStartAt - right.bucketStartAt);
@@ -1530,7 +1530,8 @@ async function telemetryDashboardData(ctx: QueryCtx, profile: Doc<"profiles">, n
     coverage: coverage.reverse(),
     rollups,
     associations,
-    events,
+    events: events.filter((event): event is typeof event & { startAt: number } =>
+      event.startAt !== undefined && event.scheduleKind !== "date_only"),
   };
 }
 
@@ -1600,8 +1601,9 @@ export const getPrivateDashboard = query({
       rollup.grain === "event" && rollup.eventId ? [rollup.eventId] : []))];
     const recapEvents = allowed("event_recaps") && !associationsAllowed
       ? (await Promise.all(recapEventIds.map(id => ctx.db.get(id)))).filter(
-        (event): event is Doc<"events"> => event !== null &&
-          event.communityProfileId === profile._id && event.publicationState === "published",
+        (event): event is Doc<"events"> & { startAt: number } => event !== null &&
+          event.communityProfileId === profile._id && event.publicationState === "published" &&
+          event.startAt !== undefined && event.scheduleKind !== "date_only",
       )
       : [];
     const visibleRecapIds = new Set(recapEvents.map(event => event._id));
@@ -1812,10 +1814,11 @@ export const recomputeRollup = internalMutation({
     // Event jobs can wait behind a newer event edit. Use the event's current
     // boundaries so an older queued job cannot restore a stale recap window.
     const event = args.eventId ? await ctx.db.get(args.eventId) : null;
-    const currentEvent = event?.communityProfileId === args.communityProfileId ? event : null;
+    const currentEvent = event?.communityProfileId === args.communityProfileId &&
+      event.startAt !== undefined && event.scheduleKind !== "date_only" ? event : null;
     const bucketStartAt = currentEvent?.startAt ?? args.bucketStartAt;
     const bucketEndAt = currentEvent
-      ? currentEvent.endAt ?? currentEvent.startAt + 6 * 60 * 60_000
+      ? currentEvent.endAt ?? currentEvent.startAt! + 6 * 60 * 60_000
       : args.bucketEndAt;
     if (bucketEndAt <= bucketStartAt) throw new Error("Rollup window is invalid.");
     const existing = args.eventId
@@ -1947,6 +1950,7 @@ export const associateEventInstance = mutation({
       throw new Error("You do not have access to this category.");
     if (!event || !session) throw new Error("Event or instance was not found.");
     if (event.communityProfileId !== profile._id || session.communityProfileId !== profile._id) throw new Error("Event and instance must belong to this community.");
+    if (event.startAt === undefined || event.scheduleKind === "date_only") throw new Error("Set an event time before associating instances.");
     const integration = await integrationForCommunity(ctx, profile._id);
     if (!integration || integration._id !== session.integrationId || session.openedAt < (integration.telemetryEpochStartedAt ?? integration.createdAt)) throw new Error("Instance belongs to an earlier group connection.");
     const now = Date.now();
@@ -1999,6 +2003,7 @@ export const reviewAssociationSuggestion = mutation({
       throw new Error("Association was not found.");
     const [session, event, integration] = await Promise.all([ctx.db.get(association.sessionId), ctx.db.get(association.eventId), integrationForCommunity(ctx, profile._id)]);
     if (args.state === "confirmed" && (!session || !event || session.communityProfileId !== profile._id || event.communityProfileId !== profile._id || !integration || session.integrationId !== integration._id || session.openedAt < (integration.telemetryEpochStartedAt ?? integration.createdAt))) throw new Error("Event or instance belongs to another group connection.");
+    if (args.state === "confirmed" && (event?.startAt === undefined || event.scheduleKind === "date_only")) throw new Error("Set an event time before associating instances.");
     const now = Date.now();
     if (args.state === "confirmed") {
       const existing = await ctx.db.query("eventInstanceAssociations")
@@ -2011,7 +2016,7 @@ export const reviewAssociationSuggestion = mutation({
     if (requiresRollupRecompute) {
       await invalidateEventRecapJob(ctx, association.eventId);
       const event = await ctx.db.get(association.eventId);
-      if (event?.communityProfileId === profile._id) await ctx.scheduler.runAfter(0, internal.communityTelemetry.recomputeRollup, {
+      if (event?.communityProfileId === profile._id && event.startAt !== undefined && event.scheduleKind !== "date_only") await ctx.scheduler.runAfter(0, internal.communityTelemetry.recomputeRollup, {
         communityProfileId: profile._id,
         eventId: event._id,
         grain: "event",
@@ -2086,6 +2091,7 @@ export const scheduleTelemetryEventWorkForCommunity = internalMutation({
       });
     let rollupsScheduled = 0;
     for (const event of page.page) {
+      if (event.startAt === undefined || event.scheduleKind === "date_only") continue;
       await ctx.scheduler.runAfter(0, internal.communityTelemetry.suggestEventAssociations, {
         eventId: event._id,
         now: args.now,
@@ -2131,18 +2137,19 @@ export const suggestEventAssociations = internalMutation({
   },
   handler: async (ctx, args) => {
     const event = await ctx.db.get(args.eventId);
-    if (!event?.communityProfileId) return [];
+    if (!event?.communityProfileId || event.startAt === undefined || event.scheduleKind === "date_only") return [];
+    const eventStartAt = event.startAt;
     const integration = await integrationForCommunity(ctx, event.communityProfileId);
     if (!integration) return [];
     const epochStartedAt = integration.telemetryEpochStartedAt ?? integration.createdAt;
     const eventWorlds = await ctx.db.query("eventWorlds").withIndex("by_eventId", (q) => q.eq("eventId", event._id)).collect();
     const worldIds = new Set(eventWorlds.filter((link) => link.confirmationState === "confirmed").map((link) => link.worldId as string));
     const now = args.now ?? Date.now();
-    const eventEndAt = event.endAt ?? event.startAt + 6 * 60 * 60_000;
+    const eventEndAt = event.endAt ?? eventStartAt + 6 * 60 * 60_000;
     const sessionsPage = await ctx.db.query("instanceSessions")
       .withIndex("by_communityProfileId_openedAt", (q) =>
         q.eq("communityProfileId", event.communityProfileId!)
-          .gte("openedAt", Math.max(epochStartedAt, event.startAt - 6 * 60 * 60_000))
+          .gte("openedAt", Math.max(epochStartedAt, eventStartAt - 6 * 60 * 60_000))
           .lte("openedAt", eventEndAt),
       )
       .paginate({
@@ -2152,7 +2159,7 @@ export const suggestEventAssociations = internalMutation({
     const created: Id<"eventInstanceAssociations">[] = [];
     for (const session of sessionsPage.page) {
       if (session.integrationId !== integration._id) continue;
-      const timeOverlap = session.openedAt <= eventEndAt && (session.closedAt ?? now) >= event.startAt;
+      const timeOverlap = session.openedAt <= eventEndAt && (session.closedAt ?? now) >= eventStartAt;
       const worldMatch = session.worldId ? worldIds.has(session.worldId as string) : false;
       if (!timeOverlap || !worldMatch) continue;
       const [existingSuggestion, confirmed, rejected] = await Promise.all([

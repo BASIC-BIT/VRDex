@@ -2,7 +2,9 @@ export type PublicCalendarEvent = {
   id: string;
   slug: string;
   title: string;
-  startAt: number;
+  startAt?: number;
+  scheduleKind?: "timed" | "date_only";
+  eventDate?: string;
   endAt?: number;
   summary?: string;
   communityName?: string;
@@ -99,7 +101,7 @@ export function createPublicEventIcs(event: PublicCalendarEvent, options: Create
   }
 
   const location = event.worlds.map((world) => world.displayName).filter(Boolean).join(", ") || event.communityName;
-  const description = event.summary ? `${event.summary}\n\n${canonicalUrl}` : canonicalUrl;
+  const description = [event.summary, event.scheduleKind === "date_only" ? "Time TBA" : undefined, canonicalUrl].filter(Boolean).join("\n\n");
   const lines = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
@@ -109,7 +111,7 @@ export function createPublicEventIcs(event: PublicCalendarEvent, options: Create
     "BEGIN:VEVENT",
     property("UID", `${event.id}@${new URL(canonicalUrl).host}`, { escapeValue: false }),
     property("DTSTAMP", formatIcsUtcTimestamp(options.now ?? Date.now()), { escapeValue: false }),
-    property("DTSTART", formatIcsUtcTimestamp(event.startAt), { escapeValue: false }),
+    startLine(event),
     ...optionalEndAtLine(event),
     event.status === "cancelled" ? "STATUS:CANCELLED" : "STATUS:CONFIRMED",
     property("SUMMARY", event.title),
@@ -157,13 +159,13 @@ function publicEventLines(event: PublicCalendarEvent, rawCanonicalUrl: string, n
   }
 
   const location = event.worlds.map((world) => world.displayName).filter(Boolean).join(", ") || event.communityName;
-  const description = event.summary ? `${event.summary}\n\n${canonicalUrl}` : canonicalUrl;
+  const description = [event.summary, event.scheduleKind === "date_only" ? "Time TBA" : undefined, canonicalUrl].filter(Boolean).join("\n\n");
 
   return [
     "BEGIN:VEVENT",
     property("UID", `${event.id}@${new URL(canonicalUrl).host}`, { escapeValue: false }),
     property("DTSTAMP", formatIcsUtcTimestamp(now), { escapeValue: false }),
-    property("DTSTART", formatIcsUtcTimestamp(event.startAt), { escapeValue: false }),
+    startLine(event),
     ...optionalEndAtLine(event),
     event.status === "cancelled" ? "STATUS:CANCELLED" : "STATUS:CONFIRMED",
     property("SUMMARY", event.title),
@@ -175,11 +177,20 @@ function publicEventLines(event: PublicCalendarEvent, rawCanonicalUrl: string, n
 }
 
 function optionalEndAtLine(event: PublicCalendarEvent): string[] {
-  if (event.endAt === undefined || event.endAt <= event.startAt) {
+  if (event.scheduleKind === "date_only" || event.startAt === undefined || event.endAt === undefined || event.endAt <= event.startAt) {
     return [];
   }
 
   return [property("DTEND", formatIcsUtcTimestamp(event.endAt), { escapeValue: false })];
+}
+
+function startLine(event: PublicCalendarEvent): string {
+  if (event.scheduleKind === "date_only") {
+    if (!event.eventDate || !/^\d{4}-\d{2}-\d{2}$/.test(event.eventDate)) throw new Error("Calendar event requires a date.");
+    return property("DTSTART;VALUE=DATE", event.eventDate.replaceAll("-", ""), { escapeValue: false });
+  }
+  if (event.startAt === undefined) throw new Error("Calendar event requires a start time.");
+  return property("DTSTART", formatIcsUtcTimestamp(event.startAt), { escapeValue: false });
 }
 
 function optionalTextProperty(name: string, value: string | undefined): string[] {

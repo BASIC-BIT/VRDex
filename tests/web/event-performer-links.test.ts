@@ -3,6 +3,21 @@ import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { it } from "node:test";
 
+it("merges a legacy event into one lineup while preserving two distinct sets", () => {
+  const output = execFileSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", `
+    import assert from "node:assert/strict";
+    import * as page from "./src/app/_components/event-public-page.tsx";
+    assert.equal(typeof page.eventLineupForDisplay, "function");
+    const person = { slug: "aurora", displayName: "Aurora" };
+    const slots = [0, 1].map(position => ({ position, startAt: position + 1, displayLabel: "Aurora", performer: person }));
+    const lineup = page.eventLineupForDisplay({ slots, participants: [person, { slug: "guest", displayName: "Guest" }] });
+    assert.deepEqual(lineup.map(row => row.displayLabel), ["Aurora", "Aurora", "Guest"]);
+    assert.equal(page.eventLineupForDisplay({ slots, participants: [person], lineup: [] }).length, 0);
+    console.log("one lineup");
+  `], { cwd: path.resolve("apps/web"), encoding: "utf8", env: { ...process.env, TSX_TSCONFIG_PATH: "tsconfig.json" } });
+  assert.match(output, /one lineup/);
+});
+
 it("renders recordings and live copy rows in either order while deduplicating live variants", () => {
   const output = execFileSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", `
     import assert from "node:assert/strict";

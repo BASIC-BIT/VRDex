@@ -1,6 +1,10 @@
 import { type Infer, v } from "convex/values";
 
 export const mcpToolNameValidator = v.union(
+  v.literal("vrdex_event_intake_draft_save"), v.literal("vrdex_event_intake_draft_get"), v.literal("vrdex_event_intake_event_get"),
+  v.literal("vrdex_event_intake_extract"), v.literal("vrdex_event_intake_publish"),
+  v.literal("vrdex_event_intake_poster_upload_begin"), v.literal("vrdex_event_intake_poster_upload_complete"),
+  v.literal("vrdex_event_intake_artwork_select"), v.literal("vrdex_event_intake_event_update"), v.literal("vrdex_event_intake_event_retract"),
   v.literal("search"),
   v.literal("fetch"),
   v.literal("vrdex_search"),

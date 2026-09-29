@@ -81,6 +81,7 @@ export function operationReason(code: string | null) {
     provider_permissions: "VRChat permission required",
     connection_changed: "Group connection changed",
     event_cancelled: "Event cancelled",
+    event_time_tba: "Time TBA",
     late_window_elapsed: "Scheduled time missed",
     submission_outcome_unknown: "Outcome unknown",
     operation_budget_too_low: "Request budget too low",

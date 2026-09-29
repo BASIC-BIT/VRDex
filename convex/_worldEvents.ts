@@ -1,6 +1,7 @@
+import { dateOnlyEventsEnabled, eventSortAt, eventSortEndAt, publicEventSchedule, type StoredEventSchedule } from "./_eventSchedule";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
-import { firstSafeHttpsUrl, optionalField, safeHttpsUrl } from "./_publicFields";
+import { firstSafePublicImageUrl, optionalField, safeHttpsUrl, safePublicImageUrl } from "./_publicFields";
 import { canReadProfile } from "./_profilePermissions";
 import { safePublicLinkUrl } from "./_vrcdnLinks";
 
@@ -11,7 +12,7 @@ const ACTIVE_WORLD_QUERY_SCAN_LIMIT = 500;
 const ACTIVE_WORLD_ASSOCIATION_LIMIT = 20;
 const ACTIVE_WORLD_MAX_LIMIT = 6;
 
-type PublicEventSourceType = "manual" | "community" | "partner" | "import" | "ai_suggested";
+type PublicEventSourceType = "manual" | "community" | "partner" | "import" | "ai_suggested" | "contributor";
 
 type PublicWorldEventRecord = {
   event: Doc<"events">;
@@ -27,7 +28,9 @@ export type PublicWorldEventPreview = {
   slug?: string;
   communitySlug?: string;
   title: string;
-  startAt: number;
+  startAt?: number;
+  scheduleKind?: "timed" | "date_only";
+  eventDate?: string;
   doorsOpenAt?: number;
   endAt?: number;
   timezone?: string;
@@ -71,7 +74,9 @@ export type PublicActiveWorldPreview = {
     title: string;
     slug?: string;
     communitySlug?: string;
-    startAt: number;
+    startAt?: number;
+  scheduleKind?: "timed" | "date_only";
+  eventDate?: string;
     doorsOpenAt?: number;
     endAt?: number;
     timezone?: string;
@@ -104,20 +109,20 @@ async function getVisibleFutureEventCandidates(
     );
     const page = await db
       .query("events")
-      .withIndex("by_publicationState_eventStatus_startAt", (query) => {
+      .withIndex(dateOnlyEventsEnabled() ? "by_publicationState_eventStatus_sortAt" : "by_publicationState_eventStatus_startAt", (query) => {
         const scheduled = query
           .eq("publicationState", "published")
           .eq("eventStatus", "scheduled");
 
         if (creationTimeCursor !== undefined) {
           return scheduled
-            .eq("startAt", startAtCursor)
+            .eq(dateOnlyEventsEnabled() ? "sortAt" : "startAt", startAtCursor)
             .gt("_creationTime", creationTimeCursor);
         }
 
         return includeStartAtCursor
-          ? scheduled.gte("startAt", startAtCursor)
-          : scheduled.gt("startAt", startAtCursor);
+          ? scheduled.gte(dateOnlyEventsEnabled() ? "sortAt" : "startAt", startAtCursor)
+          : scheduled.gt(dateOnlyEventsEnabled() ? "sortAt" : "startAt", startAtCursor);
       })
       .take(pageSize);
 
@@ -150,7 +155,7 @@ async function getVisibleFutureEventCandidates(
     }
 
     const lastEvent = page[page.length - 1]!;
-    startAtCursor = lastEvent.startAt;
+    startAtCursor = eventSortAt(lastEvent);
     creationTimeCursor = lastEvent._creationTime;
     includeStartAtCursor = true;
   }
@@ -159,25 +164,25 @@ async function getVisibleFutureEventCandidates(
 }
 
 function eventEndsAt(event: PublicWorldEventPreview): number {
-  return event.endAt ?? event.startAt;
+  return eventSortEndAt(event);
 }
 
-function eventRecordEndsAt(event: Pick<Doc<"events">, "startAt" | "endAt">): number {
-  return event.endAt ?? event.startAt;
+function eventRecordEndsAt(event: StoredEventSchedule): number {
+  return eventSortEndAt(event);
 }
 
 function compareActiveEvents(
-  first: Pick<Doc<"events">, "startAt" | "endAt">,
-  second: Pick<Doc<"events">, "startAt" | "endAt">,
+  first: StoredEventSchedule,
+  second: StoredEventSchedule,
   now: number,
 ): number {
-  const firstIsCurrent = first.startAt <= now;
-  const secondIsCurrent = second.startAt <= now;
+  const firstIsCurrent = first.scheduleKind !== "date_only" && eventSortAt(first) <= now;
+  const secondIsCurrent = second.scheduleKind !== "date_only" && eventSortAt(second) <= now;
 
   if (firstIsCurrent !== secondIsCurrent) return firstIsCurrent ? -1 : 1;
   return firstIsCurrent
-    ? eventRecordEndsAt(first) - eventRecordEndsAt(second) || first.startAt - second.startAt
-    : first.startAt - second.startAt;
+    ? eventRecordEndsAt(first) - eventRecordEndsAt(second) || eventSortAt(first) - eventSortAt(second)
+    : eventSortAt(first) - eventSortAt(second);
 }
 
 function toPublicWorldEventPreview(
@@ -195,15 +200,15 @@ function toPublicWorldEventPreview(
   }
 
   const sourceUrl = safeHttpsUrl(event.sourceUrl);
-  const posterImageUrl = safeHttpsUrl(event.posterImageUrl);
-  const bannerImageUrl = firstSafeHttpsUrl(event.bannerImageUrl, event.posterImageUrl);
-  const thumbnailImageUrl = firstSafeHttpsUrl(event.thumbnailImageUrl, event.posterImageUrl, event.bannerImageUrl);
+  const posterImageUrl = safePublicImageUrl(event.posterImageUrl);
+  const bannerImageUrl = firstSafePublicImageUrl(event.bannerImageUrl, event.posterImageUrl);
+  const thumbnailImageUrl = firstSafePublicImageUrl(event.thumbnailImageUrl, event.posterImageUrl, event.bannerImageUrl);
 
   return {
     ...optionalField("slug", event.slug),
     ...optionalField("communitySlug", community?.slug),
     title: event.title,
-    startAt: event.startAt,
+    ...publicEventSchedule(event),
     mediaLinks: (event.mediaLinks ?? []).flatMap((link) => {
       const linkUrl = safePublicLinkUrl(link.url);
 
@@ -223,8 +228,8 @@ function toPublicWorldEventPreview(
       confirmationState: "confirmed",
       ...optionalField("confirmedAt", association.confirmedAt),
     },
-    ...optionalField("doorsOpenAt", event.doorsOpenAt),
-    ...optionalField("endAt", event.endAt),
+    ...optionalField("doorsOpenAt", event.scheduleKind === "date_only" ? undefined : event.doorsOpenAt),
+    ...optionalField("endAt", event.scheduleKind === "date_only" ? undefined : event.endAt),
     ...optionalField("timezone", event.timezone),
     ...optionalField("communityName", community?.displayName),
     ...optionalField("summary", event.summary),
@@ -257,7 +262,7 @@ export function createPublicWorldEventContext(
 
   const recent = previews
     .filter((event) => eventEndsAt(event) < now)
-    .sort((first, second) => second.startAt - first.startAt)
+    .sort((first, second) => eventSortAt(second) - eventSortAt(first))
     .slice(0, WORLD_EVENT_SECTION_LIMIT);
 
   return { upcoming, recent };
@@ -321,14 +326,14 @@ export function createPublicActiveWorldPreviews(
           nextEvent: {
             ...optionalField("slug", nextEvent.slug),
             title: nextEvent.title,
-            startAt: nextEvent.startAt,
+            ...publicEventSchedule(nextEvent),
             source: {
               sourceType: nextEvent.sourceType,
               label: nextEvent.sourceLabel,
               ...optionalField("url", sourceUrl),
             },
-            ...optionalField("doorsOpenAt", nextEvent.doorsOpenAt),
-            ...optionalField("endAt", nextEvent.endAt),
+            ...optionalField("doorsOpenAt", nextEvent.scheduleKind === "date_only" ? undefined : nextEvent.doorsOpenAt),
+            ...optionalField("endAt", nextEvent.scheduleKind === "date_only" ? undefined : nextEvent.endAt),
             ...optionalField("timezone", nextEvent.timezone),
             ...optionalField("communityName", community?.displayName),
             ...optionalField("communitySlug", community?.slug),
@@ -350,42 +355,42 @@ export async function getPublicWorldEventContext(
   const [startedAssociations, futureAssociations, previousAssociations] = await Promise.all([
     db
       .query("eventWorlds")
-      .withIndex("by_world_confirmation_publication_status_start", (query) =>
+      .withIndex(dateOnlyEventsEnabled() ? "by_world_confirmation_publication_status_sort" : "by_world_confirmation_publication_status_start", (query) =>
         query
           .eq("worldId", worldId)
           .eq("confirmationState", "confirmed")
           .eq("eventPublicationState", "published")
           .eq("eventStatus", "scheduled")
-          .lt("eventStartAt", now),
+          .lt(dateOnlyEventsEnabled() ? "eventSortAt" : "eventStartAt", now),
       )
       .order("desc")
       .take(WORLD_EVENT_SECTION_SCAN_LIMIT),
     db
       .query("eventWorlds")
-      .withIndex("by_world_confirmation_publication_status_start", (query) =>
+      .withIndex(dateOnlyEventsEnabled() ? "by_world_confirmation_publication_status_sort" : "by_world_confirmation_publication_status_start", (query) =>
         query
           .eq("worldId", worldId)
           .eq("confirmationState", "confirmed")
           .eq("eventPublicationState", "published")
           .eq("eventStatus", "scheduled")
-          .gte("eventStartAt", now),
+          .gte(dateOnlyEventsEnabled() ? "eventSortAt" : "eventStartAt", now),
       )
       .take(WORLD_EVENT_SECTION_SCAN_LIMIT),
     db
       .query("eventWorlds")
-      .withIndex("by_world_confirmation_publication_status_end", (query) =>
+      .withIndex(dateOnlyEventsEnabled() ? "by_world_confirmation_publication_status_sortEnd" : "by_world_confirmation_publication_status_end", (query) =>
         query
           .eq("worldId", worldId)
           .eq("confirmationState", "confirmed")
           .eq("eventPublicationState", "published")
           .eq("eventStatus", "scheduled")
-          .lt("eventEndAt", now),
+          .lt(dateOnlyEventsEnabled() ? "eventSortEndAt" : "eventEndAt", now),
       )
       .order("desc")
       .take(WORLD_EVENT_SECTION_SCAN_LIMIT),
   ]);
   const currentAssociations = startedAssociations.filter(
-    (association) => association.eventEndAt >= now,
+    (association) => (association.eventSortEndAt ?? association.eventEndAt ?? 0) >= now,
   );
   const associations = [...currentAssociations, ...futureAssociations, ...previousAssociations];
 
@@ -429,16 +434,16 @@ export async function getPublicActiveWorlds(
   const futureEvents = await getVisibleFutureEventCandidates(db, now);
   const startedEventCandidates = await db
     .query("events")
-    .withIndex("by_publicationState_eventStatus_startAt", (query) =>
+    .withIndex(dateOnlyEventsEnabled() ? "by_publicationState_eventStatus_sortAt" : "by_publicationState_eventStatus_startAt", (query) =>
       query
         .eq("publicationState", "published")
         .eq("eventStatus", "scheduled")
-        .lt("startAt", now),
+        .lt(dateOnlyEventsEnabled() ? "sortAt" : "startAt", now),
     )
     .order("desc")
     .take(ACTIVE_WORLD_QUERY_SCAN_LIMIT);
   const currentEventCandidates = startedEventCandidates.filter(
-    (event) => (event.endAt ?? event.startAt) >= now,
+    (event) => eventSortEndAt(event) >= now,
   );
   const events = [...futureEvents, ...currentEventCandidates];
 

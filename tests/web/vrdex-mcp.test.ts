@@ -249,6 +249,7 @@ function assertAuthenticatedReadSecuritySchemes(value: unknown) {
 }
 
 function isWriteToolName(name: string | undefined) {
+  if (name?.startsWith("vrdex_event_intake_") && name !== "vrdex_event_intake_draft_get" && name !== "vrdex_event_intake_event_get") return true;
   if (name === "vrdex_media_submission_publish" || name === "vrdex_media_submission_declare") return true;
   if (name === "vrdex_media_upload_begin" || name === "vrdex_media_upload_complete") return true;
   return (
@@ -261,6 +262,7 @@ function isWriteToolName(name: string | undefined) {
 // A read, but of the caller's own inventory, so it carries a scope pair rather
 // than the public-read schemes every other read tool advertises.
 function isOwnedReadToolName(name: string | undefined) {
+  if (name === "vrdex_event_intake_draft_get" || name === "vrdex_event_intake_event_get") return true;
   if (name === "vrdex_media_submission_get" || name === "vrdex_media_submission_preview") return true;
   return (
     name === "vrdex_get_my_media_submission" ||
@@ -682,6 +684,8 @@ describe("VRDex MCP server", () => {
     // it must never advertise `noauth`: a session with no user behind it has no
     // inventory to read.
     const ownedReadScopes = {
+      vrdex_event_intake_draft_get: "events:contribute",
+      vrdex_event_intake_event_get: "events:contribute",
       vrdex_list_my_profiles: "profile:read",
       vrdex_list_my_media_submissions: "assets:contribute",
       vrdex_get_my_media_submission: "assets:contribute",
@@ -739,6 +743,9 @@ describe("VRDex MCP server", () => {
     // No deployment switch: the write tools are always listed, and the harness
     // connecting decides which of them it exposes.
     assert.deepEqual(writeTools.map((tool) => tool.name), [
+      "vrdex_event_intake_draft_save", "vrdex_event_intake_extract", "vrdex_event_intake_publish",
+      "vrdex_event_intake_poster_upload_begin", "vrdex_event_intake_poster_upload_complete",
+      "vrdex_event_intake_artwork_select", "vrdex_event_intake_event_update", "vrdex_event_intake_event_retract",
       "vrdex_media_upload_begin",
       "vrdex_media_upload_complete",
       "vrdex_media_submission_publish",
@@ -775,6 +782,10 @@ describe("VRDex MCP server", () => {
     };
 
     for (const tool of writeTools) {
+      if (tool.name?.startsWith("vrdex_event_intake_")) {
+        assertWriteSecuritySchemes(tool._meta, "events:contribute");
+        continue;
+      }
       if (tool.name === "vrdex_media_upload_begin" || tool.name === "vrdex_media_upload_complete") {
         assert.deepEqual((tool._meta as { securitySchemes: unknown }).securitySchemes, [
           { scopes: ["mcp:write", "assets:write"], type: "oauth2" },

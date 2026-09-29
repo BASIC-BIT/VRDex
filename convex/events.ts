@@ -1,3 +1,4 @@
+import { dateOnlyEventsEnabled, eventDateForInstant, eventSortAt, eventSortEndAt, normalizeEventSchedule, publicEventSchedule, requireDateOnlyEventsEnabled } from "./_eventSchedule";
 import { eventProfileStreamChoices } from "./_eventPlayback";
 import { ConvexError, v } from "convex/values";
 import {syncClubEventOperations} from "./_clubOperationEvents";
@@ -20,6 +21,9 @@ import {
   type AuthSubject,
 } from "./_communityAuthority";
 import { requireUser } from "./_identity";
+import { contributorStaffLock } from "./_eventContributorLock";
+import { replaceEventLineup } from "./_eventLineup";
+import { eventContributionFingerprint } from "./_eventContributionPreflight";
 import { requireActiveBrowserSessionSubject } from "./_browserSessionAuthority";
 import {
   apiWriteAuditActorKindValidator,
@@ -55,6 +59,8 @@ import {
   sanitizeEventDraftInput,
   type EventDraftInput,
   type EventDraftUpdateInput,
+  type EventOwnerDraftInput,
+  type SanitizedEventOwnerDraftInput,
   type SanitizedEventDraftInput,
 } from "./_eventInputs";
 import { findEventOperationSlots } from "./_eventOperations";
@@ -163,6 +169,15 @@ const eventDraftArgs = {
 
 const eventDraftUpdateArgs = {
   ...eventDraftArgs,
+  scheduleKind: v.optional(v.union(v.literal("timed"), v.literal("date_only"))),
+  eventDate: v.optional(v.string()),
+  venueLabel: v.optional(v.string()),
+  lineup: v.optional(v.array(v.object({
+    clientKey: v.string(), position: v.number(), performerLabel: v.string(),
+    personSlug: v.optional(v.string()), roleLabel: v.optional(v.string()),
+    startAt: v.optional(v.number()), endAt: v.optional(v.number()),
+    selectedStreamId: v.optional(v.union(v.string(), v.null())),
+  }))),
   title: v.optional(v.string()),
   startAt: v.optional(v.number()),
   doorsOpenAt: v.optional(v.union(v.number(), v.null())),
@@ -394,7 +409,7 @@ async function getPublishedPersonBySlug(db: DatabaseReader, slug: string) {
   return profile;
 }
 
-async function canUpdateEvent(
+export async function canUpdateEvent(
   db: DatabaseReader,
   event: Doc<"events">,
   subject: AuthSubject,
@@ -494,10 +509,11 @@ async function requireBrowserManagedCommunity(
   return community;
 }
 
-async function recordEventAuditEvent(
+export async function recordEventAuditEvent(
   db: DatabaseWriter,
   input: {
     eventId: Id<"events">;
+    actorUserId?: Id<"users">;
     actor?: AuthSubject;
     actorSurface: Doc<"eventAuditEvents">["actorSurface"];
     action: Doc<"eventAuditEvents">["action"];
@@ -508,6 +524,7 @@ async function recordEventAuditEvent(
 ) {
   await db.insert("eventAuditEvents", {
     eventId: input.eventId,
+    ...(input.actorUserId === undefined ? {} : { actorUserId: input.actorUserId }),
     ...(input.actor === undefined ? {} : { actor: input.actor }),
     actorSurface: input.actorSurface,
     action: input.action,
@@ -517,7 +534,7 @@ async function recordEventAuditEvent(
   });
 }
 
-async function replaceEventWorldLink(
+export async function replaceEventWorldLink(
   db: DatabaseWriter,
   event: Doc<"events">,
   world: Doc<"worlds"> | undefined,
@@ -525,6 +542,7 @@ async function replaceEventWorldLink(
   options: {
     preserveNonPublic?: boolean;
     preserveAssociationIds?: Id<"eventWorlds">[];
+    confirmationState?: "confirmed" | "unconfirmed";
   } = {},
 ) {
   const existing = await db
@@ -552,7 +570,9 @@ async function replaceEventWorldLink(
       .map((association) => db.delete(association._id)),
     ...preserved.map(({ association }) => db.patch(association._id, {
       eventStartAt: event.startAt,
+      eventSortAt: eventSortAt(event),
       eventEndAt: event.endAt ?? event.startAt,
+      eventSortEndAt: eventSortEndAt(event),
       eventPublicationState: event.publicationState,
       eventStatus: event.eventStatus,
       updatedAt: now,
@@ -567,13 +587,15 @@ async function replaceEventWorldLink(
     eventId: event._id,
     worldId: world._id,
     eventStartAt: event.startAt,
+    eventSortAt: eventSortAt(event),
     eventEndAt: event.endAt ?? event.startAt,
+    eventSortEndAt: eventSortEndAt(event),
     eventPublicationState: event.publicationState,
     eventStatus: event.eventStatus,
-    sourceType: "community",
+    sourceType: event.sourceType,
     confidence: 1,
-    confirmationState: "confirmed",
-    confirmedAt: now,
+    confirmationState: options.confirmationState ?? "confirmed",
+    ...(options.confirmationState === "unconfirmed" ? {} : { confirmedAt: now }),
     updatedAt: now,
   });
 }
@@ -645,7 +667,9 @@ async function replaceEventParticipants(
       .map((participant) => db.delete(participant._id)),
     ...preserved.map(({ association }) => db.patch(association._id, {
       eventStartAt: event.startAt,
+      eventSortAt: eventSortAt(event),
       eventEndAt: event.endAt ?? event.startAt,
+      eventSortEndAt: eventSortEndAt(event),
       eventPublicationState: event.publicationState,
       eventStatus: event.eventStatus,
       updatedAt: now,
@@ -657,7 +681,9 @@ async function replaceEventParticipants(
       eventId: event._id,
       personProfileId: profile._id,
       eventStartAt: event.startAt,
+      eventSortAt: eventSortAt(event),
       eventEndAt: event.endAt ?? event.startAt,
+      eventSortEndAt: eventSortEndAt(event),
       eventPublicationState: event.publicationState,
       eventStatus: event.eventStatus,
       roleLabel: participant.roleLabel,
@@ -680,7 +706,7 @@ async function replaceEventParticipants(
 async function replaceEventSlots(
   db: DatabaseWriter,
   eventId: Id<"events">,
-  eventStartAt: number,
+  eventStartAt: number | undefined,
   slots: ReturnType<typeof sanitizeEventDraftInput>["slotLinks"],
   now: number,
   options: {
@@ -720,7 +746,7 @@ async function replaceEventSlots(
   const preservedSlotFor = (slot: (typeof slots)[number]) => slot.personSlug === undefined
     ? nonPublicExisting.find(({ slot: existingSlot }) =>
         existingSlot.position === slot.position &&
-        existingSlot.startAt - (options.previousEventStartAt ?? eventStartAt) === slot.startAt - eventStartAt &&
+        existingSlot.startAt - (options.previousEventStartAt ?? eventStartAt!) === slot.startAt - eventStartAt! &&
         (existingSlot.endAt === undefined ? undefined : existingSlot.endAt - existingSlot.startAt) ===
           (slot.endAt === undefined ? undefined : slot.endAt - slot.startAt) &&
         existingSlot.displayLabel === slot.displayLabel &&
@@ -758,6 +784,7 @@ async function replaceEventSlots(
       await db.patch(preservedSlot._id, {
         selectedStreamId: slot.selectedStreamId,
         eventStartAt,
+        eventSortAt: eventStartAt,
         position: slot.position,
         startAt: slot.startAt,
         endAt: slot.endAt,
@@ -779,6 +806,7 @@ async function replaceEventSlots(
       ...optionalValue("selectedStreamId", slot.selectedStreamId),
       eventId,
       eventStartAt,
+      eventSortAt: eventStartAt,
       position: slot.position,
       startAt: slot.startAt,
       ...optionalValue("endAt", slot.endAt),
@@ -824,7 +852,7 @@ function participantLinksWithSlotPerformers(input: ReturnType<typeof sanitizeEve
   return links;
 }
 
-async function syncPreservedEventAssociations(
+export async function syncPreservedEventAssociations(
   db: DatabaseWriter,
   event: Doc<"events">,
   now: number,
@@ -848,7 +876,9 @@ async function syncPreservedEventAssociations(
 
   const eventAssociationPatch = {
     eventStartAt: event.startAt,
+    eventSortAt: eventSortAt(event),
     eventEndAt: event.endAt ?? event.startAt,
+    eventSortEndAt: eventSortEndAt(event),
     eventPublicationState: event.publicationState,
     eventStatus: event.eventStatus,
     updatedAt: now,
@@ -856,11 +886,13 @@ async function syncPreservedEventAssociations(
   await Promise.all([
     ...worlds.map((association) => db.patch(association._id, eventAssociationPatch)),
     ...participants.map((participant) => db.patch(participant._id, eventAssociationPatch)),
-    ...slots.map((slot) => db.patch(slot._id, { eventStartAt: event.startAt, updatedAt: now })),
+    ...slots.map((slot) => db.patch(slot._id, {
+      eventStartAt: event.startAt, eventSortAt: eventSortAt(event), updatedAt: now,
+    })),
   ]);
 }
 
-async function eventParticipantRoleLabels(db: DatabaseReader, eventId: Id<"events">) {
+export async function eventParticipantRoleLabels(db: DatabaseReader, eventId: Id<"events">) {
   const participants = await db
     .query("eventParticipants")
     .withIndex("by_eventId", (query) => query.eq("eventId", eventId))
@@ -870,21 +902,44 @@ async function eventParticipantRoleLabels(db: DatabaseReader, eventId: Id<"event
   return participants.map((participant) => participant.roleLabel);
 }
 
-async function linkedPublishedEventWorld(db: DatabaseReader, eventId: Id<"events">) {
-  const association = await db
+export async function linkedPublishedEventWorld(db: DatabaseReader, eventId: Id<"events">, includeUnconfirmed = false) {
+  const associations = await db
     .query("eventWorlds")
     .withIndex("by_eventId", (query) => query.eq("eventId", eventId))
-    .filter((query) => query.eq(query.field("confirmationState"), "confirmed"))
-    .first();
-  const world = association === null ? null : await db.get(association.worldId);
+    .take(20);
+  const association = associations.find(row => row.confirmationState === "confirmed")
+    ?? (includeUnconfirmed ? associations.find(row => row.confirmationState === "unconfirmed") : undefined);
+  const world = association === undefined ? null : await db.get(association.worldId);
 
   return world?.publicationState === "published" ? world : undefined;
 }
 
-function suppliedEventDraftFields(input: EventDraftUpdateInput) {
-  const fields = new Set<keyof EventDraftInput>();
+export async function retireConfirmedEventInstanceAssociations(db: DatabaseWriter, eventId: Id<"events">, now: number) {
+  const confirmed = await db.query("eventInstanceAssociations")
+    .withIndex("by_eventId_state", query => query.eq("eventId", eventId).eq("state", "confirmed"))
+    .collect();
+  await Promise.all(confirmed.map(association => db.patch(association._id, { state: "suggested", updatedAt: now })));
+}
 
-  for (const field of Object.keys(eventDraftArgs) as Array<keyof EventDraftInput>) {
+async function eventSearchAssociations(db: DatabaseReader, event: Doc<"events">) {
+  if (event.sourceType !== "contributor") {
+    const [world, roleLabels] = await Promise.all([
+      linkedPublishedEventWorld(db, event._id), eventParticipantRoleLabels(db, event._id),
+    ]);
+    return { world, roleLabels };
+  }
+  const [world, slots, untimed] = await Promise.all([
+    linkedPublishedEventWorld(db, event._id, true),
+    db.query("eventSlots").withIndex("by_eventId", q => q.eq("eventId", event._id)).take(81),
+    db.query("eventLineupEntries").withIndex("by_eventId_position", q => q.eq("eventId", event._id)).take(81),
+  ]);
+  return { world, roleLabels: [...slots, ...untimed].map(row => row.roleLabel ?? "").filter(Boolean) };
+}
+
+function suppliedEventDraftFields(input: EventDraftUpdateInput) {
+  const fields = new Set<keyof EventOwnerDraftInput>();
+
+  for (const field of Object.keys(eventDraftUpdateArgs) as Array<keyof EventOwnerDraftInput>) {
     if (Object.prototype.hasOwnProperty.call(input, field)) {
       fields.add(field);
     }
@@ -902,7 +957,7 @@ function toApiManagedEventSummary(event: Doc<"events">, community: Doc<"profiles
     id: event._id,
     slug: event.slug,
     title: event.title,
-    startAt: event.startAt,
+    ...publicEventSchedule(event),
     doorsOpenAt: event.doorsOpenAt,
     endAt: event.endAt,
     timezone: event.timezone,
@@ -970,6 +1025,29 @@ async function createCommunityEventForApiOwnerRecord(
   return { community, result };
 }
 
+async function sanitizeOwnerEventInput(db: DatabaseReader, event: Doc<"events">, input: EventOwnerDraftInput) {
+  const scheduleKind = input.scheduleKind ?? (input.startAt !== undefined ? "timed" : event.scheduleKind);
+  if (scheduleKind === "date_only" && event.scheduleKind !== "date_only") requireDateOnlyEventsEnabled();
+  const candidate = {
+    ...input,
+    scheduleKind,
+    startAt: scheduleKind === "date_only" ? input.startAt : input.startAt ?? event.startAt,
+    eventDate: input.eventDate ?? event.eventDate,
+  };
+  let storedArtwork: string | undefined;
+  if (candidate.posterImageUrl?.startsWith("/")) {
+    const match = candidate.posterImageUrl.match(/^\/api\/v0\/events\/([^/]+)\/artwork\/([^/]+)$/);
+    const id = match && db.normalizeId("eventPosterArtwork", match[2]);
+    const artwork = id ? await db.get(id) : null;
+    if (!match || match[1] !== event._id || candidate.posterImageUrl !== event.posterImageUrl || artwork?.state !== "published" || artwork.eventId !== event._id) {
+      throw new Error("Poster image URL must be a valid URL.");
+    }
+    storedArtwork = candidate.posterImageUrl;
+  }
+  const sanitized = sanitizeEventDraftInput({ ...candidate, ...(storedArtwork ? { posterImageUrl: undefined } : {}) });
+  return { ...sanitized, ...(storedArtwork ? { posterImageUrl: storedArtwork } : {}) };
+}
+
 async function updateCommunityEventForApiOwnerRecord(
   ctx: MutationCtx,
   args: EventDraftUpdateInput & {
@@ -1007,10 +1085,11 @@ async function updateCommunityEventForApiOwnerRecord(
   }
 
   const updateFields = suppliedEventDraftFields(args);
+  if (updateFields.size === 0) throw new Error("Invalid event update request");
   const clearsTimezone =
     args.timezone === null ||
     (typeof args.timezone === "string" && args.timezone.trim().length === 0);
-  if (clearsTimezone && !updateFields.has("slotLinks")) {
+  if (clearsTimezone && args.scheduleKind !== "date_only" && !updateFields.has("slotLinks")) {
     const preservedSlot = await db
       .query("eventSlots")
       .withIndex("by_eventId_startAt", (query) => query.eq("eventId", event._id))
@@ -1022,10 +1101,12 @@ async function updateCommunityEventForApiOwnerRecord(
   }
 
   const normalizedUpdate = normalizeEventDraftUpdateInput(args);
-  const input = sanitizeEventDraftInput(
+  const input = await sanitizeOwnerEventInput(db, event,
     preserveOmittedEventDraftFields(normalizedUpdate, {
       title: event.title,
       startAt: event.startAt,
+      eventDate: event.eventDate,
+      venueLabel: event.venueLabel,
       communitySlug: currentCommunity.slug,
       doorsOpenAt: event.doorsOpenAt,
       endAt: event.endAt,
@@ -1080,7 +1161,7 @@ export const listCommunityManagedEventsForApiOwner = internalQuery({
     for (const community of communities) {
       const events = await ctx.db
         .query("events")
-        .withIndex("by_communityProfileId_startAt", (index) => index.eq("communityProfileId", community._id))
+        .withIndex(dateOnlyEventsEnabled() ? "by_communityProfileId_sortAt" : "by_communityProfileId_startAt", (index) => index.eq("communityProfileId", community._id))
         .order("desc")
         .take(limit);
 
@@ -1095,7 +1176,7 @@ export const listCommunityManagedEventsForApiOwner = internalQuery({
     }
 
     return records
-      .sort((first, second) => second.event.startAt - first.event.startAt || second.event.updatedAt - first.event.updatedAt)
+      .sort((first, second) => eventSortAt(second.event) - eventSortAt(first.event) || second.event.updatedAt - first.event.updatedAt)
       .slice(0, limit)
       .map(({ community, event }) => toApiManagedEventSummary(event, community));
   },
@@ -1118,7 +1199,7 @@ async function insertCommunityEventRecord(
   const eventId = await db.insert("events", {
     title: input.title,
     sortTitle: input.sortTitle,
-    startAt: input.startAt,
+    ...normalizeEventSchedule({ kind: "timed", startAt: input.startAt, date: eventDateForInstant(input.startAt, input.timezone), timeZone: input.timezone }),
     ...optionalValue("doorsOpenAt", input.doorsOpenAt),
     ...optionalValue("endAt", input.endAt),
     ...optionalValue("timezone", input.timezone),
@@ -1186,7 +1267,7 @@ async function updateCommunityEventRecord(
   ctx: MutationCtx,
   options: {
     event: Doc<"events">;
-    input: SanitizedEventDraftInput;
+    input: SanitizedEventOwnerDraftInput;
     community: Doc<"profiles">;
     world?: Doc<"worlds">;
     publicationState?: Doc<"events">["publicationState"];
@@ -1195,7 +1276,8 @@ async function updateCommunityEventRecord(
     preserveParticipantAssociationIds?: Id<"eventParticipants">[];
     preserveSlotAssociationIds?: Id<"eventSlots">[];
     preserveWorldAssociationIds?: Id<"eventWorlds">[];
-    updateFields?: ReadonlySet<keyof EventDraftInput>;
+    preserveLineupConfirmation?: boolean;
+    updateFields?: ReadonlySet<keyof EventOwnerDraftInput>;
   },
 ) {
   const {db}=ctx;
@@ -1213,12 +1295,17 @@ async function updateCommunityEventRecord(
     world,
   } = options;
   const now = Date.now();
-  const shouldUpdate = (field: keyof EventDraftInput) => updateFields === undefined || updateFields.has(field);
+  const shouldUpdate = (field: keyof EventOwnerDraftInput) => updateFields === undefined || updateFields.has(field);
+  if (event.moderationRemovedAt !== undefined) throw new ConvexError({ code: "REMOVED_EVENT" });
   const slug = event.slug;
 
   if (slug === undefined) {
     throw new Error("Event URL code is missing.");
   }
+
+  const schedule = input.scheduleKind === "date_only"
+    ? { ...normalizeEventSchedule({ kind: "date_only", date: input.eventDate! }), startAt: undefined }
+    : normalizeEventSchedule({ kind: "timed", startAt: input.startAt!, date: eventDateForInstant(input.startAt!, input.timezone), timeZone: input.timezone });
 
   if (community._id !== event.communityProfileId) {
     const confirmed = await db.query("eventInstanceAssociations")
@@ -1228,14 +1315,17 @@ async function updateCommunityEventRecord(
       throw new Error("You do not have permission to move this event to another community.");
     }
   }
-
   await db.patch(event._id, {
     title: input.title,
     sortTitle: input.sortTitle,
-    startAt: input.startAt,
-    ...(shouldUpdate("doorsOpenAt") ? { doorsOpenAt: input.doorsOpenAt } : {}),
-    ...(shouldUpdate("endAt") ? { endAt: input.endAt } : {}),
-    ...(shouldUpdate("timezone") ? { timezone: input.timezone } : {}),
+    ...schedule,
+    ...(event.contributionFingerprint === undefined ? {} : { contributionFingerprint: eventContributionFingerprint(community._id, schedule.eventDate, input.title) }),
+    ...(shouldUpdate("venueLabel") ? { venueLabel: input.venueLabel } : {}),
+    ...(schedule.scheduleKind === "date_only" ? { doorsOpenAt: undefined, endAt: undefined, timezone: undefined } : {
+      ...(shouldUpdate("doorsOpenAt") ? { doorsOpenAt: input.doorsOpenAt } : {}),
+      ...(shouldUpdate("endAt") ? { endAt: input.endAt } : {}),
+      ...(shouldUpdate("timezone") ? { timezone: input.timezone } : {}),
+    }),
     communityProfileId: community?._id,
     communityName:
       preserveCommunityName === true &&
@@ -1260,12 +1350,18 @@ async function updateCommunityEventRecord(
           ...(publicationState === "published" ? { publishedAt: event.publishedAt ?? now } : {}),
         }),
     updatedAt: now,
+    ...contributorStaffLock(event, now),
   });
   const updatedEvent = await db.get(event._id);
   if (updatedEvent === null) {
     throw new Error("Event update did not persist.");
   }
-  if(updatedEvent.startAt!==event.startAt||updatedEvent.communityProfileId!==event.communityProfileId)await syncClubEventOperations(ctx,event._id);
+  if (updatedEvent.startAt !== event.startAt || updatedEvent.communityProfileId !== event.communityProfileId) {
+    await syncClubEventOperations(ctx, event._id);
+  }
+  if (updatedEvent.startAt !== event.startAt) {
+    await reconcileEventMediaScheduleChange(db, event, updatedEvent.startAt, undefined, now);
+  }
   if (
     updatedEvent.communityProfileId !== undefined &&
     (updatedEvent.startAt !== event.startAt || updatedEvent.endAt !== event.endAt)
@@ -1273,21 +1369,41 @@ async function updateCommunityEventRecord(
     const confirmed = await db.query("eventInstanceAssociations")
       .withIndex("by_eventId_state", (query) => query.eq("eventId", event._id).eq("state", "confirmed"))
       .first();
-    if (confirmed?.communityProfileId === updatedEvent.communityProfileId) {
+    const rollupStartAt = updatedEvent.startAt ?? event.startAt;
+    if (confirmed?.communityProfileId === updatedEvent.communityProfileId && rollupStartAt !== undefined) {
       await ctx.scheduler.runAfter(0, internal.communityTelemetry.recomputeRollup, {
         communityProfileId: updatedEvent.communityProfileId,
         eventId: event._id,
         grain: "event",
-        bucketStartAt: updatedEvent.startAt,
-        bucketEndAt: updatedEvent.endAt ?? updatedEvent.startAt + 6 * 60 * 60_000,
+        bucketStartAt: rollupStartAt,
+        bucketEndAt: updatedEvent.endAt ?? event.endAt ?? rollupStartAt + 6 * 60 * 60_000,
         now,
       });
     }
   }
+  if (event.startAt !== undefined && updatedEvent.startAt === undefined) {
+    await retireConfirmedEventInstanceAssociations(db, event._id, now);
+  }
 
   const replaceWorld = shouldUpdate("worldSlug");
-  const replaceSlots = shouldUpdate("slotLinks");
-  const replaceParticipants = shouldUpdate("participantLinks");
+  const replaceLineup = input.lineup !== undefined;
+  const replaceSlots = !replaceLineup && shouldUpdate("slotLinks");
+  const replaceParticipants = !replaceLineup && shouldUpdate("participantLinks");
+  if (replaceLineup) await replaceEventLineup(db, updatedEvent, input.lineup!, now, {
+    preserveSlotAssociationIds, preserveParticipantAssociationIds,
+    preservePersonConfirmation: options.preserveLineupConfirmation,
+  });
+  if (!replaceLineup && !replaceSlots && schedule.scheduleKind === "date_only") {
+    const slots = await db.query("eventSlots").withIndex("by_eventId", q => q.eq("eventId", event._id)).collect();
+    for (const slot of slots) {
+      await db.insert("eventLineupEntries", {
+        eventId: event._id, clientKey: slot.clientKey ?? slot._id, position: slot.position,
+        performerLabel: slot.displayLabel, personProfileId: slot.personProfileId,
+        roleLabel: slot.roleLabel, updatedAt: now,
+      });
+      await db.delete(slot._id);
+    }
+  }
 
   if (replaceWorld) {
     await replaceEventWorldLink(db, updatedEvent, world, now, {
@@ -1313,15 +1429,12 @@ async function updateCommunityEventRecord(
   }
 
   await syncPreservedEventAssociations(db, updatedEvent, now, {
-    preserveParticipants: !replaceParticipants,
-    preserveSlots: !replaceSlots,
+    preserveParticipants: !replaceParticipants && !replaceLineup,
+    preserveSlots: !replaceSlots && !replaceLineup,
     preserveWorld: !replaceWorld,
   });
 
-  const [roleLabels, indexedWorld] = await Promise.all([
-    eventParticipantRoleLabels(db, event._id),
-    linkedPublishedEventWorld(db, event._id),
-  ]);
+  const { world: indexedWorld, roleLabels } = await eventSearchAssociations(db, updatedEvent);
   await reindexEventSearchDocument(
     db,
     updatedEvent,
@@ -1682,10 +1795,10 @@ async function settleEventMediaSessionCommands(
   );
 }
 
-async function settleEventMediaForCancellation(
+export async function settleEventMediaForCancellation(
   db: DatabaseWriter,
   event: Doc<"events">,
-  actor: AuthSubject,
+  actor: AuthSubject | undefined,
   now: number,
 ) {
   const program = await getLatestEventMediaProgram(db, event._id);
@@ -1751,6 +1864,7 @@ async function settleEventMediaForCancellation(
       eventId: event._id,
       sessionId: session._id,
       actor,
+      actorSurface: actor ? "web" : "system",
       action: "worker_schedule_cancelled_with_event",
       publicSummary: "Event media worker schedule cancelled with the event.",
       createdAt: now,
@@ -1783,6 +1897,7 @@ async function settleEventMediaForCancellation(
       sessionId: session._id,
       outputId: session.outputId,
       actor,
+      actorSurface: actor ? "web" : "system",
       idempotencyKey: `cancel-stop:${session._id}:${now}`,
       note: "Stop the event media worker because the event was cancelled.",
       now,
@@ -1793,6 +1908,7 @@ async function settleEventMediaForCancellation(
       sessionId: session._id,
       commandId,
       actor,
+      actorSurface: actor ? "web" : "system",
       action: "worker_stop_requested_for_cancelled_event",
       publicSummary: "Event media worker stop requested with event cancellation.",
       createdAt: now,
@@ -1803,6 +1919,29 @@ async function settleEventMediaForCancellation(
   if (program.publicLinks.length > 0) {
     await db.patch(program._id, { publicLinks: [], updatedAt: now });
   }
+}
+
+export async function reconcileEventMediaScheduleChange(
+  db: DatabaseWriter, event: Doc<"events">, startAt: number | undefined,
+  actor: AuthSubject | undefined, now: number,
+) {
+  if (startAt === undefined) return settleEventMediaForCancellation(db, event, actor, now);
+  if (event.startAt === undefined) return;
+  const program = await getLatestEventMediaProgram(db, event._id);
+  if (!program) return;
+  const session = await getOpenEventMediaSession(db, program);
+  if (session?.status !== "scheduled") return;
+  const startCommand = await db.query("eventMediaCommands")
+    .withIndex("by_sessionId_status_createdAt", q => q.eq("sessionId", session._id).eq("status", "queued"))
+    .filter(q => q.eq(q.field("commandType"), "start_program")).first();
+  if (!startCommand || session.scheduledStartAt === undefined || session.readyDeadlineAt === undefined) {
+    return settleEventMediaForCancellation(db, event, actor, now);
+  }
+  const delta = startAt - event.startAt;
+  await Promise.all([
+    db.patch(session._id, { scheduledStartAt: session.scheduledStartAt + delta, readyDeadlineAt: session.readyDeadlineAt + delta, updatedAt: now }),
+    db.patch(startCommand._id, { availableAt: (startCommand.availableAt ?? session.scheduledStartAt) + delta, updatedAt: now }),
+  ]);
 }
 
 function workerSessionStatus(session: Doc<"eventMediaSessions">) {
@@ -2111,30 +2250,30 @@ export const listPublicUpcoming = query({
     const [started, upcoming] = await Promise.all([
       ctx.db
         .query("events")
-        .withIndex("by_publicationState_eventStatus_startAt", (index) =>
+        .withIndex(dateOnlyEventsEnabled() ? "by_publicationState_eventStatus_sortAt" : "by_publicationState_eventStatus_startAt", (index) =>
           index
             .eq("publicationState", "published")
             .eq("eventStatus", "scheduled")
-            .lt("startAt", args.now),
+            .lt(dateOnlyEventsEnabled() ? "sortAt" : "startAt", args.now),
         )
         .order("desc")
         .take(candidateScanLimit),
       ctx.db
         .query("events")
-        .withIndex("by_publicationState_eventStatus_startAt", (index) =>
+        .withIndex(dateOnlyEventsEnabled() ? "by_publicationState_eventStatus_sortAt" : "by_publicationState_eventStatus_startAt", (index) =>
           index
             .eq("publicationState", "published")
             .eq("eventStatus", "scheduled")
-            .gte("startAt", args.now),
+            .gte(dateOnlyEventsEnabled() ? "sortAt" : "startAt", args.now),
         )
         .take(candidateScanLimit),
     ]);
     const ongoing = started
-      .filter((event) => (event.endAt ?? event.startAt) >= args.now)
+      .filter((event) => eventSortEndAt(event) >= args.now)
       .sort(
         (first, second) =>
-          (first.endAt ?? first.startAt) - (second.endAt ?? second.startAt) ||
-          first.startAt - second.startAt,
+          eventSortEndAt(first) - eventSortEndAt(second) ||
+          eventSortAt(first) - eventSortAt(second),
       );
     const events = [...ongoing, ...upcoming];
 
@@ -2549,7 +2688,7 @@ export const createCommunityEvent = mutation({
   },
 });
 
-async function managedCommunitiesForBrowser(
+export async function managedCommunitiesForBrowser(
   ctx: QueryCtx,
   options: { includeNonPublic?: boolean } = {},
 ) {
@@ -2667,7 +2806,7 @@ export const listManagedEvents = query({
         communities.map(async ({ profile }) => {
           const events = await ctx.db
             .query("events")
-            .withIndex("by_communityProfileId_startAt", (query) =>
+            .withIndex(dateOnlyEventsEnabled() ? "by_communityProfileId_sortAt" : "by_communityProfileId_startAt", (query) =>
               query.eq("communityProfileId", profile._id),
             )
             .order("desc")
@@ -2680,7 +2819,7 @@ export const listManagedEvents = query({
     return records
       .sort(
         (first, second) =>
-          second.event.startAt - first.event.startAt ||
+          eventSortAt(second.event) - eventSortAt(first.event) ||
           second.event.updatedAt - first.event.updatedAt,
       )
       .filter(({ event }) => event.slug !== undefined)
@@ -2689,7 +2828,7 @@ export const listManagedEvents = query({
         eventId: event._id,
         slug: event.slug,
         title: event.title,
-        startAt: event.startAt,
+        ...publicEventSchedule(event),
         endAt: event.endAt,
         publicationState: event.publicationState,
         status: event.eventStatus,
@@ -2892,7 +3031,8 @@ export const updateCommunityEvent = mutation({
     preservedParticipantAssociationIds: v.optional(v.array(v.id("eventParticipants"))),
     preservedSlotAssociationIds: v.optional(v.array(v.id("eventSlots"))),
     preservedWorldAssociationIds: v.optional(v.array(v.id("eventWorlds"))),
-    ...eventDraftArgs,
+    preserveLineupConfirmation: v.optional(v.boolean()),
+    ...eventDraftUpdateArgs,
   },
   handler: async (ctx, args) => {
     const subject = await requireAuthenticatedSubject(ctx);
@@ -2913,7 +3053,7 @@ export const updateCommunityEvent = mutation({
       throw new Error("You do not have permission to update this event.");
     }
 
-    const input = sanitizeEventDraftInput(args);
+    const input = await sanitizeOwnerEventInput(ctx.db, event, { ...normalizeEventDraftUpdateInput(args), title: args.title ?? event.title });
     const currentCommunity = event.communityProfileId === undefined
       ? null
       : await ctx.db.get(event.communityProfileId);
@@ -2983,6 +3123,7 @@ export const updateCommunityEvent = mutation({
       input,
       community,
       world,
+      updateFields: suppliedEventDraftFields(args),
       preserveCommunityName: preserveLoadedCommunity,
       preserveNonPublicAssociations: true,
       preserveParticipantAssociationIds: args.preservedParticipantAssociationIds,
@@ -2990,6 +3131,7 @@ export const updateCommunityEvent = mutation({
       preserveWorldAssociationIds: preservedWorldAssociations.map(
         ({ association }) => association._id,
       ),
+      preserveLineupConfirmation: args.preserveLineupConfirmation,
       publicationState,
     });
     await recordEventAuditEvent(ctx.db, {
@@ -3090,6 +3232,7 @@ export const setCommunityEventPublished = mutation({
   handler: async (ctx, args) => {
     const subject = await requireAuthenticatedSubject(ctx);
     const { event } = await getEditableEventBySlug(ctx, args.currentSlug, subject);
+    if (event.moderationRemovedAt !== undefined) throw new ConvexError({ code: "REMOVED_EVENT" });
     const now = Date.now();
     const publicationState = args.published
       ? ("published" as const)
@@ -3122,6 +3265,7 @@ export const setCommunityEventPublished = mutation({
       publicationState,
       ...(args.published ? { publishedAt: event.publishedAt ?? now } : {}),
       updatedAt: now,
+      ...contributorStaffLock(event, now),
     });
     const updated = await ctx.db.get(event._id);
     if (updated !== null) {
@@ -3130,20 +3274,18 @@ export const setCommunityEventPublished = mutation({
         preserveSlots: false,
         preserveWorld: true,
       });
-      const [community, world, roleLabels] = await Promise.all([
+      const [community, associations] = await Promise.all([
         updated.communityProfileId === undefined
           ? undefined
           : ctx.db.get(updated.communityProfileId),
-        linkedPublishedEventWorld(ctx.db, updated._id),
-        eventParticipantRoleLabels(ctx.db, updated._id),
+        eventSearchAssociations(ctx.db, updated),
       ]);
       await reindexEventSearchDocument(
         ctx.db,
         updated,
         {
           community: community?.profileType === "community" ? community : undefined,
-          world,
-          roleLabels,
+          ...associations,
         },
         now,
       );
@@ -3175,6 +3317,7 @@ export const setCommunityEventCancelled = mutation({
   handler: async (ctx, args) => {
     const subject = await requireAuthenticatedSubject(ctx);
     const { event } = await getEditableEventBySlug(ctx, args.currentSlug, subject);
+    if (event.moderationRemovedAt !== undefined) throw new ConvexError({ code: "REMOVED_EVENT" });
     const eventStatus = args.cancelled
       ? ("cancelled" as const)
       : ("scheduled" as const);
@@ -3203,7 +3346,7 @@ export const setCommunityEventCancelled = mutation({
     }
 
     const now = Date.now();
-    await ctx.db.patch(event._id, { eventStatus, updatedAt: now });
+    await ctx.db.patch(event._id, { eventStatus, updatedAt: now, ...contributorStaffLock(event, now) });
     await syncClubEventOperations(ctx,event._id,args.cancelled);
     if (args.cancelled) {
       await settleEventMediaForCancellation(ctx.db, event, subject, now);
@@ -3215,20 +3358,18 @@ export const setCommunityEventCancelled = mutation({
         preserveSlots: false,
         preserveWorld: true,
       });
-      const [community, world, roleLabels] = await Promise.all([
+      const [community, associations] = await Promise.all([
         updated.communityProfileId === undefined
           ? undefined
           : ctx.db.get(updated.communityProfileId),
-        linkedPublishedEventWorld(ctx.db, updated._id),
-        eventParticipantRoleLabels(ctx.db, updated._id),
+        eventSearchAssociations(ctx.db, updated),
       ]);
       await reindexEventSearchDocument(
         ctx.db,
         updated,
         {
           community: community?.profileType === "community" ? community : undefined,
-          world,
-          roleLabels,
+          ...associations,
         },
         now,
       );
@@ -3338,6 +3479,7 @@ export const scheduleEventMediaWorker = mutation({
 
     const outputKey = optionalTrimmedText(args.outputKey, "Output key", 64)?.toLowerCase();
     const output = await getReadyEventMediaOutput(ctx.db, program, outputKey);
+    if (event.startAt === undefined || event.scheduleKind === "date_only") throw new Error("Set an event time before scheduling a media worker.");
     const schedule = sanitizeEventMediaWorkerSchedule({
       eventStartAt: event.startAt,
       scheduledStartAt: args.scheduledStartAt,

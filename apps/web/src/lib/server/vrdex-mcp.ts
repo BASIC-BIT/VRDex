@@ -1,4 +1,6 @@
 import { actionableReceipt, safeCommandError } from "./media-command-result";
+import { eventIntakeOperations, type EventIntakeOperation } from "@vrdex/api-contracts";
+import { createEventIntakeCommands, eventIntakeErrorResponse } from "./event-intake-api";
 import { cachedProfileLinkDestinationArtwork } from "./profile-link-destination-artwork-cache";
 import { fetchProfileAssetSourceUrl } from "./profile-asset-source-import";
 import { reviewRebaseSchema, selectedReviewDecisionsSchema } from "@vrdex/api-contracts";
@@ -96,7 +98,7 @@ type VrdexMcpConvexClient = Pick<ReturnType<typeof convexHttpClient>, "query">;
 // `query` as well as `mutation` now: the owned-inventory read goes through an
 // internal query, because the profiles it exists to reach are the ones the
 // public query is right to hide.
-type VrdexMcpAdminConvexClient = Pick<ReturnType<typeof convexAdminHttpClient>, "mutation" | "query">;
+type VrdexMcpAdminConvexClient = Pick<ReturnType<typeof convexAdminHttpClient>, "mutation" | "query"> & Partial<Pick<ReturnType<typeof convexAdminHttpClient>, "action">>;
 type AcceptedMcpRouteClass =
   | "anonymous_mcp_public_read"
   | "authenticated_mcp"
@@ -115,7 +117,7 @@ type VrdexMcpServerOptions = {
 type PublicSearchResponse = z.infer<typeof PublicSearchResponseSchema>;
 type PublicSearchResult = PublicSearchResponse["results"][number];
 type PublicProfile = z.infer<typeof PublicProfileSchema>;
-type PublicEvent = z.infer<typeof PublicEventSchema>;
+type PublicEvent = z.infer<typeof PublicEventSchema> | import("../../../../../convex/_eventPublic").PublicEvent;
 type PublicWorld = z.infer<typeof PublicWorldSchema>;
 type McpDocumentFetchResponse = z.infer<typeof McpDocumentFetchResponseSchema>;
 type McpDocumentDescriptor =
@@ -132,6 +134,9 @@ const mcpAssetWriteToolNames = [
   "vrdex_profile_media_submit",
 ] as const;
 const mcpWriteToolNames = [
+  "vrdex_event_intake_draft_save", "vrdex_event_intake_extract", "vrdex_event_intake_publish",
+  "vrdex_event_intake_poster_upload_begin", "vrdex_event_intake_poster_upload_complete",
+  "vrdex_event_intake_artwork_select", "vrdex_event_intake_event_update", "vrdex_event_intake_event_retract",
   ...mcpEventWriteToolNames,
   ...mcpProfileWriteToolNames,
   ...mcpAssetWriteToolNames,
@@ -156,6 +161,14 @@ const mcpWriteToolNames = [
  * name. A request calling both kinds needs both scopes.
  */
 const mcpWriteToolResourceScopes: Record<(typeof mcpWriteToolNames)[number], ApiScope> = {
+  vrdex_event_intake_draft_save: "events:contribute",
+  vrdex_event_intake_extract: "events:contribute",
+  vrdex_event_intake_publish: "events:contribute",
+  vrdex_event_intake_poster_upload_begin: "events:contribute",
+  vrdex_event_intake_poster_upload_complete: "events:contribute",
+  vrdex_event_intake_artwork_select: "events:contribute",
+  vrdex_event_intake_event_update: "events:contribute",
+  vrdex_event_intake_event_retract: "events:contribute",
   vrdex_event_create: "events:write",
   vrdex_event_update: "events:write",
   vrdex_profile_update: "profile:write",
@@ -187,6 +200,8 @@ const mcpWriteToolResourceScopes: Record<(typeof mcpWriteToolNames)[number], Api
  * and its owner still has to be able to read the revision every update pins.
  */
 const mcpOwnedReadToolNames = [
+  "vrdex_event_intake_draft_get",
+  "vrdex_event_intake_event_get",
   "vrdex_contribution_capacity",
   "vrdex_contribution_capacity_requests",
   "vrdex_contribution_status",
@@ -201,6 +216,8 @@ const mcpOwnedReadToolNames = [
   "vrdex_media_submission_preview",
 ] as const;
 const mcpOwnedReadToolScopes: Record<(typeof mcpOwnedReadToolNames)[number], ApiScope> = {
+  vrdex_event_intake_draft_get: "events:contribute",
+  vrdex_event_intake_event_get: "events:contribute",
   vrdex_contribution_capacity: "assets:contribute",
   vrdex_contribution_capacity_requests: "assets:contribute",
   vrdex_contribution_status: "assets:contribute",
@@ -777,7 +794,8 @@ function eventToMcpDocument(event: PublicEvent): McpDocumentFetchResponse | null
   addMcpDocumentLine(lines, "Slug", event.slug);
   addMcpDocumentLine(lines, "Community", event.communityName);
   addMcpDocumentLine(lines, "Community slug", event.communitySlug);
-  addMcpDocumentLine(lines, "Start", formatTimestampMs(event.startAt));
+  if (event.scheduleKind === "date_only") addMcpDocumentLine(lines, "Date", `${event.eventDate} (Time TBA)`);
+  else addMcpDocumentLine(lines, "Start", formatTimestampMs(event.startAt));
   addMcpDocumentLine(lines, "Doors open", formatTimestampMs(event.doorsOpenAt));
   addMcpDocumentLine(lines, "End", formatTimestampMs(event.endAt));
   addMcpDocumentLine(lines, "Timezone", event.timezone);
@@ -793,6 +811,8 @@ function eventToMcpDocument(event: PublicEvent): McpDocumentFetchResponse | null
       entityType: "event",
       slug: event.slug,
       startAt: event.startAt,
+      eventDate: event.eventDate,
+      scheduleKind: event.scheduleKind,
     },
     text: lines.join("\n"),
     title: event.title,
@@ -1843,7 +1863,7 @@ export async function authorizeHostedMcpRequest(
 
   if (
     bearerToken === null
-    && (writeRequested || !anonymousPublicReads)
+    && (writeRequested || toolNames.some(name => mcpOwnedReadToolNameSet.has(name)) || !anonymousPublicReads)
   ) {
     const response = await rateLimitMcpAuthenticationFailure(
       request,
@@ -1983,10 +2003,12 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       return response;
     } catch (error) {
       const denial = hostedMediaReviewDenial(toolName, error);
+      const intakeError = toolName.startsWith("vrdex_event_intake_") ? eventIntakeErrorResponse(error) : null;
       await recordHostedMcpWriteInvocation({
         ...details,
-        result: denial === null ? "indeterminate" : "denied",
+        result: denial !== null || (intakeError !== null && intakeError.status < 500) ? "denied" : "indeterminate",
       });
+      if (intakeError !== null) throw error;
       let result;
       if (denial !== null) {
         const receipt = commandReceiptSchema.parse({
@@ -2059,6 +2081,39 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     name: "vrdex",
     version: "0.5.0",
   });
+  for (const operation of Object.keys(eventIntakeOperations) as EventIntakeOperation[]) {
+    const contract = eventIntakeOperations[operation];
+    const readOnly = operation === "draft_get" || operation === "event_get";
+    const toolName = `vrdex_event_intake_${operation}` as const;
+    const scopes: ApiScope[] = [readOnly ? "mcp:read" : "mcp:write", "events:contribute"];
+    server.registerTool(toolName, {
+      title: toolName, description: `Event intake ${operation.replaceAll("_", " ")}.`,
+      inputSchema: fromJsonSchema<Record<string, unknown>>(mcpOutputJsonSchemaForZodSchema(contract.input)), outputSchema: mcpOutputSchema<Record<string, unknown>>(contract.output),
+      annotations: { readOnlyHint: readOnly, destructiveHint: operation === "event_retract", idempotentHint: readOnly || operation === "publish" },
+      _meta: { securitySchemes: [{ type: "oauth2", scopes }] },
+    }, async input => {
+      const principal = hostedMcpPrincipal(options.authInfo, scopes);
+      if (!principal) return { isError: true, content: [{ type: "text" as const, text: "User-scoped event contribution access required." }] };
+      try {
+        const client = adminConvex();
+        const execute = createEventIntakeCommands({ actorUserId: principal.userId, actorSurface: "mcp", admin: {
+          query: client.query.bind(client), mutation: client.mutation.bind(client),
+          get action() {
+            const actionClient = client.action ? client : convexAdminHttpClient();
+            return actionClient.action!.bind(actionClient);
+          },
+        } });
+        const structuredContent = toolName === "vrdex_event_intake_draft_get" || toolName === "vrdex_event_intake_event_get"
+          ? await execute(operation, input)
+          : await recordNewWrite(toolName, principal, input, () => execute(operation, input));
+        if ("isError" in structuredContent && structuredContent.isError === true) return structuredContent;
+        return { content: [{ type: "text" as const, text: JSON.stringify(structuredContent) }], structuredContent };
+      } catch (error) {
+        const response = await eventIntakeErrorResponse(error).json();
+        return { isError: true, content: [{ type: "text" as const, text: `${response.title}${response.detail ? `: ${response.detail}` : "."} Read the draft before retrying; replay publication with the same version and idempotency key.` }] };
+      }
+    });
+  }
   const mediaReviewHandlersFor = (principal: HostedMcpPrincipal, publisher = false,
   ) =>
     createMcpMediaReviewHandlers({

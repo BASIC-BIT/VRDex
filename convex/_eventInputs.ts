@@ -5,6 +5,7 @@ import {
   type SanitizedEventSlotInput,
 } from "./_eventSlots";
 import { parseVrcdnStreamLinks } from "./_vrcdnLinks";
+import { normalizeEventSchedule } from "./_eventSchedule";
 
 export const EVENT_TITLE_MIN_LENGTH = 2;
 export const EVENT_TITLE_MAX_LENGTH = 120;
@@ -16,6 +17,43 @@ export const EVENT_MEDIA_LINK_MAX_COUNT = 8;
 export const EVENT_MEDIA_LABEL_MAX_LENGTH = 80;
 export const EVENT_PARTICIPANT_MAX_COUNT = 80;
 export const EVENT_PARTICIPANT_ROLE_MAX_LENGTH = 48;
+
+export type EventLineupInput = Array<{
+  selectedStreamId?: string | null;
+  clientKey: string;
+  position: number;
+  performerLabel: string;
+  personSlug?: string;
+  roleLabel?: string;
+  startAt?: number;
+  endAt?: number;
+}>;
+
+export function sanitizeEventLineupInput(input: EventLineupInput): EventLineupInput {
+  if (input.length > EVENT_PARTICIPANT_MAX_COUNT) throw new Error("Lineup can include at most 80 entries.");
+  const keys = new Set<string>();
+  const positions = new Set<number>();
+  return input.map(entry => {
+    const clientKey = requireBoundedText(entry.clientKey, "Lineup row key", 1, 120);
+    if (keys.has(clientKey) || positions.has(entry.position)) throw new Error("Lineup keys and positions must be unique.");
+    if (!Number.isInteger(entry.position) || entry.position < 0 || entry.position >= EVENT_PARTICIPANT_MAX_COUNT) {
+      throw new Error("Lineup position must be an integer from 0 to 79.");
+    }
+    keys.add(clientKey);
+    positions.add(entry.position);
+    const startAt = entry.startAt === undefined ? undefined : requireValidTimestamp(entry.startAt, "Set start time");
+    const endAt = entry.endAt === undefined ? undefined : requireValidTimestamp(entry.endAt, "Set end time");
+    if (endAt !== undefined && (startAt === undefined || endAt <= startAt)) throw new Error("Set end time requires an earlier start time.");
+    return {
+      ...(entry.selectedStreamId === undefined ? {} : { selectedStreamId: entry.selectedStreamId }),
+      clientKey, position: entry.position,
+      performerLabel: requireBoundedText(entry.performerLabel, "Performer name", 1, 120),
+      ...optionalObjectField("personSlug", optionalBoundedText(entry.personSlug, "Person slug", 64)),
+      ...optionalObjectField("roleLabel", optionalBoundedText(entry.roleLabel, "Role", EVENT_PARTICIPANT_ROLE_MAX_LENGTH)),
+      ...optionalObjectField("startAt", startAt), ...optionalObjectField("endAt", endAt),
+    };
+  }).sort((a, b) => a.position - b.position);
+}
 
 type EventMediaLinkType =
   | "event_page"
@@ -95,11 +133,19 @@ export const eventDraftNullableFields = [
 
 type EventDraftNullableField = (typeof eventDraftNullableFields)[number];
 
-export type EventDraftUpdateInput = Omit<Partial<EventDraftInput>, EventDraftNullableField> & {
+export type EventOwnerDraftInput = Omit<EventDraftInput, "startAt"> & {
+  startAt?: number;
+  scheduleKind?: "timed" | "date_only";
+  eventDate?: string;
+  venueLabel?: string;
+  lineup?: EventLineupInput;
+};
+
+export type EventDraftUpdateInput = Omit<Partial<EventOwnerDraftInput>, EventDraftNullableField> & {
   [Field in EventDraftNullableField]?: EventDraftInput[Field] | null;
 };
 
-export function normalizeEventDraftUpdateInput(input: EventDraftUpdateInput): Partial<EventDraftInput> {
+export function normalizeEventDraftUpdateInput(input: EventDraftUpdateInput): Partial<EventOwnerDraftInput> {
   const normalized = { ...input } as Record<string, unknown>;
 
   for (const field of eventDraftNullableFields) {
@@ -108,18 +154,19 @@ export function normalizeEventDraftUpdateInput(input: EventDraftUpdateInput): Pa
     }
   }
 
-  return normalized as Partial<EventDraftInput>;
+  return normalized as Partial<EventOwnerDraftInput>;
 }
 
 export function preserveOmittedEventDraftFields(
-  input: Partial<EventDraftInput>,
-  preserved: EventDraftInput,
-): EventDraftInput {
+  input: Partial<EventOwnerDraftInput>,
+  preserved: EventOwnerDraftInput,
+): EventOwnerDraftInput {
   return {
     ...preserved,
     ...input,
     title: input.title ?? preserved.title,
-    startAt: input.startAt ?? preserved.startAt,
+    startAt: input.scheduleKind === "date_only" ? input.startAt : input.startAt ?? preserved.startAt,
+    ...(input.scheduleKind === "date_only" ? { doorsOpenAt: input.doorsOpenAt, endAt: input.endAt } : {}),
   };
 }
 
@@ -382,22 +429,30 @@ function assertDerivedParticipantLimit(
   }
 }
 
-export function sanitizeEventDraftInput(input: EventDraftInput): SanitizedEventDraftInput {
+export type SanitizedEventOwnerDraftInput = Omit<SanitizedEventDraftInput, "startAt"> & Pick<EventOwnerDraftInput, "startAt" | "scheduleKind" | "eventDate" | "venueLabel" | "lineup">;
+export function sanitizeEventDraftInput(input: EventDraftInput): SanitizedEventDraftInput;
+export function sanitizeEventDraftInput(input: EventOwnerDraftInput): SanitizedEventOwnerDraftInput;
+export function sanitizeEventDraftInput(input: EventOwnerDraftInput): SanitizedEventOwnerDraftInput {
   const title = requireBoundedText(
     input.title,
     "Event title",
     EVENT_TITLE_MIN_LENGTH,
     EVENT_TITLE_MAX_LENGTH,
   );
-  const startAt = requireValidTimestamp(input.startAt, "Event start time");
+  const dateOnly = input.scheduleKind === "date_only";
+  if (dateOnly) {
+    normalizeEventSchedule({ kind: "date_only", date: input.eventDate ?? "" });
+    if (input.startAt !== undefined || input.endAt !== undefined || input.doorsOpenAt !== undefined || input.slotLinks?.length) throw new Error("Time TBA cannot include event times.");
+  }
+  const startAt = dateOnly ? undefined : requireValidTimestamp(input.startAt!, "Event start time");
   const doorsOpenAt = input.doorsOpenAt === undefined ? undefined : requireValidTimestamp(input.doorsOpenAt, "Doors-open time");
   const endAt = input.endAt === undefined ? undefined : requireValidTimestamp(input.endAt, "Event end time");
 
-  if (doorsOpenAt !== undefined && doorsOpenAt > startAt) {
+  if (doorsOpenAt !== undefined && startAt !== undefined && doorsOpenAt > startAt) {
     throw new Error("Doors-open time must be at or before the event start time.");
   }
 
-  if (endAt !== undefined && endAt <= startAt) {
+  if (endAt !== undefined && startAt !== undefined && endAt <= startAt) {
     throw new Error("Event end time must be after the start time.");
   }
 
@@ -408,7 +463,7 @@ export function sanitizeEventDraftInput(input: EventDraftInput): SanitizedEventD
   ) ?? "Community-submitted event";
   const timezone = optionalIanaTimezone(input.timezone);
   const participantLinks = sanitizeParticipantLinks(input.participantLinks, sourceLabel);
-  const slotLinks = sanitizeEventSlotInputs(input.slotLinks, sourceLabel, { startAt, endAt });
+  const slotLinks = startAt === undefined ? [] : sanitizeEventSlotInputs(input.slotLinks, sourceLabel, { startAt, endAt });
   assertDerivedParticipantLimit(participantLinks, slotLinks);
 
   if (slotLinks.length > 0 && timezone === undefined) {
@@ -419,6 +474,9 @@ export function sanitizeEventDraftInput(input: EventDraftInput): SanitizedEventD
     title,
     sortTitle: createEventSortTitle(title),
     startAt,
+    ...(dateOnly ? { scheduleKind: "date_only" as const, eventDate: input.eventDate } : {}),
+    ...optionalObjectField("venueLabel", optionalBoundedText(input.venueLabel, "Venue", 160)),
+    ...(input.lineup === undefined ? {} : { lineup: sanitizeEventLineupInput(input.lineup) }),
     ...optionalObjectField("doorsOpenAt", doorsOpenAt),
     ...(endAt ? { endAt } : {}),
     ...optionalObjectField("timezone", timezone),

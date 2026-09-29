@@ -4,6 +4,9 @@ import { internal } from "./_generated/api";
 
 const crons = cronJobs();
 
+crons.hourly("expire abandoned event intake drafts", { minuteUTC: 45 }, internal.eventIntake.expireDrafts, {});
+crons.hourly("expire removed event fingerprints", { minuteUTC: 50 }, internal.eventCorrections.expireEventSuppressions, {});
+
 // Each pass also covers rows created before independent deadline recovery.
 for (const state of ["pending", "claimed"] as const) {
   crons.interval(
@@ -101,6 +104,7 @@ crons.daily(
   {},
 );
 
+// The shared authenticated worker also sweeps event evidence and abandoned artwork.
 crons.interval("reconcile media upload objects", { minutes: 10 }, internal.contributionCleanup.sweep, {});
 
 crons.interval("expire archived contribution payloads", { minutes: 10 }, internal.contributionOperations.expirePayloads, {});

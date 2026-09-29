@@ -31,13 +31,15 @@ type WorldLinkType =
   | "generic_store"
   | "other";
 type WorldLinkSource = "owner_authored" | "reviewed" | "partner_provided" | "community_submitted";
-type EventSourceType = "manual" | "community" | "partner" | "import" | "ai_suggested";
+type EventSourceType = "manual" | "community" | "partner" | "import" | "ai_suggested" | "contributor";
 
 type PublicWorldEventPreview = {
   slug?: string;
   communitySlug?: string;
   title: string;
-  startAt: number;
+  startAt?: number;
+  eventDate?: string;
+  scheduleKind?: "timed" | "date_only";
   doorsOpenAt?: number;
   endAt?: number;
   timezone?: string;
@@ -221,14 +223,14 @@ function EventList({
         return (
           <article
             className="overflow-hidden rounded-card border border-border bg-surface text-sm"
-            key={`${event.title}-${event.startAt}`}
+            key={`${event.slug ?? event.title}-${event.eventDate ?? event.startAt}`}
           >
             <div
               className="bg-[linear-gradient(135deg,var(--surface),var(--surface-raised))] bg-cover bg-center px-4 py-4"
               style={posterStyle}
             >
               <div className={`flex flex-wrap items-center gap-2 text-xs ${posterTextClass}`}>
-                <ViewerLocalEventDateTime timestamp={event.startAt} />
+                <ViewerLocalEventDateTime timestamp={event.startAt} eventDate={event.eventDate} scheduleKind={event.scheduleKind} />
                 <span aria-hidden="true">/</span>
                 <span>Confirmed venue</span>
               </div>

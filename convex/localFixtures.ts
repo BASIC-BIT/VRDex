@@ -1,3 +1,4 @@
+import { readEventSchedule, eventSortAt, eventSortEndAt } from "./_eventSchedule";
 // convex/localFixtures.ts
 //
 // Seeds a local anonymous deployment with the fake dataset in
@@ -232,7 +233,7 @@ async function ensureEvents(
       slug: fixture.slug,
       title: fixture.title,
       sortTitle: sortName(fixture.title),
-      startAt: fixture.startAt,
+      ...readEventSchedule(fixture),
       doorsOpenAt: fixture.doorsOpenAt,
       endAt: fixture.endAt,
       timezone: fixture.timezone,
@@ -272,6 +273,8 @@ async function ensureEvents(
     const joinFields = {
       eventId,
       eventStartAt: fixture.startAt,
+      eventSortAt: eventSortAt(fixture),
+      eventSortEndAt: eventSortEndAt(fixture),
       eventEndAt: fixture.endAt,
       eventPublicationState: "published" as const,
       eventStatus: "scheduled" as const,

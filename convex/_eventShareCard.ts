@@ -1,12 +1,15 @@
+import { publicEventSchedule } from "./_eventSchedule";
 import type { Doc } from "./_generated/dataModel";
-import { firstSafeHttpsUrl, optionalField } from "./_publicFields";
+import { firstSafePublicImageUrl, optionalField } from "./_publicFields";
 
 export type PublicEventShareCard = {
   slug: string;
   communitySlug: string;
   communityName: string;
   title: string;
-  startAt: number;
+  startAt?: number;
+  scheduleKind?: "timed" | "date_only";
+  eventDate?: string;
   endAt?: number;
   timezone?: string;
   status: "scheduled" | "cancelled";
@@ -34,7 +37,7 @@ export function toPublicEventShareCard(
     return null;
   }
 
-  const artworkImageUrl = firstSafeHttpsUrl(
+  const artworkImageUrl = firstSafePublicImageUrl(
     event.posterImageUrl,
     event.bannerImageUrl,
     event.thumbnailImageUrl,
@@ -45,9 +48,9 @@ export function toPublicEventShareCard(
     communitySlug: community.slug,
     communityName: community.displayName,
     title: event.title,
-    startAt: event.startAt,
+    ...publicEventSchedule(event),
     status: event.eventStatus,
-    ...optionalField("endAt", event.endAt),
+    ...optionalField("endAt", event.scheduleKind === "date_only" ? undefined : event.endAt),
     ...optionalField("timezone", event.timezone),
     ...optionalField("summary", event.summary),
     ...optionalField("artworkImageUrl", artworkImageUrl),

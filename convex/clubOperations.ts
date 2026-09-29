@@ -183,7 +183,8 @@ async function effectiveDueAt(ctx: MutationCtx, job: Doc<"clubOperations">) {
   if (job.schedule.kind !== "event_relative" ||
       (job.state !== "pending" && job.state !== "claimed")) return job.dueAt;
   const event = await ctx.db.get(job.schedule.eventId);
-  return event ? event.startAt + job.schedule.offsetMs : job.dueAt;
+  return event?.startAt !== undefined && event.scheduleKind !== "date_only"
+    ? event.startAt + job.schedule.offsetMs : job.dueAt;
 }
 async function dependencyTimingChanged(
   ctx: MutationCtx,
@@ -220,12 +221,15 @@ async function scheduleTime(
         !actor.permissions.includes("manage_events")))
   )
     throw new Error("Event unavailable for this club.");
+  if (schedule.kind === "event_relative" &&
+      (event?.startAt === undefined || event.scheduleKind === "date_only"))
+    throw new Error("Invalid execution time.");
   const dueAt =
     schedule.kind === "fixed"
       ? schedule.dueAt
       : schedule.kind === "immediate"
         ? now
-        : event!.startAt + schedule.offsetMs;
+        : event!.startAt! + schedule.offsetMs;
   if (
     !Number.isSafeInteger(dueAt) ||
     dueAt < now - LATE_GRACE_MS ||
@@ -773,15 +777,25 @@ export const claim = internalMutation({
         });
         continue;
       }
+      if (job.schedule.kind === "event_relative" && event &&
+          (event.startAt === undefined || event.scheduleKind === "date_only")) {
+        await patchOperation(ctx, job._id, {
+          state: "cancelled",
+          code: "event_time_tba",
+          completedAt: now,
+          updatedAt: now,
+        });
+        continue;
+      }
       if (
         job.schedule.kind === "event_relative" &&
         event &&
-        job.dueAt !== event.startAt + job.schedule.offsetMs
+        job.dueAt !== event.startAt! + job.schedule.offsetMs
       ) {
         await patchOperation(ctx, job._id, {
-          dueAt: event.startAt + job.schedule.offsetMs,
+          dueAt: event.startAt! + job.schedule.offsetMs,
           readyAt: Math.max(
-            event.startAt + job.schedule.offsetMs,
+            event.startAt! + job.schedule.offsetMs,
             job.retryAt ?? 0,
           ),
           updatedAt: now,
@@ -904,16 +918,19 @@ export const authorizeSubmission = internalMutation({
         event.eventStatus === "cancelled"
       )
         return reject("event_cancelled");
+      if (job.schedule.kind === "event_relative" &&
+          (event.startAt === undefined || event.scheduleKind === "date_only"))
+        return reject("event_time_tba");
       if (
         job.schedule.kind === "event_relative" &&
-        job.dueAt !== event.startAt + job.schedule.offsetMs
+        job.dueAt !== event.startAt! + job.schedule.offsetMs
       ) {
         await patchOperation(ctx, job._id, {
           state: "pending",
           claim: undefined,
-          dueAt: event.startAt + job.schedule.offsetMs,
+          dueAt: event.startAt! + job.schedule.offsetMs,
           readyAt: Math.max(
-            event.startAt + job.schedule.offsetMs,
+            event.startAt! + job.schedule.offsetMs,
             job.retryAt ?? 0,
           ),
           updatedAt: now,
@@ -1227,9 +1244,20 @@ export const expireUnsent = internalMutation({
         });
         continue;
       }
+      if (job.schedule.kind === "event_relative" && event &&
+          (event.startAt === undefined || event.scheduleKind === "date_only")) {
+        await patchOperation(ctx, job._id, {
+          state: "cancelled",
+          claim: undefined,
+          code: "event_time_tba",
+          completedAt: now,
+          updatedAt: now,
+        });
+        continue;
+      }
       const dueAt =
         job.schedule.kind === "event_relative" && event
-          ? event.startAt + job.schedule.offsetMs
+          ? event.startAt! + job.schedule.offsetMs
           : job.dueAt;
       if (now - dueAt > LATE_GRACE_MS) {
         await patchOperation(ctx, job._id, {

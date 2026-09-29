@@ -47,6 +47,17 @@ export async function syncClubEventOperationPage(
       continue;
     }
     if (job.schedule.kind !== "event_relative") continue;
+    if (event.startAt === undefined || event.scheduleKind === "date_only") {
+      // Restoring a time requires a new reviewed action; never replay a cancelled provider write.
+      await ctx.db.patch(job._id, {
+        state: "cancelled",
+        claim: undefined,
+        code: "event_time_tba",
+        completedAt: now,
+        updatedAt: now,
+      });
+      continue;
+    }
     const dueAt = event.startAt + job.schedule.offsetMs;
     if (dueAt === job.dueAt) continue;
     // Clearing the claim invalidates any worker that fetched the old execution time.

@@ -292,6 +292,21 @@ it("event picker paginates only the current club and instance roles need no memb
         publishedAt: Date.now(),
         updatedAt: Date.now(),
       });
+    await ctx.db.insert("events", {
+      slug: "time-tba",
+      title: "Time TBA",
+      sortTitle: "time tba",
+      scheduleKind: "date_only",
+      eventDate: "2026-10-01",
+      sortAt: Date.parse("2026-10-01T00:00:00Z"),
+      communityProfileId: s.communityProfileId,
+      sourceType: "manual",
+      sourceLabel: "test",
+      eventStatus: "scheduled",
+      publicationState: "published",
+      publishedAt: Date.now(),
+      updatedAt: Date.now(),
+    });
     await ctx.db.patch(s.integrationId, { enabledFeatures: ["instances"] });
   });
   const first = await s.owner.query(ref("listEvents"), {

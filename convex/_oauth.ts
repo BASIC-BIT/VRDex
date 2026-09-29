@@ -106,6 +106,7 @@ const apiScopes = new Set<ApiScope>([
   "profile:contribute",
   "events:read",
   "events:write",
+  "events:contribute",
   "assets:read",
   "assets:write",
   "assets:contribute",
@@ -127,7 +128,7 @@ const oauthResponseTypes = new Set<OAuthResponseType>(["code"]);
 // requestable because `vrdex_list_my_profiles` needs it; what a client gets for
 // naming no scopes stays public-read only, and that default lives in the
 // contracts package rather than in this predicate.
-const dynamicMcpDualUseResourceScopes = new Set<ApiScope>(["assets:contribute"]);
+const dynamicMcpDualUseResourceScopes = new Set<ApiScope>(["assets:contribute", "events:contribute"]);
 const dynamicMcpReadScopes = new Set<ApiScope>([
   "public:read",
   "mcp:read",

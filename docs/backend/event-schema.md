@@ -6,14 +6,14 @@ Current recommendation and implementation note for `#34`, `#35`, `#36`, `#93`, `
 
 ## Event Records
 
-Events are the primary scheduling object. They are not modeled as appearances or profile-page blocks. Sessions are child schedule records under the canonical event.
+Events are the primary scheduling object. They are not modeled as appearances or profile-page blocks. Timed slots are child schedule records under the canonical event.
 
 Current event fields include:
 
 - automatically generated event code for `/<community>/events/<event-code>`
   public routes (stored in the existing `slug` field)
 - title and sort title
-- start time, optional doors-open time, and optional end time
+- timed start, optional doors/end, or an explicit date-only schedule
 - optional canonical event time zone
 - optional linked community profile
 - optional public description (stored as `summary`)
@@ -23,25 +23,60 @@ Current event fields include:
 - typed media links
 - publication state
 - scheduled or cancelled event status
-- submitter identity for provenance, not lasting authority on a community-linked event
+- submitter identity for provenance; contributed events separately track scoped
+  contributor editing until staff takeover
 
 Generated durable short links such as `/l/<code>` are tracked in [Generated Short Links](./generated-short-links.md). An event uses that same generated code in its canonical community-scoped URL. Event codes are not editable.
 
 ## Event Times
 
-Event `startAt`, `doorsOpenAt`, and `endAt` are stored as timestamps. The optional `timezone` field is the canonical event timezone used by operators for public schedule display and by the event editor when parsing local `datetime-local` inputs.
+Timed events store `startAt`, optional `doorsOpenAt`, and optional `endAt` as timestamps. `scheduleKind` is `timed` or `date_only`; legacy rows without it are read as timed. `eventDate` is the authored `YYYY-MM-DD` calendar date. The optional `timezone` field supplies the authoring zone for timed events. Existing owner authoring remains a timed-event interface; contribution authoring adds the date-only write path separately.
+
+Date-only events omit `startAt`. Public cards show the authored date and `Time TBA` without converting it into the viewer's timezone. ICS emits `DTSTART;VALUE=DATE`; Discord exports the date and `Time TBA` without a Discord timestamp. Date-only events never activate watch playback, scheduled media workers, or instance telemetry windows. Public projections suppress stale timed fields and slots.
+
+`sortAt` is an internal index key, never a start instant or public JSON field. Timed rows use their start instant; date-only rows use a sortable UTC date key. Participant and world caches use `eventSortAt` and `eventSortEndAt`; timed slot playback keeps its own exact start and end instants. Date-only upcoming eligibility lasts until the authored date ends in UTC-12, so timezone-boundary viewers do not lose the listing early.
+
+Discovery scans future sort keys separately from the date-only lookback, with at most 500 records per scan. The lookback index includes `scheduleKind`, so expired timed records cannot consume either result allowance or hide eligible date-only records.
+
+### Schedule migration and rollout
+
+The Convex deployment variable `EVENT_DATE_ONLY_ENABLED` defaults to false. The deployment operator owns it. Deploy the widened schema and new indexes first, then invoke internal mutation `eventScheduleMigration:backfill` with `{ "batchSize": 100 }`. Persist its returned `phase` and `cursor`, passing both into the next call until `done` is true. The phases cover events, participants, worlds, slots, and search documents. Each transaction processes at most 100 rows and can be replayed. Verify completion and index readiness before setting the variable to `true`; recreate or roll back the switch by setting it to `false`. No secret or rotation is involved. Turning it off after date-only publication hides those records from legacy index listings, so disable new contribution writes first when rolling back.
+
+New date-only publication must call `requireDateOnlyEventsEnabled()` and `normalizeEventSchedule({ kind: "date_only", date })` from `convex/_eventSchedule.ts`, then write the canonical event, association sort caches, and search document in the same transaction. New timed contribution publication must require an explicitly selected timezone before normalization. `normalizeEventSchedule` itself remains a pure validator usable by migration and read paths. Existing timed writes dual-write the new schedule fields while reads retain the old indexes until the switch is enabled. This change does not run a deployed migration or enable publication automatically.
 
 `doorsOpenAt` is public and optional. When provided, it must be at or before `startAt`; it does not change the event start, slot offsets, participant associations, or event-world association timestamps.
 
-The editor parses event date/time inputs in the named event timezone. A local time skipped by a daylight-saving transition is invalid; for a repeated local time, the editor consistently chooses the earlier occurrence. Public event cards, pages, and set times render directly in the viewer's local timezone; they do not repeat a canonical-timezone line.
+The editor parses event date/time inputs in the named event timezone. A local time skipped by a daylight-saving transition is invalid; a repeated local time requires an explicit earlier/later choice. An unchanged owner timestamp keeps its exact instant. Public event cards, pages, and set times render directly in the viewer's local timezone; they do not repeat a canonical-timezone line.
 
 Session rows remain canonical event-time schedule rows. The editor template uses relative minute offsets from `startAt`, not `doorsOpenAt`, so schedule storage and Discord timestamp generation remain tied to the canonical event/session timestamps.
 
-Private manager notes reuse the existing `notes` field. They are returned only by authorized event-management reads and accepted by authorized browser or API writes. They are excluded from public event pages, search documents, MCP documents, public API responses, calendar output, Discord export, link-preview metadata, and generated link-preview images. No migration or compatibility layer is needed because there is no existing deployed event data.
+Private manager notes reuse the existing `notes` field. They are returned only by authorized event-management reads and accepted by authorized browser or API writes. They are excluded from public event pages, search documents, MCP documents, public API responses, calendar output, Discord export, link-preview metadata, and generated link-preview images.
 
 ## Community Authority
 
-Event writes require the current community owner or an active authority carrying `manage_events`. The original submitter is provenance only and has no lasting authority when community ownership changes. An event without a linked community has no browser management path; there is no legacy-data migration or compatibility path because no such deployed data exists.
+Owner event writes require the current community owner or an active authority
+carrying `manage_events`. Contribution publication is separate: any signed-in
+account can publish for a public community through versioned intake after
+preflight, without verified email. User-scoped API/MCP credentials need
+`events:contribute`, not `events:write`.
+
+The contributor can correct title, schedule, venue, source URL, description and
+lineup, or retract their own event before staff takeover. They cannot reattach a
+community, change provenance/trust, or control private notes, streams or media.
+Staff edits and explicit takeover close direct editing. Later corrections enter
+the existing report inbox. Staff can remove immediately; platform removal requires
+a separate active moderator grant. Reports alone never retract a listing.
+Publication and correction update canonical rows and public indexes atomically.
+Removal hides public detail, discovery, community/person/world lists and feeds.
+Exact fingerprints suppress immediate recreation; this is not fuzzy spam detection.
+
+Contributor-selected event-world associations start unconfirmed. They can appear
+on the event page, but world-page activity requires a confirmed association.
+Contributor-linked performers retain their source attribution. The event retains
+`sourceType=contributor`.
+Private actor IDs and poster evidence never enter the public event DTO. See
+[source retention](./event-intake-sources.md) and the
+[integrated checkpoint](../testing/event-intake-checkpoint.md).
 
 The browser editor obtains its community choices from
 `events:listManagedCommunities`, which combines active ownership and active
@@ -73,7 +108,7 @@ Starter capabilities:
 
 Owner-only actions include ownership transfer, owner removal, destructive community deletion/suppression, capability policy changes that could remove owner control, and any final sensitive billing authority that can terminate or transfer the community's account-level relationship. Ownership transfer should require an explicit acceptance flow rather than a silent reassignment.
 
-Event schedule writes use `manage_events`; event media-control calls use `manage_event_media` or a scoped event token; read-only operator panels can use `view_event_operations`. Creating a browser event always starts a `draft_private` record attached to an authorized community. Publish, unpublish, cancel, and restore actions recheck the same current authority.
+Event schedule writes use `manage_events`; event media-control calls use `manage_event_media` or a scoped event token; read-only operator panels can use `view_event_operations`. Owner browser creation starts a `draft_private` event attached to an authorized community. Contribution drafting uses a separate private intake row and publication creates the public event in one transaction. Publish, unpublish, cancel, and restore actions recheck the same current authority.
 
 `eventAuditEvents` records creation, updates, slot replacement, publication, cancellation, and restoration with the actor, surface (`browser`, `api`, `mcp`, `operator`, or `system`), changed fields, optional reason, and timestamp. Existing events have no fabricated history before this table's rollout.
 
@@ -81,7 +116,43 @@ Event schedule writes use `manage_events`; event media-control calls use `manage
 newest-first history without raw actor identifiers. The event editor presents
 that history to the current owner or active `manage_events` staff member.
 
-## Event Participants
+## Public lineup
+
+The public event `lineup[]` merges confirmed timed slots, ordered untimed
+`eventLineupEntries`, and legacy participant-only records. A participant already
+represented by a slot or untimed entry does not add another row. Multiple actual
+sets remain separate. Unmatched names stay visible without guessing a person;
+matched public people supply their discovery-visible portrait, appearance, and links.
+
+`replaceEventLineup(db, event, entries, now)` in `convex/_eventLineup.ts` replaces
+the complete authored lineup inside an authorized event mutation. Each entry has
+`clientKey`, `position`, `performerLabel`, and optional `personSlug`, `roleLabel`,
+`startAt`, and `endAt`. `sanitizeEventLineupInput` bounds and validates these values.
+Only a published, publicly surfaced person can be matched on write. Timed entries
+populate `eventSlots`; untimed entries use `eventLineupEntries` indexed by event
+and position. Matched people also populate `eventParticipants` with schedule sort
+caches for discovery. Date-only events accept untimed rows only. Existing timed
+sets retain their playback identity and selected stream when the person is unchanged.
+The legacy owner editor continues using its existing slot and participant writes.
+
+The public page shows one Lineup with optional local set times and portraits or
+initials. Performer names lead to their profiles. A collapsed DJ links section at
+the bottom groups unique VRCDN and Twitch targets; other socials remain on the
+person's profile. Event reference/calendar links and contextual watch stay separate.
+
+```mermaid
+flowchart LR
+  Direct[Direct event link] --> Event[Event page]
+  Discovery[Search or community events] --> Event
+  Event --> Lineup[Lineup]
+  Lineup --> Person[Person profile]
+  Person --> Event
+  Event --> Links[Expand DJ links]
+  Links --> Provider[Twitch or VRCDN copy targets]
+  Event --> Watch[Contextual live watch]
+```
+
+## Participant associations
 
 `eventParticipants` links person profiles to events. This keeps profile-facing event views derived from a canonical event record rather than making `appearance` the core object.
 
@@ -230,7 +301,7 @@ Selection order is deterministic:
 2. first `stream` link in saved media-link order
 3. first `vrcdn` link in saved media-link order
 
-The promoted link remains visible in the normal links section so viewers can still scan the complete event link set.
+Event-authored VRCDN/Twitch stream targets join performer links in the collapsed DJ links accordion, deduplicated by normalized target. Other event links remain in ordinary Links. This classification does not change the contextual watch player.
 
 Embeds are limited to explicitly supported providers:
 
@@ -393,6 +464,14 @@ Public world and Home activity surfaces should continue to use only:
 - HTTPS-filtered public URLs
 
 Automatic world inference, live VRChat presence, scraped popularity, and private attendance data remain non-goals for this slice.
+
+## Unified public lineup
+
+Canonical timed slots preserve playback identity. Untimed or unmatched entries use
+ordered `eventLineupEntries`; matched entries retain a public person reference.
+The shared lineup adapter projects both, preserves repeated sets and removes only
+participant-only duplicates. Public rows show a portrait/fallback, name, optional
+role and local set time. They do not repeat outbound links under every performer.
 
 ## Performer streams and roster links
 

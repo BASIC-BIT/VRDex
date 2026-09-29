@@ -2,15 +2,20 @@
 
 ## Status
 
-Locked decisions from BASIC on 2026-08-31:
+Current implementation incorporates the 2026-08-31 owner-editor decisions and the
+2026-09-25 contribution design. The contribution path supplements owner authoring.
 
-- Event creation happens in community context at `/<community>/events/create`.
+- Owner/staff event creation remains at `/<community>/events/create`.
+- Any signed-in account can contribute at `/events/new`, including through
+  `?community=<slug>` and resumable `?draft=<id>` links. No managed community or
+  separate verified-email gate is required for contribution.
 - Events do not use the root profile and world slug namespace.
-- The freeform world field is removed. Searchable indexed world selection is deferred to #279.
-- Doors open is authored as minutes before the event start, not as a second timestamp.
-- New schedules start with four 60-minute sessions.
-- Session count and duration changes update untouched generated sessions without a Generate action.
-- Other participants appears after the session editor.
+- The owner editor freeform world field is removed. Searchable indexed world selection is deferred to #279.
+- Owner-editor doors open is authored as minutes before the event start, not as a second timestamp.
+- New owner-editor schedules start with four 60-minute slots.
+- Slot count and duration changes update untouched generated slots without a Generate action.
+- Untimed performers share the lineup with timed slots. The editor uses `Slots`
+  and `Slot N`; these headings are not saved performer names.
 - Event URLs use the automatically generated seven-character short-link code.
 - Event URL codes are not editable and do not occupy the root profile and world
   slug namespace.
@@ -24,20 +29,53 @@ Current recommendation:
 - Use `/<community>/events/<event-code>` as the canonical public route and
   `/<community>/events/<event-code>/edit` as the editing route.
 - Keep the optional stored event end time for public/API compatibility, but do
-  not ask browser authors for it in this slice. Derive the submitted end from
-  the final session when the schedule has complete durations.
+  not ask owner-editor authors for it in this slice. Derive the submitted end from
+  the final slot when the schedule has complete durations.
 - When template controls would replace edited schedule data, require confirmation.
 
-## Smallest Useful Flow
+## Owner authoring flow
 
 1. Start from a managed community.
 2. Enter the event title and public details.
 3. Set the local start time, timezone, and optional doors-open offset.
-4. Fill the four generated 60-minute sessions or adjust the template.
+4. Fill the four generated 60-minute slots or adjust the template.
 5. Publish or save a draft.
 
-The community slug comes from the route and is re-authorized by the existing
-event mutation. The browser does not choose another community inside the form.
+The owner editor binds the community from the route and rechecks management
+authority. The contribution form can select any public community. A useful
+contribution needs a community, title and known date. An explicit Time TBA state
+needs no timezone; timed publication needs an IANA timezone and resolved local
+time. The date-only backend switch must be enabled after its migration.
+
+Manual entry, pasted text and private posters share a versioned draft. Extraction
+proposes tentative fields for explicit acceptance or editing. Uploading or parsing
+a poster never selects public artwork. Publish goes directly to the canonical
+event page; save draft stays in the editor. Unknown dates remain drafts.
+
+```mermaid
+flowchart LR
+  Events[Events search] --> Add[Add event]
+  Community[Community page] --> Add
+  Direct[Direct community or draft link] --> Auth[Sign in if needed and return]
+  Add --> Auth
+  Auth --> Intake[Manual, text or private poster draft]
+  Intake --> Review[Accept or edit tentative details]
+  Review --> Publish[Preflight and publish]
+  Publish --> Public[Canonical event page]
+  Public --> Discovery[Public search and community events]
+  Owner[Managed community] --> Editor[Owner editor and live controls]
+  Editor --> Public
+  Public --> Correct[Contributor correction or retraction]
+  Public --> Staff[Staff takeover or removal]
+  Staff --> Suggest[Contributor correction suggestion]
+  Suggest --> Reports[Staff report inbox]
+```
+
+Staff takeover or a staff edit closes direct contributor editing. Subsequent
+suggestions use the event report inbox. Reports never automatically remove an
+event. Removal hides public detail, search and feeds and suppresses immediate
+exact recreation. See the [verification checkpoint](../testing/event-intake-checkpoint.md)
+for local evidence and outstanding hosted checks.
 
 ## Data And Routing Contract
 
@@ -52,12 +90,14 @@ event mutation. The browser does not choose another community inside the form.
   the event code alone cannot render a card under the wrong community route.
 - API routes remain under `/api/v0/events/<event-code>` because the resource prefix
   already disambiguates the identifier.
-- No event data migration or legacy event-route compatibility is included.
+- Event URL allocation does not migrate routes. The separate schedule backfill
+  is required before enabling date-only writes.
 
 ## Authorization
 
-- The route is not authority. Creation still requires existing ownership or
-  `manage_events` authority for the routed community.
+- The route is not authority. Owner authoring requires ownership or
+  `manage_events`; contribution uses separate actor-bound publication commands
+  and `events:contribute` API/MCP scope. It does not grant live/media controls.
 - Editing verifies both the event code and its associated community.
 - Public event URLs do not grant private read, write, media-control, or operator
   access.
@@ -71,10 +111,9 @@ event mutation. The browser does not choose another community inside the form.
   same delivery.
 - Searchable world selection: deferred to #279.
 - End-time authoring after schedule feedback: interview later.
-- Typed schedule entries, including intentionally empty or freeform entries, are
-  a candidate direction after the basic editor gets real use.
+- Timed, untimed and unmatched lineup entries now preserve authored order.
 - Per-session support associations such as an optional VJ are a candidate
-  direction. Event-level participants remain the current place to credit a VJ.
+  direction. An untimed lineup entry can credit a VJ.
 
 ## Verification
 
@@ -101,9 +140,10 @@ The output account and worker controls appear only in event-stream mode. Changin
 watch mode preserves stored output configuration. Saving the event never invokes
 output configuration; that operation remains a separate explicit action.
 
-The public schedule keeps every appearance and shows its viewer-local time,
-profile link, and discovery-visible outbound links together. Other participants
-have the same link controls. VRCDN live references expose PC and Quest copy rows,
-with no per-person preview, media fetch, or profile-page fallback. Copy-only links
-remain copy actions. The shared backend projection excludes private and unlisted
-profile fields before the browser receives them.
+The public page has one Lineup with profile images or fallback initials, optional
+roles and viewer-local set times. Repeated sets remain separate; participant-only
+duplicates do not. Performer VRCDN/Twitch links are deduplicated in a collapsed
+DJ links accordion; other social links stay on the person's profile. The backend
+projection excludes private and unlisted profile links. Event-level VRCDN/Twitch
+stream targets share that accordion and dedupe against performer links. Other
+event links remain in ordinary Links. The contextual watch player remains separate.

@@ -166,14 +166,15 @@ export const listEvents = query({
     const canManageEvents = actor.kind === "owner" || actor.permissions.includes("manage_events");
     const result = await (canManageEvents
       ? ctx.db.query("events").withIndex("by_communityProfileId_startAt", (q) =>
-          q.eq("communityProfileId", args.communityProfileId))
+          q.eq("communityProfileId", args.communityProfileId).gte("startAt", 0))
       : ctx.db.query("events").withIndex("by_communityProfileId_publicationState_startAt", (q) =>
-          q.eq("communityProfileId", args.communityProfileId).eq("publicationState", "published")))
+          q.eq("communityProfileId", args.communityProfileId).eq("publicationState", "published").gte("startAt", 0)))
       .order("desc")
       .paginate(args.paginationOpts);
     return {
       page: await Promise.all(
-        result.page.map(async (event) => ({
+        result.page.filter((event): event is typeof event & { startAt: number } =>
+          event.startAt !== undefined && event.scheduleKind !== "date_only").map(async (event) => ({
           id: event._id,
           title: event.title,
           startAt: event.startAt,

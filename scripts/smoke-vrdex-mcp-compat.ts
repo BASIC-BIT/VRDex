@@ -79,7 +79,12 @@ const hostedOnlyOwnedReadToolNames = new Set(["vrdex_list_my_media_submissions"]
 const localOwnedReadToolNames = ownedReadToolNames.filter(
   (toolName) => !hostedOnlyOwnedReadToolNames.has(toolName),
 );
-const localExpectedTools = [...localReadTools, ...localOwnedReadToolNames, ...localWriteToolNames];
+const localExpectedTools = [
+  "vrdex_event_intake_draft_save", "vrdex_event_intake_draft_get", "vrdex_event_intake_extract",
+  "vrdex_event_intake_publish", "vrdex_event_intake_poster_upload_begin", "vrdex_event_intake_poster_upload_complete",
+  "vrdex_event_intake_artwork_select", "vrdex_event_intake_event_get", "vrdex_event_intake_event_update", "vrdex_event_intake_event_retract",
+  "vrdex_event_intake_poster_upload_bytes", ...localReadTools, ...localOwnedReadToolNames, ...localWriteToolNames,
+];
 const hostedExpectedTools = ["search", "fetch", ...localReadTools];
 
 function assertHostedToolSecuritySchemes(tool: HostedToolDescriptor) {
