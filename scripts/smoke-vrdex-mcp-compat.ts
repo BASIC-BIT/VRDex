@@ -61,21 +61,83 @@ const writeToolResourceScopes: Record<string, string> = {
   vrdex_profile_media_submit: "assets:contribute",
   vrdex_profile_update: "profile:write",
   vrdex_profile_submit: "profile:contribute",
+  vrdex_contribution_capacity_request: "assets:contribute",
+  vrdex_contribution_batch_create: "assets:contribute",
+  vrdex_contribution_batch_append: "assets:contribute",
+  vrdex_contribution_batch_archive: "assets:contribute",
+  vrdex_contribution_item_submit: "assets:contribute",
+  vrdex_contribution_item_revise: "assets:contribute",
+  vrdex_media_upload_begin: "assets:contribute",
+  vrdex_media_upload_complete: "assets:contribute",
+  vrdex_media_review_decide: "assets:review:write",
+  vrdex_media_review_rebase: "assets:review:write",
+  vrdex_media_review_decide_selected: "assets:review:write",
+  vrdex_media_submission_withdraw: "assets:contribute",
+  vrdex_media_submission_publish: "assets:publish",
+  vrdex_media_submission_declare: "assets:publish",
 };
 const writeToolNames = Object.keys(writeToolResourceScopes);
+const contributionCollectionWriteToolNames = new Set([
+  "vrdex_contribution_capacity_request",
+  "vrdex_contribution_batch_create",
+  "vrdex_contribution_batch_append",
+  "vrdex_contribution_batch_archive",
+  "vrdex_contribution_item_submit",
+  "vrdex_contribution_item_revise",
+]);
+const mediaUploadWriteToolNames = new Set(["vrdex_media_upload_begin", "vrdex_media_upload_complete"]);
 const hostedOnlyWriteToolNames = new Set([
   "vrdex_profile_media_manage",
   "vrdex_profile_media_submit",
+  ...contributionCollectionWriteToolNames,
+  ...mediaUploadWriteToolNames,
+  "vrdex_media_review_decide",
+  "vrdex_media_review_rebase",
+  "vrdex_media_review_decide_selected",
+  "vrdex_media_submission_withdraw",
+  "vrdex_media_submission_publish",
+  "vrdex_media_submission_declare",
 ]);
 const localWriteToolNames = writeToolNames.filter((toolName) => !hostedOnlyWriteToolNames.has(toolName));
 // Reads, but of the caller's own inventory, so they advertise a scope pair the
 // way the writes do rather than the anonymous public-read pair.
-const ownedReadToolScopes: Record<string, string> = {
+const contributionCollectionReadScopes = [
+  "profile:contribute",
+  "assets:contribute",
+  "assets:review:read",
+];
+const ownedReadToolScopes: Record<string, string | string[]> = {
+  vrdex_contribution_capacity: contributionCollectionReadScopes,
+  vrdex_contribution_capacity_requests: contributionCollectionReadScopes,
+  vrdex_contribution_status: contributionCollectionReadScopes,
+  vrdex_contribution_batch_get: contributionCollectionReadScopes,
+  vrdex_contribution_batch_items: contributionCollectionReadScopes,
   vrdex_list_my_media_submissions: "assets:contribute",
   vrdex_list_my_profiles: "profile:read",
+  vrdex_get_my_media_submission: "assets:contribute",
+  vrdex_media_review_assignments: "assets:review:read",
+  vrdex_media_review_list: "assets:review:read",
+  vrdex_media_review_get: "assets:review:read",
+  vrdex_media_review_preview: "assets:review:read",
+  vrdex_media_submission_get: "assets:publish",
+  vrdex_media_submission_preview: "assets:publish",
 };
 const ownedReadToolNames = Object.keys(ownedReadToolScopes);
-const hostedOnlyOwnedReadToolNames = new Set(["vrdex_list_my_media_submissions"]);
+const hostedOnlyOwnedReadToolNames = new Set([
+  "vrdex_contribution_capacity",
+  "vrdex_contribution_capacity_requests",
+  "vrdex_contribution_status",
+  "vrdex_contribution_batch_get",
+  "vrdex_contribution_batch_items",
+  "vrdex_list_my_media_submissions",
+  "vrdex_get_my_media_submission",
+  "vrdex_media_review_assignments",
+  "vrdex_media_review_list",
+  "vrdex_media_review_get",
+  "vrdex_media_review_preview",
+  "vrdex_media_submission_get",
+  "vrdex_media_submission_preview",
+]);
 const localOwnedReadToolNames = ownedReadToolNames.filter(
   (toolName) => !hostedOnlyOwnedReadToolNames.has(toolName),
 );
@@ -94,18 +156,28 @@ function assertHostedToolSecuritySchemes(tool: HostedToolDescriptor) {
   const ownedReadScope = ownedReadToolScopes[String(tool.name)];
 
   if (resourceScope !== undefined) {
+    const scopes = contributionCollectionWriteToolNames.has(String(tool.name))
+      ? ["profile:contribute", "assets:contribute"].map((scope) => ["mcp:write", scope])
+      : mediaUploadWriteToolNames.has(String(tool.name))
+        ? ["assets:write", "assets:contribute"].map((scope) => ["mcp:write", scope])
+        : [["mcp:write", resourceScope]];
+    if (String(tool.name) === "vrdex_contribution_batch_append") {
+      scopes.push(["mcp:write", "assets:contribute", "profile:contribute"]);
+    }
     assert.deepEqual(
       metadata.securitySchemes,
-      [{ scopes: ["mcp:write", resourceScope], type: "oauth2" }],
+      scopes.map((scope) => ({ scopes: scope, type: "oauth2" })),
       `Hosted tool ${String(tool.name)} is missing write auth metadata.`,
     );
   } else if (ownedReadScope !== undefined) {
+    const scopes = Array.isArray(ownedReadScope) ? ownedReadScope : [ownedReadScope];
     assert.deepEqual(
       metadata.securitySchemes,
-      [{ scopes: ["mcp:read", ownedReadScope], type: "oauth2" }],
+      scopes.map((scope) => ({ scopes: ["mcp:read", scope], type: "oauth2" })),
       `Hosted tool ${String(tool.name)} is missing owned-read auth metadata.`,
     );
   } else {
+    assert.ok(hostedExpectedTools.includes(String(tool.name)), `Hosted tool ${String(tool.name)} is unclassified.`);
     assert.deepEqual(
       metadata.securitySchemes,
       [
