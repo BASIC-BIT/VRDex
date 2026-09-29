@@ -63,6 +63,8 @@ it("shares actor-bound drafts, receipts and correction authority across website 
     assert.equal((await getRoute()).status,401);
     assert.equal((await getRoute(null,"https://app.example.test/api/v0/event-intake/x?token=bad")).status,400);
     const apiRead=await getRoute(parts.tokenValue);assert.equal(apiRead.status,200);assert.equal((await apiRead.json()).draftId,saved.draftId);
+    const malformedDraft=await getDraftRoute(new Request("https://app.example.test/api/v0/event-intake/not-a-convex-id",{headers:{authorization:"Bearer "+parts.tokenValue}}),{params:Promise.resolve({draftId:"not-a-convex-id"})});
+    assert.equal(malformedDraft.status,400);
     const tokenId=await t.run(async ctx=>(await ctx.db.query("apiTokens").first())._id);
     await t.run(ctx=>ctx.db.patch(tokenId,{scopes:["events:write"]}));assert.equal((await getRoute(parts.tokenValue)).status,403);
     await t.run(ctx=>ctx.db.patch(tokenId,{scopes:["events:contribute"],ownerKind:"community"}));assert.equal((await getRoute(parts.tokenValue)).status,403);
