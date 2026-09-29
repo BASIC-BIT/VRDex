@@ -77,6 +77,9 @@ it("shares actor-bound drafts, receipts and correction authority across website 
     const args={draftId:saved.draftId,expectedVersion:1,idempotencyKey:"once"};
     const first=(await call("vrdex_event_intake_publish",args)).structuredContent;
     assert.ok(first?.receiptId);assert.deepEqual(await commands("publish",args),first);
+    const nearDraft=await browser.mutation(api.eventIntake.saveEventIntakeDraft,{patch:{communitySlug:"public-club",title:"Night Dance",eventDate:"2027-10-15",timeTba:true}});
+    const near=await call("vrdex_event_intake_publish",{draftId:nearDraft.draftId,expectedVersion:1,idempotencyKey:"near"});
+    assert.equal(near.isError,true);assert.match(near.content[0].text,/Near duplicate/);assert.match(near.content[0].text,/Night/);assert.doesNotMatch(near.content[0].text,/COMMAND_OUTCOME_UNKNOWN/);
     assert.deepEqual((await t.run(ctx=>ctx.db.query("eventAuditEvents").collect())).map(row=>[row.action,row.actorSurface]),[["created","mcp"]]);
     assert.deepEqual((await call("vrdex_event_intake_publish",args)).structuredContent,first);
     const refused=await call("vrdex_event_intake_draft_save",{draftId:saved.draftId,expectedVersion:1,patch:{title:"Late edit"}});
@@ -150,5 +153,7 @@ it("retains bounded duplicate choices and distinguishes a lost response from inv
     assert.equal(eventIntakeErrorResponse(new ConvexError({code:"DUPLICATE_EVENT",eventId:"event"})).status,409);
     assert.equal(eventIntakeErrorResponse(new RangeError("Invalid time zone specified: Not/AZone")).status,400);
     assert.equal(eventIntakeErrorResponse(new Error("Lineup match must be a published public person.")).status,400);
+    assert.equal(eventIntakeErrorResponse(new Error('Validator error: Expected ID for table "eventIntakeDrafts", got bad-id')).status,400);
+    assert.equal(eventIntakeErrorResponse(new Error("Source URL must be a safe HTTPS URL.")).status,400);
   `);
 });

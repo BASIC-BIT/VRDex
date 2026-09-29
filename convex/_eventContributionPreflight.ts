@@ -17,7 +17,7 @@ function similarTitle(a: string, b: string) {
   return common > 0 && common / Math.min(first.size, second.size) >= 0.5;
 }
 export function eventContributionFingerprint(communityId: string, date: string, title: string) {
-  return JSON.stringify([communityId, date, normalizedTitle(title)]);
+  return JSON.stringify([communityId, date, normalizedTitle(title) || title.normalize("NFKC").toLowerCase()]);
 }
 export function normalizeIntakePublication(raw: EventIntakePatch) {
   const fields = EventIntakePatchSchema.parse(raw);

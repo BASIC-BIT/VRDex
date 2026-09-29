@@ -2003,10 +2003,12 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       return response;
     } catch (error) {
       const denial = hostedMediaReviewDenial(toolName, error);
+      const intakeError = toolName.startsWith("vrdex_event_intake_") ? eventIntakeErrorResponse(error) : null;
       await recordHostedMcpWriteInvocation({
         ...details,
-        result: denial === null ? "indeterminate" : "denied",
+        result: denial !== null || (intakeError !== null && intakeError.status < 500) ? "denied" : "indeterminate",
       });
+      if (intakeError !== null) throw error;
       let result;
       if (denial !== null) {
         const receipt = commandReceiptSchema.parse({

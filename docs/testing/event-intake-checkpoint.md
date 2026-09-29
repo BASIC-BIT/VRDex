@@ -41,6 +41,13 @@ a hidden performer match, cancel/restore could lose contributed role and world
 search context, and a malformed artwork ID could fail before the public 404
 path. Regression tests now cover each path.
 
+The next review found hosted MCP intake errors hidden behind a generic retry
+receipt, malformed intake IDs reported as server errors, symbolic titles sharing
+an empty duplicate identity, a contributor-only account page showing `No events`,
+and malformed source URLs reported as server errors. Those paths now return the
+specific intake error or client response, keep distinct title identities, and
+show the empty state only when both event lists are empty.
+
 ## Implemented journey
 
 Any signed-in account can save a partial private draft for any public community,
@@ -82,7 +89,7 @@ Commands run in the isolated worktree, without hosted credentials or paid calls:
 
 | Command | Result |
 | --- | --- |
-| `pnpm test:backend` | 1,225 passed, zero failed/skipped after review fixes |
+| `pnpm test:backend` | 1,226 passed, zero failed/skipped after review fixes |
 | `pnpm test:web` | 607 passed, zero failed/skipped after review fixes |
 | `pnpm test:api-contracts` | 58 passed, zero failed/skipped after review fixes |
 | `pnpm test:vrdex-mcp` | 10 passed, including local stdio and fake-transport upload |

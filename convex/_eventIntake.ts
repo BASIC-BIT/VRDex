@@ -30,7 +30,8 @@ export function sanitizeEventIntakePatch(raw: unknown): EventIntakePatch {
   const patch = EventIntakePatchSchema.parse(raw);
   for (const group of [patch, patch.tentative]) {
     if (!group?.sourceUrl) continue;
-    const url = new URL(group.sourceUrl);
+    let url: URL;
+    try { url = new URL(group.sourceUrl); } catch { throw new Error("Source URL must be a safe HTTPS URL."); }
     if (url.protocol !== "https:" || url.username || url.password || url.port) throw new Error("Source URL must be a safe HTTPS URL.");
   }
   return patch;

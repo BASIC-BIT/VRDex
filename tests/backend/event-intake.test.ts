@@ -5,11 +5,15 @@ import { makeFunctionReference } from "convex/server";
 import schemaModule from "../../convex/schema";
 import { api } from "../../convex/_generated/api";
 import { getPublicCommunityHostedEvents, getPublicPersonUpcomingEvents } from "../../convex/_eventPublic";
+import { eventContributionFingerprint } from "../../convex/_eventContributionPreflight";
 
 const schema = (schemaModule as unknown as { default?: typeof schemaModule }).default ?? schemaModule;
 const save = makeFunctionReference<"mutation">("eventIntake:saveEventIntakeDraft");
 const get = makeFunctionReference<"query">("eventIntake:getEventIntakeDraft");
 const publish = makeFunctionReference<"action">("eventIntake:publishEventIntake");
+it("keeps symbol-only event titles distinct in duplicate fingerprints", () => {
+  assert.notEqual(eventContributionFingerprint("club", "2027-10-15", "🎉🎉"), eventContributionFingerprint("club", "2027-10-15", "!!"));
+});
 async function fixture() {
   process.env.EVENT_DATE_ONLY_ENABLED = "true";
   const t = convexTest({ schema, modules: {
@@ -119,8 +123,9 @@ it("replay uses the current community route after a slug change", async () => {
 });
 it("bounds drafts, rejects authority and unsafe URLs, and preserves tentative values privately", async () => {
   const { actor } = await fixture();
-  for (const patch of [{ watchMode: "event_stream" }, { sourceUrl: "javascript:alert(1)" }, { sourceType: "community" }, { title: "x".repeat(121) }])
+  for (const patch of [{ watchMode: "event_stream" }, { sourceUrl: "javascript:alert(1)" }, { sourceUrl: "not a URL" }, { sourceType: "community" }, { title: "x".repeat(121) }])
     await assert.rejects(actor.mutation(save, { patch }));
+  await assert.rejects(actor.mutation(save, { patch: { sourceUrl: "not a URL" } }), /Source URL must be a safe HTTPS URL/);
   const draft = await actor.mutation(save, { patch: { sourceText: "Night poster", tentative: complete } });
   await assert.rejects(actor.action(publish, { draftId: draft.draftId, expectedVersion: 1, idempotencyKey: "tentative" }));
   const read = await actor.query(get, { draftId: draft.draftId });

@@ -123,6 +123,7 @@ export function eventIntakeErrorResponse(error: unknown) {
   if (/NOT_FOUND|not found|DRAFT_ACCESS|CONTRIBUTOR_REQUIRED|POSTER_ACCESS/.test(code)) return problem(403, "Unavailable");
   if (/REPOST_BLOCKED|CONTENT_BLOCKED/.test(code)) return problem(403, "Publication refused");
   if (error instanceof z.ZodError || /POSTER_|ARTWORK_|PATCH_FIELD|CLASSIFICATION_VERSION_CONFLICT/.test(code)) return problem(400, "Invalid intake request");
+  if (/Validator error: Expected ID for table|ArgumentValidationError|Value does not match validator/.test(message)) return problem(400, "Invalid intake request");
   if (/A public community|Event date|Timed publication|Time TBA|Choose a start|Event start|End time|Doors must|Every published lineup|published public community|World match|Source URL|Published drafts|A draft needs|Draft exceeds|Local time|Ambiguous local time|Invalid time zone|date-only|Lineup match|Timed sets|Set times|Selected stream/i.test(message)) return problem(400, "Invalid intake request");
   return problem(503, "Event intake response unavailable");
 }
