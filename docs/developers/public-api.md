@@ -46,6 +46,7 @@ uses a date value with Time TBA; timed events retain exact instants. Lineup read
 preserves ordered timed, untimed and unmatched entries.
 
 Staff takeover closes contributor updates/retraction even with a fresh revision.
+A contributor can retry a successful retraction; the replay returns `changed: false`.
 A contributor can submit a correction suggestion through the event report flow;
 it does not edit the canonical event. Removal excludes the event from public
 lookup, search and feeds. Scope/version/actor parity is covered locally; hosted

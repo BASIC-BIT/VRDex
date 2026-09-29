@@ -9169,7 +9169,9 @@ components:
                         description: Public event source class.
                       confirmationState:
                         type: string
-                        const: confirmed
+                        enum:
+                          - confirmed
+                          - unconfirmed
                       confirmedAt:
                         type: integer
                         minimum: 0
@@ -9930,7 +9932,9 @@ components:
                         description: Public event source class.
                       confirmationState:
                         type: string
-                        const: confirmed
+                        enum:
+                          - confirmed
+                          - unconfirmed
                       confirmedAt:
                         type: integer
                         minimum: 0

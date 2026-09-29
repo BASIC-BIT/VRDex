@@ -202,6 +202,7 @@ export const SESSION_REPLAY_MASKED_SELECTOR = [
 export type DiscoveryAnalyticsSurface =
   | "featured"
   | "home"
+  | "nav"
   | "home_terms"
   | "search"
   | "search_results"

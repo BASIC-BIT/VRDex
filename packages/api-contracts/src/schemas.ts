@@ -475,7 +475,7 @@ export const PublicEventSlotSchema = z.object({
 export const PublicEventWorldSchema = PublicEventWorldSummarySchema.extend({
   tags: z.array(z.string()), summary: z.string().optional(), heroImageUrl: absoluteUrl.optional(),
   association: z.object({ sourceType: PublicEventSourceTypeSchema,
-    confirmationState: z.literal("confirmed"), confirmedAt: timestampMs.optional() }),
+    confirmationState: z.enum(["confirmed", "unconfirmed"]), confirmedAt: timestampMs.optional() }),
 });
 
 const PublicEventObject = PublicEventPreviewObject.extend({

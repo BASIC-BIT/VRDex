@@ -4,6 +4,7 @@ import type { Id } from "../../../../../../../convex/_generated/dataModel";
 import { convexAdminHttpClient } from "@/lib/server/convex-http";
 import {
   deleteProfileAssetObjects,
+  headProfileAssetObject,
   isProfileAssetStorageConfigured,
 } from "@/lib/server/profile-asset-storage";
 
@@ -34,11 +35,13 @@ const unavailable = () =>
     { error: "Staging media fixture is unavailable." },
     { status: 403 },
   );
-const failed = () =>
+type CleanupStage = "prepare_cleanup" | "delete_objects" | "verify_objects" | "finish_cleanup" | "profile_cleanup";
+const failed = (stage?: CleanupStage) =>
   NextResponse.json(
     {
       error:
         "Staging media fixture operation failed. Preserve the run ID and retry cleanup.",
+      ...(stage ? { stage } : {}),
     },
     { status: 409 },
   );
@@ -56,6 +59,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       await convexAdminHttpClient().query(internal.e2eMedia.preflight, {
         secret,
+        cleanupOnly: request.nextUrl.searchParams.get("mode") === "cleanup",
       }),
     );
   } catch {
@@ -83,6 +87,7 @@ async function execute(request: NextRequest, cleanup: boolean) {
     runId: body.runId,
     profileId: body.profileId as Id<"profiles">,
   };
+  let cleanupStage: CleanupStage = "prepare_cleanup";
   try {
     const client = convexAdminHttpClient();
     if (!cleanup && body.op === "lookup") {
@@ -96,14 +101,23 @@ async function execute(request: NextRequest, cleanup: boolean) {
         args,
       );
       if (prepared.profileMissing) {
-        return NextResponse.json({ deleted: true, deletedMedia: true });
+        return NextResponse.json({ deleted: true, deletedMedia: true, alreadyDeleted: true });
       }
+      if ((prepared.safeDeleteAfter ?? 0) > Date.now())
+        return NextResponse.json({ error: "Fixture signed transfer may still be valid.",
+          retryAt: prepared.safeDeleteAfter }, { status: 409 });
+      cleanupStage = "delete_objects";
       if (prepared.storageKeys.length)
         await deleteProfileAssetObjects(prepared.storageKeys);
+      cleanupStage = "verify_objects";
+      for (const key of prepared.storageKeys)
+        if (await headProfileAssetObject(key)) throw new Error("Fixture object remains after deletion.");
+      cleanupStage = "finish_cleanup";
       const finished = await client.mutation(internal.e2eMedia.finishCleanup, {
         ...args,
         deletedStorageKeys: prepared.storageKeys,
       });
+      cleanupStage = "profile_cleanup";
       const result = await client.mutation(api.e2e.cleanupProfileBySlug, {
         secret,
         slug: finished.slug,
@@ -111,6 +125,8 @@ async function execute(request: NextRequest, cleanup: boolean) {
       return NextResponse.json({
         deleted: result.deleted,
         deletedMedia: finished.deletedMedia,
+        deletedObjects: prepared.storageKeys.length,
+        releasedReservations: finished.releasedReservations,
       });
     }
     if (body.op === "inspect")
@@ -119,6 +135,36 @@ async function execute(request: NextRequest, cleanup: boolean) {
       );
     if (body.op === "inspect-audit")
       return NextResponse.json(await client.query(internal.e2eMedia.inspectAudit, args));
+    if (body.op === "worker-cleanup-proof" && typeof body.submissionId === "string") {
+      const submissionId = body.submissionId as Id<"profileMediaSubmissions">;
+      const proofArgs = { ...args, submissionId };
+      const before = await client.mutation(internal.e2eMedia.makeRejectedFixtureDue, proofArgs);
+      if (!(await Promise.all(before.storageKeys.map(headProfileAssetObject))).some(Boolean))
+        throw new Error("Rejected fixture has no stored object.");
+      const sweep = await client.action(internal.contributionCleanup.sweep, {});
+      const after = await client.query(internal.e2eMedia.inspectRejectedFixtureDeletion, proofArgs);
+      if (!sweep.configured || !sweep.ok || !after.blobDeleted ||
+        after.storageKeys.some((key) => !before.storageKeys.includes(key)) ||
+        (await Promise.all(before.storageKeys.map(headProfileAssetObject))).some(Boolean))
+        throw new Error("Cleanup worker did not delete exact fixture objects.");
+      return NextResponse.json({ workerDeleted: true, deletedObjects: before.storageKeys.length });
+    }
+    if (body.op === "worker-upload-proof" && typeof body.intentId === "string") {
+      const proofArgs = { ...args, intentId: body.intentId as Id<"profileAssetUploadIntents"> };
+      const before = await client.mutation(internal.e2eMedia.makePendingFixtureDue, proofArgs);
+      if (!await headProfileAssetObject(before.storageKey))
+        throw new Error("Pending fixture has no stored object.");
+      const sweep = await client.action(internal.contributionCleanup.sweep, {});
+      const after = await client.query(internal.e2eMedia.inspectPendingFixtureCleanup, proofArgs);
+      if (!sweep.configured || !sweep.ok || await headProfileAssetObject(before.storageKey) ||
+        after.state !== "failed" || after.code !== "UPLOAD_EXPIRED" ||
+        after.chargedBytes !== 0 || after.quarantineBytes !== 0 || after.processing ||
+        after.cleanupLeaseActive || !after.cleanupDeferred ||
+        after.actorBytes !== 0 || after.actorProcessing !== 0 ||
+        after.targetBytes !== 0 || after.targetProcessing !== 0)
+        throw new Error("Cleanup worker did not reclaim the exact pending upload.");
+      return NextResponse.json({ workerReclaimedUpload: true });
+    }
     if (
       body.op === "assign-review-owner" &&
       typeof body.reviewerEmail === "string"
@@ -135,7 +181,7 @@ async function execute(request: NextRequest, cleanup: boolean) {
       { status: 400 },
     );
   } catch {
-    return failed();
+    return failed(cleanup ? cleanupStage : undefined);
   }
 }
 

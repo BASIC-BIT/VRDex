@@ -98,9 +98,9 @@ Operational probe:
   Use it for bounded deployment checks, not a tight polling loop.
 - A configured environment performs a lightweight private S3 `HeadObject` check
   against a sentinel key and returns `200` when storage auth is reachable.
-- The runtime role includes narrow `s3:ListBucket` permission for only that
-  sentinel key prefix so a missing sentinel is reported as an object-level miss,
-  not as an authorization failure.
+- Production allows `s3:ListBucket` for only the sentinel key prefix. Staging
+  allows it on its separate private bucket so missing media keys return 404
+  during hosted cleanup verification instead of an ambiguous 403.
 - The probe returns only coarse health state and does not expose bucket names,
   role ARNs, or object keys.
 

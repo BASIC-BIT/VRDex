@@ -84,6 +84,8 @@ it("shares actor-bound drafts, receipts and correction authority across website 
     assert.equal((await t.run(ctx=>ctx.db.get(first.eventId))).title,"Corrected");
     await assert.rejects(createEventIntakeCommands({actorUserId:other,admin})("event_retract",{slug:event.slug}));
     await commands("event_retract",{slug:event.slug});assert.equal((await t.run(ctx=>ctx.db.get(first.eventId))).publicationState,"draft_private");
+    assert.deepEqual(await commands("event_retract",{slug:event.slug}),{eventId:first.eventId,changed:false});
+    await assert.rejects(createEventIntakeCommands({actorUserId:other,admin})("event_retract",{slug:event.slug}));
     await handler.close();
   `);
 });

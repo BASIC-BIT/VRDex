@@ -15289,7 +15289,10 @@
                         },
                         "confirmationState": {
                           "type": "string",
-                          "const": "confirmed"
+                          "enum": [
+                            "confirmed",
+                            "unconfirmed"
+                          ]
                         },
                         "confirmedAt": {
                           "type": "integer",
@@ -16309,7 +16312,10 @@
                         },
                         "confirmationState": {
                           "type": "string",
-                          "const": "confirmed"
+                          "enum": [
+                            "confirmed",
+                            "unconfirmed"
+                          ]
                         },
                         "confirmedAt": {
                           "type": "integer",

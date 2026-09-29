@@ -16,3 +16,10 @@ body {
 .story-stage {
   min-height: 100vh;
 }
+
+/* `PageShell` fills the viewport by being `flex-1` in the app's flex-column
+   body. The stage stands in for that body when a story renders a shell. */
+.story-stage:has(> main) {
+  display: flex;
+  flex-direction: column;
+}

@@ -908,7 +908,8 @@ export default defineSchema({
     submissionId: v.id("profileMediaSubmissions"),
     receipt: v.object({ operationId: v.string(), operationState: v.union(v.literal("committed"), v.literal("refused"), v.literal("in_progress")), resourceId: v.optional(v.string()), code: v.optional(v.string()) }),
     createdAt: v.number(),
-  }).index("by_actorUserId_idempotencyKey", ["actorUserId", "idempotencyKey"]),
+  }).index("by_actorUserId_idempotencyKey", ["actorUserId", "idempotencyKey"])
+    .index("by_submissionId", ["submissionId"]),
   mediaPublicationEvidence: defineTable({
     submissionId: v.id("profileMediaSubmissions"), actorUserId: v.id("users"),
     candidateVersion: v.string(), identityConfirmed: v.boolean(), attributionConfirmed: v.boolean(),

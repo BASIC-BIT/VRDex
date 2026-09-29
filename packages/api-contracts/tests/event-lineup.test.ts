@@ -11,6 +11,13 @@ it("accepts date-only public schedules and rejects an invented instant", () => {
   assert.equal(PublicEventSchema.safeParse({ ...event, scheduleKind: "timed" }).success, false);
 });
 
+it("accepts an unconfirmed world on a contributed public event", () => {
+  const event = { id: "event", slug: "night", title: "Night", scheduleKind: "date_only", eventDate: "2027-10-15",
+    source: { label: "Contributor", sourceType: "contributor" }, watchSurfaceEnabled: false,
+    worlds: [{ slug: "world", displayName: "World", tags: [], association: { sourceType: "contributor", confirmationState: "unconfirmed" } }] };
+  assert.equal(PublicEventSchema.safeParse(event).success, true);
+});
+
 it("accepts owner date-only corrections and canonical lineup replacement", () => {
   const patch = { scheduleKind: "date_only", eventDate: "2027-10-15", venueLabel: "Harbor", lineup: [{ clientKey: "guest", position: 0, performerLabel: "Guest" }], posterImageUrl: "/api/v0/events/event-id/artwork/artwork-id" };
   assert.deepEqual(ApiEventUpdateRequestSchema.parse(patch), patch);

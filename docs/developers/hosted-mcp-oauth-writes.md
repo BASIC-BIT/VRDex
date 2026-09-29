@@ -349,8 +349,10 @@ intentional same-key recovery safe but do not authorize automatic retry.
 - `mcpToolEvents` records accepted, denied, indeterminate, or readback-warning outcomes
   without request bodies, raw keys, tokens, event content, or network
   identities. Known precommit media review, publication, and withdrawal
-  authority or resource refusals are denied. Transport failures, unknown errors,
-  and failures after a write may have committed remain indeterminate.
+  authority or resource refusals are denied with a coded command receipt and
+  `nextAction`, without forwarding the backend message or stack. Transport
+  failures, unknown errors, and failures after a write may have committed remain
+  indeterminate.
   For selected decisions, any `in_progress` receipt makes the aggregate
   indeterminate; otherwise any refused receipt makes it denied, including when
   another item committed. A write-event recording failure does not change the

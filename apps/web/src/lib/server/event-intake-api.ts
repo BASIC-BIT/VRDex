@@ -71,7 +71,8 @@ export function createEventIntakeCommands(deps: { actorUserId: Id<"users">; admi
       }
       case "event_retract": {
         const { slug } = RetractEventContributionSchema.parse(raw);
-        result = await admin.mutation(internal.eventCorrections.retractActorContributedEvent, { ...actor, actorSurface: deps.actorSurface ?? "api", eventId: await eventId(slug) });
+        const ownEventId = await admin.query(internal.eventCorrections.getActorContributedEventIdBySlug, { ...actor, slug });
+        result = await admin.mutation(internal.eventCorrections.retractActorContributedEvent, { ...actor, actorSurface: deps.actorSurface ?? "api", eventId: ownEventId });
       }
     }
     return eventIntakeOperations[operation].output.parse(result);

@@ -283,6 +283,33 @@ it("contributor schedule corrections rebase then cancel event-relative club acti
   assert.equal(cancelled?.state, "cancelled");
   assert.equal(cancelled?.code, "event_time_tba");
 });
+it("converting a contributed event to Time TBA cancels its queued media start", async () => {
+  const { t, contributor, staff, event } = await fixture();
+  await contributor.mutation(command("updateOwnContributedEvent"), {
+    eventId: event._id, expectedUpdatedAt: event.updatedAt,
+    patch: { timeTba: null, timezone: "UTC", start: { time: "19:00", dayOffset: 0 } },
+  });
+  const output = await staff.mutation(api.events.configureVrcdnOutput, {
+    currentSlug: event.slug!, key: "main", label: "Main output", credentialRef: "vrcdn/main",
+    sourceConsentAccepted: true, destinationAuthorityAccepted: true,
+    providerRulesAccepted: true, rightsClearedMediaAccepted: true,
+    playbackLinks: [{ platform: "browser", label: "Watch", url: "https://example.com/watch" }],
+  });
+  const scheduled = await staff.mutation(api.events.scheduleEventMediaWorker, { currentSlug: event.slug! });
+  const current = (await t.run(ctx => ctx.db.get(event._id)))!;
+  await contributor.mutation(command("updateOwnContributedEvent"), {
+    eventId: event._id, expectedUpdatedAt: current.updatedAt,
+    patch: { timeTba: true, start: null, end: null, doors: null },
+  });
+  const state = await t.run(async ctx => ({
+    program: await ctx.db.get(output.programId),
+    session: await ctx.db.get(scheduled.sessionId),
+    start: scheduled.startCommandId ? await ctx.db.get(scheduled.startCommandId) : null,
+  }));
+  assert.equal(state.program?.state, "ended");
+  assert.equal(state.session?.status, "ended");
+  assert.equal(state.start?.status, "cancelled");
+});
 it("rejects attachment, provenance, trust, watch and private evidence changes", async () => {
   const { contributor, event } = await fixture();
   for (const patch of [{ communitySlug: "elsewhere" }, { sourceType: "community" }, { sourceLabel: "Owner" }, { watchMode: "event_stream" }, { notes: "private" }, { contributorEditsClosedAt: 0 }, { sourceText: "evidence" }]) {

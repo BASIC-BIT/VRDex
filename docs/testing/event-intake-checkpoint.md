@@ -234,6 +234,14 @@ The CI build also exposed that the staff reports route rendered a Convex hook
 during credential-free static generation. A server route wrapper now marks that
 page dynamic; the credential-free production build passes locally.
 
+The next review pass found three contract and lifecycle gaps. The public event
+schema now accepts an unconfirmed contributor world, matching the event detail
+projection. A contributor's Time TBA correction cancels queued event media or
+requests a stop for an active session, using the existing cancellation path.
+REST and MCP retraction retries resolve the actor's hidden event and return
+`changed: false` after the first successful retraction. Targeted tests failed
+on each gap before the fixes and passed afterward.
+
 ## Release and operator gates
 
 See [deployment sequence](../deployment/convex-environments.md#event-intake-staged-release-checks)

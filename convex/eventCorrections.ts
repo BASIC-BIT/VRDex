@@ -14,6 +14,7 @@ import { contributorStaffLock } from "./_eventContributorLock";
 import { syncClubEventOperations } from "./_clubOperationEvents";
 import { reindexEventSearchDocument } from "./_searchDocuments";
 import { canReadProfile } from "./_profilePermissions";
+import { getEventBySlug } from "./_eventSlugs";
 import { canUpdateEvent, eventParticipantRoleLabels, linkedPublishedEventWorld, managedCommunitiesForBrowser, recordEventAuditEvent, replaceEventWorldLink, settleEventMediaForCancellation, syncPreservedEventAssociations } from "./events";
 
 export const REMOVED_EVENT_SUPPRESSION_MS = 30 * 86_400_000;
@@ -98,7 +99,10 @@ export async function updateActorContribution(ctx: MutationCtx, actorUserId: Id<
     preserveSlotAssociationIds: preserved[0].map(row => row._id),
     preserveParticipantAssociationIds: preserved[1].map(row => row._id),
   } : {});
-  if (updated.startAt !== event.startAt) await syncClubEventOperations(ctx, event._id);
+  if (updated.startAt !== event.startAt) {
+    await syncClubEventOperations(ctx, event._id);
+    if (updated.startAt === undefined) await settleEventMediaForCancellation(db, event, actor, now);
+  }
   if (patch.worldSlug !== undefined) await replaceEventWorldLink(db, updated, checked.world, now, { confirmationState: "unconfirmed" });
   await refreshProjections(db, updated, now);
   await recordEventAuditEvent(db, { eventId: event._id, actorUserId, actor, actorSurface: actor ? "browser" : actorSurface, action: "updated", changedFields: Object.keys(patch), now });
@@ -135,6 +139,12 @@ async function ownCorrectionView(db: DatabaseReader, actorUserId: Id<"users">, e
 }
 export const getOwnContributedEvent = query({ args: { eventId: v.id("events") }, handler: async (ctx, args) => ownCorrectionView(ctx.db, (await requireUser(ctx)).userId, args.eventId) });
 export const getActorContributedEvent = internalQuery({ args: { eventId: v.id("events"), actorUserId: v.id("users") }, handler: (ctx, args) => ownCorrectionView(ctx.db, args.actorUserId, args.eventId) });
+export const getActorContributedEventIdBySlug = internalQuery({ args: { slug: v.string(), actorUserId: v.id("users") }, handler: async (ctx, args) => {
+  const event = await getEventBySlug(ctx.db, args.slug);
+  if (!event) throw new ConvexError({ code: "CONTRIBUTOR_REQUIRED" });
+  await ownEvent(ctx.db, args.actorUserId, event._id);
+  return event._id;
+} });
 
 export const getEventContributionAccess = query({ args: { eventId: v.id("events") }, returns: v.object({ canCorrect: v.boolean(), canSuggest: v.boolean(), canTakeOver: v.boolean(), canRemove: v.boolean() }), handler: async (ctx, { eventId }) => {
   const denied = { canCorrect: false, canSuggest: false, canTakeOver: false, canRemove: false };
