@@ -3,6 +3,7 @@ import { it } from "node:test";
 import { convexTest } from "convex-test";
 import { api } from "../../convex/_generated/api";
 import { defaultClubVisibility } from "../../convex/_clubModel";
+import { getPublicGroupMembership } from "../../convex/_communityTelemetryPublic";
 import schemaModule from "../../convex/schema";
 import { newClerkUserId } from "./_clerkTestIdentity";
 
@@ -119,6 +120,44 @@ it("does not revive a removed primary link through integration fallback", async 
   assert.deepEqual((await s.read("second-group"))?.groupMembership?.latest, {
     observedAt: s.now, value: 50,
   });
+  await s.t.run(async (ctx) => {
+    const integration = (await ctx.db.query("communityVrchatIntegrations")
+      .withIndex("by_communityProfileId", (q) => q.eq("communityProfileId", s.firstId))
+      .first())!;
+    await ctx.db.patch(integration._id, { vrchatGroupId: groupB });
+    await ctx.db.insert("vrchatGroupMemberSnapshots", {
+      vrchatGroupId: groupB, memberCount: 8, observedAt: s.now + 1,
+    });
+  });
+  assert.deepEqual((await s.read("first-group"))?.groupMembership?.latest, {
+    observedAt: s.now + 1, value: 8,
+  });
+});
+
+it("skips whole-span bucket reads for a short history", async () => {
+  const s = await setup();
+  await s.t.run(async (ctx) => {
+    await ctx.db.insert("communityDataVisibility", {
+      communityProfileId: s.firstId,
+      categories: { ...defaultClubVisibility(), group_size: { audience: "public", staffRoleIds: null } },
+      updatedAt: s.now,
+    });
+    await ctx.db.insert("vrchatGroupMemberSnapshots", {
+      vrchatGroupId: groupA, memberCount: 20, observedAt: s.now,
+    });
+  });
+  let groupReads = 0;
+  const membership = await s.t.run((ctx) => getPublicGroupMembership(new Proxy(ctx.db, {
+    get(target, property) {
+      if (property === "query") return (table: Parameters<typeof target.query>[0]) => {
+        if (table === "vrchatGroupMemberSnapshots") groupReads++;
+        return target.query(table);
+      };
+      return Reflect.get(target, property);
+    },
+  }), s.firstId));
+  assert.equal(groupReads, 2, "only recent and first point reads are needed");
+  assert.deepEqual(membership?.latest, { observedAt: s.now, value: 20 });
 });
 
 it("merges current-epoch connected observations and keeps earliest and latest in a bounded series", async () => {

@@ -25,16 +25,17 @@ export async function getPublicGroupMembership(
       .eq("profileId", communityProfileId).eq("assetType", "vrchat_group").eq("state", "active"))
     .take(100);
   const primaryGroupId = primary.find((link) => link.linkRole === "primary")?.assetExternalId;
-  const removedLink = primaryGroupId ? null : await db.query("profileExternalLinks")
-    .withIndex("by_profileId_assetType_state", (q) => q
-      .eq("profileId", communityProfileId).eq("assetType", "vrchat_group").eq("state", "removed"))
-    .first();
   const integration = await db.query("communityVrchatIntegrations")
     .withIndex("by_communityProfileId", (q) => q.eq("communityProfileId", communityProfileId))
     .first();
-  const groupId = primaryGroupId
-    ?? (!removedLink && integration?.state !== "disconnected" && integration?.state !== "disconnecting"
-      ? integration?.vrchatGroupId : undefined);
+  const fallbackGroupId = !primaryGroupId && integration?.state !== "disconnected" &&
+    integration?.state !== "disconnecting" ? integration?.vrchatGroupId : undefined;
+  const removedFallback = fallbackGroupId ? (await db.query("profileExternalLinks")
+    .withIndex("by_profileId_assetType_assetExternalId", (q) => q
+      .eq("profileId", communityProfileId).eq("assetType", "vrchat_group")
+      .eq("assetExternalId", fallbackGroupId))
+    .take(100)).some((link) => link.state === "removed") : false;
+  const groupId = primaryGroupId ?? (removedFallback ? undefined : fallbackGroupId);
   if (!groupId) return null;
 
   const groupQuery = () => db.query("vrchatGroupMemberSnapshots")
@@ -60,18 +61,21 @@ export async function getPublicGroupMembership(
   const firstAt = Math.min(groupFirst?.observedAt ?? Infinity, connectedFirst?.observedAt ?? Infinity);
   const lastAt = Math.max(groupRecent[0]?.observedAt ?? -Infinity, connectedRecent[0]?.observedAt ?? -Infinity);
   if (!Number.isFinite(firstAt) || !Number.isFinite(lastAt)) return null;
-  // Twenty-four indexed windows retain actual older observations even after recent rows exceed 500.
+  const sampleGroup = groupRecent.length === 500 && groupFirst?.observedAt !== groupRecent[499]?.observedAt;
+  const sampleConnected = connectedRecent.length === 500 &&
+    connectedFirst?.observedAt !== connectedRecent[499]?.observedAt;
+  // Sample the whole span only when a source has observations beyond its recent 500.
   const width = Math.max(1, Math.ceil((lastAt - firstAt + 1) / 24));
-  const historical = await Promise.all(Array.from({ length: 24 }, async (_, i) => {
+  const historical = await Promise.all(Array.from({ length: sampleGroup || sampleConnected ? 24 : 0 }, async (_, i) => {
     const start = firstAt + i * width;
     const end = Math.min(lastAt + 1, start + width);
     if (start >= end) return { group: null, member: null };
     const [group, member] = await Promise.all([
-      db.query("vrchatGroupMemberSnapshots")
+      sampleGroup ? db.query("vrchatGroupMemberSnapshots")
         .withIndex("by_vrchatGroupId_observedAt", (q) => q.eq("vrchatGroupId", groupId)
           .gte("observedAt", start).lt("observedAt", end))
-        .first(),
-      connected && end > epochStart
+        .first() : Promise.resolve(null),
+      sampleConnected && connected && end > epochStart
         ? db.query("communityMemberCountObservations")
           .withIndex("by_integrationId_observedAt", (q) => q.eq("integrationId", connected._id)
             .gte("observedAt", Math.max(start, epochStart)).lt("observedAt", end))
