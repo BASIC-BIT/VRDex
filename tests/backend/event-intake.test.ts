@@ -4,7 +4,7 @@ import { convexTest } from "convex-test";
 import { makeFunctionReference } from "convex/server";
 import schemaModule from "../../convex/schema";
 import { api } from "../../convex/_generated/api";
-import { getPublicCommunityHostedEvents } from "../../convex/_eventPublic";
+import { getPublicCommunityHostedEvents, getPublicPersonUpcomingEvents } from "../../convex/_eventPublic";
 
 const schema = (schemaModule as unknown as { default?: typeof schemaModule }).default ?? schemaModule;
 const save = makeFunctionReference<"mutation">("eventIntake:saveEventIntakeDraft");
@@ -150,17 +150,19 @@ it("does not create an event or receipt when lineup validation fails", async () 
   assert.deepEqual(await t.run(async ctx => [(await ctx.db.query("events").collect()).length, (await ctx.db.query("eventContributionReceipts").collect()).length, (await ctx.db.query("searchDocuments").collect()).length]), [0, 0, 0]);
 });
 
-it("publishes matched performer attribution without exposing contributor identity or source evidence", async () => {
+it("shows contributor lineup matches without claiming a performer's profile before staff review", async () => {
   const { t, actor } = await fixture();
-  await t.run(ctx => ctx.db.insert("profiles", { slug: "public-dj", displayName: "Public DJ", sortName: "public dj", profileType: "person", person: { roleTags: [] }, aliases: [], tags: [], claimState: "unclaimed", publicationState: "published", publicSurfacingState: "public", creationSource: "community", updatedAt: Date.now() }));
+  const personId = await t.run(ctx => ctx.db.insert("profiles", { slug: "public-dj", displayName: "Public DJ", sortName: "public dj", profileType: "person", person: { roleTags: [] }, aliases: [], tags: [], claimState: "unclaimed", publicationState: "published", publicSurfacingState: "public", creationSource: "community", updatedAt: Date.now() }));
   const draft = await actor.mutation(save, { patch: { ...complete, sourceText: "Private source evidence", posterSourceId: "private-poster", lineup: [{ clientKey: "a", position: 0, performerLabel: "Public DJ", personSlug: "public-dj" }] } });
   const result = await actor.action(publish, { draftId: draft.draftId, expectedVersion: 1, idempotencyKey: "matched" });
   const event = await t.run(ctx => ctx.db.get(result.eventId));
   const publicEvent = await t.query(api.events.getPublicBySlug, { slug: event!.slug! });
-  assert.equal(publicEvent?.participants[0].source.sourceType, "contributor");
+  assert.equal(publicEvent?.lineup[0].displayLabel, "Public DJ");
+  assert.equal(publicEvent?.participants.length, 0);
   for (const key of ["contributorUserId", "sourceText", "posterSourceId", "ownerConfirmed", "submitter"]) assert.equal(Object.hasOwn(publicEvent!, key), false);
   assert.equal(publicEvent?.posterImageUrl, undefined);
-  assert.equal(Object.hasOwn(publicEvent!.participants[0], "confirmationState"), false);
+  assert.equal((await t.run(ctx => ctx.db.query("eventParticipants").first()))?.confirmationState, "unconfirmed");
+  assert.equal((await t.run(ctx => getPublicPersonUpcomingEvents(ctx.db, personId, Date.now()))).length, 0);
 });
 it("keeps a selected public world and contributor attribution in the atomic publication", async () => {
   const { t, actor } = await fixture();

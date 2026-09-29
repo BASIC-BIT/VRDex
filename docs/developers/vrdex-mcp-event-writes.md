@@ -2,7 +2,7 @@
 
 ## Contribution intake
 
-Hosted and local MCP register the same nine intake tools, using the shared REST
+Hosted and local MCP register the same ten intake tools, using the shared REST
 schemas and actor-bound commands:
 
 - `vrdex_event_intake_draft_save`
@@ -12,19 +12,23 @@ schemas and actor-bound commands:
 - `vrdex_event_intake_poster_upload_begin`
 - `vrdex_event_intake_poster_upload_complete`
 - `vrdex_event_intake_artwork_select`
+- `vrdex_event_intake_event_get`
 - `vrdex_event_intake_event_update`
 - `vrdex_event_intake_event_retract`
 
-Hosted writes need user-delegated `mcp:write events:contribute`; draft readback
-needs `mcp:read events:contribute`. Local tools call the API using a user-owned
-token with `events:contribute`. Neither path requires verified email. The owner
-tools below still require `events:write` and community authority.
+Hosted writes need user-delegated `mcp:write events:contribute`; draft and
+contribution reads need `mcp:read events:contribute`. Local tools call the API
+using a user-owned token with `events:contribute`. Neither path requires
+verified email. The owner tools below still require `events:write` and
+community authority.
 
 Website and MCP drafts interoperate. Save the returned `draftId` and `version`.
 Publication returns `eventId`, `eventPath`, and `receiptId`. After a lost response,
 read the draft and replay publication with the same version and idempotency key.
 Never make a new draft or key just because the response was lost. Poster upload
 and extraction do not select public artwork; call `artwork_select` deliberately.
+Call `event_get` with the published slug to obtain `updatedAt` before
+`event_update`; pass that revision as `expectedUpdatedAt`.
 
 The local-only `vrdex_event_intake_poster_upload_bytes` helper accepts `draftId`,
 `contentType`, and base64 content explicitly supplied from a chosen local file.

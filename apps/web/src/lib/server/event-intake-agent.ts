@@ -4,7 +4,7 @@ import { EventIntakeCandidateSchema, EventIntakeCandidateJsonSchema, resolveEven
 type PublicMatch = { slug: string; displayName: string };
 type Input = { draftId: string; sourceText?: string; posterAssetId?: string };
 export type EventIntakeAgentDependencies = {
-  authorize: (input: Input) => Promise<{ actorUserId: string; version: number }>;
+  authorize: (input: Input, reserveQuota: boolean) => Promise<{ actorUserId: string; version: number }>;
   search_people: (query: string, limit: number) => Promise<PublicMatch[]>;
   search_communities: (query: string, limit: number) => Promise<PublicMatch[]>;
   readPoster?: (posterAssetId: string) => Promise<string>;
@@ -64,9 +64,9 @@ function revalidate(candidate: EventIntakeCandidate, people: Set<string>, commun
 // Dependencies are server-owned closures, never accepted from request JSON.
 export async function extractEventIntake(input: Input, deps: EventIntakeAgentDependencies): Promise<EventIntakeCandidate> {
   if (!input.draftId || (input.sourceText?.length ?? 0) > 12_000 || (!input.sourceText?.trim() && !input.posterAssetId)) throw new Error("EXTRACTION_INPUT_INVALID");
-  const authority = await deps.authorize(input);
   const apiKey = deps.apiKey ?? process.env.OPENAI_API_KEY;
   const enabled = deps.enabled ?? process.env.VRDEX_EVENT_INTAKE_AI_ENABLED === "true";
+  const authority = await deps.authorize(input, Boolean(enabled && apiKey));
   if (!enabled || !apiKey) return fallback("extraction_unavailable");
   const started = Date.now();
   let turns = 0, toolCalls = 0, inputTokens = 0, outputTokens = 0;
@@ -148,9 +148,10 @@ export function createEventIntakeExtractor(deps: {
       return rows.map(row => ({ slug: row.slug, displayName: row.title }));
     };
     return extractEventIntake(input, {
-      authorize: async value => deps.admin.mutation(internal.eventIntakeSources.authorizeExtraction, {
+      authorize: async (value, reserveQuota) => deps.admin.mutation(internal.eventIntakeSources.authorizeExtraction, {
         ...await deps.authority(), draftId: value.draftId as import("../../../../../convex/_generated/dataModel").Id<"eventIntakeDrafts">,
         ...(value.posterAssetId ? { posterAssetId: value.posterAssetId as import("../../../../../convex/_generated/dataModel").Id<"eventPosterSources"> } : {}),
+        reserveQuota,
       }),
       readPoster: deps.readPoster,
       search_people: (query, limit) => lookup(query, limit, "person"),

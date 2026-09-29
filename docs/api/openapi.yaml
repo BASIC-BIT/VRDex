@@ -2179,6 +2179,286 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiProblem"
   /api/v0/events/{slug}/contribution:
+    get:
+      operationId: eventIntake_event_get
+      tags:
+        - Events
+      summary: Event intake event get
+      description: Requires a user-scoped credential with events:contribute. No verified-email or community ownership requirement. Publication retries must preserve draftId, expectedVersion, and idempotencyKey.
+      security:
+        - bearerAuth: []
+        - oauth2:
+            - events:contribute
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Actor-scoped result.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  eventId:
+                    type: string
+                    minLength: 1
+                    maxLength: 200
+                  updatedAt:
+                    type: number
+                  contributionVersion:
+                    type: number
+                  fields:
+                    type: object
+                    properties:
+                      communitySlug:
+                        anyOf:
+                          - type: string
+                            maxLength: 64
+                          - type: "null"
+                      title:
+                        anyOf:
+                          - type: string
+                            maxLength: 120
+                          - type: "null"
+                      eventDate:
+                        anyOf:
+                          - type: string
+                            maxLength: 10
+                          - type: "null"
+                      timeTba:
+                        anyOf:
+                          - type: boolean
+                          - type: "null"
+                      timezone:
+                        anyOf:
+                          - type: string
+                            maxLength: 64
+                          - type: "null"
+                      start:
+                        anyOf:
+                          - type: object
+                            properties:
+                              time:
+                                type: string
+                                pattern: ^([01]\d|2[0-3]):[0-5]\d$
+                              dayOffset:
+                                type: integer
+                                minimum: -1
+                                maximum: 7
+                              occurrence:
+                                type: string
+                                enum:
+                                  - earlier
+                                  - later
+                            required:
+                              - time
+                            additionalProperties: false
+                          - type: "null"
+                      end:
+                        anyOf:
+                          - type: object
+                            properties:
+                              time:
+                                type: string
+                                pattern: ^([01]\d|2[0-3]):[0-5]\d$
+                              dayOffset:
+                                type: integer
+                                minimum: -1
+                                maximum: 7
+                              occurrence:
+                                type: string
+                                enum:
+                                  - earlier
+                                  - later
+                            required:
+                              - time
+                            additionalProperties: false
+                          - type: "null"
+                      doors:
+                        anyOf:
+                          - type: object
+                            properties:
+                              time:
+                                type: string
+                                pattern: ^([01]\d|2[0-3]):[0-5]\d$
+                              dayOffset:
+                                type: integer
+                                minimum: -1
+                                maximum: 7
+                              occurrence:
+                                type: string
+                                enum:
+                                  - earlier
+                                  - later
+                            required:
+                              - time
+                            additionalProperties: false
+                          - type: "null"
+                      venueLabel:
+                        anyOf:
+                          - type: string
+                            maxLength: 120
+                          - type: "null"
+                      summary:
+                        anyOf:
+                          - type: string
+                            maxLength: 240
+                          - type: "null"
+                      sourceUrl:
+                        anyOf:
+                          - type: string
+                            maxLength: 2048
+                          - type: "null"
+                      worldSlug:
+                        anyOf:
+                          - type: string
+                            maxLength: 64
+                          - type: "null"
+                      sourceText:
+                        anyOf:
+                          - type: string
+                            maxLength: 12000
+                          - type: "null"
+                      posterSourceId:
+                        anyOf:
+                          - type: string
+                            maxLength: 200
+                          - type: "null"
+                      posterDeclaration:
+                        anyOf:
+                          - type: object
+                            properties:
+                              contentType:
+                                type: string
+                                enum:
+                                  - image/png
+                                  - image/jpeg
+                                  - image/webp
+                              byteLength:
+                                type: integer
+                                exclusiveMinimum: 0
+                                maximum: 12582912
+                              sha256:
+                                type: string
+                                pattern: ^[a-f0-9]{64}$
+                            required:
+                              - contentType
+                              - byteLength
+                              - sha256
+                            additionalProperties: false
+                          - type: "null"
+                      lineup:
+                        anyOf:
+                          - maxItems: 80
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                clientKey:
+                                  type: string
+                                  minLength: 1
+                                  maxLength: 120
+                                position:
+                                  type: integer
+                                  minimum: 0
+                                  maximum: 79
+                                performerLabel:
+                                  anyOf:
+                                    - type: string
+                                      maxLength: 120
+                                    - type: "null"
+                                personSlug:
+                                  anyOf:
+                                    - type: string
+                                      maxLength: 64
+                                    - type: "null"
+                                roleLabel:
+                                  anyOf:
+                                    - type: string
+                                      maxLength: 48
+                                    - type: "null"
+                                start:
+                                  anyOf:
+                                    - type: object
+                                      properties:
+                                        time:
+                                          type: string
+                                          pattern: ^([01]\d|2[0-3]):[0-5]\d$
+                                        dayOffset:
+                                          type: integer
+                                          minimum: -1
+                                          maximum: 7
+                                        occurrence:
+                                          type: string
+                                          enum:
+                                            - earlier
+                                            - later
+                                      required:
+                                        - time
+                                      additionalProperties: false
+                                    - type: "null"
+                                end:
+                                  anyOf:
+                                    - type: object
+                                      properties:
+                                        time:
+                                          type: string
+                                          pattern: ^([01]\d|2[0-3]):[0-5]\d$
+                                        dayOffset:
+                                          type: integer
+                                          minimum: -1
+                                          maximum: 7
+                                        occurrence:
+                                          type: string
+                                          enum:
+                                            - earlier
+                                            - later
+                                      required:
+                                        - time
+                                      additionalProperties: false
+                                    - type: "null"
+                              required:
+                                - clientKey
+                                - position
+                              additionalProperties: false
+                          - type: "null"
+                    additionalProperties: false
+                required:
+                  - eventId
+                  - updatedAt
+                  - fields
+                additionalProperties: false
+        "400": *a1
+        "401":
+          description: User credential required.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "403":
+          description: Missing scope or actor authority.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "404": *a2
+        "409":
+          description: Stale version, changed idempotency input, or staff takeover.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "429": *a3
+        "503":
+          description: Response unavailable; read the draft before retrying and preserve the publication key and version.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
     patch:
       operationId: eventIntake_event_update
       tags:

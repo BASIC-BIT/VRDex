@@ -87,19 +87,21 @@ export async function replayIntakePublication(db: DatabaseReader, actorUserId: I
 
 export { classifyEventIntakeForPublication } from "../apps/web/src/lib/server/event-intake-spam";
 
-export async function publishIntakeDraft(db: DatabaseWriter, actorUserId: Id<"users">, args: PublishIntakeArgs, now = Date.now(), actorSurface: "browser" | "api" | "mcp" = "api"): Promise<PublishIntakeResult> {
+export async function publishIntakeDraft(db: DatabaseWriter, actorUserId: Id<"users">, args: PublishIntakeArgs, now = Date.now(), actorSurface: "browser" | "api" | "mcp" = "api"): Promise<PublishIntakeResult & { createdEvent: boolean }> {
   const prior = await replayIntakePublication(db, actorUserId, args);
-  if (prior) return prior;
+  if (prior) return { ...prior, createdEvent: false };
   const recentRequests = await db.query("eventIntakePublishRequests").withIndex("by_actor_createdAt", q => q.eq("actorUserId", actorUserId).gte("createdAt", now - 86_400_000)).take(100);
   if (recentRequests.length >= 100) throw new ConvexError({ code: "REQUEST_QUOTA" });
   const draft = await getActorIntakeDraft(db, actorUserId, args.draftId, now);
   if (draft.version !== args.expectedVersion) throw new ConvexError({ code: "VERSION_CONFLICT" });
   let receipt = draft.publishedReceiptId ? await db.get(draft.publishedReceiptId) : null;
+  let createdEvent = false;
   if (!receipt) {
     const checked = await preflightEventContribution(db, actorUserId, sanitizeEventIntakePatch(draft.fields), now);
     const { fields, schedule, community, fingerprint } = checked;
     let event = checked.existing;
     if (!event) {
+      createdEvent = true;
       if (schedule.scheduleKind === "date_only") requireDateOnlyEventsEnabled();
       const eventId = await db.insert("events", {
         title: fields.title!, sortTitle: fields.title!.toLowerCase(), ...schedule,
@@ -114,7 +116,7 @@ export async function publishIntakeDraft(db: DatabaseWriter, actorUserId: Id<"us
       const link = await ensureShortLinkForTarget(db, { targetType: "event", targetId: eventId }, now);
       await db.patch(eventId, { slug: link.code });
       event = (await db.get(eventId))!;
-      await replaceEventLineup(db, event, checked.lineup, now);
+      await replaceEventLineup(db, event, checked.lineup, now, { confirmPersonLinks: false });
       await replaceEventWorldLink(db, event, checked.world, now, { confirmationState: "unconfirmed" });
       await reindexEventSearchDocument(db, event, { community, world: checked.world, roleLabels: checked.lineup.flatMap(entry => entry.roleLabel ? [entry.roleLabel] : []) }, now);
       await recordEventAuditEvent(db, { eventId, actorUserId, actorSurface, action: "created",
@@ -152,5 +154,5 @@ export async function publishIntakeDraft(db: DatabaseWriter, actorUserId: Id<"us
     await db.patch(draft._id, { publishedReceiptId: receipt._id });
   }
   await db.insert("eventIntakePublishRequests", { actorUserId, draftId: draft._id, draftVersion: draft.version, idempotencyKey: args.idempotencyKey, receiptId: receipt._id, createdAt: now });
-  return receiptResult(db, receipt);
+  return { ...await receiptResult(db, receipt), createdEvent };
 }

@@ -201,6 +201,7 @@ const mcpWriteToolResourceScopes: Record<(typeof mcpWriteToolNames)[number], Api
  */
 const mcpOwnedReadToolNames = [
   "vrdex_event_intake_draft_get",
+  "vrdex_event_intake_event_get",
   "vrdex_contribution_capacity",
   "vrdex_contribution_capacity_requests",
   "vrdex_contribution_status",
@@ -216,6 +217,7 @@ const mcpOwnedReadToolNames = [
 ] as const;
 const mcpOwnedReadToolScopes: Record<(typeof mcpOwnedReadToolNames)[number], ApiScope> = {
   vrdex_event_intake_draft_get: "events:contribute",
+  vrdex_event_intake_event_get: "events:contribute",
   vrdex_contribution_capacity: "assets:contribute",
   vrdex_contribution_capacity_requests: "assets:contribute",
   vrdex_contribution_status: "assets:contribute",
@@ -2079,7 +2081,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
   });
   for (const operation of Object.keys(eventIntakeOperations) as EventIntakeOperation[]) {
     const contract = eventIntakeOperations[operation];
-    const readOnly = operation === "draft_get";
+    const readOnly = operation === "draft_get" || operation === "event_get";
     const toolName = `vrdex_event_intake_${operation}` as const;
     const scopes: ApiScope[] = [readOnly ? "mcp:read" : "mcp:write", "events:contribute"];
     server.registerTool(toolName, {
@@ -2099,7 +2101,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
             return actionClient.action!.bind(actionClient);
           },
         } });
-        const structuredContent = toolName === "vrdex_event_intake_draft_get"
+        const structuredContent = toolName === "vrdex_event_intake_draft_get" || toolName === "vrdex_event_intake_event_get"
           ? await execute(operation, input)
           : await recordNewWrite(toolName, principal, input, () => execute(operation, input));
         if ("isError" in structuredContent && structuredContent.isError === true) return structuredContent;

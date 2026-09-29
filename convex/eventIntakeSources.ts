@@ -93,16 +93,18 @@ export const publicArtwork = query({ args: { artworkAssetId: v.id("eventPosterAr
   if (artwork?.state !== "published" || !event || event.publicationState !== "published" || event.moderationRemovedAt !== undefined || event.posterImageUrl !== `/api/v0/events/${event._id}/artwork/${artwork._id}` || !community || !canReadProfile("public", community)) return null;
   return { eventId: event._id, storageKey: artwork.storageKey, contentType: "image/webp", byteLength: artwork.byteLength };
 } });
-export const authorizeExtraction = internalMutation({ args: { ...actor, draftId: v.id("eventIntakeDrafts"), posterAssetId: v.optional(v.id("eventPosterSources")) }, returns: v.any(), handler: async (ctx, args) => {
+export const authorizeExtraction = internalMutation({ args: { ...actor, draftId: v.id("eventIntakeDrafts"), posterAssetId: v.optional(v.id("eventPosterSources")), reserveQuota: v.optional(v.boolean()) }, returns: v.any(), handler: async (ctx, args) => {
   const draft = await getActorIntakeDraft(ctx.db, args.actorUserId, args.draftId);
   if (draft.publishedReceiptId) throw new Error("DRAFT_PUBLISHED");
-  const recent = await ctx.db.query("eventIntakeModelAttempts").withIndex("by_actor_createdAt", q => q.eq("actorUserId", args.actorUserId).gte("createdAt", Date.now() - DAY)).take(20);
-  if (recent.length >= 20) throw new Error("EXTRACTION_QUOTA");
   if (args.posterAssetId) {
     const source = await ownSource(ctx.db, args.actorUserId, args.posterAssetId);
     if (source.draftId !== draft._id || source.state !== "ready") throw new Error("POSTER_NOT_READY");
   }
-  await ctx.db.insert("eventIntakeModelAttempts", { actorUserId: args.actorUserId, draftId: draft._id, createdAt: Date.now() });
+  if (args.reserveQuota !== false) {
+    const recent = await ctx.db.query("eventIntakeModelAttempts").withIndex("by_actor_createdAt", q => q.eq("actorUserId", args.actorUserId).gte("createdAt", Date.now() - DAY)).take(20);
+    if (recent.length >= 20) throw new Error("EXTRACTION_QUOTA");
+    await ctx.db.insert("eventIntakeModelAttempts", { actorUserId: args.actorUserId, draftId: draft._id, createdAt: Date.now() });
+  }
   return { actorUserId: args.actorUserId, version: draft.version };
 } });
 export const setEvidenceHold = mutation({ args: { ...sourceArg, reportId: v.union(v.id("eventReports"), v.null()) }, returns: v.null(), handler: async (ctx, args) => {

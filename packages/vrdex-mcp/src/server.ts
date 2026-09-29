@@ -198,7 +198,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       server.registerTool(`vrdex_event_intake_${operation}`, {
         title: `Event intake ${operation.replaceAll("_", " ")}`,
         inputSchema: fromJsonSchema<Record<string, unknown>>(mcpOutputJsonSchemaForZodSchema(contract.input)), outputSchema: mcpOutputSchema<Record<string, unknown>>(contract.output),
-        annotations: { readOnlyHint: operation === "draft_get", destructiveHint: operation === "event_retract", idempotentHint: operation === "draft_get" || operation === "publish" },
+        annotations: { readOnlyHint: operation === "draft_get" || operation === "event_get", destructiveHint: operation === "event_retract", idempotentHint: operation === "draft_get" || operation === "event_get" || operation === "publish" },
       }, async input => {
         try {
           const result = await apiClient.eventIntake(operation, input);

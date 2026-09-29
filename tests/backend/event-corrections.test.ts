@@ -603,7 +603,7 @@ it("updates participant and world feeds atomically on correction and removal", a
     return { personId, worldId };
   });
   await contributor.mutation(command("updateOwnContributedEvent"), { eventId: event._id, expectedUpdatedAt: event.updatedAt, patch: { worldSlug: "world", lineup: [{ clientKey: "dj", position: 0, performerLabel: "DJ", personSlug: "dj" }] } });
-  assert.equal((await t.run(ctx => getPublicPersonUpcomingEvents(ctx.db, personId, Date.now()))).length, 1);
+  assert.equal((await t.run(ctx => getPublicPersonUpcomingEvents(ctx.db, personId, Date.now()))).length, 0);
   const before = await t.run(ctx => getPublicWorldEventContext(ctx.db, worldId, Date.now()));
   assert.equal(before.upcoming.length, 0);
   const publicEvent = await t.query(api.events.getPublicBySlug, { slug: event.slug! });

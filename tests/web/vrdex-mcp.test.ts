@@ -249,7 +249,7 @@ function assertAuthenticatedReadSecuritySchemes(value: unknown) {
 }
 
 function isWriteToolName(name: string | undefined) {
-  if (name?.startsWith("vrdex_event_intake_") && name !== "vrdex_event_intake_draft_get") return true;
+  if (name?.startsWith("vrdex_event_intake_") && name !== "vrdex_event_intake_draft_get" && name !== "vrdex_event_intake_event_get") return true;
   if (name === "vrdex_media_submission_publish" || name === "vrdex_media_submission_declare") return true;
   if (name === "vrdex_media_upload_begin" || name === "vrdex_media_upload_complete") return true;
   return (
@@ -262,7 +262,7 @@ function isWriteToolName(name: string | undefined) {
 // A read, but of the caller's own inventory, so it carries a scope pair rather
 // than the public-read schemes every other read tool advertises.
 function isOwnedReadToolName(name: string | undefined) {
-  if (name === "vrdex_event_intake_draft_get") return true;
+  if (name === "vrdex_event_intake_draft_get" || name === "vrdex_event_intake_event_get") return true;
   if (name === "vrdex_media_submission_get" || name === "vrdex_media_submission_preview") return true;
   return (
     name === "vrdex_get_my_media_submission" ||
@@ -685,6 +685,7 @@ describe("VRDex MCP server", () => {
     // inventory to read.
     const ownedReadScopes = {
       vrdex_event_intake_draft_get: "events:contribute",
+      vrdex_event_intake_event_get: "events:contribute",
       vrdex_list_my_profiles: "profile:read",
       vrdex_list_my_media_submissions: "assets:contribute",
       vrdex_get_my_media_submission: "assets:contribute",

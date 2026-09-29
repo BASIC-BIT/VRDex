@@ -105,6 +105,7 @@ export const UpdateEventContributionSchema = z.strictObject({
   duplicateAcknowledgements: z.array(intakeId).max(100).optional(),
 });
 export const RetractEventContributionSchema = z.strictObject({ slug: text(200).min(1) });
+export const GetEventContributionSchema = RetractEventContributionSchema;
 export const ReportEventSchema = z.strictObject({ reason: text(500).min(5) });
 export const SavedEventIntakeSchema = z.object({ draftId: intakeId, version });
 export const EventIntakeDraftSchema = SavedEventIntakeSchema.extend({
@@ -115,6 +116,7 @@ export const EventPosterUploadSchema = z.object({ posterAssetId: intakeId, expir
   method: z.literal("POST"), url: z.url(), fields: z.record(z.string(), z.string()), fileField: z.literal("file"),
 }) });
 export const EventContributionResultSchema = z.object({ eventId: intakeId, updatedAt: z.number().optional(), changed: z.boolean().optional() });
+export const EventContributionReadSchema = z.object({ eventId: intakeId, updatedAt: z.number(), contributionVersion: z.number().optional(), fields: EventIntakeFieldsSchema });
 
 // These contracts are shared by REST and hosted/local MCP adapters.
 export const eventIntakeOperations = {
@@ -125,6 +127,7 @@ export const eventIntakeOperations = {
   poster_upload_begin: { input: BeginEventPosterUploadSchema, output: EventPosterUploadSchema, method: "POST", path: "/event-intake/{draftId}/poster-upload/begin" },
   poster_upload_complete: { input: CompleteEventPosterUploadSchema, output: z.object({ posterAssetId: intakeId }), method: "POST", path: "/event-intake/{draftId}/poster-upload/complete" },
   artwork_select: { input: SelectEventArtworkSchema, output: z.object({ artworkAssetId: intakeId, version }), method: "POST", path: "/event-intake/{draftId}/artwork" },
+  event_get: { input: GetEventContributionSchema, output: EventContributionReadSchema, method: "GET", path: "/events/{slug}/contribution" },
   event_update: { input: UpdateEventContributionSchema, output: EventContributionResultSchema, method: "PATCH", path: "/events/{slug}/contribution" },
   event_retract: { input: RetractEventContributionSchema, output: EventContributionResultSchema, method: "DELETE", path: "/events/{slug}/contribution" },
 } as const;

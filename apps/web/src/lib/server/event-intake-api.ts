@@ -3,7 +3,7 @@ import {
   eventIntakeOperations, type EventIntakeOperation, SaveEventIntakeDraftSchema,
   EventIntakeDraftIdSchema, PublishEventIntakeSchema, ExtractEventIntakeSchema,
   BeginEventPosterUploadSchema, CompleteEventPosterUploadSchema, SelectEventArtworkSchema,
-  UpdateEventContributionSchema, RetractEventContributionSchema, ReportEventSchema,
+  UpdateEventContributionSchema, RetractEventContributionSchema, GetEventContributionSchema, ReportEventSchema,
 } from "@vrdex/api-contracts";
 import { api, internal } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
@@ -69,6 +69,12 @@ export function createEventIntakeCommands(deps: { actorUserId: Id<"users">; admi
         result = await admin.mutation(internal.eventCorrections.updateActorContributedEvent, { ...input, ...actor, actorSurface: deps.actorSurface ?? "api", eventId: await eventId(slug), duplicateAcknowledgements: input.duplicateAcknowledgements as Id<"events">[] | undefined });
         break;
       }
+      case "event_get": {
+        const { slug } = GetEventContributionSchema.parse(raw);
+        const ownEventId = await admin.query(internal.eventCorrections.getActorContributedEventIdBySlug, { ...actor, slug });
+        result = await admin.query(internal.eventCorrections.getActorContributedEvent, { ...actor, eventId: ownEventId });
+        break;
+      }
       case "event_retract": {
         const { slug } = RetractEventContributionSchema.parse(raw);
         const ownEventId = await admin.query(internal.eventCorrections.getActorContributedEventIdBySlug, { ...actor, slug });
@@ -88,7 +94,7 @@ function problem(status: number, title: string, detail?: string) {
 export async function handleEventIntakeRequest(request: Request, operation: EventIntakeOperation, params: Record<string, string> = {}) {
   const rejected = rejectBearerTokenQuery(request);
   if (rejected) return rejected;
-  const evaluation = await (operation === "draft_get" ? evaluateApiUserReadRequest : evaluateApiUserWriteRequest)(request, { requiredScope: "events:contribute" });
+  const evaluation = await (["draft_get", "event_get"].includes(operation) ? evaluateApiUserReadRequest : evaluateApiUserWriteRequest)(request, { requiredScope: "events:contribute" });
   if (!evaluation.ok) return evaluation.response;
   let input: unknown;
   try {
@@ -117,7 +123,7 @@ export function eventIntakeErrorResponse(error: unknown) {
   if (/NOT_FOUND|not found|DRAFT_ACCESS|CONTRIBUTOR_REQUIRED|POSTER_ACCESS/.test(code)) return problem(403, "Unavailable");
   if (/REPOST_BLOCKED|CONTENT_BLOCKED/.test(code)) return problem(403, "Publication refused");
   if (error instanceof z.ZodError || /POSTER_|ARTWORK_|PATCH_FIELD|CLASSIFICATION_VERSION_CONFLICT/.test(code)) return problem(400, "Invalid intake request");
-  if (/A public community|Event date|Timed publication|Time TBA|Choose a start|Event start|End time|Doors must|Every published lineup|published public community|World match|Source URL|Published drafts|A draft needs|Draft exceeds|Local time|Ambiguous local time|Invalid time zone|date-only/i.test(message)) return problem(400, "Invalid intake request");
+  if (/A public community|Event date|Timed publication|Time TBA|Choose a start|Event start|End time|Doors must|Every published lineup|published public community|World match|Source URL|Published drafts|A draft needs|Draft exceeds|Local time|Ambiguous local time|Invalid time zone|date-only|Lineup match|Timed sets|Set times|Selected stream/i.test(message)) return problem(400, "Invalid intake request");
   return problem(503, "Event intake response unavailable");
 }
 

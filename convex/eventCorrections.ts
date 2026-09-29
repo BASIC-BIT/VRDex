@@ -99,7 +99,8 @@ export async function updateActorContribution(ctx: MutationCtx, actorUserId: Id<
   await replaceEventLineup(db, updated, checked.lineup, now, preserved ? {
     preserveSlotAssociationIds: preserved[0].map(row => row._id),
     preserveParticipantAssociationIds: preserved[1].map(row => row._id),
-  } : {});
+    confirmPersonLinks: false,
+  } : { confirmPersonLinks: false });
   if (updated.startAt !== event.startAt) {
     await syncClubEventOperations(ctx, event._id);
     await reconcileEventMediaScheduleChange(db, event, updated.startAt, actor, now);

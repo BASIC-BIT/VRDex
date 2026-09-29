@@ -23,8 +23,8 @@ export const commitPublishIntake = internalMutation({ args: { ...actorArg, ...ac
   const replay = await replayIntakePublication(ctx.db, actorUserId, args);
   if (replay) return replay;
   if (classification?.decision === "block") throw new Error("CONTENT_BLOCKED");
-  const result = await publishIntakeDraft(ctx.db, actorUserId, args, Date.now(), actorSurface);
-  if (classification?.reviewReason) {
+  const { createdEvent, ...result } = await publishIntakeDraft(ctx.db, actorUserId, args, Date.now(), actorSurface);
+  if (classification?.reviewReason && createdEvent) {
     const event = await ctx.db.get(result.eventId);
     await ctx.db.insert("eventReports", { eventId: result.eventId, communityProfileId: event?.communityProfileId, actorUserId, reason: classification.reviewReason, kind: classification.reviewReason, createdAt: Date.now() });
   }

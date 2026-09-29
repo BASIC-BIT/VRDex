@@ -12,6 +12,7 @@ it("challenges for contribution scopes without granting owner tools", () => {
     import {requiredHostedMcpScopesForToolNames} from "./apps/web/src/lib/server/vrdex-mcp.ts";
     assert.deepEqual(requiredHostedMcpScopesForToolNames(["vrdex_event_intake_publish"]), ["mcp:write","events:contribute"]);
     assert.deepEqual(requiredHostedMcpScopesForToolNames(["vrdex_event_intake_draft_get"]), ["mcp:read","events:contribute"]);
+    assert.deepEqual(requiredHostedMcpScopesForToolNames(["vrdex_event_intake_event_get"]), ["mcp:read","events:contribute"]);
     assert.deepEqual(requiredHostedMcpScopesForToolNames(["vrdex_event_create"]), ["mcp:write","events:write"]);
   `);
 });
@@ -27,6 +28,7 @@ it("shares actor-bound drafts, receipts and correction authority across website 
     import {convexToJson,jsonToConvex} from "convex/values";
     import {createApiTokenValue,hashApiTokenValue} from "./packages/api-contracts/src/tokens.ts";
     import {GET as getDraftRoute} from "./apps/web/src/app/api/v0/event-intake/[draftId]/route.ts";
+    import {GET as getContributionRoute} from "./apps/web/src/app/api/v0/events/[slug]/contribution/route.ts";
     const schema=schemaModule.default??schemaModule;
     process.env.EVENT_DATE_ONLY_ENABLED="true";
     const t=convexTest({schema,modules:{
@@ -83,7 +85,14 @@ it("shares actor-bound drafts, receipts and correction authority across website 
     const read=await commands("draft_get",{draftId:saved.draftId});assert.equal(read.publishedReceiptId,first.receiptId);
     assert.equal((await t.run(ctx=>ctx.db.query("events").collect())).length,1);
     const event=await t.run(ctx=>ctx.db.get(first.eventId));
-    await commands("event_update",{slug:event.slug,expectedUpdatedAt:event.updatedAt,patch:{title:"Corrected"}});
+    await t.run(ctx=>ctx.db.patch(tokenId,{ownerKind:"user",ownerUserId:actorUserId,scopes:["events:contribute"]}));
+    const routeRead=await getContributionRoute(new Request("https://app.example.test/api/v0/events/"+event.slug+"/contribution",{headers:{authorization:"Bearer "+parts.tokenValue}}),{params:Promise.resolve({slug:event.slug})});
+    assert.equal(routeRead.status,200);assert.equal((await routeRead.json()).updatedAt,event.updatedAt);
+    const contribution=await commands("event_get",{slug:event.slug});
+    assert.equal(contribution.updatedAt,event.updatedAt);assert.equal(contribution.fields.title,"Night");
+    assert.equal((await call("vrdex_event_intake_event_get",{slug:event.slug})).structuredContent.updatedAt,event.updatedAt);
+    await assert.rejects(createEventIntakeCommands({actorUserId:other,admin})("event_get",{slug:event.slug}));
+    await commands("event_update",{slug:event.slug,expectedUpdatedAt:contribution.updatedAt,patch:{title:"Corrected"}});
     assert.equal((await t.run(ctx=>ctx.db.get(first.eventId))).title,"Corrected");
     await assert.rejects(createEventIntakeCommands({actorUserId:other,admin})("event_retract",{slug:event.slug}));
     await commands("event_retract",{slug:event.slug});assert.equal((await t.run(ctx=>ctx.db.get(first.eventId))).publicationState,"draft_private");
@@ -140,5 +149,6 @@ it("retains bounded duplicate choices and distinguishes a lost response from inv
     const lost=eventIntakeErrorResponse(new Error("secret transport exception"));assert.equal(lost.status,503);assert.doesNotMatch(await lost.text(),/secret/);
     assert.equal(eventIntakeErrorResponse(new ConvexError({code:"DUPLICATE_EVENT",eventId:"event"})).status,409);
     assert.equal(eventIntakeErrorResponse(new RangeError("Invalid time zone specified: Not/AZone")).status,400);
+    assert.equal(eventIntakeErrorResponse(new Error("Lineup match must be a published public person.")).status,400);
   `);
 });

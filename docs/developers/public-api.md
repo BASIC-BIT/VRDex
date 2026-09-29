@@ -17,6 +17,7 @@ Application-only credentials cannot use these routes.
 | `POST /api/v0/event-intake/{draftId}/poster-upload/begin` | Reserve a private image upload with MIME type, byte count, and SHA-256. |
 | `POST /api/v0/event-intake/{draftId}/poster-upload/complete` | Validate and freeze the uploaded source for that draft. |
 | `POST /api/v0/event-intake/{draftId}/artwork` | Explicitly select and validate a separate public artwork derivative. |
+| `GET /api/v0/events/{slug}/contribution` | Read the actor's canonical editable fields and `updatedAt` revision. |
 | `PATCH /api/v0/events/{slug}/contribution` | Correct the actor's contribution before staff takeover, using `expectedUpdatedAt`. |
 | `DELETE /api/v0/events/{slug}/contribution` | Retract the actor's contribution before staff takeover. |
 | `POST /api/v0/events/{slug}/report` | Submit a visitor report under the existing event/global abuse caps. |
@@ -46,6 +47,9 @@ uses a date value with Time TBA; timed events retain exact instants. Lineup read
 preserves ordered timed, untimed and unmatched entries.
 
 Staff takeover closes contributor updates/retraction even with a fresh revision.
+Read the actor-scoped contribution endpoint before each correction and pass its
+`updatedAt` as `expectedUpdatedAt`. Contributor person matches remain visible in
+the event lineup but unconfirmed on the person's profile until staff review.
 A contributor can retry a successful retraction; the replay returns `changed: false`.
 A contributor can submit a correction suggestion through the event report flow;
 it does not edit the canonical event. Removal excludes the event from public

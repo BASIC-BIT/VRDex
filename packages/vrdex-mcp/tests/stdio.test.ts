@@ -179,7 +179,7 @@ test("serves VRDex tools over stdio and calls the configured API base URL", asyn
         "vrdex_event_intake_draft_save", "vrdex_event_intake_draft_get",
         "vrdex_event_intake_extract", "vrdex_event_intake_publish",
         "vrdex_event_intake_poster_upload_begin", "vrdex_event_intake_poster_upload_complete",
-        "vrdex_event_intake_artwork_select", "vrdex_event_intake_event_update",
+        "vrdex_event_intake_artwork_select", "vrdex_event_intake_event_get", "vrdex_event_intake_event_update",
         "vrdex_event_intake_event_retract", "vrdex_event_intake_poster_upload_bytes",
         "vrdex_search",
         "vrdex_get_profile",

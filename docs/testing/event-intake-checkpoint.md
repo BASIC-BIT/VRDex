@@ -22,6 +22,13 @@ media times, recompute recaps after start or end changes, and demote expired
 date-only rows at read time. Focused backend and desktop/mobile browser tests
 cover those cases.
 
+The latest review pass keeps contributor-linked performers unconfirmed in
+person-profile feeds, maps deterministic lineup errors to client responses,
+avoids classifier reports for discarded duplicate drafts, exposes an
+actor-scoped contribution revision through REST/MCP, and preserves extraction
+quota when the model is disabled. The event lineup still shows its authored
+performers. Backend and transport regressions cover these boundaries.
+
 ## Implemented journey
 
 Any signed-in account can save a partial private draft for any public community,
@@ -65,7 +72,7 @@ Commands run in the isolated worktree, without hosted credentials or paid calls:
 | --- | --- |
 | `pnpm test:backend` | 1,223 passed, zero failed/skipped after review fixes |
 | `pnpm test:web` | 607 passed, zero failed/skipped after review fixes |
-| `pnpm test:api-contracts` | 57 passed, zero failed/skipped after merge |
+| `pnpm test:api-contracts` | 58 passed, zero failed/skipped after review fixes |
 | `pnpm test:vrdex-mcp` | 10 passed, including local stdio and fake-transport upload |
 | `pnpm typecheck:backend` | Passed |
 | `pnpm typecheck:web` | Passed |

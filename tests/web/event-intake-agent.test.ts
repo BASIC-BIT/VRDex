@@ -19,6 +19,9 @@ it("validates decoded PNG/JPEG/WebP, size, MIME, digest and decoding", async () 
  await assert.rejects(validatePosterBytes(body,{contentType:"image/png",byteLength:body.length,sha256:createHash("sha256").update(body).digest("hex")}));
 });
 it("keeps manual fallback without a key or after refusal and malformed output", async () => {
+ let reserved: boolean | undefined;
+ const unavailable = await extractEventIntake({draftId:"draft",sourceText:"Night"},{...base,apiKey:"",authorize:async(_input,reserveQuota)=>{reserved=reserveQuota;return{actorUserId:"actor",version:1};}});
+ assert.equal(reserved,false); assert.ok(unavailable.questions.length);
  for (const deps of [{...base,apiKey:""},{...base,fetchImplementation:async()=>new Response(JSON.stringify({status:"completed",output:[{content:[{type:"refusal"}]}]}))},{...base,fetchImplementation:async()=>response({published:true})}]) {
   const result = await extractEventIntake({draftId:"draft",sourceText:"Night"},deps);
   assert.equal(result.event.title,null); assert.ok(result.questions.length);

@@ -37,6 +37,8 @@ it("binds source reads and extraction quotas to the actor and draft", async () =
  await t.mutation(ref("completePosterUpload"),{actorUserId,posterAssetId:source.posterAssetId,sha256:"a".repeat(64)});
  for(let i=0;i<20;i++) await t.mutation(ref("authorizeExtraction"),{actorUserId,draftId,posterAssetId:source.posterAssetId});
  await assert.rejects(t.mutation(ref("authorizeExtraction"),{actorUserId,draftId}),/QUOTA/);
+ assert.equal((await t.mutation(ref("authorizeExtraction"),{actorUserId,draftId,reserveQuota:false})).version,1);
+ assert.equal((await t.run(ctx=>ctx.db.query("eventIntakeModelAttempts").collect())).length,20);
  assert.deepEqual((await t.run(ctx=>ctx.db.get(draftId)))?.fields,{title:"Night"});
 });
 it("reserves bytes before signing and rejects expired upload completion", async()=>{
@@ -124,6 +126,9 @@ it("rejects stale classifier decisions and atomically records outage reports whi
  const result=await t.mutation(commit,args);
  assert.equal((await t.run(ctx=>ctx.db.query("eventReports").collect()))[0]?.eventId,result.eventId);
  await t.mutation(commit,args);
+ assert.equal((await t.run(ctx=>ctx.db.query("eventReports").collect())).length,1);
+ const duplicate=await t.run(ctx=>ctx.db.insert("eventIntakeDrafts",{actorUserId,version:1,fields:{title:"Night",communitySlug:"club",eventDate:"2027-10-15",timeTba:true,summary:"Discarded text"},provenance:[],createdAt:Date.now(),updatedAt:Date.now(),expiresAt:Date.now()+86400000}));
+ assert.equal((await t.mutation(commit,{actorUserId,draftId:duplicate,expectedVersion:1,idempotencyKey:"duplicate",classification:{draftId:duplicate,draftVersion:1,decision:"allow",reviewReason:"classifier_sample"}})).eventId,result.eventId);
  assert.equal((await t.run(ctx=>ctx.db.query("eventReports").collect())).length,1);
  assert.deepEqual(await t.mutation(commit,{...args,classification:{draftId,draftVersion:1,decision:"block"}}),result);
 });

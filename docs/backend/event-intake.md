@@ -132,6 +132,10 @@ commands below to change the canonical event.
 `eventCorrections.getOwnContributedEvent({eventId})` returns `eventId`,
 `updatedAt`, `contributionVersion`, and editable `fields` reconstructed from the
 canonical event and lineup. It never returns private source evidence.
+REST and MCP expose the same actor-scoped read by event slug. The returned
+`updatedAt` is required for corrections and is not available from public event
+reads. Contributor-selected performer matches appear in the event lineup but
+remain unconfirmed in person-profile feeds until staff edits that lineup.
 `updateOwnContributedEvent({eventId, expectedUpdatedAt, patch, duplicateAcknowledgements?})` allows only the
 original contributor while the listing is published, scheduled, and not taken
 over by staff. It returns the new `updatedAt` and `contributionVersion`.
