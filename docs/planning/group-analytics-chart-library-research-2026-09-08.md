@@ -1,5 +1,7 @@
 # Group analytics chart library research
 
+*Status: the ECharts recommendation below is superseded. BASIC selected Recharts after the independent comparison; see [the discovery doc](group-instance-analytics-discovery-2026-09-08.md).*
+
 Research date: 2026-09-08. Status: current recommendation, not an installed dependency or final design decision. Official project documentation, source manifests, and licenses only. No packages installed or application code changed.
 
 ## Recommendation
