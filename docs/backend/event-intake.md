@@ -125,7 +125,8 @@ start unconfirmed. An unchanged world association retains its existing state.
 Canonical contribution metadata is `contributorUserId`, `contributionVersion`,
 `contributionFingerprint`, optional `contributorEditsClosedAt`, and
 `contributorLockRevision`. Published drafts are immutable; use the correction
-commands below to change the canonical event.
+commands below to change the canonical event. Replay attempts against a
+published draft return a conflict.
 
 ## Correction commands
 
@@ -170,6 +171,7 @@ takeover remain a separate workflow; a stale direct edit never becomes one
 automatically.
 
 Owner API/MCP updates retain date-only schedules when `startAt` is omitted.
+Empty owner updates are rejected without taking over the contributor's listing.
 `eventDate` corrects a date-only event; supplying `startAt` explicitly changes it
 to a timed event. `venueLabel` is editable. The optional `lineup` replaces all
 canonical timed and untimed rows using stable `clientKey` values, names, optional
@@ -197,6 +199,8 @@ Trusted transports can use internal `getActorContributedEvent`,
 arguments plus `actorUserId`. Derive that ID from the authenticated credential,
 never the request body. The internal mutations record this ID in event audits.
 Browser commands derive their actor from the active session.
+The account event list pages the contributor's full event history in creation
+order, including older published and retracted listings.
 
 ## Reports and removal
 
@@ -214,8 +218,8 @@ these limits since the public Convex mutation remains directly callable.
 `listEventReports({cursor, limit})` accepts a null initial cursor and a limit
 from 1 to 100. Only community owners, `manage_events` staff and accounts with an
 active `super_admin` grant can read it. Staff see only their communities; moderators
-see all reports. Its page can be empty before `isDone` because authorization
-filters a bounded global page. Continue with `continueCursor`. Private
+see all reports. Pagination applies the manager's community scope before
+forming each page and cursor. Continue with `continueCursor`. Private
 `eventReports` rows may also carry `kind: classifier_outage` or `classifier_sample` for a trusted
 classifier commit to insert. Neither reports nor outage flags enter public
 event projections.
@@ -247,4 +251,5 @@ default-off spam classification. The manual path has no model-key dependency.
 
 The [Task 9 checkpoint](../testing/event-intake-checkpoint.md) separates local
 transaction, transport and browser fixtures from hosted/storage/provider proof.
-The connected production journey and exact public copy approval remain open.
+Exact public copy was approved by BASIC on 2026-09-28. The connected production
+journey, hosted verification and deployment remain open.

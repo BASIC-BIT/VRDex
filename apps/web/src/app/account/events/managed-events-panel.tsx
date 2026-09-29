@@ -1,11 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useQuery } from "convex/react";
+import { usePaginatedQuery, useQuery } from "convex/react";
 import { api } from "@convex-generated-api";
 
 import { ViewerLocalEventDateTime } from "@/app/_components/viewer-local-event-times";
-import { buttonVariants } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, SectionTitle } from "@/components/ui/card";
 import { Notice } from "@/components/ui/notice";
 
@@ -20,7 +20,7 @@ function eventState(event: {
 export function ManagedEventsPanel() {
   const events = useQuery(api.events.listManagedEvents, { limit: 100 });
   const communities = useQuery(api.events.listManagedCommunities, {});
-  const contributions = useQuery(api.eventCorrections.listOwnContributions, {});
+  const contributions = usePaginatedQuery(api.eventCorrections.listOwnContributions, {}, { initialNumItems: 20 });
   const reportsAllowed = useQuery(api.eventCorrections.getEventReportAccess, {});
 
   return (
@@ -42,10 +42,10 @@ export function ManagedEventsPanel() {
           ))}
         </div>
       </div>
-      {events === undefined ? <p aria-busy="true" className="text-sm text-muted">Loading events…</p> : null}
-      {events?.length === 0 && contributions?.length === 0 ? <Notice>No events</Notice> : null}
+      {events === undefined || contributions.status === "LoadingFirstPage" ? <p aria-busy="true" className="text-sm text-muted">Loading events…</p> : null}
+      {events?.length === 0 && contributions.status !== "LoadingFirstPage" && contributions.results.length === 0 ? <Notice>No events</Notice> : null}
       <div className="grid gap-3">
-        {contributions?.filter(event => !events?.some(managed => managed.eventId === event.eventId)).map(event => <Card key={event.eventId} padding="sm">{event.published && event.eventPath ? <Link className="font-semibold underline-offset-4 hover:underline" href={event.eventPath}>{event.title}</Link> : <span>{event.title} · Retracted</span>}</Card>)}
+        {contributions.results.filter(event => !events?.some(managed => managed.eventId === event.eventId)).map(event => <Card key={event.eventId} padding="sm">{event.published && event.eventPath ? <Link className="font-semibold underline-offset-4 hover:underline" href={event.eventPath}>{event.title}</Link> : <span>{event.title} · Retracted</span>}</Card>)}
         {events?.map((event) => (
           <Card className="flex flex-wrap items-center justify-between gap-4" key={event.eventId} padding="sm">
             <div>
@@ -60,6 +60,7 @@ export function ManagedEventsPanel() {
           </Card>
         ))}
       </div>
+      {contributions.status === "CanLoadMore" ? <Button onClick={() => contributions.loadMore(20)}>Load more</Button> : null}
     </main>
   );
 }

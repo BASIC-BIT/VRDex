@@ -1085,6 +1085,7 @@ async function updateCommunityEventForApiOwnerRecord(
   }
 
   const updateFields = suppliedEventDraftFields(args);
+  if (updateFields.size === 0) throw new Error("Invalid event update request");
   const clearsTimezone =
     args.timezone === null ||
     (typeof args.timezone === "string" && args.timezone.trim().length === 0);

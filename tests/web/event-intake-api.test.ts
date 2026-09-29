@@ -153,8 +153,10 @@ it("retains bounded duplicate choices and distinguishes a lost response from inv
     assert.equal(duplicate.status,409);assert.match((await duplicate.json()).detail,/Existing night/);
     const lost=eventIntakeErrorResponse(new Error("secret transport exception"));assert.equal(lost.status,503);assert.doesNotMatch(await lost.text(),/secret/);
     assert.equal(eventIntakeErrorResponse(new ConvexError({code:"DUPLICATE_EVENT",eventId:"event"})).status,409);
+    assert.equal(eventIntakeErrorResponse(new Error("DRAFT_PUBLISHED")).status,409);
     assert.equal(eventIntakeErrorResponse(new RangeError("Invalid time zone specified: Not/AZone")).status,400);
     assert.equal(eventIntakeErrorResponse(new Error("Lineup match must be a published public person.")).status,400);
+    assert.equal(eventIntakeErrorResponse(new Error("Lineup keys and positions must be unique.")).status,400);
     assert.equal(eventIntakeErrorResponse(new Error('Validator error: Expected ID for table "eventIntakeDrafts", got bad-id')).status,400);
     assert.equal(eventIntakeErrorResponse(new Error("Source URL must be a safe HTTPS URL.")).status,400);
     assert.equal(eventIntakeErrorResponse(new Error("Set end time requires an earlier start time.")).status,400);

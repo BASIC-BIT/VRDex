@@ -112,6 +112,29 @@ it("staff content-only edits leave contributed performer links unconfirmed", asy
   assert.equal(association?.confirmationState, "unconfirmed");
 });
 
+it("empty owner API updates do not take over a contributed event", async () => {
+  const { t, contributor, event, users } = await fixture();
+  await assert.rejects(t.mutation(internal.events.updateCommunityEventForApiOwner, {
+    actorKind: "personal_api_token", ownerUserId: users[1], currentSlug: event.slug!,
+  }), /Invalid event update request/);
+  assert.equal((await t.run(ctx => ctx.db.get(event._id)))?.updatedAt, event.updatedAt);
+  assert.equal((await contributor.query(makeFunctionReference<"query">("eventCorrections:getEventContributionAccess"), { eventId: event._id })).canCorrect, true);
+});
+
+it("pages all contributor events beyond the first hundred", async () => {
+  const { t, contributor, event } = await fixture();
+  await t.run(async ctx => {
+    const { _id, _creationTime, ...fields } = event;
+    for (let index = 0; index < 101; index++) await ctx.db.insert("events", { ...fields, slug: `contribution-${index}` });
+  });
+  const list = makeFunctionReference<"query">("eventCorrections:listOwnContributions");
+  const first = await contributor.query(list, { paginationOpts: { cursor: null, numItems: 100 } });
+  const second = await contributor.query(list, { paginationOpts: { cursor: first.continueCursor, numItems: 100 } });
+  assert.equal(first.isDone, false);
+  assert.equal(second.isDone, true);
+  assert.equal(new Set([...first.page, ...second.page].map(row => row.eventId)).size, 102);
+});
+
 it("owner conversion to Time TBA respects the date-only rollout switch", async () => {
   const { staff, event } = await fixture();
   await staff.mutation(api.events.updateCommunityEvent, { currentSlug: event.slug!, title: event.title, communitySlug: "club", startAt: Date.parse("2027-10-15T19:00:00Z") });

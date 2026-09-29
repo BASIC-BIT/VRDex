@@ -118,13 +118,13 @@ export function eventIntakeErrorResponse(error: unknown) {
   const duplicate = z.object({ code: z.literal("NEAR_DUPLICATE"), choices: z.array(z.object({ eventId: z.string().max(200), title: z.string().max(120), eventPath: z.string().max(2048).startsWith("/") })).max(20) }).safeParse(data);
   if (duplicate.success) return problem(409, "Near duplicate", JSON.stringify(duplicate.data));
   const code = data === undefined ? message : JSON.stringify(data);
-  if (/VERSION_CONFLICT|IDEMPOTENCY_CONFLICT|CONTRIBUTOR_EDIT_CLOSED|DUPLICATE_EVENT/.test(code)) return problem(409, "Conflict");
+  if (/VERSION_CONFLICT|IDEMPOTENCY_CONFLICT|CONTRIBUTOR_EDIT_CLOSED|DUPLICATE_EVENT|DRAFT_PUBLISHED/.test(code)) return problem(409, "Conflict");
   if (/QUOTA|LIMIT/.test(code)) return problem(429, "Limit reached");
   if (/NOT_FOUND|not found|DRAFT_ACCESS|CONTRIBUTOR_REQUIRED|POSTER_ACCESS/.test(code)) return problem(403, "Unavailable");
   if (/REPOST_BLOCKED|CONTENT_BLOCKED/.test(code)) return problem(403, "Publication refused");
   if (error instanceof z.ZodError || /POSTER_|ARTWORK_|PATCH_FIELD|CLASSIFICATION_VERSION_CONFLICT|EXTRACTION_INPUT_INVALID/.test(code)) return problem(400, "Invalid intake request");
   if (/Validator error: Expected ID for table|ArgumentValidationError|Value does not match validator/.test(message)) return problem(400, "Invalid intake request");
-  if (/A public community|Event date|Timed publication|Time TBA|Choose a start|Event start|End time|Doors must|Every published lineup|published public community|World match|Source URL|Published drafts|A draft needs|Draft exceeds|Local time|Ambiguous local time|Invalid time zone|date-only|Lineup match|Timed sets|Set times|Set end time|Selected stream/i.test(message)) return problem(400, "Invalid intake request");
+  if (/A public community|Event date|Timed publication|Time TBA|Choose a start|Event start|End time|Doors must|Every published lineup|published public community|World match|Source URL|Published drafts|A draft needs|Draft exceeds|Local time|Ambiguous local time|Invalid time zone|date-only|Lineup match|Lineup keys and positions|Timed sets|Set times|Set end time|Selected stream/i.test(message)) return problem(400, "Invalid intake request");
   return problem(503, "Event intake response unavailable");
 }
 

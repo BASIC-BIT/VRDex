@@ -1,4 +1,5 @@
 import { ConvexError, v } from "convex/values";
+import { paginationOptsValidator } from "convex/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery, mutation, query, type DatabaseReader, type DatabaseWriter, type MutationCtx } from "./_generated/server";
@@ -178,13 +179,14 @@ export const getEventContributionAccess = query({ args: { eventId: v.id("events"
     canRemove: (await getAccountFeatureAccess(ctx.db, user._id)).superAdmin };
 } });
 
-export const listOwnContributions = query({ args: {}, handler: async ctx => {
+export const listOwnContributions = query({ args: { paginationOpts: paginationOptsValidator }, handler: async (ctx, args) => {
   const { userId } = await requireUser(ctx);
-  const events = await ctx.db.query("events").withIndex("by_contributorUserId", q => q.eq("contributorUserId", userId)).order("desc").take(100);
-  return Promise.all(events.map(async event => {
+  if (!Number.isInteger(args.paginationOpts.numItems) || args.paginationOpts.numItems < 1 || args.paginationOpts.numItems > 100) throw new Error("Invalid contribution page.");
+  const events = await ctx.db.query("events").withIndex("by_contributorUserId", q => q.eq("contributorUserId", userId)).order("desc").paginate(args.paginationOpts);
+  return { ...events, page: await Promise.all(events.page.map(async event => {
     const community = event.communityProfileId ? await ctx.db.get(event.communityProfileId) : null;
     return { eventId: event._id, title: event.title, published: event.publicationState === "published", eventPath: community && event.slug ? `/${community.slug}/events/${event.slug}` : null };
-  }));
+  })) };
 } });
 
 export const getEventReportAccess = query({ args: {}, returns: v.boolean(), handler: async ctx => {
