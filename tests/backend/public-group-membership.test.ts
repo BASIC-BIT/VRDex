@@ -391,6 +391,17 @@ it("does not expose old integration membership after the primary group changes",
   const sinceFounding = await s.t.run((ctx) => getPublicCommunityTelemetry(ctx.db, s.firstId, s.now));
   assert.deepEqual(sinceFounding?.groupMemberGrowth, { value: 11, startAt: foundedAt, endAt: observedAt + 1 });
   await s.t.run(async (ctx) => {
+    const visibility = (await ctx.db.query("communityDataVisibility")
+      .withIndex("by_communityProfileId", (q) => q.eq("communityProfileId", s.firstId))
+      .unique())!;
+    await ctx.db.patch(visibility._id, {
+      categories: { ...visibility.categories, group_size: { audience: "owner", staffRoleIds: null } },
+    });
+  });
+  const publicGrowthOnly = await s.t.run((ctx) => getPublicCommunityTelemetry(ctx.db, s.firstId, s.now));
+  assert.equal(publicGrowthOnly?.groupMemberCount, undefined);
+  assert.deepEqual(publicGrowthOnly?.groupMemberGrowth, { value: 2, startAt: observedAt, endAt: observedAt + 1 });
+  await s.t.run(async (ctx) => {
     const link = (await ctx.db.query("profileExternalLinks")
       .withIndex("by_profileId_assetType_state", (q) => q
         .eq("profileId", s.firstId).eq("assetType", "vrchat_group").eq("state", "active"))

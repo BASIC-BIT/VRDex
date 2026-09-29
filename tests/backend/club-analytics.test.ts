@@ -271,6 +271,15 @@ it("uses the one-member founding baseline only for growth periods containing fou
   assert.equal(first.membership?.netChange, 11);
   const later = await s.owner.query(api.clubAnalytics.getBucket, { communitySlug: "analytics", startAt: epoch + 86400_000, endAt: epoch + 2 * 86400_000 });
   assert.equal(later.membership?.netChange, 3);
+  await s.owner.mutation(api.clubStaff.setCategoryVisibility, {
+    communitySlug: "analytics", category: "group_size", audience: "owner", staffRoleIds: null,
+    expected: { audience: "staff", staffRoleIds: null },
+  });
+  const hiddenCount = await s.staff.query(api.clubAnalytics.getBucket, { communitySlug: "analytics", startAt: epoch, endAt: epoch + 86400_000 });
+  assert.equal(hiddenCount.membership?.lastValue, null);
+  assert.equal(hiddenCount.membership?.netChange, null);
+  const observedDelta = await s.staff.query(api.clubAnalytics.getBucket, { communitySlug: "analytics", startAt: epoch + 86400_000, endAt: epoch + 2 * 86400_000 });
+  assert.equal(observedDelta.membership?.netChange, 3);
 });
 it("event recaps fill visible pages past hidden newer rows and preserve equal-time cursors", async () => {
   const s = await setup();

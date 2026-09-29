@@ -451,7 +451,7 @@ export const getBucket = query({
         (latest.observedAt >= startAt || continuous)
           ? latest
           : null;
-      const groupMetadata = state.integration && state.allowed("membership_movement")
+      const groupMetadata = state.integration && state.allowed("membership_movement") && state.allowed("group_size")
         ? await ctx.db.query("vrchatGroupMemberMetadata")
             .withIndex("by_vrchatGroupId", (q) => q.eq("vrchatGroupId", state.integration!.vrchatGroupId))
             .unique()

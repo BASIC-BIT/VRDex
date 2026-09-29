@@ -264,7 +264,7 @@ export async function getPublicCommunityTelemetry(
   ]);
   const latestMember = memberCounts[0];
   const earliestMember = memberCounts[memberCounts.length - 1];
-  const groupMetadata = publicMetrics.groupMemberGrowth && latestMember
+  const groupMetadata = publicMetrics.groupMemberGrowth && publicMetrics.groupMemberCount && latestMember
     ? await db.query("vrchatGroupMemberMetadata")
         .withIndex("by_vrchatGroupId", (query) => query.eq("vrchatGroupId", integration.vrchatGroupId))
         .unique()
