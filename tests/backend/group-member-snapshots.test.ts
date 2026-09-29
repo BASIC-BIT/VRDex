@@ -64,15 +64,31 @@ it("claims an unconnected primary group and retains a timestamped count", async 
 });
 
 it("provider failure preserves the last point", async () => {
-  const { t, worker } = await fixture();
+  const { t, worker, profileId } = await fixture();
   const first = (await t.mutation(internal.groupMemberSnapshots.claim, { worker, now: NOW }))!;
   await t.mutation(internal.groupMemberSnapshots.complete, {
     worker, linkId: first.linkId, leaseToken: first.leaseToken, memberCount: 42, observedAt: NOW, now: NOW,
+  });
+  await t.run(async ctx => {
+    const other = await ctx.db.insert("profiles", {
+      slug: "second-club", displayName: "Second Club", sortName: "second club", aliases: [], tags: [],
+      profileType: "community", community: { categoryTags: [] }, claimState: "claimed_verified",
+      publicationState: "published", publicSurfacingState: "public", creationSource: "self", updatedAt: NOW,
+    });
+    await ctx.db.insert("profileExternalLinks", {
+      profileId: other, assetType: "vrchat_group", assetExternalId: GROUP, linkRole: "primary", state: "active",
+      createdAt: NOW, updatedAt: NOW,
+    });
+    const visibility = await ctx.db.query("communityDataVisibility")
+      .withIndex("by_communityProfileId", q => q.eq("communityProfileId", profileId)).unique();
+    await ctx.db.insert("communityDataVisibility", { communityProfileId: other, categories: visibility!.categories, updatedAt: NOW });
   });
   const next = (await t.mutation(internal.groupMemberSnapshots.claim, { worker, now: NOW + 86_400_000 }))!;
   await t.mutation(internal.groupMemberSnapshots.complete, {
     worker, linkId: next.linkId, leaseToken: next.leaseToken, observedAt: NOW + 86_400_000, now: NOW + 86_400_000,
   });
+  assert.equal(await t.mutation(internal.groupMemberSnapshots.claim, { worker, now: NOW + 86_400_000 + 60_000 }), null);
+  assert.ok(await t.mutation(internal.groupMemberSnapshots.claim, { worker, now: NOW + 86_400_000 + 15 * 60_000 }));
   const rows = await t.run(ctx => ctx.db.query("vrchatGroupMemberSnapshots")
     .withIndex("by_vrchatGroupId_observedAt", q => q.eq("vrchatGroupId", GROUP)).collect());
   assert.deepEqual(rows.map(row => [row.memberCount, row.observedAt]), [[42, NOW]]);

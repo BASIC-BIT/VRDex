@@ -47,6 +47,10 @@ export const claim = internalMutation({
         await ctx.db.patch(link._id, { nextMemberPollAt: metadata.lastObservedAt + DAY });
         continue;
       }
+      if (metadata?.retryAfterAt && metadata.retryAfterAt > now) {
+        await ctx.db.patch(link._id, { nextMemberPollAt: metadata.retryAfterAt });
+        continue;
+      }
       if (metadata?.claimExpiresAt && metadata.claimExpiresAt > now) {
         await ctx.db.patch(link._id, { nextMemberPollAt: metadata.claimExpiresAt });
         continue;
@@ -94,7 +98,10 @@ export const complete = internalMutation({
         observedAt: args.observedAt, ...(args.groupCreatedAt === undefined ? {} : { groupCreatedAt: args.groupCreatedAt }),
       });
     }
-    await ctx.db.patch(metadata._id, { claimToken: undefined, claimExpiresAt: undefined });
+    await ctx.db.patch(metadata._id, {
+      claimToken: undefined, claimExpiresAt: undefined,
+      retryAfterAt: args.memberCount === undefined ? now + 15 * 60_000 : undefined,
+    });
     await ctx.db.patch(link._id, {
       memberPollLeaseToken: undefined, memberPollWorkerId: undefined,
       nextMemberPollAt: now + (args.memberCount === undefined ? 15 * 60_000 : DAY),

@@ -311,6 +311,7 @@ const telemetryWorker = httpAction(async (ctx, request) => {
         collectorVersion: body.collectorVersion,
         source: "first_party",
         groupMemberCount: body.groupMemberCount,
+        groupCreatedAt: body.groupCreatedAt,
         instances: body.instances,
         nextPollAt: body.nextPollAt,
         now,

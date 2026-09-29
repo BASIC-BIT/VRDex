@@ -1718,6 +1718,7 @@ export default defineSchema({
     vrchatGroupId: v.string(),
     groupCreatedAt: v.optional(v.number()),
     lastObservedAt: v.optional(v.number()),
+    retryAfterAt: v.optional(v.number()),
     claimToken: v.optional(v.string()),
     claimExpiresAt: v.optional(v.number()),
     updatedAt: v.number(),
