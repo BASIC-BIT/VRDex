@@ -181,7 +181,13 @@ export async function getPublicCommunityTelemetry(
       .eq("profileId", communityProfileId).eq("assetType", "vrchat_group").eq("state", "active"))
     .take(100);
   const primaryGroupId = links.find((link) => link.linkRole === "primary")?.assetExternalId;
-  const memberGroupMatches = !primaryGroupId || primaryGroupId === integration.vrchatGroupId;
+  const removedFallback = !primaryGroupId && (await db.query("profileExternalLinks")
+    .withIndex("by_profileId_assetType_assetExternalId", (q) => q
+      .eq("profileId", communityProfileId).eq("assetType", "vrchat_group")
+      .eq("assetExternalId", integration.vrchatGroupId))
+    .take(100)).some((link) => link.state === "removed");
+  const memberGroupMatches = primaryGroupId
+    ? primaryGroupId === integration.vrchatGroupId : !removedFallback;
   const publicMetrics = { currentPopulation: visibility.current_population.audience === "public", populationHistory: visibility.population_history.audience === "public", groupMemberCount: memberGroupMatches && visibility.group_size.audience === "public", groupMemberGrowth: memberGroupMatches && visibility.membership_movement.audience === "public", instanceHistory: visibility.instance_history.audience === "public", eventRecaps: visibility.event_recaps.audience === "public" };
   if (
     integration.state === "disconnecting" ||

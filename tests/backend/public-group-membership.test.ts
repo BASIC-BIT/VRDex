@@ -281,4 +281,17 @@ it("does not expose old integration membership after the primary group changes",
   assert.equal(matching?.groupMemberCount?.value, 12);
   assert.equal(matching?.groupMemberGrowth?.value, 2);
   assert.equal(matching?.populationHistory?.[0]?.groupMemberCount, 12);
+  await s.t.run(async (ctx) => {
+    const link = (await ctx.db.query("profileExternalLinks")
+      .withIndex("by_profileId_assetType_state", (q) => q
+        .eq("profileId", s.firstId).eq("assetType", "vrchat_group").eq("state", "active"))
+      .first())!;
+    await ctx.db.patch(link._id, { state: "removed", removedAt: s.now });
+  });
+  const removed = await s.t.run((ctx) => getPublicCommunityTelemetry(ctx.db, s.firstId, s.now));
+  assert.equal(removed?.groupMemberCount, undefined);
+  assert.equal(removed?.groupMemberGrowth, undefined);
+  assert.equal(removed?.populationHistory?.[0]?.groupMemberCount, undefined);
+  assert.equal(removed?.populationHistory?.[0]?.groupMemberGrowth, undefined);
+  assert.equal((await s.read("first-group"))?.groupMembership, undefined);
 });

@@ -62,3 +62,12 @@ export const SampledHistory: Story = { render: () => <Preview value={{ ...profil
     { observedAt: Date.UTC(2026, 8, 15), value: 1040, sampledBefore: true },
   ],
 } }} /> };
+
+export const SampledThenMissing: Story = { render: () => <Preview value={{ ...profile, groupMembership: {
+  latest: { observedAt: Date.UTC(2026, 8, 18), value: 1070 },
+  points: [
+    { observedAt: Date.UTC(2026, 8, 10), value: 975 },
+    { observedAt: Date.UTC(2026, 8, 15), value: 1040, sampledBefore: true },
+    { observedAt: Date.UTC(2026, 8, 18), value: 1070 },
+  ],
+} }} /> };

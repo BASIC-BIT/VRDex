@@ -32,11 +32,16 @@ export function PublicGroupMembershipChart({ membership }: { membership: GroupMe
   const bridge = membership.groupCreatedAt !== undefined && membership.groupCreatedAt < first.observedAt;
   type Point = { observedAt: number; value: number | null };
   const observedLine: Point[] = [];
+  const sampledLine: Point[] = [];
   const unobservedLine: Point[] = bridge ? [{ observedAt: membership.groupCreatedAt!, value: 0 }, first] : [];
   for (const [index, point] of observations.entries()) {
     const previous = observations[index - 1];
     const skippedDay = previous && Math.floor(point.observedAt / 86_400_000) - Math.floor(previous.observedAt / 86_400_000) > 1;
-    if (skippedDay && !point.sampledBefore) {
+    if (previous && point.sampledBefore) {
+      observedLine.push({ observedAt: previous.observedAt + 1, value: null });
+      if (sampledLine.length) sampledLine.push({ observedAt: previous.observedAt + 1, value: null });
+      sampledLine.push(previous, point);
+    } else if (skippedDay) {
       observedLine.push({ observedAt: previous.observedAt + 1, value: null });
       if (unobservedLine.length) unobservedLine.push({ observedAt: previous.observedAt + 1, value: null });
       unobservedLine.push(previous, point);
@@ -66,6 +71,7 @@ export function PublicGroupMembershipChart({ membership }: { membership: GroupMe
             </div>;
           }} />
           {unobservedLine.length > 0 ? <Line data={unobservedLine} dataKey="value" name="Unobserved" type="linear" stroke="var(--muted)" strokeWidth={2} strokeDasharray="3 4" dot={bridge ? { r: 3, fill: "var(--muted)" } : false} activeDot={false} isAnimationActive={false} /> : null}
+          {sampledLine.length > 0 ? <Line data={sampledLine} dataKey="value" name="Group members" type="linear" stroke="var(--accent)" strokeOpacity={0.55} strokeWidth={2} strokeDasharray="7 5" dot={false} activeDot={false} isAnimationActive={false} /> : null}
           <Line data={observedLine} dataKey="value" name="Group members" type="linear" stroke="var(--accent)" strokeWidth={2} dot={{ r: 3, fill: "var(--accent)" }} isAnimationActive={false} />
         </LineChart>
       </ResponsiveContainer>

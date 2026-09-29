@@ -58,10 +58,18 @@ test("skipped UTC day uses a dotted segment even over 35 hours @storybook-visual
   await expect(page.locator('.recharts-line-curve[stroke-dasharray="3 4"]')).toHaveCount(0);
 });
 
-test("sampled observations keep a solid trend without an unobserved claim @storybook-visual", async ({ page }) => {
+test("sampled history has its own connector, while raw missing days remain unobserved @storybook-visual", async ({ page }, testInfo) => {
   await page.goto(story("sampled-history"));
-  await expect(page.locator('.recharts-line-curve[stroke="var(--accent)"]')).toHaveCount(1);
+  await expect(page.locator('.recharts-line-curve[stroke-dasharray="7 5"]')).toHaveCount(1);
   await expect(page.locator('.recharts-line-curve[stroke-dasharray="3 4"]')).toHaveCount(0);
   await expect(page.getByText("Unobserved", { exact: true })).toHaveCount(0);
+  const observedPath = await page.locator('.recharts-line-curve[stroke="var(--accent)"]:not([stroke-dasharray])').getAttribute("d");
+  expect(observedPath?.match(/M/g)).toHaveLength(2);
   await expect(page.locator(".recharts-line-dots circle")).toHaveCount(2);
+
+  await page.goto(story("sampled-then-missing"));
+  await expect(page.locator('.recharts-line-curve[stroke-dasharray="7 5"]')).toHaveCount(1);
+  await expect(page.locator('.recharts-line-curve[stroke-dasharray="3 4"]')).toHaveCount(1);
+  await expect(page.getByText("Unobserved", { exact: true })).toBeVisible();
+  await testInfo.attach("sampled-and-missing", { body: await page.screenshot({ fullPage: true }), contentType: "image/png" });
 });
