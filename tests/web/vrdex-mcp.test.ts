@@ -60,6 +60,25 @@ it("hosted review writes return safe refusals and preserve uncertain outcomes", 
   `);
   assert.match(output, /safe hosted review errors passed/);
 });
+it("selected review outer errors keep the batch receipt schema", () => {
+  const output = runMcpProbe(`
+    import assert from "node:assert/strict";
+    import { buildVrdexMcpServer } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+    import { commandReceiptSchema } from "./packages/api-contracts/src/media-review.ts";
+    const authInfo={token:"secret",clientId:"client",scopes:["mcp:write","assets:review:write"],resource:new URL("https://app.example.test/mcp"),extra:{subjectType:"user",userId:"user",tokenId:"token",requestId:"request"}};
+    const server=buildVrdexMcpServer({authInfo,adminConvex:{query:async()=>null,mutation:async()=>null}});
+    const result=await server._registeredTools.vrdex_media_review_decide_selected.handler({decisions:[{submissionId:"submission",expectedReviewVersion:"version",decision:"reject",privateReason:"Reviewed",idempotencyKey:"decision-key",unexpected:"force outer parse error"}]});
+    assert.equal(result.isError,true);
+    assert.deepEqual(Object.keys(result.structuredContent),["receipts"]);
+    assert.deepEqual(result.structuredContent.receipts.map(receipt=>receipt.operationId),["decision-key"]);
+    commandReceiptSchema.parse(result.structuredContent.receipts[0]);
+    assert.equal(result.structuredContent.receipts[0].operationState,"in_progress");
+    assert.equal(result.structuredContent.receipts[0].code,"COMMAND_OUTCOME_UNKNOWN");
+    assert.doesNotMatch(JSON.stringify(result),/force outer parse error|secret/);
+    await server.close();console.log("batch outer error schema passed");
+  `);
+  assert.match(output, /batch outer error schema passed/);
+});
 it("registered upload tools preserve actionable uncertainty, validation, capacity and stale state without secrets", () => {
   const output = runMcpProbe(`
     import assert from "node:assert/strict";

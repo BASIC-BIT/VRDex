@@ -1987,6 +1987,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
         ...details,
         result: denial === null ? "indeterminate" : "denied",
       });
+      let result;
       if (denial !== null) {
         const receipt = commandReceiptSchema.parse({
           operationId: idempotencyKey ?? toolName,
@@ -1996,13 +1997,32 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
           retryCategory: denial.action[0],
           nextAction: denial.action[1],
         });
-        return {
+        result = {
           content: [{ type: "text" as const, text: JSON.stringify(receipt) }],
           structuredContent: receipt,
           isError: true as const,
         };
+      } else {
+        result = safeCommandError(null, idempotencyKey ?? toolName);
       }
-      return safeCommandError(null, idempotencyKey ?? toolName);
+      if (toolName === "vrdex_media_review_decide_selected") {
+        const receipt = commandReceiptSchema.parse(result.structuredContent);
+        const decisions = isRecord(input) && Array.isArray(input.decisions)
+          ? input.decisions.slice(0, 20) : [];
+        const receipts = (decisions.length ? decisions : [null]).map((decision, index) => ({
+          ...receipt,
+          operationId: isRecord(decision) && typeof decision.idempotencyKey === "string"
+            ? decision.idempotencyKey.slice(0, 200) || toolName
+            : `${toolName}:${index + 1}`,
+        }));
+        const batch = { receipts };
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(batch) }],
+          structuredContent: batch,
+          isError: true as const,
+        };
+      }
+      return result;
     }
   };
   const completeProfileMediaImport =
