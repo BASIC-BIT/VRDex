@@ -170,8 +170,13 @@ const localExpectedTools = [
   "vrdex_event_intake_poster_upload_bytes", ...localReadTools, ...localOwnedReadToolNames, ...localWriteToolNames,
 ];
 const hostedExpectedTools = ["search", "fetch", ...localReadTools];
+export const hostedExpectedToolNames = [
+  ...hostedExpectedTools,
+  ...ownedReadToolNames,
+  ...writeToolNames,
+];
 
-function assertHostedToolSecuritySchemes(tool: HostedToolDescriptor) {
+export function assertHostedToolSecuritySchemes(tool: HostedToolDescriptor) {
   assert.equal(typeof tool._meta, "object", `Hosted tool ${String(tool.name)} is missing _meta.`);
   assert.notEqual(tool._meta, null, `Hosted tool ${String(tool.name)} is missing _meta.`);
 
