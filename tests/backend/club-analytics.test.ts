@@ -250,6 +250,28 @@ it("reports when the latest retained group member count was observed", async tes
   assert.equal(current.groupMemberObservedAt, epoch + 3600_000);
   assert.equal(current.observedAt, undefined);
 });
+it("uses the one-member founding baseline only for growth periods containing founding", async test => {
+  test.mock.method(Date, "now", () => epoch + 3 * 86400_000);
+  const s = await setup();
+  const foundedAt = epoch + 1000;
+  await s.t.run(async ctx => {
+    await ctx.db.insert("vrchatGroupMemberMetadata", { vrchatGroupId: "grp_example", groupCreatedAt: foundedAt, updatedAt: epoch });
+    for (const [count, at] of [[12, epoch + 2000], [15, epoch + 86400_000 + 2000]]) {
+      await ctx.db.insert("communityMemberCountObservations", {
+        integrationId: s.integrationId, communityProfileId: s.communityProfileId,
+        idempotencyKey: `count-${at}`, vrchatGroupId: "grp_example",
+        memberCount: count!, observedAt: at!, source: "first_party",
+        collectorVersion: "test", coverageState: "observed", fencingToken: 1,
+      });
+    }
+  });
+  const context = await s.owner.query(api.clubAnalytics.getContext, { communitySlug: "analytics" });
+  assert.equal(context.groupCreatedAt, foundedAt);
+  const first = await s.owner.query(api.clubAnalytics.getBucket, { communitySlug: "analytics", startAt: epoch, endAt: epoch + 86400_000 });
+  assert.equal(first.membership?.netChange, 11);
+  const later = await s.owner.query(api.clubAnalytics.getBucket, { communitySlug: "analytics", startAt: epoch + 86400_000, endAt: epoch + 2 * 86400_000 });
+  assert.equal(later.membership?.netChange, 3);
+});
 it("event recaps fill visible pages past hidden newer rows and preserve equal-time cursors", async () => {
   const s = await setup();
   await s.t.run(async ctx => {

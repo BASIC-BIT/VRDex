@@ -28,6 +28,7 @@ import { ClubRangeControls, useClubRange } from "./club-range";
 import {
   membershipChartPoints,
   membershipRangePoints,
+  markMembershipMilestones,
   homeWidgetLabels,
   localDateKey,
   moveWidget,
@@ -219,11 +220,17 @@ function DailyDetail({
   startAt,
   endAt,
   kind,
+  groupCreatedAt,
+  latestObservedAt,
+  now,
 }: {
   communitySlug: string;
   startAt: number;
   endAt: number;
   kind: "population" | "members";
+  groupCreatedAt?: number;
+  latestObservedAt?: number;
+  now: number;
 }) {
   const query = usePaginatedQuery(
     api.clubAnalytics.getSeries,
@@ -243,7 +250,10 @@ function DailyDetail({
   const points =
     kind === "population"
       ? observedChartPoints(query.results)
-      : membershipChartPoints(query.results, memberCoverage?.intervals ?? []);
+      : markMembershipMilestones(
+          membershipChartPoints(query.results, memberCoverage?.intervals ?? []),
+          { groupCreatedAt, latestObservedAt, startAt, endAt, now },
+        );
 
   return (
     <ClubChart
@@ -407,7 +417,10 @@ export function ClubAnalyticsContent({
     (expiringMembership?.membership?.continuousUntil ?? 0) -
       (expiringMembership?.now ?? 0),
   );
-  const memberPoints = membershipRangePoints(loaded, membershipCoverageFresh);
+  const memberPoints = markMembershipMilestones(
+    membershipRangePoints(loaded, membershipCoverageFresh),
+    { groupCreatedAt: context.groupCreatedAt, latestObservedAt: context.current.groupMemberObservedAt, ...bounds, now: context.now },
+  );
   const selectDay = (at: number) =>
     update({ day: localDateKey(new Date(at)), instance: null });
   return (
@@ -534,6 +547,7 @@ export function ClubAnalyticsContent({
                       communitySlug={communitySlug}
                       {...bounds}
                       kind="population"
+                      now={context.now}
                     />
                   ) : loading ? (
                     <Notice role="status">Loading daily activity…</Notice>
@@ -557,6 +571,9 @@ export function ClubAnalyticsContent({
                         communitySlug={communitySlug}
                         {...bounds}
                         kind="members"
+                        groupCreatedAt={context.groupCreatedAt}
+                        latestObservedAt={context.current.groupMemberObservedAt}
+                        now={context.now}
                       />
                     ) : loading ? (
                       <Notice role="status">Loading membership…</Notice>
