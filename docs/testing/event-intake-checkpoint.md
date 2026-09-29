@@ -29,6 +29,13 @@ actor-scoped contribution revision through REST/MCP, and preserves extraction
 quota when the model is disabled. The event lineup still shows its authored
 performers. Backend and transport regressions cover these boundaries.
 
+Final review checks preserve contributed timed slots in the public lineup while
+person links await staff confirmation. Time TBA events reject stale instance
+association suggestions, and the staff review list disables confirmation until
+an event time exists. The new contribution GET route also extends the developer
+API reference, so its inspected desktop and mobile screenshot baselines were
+updated.
+
 ## Implemented journey
 
 Any signed-in account can save a partial private draft for any public community,
