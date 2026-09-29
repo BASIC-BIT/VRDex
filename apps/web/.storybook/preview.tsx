@@ -20,6 +20,11 @@ const preview: Preview = {
       expanded: true,
     },
     layout: "fullscreen",
+    // `PageNav` renders the nav search, which navigates with the App Router.
+    // Without its mocks any story containing a nav throws before it paints.
+    nextjs: {
+      appDirectory: true,
+    },
   },
 };
 
