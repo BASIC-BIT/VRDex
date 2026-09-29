@@ -152,8 +152,10 @@ export function membershipChartPoints(
 export function membershipRangePoints(
   buckets: readonly {
     startAt: number;
+    endAt?: number;
     membership: {
       lastValue: number | null;
+      observedAt?: number | null;
       continuous: boolean;
       continuousUntil?: number | null;
     } | null;
@@ -163,6 +165,11 @@ export function membershipRangePoints(
   const continuous = (bucket: (typeof buckets)[number]) =>
     bucket.membership?.continuous &&
     (bucket.membership.continuousUntil == null || liveCoverageFresh);
+  const pointAt = (bucket: (typeof buckets)[number]) => {
+    const observedAt = bucket.membership?.observedAt;
+    return observedAt != null && observedAt >= bucket.startAt && observedAt < (bucket.endAt ?? bucket.startAt + 86400_000)
+      ? observedAt : bucket.startAt;
+  };
   const points: Array<{ at: number; value: number | null; label: string }> = [];
   for (const [index, bucket] of buckets.entries()) {
     const previous = buckets[index - 1];
@@ -172,15 +179,42 @@ export function membershipRangePoints(
     });
     if (previous && (!continuous(previous) || !continuous(bucket)))
       points.push({
-        at: (previous.startAt + bucket.startAt) / 2,
+        at: (pointAt(previous) + pointAt(bucket)) / 2,
         value: null,
         label,
       });
     points.push({
-      at: bucket.startAt,
+      at: pointAt(bucket),
       value: bucket.membership?.lastValue ?? null,
       label,
     });
   }
   return points;
+}
+
+export function markMembershipMilestones(
+  points: readonly { at: number; value: number | null; label: string }[],
+  { groupCreatedAt, latestObservedAt, startAt, endAt, now }: {
+    groupCreatedAt?: number;
+    latestObservedAt?: number;
+    startAt: number;
+    endAt: number;
+    now: number;
+  },
+) {
+  const today = latestObservedAt !== undefined && latestObservedAt <= now && now - latestObservedAt <= 48 * 3600_000;
+  const marked = points.map((point) => ({ ...point, today: today && point.value !== null && point.at === latestObservedAt, founding: false }));
+  if (groupCreatedAt === undefined || groupCreatedAt < startAt || groupCreatedAt >= endAt) return marked;
+  const existing = marked.find((point) => point.at === groupCreatedAt && point.value !== null);
+  if (existing) existing.founding = true;
+  else marked.push({
+    at: groupCreatedAt, value: 1, label: new Date(groupCreatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+    founding: true, today: false,
+  });
+  marked.sort((a, b) => a.at - b.at);
+  const firstObserved = marked.find((point) => point.at > groupCreatedAt && point.value !== null);
+  if (firstObserved && !marked.some((point) => point.value === null && point.at > groupCreatedAt && point.at < firstObserved.at)) {
+    marked.splice(marked.indexOf(firstObserved), 0, { at: (groupCreatedAt + firstObserved.at) / 2, value: null, label: "", founding: false, today: false });
+  }
+  return marked;
 }
