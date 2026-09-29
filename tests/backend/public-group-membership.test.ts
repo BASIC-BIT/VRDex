@@ -198,6 +198,71 @@ it("skips whole-span bucket reads for a short history", async () => {
   assert.deepEqual(membership?.latest, { observedAt: s.now, value: 20 });
 });
 
+it("keeps a real missing-day gap before the sampled tail", async () => {
+  const s = await setup();
+  const day = 86_400_000;
+  const firstAt = Math.floor(s.now / day) * day - 7 * day;
+  const secondAt = firstAt + 3 * day;
+  await s.t.run(async (ctx) => {
+    await ctx.db.insert("communityDataVisibility", {
+      communityProfileId: s.firstId,
+      categories: { ...defaultClubVisibility(), group_size: { audience: "public", staffRoleIds: null } },
+      updatedAt: s.now,
+    });
+    await ctx.db.insert("vrchatGroupMemberSnapshots", {
+      vrchatGroupId: groupA, memberCount: 1, observedAt: firstAt,
+    });
+    for (let i = 0; i < 500; i++) await ctx.db.insert("vrchatGroupMemberSnapshots", {
+      vrchatGroupId: groupA, memberCount: i + 2, observedAt: secondAt + i * 1000,
+    });
+  });
+  const membership = await s.t.run((ctx) => getPublicGroupMembership(ctx.db, s.firstId));
+  assert.deepEqual(membership?.points.find((point) => point.observedAt === secondAt), {
+    observedAt: secondAt, value: 2,
+  }, "the first three-day gap has no omitted observation and must stay unobserved");
+  assert.ok(membership?.points.some((point) => point.sampledBefore),
+    "later spans with omitted observations remain marked as sampled");
+});
+
+it("finds an omitted group row after an overlapping connected observation", async () => {
+  const s = await setup();
+  const day = 86_400_000;
+  const start = Math.floor(s.now / day) * day - 30 * day;
+  const middle = start + day;
+  await s.t.run(async (ctx) => {
+    await ctx.db.insert("communityDataVisibility", {
+      communityProfileId: s.firstId,
+      categories: { ...defaultClubVisibility(), group_size: { audience: "public", staffRoleIds: null } },
+      updatedAt: s.now,
+    });
+    const integrationId = await ctx.db.insert("communityVrchatIntegrations", {
+      communityProfileId: s.firstId, vrchatGroupId: groupA,
+      groupVisibility: "public", joinPolicy: "free", state: "active",
+      killSwitchEnabled: false, requestsPerMinute: 10, leaseGeneration: 1,
+      publicMetrics: { currentPopulation: false, populationHistory: false,
+        groupMemberCount: false, groupMemberGrowth: false, eventRecaps: false },
+      consecutiveFailures: 0, telemetryEpochStartedAt: start,
+      createdAt: start, updatedAt: s.now,
+    });
+    await ctx.db.insert("communityMemberCountObservations", {
+      integrationId, communityProfileId: s.firstId, idempotencyKey: "overlap",
+      vrchatGroupId: groupA, memberCount: 2, observedAt: middle,
+      source: "first_party", collectorVersion: "test", coverageState: "observed", fencingToken: 1,
+    });
+    for (let i = 0; i < 3; i++) await ctx.db.insert("vrchatGroupMemberSnapshots", {
+      vrchatGroupId: groupA, memberCount: i + 1, observedAt: start + i * day,
+    });
+    for (let i = 0; i < 500; i++) await ctx.db.insert("vrchatGroupMemberSnapshots", {
+      vrchatGroupId: groupA, memberCount: i + 4, observedAt: start + 20 * day + i * 1000,
+    });
+  });
+  const membership = await s.t.run((ctx) => getPublicGroupMembership(ctx.db, s.firstId));
+  const middleIndex = membership?.points.findIndex((point) => point.observedAt === middle) ?? -1;
+  assert.ok(middleIndex >= 0, "the connected overlap stays selected");
+  assert.equal(membership?.points[middleIndex + 1]?.sampledBefore, true,
+    "the omitted group row after the selected overlap makes the next span sampled");
+});
+
 it("merges current-epoch connected observations and keeps earliest and latest in a bounded series", async () => {
   const s = await setup();
   const day = 86_400_000;
@@ -246,7 +311,7 @@ it("merges current-epoch connected observations and keeps earliest and latest in
     },
   }), s.firstId));
   const profile = await s.read("first-group");
-  assert.equal(groupReads, 10, "two endpoint reads and eight historical windows");
+  assert.ok(groupReads >= 10 && groupReads <= 42, "endpoint and window reads plus at most 32 gap probes");
   assert.equal(connectedReads, 2, "unsaturated connected history needs no window reads");
   assert.equal(membership?.points.length, 500);
   assert.deepEqual(membership?.points[0], { observedAt: start + day, value: 2 });

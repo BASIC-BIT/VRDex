@@ -110,19 +110,53 @@ export async function getPublicGroupMembership(
   const remaining = Math.max(0, 500 - required.length);
   const sampled = optional.length <= remaining ? optional : Array.from({ length: remaining }, (_, i) =>
     optional[Math.floor(i * (optional.length - 1) / Math.max(1, remaining - 1))]!);
-  const selected = [...required, ...sampled].sort((a, b) => a.observedAt - b.observedAt);
+  let selected = [...required, ...sampled].sort((a, b) => a.observedAt - b.observedAt);
   const indexByTime = new Map(allPoints.map((point, index) => [point.observedAt, index]));
-  const truncatedRanges = [
-    sampleGroup ? [groupFirst!.observedAt, groupRecent[499]!.observedAt] : null,
-    sampleConnected ? [connectedFirst!.observedAt, connectedRecent[499]!.observedAt] : null,
-  ].filter((range): range is number[] => range !== null);
+  type Probe = { index: number; source: "group" | "connected"; start: number; end: number };
+  const probesFor = (points: typeof allPoints) => {
+    const probes: Probe[] = [];
+    for (let index = 1; index < points.length; index++) {
+      const previous = points[index - 1]!;
+      const point = points[index]!;
+      if (Math.floor(point.observedAt / 86_400_000) - Math.floor(previous.observedAt / 86_400_000) <= 1 ||
+        indexByTime.get(point.observedAt)! - indexByTime.get(previous.observedAt)! > 1) continue;
+      if (sampleGroup) {
+        const start = Math.max(previous.observedAt + 1, groupFirst!.observedAt + 1);
+        const end = Math.min(point.observedAt, groupRecent[499]!.observedAt);
+        if (start < end) probes.push({ index, source: "group", start, end });
+      }
+      if (sampleConnected) {
+        const start = Math.max(previous.observedAt + 1, connectedFirst!.observedAt + 1, epochStart);
+        const end = Math.min(point.observedAt, connectedRecent[499]!.observedAt);
+        if (start < end) probes.push({ index, source: "connected", start, end });
+      }
+    }
+    return probes;
+  };
+  let probes = probesFor(selected);
+  if (probes.length > 32) {
+    // ponytail: cap pathological mixed-source reads with a coarse 17-point view; daily rollups can replace this later.
+    selected = Array.from({ length: 17 }, (_, i) =>
+      selected[Math.floor(i * (selected.length - 1) / 16)]!);
+    probes = probesFor(selected);
+  }
+  const sampledIndices = new Set((await Promise.all(probes.map(async (probe) => {
+    const row = probe.source === "group"
+      ? await db.query("vrchatGroupMemberSnapshots")
+        .withIndex("by_vrchatGroupId_observedAt", (q) => q.eq("vrchatGroupId", groupId)
+          .gte("observedAt", probe.start).lt("observedAt", probe.end))
+        .first()
+      : await db.query("communityMemberCountObservations")
+        .withIndex("by_integrationId_observedAt", (q) => q.eq("integrationId", connected!._id)
+          .gte("observedAt", probe.start).lt("observedAt", probe.end))
+        .first();
+    return row && row.vrchatGroupId === groupId ? probe.index : null;
+  }))).filter((index): index is number => index !== null));
   const points = selected.map((point, index) => {
     const previous = selected[index - 1];
     if (!previous) return point;
     const omittedKnownPoint = indexByTime.get(point.observedAt)! - indexByTime.get(previous.observedAt)! > 1;
-    const crossesTruncatedHistory = truncatedRanges.some(([first, oldestRecent]) =>
-      previous.observedAt < oldestRecent! && point.observedAt > first!);
-    return omittedKnownPoint || crossesTruncatedHistory ? { ...point, sampledBefore: true as const } : point;
+    return omittedKnownPoint || sampledIndices.has(index) ? { ...point, sampledBefore: true as const } : point;
   });
   const latest = allPoints[allPoints.length - 1]!;
   const groupCreatedAt = groupMetadata?.groupCreatedAt

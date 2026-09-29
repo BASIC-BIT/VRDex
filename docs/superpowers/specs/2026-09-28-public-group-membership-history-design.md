@@ -18,7 +18,7 @@ Use existing connected-group count observations without migration. The public re
 
 ## Public projection and appearance
 
-Add an optional group-membership projection to the public community profile, usable without a telemetry integration. It contains only a timestamped latest count, group creation time when known, and observed count points. Return it only when Group size is Public. Do not expose group IDs, member identities, collector state, or private coverage detail. Preserve the current public telemetry fields for API compatibility.
+Add an optional group-membership projection to the public community profile, usable without a telemetry integration. It contains only a timestamped latest count, group creation time when known, and observed count points. Return it only when Group size is Public. Do not expose group IDs, member identities, collector state, or private coverage detail. Preserve unrelated public telemetry fields and the API schema; suppress legacy connected-group member count and growth when that group differs from the active primary group so they cannot be mistaken for primary-group metrics.
 
 Store optional showMemberCount and showMemberHistory booleans on the existing profile appearance preference. Missing values default to true. The owner edits both on the community Appearance page. Hiding both removes membership content from that page while Group size may remain Public in the API. Private staff and owner analytics are unaffected.
 
