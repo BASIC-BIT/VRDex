@@ -60,6 +60,9 @@ function revalidate(candidate: EventIntakeCandidate, people: Set<string>, commun
     }
     if (row.start && row.end && row.end < row.start && !row.endDate) ask(`${prefix}.end`, "end_date_required");
   }
+  for (const [index, row] of candidate.lineup.entries())
+    if (row.start && !row.startDate && candidate.event.start && row.start < candidate.event.start)
+      ask(`lineup.${index}.start`, "start_date_required");
   return candidate;
 }
 // Dependencies are server-owned closures, never accepted from request JSON.

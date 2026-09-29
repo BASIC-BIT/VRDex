@@ -87,9 +87,19 @@ it("rejects invalid poster evidence and image limits before provider work",async
  const bad=blank();bad.evidence=[{fieldPath:"event.title",origin:"poster",posterIndex:2,excerpt:"Night",assessment:"explicit"}];
  assert.equal((await extractEventIntake({draftId:"draft",posterAssetIds:["first"]},{...deps,fetchImplementation:async()=>{requests++;return response(bad);}})).questions[0]?.reason,"invalid_response");
  await assert.rejects(extractEventIntake({draftId:"draft",posterAssetIds:["a","b","c","d","e","f"]},deps),/EXTRACTION_INPUT_INVALID/);
- const huge="data:image/png;base64,"+"A".repeat(20*1024*1024);
- assert.equal((await extractEventIntake({draftId:"draft",posterAssetIds:["a","b"]},{...deps,readPoster:async()=>huge})).questions[0]?.reason,"invalid_poster");
+ const image="data:image/png;base64,"+"A".repeat(10_000_000);
+ assert.ok(image.length<20_000_000);
+ let reads=0;
+ assert.equal((await extractEventIntake({draftId:"draft",posterAssetIds:["a","b"]},{...deps,readPoster:async()=>{reads++;return image;}})).questions[0]?.reason,"invalid_poster");
+ assert.equal(reads,2);
  assert.equal(requests,1);
+});
+it("asks for an undated after-midnight lineup start",async()=>{
+ const candidate=blank();Object.assign(candidate.event,{eventDate:"2026-10-10",start:"22:00",timezone:"America/New_York"});
+ candidate.lineup=[{performerLabel:"DJ",personSlug:null,roleLabel:null,start:"00:30",end:null,startDate:null,endDate:null}];
+ const result=await extractEventIntake({draftId:"draft",sourceText:"Night"},{...base,fetchImplementation:async()=>response(candidate)});
+ assert.ok(result.questions.some(question=>question.fieldPath==="lineup.0.start"&&question.reason==="start_date_required"));
+ assert.equal(result.lineup[0]?.startDate,null);
 });
 it("attributes singular legacy poster evidence to its only image",async()=>{
  const candidate=blank();candidate.evidence=[{fieldPath:"event.title",origin:"poster",posterIndex:null,excerpt:"Night",assessment:"explicit"}];

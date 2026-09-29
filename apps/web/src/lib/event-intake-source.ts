@@ -32,6 +32,8 @@ export function candidatePatch(candidate: EventIntakeCandidate): EventIntakePatc
     return field ? [[key, field]] : [];
   }));
   if (candidate.lineup.length) tentative.lineup = candidate.lineup.map((row, index) => {
+    if (row.start && !row.startDate && tentative.start?.time && row.start < tentative.start.time)
+      ask(`lineup.${index}.start`, "start_date_required");
     const start = local(row.start, row.startDate, `lineup.${index}.start`);
     const end = local(row.end, row.endDate, `lineup.${index}.end`);
     return { clientKey: `extracted-${index}`, position: index,

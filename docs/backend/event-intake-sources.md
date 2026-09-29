@@ -158,6 +158,7 @@ survive draft resume without changing accepted fields. Editing source text or
 image order clears those discovery results while retaining accepted fields.
 Explicit candidate dates become bounded day offsets only when the event date,
 timezone, and local instant are valid; undated times keep no inferred offset.
+An undated lineup start earlier than the event start asks for its actual date.
 Ambiguous times remain questions with both alternatives. Timezone
 abbreviations are clues and cannot silently select an instant.
 

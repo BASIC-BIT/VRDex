@@ -31,6 +31,13 @@ it("leaves undated and ambiguous times unresolved",()=>{
  assert.deepEqual(undated.tentative?.lineup?.[0]?.start,{time:"01:30"});
  assert.equal(undated.tentative?.lineup?.[0]?.start?.dayOffset,undefined);
 });
+it("keeps an undated midnight lineup clock tentative but requests its date",()=>{
+ const event={title:null,communitySlug:null,eventDate:"2026-10-10",start:"22:00",end:null,startDate:null,endDate:null,timezone:"America/New_York",venueLabel:null,summary:null,sourceUrl:null};
+ const lineup=[{performerLabel:"DJ",personSlug:null,roleLabel:null,start:"00:30",end:null,startDate:null,endDate:null}];
+ const patch=candidatePatch({event,lineup,evidence:[],questions:[]});
+ assert.deepEqual(patch.tentative?.lineup?.[0]?.start,{time:"00:30"});
+ assert.ok(patch.questions?.some(question=>question==="lineup.0.start: start_date_required"));
+});
 it("allows bounded poster-only draft input without placeholder event facts", () => {
   const declaration={contentType:"image/png",byteLength:100,sha256:"a".repeat(64)};
   assert.ok(EventIntakePatchSchema.safeParse({posterDeclaration:declaration}).success);
