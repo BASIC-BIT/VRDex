@@ -172,6 +172,7 @@ it("merges current-epoch connected observations and keeps earliest and latest in
     const integrationId = await ctx.db.insert("communityVrchatIntegrations", {
       communityProfileId: s.firstId, vrchatGroupId: groupA,
       groupVisibility: "public", joinPolicy: "free", state: "active",
+      enabledFeatures: ["posts"],
       killSwitchEnabled: false, requestsPerMinute: 10, leaseGeneration: 1,
       publicMetrics: { currentPopulation: false, populationHistory: false, groupMemberCount: false,
         groupMemberGrowth: false, eventRecaps: false },
@@ -185,7 +186,7 @@ it("merges current-epoch connected observations and keeps earliest and latest in
     });
     await connected(start - 1, 1);
     await connected(start + 1, 2);
-    for (let i = 0; i < 1010; i++) await ctx.db.insert("vrchatGroupMemberSnapshots", {
+    for (let i = 0; i < 1009; i++) await ctx.db.insert("vrchatGroupMemberSnapshots", {
       vrchatGroupId: groupA, memberCount: i + 3, observedAt: start + 2 + i,
     });
     await connected(start + 1011, 999);
