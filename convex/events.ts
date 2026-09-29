@@ -1061,7 +1061,7 @@ async function updateCommunityEventForApiOwnerRecord(
   const clearsTimezone =
     args.timezone === null ||
     (typeof args.timezone === "string" && args.timezone.trim().length === 0);
-  if (clearsTimezone && !updateFields.has("slotLinks")) {
+  if (clearsTimezone && args.scheduleKind !== "date_only" && !updateFields.has("slotLinks")) {
     const preservedSlot = await db
       .query("eventSlots")
       .withIndex("by_eventId_startAt", (query) => query.eq("eventId", event._id))
@@ -1282,9 +1282,11 @@ async function updateCommunityEventRecord(
     ...schedule,
     ...(event.contributionFingerprint === undefined ? {} : { contributionFingerprint: eventContributionFingerprint(community._id, schedule.eventDate, input.title) }),
     ...(shouldUpdate("venueLabel") ? { venueLabel: input.venueLabel } : {}),
-    ...(shouldUpdate("doorsOpenAt") ? { doorsOpenAt: input.doorsOpenAt } : {}),
-    ...(shouldUpdate("endAt") ? { endAt: input.endAt } : {}),
-    ...(shouldUpdate("timezone") ? { timezone: input.timezone } : {}),
+    ...(schedule.scheduleKind === "date_only" ? { doorsOpenAt: undefined, endAt: undefined, timezone: undefined } : {
+      ...(shouldUpdate("doorsOpenAt") ? { doorsOpenAt: input.doorsOpenAt } : {}),
+      ...(shouldUpdate("endAt") ? { endAt: input.endAt } : {}),
+      ...(shouldUpdate("timezone") ? { timezone: input.timezone } : {}),
+    }),
     communityProfileId: community?._id,
     communityName:
       preserveCommunityName === true &&
@@ -1320,7 +1322,20 @@ async function updateCommunityEventRecord(
   const replaceLineup = input.lineup !== undefined;
   const replaceSlots = !replaceLineup && shouldUpdate("slotLinks");
   const replaceParticipants = !replaceLineup && shouldUpdate("participantLinks");
-  if (replaceLineup) await replaceEventLineup(db, updatedEvent, input.lineup!, now);
+  if (replaceLineup) await replaceEventLineup(db, updatedEvent, input.lineup!, now, {
+    preserveSlotAssociationIds, preserveParticipantAssociationIds,
+  });
+  if (!replaceLineup && !replaceSlots && schedule.scheduleKind === "date_only") {
+    const slots = await db.query("eventSlots").withIndex("by_eventId", q => q.eq("eventId", event._id)).collect();
+    for (const slot of slots) {
+      await db.insert("eventLineupEntries", {
+        eventId: event._id, clientKey: slot.clientKey ?? slot._id, position: slot.position,
+        performerLabel: slot.displayLabel, personProfileId: slot.personProfileId,
+        roleLabel: slot.roleLabel, updatedAt: now,
+      });
+      await db.delete(slot._id);
+    }
+  }
 
   if (replaceWorld) {
     await replaceEventWorldLink(db, updatedEvent, world, now, {

@@ -170,6 +170,13 @@ legacy paired `slotLinks`/`participantLinks` arrays. An unchanged person's store
 stream choice survives replacement; new choices must belong to their public
 streams, and changing/removing the person clears the old choice.
 
+An explicit `scheduleKind: "date_only"` update clears inherited event and set
+times, retaining omitted lineup rows as untimed performers. Supplying event times
+in that update is invalid. Browser editor saves use their existing association
+snapshots to retain unchanged private person matches, including when a profile
+became private after readback. Replacing the person or removing its row removes
+the old match; private identity is never added to the public response.
+
 The shared owner-update transaction refreshes an existing contribution fingerprint
 from the corrected community, date and title. Published server artwork URLs may
 be retained only when the exact current event URL resolves to that event's

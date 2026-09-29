@@ -193,6 +193,20 @@ New utility labels are `Add performer` and `Remove performer`; `Time TBA`, `Date
 No new explanatory product sentence was added. Exact-copy shipping approval for
 the existing intake prose remains pending.
 
+Scoped re-review found two owner-update regressions. New failing tests reproduced
+private canonical person links disappearing after editor readback and timed API
+events refusing an explicit Time TBA transition. The shared owner path now uses
+the editor's existing association snapshots to preserve hidden matches, including
+privacy changes after readback, while replacement/removal clears old links and
+stream choices. Explicit date-only API updates clear inherited event and set
+times, retaining the lineup as untimed rows; contradictory supplied times still
+fail. No UI, public copy, schema or OpenAPI contract changed in this follow-up.
+Both tests failed before the fix, then passed. Follow-up verification passed all
+998 backend tests, 105 focused related tests, the strengthened 31-test correction
+suite, backend/web typechecks, markdown lint and the whitespace check. Existing
+browser/visual evidence above still describes the unchanged UI; this follow-up's
+readback/save and API-transition evidence is from real in-memory Convex mutations.
+
 ## Release and operator gates
 
 See [deployment sequence](../deployment/convex-environments.md#event-intake-staged-release-checks)

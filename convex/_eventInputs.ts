@@ -165,7 +165,8 @@ export function preserveOmittedEventDraftFields(
     ...preserved,
     ...input,
     title: input.title ?? preserved.title,
-    startAt: input.startAt ?? preserved.startAt,
+    startAt: input.scheduleKind === "date_only" ? input.startAt : input.startAt ?? preserved.startAt,
+    ...(input.scheduleKind === "date_only" ? { doorsOpenAt: input.doorsOpenAt, endAt: input.endAt } : {}),
   };
 }
 

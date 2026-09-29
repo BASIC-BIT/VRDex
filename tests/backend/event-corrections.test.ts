@@ -101,6 +101,67 @@ it("owner conversion to Time TBA respects the date-only rollout switch", async (
   } finally { process.env.EVENT_DATE_ONLY_ENABLED = "true"; }
 });
 
+it("browser readback saves preserve private canonical performer links but allow replacement and removal", async () => {
+  for (const becomesPrivateAfterRead of [false, true]) {
+    const { t, staff, event } = await fixture();
+    const startAt = Date.parse("2027-10-15T19:00:00Z");
+    const people = await t.run(async ({ db }) => Promise.all(["timed", "untimed", "replacement"].map(slug => db.insert("profiles", { slug, displayName: slug, sortName: slug, profileType: "person", person: { roleTags: [] }, aliases: [], tags: [], claimState: "unclaimed", publicationState: "published", publicSurfacingState: "public", creationSource: "community", updatedAt: Date.now() }))));
+    await staff.mutation(api.events.updateCommunityEvent, { currentSlug: event.slug!, title: event.title, communitySlug: "club", startAt, timezone: "UTC", lineup: [
+      { clientKey: "timed", position: 0, performerLabel: "Timed name", personSlug: "timed", startAt },
+      { clientKey: "untimed", position: 1, performerLabel: "Untimed name", personSlug: "untimed" },
+    ] });
+    await t.run(async ({ db }) => {
+      const slot = (await db.query("eventSlots").withIndex("by_eventId", q => q.eq("eventId", event._id)).first())!;
+      await db.patch(slot._id, { selectedStreamId: "previously-authorized" });
+    });
+    const makePrivate = () => t.run(async ({ db }) => { for (const id of people.slice(0, 2)) await db.patch(id, { publicationState: "draft_private" }); });
+    if (!becomesPrivateAfterRead) await makePrivate();
+    const editable = (await staff.query(api.events.getEditableBySlug, { slug: event.slug! }))!;
+    if (!becomesPrivateAfterRead) assert.ok(editable.lineup.every(row => row.performer === undefined));
+    if (becomesPrivateAfterRead) await makePrivate();
+    const lineup = [
+      ...editable.slots.map(slot => ({ clientKey: slot.clientKey!, position: slot.position, performerLabel: slot.displayLabel, roleLabel: slot.roleLabel, personSlug: slot.performer?.slug, startAt: slot.startAt, endAt: slot.endAt, selectedStreamId: slot.selectedStreamId })),
+      ...editable.lineup.filter(row => row.startAt === undefined).map(row => ({ clientKey: row.key, position: row.position, performerLabel: row.displayLabel, roleLabel: row.roleLabel, personSlug: row.performer?.slug })),
+    ];
+    const updated = await staff.mutation(api.events.updateCommunityEvent, { currentSlug: event.slug!, title: "Title correction", communitySlug: "club", startAt, timezone: "UTC", lineup,
+      preservedSlotAssociationIds: editable.preservedSlotAssociationIds, preservedParticipantAssociationIds: editable.preservedParticipantAssociationIds });
+    const rows = await t.run(async ({ db }) => ({ slots: await db.query("eventSlots").withIndex("by_eventId", q => q.eq("eventId", event._id)).collect(), untimed: await db.query("eventLineupEntries").withIndex("by_eventId_position", q => q.eq("eventId", event._id)).collect(), participants: await db.query("eventParticipants").withIndex("by_eventId", q => q.eq("eventId", event._id)).collect() }));
+    assert.equal(rows.slots[0].personProfileId, people[0]);
+    assert.equal(rows.slots[0].selectedStreamId, "previously-authorized");
+    assert.equal(rows.untimed[0].personProfileId, people[1]);
+    assert.deepEqual(rows.participants.map(row => row.personProfileId).sort(), people.slice(0, 2).sort());
+    assert.ok((await t.query(api.events.getPublicBySlug, { slug: event.slug! }))!.lineup.every(row => row.performer === undefined));
+    await staff.mutation(api.events.updateCommunityEvent, { currentSlug: event.slug!, title: "Changed performer", communitySlug: "club", startAt, timezone: "UTC", lineup: [{ ...lineup[0], personSlug: "replacement", selectedStreamId: undefined }],
+      preservedSlotAssociationIds: updated.preservedSlotAssociationIds, preservedParticipantAssociationIds: updated.preservedParticipantAssociationIds });
+    const remaining = await t.run(async ({ db }) => ({ slot: await db.query("eventSlots").first(), untimed: await db.query("eventLineupEntries").collect(), people: await db.query("eventParticipants").collect() }));
+    assert.equal(remaining.slot?.personProfileId, people[2]);
+    assert.equal(remaining.slot?.selectedStreamId, undefined);
+    assert.equal(remaining.untimed.length, 0);
+    assert.deepEqual(remaining.people.map(row => row.personProfileId), [people[2]]);
+  }
+});
+
+it("owner API conversion to Time TBA clears inherited event and set times while retaining the lineup", async () => {
+  for (const timezone of [undefined, null]) {
+    const { t, staff, event, users } = await fixture();
+    const startAt = Date.parse("2027-10-15T19:00:00Z");
+    await staff.mutation(api.events.updateCommunityEvent, { currentSlug: event.slug!, title: event.title, communitySlug: "club", startAt, doorsOpenAt: startAt - 60000, endAt: startAt + 7200000, timezone: "UTC", lineup: [{ clientKey: "timed", position: 0, performerLabel: "Timed guest", startAt, endAt: startAt + 3600000 }, { clientKey: "untimed", position: 1, performerLabel: "Untimed guest" }] });
+    const update = { actorKind: "personal_api_token" as const, ownerUserId: users[1], currentSlug: event.slug!, scheduleKind: "date_only" as const, eventDate: "2027-10-16" };
+    for (const field of ["startAt", "doorsOpenAt", "endAt"]) {
+      await assert.rejects(t.mutation(internal.events.updateCommunityEventForApiOwner, { ...update, [field]: startAt }), /Time TBA cannot include event times/);
+    }
+    await t.mutation(internal.events.updateCommunityEventForApiOwner, { ...update, timezone });
+    const stored = (await t.run(ctx => ctx.db.get(event._id)))!;
+    assert.equal(stored.scheduleKind, "date_only");
+    assert.equal(stored.eventDate, "2027-10-16");
+    for (const field of ["startAt", "doorsOpenAt", "endAt", "timezone"] as const) assert.equal(stored[field], undefined);
+    assert.equal((await t.run(ctx => ctx.db.query("eventSlots").withIndex("by_eventId", q => q.eq("eventId", event._id)).collect())).length, 0);
+    const visible = (await t.query(api.events.getPublicBySlug, { slug: event.slug! }))!;
+    assert.deepEqual(visible.lineup.map(row => row.displayLabel), ["Timed guest", "Untimed guest"]);
+    assert.ok(visible.lineup.every(row => row.startAt === undefined && row.endAt === undefined));
+  }
+});
+
 it("browser controls expose own editing, scoped staff takeover, and post-takeover suggestion", async () => {
   const { contributor, staff, other, moderator, event } = await fixture();
   const access = makeFunctionReference<"query">("eventCorrections:getEventContributionAccess");
