@@ -31,3 +31,14 @@ test("group metadata retains a validated creation timestamp without requiring me
   assert.equal(group.memberCount, 42);
   assert.equal(group.groupCreatedAt, Date.parse("2022-01-02T03:04:05.000Z"));
 });
+
+test("invalid optional group creation time does not discard a valid member count", async () => {
+  const groupId = "grp_00000000-0000-4000-8000-000000000001";
+  for (const createdAt of ["not-a-date", "9999-01-01T00:00:00.000Z"]) {
+    const group = await client(JSON.stringify({
+      id: groupId, memberCount: 42, membershipStatus: "inactive", createdAt,
+    })).getGroup(groupId);
+    assert.equal(group.memberCount, 42);
+    assert.equal(group.groupCreatedAt, undefined);
+  }
+});

@@ -211,10 +211,10 @@ export class VrchatClient {
     if (maxAgeMs > 0 && cached && this.clock() - cached.cachedAt <= maxAgeMs) return cached.group;
     const group = await this.request(`/groups/${encodeURIComponent(groupId)}`);
     if (!group || typeof group !== "object") throw new VrchatProviderError("Group response is malformed.", { category: "schema_drift" });
-    const groupCreatedAt = group.createdAt == null ? undefined :
+    let groupCreatedAt = group.createdAt == null ? undefined :
       typeof group.createdAt === "string" && /^\d{4}-\d\d-\d\dT/.test(group.createdAt) ? Date.parse(group.createdAt) : NaN;
     if (groupCreatedAt !== undefined && (!Number.isSafeInteger(groupCreatedAt) || groupCreatedAt < 0 || groupCreatedAt > this.clock())) {
-      throw new VrchatProviderError("Group creation time is malformed.", { category: "schema_drift" });
+      groupCreatedAt = undefined;
     }
     const normalized = {
       groupId: requireExternalId(group.id, "grp_", "Group ID"),
