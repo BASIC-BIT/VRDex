@@ -241,14 +241,14 @@ and [source controls](../backend/event-intake-sources.md).
   behavior, not model accuracy. Paid field accuracy, identity errors, false-block
   rates, latency and cost per publish are unmeasured. Keep extraction and blocking
   disabled until the consented evaluation and release review are complete.
-- Exact copy approval below remains open. Deployment, paid calls and actual
+- BASIC approved the exact copy below on 2026-09-28. Deployment, paid calls and actual
   uploads remain release checks. The 30-minute exact-head PR readiness gate
   still applies.
 
 ## Exact public copy for BASIC review
 
-Approval status: pending. Implementation/design authorization is not exact-copy
-shipping approval. The lists below consolidate Tasks 1 through 8 and the Task 9
+Approval status: BASIC approved these exact strings on 2026-09-28 in the
+PR #348 review conversation. The lists below consolidate Tasks 1 through 8 and the Task 9
 integration check. They exclude pre-existing unchanged copy, fixture prose,
 technical protocol errors and source/model-provided evidence/questions. Dynamic
 names and times are values, not newly authored claims.
