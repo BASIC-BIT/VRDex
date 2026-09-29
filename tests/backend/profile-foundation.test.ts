@@ -2287,14 +2287,28 @@ describe("public profile projection", () => {
     assert.deepEqual(
       toPublicProfileAppearance({
         sectionOrder: ["media_kit", "links"],
-      } as Pick<Doc<"profileAssetDisplayPreferences">, "sectionOrder">),
+      } as Pick<Doc<"profileAssetDisplayPreferences">, "sectionOrder" | "showMemberCount" | "showMemberHistory">),
       {
         sectionOrder: ["media_kit", "links", "about", "events", "worlds", "details"],
+        showMemberCount: true,
+        showMemberHistory: true,
       },
     );
     assert.deepEqual(toPublicProfileAppearance(null), {
       sectionOrder: ["about", "events", "links", "media_kit", "worlds", "details"],
+      showMemberCount: true,
+      showMemberHistory: true,
     });
+    for (const showMemberCount of [false, true]) {
+      for (const showMemberHistory of [false, true]) {
+        const appearance = toPublicProfileAppearance({
+          showMemberCount,
+          showMemberHistory,
+        });
+        assert.equal(appearance.showMemberCount, showMemberCount);
+        assert.equal(appearance.showMemberHistory, showMemberHistory);
+      }
+    }
   });
 });
 

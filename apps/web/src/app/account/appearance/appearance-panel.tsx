@@ -27,6 +27,8 @@ type AppearanceProfile = {
   avatarImageUrl?: string;
   avatarAppearance: AvatarAppearance;
   sectionOrder: ProfilePublicSectionKey[];
+  showMemberCount: boolean;
+  showMemberHistory: boolean;
 };
 
 type ProfilePublicSectionKey = "about" | "events" | "links" | "media_kit" | "worlds" | "details";
@@ -99,6 +101,8 @@ const demoProfiles: AppearanceProfile[] = [
       radiusPercent: 18,
     },
     sectionOrder: defaultSectionOrder,
+    showMemberCount: true,
+    showMemberHistory: true,
   },
 ];
 
@@ -219,6 +223,8 @@ function AppearanceEditor({
   const [sectionOrder, setSectionOrder] = useState<SupportingSectionKey[]>(
     normalizeSupportingSectionOrder(selectedProfile?.sectionOrder ?? defaultSectionOrder),
   );
+  const [showMemberCount, setShowMemberCount] = useState(selectedProfile?.showMemberCount ?? true);
+  const [showMemberHistory, setShowMemberHistory] = useState(selectedProfile?.showMemberHistory ?? true);
   const deferredDraft = useDeferredValue(draft);
   const colorPickerValue = /^#[0-9a-fA-F]{6}$/.test(draft.borderColor) ? draft.borderColor : "#000000";
   const [status, setStatus] = useState<SaveStatus>({ kind: "idle" });
@@ -238,6 +244,8 @@ function AppearanceEditor({
     if (selectedProfile) {
       setDraft(selectedProfile.avatarAppearance);
       setSectionOrder(normalizeSupportingSectionOrder(selectedProfile.sectionOrder));
+      setShowMemberCount(selectedProfile.showMemberCount);
+      setShowMemberHistory(selectedProfile.showMemberHistory);
       setStatus({ kind: "idle" });
     }
   }, [selectedProfile]);
@@ -269,6 +277,7 @@ function AppearanceEditor({
         borderSoftnessPx: draft.borderSoftnessPx,
         radiusPercent: draft.radiusPercent,
         sectionOrder: ["about", "links", ...sectionOrder, "details"],
+        ...(selectedProfile.profileType === "community" ? { showMemberCount, showMemberHistory } : {}),
       });
       startTransition(() => setStatus({ kind: "success" }));
     } catch (error) {
@@ -453,6 +462,29 @@ function AppearanceEditor({
             ))}
           </div>
         </div>
+
+        {selectedProfile.profileType === "community" ? (
+          <div className="grid gap-2">
+            <label className="flex items-center justify-between gap-4 rounded-control border border-border bg-surface-strong px-4 py-3 text-sm font-medium">
+              Show member count
+              <input
+                checked={showMemberCount}
+                className="size-5 accent-[var(--color-accent)]"
+                type="checkbox"
+                onChange={(event) => setShowMemberCount(event.target.checked)}
+              />
+            </label>
+            <label className="flex items-center justify-between gap-4 rounded-control border border-border bg-surface-strong px-4 py-3 text-sm font-medium">
+              Show membership graph
+              <input
+                checked={showMemberHistory}
+                className="size-5 accent-[var(--color-accent)]"
+                type="checkbox"
+                onChange={(event) => setShowMemberHistory(event.target.checked)}
+              />
+            </label>
+          </div>
+        ) : null}
 
         {status.kind === "saving" ? <p className="text-sm text-muted">Saving appearance...</p> : null}
         {status.kind === "success" ? <Notice>Appearance saved.</Notice> : null}

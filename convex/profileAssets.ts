@@ -210,6 +210,8 @@ async function patchProfileDisplayPreference(
   values: {
     avatarAppearance?: ReturnType<typeof normalizeProfileAvatarAppearance>;
     sectionOrder?: ReturnType<typeof normalizeProfilePublicSectionOrder>;
+    showMemberCount?: boolean;
+    showMemberHistory?: boolean;
   },
 ) {
   const existing = await getProfileAssetDisplayPreference(ctx.db, requestedProfileId);
@@ -1895,6 +1897,8 @@ export const listOwnedAppearanceProfiles = query({
         compactDisplay: mediaKit.compactDisplay,
         avatarAppearance: mediaKit.avatarAppearance,
         sectionOrder: appearance.sectionOrder,
+        showMemberCount: appearance.showMemberCount,
+        showMemberHistory: appearance.showMemberHistory,
       });
     }
 
@@ -1911,6 +1915,8 @@ export const updateAppearance = mutation({
     borderSoftnessPx: v.number(),
     radiusPercent: v.number(),
     sectionOrder: v.array(profilePublicSection),
+    showMemberCount: v.optional(v.boolean()),
+    showMemberHistory: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const profile = await requireOwnedAppearanceProfile(ctx, args.profileId);
@@ -1920,6 +1926,12 @@ export const updateAppearance = mutation({
     await patchProfileDisplayPreference(ctx, profile._id, {
       avatarAppearance,
       sectionOrder,
+      ...(profile.profileType === "community" && args.showMemberCount !== undefined
+        ? { showMemberCount: args.showMemberCount }
+        : {}),
+      ...(profile.profileType === "community" && args.showMemberHistory !== undefined
+        ? { showMemberHistory: args.showMemberHistory }
+        : {}),
     });
 
     return {

@@ -1036,6 +1036,8 @@ export default defineSchema({
     compactDisplay: profileAssetDisplayPreference,
     avatarAppearance: v.optional(profileAvatarAppearance),
     sectionOrder: v.optional(v.array(profilePublicSection)),
+    showMemberCount: v.optional(v.boolean()),
+    showMemberHistory: v.optional(v.boolean()),
     updatedAt: v.number(),
   }).index("by_profileId", ["profileId"]),
   profileAssetAccessibilityGenerationEvents: defineTable({
