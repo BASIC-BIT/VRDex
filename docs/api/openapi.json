@@ -317,6 +317,22 @@
                           }
                         ]
                       },
+                      "posterSourceIds": {
+                        "anyOf": [
+                          {
+                            "maxItems": 5,
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            }
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
                       "posterDeclaration": {
                         "anyOf": [
                           {
@@ -695,6 +711,22 @@
                                   {
                                     "type": "string",
                                     "maxLength": 200
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "posterSourceIds": {
+                                "anyOf": [
+                                  {
+                                    "maxItems": 5,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 200
+                                    }
                                   },
                                   {
                                     "type": "null"
@@ -1290,6 +1322,22 @@
                             }
                           ]
                         },
+                        "posterSourceIds": {
+                          "anyOf": [
+                            {
+                              "maxItems": 5,
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 200
+                              }
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "posterDeclaration": {
                           "anyOf": [
                             {
@@ -1668,6 +1716,22 @@
                                     {
                                       "type": "string",
                                       "maxLength": 200
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "posterSourceIds": {
+                                  "anyOf": [
+                                    {
+                                      "maxItems": 5,
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 200
+                                      }
                                     },
                                     {
                                       "type": "null"
@@ -2244,6 +2308,22 @@
                           }
                         ]
                       },
+                      "posterSourceIds": {
+                        "anyOf": [
+                          {
+                            "maxItems": 5,
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            }
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
                       "posterDeclaration": {
                         "anyOf": [
                           {
@@ -2628,6 +2708,22 @@
                                   }
                                 ]
                               },
+                              "posterSourceIds": {
+                                "anyOf": [
+                                  {
+                                    "maxItems": 5,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 200
+                                    }
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
                               "posterDeclaration": {
                                 "anyOf": [
                                   {
@@ -2996,6 +3092,15 @@
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 200
+                  },
+                  "posterAssetIds": {
+                    "maxItems": 5,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    }
                   }
                 },
                 "additionalProperties": false
@@ -3069,6 +3174,30 @@
                             }
                           ]
                         },
+                        "startDate": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "endDate": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "timezone": {
                           "anyOf": [
                             {
@@ -3120,6 +3249,8 @@
                         "eventDate",
                         "start",
                         "end",
+                        "startDate",
+                        "endDate",
                         "timezone",
                         "venueLabel",
                         "summary",
@@ -3187,6 +3318,30 @@
                                 "type": "null"
                               }
                             ]
+                          },
+                          "startDate": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "date",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "endDate": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "date",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
                           }
                         },
                         "required": [
@@ -3194,13 +3349,15 @@
                           "personSlug",
                           "roleLabel",
                           "start",
-                          "end"
+                          "end",
+                          "startDate",
+                          "endDate"
                         ],
                         "additionalProperties": false
                       }
                     },
                     "evidence": {
-                      "maxItems": 100,
+                      "maxItems": 40,
                       "type": "array",
                       "items": {
                         "type": "object",
@@ -3216,6 +3373,18 @@
                               "poster",
                               "lookup",
                               "calculation"
+                            ]
+                          },
+                          "posterIndex": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 4
+                              },
+                              {
+                                "type": "null"
+                              }
                             ]
                           },
                           "excerpt": {
@@ -3241,6 +3410,7 @@
                         "required": [
                           "fieldPath",
                           "origin",
+                          "posterIndex",
                           "excerpt",
                           "assessment"
                         ],
@@ -4326,6 +4496,22 @@
                             {
                               "type": "string",
                               "maxLength": 200
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "posterSourceIds": {
+                          "anyOf": [
+                            {
+                              "maxItems": 5,
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 200
+                              }
                             },
                             {
                               "type": "null"

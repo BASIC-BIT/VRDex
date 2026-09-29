@@ -10,6 +10,9 @@ export const EventPosterDeclarationSchema = z.strictObject({
 
 const text = (max: number) => z.string().trim().max(max);
 const nullable = <T extends z.ZodType>(schema: T) => schema.nullable().optional();
+const posterIds = z.array(text(200).min(1)).max(5).refine(ids => new Set(ids).size === ids.length, "Poster IDs must be unique.");
+const consistentPosterIds = (value: { posterSourceId?: string | null; posterSourceIds?: string[] | null }) =>
+  value.posterSourceId === undefined || value.posterSourceIds === undefined || value.posterSourceId === (value.posterSourceIds?.[0] ?? null);
 export const EventIntakeLocalTimeSchema = z.strictObject({
   time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
   dayOffset: z.number().int().min(-1).max(7).optional(),
@@ -20,22 +23,23 @@ export const EventIntakeLineupSchema = z.strictObject({
   performerLabel: nullable(text(120)), personSlug: nullable(text(64)), roleLabel: nullable(text(48)),
   start: nullable(EventIntakeLocalTimeSchema), end: nullable(EventIntakeLocalTimeSchema),
 });
-export const EventIntakeFieldsSchema = z.strictObject({
+const EventIntakeFieldsBaseSchema = z.strictObject({
   communitySlug: nullable(text(64)), title: nullable(text(120)), eventDate: nullable(text(10)),
   timeTba: nullable(z.boolean()), timezone: nullable(text(64)),
   start: nullable(EventIntakeLocalTimeSchema), end: nullable(EventIntakeLocalTimeSchema), doors: nullable(EventIntakeLocalTimeSchema),
   venueLabel: nullable(text(120)), summary: nullable(text(240)), sourceUrl: nullable(text(2048)),
   worldSlug: nullable(text(64)),
-  sourceText: nullable(text(12_000)), posterSourceId: nullable(text(200)),
+  sourceText: nullable(text(12_000)), posterSourceId: nullable(text(200)), posterSourceIds: nullable(posterIds),
   posterDeclaration: nullable(EventPosterDeclarationSchema),
   lineup: nullable(z.array(EventIntakeLineupSchema).max(80)),
 });
-export const EventIntakePatchSchema = EventIntakeFieldsSchema.extend({
+export const EventIntakeFieldsSchema = EventIntakeFieldsBaseSchema.refine(consistentPosterIds, "Poster source IDs disagree.");
+export const EventIntakePatchSchema = EventIntakeFieldsSchema.safeExtend({
   // Candidates are private and never become canonical until copied into ordinary fields.
   tentative: nullable(EventIntakeFieldsSchema),
   questions: nullable(z.array(text(2800)).max(100)),
   duplicateAcknowledgements: nullable(z.array(text(200).min(1)).max(100)),
-}).strict();
+}).strict().refine(consistentPosterIds, "Poster source IDs disagree.");
 export const SaveEventIntakeDraftSchema = z.strictObject({
   draftId: text(200).min(1).optional(), expectedVersion: z.number().int().positive().optional(), patch: EventIntakePatchSchema,
 }).refine(value => Boolean(value.draftId) === (value.expectedVersion !== undefined), "Existing drafts require expectedVersion.");
@@ -77,15 +81,16 @@ export function selectEventLocalTime(date: string, local: EventIntakeLocalTime, 
 }
 
 const fact = (max: number) => text(max).nullable();
+const candidateDate = z.iso.date().nullable();
 export const EventIntakeCandidateSchema = z.strictObject({
   event: z.strictObject({
     title: fact(120), communitySlug: fact(64), eventDate: fact(10),
-    start: fact(5), end: fact(5), timezone: fact(64), venueLabel: fact(120), summary: fact(240), sourceUrl: fact(2048),
+    start: fact(5), end: fact(5), startDate: candidateDate, endDate: candidateDate, timezone: fact(64), venueLabel: fact(120), summary: fact(240), sourceUrl: fact(2048),
   }),
   lineup: z.array(z.strictObject({
-    performerLabel: fact(120), personSlug: fact(64), roleLabel: fact(48), start: fact(5), end: fact(5),
+    performerLabel: fact(120), personSlug: fact(64), roleLabel: fact(48), start: fact(5), end: fact(5), startDate: candidateDate, endDate: candidateDate,
   })).max(80),
-  evidence: z.array(z.strictObject({ fieldPath: text(120), origin: z.enum(["text", "poster", "lookup", "calculation"]), excerpt: fact(500), assessment: z.enum(["explicit", "inferred", "conflicting"]) })).max(100),
+  evidence: z.array(z.strictObject({ fieldPath: text(120), origin: z.enum(["text", "poster", "lookup", "calculation"]), posterIndex: z.number().int().min(0).max(4).nullable(), excerpt: fact(500), assessment: z.enum(["explicit", "inferred", "conflicting"]) })).max(40),
   questions: z.array(z.strictObject({ fieldPath: text(120), reason: text(500), alternatives: z.array(text(200)).max(10) })).max(100),
 });
 export type EventIntakeCandidate = z.infer<typeof EventIntakeCandidateSchema>;
@@ -95,13 +100,14 @@ export const EventIntakeCandidateJsonSchema = z.toJSONSchema(EventIntakeCandidat
 const intakeId = text(200).min(1);
 const version = z.number().int().positive();
 export const EventIntakeDraftIdSchema = z.strictObject({ draftId: intakeId });
-export const ExtractEventIntakeSchema = EventIntakeDraftIdSchema.extend({ sourceText: text(12_000).optional(), posterAssetId: intakeId.optional() });
+export const ExtractEventIntakeSchema = EventIntakeDraftIdSchema.extend({ sourceText: text(12_000).optional(), posterAssetId: intakeId.optional(), posterAssetIds: posterIds.optional() })
+  .refine(value => !value.posterAssetId || !value.posterAssetIds || value.posterAssetIds[0] === value.posterAssetId, "Poster asset IDs disagree.");
 export const BeginEventPosterUploadSchema = EventIntakeDraftIdSchema.extend(EventPosterDeclarationSchema.shape);
 export const CompleteEventPosterUploadSchema = EventIntakeDraftIdSchema.extend({ posterAssetId: intakeId });
 export const SelectEventArtworkSchema = CompleteEventPosterUploadSchema.extend({ expectedVersion: version });
 export const UpdateEventContributionSchema = z.strictObject({
   slug: text(200).min(1), expectedUpdatedAt: z.number(),
-  patch: EventIntakeFieldsSchema.pick({ title: true, eventDate: true, timeTba: true, timezone: true, start: true, end: true, doors: true, venueLabel: true, worldSlug: true, sourceUrl: true, summary: true, lineup: true }),
+  patch: EventIntakeFieldsBaseSchema.pick({ title: true, eventDate: true, timeTba: true, timezone: true, start: true, end: true, doors: true, venueLabel: true, worldSlug: true, sourceUrl: true, summary: true, lineup: true }),
   duplicateAcknowledgements: z.array(intakeId).max(100).optional(),
 });
 export const RetractEventContributionSchema = z.strictObject({ slug: text(200).min(1) });

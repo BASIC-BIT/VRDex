@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { validatePosterBytes } from "../../apps/web/src/lib/server/event-poster-storage";
 import { extractEventIntake } from "../../apps/web/src/lib/server/event-intake-agent";
 import { classifyEventIntakeForPublication } from "../../apps/web/src/lib/server/event-intake-spam";
-const blank = () => ({ event: { title: null, communitySlug: null, eventDate: null, start: null, end: null, timezone: null, venueLabel: null, summary: null, sourceUrl: null }, lineup: [], evidence: [], questions: [] });
+const blank = () => ({ event: { title: null, communitySlug: null, eventDate: null, start: null, end: null, startDate: null, endDate: null, timezone: null, venueLabel: null, summary: null, sourceUrl: null }, lineup: [], evidence: [], questions: [] });
 const response = (value: unknown) => new Response(JSON.stringify({ status: "completed", output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify(value) }] }] }));
 const base = { authorize: async () => ({ actorUserId: "actor", version: 1 }), search_people: async () => [], search_communities: async () => [], apiKey: "test", enabled: true, model: "fixture", fetchImplementation: async () => response(blank()) };
 it("validates decoded PNG/JPEG/WebP, size, MIME, digest and decoding", async () => {
@@ -48,7 +48,7 @@ it("defaults spam off and flags outages with draft/version binding", async () =>
 });
 
 it("rejects false person IDs but retains IDs returned by bounded public tools", async()=>{
- const candidate={...blank(),lineup:[{performerLabel:"DJ",personSlug:"false-person",roleLabel:null,start:null,end:null}]};
+ const candidate={...blank(),lineup:[{performerLabel:"DJ",personSlug:"false-person",roleLabel:null,start:null,end:null,startDate:null,endDate:null}]};
  const rejected=await extractEventIntake({draftId:"draft",sourceText:"DJ"},{...base,fetchImplementation:async()=>response(candidate)});
  assert.equal(rejected.lineup[0]?.personSlug,null);
  let calls=0;

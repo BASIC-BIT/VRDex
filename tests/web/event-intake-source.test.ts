@@ -3,7 +3,7 @@ import { it } from "node:test";
 import { candidatePatch, posterDeclaration } from "../../apps/web/src/lib/event-intake-source";
 import { EventIntakePatchSchema } from "../../packages/api-contracts/src/event-intake";
 it("keeps extracted facts tentative and never guesses TBA, date offsets, or identity", () => {
-  const patch = candidatePatch({event:{title:"Night",communitySlug:null,eventDate:null,start:"25:00",end:null,timezone:null,venueLabel:null,summary:null,sourceUrl:null},lineup:[{performerLabel:"DJ",personSlug:null,roleLabel:null,start:null,end:null}],evidence:[],questions:[{fieldPath:"timezone",reason:"Choose a zone".repeat(38),alternatives:["Europe/London","America/New_York"]}]});
+  const patch = candidatePatch({event:{title:"Night",communitySlug:null,eventDate:null,start:"25:00",end:null,startDate:null,endDate:null,timezone:null,venueLabel:null,summary:null,sourceUrl:null},lineup:[{performerLabel:"DJ",personSlug:null,roleLabel:null,start:null,end:null,startDate:null,endDate:null}],evidence:[],questions:[{fieldPath:"timezone",reason:"Choose a zone".repeat(38),alternatives:["Europe/London","America/New_York"]}]});
   assert.equal(patch.title,undefined); assert.equal(patch.tentative?.title,"Night");
   assert.equal(patch.tentative?.start,undefined); assert.equal(patch.tentative?.timeTba,undefined);
   assert.equal(patch.tentative?.lineup?.[0]?.personSlug,undefined);

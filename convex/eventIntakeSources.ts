@@ -95,11 +95,13 @@ export const publicArtwork = query({ args: { artworkAssetId: v.string() }, retur
   if (artwork?.state !== "published" || !event || event.publicationState !== "published" || event.moderationRemovedAt !== undefined || event.posterImageUrl !== `/api/v0/events/${event._id}/artwork/${artwork._id}` || !community || !canReadProfile("public", community)) return null;
   return { eventId: event._id, storageKey: artwork.storageKey, contentType: "image/webp", byteLength: artwork.byteLength };
 } });
-export const authorizeExtraction = internalMutation({ args: { ...actor, draftId: v.id("eventIntakeDrafts"), posterAssetId: v.optional(v.id("eventPosterSources")), reserveQuota: v.optional(v.boolean()) }, returns: v.any(), handler: async (ctx, args) => {
+export const authorizeExtraction = internalMutation({ args: { ...actor, draftId: v.id("eventIntakeDrafts"), posterAssetId: v.optional(v.id("eventPosterSources")), posterAssetIds: v.optional(v.array(v.id("eventPosterSources"))), reserveQuota: v.optional(v.boolean()) }, returns: v.any(), handler: async (ctx, args) => {
   const draft = await getActorIntakeDraft(ctx.db, args.actorUserId, args.draftId);
   if (draft.publishedReceiptId) throw new Error("DRAFT_PUBLISHED");
-  if (args.posterAssetId) {
-    const source = await ownSource(ctx.db, args.actorUserId, args.posterAssetId);
+  const ids = args.posterAssetIds ?? (args.posterAssetId ? [args.posterAssetId] : []);
+  if (ids.length > 5 || new Set(ids).size !== ids.length || (args.posterAssetId && args.posterAssetIds && ids[0] !== args.posterAssetId)) throw new Error("POSTER_INPUT_INVALID");
+  for (const id of ids) {
+    const source = await ownSource(ctx.db, args.actorUserId, id);
     if (source.draftId !== draft._id || source.state !== "ready") throw new Error("POSTER_NOT_READY");
   }
   if (args.reserveQuota !== false) {

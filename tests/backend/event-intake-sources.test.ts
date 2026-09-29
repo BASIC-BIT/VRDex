@@ -41,6 +41,33 @@ it("binds source reads and extraction quotas to the actor and draft", async () =
  assert.equal((await t.run(ctx=>ctx.db.query("eventIntakeModelAttempts").collect())).length,20);
  assert.deepEqual((await t.run(ctx=>ctx.db.get(draftId)))?.fields,{title:"Night"});
 });
+it("saves ordered pending sources for one draft and checks every source before extraction quota", async () => {
+ const {t,actorUserId,other,draftId}=await fixture();
+ const make=async(actorUserId:typeof other,draftId:typeof draftId)=>t.mutation(ref("beginPosterUpload"),{actorUserId,draftId,contentType:"image/png",byteLength:128,sha256:"a".repeat(64)});
+ const first=await make(actorUserId,draftId), second=await make(actorUserId,draftId);
+ const foreignDraft=await t.run(ctx=>ctx.db.insert("eventIntakeDrafts",{actorUserId,version:1,fields:{title:"Other"},provenance:[],createdAt:Date.now(),updatedAt:Date.now(),expiresAt:Date.now()+86400000}));
+ const foreign=await make(actorUserId,foreignDraft);
+ const otherDraft=await t.run(ctx=>ctx.db.insert("eventIntakeDrafts",{actorUserId:other,version:1,fields:{title:"Other actor"},provenance:[],createdAt:Date.now(),updatedAt:Date.now(),expiresAt:Date.now()+86400000}));
+ const otherSource=await make(other,otherDraft);
+ const save=makeFunctionReference<"mutation">("eventIntake:saveActorDraft");
+ await assert.rejects(t.mutation(save,{actorUserId,draftId,expectedVersion:1,patch:{posterSourceIds:[first.posterAssetId,foreign.posterAssetId]}}),/POSTER_/);
+ await assert.rejects(t.mutation(save,{actorUserId,draftId,expectedVersion:1,patch:{posterSourceIds:[otherSource.posterAssetId]}}),/POSTER_/);
+ assert.equal((await t.run(ctx=>ctx.db.get(draftId)))?.version,1);
+ await t.mutation(save,{actorUserId,draftId,expectedVersion:1,patch:{posterSourceIds:[first.posterAssetId,second.posterAssetId]}});
+ assert.deepEqual((await t.run(ctx=>ctx.db.get(draftId)))?.fields.posterSourceIds,[first.posterAssetId,second.posterAssetId]);
+ await t.mutation(ref("completePosterUpload"),{actorUserId,posterAssetId:first.posterAssetId,sha256:"a".repeat(64)});
+ const auth=ref("authorizeExtraction");
+ await assert.rejects(t.mutation(auth,{actorUserId,draftId,posterAssetIds:[first.posterAssetId,second.posterAssetId]}),/NOT_READY/);
+ assert.equal((await t.run(ctx=>ctx.db.query("eventIntakeModelAttempts").collect())).length,0);
+ await t.mutation(ref("completePosterUpload"),{actorUserId,posterAssetId:second.posterAssetId,sha256:"a".repeat(64)});
+ await assert.rejects(t.mutation(auth,{actorUserId,draftId,posterAssetIds:[first.posterAssetId,foreign.posterAssetId]}),/NOT_READY/);
+ await assert.rejects(t.mutation(auth,{actorUserId,draftId,posterAssetIds:[first.posterAssetId,otherSource.posterAssetId]}),/NOT_FOUND/);
+ assert.equal((await t.mutation(auth,{actorUserId,draftId,posterAssetIds:[second.posterAssetId,first.posterAssetId]})).version,2);
+ assert.equal((await t.run(ctx=>ctx.db.query("eventIntakeModelAttempts").collect())).length,1);
+ await t.run(ctx=>ctx.db.patch(second.posterAssetId,{expiresAt:0,uploadedAt:0}));
+ await assert.rejects(t.mutation(auth,{actorUserId,draftId,posterAssetIds:[first.posterAssetId,second.posterAssetId]}),/NOT_FOUND/);
+ assert.equal((await t.run(ctx=>ctx.db.query("eventIntakeModelAttempts").collect())).length,1);
+});
 it("reserves bytes before signing and rejects expired upload completion", async()=>{
  const{t,actorUserId,draftId}=await fixture();
  const args={actorUserId,draftId,contentType:"image/webp",byteLength:12*1024*1024,sha256:"a".repeat(64)};

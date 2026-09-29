@@ -50,7 +50,16 @@ export async function saveIntakeDraft(db: DatabaseWriter, actorUserId: Id<"users
   const draft = args.draftId ? await getActorIntakeDraft(db, actorUserId, args.draftId, now) : undefined;
   if (draft ? draft.version !== args.expectedVersion : args.expectedVersion !== undefined) throw new ConvexError({ code: "VERSION_CONFLICT" });
   if (draft?.publishedReceiptId) throw new Error("Published drafts cannot be edited. Use the event correction flow.");
-  const fields = omitEmpty({ ...draft?.fields, ...patch }) as EventIntakePatch;
+  for (const group of [patch, patch.tentative]) for (const rawId of group?.posterSourceIds ?? []) {
+    const id = db.normalizeId("eventPosterSources", rawId);
+    const source = id ? await db.get(id) : null;
+    if (!draft || !source || source.actorUserId !== actorUserId || source.draftId !== draft._id) throw new Error("POSTER_DRAFT_MISMATCH");
+    if (source.state !== "pending" && source.state !== "ready") throw new Error("POSTER_NOT_READY");
+    if ((source.state === "pending" ? source.uploadExpiresAt : Math.min(source.uploadedAt + 180 * 86_400_000, draft.updatedAt + 30 * 86_400_000)) <= now) throw new Error("POSTER_NOT_FOUND");
+  }
+  const sourceFields = Object.prototype.hasOwnProperty.call(patch, "posterSourceIds") ? { posterSourceId: patch.posterSourceIds?.[0] ?? null }
+    : Object.prototype.hasOwnProperty.call(patch, "posterSourceId") ? { posterSourceIds: null } : {};
+  const fields = omitEmpty({ ...draft?.fields, ...patch, ...sourceFields }) as EventIntakePatch;
   if (!hasMeaningfulInput(fields)) throw new Error("A draft needs at least one meaningful field.");
   if (JSON.stringify(fields).length > 48_000) throw new Error("Draft exceeds storage limit.");
   if (!draft) {

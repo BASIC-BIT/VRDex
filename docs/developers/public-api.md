@@ -28,6 +28,19 @@ a draft field, `null` clears it, and candidates remain tentative. Saving returns
 After a lost response, read the draft or replay publication with the exact same
 draft, version, and key. A changed request with the same key conflicts.
 
+Draft patches accept up to five unique, ordered `posterSourceIds`. Save validates
+each new list entry against the signed-in actor and draft, including uploads
+still pending completion. The singular `posterSourceId` remains accepted as an
+opaque private reference for older clients. Extraction accepts ordered
+`posterAssetIds` or the older singular `posterAssetId`; every supplied image
+must be ready, unexpired, and owned by that actor and draft before quota is
+reserved. A singular value supplied alongside a list must match its first ID.
+Candidate evidence has at most 40 private entries, with nullable `posterIndex`
+for zero-based image attribution. Candidate event and lineup times may include
+nullable ISO `startDate` and `endDate`. Ordered extraction image processing is
+pending the multimodal extractor update; the current endpoint returns its
+manual fallback for a plural request after validating source access.
+
 `GET /api/v0/events/{eventId}/artwork/{artworkAssetId}` returns only the separately
 selected WebP for that currently public event. It checks both IDs and current
 visibility on every request and sends `private, no-store`. The Next.js directory

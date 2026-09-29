@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { EventIntakeCandidateSchema, EventIntakeCandidateJsonSchema, resolveEventLocalTime, type EventIntakeCandidate } from "../../../../../packages/api-contracts/src/event-intake";
 
 type PublicMatch = { slug: string; displayName: string };
-type Input = { draftId: string; sourceText?: string; posterAssetId?: string };
+type Input = { draftId: string; sourceText?: string; posterAssetId?: string; posterAssetIds?: string[] };
 export type EventIntakeAgentDependencies = {
   authorize: (input: Input, reserveQuota: boolean) => Promise<{ actorUserId: string; version: number }>;
   search_people: (query: string, limit: number) => Promise<PublicMatch[]>;
@@ -19,7 +19,7 @@ const tools = [
   { type: "function", name: "resolve_local_time", description: "Return every valid UTC instant for an IANA local time. Zero is nonexistent; multiple means ambiguous.", strict: true, parameters: object({ date: string, time: string, zone: string }) },
 ];
 function fallback(reason: string): EventIntakeCandidate {
-  return { event: { title: null, communitySlug: null, eventDate: null, start: null, end: null, timezone: null, venueLabel: null, summary: null, sourceUrl: null }, lineup: [], evidence: [], questions: [{ fieldPath: "source", reason, alternatives: [] }] };
+  return { event: { title: null, communitySlug: null, eventDate: null, start: null, end: null, startDate: null, endDate: null, timezone: null, venueLabel: null, summary: null, sourceUrl: null }, lineup: [], evidence: [], questions: [{ fieldPath: "source", reason, alternatives: [] }] };
 }
 export function resolveIntakeLocalTime(date: string, time: string, zone: string) {
   if (zone !== "UTC" && !zone.includes("/")) throw new Error("timezone_choice_required");
@@ -63,11 +63,12 @@ function revalidate(candidate: EventIntakeCandidate, people: Set<string>, commun
 }
 // Dependencies are server-owned closures, never accepted from request JSON.
 export async function extractEventIntake(input: Input, deps: EventIntakeAgentDependencies): Promise<EventIntakeCandidate> {
-  if (!input.draftId || (input.sourceText?.length ?? 0) > 12_000 || (!input.sourceText?.trim() && !input.posterAssetId)) throw new Error("EXTRACTION_INPUT_INVALID");
+  const posterAssetIds = input.posterAssetIds ?? (input.posterAssetId ? [input.posterAssetId] : []);
+  if (!input.draftId || (input.sourceText?.length ?? 0) > 12_000 || (!input.sourceText?.trim() && !posterAssetIds.length)) throw new Error("EXTRACTION_INPUT_INVALID");
   const apiKey = deps.apiKey ?? process.env.OPENAI_API_KEY;
   const enabled = deps.enabled ?? process.env.VRDEX_EVENT_INTAKE_AI_ENABLED === "true";
-  const authority = await deps.authorize(input, Boolean(enabled && apiKey));
-  if (!enabled || !apiKey) return fallback("extraction_unavailable");
+  const authority = await deps.authorize({ ...input, posterAssetIds }, Boolean(enabled && apiKey && !input.posterAssetIds?.length));
+  if (!enabled || !apiKey || input.posterAssetIds?.length) return fallback("extraction_unavailable");
   const started = Date.now();
   let turns = 0, toolCalls = 0, inputTokens = 0, outputTokens = 0;
   const people = new Set<string>(), communities = new Set<string>();
@@ -150,7 +151,7 @@ export function createEventIntakeExtractor(deps: {
     return extractEventIntake(input, {
       authorize: async (value, reserveQuota) => deps.admin.mutation(internal.eventIntakeSources.authorizeExtraction, {
         ...await deps.authority(), draftId: value.draftId as import("../../../../../convex/_generated/dataModel").Id<"eventIntakeDrafts">,
-        ...(value.posterAssetId ? { posterAssetId: value.posterAssetId as import("../../../../../convex/_generated/dataModel").Id<"eventPosterSources"> } : {}),
+        posterAssetIds: value.posterAssetIds?.map(id => id as import("../../../../../convex/_generated/dataModel").Id<"eventPosterSources">),
         reserveQuota,
       }),
       readPoster: deps.readPoster,

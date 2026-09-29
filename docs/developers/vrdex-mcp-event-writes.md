@@ -30,6 +30,18 @@ and extraction do not select public artwork; call `artwork_select` deliberately.
 Call `event_get` with the published slug to obtain `updatedAt` before
 `event_update`; pass that revision as `expectedUpdatedAt`.
 
+`draft_save` accepts an ordered `posterSourceIds` list of up to five unique
+private upload IDs. Save checks that each list entry belongs to the actor and
+draft, and permits pending uploads. The older singular `posterSourceId` remains
+accepted as an opaque draft reference. `extract` accepts ordered
+`posterAssetIds` or the legacy singular `posterAssetId`; each extraction source
+must be ready and valid for the same actor and draft before quota is reserved.
+If both forms appear, the singular ID must match the first list entry. A plural
+request currently returns the manual fallback after source validation until
+the multimodal extractor update. Candidate evidence remains private, capped at
+40 entries, and can identify a zero-based `posterIndex`; candidate event and
+lineup times can carry nullable ISO `startDate` and `endDate`.
+
 The local-only `vrdex_event_intake_poster_upload_bytes` helper accepts `draftId`,
 `contentType`, and base64 content explicitly supplied from a chosen local file.
 It never reads filesystem paths or fetches source URLs. Set
