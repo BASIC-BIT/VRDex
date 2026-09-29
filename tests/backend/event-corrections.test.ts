@@ -602,7 +602,7 @@ it("updates participant and world feeds atomically on correction and removal", a
     const worldId = await ctx.db.insert("worlds", { slug: "world", displayName: "World", sortName: "world", tags: [], publicationState: "published", visibilityStatus: "public", platformCompatibility: [], media: [], creatorAttributions: [], outboundLinks: [], creationSource: "community", updatedAt: Date.now() });
     return { personId, worldId };
   });
-  await contributor.mutation(command("updateOwnContributedEvent"), { eventId: event._id, expectedUpdatedAt: event.updatedAt, patch: { worldSlug: "world", lineup: [{ clientKey: "dj", position: 0, performerLabel: "DJ", personSlug: "dj" }] } });
+  await contributor.mutation(command("updateOwnContributedEvent"), { eventId: event._id, expectedUpdatedAt: event.updatedAt, patch: { worldSlug: "world", lineup: [{ clientKey: "dj", position: 0, performerLabel: "DJ", personSlug: "dj", roleLabel: "Host" }] } });
   assert.equal((await t.run(ctx => getPublicPersonUpcomingEvents(ctx.db, personId, Date.now()))).length, 0);
   const before = await t.run(ctx => getPublicWorldEventContext(ctx.db, worldId, Date.now()));
   assert.equal(before.upcoming.length, 0);
@@ -611,6 +611,7 @@ it("updates participant and world feeds atomically on correction and removal", a
   const current = (await t.run(ctx => ctx.db.get(event._id)))!;
   await contributor.mutation(command("updateOwnContributedEvent"), { eventId: event._id, expectedUpdatedAt: current.updatedAt, patch: { summary: "Updated details" } });
   assert.equal((await t.query(api.events.getPublicBySlug, { slug: event.slug! }))?.worlds[0]?.slug, "world");
+  assert.ok((await t.run(ctx => ctx.db.query("searchDocuments").withIndex("by_eventId", q => q.eq("eventId", event._id)).first()))?.vocabularyKeys.some(key => key.includes("host")));
   await moderator.mutation(command("removeContributedEvent"), { eventId: event._id, reason: "Incorrect listing" });
   assert.equal((await t.run(ctx => getPublicPersonUpcomingEvents(ctx.db, personId, Date.now()))).length, 0);
   assert.equal((await t.run(ctx => getPublicWorldEventContext(ctx.db, worldId, Date.now()))).upcoming.length, 0);

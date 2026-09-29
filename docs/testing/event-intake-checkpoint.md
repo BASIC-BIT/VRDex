@@ -70,7 +70,7 @@ Commands run in the isolated worktree, without hosted credentials or paid calls:
 
 | Command | Result |
 | --- | --- |
-| `pnpm test:backend` | 1,223 passed, zero failed/skipped after review fixes |
+| `pnpm test:backend` | 1,224 passed, zero failed/skipped after review fixes |
 | `pnpm test:web` | 607 passed, zero failed/skipped after review fixes |
 | `pnpm test:api-contracts` | 58 passed, zero failed/skipped after review fixes |
 | `pnpm test:vrdex-mcp` | 10 passed, including local stdio and fake-transport upload |

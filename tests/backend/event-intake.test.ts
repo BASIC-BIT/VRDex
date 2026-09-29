@@ -164,6 +164,18 @@ it("shows contributor lineup matches without claiming a performer's profile befo
   assert.equal((await t.run(ctx => ctx.db.query("eventParticipants").first()))?.confirmationState, "unconfirmed");
   assert.equal((await t.run(ctx => getPublicPersonUpcomingEvents(ctx.db, personId, Date.now()))).length, 0);
 });
+it("keeps contributed timed slots visible while person links remain unconfirmed", async () => {
+  const { t, actor } = await fixture();
+  const personId = await t.run(ctx => ctx.db.insert("profiles", { slug: "timed-dj", displayName: "Timed DJ", sortName: "timed dj", profileType: "person", person: { roleTags: [] }, aliases: [], tags: [], claimState: "unclaimed", publicationState: "published", publicSurfacingState: "public", creationSource: "community", updatedAt: Date.now() }));
+  const draft = await actor.mutation(save, { patch: { ...complete, timeTba: null, timezone: "UTC", start: { time: "19:00" }, lineup: [{ clientKey: "set", position: 0, performerLabel: "Timed DJ", personSlug: "timed-dj", start: { time: "20:00" } }] } });
+  const result = await actor.action(publish, { draftId: draft.draftId, expectedVersion: 1, idempotencyKey: "timed-match" });
+  const event = (await t.run(ctx => ctx.db.get(result.eventId)))!;
+  const publicEvent = await t.query(api.events.getPublicBySlug, { slug: event.slug! });
+  assert.equal(publicEvent?.lineup[0]?.displayLabel, "Timed DJ");
+  assert.equal(publicEvent?.lineup[0]?.startAt, Date.parse("2027-10-15T20:00:00Z"));
+  assert.equal((await t.run(ctx => ctx.db.query("eventParticipants").first()))?.confirmationState, "unconfirmed");
+  assert.equal((await t.run(ctx => getPublicPersonUpcomingEvents(ctx.db, personId, Date.now()))).length, 0);
+});
 it("keeps a selected public world and contributor attribution in the atomic publication", async () => {
   const { t, actor } = await fixture();
   await t.run(ctx => ctx.db.insert("worlds", { slug: "public-world", displayName: "Public World", sortName: "public world", tags: [], publicationState: "published", visibilityStatus: "public", platformCompatibility: [], media: [], creatorAttributions: [], outboundLinks: [], creationSource: "community", updatedAt: Date.now() }));

@@ -62,13 +62,13 @@ async function correctionFields(db: DatabaseReader, event: Doc<"events">): Promi
     venueLabel: event.venueLabel, worldSlug: world?.slug, sourceUrl: event.sourceUrl, summary: event.summary, lineup };
 }
 
-async function refreshProjections(db: DatabaseWriter, event: Doc<"events">, now: number) {
+async function refreshProjections(db: DatabaseWriter, event: Doc<"events">, now: number, authoredRoleLabels?: string[]) {
   await syncPreservedEventAssociations(db, event, now, { preserveParticipants: true, preserveWorld: true, preserveSlots: true });
   const [community, world, roleLabels] = await Promise.all([
     event.communityProfileId ? db.get(event.communityProfileId) : undefined,
     linkedPublishedEventWorld(db, event._id, true), eventParticipantRoleLabels(db, event._id),
   ]);
-  await reindexEventSearchDocument(db, event, { community: community ?? undefined, world, roleLabels }, now);
+  await reindexEventSearchDocument(db, event, { community: community ?? undefined, world, roleLabels: authoredRoleLabels ?? roleLabels }, now);
 }
 
 export async function updateActorContribution(ctx: MutationCtx, actorUserId: Id<"users">, args: { eventId: Id<"events">; expectedUpdatedAt: number; patch: unknown; duplicateAcknowledgements?: Id<"events">[] }, actor?: AuthSubject, actorSurface: "api" | "mcp" = "api") {
@@ -119,7 +119,7 @@ export async function updateActorContribution(ctx: MutationCtx, actorUserId: Id<
     }
   }
   if (patch.worldSlug !== undefined) await replaceEventWorldLink(db, updated, checked.world, now, { confirmationState: "unconfirmed" });
-  await refreshProjections(db, updated, now);
+  await refreshProjections(db, updated, now, checked.lineup.flatMap(entry => entry.roleLabel ? [entry.roleLabel] : []));
   await recordEventAuditEvent(db, { eventId: event._id, actorUserId, actor, actorSurface: actor ? "browser" : actorSurface, action: "updated", changedFields: Object.keys(patch), now });
   return { eventId: event._id, updatedAt: now, contributionVersion: updated.contributionVersion };
 }

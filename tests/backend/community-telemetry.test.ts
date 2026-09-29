@@ -987,6 +987,19 @@ describe("community telemetry control plane", () => {
     const visibleSuggestions = await t.withIdentity(identity).query(api.clubAnalytics.listAssociationSuggestions, suggestionPage);
     assert.equal(visibleSuggestions.page.some((row) => row.id === suggestion._id), true);
     assert.equal(visibleSuggestions.page.find((row) => row.id === suggestion._id)?.canConfirm, true);
+    const timedEvent = (await t.run(ctx => ctx.db.get(seeded.eventId)))!;
+    await t.run(ctx => ctx.db.patch(seeded.eventId, { scheduleKind: "date_only", startAt: undefined, endAt: undefined }));
+    const untimedSuggestion = (await t.withIdentity(identity).query(api.clubAnalytics.listAssociationSuggestions, suggestionPage))
+      .page.find((row) => row.id === suggestion._id);
+    assert.equal(untimedSuggestion?.eventTitle, timedEvent.title);
+    assert.equal(untimedSuggestion?.canConfirm, false);
+    await assert.rejects(t.withIdentity(identity).mutation(api.communityTelemetry.reviewAssociationSuggestion, {
+      communitySlug: "faceless", associationId: suggestion._id, state: "confirmed",
+    }), /Set an event time/);
+    assert.equal((await t.run(ctx => ctx.db.get(suggestion._id)))?.state, "suggested");
+    await t.run(ctx => ctx.db.patch(seeded.eventId, {
+      scheduleKind: timedEvent.scheduleKind, startAt: timedEvent.startAt, endAt: timedEvent.endAt,
+    }));
     const competingConfirmation = await t.run(async (ctx) => {
       const { _id, _creationTime, ...fields } = suggestion;
       return ctx.db.insert("eventInstanceAssociations", { ...fields, state: "confirmed" });

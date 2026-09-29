@@ -2003,6 +2003,7 @@ export const reviewAssociationSuggestion = mutation({
       throw new Error("Association was not found.");
     const [session, event, integration] = await Promise.all([ctx.db.get(association.sessionId), ctx.db.get(association.eventId), integrationForCommunity(ctx, profile._id)]);
     if (args.state === "confirmed" && (!session || !event || session.communityProfileId !== profile._id || event.communityProfileId !== profile._id || !integration || session.integrationId !== integration._id || session.openedAt < (integration.telemetryEpochStartedAt ?? integration.createdAt))) throw new Error("Event or instance belongs to another group connection.");
+    if (args.state === "confirmed" && (event?.startAt === undefined || event.scheduleKind === "date_only")) throw new Error("Set an event time before associating instances.");
     const now = Date.now();
     if (args.state === "confirmed") {
       const existing = await ctx.db.query("eventInstanceAssociations")

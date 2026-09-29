@@ -74,7 +74,7 @@ export async function replaceEventLineup(
         startAt: entry.startAt, endAt: entry.endAt, personProfileId,
         displayLabel: entry.performerLabel, roleLabel: entry.roleLabel ?? "",
         sourceType: event.sourceType, sourceLabel: event.sourceLabel,
-        confidence: 1, reviewState: options.confirmPersonLinks === false ? "draft" as const : "confirmed" as const, updatedAt: now,
+        confidence: 1, reviewState: "confirmed" as const, updatedAt: now,
       };
       if (existing !== undefined) {
         keptSlots.add(existing._id);
