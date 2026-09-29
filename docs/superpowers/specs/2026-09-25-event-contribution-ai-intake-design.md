@@ -1,5 +1,7 @@
 # Community event contribution and AI intake
 
+Follow-on visual direction (2026-09-29): [event editor reference](../../planning/event-editor-visual-reference-2026-09-29.md). BASIC later chose automatic event-artwork selection when a contributor uploads an event image, with the artwork published alongside the event unless changed or removed first. This supersedes the private-by-default artwork selection described below for a future editor. The original intake design is retained as an implementation record; current behavior has not changed.
+
 Status: draft design for BASIC review, updated 2026-09-25. This incorporates BASIC's decisions that a useful contributed event can publish for any community after a reasonable preflight without prior staff or moderator acceptance, that a known-date event may publish with its time TBA, that any signed-in account may contribute without a separate verified-email gate, that contributors may make scoped self-edits, and that an uploaded source poster stays private unless separately published as artwork. Almost all fields may remain partial while drafting. The existing event editor and public page also need the timezone, publish-navigation, and lineup changes described below. Product implementation and exact public copy are not approved by this draft.
 
 Research: [repo survey and approach comparison](../../planning/event-contribution-intake-research-2026-09-25.md), [AI platform findings](../../planning/event-intake-ai-platform-research-2026-09-25.md), [product direction](../../planning/product-direction.md).
