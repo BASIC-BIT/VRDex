@@ -7,7 +7,7 @@ export const PUBLIC_TELEMETRY_DEFINITIONS = {
   currentPopulation: { unit: "people", grain: "latest_poll", gapPolicy: "omitted_when_stale" },
   populationHistory: { unit: "people", grain: "hour", gapPolicy: "gaps_are_not_zero" },
   groupMemberCount: { unit: "members", grain: "latest_observation", gapPolicy: "last_observation_is_timestamped" },
-  groupMemberGrowth: { unit: "members", grain: "retained_observation_range", gapPolicy: "observed_end_minus_observed_start" },
+  groupMemberGrowth: { unit: "members", grain: "founding_or_retained_observation_range", gapPolicy: "known_founding_or_observed_start" },
   instanceHistory: { unit: "instances", grain: "session", gapPolicy: "first_and_last_observation" },
   eventRecaps: { unit: "mixed", grain: "confirmed_event", gapPolicy: "coverage_ratio_is_explicit" },
 } as const;
@@ -264,6 +264,13 @@ export async function getPublicCommunityTelemetry(
   ]);
   const latestMember = memberCounts[0];
   const earliestMember = memberCounts[memberCounts.length - 1];
+  const groupMetadata = publicMetrics.groupMemberGrowth && latestMember
+    ? await db.query("vrchatGroupMemberMetadata")
+        .withIndex("by_vrchatGroupId", (query) => query.eq("vrchatGroupId", integration.vrchatGroupId))
+        .unique()
+    : null;
+  const foundingAt = groupMetadata?.groupCreatedAt !== undefined && latestMember &&
+    groupMetadata.groupCreatedAt <= latestMember.observedAt ? groupMetadata.groupCreatedAt : undefined;
   const sessions = publicMetrics.instanceHistory
     ? await db.query("instanceSessions")
       .withIndex("by_integrationId_openedAt", (query) =>
@@ -317,8 +324,8 @@ export async function getPublicCommunityTelemetry(
       : {}),
     ...(publicMetrics.groupMemberGrowth && latestMember && earliestMember
       ? { groupMemberGrowth: {
-          value: latestMember.memberCount - earliestMember.memberCount,
-          startAt: earliestMember.observedAt,
+          value: latestMember.memberCount - (foundingAt === undefined ? earliestMember.memberCount : 1),
+          startAt: foundingAt ?? earliestMember.observedAt,
           endAt: latestMember.observedAt,
         } }
       : {}),

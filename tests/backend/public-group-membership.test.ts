@@ -384,6 +384,12 @@ it("does not expose old integration membership after the primary group changes",
   assert.equal(matching?.groupMemberCount?.value, 12);
   assert.equal(matching?.groupMemberGrowth?.value, 2);
   assert.equal(matching?.populationHistory?.[0]?.groupMemberCount, 12);
+  const foundedAt = s.now - 86_400_000;
+  await s.t.run((ctx) => ctx.db.insert("vrchatGroupMemberMetadata", {
+    vrchatGroupId: groupA, groupCreatedAt: foundedAt, updatedAt: s.now,
+  }));
+  const sinceFounding = await s.t.run((ctx) => getPublicCommunityTelemetry(ctx.db, s.firstId, s.now));
+  assert.deepEqual(sinceFounding?.groupMemberGrowth, { value: 11, startAt: foundedAt, endAt: observedAt + 1 });
   await s.t.run(async (ctx) => {
     const link = (await ctx.db.query("profileExternalLinks")
       .withIndex("by_profileId_assetType_state", (q) => q
