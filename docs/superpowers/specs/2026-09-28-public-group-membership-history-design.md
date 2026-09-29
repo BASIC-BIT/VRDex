@@ -43,4 +43,4 @@ Today Activity shows a latest-count card for eligible connected clubs. The propo
 
 ## Validation and copy
 
-Test connected and unconnected profiles, Group size authorization, all four Appearance combinations, link replacement, duplicate observations, stale provider reads, and the dotted unobserved interval. Validate the public API contract and private analytics behavior. Inspect desktop and mobile screenshots with a VLM. Exact proposed public labels for owner review: Group members, Total group membership, Unobserved, Show member count, Show membership graph.
+Test connected and unconnected profiles, Group size authorization, all four Appearance combinations, link replacement, duplicate observations, stale provider reads, and the dotted unobserved interval. Validate the public API contract and private analytics behavior. Inspect desktop and mobile screenshots with a VLM. Locked decision: BASIC approved these exact public labels with this design on 2026-09-29: Group members, Total group membership, Unobserved, Show member count, Show membership graph.
