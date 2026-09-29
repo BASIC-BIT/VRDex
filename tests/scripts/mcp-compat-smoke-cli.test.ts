@@ -4,7 +4,7 @@ import { once } from "node:events";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { describe, it } from "node:test";
 
-import { smokeHostedClientMetadataDocument } from "../../scripts/smoke-vrdex-mcp-compat";
+import { hostedExpectedToolNames, smokeHostedClientMetadataDocument } from "../../scripts/smoke-vrdex-mcp-compat";
 
 const expectedTools = [
   "search",
@@ -514,6 +514,13 @@ async function startHostedSuccessFixture(extraToolName?: string, omittedScope?: 
 }
 
 describe("MCP compatibility smoke CLI", () => {
+  it("matches the independently classified hosted tool catalog", () => {
+    assert.deepEqual(
+      [...hostedExpectedToolNames].sort(),
+      [...expectedTools, ...expectedOwnedReadTools, ...expectedWriteTools].sort(),
+    );
+  });
+
   it("fetches and validates the HTTPS CIMD document and authorization redirect", async () => {
     const issuer = "https://app.example.test";
     const clientId = `${issuer}/.well-known/oauth-client/vrdex-mcp-public-client`;
