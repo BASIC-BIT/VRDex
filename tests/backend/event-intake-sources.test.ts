@@ -287,6 +287,16 @@ it("replays versioned completion after its own automatic artwork revision", asyn
  const replay=await t.mutation(ref("completePosterUpload"),args);
  assert.equal(replay.version,2);
  assert.equal(replay.artworkAssetId,selected.artworkAssetId);
+ const afterArtworkArgs={...args,expectedVersion:2};
+ assert.equal((await t.mutation(ref("completePosterUpload"),afterArtworkArgs)).version,2);
+ await t.run(ctx=>ctx.db.patch(draftId,{version:3,fields:{title:"Edited after artwork"}}));
+ await assert.rejects(t.mutation(ref("completePosterUpload"),args),/VERSION_CONFLICT/);
+ await assert.rejects(t.mutation(ref("completePosterUpload"),afterArtworkArgs),/VERSION_CONFLICT/);
+ await assert.rejects(t.mutation(ref("completePosterUpload"),{...args,expectedVersion:3}),/VERSION_CONFLICT/);
+ await assert.rejects(t.mutation(ref("completeArtwork"),{actorUserId,artworkAssetId:selected.artworkAssetId,expectedVersion:1,sha256:"b".repeat(64),byteLength:100,automatic:true}),/VERSION_CONFLICT/);
+ await assert.rejects(t.mutation(ref("completeArtwork"),{actorUserId,artworkAssetId:selected.artworkAssetId,expectedVersion:2,sha256:"b".repeat(64),byteLength:100,automatic:true}),/VERSION_CONFLICT/);
+ await assert.rejects(t.mutation(ref("completeArtwork"),{actorUserId,artworkAssetId:selected.artworkAssetId,expectedVersion:3,sha256:"b".repeat(64),byteLength:100,automatic:true}),/VERSION_CONFLICT/);
+ assert.deepEqual((await t.run(ctx=>ctx.db.get(draftId)))?.fields,{title:"Edited after artwork"});
 });
 
 it("clears removed artwork, chooses the next ready image, and rejects stale completions", async () => {

@@ -48,7 +48,12 @@ export const completePosterUpload = internalMutation({ args: { ...actor, ...sour
   if (source.sha256 !== args.sha256) throw new Error("POSTER_DIGEST_MISMATCH");
   const draft = await getActorIntakeDraft(ctx.db, args.actorUserId, source.draftId);
   if (draft.publishedReceiptId) throw new Error("DRAFT_PUBLISHED");
-  if (args.expectedVersion !== undefined && draft.version !== args.expectedVersion && !(source.state === "ready" && draft.artworkSourceId === source._id && draft.artworkAssetId && draft.version === args.expectedVersion + 1)) throw new Error("VERSION_CONFLICT");
+  if (args.expectedVersion !== undefined) {
+    const artwork = draft.artworkAssetId ? await ctx.db.get(draft.artworkAssetId) : null;
+    const selectedArtwork = artwork?.sourceId === source._id && artwork.state === "ready" ? artwork : null;
+    if (selectedArtwork && selectedArtwork.appliedDraftVersion !== draft.version) throw new Error("VERSION_CONFLICT");
+    if (draft.version !== args.expectedVersion && (!selectedArtwork || selectedArtwork.appliedDraftVersion !== args.expectedVersion + 1)) throw new Error("VERSION_CONFLICT");
+  }
   if (source.state !== "ready") await ctx.db.patch(source._id, { state: "ready", lastActivityAt: draft.updatedAt, expiresAt: Math.min(source.uploadedAt + 180 * DAY, draft.updatedAt + 30 * DAY, Date.now() + DAY) });
   const ordered = draft.fields.posterSourceIds as string[] | undefined;
   const first = ordered ? ordered[0] : draft.fields.posterSourceId;
@@ -101,6 +106,8 @@ export const completeArtwork = internalMutation({ args: { ...actor, artworkAsset
   if (!artwork || artwork.actorUserId !== args.actorUserId || !["pending", "ready"].includes(artwork.state)) throw new Error("ARTWORK_NOT_FOUND");
   const draft = await getActorIntakeDraft(ctx.db, args.actorUserId, artwork.draftId);
   if (draft.artworkAssetId === artwork._id && artwork.state === "ready") {
+    if (args.automatic && artwork.appliedDraftVersion !== draft.version) throw new Error("VERSION_CONFLICT");
+    if (draft.version !== args.expectedVersion && !(artwork.appliedDraftVersion === draft.version && artwork.appliedDraftVersion === args.expectedVersion + 1)) throw new Error("VERSION_CONFLICT");
     if (!args.automatic && draft.artworkIntentSourceId === artwork.sourceId) await ctx.db.patch(draft._id, { artworkIntentSourceId: undefined });
     return { artworkAssetId: artwork._id, version: draft.version };
   }
@@ -110,7 +117,7 @@ export const completeArtwork = internalMutation({ args: { ...actor, artworkAsset
   if (args.automatic ? draft.artworkAssetId || draft.artworkIntentSourceId !== artwork.sourceId || (ordered ? ordered[0] !== artwork.sourceId : draft.fields.posterSourceId && draft.fields.posterSourceId !== artwork.sourceId) : draft.artworkIntentSourceId !== artwork.sourceId) throw new Error("VERSION_CONFLICT");
   if (!/^[a-f0-9]{64}$/.test(args.sha256) || !Number.isSafeInteger(args.byteLength) || args.byteLength < 1 || args.byteLength > EVENT_POSTER_MAX_BYTES) throw new Error("ARTWORK_INVALID");
   await ownSource(ctx.db, args.actorUserId, artwork.sourceId);
-  await ctx.db.patch(artwork._id, { state: "ready", sha256: args.sha256, byteLength: args.byteLength, expiresAt: Date.now() + 30 * DAY });
+  await ctx.db.patch(artwork._id, { state: "ready", sha256: args.sha256, byteLength: args.byteLength, appliedDraftVersion: draft.version + 1, expiresAt: Date.now() + 30 * DAY });
   await ctx.db.patch(draft._id, { artworkAssetId: artwork._id, artworkIntentSourceId: undefined, version: draft.version + 1, updatedAt: Date.now(), expiresAt: Date.now() + 30 * DAY });
   return { artworkAssetId: artwork._id, version: draft.version + 1 };
 } });
