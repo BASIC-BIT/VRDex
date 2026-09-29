@@ -59,6 +59,10 @@ it("publishes for any public community without verified email, source URL or sta
   assert.ok(result.eventPath.includes(event!.slug!));
   assert.equal((await t.run(ctx => getPublicCommunityHostedEvents(ctx.db, communityId, Date.now()))).length, 1);
   assert.equal((await t.query(api.search.listDiscovery, {})).upcomingEvents.length, 1);
+  const audit = await t.run(ctx => ctx.db.query("eventAuditEvents").collect());
+  assert.equal(audit.length, 1);
+  assert.deepEqual({ action: audit[0].action, actorSurface: audit[0].actorSurface, eventId: audit[0].eventId },
+    { action: "created", actorSurface: "browser", eventId: result.eventId });
 });
 it("refuses unknown dates, private targets and disabled date-only publication", async () => {
   const { t, actor, communityId } = await fixture();
@@ -101,6 +105,17 @@ it("replays immutable receipts after expired drafts have been swept", async () =
   const first = await actor.action(publish, args);
   await t.run(ctx => ctx.db.delete(draft.draftId));
   assert.deepEqual(await actor.action(publish, args), first);
+});
+it("replay uses the current community route after a slug change", async () => {
+  const { t, actor, communityId } = await fixture();
+  const draft = await actor.mutation(save, { patch: complete });
+  const args = { draftId: draft.draftId, expectedVersion: 1, idempotencyKey: "moved-route" };
+  const first = await actor.action(publish, args);
+  await t.run(({ db }) => db.patch(communityId, { slug: "new-club" }));
+  const replay = await actor.action(publish, args);
+  assert.equal(replay.eventId, first.eventId);
+  assert.equal(replay.receiptId, first.receiptId);
+  assert.equal(replay.eventPath, `/new-club/events/${first.eventPath.split("/").at(-1)}`);
 });
 it("bounds drafts, rejects authority and unsafe URLs, and preserves tentative values privately", async () => {
   const { actor } = await fixture();
@@ -156,6 +171,9 @@ it("keeps a selected public world and contributor attribution in the atomic publ
   const publicEvent = await t.query(api.events.getPublicBySlug, { slug: event!.slug! });
   assert.equal(publicEvent?.worlds[0]?.slug, "public-world");
   assert.equal(publicEvent?.worlds[0]?.association.sourceType, "contributor");
+  assert.equal(publicEvent?.worlds[0]?.association.confirmationState, "unconfirmed");
+  const association = await t.run(ctx => ctx.db.query("eventWorlds").first());
+  assert.equal(association?.confirmedAt, undefined);
 });
 it("enforces account publication quota and leaves the over-quota draft resumable", async () => {
   const { actor } = await fixture();

@@ -15,7 +15,7 @@ import { evaluateApiUserReadRequest, evaluateApiUserWriteRequest } from "./api-u
 import { apiProblemResponse, rejectBearerTokenQuery } from "./api-v0";
 
 type Admin = Pick<ReturnType<typeof convexAdminHttpClient>, "query" | "mutation" | "action">;
-export function createEventIntakeCommands(deps: { actorUserId: Id<"users">; admin?: Admin }) {
+export function createEventIntakeCommands(deps: { actorUserId: Id<"users">; admin?: Admin; actorSurface?: "api" | "mcp" }) {
   const admin = deps.admin ?? convexAdminHttpClient();
   const actor = { actorUserId: deps.actorUserId };
   const posters = createEventPosterHandlers({ authority: async () => actor, admin });
@@ -43,7 +43,7 @@ export function createEventIntakeCommands(deps: { actorUserId: Id<"users">; admi
       }
       case "publish": {
         const input = PublishEventIntakeSchema.parse(raw);
-        result = await admin.action(internal.eventIntake.publishActorIntake, { ...input, ...actor, draftId: draftId(input.draftId) });
+        result = await admin.action(internal.eventIntake.publishActorIntake, { ...input, ...actor, actorSurface: deps.actorSurface ?? "api", draftId: draftId(input.draftId) });
         break;
       }
       case "extract": result = await extract(ExtractEventIntakeSchema.parse(raw)); break;
@@ -66,12 +66,12 @@ export function createEventIntakeCommands(deps: { actorUserId: Id<"users">; admi
       }
       case "event_update": {
         const { slug, ...input } = UpdateEventContributionSchema.parse(raw);
-        result = await admin.mutation(internal.eventCorrections.updateActorContributedEvent, { ...input, ...actor, eventId: await eventId(slug), duplicateAcknowledgements: input.duplicateAcknowledgements as Id<"events">[] | undefined });
+        result = await admin.mutation(internal.eventCorrections.updateActorContributedEvent, { ...input, ...actor, actorSurface: deps.actorSurface ?? "api", eventId: await eventId(slug), duplicateAcknowledgements: input.duplicateAcknowledgements as Id<"events">[] | undefined });
         break;
       }
       case "event_retract": {
         const { slug } = RetractEventContributionSchema.parse(raw);
-        result = await admin.mutation(internal.eventCorrections.retractActorContributedEvent, { ...actor, eventId: await eventId(slug) });
+        result = await admin.mutation(internal.eventCorrections.retractActorContributedEvent, { ...actor, actorSurface: deps.actorSurface ?? "api", eventId: await eventId(slug) });
       }
     }
     return eventIntakeOperations[operation].output.parse(result);
@@ -111,7 +111,7 @@ export function eventIntakeErrorResponse(error: unknown) {
   const duplicate = z.object({ code: z.literal("NEAR_DUPLICATE"), choices: z.array(z.object({ eventId: z.string().max(200), title: z.string().max(120), eventPath: z.string().max(2048).startsWith("/") })).max(20) }).safeParse(data);
   if (duplicate.success) return problem(409, "Near duplicate", JSON.stringify(duplicate.data));
   const code = data === undefined ? message : JSON.stringify(data);
-  if (/VERSION_CONFLICT|IDEMPOTENCY_CONFLICT|CONTRIBUTOR_EDIT_CLOSED/.test(code)) return problem(409, "Conflict");
+  if (/VERSION_CONFLICT|IDEMPOTENCY_CONFLICT|CONTRIBUTOR_EDIT_CLOSED|DUPLICATE_EVENT/.test(code)) return problem(409, "Conflict");
   if (/QUOTA|LIMIT/.test(code)) return problem(429, "Limit reached");
   if (/NOT_FOUND|not found|DRAFT_ACCESS|CONTRIBUTOR_REQUIRED|POSTER_ACCESS/.test(code)) return problem(403, "Unavailable");
   if (/REPOST_BLOCKED|CONTENT_BLOCKED/.test(code)) return problem(403, "Publication refused");

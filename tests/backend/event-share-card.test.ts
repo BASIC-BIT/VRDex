@@ -62,6 +62,12 @@ describe("public event share-card projection", () => {
     assert.equal(projected?.artworkImageUrl, "https://media.example.test/banner.png");
   });
 
+  it("keeps selected same-origin poster artwork for the generated preview", () => {
+    const posterImageUrl = "/api/v0/events/event-id/artwork/artwork-id";
+    const projected = toPublicEventShareCard({ ...event, posterImageUrl } as Doc<"events">, community);
+    assert.equal(projected?.artworkImageUrl, posterImageUrl);
+  });
+
   it("rejects drafts, missing codes, mismatched communities, and non-community owners", () => {
     assert.equal(
       toPublicEventShareCard({ ...event, publicationState: "draft_private" } as Doc<"events">, community),

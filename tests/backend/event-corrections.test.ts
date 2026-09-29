@@ -216,6 +216,73 @@ it("allows only original contributor scoped edits without manage_events and reco
   assert.deepEqual(audit.at(-1)?.changedFields, ["title", "summary"]);
   await assert.rejects(contributor.mutation(command("updateOwnContributedEvent"), args), /VERSION_CONFLICT/);
 });
+it("unrelated corrections retain a performer match that became private", async () => {
+  const { t, contributor, event } = await fixture();
+  const personId = await t.run(({ db }) => db.insert("profiles", {
+    slug: "guest", displayName: "Guest", sortName: "guest", profileType: "person",
+    person: { roleTags: [] }, aliases: [], tags: [], claimState: "unclaimed",
+    publicationState: "published", publicSurfacingState: "public",
+    creationSource: "community", updatedAt: Date.now(),
+  }));
+  await contributor.mutation(command("updateOwnContributedEvent"), {
+    eventId: event._id, expectedUpdatedAt: event.updatedAt,
+    patch: { lineup: [{ clientKey: "dj", position: 0, performerLabel: "DJ", personSlug: "guest" }] },
+  });
+  await t.run(({ db }) => db.patch(personId, { publicationState: "draft_private" }));
+  const own = await contributor.query(makeFunctionReference<"query">("eventCorrections:getOwnContributedEvent"), { eventId: event._id });
+  assert.equal(own.fields.lineup[0]?.personSlug, undefined);
+  const current = (await t.run(({ db }) => db.get(event._id)))!;
+  await contributor.mutation(command("updateOwnContributedEvent"), {
+    eventId: event._id, expectedUpdatedAt: current.updatedAt,
+    patch: { summary: "Updated summary" },
+  });
+  const lineup = await t.run(({ db }) => db.query("eventLineupEntries")
+    .withIndex("by_eventId_position", q => q.eq("eventId", event._id)).collect());
+  assert.equal(lineup[0]?.personProfileId, personId);
+  assert.equal((await t.query(api.events.getPublicBySlug, { slug: event.slug! }))?.lineup[0]?.performer, undefined);
+});
+it("contributor schedule corrections rebase then cancel event-relative club actions", async () => {
+  const { t, contributor, event, communityId } = await fixture();
+  const firstStart = Date.parse("2027-10-15T19:00:00Z");
+  await contributor.mutation(command("updateOwnContributedEvent"), {
+    eventId: event._id, expectedUpdatedAt: event.updatedAt,
+    patch: { timeTba: null, timezone: "UTC", start: { time: "19:00", dayOffset: 0 } },
+  });
+  const operationId = await t.run(async ({ db }) => {
+    const now = Date.now();
+    const integrationId = await db.insert("communityVrchatIntegrations", {
+      communityProfileId: communityId, vrchatGroupId: "grp_test", groupVisibility: "public",
+      joinPolicy: "free", state: "active", killSwitchEnabled: false,
+      requestsPerMinute: 10, leaseGeneration: 1, consecutiveFailures: 0,
+      publicMetrics: { currentPopulation: false, populationHistory: false,
+        groupMemberCount: false, groupMemberGrowth: false, eventRecaps: false },
+      createdAt: now, updatedAt: now,
+    });
+    const actor = { subject: "staff", issuer: "test", tokenIdentifier: "test|staff" };
+    return db.insert("clubOperations", {
+      communityProfileId: communityId, integrationId, epochStartedAt: now,
+      requestId: "correction", batchId: "correction",
+      payload: { kind: "publish_post", title: "Post", text: "Body", visibility: "group", sendNotification: false },
+      schedule: { kind: "event_relative", eventId: event._id, offsetMs: 0 }, eventId: event._id,
+      dueAt: firstStart, readyAt: firstStart, actor, createdBy: actor,
+      revision: 1, state: "pending", createdAt: now, updatedAt: now,
+    });
+  });
+  let current = (await t.run(({ db }) => db.get(event._id)))!;
+  await contributor.mutation(command("updateOwnContributedEvent"), {
+    eventId: event._id, expectedUpdatedAt: current.updatedAt,
+    patch: { start: { time: "20:00", dayOffset: 0 } },
+  });
+  assert.equal((await t.run(({ db }) => db.get(operationId)))?.dueAt, firstStart + 3_600_000);
+  current = (await t.run(({ db }) => db.get(event._id)))!;
+  await contributor.mutation(command("updateOwnContributedEvent"), {
+    eventId: event._id, expectedUpdatedAt: current.updatedAt,
+    patch: { timeTba: true, start: null, end: null, doors: null },
+  });
+  const cancelled = await t.run(({ db }) => db.get(operationId));
+  assert.equal(cancelled?.state, "cancelled");
+  assert.equal(cancelled?.code, "event_time_tba");
+});
 it("rejects attachment, provenance, trust, watch and private evidence changes", async () => {
   const { contributor, event } = await fixture();
   for (const patch of [{ communitySlug: "elsewhere" }, { sourceType: "community" }, { sourceLabel: "Owner" }, { watchMode: "event_stream" }, { notes: "private" }, { contributorEditsClosedAt: 0 }, { sourceText: "evidence" }]) {
@@ -247,6 +314,35 @@ it("contributor retraction is audited, hidden and can be republished by staff", 
   assert.ok((await t.run(ctx => ctx.db.query("eventAuditEvents").collect())).some(row => row.action === "retracted"));
   await staff.mutation(api.events.setCommunityEventPublished, { currentSlug: event.slug!, published: true });
   assert.ok(await t.query(api.events.getPublicBySlug, { slug: event.slug! }));
+});
+it("legacy unlocked retraction and moderator removal settle queued event media", async () => {
+  for (const removal of [false, true]) {
+    const { t, contributor, staff, moderator, event } = await fixture();
+    await staff.mutation(api.events.updateCommunityEvent, {
+      currentSlug: event.slug!, title: event.title, communitySlug: "club",
+      startAt: Date.parse("2027-10-15T19:00:00Z"), timezone: "UTC",
+    });
+    const output = await staff.mutation(api.events.configureVrcdnOutput, {
+      currentSlug: event.slug!, key: "main", label: "Main output",
+      credentialRef: "vrcdn/main", sourceConsentAccepted: true,
+      destinationAuthorityAccepted: true, providerRulesAccepted: true,
+      rightsClearedMediaAccepted: true,
+      playbackLinks: [{ platform: "browser", label: "Watch", url: "https://example.com/watch" }],
+    });
+    const scheduled = await staff.mutation(api.events.scheduleEventMediaWorker, { currentSlug: event.slug! });
+    if (!removal) await t.run(({ db }) => db.patch(event._id, { contributorEditsClosedAt: undefined }));
+    if (removal) await moderator.mutation(command("removeContributedEvent"), { eventId: event._id, reason: "Removed by moderator" });
+    else await contributor.mutation(command("retractOwnContributedEvent"), { eventId: event._id });
+    const state = await t.run(async ({ db }) => ({
+      program: await db.get(output.programId),
+      session: await db.get(scheduled.sessionId),
+      start: scheduled.startCommandId ? await db.get(scheduled.startCommandId) : null,
+    }));
+    assert.equal(state.program?.state, "ended");
+    assert.deepEqual(state.program?.publicLinks, []);
+    assert.equal(state.session?.status, "ended");
+    assert.equal(state.start?.status, "cancelled");
+  }
 });
 it("staff cancel and unpublish both close direct editing", async () => {
   for (const cancel of [false, true]) {
@@ -339,6 +435,19 @@ it("signed-out reports are bounded, never auto-remove and are private to staff/m
   for (let i = 0; i < 18; i++) await t.mutation(command("reportEvent"), { ...args, reason: `Other report ${i}` });
   await assert.rejects(t.mutation(command("reportEvent"), { ...args, reason: "Exceeds limit" }), /REPORT_QUOTA/);
 });
+it("classifier flags do not consume visitor report quotas", async () => {
+  const { t, contributor, event, users } = await fixture();
+  await t.run(async ({ db }) => {
+    for (let i = 0; i < 500; i++) await db.insert("eventReports", {
+      eventId: event._id, communityProfileId: event.communityProfileId,
+      actorUserId: users[0], kind: i % 2 ? "classifier_outage" : "classifier_sample",
+      reason: "Classifier check", createdAt: Date.now(),
+    });
+  });
+  assert.deepEqual(await contributor.mutation(command("reportEvent"), {
+    eventId: event._id, reason: "Incorrect listing",
+  }), { accepted: true });
+});
 it("suppresses immediate recreation with expiring fingerprint even after canonical deletion", async () => {
   const { t, moderator, contributor, event } = await fixture();
   await moderator.mutation(command("removeContributedEvent"), { eventId: event._id, reason: "False event" });
@@ -382,9 +491,14 @@ it("corrects an acknowledged near duplicate with explicit confirmation outside t
 it("internal correction adapters bind audit identity to the authenticated transport actor", async () => {
   const { t, event, users } = await fixture();
   await t.mutation(makeFunctionReference<"mutation">("eventCorrections:updateActorContributedEvent"), { actorUserId: users[0], eventId: event._id, expectedUpdatedAt: event.updatedAt, patch: { summary: "Via API" } });
-  const audit = (await t.run(ctx => ctx.db.query("eventAuditEvents").collect())).at(-1)!;
+  let audit = (await t.run(ctx => ctx.db.query("eventAuditEvents").collect())).at(-1)!;
   assert.equal(audit.actorUserId, users[0]);
   assert.equal(audit.actorSurface, "api");
+  const updated = (await t.run(ctx => ctx.db.get(event._id)))!;
+  await t.mutation(makeFunctionReference<"mutation">("eventCorrections:updateActorContributedEvent"), { actorUserId: users[0], actorSurface: "mcp", eventId: event._id, expectedUpdatedAt: updated.updatedAt, patch: { summary: "Via MCP" } });
+  await t.mutation(makeFunctionReference<"mutation">("eventCorrections:retractActorContributedEvent"), { actorUserId: users[0], actorSurface: "mcp", eventId: event._id });
+  const audits = await t.run(ctx => ctx.db.query("eventAuditEvents").collect());
+  assert.deepEqual(audits.slice(-2).map(row => [row.action, row.actorSurface]), [["updated", "mcp"], ["retracted", "mcp"]]);
 });
 it("enforces global and account report quotas independently of supplied identity", async () => {
   for (const mode of ["global", "actor"] as const) {
@@ -410,7 +524,12 @@ it("updates participant and world feeds atomically on correction and removal", a
   await contributor.mutation(command("updateOwnContributedEvent"), { eventId: event._id, expectedUpdatedAt: event.updatedAt, patch: { worldSlug: "world", lineup: [{ clientKey: "dj", position: 0, performerLabel: "DJ", personSlug: "dj" }] } });
   assert.equal((await t.run(ctx => getPublicPersonUpcomingEvents(ctx.db, personId, Date.now()))).length, 1);
   const before = await t.run(ctx => getPublicWorldEventContext(ctx.db, worldId, Date.now()));
-  assert.equal(before.upcoming.length, 1);
+  assert.equal(before.upcoming.length, 0);
+  const publicEvent = await t.query(api.events.getPublicBySlug, { slug: event.slug! });
+  assert.equal(publicEvent?.worlds[0]?.association.confirmationState, "unconfirmed");
+  const current = (await t.run(ctx => ctx.db.get(event._id)))!;
+  await contributor.mutation(command("updateOwnContributedEvent"), { eventId: event._id, expectedUpdatedAt: current.updatedAt, patch: { summary: "Updated details" } });
+  assert.equal((await t.query(api.events.getPublicBySlug, { slug: event.slug! }))?.worlds[0]?.slug, "world");
   await moderator.mutation(command("removeContributedEvent"), { eventId: event._id, reason: "Incorrect listing" });
   assert.equal((await t.run(ctx => getPublicPersonUpcomingEvents(ctx.db, personId, Date.now()))).length, 0);
   assert.equal((await t.run(ctx => getPublicWorldEventContext(ctx.db, worldId, Date.now()))).upcoming.length, 0);

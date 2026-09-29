@@ -70,8 +70,10 @@ Publication and correction update canonical rows and public indexes atomically.
 Removal hides public detail, discovery, community/person/world lists and feeds.
 Exact fingerprints suppress immediate recreation; this is not fuzzy spam detection.
 
-Contribution association `confirmed` state permits established public queries; it
-does not assert owner confirmation. The event retains `sourceType=contributor`.
+Contributor-selected event-world associations start unconfirmed. They can appear
+on the event page, but world-page activity requires a confirmed association.
+Contributor-linked performers retain their source attribution. The event retains
+`sourceType=contributor`.
 Private actor IDs and poster evidence never enter the public event DTO. See
 [source retention](./event-intake-sources.md) and the
 [integrated checkpoint](../testing/event-intake-checkpoint.md).

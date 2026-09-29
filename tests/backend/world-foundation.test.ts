@@ -196,6 +196,7 @@ describe("public world event context", () => {
       sourceType: "manual",
       sourceLabel: "Fixture event listing",
       sourceUrl: "https://example.invalid/events/afterglow-harbor-sessions",
+      posterImageUrl: "/api/v0/events/event123/artwork/artwork123",
       eventStatus: "scheduled",
       publicationState: "published",
       updatedAt: now,
@@ -237,6 +238,7 @@ describe("public world event context", () => {
     );
     assert.equal("url" in context.recent[0]!.source, false);
     assert.equal(context.upcoming[0]?.worldAssociation.confirmationState, "confirmed");
+    assert.equal(context.upcoming[0]?.posterImageUrl, "/api/v0/events/event123/artwork/artwork123");
   });
 
   it("deduplicates duplicate confirmed associations for the same world event preview", () => {

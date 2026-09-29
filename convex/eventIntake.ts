@@ -8,6 +8,7 @@ import { classifyEventIntakeForPublication, getActorIntakeDraft, publishIntakeDr
 const saveArgs = { draftId: v.optional(v.id("eventIntakeDrafts")), expectedVersion: v.optional(v.number()), patch: v.any() };
 const publishArgs = { draftId: v.id("eventIntakeDrafts"), expectedVersion: v.number(), idempotencyKey: v.string() };
 const actorArg = { actorUserId: v.id("users") };
+const actorSurfaceArg = { actorSurface: v.optional(v.union(v.literal("browser"), v.literal("api"), v.literal("mcp"))) };
 const saved = v.object({ draftId: v.id("eventIntakeDrafts"), version: v.number() });
 const published = v.object({ eventId: v.id("events"), eventPath: v.string(), receiptId: v.id("eventContributionReceipts") });
 
@@ -17,12 +18,12 @@ export const currentIntakeActor = internalQuery({ args: {}, returns: v.id("users
 export const saveActorDraft = internalMutation({ args: { ...actorArg, ...saveArgs }, returns: saved, handler: (ctx, args) => saveIntakeDraft(ctx.db, args.actorUserId, args) });
 export const getActorDraft = internalQuery({ args: { ...actorArg, draftId: v.id("eventIntakeDrafts") }, returns: v.any(), handler: (ctx, args) => getActorIntakeDraft(ctx.db, args.actorUserId, args.draftId) });
 const classificationValidator = v.object({ draftId: v.string(), draftVersion: v.number(), decision: v.union(v.literal("disabled"), v.literal("allow"), v.literal("block")), reviewReason: v.optional(v.union(v.literal("classifier_outage"), v.literal("classifier_sample"))) });
-export const commitPublishIntake = internalMutation({ args: { ...actorArg, ...publishArgs, classification: v.optional(classificationValidator) }, returns: published, handler: async (ctx, { actorUserId, classification, ...args }) => {
+export const commitPublishIntake = internalMutation({ args: { ...actorArg, ...actorSurfaceArg, ...publishArgs, classification: v.optional(classificationValidator) }, returns: published, handler: async (ctx, { actorUserId, actorSurface, classification, ...args }) => {
   if (classification && (classification.draftId !== args.draftId || classification.draftVersion !== args.expectedVersion)) throw new Error("CLASSIFICATION_VERSION_CONFLICT");
   if (classification?.decision === "block") throw new Error("CONTENT_BLOCKED");
   const replay = await replayIntakePublication(ctx.db, actorUserId, args);
   if (replay) return replay;
-  const result = await publishIntakeDraft(ctx.db, actorUserId, args);
+  const result = await publishIntakeDraft(ctx.db, actorUserId, args, Date.now(), actorSurface);
   if (classification?.reviewReason) {
     const event = await ctx.db.get(result.eventId);
     await ctx.db.insert("eventReports", { eventId: result.eventId, communityProfileId: event?.communityProfileId, actorUserId, reason: classification.reviewReason, kind: classification.reviewReason, createdAt: Date.now() });
@@ -40,23 +41,24 @@ export const reserveClassification = internalMutation({ args: { ...actorArg, dra
   return true;
 } });
 export const publishActorIntake = internalAction({
-  args: { ...actorArg, ...publishArgs }, returns: published,
+  args: { ...actorArg, ...actorSurfaceArg, ...publishArgs }, returns: published,
   handler: async (ctx, args): Promise<PublishIntakeResult> => {
-    const replay = await ctx.runQuery(internal.eventIntake.getPublishReplay, args);
+    const { actorSurface, ...publishArgs } = args;
+    const replay = await ctx.runQuery(internal.eventIntake.getPublishReplay, publishArgs);
     if (replay) return replay;
     const draft = await ctx.runQuery(internal.eventIntake.getActorDraft, { actorUserId: args.actorUserId, draftId: args.draftId });
     if (draft.version !== args.expectedVersion) throw new Error("VERSION_CONFLICT");
     const spends = !draft.publishedReceiptId && ["shadow", "block_high_confidence"].includes(process.env.VRDEX_EVENT_SPAM_MODE ?? "off") && Boolean(process.env.OPENAI_API_KEY);
     const permitted = !spends || await ctx.runMutation(internal.eventIntake.reserveClassification, { actorUserId: args.actorUserId, draftId: args.draftId, expectedVersion: args.expectedVersion });
     const classification = draft.publishedReceiptId ? undefined : await classifyEventIntakeForPublication(draft, permitted ? {} : { apiKey: "" });
-    return ctx.runMutation(internal.eventIntake.commitPublishIntake, { ...args, ...(classification ? { classification } : {}) });
+    return ctx.runMutation(internal.eventIntake.commitPublishIntake, { ...publishArgs, actorSurface, ...(classification ? { classification } : {}) });
   },
 });
 export const publishEventIntake = action({
   args: publishArgs, returns: published,
   handler: async (ctx, args): Promise<PublishIntakeResult> => {
     const actorUserId = await ctx.runQuery(internal.eventIntake.currentIntakeActor, {});
-    return ctx.runAction(internal.eventIntake.publishActorIntake, { ...args, actorUserId });
+    return ctx.runAction(internal.eventIntake.publishActorIntake, { ...args, actorUserId, actorSurface: "browser" });
   },
 });
 export const expireDrafts = internalMutation({ args: {}, returns: v.number(), handler: async ctx => {

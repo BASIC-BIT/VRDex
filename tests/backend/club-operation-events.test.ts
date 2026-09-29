@@ -305,18 +305,33 @@ it("a deleted event cancels remaining work through the same hook", async () => {
 
 it("a date-only event cancels pending relative work without changing submitted work", async () => {
   const s = await jobs(3);
-  await s.t.run(async (ctx) => {
-    await ctx.db.patch(s.eventId, {
+  const previousFlag = process.env.EVENT_DATE_ONLY_ENABLED;
+  process.env.EVENT_DATE_ONLY_ENABLED = "true";
+  try {
+    await s.owner.mutation(ref("updateCommunityEvent"), {
+      currentSlug: s.slug,
+      title: "Scheduled event",
+      communitySlug: "connection-club",
       scheduleKind: "date_only",
       eventDate: "2026-10-01",
-      startAt: undefined,
     });
-    await syncClubEventOperations(ctx, s.eventId);
-  });
+  } finally {
+    if (previousFlag === undefined) delete process.env.EVENT_DATE_ONLY_ENABLED;
+    else process.env.EVENT_DATE_ONLY_ENABLED = previousFlag;
+  }
+  await drain(s.t);
   const rows = await s.t.run((ctx) => ctx.db.query("clubOperations").take(10));
   assert.equal(rows.filter((row) => row.code === "event_time_tba" && row.state === "cancelled").length, 2);
   assert.equal(rows.filter((row) => row.state === "submitted").length, 1);
   assert.equal(rows.some((row) => Number.isNaN(row.dueAt)), false);
+  await s.owner.mutation(ref("updateCommunityEvent"), {
+    currentSlug: s.slug,
+    title: "Scheduled event",
+    communitySlug: "connection-club",
+    startAt: Date.now() + 3_600_000,
+  });
+  const restored = await s.t.run((ctx) => ctx.db.query("clubOperations").take(10));
+  assert.equal(restored.filter((row) => row.code === "event_time_tba" && row.state === "cancelled").length, 2);
 });
 
 it("independent deadline pages cover legacy rows beyond future work and cancel current events", async () => {

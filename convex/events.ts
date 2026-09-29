@@ -542,6 +542,7 @@ export async function replaceEventWorldLink(
   options: {
     preserveNonPublic?: boolean;
     preserveAssociationIds?: Id<"eventWorlds">[];
+    confirmationState?: "confirmed" | "unconfirmed";
   } = {},
 ) {
   const existing = await db
@@ -593,8 +594,8 @@ export async function replaceEventWorldLink(
     eventStatus: event.eventStatus,
     sourceType: event.sourceType,
     confidence: 1,
-    confirmationState: "confirmed",
-    confirmedAt: now,
+    confirmationState: options.confirmationState ?? "confirmed",
+    ...(options.confirmationState === "unconfirmed" ? {} : { confirmedAt: now }),
     updatedAt: now,
   });
 }
@@ -901,13 +902,14 @@ export async function eventParticipantRoleLabels(db: DatabaseReader, eventId: Id
   return participants.map((participant) => participant.roleLabel);
 }
 
-export async function linkedPublishedEventWorld(db: DatabaseReader, eventId: Id<"events">) {
-  const association = await db
+export async function linkedPublishedEventWorld(db: DatabaseReader, eventId: Id<"events">, includeUnconfirmed = false) {
+  const associations = await db
     .query("eventWorlds")
     .withIndex("by_eventId", (query) => query.eq("eventId", eventId))
-    .filter((query) => query.eq(query.field("confirmationState"), "confirmed"))
-    .first();
-  const world = association === null ? null : await db.get(association.worldId);
+    .take(20);
+  const association = associations.find(row => row.confirmationState === "confirmed")
+    ?? (includeUnconfirmed ? associations.find(row => row.confirmationState === "unconfirmed") : undefined);
+  const world = association === undefined ? null : await db.get(association.worldId);
 
   return world?.publicationState === "published" ? world : undefined;
 }
@@ -1765,10 +1767,10 @@ async function settleEventMediaSessionCommands(
   );
 }
 
-async function settleEventMediaForCancellation(
+export async function settleEventMediaForCancellation(
   db: DatabaseWriter,
   event: Doc<"events">,
-  actor: AuthSubject,
+  actor: AuthSubject | undefined,
   now: number,
 ) {
   const program = await getLatestEventMediaProgram(db, event._id);
@@ -1834,6 +1836,7 @@ async function settleEventMediaForCancellation(
       eventId: event._id,
       sessionId: session._id,
       actor,
+      actorSurface: actor ? "web" : "system",
       action: "worker_schedule_cancelled_with_event",
       publicSummary: "Event media worker schedule cancelled with the event.",
       createdAt: now,
@@ -1866,6 +1869,7 @@ async function settleEventMediaForCancellation(
       sessionId: session._id,
       outputId: session.outputId,
       actor,
+      actorSurface: actor ? "web" : "system",
       idempotencyKey: `cancel-stop:${session._id}:${now}`,
       note: "Stop the event media worker because the event was cancelled.",
       now,
@@ -1876,6 +1880,7 @@ async function settleEventMediaForCancellation(
       sessionId: session._id,
       commandId,
       actor,
+      actorSurface: actor ? "web" : "system",
       action: "worker_stop_requested_for_cancelled_event",
       publicSummary: "Event media worker stop requested with event cancellation.",
       createdAt: now,

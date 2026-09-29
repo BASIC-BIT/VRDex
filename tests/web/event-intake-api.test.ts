@@ -75,6 +75,7 @@ it("shares actor-bound drafts, receipts and correction authority across website 
     const args={draftId:saved.draftId,expectedVersion:1,idempotencyKey:"once"};
     const first=(await call("vrdex_event_intake_publish",args)).structuredContent;
     assert.ok(first?.receiptId);assert.deepEqual(await commands("publish",args),first);
+    assert.deepEqual((await t.run(ctx=>ctx.db.query("eventAuditEvents").collect())).map(row=>[row.action,row.actorSurface]),[["created","mcp"]]);
     assert.deepEqual((await call("vrdex_event_intake_publish",args)).structuredContent,first);
     const read=await commands("draft_get",{draftId:saved.draftId});assert.equal(read.publishedReceiptId,first.receiptId);
     assert.equal((await t.run(ctx=>ctx.db.query("events").collect())).length,1);
@@ -132,5 +133,6 @@ it("retains bounded duplicate choices and distinguishes a lost response from inv
     const duplicate=eventIntakeErrorResponse(new ConvexError({code:"NEAR_DUPLICATE",choices:[{eventId:"event",title:"Existing night",eventPath:"/events/night"}]}));
     assert.equal(duplicate.status,409);assert.match((await duplicate.json()).detail,/Existing night/);
     const lost=eventIntakeErrorResponse(new Error("secret transport exception"));assert.equal(lost.status,503);assert.doesNotMatch(await lost.text(),/secret/);
+    assert.equal(eventIntakeErrorResponse(new ConvexError({code:"DUPLICATE_EVENT",eventId:"event"})).status,409);
   `);
 });

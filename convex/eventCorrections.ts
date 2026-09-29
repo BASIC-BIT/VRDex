@@ -1,6 +1,6 @@
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { internalMutation, internalQuery, mutation, query, type DatabaseReader, type DatabaseWriter } from "./_generated/server";
+import { internalMutation, internalQuery, mutation, query, type DatabaseReader, type DatabaseWriter, type MutationCtx } from "./_generated/server";
 import { activeBrowserSessionSubjectOrNull, requireActiveBrowserSessionSubject } from "./_browserSessionAuthority";
 import { currentUserOrNull, requireUser } from "./_identity";
 import type { AuthSubject } from "./_communityAuthority";
@@ -11,9 +11,10 @@ import { eventDateForInstant, requireDateOnlyEventsEnabled } from "./_eventSched
 import { resolveEventLocalTime, type EventIntakePatch, type EventIntakeLocalTime } from "../packages/api-contracts/src/event-intake";
 import { replaceEventLineup } from "./_eventLineup";
 import { contributorStaffLock } from "./_eventContributorLock";
+import { syncClubEventOperations } from "./_clubOperationEvents";
 import { reindexEventSearchDocument } from "./_searchDocuments";
 import { canReadProfile } from "./_profilePermissions";
-import { canUpdateEvent, eventParticipantRoleLabels, linkedPublishedEventWorld, managedCommunitiesForBrowser, recordEventAuditEvent, replaceEventWorldLink, syncPreservedEventAssociations } from "./events";
+import { canUpdateEvent, eventParticipantRoleLabels, linkedPublishedEventWorld, managedCommunitiesForBrowser, recordEventAuditEvent, replaceEventWorldLink, settleEventMediaForCancellation, syncPreservedEventAssociations } from "./events";
 
 export const REMOVED_EVENT_SUPPRESSION_MS = 30 * 86_400_000;
 const patchKeys = new Set(["title", "eventDate", "timeTba", "timezone", "start", "end", "doors", "venueLabel", "worldSlug", "sourceUrl", "summary", "lineup"]);
@@ -41,7 +42,7 @@ async function correctionFields(db: DatabaseReader, event: Doc<"events">): Promi
     return value;
   };
   const [world, slots, untimed] = await Promise.all([
-    linkedPublishedEventWorld(db, event._id),
+    linkedPublishedEventWorld(db, event._id, true),
     db.query("eventSlots").withIndex("by_eventId", q => q.eq("eventId", event._id)).take(81),
     db.query("eventLineupEntries").withIndex("by_eventId_position", q => q.eq("eventId", event._id)).take(81),
   ]);
@@ -50,7 +51,7 @@ async function correctionFields(db: DatabaseReader, event: Doc<"events">): Promi
     const person = row.personProfileId ? await db.get(row.personProfileId) : null;
     return { clientKey: row.clientKey ?? row._id, position: row.position ?? position,
       performerLabel: "performerLabel" in row ? row.performerLabel : row.displayLabel ?? person?.displayName ?? "",
-      personSlug: person?.slug, roleLabel: row.roleLabel,
+      personSlug: person && canReadProfile("public", person) ? person.slug : undefined, roleLabel: row.roleLabel,
       ...("startAt" in row ? { start: local(row.startAt), end: local(row.endAt) } : {}),
     };
   }));
@@ -63,12 +64,13 @@ async function refreshProjections(db: DatabaseWriter, event: Doc<"events">, now:
   await syncPreservedEventAssociations(db, event, now, { preserveParticipants: true, preserveWorld: true, preserveSlots: true });
   const [community, world, roleLabels] = await Promise.all([
     event.communityProfileId ? db.get(event.communityProfileId) : undefined,
-    linkedPublishedEventWorld(db, event._id), eventParticipantRoleLabels(db, event._id),
+    linkedPublishedEventWorld(db, event._id, true), eventParticipantRoleLabels(db, event._id),
   ]);
   await reindexEventSearchDocument(db, event, { community: community ?? undefined, world, roleLabels }, now);
 }
 
-export async function updateActorContribution(db: DatabaseWriter, actorUserId: Id<"users">, args: { eventId: Id<"events">; expectedUpdatedAt: number; patch: unknown; duplicateAcknowledgements?: Id<"events">[] }, actor?: AuthSubject) {
+export async function updateActorContribution(ctx: MutationCtx, actorUserId: Id<"users">, args: { eventId: Id<"events">; expectedUpdatedAt: number; patch: unknown; duplicateAcknowledgements?: Id<"events">[] }, actor?: AuthSubject, actorSurface: "api" | "mcp" = "api") {
+  const db = ctx.db;
   const event = await ownEvent(db, actorUserId, args.eventId);
   if (event.updatedAt !== args.expectedUpdatedAt) throw new ConvexError({ code: "VERSION_CONFLICT" });
   if (event.publicationState !== "published" || event.eventStatus !== "scheduled") throw new ConvexError({ code: "CONTRIBUTOR_EDIT_CLOSED" });
@@ -88,33 +90,44 @@ export async function updateActorContribution(db: DatabaseWriter, actorUserId: I
     contributionFingerprint: checked.fingerprint, contributionVersion: (event.contributionVersion ?? 0) + 1, updatedAt: now,
   });
   const updated = (await db.get(event._id))!;
-  await replaceEventLineup(db, updated, checked.lineup, now);
-  await replaceEventWorldLink(db, updated, checked.world, now);
+  const preserved = patch.lineup === undefined ? await Promise.all([
+    db.query("eventSlots").withIndex("by_eventId", q => q.eq("eventId", event._id)).collect(),
+    db.query("eventParticipants").withIndex("by_eventId", q => q.eq("eventId", event._id)).collect(),
+  ]) : null;
+  await replaceEventLineup(db, updated, checked.lineup, now, preserved ? {
+    preserveSlotAssociationIds: preserved[0].map(row => row._id),
+    preserveParticipantAssociationIds: preserved[1].map(row => row._id),
+  } : {});
+  if (updated.startAt !== event.startAt) await syncClubEventOperations(ctx, event._id);
+  if (patch.worldSlug !== undefined) await replaceEventWorldLink(db, updated, checked.world, now, { confirmationState: "unconfirmed" });
   await refreshProjections(db, updated, now);
-  await recordEventAuditEvent(db, { eventId: event._id, actorUserId, actor, actorSurface: actor ? "browser" : "api", action: "updated", changedFields: Object.keys(patch), now });
+  await recordEventAuditEvent(db, { eventId: event._id, actorUserId, actor, actorSurface: actor ? "browser" : actorSurface, action: "updated", changedFields: Object.keys(patch), now });
   return { eventId: event._id, updatedAt: now, contributionVersion: updated.contributionVersion };
 }
 
-export async function retractActorContribution(db: DatabaseWriter, actorUserId: Id<"users">, eventId: Id<"events">, actor?: AuthSubject) {
+export async function retractActorContribution(ctx: MutationCtx, actorUserId: Id<"users">, eventId: Id<"events">, actor?: AuthSubject, actorSurface: "api" | "mcp" = "api") {
+  const db = ctx.db;
   const event = await ownEvent(db, actorUserId, eventId);
   if (event.publicationState !== "published") return { eventId, changed: false };
   const now = Math.max(Date.now(), event.updatedAt + 1);
   await db.patch(eventId, { publicationState: "draft_private", updatedAt: now, contributionVersion: (event.contributionVersion ?? 0) + 1 });
+  await syncClubEventOperations(ctx, eventId, true);
+  await settleEventMediaForCancellation(db, event, actor, now);
   await refreshProjections(db, (await db.get(eventId))!, now);
-  await recordEventAuditEvent(db, { eventId, actorUserId, actor, actorSurface: actor ? "browser" : "api", action: "retracted", changedFields: ["publicationState"], now });
+  await recordEventAuditEvent(db, { eventId, actorUserId, actor, actorSurface: actor ? "browser" : actorSurface, action: "retracted", changedFields: ["publicationState"], now });
   return { eventId, changed: true };
 }
 
 export const updateOwnContributedEvent = mutation({ args: updateArgs, handler: async (ctx, args) => {
   const { userId, subject } = await requireActiveBrowserSessionSubject(ctx);
-  return updateActorContribution(ctx.db, userId, args, subject);
+  return updateActorContribution(ctx, userId, args, subject);
 } });
 export const retractOwnContributedEvent = mutation({ args: { eventId: v.id("events") }, handler: async (ctx, args) => {
   const { userId, subject } = await requireActiveBrowserSessionSubject(ctx);
-  return retractActorContribution(ctx.db, userId, args.eventId, subject);
+  return retractActorContribution(ctx, userId, args.eventId, subject);
 } });
-export const updateActorContributedEvent = internalMutation({ args: { ...updateArgs, actorUserId: v.id("users") }, handler: (ctx, args) => updateActorContribution(ctx.db, args.actorUserId, args) });
-export const retractActorContributedEvent = internalMutation({ args: { eventId: v.id("events"), actorUserId: v.id("users") }, handler: (ctx, args) => retractActorContribution(ctx.db, args.actorUserId, args.eventId) });
+export const updateActorContributedEvent = internalMutation({ args: { ...updateArgs, actorUserId: v.id("users"), actorSurface: v.optional(v.union(v.literal("api"), v.literal("mcp"))) }, handler: (ctx, args) => updateActorContribution(ctx, args.actorUserId, args, undefined, args.actorSurface) });
+export const retractActorContributedEvent = internalMutation({ args: { eventId: v.id("events"), actorUserId: v.id("users"), actorSurface: v.optional(v.union(v.literal("api"), v.literal("mcp"))) }, handler: (ctx, args) => retractActorContribution(ctx, args.actorUserId, args.eventId, undefined, args.actorSurface) });
 
 async function ownCorrectionView(db: DatabaseReader, actorUserId: Id<"users">, eventId: Id<"events">) {
   const event = await ownEvent(db, actorUserId, eventId);
@@ -172,6 +185,8 @@ export const removeContributedEvent = mutation({ args: { eventId: v.id("events")
   if (event.moderationRemovedAt !== undefined) return { eventId: event._id, changed: false };
   const now = Math.max(Date.now(), event.updatedAt + 1);
   await ctx.db.patch(event._id, { publicationState: "draft_private", moderationRemovedAt: now, ...contributorStaffLock(event, now) });
+  await syncClubEventOperations(ctx, event._id, true);
+  await settleEventMediaForCancellation(ctx.db, event, subject, now);
   const fingerprint = eventContributionFingerprint(event.communityProfileId, event.eventDate ?? eventDateForInstant(event.startAt!, event.timezone), event.title);
   await ctx.db.insert("eventContributionSuppressions", { fingerprint, eventId: event._id, createdAt: now, expiresAt: now + REMOVED_EVENT_SUPPRESSION_MS });
   await refreshProjections(ctx.db, (await ctx.db.get(event._id))!, now);
@@ -190,9 +205,9 @@ export const reportEvent = mutation({ args: { eventId: v.id("events"), reason: v
   // Anonymous callers cannot supply a reliable identity. Global and event caps
   // bound writes even if callers rotate credentials or provide forged client IDs.
   const [global, target, actor] = await Promise.all([
-    ctx.db.query("eventReports").withIndex("by_createdAt", q => q.gte("createdAt", now - 3_600_000)).take(500),
-    ctx.db.query("eventReports").withIndex("by_event_createdAt", q => q.eq("eventId", event._id).gte("createdAt", now - 86_400_000)).take(20),
-    user ? ctx.db.query("eventReports").withIndex("by_actor_createdAt", q => q.eq("actorUserId", user._id).gte("createdAt", now - 86_400_000)).take(10) : Promise.resolve([]),
+    ctx.db.query("eventReports").withIndex("by_kind_createdAt", q => q.eq("kind", "report").gte("createdAt", now - 3_600_000)).take(500),
+    ctx.db.query("eventReports").withIndex("by_kind_event_createdAt", q => q.eq("kind", "report").eq("eventId", event._id).gte("createdAt", now - 86_400_000)).take(20),
+    user ? ctx.db.query("eventReports").withIndex("by_kind_actor_createdAt", q => q.eq("kind", "report").eq("actorUserId", user._id).gte("createdAt", now - 86_400_000)).take(10) : Promise.resolve([]),
   ]);
   if (global.length >= 500 || target.length >= 20 || actor.length >= 10) throw new ConvexError({ code: "REPORT_QUOTA" });
   await ctx.db.insert("eventReports", { eventId: event._id, communityProfileId: community._id, actorUserId: user?._id, kind: "report", reason, createdAt: now });

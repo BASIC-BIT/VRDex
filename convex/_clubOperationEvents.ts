@@ -48,6 +48,7 @@ export async function syncClubEventOperationPage(
     }
     if (job.schedule.kind !== "event_relative") continue;
     if (event.startAt === undefined || event.scheduleKind === "date_only") {
+      // Restoring a time requires a new reviewed action; never replay a cancelled provider write.
       await ctx.db.patch(job._id, {
         state: "cancelled",
         claim: undefined,

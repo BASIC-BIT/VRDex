@@ -2040,7 +2040,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       if (!principal) return { isError: true, content: [{ type: "text" as const, text: "User-scoped event contribution access required." }] };
       try {
         const client = adminConvex();
-        const execute = createEventIntakeCommands({ actorUserId: principal.userId, admin: {
+        const execute = createEventIntakeCommands({ actorUserId: principal.userId, actorSurface: "mcp", admin: {
           query: client.query.bind(client), mutation: client.mutation.bind(client),
           get action() {
             const actionClient = client.action ? client : convexAdminHttpClient();

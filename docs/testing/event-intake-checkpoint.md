@@ -46,9 +46,9 @@ Commands run in the isolated worktree, without hosted credentials or paid calls:
 
 | Command | Result |
 | --- | --- |
-| `pnpm test:backend` | 1,200 passed, zero failed/skipped after merge |
+| `pnpm test:backend` | 1,206 passed, zero failed/skipped after review fixes |
 | `pnpm test:web` | 601 passed, zero failed/skipped after merge |
-| `pnpm test:api-contracts` | 56 passed, zero failed/skipped |
+| `pnpm test:api-contracts` | 57 passed, zero failed/skipped after merge |
 | `pnpm test:vrdex-mcp` | 10 passed, including local stdio and fake-transport upload |
 | `pnpm typecheck:backend` | Passed |
 | `pnpm typecheck:web` | Passed |
@@ -216,6 +216,19 @@ integration tests passed, as did the merged backend (1,200), web (601) and
 group-telemetry worker (162) suites, backend/web/API/MCP typechecks, web and
 Markdown lint, the OpenAPI contract check, and the docs build. The merged
 club scheduling paths have not been exercised against a hosted deployment.
+
+PR review corrections also settle queued event media on contributor retraction
+and moderator removal, preserve existing private performer associations on
+unrelated corrections, and synchronize club actions when contributors change
+an event time. Selected public artwork now reaches the generated event preview.
+Contributor world links appear on the event as unconfirmed and do not promote
+the event on the world page until staff confirm the association. Publish,
+correction and retraction audit entries retain the actual browser, API or
+hosted MCP surface. Exact replay uses the community's current route.
+Time TBA cancellation remains terminal: restoring a time requires a new
+reviewed club action rather than silently reviving a provider write. Focused
+tests failed before the private-performer and artwork fixes, then passed. The
+full backend and web suites and both typechecks passed after these changes.
 
 ## Release and operator gates
 

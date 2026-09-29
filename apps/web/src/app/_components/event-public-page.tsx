@@ -129,7 +129,7 @@ export type PublicEvent = Omit<PublicEventPreview, "worlds"> & {
     heroImageUrl?: string;
     association: {
       sourceType: EventSourceType;
-      confirmationState: "confirmed";
+      confirmationState: "confirmed" | "unconfirmed";
       confirmedAt?: number;
     };
   }>;

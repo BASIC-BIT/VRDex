@@ -64,7 +64,7 @@ Private source-file retention is a separate source-service responsibility.
 
 Publication requires a public community, an identifying title, a valid event
 date, and either a start time or explicit `timeTba: true`. A source URL is optional.
-Confirmed `worldSlug` and `lineup[].personSlug` matches are rechecked at publication.
+Public `worldSlug` and `lineup[].personSlug` matches are rechecked at publication.
 Unmatched lineup names are preserved. An incomplete lineup row remains valid in
 a draft but needs a performer label before publication.
 
@@ -108,6 +108,8 @@ an operator flag. See [source/model controls](./event-intake-sources.md). The in
 It atomically writes the canonical event, short link, lineup, world association,
 search document, receipt, and actor-bound request binding. Concurrent duplicate
 attempts converge on one canonical event and receipt.
+Creating a new canonical event also records its actor and transport surface in
+`eventAuditEvents`. Replaying a receipt returns the event's current route.
 
 ## Attribution and correction integration
 
@@ -115,8 +117,10 @@ Published records have `sourceType: "contributor"` and source label
 `Community-submitted`. Public projections omit contributor identity, private
 source text, poster references and draft provenance. Private source posters
 never become event artwork implicitly. Participants and worlds retain the
-contributor source type. The existing association `confirmed` state means the
-association is published, not that a community owner endorsed it.
+contributor source type. Contributor-selected world associations start
+`unconfirmed`: they appear on the event page but not as confirmed world-page
+activity until staff confirm them. Contributor corrections to that world also
+start unconfirmed. An unchanged world association retains its existing state.
 
 Canonical contribution metadata is `contributorUserId`, `contributionVersion`,
 `contributionFingerprint`, optional `contributorEditsClosedAt`, and

@@ -7,8 +7,8 @@ import { requireDateOnlyEventsEnabled } from "./_eventSchedule";
 import { replaceEventLineup } from "./_eventLineup";
 import { reindexEventSearchDocument } from "./_searchDocuments";
 import { ensureShortLinkForTarget } from "./_shortLinks";
-import { eventPathForSlugs } from "./_eventPaths";
-import { eventParticipantRoleLabels, linkedPublishedEventWorld, replaceEventWorldLink } from "./events";
+import { eventPathForRecord, eventPathForSlugs } from "./_eventPaths";
+import { eventParticipantRoleLabels, linkedPublishedEventWorld, recordEventAuditEvent, replaceEventWorldLink } from "./events";
 
 export const EVENT_INTAKE_DRAFT_LIMIT = 20;
 export const EVENT_INTAKE_DRAFT_TTL_MS = 30 * 86_400_000;
@@ -70,7 +70,11 @@ export async function saveIntakeDraft(db: DatabaseWriter, actorUserId: Id<"users
 
 export type PublishIntakeArgs = { draftId: Id<"eventIntakeDrafts">; expectedVersion: number; idempotencyKey: string };
 export type PublishIntakeResult = { eventId: Id<"events">; receiptId: Id<"eventContributionReceipts">; eventPath: string };
-const receiptResult = (receipt: Doc<"eventContributionReceipts">): PublishIntakeResult => ({ eventId: receipt.eventId, receiptId: receipt._id, eventPath: receipt.eventPath });
+const receiptResult = async (db: DatabaseReader, receipt: Doc<"eventContributionReceipts">): Promise<PublishIntakeResult> => {
+  const event = await db.get(receipt.eventId);
+  return { eventId: receipt.eventId, receiptId: receipt._id,
+    eventPath: event?.slug ? await eventPathForRecord(db, event) : receipt.eventPath };
+};
 
 export async function replayIntakePublication(db: DatabaseReader, actorUserId: Id<"users">, args: PublishIntakeArgs): Promise<PublishIntakeResult | null> {
   PublishEventIntakeSchema.parse(args);
@@ -78,12 +82,12 @@ export async function replayIntakePublication(db: DatabaseReader, actorUserId: I
   const prior = await db.query("eventIntakePublishRequests").withIndex("by_actor_key", q => q.eq("actorUserId", actorUserId).eq("idempotencyKey", args.idempotencyKey)).unique();
   if (!prior) return null;
   if (prior.draftId !== args.draftId || prior.draftVersion !== args.expectedVersion) throw new ConvexError({ code: "IDEMPOTENCY_CONFLICT" });
-  return receiptResult((await db.get(prior.receiptId))!);
+  return receiptResult(db, (await db.get(prior.receiptId))!);
 }
 
 export { classifyEventIntakeForPublication } from "../apps/web/src/lib/server/event-intake-spam";
 
-export async function publishIntakeDraft(db: DatabaseWriter, actorUserId: Id<"users">, args: PublishIntakeArgs, now = Date.now()): Promise<PublishIntakeResult> {
+export async function publishIntakeDraft(db: DatabaseWriter, actorUserId: Id<"users">, args: PublishIntakeArgs, now = Date.now(), actorSurface: "browser" | "api" | "mcp" = "api"): Promise<PublishIntakeResult> {
   const prior = await replayIntakePublication(db, actorUserId, args);
   if (prior) return prior;
   const recentRequests = await db.query("eventIntakePublishRequests").withIndex("by_actor_createdAt", q => q.eq("actorUserId", actorUserId).gte("createdAt", now - 86_400_000)).take(100);
@@ -111,8 +115,10 @@ export async function publishIntakeDraft(db: DatabaseWriter, actorUserId: Id<"us
       await db.patch(eventId, { slug: link.code });
       event = (await db.get(eventId))!;
       await replaceEventLineup(db, event, checked.lineup, now);
-      await replaceEventWorldLink(db, event, checked.world, now);
+      await replaceEventWorldLink(db, event, checked.world, now, { confirmationState: "unconfirmed" });
       await reindexEventSearchDocument(db, event, { community, world: checked.world, roleLabels: checked.lineup.flatMap(entry => entry.roleLabel ? [entry.roleLabel] : []) }, now);
+      await recordEventAuditEvent(db, { eventId, actorUserId, actorSurface, action: "created",
+        changedFields: ["event", "lineup", "world"], now });
     } else if (event.slug === undefined) {
       // Legacy matches may predate canonical routes. Repair the existing row,
       // retaining its content and associations rather than applying the draft.
@@ -146,5 +152,5 @@ export async function publishIntakeDraft(db: DatabaseWriter, actorUserId: Id<"us
     await db.patch(draft._id, { publishedReceiptId: receipt._id });
   }
   await db.insert("eventIntakePublishRequests", { actorUserId, draftId: draft._id, draftVersion: draft.version, idempotencyKey: args.idempotencyKey, receiptId: receipt._id, createdAt: now });
-  return receiptResult(receipt);
+  return receiptResult(db, receipt);
 }

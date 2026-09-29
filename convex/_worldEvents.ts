@@ -1,7 +1,7 @@
 import { dateOnlyEventsEnabled, eventSortAt, eventSortEndAt, publicEventSchedule, type StoredEventSchedule } from "./_eventSchedule";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
-import { firstSafeHttpsUrl, optionalField, safeHttpsUrl } from "./_publicFields";
+import { firstSafePublicImageUrl, optionalField, safeHttpsUrl, safePublicImageUrl } from "./_publicFields";
 import { canReadProfile } from "./_profilePermissions";
 import { safePublicLinkUrl } from "./_vrcdnLinks";
 
@@ -200,9 +200,9 @@ function toPublicWorldEventPreview(
   }
 
   const sourceUrl = safeHttpsUrl(event.sourceUrl);
-  const posterImageUrl = safeHttpsUrl(event.posterImageUrl);
-  const bannerImageUrl = firstSafeHttpsUrl(event.bannerImageUrl, event.posterImageUrl);
-  const thumbnailImageUrl = firstSafeHttpsUrl(event.thumbnailImageUrl, event.posterImageUrl, event.bannerImageUrl);
+  const posterImageUrl = safePublicImageUrl(event.posterImageUrl);
+  const bannerImageUrl = firstSafePublicImageUrl(event.bannerImageUrl, event.posterImageUrl);
+  const thumbnailImageUrl = firstSafePublicImageUrl(event.thumbnailImageUrl, event.posterImageUrl, event.bannerImageUrl);
 
   return {
     ...optionalField("slug", event.slug),

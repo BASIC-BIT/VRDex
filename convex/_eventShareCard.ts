@@ -1,6 +1,6 @@
 import { publicEventSchedule } from "./_eventSchedule";
 import type { Doc } from "./_generated/dataModel";
-import { firstSafeHttpsUrl, optionalField } from "./_publicFields";
+import { firstSafePublicImageUrl, optionalField } from "./_publicFields";
 
 export type PublicEventShareCard = {
   slug: string;
@@ -37,7 +37,7 @@ export function toPublicEventShareCard(
     return null;
   }
 
-  const artworkImageUrl = firstSafeHttpsUrl(
+  const artworkImageUrl = firstSafePublicImageUrl(
     event.posterImageUrl,
     event.bannerImageUrl,
     event.thumbnailImageUrl,

@@ -1162,7 +1162,10 @@ export default defineSchema({
     kind: v.union(v.literal("report"), v.literal("classifier_outage"), v.literal("classifier_sample")), createdAt: v.number(),
   }).index("by_createdAt", ["createdAt"])
     .index("by_event_createdAt", ["eventId", "createdAt"])
-    .index("by_actor_createdAt", ["actorUserId", "createdAt"]),
+    .index("by_actor_createdAt", ["actorUserId", "createdAt"])
+    .index("by_kind_createdAt", ["kind", "createdAt"])
+    .index("by_kind_event_createdAt", ["kind", "eventId", "createdAt"])
+    .index("by_kind_actor_createdAt", ["kind", "actorUserId", "createdAt"]),
   eventContributionSuppressions: defineTable({
     fingerprint: v.string(), eventId: v.id("events"), createdAt: v.number(), expiresAt: v.number(),
   }).index("by_fingerprint_expiresAt", ["fingerprint", "expiresAt"])

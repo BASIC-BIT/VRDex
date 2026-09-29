@@ -134,7 +134,7 @@ export type PublicEvent = PublicEventPreview & {
     heroImageUrl?: string;
     association: {
       sourceType: PublicEventSourceType;
-      confirmationState: "confirmed";
+      confirmationState: "confirmed" | "unconfirmed";
       confirmedAt?: number;
     };
   }>;
@@ -426,8 +426,8 @@ export function toPublicEvent(record: PublicEventRecord): PublicEvent | null {
         tags: world.tags,
         association: {
           sourceType: association.sourceType,
-          confirmationState: "confirmed" as const,
-          ...optionalField("confirmedAt", association.confirmedAt),
+          confirmationState: association.confirmationState === "confirmed" ? "confirmed" as const : "unconfirmed" as const,
+          ...optionalField("confirmedAt", association.confirmationState === "confirmed" ? association.confirmedAt : undefined),
         },
         ...optionalField("summary", world.summary),
         ...optionalField("heroImageUrl", heroImageUrl),
@@ -514,11 +514,10 @@ async function getPublicEventWorldRecords(db: DatabaseReader, event: Doc<"events
   const associations = await db
     .query("eventWorlds")
     .withIndex("by_eventId", (query) => query.eq("eventId", event._id))
-    .filter((query) => query.eq(query.field("confirmationState"), "confirmed"))
     .take(EVENT_ASSOCIATION_LIMIT);
 
   const records = await Promise.all(
-    associations.map(async (association) => {
+    associations.filter(association => association.confirmationState !== "disputed").map(async (association) => {
       const world = await db.get(association.worldId);
 
       if (world === null || world.publicationState !== "published") {

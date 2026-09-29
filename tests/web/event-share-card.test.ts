@@ -77,6 +77,10 @@ describe("event share artwork source", () => {
       eventShareArtworkSource("https://media.example.test/event-poster.png", siteUrl)?.kind,
       "remote",
     );
+    assert.equal(
+      eventShareArtworkSource("/api/v0/events/event-id/artwork/artwork-id", siteUrl)?.kind,
+      "published",
+    );
   });
 
   it("rejects insecure and arbitrary same-origin paths", () => {
@@ -89,6 +93,8 @@ describe("event share artwork source", () => {
       null,
     );
     assert.equal(eventShareArtworkSource("/afterglow-social", siteUrl), null);
+    assert.equal(eventShareArtworkSource("//evil.example.test/api/v0/events/e/artwork/a", siteUrl), null);
+    assert.equal(eventShareArtworkSource("/api/v0/events/e/artwork/a?token=secret", siteUrl), null);
   });
 
   it("rejects generated event previews as direct or redirected artwork", () => {
