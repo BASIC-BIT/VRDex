@@ -100,6 +100,39 @@ function rollup(bucketStartAt: number, grain: "hour" | "day" | "event") {
 }
 
 describe("community telemetry review regressions", () => {
+  it("makes the primary group member poll due when legacy visibility enables public Group size", async () => {
+    const t = convexTest({ schema, modules });
+    const communityProfileId = await seedCommunity(t);
+    await registerAccount(t);
+    await t.withIdentity(identity).mutation(api.communityTelemetry.connectGroup, {
+      communitySlug: "faceless",
+      vrchatGroupId: "grp_00000000-0000-4000-8000-000000000001",
+      groupVisibility: "public",
+      joinPolicy: "free",
+    });
+    await grantVisibilityOwner(t);
+    const deferredAt = Date.now() + 60 * 60_000;
+    const primaryId = await t.run((ctx) => ctx.db.insert("profileExternalLinks", {
+      profileId: communityProfileId,
+      assetType: "vrchat_group",
+      assetExternalId: "grp_00000000-0000-4000-8000-000000000001",
+      linkRole: "primary",
+      state: "active",
+      nextMemberPollAt: deferredAt,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }));
+
+    await t.withIdentity(identity).mutation(api.communityTelemetry.setPublicMetric, {
+      communitySlug: "faceless", metric: "currentPopulation", enabled: true,
+    });
+    assert.equal((await t.run((ctx) => ctx.db.get(primaryId)))?.nextMemberPollAt, deferredAt);
+    await t.withIdentity(identity).mutation(api.communityTelemetry.setPublicMetric, {
+      communitySlug: "faceless", metric: "groupMemberCount", enabled: true,
+    });
+    assert.equal((await t.run((ctx) => ctx.db.get(primaryId)))?.nextMemberPollAt, undefined);
+  });
+
   it("projects only owner-public, bounded instance history through anonymous profile reads", async () => {
     const t = convexTest({ schema, modules });
     const communityProfileId = await seedCommunity(t);

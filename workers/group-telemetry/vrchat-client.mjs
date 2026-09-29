@@ -216,8 +216,12 @@ export class VrchatClient {
     if (groupCreatedAt !== undefined && (!Number.isSafeInteger(groupCreatedAt) || groupCreatedAt < 0 || groupCreatedAt > this.clock())) {
       groupCreatedAt = undefined;
     }
+    const returnedGroupId = requireExternalId(group.id, "grp_", "Group ID");
+    if (returnedGroupId !== groupId) {
+      throw new VrchatProviderError("Group response belongs to another group.", { category: "schema_drift" });
+    }
     const normalized = {
-      groupId: requireExternalId(group.id, "grp_", "Group ID"),
+      groupId: returnedGroupId,
       memberCount: nonNegativeInteger(group.memberCount, "Group member count"),
       ...(groupCreatedAt === undefined ? {} : { groupCreatedAt }),
       membershipStatus: typeof group.membershipStatus === "string" ? group.membershipStatus : "inactive",

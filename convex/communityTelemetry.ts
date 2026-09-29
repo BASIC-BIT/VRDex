@@ -667,6 +667,13 @@ export const setPublicMetric = mutation({
     const saved = await ctx.db.query("communityDataVisibility").withIndex("by_communityProfileId",q=>q.eq("communityProfileId",profile._id)).unique();
     if(saved) await ctx.db.patch(saved._id,{categories,updatedAt:now});
     else await ctx.db.insert("communityDataVisibility",{communityProfileId:profile._id,categories,updatedAt:now});
+    if (args.metric === "groupMemberCount" && args.enabled) {
+      const links = await ctx.db.query("profileExternalLinks")
+        .withIndex("by_profileId_assetType_state", q => q.eq("profileId", profile._id).eq("assetType", "vrchat_group").eq("state", "active"))
+        .take(100);
+      const primary = links.find(link => link.linkRole === "primary");
+      if (primary) await ctx.db.patch(primary._id, { nextMemberPollAt: undefined });
+    }
     await ctx.db.patch(integration._id, {
       publicMetrics: { ...integration.publicMetrics, [args.metric]: args.enabled },
       updatedAt: now,

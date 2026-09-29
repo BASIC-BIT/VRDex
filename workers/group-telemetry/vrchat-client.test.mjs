@@ -42,3 +42,11 @@ test("invalid optional group creation time does not discard a valid member count
     assert.equal(group.groupCreatedAt, undefined);
   }
 });
+
+test("group metadata rejects a different well-formed group ID", async () => {
+  const requestedGroupId = "grp_00000000-0000-4000-8000-000000000001";
+  const returnedGroupId = "grp_00000000-0000-4000-8000-000000000002";
+  await assert.rejects(client(JSON.stringify({
+    id: returnedGroupId, memberCount: 42, membershipStatus: "inactive",
+  })).getGroup(requestedGroupId), { category: "schema_drift" });
+});
