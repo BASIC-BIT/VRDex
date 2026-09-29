@@ -21,3 +21,40 @@ test("empty-success opt-in preserves JSON parsing and rejects malformed or overs
   await assert.rejects(client(" ".repeat(21)).request("/test", options), { category: "schema_drift" });
   await assert.rejects(client("", 403).request("/test", options), { status: 403 });
 });
+
+test("group metadata retains a validated creation timestamp without requiring membership", async () => {
+  const groupId = "grp_00000000-0000-4000-8000-000000000001";
+  const group = await client(JSON.stringify({
+    id: groupId, memberCount: 42, membershipStatus: "inactive", privacy: "default",
+    createdAt: "2022-01-02T03:04:05.000Z",
+  })).getGroup(groupId);
+  assert.equal(group.memberCount, 42);
+  assert.equal(group.groupCreatedAt, Date.parse("2022-01-02T03:04:05.000Z"));
+});
+
+test("invalid optional group creation time does not discard a valid member count", async () => {
+  const groupId = "grp_00000000-0000-4000-8000-000000000001";
+  for (const createdAt of ["not-a-date", "9999-01-01T00:00:00.000Z"]) {
+    const group = await client(JSON.stringify({
+      id: groupId, memberCount: 42, membershipStatus: "inactive", createdAt,
+    })).getGroup(groupId);
+    assert.equal(group.memberCount, 42);
+    assert.equal(group.groupCreatedAt, undefined);
+  }
+});
+
+test("group metadata rejects a different well-formed group ID", async () => {
+  const requestedGroupId = "grp_00000000-0000-4000-8000-000000000001";
+  const returnedGroupId = "grp_00000000-0000-4000-8000-000000000002";
+  await assert.rejects(client(JSON.stringify({
+    id: returnedGroupId, memberCount: 42, membershipStatus: "inactive",
+  })).getGroup(requestedGroupId), { category: "schema_drift" });
+});
+
+test("group metadata accepts a case-variant ID and preserves the requested ID", async () => {
+  const groupId = "grp_abcdefab-cdef-4abc-8def-abcdefabcdef";
+  const group = await client(JSON.stringify({
+    id: groupId.toUpperCase().replace("GRP_", "grp_"), memberCount: 42, membershipStatus: "inactive",
+  })).getGroup(groupId);
+  assert.equal(group.groupId, groupId);
+});

@@ -20,7 +20,7 @@ import {
   activeBrowserSessionOrNull,
   requireActiveBrowserSessionSubject,
 } from "./_browserSessionAuthority";
-import { getPublicCommunityTelemetry } from "./_communityTelemetryPublic";
+import { getPublicCommunityTelemetry, getPublicGroupMembership } from "./_communityTelemetryPublic";
 import {
   apiWriteAuditActorKindValidator,
   recordApiWriteAuditEvent,
@@ -507,6 +507,9 @@ export const getPublicBySlug = query({
     const telemetry = profile.profileType === "community" && args.includeTelemetry !== false
       ? await getPublicCommunityTelemetry(ctx.db, profile._id, now)
       : null;
+    const groupMembership = profile.profileType === "community" && args.includeTelemetry !== false
+      ? await getPublicGroupMembership(ctx.db, profile._id)
+      : null;
     const avatarIdentityVisible = isProfileFieldVisible(
       profile,
       "avatarImageUrl",
@@ -533,6 +536,7 @@ export const getPublicBySlug = query({
       }),
       ...eventContext,
       ...(telemetry ? { telemetry } : {}),
+      ...(groupMembership ? { groupMembership } : {}),
     };
   },
 });
@@ -936,6 +940,9 @@ export const previewProfileFromBrowser = query({
     const telemetry = profile.profileType === "community"
       ? await getPublicCommunityTelemetry(ctx.db, profile._id, now)
       : null;
+    const groupMembership = profile.profileType === "community"
+      ? await getPublicGroupMembership(ctx.db, profile._id)
+      : null;
     const baseProjected = toPublicProfile(draft);
     const projected = { ...baseProjected, outboundLinks: await projectProfileLinkDestinations(ctx.db, baseProjected.outboundLinks, profile._id) };
     const preference = await getProfileAssetDisplayPreference(ctx.db, profile._id);
@@ -964,6 +971,7 @@ export const previewProfileFromBrowser = query({
     return {
       ...projected,
       ...(telemetry ? { telemetry } : {}),
+      ...(groupMembership ? { groupMembership } : {}),
       appearance: toPublicProfileAppearance(preference),
       mediaKit,
       avatarImageUrl: (draft.profileType === "community" && isProfileFieldVisible(draft, "avatarImageUrl", "profile_page") ? mediaKit.primaryLogo?.imageUrl : undefined)

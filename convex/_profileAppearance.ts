@@ -23,6 +23,8 @@ export const DEFAULT_PROFILE_PUBLIC_SECTION_ORDER: ProfilePublicSectionKey[] = [
 
 export type PublicProfileAppearance = {
   sectionOrder: ProfilePublicSectionKey[];
+  showMemberCount: boolean;
+  showMemberHistory: boolean;
 };
 
 export function isProfilePublicSectionKey(value: unknown): value is ProfilePublicSectionKey {
@@ -54,10 +56,12 @@ export function normalizeProfilePublicSectionOrder(
 }
 
 export function toPublicProfileAppearance(
-  preference: Pick<Doc<"profileAssetDisplayPreferences">, "sectionOrder"> | null | undefined,
+  preference: Pick<Doc<"profileAssetDisplayPreferences">, "sectionOrder" | "showMemberCount" | "showMemberHistory"> | null | undefined,
 ): PublicProfileAppearance {
   return {
     sectionOrder: normalizeProfilePublicSectionOrder(preference?.sectionOrder),
+    showMemberCount: preference?.showMemberCount ?? true,
+    showMemberHistory: preference?.showMemberHistory ?? true,
   };
 }
 

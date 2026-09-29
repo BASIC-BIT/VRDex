@@ -13061,6 +13061,70 @@
               "description": "A public genre or taxonomy label."
             }
           },
+          "groupMembership": {
+            "type": "object",
+            "properties": {
+              "groupCreatedAt": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "latest": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "observedAt": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "value",
+                  "observedAt"
+                ],
+                "additionalProperties": false
+              },
+              "points": {
+                "maxItems": 500,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "observedAt": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "value": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "sampledBefore": {
+                      "type": "boolean",
+                      "const": true
+                    }
+                  },
+                  "required": [
+                    "observedAt",
+                    "value"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "latest",
+              "points"
+            ],
+            "additionalProperties": false,
+            "description": "Timestamped observed membership for the primary linked VRChat group."
+          },
           "hostedEvents": {
             "type": "array",
             "items": {}

@@ -9,6 +9,7 @@ import { MediaPreviewImage } from "./media-preview-image";
 import { ProfileAvatarImage } from "./profile-avatar-image";
 import { ProfileVrcdnStreams } from "./profile-vrcdn-streams";
 import { ProfilePrivateRecord } from "./profile-private-record";
+import { PublicGroupMembershipChart, type GroupMembership } from "./public-group-membership-chart";
 import { ViewerLocalEventDateTime } from "./viewer-local-event-times";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, Eyebrow, SectionHeading } from "@/components/ui/card";
@@ -118,6 +119,8 @@ type PublicProfileAvatarAppearance = AvatarAppearance;
 type ProfilePublicSectionKey = "about" | "events" | "links" | "media_kit" | "worlds" | "details";
 type PublicProfileAppearance = {
   sectionOrder: ProfilePublicSectionKey[];
+  showMemberCount?: boolean;
+  showMemberHistory?: boolean;
 };
 
 type PublicProfileBase = {
@@ -183,6 +186,7 @@ type PublicCommunityProfile = PublicProfileBase & {
     subtype?: string;
     categoryTags: string[];
   };
+  groupMembership?: GroupMembership;
   telemetry?: {
     freshness: "current" | "stale";
     observedAt?: number;
@@ -288,21 +292,27 @@ function formatByteSize(value: number): string {
   return `${Math.max(1, Math.round(value / 1024))} KB`;
 }
 
-function CommunityActivity({ telemetry }: { telemetry: NonNullable<PublicCommunityProfile["telemetry"]> }) {
-  const history = telemetry.populationHistory ?? [];
+function CommunityActivity({ profile }: { profile: PublicCommunityProfile }) {
+  const { telemetry, groupMembership } = profile;
+  const showCount = profile.appearance?.showMemberCount !== false;
+  const showHistory = profile.appearance?.showMemberHistory !== false;
+  const memberCount = showCount ? groupMembership?.latest ?? telemetry?.groupMemberCount : undefined;
+  const history = telemetry?.populationHistory ?? [];
   const historyMax = Math.max(1, ...history.map((point) => point.peakConcurrency));
-  const hasSummary = telemetry.currentPopulation || telemetry.groupMemberCount || telemetry.groupMemberGrowth;
+  const hasSummary = telemetry?.currentPopulation || memberCount || telemetry?.groupMemberGrowth;
+  if (!hasSummary && !(showHistory && groupMembership) && history.length === 0 && !telemetry?.instanceHistory?.length && !telemetry?.eventRecaps?.length) return null;
   return (
     <section className="border-t border-border py-8">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <SectionHeading>Activity</SectionHeading>
-        <p className="text-xs text-muted">{telemetry.freshness === "current" ? "Current" : "Stale"}</p>
+        {telemetry ? <p className="text-xs text-muted">{telemetry.freshness === "current" ? "Current" : "Stale"}</p> : null}
       </div>
       {hasSummary ? <div className="mt-5 grid gap-3 sm:grid-cols-3">
-        {telemetry.currentPopulation ? <Card padding="sm" surface="strong"><p className="text-sm text-muted">In group instances</p><p className="mt-2 text-3xl font-semibold">{telemetry.currentPopulation.value}</p><p className="mt-1 text-xs text-muted">{telemetry.currentPopulation.activeInstanceCount} active instances</p></Card> : null}
-        {telemetry.groupMemberCount ? <Card padding="sm" surface="strong"><p className="text-sm text-muted">Group members</p><p className="mt-2 text-3xl font-semibold">{telemetry.groupMemberCount.value.toLocaleString()}</p></Card> : null}
-        {telemetry.groupMemberGrowth ? <Card padding="sm" surface="strong"><p className="text-sm text-muted">Member growth</p><p className="mt-2 text-3xl font-semibold">{telemetry.groupMemberGrowth.value > 0 ? "+" : ""}{telemetry.groupMemberGrowth.value.toLocaleString()}</p></Card> : null}
+        {telemetry?.currentPopulation ? <Card padding="sm" surface="strong"><p className="text-sm text-muted">In group instances</p><p className="mt-2 text-3xl font-semibold">{telemetry.currentPopulation.value}</p><p className="mt-1 text-xs text-muted">{telemetry.currentPopulation.activeInstanceCount} active instances</p></Card> : null}
+        {memberCount ? <Card padding="sm" surface="strong"><p className="text-sm text-muted">Group members</p><p className="mt-2 text-3xl font-semibold">{memberCount.value.toLocaleString()}</p><time className="mt-1 block text-xs text-muted" dateTime={new Date(memberCount.observedAt).toISOString()}>{formatSubmittedDate(memberCount.observedAt)}</time></Card> : null}
+        {telemetry?.groupMemberGrowth ? <Card padding="sm" surface="strong"><p className="text-sm text-muted">Member growth</p><p className="mt-2 text-3xl font-semibold">{telemetry.groupMemberGrowth.value > 0 ? "+" : ""}{telemetry.groupMemberGrowth.value.toLocaleString()}</p></Card> : null}
       </div> : null}
+      {showHistory && groupMembership ? <div className="mt-6"><PublicGroupMembershipChart membership={groupMembership} /></div> : null}
       {history.length > 0 ? <div className="mt-6" aria-label="Hourly peak population history. Missing buckets are blank." role="img">
         <div className="flex h-32 items-end gap-1 border-b border-border" aria-hidden="true">
           {history.map((point) => {
@@ -312,7 +322,7 @@ function CommunityActivity({ telemetry }: { telemetry: NonNullable<PublicCommuni
         </div>
         <p className="mt-2 text-xs text-muted">Hourly peak population · gaps remain unfilled</p>
       </div> : null}
-      {telemetry.instanceHistory && telemetry.instanceHistory.length > 0 ? <div className="mt-7">
+      {telemetry?.instanceHistory && telemetry.instanceHistory.length > 0 ? <div className="mt-7">
         <h3 className="text-sm font-semibold">Recent instances</h3>
         <ul className="mt-3 grid gap-3 sm:grid-cols-2">
           {telemetry.instanceHistory.map((session, index) => <li key={`${session.openedAt}-${index}`}>
@@ -323,7 +333,7 @@ function CommunityActivity({ telemetry }: { telemetry: NonNullable<PublicCommuni
           </li>)}
         </ul>
       </div> : null}
-      {telemetry.eventRecaps && telemetry.eventRecaps.length > 0 ? <div className="mt-7 grid gap-3 sm:grid-cols-2">{telemetry.eventRecaps.map((recap) => <Card key={`${recap.event?.slug ?? "event"}-${recap.startAt}`} padding="sm" surface="strong"><p className="font-medium">{recap.event?.title ?? "Event recap"}</p><p className="mt-2 text-sm text-muted">Peak {recap.peakConcurrency.toLocaleString()} · {recap.playerHours.toFixed(1)} player hours · {Math.round(recap.durationMinutes)} min · {Math.round(recap.coverageRatio * 100)}% coverage</p></Card>)}</div> : null}
+      {telemetry?.eventRecaps && telemetry.eventRecaps.length > 0 ? <div className="mt-7 grid gap-3 sm:grid-cols-2">{telemetry.eventRecaps.map((recap) => <Card key={`${recap.event?.slug ?? "event"}-${recap.startAt}`} padding="sm" surface="strong"><p className="font-medium">{recap.event?.title ?? "Event recap"}</p><p className="mt-2 text-sm text-muted">Peak {recap.peakConcurrency.toLocaleString()} · {recap.playerHours.toFixed(1)} player hours · {Math.round(recap.durationMinutes)} min · {Math.round(recap.coverageRatio * 100)}% coverage</p></Card>)}</div> : null}
     </section>
   );
 }
@@ -710,7 +720,7 @@ export function ProfilePublicPage({ profile, mediaKitGalleryEnabled, embedded = 
           ) : undefined}
         />
 
-        {!isPerson && profile.telemetry ? <CommunityActivity telemetry={profile.telemetry} /> : null}
+        {!isPerson ? <CommunityActivity profile={profile} /> : null}
 
         {secondaryOrder.map((section) => {
           const content = secondarySections[section];

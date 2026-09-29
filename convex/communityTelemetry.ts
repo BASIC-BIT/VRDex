@@ -1,6 +1,7 @@
 import { transitionCoverage } from "./_collectionCoverage";
 import { rejectConnectionOperations } from "./clubOperations";
 import { resolveClubActor, readClubVisibility, canReadCategory, requireClubPermission } from "./_clubAccess";
+import { recordGroupMemberObservation } from "./_groupMemberSnapshots";
 import { CLUB_CATEGORIES, LEGACY_CATEGORY_MAP, clubCategory } from "./_clubModel";
 import { ConvexError, v } from "convex/values";
 import schema from "./schema";
@@ -666,6 +667,13 @@ export const setPublicMetric = mutation({
     const saved = await ctx.db.query("communityDataVisibility").withIndex("by_communityProfileId",q=>q.eq("communityProfileId",profile._id)).unique();
     if(saved) await ctx.db.patch(saved._id,{categories,updatedAt:now});
     else await ctx.db.insert("communityDataVisibility",{communityProfileId:profile._id,categories,updatedAt:now});
+    if (args.metric === "groupMemberCount" && args.enabled) {
+      const links = await ctx.db.query("profileExternalLinks")
+        .withIndex("by_profileId_assetType_state", q => q.eq("profileId", profile._id).eq("assetType", "vrchat_group").eq("state", "active"))
+        .take(100);
+      const primary = links.find(link => link.linkRole === "primary");
+      if (primary) await ctx.db.patch(primary._id, { nextMemberPollAt: undefined });
+    }
     await ctx.db.patch(integration._id, {
       publicMetrics: { ...integration.publicMetrics, [args.metric]: args.enabled },
       updatedAt: now,
@@ -1223,6 +1231,7 @@ export const ingestAggregatePoll = internalMutation({
     collectorVersion: v.string(),
     source: telemetrySourceValidator,
     groupMemberCount: v.number(),
+    groupCreatedAt: v.optional(v.number()),
     instances: v.array(aggregateInstanceValidator),
     nextPollAt: v.number(),
     now: v.optional(v.number()),
@@ -1241,6 +1250,7 @@ export const ingestAggregatePoll = internalMutation({
       args.observedAt > now + 5 * 60_000 ||
       !Number.isSafeInteger(args.groupMemberCount) ||
       args.groupMemberCount < 0 ||
+      (args.groupCreatedAt !== undefined && (!Number.isSafeInteger(args.groupCreatedAt) || args.groupCreatedAt < 0 || args.groupCreatedAt > args.observedAt)) ||
       args.instances.length > 200
     ) {
       throw new Error("Aggregate poll counts are malformed.");
@@ -1314,6 +1324,12 @@ export const ingestAggregatePoll = internalMutation({
         fencingToken: args.fencingToken,
       });
     }
+    await recordGroupMemberObservation(ctx.db, {
+      vrchatGroupId: integration.vrchatGroupId,
+      memberCount: args.groupMemberCount,
+      observedAt: args.observedAt,
+      ...(args.groupCreatedAt === undefined ? {} : { groupCreatedAt: args.groupCreatedAt }),
+    });
     const seen = new Set<string>();
     const epochStartedAt = integration.telemetryEpochStartedAt ?? integration.createdAt;
     for (const item of args.instances) {

@@ -217,6 +217,16 @@ const telemetryWorker = httpAction(async (ctx, request) => {
       } as never);
       return json(result);
     }
+    if (body.operation === "group_member_claim" || body.operation === "group_member_complete" || body.operation === "group_member_release") {
+      const worker = { collectorAccountId: collectorAccountId as never, workerId: body.workerId, workerKeyHash: presentedHash };
+      if (body.operation === "group_member_claim") return json(await ctx.runMutation(internal.groupMemberSnapshots.claim, { worker, now }));
+      if (typeof body.linkId !== "string" || typeof body.leaseToken !== "string") return json({ error: "invalid_request" }, 400);
+      if (body.operation === "group_member_release") return json(await ctx.runMutation(internal.groupMemberSnapshots.release, { worker, linkId: body.linkId as never, leaseToken: body.leaseToken }));
+      return json(await ctx.runMutation(internal.groupMemberSnapshots.complete, {
+        worker, linkId: body.linkId as never, leaseToken: body.leaseToken,
+        memberCount: body.memberCount, groupCreatedAt: body.groupCreatedAt, observedAt: body.observedAt, now,
+      } as never));
+    }
     const common = {
       integrationId: body.integrationId as never,
       collectorAccountId: collectorAccountId as never,
@@ -301,6 +311,7 @@ const telemetryWorker = httpAction(async (ctx, request) => {
         collectorVersion: body.collectorVersion,
         source: "first_party",
         groupMemberCount: body.groupMemberCount,
+        groupCreatedAt: body.groupCreatedAt,
         instances: body.instances,
         nextPollAt: body.nextPollAt,
         now,
