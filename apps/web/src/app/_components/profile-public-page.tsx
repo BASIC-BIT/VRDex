@@ -299,7 +299,7 @@ function CommunityActivity({ profile }: { profile: PublicCommunityProfile }) {
   const memberCount = showCount ? groupMembership?.latest ?? telemetry?.groupMemberCount : undefined;
   const history = telemetry?.populationHistory ?? [];
   const historyMax = Math.max(1, ...history.map((point) => point.peakConcurrency));
-  const hasSummary = telemetry?.currentPopulation || memberCount || (showCount && telemetry?.groupMemberGrowth);
+  const hasSummary = telemetry?.currentPopulation || memberCount || telemetry?.groupMemberGrowth;
   if (!hasSummary && !(showHistory && groupMembership) && history.length === 0 && !telemetry?.instanceHistory?.length && !telemetry?.eventRecaps?.length) return null;
   return (
     <section className="border-t border-border py-8">
@@ -310,7 +310,7 @@ function CommunityActivity({ profile }: { profile: PublicCommunityProfile }) {
       {hasSummary ? <div className="mt-5 grid gap-3 sm:grid-cols-3">
         {telemetry?.currentPopulation ? <Card padding="sm" surface="strong"><p className="text-sm text-muted">In group instances</p><p className="mt-2 text-3xl font-semibold">{telemetry.currentPopulation.value}</p><p className="mt-1 text-xs text-muted">{telemetry.currentPopulation.activeInstanceCount} active instances</p></Card> : null}
         {memberCount ? <Card padding="sm" surface="strong"><p className="text-sm text-muted">Group members</p><p className="mt-2 text-3xl font-semibold">{memberCount.value.toLocaleString()}</p><time className="mt-1 block text-xs text-muted" dateTime={new Date(memberCount.observedAt).toISOString()}>{formatSubmittedDate(memberCount.observedAt)}</time></Card> : null}
-        {showCount && telemetry?.groupMemberGrowth ? <Card padding="sm" surface="strong"><p className="text-sm text-muted">Member growth</p><p className="mt-2 text-3xl font-semibold">{telemetry.groupMemberGrowth.value > 0 ? "+" : ""}{telemetry.groupMemberGrowth.value.toLocaleString()}</p></Card> : null}
+        {telemetry?.groupMemberGrowth ? <Card padding="sm" surface="strong"><p className="text-sm text-muted">Member growth</p><p className="mt-2 text-3xl font-semibold">{telemetry.groupMemberGrowth.value > 0 ? "+" : ""}{telemetry.groupMemberGrowth.value.toLocaleString()}</p></Card> : null}
       </div> : null}
       {showHistory && groupMembership ? <div className="mt-6"><PublicGroupMembershipChart membership={groupMembership} /></div> : null}
       {history.length > 0 ? <div className="mt-6" aria-label="Hourly peak population history. Missing buckets are blank." role="img">

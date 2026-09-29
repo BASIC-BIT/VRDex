@@ -13,7 +13,11 @@ test("count and graph switches stay independent @storybook-visual", async ({ pag
     await expect(page.getByText("Group members", { exact: true })).toHaveCount(count ? 1 : 0);
     await expect(page.getByRole("group", { name: "Total group membership" })).toHaveCount(graph ? 1 : 0);
     if (name === "both") await testInfo.attach("membership-both", { body: await page.screenshot({ fullPage: true }), contentType: "image/png" });
-    if (name === "neither") await expect(page.getByRole("heading", { name: "Activity" })).toHaveCount(0);
+    if (name === "neither") {
+      await expect(page.getByRole("heading", { name: "Activity" })).toBeVisible();
+      await expect(page.getByText("Member growth", { exact: true })).toBeVisible();
+      await expect(page.getByText("+20", { exact: true })).toBeVisible();
+    }
   }
 });
 
