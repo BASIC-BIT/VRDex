@@ -1,0 +1,30 @@
+# Membership ingestion contract
+
+Anonymous aggregate reads also require the community profile to pass the existing
+public profile visibility policy. Unpublishing or suppressing the profile hides
+membership movement immediately. Current authorized club staff retain access to
+the categories their role permits.
+
+Current implementation: local backend foundation, authenticated HTTP dispatch, and Analytics UI. Worker polling and live provider verification are tracked by the main implementation lane.
+
+Analytics displays paired joins/departures bars from one aggregate query per actual local calendar day. Selecting a day preserves the shared URL range. Unknown intervals remain null, with explicit Unknown values in the accessible data table. The separately gated membership activity list loads 25 events at a time and displays the event target, never substitutes the actor, and does not imply instance attendance. Home keeps its total-membership line. Desktop/mobile Storybook checks cover bars, unknown versus zero table values, target identity, layout overflow, and browser errors.
+
+All four internal worker mutations require `collectorAccountId`, `workerKeyHash`, `workerId`, `fencingToken`, `integrationId`, `epochStartedAt`, and `groupId`. Transactions recheck the ready assigned account, current key, account/fleet kill switches, active integration and epoch, and current unexpired lease using server time. The HTTP operations are `membership_scan_begin`, `membership_scan_resume`, `membership_scan_page`, and `membership_scan_finalize`. HTTP supplies the authenticated collector ID and presented key hash; body credentials cannot replace them.
+
+Begin is idempotent for an exact window, and returns the existing pending scan instead of creating concurrent scans. Resume returns `{scanId,startAt,endAt,nextPage,nextOffset,phase,complete}` for the pending scan, or the latest completed scan, or null. A new authorized lease can resume and rebind a pending scan without losing its offset; stale leases cannot submit pages. Call resume after begin to obtain the authoritative range. A completed result supplies the next window boundary, so polling does not repeatedly scan the entire retained archive.
+
+Page ingestion accepts optional `sourceCount` (0 to 100, at least the retained event count). It advances the persisted offset by that raw provider page count, so excluded half-open boundary rows do not cause offset drift. If omitted it uses the event count. The worker must send the raw count when filtering a provider response. Resume metadata avoids keeping a long backfill in one invocation.
+
+`clubMembership.beginScan` is internal. Supply the active integration ID, its exact epoch start, its group ID, and a fixed half-open `[startAt, endAt)` window. Windows cannot precede the epoch, extend into the future, or exceed 31 days. The returned scan ID binds all following pages to that scope.
+
+`clubMembership.ingestBatch` accepts the scan ID, current `phase`, zero-based contiguous page number, at most 100 events, the raw audit IDs from that provider page, and `exhausted`. Each event supplies `auditId`, `eventType`, `occurredAt`, and optional `targetUserId`/`targetDisplayName`. It retains original event types, deduplicates audit IDs per integration epoch, rejects conflicting immutable identity/type/time, and never expires events. Replayed already-accepted pages are no-ops. Out-of-order events inside a page are valid; out-of-order pages are rejected.
+
+The authenticated worker control plane must bind the scan to its assigned integration before calling each endpoint. `exhausted` must mean the provider has confirmed the final page of the fixed window, not that a request failed or a local page budget expired. The first full pass records a digest of every raw audit ID in provider order, then restarts at offset zero. A second full pass records its page IDs. A changed pass restarts collection and leaves movement unknown. Matching passes enter a finalize phase, one staged page per poll. New audit rows remain unverified until finalization marks only IDs from the matching pass; aggregate and activity reads exclude unverified rows. Coverage is added after the final staged page, so partial or changed scans never manufacture zero or retain a transient event in visible counts. This catches page shifts between polls, though the provider does not offer a snapshot guarantee and late records after verification can still change historical totals.
+
+`getMovementBucket` accepts a club slug and a window of at most 25 hours, allowing actual local-day DST boundaries. It independently checks `membership_movement`. It returns counts only when certified coverage spans the complete requested window and the bounded 5,000-event query is complete. Otherwise both counts are null and `complete` is false. Public access stops when the integration is inactive, killed, or has analytics disabled; authorized staff and owners retain history access.
+
+`listActivity` accepts a club slug, a window of at most 366 days, and ordinary Convex cursor pagination (1 to 100 events). It requires `individual_membership_history` and never grants anonymous access. It exposes original event types so unrecognized events remain distinguishable. All reads use only the current integration epoch; older retained rows are not silently combined after reconnection.
+
+Event classification follows the primary [Scarlet GroupAuditType source](https://raw.githubusercontent.com/SybylineNetwork/Scarlet/main/src/main/java/net/sybyline/scarlet/GroupAuditType.java): `group.member.join` is a join; `group.member.leave` and `group.member.remove` are departures. Bans and instance kicks are not inferred departures. These are group membership events, not instance attendance.
+
+Verification: backend tests cover partial/adjacent coverage, true zero versus unknown, public disconnect, owner historical access, duplicate and conflicting audit IDs, out-of-order events/pages, anonymous identifiable-history denial, foreign group scope, and changed epochs. No authenticated provider calls or hosted deployments were performed for this foundation.

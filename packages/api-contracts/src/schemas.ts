@@ -190,6 +190,12 @@ export const PublicCommunityTelemetrySchema = z.object({
     startAt: z.number().int().nonnegative(),
     endAt: z.number().int().nonnegative(),
   }).optional(),
+  instanceHistory: z.array(z.object({
+    world: z.object({ slug, displayName: z.string().min(1) }).nullable(),
+    openedAt: z.number().int().nonnegative(),
+    lastObservedAt: z.number().int().nonnegative(),
+    closedAt: z.number().int().nonnegative().optional(),
+  })).max(20).optional(),
   eventRecaps: z.array(PublicTelemetryRollupSchema.extend({
     event: z.object({ slug, title: z.string().min(1) }).optional(),
   })).optional(),

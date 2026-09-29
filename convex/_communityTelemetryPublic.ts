@@ -1,3 +1,4 @@
+import { readClubVisibility } from "./_clubAccess";
 import type { Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
 import { CURRENT_FRESHNESS_MS, TELEMETRY_ROLLUP_VERSION } from "./_communityTelemetry";
@@ -7,6 +8,7 @@ export const PUBLIC_TELEMETRY_DEFINITIONS = {
   populationHistory: { unit: "people", grain: "hour", gapPolicy: "gaps_are_not_zero" },
   groupMemberCount: { unit: "members", grain: "latest_observation", gapPolicy: "last_observation_is_timestamped" },
   groupMemberGrowth: { unit: "members", grain: "retained_observation_range", gapPolicy: "observed_end_minus_observed_start" },
+  instanceHistory: { unit: "instances", grain: "session", gapPolicy: "first_and_last_observation" },
   eventRecaps: { unit: "mixed", grain: "confirmed_event", gapPolicy: "coverage_ratio_is_explicit" },
 } as const;
 
@@ -53,11 +55,13 @@ export async function getPublicCommunityTelemetry(
     .query("communityVrchatIntegrations")
     .withIndex("by_communityProfileId", (query) => query.eq("communityProfileId", communityProfileId))
     .first();
+  if (!integration || (integration.enabledFeatures && !integration.enabledFeatures.includes("analytics"))) return null;
+  const visibility = await readClubVisibility(db, communityProfileId);
+  const publicMetrics = { currentPopulation: visibility.current_population.audience === "public", populationHistory: visibility.population_history.audience === "public", groupMemberCount: visibility.group_size.audience === "public", groupMemberGrowth: visibility.membership_movement.audience === "public", instanceHistory: visibility.instance_history.audience === "public", eventRecaps: visibility.event_recaps.audience === "public" };
   if (
-    !integration ||
     integration.state === "disconnecting" ||
     integration.state === "disconnected" ||
-    !Object.values(integration.publicMetrics).some(Boolean)
+    !Object.values(publicMetrics).some(Boolean)
   ) {
     return null;
   }
@@ -91,12 +95,32 @@ export async function getPublicCommunityTelemetry(
   ]);
   const latestMember = memberCounts[0];
   const earliestMember = memberCounts[memberCounts.length - 1];
+  const sessions = publicMetrics.instanceHistory
+    ? await db.query("instanceSessions")
+      .withIndex("by_integrationId_openedAt", (query) =>
+        query.eq("integrationId", integration._id).gte("openedAt", epochStartedAt),
+      )
+      .order("desc")
+      .take(20)
+    : [];
+  const instanceHistory = await Promise.all(sessions
+    .map(async (session) => {
+      const world = session.worldId ? await db.get(session.worldId) : null;
+      return {
+        world: world?.publicationState === "published"
+          ? { slug: world.slug, displayName: world.displayName }
+          : null,
+        openedAt: session.openedAt,
+        lastObservedAt: session.lastObservedAt,
+        ...(session.closedAt === undefined ? {} : { closedAt: session.closedAt }),
+      };
+    }));
   const eventRecaps = (await Promise.all(eventRollups.map(async (rollup) => {
     const event = rollup.eventId ? await db.get(rollup.eventId) : null;
     if (!event || event.publicationState !== "published" || !event.slug || event.communityProfileId !== communityProfileId) return null;
     return {
       event: { slug: event.slug, title: event.title },
-      ...publicRollup(rollup, integration.publicMetrics),
+      ...publicRollup(rollup, publicMetrics),
     };
   }))).filter((recap) => recap !== null);
   const freshness = integration.lastSuccessfulObservationAt !== undefined &&
@@ -108,7 +132,7 @@ export async function getPublicCommunityTelemetry(
     freshness,
     observedAt: integration.lastSuccessfulObservationAt,
     definitions: PUBLIC_TELEMETRY_DEFINITIONS,
-    ...(integration.publicMetrics.currentPopulation && freshness === "current" && latestPopulation
+    ...(publicMetrics.currentPopulation && freshness === "current" && latestPopulation
       ? { currentPopulation: {
           value: latestPopulation.totalPopulation,
           activeInstanceCount: latestPopulation.activeInstanceCount,
@@ -116,19 +140,20 @@ export async function getPublicCommunityTelemetry(
           coverage: latestPopulation.coverageState,
         } }
       : {}),
-    ...(integration.publicMetrics.populationHistory
-      ? { populationHistory: hourlyRollups.reverse().map((rollup) => publicRollup(rollup, integration.publicMetrics)) }
+    ...(publicMetrics.populationHistory
+      ? { populationHistory: hourlyRollups.reverse().map((rollup) => publicRollup(rollup, publicMetrics)) }
       : {}),
-    ...(integration.publicMetrics.groupMemberCount && latestMember
+    ...(publicMetrics.groupMemberCount && latestMember
       ? { groupMemberCount: { value: latestMember.memberCount, observedAt: latestMember.observedAt } }
       : {}),
-    ...(integration.publicMetrics.groupMemberGrowth && latestMember && earliestMember
+    ...(publicMetrics.groupMemberGrowth && latestMember && earliestMember
       ? { groupMemberGrowth: {
           value: latestMember.memberCount - earliestMember.memberCount,
           startAt: earliestMember.observedAt,
           endAt: latestMember.observedAt,
         } }
       : {}),
-    ...(integration.publicMetrics.eventRecaps ? { eventRecaps } : {}),
+    ...(publicMetrics.instanceHistory ? { instanceHistory } : {}),
+    ...(publicMetrics.eventRecaps ? { eventRecaps } : {}),
   };
 }

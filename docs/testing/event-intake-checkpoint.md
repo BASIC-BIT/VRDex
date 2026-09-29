@@ -207,6 +207,15 @@ suite, backend/web typechecks, markdown lint and the whitespace check. Existing
 browser/visual evidence above still describes the unchanged UI; this follow-up's
 readback/save and API-transition evidence is from real in-memory Convex mutations.
 
+After merging the club management work from `main`, date-only events remain
+publicly discoverable but are excluded from club controls that need a precise
+start time. Changing a timed event to Time TBA cancels its pending or claimed
+event-relative club actions; submitted actions are unchanged. The focused
+integration tests passed, as did the merged backend (1,200), web (601) and
+group-telemetry worker (162) suites, backend/web/API/MCP typechecks, web and
+Markdown lint, the OpenAPI contract check, and the docs build. The merged
+club scheduling paths have not been exercised against a hosted deployment.
+
 ## Release and operator gates
 
 See [deployment sequence](../deployment/convex-environments.md#event-intake-staged-release-checks)

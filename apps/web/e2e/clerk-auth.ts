@@ -13,12 +13,11 @@ import { gotoFlowPage } from "./flow-navigation";
  *
  * ## Where this can run
  *
- * Hosted targets only. `convex/auth.config.ts` deliberately pins local
- * deployments to the unresolvable issuer `https://clerk-issuer.invalid`, so a
- * local backend rejects every Clerk token by design and no amount of test
- * wiring changes that. Local `@flow` runs therefore skip the auth specs rather
- * than fail them, and the hosted lane fails closed instead — see
- * `clerkTestAuthAvailability`.
+ * Hosted targets or an explicitly configured local development backend.
+ * `convex/auth.config.ts` defaults local deployments to an invalid issuer;
+ * setting the matching Clerk development issuer enables real local tokens.
+ * Both targets require explicit test-auth flags and guarded fixture setup.
+ * See `docs/testing/club-invitation-flow.md` and `clerkTestAuthAvailability`.
  *
  * ## Prerequisite that is not in this repository
  *
@@ -74,7 +73,7 @@ export function clerkTestAuthAvailability(): { available: true } | { available: 
     return {
       available: false,
       reason:
-        'Clerk test auth is not enabled here (VRDEX_ENABLE_E2E_CLERK_AUTH is not "true"). Local Convex deployments pin an unresolvable issuer and cannot validate Clerk tokens, so these specs run against a hosted target only.',
+        'Clerk test auth is not enabled here (VRDEX_ENABLE_E2E_CLERK_AUTH is not "true"). Configure the matching development issuer and guarded test helpers before enabling these specs.',
     };
   }
 

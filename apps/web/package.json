@@ -68,6 +68,8 @@
     "posthog-js": "^1.376.2",
     "react": "19.2.3",
     "react-dom": "19.2.3",
+    "react-is": "19.2.3",
+    "recharts": "^3.10.1",
     "sharp": "0.34.5",
     "tailwind-merge": "^3.6.0"
   },
