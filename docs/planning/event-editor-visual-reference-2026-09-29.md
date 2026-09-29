@@ -18,7 +18,7 @@ The pictured event, performers, artwork, labels, spacing, and preview time forma
 
 **Locked decision:** A contributor can provide text, multiple images, or both, and submit all current sources to one event-discovery run. The agent returns tentative event details, lineup entries, evidence tied to each source, and unresolved questions. It may use bounded read-only person, community, and time lookups, but cannot publish. The contributor edits or accepts suggestions in the later steps. Manual entry works without sources or a model call.
 
-**Current recommendation:** When several images are attached, start with the first poster as the primary artwork and let the contributor change it. Other images can supply schedule or venue details without all becoming public artwork. The mockup's first-image choice is illustrative, not a locked rule.
+**Locked decision:** The first uploaded image starts as the main event artwork, and the contributor can change it. Other images can supply schedule or venue details without all becoming public artwork. The mockup's image placement remains illustrative.
 
 The current shared website/API/MCP contract and extraction loop accept text plus one poster. Future implementation must extend the shared draft, upload, extraction, evidence, and preview paths for multiple images while retaining input limits and the separate private-evidence lifecycle.
 
