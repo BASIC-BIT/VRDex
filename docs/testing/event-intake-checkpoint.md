@@ -1,8 +1,8 @@
 # Contributed event intake checkpoint
 
-Date: 2026-09-28. Scope: Tasks 1 through 9 and final review corrections on
-`codex/event-contribution-ai-intake-design`, based on `643191eac` plus the final
-owner-correction diff. This is local evidence. Nothing here asserts deployment,
+Date: 2026-09-28. Scope: Tasks 1 through 9, final review corrections and the
+merge with `main` at `326fe66e3` on `codex/event-contribution-ai-intake-design`.
+This is local evidence. Nothing here asserts deployment,
 copy approval, hosted accuracy or merge readiness.
 
 ## Implemented journey
@@ -46,8 +46,8 @@ Commands run in the isolated worktree, without hosted credentials or paid calls:
 
 | Command | Result |
 | --- | --- |
-| `pnpm test:backend` | 988 passed, zero failed/skipped |
-| `pnpm test:web` | 586 passed, zero failed/skipped |
+| `pnpm test:backend` | 1,200 passed, zero failed/skipped after merge |
+| `pnpm test:web` | 601 passed, zero failed/skipped after merge |
 | `pnpm test:api-contracts` | 56 passed, zero failed/skipped |
 | `pnpm test:vrdex-mcp` | 10 passed, including local stdio and fake-transport upload |
 | `pnpm typecheck:backend` | Passed |
@@ -56,6 +56,7 @@ Commands run in the isolated worktree, without hosted credentials or paid calls:
 | `pnpm typecheck:vrdex-mcp` | Passed |
 | `pnpm lint:web` | Passed |
 | `pnpm check:api-openapi` | Passed |
+| `pnpm test:group-telemetry` | 162 passed, zero failed/skipped after merge |
 | `pnpm build:docs` | Passed |
 | Focused Playwright, desktop/mobile | 54 passed, zero failed/skipped, no baseline updates in final run |
 | Public event/watch snapshots, desktop/mobile | 4 passed, zero failed/skipped |
