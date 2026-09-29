@@ -112,6 +112,43 @@ it("staff content-only edits leave contributed performer links unconfirmed", asy
   assert.equal(association?.confirmationState, "unconfirmed");
 });
 
+it("staff schedule-only edits preserve performer confirmation while rebasing slots", async () => {
+  const { t, staff, contributor, event } = await fixture();
+  await t.run(({ db }) => db.insert("profiles", {
+    slug: "guest", displayName: "Guest", sortName: "guest", profileType: "person",
+    person: { roleTags: [] }, aliases: [], tags: [], claimState: "unclaimed",
+    publicationState: "published", publicSurfacingState: "public",
+    creationSource: "community", updatedAt: Date.now(),
+  }));
+  await contributor.mutation(command("updateOwnContributedEvent"), {
+    eventId: event._id, expectedUpdatedAt: event.updatedAt,
+    patch: { lineup: [{ clientKey: "dj", position: 0, performerLabel: "DJ", personSlug: "guest" }] },
+  });
+  const startAt = Date.parse("2027-10-15T19:00:00Z");
+  await staff.mutation(api.events.updateCommunityEvent, {
+    currentSlug: event.slug!, title: event.title, communitySlug: "club", startAt, timezone: "UTC",
+    preserveLineupConfirmation: true,
+    lineup: [{ clientKey: "dj", position: 0, performerLabel: "DJ", personSlug: "guest", startAt }],
+  });
+  const association = await t.run(ctx => ctx.db.query("eventParticipants").withIndex("by_eventId", q => q.eq("eventId", event._id)).first());
+  assert.equal(association?.confirmationState, "unconfirmed");
+  assert.equal((await t.run(ctx => ctx.db.query("eventSlots").withIndex("by_eventId", q => q.eq("eventId", event._id)).first()))?.startAt, startAt);
+});
+
+it("contributor correction readback preserves mixed lineup position order", async () => {
+  const { contributor, event } = await fixture();
+  const updated = await contributor.mutation(command("updateOwnContributedEvent"), {
+    eventId: event._id, expectedUpdatedAt: event.updatedAt,
+    patch: { timeTba: null, timezone: "UTC", start: { time: "19:00" }, end: { time: "23:00" }, lineup: [
+      { clientKey: "first", position: 0, performerLabel: "First", start: { time: "19:00" } },
+      { clientKey: "middle", position: 1, performerLabel: "Middle" },
+      { clientKey: "last", position: 2, performerLabel: "Last", start: { time: "21:00" } },
+    ] },
+  });
+  const own = await contributor.query(makeFunctionReference<"query">("eventCorrections:getOwnContributedEvent"), { eventId: updated.eventId });
+  assert.deepEqual(own.fields.lineup.map(row => row.performerLabel), ["First", "Middle", "Last"]);
+});
+
 it("empty owner API updates do not take over a contributed event", async () => {
   const { t, contributor, event, users } = await fixture();
   await assert.rejects(t.mutation(internal.events.updateCommunityEventForApiOwner, {

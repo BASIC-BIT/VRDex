@@ -41,8 +41,11 @@ a start instant. Turning off Time TBA requires a start time. Contributed untimed
 performers have editable names, optional person matches and roles, plus remove
 controls. Lineup or schedule edits replace the canonical lineup and retain
 unchanged timed-set stream selections. Content-only saves leave contributed
-performer links unconfirmed. Existing timed owner events keep the
-slot/participant editor.
+performer links unconfirmed. Schedule-only saves preserve each existing person
+match's confirmation state. Clearing optional editor fields sends explicit
+values so they do not silently retain old content. Contributor correction
+readback merges timed and untimed performers by authored position. Existing
+timed owner events keep the slot/participant editor.
 
 `getEventContributionAccess` returns capabilities only. Contributor identifiers
 stay out of the public event DTO. Correction mutations retain server authorization

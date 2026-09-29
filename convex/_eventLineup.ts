@@ -14,6 +14,7 @@ export async function replaceEventLineup(
     preserveSlotAssociationIds?: Id<"eventSlots">[];
     preserveParticipantAssociationIds?: Id<"eventParticipants">[];
     confirmPersonLinks?: boolean;
+    preservePersonConfirmation?: boolean;
   } = {},
 ): Promise<void> {
   const normalized = sanitizeEventLineupInput(entries);
@@ -89,14 +90,19 @@ export async function replaceEventLineup(
     }
     if (personProfileId !== undefined && !matchedPeople.has(personProfileId)) {
       matchedPeople.add(personProfileId);
+      const previousParticipant = options.preservePersonConfirmation
+        ? participants.find(row => row.personProfileId === personProfileId)
+        : undefined;
+      const confirmationState = options.confirmPersonLinks === false
+        ? "unconfirmed" : previousParticipant?.confirmationState ?? "confirmed";
       await db.insert("eventParticipants", {
         eventId: event._id, personProfileId, roleLabel: entry.roleLabel ?? "",
         eventStartAt: event.startAt, eventEndAt: event.endAt ?? event.startAt,
         eventSortAt: eventSortAt(event), eventSortEndAt: eventSortEndAt(event),
         eventPublicationState: event.publicationState, eventStatus: event.eventStatus,
         sourceType: event.sourceType, sourceLabel: event.sourceLabel,
-        confirmationState: options.confirmPersonLinks === false ? "unconfirmed" : "confirmed",
-        ...(options.confirmPersonLinks === false ? {} : { confirmedAt: now }), updatedAt: now,
+        confirmationState,
+        ...(confirmationState === "confirmed" ? { confirmedAt: previousParticipant?.confirmedAt ?? now } : {}), updatedAt: now,
       });
     }
   }

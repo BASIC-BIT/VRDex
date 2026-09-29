@@ -54,6 +54,38 @@ test("staff title edit does not confirm an untouched contributed lineup", async 
   await expect.poll(() => page.evaluate(() => localStorage.getItem("event-lineup-fixture-v1-submission"))).not.toBeNull();
   const payload = await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!));
   expect(payload.lineup).toBeUndefined();
+  await page.goto("/playwright/event-lineup?editor");
+  await page.getByRole("checkbox", { name: "Time TBA", exact: true }).uncheck();
+  await page.getByLabel("Start", { exact: true }).fill("2027-10-15T19:00");
+  await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  const rescheduled = await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!));
+  expect(rescheduled.preserveLineupConfirmation).toBe(true);
+  expect(rescheduled.lineup[0].personSlug).toBe("nova");
+});
+
+test("staff editor sends explicit clears for optional event details", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("event-lineup-fixture-v1", JSON.stringify({
+    id: "event-contributed", slug: "contributed", title: "Contributed night", scheduleKind: "date_only", eventDate: "2027-10-15",
+    status: "scheduled", communitySlug: "afterglow", publicationState: "published", venueLabel: "Harbor", summary: "Old summary", notes: "Old notes",
+    source: { sourceType: "contributor", label: "Flyer", url: "https://example.com/source" },
+    posterImageUrl: "https://example.com/poster.png", authoredBannerImageUrl: "https://example.com/banner.png", authoredThumbnailImageUrl: "https://example.com/thumb.png",
+    watchSurfaceEnabled: false, watchMode: "event_stream", mediaLinks: [], authoredMediaLinks: [], worlds: [], participants: [], slots: [], lineup: [],
+    preservedParticipantAssociationIds: [], preservedSlotAssociationIds: [], preservedWorldAssociationIds: [],
+  })));
+  await page.goto("/playwright/event-lineup?editor");
+  await page.locator('[name="summary"]').fill("");
+  await page.locator('[name="venueLabel"]').fill("");
+  await page.locator("summary").filter({ hasText: "Private notes" }).click();
+  await page.getByLabel("Private notes", { exact: true }).fill("");
+  await page.locator("summary").filter({ hasText: "Media and links" }).click();
+  for (const name of ["sourceLabel", "sourceUrl", "posterImageUrl", "bannerImageUrl", "thumbnailImageUrl"]) {
+    await page.locator(`[name="${name}"]`).fill("");
+  }
+  await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  const payload = await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!));
+  for (const key of ["summary", "notes", "sourceUrl", "posterImageUrl", "bannerImageUrl", "thumbnailImageUrl"]) expect(payload[key]).toBe(null);
+  expect(payload.sourceLabel).toBe("");
+  expect(payload.venueLabel).toBe("");
 });
 
 test("lineup keeps provider links collapsed without stream requests", async ({ page }) => {

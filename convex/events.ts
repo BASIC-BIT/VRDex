@@ -1276,6 +1276,7 @@ async function updateCommunityEventRecord(
     preserveParticipantAssociationIds?: Id<"eventParticipants">[];
     preserveSlotAssociationIds?: Id<"eventSlots">[];
     preserveWorldAssociationIds?: Id<"eventWorlds">[];
+    preserveLineupConfirmation?: boolean;
     updateFields?: ReadonlySet<keyof EventOwnerDraftInput>;
   },
 ) {
@@ -1390,6 +1391,7 @@ async function updateCommunityEventRecord(
   const replaceParticipants = !replaceLineup && shouldUpdate("participantLinks");
   if (replaceLineup) await replaceEventLineup(db, updatedEvent, input.lineup!, now, {
     preserveSlotAssociationIds, preserveParticipantAssociationIds,
+    preservePersonConfirmation: options.preserveLineupConfirmation,
   });
   if (!replaceLineup && !replaceSlots && schedule.scheduleKind === "date_only") {
     const slots = await db.query("eventSlots").withIndex("by_eventId", q => q.eq("eventId", event._id)).collect();
@@ -3029,6 +3031,7 @@ export const updateCommunityEvent = mutation({
     preservedParticipantAssociationIds: v.optional(v.array(v.id("eventParticipants"))),
     preservedSlotAssociationIds: v.optional(v.array(v.id("eventSlots"))),
     preservedWorldAssociationIds: v.optional(v.array(v.id("eventWorlds"))),
+    preserveLineupConfirmation: v.optional(v.boolean()),
     ...eventDraftUpdateArgs,
   },
   handler: async (ctx, args) => {
@@ -3128,6 +3131,7 @@ export const updateCommunityEvent = mutation({
       preserveWorldAssociationIds: preservedWorldAssociations.map(
         ({ association }) => association._id,
       ),
+      preserveLineupConfirmation: args.preserveLineupConfirmation,
       publicationState,
     });
     await recordEventAuditEvent(ctx.db, {

@@ -50,7 +50,7 @@ async function correctionFields(db: DatabaseReader, event: Doc<"events">): Promi
     db.query("eventLineupEntries").withIndex("by_eventId_position", q => q.eq("eventId", event._id)).take(81),
   ]);
   if (slots.length + untimed.length > 80) throw new Error("Lineup exceeds correction limit.");
-  const lineup = await Promise.all([...slots, ...untimed].map(async (row, position) => {
+  const lineup = await Promise.all([...slots, ...untimed].sort((a, b) => a.position - b.position).map(async (row, position) => {
     const person = row.personProfileId ? await db.get(row.personProfileId) : null;
     return { clientKey: row.clientKey ?? row._id, position: row.position ?? position,
       performerLabel: "performerLabel" in row ? row.performerLabel : row.displayLabel ?? person?.displayName ?? "",

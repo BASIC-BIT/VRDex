@@ -764,9 +764,19 @@ function ConnectedEventEditorForm({
                 ? { published: false }
                 : {}),
             ...payload,
+            preserveLineupConfirmation: usesCanonicalLineup && !lineupEdited && startAt !== event.startAt,
+            doorsOpenAt: doorsOffsetMinutes === undefined ? null : startAt! - doorsOffsetMinutes * 60_000,
+            endAt: endAt ?? null,
+            summary: payload.summary ?? null,
+            notes: payload.notes ?? null,
+            sourceLabel: payload.sourceLabel ?? "",
+            sourceUrl: payload.sourceUrl ?? null,
+            posterImageUrl: payload.posterImageUrl ?? null,
+            bannerImageUrl: payload.bannerImageUrl ?? null,
+            thumbnailImageUrl: payload.thumbnailImageUrl ?? null,
             scheduleKind: timeTba ? "date_only" : "timed",
             ...(timeTba ? { eventDate } : {}),
-            venueLabel: optionalString(stringField(formData.get("venueLabel"))),
+            venueLabel: optionalString(stringField(formData.get("venueLabel"))) ?? "",
           })
         : await createEvent({ ...payload, startAt: startAt!, published: intent === "publish" });
 
