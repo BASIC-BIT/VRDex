@@ -55,6 +55,7 @@ Commands run in the isolated worktree, without hosted credentials or paid calls:
 | `pnpm typecheck:api-contracts` | Passed |
 | `pnpm typecheck:vrdex-mcp` | Passed |
 | `pnpm lint:web` | Passed |
+| `pnpm build:web` without public Convex or Clerk URLs | Passed after reports-route fix |
 | `pnpm check:api-openapi` | Passed |
 | `pnpm test:group-telemetry` | 162 passed, zero failed/skipped after merge |
 | `pnpm build:docs` | Passed |
@@ -229,6 +230,9 @@ Time TBA cancellation remains terminal: restoring a time requires a new
 reviewed club action rather than silently reviving a provider write. Focused
 tests failed before the private-performer and artwork fixes, then passed. The
 full backend and web suites and both typechecks passed after these changes.
+The CI build also exposed that the staff reports route rendered a Convex hook
+during credential-free static generation. A server route wrapper now marks that
+page dynamic; the credential-free production build passes locally.
 
 ## Release and operator gates
 
