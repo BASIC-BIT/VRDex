@@ -37,13 +37,14 @@ flowchart LR
 
 The strict schemas and TypeScript types live in
 `packages/api-contracts/src/event-intake.ts`. Omitted top-level patch fields stay
-unchanged, `null` clears a value, and empty strings normalize to unknown. Nested
+unchanged, `null` clears a value, and empty strings normalize to unknown. A cleared
+`posterSourceId` retains null to prevent late completion from restoring artwork. Nested
 objects and the lineup array replace their previous value as a unit. A lineup
 row has a stable `clientKey`, `position`, and optional performer, role and times.
 Those structural fields alone do not constitute a meaningful draft.
 
-One meaningful input is enough to save. `sourceText`, an ordered list of up to
-five unique `posterSourceIds`, the legacy `posterSourceId`, and a
+One meaningful input is enough to create a draft. Existing drafts may become
+empty after source removal. `sourceText`, a singular `posterSourceId`, and a
 bounded `posterDeclaration` of MIME/bytes/SHA-256 remain private. The declaration
 allows a poster-only draft before upload and inherits ordinary draft quotas and
 expiry. It does not confirm source bytes or satisfy publication minimums. The poster reference is an opaque integration reference, not a public

@@ -1,5 +1,10 @@
 # Event Editor Redesign Implementation Plan
 
+The multi-image scope below is superseded by the approved
+[single-poster simplification](2026-09-30-event-intake-single-poster.md) on
+2026-09-30. Other editor decisions remain in force. The original task details
+are retained as implementation history.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make event authoring a focused Source, Details, Lineup, Review flow, with text and multiple images in one discovery run, automatic poster artwork, and consistent editing for contributors and community staff.

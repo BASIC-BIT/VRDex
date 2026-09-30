@@ -2,7 +2,6 @@ import { z } from "zod";
 import { ApiIdempotencyKeySchema } from "./temporal";
 
 export const EVENT_POSTER_MAX_BYTES = 12 * 1024 * 1024;
-export const EVENT_INTAKE_MAX_POSTERS = 5;
 export const EventPosterDeclarationSchema = z.strictObject({
   contentType: z.enum(["image/png", "image/jpeg", "image/webp"]),
   byteLength: z.number().int().positive().max(EVENT_POSTER_MAX_BYTES),
@@ -11,10 +10,7 @@ export const EventPosterDeclarationSchema = z.strictObject({
 
 const text = (max: number) => z.string().trim().max(max);
 const nullable = <T extends z.ZodType>(schema: T) => schema.nullable().optional();
-const posterIds = z.array(text(200).min(1)).max(EVENT_INTAKE_MAX_POSTERS).refine(ids => new Set(ids).size === ids.length, "Poster IDs must be unique.");
-const EventIntakeEvidenceSchema = z.array(z.strictObject({ fieldPath: text(120), origin: z.enum(["text", "poster", "lookup", "calculation"]), posterIndex: z.number().int().min(0).max(EVENT_INTAKE_MAX_POSTERS - 1).nullable(), excerpt: text(500).nullable(), assessment: z.enum(["explicit", "inferred", "conflicting"]) })).max(40);
-const consistentPosterIds = (value: { posterSourceId?: string | null; posterSourceIds?: string[] | null }) =>
-  value.posterSourceId === undefined || value.posterSourceIds === undefined || value.posterSourceId === (value.posterSourceIds?.[0] ?? null);
+const EventIntakeEvidenceSchema = z.array(z.strictObject({ fieldPath: text(120), origin: z.enum(["text", "poster", "lookup", "calculation"]), excerpt: text(500).nullable(), assessment: z.enum(["explicit", "inferred", "conflicting"]) })).max(40);
 export const EventIntakeLocalTimeSchema = z.strictObject({
   time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
   dayOffset: z.number().int().min(-1).max(7).optional(),
@@ -25,24 +21,23 @@ export const EventIntakeLineupSchema = z.strictObject({
   performerLabel: nullable(text(120)), personSlug: nullable(text(64)), roleLabel: nullable(text(48)),
   start: nullable(EventIntakeLocalTimeSchema), end: nullable(EventIntakeLocalTimeSchema),
 });
-const EventIntakeFieldsBaseSchema = z.strictObject({
+export const EventIntakeFieldsSchema = z.strictObject({
   communitySlug: nullable(text(64)), title: nullable(text(120)), eventDate: nullable(text(10)),
   timeTba: nullable(z.boolean()), timezone: nullable(text(64)),
   start: nullable(EventIntakeLocalTimeSchema), end: nullable(EventIntakeLocalTimeSchema), doors: nullable(EventIntakeLocalTimeSchema),
   venueLabel: nullable(text(120)), summary: nullable(text(240)), sourceUrl: nullable(text(2048)),
   worldSlug: nullable(text(64)),
-  sourceText: nullable(text(12_000)), posterSourceId: nullable(text(200)), posterSourceIds: nullable(posterIds),
+  sourceText: nullable(text(12_000)), posterSourceId: nullable(text(200).min(1)),
   posterDeclaration: nullable(EventPosterDeclarationSchema),
   lineup: nullable(z.array(EventIntakeLineupSchema).max(80)),
 });
-export const EventIntakeFieldsSchema = EventIntakeFieldsBaseSchema.refine(consistentPosterIds, "Poster source IDs disagree.");
-export const EventIntakePatchSchema = EventIntakeFieldsSchema.safeExtend({
+export const EventIntakePatchSchema = EventIntakeFieldsSchema.extend({
   // Candidates are private and never become canonical until copied into ordinary fields.
   tentative: nullable(EventIntakeFieldsSchema),
   evidence: nullable(EventIntakeEvidenceSchema),
   questions: nullable(z.array(text(2800)).max(100)),
   duplicateAcknowledgements: nullable(z.array(text(200).min(1)).max(100)),
-}).strict().refine(consistentPosterIds, "Poster source IDs disagree.");
+}).strict();
 export const SaveEventIntakeDraftSchema = z.strictObject({
   draftId: text(200).min(1).optional(), expectedVersion: z.number().int().positive().optional(), patch: EventIntakePatchSchema,
 }).refine(value => Boolean(value.draftId) === (value.expectedVersion !== undefined), "Existing drafts require expectedVersion.");
@@ -103,14 +98,13 @@ export const EventIntakeCandidateJsonSchema = z.toJSONSchema(EventIntakeCandidat
 const intakeId = text(200).min(1);
 const version = z.number().int().positive();
 export const EventIntakeDraftIdSchema = z.strictObject({ draftId: intakeId });
-export const ExtractEventIntakeSchema = EventIntakeDraftIdSchema.extend({ sourceText: text(12_000).optional(), posterAssetId: intakeId.optional(), posterAssetIds: posterIds.optional() })
-  .refine(value => !value.posterAssetId || !value.posterAssetIds || value.posterAssetIds[0] === value.posterAssetId, "Poster asset IDs disagree.");
+export const ExtractEventIntakeSchema = EventIntakeDraftIdSchema.extend({ sourceText: text(12_000).optional(), posterAssetId: intakeId.optional() });
 export const BeginEventPosterUploadSchema = EventIntakeDraftIdSchema.extend(EventPosterDeclarationSchema.shape);
 export const CompleteEventPosterUploadSchema = EventIntakeDraftIdSchema.extend({ posterAssetId: intakeId, expectedVersion: version.optional() });
-export const SelectEventArtworkSchema = CompleteEventPosterUploadSchema.omit({ posterAssetId: true }).extend({ posterAssetId: intakeId.nullable(), expectedVersion: version });
+export const SelectEventArtworkSchema = CompleteEventPosterUploadSchema.extend({ expectedVersion: version });
 export const UpdateEventContributionSchema = z.strictObject({
   slug: text(200).min(1), expectedUpdatedAt: z.number(),
-  patch: EventIntakeFieldsBaseSchema.pick({ title: true, eventDate: true, timeTba: true, timezone: true, start: true, end: true, doors: true, venueLabel: true, worldSlug: true, sourceUrl: true, summary: true, lineup: true }),
+  patch: EventIntakeFieldsSchema.pick({ title: true, eventDate: true, timeTba: true, timezone: true, start: true, end: true, doors: true, venueLabel: true, worldSlug: true, sourceUrl: true, summary: true, lineup: true }),
   duplicateAcknowledgements: z.array(intakeId).max(100).optional(),
 });
 export const RetractEventContributionSchema = z.strictObject({ slug: text(200).min(1) });
@@ -135,7 +129,7 @@ export const eventIntakeOperations = {
   publish: { input: PublishEventIntakeSchema, output: PublishedEventIntakeSchema, method: "POST", path: "/event-intake/{draftId}/publish" },
   poster_upload_begin: { input: BeginEventPosterUploadSchema, output: EventPosterUploadSchema, method: "POST", path: "/event-intake/{draftId}/poster-upload/begin" },
   poster_upload_complete: { input: CompleteEventPosterUploadSchema, output: z.object({ posterAssetId: intakeId, artworkAssetId: intakeId.optional(), version }), method: "POST", path: "/event-intake/{draftId}/poster-upload/complete" },
-  artwork_select: { input: SelectEventArtworkSchema, output: z.object({ artworkAssetId: intakeId.nullable(), artworkSourceId: intakeId.nullable().optional(), version }), method: "POST", path: "/event-intake/{draftId}/artwork" },
+  artwork_select: { input: SelectEventArtworkSchema, output: z.object({ artworkAssetId: intakeId, version }), method: "POST", path: "/event-intake/{draftId}/artwork" },
   event_get: { input: GetEventContributionSchema, output: EventContributionReadSchema, method: "GET", path: "/events/{slug}/contribution" },
   event_update: { input: UpdateEventContributionSchema, output: EventContributionResultSchema, method: "PATCH", path: "/events/{slug}/contribution" },
   event_retract: { input: RetractEventContributionSchema, output: EventContributionResultSchema, method: "DELETE", path: "/events/{slug}/contribution" },

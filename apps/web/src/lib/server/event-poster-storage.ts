@@ -60,10 +60,10 @@ export function createEventPosterHandlers(deps: Dependencies) {
       const { display } = await bytes(posterAssetId);
       return `data:${display.mimeType};base64,${Buffer.from(display.body).toString("base64")}`;
     },
-    async selectPosterArtwork(input: { draftId: Id<"eventIntakeDrafts">; posterAssetId: Id<"eventPosterSources"> | null; expectedVersion: number; automatic?: boolean }) {
+    async selectPosterArtwork(input: { draftId: Id<"eventIntakeDrafts">; posterAssetId: Id<"eventPosterSources">; expectedVersion: number; automatic?: boolean }) {
       const authority = await deps.authority();
       const selected = await admin().mutation(internal.eventIntakeSources.selectPosterArtwork, { ...input, ...authority });
-      if (selected.skipped || selected.artworkAssetId === null) return { artworkAssetId: selected.artworkAssetId ?? null, artworkSourceId: null, version: selected.version };
+      if (selected.skipped) return { artworkAssetId: selected.artworkAssetId ?? null, artworkSourceId: null, version: selected.version };
       if (!selected.artworkAssetId) throw new Error("ARTWORK_NOT_READY");
       const artworkAssetId: Id<"eventPosterArtwork"> = selected.artworkAssetId;
       try {

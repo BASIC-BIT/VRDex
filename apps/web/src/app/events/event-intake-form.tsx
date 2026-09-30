@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { EventTimezonePicker } from "../_components/event-timezone-picker";
-import { EventIntakeSource, EventIntakeSuggestions, sourceIds, type IntakeSourceAction } from "./event-intake-source";
+import { EventIntakeSource, EventIntakeSuggestions, type IntakeSourceAction } from "./event-intake-source";
 import { candidatePatch, posterDeclaration, websiteIntakeCommand, EventIntakeCandidateSchema } from "@/lib/event-intake-source";
 import { EventPosterUploadSchema } from "../../../../../packages/api-contracts/src/event-intake";
 import { EventEditorSteps, type EventEditorStep } from "./event-editor-steps";
@@ -154,7 +154,6 @@ function ConnectedIntake({ draftId, initialCommunitySlug }: { draftId?: string; 
   const save = useMutation(api.eventIntake.saveEventIntakeDraft);
   const publish = useAction(api.eventIntake.publishEventIntake);
   const saved = useRef<{ draftId: Id<"eventIntakeDrafts">; version: number; fields: string } | null>(null);
-  const selectedArtwork = useRef<string | null | undefined>(undefined);
   const request = useRef<{ key: string; version: number } | null>(null);
   async function saveFields(fields: EventIntakeFields, initialVersion: number) {
     const serialized = JSON.stringify(fields);
@@ -168,16 +167,14 @@ function ConnectedIntake({ draftId, initialCommunitySlug }: { draftId?: string; 
   const sourceAction: IntakeSourceAction = async (action, fields, revision, file, onStaged) => {
     if (action === "read") return websiteIntakeCommand("poster_read", { posterAssetId: fields.posterSourceId }).then(result => ({ preview: result.dataUrl }));
     const targetSourceId = fields.posterSourceId;
-    // Artwork/remove commands use the singular ID as their target, never as a changed source order.
-    let next: EventIntakeFields = { ...fields, posterSourceId: sourceIds(fields)[0] ?? null };
+    let next: EventIntakeFields = { ...fields };
     if (action === "upload") {
       if (!file) throw new Error("INVALID_POSTER");
       const declaration = await posterDeclaration(file);
       next = { ...next, posterDeclaration: declaration };
       const current = await saveFields(next, revision);
       const upload = EventPosterUploadSchema.parse(await websiteIntakeCommand("poster_upload_begin", { draftId: current.draftId, ...declaration }));
-      next = { ...next, posterSourceIds: [...sourceIds(next), upload.posterAssetId], posterDeclaration: declaration, tentative: null, questions: null, evidence: null };
-      next.posterSourceId = next.posterSourceIds![0];
+      next = { ...next, posterSourceId: upload.posterAssetId, posterDeclaration: declaration, tentative: null, questions: null, evidence: null };
       const staged = await saveFields(next, revision);
       onStaged?.(next);
       const body = new FormData();
@@ -187,32 +184,20 @@ function ConnectedIntake({ draftId, initialCommunitySlug }: { draftId?: string; 
       if (!response.ok) throw new Error("UPLOAD_FAILED");
       const completed = await websiteIntakeCommand("poster_upload_complete", { draftId: staged.draftId, posterAssetId: upload.posterAssetId, expectedVersion: staged.version });
       saved.current = { ...staged, version: completed.version };
-      if (completed.artworkAssetId) selectedArtwork.current = upload.posterAssetId;
       return { fields: next, ...(completed.artworkAssetId ? { artworkSourceId: upload.posterAssetId } : {}) };
     }
     if (action === "remove") {
-      const ids = sourceIds(next).filter(id => id !== targetSourceId);
-      next = { ...next, posterSourceIds: ids, posterSourceId: ids[0] ?? null, tentative: null, questions: null, evidence: null };
+      next = { ...next, posterSourceId: null, posterDeclaration: null, tentative: null, questions: null, evidence: null };
     }
-    // Replay completion against its saved version before persisting any later local edits.
+    // Replay completion against its saved version before persisting later local edits.
     const current = action === "retry" && saved.current ? saved.current : await saveFields(next, revision);
     if (action === "retry") {
       const result = await websiteIntakeCommand("poster_upload_complete", { draftId: current.draftId, posterAssetId: targetSourceId, expectedVersion: current.version });
       saved.current = { ...current, version: result.version };
-      if (result.artworkAssetId) selectedArtwork.current = targetSourceId;
       return { fields: next, ...(result.artworkAssetId ? { artworkSourceId: targetSourceId } : {}) };
     }
-    if (action === "artwork" || action === "remove") {
-      if (action === "remove") {
-        onStaged?.(next);
-        if (targetSourceId !== (selectedArtwork.current === undefined ? loaded?.artworkSourceId : selectedArtwork.current)) return { fields: next };
-      }
-      const result = await websiteIntakeCommand("artwork_select", { draftId: current.draftId, posterAssetId: action === "remove" ? null : targetSourceId, expectedVersion: current.version });
-      saved.current = { ...current, version: result.version };
-      selectedArtwork.current = result.artworkSourceId ?? (action === "artwork" ? targetSourceId : null);
-      return { fields: next, artworkSourceId: selectedArtwork.current };
-    }
-    const candidate = EventIntakeCandidateSchema.parse(await websiteIntakeCommand("extract", { draftId: current.draftId, ...(next.sourceText ? { sourceText: next.sourceText } : {}), ...(sourceIds(next).length ? { posterAssetIds: sourceIds(next) } : {}) }));
+    if (action === "remove") { onStaged?.(next); return { fields: next, artworkSourceId: null }; }
+    const candidate = EventIntakeCandidateSchema.parse(await websiteIntakeCommand("extract", { draftId: current.draftId, ...(next.sourceText ? { sourceText: next.sourceText } : {}), ...(next.posterSourceId ? { posterAssetId: next.posterSourceId } : {}) }));
     next = { ...next, ...candidatePatch(candidate) };
     // Save against the version that supplied the source, never a refreshed query revision.
     await saveFields(next, revision);

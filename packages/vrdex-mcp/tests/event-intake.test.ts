@@ -18,15 +18,15 @@ test("intake client carries bearer authority and uses the shared wire paths", as
   await assert.rejects(client.eventIntake("draft_save", { patch: { title: "Night" }, actorUserId: "forged" }));
 });
 
-test("intake client preserves ordered and singular source inputs", async () => {
+test("intake client preserves singular source inputs", async () => {
   const bodies: unknown[] = [];
   const client = createVrdexApiClient({ apiBaseUrl: "http://127.0.0.1/api/v0", bearerToken: "test", outputMode: "compact", fetch: async (_url, init) => {
     bodies.push(JSON.parse(String(init?.body)));
     return Response.json(bodies.length === 1 ? { draftId: "draft", version: 2 } : { event: { title: null, communitySlug: null, eventDate: null, start: null, end: null, startDate: null, endDate: null, timezone: null, venueLabel: null, summary: null, sourceUrl: null }, lineup: [], evidence: [], questions: [] });
   } });
-  await client.eventIntake("draft_save", { draftId: "draft", expectedVersion: 1, patch: { posterSourceIds: ["a", "b"] } });
+  await client.eventIntake("draft_save", { draftId: "draft", expectedVersion: 1, patch: { posterSourceId: "a" } });
   await client.eventIntake("extract", { draftId: "draft", posterAssetId: "a" });
-  assert.deepEqual(bodies, [{ draftId: "draft", expectedVersion: 1, patch: { posterSourceIds: ["a", "b"] } }, { posterAssetId: "a" }]);
+  assert.deepEqual(bodies, [{ draftId: "draft", expectedVersion: 1, patch: { posterSourceId: "a" } }, { posterAssetId: "a" }]);
 });
 
 test("poster bridge rejects source URLs and unconfigured upload origins before network access", async () => {

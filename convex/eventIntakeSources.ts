@@ -55,9 +55,8 @@ export const completePosterUpload = internalMutation({ args: { ...actor, ...sour
     if (draft.version !== args.expectedVersion && (!selectedArtwork || selectedArtwork.appliedDraftVersion !== args.expectedVersion + 1)) throw new Error("VERSION_CONFLICT");
   }
   if (source.state !== "ready") await ctx.db.patch(source._id, { state: "ready", lastActivityAt: draft.updatedAt, expiresAt: Math.min(source.uploadedAt + 180 * DAY, draft.updatedAt + 30 * DAY, Date.now() + DAY) });
-  const ordered = draft.fields.posterSourceIds as string[] | undefined;
-  const first = ordered ? ordered[0] : draft.fields.posterSourceId;
-  const autoSourceId = !draft.artworkAssetId && (!draft.artworkIntentSourceId || draft.artworkIntentSourceId === source._id) && (ordered ? first === source._id : !first || first === source._id) ? source._id : undefined;
+  const currentSource = draft.fields.posterSourceId;
+  const autoSourceId = !draft.artworkAssetId && (!draft.artworkIntentSourceId || draft.artworkIntentSourceId === source._id) && (currentSource === undefined || currentSource === source._id) ? source._id : undefined;
   if (autoSourceId && !draft.artworkIntentSourceId) await ctx.db.patch(draft._id, { artworkIntentSourceId: source._id });
   return { version: draft.version, artworkAssetId: draft.artworkSourceId === source._id ? draft.artworkAssetId : undefined, autoSourceId };
 } });
@@ -68,26 +67,12 @@ export const getPosterSource = query({ args: sourceArg, returns: v.any(), handle
   if (source.actorUserId !== userId && !(await getAccountFeatureAccess(ctx.db, userId)).superAdmin) throw new Error("POSTER_NOT_FOUND");
   return source;
 } });
-export const selectPosterArtwork = internalMutation({ args: { ...actor, posterAssetId: v.union(v.id("eventPosterSources"), v.null()), draftId: v.id("eventIntakeDrafts"), expectedVersion: v.number(), automatic: v.optional(v.boolean()) }, returns: v.any(), handler: async (ctx, args) => {
+export const selectPosterArtwork = internalMutation({ args: { ...actor, ...sourceArg, draftId: v.id("eventIntakeDrafts"), expectedVersion: v.number(), automatic: v.optional(v.boolean()) }, returns: v.any(), handler: async (ctx, args) => {
   const draft = await getActorIntakeDraft(ctx.db, args.actorUserId, args.draftId);
   if (draft.publishedReceiptId) throw new Error("DRAFT_PUBLISHED");
   if (draft.version !== args.expectedVersion) throw new Error("VERSION_CONFLICT");
-  const ordered = draft.fields.posterSourceIds as string[] | undefined;
-  let sourceId = args.posterAssetId;
-  if (sourceId === null) {
-    for (const rawId of ordered ?? []) {
-      const id = ctx.db.normalizeId("eventPosterSources", rawId);
-      const candidate = id && await ctx.db.get(id);
-      if (candidate?.actorUserId === args.actorUserId && candidate.draftId === draft._id && candidate.state === "ready" && await sourceExpiry(ctx.db, candidate) > Date.now()) { sourceId = id; break; }
-    }
-    if (sourceId === null) {
-      if (!draft.artworkAssetId && !draft.artworkIntentSourceId) return { artworkAssetId: null, version: draft.version };
-      await ctx.db.patch(draft._id, { artworkAssetId: undefined, artworkIntentSourceId: undefined, version: draft.version + 1, updatedAt: Date.now() });
-      return { artworkAssetId: null, version: draft.version + 1 };
-    }
-  }
-  if (args.automatic && (draft.artworkAssetId || (draft.artworkIntentSourceId && draft.artworkIntentSourceId !== sourceId) || (ordered ? ordered[0] !== sourceId : draft.fields.posterSourceId && draft.fields.posterSourceId !== sourceId))) return { artworkAssetId: null, version: draft.version, skipped: true };
-  if (ordered && !ordered.includes(sourceId)) throw new Error("POSTER_DRAFT_MISMATCH");
+  const sourceId = args.posterAssetId;
+  if (args.automatic && (draft.artworkAssetId || (draft.artworkIntentSourceId && draft.artworkIntentSourceId !== sourceId) || (draft.fields.posterSourceId !== undefined && draft.fields.posterSourceId !== sourceId))) return { artworkAssetId: null, version: draft.version, skipped: true };
   const source = await ownSource(ctx.db, args.actorUserId, sourceId);
   if (source.draftId !== draft._id || source.state !== "ready") throw new Error("POSTER_NOT_READY");
   await ctx.db.patch(draft._id, { artworkIntentSourceId: source._id });
@@ -112,9 +97,7 @@ export const completeArtwork = internalMutation({ args: { ...actor, artworkAsset
     return { artworkAssetId: artwork._id, version: draft.version };
   }
   if (draft.publishedReceiptId || draft.version !== args.expectedVersion) throw new Error("VERSION_CONFLICT");
-  const ordered = draft.fields.posterSourceIds as string[] | undefined;
-  if (ordered && !ordered.includes(artwork.sourceId)) throw new Error("POSTER_DRAFT_MISMATCH");
-  if (args.automatic ? draft.artworkAssetId || draft.artworkIntentSourceId !== artwork.sourceId || (ordered ? ordered[0] !== artwork.sourceId : draft.fields.posterSourceId && draft.fields.posterSourceId !== artwork.sourceId) : draft.artworkIntentSourceId !== artwork.sourceId) throw new Error("VERSION_CONFLICT");
+  if (args.automatic ? draft.artworkAssetId || draft.artworkIntentSourceId !== artwork.sourceId || (draft.fields.posterSourceId !== undefined && draft.fields.posterSourceId !== artwork.sourceId) : draft.artworkIntentSourceId !== artwork.sourceId) throw new Error("VERSION_CONFLICT");
   if (!/^[a-f0-9]{64}$/.test(args.sha256) || !Number.isSafeInteger(args.byteLength) || args.byteLength < 1 || args.byteLength > EVENT_POSTER_MAX_BYTES) throw new Error("ARTWORK_INVALID");
   await ownSource(ctx.db, args.actorUserId, artwork.sourceId);
   await ctx.db.patch(artwork._id, { state: "ready", sha256: args.sha256, byteLength: args.byteLength, appliedDraftVersion: draft.version + 1, expiresAt: Date.now() + 30 * DAY });
@@ -130,13 +113,11 @@ export const publicArtwork = query({ args: { artworkAssetId: v.string() }, retur
   if (artwork?.state !== "published" || !event || event.publicationState !== "published" || event.moderationRemovedAt !== undefined || event.posterImageUrl !== `/api/v0/events/${event._id}/artwork/${artwork._id}` || !community || !canReadProfile("public", community)) return null;
   return { eventId: event._id, storageKey: artwork.storageKey, contentType: "image/webp", byteLength: artwork.byteLength };
 } });
-export const authorizeExtraction = internalMutation({ args: { ...actor, draftId: v.id("eventIntakeDrafts"), posterAssetId: v.optional(v.id("eventPosterSources")), posterAssetIds: v.optional(v.array(v.id("eventPosterSources"))), reserveQuota: v.optional(v.boolean()) }, returns: v.any(), handler: async (ctx, args) => {
+export const authorizeExtraction = internalMutation({ args: { ...actor, draftId: v.id("eventIntakeDrafts"), posterAssetId: v.optional(v.id("eventPosterSources")), reserveQuota: v.optional(v.boolean()) }, returns: v.any(), handler: async (ctx, args) => {
   const draft = await getActorIntakeDraft(ctx.db, args.actorUserId, args.draftId);
   if (draft.publishedReceiptId) throw new Error("DRAFT_PUBLISHED");
-  const ids = args.posterAssetIds ?? (args.posterAssetId ? [args.posterAssetId] : []);
-  if (ids.length > 5 || new Set(ids).size !== ids.length || (args.posterAssetId && args.posterAssetIds && ids[0] !== args.posterAssetId)) throw new Error("POSTER_INPUT_INVALID");
-  for (const id of ids) {
-    const source = await ownSource(ctx.db, args.actorUserId, id);
+  if (args.posterAssetId) {
+    const source = await ownSource(ctx.db, args.actorUserId, args.posterAssetId);
     if (source.draftId !== draft._id || source.state !== "ready") throw new Error("POSTER_NOT_READY");
   }
   if (args.reserveQuota !== false) {

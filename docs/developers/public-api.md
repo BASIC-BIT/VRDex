@@ -12,11 +12,11 @@ Application-only credentials cannot use these routes.
 | `POST /api/v0/event-intake` | Save a partial draft, optionally using `draftId` and `expectedVersion` to update it. |
 | `GET /api/v0/event-intake/{draftId}` | Read the actor's draft and published receipt ID. |
 | `PATCH /api/v0/event-intake/{draftId}` | Update a draft with `expectedVersion` and `patch`. |
-| `POST /api/v0/event-intake/{draftId}/extract` | Propose fields from text, up to five private images, or both. |
+| `POST /api/v0/event-intake/{draftId}/extract` | Propose fields from text, one private poster, or both. |
 | `POST /api/v0/event-intake/{draftId}/publish` | Publish with `expectedVersion` and `idempotencyKey`. |
 | `POST /api/v0/event-intake/{draftId}/poster-upload/begin` | Reserve a private image upload with MIME type, byte count, and SHA-256. |
-| `POST /api/v0/event-intake/{draftId}/poster-upload/complete` | Validate the source, prepare first-image artwork when eligible, and return the draft version. |
-| `POST /api/v0/event-intake/{draftId}/artwork` | Select another source, or pass `posterAssetId: null` after removal to choose the next ready image or clear artwork. |
+| `POST /api/v0/event-intake/{draftId}/poster-upload/complete` | Validate the source, prepare poster artwork when eligible, and return the draft version. |
+| `POST /api/v0/event-intake/{draftId}/artwork` | Prepare artwork from a singular ready source. |
 | `GET /api/v0/events/{slug}/contribution` | Read the actor's canonical editable fields and `updatedAt` revision. |
 | `PATCH /api/v0/events/{slug}/contribution` | Correct the actor's contribution before staff takeover, using `expectedUpdatedAt`. |
 | `DELETE /api/v0/events/{slug}/contribution` | Retract the actor's contribution before staff takeover. |
@@ -28,23 +28,22 @@ a draft field, `null` clears it, and candidates remain tentative. Saving returns
 After a lost response, read the draft or replay publication with the exact same
 draft, version, and key. A changed request with the same key conflicts.
 
-Draft patches accept up to five unique, ordered `posterSourceIds`. Save validates
-each new list entry against the signed-in actor and draft, including uploads
-still pending completion. The singular `posterSourceId` remains accepted as an
-opaque private reference for older clients. Extraction accepts ordered
-`posterAssetIds` or the older singular `posterAssetId`; every supplied image
-must be ready, unexpired, and owned by that actor and draft before quota is
-reserved. A singular value supplied alongside a list must match its first ID.
-Candidate evidence has at most 40 private entries, with nullable `posterIndex`
-for zero-based image attribution. Candidate event and lineup times may include
-nullable ISO `startDate` and `endDate`. Extraction sends supplied text and each authorized image in order through one
-bounded discovery run, with a 20 MB prepared-image data-URL ceiling. Missing
-model configuration retains the manual fallback.
+Draft patches accept one `posterSourceId`. Save validates its actor and draft,
+including pending uploads. Save a new ID to replace the poster, or null to
+remove it and clear artwork atomically. Existing private drafts can become
+empty; new drafts require meaningful input. Extraction accepts one
+`posterAssetId`, which must be ready, unexpired and owned by the same actor and
+draft before quota is reserved. Text and the poster enter one bounded discovery
+run, with a 20 MB prepared-image data-URL ceiling. Candidate evidence has at
+most 40 private entries with text, poster, lookup or calculation origin.
+Event and lineup times may include nullable ISO `startDate` and `endDate`.
+Missing model configuration retains the manual fallback.
 
-Artwork selection responses include `artworkSourceId`, or null when cleared.
-After removing the selected image, pass `posterAssetId: null` so the server picks
-the next ready source; use the returned source ID rather than assuming the first
-remaining upload is ready.
+The existing `artwork_select` command accepts a non-null singular source ID and
+returns `artworkAssetId` and `version`. Draft reads expose `artworkSourceId` for
+preview. Completion prepares artwork automatically, supports failed-derivative
+retry, and rejects stale versions. Removed or replaced sources cannot win a
+late automatic completion.
 
 `GET /api/v0/events/{eventId}/artwork/{artworkAssetId}` returns only the separately
 selected WebP for that currently public event. It checks both IDs and current

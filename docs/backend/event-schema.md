@@ -137,7 +137,7 @@ The legacy owner editor continues using its existing slot and participant writes
 
 The owner/staff editor uses the shared Source, Details, Lineup, and Review
 navigation. Source retains the existing poster URL and media/link fields;
-private multi-image intake remains a separate contributor workflow. Details
+private single-poster intake remains a separate contributor workflow. Details
 contains the current title, description, timing, timezone, and applicable venue
 controls. Lineup shows matched public portraits or initials beside timed and
 untimed performers, with timed rows displaying their actual event-local dates.

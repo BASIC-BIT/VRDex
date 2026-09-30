@@ -25,29 +25,24 @@ community authority.
 Website and MCP drafts interoperate. Save the returned `draftId` and `version`.
 Publication returns `eventId`, `eventPath`, and `receiptId`. After a lost response,
 read the draft and replay publication with the same version and idempotency key.
-Never make a new draft or key just because the response was lost. Save ordered
-`posterSourceIds` before upload completion, then use the completion response's
-`version` for the next save. Pass the saved draft `version` as `expectedVersion`
-to completion when another editor may change the draft during upload. The first
-image in that order becomes artwork once ready.
-Use `artwork_select` to switch it, or pass `posterAssetId: null` after removal
-to choose the next ready source or clear artwork when the list is empty.
-Selection returns `artworkSourceId`, or null when cleared, with the asset ID and
-version. Use that returned source because earlier remaining uploads may be pending.
-Call `event_get` with the published slug to obtain `updatedAt` before
-`event_update`; pass that revision as `expectedUpdatedAt`.
+Never make a new draft or key just because the response was lost. Save the
+singular `posterSourceId` before upload completion, then use completion's returned
+`version` for the next save. Pass that saved version as `expectedVersion` when
+another editor may change the draft during upload. Completion prepares the
+poster's artwork automatically. Retry completion after a failed derivative or
+lost response. Save a replacement ID to replace artwork, or null to remove it
+atomically. The existing `artwork_select` tool still accepts a non-null singular
+source ID and returns the asset ID and version. Draft reads return
+`artworkSourceId` for preview. Call `event_get` with the published slug to obtain
+`updatedAt` before `event_update`; pass it as `expectedUpdatedAt`.
 
-`draft_save` accepts an ordered `posterSourceIds` list of up to five unique
-private upload IDs. Save checks that each list entry belongs to the actor and
-draft, and permits pending uploads. The older singular `posterSourceId` remains
-accepted as an opaque draft reference. `extract` accepts ordered
-`posterAssetIds` or the legacy singular `posterAssetId`; each extraction source
-must be ready and valid for the same actor and draft before quota is reserved.
-If both forms appear, the singular ID must match the first list entry. Text and the authorized images enter one bounded discovery run in the supplied
-order, with a 20 MB prepared-image data-URL ceiling. Missing model configuration
-retains the manual fallback. Candidate evidence remains private, capped at
-40 entries, and can identify a zero-based `posterIndex`; candidate event and
-lineup times can carry nullable ISO `startDate` and `endDate`.
+`draft_save` accepts one private `posterSourceId`, validates its actor and draft,
+and permits pending uploads. `extract` accepts one `posterAssetId`, which must
+be ready and valid for the same actor and draft before quota is reserved.
+Optional text and the poster enter one bounded discovery run, with a 20 MB
+prepared-image data-URL ceiling. Missing model configuration retains manual
+entry. Candidate evidence remains private, capped at 40 entries with its origin;
+event and lineup times can carry nullable ISO `startDate` and `endDate`.
 
 The local-only `vrdex_event_intake_poster_upload_bytes` helper accepts `draftId`,
 `contentType`, and base64 content explicitly supplied from a chosen local file.

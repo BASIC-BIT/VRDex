@@ -174,16 +174,8 @@ paths:
                     posterSourceId:
                       anyOf:
                         - type: string
+                          minLength: 1
                           maxLength: 200
-                        - type: "null"
-                    posterSourceIds:
-                      anyOf:
-                        - maxItems: 5
-                          type: array
-                          items:
-                            type: string
-                            minLength: 1
-                            maxLength: 200
                         - type: "null"
                     posterDeclaration:
                       anyOf:
@@ -399,16 +391,8 @@ paths:
                             posterSourceId:
                               anyOf:
                                 - type: string
+                                  minLength: 1
                                   maxLength: 200
-                                - type: "null"
-                            posterSourceIds:
-                              anyOf:
-                                - maxItems: 5
-                                  type: array
-                                  items:
-                                    type: string
-                                    minLength: 1
-                                    maxLength: 200
                                 - type: "null"
                             posterDeclaration:
                               anyOf:
@@ -527,12 +511,6 @@ paths:
                                   - poster
                                   - lookup
                                   - calculation
-                              posterIndex:
-                                anyOf:
-                                  - type: integer
-                                    minimum: 0
-                                    maximum: 4
-                                  - type: "null"
                               excerpt:
                                 anyOf:
                                   - type: string
@@ -547,7 +525,6 @@ paths:
                             required:
                               - fieldPath
                               - origin
-                              - posterIndex
                               - excerpt
                               - assessment
                             additionalProperties: false
@@ -789,16 +766,8 @@ paths:
                       posterSourceId:
                         anyOf:
                           - type: string
+                            minLength: 1
                             maxLength: 200
-                          - type: "null"
-                      posterSourceIds:
-                        anyOf:
-                          - maxItems: 5
-                            type: array
-                            items:
-                              type: string
-                              minLength: 1
-                              maxLength: 200
                           - type: "null"
                       posterDeclaration:
                         anyOf:
@@ -1014,16 +983,8 @@ paths:
                               posterSourceId:
                                 anyOf:
                                   - type: string
+                                    minLength: 1
                                     maxLength: 200
-                                  - type: "null"
-                              posterSourceIds:
-                                anyOf:
-                                  - maxItems: 5
-                                    type: array
-                                    items:
-                                      type: string
-                                      minLength: 1
-                                      maxLength: 200
                                   - type: "null"
                               posterDeclaration:
                                 anyOf:
@@ -1142,12 +1103,6 @@ paths:
                                     - poster
                                     - lookup
                                     - calculation
-                                posterIndex:
-                                  anyOf:
-                                    - type: integer
-                                      minimum: 0
-                                      maximum: 4
-                                    - type: "null"
                                 excerpt:
                                   anyOf:
                                     - type: string
@@ -1162,7 +1117,6 @@ paths:
                               required:
                                 - fieldPath
                                 - origin
-                                - posterIndex
                                 - excerpt
                                 - assessment
                               additionalProperties: false
@@ -1367,16 +1321,8 @@ paths:
                     posterSourceId:
                       anyOf:
                         - type: string
+                          minLength: 1
                           maxLength: 200
-                        - type: "null"
-                    posterSourceIds:
-                      anyOf:
-                        - maxItems: 5
-                          type: array
-                          items:
-                            type: string
-                            minLength: 1
-                            maxLength: 200
                         - type: "null"
                     posterDeclaration:
                       anyOf:
@@ -1592,16 +1538,8 @@ paths:
                             posterSourceId:
                               anyOf:
                                 - type: string
+                                  minLength: 1
                                   maxLength: 200
-                                - type: "null"
-                            posterSourceIds:
-                              anyOf:
-                                - maxItems: 5
-                                  type: array
-                                  items:
-                                    type: string
-                                    minLength: 1
-                                    maxLength: 200
                                 - type: "null"
                             posterDeclaration:
                               anyOf:
@@ -1720,12 +1658,6 @@ paths:
                                   - poster
                                   - lookup
                                   - calculation
-                              posterIndex:
-                                anyOf:
-                                  - type: integer
-                                    minimum: 0
-                                    maximum: 4
-                                  - type: "null"
                               excerpt:
                                 anyOf:
                                   - type: string
@@ -1740,7 +1672,6 @@ paths:
                             required:
                               - fieldPath
                               - origin
-                              - posterIndex
                               - excerpt
                               - assessment
                             additionalProperties: false
@@ -1807,13 +1738,6 @@ paths:
                   type: string
                   minLength: 1
                   maxLength: 200
-                posterAssetIds:
-                  maxItems: 5
-                  type: array
-                  items:
-                    type: string
-                    minLength: 1
-                    maxLength: 200
               additionalProperties: false
       responses:
         "200":
@@ -1964,12 +1888,6 @@ paths:
                             - poster
                             - lookup
                             - calculation
-                        posterIndex:
-                          anyOf:
-                            - type: integer
-                              minimum: 0
-                              maximum: 4
-                            - type: "null"
                         excerpt:
                           anyOf:
                             - type: string
@@ -1984,7 +1902,6 @@ paths:
                       required:
                         - fieldPath
                         - origin
-                        - posterIndex
                         - excerpt
                         - assessment
                       additionalProperties: false
@@ -2354,19 +2271,17 @@ paths:
             schema:
               type: object
               properties:
+                posterAssetId:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
                 expectedVersion:
                   type: integer
                   exclusiveMinimum: 0
                   maximum: 9007199254740991
-                posterAssetId:
-                  anyOf:
-                    - type: string
-                      minLength: 1
-                      maxLength: 200
-                    - type: "null"
               required:
-                - expectedVersion
                 - posterAssetId
+                - expectedVersion
               additionalProperties: false
       responses:
         "200":
@@ -2377,17 +2292,9 @@ paths:
                 type: object
                 properties:
                   artworkAssetId:
-                    anyOf:
-                      - type: string
-                        minLength: 1
-                        maxLength: 200
-                      - type: "null"
-                  artworkSourceId:
-                    anyOf:
-                      - type: string
-                        minLength: 1
-                        maxLength: 200
-                      - type: "null"
+                    type: string
+                    minLength: 1
+                    maxLength: 200
                   version:
                     type: integer
                     exclusiveMinimum: 0
@@ -2571,16 +2478,8 @@ paths:
                       posterSourceId:
                         anyOf:
                           - type: string
+                            minLength: 1
                             maxLength: 200
-                          - type: "null"
-                      posterSourceIds:
-                        anyOf:
-                          - maxItems: 5
-                            type: array
-                            items:
-                              type: string
-                              minLength: 1
-                              maxLength: 200
                           - type: "null"
                       posterDeclaration:
                         anyOf:

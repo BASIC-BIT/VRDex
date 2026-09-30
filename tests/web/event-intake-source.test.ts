@@ -14,7 +14,7 @@ it("keeps extracted facts tentative and never guesses TBA, date offsets, or iden
 it("keeps dated lineup times and private source evidence tentative",()=>{
  const candidate={event:{title:"Night",communitySlug:null,eventDate:"2026-10-10",start:"22:00",end:null,startDate:"2026-10-10",endDate:null,timezone:"America/New_York",venueLabel:null,summary:null,sourceUrl:null},
   lineup:[{performerLabel:"DJ",personSlug:null,roleLabel:null,start:"00:30",end:null,startDate:"2026-10-11",endDate:null}],
-  evidence:[{fieldPath:"lineup.0.start",origin:"poster" as const,posterIndex:1,excerpt:"12:30 AM",assessment:"explicit" as const}],questions:[]};
+  evidence:[{fieldPath:"lineup.0.start",origin:"poster" as const,excerpt:"12:30 AM",assessment:"explicit" as const}],questions:[]};
  const patch=candidatePatch(candidate);
  assert.deepEqual(patch.tentative?.lineup?.[0]?.start,{time:"00:30",dayOffset:1});
  assert.deepEqual(patch.evidence,candidate.evidence);

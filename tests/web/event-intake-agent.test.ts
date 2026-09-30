@@ -69,30 +69,25 @@ it("passes poster instructions only as private image input and cannot execute mu
  }});
  assert.equal(calls,1);assert.equal(result.questions[0]?.reason,"invalid_tool");
 });
-it("sends authorized text and ordered images in one bounded request",async()=>{
- const reads:string[]=[]; let authorized:string[]=[]; let requests=0;
- const candidate=blank(); candidate.evidence=[{fieldPath:"event.title",origin:"poster",posterIndex:1,excerpt:"Night",assessment:"explicit"}];
- const result=await extractEventIntake({draftId:"draft",sourceText:"Doors at 8",posterAssetIds:["first","second"]},{...base,
-  authorize:async input=>{authorized=input.posterAssetIds??[];return{actorUserId:"actor",version:1};},
+it("sends authorized text and one poster in one bounded request",async()=>{
+ const reads:string[]=[]; let authorized:string|undefined; let requests=0;
+ const candidate=blank(); candidate.evidence=[{fieldPath:"event.title",origin:"poster",excerpt:"Night",assessment:"explicit"}];
+ const result=await extractEventIntake({draftId:"draft",sourceText:"Doors at 8",posterAssetId:"poster"},{...base,
+  authorize:async input=>{authorized=input.posterAssetId;return{actorUserId:"actor",version:1};},
   readPoster:async id=>{reads.push(id);return "data:image/png;base64,AAAA";},
   fetchImplementation:async(_url:unknown,init:RequestInit)=>{requests++;const body=JSON.parse(String(init.body));
    assert.deepEqual(body.input[0].content,[{type:"input_text",text:"Doors at 8"},
-    {type:"input_image",image_url:"data:image/png;base64,AAAA",detail:"high"},
     {type:"input_image",image_url:"data:image/png;base64,AAAA",detail:"high"}]);return response(candidate);}
  });
- assert.deepEqual(authorized,["first","second"]);assert.deepEqual(reads,["first","second"]);assert.equal(requests,1);assert.equal(result.evidence[0]?.posterIndex,1);
+ assert.equal(authorized,"poster");assert.deepEqual(reads,["poster"]);assert.equal(requests,1);assert.deepEqual(result.evidence,candidate.evidence);
 });
-it("rejects invalid poster evidence and image limits before provider work",async()=>{
- let requests=0;const deps={...base,readPoster:async()=>"data:image/png;base64,AAAA",fetchImplementation:async()=>{requests++;return response(blank());}};
- const bad=blank();bad.evidence=[{fieldPath:"event.title",origin:"poster",posterIndex:2,excerpt:"Night",assessment:"explicit"}];
- assert.equal((await extractEventIntake({draftId:"draft",posterAssetIds:["first"]},{...deps,fetchImplementation:async()=>{requests++;return response(bad);}})).questions[0]?.reason,"invalid_response");
- await assert.rejects(extractEventIntake({draftId:"draft",posterAssetIds:["a","b","c","d","e","f"]},deps),/EXTRACTION_INPUT_INVALID/);
- const image="data:image/png;base64,"+"A".repeat(10_000_000);
- assert.ok(image.length<20_000_000);
- let reads=0;
- assert.equal((await extractEventIntake({draftId:"draft",posterAssetIds:["a","b"]},{...deps,readPoster:async()=>{reads++;return image;}})).questions[0]?.reason,"invalid_poster");
- assert.equal(reads,2);
- assert.equal(requests,1);
+it("rejects invalid or oversized poster input before provider work",async()=>{
+ let requests=0;const deps={...base,fetchImplementation:async()=>{requests++;return response(blank());}};
+ for(const image of ["https://private.test/poster.png",`data:image/png;base64,${"A".repeat(20_000_004)}`]) {
+  assert.equal((await extractEventIntake({draftId:"draft",posterAssetId:"poster"},{...deps,readPoster:async()=>image})).questions[0]?.reason,"invalid_poster");
+ }
+ await assert.rejects(extractEventIntake({draftId:"draft"},deps),/EXTRACTION_INPUT_INVALID/);
+ assert.equal(requests,0);
 });
 it("asks for an undated after-midnight lineup start",async()=>{
  const candidate=blank();Object.assign(candidate.event,{eventDate:"2026-10-10",start:"22:00",timezone:"America/New_York"});
@@ -100,11 +95,6 @@ it("asks for an undated after-midnight lineup start",async()=>{
  const result=await extractEventIntake({draftId:"draft",sourceText:"Night"},{...base,fetchImplementation:async()=>response(candidate)});
  assert.ok(result.questions.some(question=>question.fieldPath==="lineup.0.start"&&question.reason==="start_date_required"));
  assert.equal(result.lineup[0]?.startDate,null);
-});
-it("attributes singular legacy poster evidence to its only image",async()=>{
- const candidate=blank();candidate.evidence=[{fieldPath:"event.title",origin:"poster",posterIndex:null,excerpt:"Night",assessment:"explicit"}];
- const result=await extractEventIntake({draftId:"draft",posterAssetId:"legacy"},{...base,readPoster:async()=>"data:image/png;base64,AAAA",fetchImplementation:async()=>response(candidate)});
- assert.equal(result.evidence[0]?.posterIndex,0);
 });
 it("refuses tool floods and invalid lookup arguments before callback execution",async()=>{
  let lookups=0;
@@ -214,9 +204,8 @@ it("renews stale artwork selection and recovers a key written after cleanup", as
   objects.set(input.storageKey,{body:input.body,contentType:input.contentType});
  }});
  const declaration={draftId,contentType:"image/png",byteLength:body.length,sha256:createHash("sha256").update(body).digest("hex")};
- const pending=await handlers.beginPosterUpload(declaration);
  const started=await handlers.beginPosterUpload(declaration);objects.set(uploadKey,{body,contentType:"image/png"});
- await t.run(ctx=>ctx.db.patch(draftId,{fields:{title:"Night",posterSourceIds:[pending.posterAssetId,started.posterAssetId],posterSourceId:pending.posterAssetId}}));
+ await t.run(ctx=>ctx.db.patch(draftId,{fields:{title:"Night",posterSourceId:null}}));
  phase="expired-source-preparation";
  try { await assert.rejects(handlers.completePosterUpload({posterAssetId:started.posterAssetId}),/POSTER_WRITE_EXPIRED/); } finally { Date.now=originalNow; }
  assert.equal(writeAttempts,0,"expired source preparation must never start a copy");
@@ -225,7 +214,7 @@ it("renews stale artwork selection and recovers a key written after cleanup", as
  const reserved=await t.mutation(internal.eventIntakeSources.selectPosterArtwork,args);
  await t.run(ctx=>ctx.db.patch(reserved.artworkAssetId,{expiresAt:0}));
  phase="retry";
- const selection=await handlers.selectPosterArtwork({...args,posterAssetId:null});
+ const selection=await handlers.selectPosterArtwork(args);
  assert.equal(selection.artworkSourceId,started.posterAssetId);
  assert.equal(preparationClaims,0,"renewal must prevent cleanup while the image is prepared");
  phase="expired-preparation";

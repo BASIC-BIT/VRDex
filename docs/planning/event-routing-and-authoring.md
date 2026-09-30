@@ -49,18 +49,17 @@ contribution needs a community, title and known date. An explicit Time TBA state
 needs no timezone; timed publication needs an IANA timezone and resolved local
 time. The date-only backend switch must be enabled after its migration.
 
-Manual entry, pasted text and up to five ordered private poster images share one
+Manual entry, pasted text and one private poster share one
 controlled versioned draft across the contributor steps. One extraction submits
-all current text and images together. Details and Lineup retain tentative values
+the current text and poster together. Details and Lineup retain tentative values
 for explicit acceptance, source evidence, and unresolved questions on resume.
 Changing sources invalidates suggestions and evidence while keeping accepted fields.
 Unavailable extraction stays on Source with visible feedback and manual Continue.
 
-The first chosen image becomes artwork after verified upload and processing.
-Contributors can explicitly select another primary image or remove an image.
-Removing the primary selects the first remaining image; removing a secondary
-preserves the explicit primary. Private evidence and public artwork derivatives
-remain separate. Uploads, primary changes, and saves retain draft version checks.
+The poster becomes artwork after verified upload and processing. A new upload
+replaces it; removal clears it. Private evidence and public artwork derivatives
+remain separate. Uploads and saves retain draft version checks. No gallery,
+primary-image selection or fallback remains in contributor intake.
 A failed completion response retains Retry even when the source preview is available.
 Retry replays completion before saving later edits and preserves conflict checks.
 
@@ -80,7 +79,7 @@ flowchart LR
   Community[Community page] --> Add
   Direct[Direct community or draft link] --> Auth[Sign in if needed and return]
   Add --> Auth
-  Auth --> Source[Source: text and images, or manual entry]
+  Auth --> Source[Source: one poster and optional text, or manual entry]
   Source --> Details[Details: accept or edit]
   Details --> Lineup[Lineup: people and local dates]
   Lineup --> Review[Review]

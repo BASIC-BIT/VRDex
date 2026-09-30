@@ -31,32 +31,22 @@ it("accepts poster-only, partial and explicit clearing patches", () => {
   assert.deepEqual(EventIntakePatchSchema.parse({ title: null, summary: "" }), { title: null, summary: "" });
   assert.ok(SaveEventIntakeDraftSchema.safeParse({ patch: { title: "Night" } }).success);
 });
-it("accepts ordered unique poster IDs and compatible singular clients", () => {
-  const ids = ["a", "b", "c", "d", "e"];
-  assert.deepEqual(EventIntakePatchSchema.parse({ posterSourceIds: ids }).posterSourceIds, ids);
-  assert.deepEqual(ExtractEventIntakeSchema.parse({ draftId: "draft", posterAssetIds: ids }).posterAssetIds, ids);
+it("accepts a singular poster and rejects removed plural contracts", () => {
   assert.equal(EventIntakePatchSchema.safeParse({ posterSourceId: "a" }).success, true);
-  assert.equal(ExtractEventIntakeSchema.safeParse({ draftId: "draft", posterAssetId: "a" }).success, true);
-  assert.equal(EventIntakePatchSchema.safeParse({ posterSourceId: "a", posterSourceIds: ids }).success, true);
-  assert.equal(ExtractEventIntakeSchema.safeParse({ draftId: "draft", posterAssetId: "a", posterAssetIds: ids }).success, true);
-  for (const bad of [[...ids, "f"], ["a", "a"]]) {
-    assert.equal(EventIntakePatchSchema.safeParse({ posterSourceIds: bad }).success, false);
-    assert.equal(ExtractEventIntakeSchema.safeParse({ draftId: "draft", posterAssetIds: bad }).success, false);
-  }
-  assert.equal(EventIntakePatchSchema.safeParse({ posterSourceId: "b", posterSourceIds: ids }).success, false);
-  assert.equal(EventIntakePatchSchema.safeParse({ posterSourceId: "a", posterSourceIds: null }).success, false);
-  assert.equal(EventIntakePatchSchema.safeParse({ posterSourceId: null, posterSourceIds: ids }).success, false);
-  assert.equal(ExtractEventIntakeSchema.safeParse({ draftId: "draft", posterAssetId: "b", posterAssetIds: ids }).success, false);
+  assert.equal(ExtractEventIntakeSchema.safeParse({ draftId: "draft", sourceText: "Night", posterAssetId: "a" }).success, true);
+  assert.equal(EventIntakePatchSchema.safeParse({ posterSourceIds: ["a"] }).success, false);
+  for (const posterSourceId of ["", " "]) assert.equal(EventIntakePatchSchema.safeParse({ posterSourceId }).success, false);
+  assert.equal(ExtractEventIntakeSchema.safeParse({ draftId: "draft", posterAssetIds: ["a"] }).success, false);
 });
 it("bounds private candidate evidence and identifies poster and date provenance", () => {
-  const candidate = { event: { title: null, communitySlug: null, eventDate: null, start: null, end: null, startDate: null, endDate: null, timezone: null, venueLabel: null, summary: null, sourceUrl: null }, lineup: [], evidence: [{ fieldPath: "event.title", origin: "poster", posterIndex: 0, excerpt: "Night", assessment: "explicit" }], questions: [] };
+  const candidate = { event: { title: null, communitySlug: null, eventDate: null, start: null, end: null, startDate: null, endDate: null, timezone: null, venueLabel: null, summary: null, sourceUrl: null }, lineup: [], evidence: [{ fieldPath: "event.title", origin: "poster", excerpt: "Night", assessment: "explicit" }], questions: [] };
   assert.equal(EventIntakeCandidateSchema.safeParse(candidate).success, true);
   assert.equal(EventIntakeCandidateSchema.safeParse({ ...candidate, event: { ...candidate.event, startDate: undefined } }).success, false);
   assert.equal(EventIntakeCandidateSchema.safeParse({ ...candidate, evidence: Array(41).fill(candidate.evidence[0]) }).success, false);
   assert.equal(EventIntakeCandidateSchema.safeParse({ ...candidate, event: { ...candidate.event, startDate: "2027-02-30" } }).success, false);
   const json = EventIntakeCandidateJsonSchema as unknown as { properties: { event: { required: string[] }; evidence: { items: { required: string[] } } } };
   assert.ok(json.properties.event.required.includes("startDate"));
-  assert.ok(json.properties.evidence.items.required.includes("posterIndex"));
+  assert.ok(!json.properties.evidence.items.required.includes("posterIndex"));
 });
 it("resolves normal times, DST gaps and repeated hours without silently choosing", () => {
   assert.deepEqual(resolveEventLocalTime("2027-03-14", { time: "02:30" }, "America/New_York"), []);

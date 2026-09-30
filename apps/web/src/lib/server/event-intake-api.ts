@@ -61,7 +61,7 @@ export function createEventIntakeCommands(deps: { actorUserId: Id<"users">; admi
       }
       case "artwork_select": {
         const input = SelectEventArtworkSchema.parse(raw);
-        result = await posters.selectPosterArtwork({ ...input, draftId: draftId(input.draftId), posterAssetId: input.posterAssetId === null ? null : posterAssetId(input.posterAssetId) });
+        result = await posters.selectPosterArtwork({ ...input, draftId: draftId(input.draftId), posterAssetId: posterAssetId(input.posterAssetId) });
         break;
       }
       case "event_update": {

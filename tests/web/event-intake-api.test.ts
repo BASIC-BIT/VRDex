@@ -115,25 +115,21 @@ it("rejects a poster completion bound to another draft", () => {
     await assert.rejects(run("poster_upload_begin",{draftId:"draft",sourceUrl:"https://internal.example/",contentType:"image/png",byteLength:1,sha256:"a".repeat(64)}));
   `);
 });
-it("accepts artwork clearing and returns its draft version", () => {
+it("rejects the removed artwork clearing command shape", () => {
   probe(`import assert from "node:assert/strict";
-    import {createEventIntakeCommands} from "./apps/web/src/lib/server/event-intake-api.ts";
-    const calls=[];
-    const run=createEventIntakeCommands({actorUserId:"actor",admin:{query:async()=>null,mutation:async(_ref,args)=>{calls.push(args);return{artworkAssetId:null,version:4};},action:async()=>null}});
-    assert.deepEqual(await run("artwork_select",{draftId:"draft",posterAssetId:null,expectedVersion:3}),{artworkAssetId:null,artworkSourceId:null,version:4});
-    assert.equal(calls[0].posterAssetId,null);
-    assert.equal(calls[0].actorUserId,"actor");
+    import {SelectEventArtworkSchema} from "./packages/api-contracts/src/event-intake.ts";
+    assert.equal(SelectEventArtworkSchema.safeParse({draftId:"draft",posterAssetId:null,expectedVersion:3}).success,false);
   `);
 });
-it("forwards ordered and legacy extraction sources to actor authorization", () => {
+it("forwards singular text and poster extraction sources to actor authorization", () => {
   probe(`import assert from "node:assert/strict";
     import {createEventIntakeCommands} from "./apps/web/src/lib/server/event-intake-api.ts";
     process.env.VRDEX_EVENT_INTAKE_AI_ENABLED="false";process.env.OPENAI_API_KEY="";
     const calls=[];
     const run=createEventIntakeCommands({actorUserId:"actor",admin:{query:async()=>{throw Error("unexpected query");},mutation:async(_ref,args)=>{calls.push(args);return {actorUserId:"actor",version:1};},action:async()=>{throw Error("unexpected action");}}});
-    await run("extract",{draftId:"draft",posterAssetIds:["a","b"]});
+    await run("extract",{draftId:"draft",sourceText:"Night",posterAssetId:"a"});
     await run("extract",{draftId:"draft",posterAssetId:"a"});
-    assert.deepEqual(calls.map(({posterAssetIds})=>posterAssetIds),[["a","b"],["a"]]);
+    assert.deepEqual(calls.map(({posterAssetId})=>posterAssetId),["a","a"]);
     assert.ok(calls.every(call=>call.actorUserId==="actor"&&call.reserveQuota===false));
   `);
 });

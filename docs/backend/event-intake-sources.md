@@ -27,32 +27,24 @@ source actor or an active `super_admin` reviewer. Profile-media intent consumers
 cannot promote these records because event evidence uses its own purpose-bound
 table and no profile asset row.
 
-Save `posterSourceIds` in the chosen order before completing uploads. Completion
-prepares the first image's artwork once that image is ready, regardless of which
-upload finishes first. A legacy single-image completion also prepares artwork.
-The command returns the current draft `version` and, when that source is selected,
-`artworkAssetId`. A failed derivative write fails completion and blocks
-publication while artwork preparation is pending. Retry the same completion to
-finish it, or remove the image. A ready source never needs another quarantine
-copy on retry.
+Save the singular `posterSourceId` before completing its upload. Completion
+prepares that poster's artwork automatically and returns the current draft
+`version` and `artworkAssetId`. A singular client can also complete before saving
+the reference. A failed derivative write fails completion and blocks publication.
+Retry the same completion to finish it, or remove the poster. A ready source
+never needs another quarantine copy on retry.
 
-Automatic and explicit selection use the same actor/draft checks, independent
-key, sanitized WebP derivative, and versioned commit. An explicit choice can
-replace the automatic choice. `artwork_select` with `posterAssetId: null` clears
-artwork when the ordered list is empty; with remaining images, it prepares the
-first ready image in order. Concurrent or stale selections fail with a version
-conflict, and a pending explicit choice prevents an automatic completion from
-winning the race. Publication accepts only a ready derivative whose source is
-still in the ordered list. A nonempty ordered list without ready artwork blocks
-publication. An exact duplicate belonging to another draft never
-inherits the new draft's art. Private evidence and public artwork retain
-independent records and cleanup.
-
-Selection returns `artworkSourceId` alongside the asset ID and version, or null
-when cleared. The browser uses that source ID for its preview; a pending earlier
-image does not displace the next ready image. Clearing an ordered source list with
-null also clears its selected artwork and pending selection intent. Older
-singular-only drafts retain their independent artwork-selection behavior.
+Automatic processing and the existing singular `artwork_select` command share
+actor/draft checks, an independent key, a sanitized WebP derivative and a
+versioned commit. Save a replacement `posterSourceId` to clear old artwork and
+pending processing. Save `posterSourceId: null` to remove it atomically; no
+separate artwork clearing command is needed. Explicit null is retained in the
+private draft so a late completion cannot restore removed artwork. Revision
+checks and the processing intent reject stale or concurrent completions.
+Publication accepts only a ready derivative associated with the saved poster;
+a saved poster without ready artwork blocks publication. An exact duplicate
+belonging to another draft never inherits this draft's artwork. Private evidence
+and public artwork retain independent records and cleanup.
 
 The public artwork route serves the canonical path
 `/api/v0/events/{eventId}/artwork/{artworkAssetId}` through
@@ -70,46 +62,40 @@ selection commands. Same-origin POST is required, JSON requests have a 64 KB
 streaming cap, and responses use `private, no-store`. It reuses the API/MCP
 commands and validates the same strict inputs. No personal API token is needed.
 
-Source accepts text and up to five images together. The browser uploads in
-chosen order, prepares the first image as artwork, and offers explicit primary
-selection and removal. Details and Lineup show tentative fields and private
-evidence. Accepted manual fields survive source changes; stale suggestions and
-evidence do not. Lineup authoring shows native local dates instead of day offsets,
-with an occurrence selector for repeated hours and validation for DST gaps.
+Source accepts one poster, optional text, or both. Uploading a new poster
+replaces the current poster and prepares artwork automatically. Removal clears
+artwork. Details and Lineup show tentative fields and private evidence. Accepted
+manual fields survive source changes; stale suggestions and evidence do not.
+Lineup authoring shows native local dates instead of day offsets, with an
+occurrence selector for repeated hours and validation for DST gaps.
 Contributor corrections omit Source and cannot change images or artwork.
 
 The browser hashes the chosen file and saves a private `posterDeclaration` before
 requesting upload. This validated MIME/size/digest input supports a poster-only
-draft without inventing event fields. Existing draft quotas, expiry, and publish
-minimums apply, including when upload fails. The browser transfers only the chosen
-file to the signed target, with no session credentials and no redirects. Ordered
-clients save their selected source IDs before completing uploads, then hand off
-completion's returned version to the next draft save. Legacy single-image clients
-can still save the source reference after completion.
+draft without inventing event fields. Existing draft quotas, expiry and publish
+minimums apply, including when upload fails. Removing the only source can leave
+an existing private draft empty. New drafts still require meaningful input.
+The browser transfers the chosen file without session credentials or redirects,
+saves its source reference before completion, and uses completion's version for
+the next draft save.
 
 Extraction saves candidate fields under `tentative`, with unresolved questions.
-Accept copies an individual field or the reviewed lineup into confirmed fields;
+Accept copies an individual field or reviewed lineup into confirmed fields;
 manual edits remain available. Draft writes retain the version paired with the
-source/form. A concurrent edit refuses candidate persistence instead of overwriting
-it. Missing model configuration leaves manual editing and publication available.
-An explicit artwork change advances the saved draft version. Draft reads return
-the selected artwork source ID independently of the private source list.
-Removing the selected source from an ordered list clears its draft selection;
-the client can call `artwork_select` with null to prepare the next ready image.
-The browser marks only the selected source and waits for its preview before
-enabling an explicit change.
+source/form. Concurrent edits refuse candidate persistence. Missing model
+configuration leaves manual editing and publication available. Draft reads
+return the processed artwork source ID for the preview. A replacement preview
+never shows the old poster while the new source read is pending.
 
 ```mermaid
 flowchart LR
   A[Events, community or direct contribute link] --> B[Sign in and return]
-  B --> C[Source: text and up to five images, or skip]
+  B --> C[Source: one poster and optional text, or skip]
   C --> D[Private versioned draft]
   D --> E[Extract tentative details and questions]
   E --> F[Details and Lineup: accept or edit fields]
   E -->|Unavailable| F
-  D -->|Complete first selected image| G[Automatic artwork preparation]
-  D -->|Change or remove primary| J[Explicit artwork selection]
-  J --> G
+  D -->|Complete poster upload| G[Automatic artwork preparation]
   G --> F
   F --> D
   F --> H[Review and publish]
@@ -159,17 +145,17 @@ search callbacks; `extractEventIntake` returns only `{event,lineup,evidence,ques
 The strict nullable candidate schema is shared in `packages/api-contracts`.
 Nothing in this loop writes confirmed draft fields or publishes an event.
 
-The Responses loop sends optional source text followed by up to five authorized,
-ordered, sanitized inline images in one discovery run. Prepared image data URLs
-have a 20 MB aggregate limit before the provider call. It uses `store:false`, no
+The Responses loop sends optional source text and one authorized, sanitized
+inline poster in one discovery run. Its prepared image data URL has a 20 MB
+limit before the provider call. It uses `store:false`, no
 provider file upload, strict structured output, no mutation tools, at most
 three tool calls and four model turns. The callbacks return at most five public
 people or communities, or zero/one/multiple
 UTC instants. Candidate slugs must appear in the corresponding actual lookup
-results. Poster evidence indexes must refer to an image in the authorized order.
+results. Evidence records its text, poster, lookup or calculation origin.
 Tentative values, up to 40 private evidence entries, and unresolved questions
 survive draft resume without changing accepted fields. Editing source text or
-image order clears those discovery results while retaining accepted fields.
+the poster clears those discovery results while retaining accepted fields.
 Explicit candidate dates become bounded day offsets only when the event date,
 timezone, and local instant are valid; undated times keep no inferred offset.
 An undated lineup start earlier than the event start asks for its actual date.

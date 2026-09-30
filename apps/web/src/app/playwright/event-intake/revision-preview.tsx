@@ -30,7 +30,7 @@ function revisionFixture(correction: boolean, sourceMode?: string, staff = false
   const viewer = { user: { name: "Fixture contributor" } };
   const refresh = (patch: EventIntakePatch) => {
     fields = { ...fields, ...patch };
-    if (draft?.artworkSourceId && fields.posterSourceIds && !fields.posterSourceIds.includes(draft.artworkSourceId)) {
+    if (draft?.artworkSourceId && "posterSourceId" in patch && fields.posterSourceId !== draft.artworkSourceId) {
       draft = { ...draft, artworkSourceId: undefined, artworkAssetId: undefined };
       sessionStorage.removeItem("fixture-artwork-source");
     }
@@ -77,7 +77,6 @@ function revisionFixture(correction: boolean, sourceMode?: string, staff = false
       const expected = name === "eventIntake:saveEventIntakeDraft" ? args.expectedVersion : args.expectedUpdatedAt;
       if (expected !== version) throw new ConvexError({ code: "VERSION_CONFLICT" });
       const patch = args.patch as EventIntakePatch;
-      if (sourceMode === "image-only" && !patch.posterDeclaration && !patch.sourceText && !patch.title && !patch.communitySlug && !patch.eventDate && !patch.posterSourceIds?.length) throw new Error("A draft needs at least one meaningful field.");
       refresh(patch);
       return name === "eventIntake:saveEventIntakeDraft" ? { draftId: draft._id, version } : { eventId: event.eventId, updatedAt: version };
     },
@@ -97,8 +96,9 @@ function revisionFixture(correction: boolean, sourceMode?: string, staff = false
         return Response.json({ posterAssetId: `poster-${count}`, expiresAt: Date.now() + 60000, transfer: { method: "POST", url: `${location.origin}/fixture-upload`, fields: {}, fileField: "file" } });
       }
       case "poster_upload_complete":
+        if (sourceMode === "derivative-failure" && !sessionStorage.getItem("fixture-derivative-failed")) { sessionStorage.setItem("fixture-derivative-failed", "true"); return Response.json({}, { status: 503 }); }
         if (args.expectedVersion !== undefined && args.expectedVersion !== version && !(completion && completion.sourceId === args.posterAssetId && completion.version === version && args.expectedVersion === version - 1)) return Response.json({}, { status: 409 });
-        if (!draft.artworkSourceId && fields.posterSourceIds?.[0] === args.posterAssetId) {
+        if (!draft.artworkSourceId && fields.posterSourceId === args.posterAssetId) {
           draft = { ...draft, artworkSourceId: args.posterAssetId, artworkAssetId: "art" };
           sessionStorage.setItem("fixture-artwork-source", args.posterAssetId);
           refresh({});
@@ -107,7 +107,6 @@ function revisionFixture(correction: boolean, sourceMode?: string, staff = false
         if (sourceMode === "completion-response-lost" && !droppedCompletion) { droppedCompletion = true; throw new TypeError("Failed to fetch"); }
         return Response.json({ posterAssetId: args.posterAssetId, version, artworkAssetId: draft.artworkSourceId === args.posterAssetId ? "art" : undefined });
       case "poster_read": {
-        if (sourceMode === "removal-pending" && args.posterAssetId === "poster-2") return Response.json({}, { status: 409 });
         if (sourceMode === "preview-failure") return Response.json({}, { status: 503 });
         if (sourceMode === "replacement-delay" && args.posterAssetId === "poster-2") await new Promise<void>(resolve => window.addEventListener("release-poster-preview", () => resolve(), { once: true }));
         const response = await fetch("/test-media/event-poster.png");
@@ -116,8 +115,7 @@ function revisionFixture(correction: boolean, sourceMode?: string, staff = false
       }
       case "artwork_select": {
         if (args.expectedVersion !== version) return Response.json({}, { status: 409 });
-        const sourceId = args.posterAssetId ?? fields.posterSourceIds?.find(id => sourceMode !== "removal-pending" || id !== "poster-2") ?? null;
-        if (sourceMode === "removal-pending" && sourceId === "poster-2") return Response.json({}, { status: 409 });
+        const sourceId = args.posterAssetId;
         draft = { ...draft, artworkAssetId: sourceId ? "art" : undefined, artworkSourceId: sourceId ?? undefined };
         if (sourceId) sessionStorage.setItem("fixture-artwork-source", sourceId);
         else sessionStorage.removeItem("fixture-artwork-source");
@@ -127,7 +125,7 @@ function revisionFixture(correction: boolean, sourceMode?: string, staff = false
       case "extract":
         sessionStorage.setItem("fixture-extraction", JSON.stringify(args));
         if (sourceMode === "stale") refresh({ venueLabel: "Changed elsewhere" });
-        return Response.json({ event: { title: sourceMode === "poster" ? null : "Afterglow Night", communitySlug: null, eventDate: null, start: null, end: null, startDate: null, endDate: null, timezone: null, venueLabel: null, summary: null, sourceUrl: null }, lineup: [], evidence: [{ fieldPath: "event.title", origin: "text", posterIndex: null, excerpt: "Afterglow Night", assessment: "explicit" }], questions: [{ fieldPath: sourceMode === "poster" ? "source" : "timezone", reason: sourceMode === "poster" ? "disabled" : "Which time zone?", alternatives: [] }] });
+        return Response.json({ event: { title: sourceMode === "poster" ? null : "Afterglow Night", communitySlug: null, eventDate: null, start: null, end: null, startDate: null, endDate: null, timezone: null, venueLabel: null, summary: null, sourceUrl: null }, lineup: [], evidence: [{ fieldPath: "event.title", origin: "text", excerpt: "Afterglow Night", assessment: "explicit" }], questions: [{ fieldPath: sourceMode === "poster" ? "source" : "timezone", reason: sourceMode === "poster" ? "disabled" : "Which time zone?", alternatives: [] }] });
       default: throw new Error("Unexpected fixture operation");
     }
   };
