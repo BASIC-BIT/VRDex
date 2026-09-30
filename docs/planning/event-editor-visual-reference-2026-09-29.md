@@ -1,6 +1,6 @@
 # Event editor visual reference (2026-09-29)
 
-Status: **Current recommendation** for a future event-editor redesign. These generated screens are visual references, not pixel-perfect specifications or approval of their exact copy. The Lineup image was the initial saved reference; the other steps are companion drafts.
+Status: Implemented locally in the event-editor changeset, pending review and deployment. These generated screens are visual references, not pixel-perfect specifications or approval of their exact copy. The Lineup image was the initial saved reference; the other steps are companion drafts.
 
 ## Direction to preserve
 
@@ -10,7 +10,7 @@ Status: **Current recommendation** for a future event-editor redesign. These gen
 - Show lineup entries with profile pictures and actual dates for sets crossing midnight. Do not expose a `Day offset` field.
 - Keep a contextual preview beside the editor on wide screens. Adapt the layout for narrow screens rather than preserving the exact columns.
 
-The pictured event, performers, artwork, labels, spacing, and preview time formatting are illustrative. Some generated sample details differ between screens. Apply the existing design system and public-copy review rule during implementation. Public event times should follow the viewer's local timezone rule. This reference does not change the current product behavior.
+The pictured event, performers, artwork, labels, spacing, and preview time formatting are illustrative. Some generated sample details differ between screens. Apply the existing design system and public-copy review rule during implementation. Public event times should follow the viewer's local timezone rule. The implementation uses the existing design system; the generated screens remain illustrative.
 
 ## Source
 
@@ -20,7 +20,7 @@ The pictured event, performers, artwork, labels, spacing, and preview time forma
 
 **Locked decision:** The first uploaded image starts as the main event artwork, and the contributor can change it. Other images can supply schedule or venue details without all becoming public artwork. The mockup's image placement remains illustrative.
 
-The current shared website/API/MCP contract and extraction loop accept text plus one poster. Future implementation must extend the shared draft, upload, extraction, evidence, and preview paths for multiple images while retaining input limits and the separate private-evidence lifecycle.
+The shared website/API/MCP contract and extraction loop now accept text and up to five ordered images in one discovery run. The first image becomes artwork automatically; explicit primary selection wins. Private evidence remains separate from the processed public artwork. Legacy singular image inputs remain accepted.
 
 ## Details
 
@@ -46,12 +46,30 @@ Summarize confirmed details with direct edit routes back to the relevant step. S
 flowchart LR
   A[Events or community page] --> B[Add event]
   C[Direct contribution link] --> B
-  B --> D[Sign in if needed]
-  D --> E[Current long event form]
-  D --> F[Proposed: Source text plus images]
-  F --> H[One discovery run, optional]
-  H --> I[Details and lineup review]
-  I --> J[Publish review]
-  E --> G[Event page]
-  J --> G
+  B --> D[Sign in and return]
+  D --> E[Source text and images, or skip]
+  E -->|Optional discovery| F[Details]
+  E -->|Manual entry| F
+  F --> G[Lineup]
+  G --> H[Review]
+  H -->|Edit| F
+  H -->|Publish| I[Event page]
+  I -->|Correct own contribution| J[Details, Lineup, Review]
+  J -->|Save changes| I
+  I -->|Staff edit| K[Source, Details, Lineup, Review]
+  K -->|Save| I
 ```
+
+## Implementation status
+
+Contributor intake, staff create/edit, and contributor correction share the top
+step navigation and responsive preview. Correction omits Source and restricted
+controls. Staff live/output operations remain under Advanced in Review.
+Lineup rows show matched portraits or name fallbacks and actual local dates.
+Existing publication preflight, stale revision rejection, and separate staff
+and contributor permissions remain in force.
+
+Desktop/mobile fixture screenshots and browser checks cover the real forms with
+local transports. Hosted authentication, S3 delivery, model-provider accuracy,
+and live output writes require separate deployment evidence. New public copy
+`Maximum 5 images` still needs BASIC's exact wording approval before shipping.

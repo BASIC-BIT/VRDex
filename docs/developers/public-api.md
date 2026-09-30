@@ -12,7 +12,7 @@ Application-only credentials cannot use these routes.
 | `POST /api/v0/event-intake` | Save a partial draft, optionally using `draftId` and `expectedVersion` to update it. |
 | `GET /api/v0/event-intake/{draftId}` | Read the actor's draft and published receipt ID. |
 | `PATCH /api/v0/event-intake/{draftId}` | Update a draft with `expectedVersion` and `patch`. |
-| `POST /api/v0/event-intake/{draftId}/extract` | Propose fields from supplied text or the draft's private poster. |
+| `POST /api/v0/event-intake/{draftId}/extract` | Propose fields from text, up to five private images, or both. |
 | `POST /api/v0/event-intake/{draftId}/publish` | Publish with `expectedVersion` and `idempotencyKey`. |
 | `POST /api/v0/event-intake/{draftId}/poster-upload/begin` | Reserve a private image upload with MIME type, byte count, and SHA-256. |
 | `POST /api/v0/event-intake/{draftId}/poster-upload/complete` | Validate the source, prepare first-image artwork when eligible, and return the draft version. |
@@ -37,9 +37,9 @@ must be ready, unexpired, and owned by that actor and draft before quota is
 reserved. A singular value supplied alongside a list must match its first ID.
 Candidate evidence has at most 40 private entries, with nullable `posterIndex`
 for zero-based image attribution. Candidate event and lineup times may include
-nullable ISO `startDate` and `endDate`. Ordered extraction image processing is
-pending the multimodal extractor update; the current endpoint returns its
-manual fallback for a plural request after validating source access.
+nullable ISO `startDate` and `endDate`. Extraction sends supplied text and each authorized image in order through one
+bounded discovery run, with a 20 MB prepared-image data-URL ceiling. Missing
+model configuration retains the manual fallback.
 
 `GET /api/v0/events/{eventId}/artwork/{artworkAssetId}` returns only the separately
 selected WebP for that currently public event. It checks both IDs and current
@@ -60,6 +60,9 @@ uses a date value with Time TBA; timed events retain exact instants. Lineup read
 preserves ordered timed, untimed and unmatched entries.
 
 Staff takeover closes contributor updates/retraction even with a fresh revision.
+Correction patches cannot change community, private source evidence, artwork,
+live controls, or staff fields. The website correction editor presents Details,
+Lineup, and Review on the event page with the same scoped command.
 Read the actor-scoped contribution endpoint before each correction and pass its
 `updatedAt` as `expectedUpdatedAt`. Contributor person matches remain visible in
 the event lineup but unconfirmed on the person's profile until staff review.

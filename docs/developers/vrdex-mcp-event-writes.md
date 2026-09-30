@@ -41,9 +41,9 @@ draft, and permits pending uploads. The older singular `posterSourceId` remains
 accepted as an opaque draft reference. `extract` accepts ordered
 `posterAssetIds` or the legacy singular `posterAssetId`; each extraction source
 must be ready and valid for the same actor and draft before quota is reserved.
-If both forms appear, the singular ID must match the first list entry. A plural
-request currently returns the manual fallback after source validation until
-the multimodal extractor update. Candidate evidence remains private, capped at
+If both forms appear, the singular ID must match the first list entry. Text and the authorized images enter one bounded discovery run in the supplied
+order, with a 20 MB prepared-image data-URL ceiling. Missing model configuration
+retains the manual fallback. Candidate evidence remains private, capped at
 40 entries, and can identify a zero-based `posterIndex`; candidate event and
 lineup times can carry nullable ISO `startDate` and `endDate`.
 
@@ -67,6 +67,11 @@ A date-only public event has `scheduleKind: "date_only"` and `eventDate`, with n
 `startAt`. Do not synthesize midnight or activate watch playback. Calendar export
 uses a date value with Time TBA; timed events retain exact instants. Lineup readback
 preserves ordered timed, untimed and unmatched entries.
+
+The website correction editor uses Details, Lineup, and Review; MCP keeps the
+same scoped `event_update` command. Neither path permits correction of community,
+private sources, artwork, live controls, or staff fields. Read `event_get` before
+editing and retain its `updatedAt` for the submitted patch.
 
 Staff takeover closes contributor updates/retraction even with a fresh revision.
 A contributor can retry a successful retraction; the replay returns `changed: false`.

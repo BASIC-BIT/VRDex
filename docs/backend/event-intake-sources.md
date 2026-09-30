@@ -64,6 +64,14 @@ selection commands. Same-origin POST is required, JSON requests have a 64 KB
 streaming cap, and responses use `private, no-store`. It reuses the API/MCP
 commands and validates the same strict inputs. No personal API token is needed.
 
+Source accepts text and up to five images together. The browser uploads in
+chosen order, prepares the first image as artwork, and offers explicit primary
+selection and removal. Details and Lineup show tentative fields and private
+evidence. Accepted manual fields survive source changes; stale suggestions and
+evidence do not. Lineup authoring shows native local dates instead of day offsets,
+with an occurrence selector for repeated hours and validation for DST gaps.
+Contributor corrections omit Source and cannot change images or artwork.
+
 The browser hashes the chosen file and saves a private `posterDeclaration` before
 requesting upload. This validated MIME/size/digest input supports a poster-only
 draft without inventing event fields. Existing draft quotas, expiry, and publish
@@ -88,17 +96,17 @@ enabling an explicit change.
 ```mermaid
 flowchart LR
   A[Events, community or direct contribute link] --> B[Sign in and return]
-  B --> C[Manual fields, paste text or choose poster]
+  B --> C[Source: text and up to five images, or skip]
   C --> D[Private versioned draft]
   D --> E[Extract tentative details and questions]
-  E --> F[Review source and accept or edit fields]
+  E --> F[Details and Lineup: accept or edit fields]
   E -->|Unavailable| F
   D -->|Complete first selected image| G[Automatic artwork preparation]
   D -->|Change or remove primary| J[Explicit artwork selection]
   J --> G
   G --> F
   F --> D
-  F --> H[Publish]
+  F --> H[Review and publish]
   H --> I[Canonical event page]
 ```
 

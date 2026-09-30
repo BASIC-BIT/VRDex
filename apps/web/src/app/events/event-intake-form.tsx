@@ -55,7 +55,6 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
   const steps: EventEditorStep[] = onSource ? ["Source", "Details", "Lineup", "Review"] : ["Details", "Lineup", "Review"];
   const [activeStep, setActiveStep] = useState<EventEditorStep>(steps[0]);
   const [artwork, setArtwork] = useState<string>();
-  const stepped = !correction;
   // Keep the revision paired with the fields loaded when editing began.
   const [revision] = useState(initialRevision);
   const [busy, setBusy] = useState(false);
@@ -105,13 +104,13 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
     }
     finally { setBusy(false); }
   }
-  return <form ref={form} className="grid gap-6" onInvalidCapture={event => { const target = event.target as HTMLElement; const panel = target.closest<HTMLElement>("[data-step]"); if (panel) { event.preventDefault(); setActiveStep(panel.dataset.step as EventEditorStep); requestAnimationFrame(() => target.focus()); } }} onSubmit={event => { event.preventDefault(); if (!stepped || activeStep === "Review") void submit(true); else setActiveStep(steps[steps.indexOf(activeStep) + 1]); }}>
+  return <form ref={form} className="grid gap-6" onInvalidCapture={event => { const target = event.target as HTMLElement; const panel = target.closest<HTMLElement>("[data-step]"); if (panel) { event.preventDefault(); setActiveStep(panel.dataset.step as EventEditorStep); requestAnimationFrame(() => target.focus()); } }} onSubmit={event => { event.preventDefault(); if (activeStep === "Review") void submit(true); else setActiveStep(steps[steps.indexOf(activeStep) + 1]); }}>
     <fieldset disabled={busy} className="grid min-w-0 gap-6">
-    <EventEditorSteps steps={stepped ? steps : []} activeStep={activeStep} onSelect={setActiveStep} preview={stepped ? <EventEditorPreview fields={fields} artwork={artwork} /> : undefined}>
+    <EventEditorSteps steps={steps} activeStep={activeStep} onSelect={setActiveStep} preview={<EventEditorPreview fields={fields} artwork={artwork} />}>
     <div className="grid gap-6">
-    <div hidden={stepped && activeStep !== "Source"}>{onSource ? <EventIntakeSource fields={fields} revision={revision} onChange={setFields} action={onSource} busy={busy} setBusy={setBusy} setMessage={setMessage} initialArtworkSourceId={initialArtworkSourceId} onPreview={setArtwork} onExtract={() => setActiveStep("Details")} /> : null}</div>
-    <div hidden={stepped && activeStep !== "Details"} data-step="Details"><section className="grid gap-4"><h2 className="text-xl font-semibold">Details</h2>{onSource ? <EventIntakeSuggestions fields={fields} onChange={setFields} /> : null}
-    <Field>Community<CommunityInput value={fields.communitySlug ?? ""} disabled={correction} onChange={value => set("communitySlug", value)} /></Field>
+    <div hidden={activeStep !== "Source"}>{onSource ? <EventIntakeSource fields={fields} revision={revision} onChange={setFields} action={onSource} busy={busy} setBusy={setBusy} setMessage={setMessage} initialArtworkSourceId={initialArtworkSourceId} onPreview={setArtwork} onExtract={() => setActiveStep("Details")} /> : null}</div>
+    <div hidden={activeStep !== "Details"} data-step="Details"><section className="grid gap-4"><h2 className="text-xl font-semibold">Details</h2>{onSource ? <EventIntakeSuggestions fields={fields} onChange={setFields} /> : null}
+    {!correction ? <Field>Community<CommunityInput value={fields.communitySlug ?? ""} disabled={false} onChange={value => set("communitySlug", value)} /></Field> : null}
     <Field>Event title<Input name="title" value={fields.title ?? ""} maxLength={120} onChange={event => set("title", event.target.value)} /></Field>
     <Field>Date<Input name="eventDate" type="date" value={fields.eventDate ?? ""} onChange={event => set("eventDate", event.target.value)} /></Field>
     <label className="flex items-center gap-2"><input type="checkbox" checked={fields.timeTba ?? false} onChange={event => setFields(current => ({ ...current, timeTba: event.target.checked, ...(event.target.checked ? { start: null, end: null, doors: null, lineup: current.lineup?.map(row => ({ ...row, start: null, end: null })) } : {}) }))} />Time TBA</label>
@@ -123,7 +122,7 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
     <Field>Source URL<Input type="url" value={fields.sourceUrl ?? ""} onChange={event => set("sourceUrl", event.target.value)} /></Field>
     {!correction && !onSource ? <details><summary className="cursor-pointer font-medium">Source text</summary><Textarea aria-label="Source text" className="mt-3" value={fields.sourceText ?? ""} maxLength={12000} onChange={event => set("sourceText", event.target.value)} /></details> : null}
     </section></div>
-    <div hidden={stepped && activeStep !== "Lineup"} data-step="Lineup"><section className="grid gap-4"><h2 className="text-xl font-semibold">Lineup</h2>{onSource ? <EventIntakeSuggestions fields={fields} onChange={setFields} lineup /> : null}
+    <div hidden={activeStep !== "Lineup"} data-step="Lineup"><section className="grid gap-4"><h2 className="text-xl font-semibold">Lineup</h2>{onSource ? <EventIntakeSuggestions fields={fields} onChange={setFields} lineup /> : null}
       {(fields.lineup ?? []).map((row, index) => <fieldset key={row.clientKey} className="grid gap-3 rounded-control border border-border p-4"><legend className="px-1">Slot {index + 1}</legend>
         <PerformerInput label={row.performerLabel ?? ""} slug={row.personSlug ?? ""} onLabel={value => set("lineup", fields.lineup!.map(item => item.clientKey === row.clientKey ? { ...item, performerLabel: value } : item))} onSlug={value => set("lineup", fields.lineup!.map(item => item.clientKey === row.clientKey ? { ...item, personSlug: value } : item))} />
         <Field>Role<Input value={row.roleLabel ?? ""} onChange={event => set("lineup", fields.lineup!.map(item => item.clientKey === row.clientKey ? { ...item, roleLabel: event.target.value } : item))} /></Field>
@@ -133,17 +132,17 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
       <Button type="button" variant="secondary" disabled={(fields.lineup?.length ?? 0) >= 80} onClick={() => set("lineup", [...fields.lineup ?? [], { clientKey: crypto.randomUUID(), position: fields.lineup?.length ?? 0 }])}>Add performer</Button>
     </section>
     </div>
-    <div hidden={stepped && activeStep !== "Review"} data-step="Review" className="space-y-5">
-    {stepped ? <section className="grid gap-4"><h2 className="text-xl font-semibold">Review</h2><div className="grid gap-4 rounded-control border border-border p-4">
+    <div hidden={activeStep !== "Review"} data-step="Review" className="space-y-5">
+    <section className="grid gap-4"><h2 className="text-xl font-semibold">Review</h2><div className="grid gap-4 rounded-control border border-border p-4">
       <div className="flex items-start justify-between gap-4"><div><h3 className="font-semibold">{fields.title || "Event title"}</h3><p className="text-sm text-muted">{[fields.communitySlug, eventLocalDate(fields.eventDate, fields.timeTba ? null : fields.start), fields.timeTba ? "Time TBA" : fields.start?.time, fields.timezone, fields.venueLabel].filter(Boolean).join(" · ")}</p></div><Button type="button" variant="secondary" onClick={() => setActiveStep("Details")}>Edit details</Button></div>
       {fields.summary ? <p className="text-sm">{fields.summary}</p> : null}
       <div className="flex items-start justify-between gap-4 border-t border-border pt-4"><div><h3 className="font-semibold">Lineup</h3>{fields.lineup?.map(row => <p key={row.clientKey} className="text-sm">{row.performerLabel || row.personSlug}</p>)}</div><Button type="button" variant="secondary" onClick={() => setActiveStep("Lineup")}>Edit lineup</Button></div>
-    </div></section> : null}
+    </div></section>
     {duplicates.length ? <section className="grid gap-3"><h2 className="text-xl font-semibold">Similar events</h2>{duplicates.map(item => <div key={item.eventId}><Link className="underline" href={item.eventPath}>{item.title}</Link><label className="mt-2 flex items-center gap-2"><input type="checkbox" checked={fields.duplicateAcknowledgements?.includes(item.eventId) ?? false} onChange={event => set("duplicateAcknowledgements", event.target.checked ? [...fields.duplicateAcknowledgements ?? [], item.eventId] : fields.duplicateAcknowledgements?.filter(id => id !== item.eventId))} />Different event</label></div>)}</section> : null}
     </div>
     </div>
     </EventEditorSteps>
-    <div className="flex flex-wrap gap-3 border-t border-border pt-5">{stepped && activeStep !== steps[0] ? <Button type="button" variant="secondary" onClick={() => setActiveStep(steps[steps.indexOf(activeStep) - 1])}>Back</Button> : null}{!stepped || activeStep === "Review" ? <Button type="submit" variant="primary" disabled={busy}>{correction ? "Save changes" : "Publish event"}</Button> : <Button type="button" variant="primary" onClick={() => setActiveStep(steps[steps.indexOf(activeStep) + 1])}>Continue</Button>}{onSave ? <Button type="button" disabled={busy} variant="secondary" onClick={() => void submit(false)}>Save draft</Button> : null}</div>
+    <div className="flex flex-wrap gap-3 border-t border-border pt-5">{activeStep !== steps[0] ? <Button type="button" variant="secondary" onClick={() => setActiveStep(steps[steps.indexOf(activeStep) - 1])}>Back</Button> : null}{activeStep === "Review" ? <Button type="submit" variant="primary" disabled={busy}>{correction ? "Save changes" : "Publish event"}</Button> : <Button type="button" variant="primary" onClick={() => setActiveStep(steps[steps.indexOf(activeStep) + 1])}>Continue</Button>}{onSave ? <Button type="button" disabled={busy} variant="secondary" onClick={() => void submit(false)}>Save draft</Button> : null}</div>
     </fieldset>
     {message ? <Notice><span role="status">{message}</span></Notice> : null}
   </form>;

@@ -9,6 +9,7 @@ for (const mode of ["draft", "correction"] as const) {
     await page.getByRole("button", { name: "Update elsewhere" }).click();
     await expect(page.getByText("Query refreshed", { exact: true })).toBeVisible();
     await expect(page.getByLabel("Venue", { exact: true })).toHaveValue("Original venue");
+    if (mode === "correction") await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Review", exact: true }).click();
     await page.getByRole("button", { name: mode === "draft" ? "Save draft" : "Save changes", exact: true }).click();
     await expect(page.getByRole("status").filter({ hasText: "This draft changed elsewhere." })).toBeVisible();
     await expect(page.getByLabel("Event title", { exact: true })).toHaveValue("My local edit");
@@ -34,13 +35,50 @@ test("title-only correction omits an unchanged hidden-person lineup @flow @fixtu
   await page.goto("/playwright/event-intake?revision=correction");
   await page.getByRole("button", { name: "Correct event", exact: true }).click();
   await page.getByLabel("Event title", { exact: true }).fill("Corrected title");
+  await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Review", exact: true }).click();
   await page.getByRole("button", { name: "Save changes", exact: true }).click();
   const submission = await page.evaluate(() => JSON.parse(sessionStorage.getItem("event-intake-revision-submission")!));
   expect(submission.patch).toEqual({ title: "Corrected title" });
+  await expect(page.getByRole("navigation", { name: "Event editor" })).toHaveCount(0);
+  await expect(page).toHaveURL(/revision=correction$/);
+});
+
+test("correction steps retain allowed details and lineup without source or staff fields @flow @fixture", async ({ page }, info) => {
+  await page.goto("/playwright/event-intake?revision=correction");
+  await page.getByRole("button", { name: "Correct event", exact: true }).click();
+  const navigation = page.getByRole("navigation", { name: "Event editor" });
+  await expect(navigation.getByRole("button")).toHaveText([/Details$/, /Lineup$/, /Review$/]);
+  for (const name of ["Community", "Source text", "Poster images", "Poster URL", "Output URL", "Stream"])
+    await expect(page.getByLabel(name, { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Advanced", { exact: true })).toHaveCount(0);
+  await page.getByLabel("Event title", { exact: true }).fill("Corrected gathering");
+  await page.getByLabel("Venue", { exact: true }).fill("Corrected venue");
+  await page.screenshot({ path: info.outputPath("correction-details.png"), fullPage: true, animations: "disabled" });
+  await navigation.getByRole("button", { name: "Lineup", exact: true }).click();
+  await page.getByRole("textbox", { name: "Performer", exact: true }).fill("Aurora");
+  await page.getByLabel("Person profile", { exact: true }).fill("aurora");
+  const portrait = page.getByRole("img", { name: "Aurora", exact: true }).locator("img");
+  await expect(portrait).toHaveAttribute("src", "/test-media/event-poster.png");
+  await expect.poll(() => portrait.evaluate(image => (image as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+  await page.screenshot({ path: info.outputPath("correction-lineup.png"), fullPage: true, animations: "disabled" });
+  await navigation.getByRole("button", { name: "Review", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Save changes", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Publish event", exact: true })).toHaveCount(0);
+  await page.screenshot({ path: info.outputPath("correction-review.png"), fullPage: true, animations: "disabled" });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.getByRole("button", { name: "Edit details", exact: true }).click();
+  await expect(page.getByLabel("Venue", { exact: true })).toHaveValue("Corrected venue");
+  await navigation.getByRole("button", { name: "Review", exact: true }).click();
+  await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  await expect(navigation).toHaveCount(0);
+  const submission = await page.evaluate(() => JSON.parse(sessionStorage.getItem("event-intake-revision-submission")!));
+  expect(submission.expectedUpdatedAt).toBe(1);
+  expect(submission.patch).toEqual({ title: "Corrected gathering", venueLabel: "Corrected venue", lineup: [{ clientKey: "private-person", position: 0, performerLabel: "Aurora", personSlug: "aurora" }] });
 });
 
 test("owner timezone keyboard search stores a region, not EST @flow @fixture", async ({ page }) => {
   await page.goto("/playwright/event-editor");
+  await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Details", exact: true }).click();
   await page.getByLabel("Start", { exact: true }).fill("2026-07-15T20:00");
   const timezone = page.getByRole("combobox", { name: "Time zone" });
   await timezone.fill("EST");

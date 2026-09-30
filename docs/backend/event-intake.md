@@ -131,6 +131,32 @@ Canonical contribution metadata is `contributorUserId`, `contributionVersion`,
 commands below to change the canonical event. Replay attempts against a
 published draft return a conflict.
 
+## Website editor
+
+Contributors enter Source, Details, Lineup, and Review inside the existing page
+layout. Manual entry needs no source upload. One versioned draft retains values
+across steps and resume. Review links back to editable fields, applies the
+existing preflight and duplicate checks, and publishes directly to the event page.
+The staff editor uses the same steps with canonical commands and staff-only
+advanced controls. Its Source step uses existing URLs and media controls.
+
+```mermaid
+flowchart LR
+  A[Events or community page] --> B[Add event]
+  C[Direct contribution link] --> B
+  B --> D[Sign in and return]
+  D --> E[Source, optional text and images]
+  E --> F[Details]
+  F --> G[Lineup]
+  G --> H[Review]
+  H -->|Edit| F
+  H -->|Publish| I[Event page]
+  I -->|Correct own contribution| J[Details, Lineup, Review]
+  J -->|Save changes| I
+  I -->|Staff edit| K[Staff Source, Details, Lineup, Review]
+  K -->|Save| I
+```
+
 ## Correction commands
 
 `eventCorrections.getOwnContributedEvent({eventId})` returns `eventId`,
@@ -143,6 +169,14 @@ remain unconfirmed in person-profile feeds until staff edits that lineup.
 `updateOwnContributedEvent({eventId, expectedUpdatedAt, patch, duplicateAcknowledgements?})` allows only the
 original contributor while the listing is published, scheduled, and not taken
 over by staff. It returns the new `updatedAt` and `contributionVersion`.
+
+The inline correction editor shows Details, Lineup, and Review, then closes back
+to the event page after a successful save. It hides community selection and has
+no source upload, private evidence, artwork, live, or staff controls. Its patch
+omits unchanged fields, including unchanged lineups that contain hidden people.
+The form keeps the revision loaded when editing began, so a reactive query
+refresh cannot silently overwrite a newer edit. Report, retract, takeover, and
+removal keep their separate controls and authorization.
 
 The patch keys are `title`, `eventDate`, `timeTba`, `timezone`, `start`, `end`,
 `doors`, `venueLabel`, `worldSlug`, `sourceUrl`, `summary`, and `lineup`. Local
