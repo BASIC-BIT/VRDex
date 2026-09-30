@@ -42,6 +42,15 @@ test("review publish reveals a blank lineup performer @flow @fixture", async ({ 
   await page.getByRole("button", { name: "Publish event", exact: true }).click();
   await expect(page.getByRole("textbox", { name: "Performer", exact: true })).toBeFocused();
   await page.getByLabel("Person profile", { exact: true }).fill("aurora");
+  for (const blankName of ["", "  "]) {
+    await page.getByRole("textbox", { name: "Performer", exact: true }).fill(blankName);
+    await step(page, "Review");
+    await page.getByRole("button", { name: "Publish event", exact: true }).click();
+    await expect(page.getByRole("textbox", { name: "Performer", exact: true })).toBeFocused();
+    expect(await page.evaluate(() => sessionStorage.getItem("fixture-published"))).toBeNull();
+  }
+  await page.screenshot({ path: info.outputPath("selected-profile-name-focus.png"), fullPage: true, animations: "disabled" });
+  await page.getByRole("textbox", { name: "Performer", exact: true }).fill("Aurora");
   await step(page, "Review");
   await page.getByRole("button", { name: "Publish event", exact: true }).click();
   await expect(page).toHaveURL(/playwright-afterglow-harbor-sessions$/);

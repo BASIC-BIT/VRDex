@@ -32,7 +32,7 @@ function PerformerInput({ label, slug, onLabel, onSlug }: { label: string; slug:
   const match = matches?.find(person => person.slug === slug);
   return <div className="flex items-start gap-3">
     <span className="relative mt-6 flex size-12 shrink-0 overflow-hidden rounded-control bg-surface-strong"><ProfileAvatarImage alt={label || slug || "Performer"} fallback={(label || slug || "?").slice(0, 2).toUpperCase()} src={match?.imageUrl} /></span>
-    <div className="grid min-w-0 flex-1 gap-3 sm:grid-cols-2"><Field>Performer<Input value={label} required={!slug.trim()} pattern={slug.trim() ? undefined : ".*\\S.*"} onChange={event => onLabel(event.target.value)} /></Field><Field>Person profile<Input list={id} value={slug} onChange={event => onSlug(event.target.value)} /><datalist id={id}>{matches?.map(person => <option key={person.slug} value={person.slug} label={person.title} />)}</datalist></Field></div>
+    <div className="grid min-w-0 flex-1 gap-3 sm:grid-cols-2"><Field>Performer<Input value={label} required pattern=".*\S.*" onChange={event => onLabel(event.target.value)} /></Field><Field>Person profile<Input list={id} value={slug} onChange={event => onSlug(event.target.value)} /><datalist id={id}>{matches?.map(person => <option key={person.slug} value={person.slug} label={person.title} />)}</datalist></Field></div>
   </div>;
 }
 
