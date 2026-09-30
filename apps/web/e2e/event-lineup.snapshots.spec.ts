@@ -5,7 +5,8 @@ for (const editor of [false, true]) {
     await prepareVisualPage(page);
     await page.goto(`/playwright/event-lineup${editor ? "?editor" : ""}`);
     if (editor) {
-      await page.locator("summary").filter({ hasText: "Media and links" }).click();
+      await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Review", exact: true }).click();
+      await page.locator("summary").filter({ hasText: /^Advanced/ }).click();
       await expect(page.getByLabel("Watch mode", { exact: true })).toBeVisible();
     } else {
       await expect(page.getByRole("heading", { name: "Lineup", exact: true })).toBeVisible();
