@@ -75,7 +75,8 @@ export async function saveIntakeDraft(db: DatabaseWriter, actorUserId: Id<"users
   const provenance = [ ...(draft?.provenance ?? []).filter(item => !Object.prototype.hasOwnProperty.call(patch, item.field)),
     ...Object.keys(patch).filter(field => Object.prototype.hasOwnProperty.call(fields, field)).map(field => ({ field, kind: field === "tentative" ? "tentative" as const : "contributor" as const, version })) ];
   const values = { fields, provenance, version, updatedAt: now, expiresAt: now + EVENT_INTAKE_DRAFT_TTL_MS,
-    ...(posterChanged || patch.posterSourceId === null ? { artworkAssetId: undefined, artworkIntentSourceId: undefined } : {}) };
+    ...((posterChanged && patch.posterSourceId !== draft?.artworkSourceId) || patch.posterSourceId === null ? { artworkAssetId: undefined } : {}),
+    ...(posterChanged || patch.posterSourceId === null ? { artworkIntentSourceId: undefined } : {}) };
   if (draft) {
     const sources = await db.query("eventPosterSources").withIndex("by_draft_state", q => q.eq("draftId", draft._id).eq("state", "ready")).take(21);
     for (const source of sources) if (source.state === "ready") await db.patch(source._id, { lastActivityAt: now, expiresAt: source.holdReportId ? Number.MAX_SAFE_INTEGER : Math.min(source.uploadedAt + 180 * 86_400_000, now + 86_400_000) });

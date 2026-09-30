@@ -233,6 +233,23 @@ it("retries a deleting artwork with a fresh key and preserves the old cleanup cl
  assert.equal((await t.run(ctx=>ctx.db.get(fresh.artworkAssetId)))?.state,"pending");
 });
 
+it("preserves completed automatic artwork when first saving the same poster reference", async () => {
+ const {t,actorUserId,draftId}=await fixture();
+ const source=await t.mutation(ref("beginPosterUpload"),{actorUserId,draftId,contentType:"image/png",byteLength:128,sha256:"a".repeat(64)});
+ const completed=await t.mutation(ref("completePosterUpload"),{actorUserId,posterAssetId:source.posterAssetId,sha256:"a".repeat(64),expectedVersion:1});
+ assert.equal(completed.autoSourceId,source.posterAssetId);
+ const selected=await t.mutation(ref("selectPosterArtwork"),{actorUserId,draftId,posterAssetId:source.posterAssetId,expectedVersion:completed.version,automatic:true});
+ const artwork=await t.mutation(ref("completeArtwork"),{actorUserId,artworkAssetId:selected.artworkAssetId,expectedVersion:selected.expectedVersion,sha256:"b".repeat(64),byteLength:100,automatic:true});
+ const save=makeFunctionReference<"mutation">("eventIntake:saveActorDraft");
+ const saved=await t.mutation(save,{actorUserId,draftId,expectedVersion:artwork.version,patch:{posterSourceId:source.posterAssetId}});
+ assert.equal(saved.version,artwork.version+1);
+ const draft=await t.run(ctx=>ctx.db.get(draftId));
+ assert.equal(draft?.fields.posterSourceId,source.posterAssetId);
+ assert.equal(draft?.artworkAssetId,selected.artworkAssetId);
+ assert.equal(draft?.artworkIntentSourceId,undefined);
+ assert.equal((await t.run(ctx=>ctx.db.get(selected.artworkAssetId)))?.state,"ready");
+ await assert.rejects(t.mutation(ref("completePosterUpload"),{actorUserId,posterAssetId:source.posterAssetId,sha256:"a".repeat(64),expectedVersion:1}),/VERSION_CONFLICT/);
+});
 it("clears old artwork on replacement and processes the new singular poster", async () => {
  const {t,actorUserId,draftId}=await fixture();
  const makeSource=async()=>{
