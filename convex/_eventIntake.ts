@@ -76,7 +76,9 @@ export async function saveIntakeDraft(db: DatabaseWriter, actorUserId: Id<"users
   const version = (draft?.version ?? 0) + 1;
   const provenance = [ ...(draft?.provenance ?? []).filter(item => !Object.prototype.hasOwnProperty.call(patch, item.field)),
     ...Object.keys(patch).filter(field => Object.prototype.hasOwnProperty.call(fields, field)).map(field => ({ field, kind: field === "tentative" ? "tentative" as const : "contributor" as const, version })) ];
-  const ordered = fields.posterSourceIds;
+  // Reconcile an ordered draft even when normalization removes its source list.
+  // Legacy singular replacements still keep their independently selected artwork.
+  const ordered = fields.posterSourceIds ?? (patch.posterSourceIds === null || draft?.fields.posterSourceIds ? nextSources : undefined);
   const removedArtwork = Array.isArray(ordered) && draft?.artworkSourceId && !ordered.includes(draft.artworkSourceId);
   const removedIntent = Array.isArray(ordered) && draft?.artworkIntentSourceId && !ordered.includes(draft.artworkIntentSourceId);
   const values = { fields, provenance, version, updatedAt: now, expiresAt: now + EVENT_INTAKE_DRAFT_TTL_MS,

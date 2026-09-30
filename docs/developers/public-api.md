@@ -41,6 +41,11 @@ nullable ISO `startDate` and `endDate`. Extraction sends supplied text and each 
 bounded discovery run, with a 20 MB prepared-image data-URL ceiling. Missing
 model configuration retains the manual fallback.
 
+Artwork selection responses include `artworkSourceId`, or null when cleared.
+After removing the selected image, pass `posterAssetId: null` so the server picks
+the next ready source; use the returned source ID rather than assuming the first
+remaining upload is ready.
+
 `GET /api/v0/events/{eventId}/artwork/{artworkAssetId}` returns only the separately
 selected WebP for that currently public event. It checks both IDs and current
 visibility on every request and sends `private, no-store`. The Next.js directory

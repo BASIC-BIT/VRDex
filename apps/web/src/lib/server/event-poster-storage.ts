@@ -63,7 +63,7 @@ export function createEventPosterHandlers(deps: Dependencies) {
     async selectPosterArtwork(input: { draftId: Id<"eventIntakeDrafts">; posterAssetId: Id<"eventPosterSources"> | null; expectedVersion: number; automatic?: boolean }) {
       const authority = await deps.authority();
       const selected = await admin().mutation(internal.eventIntakeSources.selectPosterArtwork, { ...input, ...authority });
-      if (selected.skipped || selected.artworkAssetId === null) return { artworkAssetId: selected.artworkAssetId ?? null, version: selected.version };
+      if (selected.skipped || selected.artworkAssetId === null) return { artworkAssetId: selected.artworkAssetId ?? null, artworkSourceId: null, version: selected.version };
       if (!selected.artworkAssetId) throw new Error("ARTWORK_NOT_READY");
       const artworkAssetId: Id<"eventPosterArtwork"> = selected.artworkAssetId;
       try {
@@ -72,7 +72,8 @@ export function createEventPosterHandlers(deps: Dependencies) {
         const remaining = selected.writeExpiresAt - Date.now();
         if (remaining <= 0) throw new Error("ARTWORK_WRITE_EXPIRED");
         await put({ storageKey: selected.storageKey, body: display.body, contentType: display.mimeType, cacheControl: "private, no-store", signal: AbortSignal.timeout(remaining) });
-        return await admin().mutation(internal.eventIntakeSources.completeArtwork, { ...await deps.authority(), artworkAssetId, expectedVersion: selected.expectedVersion, sha256: display.contentSha256, byteLength: display.body.byteLength, automatic: input.automatic });
+        const completed = await admin().mutation(internal.eventIntakeSources.completeArtwork, { ...await deps.authority(), artworkAssetId, expectedVersion: selected.expectedVersion, sha256: display.contentSha256, byteLength: display.body.byteLength, automatic: input.automatic });
+        return { ...completed, artworkSourceId: selected.sourceId as Id<"eventPosterSources"> };
       } catch (error) {
         // Use the original authenticated actor even if session revalidation failed.
         await admin().mutation(internal.eventIntakeSources.recoverFailedArtworkWrite, { ...authority, artworkAssetId });

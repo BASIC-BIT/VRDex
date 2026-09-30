@@ -120,7 +120,7 @@ it("accepts artwork clearing and returns its draft version", () => {
     import {createEventIntakeCommands} from "./apps/web/src/lib/server/event-intake-api.ts";
     const calls=[];
     const run=createEventIntakeCommands({actorUserId:"actor",admin:{query:async()=>null,mutation:async(_ref,args)=>{calls.push(args);return{artworkAssetId:null,version:4};},action:async()=>null}});
-    assert.deepEqual(await run("artwork_select",{draftId:"draft",posterAssetId:null,expectedVersion:3}),{artworkAssetId:null,version:4});
+    assert.deepEqual(await run("artwork_select",{draftId:"draft",posterAssetId:null,expectedVersion:3}),{artworkAssetId:null,artworkSourceId:null,version:4});
     assert.equal(calls[0].posterAssetId,null);
     assert.equal(calls[0].actorUserId,"actor");
   `);

@@ -107,18 +107,23 @@ function revisionFixture(correction: boolean, sourceMode?: string, staff = false
         if (sourceMode === "completion-response-lost" && !droppedCompletion) { droppedCompletion = true; throw new TypeError("Failed to fetch"); }
         return Response.json({ posterAssetId: args.posterAssetId, version, artworkAssetId: draft.artworkSourceId === args.posterAssetId ? "art" : undefined });
       case "poster_read": {
+        if (sourceMode === "removal-pending" && args.posterAssetId === "poster-2") return Response.json({}, { status: 409 });
         if (sourceMode === "preview-failure") return Response.json({}, { status: 503 });
         if (sourceMode === "replacement-delay" && args.posterAssetId === "poster-2") await new Promise<void>(resolve => window.addEventListener("release-poster-preview", () => resolve(), { once: true }));
         const response = await fetch("/test-media/event-poster.png");
         const dataUrl = await new Promise<string>(resolve => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); void response.blob().then(blob => reader.readAsDataURL(blob)); });
         return Response.json({ dataUrl: `${dataUrl}#${args.posterAssetId}` });
       }
-      case "artwork_select":
+      case "artwork_select": {
         if (args.expectedVersion !== version) return Response.json({}, { status: 409 });
-        draft = { ...draft, artworkAssetId: "art", artworkSourceId: args.posterAssetId };
-        sessionStorage.setItem("fixture-artwork-source", args.posterAssetId);
+        const sourceId = args.posterAssetId ?? fields.posterSourceIds?.find(id => sourceMode !== "removal-pending" || id !== "poster-2") ?? null;
+        if (sourceMode === "removal-pending" && sourceId === "poster-2") return Response.json({}, { status: 409 });
+        draft = { ...draft, artworkAssetId: sourceId ? "art" : undefined, artworkSourceId: sourceId ?? undefined };
+        if (sourceId) sessionStorage.setItem("fixture-artwork-source", sourceId);
+        else sessionStorage.removeItem("fixture-artwork-source");
         refresh({}); sessionStorage.setItem("fixture-artwork", "selected");
-        return Response.json({ artworkAssetId: "art", version });
+        return Response.json({ artworkAssetId: sourceId ? "art" : null, artworkSourceId: sourceId, version });
+      }
       case "extract":
         sessionStorage.setItem("fixture-extraction", JSON.stringify(args));
         if (sourceMode === "stale") refresh({ venueLabel: "Changed elsewhere" });

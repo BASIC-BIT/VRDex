@@ -32,7 +32,7 @@ function PerformerInput({ label, slug, onLabel, onSlug }: { label: string; slug:
   const match = matches?.find(person => person.slug === slug);
   return <div className="flex items-start gap-3">
     <span className="relative mt-6 flex size-12 shrink-0 overflow-hidden rounded-control bg-surface-strong"><ProfileAvatarImage alt={label || slug || "Performer"} fallback={(label || slug || "?").slice(0, 2).toUpperCase()} src={match?.imageUrl} /></span>
-    <div className="grid min-w-0 flex-1 gap-3 sm:grid-cols-2"><Field>Performer<Input value={label} onChange={event => onLabel(event.target.value)} /></Field><Field>Person profile<Input list={id} value={slug} onChange={event => onSlug(event.target.value)} /><datalist id={id}>{matches?.map(person => <option key={person.slug} value={person.slug} label={person.title} />)}</datalist></Field></div>
+    <div className="grid min-w-0 flex-1 gap-3 sm:grid-cols-2"><Field>Performer<Input value={label} required={!slug.trim()} pattern={slug.trim() ? undefined : ".*\\S.*"} onChange={event => onLabel(event.target.value)} /></Field><Field>Person profile<Input list={id} value={slug} onChange={event => onSlug(event.target.value)} /><datalist id={id}>{matches?.map(person => <option key={person.slug} value={person.slug} label={person.title} />)}</datalist></Field></div>
   </div>;
 }
 
@@ -207,9 +207,9 @@ function ConnectedIntake({ draftId, initialCommunitySlug }: { draftId?: string; 
         onStaged?.(next);
         if (targetSourceId !== (selectedArtwork.current === undefined ? loaded?.artworkSourceId : selectedArtwork.current)) return { fields: next };
       }
-      const result = await websiteIntakeCommand("artwork_select", { draftId: current.draftId, posterAssetId: action === "remove" ? sourceIds(next)[0] ?? null : targetSourceId, expectedVersion: current.version });
+      const result = await websiteIntakeCommand("artwork_select", { draftId: current.draftId, posterAssetId: action === "remove" ? null : targetSourceId, expectedVersion: current.version });
       saved.current = { ...current, version: result.version };
-      selectedArtwork.current = action === "remove" ? sourceIds(next)[0] ?? null : targetSourceId;
+      selectedArtwork.current = result.artworkSourceId ?? (action === "artwork" ? targetSourceId : null);
       return { fields: next, artworkSourceId: selectedArtwork.current };
     }
     const candidate = EventIntakeCandidateSchema.parse(await websiteIntakeCommand("extract", { draftId: current.draftId, ...(next.sourceText ? { sourceText: next.sourceText } : {}), ...(sourceIds(next).length ? { posterAssetIds: sourceIds(next) } : {}) }));

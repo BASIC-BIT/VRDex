@@ -257,6 +257,23 @@ it("returns the selected artwork source independently of the current poster afte
  assert.equal((await read()).artworkSourceId,b);
 });
 
+for (const patch of [{ posterSourceIds: null }, { posterSourceId: null }]) it(`clears selected and pending artwork when removing ordered sources with ${JSON.stringify(patch)}`, async () => {
+ const {t,actorUserId,draftId}=await fixture();
+ const source=await t.mutation(ref("beginPosterUpload"),{actorUserId,draftId,contentType:"image/png",byteLength:128,sha256:"a".repeat(64)});
+ const save=makeFunctionReference<"mutation">("eventIntake:saveActorDraft");
+ await t.mutation(save,{actorUserId,draftId,expectedVersion:1,patch:{posterSourceIds:[source.posterAssetId]}});
+ await t.mutation(ref("completePosterUpload"),{actorUserId,posterAssetId:source.posterAssetId,sha256:"a".repeat(64)});
+ const selected=await t.mutation(ref("selectPosterArtwork"),{actorUserId,draftId,posterAssetId:source.posterAssetId,expectedVersion:2});
+ await t.mutation(ref("completeArtwork"),{actorUserId,artworkAssetId:selected.artworkAssetId,expectedVersion:2,sha256:"b".repeat(64),byteLength:100});
+ await t.mutation(ref("selectPosterArtwork"),{actorUserId,draftId,posterAssetId:source.posterAssetId,expectedVersion:3});
+ await t.mutation(save,{actorUserId,draftId,expectedVersion:3,patch});
+ const cleared=await t.run(ctx=>ctx.db.get(draftId));
+ assert.equal(cleared?.fields.posterSourceIds,undefined);
+ assert.equal(cleared?.fields.posterSourceId,undefined);
+ assert.equal(cleared?.artworkAssetId,undefined);
+ assert.equal(cleared?.artworkIntentSourceId,undefined);
+});
+
 it("keeps ordered artwork on the first source and allows explicit reselection", async () => {
  const {t,actorUserId,draftId}=await fixture();
  const make=async()=>t.mutation(ref("beginPosterUpload"),{actorUserId,draftId,contentType:"image/png",byteLength:128,sha256:"a".repeat(64)});

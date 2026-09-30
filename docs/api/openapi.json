@@ -4373,6 +4373,18 @@
                         }
                       ]
                     },
+                    "artworkSourceId": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 200
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "version": {
                       "type": "integer",
                       "exclusiveMinimum": 0,

@@ -225,7 +225,8 @@ it("renews stale artwork selection and recovers a key written after cleanup", as
  const reserved=await t.mutation(internal.eventIntakeSources.selectPosterArtwork,args);
  await t.run(ctx=>ctx.db.patch(reserved.artworkAssetId,{expiresAt:0}));
  phase="retry";
- await handlers.selectPosterArtwork(args);
+ const selection=await handlers.selectPosterArtwork({...args,posterAssetId:null});
+ assert.equal(selection.artworkSourceId,started.posterAssetId);
  assert.equal(preparationClaims,0,"renewal must prevent cleanup while the image is prepared");
  phase="expired-preparation";
  const attemptsBefore=writeAttempts;

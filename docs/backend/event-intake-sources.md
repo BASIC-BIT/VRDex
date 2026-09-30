@@ -48,6 +48,12 @@ publication. An exact duplicate belonging to another draft never
 inherits the new draft's art. Private evidence and public artwork retain
 independent records and cleanup.
 
+Selection returns `artworkSourceId` alongside the asset ID and version, or null
+when cleared. The browser uses that source ID for its preview; a pending earlier
+image does not displace the next ready image. Clearing an ordered source list with
+null also clears its selected artwork and pending selection intent. Older
+singular-only drafts retain their independent artwork-selection behavior.
+
 The public artwork route serves the canonical path
 `/api/v0/events/{eventId}/artwork/{artworkAssetId}` through
 `eventIntakeSources.publicArtwork`. Check the returned asset's event association

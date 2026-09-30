@@ -7,6 +7,46 @@ const step = async (page: Page, name: string) => {
 };
 const upload = "public/test-media/event-poster.png";
 
+test("removing primary artwork skips a pending image and previews the next ready image @flow @fixture", async ({ page }, info) => {
+  await page.addInitScript(() => {
+    sessionStorage.setItem("fixture-source-draft", JSON.stringify({ version: 3, fields: { title: "Night", posterSourceId: "poster-1", posterSourceIds: ["poster-1", "poster-2", "poster-3"] } }));
+    sessionStorage.setItem("fixture-artwork-source", "poster-1");
+    sessionStorage.setItem("fixture-artwork", "selected");
+  });
+  await page.goto("/playwright/event-intake?source=removal-pending");
+  await expect(page.getByRole("img", { name: "Event artwork", exact: true })).toHaveAttribute("src", /#poster-1$/);
+  await page.getByRole("button", { name: "Remove image 1", exact: true }).click();
+  await expect(page.getByRole("img", { name: "Event artwork", exact: true })).toHaveAttribute("src", /#poster-3$/);
+  await expect(page.getByRole("button", { name: "Use image 2 as artwork", exact: true })).toHaveCount(0);
+  await page.screenshot({ path: info.outputPath("ready-artwork-fallback.png"), fullPage: true, animations: "disabled" });
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  await expect(page.getByRole("status")).toHaveText("Draft saved");
+});
+
+test("review publish reveals a blank lineup performer @flow @fixture", async ({ page }, info) => {
+  await page.goto("/playwright/event-intake?source=text");
+  await step(page, "Details");
+  await page.getByLabel("Event title", { exact: true }).fill("Night");
+  await page.getByLabel("Community", { exact: true }).fill("afterglow");
+  await page.getByLabel("Date", { exact: true }).fill("2027-10-15");
+  await page.getByRole("checkbox", { name: "Time TBA", exact: true }).check();
+  await step(page, "Lineup");
+  await page.getByRole("button", { name: "Add performer", exact: true }).click();
+  await step(page, "Review");
+  await page.getByRole("button", { name: "Publish event", exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "Performer", exact: true })).toBeFocused();
+  expect(await page.evaluate(() => sessionStorage.getItem("fixture-published"))).toBeNull();
+  await page.screenshot({ path: info.outputPath("blank-performer-focus.png"), fullPage: true, animations: "disabled" });
+  await page.getByRole("textbox", { name: "Performer", exact: true }).fill("  ");
+  await step(page, "Review");
+  await page.getByRole("button", { name: "Publish event", exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "Performer", exact: true })).toBeFocused();
+  await page.getByLabel("Person profile", { exact: true }).fill("aurora");
+  await step(page, "Review");
+  await page.getByRole("button", { name: "Publish event", exact: true }).click();
+  await expect(page).toHaveURL(/playwright-afterglow-harbor-sessions$/);
+});
+
 test("manual partial draft survives steps and resume then publishes directly @flow @fixture", async ({ page }, info) => {
   await page.goto("/playwright/event-intake?source=text");
   await step(page, "Details");
@@ -259,6 +299,7 @@ test("publish focuses invalid lineup time and hidden native field @flow @fixture
   await page.getByLabel("Start time", { exact: true }).fill("01:00");
   await step(page, "Lineup");
   await page.getByRole("button", { name: "Add performer" }).click();
+  await page.getByRole("textbox", { name: "Performer", exact: true }).fill("Guest DJ");
   await page.getByLabel("Slot 1 start", { exact: true }).fill("02:30");
   await step(page, "Review");
   await page.getByRole("button", { name: "Publish event", exact: true }).click();

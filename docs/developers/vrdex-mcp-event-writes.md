@@ -32,6 +32,8 @@ to completion when another editor may change the draft during upload. The first
 image in that order becomes artwork once ready.
 Use `artwork_select` to switch it, or pass `posterAssetId: null` after removal
 to choose the next ready source or clear artwork when the list is empty.
+Selection returns `artworkSourceId`, or null when cleared, with the asset ID and
+version. Use that returned source because earlier remaining uploads may be pending.
 Call `event_get` with the published slug to obtain `updatedAt` before
 `event_update`; pass that revision as `expectedUpdatedAt`.
 
