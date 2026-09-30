@@ -22,17 +22,20 @@ test("count and graph switches stay independent @storybook-visual", async ({ pag
 });
 
 test("a single observation and missing creation time remain honest @storybook-visual", async ({ page }, testInfo) => {
+  await page.clock.install({ time: new Date("2026-09-29T12:00:00Z") });
   await page.goto(story("single-observation"));
   await expect(page.getByRole("group", { name: "Total group membership" })).toBeVisible();
   await expect(page.getByText("Unobserved", { exact: true })).toBeVisible();
   await expect(page.locator(".recharts-line")).toHaveCount(2);
   await expect(page.locator('.recharts-line-curve[stroke-dasharray="3 4"]')).toHaveCount(1);
-  await page.locator(".recharts-line-dots circle").last().hover();
-  await expect(page.getByText("1,234 Group members")).toBeVisible();
-  await expect(page.locator(".recharts-tooltip-wrapper").getByText("Sep 28, 2026")).toBeVisible();
-  await page.locator(".recharts-line-dots circle").first().hover();
-  await expect(page.locator(".recharts-tooltip-wrapper").getByText("Unobserved", { exact: true })).toBeVisible();
-  await expect(page.locator(".recharts-tooltip-wrapper").getByText("0 Group members")).toBeVisible();
+  await expect(page.getByTestId("group-today-dot")).toBeVisible();
+  await page.getByTestId("group-today-dot").hover();
+  await expect(page.locator(".recharts-tooltip-wrapper").getByText("Today", { exact: true })).toBeVisible();
+  await expect(page.locator(".recharts-tooltip-wrapper").getByText("1,234 members")).toBeVisible();
+  await expect(page.getByTestId("group-founding-dot")).toBeVisible();
+  await page.getByTestId("group-founding-dot").hover();
+  await expect(page.locator(".recharts-tooltip-wrapper").getByText("Group founded", { exact: true })).toBeVisible();
+  await expect(page.locator(".recharts-tooltip-wrapper").getByText("1 member", { exact: true })).toBeVisible();
   await expect(page.locator(".recharts-tooltip-wrapper").getByText("Sep 21, 2026")).toBeVisible();
   await testInfo.attach("single-observation", { body: await page.screenshot({ fullPage: true }), contentType: "image/png" });
 
@@ -40,6 +43,14 @@ test("a single observation and missing creation time remain honest @storybook-vi
   await expect(page.getByRole("group", { name: "Total group membership" })).toBeVisible();
   await expect(page.getByText("Unobserved", { exact: true })).toHaveCount(0);
   await expect(page.locator(".recharts-line")).toHaveCount(1);
+});
+
+test("Today marker expires after 48 hours without a page reload @storybook-visual", async ({ page }) => {
+  await page.clock.install({ time: new Date("2026-09-29T12:00:00Z") });
+  await page.goto(story("single-observation"));
+  await expect(page.getByTestId("group-today-dot")).toBeVisible();
+  await page.clock.fastForward(49 * 3600_000);
+  await expect(page.getByTestId("group-today-dot")).toHaveCount(0);
 });
 
 test("skipped UTC day uses a dotted segment even over 35 hours @storybook-visual", async ({ page }, testInfo) => {

@@ -4,7 +4,7 @@ import { once } from "node:events";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { describe, it } from "node:test";
 
-import { smokeHostedClientMetadataDocument } from "../../scripts/smoke-vrdex-mcp-compat";
+import { hostedExpectedToolNames, smokeHostedClientMetadataDocument } from "../../scripts/smoke-vrdex-mcp-compat";
 
 const expectedTools = [
   "search",
@@ -22,6 +22,14 @@ const expectedTools = [
 // Per tool, mirroring the server. A fixture that gave every write tool the same
 // pair would keep passing a server that had stopped distinguishing them.
 const writeToolScopes: Record<string, string> = {
+  vrdex_event_intake_draft_save: "events:contribute",
+  vrdex_event_intake_extract: "events:contribute",
+  vrdex_event_intake_publish: "events:contribute",
+  vrdex_event_intake_poster_upload_begin: "events:contribute",
+  vrdex_event_intake_poster_upload_complete: "events:contribute",
+  vrdex_event_intake_artwork_select: "events:contribute",
+  vrdex_event_intake_event_update: "events:contribute",
+  vrdex_event_intake_event_retract: "events:contribute",
   vrdex_event_create: "events:write",
   vrdex_event_update: "events:write",
   vrdex_profile_media_manage: "assets:write",
@@ -48,6 +56,8 @@ const expectedWriteTools = Object.keys(writeToolScopes);
 // rather than the anonymous public-read pair every other read carries.
 const contributionCollectionReadScopes = ["profile:contribute", "assets:contribute", "assets:review:read"];
 const ownedReadToolScopes: Record<string, string | string[]> = {
+  vrdex_event_intake_draft_get: "events:contribute",
+  vrdex_event_intake_event_get: "events:contribute",
   vrdex_contribution_capacity: contributionCollectionReadScopes,
   vrdex_contribution_capacity_requests: contributionCollectionReadScopes,
   vrdex_contribution_status: contributionCollectionReadScopes,
@@ -183,7 +193,7 @@ async function startHostedFailureFixture() {
       writeJson(response, 200, {
         authorization_servers: [origin],
         resource: `${origin}/mcp`,
-        scopes_supported: ["mcp:read", "profile:read", "mcp:write", "assets:write", "assets:contribute", "assets:review:read", "assets:review:write", "assets:publish", "events:write", "profile:write", "profile:contribute"],
+        scopes_supported: ["mcp:read", "profile:read", "mcp:write", "assets:write", "assets:contribute", "assets:review:read", "assets:review:write", "assets:publish", "events:write", "events:contribute", "profile:write", "profile:contribute"],
       });
       return;
     }
@@ -320,7 +330,7 @@ async function startHostedSuccessFixture(extraToolName?: string, omittedScope?: 
       writeJson(response, 200, {
         authorization_servers: [origin],
         resource: `${origin}/mcp`,
-        scopes_supported: ["mcp:read", "profile:read", "mcp:write", "assets:write", "assets:contribute", "assets:review:read", "assets:review:write", "assets:publish", "events:write", "profile:write", "profile:contribute"].filter((scope) => scope !== omittedScope),
+        scopes_supported: ["mcp:read", "profile:read", "mcp:write", "assets:write", "assets:contribute", "assets:review:read", "assets:review:write", "assets:publish", "events:write", "events:contribute", "profile:write", "profile:contribute"].filter((scope) => scope !== omittedScope),
       });
       return;
     }
@@ -339,6 +349,7 @@ async function startHostedSuccessFixture(extraToolName?: string, omittedScope?: 
     if (request.method === "POST" && url.pathname === "/oauth/register") {
       const registration = JSON.parse(await readRequestBody(request)) as { scope?: string };
       assert.ok(registration.scope?.split(/\s+/).includes("assets:review:read"));
+      assert.ok(registration.scope?.split(/\s+/).includes("events:contribute"));
       writeJson(response, 201, {
         client_id: "vrdx_app_0123456789abcdef01234567",
         client_name: "VRDex MCP Client",
@@ -503,6 +514,13 @@ async function startHostedSuccessFixture(extraToolName?: string, omittedScope?: 
 }
 
 describe("MCP compatibility smoke CLI", () => {
+  it("matches the independently classified hosted tool catalog", () => {
+    assert.deepEqual(
+      [...hostedExpectedToolNames].sort(),
+      [...expectedTools, ...expectedOwnedReadTools, ...expectedWriteTools].sort(),
+    );
+  });
+
   it("fetches and validates the HTTPS CIMD document and authorization redirect", async () => {
     const issuer = "https://app.example.test";
     const clientId = `${issuer}/.well-known/oauth-client/vrdex-mcp-public-client`;

@@ -57,6 +57,14 @@ const localReadTools = [
   "vrdex_list_active_worlds",
 ];
 const writeToolResourceScopes: Record<string, string> = {
+  vrdex_event_intake_draft_save: "events:contribute",
+  vrdex_event_intake_extract: "events:contribute",
+  vrdex_event_intake_publish: "events:contribute",
+  vrdex_event_intake_poster_upload_begin: "events:contribute",
+  vrdex_event_intake_poster_upload_complete: "events:contribute",
+  vrdex_event_intake_artwork_select: "events:contribute",
+  vrdex_event_intake_event_update: "events:contribute",
+  vrdex_event_intake_event_retract: "events:contribute",
   vrdex_event_create: "events:write",
   vrdex_event_update: "events:write",
   vrdex_profile_media_manage: "assets:write",
@@ -89,6 +97,14 @@ const contributionCollectionWriteToolNames = new Set([
 ]);
 const mediaUploadWriteToolNames = new Set(["vrdex_media_upload_begin", "vrdex_media_upload_complete"]);
 const hostedOnlyWriteToolNames = new Set([
+  "vrdex_event_intake_draft_save",
+  "vrdex_event_intake_extract",
+  "vrdex_event_intake_publish",
+  "vrdex_event_intake_poster_upload_begin",
+  "vrdex_event_intake_poster_upload_complete",
+  "vrdex_event_intake_artwork_select",
+  "vrdex_event_intake_event_update",
+  "vrdex_event_intake_event_retract",
   "vrdex_profile_media_manage",
   "vrdex_profile_media_submit",
   ...contributionCollectionWriteToolNames,
@@ -109,6 +125,8 @@ const contributionCollectionReadScopes = [
   "assets:review:read",
 ];
 const ownedReadToolScopes: Record<string, string | string[]> = {
+  vrdex_event_intake_draft_get: "events:contribute",
+  vrdex_event_intake_event_get: "events:contribute",
   vrdex_contribution_capacity: contributionCollectionReadScopes,
   vrdex_contribution_capacity_requests: contributionCollectionReadScopes,
   vrdex_contribution_status: contributionCollectionReadScopes,
@@ -126,6 +144,8 @@ const ownedReadToolScopes: Record<string, string | string[]> = {
 };
 const ownedReadToolNames = Object.keys(ownedReadToolScopes);
 const hostedOnlyOwnedReadToolNames = new Set([
+  "vrdex_event_intake_draft_get",
+  "vrdex_event_intake_event_get",
   "vrdex_contribution_capacity",
   "vrdex_contribution_capacity_requests",
   "vrdex_contribution_status",
@@ -150,8 +170,13 @@ const localExpectedTools = [
   "vrdex_event_intake_poster_upload_bytes", ...localReadTools, ...localOwnedReadToolNames, ...localWriteToolNames,
 ];
 const hostedExpectedTools = ["search", "fetch", ...localReadTools];
+export const hostedExpectedToolNames = [
+  ...hostedExpectedTools,
+  ...ownedReadToolNames,
+  ...writeToolNames,
+];
 
-function assertHostedToolSecuritySchemes(tool: HostedToolDescriptor) {
+export function assertHostedToolSecuritySchemes(tool: HostedToolDescriptor) {
   assert.equal(typeof tool._meta, "object", `Hosted tool ${String(tool.name)} is missing _meta.`);
   assert.notEqual(tool._meta, null, `Hosted tool ${String(tool.name)} is missing _meta.`);
 

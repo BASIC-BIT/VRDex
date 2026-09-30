@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   membershipChartPoints,
   membershipRangePoints,
+  markMembershipMilestones,
   dashboardBounds,
   dashboardHref,
   dashboardLocation,
@@ -83,4 +84,25 @@ test("expired live membership coverage disconnects only its span and preserves k
   const days = [0, 1, 2].map((day) => ({ startAt: day * 86400_000, membership: { lastValue: 100 + day, continuous: true, continuousUntil: day === 2 ? 1000 : null } }));
   assert.deepEqual(membershipRangePoints(days, true).map(point => point.value), [100, 101, 102]);
   assert.deepEqual(membershipRangePoints(days, false).map(point => point.value), [100, 101, null, 102]);
+});
+
+test("quiet carried counts stay on their selected days while the actual observation keeps its time", () => {
+  const day = 86400_000;
+  const points = membershipRangePoints([0, 1, 2].map(index => ({
+    startAt: index * day, endAt: (index + 1) * day,
+    membership: { lastValue: 100, observedAt: 3600_000, continuous: true },
+  })));
+  assert.deepEqual(points.map(point => point.at), [3600_000, day, 2 * day]);
+});
+
+test("membership milestones mark founding and only a recent actual observation", () => {
+  const day = 86400_000;
+  const points = markMembershipMilestones(
+    [{ at: 2 * day, value: 10, label: "Jan 3" }, { at: 3 * day, value: 12, label: "Jan 4" }],
+    { groupCreatedAt: day, latestObservedAt: 3 * day, startAt: 0, endAt: 4 * day, now: 3 * day + 3600_000 },
+  );
+  assert.deepEqual(points.filter(p => p.founding).map(p => [p.at, p.value]), [[day, 1]]);
+  assert.deepEqual(points.filter(p => p.today).map(p => p.at), [3 * day]);
+  assert.equal(points.find(p => p.at === 1.5 * day)?.value, null);
+  assert.equal(markMembershipMilestones([{ at: 3 * day, value: 12, label: "Jan 4" }], { groupCreatedAt: day, latestObservedAt: 3 * day, startAt: 2 * day, endAt: 4 * day, now: 6 * day }).some(p => p.founding || p.today), false);
 });

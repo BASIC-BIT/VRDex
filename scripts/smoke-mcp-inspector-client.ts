@@ -8,6 +8,7 @@ import {
   mcpOAuthClientCredentialsFromEnv,
   mcpOAuthClientCredentialsFromOptions,
 } from "./mcp-oauth-client-credentials";
+import { assertHostedToolSecuritySchemes, hostedExpectedToolNames } from "./smoke-vrdex-mcp-compat";
 
 type InspectorOptions = {
   hostedDataPublicReads: boolean;
@@ -42,38 +43,6 @@ type InspectorSearchResult = {
   type?: unknown;
 };
 
-const expectedPublicReadTools = [
-  "search",
-  "fetch",
-  "vrdex_search",
-  "vrdex_get_profile",
-  "vrdex_get_event",
-  "vrdex_list_upcoming_events",
-  "vrdex_get_world",
-  "vrdex_list_active_worlds",
-];
-// Registered unconditionally, so they appear in every hosted `tools/list`,
-// including an anonymous one. They advertise a scope pair rather than the
-// public-read schemes -- asserting the public pair against every listed tool
-// had this smoke failing before it could collect any transport or OAuth
-// evidence at all.
-const expectedOwnedReadToolScopes: Record<string, string> = {
-  vrdex_list_my_media_submissions: "assets:contribute",
-  vrdex_list_my_profiles: "profile:read",
-};
-const expectedWriteToolScopes: Record<string, string> = {
-  vrdex_event_create: "events:write",
-  vrdex_event_update: "events:write",
-  vrdex_profile_media_manage: "assets:write",
-  vrdex_profile_media_submit: "assets:contribute",
-  vrdex_profile_update: "profile:write",
-  vrdex_profile_submit: "profile:contribute",
-};
-const expectedTools = [
-  ...expectedPublicReadTools,
-  ...Object.keys(expectedOwnedReadToolScopes),
-  ...Object.keys(expectedWriteToolScopes),
-];
 const searchTypes = new Set<InspectorOptions["search"]["type"]>([
   "all",
   "community",
@@ -299,40 +268,6 @@ function inspectorSpawn(options: InspectorOptions, args: string[]) {
   };
 }
 
-function assertPublicReadSecuritySchemes(tool: ToolDescriptor) {
-  const writeScope = expectedWriteToolScopes[String(tool.name)];
-  const ownedReadScope = expectedOwnedReadToolScopes[String(tool.name)];
-
-  if (writeScope !== undefined) {
-    assert.deepEqual(
-      tool._meta?.securitySchemes,
-      [{ scopes: ["mcp:write", writeScope], type: "oauth2" }],
-      `Hosted Inspector tool ${String(tool.name)} is missing write auth metadata.`,
-    );
-
-    return;
-  }
-
-  if (ownedReadScope !== undefined) {
-    assert.deepEqual(
-      tool._meta?.securitySchemes,
-      [{ scopes: ["mcp:read", ownedReadScope], type: "oauth2" }],
-      `Hosted Inspector tool ${String(tool.name)} is missing owned-read auth metadata.`,
-    );
-
-    return;
-  }
-
-  assert.deepEqual(
-    tool._meta?.securitySchemes,
-    [
-      { type: "noauth" },
-      { scopes: ["mcp:read"], type: "oauth2" },
-    ],
-    `Hosted Inspector tool ${String(tool.name)} is missing public-read auth metadata.`,
-  );
-}
-
 async function smokeHostedToolList(options: InspectorOptions) {
   const result = await runInspector(options, hostedInspectorArgsWithHeaders(options.hostedUrl!, "tools/list"));
   const body = parseInspectorJson<{ tools?: ToolDescriptor[] }>(result, "MCP Inspector tools/list", options);
@@ -346,14 +281,14 @@ function assertHostedTools(body: { tools?: ToolDescriptor[] }, label: string) {
 
   assertExpectedHostedToolNames(toolNames);
   for (const tool of body.tools ?? []) {
-    assertPublicReadSecuritySchemes(tool);
+    assertHostedToolSecuritySchemes(tool);
   }
 }
 
 export function assertExpectedHostedToolNames(toolNames: unknown[]) {
   assert.deepEqual(
     [...toolNames].sort(),
-    [...expectedTools].sort(),
+    [...hostedExpectedToolNames].sort(),
     "Hosted MCP returned an unexpected tool set.",
   );
 }
@@ -457,7 +392,7 @@ async function main() {
   console.log("| Smoke target | Status | Details |");
   console.log("| --- | --- | --- |");
   console.log(
-    `| MCP Inspector hosted tools/list | pass | listed sixteen hosted VRDex tools with per-tool auth metadata for ${options.hostedUrl} |`,
+    `| MCP Inspector hosted tools/list | pass | listed ${hostedExpectedToolNames.length} hosted VRDex tools with per-tool auth metadata for ${options.hostedUrl} |`,
   );
   console.log(
     dataStatus === "pass"
@@ -466,7 +401,7 @@ async function main() {
   );
   console.log(
     oauthStatus === "pass"
-      ? "| MCP Inspector hosted OAuth tools/list | pass | acquired or supplied MCP-resource OAuth token listed sixteen hosted VRDex tools without exposing the token or client secret |"
+      ? `| MCP Inspector hosted OAuth tools/list | pass | acquired or supplied MCP-resource OAuth token listed ${hostedExpectedToolNames.length} hosted VRDex tools without exposing the token or client secret |`
       : "| MCP Inspector hosted OAuth tools/list | skip | set VRDEX_MCP_OAUTH_CLIENT_ID / VRDEX_MCP_OAUTH_CLIENT_SECRET or VRDEX_MCP_INSPECTOR_OAUTH_TOKEN for hosted OAuth evidence |",
   );
 }

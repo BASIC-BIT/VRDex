@@ -5,6 +5,7 @@ import {
   assertExpectedHostedToolNames,
   assertInspectorDataBackedSearch,
 } from "../../scripts/smoke-mcp-inspector-client";
+import { assertHostedToolSecuritySchemes, hostedExpectedToolNames } from "../../scripts/smoke-vrdex-mcp-compat";
 
 describe("MCP Inspector smoke harness", () => {
   const search = { limit: 1, query: "club", type: "all" as const };
@@ -30,35 +31,41 @@ describe("MCP Inspector smoke harness", () => {
   });
 
   it("accepts the expected hosted tool set regardless of registration order", () => {
+    for (const name of [
+      "vrdex_contribution_batch_append",
+      "vrdex_media_review_decide",
+      "vrdex_event_intake_publish",
+    ]) {
+      assert.ok(hostedExpectedToolNames.includes(name));
+    }
     assert.doesNotThrow(() => {
-      assertExpectedHostedToolNames([
-        "search",
-        "fetch",
-        "vrdex_search",
-        "vrdex_get_profile",
-        "vrdex_list_my_profiles",
-        "vrdex_list_my_media_submissions",
-        "vrdex_get_event",
-        "vrdex_list_upcoming_events",
-        "vrdex_get_world",
-        "vrdex_list_active_worlds",
-        "vrdex_event_create",
-        "vrdex_event_update",
-        "vrdex_profile_update",
-        "vrdex_profile_submit",
-        "vrdex_profile_media_submit",
-        "vrdex_profile_media_manage",
-      ]);
+      assertExpectedHostedToolNames([...hostedExpectedToolNames].reverse());
     });
   });
 
   it("rejects a hosted tool list with a missing or duplicate tool", () => {
     assert.throws(
-      () => assertExpectedHostedToolNames([
-        "search",
-        "search",
-      ]),
+      () => assertExpectedHostedToolNames(hostedExpectedToolNames.slice(1)),
       /unexpected tool set/,
     );
+    assert.throws(
+      () => assertExpectedHostedToolNames([...hostedExpectedToolNames, hostedExpectedToolNames[0]]),
+      /unexpected tool set/,
+    );
+  });
+
+  it("checks multi-scope contribution tool metadata", () => {
+    assert.doesNotThrow(() => assertHostedToolSecuritySchemes({
+      name: "vrdex_contribution_batch_append",
+      _meta: { securitySchemes: [
+        { scopes: ["mcp:write", "profile:contribute"], type: "oauth2" },
+        { scopes: ["mcp:write", "assets:contribute"], type: "oauth2" },
+        { scopes: ["mcp:write", "assets:contribute", "profile:contribute"], type: "oauth2" },
+      ] },
+    }));
+    assert.throws(() => assertHostedToolSecuritySchemes({
+      name: "vrdex_contribution_batch_append",
+      _meta: { securitySchemes: [{ scopes: ["mcp:write", "assets:contribute"], type: "oauth2" }] },
+    }), /missing write auth metadata/);
   });
 });
