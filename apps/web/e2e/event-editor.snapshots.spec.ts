@@ -12,17 +12,21 @@ for (const editor of [
 ]) {
   test(`${editor.name} @snapshot`, async ({ page }) => {
     await page.goto(editor.path);
-    await expect(page.getByRole("heading", { name: editor.heading })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Schedule" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: editor.heading }).first()).toBeVisible();
     await waitForVisualReady(page);
 
-    await expect(page).toHaveScreenshot(`${editor.name}.png`, {
-      animations: "disabled",
-      caret: "hide",
-      fullPage: true,
-      maxDiffPixelRatio: 0.002,
-      scale: "css",
-      threshold: 0.2,
+    for (const step of ["Source", "Details", "Lineup", "Review"]) {
+      await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: step }).click();
+      await waitForVisualReady(page);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      await expect(page).toHaveScreenshot(`${editor.name}-${step.toLowerCase()}.png`, {
+        animations: "disabled",
+        caret: "hide",
+        fullPage: true,
+        maxDiffPixelRatio: 0.002,
+        scale: "css",
+        threshold: 0.2,
     });
+    }
   });
 }

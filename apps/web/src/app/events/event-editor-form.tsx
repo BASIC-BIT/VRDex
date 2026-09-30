@@ -25,6 +25,9 @@ import {
   formatZonedDateTimeInput,
 } from "@/lib/calendar/zoned-date-time";
 import { resolveAuthoredEventEndAt } from "@/lib/calendar/event-end-time";
+import { EventEditorSteps, type EventEditorStep } from "./event-editor-steps";
+import { EventEditorPreview } from "./event-editor-preview";
+import { ProfileAvatarImage } from "../_components/profile-avatar-image";
 import { serializeOtherEventParticipants } from "@/lib/calendar/event-participants";
 
 type EventMediaLinkType = PublicEvent["mediaLinks"][number]["type"];
@@ -96,8 +99,12 @@ function PersonProfileInput({
   inputId,
   onChange,
   value,
+  label,
+  imageUrl,
 }: {
   inputId: string;
+  label?: string;
+  imageUrl?: string;
   onChange: (value: string, displayName?: string) => void;
   value: string;
 }) {
@@ -109,9 +116,13 @@ function PersonProfileInput({
       : "skip",
   );
   const listId = `${inputId}-matches`;
+  const match = matches?.find(person => person.slug === value);
+  const name = match?.title || label || value || "Performer";
   return (
-    <>
+    <span className="flex min-w-0 items-center gap-3">
+      <span className="relative flex size-12 shrink-0 overflow-hidden rounded-control bg-surface-strong"><ProfileAvatarImage alt={name} fallback={name.slice(0, 2).toUpperCase()} src={match?.imageUrl ?? imageUrl} /></span>
       <Input
+        aria-label={inputId.startsWith("slot-person-") ? "Person" : "Person profile"}
         id={inputId}
         list={listId}
         onChange={(changeEvent) => {
@@ -127,7 +138,7 @@ function PersonProfileInput({
           <option key={match.routePath} label={match.title} value={match.slug} />
         ))}
       </datalist>
-    </>
+    </span>
   );
 }
 
@@ -521,12 +532,14 @@ function ConnectedEventEditorForm({
   event?: EditableEvent;
 }) {
   const router = useRouter();
+  const [activeStep, setActiveStep] = useState<EventEditorStep>("Source");
+  const [preview, setPreview] = useState({ title: event?.title ?? (demoMode ? "Afterglow Harbor Sessions" : ""), summary: event?.summary ?? "", venueLabel: event?.venueLabel ?? "", artwork: event?.posterImageUrl ?? "" });
   const [eventDate, setEventDate] = useState(event?.eventDate ?? formatZonedDateTimeInput(event?.startAt, event?.timezone).slice(0, 10));
   const [timeTba, setTimeTba] = useState(event?.scheduleKind === "date_only");
   const usesCanonicalLineup = event?.usesCanonicalLineup ?? event?.source.sourceType === "contributor";
-  const [untimedRows, setUntimedRows] = useState(() => (event?.lineup ?? []).filter(row => row.startAt === undefined).map(row => ({
+  const [untimedRows, setUntimedRows] = useState(() => usesCanonicalLineup ? (event?.lineup ?? []).filter(row => row.startAt === undefined).map(row => ({
     clientKey: row.key, position: row.position, performerLabel: row.displayLabel, personSlug: row.performer?.slug ?? "", roleLabel: row.roleLabel ?? "",
-  })));
+  })) : parseParticipantLinks(serializeOtherEventParticipants(event)).map((row, position) => ({ ...row, clientKey: `participant-${position}`, position, performerLabel: "" })));
   const [startLocal, setStartLocal] = useState(formatZonedDateTimeInput(event?.startAt, event?.timezone));
   const [occurrence, setOccurrence] = useState<"earlier" | "later" | "">("");
   const createEvent = useMutation(api.events.createCommunityEvent);
@@ -685,13 +698,20 @@ function ConnectedEventEditorForm({
   async function onSubmit(submitEvent: FormEvent<HTMLFormElement>) {
     submitEvent.preventDefault();
 
-    if (!slotTemplateIsValid) {
-      return;
-    }
-
     const form = submitEvent.currentTarget;
     const formData = new FormData(form, (submitEvent.nativeEvent as SubmitEvent).submitter);
     const intent = stringField(formData.get("intent"));
+    const invalid = form.querySelector<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>("input:invalid, select:invalid, textarea:invalid");
+    if (intent === "publish" && invalid) {
+      const panel = invalid.closest<HTMLElement>("[data-editor-step]");
+      if (panel) setActiveStep(panel.dataset.editorStep as EventEditorStep);
+      for (let parent = invalid.parentElement; parent && parent !== form; parent = parent.parentElement) {
+        if (parent instanceof HTMLDetailsElement) parent.open = true;
+      }
+      requestAnimationFrame(() => { invalid.focus(); invalid.reportValidity(); });
+      return;
+    }
+    if (!slotTemplateIsValid && !timeTba) { setActiveStep("Lineup"); return; }
 
     if (event !== undefined && isPublished && intent === "draft" && !window.confirm("Unpublish and save draft")) {
       return;
@@ -807,6 +827,7 @@ function ConnectedEventEditorForm({
         }),
       );
     } catch (error) {
+      if (isUnavailableStreamError(error)) setActiveStep("Lineup");
       startTransition(() => setStatus({
         kind: "error", message: eventEditorErrorMessage(error),
         // The backend identifies the selection category, not an individual row.
@@ -868,8 +889,65 @@ function ConnectedEventEditorForm({
     setVrcdnOutput((current) => applyVrcdnOutputAccountDefaults(current, account));
   }
 
+  function previewTime(timestamp: number) {
+    const local = formatZonedDateTimeInput(timestamp, timezone);
+    return { time: local.slice(11, 16), dayOffset: Math.round((Date.parse(`${local.slice(0, 10)}T00:00:00Z`) - Date.parse(`${eventDate}T00:00:00Z`)) / 86_400_000) };
+  }
+  const previewStart = startChoices.length === 1 ? startChoices[0] : occurrence === "earlier" ? startChoices[0] : occurrence === "later" ? startChoices.at(-1) : undefined;
+  const previewFields = {
+    ...preview, communitySlug, eventDate, timezone, timeTba,
+    start: previewStart === undefined ? null : previewTime(previewStart),
+    lineup: [
+      ...slotRows.map(row => ({ clientKey: row.id, performerLabel: row.displayLabel || row.personSlug, ...(previewStart === undefined || timeTba ? {} : { start: previewTime(previewStart + Number(row.offsetMinutes) * 60_000) }) })),
+      ...untimedRows.map(row => ({ clientKey: row.clientKey, performerLabel: row.performerLabel || row.personSlug })),
+    ].filter(row => row.performerLabel).map((row, position) => ({ ...row, position })),
+  };
+
   return (
-    <form className="grid gap-8" onSubmit={onSubmit}>
+    <form className="grid gap-8" noValidate onSubmit={onSubmit} onChange={change => {
+      const data = new FormData(change.currentTarget);
+      setPreview({ title: stringField(data.get("title")), summary: stringField(data.get("summary")), venueLabel: stringField(data.get("venueLabel")), artwork: stringField(data.get("posterImageUrl")) });
+    }}>
+      <EventEditorSteps steps={["Source", "Details", "Lineup", "Review"]} activeStep={activeStep} onSelect={setActiveStep} preview={<EventEditorPreview fields={previewFields} artwork={preview.artwork || undefined} />}>
+      <div hidden={activeStep !== "Source"} data-editor-step="Source">
+      <EditorSection title="Source">
+        <div className="grid gap-4 sm:grid-cols-3">
+        <Field className="sm:col-span-1">
+          Source label
+          <Input defaultValue={event?.source.label} name="sourceLabel" placeholder="Community event listing" />
+        </Field>
+        <Field className="sm:col-span-1">
+          Source URL
+          <Input defaultValue={event?.source.url} name="sourceUrl" placeholder="https://..." />
+        </Field>
+        <Field className="sm:col-span-1">
+          Poster image URL
+          <Input defaultValue={event?.posterImageUrl} name="posterImageUrl" placeholder="https://..." />
+        </Field>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+        <Field>
+          Banner image URL
+          <Input defaultValue={event?.authoredBannerImageUrl} name="bannerImageUrl" placeholder="https://..." />
+          <FieldText>Wide event-page hero image. Falls back to the poster image.</FieldText>
+        </Field>
+        <Field>
+          Thumbnail image URL
+          <Input defaultValue={event?.authoredThumbnailImageUrl} name="thumbnailImageUrl" placeholder="https://..." />
+          <FieldText>Compact event-card image. Falls back to the poster or banner image.</FieldText>
+        </Field>
+        </div>
+
+      <Field>
+        Media links
+        <Textarea className="min-h-28" name="mediaLinks" onChange={(changeEvent) => setMediaLinksText(changeEvent.currentTarget.value)} placeholder="watch | Twitch watch link | https://... | open&#10;vrcdn | VRCDN Quest link | https://stream.vrcdn.live/live/name.live.ts | copy&#10;vrcdn | VRCDN PC link | rtspt://stream.vrcdn.live/live/name | copy" value={mediaLinksText} />
+        <FieldText>One per line: type | label | URL | open or copy. VRCDN variants derive Quest and PC player links automatically.</FieldText>
+      </Field>
+      <VrcdnMediaLinkAssistant mediaLinksText={mediaLinksText} />
+      </EditorSection>
+      </div>
+      <div hidden={activeStep !== "Details"} data-editor-step="Details" className="space-y-8">
       <EditorSection title="Details">
         <Field>
           Event title
@@ -883,7 +961,7 @@ function ConnectedEventEditorForm({
 
         <Field>
           Description
-          <Textarea className="min-h-24" defaultValue={event?.summary} name="summary" />
+          <Textarea aria-label="Description" className="min-h-24" defaultValue={event?.summary} name="summary" />
         </Field>
         {usesCanonicalLineup ? <Field>Venue<Input defaultValue={event?.venueLabel} name="venueLabel" /></Field> : null}
 
@@ -935,40 +1013,140 @@ function ConnectedEventEditorForm({
         </div>
       </EditorSection>
 
-      <EditorDisclosure title="Media and links">
-        <div className="grid gap-4 sm:grid-cols-3">
-        <Field className="sm:col-span-1">
-          Source label
-          <Input defaultValue={event?.source.label} name="sourceLabel" placeholder="Community event listing" />
-        </Field>
-        <Field className="sm:col-span-1">
-          Source URL
-          <Input defaultValue={event?.source.url} name="sourceUrl" placeholder="https://..." />
-        </Field>
-        <Field className="sm:col-span-1">
-          Poster image URL
-          <Input defaultValue={event?.posterImageUrl} name="posterImageUrl" placeholder="https://..." />
-        </Field>
-        </div>
+      </div>
+      <div hidden={activeStep !== "Lineup"} data-editor-step="Lineup">
+      <EditorSection title="Lineup">
+        {!timeTba ? <p className="text-sm text-muted">{timezone}</p> : null}
+        <fieldset className="grid gap-4" hidden={timeTba} disabled={timeTba}>
+          <div className="grid gap-3 sm:grid-cols-2 sm:items-end">
+            <Field className="text-xs text-muted">
+              Slots
+              <Input
+                className="bg-surface-strong text-foreground"
+                inputMode="numeric"
+                max={EVENT_SLOT_MAX_COUNT}
+                min={0}
+                onChange={(changeEvent) => {
+                  onSlotTemplateChange("count", eventTargetValue(changeEvent));
+                }}
+                required
+                step={1}
+                type="number"
+                value={slotTemplate.count}
+              />
+            </Field>
+            <Field className="text-xs text-muted">
+              Minutes each
+              <Input
+                className="bg-surface-strong text-foreground"
+                inputMode="numeric"
+                min={1}
+                onChange={(changeEvent) => {
+                  onSlotTemplateChange("duration", eventTargetValue(changeEvent));
+                }}
+                required
+                step={1}
+                type="number"
+                value={slotTemplate.duration}
+              />
+            </Field>
+          </div>
+          <div className="grid gap-3">
+            {slotRows.map((slot, index) => (
+            <Card className="grid gap-3" key={slot.id} padding="sm" surface="dashed">
+              <div className="grid gap-3 sm:grid-cols-[minmax(8rem,0.35fr)_minmax(0,1fr)] sm:items-end">
+                <div className="pb-2">
+                  <h4 className="font-semibold">{slot.displayLabel || `Slot ${index + 1}`}</h4>
+                  <span className="text-xs text-muted">{previewStart === undefined ? `+${slot.offsetMinutes} min` : formatZonedDateTimeInput(previewStart + Number(slot.offsetMinutes) * 60_000, timezone).replace("T", " ")} · {slot.durationMinutes} min</span>
+                </div>
+                <Field className="text-xs text-muted">
+                  Person
+                  <PersonProfileInput
+                    inputId={`slot-person-${slot.id}`}
+                    label={slot.displayLabel}
+                    imageUrl={event?.slots.find(row => row.performer?.slug === slot.personSlug)?.performer?.imageUrl}
+                    onChange={(value, displayName) => {
+                      updateSlotRows((rows) => rows.map((row) => row.id === slot.id
+                        ? {
+                            ...row,
+                            personSlug: value,
+                            ...(value !== row.personSlug ? { selectedStreamId: undefined, streamChoices: [] } : {}),
+                            ...(displayName !== undefined && (
+                              row.displayLabel.trim() === "" || row.displayLabel === `Session ${index + 1}`
+                            )
+                              ? { displayLabel: displayName }
+                              : {}),
+                          }
+                        : row));
+                    }}
+                    value={slot.personSlug}
+                  />
+                </Field>
+              </div>
+              {watchSurfaceEnabled && watchMode === "performer_sequence" && slot.personSlug.trim() ? <SlotStreamSelect
+                row={slot}
+                invalid={status.kind === "error" && Boolean(slot.selectedStreamId) && status.streamSelections?.[slot.id] === slot.selectedStreamId}
+                onChange={value => updateSlotRows(rows => rows.map(row => row.id === slot.id ? { ...row, selectedStreamId: value || undefined } : row))}
+              /> : null}
+              <details className="group border-t border-border pt-3">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-sm font-medium marker:hidden">
+                  Details
+                  <span aria-hidden="true" className="text-muted transition group-open:rotate-45">+</span>
+                </summary>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <Field className="text-xs text-muted">
+                    Display name
+                    <Input
+                      onChange={(changeEvent) => {
+                        const value = eventTargetValue(changeEvent);
+                        updateSlotRows((rows) => rows.map((row) => row.id === slot.id ? { ...row, displayLabel: value } : row));
+                      }}
+                      value={slot.displayLabel}
+                    />
+                  </Field>
+                  <Field className="text-xs text-muted">
+                    Role or style
+                    <Input
+                      onChange={(changeEvent) => {
+                        const value = eventTargetValue(changeEvent);
+                        updateSlotRows((rows) => rows.map((row) => row.id === slot.id ? { ...row, roleLabel: value } : row));
+                      }}
+                      value={slot.roleLabel}
+                    />
+                  </Field>
+                </div>
+              </details>
+            </Card>
+            ))}
+          </div>
+        </fieldset>
 
-        <div className="grid gap-4 sm:grid-cols-2">
-        <Field>
-          Banner image URL
-          <Input defaultValue={event?.authoredBannerImageUrl} name="bannerImageUrl" placeholder="https://..." />
-          <FieldText>Wide event-page hero image. Falls back to the poster image.</FieldText>
-        </Field>
-        <Field>
-          Thumbnail image URL
-          <Input defaultValue={event?.authoredThumbnailImageUrl} name="thumbnailImageUrl" placeholder="https://..." />
-          <FieldText>Compact event-card image. Falls back to the poster or banner image.</FieldText>
-        </Field>
+        <div className="grid gap-4">
+          {untimedRows.map(row => <Card key={row.clientKey} className="grid gap-3" padding="sm" surface="dashed">
+            {usesCanonicalLineup ? <Field>Performer<Input required value={row.performerLabel} onChange={change => updateUntimedRows(rows => rows.map(item => item.clientKey === row.clientKey ? { ...item, performerLabel: change.target.value } : item))} /></Field> : null}
+            <Field>Person profile<PersonProfileInput inputId={`untimed-${row.clientKey}`} label={row.performerLabel} imageUrl={event?.lineup?.find(item => item.performer?.slug === row.personSlug)?.performer?.imageUrl ?? event?.participants.find(item => item.slug === row.personSlug)?.imageUrl} value={row.personSlug} onChange={personSlug => updateUntimedRows(rows => rows.map(item => item.clientKey === row.clientKey ? { ...item, personSlug } : item))} /></Field>
+            <Field>Role<Input value={row.roleLabel} onChange={change => updateUntimedRows(rows => rows.map(item => item.clientKey === row.clientKey ? { ...item, roleLabel: change.target.value } : item))} /></Field>
+            <Button type="button" variant="secondary" onClick={() => updateUntimedRows(rows => rows.filter(item => item.clientKey !== row.clientKey))}>Remove performer</Button>
+          </Card>)}
+          <Button type="button" variant="secondary" onClick={() => updateUntimedRows(rows => [...rows, { clientKey: crypto.randomUUID(), position: Math.max(-1, ...rows.map(row => row.position), ...slotRows.map(row => row.position ?? 0)) + 1, performerLabel: "", personSlug: "", roleLabel: "" }])}>Add performer</Button>
         </div>
+        {!usesCanonicalLineup ? <textarea hidden readOnly name="participantLinks" value={untimedRows.filter(row => row.personSlug.trim()).map(row => `${row.personSlug} | ${row.roleLabel}`).join("\n")} /> : null}
+      </EditorSection>
 
-      <Field>
-        Media links
-        <Textarea className="min-h-28" name="mediaLinks" onChange={(changeEvent) => setMediaLinksText(changeEvent.currentTarget.value)} placeholder="watch | Twitch watch link | https://... | open&#10;vrcdn | VRCDN Quest link | https://stream.vrcdn.live/live/name.live.ts | copy&#10;vrcdn | VRCDN PC link | rtspt://stream.vrcdn.live/live/name | copy" value={mediaLinksText} />
-        <FieldText>One per line: type | label | URL | open or copy. VRCDN variants derive Quest and PC player links automatically.</FieldText>
-      </Field>
+      </div>
+      <div hidden={activeStep !== "Review"} data-editor-step="Review" className="space-y-8">
+        <EditorSection title="Review">
+          <h3 className="break-words text-2xl font-semibold">{preview.title}</h3>
+          <dl className="grid gap-3 text-sm sm:grid-cols-2">
+            <div><dt className="text-muted">{timeTba ? "Date" : "Start"}</dt><dd>{timeTba ? eventDate : startLocal.replace("T", " ")}</dd></div>
+            {!timeTba ? <div><dt className="text-muted">Time zone</dt><dd>{timezone}</dd></div> : null}
+            {preview.venueLabel ? <div><dt className="text-muted">Venue</dt><dd>{preview.venueLabel}</dd></div> : null}
+          </dl>
+          <div className="flex flex-wrap gap-3">
+            {(["Source", "Details", "Lineup"] as const).map(step => <Button key={step} type="button" variant="secondary" onClick={() => setActiveStep(step)}>Edit {step.toLowerCase()}</Button>)}
+          </div>
+        </EditorSection>
+        <EditorDisclosure title="Advanced">
       <label className="flex gap-3 rounded-control border border-border bg-surface-strong p-4 text-sm leading-6">
         <input
           className="mt-1 h-4 w-4 flex-none accent-accent"
@@ -991,7 +1169,6 @@ function ConnectedEventEditorForm({
           <option value="performer_sequence">Performer sequence</option>
         </Select>
       </Field> : null}
-      <VrcdnMediaLinkAssistant mediaLinksText={mediaLinksText} />
 
       {event === undefined || watchMode !== "event_stream" ? null : (
         <Card className="grid gap-4" padding="sm" surface="strong">
@@ -1196,130 +1373,7 @@ function ConnectedEventEditorForm({
           )}
         </Card>
       )}
-      </EditorDisclosure>
 
-      <EditorSection title="Schedule">
-        <div className="grid gap-4" hidden={timeTba}>
-          <div className="grid gap-3 sm:grid-cols-2 sm:items-end">
-            <Field className="text-xs text-muted">
-              Slots
-              <Input
-                className="bg-surface-strong text-foreground"
-                inputMode="numeric"
-                max={EVENT_SLOT_MAX_COUNT}
-                min={0}
-                onChange={(changeEvent) => {
-                  onSlotTemplateChange("count", eventTargetValue(changeEvent));
-                }}
-                required
-                step={1}
-                type="number"
-                value={slotTemplate.count}
-              />
-            </Field>
-            <Field className="text-xs text-muted">
-              Minutes each
-              <Input
-                className="bg-surface-strong text-foreground"
-                inputMode="numeric"
-                min={1}
-                onChange={(changeEvent) => {
-                  onSlotTemplateChange("duration", eventTargetValue(changeEvent));
-                }}
-                required
-                step={1}
-                type="number"
-                value={slotTemplate.duration}
-              />
-            </Field>
-          </div>
-          <div className="grid gap-3">
-            {slotRows.map((slot, index) => (
-            <Card className="grid gap-3" key={slot.id} padding="sm" surface="dashed">
-              <div className="grid gap-3 sm:grid-cols-[minmax(8rem,0.35fr)_minmax(0,1fr)] sm:items-end">
-                <div className="pb-2">
-                  <h4 className="font-semibold">Slot {index + 1}</h4>
-                  <span className="text-xs text-muted">+{slot.offsetMinutes} min · {slot.durationMinutes} min</span>
-                </div>
-                <Field className="text-xs text-muted">
-                  Person
-                  <PersonProfileInput
-                    inputId={`slot-person-${slot.id}`}
-                    onChange={(value, displayName) => {
-                      updateSlotRows((rows) => rows.map((row) => row.id === slot.id
-                        ? {
-                            ...row,
-                            personSlug: value,
-                            ...(value !== row.personSlug ? { selectedStreamId: undefined, streamChoices: [] } : {}),
-                            ...(displayName !== undefined && (
-                              row.displayLabel.trim() === "" || row.displayLabel === `Session ${index + 1}`
-                            )
-                              ? { displayLabel: displayName }
-                              : {}),
-                          }
-                        : row));
-                    }}
-                    value={slot.personSlug}
-                  />
-                </Field>
-              </div>
-              {watchSurfaceEnabled && watchMode === "performer_sequence" && slot.personSlug.trim() ? <SlotStreamSelect
-                row={slot}
-                invalid={status.kind === "error" && Boolean(slot.selectedStreamId) && status.streamSelections?.[slot.id] === slot.selectedStreamId}
-                onChange={value => updateSlotRows(rows => rows.map(row => row.id === slot.id ? { ...row, selectedStreamId: value || undefined } : row))}
-              /> : null}
-              <details className="group border-t border-border pt-3">
-                <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-sm font-medium marker:hidden">
-                  Details
-                  <span aria-hidden="true" className="text-muted transition group-open:rotate-45">+</span>
-                </summary>
-                <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                  <Field className="text-xs text-muted">
-                    Display name
-                    <Input
-                      onChange={(changeEvent) => {
-                        const value = eventTargetValue(changeEvent);
-                        updateSlotRows((rows) => rows.map((row) => row.id === slot.id ? { ...row, displayLabel: value } : row));
-                      }}
-                      value={slot.displayLabel}
-                    />
-                  </Field>
-                  <Field className="text-xs text-muted">
-                    Role or style
-                    <Input
-                      onChange={(changeEvent) => {
-                        const value = eventTargetValue(changeEvent);
-                        updateSlotRows((rows) => rows.map((row) => row.id === slot.id ? { ...row, roleLabel: value } : row));
-                      }}
-                      value={slot.roleLabel}
-                    />
-                  </Field>
-                </div>
-              </details>
-            </Card>
-            ))}
-          </div>
-        </div>
-
-        {usesCanonicalLineup ? <div className="grid gap-4">
-          {untimedRows.map(row => <Card key={row.clientKey} className="grid gap-3" padding="sm" surface="dashed">
-            <Field>Performer<Input required value={row.performerLabel} onChange={change => updateUntimedRows(rows => rows.map(item => item.clientKey === row.clientKey ? { ...item, performerLabel: change.target.value } : item))} /></Field>
-            <Field>Person profile<PersonProfileInput inputId={`untimed-${row.clientKey}`} value={row.personSlug} onChange={personSlug => updateUntimedRows(rows => rows.map(item => item.clientKey === row.clientKey ? { ...item, personSlug } : item))} /></Field>
-            <Field>Role<Input value={row.roleLabel} onChange={change => updateUntimedRows(rows => rows.map(item => item.clientKey === row.clientKey ? { ...item, roleLabel: change.target.value } : item))} /></Field>
-            <Button type="button" variant="secondary" onClick={() => updateUntimedRows(rows => rows.filter(item => item.clientKey !== row.clientKey))}>Remove performer</Button>
-          </Card>)}
-          <Button type="button" variant="secondary" onClick={() => updateUntimedRows(rows => [...rows, { clientKey: crypto.randomUUID(), position: Math.max(-1, ...rows.map(row => row.position), ...slotRows.map(row => row.position ?? 0)) + 1, performerLabel: "", personSlug: "", roleLabel: "" }])}>Add performer</Button>
-        </div> : <details className="group rounded-control border border-border bg-surface px-4 py-3">
-          <summary className="flex cursor-pointer list-none items-center justify-between gap-4 font-medium marker:hidden">
-            Add untimed performers
-            <span aria-hidden="true" className="text-muted transition group-open:rotate-45">+</span>
-          </summary>
-          <Field className="mt-4">
-            Linked person profiles
-            <Textarea className="min-h-24" defaultValue={serializeOtherEventParticipants(event)} name="participantLinks" placeholder="dj-aurora | Performer&#10;vj-lumen | Staff" />
-          </Field>
-        </details>}
-      </EditorSection>
 
       {event === undefined ? null : (
         <EditorDisclosure title="Operations">
@@ -1378,8 +1432,12 @@ function ConnectedEventEditorForm({
         </EditorDisclosure>
       )}
 
+        </EditorDisclosure>
+      </div>
+      </EventEditorSteps>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <Button disabled={isSubmitting || !slotTemplateIsValid} name="intent" size="lg" type="submit" value="publish" variant="primary">
+        {activeStep === "Review" ? (
+        <Button disabled={isSubmitting} name="intent" size="lg" type="submit" value="publish" variant="primary">
           {isSubmitting
             ? "Saving..."
             : isPublished
@@ -1388,7 +1446,8 @@ function ConnectedEventEditorForm({
                 ? "Save and publish"
                 : "Publish event"}
         </Button>
-        <Button disabled={isSubmitting || !slotTemplateIsValid} name="intent" size="lg" type="submit" value="draft" variant="secondary">
+        ) : <Button type="button" size="lg" onClick={() => setActiveStep(activeStep === "Source" ? "Details" : activeStep === "Details" ? "Lineup" : "Review")}>Continue</Button>}
+        <Button disabled={isSubmitting} name="intent" size="lg" type="submit" value="draft" variant="secondary">
           {isPublished ? "Unpublish and save draft" : "Save draft"}
         </Button>
         {status.kind === "success" ? (
