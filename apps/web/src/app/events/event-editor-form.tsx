@@ -701,14 +701,17 @@ function ConnectedEventEditorForm({
     const form = submitEvent.currentTarget;
     const formData = new FormData(form, (submitEvent.nativeEvent as SubmitEvent).submitter);
     const intent = stringField(formData.get("intent"));
-    const invalid = form.querySelector<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>("input:invalid, select:invalid, textarea:invalid");
-    if (intent === "publish" && invalid) {
-      const panel = invalid.closest<HTMLElement>("[data-editor-step]");
+    function revealField(field: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement) {
+      const panel = field.closest<HTMLElement>("[data-editor-step]");
       if (panel) setActiveStep(panel.dataset.editorStep as EventEditorStep);
-      for (let parent = invalid.parentElement; parent && parent !== form; parent = parent.parentElement) {
+      for (let parent = field.parentElement; parent && parent !== form; parent = parent.parentElement) {
         if (parent instanceof HTMLDetailsElement) parent.open = true;
       }
-      requestAnimationFrame(() => { invalid.focus(); invalid.reportValidity(); });
+      requestAnimationFrame(() => { field.focus(); field.reportValidity(); });
+    }
+    const invalid = form.querySelector<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>("input:invalid, select:invalid, textarea:invalid");
+    if (intent === "publish" && invalid) {
+      revealField(invalid);
       return;
     }
     if (!slotTemplateIsValid && !timeTba) { setActiveStep("Lineup"); return; }
@@ -827,9 +830,16 @@ function ConnectedEventEditorForm({
         }),
       );
     } catch (error) {
+      const message = eventEditorErrorMessage(error);
+      const selector = message === "Time zone must be a valid IANA time zone." ? '[role="combobox"][aria-label="Time zone"]'
+        : message === "Local time does not exist in this timezone." ? '[name="startAt"]'
+        : message === "Ambiguous local time requires an earlier or later occurrence." ? '[aria-label="Start occurrence"]'
+        : undefined;
+      const field = selector ? form.querySelector<HTMLInputElement | HTMLSelectElement>(selector) : null;
+      if (field) revealField(field);
       if (isUnavailableStreamError(error)) setActiveStep("Lineup");
       startTransition(() => setStatus({
-        kind: "error", message: eventEditorErrorMessage(error),
+        kind: "error", message,
         // The backend identifies the selection category, not an individual row.
         streamSelections: isUnavailableStreamError(error)
           ? Object.fromEntries(slotRows.filter(row => row.selectedStreamId).map(row => [row.id, row.selectedStreamId!]))

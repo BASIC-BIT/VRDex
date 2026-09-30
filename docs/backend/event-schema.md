@@ -146,7 +146,9 @@ output, worker status, cancellation, restoration, and audit history.
 
 Inactive step fields stay mounted for canonical FormData serialization.
 Publication reveals the first invalid field's step and focuses it before calling
-the existing create/update command. Save draft remains available on every step
+the existing create/update command. An unselected timezone search, a nonexistent
+local start time, or a repeated time without an occurrence choice also returns
+to Details and focuses the corresponding timing control. Save draft remains available on every step
 under the existing canonical validation rules. Publication still redirects to
 the event page. These presentation changes do not alter `events:write`, community
 authority checks, stream assignment, or VRCDN output commands.
