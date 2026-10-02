@@ -43,13 +43,22 @@ export const beginPosterUpload = internalMutation({
 });
 export const readActorSource = internalQuery({ args: { ...actor, ...sourceArg }, returns: v.any(), handler: (ctx, args) => ownSource(ctx.db, args.actorUserId, args.posterAssetId) });
 // Internal completion is called only by the server bridge after full decoding and digest verification.
-export const completePosterUpload = internalMutation({ args: { ...actor, ...sourceArg, sha256: v.string() }, returns: v.null(), handler: async (ctx, args) => {
+export const completePosterUpload = internalMutation({ args: { ...actor, ...sourceArg, sha256: v.string(), expectedVersion: v.optional(v.number()) }, returns: v.any(), handler: async (ctx, args) => {
   const source = await ownSource(ctx.db, args.actorUserId, args.posterAssetId);
   if (source.sha256 !== args.sha256) throw new Error("POSTER_DIGEST_MISMATCH");
   const draft = await getActorIntakeDraft(ctx.db, args.actorUserId, source.draftId);
   if (draft.publishedReceiptId) throw new Error("DRAFT_PUBLISHED");
-  await ctx.db.patch(source._id, { state: "ready", lastActivityAt: draft.updatedAt, expiresAt: Math.min(source.uploadedAt + 180 * DAY, draft.updatedAt + 30 * DAY, Date.now() + DAY) });
-  return null;
+  if (args.expectedVersion !== undefined) {
+    const artwork = draft.artworkAssetId ? await ctx.db.get(draft.artworkAssetId) : null;
+    const selectedArtwork = artwork?.sourceId === source._id && artwork.state === "ready" ? artwork : null;
+    if (selectedArtwork && selectedArtwork.appliedDraftVersion !== draft.version) throw new Error("VERSION_CONFLICT");
+    if (draft.version !== args.expectedVersion && (!selectedArtwork || selectedArtwork.appliedDraftVersion !== args.expectedVersion + 1)) throw new Error("VERSION_CONFLICT");
+  }
+  if (source.state !== "ready") await ctx.db.patch(source._id, { state: "ready", lastActivityAt: draft.updatedAt, expiresAt: Math.min(source.uploadedAt + 180 * DAY, draft.updatedAt + 30 * DAY, Date.now() + DAY) });
+  const currentSource = draft.fields.posterSourceId;
+  const autoSourceId = !draft.artworkAssetId && (!draft.artworkIntentSourceId || draft.artworkIntentSourceId === source._id) && (currentSource === undefined || currentSource === source._id) ? source._id : undefined;
+  if (autoSourceId && !draft.artworkIntentSourceId) await ctx.db.patch(draft._id, { artworkIntentSourceId: source._id });
+  return { version: draft.version, artworkAssetId: draft.artworkSourceId === source._id ? draft.artworkAssetId : undefined, autoSourceId };
 } });
 export const getPosterSource = query({ args: sourceArg, returns: v.any(), handler: async (ctx, args) => {
   const { userId } = await requireUser(ctx);
@@ -58,32 +67,41 @@ export const getPosterSource = query({ args: sourceArg, returns: v.any(), handle
   if (source.actorUserId !== userId && !(await getAccountFeatureAccess(ctx.db, userId)).superAdmin) throw new Error("POSTER_NOT_FOUND");
   return source;
 } });
-export const selectPosterArtwork = internalMutation({ args: { ...actor, ...sourceArg, draftId: v.id("eventIntakeDrafts"), expectedVersion: v.number() }, returns: v.any(), handler: async (ctx, args) => {
+export const selectPosterArtwork = internalMutation({ args: { ...actor, ...sourceArg, draftId: v.id("eventIntakeDrafts"), expectedVersion: v.number(), automatic: v.optional(v.boolean()) }, returns: v.any(), handler: async (ctx, args) => {
   const draft = await getActorIntakeDraft(ctx.db, args.actorUserId, args.draftId);
-  if (draft.version !== args.expectedVersion) throw new Error("VERSION_CONFLICT");
   if (draft.publishedReceiptId) throw new Error("DRAFT_PUBLISHED");
-  const source = await ownSource(ctx.db, args.actorUserId, args.posterAssetId);
+  if (draft.version !== args.expectedVersion) throw new Error("VERSION_CONFLICT");
+  const sourceId = args.posterAssetId;
+  if (args.automatic && (draft.artworkAssetId || (draft.artworkIntentSourceId && draft.artworkIntentSourceId !== sourceId) || (draft.fields.posterSourceId !== undefined && draft.fields.posterSourceId !== sourceId))) return { artworkAssetId: null, version: draft.version, skipped: true };
+  const source = await ownSource(ctx.db, args.actorUserId, sourceId);
   if (source.draftId !== draft._id || source.state !== "ready") throw new Error("POSTER_NOT_READY");
+  await ctx.db.patch(draft._id, { artworkIntentSourceId: source._id });
   const previous = await ctx.db.query("eventPosterArtwork").withIndex("by_source", q => q.eq("sourceId", source._id)).order("desc").take(1);
   const writeExpiresAt = Date.now() + ARTWORK_WRITE_MS;
   if (previous[0] && ["pending", "ready"].includes(previous[0].state)) {
     await ctx.db.patch(previous[0]._id, { expiresAt: Math.max(previous[0].expiresAt, writeExpiresAt + DAY) });
-    return { artworkAssetId: previous[0]._id, storageKey: previous[0].storageKey, expectedVersion: draft.version, writeExpiresAt };
+    return { artworkAssetId: previous[0]._id, sourceId: source._id, storageKey: previous[0].storageKey, expectedVersion: draft.version, writeExpiresAt };
   }
   const storageKey = `profile-assets/event-posters/artwork/${crypto.randomUUID()}.webp`;
   const artworkAssetId = await ctx.db.insert("eventPosterArtwork", { actorUserId: args.actorUserId, draftId: draft._id, sourceId: source._id, storageKey, state: "pending", createdAt: Date.now(), expiresAt: writeExpiresAt + DAY });
-  return { artworkAssetId, storageKey, expectedVersion: draft.version, writeExpiresAt };
+  return { artworkAssetId, sourceId: source._id, storageKey, expectedVersion: draft.version, writeExpiresAt };
 } });
-export const completeArtwork = internalMutation({ args: { ...actor, artworkAssetId: v.id("eventPosterArtwork"), expectedVersion: v.number(), sha256: v.string(), byteLength: v.number() }, returns: v.any(), handler: async (ctx, args) => {
+export const completeArtwork = internalMutation({ args: { ...actor, artworkAssetId: v.id("eventPosterArtwork"), expectedVersion: v.number(), sha256: v.string(), byteLength: v.number(), automatic: v.optional(v.boolean()) }, returns: v.any(), handler: async (ctx, args) => {
   const artwork = await ctx.db.get(args.artworkAssetId);
   if (!artwork || artwork.actorUserId !== args.actorUserId || !["pending", "ready"].includes(artwork.state)) throw new Error("ARTWORK_NOT_FOUND");
   const draft = await getActorIntakeDraft(ctx.db, args.actorUserId, artwork.draftId);
-  if (draft.artworkAssetId === artwork._id && artwork.state === "ready") return { artworkAssetId: artwork._id, version: draft.version };
+  if (draft.artworkAssetId === artwork._id && artwork.state === "ready") {
+    if (args.automatic && artwork.appliedDraftVersion !== draft.version) throw new Error("VERSION_CONFLICT");
+    if (draft.version !== args.expectedVersion && !(artwork.appliedDraftVersion === draft.version && artwork.appliedDraftVersion === args.expectedVersion + 1)) throw new Error("VERSION_CONFLICT");
+    if (!args.automatic && draft.artworkIntentSourceId === artwork.sourceId) await ctx.db.patch(draft._id, { artworkIntentSourceId: undefined });
+    return { artworkAssetId: artwork._id, version: draft.version };
+  }
   if (draft.publishedReceiptId || draft.version !== args.expectedVersion) throw new Error("VERSION_CONFLICT");
+  if (args.automatic ? draft.artworkAssetId || draft.artworkIntentSourceId !== artwork.sourceId || (draft.fields.posterSourceId !== undefined && draft.fields.posterSourceId !== artwork.sourceId) : draft.artworkIntentSourceId !== artwork.sourceId) throw new Error("VERSION_CONFLICT");
   if (!/^[a-f0-9]{64}$/.test(args.sha256) || !Number.isSafeInteger(args.byteLength) || args.byteLength < 1 || args.byteLength > EVENT_POSTER_MAX_BYTES) throw new Error("ARTWORK_INVALID");
   await ownSource(ctx.db, args.actorUserId, artwork.sourceId);
-  await ctx.db.patch(artwork._id, { state: "ready", sha256: args.sha256, byteLength: args.byteLength, expiresAt: Date.now() + 30 * DAY });
-  await ctx.db.patch(draft._id, { artworkAssetId: artwork._id, version: draft.version + 1, updatedAt: Date.now(), expiresAt: Date.now() + 30 * DAY });
+  await ctx.db.patch(artwork._id, { state: "ready", sha256: args.sha256, byteLength: args.byteLength, appliedDraftVersion: draft.version + 1, expiresAt: Date.now() + 30 * DAY });
+  await ctx.db.patch(draft._id, { artworkAssetId: artwork._id, artworkIntentSourceId: undefined, version: draft.version + 1, updatedAt: Date.now(), expiresAt: Date.now() + 30 * DAY });
   return { artworkAssetId: artwork._id, version: draft.version + 1 };
 } });
 export const publicArtwork = query({ args: { artworkAssetId: v.string() }, returns: v.any(), handler: async (ctx, args) => {

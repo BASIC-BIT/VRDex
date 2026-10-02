@@ -16,6 +16,7 @@ function CorrectionForm({ eventId, onDone }: { eventId: Id<"events">; onDone: ()
   return <EventIntakeFieldsForm correction initialFields={event.fields} initialRevision={event.updatedAt} onPublish={async (fields, revision) => {
     const patch = { ...fields };
     delete patch.communitySlug; delete patch.sourceText; delete patch.posterSourceId;
+    delete patch.posterDeclaration; delete patch.evidence;
     delete patch.tentative; delete patch.questions; delete patch.duplicateAcknowledgements;
     for (const key of Object.keys(patch) as Array<keyof typeof patch>) {
       if (JSON.stringify(patch[key]) === JSON.stringify(event.fields[key])) delete patch[key];

@@ -37,12 +37,14 @@ flowchart LR
 
 The strict schemas and TypeScript types live in
 `packages/api-contracts/src/event-intake.ts`. Omitted top-level patch fields stay
-unchanged, `null` clears a value, and empty strings normalize to unknown. Nested
+unchanged, `null` clears a value, and empty strings normalize to unknown. A cleared
+`posterSourceId` retains null to prevent late completion from restoring artwork. Nested
 objects and the lineup array replace their previous value as a unit. A lineup
 row has a stable `clientKey`, `position`, and optional performer, role and times.
 Those structural fields alone do not constitute a meaningful draft.
 
-One meaningful input is enough to save. `sourceText`, `posterSourceId`, and a
+One meaningful input is enough to create a draft. Existing drafts may become
+empty after source removal. `sourceText`, a singular `posterSourceId`, and a
 bounded `posterDeclaration` of MIME/bytes/SHA-256 remain private. The declaration
 allows a poster-only draft before upload and inherits ordinary draft quotas and
 expiry. It does not confirm source bytes or satisfy publication minimums. The poster reference is an opaque integration reference, not a public
@@ -115,8 +117,10 @@ Creating a new canonical event also records its actor and transport surface in
 
 Published records have `sourceType: "contributor"` and source label
 `Community-submitted`. Public projections omit contributor identity, private
-source text, poster references and draft provenance. Private source posters
-never become event artwork implicitly. Participants and worlds retain the
+source text, poster references and draft provenance. The first image in a
+saved source order becomes artwork after verified upload and WebP preparation,
+unless the contributor explicitly selects another. Private source posters
+remain separate evidence. Participants and worlds retain the
 contributor source type. Contributor-selected world associations start
 `unconfirmed`: they appear on the event page but not as confirmed world-page
 activity until staff confirm them. Contributor corrections to that world also
@@ -127,6 +131,32 @@ Canonical contribution metadata is `contributorUserId`, `contributionVersion`,
 `contributorLockRevision`. Published drafts are immutable; use the correction
 commands below to change the canonical event. Replay attempts against a
 published draft return a conflict.
+
+## Website editor
+
+Contributors enter Source, Details, Lineup, and Review inside the existing page
+layout. Manual entry needs no source upload. One versioned draft retains values
+across steps and resume. Review links back to editable fields, applies the
+existing preflight and duplicate checks, and publishes directly to the event page.
+The staff editor uses the same steps with canonical commands and staff-only
+advanced controls. Its Source step uses existing URLs and media controls.
+
+```mermaid
+flowchart LR
+  A[Events or community page] --> B[Add event]
+  C[Direct contribution link] --> B
+  B --> D[Sign in and return]
+  D --> E[Source, optional text and images]
+  E --> F[Details]
+  F --> G[Lineup]
+  G --> H[Review]
+  H -->|Edit| F
+  H -->|Publish| I[Event page]
+  I -->|Correct own contribution| J[Details, Lineup, Review]
+  J -->|Save changes| I
+  I -->|Staff edit| K[Staff Source, Details, Lineup, Review]
+  K -->|Save| I
+```
 
 ## Correction commands
 
@@ -140,6 +170,14 @@ remain unconfirmed in person-profile feeds until staff edits that lineup.
 `updateOwnContributedEvent({eventId, expectedUpdatedAt, patch, duplicateAcknowledgements?})` allows only the
 original contributor while the listing is published, scheduled, and not taken
 over by staff. It returns the new `updatedAt` and `contributionVersion`.
+
+The inline correction editor shows Details, Lineup, and Review, then closes back
+to the event page after a successful save. It hides community selection and has
+no source upload, private evidence, artwork, live, or staff controls. Its patch
+omits unchanged fields, including unchanged lineups that contain hidden people.
+The form keeps the revision loaded when editing began, so a reactive query
+refresh cannot silently overwrite a newer edit. Report, retract, takeover, and
+removal keep their separate controls and authorization.
 
 The patch keys are `title`, `eventDate`, `timeTba`, `timezone`, `start`, `end`,
 `doors`, `venueLabel`, `worldSlug`, `sourceUrl`, `summary`, and `lineup`. Local
@@ -244,7 +282,7 @@ detection; title/date changes can evade it.
 ## Private posters and optional extraction
 
 See [source storage and model controls](./event-intake-sources.md) for private
-upload intents, explicit artwork selection, retention, bounded extraction and
+upload intents, automatic and explicit artwork selection, retention, bounded extraction and
 default-off spam classification. The manual path has no model-key dependency.
 
 ## Integrated verification
