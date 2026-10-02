@@ -70,6 +70,19 @@ it("projects automatic artwork without versioning unrelated kit state", async ()
   assert.ok(after);
   assert.notEqual(after.currentAutomaticImageUrl, before.currentAutomaticImageUrl);
   assert.equal(after.reviewVersion, before.reviewVersion);
+  await t.run(ctx => ctx.db.patch(seeded.profileId, {
+    outboundLinks: [{ type: "vrchat_profile", label: "VRChat", source: "community_submitted",
+      url: "https://vrchat.com/home/user/usr_7023d326-083f-41fe-a3e9-27ea303b50c6" }],
+  }));
+  const changed = await actor.query(api.profileMediaSubmissions.reviewDetail, { submissionId: intent.submissionId });
+  assert.ok(changed);
+  assert.notEqual(changed.reviewVersion, after.reviewVersion);
+  const receipt = await actor.mutation(api.profileMediaSubmissions.decideWithReceipt, {
+    submissionId: intent.submissionId, expectedReviewVersion: after.reviewVersion, decision: "approve",
+    privateReason: "Inspected former identity", idempotencyKey: "old-linked-identity",
+  });
+  assert.equal(receipt.code, "review_changed");
+  assert.equal((await t.run(ctx => ctx.db.get(intent.submissionId)))?.status, "submitted");
 });
 
 it("projects owner evidence separately and rechecks revoked authority on replay", async () => {

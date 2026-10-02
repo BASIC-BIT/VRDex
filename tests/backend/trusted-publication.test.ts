@@ -614,3 +614,24 @@ it("publishes kit media beside a visible legacy picture", async () => {
   assert.equal((await f.t.run(ctx => ctx.db.get(f.s.profileId)))?.avatarImageUrl, "https://example.test/legacy.webp");
   assert.deepEqual((await f.t.run(ctx => ctx.db.query("profileAssetPlacements").collect())).map(p => p.placement), ["gallery"]);
 });
+
+for (const kind of ["vrchat_user", "vrchat_group", "discord_guild"] as const) {
+  it(`requires fresh kit inspection after replacing linked ${kind} identity`, async () => {
+    const f = await fixture();
+    const url = (suffix: string) => kind === "discord_guild"
+      ? `https://discord.gg/Club${suffix}`
+      : `https://vrchat.com/home/${kind === "vrchat_user" ? "user/usr" : "group/grp"}_7023d326-083f-41fe-a3e9-27ea303b50c${suffix}`;
+    const link = { type: "website" as const, label: "Identity", source: "community_submitted" as const };
+    await f.t.run(ctx => ctx.db.patch(f.s.profileId, { outboundLinks: [{ ...link, url: url("5") }] }));
+    const before = await f.detail(); assert.ok(before);
+    await f.t.run(ctx => ctx.db.patch(f.s.profileId, { outboundLinks: [{ ...link, url: url("6") }] }));
+    const after = await f.detail(); assert.ok(after);
+    assert.notEqual(after.reviewVersion, before.reviewVersion);
+    const receipt = await f.actor.mutation(api.profileMediaSubmissions.publish, {
+      submissionId: f.intent.submissionId, expectedReviewVersion: before.reviewVersion, idempotencyKey: kind,
+    });
+    assert.equal(receipt.code, "review_changed");
+    assert.equal((await f.t.run(ctx => ctx.db.query("profileAssets").collect())).length, 0);
+    assert.equal((await f.publish()).operationState, "committed");
+  });
+}

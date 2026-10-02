@@ -29,6 +29,7 @@ import {
 } from "./_identity";
 import { recordPublicationRestriction } from "./_trustedPublication";
 import { isProfileFieldVisible } from "./_profileFieldVisibility";
+import { parseProfileLinkDestination } from "./_profileLinkDestination";
 import {
   automaticProfileImage,
   profileImageSources,
@@ -541,6 +542,10 @@ export async function reviewSnapshot(
       displayName: profile.displayName, claimState: profile.claimState,
       publicationState: profile.publicationState, publicSurfacingState: profile.publicSurfacingState,
       fieldVisibility: profile.fieldVisibility,
+      identityDestinations: (profile.outboundLinks ?? []).flatMap(link => {
+        const destination = parseProfileLinkDestination(link);
+        return destination ? [destination.key] : [];
+      }).sort(),
     } : profile,
     placement: kitAsset ? undefined : placement,
     currentAsset: kitAsset ? undefined : currentAsset,
