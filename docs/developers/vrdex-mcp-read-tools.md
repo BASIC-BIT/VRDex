@@ -59,6 +59,9 @@ prefer URL-form client IDs over Dynamic Client Registration. VRDex fetches the
 metadata document during authorization, rejects redirects, requires exact
 `client_id` document matching, caps responses at 5 KB, rejects special-use
 address resolution, and stores accepted documents as dynamic MCP clients.
+Documents that omit `scope` may request supported MCP scopes through user
+consent; an explicit document scope remains a ceiling. This is client eligibility,
+not an automatic token grant. Authorization defaults remain minimal reads.
 
 The hosted endpoint also contains an authenticated write surface documented in
 [`hosted-mcp-oauth-writes.md`](./hosted-mcp-oauth-writes.md) -- event
