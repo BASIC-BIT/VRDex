@@ -113,3 +113,14 @@ it("retains an indeterminate lost response and replays the original key without 
   assert.equal(writes, 1);
   assert.equal(input.decisions[0]?.idempotencyKey, "stable");
 });
+
+import { reviewDetailSchema, mediaPublicationSchema } from "../src/media-review";
+it("describes additive and placement intent without adding assertions to publication", () => {
+  const intent = reviewDetailSchema.pick({ requestKind: true, candidateAssetId: true });
+  assert.deepEqual(intent.parse({ requestKind: "kit_asset" }), { requestKind: "kit_asset" });
+  assert.equal(intent.safeParse({ requestKind: "identity_placement", candidateAssetId: "asset" }).success, true);
+  assert.equal(intent.safeParse({ requestKind: "unknown" }).success, false);
+  const command = { submissionId: "submission", expectedReviewVersion: "version", idempotencyKey: "key" };
+  assert.deepEqual(mediaPublicationSchema.parse(command), command);
+  assert.equal(mediaPublicationSchema.safeParse({ ...command, identityConfirmed: true }).success, false);
+});

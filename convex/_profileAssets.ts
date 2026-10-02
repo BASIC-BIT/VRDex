@@ -796,6 +796,7 @@ export async function consumeProfileAssetUploads(
     const creditUrl = sanitizeProfileAssetCreditUrl(upload.creditUrl);
     validateProfileAssetGalleryPlacements(upload.placements, label);
     const assetId = await db.insert("profileAssets", {
+      ...(input.approvedSubmissionId === undefined ? {} : { sourceSubmissionId: input.approvedSubmissionId }),
       profileId: input.profileId,
       storageKey: intent.storageKey,
       ...(intent.sourceStorageKey !== undefined && intent.sourceContentSha256 !== undefined

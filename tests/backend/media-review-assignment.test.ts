@@ -515,7 +515,7 @@ it("refuses assigned approval of a private replacement with a stable receipt, in
       profileId: f.s.profileId, assetId: id, placement: "profile_image",
       position: 0, state: "active", updatedAt: NOW,
     });
-    await ctx.db.patch(f.intent.submissionId, { targetPlacementAssetId: id });
+    await ctx.db.patch(f.intent.submissionId, { requestKind: "identity_placement", requestedPlacement: "profile_image", targetPlacementAssetId: id });
     return id;
   });
   const detail = await f.actor.query(api.profileMediaSubmissions.reviewDetail, {
@@ -772,6 +772,7 @@ it("manages assignments only as a verified super admin and refuses donor assignm
 });
 it("placement changes require a new explicit rebase and previously viewed versions fail", async () => {
   const f = await fixture();
+  await f.t.run(ctx => ctx.db.patch(f.intent.submissionId, { requestKind: "identity_placement", requestedPlacement: "profile_image" }));
   const args = { submissionId: f.intent.submissionId };
   const before = await f.actor.query(
     api.profileMediaSubmissions.reviewDetail,

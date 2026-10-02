@@ -11,6 +11,7 @@ import {
 import {
   consumeProfileAssetUploads,
   hasProfileAssetCapacity,
+  sanitizeProfileAssetLabel,
 } from "./_profileAssets";
 import {
   mediaPublicationSchema,
@@ -27,13 +28,6 @@ export type PublicationFacts = {
   ownSubmission: boolean;
   sourceRecorded: boolean;
   credit: string;
-  identityConfirmed: boolean;
-  attributionConfirmed: boolean;
-  publicationPermitted: boolean;
-  noKnownRestrictions: boolean;
-  currentPlacement: unknown | null;
-  legacyImageUrl: string | null;
-  automaticImageUrl: string | null;
   priorSuppression: boolean;
   priorRejection: boolean;
   unresolvedDispute: boolean;
@@ -45,13 +39,6 @@ export function eligible(f: PublicationFacts): boolean {
     f.ownSubmission &&
     f.sourceRecorded &&
     !!f.credit.trim() &&
-    f.identityConfirmed &&
-    f.attributionConfirmed &&
-    f.publicationPermitted &&
-    f.noKnownRestrictions &&
-    f.currentPlacement === null &&
-    !f.legacyImageUrl &&
-    !f.automaticImageUrl &&
     !f.priorSuppression &&
     !f.priorRejection &&
     !f.unresolvedDispute
@@ -108,28 +95,15 @@ async function digest(value: unknown) {
     (b) => b.toString(16).padStart(2, "0"),
   ).join("");
 }
-// Candidate-only revision keeps declarations stable across target refreshes, but never across evidence edits.
-export function evidenceRevision(submission: Doc<"profileMediaSubmissions">) {
-  return digest({
-    submissionId: submission._id,
-    submitterUserId: submission.submitterUserId,
-    originalFileName: submission.originalFileName,
-    contributorNote: submission.contributorNote,
-    label: submission.label,
-    altText: submission.altText,
-    hash: submission.contentSha256,
-    intent: submission.uploadIntentId,
-    sourceUrl: submission.sourceUrl,
-    sourceKind: submission.sourceKind,
-    sourceDescription: submission.sourceDescription,
-    credit: submission.credit,
-    creditUrl: submission.creditUrl,
-    placement: submission.requestedPlacement,
-    profileId: submission.profileId,
-  });
+export function publicationCommand(ctx: MutationCtx, input: MediaPublication, actor: ReviewActor): Promise<CommandReceipt> {
+  return publicationOrLegacyDeclaration(ctx, input, actor);
 }
 
-export async function publicationCommand(
+export function legacyDeclarationCommand(ctx: MutationCtx, input: PublicationEvidence, actor: ReviewActor): Promise<CommandReceipt> {
+  return publicationOrLegacyDeclaration(ctx, input, actor, true);
+}
+
+async function publicationOrLegacyDeclaration(
   ctx: MutationCtx,
   input: MediaPublication | PublicationEvidence,
   actor: ReviewActor,
@@ -168,7 +142,7 @@ export async function publicationCommand(
           code: "idempotency_conflict",
         };
   const snapshot = await reviewSnapshot(ctx, submission, profile);
-  const revision = await evidenceRevision(submission);
+
   let code =
     process.env.VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED !== "true"
       ? "review_disabled"
@@ -181,24 +155,8 @@ export async function publicationCommand(
             : !snapshot.candidate.rendition || !submission.contentSha256
               ? "candidate_unavailable"
               : undefined;
+  if (declaration) code = "declaration_retired";
   if (!declaration && !code) {
-    const otherImage = await ctx.db
-      .query("profileAssetPlacements")
-      .withIndex("by_profileId_placement_state_position", (q) =>
-        q
-          .eq("profileId", profile._id)
-          .eq(
-            "placement",
-            submission.requestedPlacement === "profile_image"
-              ? "primary_logo"
-              : "profile_image",
-          )
-          .eq("state", "active"),
-      )
-      .first();
-    const evidence = submission.publicationEvidenceId
-      ? await ctx.db.get(submission.publicationEvidenceId)
-      : null;
     const [
       identityRestriction,
       disputeRestriction,
@@ -262,10 +220,6 @@ export async function publicationCommand(
       await ctx.db.patch(submission._id, {
         priorRestrictionId: restriction._id,
       });
-    const confirmed =
-      evidence?.actorUserId === actor.user._id &&
-      evidence.submissionId === submission._id &&
-      evidence.candidateVersion === revision;
     if (
       !eligible({
         publisherGrant: access.canPublishMedia,
@@ -277,30 +231,12 @@ export async function publicationCommand(
           (submission.sourceKind === "local" &&
             !!submission.sourceDescription?.trim()),
         credit: submission.credit,
-        identityConfirmed: confirmed && evidence.identityConfirmed,
-        attributionConfirmed: confirmed && evidence.attributionConfirmed,
-        publicationPermitted: confirmed && evidence.publicationPermitted,
-        noKnownRestrictions: confirmed && evidence.noKnownRestrictions,
-        currentPlacement: snapshot.currentPlacement ?? otherImage,
-        legacyImageUrl: snapshot.currentAvatarImageUrl,
-        automaticImageUrl: snapshot.currentAutomaticImageUrl,
         priorSuppression: !!suppressedAsset,
         priorRejection: !!priorRejected,
         unresolvedDispute: !!restriction,
       })
     )
       code = "independent_review_required";
-    else if (profile.updatedAt !== submission.targetProfileUpdatedAt)
-      code = "target_changed";
-    else if (submission.targetPlacementAssetId !== undefined)
-      code = "independent_review_required";
-    else if (
-      (profile.profileType === "person" &&
-        submission.requestedPlacement !== "profile_image") ||
-      (profile.profileType === "community" &&
-        submission.requestedPlacement !== "primary_logo")
-    )
-      code = "placement_unavailable";
     else if (!(await hasProfileAssetCapacity(ctx.db, profile._id, 1)))
       code = "capacity_exceeded";
   }
@@ -310,23 +246,7 @@ export async function publicationCommand(
     operationState: code ? "refused" : "committed",
     ...(code ? { code } : {}),
   };
-  if (!code && declaration) {
-    const values = publicationEvidenceSchema.parse(args);
-    const evidenceId = await ctx.db.insert("mediaPublicationEvidence", {
-      submissionId: submission._id,
-      actorUserId: actor.user._id,
-      candidateVersion: revision,
-      identityConfirmed: values.identityConfirmed,
-      attributionConfirmed: values.attributionConfirmed,
-      publicationPermitted: values.publicationPermitted,
-      noKnownRestrictions: values.noKnownRestrictions,
-      createdAt: Date.now(),
-    });
-    await ctx.db.patch(submission._id, {
-      publicationEvidenceId: evidenceId,
-      reviewRevision: (submission.reviewRevision ?? 0) + 1,
-    });
-  } else if (!code) {
+  if (!code) {
     const intent = submission.uploadIntentId
       ? await ctx.db.get(submission.uploadIntentId)
       : null;
@@ -340,11 +260,11 @@ export async function publicationCommand(
         {
           intentId: intent._id,
           uploadToken: intent.uploadToken,
-          label: submission.label,
+          label: sanitizeProfileAssetLabel(submission.label) ?? "Image",
           altText: submission.altText,
           credit: submission.credit,
           creditUrl: submission.creditUrl,
-          placements: [submission.requestedPlacement],
+          placements: ["gallery"],
         },
       ],
       source: "community_submitted",

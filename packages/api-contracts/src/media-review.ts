@@ -90,6 +90,8 @@ export const reviewSnapshotSchema = z.strictObject({
 export type ReviewSnapshot = z.infer<typeof reviewSnapshotSchema>;
 
 export const reviewDetailSchema = z.strictObject({
+  requestKind: z.enum(["kit_asset", "identity_placement"]).optional(),
+  candidateAssetId: boundedId.optional(),
   publicationMethod: z
     .enum(["trusted_publisher", "independent_review"])
     .optional(),

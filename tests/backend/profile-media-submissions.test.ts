@@ -128,13 +128,14 @@ describe("unclaimed-profile media submissions", () => {
     assert.equal(after.asset?.altText, "Reviewed portrait of Community DJ.");
     assert.equal(after.asset?.credit, "Reviewed artist credit");
     assert.equal(after.asset?.creditUrl, "https://artist.example/credits");
-    assert.equal(after.placements[0]?.placement, "profile_image");
+    assert.equal(after.placements[0]?.placement, "gallery");
     assert.equal(after.submission?.approvedAssetId, decision.assetId);
 
     const publicProfile = await t.query(api.profileAssets.listPublicBySlug, {
       slug: "community-dj",
     });
-    assert.equal(publicProfile?.mediaKit.profileImage?.assetId, decision.assetId);
+    assert.equal(publicProfile?.mediaKit.profileImage, undefined);
+    assert.equal(publicProfile?.mediaKit.galleryAssets[0]?.assetId, decision.assetId);
     assert.notEqual(
       await t.query(api.profileAssets.getPublicAssetForStorage, {
         slug: "community-dj",
@@ -709,18 +710,16 @@ describe("unclaimed-profile media submissions", () => {
       });
     });
 
-    await assert.rejects(
-      t.withIdentity(seeded.moderatorIdentity).mutation(api.profileMediaSubmissions.decide, {
-        submissionId: intent.submissionId,
-        decision: "approve",
-        expectedProfileUpdatedAt: NOW,
-        privateReason: "Would replace newer owner media.",
-      }),
-      /media placement changed/i,
-    );
+    const decision = await t.withIdentity(seeded.moderatorIdentity).mutation(api.profileMediaSubmissions.decide, {
+      submissionId: intent.submissionId, decision: "approve", expectedProfileUpdatedAt: NOW, privateReason: "Add to kit.",
+    });
+    assert.equal(decision.status, "approved");
+    const placements = await t.run(ctx => ctx.db.query("profileAssetPlacements").collect());
+    assert.equal(placements.filter(p => p.placement === "profile_image" && p.state === "active").length, 1);
+    assert.equal(placements.filter(p => p.placement === "gallery").length, 1);
   });
 
-  it("retires the replaced singleton asset instead of exposing it as unplaced media", async () => {
+  it("does not retire existing deleted artwork when adding to the kit", async () => {
     const t = convexTest({ schema, modules });
     const seeded = await seed(t);
     const oldAssetId = await t.run(async (ctx) => {
@@ -775,7 +774,7 @@ describe("unclaimed-profile media submissions", () => {
     assert.equal(decision.status, "approved");
     const retiredAsset = await t.run((ctx) => ctx.db.get(oldAssetId));
     assert.equal(retiredAsset?.state, "deleted");
-    assert.equal(retiredAsset?.retiredAt !== undefined, true);
+    assert.equal(retiredAsset?.retiredAt, undefined);
     assert.equal(
       await t.query(api.profileAssets.getPublicAssetForStorage, {
         slug: "community-dj",
@@ -812,19 +811,11 @@ describe("unclaimed-profile media submissions", () => {
     const ownedProfiles = await owner.query(api.profileAssets.listOwnedMediaKitProfiles, {});
     assert.equal(
       ownedProfiles?.[0]?.assets.some((asset) => asset.assetId === oldAssetId),
-      false,
-    );
-    await assert.rejects(
-      owner.mutation(api.profileAssets.setOwnedAssetDeleted, {
-        profileId: seeded.profileId,
-        assetId: oldAssetId,
-        deleted: false,
-      }),
-      /not found/i,
+      true,
     );
   });
 
-  it("approves a singleton replacement when the profile already has twelve active assets", async () => {
+  it("refuses additive kit publication when twelve active assets use capacity", async () => {
     const t = convexTest({ schema, modules });
     const seeded = await seed(t);
     await t.run(async (ctx) => {
@@ -863,7 +854,7 @@ describe("unclaimed-profile media submissions", () => {
       submissionId: intent.submissionId, expectedReviewVersion: detail.reviewVersion, decision: "approve",
       privateReason: "Replacement approved.", idempotencyKey: "replacement-at-capacity",
     });
-    assert.equal(receipt.operationState, "committed");
+    assert.equal(receipt.code, "capacity_exceeded");
 
     const activeAssets = await t.run((ctx) =>
       ctx.db
@@ -1378,7 +1369,7 @@ describe("shared review receipts", () => {
     );
     assert.ok(detail);
     await t.run((ctx) =>
-      ctx.db.patch(seeded.profileId, { updatedAt: NOW + 1 }),
+      ctx.db.patch(seeded.profileId, { displayName: "Changed identity", updatedAt: NOW + 1 }),
     );
     const command = {
       submissionId: intent.submissionId,
@@ -1392,7 +1383,7 @@ describe("shared review receipts", () => {
       command,
     );
     assert.equal(receipt.code, "review_changed");
-    await t.run((ctx) => ctx.db.patch(seeded.profileId, { updatedAt: NOW }));
+    await t.run((ctx) => ctx.db.patch(seeded.profileId, { displayName: "Community DJ", updatedAt: NOW }));
     assert.deepEqual(
       await reviewer.mutation(
         api.profileMediaSubmissions.decideWithReceipt,

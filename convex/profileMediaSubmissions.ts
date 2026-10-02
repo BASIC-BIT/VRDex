@@ -1,6 +1,6 @@
 import { assertLiveContributionToken } from "./_contributionAuth";
 import { effectiveContributionPolicy, contributionChargeRefusal, registerLegacyContribution, reservationBytes } from "./_contributionCapacity";
-import { requirePublisher, publicationCommand, recordPublicationRestriction } from "./_trustedPublication";
+import { requirePublisher, publicationCommand, legacyDeclarationCommand, recordPublicationRestriction } from "./_trustedPublication";
 import { readScopedPagination, writeScopedPagination } from "./_reviewCursor";
 import type { PaginationOptions } from "convex/server";
 import { activeBatchAssignment, hash } from "./_mediaReview";
@@ -42,7 +42,7 @@ import { requireMcpAttributionText, requireSha256Hex } from "./_mcpWriteReceipts
 const OPEN_SUBMISSION_STATUSES = ["upload_pending", "submitted", "under_review"] as const;
 
 const submissionId = v.id("profileMediaSubmissions");
-const requestedPlacement = v.union(v.literal("profile_image"), v.literal("primary_logo"));
+const requestedPlacement = v.union(v.literal("profile_image"), v.literal("primary_logo"), v.literal("gallery"));
 const reviewQueueStatus = v.union(
   v.literal("submitted"),
   v.literal("under_review"),
@@ -230,7 +230,7 @@ export async function assertSubmissionRateLimits(
 
 export function assertEligibleTarget(
   profile: Doc<"profiles"> | null,
-  placement: "profile_image" | "primary_logo",
+  placement: "profile_image" | "primary_logo" | "gallery",
 ) {
   if (
     profile === null ||
@@ -249,8 +249,8 @@ export function assertEligibleTarget(
     });
   }
   if (
-    (profile.profileType === "person" && placement !== "profile_image") ||
-    (profile.profileType === "community" && placement !== "primary_logo")
+    placement !== "gallery" && ((profile.profileType === "person" && placement !== "profile_image") ||
+    (profile.profileType === "community" && placement !== "primary_logo"))
   ) {
     throw new ConvexError({
       code: "MEDIA_PLACEMENT_INVALID",
@@ -279,6 +279,8 @@ function publicSubmission(
       : profile.displayName,
     profileIsPublic,
     profileType: profile.profileType,
+    requestKind: submission.requestKind,
+    candidateAssetId: submission.candidateAssetId,
     requestedPlacement: submission.requestedPlacement,
     status: submission.status,
     ...(submission.publicationMethod ? { publicationMethod: submission.publicationMethod } : {}),
@@ -370,7 +372,7 @@ export const createUploadIntent = mutation({
     if (!(await identityEmailVerified(ctx)) || user.email === undefined) {
       throw new ConvexError({ code: "MEDIA_EMAIL_UNVERIFIED", message: "Verify email" });
     }
-    const profile = assertEligibleTarget(await ctx.db.get(args.profileId), args.requestedPlacement);
+    const profile = assertEligibleTarget(await ctx.db.get(args.profileId), "gallery");
     if (profile.updatedAt !== args.expectedProfileUpdatedAt) {
       throw new ConvexError({ code: "MEDIA_PROFILE_CHANGED", message: "Refresh profile" });
     }
@@ -394,26 +396,18 @@ export const createUploadIntent = mutation({
         message: "A source URL, file name, and credit are required.",
       });
     }
-    const label = sanitizeProfileAssetLabel(args.label);
+    const label = sanitizeProfileAssetLabel(args.label) ?? "Image";
     const altText = sanitizeProfileAssetAltText(args.altText);
     const creditUrl = sanitizeProfileAssetCreditUrl(args.creditUrl);
     const contributorNote = sanitizeNote(args.contributorNote, 500);
-    const targetPlacement = await ctx.db
-      .query("profileAssetPlacements")
-      .withIndex("by_profileId_placement_state_position", (query) =>
-        query
-          .eq("profileId", profile._id)
-          .eq("placement", args.requestedPlacement)
-          .eq("state", "active"),
-      )
-      .first();
     const submissionId = await ctx.db.insert("profileMediaSubmissions", {
       profileId: profile._id,
       targetProfileSlug: profile.slug,
       targetProfileDisplayName: profile.displayName,
       submitterUserId: user._id,
       submitter: subject,
-      requestedPlacement: args.requestedPlacement,
+      requestKind: "kit_asset",
+      requestedPlacement: "gallery",
       originalFileName,
       sourceUrl,
       ...(label !== undefined ? { label } : {}),
@@ -423,7 +417,7 @@ export const createUploadIntent = mutation({
       ...(contributorNote !== undefined ? { contributorNote } : {}),
       status: "upload_pending",
       targetProfileUpdatedAt: profile.updatedAt,
-      ...(targetPlacement === null ? {} : { targetPlacementAssetId: targetPlacement.assetId }),
+
       expiresAt: now + PROFILE_ASSET_UPLOAD_INTENT_TTL_MS,
       createdAt: now,
       updatedAt: now,
@@ -433,6 +427,7 @@ export const createUploadIntent = mutation({
       targetProfileId: profile._id,
       targetSubmissionId: submissionId,
       purpose: "community_proposal",
+      sourceUrl,
       originalFileName,
       mimeType: args.mimeType,
       byteSize: args.byteSize,
@@ -440,7 +435,7 @@ export const createUploadIntent = mutation({
       altText,
       credit,
       creditUrl,
-      placements: [args.requestedPlacement],
+      placements: ["gallery"],
       source: "community_submitted",
       now,
     });
@@ -642,7 +637,7 @@ export const prepareMcpMediaSubmission = internalMutation({
     try {
       sourceUrl = normalizeProfileAssetSourceUrl(normalizeMcpSubmissionSourceUrl(args.sourceUrl));
       credit = sanitizeProfileAssetCredit(args.credit);
-      label = sanitizeProfileAssetLabel(args.label);
+      label = sanitizeProfileAssetLabel(args.label) ?? "Image";
       altText = sanitizeProfileAssetAltText(args.altText);
       creditUrl = sanitizeProfileAssetCreditUrl(args.creditUrl);
     } catch {
@@ -652,15 +647,6 @@ export const prepareMcpMediaSubmission = internalMutation({
       return await refuse("MCP_MEDIA_INPUT_INVALID");
     }
     const contributorNote = sanitizeNote(args.contributorNote, 500);
-    const targetPlacement = await ctx.db
-      .query("profileAssetPlacements")
-      .withIndex("by_profileId_placement_state_position", (query) =>
-        query
-          .eq("profileId", eligible._id)
-          .eq("placement", "profile_image")
-          .eq("state", "active"),
-      )
-      .first();
     const subject = mcpContributorSubject(actor._id);
     const submissionId = await ctx.db.insert("profileMediaSubmissions", {
       profileId: eligible._id,
@@ -668,7 +654,8 @@ export const prepareMcpMediaSubmission = internalMutation({
       targetProfileDisplayName: eligible.displayName,
       submitterUserId: actor._id,
       submitter: subject,
-      requestedPlacement: "profile_image",
+      requestKind: "kit_asset",
+      requestedPlacement: "gallery",
       sourceUrl,
       ...(label === undefined ? {} : { label }),
       ...(altText === undefined ? {} : { altText }),
@@ -677,7 +664,7 @@ export const prepareMcpMediaSubmission = internalMutation({
       ...(contributorNote === undefined ? {} : { contributorNote }),
       status: "upload_pending",
       targetProfileUpdatedAt: eligible.updatedAt,
-      ...(targetPlacement === null ? {} : { targetPlacementAssetId: targetPlacement.assetId }),
+
       expiresAt: now + PROFILE_ASSET_UPLOAD_INTENT_TTL_MS,
       createdAt: now,
       updatedAt: now,
@@ -692,7 +679,7 @@ export const prepareMcpMediaSubmission = internalMutation({
       altText,
       credit,
       creditUrl,
-      placements: ["profile_image"],
+      placements: ["gallery"],
       source: "community_submitted",
       now,
     });
@@ -1364,6 +1351,8 @@ export const getCandidateForStorage = query({
 });
 
 const reviewProjectionFields = {
+  requestKind: v.optional(v.union(v.literal("kit_asset"), v.literal("identity_placement"))),
+  candidateAssetId: v.optional(v.id("profileAssets")),
   publicationMethod: v.optional(v.union(v.literal("trusted_publisher"), v.literal("independent_review"))),
   submissionId: v.id("profileMediaSubmissions"),
   profileId: v.id("profiles"),
@@ -2500,7 +2489,7 @@ export const declarePublicationEvidence = mutation({
   args: evidenceArgs,
   returns: receiptValidator,
   handler: async (ctx, args) =>
-    publicationCommand(ctx, args, await browserReviewActor(ctx), true),
+    legacyDeclarationCommand(ctx, args, await browserReviewActor(ctx)),
 });
 export const declarePublicationEvidenceForMcpActor = internalMutation({
   args: {
@@ -2517,7 +2506,7 @@ export const declarePublicationEvidenceForMcpActor = internalMutation({
       oauthResource,
       ...args },
   ) =>
-    publicationCommand(
+    legacyDeclarationCommand(
       ctx,
       args,
       await trustedReviewActor(ctx, actorUserId, {
@@ -2529,7 +2518,6 @@ export const declarePublicationEvidenceForMcpActor = internalMutation({
         },
         "assets:publish",
       ),
-      true,
     ),
 });
 export const recordPublicationDispute = mutation({

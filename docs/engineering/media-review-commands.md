@@ -54,17 +54,18 @@ expected review version, approve/reject, private reason, optional public reason,
 and an idempotency key. Rejection requires a public reason. Strict runtime
 contracts reject unknown fields and bound input strings.
 
-The version hashes candidate/provenance, stored upload identity, current target,
-current placement and asset, and the submission's optional `reviewRevision`.
-Missing revisions mean zero for existing rows. Advisory start-review updates do
-not invalidate it. Approval checks the original target and placement snapshots; a
-fresh detail read does not silently rebase the proposal. Rejection remains
-available against a refreshed version when that original placement has changed.
+The version hashes candidate/provenance, stored upload identity, relevant target
+state, and the submission's optional `reviewRevision`. Missing revisions mean
+zero for existing rows. Advisory start-review updates do not invalidate it.
+Kit publication excludes unrelated biography timestamps and existing picture
+artwork. Placement inspection includes the current placement and asset.
+Meaningful evidence changes require fresh inspection. Placement changes also
+require an explicit rebase against the original selection snapshot.
 
 Successful publication and its immutable receipt commit in one transaction.
 Expected terminal refusals also persist receipts. Projected active-public-asset
-capacity is checked before writes, accounting for singleton assets that retire
-only when no other active placement remains. `capacity_exceeded` remains refused
+capacity is checked before writes, with one new asset for each uploaded kit
+contribution. `capacity_exceeded` remains refused
 when capacity later becomes available. The upload consumer retains its final
 transactional capacity assertion. Reusing a key with identical
 canonical input returns the original receipt; changed input returns
@@ -167,36 +168,33 @@ authenticated end-to-end or provider-storage test.
 
 `trusted_publisher` is a separately issued, revocable account feature. Neither
 super-admin, reviewer, application tier nor contribution capacity implies it.
-The browser uses `publisherDetail`, `declarePublicationEvidence`, and `publish`.
-MCP uses `vrdex_media_submission_get`, `vrdex_media_submission_preview`,
-`vrdex_media_submission_declare`, and `vrdex_media_submission_publish`.
-Reads require `mcp:read` and `assets:publish`; declarations and publication require
-`mcp:write` and `assets:publish`. These scopes are requestable, never defaults.
-Every backend operation requires fresh verified email and the explicit grant.
-Publisher projections are own-only and require a current public, published,
-unclaimed target. They omit private reviewer reasons and moderator identities.
-They do not confer independent reviewer authority.
+The browser uses `publisherDetail` and `publish`. MCP publication reads require
+`mcp:read` and `assets:publish`; publication requires `mcp:write` and
+`assets:publish`. These scopes are requestable, never defaults. Every backend
+operation requires fresh verified email and the explicit grant. Publisher
+projections are own-only and require a public, published, unclaimed target.
+They omit private reviewer reasons and moderator identities and do not confer
+independent reviewer authority.
 
 Publication takes exactly `{submissionId, expectedReviewVersion, idempotencyKey}`.
-Before publication, including for older pending proposals, the explicit declaration
-command takes those same fields plus four booleans: `identityConfirmed`,
-`attributionConfirmed`, `publicationPermitted`, and `noKnownRestrictions`.
-Declarations are immutable records bound to the candidate digest, target, placement,
-source reference or local provenance, and attribution. Recording one changes the
-review version. Inspect again before publishing. Absent, false or stale declarations
-require independent review. Nonempty credit or source text never implies consent
-or identity confirmation. Upload completion only submits; it never publishes.
-Choosing Independent review on the contributions page leaves the existing proposal
-in its independent-review queue and closes the publication controls locally.
+The explicit Publish command attaches the stored uploaded contribution to gallery.
+Independent approval uses the same attachment path. Intake stores `kit_asset`
+intent and gallery placement, including legacy picture/logo inputs. Owner upload
+placement behavior is unchanged. Gallery titles use the sanitized submission label
+or `Image`. Assets retain source, credit and immutable `sourceSubmissionId`
+provenance. Upload completion submits the proposal; it never publishes.
 
-The publication mutation reads the current target, both image/logo placements,
-legacy image visibility, actual automatic artwork, declarations and restrictions
-in one transaction. Review versions bind authored placements and cached source
-identity/artwork records, including changes without an observed-time bump. Visible
-VRChat icons, group logos and Discord artwork fill a slot. Disabled or hidden
-fallbacks follow public rendering semantics. Existing authored placements remain
-protected even when hidden. A target version or candidate change refuses the
-inspected command. Conflicts preserve the independent-review path.
+Legacy declaration endpoints remain for receipt compatibility. A same-key replay
+returns its historical receipt. A fresh declaration returns `declaration_retired`
+and creates no evidence. Existing evidence records remain untouched.
+
+Kit review versions bind the stored candidate and metadata, target identity,
+privacy, claim state and applicable restrictions. Biography-only edits and
+unrelated picture selection or automatic-artwork changes do not invalidate kit
+inspection. Identity-placement snapshots continue to bind artwork and selection
+provenance. Changed meaningful evidence requires a fresh inspection, with the
+original stored candidate bytes preserved. Existing managed, private, legacy or
+automatic pictures do not block additive kit publication or get replaced by it.
 
 Restriction history is indexed independently of mutable source URLs and collection
 item keys. Identity/dispute records restrict the target; rejection and suppression
@@ -204,7 +202,7 @@ restrict the exact content digest across targets. Legacy rejected submissions an
 suppressed assets are checked by indexed digest as well. An unrelated digest is
 not refused solely because the target once had a rejection. Matching new history
 is linked through `priorRestrictionId`. Byte-different variants are not identified
-perceptually; the explicit no-known-restrictions declaration remains required.
+perceptually.
 The digest lookup considers only rejection and suppression records. An identity or
 dispute record for another target cannot block identical bytes on this target.
 Admin `recordPublicationDispute` records identity/dispute restrictions. Existing
@@ -253,7 +251,7 @@ flowchart TD
   SignIn --> Account[/account/media-contributions]
   Account --> Own
   Own --> Withdraw[Versioned withdrawal]
-  Own --> Publisher[Separate publisher grant: inspect and declare]
+  Own --> Publisher[Separate publisher grant: inspect stored candidate]
   Publisher --> Publish[Explicit publish]
   OAuth --> Assigned[Discover assigned collections]
   Assigned --> Review[Authorized review queue]

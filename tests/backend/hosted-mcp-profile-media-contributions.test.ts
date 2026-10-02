@@ -376,7 +376,7 @@ describe("hosted MCP profile media contributions", () => {
       null,
     );
     await seeded.t.run((ctx) => ctx.db.patch(seeded.profileId, {
-      fieldVisibility: { avatarImageUrl: "private" },
+      fieldVisibility: { mediaKit: "private" },
     }));
     const privateStatus = await seeded.t.query(
       internal.profileMediaSubmissions.listMcpMediaSubmissionsForActor,

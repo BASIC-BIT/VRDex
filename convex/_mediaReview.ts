@@ -250,7 +250,7 @@ export async function applyReviewDecision(
   }
   if (
     profile.updatedAt !== args.expectedProfileUpdatedAt ||
-    (args.decision === "approve" &&
+    (submission.requestKind === "identity_placement" && args.decision === "approve" &&
       profile.updatedAt !== submission.targetProfileUpdatedAt)
   ) {
     throw new ConvexError({
@@ -310,14 +310,14 @@ export async function applyReviewDecision(
     )
     .first();
   if (
-    (currentPlacement?.assetId ?? undefined) !==
-    submission.targetPlacementAssetId
+    submission.requestKind === "identity_placement" &&
+    (currentPlacement?.assetId ?? undefined) !== submission.targetPlacementAssetId
   ) {
     throw new Error(
       "The profile media placement changed. Refresh before deciding.",
     );
   }
-  if (await privateReplacementRequiresElevatedAccess(
+  if (submission.requestKind === "identity_placement" && await privateReplacementRequiresElevatedAccess(
     ctx, profile._id, currentPlacement?.assetId,
     ownsProfile || access.superAdmin,
   )) throw new Error("Private replacement requires profile owner or admin access.");
@@ -335,17 +335,7 @@ export async function applyReviewDecision(
       throw new Error("This image is already published on the profile.");
   }
 
-  const finalPlacement = args.finalPlacement ?? submission.requestedPlacement;
-  if (
-    (profile.profileType === "person" && finalPlacement !== "profile_image") ||
-    (profile.profileType === "community" && finalPlacement !== "primary_logo")
-  ) {
-    throw new Error(
-      "That media placement is not available for this profile type.",
-    );
-  }
-  const finalLabel =
-    "label" in args ? sanitizeProfileAssetLabel(args.label) : submission.label;
+  const finalLabel = sanitizeProfileAssetLabel("label" in args ? args.label : submission.label) ?? "Image";
   const finalAltText =
     "altText" in args
       ? sanitizeProfileAssetAltText(args.altText)
@@ -377,7 +367,7 @@ export async function applyReviewDecision(
         altText: finalAltText,
         credit: finalCredit,
         creditUrl: finalCreditUrl,
-        placements: [finalPlacement],
+        placements: ["gallery"],
       },
     ],
     source: "community_submitted",
@@ -514,6 +504,13 @@ export async function reviewSnapshot(
         .unique(),
     ),
   );
+  const kitAsset = submission.requestKind !== "identity_placement";
+  const restrictions = await Promise.all([
+    ctx.db.query("mediaPublicationRestrictions").withIndex("by_profileId_kind", q => q.eq("profileId", profile._id).eq("kind", "identity")).collect(),
+    ctx.db.query("mediaPublicationRestrictions").withIndex("by_profileId_kind", q => q.eq("profileId", profile._id).eq("kind", "dispute")).collect(),
+    submission.contentSha256 ? ctx.db.query("mediaPublicationRestrictions").withIndex("by_contentSha256_kind", q => q.eq("contentSha256", submission.contentSha256).eq("kind", "rejection")).collect() : [],
+    submission.contentSha256 ? ctx.db.query("mediaPublicationRestrictions").withIndex("by_contentSha256_kind", q => q.eq("contentSha256", submission.contentSha256).eq("kind", "suppression")).collect() : [],
+  ]);
   const reviewVersion = await hash({
     candidate: {
       id: submission._id,
@@ -531,23 +528,31 @@ export async function reviewSnapshot(
       label: submission.label,
       altText: submission.altText,
       expiresAt: submission.expiresAt,
-      targetProfileUpdatedAt: submission.targetProfileUpdatedAt,
-      targetPlacementAssetId: submission.targetPlacementAssetId,
+      targetProfileUpdatedAt: kitAsset ? undefined : submission.targetProfileUpdatedAt,
+      targetPlacementAssetId: kitAsset ? undefined : submission.targetPlacementAssetId,
       requestedPlacement: submission.requestedPlacement,
+      requestKind: submission.requestKind,
+      candidateAssetId: submission.candidateAssetId,
     },
     intent,
-    profile,
-    placement,
-    currentAsset,
-    currentAutomaticImageUrl,
-    authoredPlacements,
-    artworkEvidence: artworkEvidence.map((row) => row && ({
+    restrictions,
+    profile: kitAsset ? {
+      id: profile._id, profileType: profile.profileType, slug: profile.slug,
+      displayName: profile.displayName, claimState: profile.claimState,
+      publicationState: profile.publicationState, publicSurfacingState: profile.publicSurfacingState,
+      fieldVisibility: profile.fieldVisibility,
+    } : profile,
+    placement: kitAsset ? undefined : placement,
+    currentAsset: kitAsset ? undefined : currentAsset,
+    currentAutomaticImageUrl: kitAsset ? undefined : currentAutomaticImageUrl,
+    authoredPlacements: kitAsset ? undefined : authoredPlacements,
+    artworkEvidence: kitAsset ? undefined : artworkEvidence.map((row) => row && ({
       key: row.key, kind: row.kind, locator: row.locator, provider: row.provider,
       status: row.status, entityId: row.entityId, artworkSourceUrl: row.artworkSourceUrl,
       artworkType: row.artworkType, observedAt: row.observedAt,
     })),
-    currentImage,
-    effectiveAsset,
+    currentImage: kitAsset ? undefined : currentImage,
+    effectiveAsset: kitAsset ? undefined : effectiveAsset,
     revision: submission.reviewRevision ?? 0,
   });
   return {
@@ -637,11 +642,13 @@ export async function decideReviewCommand(
     code = "review_changed";
   else if (
     args.decision === "approve" &&
+    submission.requestKind === "identity_placement" &&
     profile.updatedAt !== submission.targetProfileUpdatedAt
   )
     code = "target_changed";
   else if (
     args.decision === "approve" &&
+    submission.requestKind === "identity_placement" &&
     (snapshot.currentPlacement?.assetId ?? undefined) !==
       submission.targetPlacementAssetId
   )
@@ -651,19 +658,13 @@ export async function decideReviewCommand(
   else if (args.decision === "approve" && snapshot.candidate.rendition === null)
     code = "candidate_unavailable";
   if (code === undefined && args.decision === "approve" &&
+    submission.requestKind === "identity_placement" &&
     await privateReplacementRequiresElevatedAccess(
       ctx, profile._id, snapshot.currentPlacement?.assetId,
       authority.ownsProfile || authority.access.superAdmin,
     )) code = "private_replacement_requires_owner_or_admin";
   if (code === undefined && args.decision === "approve") {
-    if (
-      (profile.profileType === "person" &&
-        submission.requestedPlacement !== "profile_image") ||
-      (profile.profileType === "community" &&
-        submission.requestedPlacement !== "primary_logo")
-    )
-      code = "placement_unavailable";
-    else if (!submission.credit.trim()) code = "credit_required";
+    if (!submission.credit.trim()) code = "credit_required";
     else if (submission.contentSha256 !== undefined) {
       const duplicate = await ctx.db
         .query("profileAssets")
@@ -678,46 +679,7 @@ export async function decideReviewCommand(
     }
   }
   if (code === undefined && args.decision === "approve") {
-    let retiringPublicAsset = 0;
-    if (snapshot.currentPlacement !== null) {
-      const asset = await ctx.db.get(snapshot.currentPlacement.assetId);
-      if (
-        asset !== null &&
-        asset.profileId === profile._id &&
-        asset.state === "active" &&
-        asset.visibility === "public" &&
-        asset.retiredAt === undefined
-      ) {
-        const [before, after] = await Promise.all([
-          ctx.db
-            .query("profileAssetPlacements")
-            .withIndex("by_assetId_state_placement", (q) =>
-              q
-                .eq("assetId", asset._id)
-                .eq("state", "active")
-                .lt("placement", submission.requestedPlacement),
-            )
-            .first(),
-          ctx.db
-            .query("profileAssetPlacements")
-            .withIndex("by_assetId_state_placement", (q) =>
-              q
-                .eq("assetId", asset._id)
-                .eq("state", "active")
-                .gt("placement", submission.requestedPlacement),
-            )
-            .first(),
-        ]);
-        if (before === null && after === null) retiringPublicAsset = 1;
-      }
-    }
-    if (
-      !(await hasProfileAssetCapacity(
-        ctx.db,
-        profile._id,
-        1 - retiringPublicAsset,
-      ))
-    )
+    if (!(await hasProfileAssetCapacity(ctx.db, profile._id, 1)))
       code = "capacity_exceeded";
   }
   const receipt: CommandReceipt = {

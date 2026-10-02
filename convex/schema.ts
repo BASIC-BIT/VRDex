@@ -923,6 +923,8 @@ export default defineSchema({
   }).index("by_profileId_kind", ["profileId", "kind"]).index("by_contentSha256", ["contentSha256"])
     .index("by_contentSha256_kind", ["contentSha256", "kind"]),
   profileMediaSubmissions: defineTable({
+    requestKind: v.optional(v.union(v.literal("kit_asset"), v.literal("identity_placement"))),
+    candidateAssetId: v.optional(v.id("profileAssets")),
     publicationEvidenceId: v.optional(v.id("mediaPublicationEvidence")),
     publicationMethod: v.optional(v.union(v.literal("trusted_publisher"), v.literal("independent_review"))),
     publicationActorUserId: v.optional(v.id("users")),
@@ -980,6 +982,7 @@ export default defineSchema({
     .index("by_contentSha256_status", ["contentSha256", "status"])
     .index("by_publicationMethod_actor", ["publicationMethod", "publicationActorUserId"]),
   profileAssets: defineTable({
+    sourceSubmissionId: v.optional(v.id("profileMediaSubmissions")),
     profileId: v.id("profiles"),
     storageKey: v.string(),
     sourceStorageKey: v.optional(v.string()),
