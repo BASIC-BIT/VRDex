@@ -7,6 +7,7 @@ import {
   dynamicMcpDefaultClientScopes,
   normalizeDynamicMcpClientRegistration,
   normalizeOAuthClientMetadataDocumentUrl,
+  oauthTokenEndpointAuthMethods,
   type DynamicMcpClientRegistration,
 } from "@vrdex/api-contracts";
 
@@ -312,6 +313,20 @@ export async function fetchOAuthClientMetadataDocument(
     const normalizedPayload = payload.scope === undefined
       ? { ...payload, scope: [...dynamicMcpDefaultClientScopes].join(" ") }
       : payload;
+
+    // CIMD clients may advertise several methods instead of one required method.
+    // Select only a method this issuer supports; DCR keeps its singular contract.
+    const authMethods = payload.token_endpoint_auth_methods_supported;
+    if (authMethods !== undefined) {
+      if (!Array.isArray(authMethods) || !authMethods.every((method) => typeof method === "string")) {
+        throw new Error("token_endpoint_auth_methods_supported must be an array of strings.");
+      }
+      const authMethod = oauthTokenEndpointAuthMethods.find((method) => authMethods.includes(method));
+      if (authMethod === undefined) {
+        throw new Error("OAuth client metadata document has no supported token endpoint auth method.");
+      }
+      normalizedPayload.token_endpoint_auth_method = authMethod;
+    }
 
     return {
       clientId: normalizedClientId,
