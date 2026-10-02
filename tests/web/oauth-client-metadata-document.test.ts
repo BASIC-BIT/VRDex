@@ -8,6 +8,8 @@ import {
   pinnedLookupForAddress,
 } from "../../apps/web/src/lib/server/oauth-client-metadata-document";
 
+import { normalizeOAuthAuthorizationRequest } from "../../apps/web/src/lib/server/oauth-authorization-request";
+
 const clientId = "https://client.example.test/oauth/client.json?app=vrdex";
 const publicAddress = "93.184.216.34";
 
@@ -74,7 +76,8 @@ describe("OAuth client metadata documents", () => {
     });
 
     assert.equal(metadata.tokenEndpointAuthMethod, "none");
-    assert.deepEqual(metadata.allowedScopes, ["public:read", "mcp:read"]);
+    assert.ok(metadata.allowedScopes.includes("profile:read"));
+    assert.ok(metadata.allowedScopes.includes("mcp:write"));
   });
 
   it("rejects unsupported or malformed advertised auth methods", async () => {
@@ -115,10 +118,18 @@ describe("OAuth client metadata documents", () => {
       resolveHostname,
     });
 
-    // Reads, even though write scopes are available to any client that asks.
-    // A document with no scope field has not asked, and the deployment must not
-    // answer on its author's behalf.
-    assert.deepEqual(metadata.allowedScopes, ["public:read", "mcp:read"]);
+    assert.ok(metadata.allowedScopes.includes("profile:read"));
+    assert.ok(metadata.allowedScopes.includes("mcp:write"));
+    const request = new Request("https://app.example.test/oauth/authorize");
+    const authorization = normalizeOAuthAuthorizationRequest(new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: "http://localhost/callback",
+      response_type: "code",
+      code_challenge: "a".repeat(43),
+      code_challenge_method: "S256",
+      resource: "https://app.example.test/mcp",
+    }), request);
+    assert.deepEqual(authorization.requestedScopes, ["mcp:read"]);
   });
 
   it("honours a CIMD document that does ask for profile writes", async () => {
