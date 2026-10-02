@@ -1,5 +1,7 @@
 # Event Routing And Authoring
 
+Future editor direction (2026-09-29): [visual reference](./event-editor-visual-reference-2026-09-29.md). The current one-poster, separate-artwork-selection flow described below remains implemented behavior. BASIC's newer direction combines text and multiple images in one discovery run and treats the event poster as artwork without a separate opt-in.
+
 ## Status
 
 Current implementation incorporates the 2026-08-31 owner-editor decisions and the
