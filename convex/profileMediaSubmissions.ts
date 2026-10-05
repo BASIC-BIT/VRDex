@@ -1679,7 +1679,8 @@ async function withdrawSubmission(
   const now = Date.now();
   await ctx.db.patch(submission._id, {
     status: "withdrawn",
-    ...(submission.requestKind === "identity_placement" ? {} : { blobDeleteAfter: now + PROFILE_MEDIA_SUBMISSION_RETENTION_MS }),
+    ...(submission.requestKind === "identity_placement" && submission.candidateAssetId !== undefined
+      ? {} : { blobDeleteAfter: now + PROFILE_MEDIA_SUBMISSION_RETENTION_MS }),
     updatedAt: now,
   });
   await ctx.db.insert("profileAuditEvents", {

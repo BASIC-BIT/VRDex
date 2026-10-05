@@ -16,6 +16,34 @@ process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "true";
 import { modules, schema, NOW, FIRST_REVIEW_PAGE, TARGET_PROFILE_SNAPSHOT, seed, createAndUpload } from "./_mediaReviewFixture";
 
 describe("unclaimed-profile media submissions", () => {
+  for (const disposition of ["reject", "withdraw"] as const) {
+    it(`schedules retained upload bytes after ${disposition} of an upload-backed identity proposal`, async () => {
+      const t = convexTest({ schema, modules });
+      const seeded = await seed(t);
+      const { intent } = await createAndUpload(t, seeded);
+      await t.run(ctx => ctx.db.patch(intent.submissionId, { requestKind: "identity_placement" }));
+      if (disposition === "withdraw") {
+        assert.equal(await t.withIdentity(seeded.contributorIdentity).mutation(
+          api.profileMediaSubmissions.withdraw, { submissionId: intent.submissionId },
+        ), true);
+      } else {
+        const reviewer = t.withIdentity(seeded.moderatorIdentity);
+        const detail = await reviewer.query(api.profileMediaSubmissions.reviewDetail, { submissionId: intent.submissionId });
+        assert.ok(detail);
+        assert.equal((await reviewer.mutation(api.profileMediaSubmissions.decideWithReceipt, {
+          submissionId: intent.submissionId, expectedReviewVersion: detail.reviewVersion,
+          decision: "reject", privateReason: "Placement declined", publicReason: "Declined", idempotencyKey: "reject-uploaded-placement",
+        })).operationState, "committed");
+      }
+      const stored = await t.run(ctx => ctx.db.get(intent.submissionId));
+      assert.equal(stored?.status, disposition === "reject" ? "rejected" : "withdrawn");
+      assert.equal(stored?.uploadIntentId, intent.intentId);
+      assert.equal(stored?.candidateAssetId, undefined);
+      assert.ok((stored?.blobDeleteAfter ?? 0) > Date.now());
+      assert.ok((stored?.blobDeleteAfter ?? 0) <= Date.now() + 30 * 24 * 60 * 60 * 1000);
+      assert.equal((await t.run(ctx => ctx.db.get(intent.intentId)))?.state, "uploaded");
+    });
+  }
   it("does not revive a contribution withdrawn while its upload is processing", async () => {
     const t = convexTest({ schema, modules });
     const seeded = await seed(t);

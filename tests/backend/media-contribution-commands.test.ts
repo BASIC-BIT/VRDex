@@ -175,6 +175,7 @@ it("reviews existing-asset placement without a new upload or published charge", 
 for (const disposition of ["reject", "withdraw"] as const) {
   it(`${disposition} leaves the published asset and its bytes alone`, async () => {
     const f = await fixture();
+    const beforeCharge = await f.t.run(ctx => ctx.db.query("contributionUploadReservations").first());
     const d = await f.detail();
     const p = await f.actor.mutation(api.profileMediaSubmissions.proposePlacement, { submissionId: f.intent.submissionId, expectedContributionVersion: d.contributionVersion, idempotencyKey: "proposal" });
     assert.equal(p.operationState, "committed");
@@ -190,6 +191,7 @@ for (const disposition of ["reject", "withdraw"] as const) {
     assert.equal((await f.t.run(ctx => ctx.db.query("mediaPublicationRestrictions").collect())).length, 0);
     assert.equal((await f.t.run(ctx => ctx.db.query("profileAssets").first()))?.state, "active");
     assert.deepEqual(await f.placements(), ["gallery"]);
+    assert.deepEqual(await f.t.run(ctx => ctx.db.query("contributionUploadReservations").first()), beforeCharge);
   });
 }
 

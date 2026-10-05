@@ -276,7 +276,8 @@ export async function applyReviewDecision(
       publicDisposition,
       privateReason,
       decisionProfileUpdatedAt: profile.updatedAt,
-      ...(submission.requestKind === "identity_placement" ? {} : { blobDeleteAfter: now + PROFILE_MEDIA_SUBMISSION_RETENTION_MS }),
+      ...(submission.requestKind === "identity_placement" && submission.candidateAssetId !== undefined
+        ? {} : { blobDeleteAfter: now + PROFILE_MEDIA_SUBMISSION_RETENTION_MS }),
       updatedAt: now,
     });
     await ctx.db.insert("profileAuditEvents", {
