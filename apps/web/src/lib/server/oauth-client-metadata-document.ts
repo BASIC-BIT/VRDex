@@ -4,9 +4,11 @@ import { BlockList, isIP } from "node:net";
 import { Readable } from "node:stream";
 
 import {
-  dynamicMcpDefaultClientScopes,
+  dynamicMcpClientScopes,
+  dynamicMcpWriteScopes,
   normalizeDynamicMcpClientRegistration,
   normalizeOAuthClientMetadataDocumentUrl,
+  oauthTokenEndpointAuthMethods,
   type DynamicMcpClientRegistration,
 } from "@vrdex/api-contracts";
 
@@ -304,14 +306,26 @@ export async function fetchOAuthClientMetadataDocument(
       throw new Error("OAuth client metadata document client_id must match the document URL.");
     }
 
-    // Public reads only. Write scopes, and `profile:read` for somebody's own
-    // drafts, are available to any client that asks for them, but a metadata
-    // document that states no scope at all has not asked, and inferring one
-    // from what the deployment permits would hand a client capability its
-    // author never wrote down.
+    // Client eligibility is not a token grant. An omitted document scope lets
+    // clients request issuer-supported MCP scopes through explicit user consent.
+    // Authorization defaults and tokens still use only their requested scopes.
     const normalizedPayload = payload.scope === undefined
-      ? { ...payload, scope: [...dynamicMcpDefaultClientScopes].join(" ") }
+      ? { ...payload, scope: [...new Set([...dynamicMcpClientScopes, ...dynamicMcpWriteScopes])].join(" ") }
       : payload;
+
+    // CIMD clients may advertise several methods instead of one required method.
+    // Select only a method this issuer supports; DCR keeps its singular contract.
+    const authMethods = payload.token_endpoint_auth_methods_supported;
+    if (authMethods !== undefined) {
+      if (!Array.isArray(authMethods) || !authMethods.every((method) => typeof method === "string")) {
+        throw new Error("token_endpoint_auth_methods_supported must be an array of strings.");
+      }
+      const authMethod = oauthTokenEndpointAuthMethods.find((method) => authMethods.includes(method));
+      if (authMethod === undefined) {
+        throw new Error("OAuth client metadata document has no supported token endpoint auth method.");
+      }
+      normalizedPayload.token_endpoint_auth_method = authMethod;
+    }
 
     return {
       clientId: normalizedClientId,

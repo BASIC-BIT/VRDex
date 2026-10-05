@@ -109,6 +109,18 @@ while TLS SNI and certificate hostname checks continue to use the original
 document hostname. This removes a second DNS decision between validation and
 connect without weakening HTTPS verification.
 DCR remains available for clients that register automatically.
+If a CIMD document omits `scope`, its client eligibility includes the supported
+MCP scopes so an explicit authorization request can reach user consent.
+An explicit document `scope` remains a ceiling. This does not grant those scopes:
+requests that omit scope still default to minimal reads, and consent, codes,
+access tokens and refresh tokens carry only the requested, approved scopes.
+Repeated metadata fetches do not narrow existing grants to a later request's
+scope. DCR's omitted-registration-scope defaults remain public reads only.
+CIMD documents may advertise `token_endpoint_auth_methods_supported`. VRDex
+selects a mutually supported method from that list, currently `none`, even when
+the singular field prefers another method. Unsupported or malformed lists are
+rejected. This supports ChatGPT's public metadata without enabling
+`private_key_jwt` or changing the singular DCR registration contract.
 The checked-in public client metadata document is intentionally constrained to
 local loopback redirects, `token_endpoint_auth_method=none`, and `mcp:read`
 plus `public:read`; it exists to make hosted CIMD compatibility smoke tests

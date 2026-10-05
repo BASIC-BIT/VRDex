@@ -7,6 +7,7 @@ import { OAUTH_CONSENT_TRANSACTION_TTL_MS } from "../../packages/api-contracts/s
 import { internal } from "../../convex/_generated/api";
 import schemaModule from "../../convex/schema";
 
+import { fetchOAuthClientMetadataDocument } from "../../apps/web/src/lib/server/oauth-client-metadata-document";
 import { newClerkUserId } from "./_clerkTestIdentity";
 const modules = {
   "../../convex/_apiTokens.ts": () => import("../../convex/_apiTokens"),
@@ -17,6 +18,70 @@ const modules = {
 const schema = (schemaModule as unknown as { default?: typeof schemaModule }).default ?? schemaModule;
 
 describe("OAuth dynamic client authorization", () => {
+  it("keeps the CIMD ceiling separate from user-approved token scopes", async () => {
+    const t = convexTest({ schema, modules });
+    const clientId = "https://client.example.test/oauth/client.json";
+    const redirectUri = "https://client.example.test/callback";
+    const resource = "https://staging.vrdex.net/mcp";
+    const scopes = ["mcp:read", "profile:read"] as const;
+    const metadata = await fetchOAuthClientMetadataDocument(clientId, {
+      requestDocument: async () => Response.json({
+        client_id: clientId, redirect_uris: [redirectUri], token_endpoint_auth_method: "none",
+      }),
+      resolveHostname: async () => [{ address: "93.184.216.34" }],
+    });
+    const { clientType: _clientType, ...registration } = metadata;
+    const persist = () => t.mutation(internal.oauthApps.upsertClientMetadataDocumentMcpClient, {
+      ...registration, resource,
+    });
+    await persist();
+    const resolve = (requestedScopes: typeof scopes | readonly ["mcp:read"]) =>
+      t.query(internal.oauthApps.resolveAuthorizationClient, {
+        clientId, redirectUri, requestedScopes: [...requestedScopes], resource,
+      });
+    assert.equal((await resolve(scopes)).ok, true);
+    assert.equal((await resolve(["mcp:read"])).ok, true);
+    assert.deepEqual(await t.run(async (ctx) => ctx.db.query("oauthAccessTokens").collect()), []);
+
+    const now = Date.now();
+    const transactionHash = "a".repeat(64);
+    const codeChallenge = "b".repeat(43);
+    const userId = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", { clerkUserId: newClerkUserId() });
+      await ctx.db.insert("oauthConsentTransactions", {
+        transactionHash, userId, clientId, redirectUri, resource, scopes: [...scopes],
+        codeChallenge, codeChallengeMethod: "S256", createdAt: now,
+        expiresAt: now + OAUTH_CONSENT_TRANSACTION_TTL_MS,
+      });
+      return userId;
+    });
+    assert.equal((await t.mutation(internal.oauthApps.completeAuthorizationConsent, {
+      transactionHash, userId, decision: "approve", codeHash: "c".repeat(64), expiresAt: now + 60_000,
+    })).ok, true);
+    const exchanged = await t.mutation(internal.oauthApps.consumeAuthorizationCode, {
+      clientId, codeHash: "c".repeat(64), redirectUri, resource, derivedCodeChallenge: codeChallenge,
+      tokenId: `vrdx_at_${"1".repeat(32)}`, expiresAt: now + 60_000,
+      refreshTokenHash: "2".repeat(64), refreshTokenExpiresAt: now + 120_000,
+    });
+    assert.equal(exchanged.ok, true);
+    assert.deepEqual(exchanged.scopes, [...scopes]);
+    const token = await t.run(async (ctx) => ctx.db.query("oauthAccessTokens").unique());
+    assert.deepEqual(token?.scopes, [...scopes]);
+    // A later metadata fetch/minimal request must not shrink existing approved grants.
+    await persist();
+    assert.equal((await resolve(["mcp:read"])).ok, true);
+    const validation = (requiredScopes: typeof metadata.allowedScopes) => t.mutation(internal.oauthApps.validateAccessToken, {
+      clientId, tokenId: `vrdx_at_${"1".repeat(32)}`, resource,
+      requiredScopes, routeClass: "authenticated_mcp",
+    });
+    assert.equal((await validation([...scopes])).ok, true);
+    assert.equal((await validation(["mcp:write", "profile:write"])).ok, false);
+    await t.mutation(internal.oauthApps.upsertClientMetadataDocumentMcpClient, {
+      ...registration, allowedScopes: ["public:read", "mcp:read"], resource,
+    });
+    assert.equal((await resolve(scopes)).ok, false);
+  });
+
   it("resolves the exact loopback redirect returned by registration", async () => {
     const t = convexTest({ schema, modules });
     const clientId = "vrdx_app_0123456789abcdef01234567";

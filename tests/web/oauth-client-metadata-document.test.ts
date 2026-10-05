@@ -8,6 +8,8 @@ import {
   pinnedLookupForAddress,
 } from "../../apps/web/src/lib/server/oauth-client-metadata-document";
 
+import { normalizeOAuthAuthorizationRequest } from "../../apps/web/src/lib/server/oauth-authorization-request";
+
 const clientId = "https://client.example.test/oauth/client.json?app=vrdex";
 const publicAddress = "93.184.216.34";
 
@@ -53,6 +55,51 @@ describe("OAuth client metadata documents", () => {
     });
   });
 
+  it("negotiates a supported auth method from ChatGPT's published metadata", async () => {
+    const chatgptClientId = "https://chatgpt.com/oauth/client.json";
+    // Public document captured 2026-10-02; no network dependency in this check.
+    const metadata = await fetchOAuthClientMetadataDocument(chatgptClientId, {
+      requestDocument: async () => Response.json({
+        client_id: chatgptClientId,
+        client_uri: "https://chatgpt.com/",
+        redirect_uris: ["https://chatgpt.com/connector_platform_oauth_redirect"],
+        token_endpoint_auth_method: "private_key_jwt",
+        token_endpoint_auth_methods_supported: ["none", "private_key_jwt"],
+        grant_types: ["authorization_code", "refresh_token"],
+        response_types: ["code"],
+        client_name: "ChatGPT",
+        logo_uri: "https://persistent.oaistatic.com/sonic/misc/openai-logo.png",
+        token_endpoint_auth_signing_alg: "RS256",
+        jwks_uri: "https://chatgpt.com/oauth/jwks.json",
+      }),
+      resolveHostname: async () => [{ address: publicAddress }],
+    });
+
+    assert.equal(metadata.tokenEndpointAuthMethod, "none");
+    assert.ok(metadata.allowedScopes.includes("profile:read"));
+    assert.ok(metadata.allowedScopes.includes("mcp:write"));
+  });
+
+  it("rejects unsupported or malformed advertised auth methods", async () => {
+    for (const authMethods of [[], ["private_key_jwt"], ["none", 1], "none", null]) {
+      await assert.rejects(fetchOAuthClientMetadataDocument(clientId, {
+        requestDocument: async () => {
+          const payload = await metadataResponse().json();
+          return Response.json({ ...payload, token_endpoint_auth_methods_supported: authMethods });
+        },
+        resolveHostname: async () => [{ address: publicAddress }],
+      }), /auth method|array of strings/);
+    }
+
+    await assert.rejects(fetchOAuthClientMetadataDocument(clientId, {
+      requestDocument: async () => {
+        const payload = await metadataResponse().json();
+        return Response.json({ ...payload, token_endpoint_auth_method: "private_key_jwt" });
+      },
+      resolveHostname: async () => [{ address: publicAddress }],
+    }), /token_endpoint_auth_method=none/);
+  });
+
   it("does not treat an omitted CIMD scope field as a client scope restriction", async () => {
     const responseWithoutScope = () =>
       Response.json({
@@ -71,10 +118,18 @@ describe("OAuth client metadata documents", () => {
       resolveHostname,
     });
 
-    // Reads, even though write scopes are available to any client that asks.
-    // A document with no scope field has not asked, and the deployment must not
-    // answer on its author's behalf.
-    assert.deepEqual(metadata.allowedScopes, ["public:read", "mcp:read"]);
+    assert.ok(metadata.allowedScopes.includes("profile:read"));
+    assert.ok(metadata.allowedScopes.includes("mcp:write"));
+    const request = new Request("https://app.example.test/oauth/authorize");
+    const authorization = normalizeOAuthAuthorizationRequest(new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: "http://localhost/callback",
+      response_type: "code",
+      code_challenge: "a".repeat(43),
+      code_challenge_method: "S256",
+      resource: "https://app.example.test/mcp",
+    }), request);
+    assert.deepEqual(authorization.requestedScopes, ["mcp:read"]);
   });
 
   it("honours a CIMD document that does ask for profile writes", async () => {
