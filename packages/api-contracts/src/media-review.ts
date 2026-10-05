@@ -12,6 +12,20 @@ export const contributionPlacementCommandSchema = z.strictObject({
   action: z.enum(["select_primary", "clear_primary"]),
 });
 export type ContributionPlacementCommand = z.infer<typeof contributionPlacementCommandSchema>;
+export const contributionMetadataPatchSchema = z.strictObject({
+  label: z.string().max(80).nullable().optional(),
+  altText: z.string().max(180).nullable().optional(),
+  credit: z.string().max(120).nullable().optional(),
+  creditUrl: z.string().max(4096).nullable().optional(),
+  sourceUrl: z.string().max(4096).nullable().optional(),
+  sourceDescription: z.string().max(1000).nullable().optional(),
+});
+export type ContributionMetadataPatch = z.infer<typeof contributionMetadataPatchSchema>;
+export const contributionManageCommandSchema = z.discriminatedUnion("action", [
+  z.strictObject({ ...contributionCommandBaseSchema.shape, action: z.literal("update_metadata"), metadata: contributionMetadataPatchSchema }),
+  z.strictObject({ ...contributionCommandBaseSchema.shape, action: z.literal("remove") }),
+]);
+export type ContributionManageCommand = z.infer<typeof contributionManageCommandSchema>;
 export const publishedContributionDetailSchema = z.strictObject({
   submissionId: boundedId, assetId: boundedId, profileId: boundedId,
   profileSlug: z.string().max(200), contributionVersion: z.string().min(1).max(128),

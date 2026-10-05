@@ -1,5 +1,5 @@
 import { assertLiveContributionToken } from "./_contributionAuth";
-import { publishedContributionDetail, contributionPlacementCommand, proposeContributionPlacement } from "./_mediaContributionCommands";
+import { publishedContributionDetail, contributionPlacementCommand, proposeContributionPlacement, contributionManageCommand } from "./_mediaContributionCommands";
 import { effectiveContributionPolicy, contributionChargeRefusal, registerLegacyContribution, reservationBytes } from "./_contributionCapacity";
 import { requirePublisher, publicationCommand, legacyDeclarationCommand, recordPublicationRestriction } from "./_trustedPublication";
 import { readScopedPagination, writeScopedPagination } from "./_reviewCursor";
@@ -7,6 +7,7 @@ import type { PaginationOptions } from "convex/server";
 import { activeBatchAssignment, hash } from "./_mediaReview";
 import {
   reviewRebaseSchema,
+  contributionManageCommandSchema,
   type CommandReceipt,
 } from "../packages/api-contracts/src/media-review";
 import { changeContributionCharge } from "./_contributionCapacity";
@@ -49,6 +50,11 @@ const contributionCommandArgs = {
 const placementCommandArgs = { ...contributionCommandArgs,
   action: v.union(v.literal("select_primary"), v.literal("clear_primary")),
 };
+const nullableText = v.optional(v.union(v.string(), v.null()));
+const contributionMetadataPatch = v.object({ label: nullableText, altText: nullableText, credit: nullableText,
+  creditUrl: nullableText, sourceUrl: nullableText, sourceDescription: nullableText });
+const manageCommandArgs = { ...contributionCommandArgs, action: v.union(v.literal("update_metadata"), v.literal("remove")),
+  metadata: v.optional(contributionMetadataPatch) };
 export const contributionDetail = query({ args: { submissionId }, handler: async (ctx, args) =>
   publishedContributionDetail(ctx, args.submissionId, await browserReviewActor(ctx)) });
 export const contributionDetailForMcpActor = internalQuery({
@@ -355,9 +361,18 @@ async function reviewSubmission(
   const submitter = includeModeratorEvidence
     ? await ctx.db.get(submission.submitterUserId)
     : null;
+  const candidateAsset = submission.requestKind === "identity_placement" && submission.candidateAssetId
+    ? await ctx.db.get(submission.candidateAssetId) : null;
+  const currentCandidate = candidateAsset?.profileId === profile._id && candidateAsset.state === "active" &&
+    candidateAsset.visibility === "public" && candidateAsset.retiredAt === undefined &&
+    candidateAsset.moderatorSuppressedAt === undefined && candidateAsset.contentSha256 === submission.contentSha256
+    ? candidateAsset : null;
 
   return {
     ...publicSubmission(submission, profile),
+    ...(currentCandidate ? { label: currentCandidate.label, altText: currentCandidate.altText,
+      credit: currentCandidate.credit ?? "", creditUrl: currentCandidate.creditUrl,
+      sourceUrl: currentCandidate.sourceUrl, sourceDescription: currentCandidate.sourceDescription } : {}),
     priorProposalCount,
     priorProposalCountTruncated,
     canViewCandidate:
@@ -2068,6 +2083,18 @@ const receiptValidator = v.object({
   ),
   resourceId: v.optional(v.string()),
   code: v.optional(v.string()),
+});
+export const manageContribution = mutation({
+  args: manageCommandArgs,
+  returns: receiptValidator,
+  handler: async (ctx, args) => contributionManageCommand(ctx, contributionManageCommandSchema.parse(args), await browserReviewActor(ctx)),
+});
+export const manageContributionForMcpActor = internalMutation({
+  args: { ...manageCommandArgs, actorUserId: v.id("users"), ...reviewActorAttestationArgs },
+  returns: receiptValidator,
+  handler: async (ctx, { actorUserId, emailVerified, emailVerificationAttestedAt, oauthTokenId, oauthClientId, oauthResource, ...args }) =>
+    contributionManageCommand(ctx, contributionManageCommandSchema.parse(args), await trustedReviewActor(ctx, actorUserId,
+      { emailVerified, emailVerificationAttestedAt, oauthTokenId, oauthClientId, oauthResource }, "assets:contribute")),
 });
 export const decideWithReceipt = mutation({
   args: receiptDecisionArgs,

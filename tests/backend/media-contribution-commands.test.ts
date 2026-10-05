@@ -3,13 +3,129 @@ import { it } from "node:test";
 import { convexTest } from "convex-test";
 import { api, internal } from "../../convex/_generated/api";
 import { modules, schema, seed, createAndUpload } from "./_mediaReviewFixture";
-import { getProfileMediaVersion, selectProfileAssetIdentity } from "../../convex/_profileAssets";
+import { getProfileMediaVersion, getPublicProfileMediaKit, selectProfileAssetIdentity } from "../../convex/_profileAssets";
 
 process.env.VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED = "true";
 process.env.VRDEX_PROFILE_MEDIA_DIRECT_UPLOAD_ENABLED = "true";
 process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "true";
 
-async function fixture(profileType: "person" | "community" = "person") {
+it("corrects own approved kit metadata without publisher authority and keeps evidence immutable", async () => {
+  const f = await fixture();
+  await f.t.run(ctx => ctx.db.patch(f.grant, { state: "revoked" }));
+  const before = await f.t.run(ctx => ctx.db.get(f.intent.submissionId));
+  const d = await f.detail();
+  const args = { submissionId: f.intent.submissionId, expectedContributionVersion: d.contributionVersion,
+    idempotencyKey: "correct", action: "update_metadata" as const,
+    metadata: { label: " Updated image ", altText: null, credit: " New credit ", sourceUrl: null, sourceDescription: "Local photograph" } };
+  const first = await f.actor.mutation(api.profileMediaSubmissions.manageContribution, args);
+  assert.equal(first.operationState, "committed");
+  assert.deepEqual(await f.actor.mutation(api.profileMediaSubmissions.manageContribution, args), first);
+  assert.equal((await f.actor.mutation(api.profileMediaSubmissions.manageContribution, { ...args, metadata: { credit: "different" } })).code, "idempotency_conflict");
+  const next = await f.detail();
+  assert.notEqual(next.contributionVersion, d.contributionVersion);
+  assert.equal(next.metadata.label, "Updated image");
+  assert.equal(next.metadata.credit, "New credit");
+  assert.equal(next.metadata.altText, undefined);
+  assert.equal(next.metadata.sourceUrl, undefined);
+  assert.equal(next.metadata.sourceDescription, "Local photograph");
+  assert.deepEqual(await f.t.run(ctx => ctx.db.get(f.intent.submissionId)), before);
+  const audits = await f.t.run(ctx => ctx.db.query("profileAuditEvents").collect());
+  const correction = audits.filter(row => row.action === "profile_media_contribution_metadata_updated");
+  assert.equal(correction.length, 1);
+  const audit = JSON.parse(correction[0].note!);
+  assert.equal(audit.before.credit, d.metadata.credit);
+  assert.equal(audit.after.credit, "New credit");
+  assert.equal((await f.actor.mutation(api.profileMediaSubmissions.manageContribution, { ...args, idempotencyKey: "stale" })).code, "contribution_changed");
+});
+
+it("removes own kit item once, retains bytes/accounting/history and refuses key reuse for another item", async () => {
+  const f = await fixture();
+  const d = await f.detail();
+  const charge = await f.t.run(ctx => ctx.db.query("contributionUploadReservations").first());
+  const args = { submissionId: f.intent.submissionId, expectedContributionVersion: d.contributionVersion, idempotencyKey: "remove", action: "remove" as const };
+  const first = await f.actor.mutation(api.profileMediaSubmissions.manageContribution, args);
+  assert.equal(first.operationState, "committed");
+  assert.deepEqual(await f.actor.mutation(api.profileMediaSubmissions.manageContribution, args), first);
+  const removed = await f.t.run(ctx => ctx.db.get(d.assetId));
+  assert.equal(removed?.state, "deleted");
+  assert.ok(removed?.deletedAt);
+  assert.equal(removed?.retiredAt, undefined);
+  assert.deepEqual(await f.t.run(ctx => ctx.db.query("contributionUploadReservations").first()), charge);
+  const kit = await f.t.run(async ctx => getPublicProfileMediaKit(ctx.db, (await ctx.db.get(f.s.profileId))!));
+  assert.equal(kit.galleryAssets.length, 0);
+  assert.equal((await f.actor.query(api.profileMediaSubmissions.getMine, { submissionId: f.intent.submissionId }))?.status, "approved");
+  const second = await seed(f.t);
+  const otherId = await f.t.run(async ctx => {
+    const original = (await ctx.db.get(f.intent.submissionId))!;
+    const asset = (await ctx.db.get(d.assetId))!;
+    const { _id, _creationTime, ...fields } = original;
+    const id = await ctx.db.insert("profileMediaSubmissions", { ...fields, profileId: second.profileId });
+    const { _id: assetId, _creationTime: assetCreatedAt, ...assetFields } = asset;
+    const newAsset = await ctx.db.insert("profileAssets", { ...assetFields, profileId: second.profileId, sourceSubmissionId: id, state: "active", deletedAt: undefined });
+    await ctx.db.patch(id, { approvedAssetId: newAsset });
+    return id;
+  });
+  assert.equal((await f.actor.mutation(api.profileMediaSubmissions.manageContribution, { ...args, submissionId: otherId })).code, "idempotency_conflict");
+  assert.equal((await f.t.run(async ctx => ctx.db.get((await ctx.db.get(otherId))!.approvedAssetId!)))?.state, "active");
+});
+
+for (const metadata of [{ credit: null }, { credit: " " }, { sourceUrl: null, sourceDescription: null }, { sourceUrl: "http://example.test" }, { creditUrl: "javascript:alert(1)" }, { label: null }, {}]) {
+  it(`refuses invalid correction ${JSON.stringify(metadata)}`, async () => {
+    const f = await fixture();
+    const d = await f.detail();
+    const result = await f.actor.mutation(api.profileMediaSubmissions.manageContribution, { submissionId: f.intent.submissionId,
+      expectedContributionVersion: d.contributionVersion, idempotencyKey: "invalid", action: "update_metadata", metadata });
+    assert.equal(result.operationState, "refused");
+    assert.deepEqual(await f.detail(), d);
+  });
+}
+
+for (const condition of ["primary", "other_selection", "claimed", "private_profile", "private_asset", "hidden_kit", "suppressed", "held", "wrong_submitter"] as const) {
+  it(`protects contribution management after ${condition}`, async () => {
+    const f = await fixture();
+    const d = await f.detail();
+    await f.t.run(async ctx => {
+      if (condition === "primary" || condition === "other_selection") await selectProfileAssetIdentity(ctx.db, { profileId: f.s.profileId, assetId: d.assetId, placement: "profile_image", actorUserId: condition === "primary" ? f.s.contributorUserId : f.s.moderatorUserId, now: Date.now() });
+      if (condition === "claimed") await ctx.db.patch(f.s.profileId, { claimState: "claimed_verified" });
+      if (condition === "private_profile") await ctx.db.patch(f.s.profileId, { publicSurfacingState: "opted_out" });
+      if (condition === "private_asset") await ctx.db.patch(d.assetId, { visibility: "private", credit: "Private owner credit" });
+      if (condition === "hidden_kit") await ctx.db.patch(f.s.profileId, { fieldVisibility: { mediaKit: "private" } });
+      if (condition === "suppressed") await ctx.db.patch(d.assetId, { moderatorSuppressedAt: Date.now() });
+      if (condition === "held") await ctx.db.patch(f.intent.submissionId, { legalHoldAt: Date.now() });
+      if (condition === "wrong_submitter") await ctx.db.patch(f.intent.submissionId, { submitterUserId: f.s.moderatorUserId });
+    });
+    const args = { submissionId: f.intent.submissionId, expectedContributionVersion: d.contributionVersion, idempotencyKey: "blocked", action: "remove" as const };
+    if (condition === "private_asset" || condition === "suppressed" || condition === "wrong_submitter") await assert.rejects(f.actor.mutation(api.profileMediaSubmissions.manageContribution, args), /unavailable/i);
+    else assert.equal((await f.actor.mutation(api.profileMediaSubmissions.manageContribution, args)).operationState, "refused");
+    assert.equal((await f.t.run(ctx => ctx.db.get(d.assetId)))?.state, "active");
+    if (condition !== "wrong_submitter") {
+      const history = await f.actor.query(api.profileMediaSubmissions.getMine, { submissionId: f.intent.submissionId });
+      assert.equal(history?.status, "approved");
+      assert.ok(!JSON.stringify(history).includes("Private owner credit"));
+    }
+  });
+}
+
+it("metadata correction invalidates inspected placement review and refreshes its candidate projection", async () => {
+  const f = await fixture();
+  const d = await f.detail();
+  const proposal = await f.actor.mutation(api.profileMediaSubmissions.proposePlacement, { submissionId: f.intent.submissionId, expectedContributionVersion: d.contributionVersion, idempotencyKey: "proposal" });
+  const reviewer = f.t.withIdentity(f.s.moderatorIdentity);
+  const before = await reviewer.query(api.profileMediaSubmissions.reviewDetail, { submissionId: proposal.resourceId! });
+  assert.ok(before);
+  assert.equal((await f.actor.mutation(api.profileMediaSubmissions.manageContribution, { submissionId: f.intent.submissionId,
+    expectedContributionVersion: d.contributionVersion, idempotencyKey: "correct", action: "update_metadata", metadata: { credit: "Corrected credit", sourceUrl: "https://corrected.example/source" } })).operationState, "committed");
+  const after = await reviewer.query(api.profileMediaSubmissions.reviewDetail, { submissionId: proposal.resourceId! });
+  assert.ok(after);
+  assert.notEqual(after.reviewVersion, before.reviewVersion);
+  assert.equal(after.candidate.credit, "Corrected credit");
+  assert.equal(after.candidate.sourceUrl, "https://corrected.example/source");
+  assert.equal(after.credit, "Corrected credit");
+  assert.equal(after.sourceUrl, "https://corrected.example/source");
+  assert.equal((await reviewer.mutation(api.profileMediaSubmissions.decideWithReceipt, { submissionId: proposal.resourceId!, expectedReviewVersion: before.reviewVersion, decision: "approve", privateReason: "Checked", idempotencyKey: "stale" })).code, "review_changed");
+});
+
+async function fixture(profileType: "person" | "community" = "person", independentlyApproved = false) {
   const t = convexTest({ schema, modules });
   const s = await seed(t, profileType);
   const { intent } = await createAndUpload(t, s);
@@ -19,10 +135,13 @@ async function fixture(profileType: "person" | "community" = "person") {
     grantedAt: Date.now(), updatedAt: Date.now(),
   }));
   const actor = t.withIdentity(s.contributorIdentity);
-  const pending = await actor.query(api.profileMediaSubmissions.publisherDetail, { submissionId: intent.submissionId });
+  if (independentlyApproved) await t.run(ctx => ctx.db.patch(grant, { state: "revoked" }));
+  const reviewer = independentlyApproved ? t.withIdentity(s.moderatorIdentity) : actor;
+  const pending = await reviewer.query(independentlyApproved ? api.profileMediaSubmissions.reviewDetail : api.profileMediaSubmissions.publisherDetail, { submissionId: intent.submissionId });
   assert.ok(pending);
-  assert.equal((await actor.mutation(api.profileMediaSubmissions.publish, {
+  assert.equal((await reviewer.mutation(independentlyApproved ? api.profileMediaSubmissions.decideWithReceipt : api.profileMediaSubmissions.publish, {
     submissionId: intent.submissionId, expectedReviewVersion: pending.reviewVersion, idempotencyKey: "publish",
+    ...(independentlyApproved ? { decision: "approve", privateReason: "Independently reviewed" } : {}),
   })).operationState, "committed");
   await t.run(ctx => ctx.db.patch(intent.submissionId, { createdAt: Date.now() - 60_000 }));
   const detail = () => actor.query(api.profileMediaSubmissions.contributionDetail, { submissionId: intent.submissionId });
@@ -35,6 +154,48 @@ async function fixture(profileType: "person" | "community" = "person") {
   const placements = () => t.run(async ctx => (await ctx.db.query("profileAssetPlacements").collect()).filter(p => p.state === "active").map(p => p.placement).sort());
   return { t, s, intent, grant, actor, detail, place, placements };
 }
+
+it("allows ordinary independently approved contributors to correct and remove their own kit items", async () => {
+  const f = await fixture("person", true);
+  assert.equal((await f.detail()).canEditMetadata, true);
+  const d = await f.detail();
+  assert.equal((await f.actor.mutation(api.profileMediaSubmissions.manageContribution, { submissionId: f.intent.submissionId,
+    expectedContributionVersion: d.contributionVersion, idempotencyKey: "correct", action: "update_metadata", metadata: { credit: "Corrected credit" } })).operationState, "committed");
+  const fresh = await f.detail();
+  assert.equal((await f.actor.mutation(api.profileMediaSubmissions.manageContribution, { submissionId: f.intent.submissionId,
+    expectedContributionVersion: fresh.contributionVersion, idempotencyKey: "remove", action: "remove" })).operationState, "committed");
+});
+
+it("protects non-kit placement selections and exposes no current metadata for a hidden kit", async () => {
+  const f = await fixture();
+  const d = await f.detail();
+  await f.t.run(async ctx => {
+    await ctx.db.insert("profileAssetPlacements", { profileId: f.s.profileId, assetId: d.assetId, placement: "banner", position: 0,
+      state: "active", selectionActorUserId: f.s.moderatorUserId, selectionOperationId: "owner", updatedAt: Date.now() });
+    await ctx.db.patch(d.assetId, { credit: "Private owner metadata" });
+  });
+  assert.equal((await f.detail()).canEditMetadata, false);
+  assert.equal((await f.actor.mutation(api.profileMediaSubmissions.manageContribution, { submissionId: f.intent.submissionId,
+    expectedContributionVersion: d.contributionVersion, idempotencyKey: "protected", action: "update_metadata", metadata: { credit: "Take over" } })).operationState, "refused");
+  await f.t.run(ctx => ctx.db.patch(f.s.profileId, { fieldVisibility: { mediaKit: "private" } }));
+  assert.ok(!JSON.stringify(await f.detail()).includes("Private owner metadata"));
+});
+
+it("attested MCP contributors manage with contribute scope and lose replay after delegation revocation", async () => {
+  const f = await fixture("person", true);
+  const d = await f.detail();
+  const tokenId = await f.t.run(ctx => ctx.db.insert("oauthAccessTokens", { tokenId: "manage-token", clientId: "client", subjectType: "user",
+    userId: f.s.contributorUserId, resource: "https://example.test/mcp", scopes: ["mcp:read", "mcp:write", "assets:contribute"], status: "active", issuedAt: Date.now(), expiresAt: Date.now() + 60_000 }));
+  const args = { submissionId: f.intent.submissionId, expectedContributionVersion: d.contributionVersion, idempotencyKey: "mcp-correct",
+    action: "update_metadata" as const, metadata: { credit: "MCP credit" }, actorUserId: f.s.contributorUserId,
+    oauthTokenId: "manage-token", oauthClientId: "client", emailVerified: true, emailVerificationAttestedAt: Date.now() };
+  await assert.rejects(f.t.mutation(internal.profileMediaSubmissions.manageContributionForMcpActor, { ...args, emailVerified: false }), /verified/i);
+  const first = await f.t.mutation(internal.profileMediaSubmissions.manageContributionForMcpActor, args);
+  assert.equal(first.operationState, "committed");
+  assert.deepEqual(await f.t.mutation(internal.profileMediaSubmissions.manageContributionForMcpActor, args), first);
+  await f.t.run(ctx => ctx.db.patch(tokenId, { status: "revoked" }));
+  await assert.rejects(f.t.mutation(internal.profileMediaSubmissions.manageContributionForMcpActor, args), /DENIED/);
+});
 
 for (const profileType of ["person", "community"] as const) {
   it(`selects and clears its own ${profileType} primary while keeping gallery and bytes`, async () => {

@@ -66,6 +66,26 @@ these requests. Their authorized preview reads the existing stored asset.
 Meaningful evidence changes require fresh inspection. Placement changes also
 require an explicit rebase against the original selection snapshot.
 
+`manageContribution` and internal `manageContributionForMcpActor` accept an own
+approved submission ID, expected contribution version, idempotency key and either
+`update_metadata` or `remove`. Ordinary contributors need no publisher grant.
+MCP uses `assets:contribute` and `mcp:write` with current email/delegation checks.
+Corrections allow only title, alt text, credit, credit URL, source URL and source
+description. Optional values clear with `null`; title, credit and at least one
+provenance value remain required. Actor and before/after metadata enter the audit.
+The submission and publication evidence remain historical; published details and
+existing-asset placement reviews project the current public asset metadata.
+Corrections invalidate inspected placement review versions.
+
+Management requires a public, published, unclaimed target and visible public kit.
+Non-gallery placement, another actor's selection, moderation restriction,
+suppression or private media blocks contributor management. Legal holds block
+removal. Removal uses the existing owner logical-delete state and timestamp,
+excluding the item from public kit/download reads while retaining bytes, gallery
+references, accounting and approved history. It schedules no permanent deletion.
+Exact-input receipt replay recovers a removed item after response loss, with
+current ownership, visibility and selection authority still checked.
+
 Successful publication and its immutable receipt commit in one transaction.
 Expected terminal refusals also persist receipts. Projected active-public-asset
 capacity is checked before writes, with one new asset for each uploaded kit

@@ -632,10 +632,10 @@ export async function reviewSnapshot(
       rendition: candidateReady
         ? { submissionId: submission._id, kind: "stored_candidate" as const }
         : null,
-      sourceUrl: submission.sourceUrl,
+      sourceUrl: existingCandidateReady ? candidateAsset.sourceUrl : submission.sourceUrl,
       sourceKind: submission.sourceKind,
-      sourceDescription: submission.sourceDescription,
-      credit: submission.credit,
+      sourceDescription: existingCandidateReady ? candidateAsset.sourceDescription : submission.sourceDescription,
+      credit: existingCandidateReady ? candidateAsset.credit ?? "" : submission.credit,
       contentSha256: submission.contentSha256 ?? null,
     },
   };

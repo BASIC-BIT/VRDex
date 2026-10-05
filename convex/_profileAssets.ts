@@ -825,6 +825,9 @@ export async function consumeProfileAssetUploads(
     validateProfileAssetGalleryPlacements(upload.placements, label);
     const assetId = await db.insert("profileAssets", {
       ...(input.approvedSubmissionId === undefined ? {} : { sourceSubmissionId: input.approvedSubmissionId }),
+      ...(input.approvedSubmissionId === undefined ? {} : {
+        sourceDescription: (await db.get(input.approvedSubmissionId))?.sourceDescription,
+      }),
       profileId: input.profileId,
       storageKey: intent.storageKey,
       ...(intent.sourceStorageKey !== undefined && intent.sourceContentSha256 !== undefined

@@ -984,6 +984,7 @@ export default defineSchema({
     .index("by_publicationMethod_actor", ["publicationMethod", "publicationActorUserId"]),
   profileAssets: defineTable({
     sourceSubmissionId: v.optional(v.id("profileMediaSubmissions")),
+    sourceDescription: v.optional(v.string()),
     profileId: v.id("profiles"),
     storageKey: v.string(),
     sourceStorageKey: v.optional(v.string()),
@@ -1030,6 +1031,7 @@ export default defineSchema({
     state: profileAssetState,
     updatedAt: v.number(),
   })
+    .index("by_assetId_state", ["assetId", "state"])
     .index("by_profileId_placement_state_position", [
       "profileId",
       "placement",

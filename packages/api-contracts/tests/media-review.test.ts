@@ -5,9 +5,20 @@ import {
   reviewPageRequestSchema,
   contributionCommandBaseSchema,
   contributionPlacementCommandSchema,
+  contributionManageCommandSchema,
   publishedContributionDetailSchema,
 } from "../src/media-review";
 import { apiScopes } from "../src/auth";
+it("bounds contribution metadata patches and forbids byte, authority, target and placement changes", () => {
+  const base = { submissionId: "submission", expectedContributionVersion: "version", idempotencyKey: "key" };
+  assert.equal(contributionManageCommandSchema.safeParse({ ...base, action: "remove" }).success, true);
+  assert.equal(contributionManageCommandSchema.safeParse({ ...base, action: "update_metadata", metadata: { credit: null, altText: null } }).success, true);
+  for (const metadata of [{ label: "x".repeat(81) }, { sourceDescription: "x".repeat(1001) }, { credit: "x".repeat(121) },
+    { altText: "x".repeat(181) }, { sourceUrl: "x".repeat(4097) }, { storageKey: "other" }, { visibility: "public" }, { profileId: "other" }, { placements: ["profile_image"] }])
+    assert.equal(contributionManageCommandSchema.safeParse({ ...base, action: "update_metadata", metadata }).success, false);
+  assert.equal(contributionManageCommandSchema.safeParse({ ...base, action: "remove", metadata: {} }).success, false);
+  assert.equal(contributionManageCommandSchema.safeParse({ ...base, action: "update_metadata", metadata: {}, actorUserId: "other" }).success, false);
+});
 it("bounds contribution commands and refuses caller-selected capabilities", () => {
   const base = { submissionId: "submission", expectedContributionVersion: "version", idempotencyKey: "key" };
   assert.equal(contributionCommandBaseSchema.safeParse(base).success, true);
