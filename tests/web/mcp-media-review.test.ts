@@ -590,3 +590,27 @@ it("declares evidence and publishes only through separate explicit commands", as
     }),
   );
 });
+
+it("contribution handlers bind verified actor, exact command and strict receipt/detail output", async () => {
+  const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
+  const receipt = { operationId: "operation-1", operationState: "committed" };
+  const projection = { submissionId: "submission-1", assetId: "asset-1", profileId: "profile-1", profileSlug: "fixture", contributionVersion: version, metadata: { label: "Image", credit: "Creator" }, canSelectPrimary: true, canClearPrimary: false, canEditMetadata: true, canRemove: true };
+  const handlers = createMcpMediaReviewHandlers(dependencies({
+    query: async (name, args) => { calls.push({ name, args }); return projection; },
+    mutate: async (name, args) => { calls.push({ name, args }); return receipt; },
+  }));
+  const base = { submissionId: "submission-1", expectedContributionVersion: version, idempotencyKey: "same-key" };
+  assert.deepEqual((await handlers.contributionGet({ submissionId: "submission-1" })).structuredContent, projection);
+  for (const [operation, input] of [
+    ["contributionManage", { ...base, action: "update_metadata", metadata: { credit: "Creator" } }],
+    ["contributionPlace", { ...base, action: "select_primary" }],
+    ["contributionProposePlacement", base],
+  ] as const) {
+    assert.deepEqual((await handlers[operation](input)).structuredContent, receipt);
+    assert.deepEqual(calls.at(-1), { name: operation, args: { actorUserId: "user-1", emailVerified: true, emailVerificationAttestedAt: 2000, ...input } });
+    await assert.rejects(() => handlers[operation]({ ...input, actorUserId: "forged" }));
+  }
+  const invalid = createMcpMediaReviewHandlers(dependencies({ query: async () => ({ ...projection, reviewerUserId: "private" }), mutate: async () => ({ ...receipt, privateOwnerAsset: "private" }) }));
+  await assert.rejects(() => invalid.contributionGet({ submissionId: "submission-1" }));
+  await assert.rejects(() => invalid.contributionPlace({ ...base, action: "clear_primary" }));
+});

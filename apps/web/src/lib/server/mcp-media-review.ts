@@ -1,5 +1,9 @@
 import {
   commandReceiptSchema,
+  contributionCommandBaseSchema,
+  contributionManageCommandSchema,
+  contributionPlacementCommandSchema,
+  publishedContributionDetailSchema,
   mediaPublicationSchema,
   publicationEvidenceSchema,
   reviewRebaseSchema,
@@ -73,13 +77,16 @@ export const mediaSubmissionWriteToolNames = [
   "vrdex_media_submission_withdraw",
 ] as const;
 
-type ReviewQueryName = "list" | "detail" | "candidate" | "current";
+type ReviewQueryName = "list" | "detail" | "candidate" | "current" | "contributionGet";
 type ReviewMutationName =
   | "decide"
   | "withdraw"
   | "rebase"
   | "publish"
-  | "declare";
+  | "declare"
+  | "contributionManage"
+  | "contributionPlace"
+  | "contributionProposePlacement";
 type StoredObject = {
   body: Uint8Array;
   contentType: string;
@@ -308,6 +315,24 @@ export function createMcpMediaReviewHandlers<TActor extends string>(
       };
     },
 
+    async contributionGet(input: unknown): Promise<ToolResult> {
+      const value = mediaReviewGetInputSchema.parse(input);
+      const result = await dependencies.query("contributionGet", { ...(await attestation(dependencies)), ...value });
+      if (result === null) return refusal("Contribution unavailable.");
+      return jsonResult(publishedContributionDetailSchema.parse(result));
+    },
+    async contributionManage(input: unknown): Promise<ToolResult> {
+      const value = contributionManageCommandSchema.parse(input);
+      return jsonResult(commandReceiptSchema.parse(await dependencies.mutate("contributionManage", { ...(await attestation(dependencies)), ...value })));
+    },
+    async contributionPlace(input: unknown): Promise<ToolResult> {
+      const value = contributionPlacementCommandSchema.parse(input);
+      return jsonResult(commandReceiptSchema.parse(await dependencies.mutate("contributionPlace", { ...(await attestation(dependencies)), ...value })));
+    },
+    async contributionProposePlacement(input: unknown): Promise<ToolResult> {
+      const value = contributionCommandBaseSchema.parse(input);
+      return jsonResult(commandReceiptSchema.parse(await dependencies.mutate("contributionProposePlacement", { ...(await attestation(dependencies)), ...value })));
+    },
     async publish(input: unknown): Promise<ToolResult> {
       return jsonResult(
         commandReceiptSchema.parse(

@@ -8,7 +8,7 @@ import {
   mcpOAuthClientCredentialsFromEnv,
   mcpOAuthClientCredentialsFromOptions,
 } from "./mcp-oauth-client-credentials";
-import { assertHostedToolSecuritySchemes, hostedExpectedToolNames } from "./smoke-vrdex-mcp-compat";
+import { assertHostedContributionSchemas, assertHostedToolSecuritySchemes, hostedExpectedToolNames } from "./smoke-vrdex-mcp-compat";
 
 type InspectorOptions = {
   hostedDataPublicReads: boolean;
@@ -35,6 +35,8 @@ type ToolDescriptor = {
     securitySchemes?: unknown;
   };
   name?: unknown;
+  inputSchema?: unknown;
+  outputSchema?: unknown;
 };
 
 type InspectorSearchResult = {
@@ -282,6 +284,7 @@ function assertHostedTools(body: { tools?: ToolDescriptor[] }, label: string) {
   assertExpectedHostedToolNames(toolNames);
   for (const tool of body.tools ?? []) {
     assertHostedToolSecuritySchemes(tool);
+    assertHostedContributionSchemas(tool);
   }
 }
 

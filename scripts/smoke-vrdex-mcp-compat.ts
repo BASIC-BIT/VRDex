@@ -46,6 +46,8 @@ type SmokeOptions = {
 type HostedToolDescriptor = {
   _meta?: unknown;
   name?: unknown;
+  inputSchema?: unknown;
+  outputSchema?: unknown;
 };
 
 const localReadTools = [
@@ -84,7 +86,9 @@ const writeToolResourceScopes: Record<string, string> = {
   vrdex_media_review_decide_selected: "assets:review:write",
   vrdex_media_submission_withdraw: "assets:contribute",
   vrdex_media_submission_publish: "assets:publish",
-  vrdex_media_submission_declare: "assets:publish",
+  vrdex_media_contribution_manage: "assets:contribute",
+  vrdex_media_contribution_place: "assets:publish",
+  vrdex_media_contribution_propose_placement: "assets:contribute",
 };
 const writeToolNames = Object.keys(writeToolResourceScopes);
 const contributionCollectionWriteToolNames = new Set([
@@ -114,7 +118,9 @@ const hostedOnlyWriteToolNames = new Set([
   "vrdex_media_review_decide_selected",
   "vrdex_media_submission_withdraw",
   "vrdex_media_submission_publish",
-  "vrdex_media_submission_declare",
+  "vrdex_media_contribution_manage",
+  "vrdex_media_contribution_place",
+  "vrdex_media_contribution_propose_placement",
 ]);
 const localWriteToolNames = writeToolNames.filter((toolName) => !hostedOnlyWriteToolNames.has(toolName));
 // Reads, but of the caller's own inventory, so they advertise a scope pair the
@@ -140,6 +146,7 @@ const ownedReadToolScopes: Record<string, string | string[]> = {
   vrdex_media_review_get: "assets:review:read",
   vrdex_media_review_preview: "assets:review:read",
   vrdex_media_submission_get: "assets:publish",
+  vrdex_media_contribution_get: "assets:contribute",
   vrdex_media_submission_preview: "assets:publish",
 };
 const ownedReadToolNames = Object.keys(ownedReadToolScopes);
@@ -158,6 +165,7 @@ const hostedOnlyOwnedReadToolNames = new Set([
   "vrdex_media_review_get",
   "vrdex_media_review_preview",
   "vrdex_media_submission_get",
+  "vrdex_media_contribution_get",
   "vrdex_media_submission_preview",
 ]);
 const localOwnedReadToolNames = ownedReadToolNames.filter(
@@ -175,6 +183,27 @@ export const hostedExpectedToolNames = [
   ...ownedReadToolNames,
   ...writeToolNames,
 ];
+
+export function assertHostedContributionSchemas(tool: HostedToolDescriptor) {
+  const name = String(tool.name);
+  if (!name.startsWith("vrdex_media_contribution_")) return;
+  const input = tool.inputSchema as { type?: string; required?: string[]; additionalProperties?: boolean; properties?: Record<string, { enum?: string[] }>; oneOf?: Array<{ required?: string[]; additionalProperties?: boolean }> } | undefined;
+  const output = tool.outputSchema as { required?: string[] } | undefined;
+  assert.equal(input?.type, "object", `${name} input must be an object.`);
+  const variants = input?.oneOf ?? [input];
+  const required = name === "vrdex_media_contribution_get" ? ["submissionId"] : ["submissionId", "expectedContributionVersion", "idempotencyKey"];
+  for (const variant of variants) {
+    assert.equal(variant?.additionalProperties, false, `${name} input must be strict.`);
+    for (const field of required) assert.ok(variant?.required?.includes(field), `${name} input lacks ${field}.`);
+  }
+  if (name === "vrdex_media_contribution_place") assert.deepEqual(input?.properties?.action?.enum, ["select_primary", "clear_primary"], `${name} placement actions changed.`);
+  if (name === "vrdex_media_contribution_manage") {
+    assert.equal(variants.length, 2, `${name} management actions changed.`);
+    for (const variant of variants) assert.ok(variant?.required?.includes("action"), `${name} action is required.`);
+  }
+  const outputFields = name === "vrdex_media_contribution_get" ? ["submissionId", "assetId", "contributionVersion", "metadata", "canSelectPrimary", "canClearPrimary", "canEditMetadata", "canRemove"] : ["operationId", "operationState"];
+  for (const field of outputFields) assert.ok(output?.required?.includes(field), `${name} ${name.endsWith("_get") ? "detail" : "receipt"} lacks ${field}.`);
+}
 
 export function assertHostedToolSecuritySchemes(tool: HostedToolDescriptor) {
   assert.equal(typeof tool._meta, "object", `Hosted tool ${String(tool.name)} is missing _meta.`);
@@ -1063,6 +1092,7 @@ async function smokeHostedHttp(results: SmokeResult[], options: SmokeOptions) {
 
   for (const tool of listedTools ?? []) {
     assertHostedToolSecuritySchemes(tool);
+    assertHostedContributionSchemas(tool);
   }
 
   const listedToolNames = new Set((listedTools ?? []).map((tool) => String(tool.name)));

@@ -19,6 +19,8 @@ const row: Props["row"] = {
   profileType: "person",
   profileIsPublic: true,
   requestedPlacement: "profile_image",
+  requestKind: undefined,
+  candidateAssetId: undefined,
   status: "submitted",
   sourceKind: "local",
   sourceDescription: description,

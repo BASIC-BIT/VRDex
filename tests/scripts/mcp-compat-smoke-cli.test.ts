@@ -49,7 +49,19 @@ const writeToolScopes: Record<string, string> = {
   vrdex_media_review_decide_selected: "assets:review:write",
   vrdex_media_submission_withdraw: "assets:contribute",
   vrdex_media_submission_publish: "assets:publish",
-  vrdex_media_submission_declare: "assets:publish",
+  vrdex_media_contribution_manage: "assets:contribute",
+  vrdex_media_contribution_place: "assets:publish",
+  vrdex_media_contribution_propose_placement: "assets:contribute",
+};
+// Independent hosted contract fixture, deliberately not imported from runtime schemas.
+const contributionSchemas: Record<string, Record<string, unknown>> = {
+  vrdex_media_contribution_get: { inputSchema: { type: "object", additionalProperties: false, required: ["submissionId"] }, outputSchema: { required: ["submissionId", "assetId", "contributionVersion", "metadata", "canSelectPrimary", "canClearPrimary", "canEditMetadata", "canRemove"] } },
+  vrdex_media_contribution_manage: { inputSchema: { type: "object", oneOf: [
+    { additionalProperties: false, required: ["submissionId", "expectedContributionVersion", "idempotencyKey", "action", "metadata"] },
+    { additionalProperties: false, required: ["submissionId", "expectedContributionVersion", "idempotencyKey", "action"] },
+  ] }, outputSchema: { required: ["operationId", "operationState"] } },
+  vrdex_media_contribution_place: { inputSchema: { type: "object", additionalProperties: false, required: ["submissionId", "expectedContributionVersion", "idempotencyKey", "action"], properties: { action: { enum: ["select_primary", "clear_primary"] } } }, outputSchema: { required: ["operationId", "operationState"] } },
+  vrdex_media_contribution_propose_placement: { inputSchema: { type: "object", additionalProperties: false, required: ["submissionId", "expectedContributionVersion", "idempotencyKey"] }, outputSchema: { required: ["operationId", "operationState"] } },
 };
 const expectedWriteTools = Object.keys(writeToolScopes);
 // Reads, but of the caller's own inventory, so they advertise a scope pair
@@ -71,6 +83,7 @@ const ownedReadToolScopes: Record<string, string | string[]> = {
   vrdex_media_review_get: "assets:review:read",
   vrdex_media_review_preview: "assets:review:read",
   vrdex_media_submission_get: "assets:publish",
+  vrdex_media_contribution_get: "assets:contribute",
   vrdex_media_submission_preview: "assets:publish",
 };
 const expectedOwnedReadTools = Object.keys(ownedReadToolScopes);
@@ -267,6 +280,7 @@ async function startHostedFailureFixture() {
           // reached the read failures this test is about.
           tools: [...expectedTools, ...expectedOwnedReadTools, ...expectedWriteTools].map((name) => ({
             _meta: { securitySchemes: securitySchemesForTool(name) },
+            ...contributionSchemas[name],
             name,
           })),
         },
@@ -413,6 +427,7 @@ async function startHostedSuccessFixture(extraToolName?: string, omittedScope?: 
         result: {
           tools: [...expectedTools, ...expectedOwnedReadTools, ...expectedWriteTools, ...(extraToolName ? [extraToolName] : [])].map((name) => ({
             _meta: { securitySchemes: securitySchemesForTool(name) },
+            ...contributionSchemas[name],
             name,
           })),
         },

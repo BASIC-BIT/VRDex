@@ -12,6 +12,7 @@ import {
   fromJsonSchema,
   type AuthInfo,
   type McpHttpHandler,
+  type Tool,
   McpServer,
 } from "@modelcontextprotocol/server";
 import { api, internal } from "@convex-generated-api";
@@ -25,6 +26,10 @@ import {
   ApiProfileUpdateRequestSchema,
   ApiProfileWriteResponseSchema,
   commandReceiptSchema,
+  contributionCommandBaseSchema,
+  contributionManageCommandSchema,
+  contributionPlacementCommandSchema,
+  publishedContributionDetailSchema,
   ProfileAssetPlacementSchema,
   type ApiScope,
   getBearerTokenFromAuthorizationHeader,
@@ -143,6 +148,9 @@ const mcpWriteToolNames = [
   ...mediaReviewWriteToolNames,
   ...mediaSubmissionWriteToolNames,
   "vrdex_media_submission_publish",
+  "vrdex_media_contribution_manage",
+  "vrdex_media_contribution_place",
+  "vrdex_media_contribution_propose_placement",
   "vrdex_media_submission_declare",
   "vrdex_contribution_capacity_request",
   "vrdex_contribution_batch_create",
@@ -182,6 +190,9 @@ const mcpWriteToolResourceScopes: Record<(typeof mcpWriteToolNames)[number], Api
   vrdex_media_review_decide_selected: "assets:review:write",
   vrdex_media_submission_withdraw: "assets:contribute",
   vrdex_media_submission_publish: "assets:publish",
+  vrdex_media_contribution_manage: "assets:contribute",
+  vrdex_media_contribution_place: "assets:publish",
+  vrdex_media_contribution_propose_placement: "assets:contribute",
   vrdex_media_submission_declare: "assets:publish",
   vrdex_contribution_capacity_request: "assets:contribute",
   vrdex_contribution_batch_create: "assets:contribute",
@@ -213,6 +224,7 @@ const mcpOwnedReadToolNames = [
   "vrdex_media_review_assignments",
   ...mediaReviewReadToolNames,
   "vrdex_media_submission_get",
+  "vrdex_media_contribution_get",
   "vrdex_media_submission_preview",
 ] as const;
 const mcpOwnedReadToolScopes: Record<(typeof mcpOwnedReadToolNames)[number], ApiScope> = {
@@ -228,6 +240,7 @@ const mcpOwnedReadToolScopes: Record<(typeof mcpOwnedReadToolNames)[number], Api
   vrdex_get_my_media_submission: "assets:contribute",
   vrdex_media_review_assignments: "assets:review:read",
   vrdex_media_submission_get: "assets:publish",
+  vrdex_media_contribution_get: "assets:contribute",
   vrdex_media_submission_preview: "assets:publish",
   vrdex_media_review_list: "assets:review:read",
   vrdex_media_review_get: "assets:review:read",
@@ -440,7 +453,7 @@ const mcpProfileMediaSubmissionSchema = z.object({
   submissionId: z.string().min(1),
   profileSlug: mcpSlugSchema,
   profileDisplayName: z.string().min(1),
-  requestedPlacement: z.enum(["profile_image", "primary_logo"]),
+  requestedPlacement: z.enum(["profile_image", "primary_logo", "gallery"]),
   status: mcpProfileMediaSubmissionStatusSchema,
   publicDisposition: z.string().optional(),
   approvedAssetId: z.string().min(1).optional(),
@@ -1079,6 +1092,9 @@ const mcpMediaReviewWriteToolNames = new Set<string>([
   ...mediaReviewWriteToolNames,
   ...mediaSubmissionWriteToolNames,
   "vrdex_media_submission_publish",
+  "vrdex_media_contribution_manage",
+  "vrdex_media_contribution_place",
+  "vrdex_media_contribution_propose_placement",
   "vrdex_media_submission_declare",
 ]);
 const definiteMediaReviewErrorCodes = new Map<string, [
@@ -2081,12 +2097,29 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     name: "vrdex",
     version: "0.5.0",
   });
+  const advertisedTools: Tool[] = [];
+  // The SDK enabled flag also blocks calls. Keep historical declaration callable,
+  // and derive its omission from the same registration configurations.
+  const registerTool = ((...args: Parameters<typeof server.registerTool>) => {
+    const registered = server.registerTool(...args);
+    const [name] = args;
+    if (name !== "vrdex_media_submission_declare") {
+      advertisedTools.push({
+        name, title: registered.title, description: registered.description,
+        inputSchema: { type: "object", ...(registered.inputSchema?.["~standard"].jsonSchema.input({ target: "draft-2020-12" }) ?? { properties: {} }) } as Tool["inputSchema"],
+        ...(registered.outputSchema ? { outputSchema: registered.outputSchemaJson as Tool["outputSchema"] } : {}),
+        annotations: registered.annotations, icons: registered.icons,
+        execution: registered.execution, _meta: registered._meta,
+      });
+    }
+    return registered;
+  }) as typeof server.registerTool;
   for (const operation of Object.keys(eventIntakeOperations) as EventIntakeOperation[]) {
     const contract = eventIntakeOperations[operation];
     const readOnly = operation === "draft_get" || operation === "event_get";
     const toolName = `vrdex_event_intake_${operation}` as const;
     const scopes: ApiScope[] = [readOnly ? "mcp:read" : "mcp:write", "events:contribute"];
-    server.registerTool(toolName, {
+    registerTool(toolName, {
       title: toolName, description: `Event intake ${operation.replaceAll("_", " ")}.`,
       inputSchema: fromJsonSchema<Record<string, unknown>>(mcpOutputJsonSchemaForZodSchema(contract.input)), outputSchema: mcpOutputSchema<Record<string, unknown>>(contract.output),
       annotations: { readOnlyHint: readOnly, destructiveHint: operation === "event_retract", idempotentHint: readOnly || operation === "publish" },
@@ -2140,7 +2173,8 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
         }
         const submissionId = args.submissionId as Id<"profileMediaSubmissions">;
         return await adminConvex().query(
-          name === "detail"
+          name === "contributionGet" ? internal.profileMediaSubmissions.contributionDetailForMcpActor
+            : name === "detail"
             ? publisher ? internal.profileMediaSubmissions.publisherDetailForMcpActor : internal.profileMediaSubmissions.reviewDetailForMcpActor
             : name === "current"
               ? publisher
@@ -2159,7 +2193,10 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       mutate: async (name, args) => {
         const submissionId = args.submissionId as Id<"profileMediaSubmissions">;
         return await adminConvex().mutation(
-          name === "publish" ? internal.profileMediaSubmissions.publishForMcpActor
+          name === "contributionManage" ? internal.profileMediaSubmissions.manageContributionForMcpActor
+            : name === "contributionPlace" ? internal.profileMediaSubmissions.placeContributionForMcpActor
+            : name === "contributionProposePlacement" ? internal.profileMediaSubmissions.proposePlacementForMcpActor
+            : name === "publish" ? internal.profileMediaSubmissions.publishForMcpActor
             : name === "declare" ? internal.profileMediaSubmissions.declarePublicationEvidenceForMcpActor
             : name === "decide"
             ? internal.profileMediaSubmissions.decideForMcpActor
@@ -2328,7 +2365,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     } satisfies PublicSearchResponse;
   }
 
-  server.registerTool(
+  registerTool(
     "search",
     {
       title: "Search VRDex Documents",
@@ -2355,7 +2392,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     },
   );
 
-  server.registerTool(
+  registerTool(
     "fetch",
     {
       title: "Fetch VRDex Document",
@@ -2405,7 +2442,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     },
   );
 
-  server.registerTool(
+  registerTool(
     "vrdex_search",
     {
       title: "Search VRDex",
@@ -2432,7 +2469,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     },
   );
 
-  server.registerTool(
+  registerTool(
     "vrdex_get_profile",
     {
       title: "Get VRDex Profile",
@@ -2466,7 +2503,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     },
   );
 
-  server.registerTool(
+  registerTool(
     "vrdex_list_my_profiles",
     {
       title: "List My VRDex Profiles",
@@ -2529,7 +2566,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     },
   );
 
-  server.registerTool(
+  registerTool(
     "vrdex_list_my_media_submissions",
     {
       title: "List My VRDex Media Submissions",
@@ -2608,7 +2645,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
   ) as ContributionOperation[]) {
     const toolName = collectionToolNames[operation];
     const read = ["get", "items", "capacity", "requests", "status"].includes(operation);
-    server.registerTool(
+    registerTool(
       toolName,
       {
         title: operation,
@@ -2665,7 +2702,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
 
   for (const operation of ["begin", "complete"] as const) {
     const toolName = operation === "begin" ? "vrdex_media_upload_begin" : "vrdex_media_upload_complete";
-    server.registerTool(toolName, {
+    registerTool(toolName, {
       title: operation === "begin" ? "Begin Media Upload" : "Complete Media Upload",
       description: operation === "begin" ? "Reserve a local image upload and return its multipart transfer fields." : "Finalize an uploaded image as owner media or a private contribution.",
       inputSchema: operation === "begin" ? localUploadRequestSchema : localUploadCompleteSchema,
@@ -2702,7 +2739,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
 
   for (const operation of ["get", "preview"] as const) {
     const toolName = operation === "get" ? "vrdex_media_submission_get" : "vrdex_media_submission_preview";
-    server.registerTool(toolName, {
+    registerTool(toolName, {
       title: operation === "get" ? "Contribution" : "Preview", description: toolName,
       inputSchema: operation === "get" ? mediaReviewGetInputSchema : mediaReviewPreviewInputSchema,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -2712,9 +2749,18 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       return principal === null ? mcpOwnedReadUnauthorized(toolName) : await mediaReviewHandlersFor(principal, true)[operation](input);
     });
   }
+  registerTool("vrdex_media_contribution_get", {
+    title: "Contribution", description: "vrdex_media_contribution_get",
+    inputSchema: mediaReviewGetInputSchema, outputSchema: mcpOutputSchema(publishedContributionDetailSchema),
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    _meta: { securitySchemes: mcpOwnedReadSecuritySchemes("vrdex_media_contribution_get") },
+  }, async input => {
+    const principal = ownedReadPrincipalFor("vrdex_media_contribution_get");
+    return principal === null ? mcpOwnedReadUnauthorized("vrdex_media_contribution_get") : await mediaReviewHandlersFor(principal).contributionGet(input);
+  });
   for (const operation of ["publish", "declare"] as const) {
     const toolName = operation === "publish" ? "vrdex_media_submission_publish" : "vrdex_media_submission_declare";
-    server.registerTool(toolName, {
+    registerTool(toolName, {
       title: operation === "publish" ? "Publish" : "Confirm evidence", description: toolName,
       inputSchema: operation === "publish" ? mediaPublicationSchema : publicationEvidenceSchema,
       outputSchema: mcpOutputSchema(commandReceiptSchema),
@@ -2727,11 +2773,26 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     });
   }
 
+  for (const [toolName, operation, inputSchema, title] of [
+    ["vrdex_media_contribution_manage", "contributionManage", contributionManageCommandSchema, "Manage contribution"],
+    ["vrdex_media_contribution_place", "contributionPlace", contributionPlacementCommandSchema, "Profile picture"],
+    ["vrdex_media_contribution_propose_placement", "contributionProposePlacement", contributionCommandBaseSchema, "Request replacement"],
+  ] as const) {
+    registerTool(toolName, {
+      title, description: toolName, inputSchema, outputSchema: mcpOutputSchema(commandReceiptSchema),
+      annotations: { readOnlyHint: false, destructiveHint: operation === "contributionManage", idempotentHint: true, openWorldHint: false },
+      _meta: { securitySchemes: mcpWriteSecuritySchemes(toolName) },
+    }, async (input: unknown) => {
+      const principal = principalFor(toolName);
+      return principal === null ? mcpWriteUnauthorized(toolName) : await recordNewWrite(toolName, principal, input, () => mediaReviewHandlersFor(principal)[operation](input));
+    });
+  }
+
   for (const assigned of [false, true]) {
     const name = assigned
       ? "vrdex_media_review_assignments"
       : "vrdex_get_my_media_submission";
-    server.registerTool(
+    registerTool(
       name,
       {
         title: assigned ? "Assigned batches" : "My contribution",
@@ -2797,7 +2858,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     );
   }
 
-  server.registerTool(
+  registerTool(
     "vrdex_media_review_list",
     {
       title: "List Media Reviews",
@@ -2815,7 +2876,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     },
   );
 
-  server.registerTool(
+  registerTool(
     "vrdex_media_review_get",
     {
       title: "Get Media Review",
@@ -2833,7 +2894,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     },
   );
 
-  server.registerTool(
+  registerTool(
     "vrdex_media_review_preview",
     {
       title: "Preview Media Review",
@@ -2851,7 +2912,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     },
   );
 
-  server.registerTool(
+  registerTool(
     "vrdex_media_review_decide",
     {
       title: "Decide Media Review",
@@ -2869,20 +2930,20 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     },
   );
 
-  server.registerTool("vrdex_media_review_rebase",{
+  registerTool("vrdex_media_review_rebase",{
     title:"Rebase",description:"vrdex_media_review_rebase",inputSchema:reviewRebaseSchema,
     outputSchema:mcpOutputSchema(commandReceiptSchema),
     annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:true,openWorldHint:false},
     _meta:{securitySchemes:mcpWriteSecuritySchemes("vrdex_media_review_rebase")},
   },async input=>{const principal=principalFor("vrdex_media_review_rebase");return principal===null?mcpWriteUnauthorized("vrdex_media_review_rebase"):await recordNewWrite("vrdex_media_review_rebase",principal,input,()=>mediaReviewHandlersFor(principal).rebase(input));});
-  server.registerTool("vrdex_media_review_decide_selected",{
+  registerTool("vrdex_media_review_decide_selected",{
     title:"Decide selected",description:"vrdex_media_review_decide_selected",inputSchema:selectedReviewDecisionsSchema,
     outputSchema:mcpOutputSchema(z.strictObject({receipts:z.array(commandReceiptSchema).min(1).max(20)})),
     annotations:{readOnlyHint:false,destructiveHint:true,idempotentHint:true,openWorldHint:false},
     _meta:{securitySchemes:mcpWriteSecuritySchemes("vrdex_media_review_decide_selected")},
   },async input=>{const principal=principalFor("vrdex_media_review_decide_selected");return principal===null?mcpWriteUnauthorized("vrdex_media_review_decide_selected"):await recordNewWrite("vrdex_media_review_decide_selected",principal,input,()=>mediaReviewHandlersFor(principal).decideSelected(input));});
 
-  server.registerTool(
+  registerTool(
     "vrdex_media_submission_withdraw",
     {
       title: "Withdraw Media Submission",
@@ -2900,7 +2961,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     },
   );
 
-  server.registerTool(
+  registerTool(
     "vrdex_get_event",
     {
       title: "Get VRDex Event",
@@ -2929,7 +2990,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     },
   );
 
-  server.registerTool(
+  registerTool(
     "vrdex_list_upcoming_events",
     {
       title: "List VRDex Upcoming Events",
@@ -2957,7 +3018,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     },
   );
 
-  server.registerTool(
+  registerTool(
     "vrdex_get_world",
     {
       title: "Get VRDex World",
@@ -2986,7 +3047,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     },
   );
 
-  server.registerTool(
+  registerTool(
     "vrdex_list_active_worlds",
     {
       title: "List VRDex Active Worlds",
@@ -3012,7 +3073,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     },
   );
 
-  server.registerTool(
+  registerTool(
     "vrdex_event_create",
     {
       title: "Create VRDex Event",
@@ -3121,7 +3182,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     },
   );
 
-  server.registerTool(
+  registerTool(
     "vrdex_event_update",
     {
       title: "Update VRDex Event",
@@ -3231,7 +3292,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     },
   );
 
-  server.registerTool(
+  registerTool(
     "vrdex_profile_update",
     {
       title: "Update VRDex Profile",
@@ -3304,7 +3365,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     },
   );
 
-  server.registerTool(
+  registerTool(
     "vrdex_profile_submit",
     {
       title: "Submit VRDex Community Profile",
@@ -3368,7 +3429,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     },
   );
 
-  server.registerTool(
+  registerTool(
     "vrdex_profile_media_submit",
     {
       title: "Submit VRDex Profile Media",
@@ -3584,7 +3645,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     },
   );
 
-  server.registerTool(
+  registerTool(
     "vrdex_profile_media_manage",
     {
       title: "Manage VRDex Profile Media",
@@ -3872,6 +3933,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     },
   );
 
+  server.server.setRequestHandler("tools/list", () => ({ tools: advertisedTools }));
   return server;
 }
 
