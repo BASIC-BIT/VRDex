@@ -3420,6 +3420,15 @@ it("contribution protocol tools dispatch exact attested wrappers, reject missing
     const tools=(await request("tools/list",{},["mcp:read"])).tools;
     assert.equal(tools.some(tool=>tool.name==="vrdex_media_submission_declare"),false);
     for(const tool of tools)assertHostedContributionSchemas(tool);
+    const descriptions={
+      vrdex_media_submission_publish:"Publish your contribution to the media kit.",
+      vrdex_media_contribution_get:"Inspect your published media-kit contribution and available actions.",
+      vrdex_media_contribution_manage:"Correct metadata or remove your own kit-only contribution.",
+      vrdex_media_contribution_place:"Select your contribution as the profile picture, or undo your unchanged selection.",
+      vrdex_media_contribution_propose_placement:"Request independent review to replace the profile picture with your published contribution.",
+    };
+    for(const [name,description] of Object.entries(descriptions))assert.equal(tools.find(tool=>tool.name===name)?.description,description,name);
+
     const base={submissionId:"submission",expectedContributionVersion:"version",idempotencyKey:"key"};
     const operations=[
       ["vrdex_media_contribution_get","contributionDetailForMcpActor",{submissionId:"submission"},"mcp:read","assets:contribute",detail],

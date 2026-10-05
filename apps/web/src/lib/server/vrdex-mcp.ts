@@ -2750,7 +2750,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     });
   }
   registerTool("vrdex_media_contribution_get", {
-    title: "Contribution", description: "vrdex_media_contribution_get",
+    title: "Contribution", description: "Inspect your published media-kit contribution and available actions.",
     inputSchema: mediaReviewGetInputSchema, outputSchema: mcpOutputSchema(publishedContributionDetailSchema),
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     _meta: { securitySchemes: mcpOwnedReadSecuritySchemes("vrdex_media_contribution_get") },
@@ -2761,7 +2761,8 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
   for (const operation of ["publish", "declare"] as const) {
     const toolName = operation === "publish" ? "vrdex_media_submission_publish" : "vrdex_media_submission_declare";
     registerTool(toolName, {
-      title: operation === "publish" ? "Publish" : "Confirm evidence", description: toolName,
+      title: operation === "publish" ? "Publish" : "Confirm evidence",
+      description: operation === "publish" ? "Publish your contribution to the media kit." : toolName,
       inputSchema: operation === "publish" ? mediaPublicationSchema : publicationEvidenceSchema,
       outputSchema: mcpOutputSchema(commandReceiptSchema),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -2773,13 +2774,13 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     });
   }
 
-  for (const [toolName, operation, inputSchema, title] of [
-    ["vrdex_media_contribution_manage", "contributionManage", contributionManageCommandSchema, "Manage contribution"],
-    ["vrdex_media_contribution_place", "contributionPlace", contributionPlacementCommandSchema, "Profile picture"],
-    ["vrdex_media_contribution_propose_placement", "contributionProposePlacement", contributionCommandBaseSchema, "Request replacement"],
+  for (const [toolName, operation, inputSchema, title, description] of [
+    ["vrdex_media_contribution_manage", "contributionManage", contributionManageCommandSchema, "Manage contribution", "Correct metadata or remove your own kit-only contribution."],
+    ["vrdex_media_contribution_place", "contributionPlace", contributionPlacementCommandSchema, "Profile picture", "Select your contribution as the profile picture, or undo your unchanged selection."],
+    ["vrdex_media_contribution_propose_placement", "contributionProposePlacement", contributionCommandBaseSchema, "Request replacement", "Request independent review to replace the profile picture with your published contribution."],
   ] as const) {
     registerTool(toolName, {
-      title, description: toolName, inputSchema, outputSchema: mcpOutputSchema(commandReceiptSchema),
+      title, description, inputSchema, outputSchema: mcpOutputSchema(commandReceiptSchema),
       annotations: { readOnlyHint: false, destructiveHint: operation === "contributionManage", idempotentHint: true, openWorldHint: false },
       _meta: { securitySchemes: mcpWriteSecuritySchemes(toolName) },
     }, async (input: unknown) => {
