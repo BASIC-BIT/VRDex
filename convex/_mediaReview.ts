@@ -8,6 +8,7 @@ import { getAccountFeatureAccess } from "./_accountFeatures";
 import { userOwnsProfile } from "./_profileOwnership";
 import {
   consumeProfileAssetUploads,
+  selectProfileAssetIdentity,
   getPublicProfileMediaKit,
   PROFILE_MEDIA_SUBMISSION_RETENTION_MS,
   hasProfileAssetCapacity,
@@ -251,7 +252,7 @@ export async function applyReviewDecision(
   }
   if (
     profile.updatedAt !== args.expectedProfileUpdatedAt ||
-    (submission.requestKind === "identity_placement" && args.decision === "approve" &&
+    (submission.requestKind === "identity_placement" && !submission.candidateAssetId && args.decision === "approve" &&
       profile.updatedAt !== submission.targetProfileUpdatedAt)
   ) {
     throw new ConvexError({
@@ -264,7 +265,7 @@ export async function applyReviewDecision(
     throw new Error("A private review reason is required.");
   const publicDisposition = sanitizeNote(args.publicDisposition, 240);
   if (args.decision === "reject") {
-    await recordPublicationRestriction(ctx, submission, user._id, "rejection");
+    if (submission.requestKind !== "identity_placement") await recordPublicationRestriction(ctx, submission, user._id, "rejection");
     if (publicDisposition === undefined) {
       throw new Error("A contributor-visible rejection reason is required.");
     }
@@ -275,7 +276,7 @@ export async function applyReviewDecision(
       publicDisposition,
       privateReason,
       decisionProfileUpdatedAt: profile.updatedAt,
-      blobDeleteAfter: now + PROFILE_MEDIA_SUBMISSION_RETENTION_MS,
+      ...(submission.requestKind === "identity_placement" ? {} : { blobDeleteAfter: now + PROFILE_MEDIA_SUBMISSION_RETENTION_MS }),
       updatedAt: now,
     });
     await ctx.db.insert("profileAuditEvents", {
@@ -288,6 +289,31 @@ export async function applyReviewDecision(
     return { status: "rejected" as const };
   }
 
+  if (submission.requestKind === "identity_placement" && submission.candidateAssetId) {
+    const candidate = await ctx.db.get(submission.candidateAssetId);
+    const snapshot = await reviewSnapshot(ctx, submission, profile);
+    if (!candidate || !snapshot.candidate.rendition) throw new Error("The placement candidate is unavailable.");
+    if (submission.targetPlacementVersion !== snapshot.placementTargetVersion)
+      throw new Error("The profile media placement changed. Rebase before deciding.");
+    if ((snapshot.currentPlacement?.assetId ?? undefined) !== submission.targetPlacementAssetId)
+      throw new Error("The profile media placement changed. Refresh before deciding.");
+    if (await privateReplacementRequiresElevatedAccess(ctx, profile._id, snapshot.currentPlacement?.assetId, ownsProfile || access.superAdmin))
+      throw new Error("Private replacement requires profile owner or admin access.");
+    const operationId = commandEvidence?.operationId ?? crypto.randomUUID();
+    if (submission.requestedPlacement !== "profile_image" && submission.requestedPlacement !== "primary_logo")
+      throw new Error("Identity placement is invalid.");
+    await selectProfileAssetIdentity(ctx.db, { profileId: profile._id, assetId: candidate._id,
+      placement: submission.requestedPlacement, actorUserId: user._id, operationId, now });
+    if (!commandEvidence) await ctx.db.insert("mediaReviewReceipts", { actorUserId: user._id,
+      idempotencyKey: `legacy:${operationId}`, inputHash: await hash(args), submissionId: submission._id,
+      receipt: { operationId, operationState: "committed", resourceId: submission._id }, createdAt: now });
+    await ctx.db.patch(submission._id, { status: "approved", approvedAssetId: candidate._id,
+      reviewer: subject, reviewedAt: now, privateReason, publicDisposition,
+      decisionProfileUpdatedAt: profile.updatedAt, updatedAt: now });
+    await ctx.db.insert("profileAuditEvents", { profileId: profile._id, action: "profile_media_placement_approved",
+      actor: subject, sourceType: ownsProfile ? "owner" : "moderator", createdAt: now });
+    return { status: "approved" as const, assetId: candidate._id };
+  }
   if (submission.uploadIntentId === undefined) {
     throw new Error("The submitted media upload is missing.");
   }
@@ -486,7 +512,13 @@ export async function reviewSnapshot(
     submission.uploadIntentId === undefined
       ? null
       : await ctx.db.get(submission.uploadIntentId);
-  const candidateReady =
+  const candidateAsset = submission.requestKind === "identity_placement" && submission.candidateAssetId
+    ? await ctx.db.get(submission.candidateAssetId) : null;
+  const existingCandidateReady = candidateAsset !== null && candidateAsset.profileId === profile._id &&
+    candidateAsset.state === "active" && candidateAsset.visibility === "public" &&
+    candidateAsset.retiredAt === undefined && candidateAsset.moderatorSuppressedAt === undefined &&
+    candidateAsset.contentSha256 === submission.contentSha256;
+  const candidateReady = existingCandidateReady || (
     intent !== null &&
     intent.purpose === "community_proposal" &&
     intent.targetSubmissionId === submission._id &&
@@ -494,7 +526,7 @@ export async function reviewSnapshot(
     (intent.state === "uploaded" || intent.state === "consumed") &&
     submission.blobDeletedAt === undefined &&
     submission.blobCleanupToken === undefined &&
-    intent.contentSha256 === submission.contentSha256;
+    intent.contentSha256 === submission.contentSha256);
   // The hash binds the stored rendition and provenance, current target and placement,
   // and explicit rebase revision. Advisory startReview is deliberately excluded.
   const artworkEvidence = await Promise.all(
@@ -506,6 +538,17 @@ export async function reviewSnapshot(
     ),
   );
   const kitAsset = submission.requestKind !== "identity_placement";
+  const placementTargetVersion = await hash({
+    profileId: profile._id, profileType: profile.profileType, slug: profile.slug, displayName: profile.displayName,
+    claimState: profile.claimState, publicationState: profile.publicationState, publicSurfacingState: profile.publicSurfacingState,
+    fieldVisibility: profile.fieldVisibility, identityDestinations: (profile.outboundLinks ?? []).flatMap(link => {
+      const destination = parseProfileLinkDestination(link); return destination ? [destination.key] : [];
+    }).sort(),
+    placement, currentImage, currentAutomaticImageUrl,
+    currentAsset: currentAsset && { id: currentAsset._id, credit: currentAsset.credit, sourceUrl: currentAsset.sourceUrl,
+      state: currentAsset.state, visibility: currentAsset.visibility, retiredAt: currentAsset.retiredAt, moderatorSuppressedAt: currentAsset.moderatorSuppressedAt },
+    identityPlacements: authoredPlacements.filter(row => row.placement === "profile_image" || row.placement === "primary_logo"),
+  });
   const restrictions = await Promise.all([
     ctx.db.query("mediaPublicationRestrictions").withIndex("by_profileId_kind", q => q.eq("profileId", profile._id).eq("kind", "identity")).collect(),
     ctx.db.query("mediaPublicationRestrictions").withIndex("by_profileId_kind", q => q.eq("profileId", profile._id).eq("kind", "dispute")).collect(),
@@ -529,15 +572,17 @@ export async function reviewSnapshot(
       label: submission.label,
       altText: submission.altText,
       expiresAt: submission.expiresAt,
-      targetProfileUpdatedAt: kitAsset ? undefined : submission.targetProfileUpdatedAt,
+      targetProfileUpdatedAt: kitAsset || submission.candidateAssetId ? undefined : submission.targetProfileUpdatedAt,
       targetPlacementAssetId: kitAsset ? undefined : submission.targetPlacementAssetId,
       requestedPlacement: submission.requestedPlacement,
       requestKind: submission.requestKind,
       candidateAssetId: submission.candidateAssetId,
+      targetPlacementVersion: submission.targetPlacementVersion,
     },
     intent,
+    candidateAsset,
     restrictions,
-    profile: kitAsset ? {
+    profile: kitAsset || submission.candidateAssetId ? {
       id: profile._id, profileType: profile.profileType, slug: profile.slug,
       displayName: profile.displayName, claimState: profile.claimState,
       publicationState: profile.publicationState, publicSurfacingState: profile.publicSurfacingState,
@@ -546,11 +591,12 @@ export async function reviewSnapshot(
         const destination = parseProfileLinkDestination(link);
         return destination ? [destination.key] : [];
       }).sort(),
+      ...(!kitAsset ? { avatarImageUrl: profile.avatarImageUrl } : {}),
     } : profile,
     placement: kitAsset ? undefined : placement,
     currentAsset: kitAsset ? undefined : currentAsset,
     currentAutomaticImageUrl: kitAsset ? undefined : currentAutomaticImageUrl,
-    authoredPlacements: kitAsset ? undefined : authoredPlacements,
+    authoredPlacements: kitAsset ? undefined : authoredPlacements.filter(row => row.placement === "profile_image" || row.placement === "primary_logo"),
     artworkEvidence: kitAsset ? undefined : artworkEvidence.map((row) => row && ({
       key: row.key, kind: row.kind, locator: row.locator, provider: row.provider,
       status: row.status, entityId: row.entityId, artworkSourceUrl: row.artworkSourceUrl,
@@ -561,6 +607,7 @@ export async function reviewSnapshot(
     revision: submission.reviewRevision ?? 0,
   });
   return {
+    placementTargetVersion,
     reviewVersion,
     currentImage,
     currentPlacement:
@@ -648,6 +695,7 @@ export async function decideReviewCommand(
   else if (
     args.decision === "approve" &&
     submission.requestKind === "identity_placement" &&
+    !submission.candidateAssetId &&
     profile.updatedAt !== submission.targetProfileUpdatedAt
   )
     code = "target_changed";
@@ -662,6 +710,8 @@ export async function decideReviewCommand(
     code = "public_reason_required";
   else if (args.decision === "approve" && snapshot.candidate.rendition === null)
     code = "candidate_unavailable";
+  else if (args.decision === "approve" && submission.candidateAssetId &&
+    submission.targetPlacementVersion !== snapshot.placementTargetVersion) code = "placement_changed";
   if (code === undefined && args.decision === "approve" &&
     submission.requestKind === "identity_placement" &&
     await privateReplacementRequiresElevatedAccess(
@@ -670,7 +720,7 @@ export async function decideReviewCommand(
     )) code = "private_replacement_requires_owner_or_admin";
   if (code === undefined && args.decision === "approve") {
     if (!submission.credit.trim()) code = "credit_required";
-    else if (submission.contentSha256 !== undefined) {
+    else if (submission.contentSha256 !== undefined && submission.candidateAssetId === undefined) {
       const duplicate = await ctx.db
         .query("profileAssets")
         .withIndex("by_profileId_contentSha256_state", (q) =>
@@ -683,7 +733,7 @@ export async function decideReviewCommand(
       if (duplicate !== null) code = "already_published";
     }
   }
-  if (code === undefined && args.decision === "approve") {
+  if (code === undefined && args.decision === "approve" && submission.candidateAssetId === undefined) {
     if (!(await hasProfileAssetCapacity(ctx.db, profile._id, 1)))
       code = "capacity_exceeded";
   }
@@ -851,6 +901,7 @@ export async function rebaseReviewCommand(
       targetProfileDisplayName: profile.displayName,
       targetProfileUpdatedAt: profile.updatedAt,
       targetPlacementAssetId: snapshot.currentPlacement?.assetId,
+      ...(submission.candidateAssetId ? { targetPlacementVersion: snapshot.placementTargetVersion } : {}),
       reviewRevision: (submission.reviewRevision ?? 0) + 1,
       updatedAt: Date.now(),
     });

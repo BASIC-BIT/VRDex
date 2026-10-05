@@ -1,6 +1,29 @@
 import { z } from "zod";
 
 const boundedId = z.string().min(1).max(200);
+export const contributionCommandBaseSchema = z.strictObject({
+  submissionId: boundedId,
+  expectedContributionVersion: z.string().min(1).max(128),
+  idempotencyKey: z.string().min(1).max(128),
+});
+export type ContributionCommandBase = z.infer<typeof contributionCommandBaseSchema>;
+export const contributionPlacementCommandSchema = z.strictObject({
+  ...contributionCommandBaseSchema.shape,
+  action: z.enum(["select_primary", "clear_primary"]),
+});
+export type ContributionPlacementCommand = z.infer<typeof contributionPlacementCommandSchema>;
+export const publishedContributionDetailSchema = z.strictObject({
+  submissionId: boundedId, assetId: boundedId, profileId: boundedId,
+  profileSlug: z.string().max(200), contributionVersion: z.string().min(1).max(128),
+  metadata: z.strictObject({
+    label: z.string().max(80), altText: z.string().max(180).optional(),
+    credit: z.string().max(120), creditUrl: z.string().max(4096).optional(),
+    sourceUrl: z.string().max(4096).optional(), sourceDescription: z.string().max(1000).optional(),
+  }),
+  canSelectPrimary: z.boolean(), canClearPrimary: z.boolean(),
+  canEditMetadata: z.boolean(), canRemove: z.boolean(),
+});
+export type PublishedContributionDetail = z.infer<typeof publishedContributionDetailSchema>;
 export const commandReceiptSchema = z.strictObject({
   operationId: boundedId,
   operationState: z.enum(["committed", "refused", "in_progress"]),

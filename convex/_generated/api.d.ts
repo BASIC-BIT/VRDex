@@ -71,6 +71,7 @@ import type * as _localFixtures from "../_localFixtures.js";
 import type * as _mcpToolEvents from "../_mcpToolEvents.js";
 import type * as _mcpWriteReceipts from "../_mcpWriteReceipts.js";
 import type * as _mediaCleanupUrl from "../_mediaCleanupUrl.js";
+import type * as _mediaContributionCommands from "../_mediaContributionCommands.js";
 import type * as _mediaReview from "../_mediaReview.js";
 import type * as _oauth from "../_oauth.js";
 import type * as _oauthConsentTransactions from "../_oauthConsentTransactions.js";
@@ -259,6 +260,7 @@ declare const fullApi: ApiFromModules<{
   _mcpToolEvents: typeof _mcpToolEvents;
   _mcpWriteReceipts: typeof _mcpWriteReceipts;
   _mediaCleanupUrl: typeof _mediaCleanupUrl;
+  _mediaContributionCommands: typeof _mediaContributionCommands;
   _mediaReview: typeof _mediaReview;
   _oauth: typeof _oauth;
   _oauthConsentTransactions: typeof _oauthConsentTransactions;

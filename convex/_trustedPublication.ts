@@ -156,6 +156,7 @@ async function publicationOrLegacyDeclaration(
               ? "candidate_unavailable"
               : undefined;
   if (declaration) code = "declaration_retired";
+  if (!declaration && submission.requestKind === "identity_placement") code = "placement_requires_review";
   if (!declaration && !code) {
     const [
       identityRestriction,
@@ -201,6 +202,7 @@ async function publicationOrLegacyDeclaration(
                 .eq("contentSha256", submission.contentSha256)
                 .eq("status", "rejected"),
             )
+            .filter(q => q.neq(q.field("requestKind"), "identity_placement"))
             .first()
         : null,
       submission.contentSha256

@@ -82,6 +82,31 @@ export type PublicProfileMediaKit = {
 
 export type ProfileAssetDisplayPreference = Doc<"profileAssetDisplayPreferences">;
 
+/** Change the identity slot, retaining assets that still have gallery or other placements. */
+export async function selectProfileAssetIdentity(db: DatabaseWriter, input: {
+  profileId: Id<"profiles">; assetId: Id<"profileAssets">;
+  placement: "profile_image" | "primary_logo"; actorUserId?: Id<"users">;
+  operationId?: string; now: number;
+}) {
+  const current = await db.query("profileAssetPlacements").withIndex("by_profileId_placement_state_position", q =>
+    q.eq("profileId", input.profileId).eq("placement", input.placement).eq("state", "active")).collect();
+  await Promise.all(current.map(row => db.patch(row._id, { state: "deleted", updatedAt: input.now })));
+  await db.insert("profileAssetPlacements", {
+    profileId: input.profileId, assetId: input.assetId, placement: input.placement, position: 0,
+    state: "active", updatedAt: input.now, selectionActorUserId: input.actorUserId,
+    selectionOperationId: input.operationId ?? crypto.randomUUID(),
+  });
+  for (const assetId of new Set(current.map(row => row.assetId))) {
+    if (assetId === input.assetId) continue;
+    const remaining = await db.query("profileAssetPlacements").withIndex("by_assetId_state_placement", q => q.eq("assetId", assetId).eq("state", "active")).first();
+    if (remaining) continue;
+    const asset = await db.get(assetId);
+    if (asset && asset.retiredAt === undefined) await db.patch(assetId, {
+      state: "deleted", deletedAt: asset.deletedAt ?? input.now, retiredAt: input.now, updatedAt: input.now,
+    });
+  }
+}
+
 function bytesToHex(bytes: ArrayBuffer): string {
   return [...new Uint8Array(bytes)]
     .map((byte) => byte.toString(16).padStart(2, "0"))
@@ -149,6 +174,8 @@ export async function getProfileMediaVersion(
       assetId: String(placement.assetId),
       placement: placement.placement,
       position: placement.position,
+      selectionActorUserId: placement.selectionActorUserId,
+      selectionOperationId: placement.selectionOperationId,
     }));
   const digest = await crypto.subtle.digest(
     "SHA-256",
@@ -756,6 +783,7 @@ export async function consumeProfileAssetUploads(
     uploads: ProfileAssetUploadInput[];
     source: Doc<"profileAssets">["source"];
     approvedSubmissionId?: Id<"profileMediaSubmissions">;
+    selectionActorUserId?: Id<"users">;
     bridgeAuthorized?: boolean;
     now: number;
   },
@@ -832,6 +860,15 @@ export async function consumeProfileAssetUploads(
     });
 
     for (const placement of upload.placements) {
+      if (placement === "profile_image" || placement === "primary_logo") {
+        if (seenPlacementKeys.has(placement)) continue;
+        seenPlacementKeys.add(placement);
+        const actor = input.selectionActorUserId ?? (input.requestedBy.issuer === "vrdex:api"
+          ? db.normalizeId("users", input.requestedBy.subject)
+          : (await db.query("users").withIndex("clerkUserId", q => q.eq("clerkUserId", input.requestedBy.subject)).unique())?._id);
+        await selectProfileAssetIdentity(db, { profileId: input.profileId, assetId, placement, actorUserId: actor ?? undefined, now: input.now });
+        continue;
+      }
       const orderedMultiPlacement = placement === "additional_logo" || placement === "gallery";
       const key = orderedMultiPlacement ? `${placement}:${assetId}` : placement;
       if (seenPlacementKeys.has(key)) {

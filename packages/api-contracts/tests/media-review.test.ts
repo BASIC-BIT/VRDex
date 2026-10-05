@@ -3,8 +3,28 @@ import { it } from "node:test";
 import {
   reviewDecisionSchema,
   reviewPageRequestSchema,
+  contributionCommandBaseSchema,
+  contributionPlacementCommandSchema,
+  publishedContributionDetailSchema,
 } from "../src/media-review";
 import { apiScopes } from "../src/auth";
+it("bounds contribution commands and refuses caller-selected capabilities", () => {
+  const base = { submissionId: "submission", expectedContributionVersion: "version", idempotencyKey: "key" };
+  assert.equal(contributionCommandBaseSchema.safeParse(base).success, true);
+  assert.equal(contributionPlacementCommandSchema.safeParse({ ...base, action: "select_primary" }).success, true);
+  for (const invalid of [
+    { ...base, action: "clear_primary", canClearPrimary: true },
+    { ...base, action: "replace_primary" },
+    { ...base, action: "select_primary", expectedContributionVersion: "v".repeat(129) },
+    { ...base, action: "select_primary", idempotencyKey: "k".repeat(129) },
+    { ...base, action: "select_primary", submissionId: "s".repeat(201) },
+  ]) assert.equal(contributionPlacementCommandSchema.safeParse(invalid).success, false);
+  assert.equal(publishedContributionDetailSchema.safeParse({
+    submissionId: "submission", assetId: "asset", profileId: "profile", profileSlug: "dj",
+    contributionVersion: "version", metadata: { label: "Image", credit: "Artist" },
+    canSelectPrimary: true, canClearPrimary: false, canEditMetadata: true, canRemove: true,
+  }).success, true);
+});
 import {
   dynamicMcpClientScopes,
   dynamicMcpResourceWriteScopes,

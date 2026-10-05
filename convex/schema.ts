@@ -950,6 +950,7 @@ export default defineSchema({
     status: profileMediaSubmissionStatus,
     targetProfileUpdatedAt: v.number(),
     targetPlacementAssetId: v.optional(v.id("profileAssets")),
+    targetPlacementVersion: v.optional(v.string()),
     decisionProfileUpdatedAt: v.optional(v.number()),
     reviewer: v.optional(authSubject),
     reviewedAt: v.optional(v.number()),
@@ -1020,6 +1021,8 @@ export default defineSchema({
     .index("by_profileId_contentSha256_state", ["profileId", "contentSha256", "state"])
     .index("by_profileId_state_visibility", ["profileId", "state", "visibility"]),
   profileAssetPlacements: defineTable({
+    selectionActorUserId: v.optional(v.id("users")),
+    selectionOperationId: v.optional(v.string()),
     profileId: v.id("profiles"),
     assetId: v.id("profileAssets"),
     placement: profileAssetPlacement,

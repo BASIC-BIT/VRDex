@@ -59,6 +59,10 @@ state, and the submission's optional `reviewRevision`. Missing revisions mean
 zero for existing rows. Advisory start-review updates do not invalidate it.
 Kit publication excludes unrelated biography timestamps and existing picture
 artwork. Placement inspection includes the current placement and asset.
+Existing-asset placement requests store a narrow original-target snapshot that
+includes the exact selection operation. An intervening selection, including
+the same asset, requires a rebase. Unrelated biography edits do not invalidate
+these requests. Their authorized preview reads the existing stored asset.
 Meaningful evidence changes require fresh inspection. Placement changes also
 require an explicit rebase against the original selection snapshot.
 
@@ -76,6 +80,25 @@ may be retried with the same key.
 
 Legacy `decide` retains its argument/result shape and calls the shared transition.
 The receipt path is the required interface for new browser/MCP clients.
+
+## Published contribution placement
+
+`contributionDetail` and its internal MCP actor counterpart resolve the immutable
+source submission and active public asset. `placeContribution` accepts the source
+submission ID, expected contribution version, actor-scoped idempotency key, and
+`select_primary` or `clear_primary`. Verified trusted publishers may select their
+own asset on a public, published, unclaimed profile only when no managed, legacy,
+or automatic identity image occupies the slot. Undo requires current publisher
+authority and the exact unchanged publisher selection. Owner and reviewer actions
+stamp a fresh selection operation, including same-asset reselection.
+
+`proposePlacement` accepts the same base command without an action. It references
+the existing asset in an `identity_placement` review submission and uses current
+proposal count and rate limits. Approval requires a distinct authorized reviewer
+and changes only the identity placement. Both gallery entries remain published;
+no upload, blob, active asset, or published-byte charge is created. Rejection and
+withdrawal record the placement-request disposition without content rejection or
+proposal-blob cleanup. Explicit moderator suppression remains separate.
 
 ## Delegation and rollout
 

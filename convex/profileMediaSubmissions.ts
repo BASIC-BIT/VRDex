@@ -1,4 +1,5 @@
 import { assertLiveContributionToken } from "./_contributionAuth";
+import { publishedContributionDetail, contributionPlacementCommand, proposeContributionPlacement } from "./_mediaContributionCommands";
 import { effectiveContributionPolicy, contributionChargeRefusal, registerLegacyContribution, reservationBytes } from "./_contributionCapacity";
 import { requirePublisher, publicationCommand, legacyDeclarationCommand, recordPublicationRestriction } from "./_trustedPublication";
 import { readScopedPagination, writeScopedPagination } from "./_reviewCursor";
@@ -42,6 +43,36 @@ import { requireMcpAttributionText, requireSha256Hex } from "./_mcpWriteReceipts
 const OPEN_SUBMISSION_STATUSES = ["upload_pending", "submitted", "under_review"] as const;
 
 const submissionId = v.id("profileMediaSubmissions");
+const contributionCommandArgs = {
+  submissionId, expectedContributionVersion: v.string(), idempotencyKey: v.string(),
+};
+const placementCommandArgs = { ...contributionCommandArgs,
+  action: v.union(v.literal("select_primary"), v.literal("clear_primary")),
+};
+export const contributionDetail = query({ args: { submissionId }, handler: async (ctx, args) =>
+  publishedContributionDetail(ctx, args.submissionId, await browserReviewActor(ctx)) });
+export const contributionDetailForMcpActor = internalQuery({
+  args: { submissionId, actorUserId: v.id("users"), ...reviewActorAttestationArgs },
+  handler: async (ctx, args) => publishedContributionDetail(ctx, args.submissionId,
+    await trustedReviewActor(ctx, args.actorUserId, args, "assets:contribute", false)),
+});
+export const placeContribution = mutation({ args: placementCommandArgs, handler: async (ctx, args) =>
+  contributionPlacementCommand(ctx, args, await browserReviewActor(ctx)) });
+export const placeContributionForMcpActor = internalMutation({
+  args: { ...placementCommandArgs, actorUserId: v.id("users"), ...reviewActorAttestationArgs },
+  handler: async (ctx, args) => contributionPlacementCommand(ctx,
+    { submissionId: args.submissionId, expectedContributionVersion: args.expectedContributionVersion,
+      idempotencyKey: args.idempotencyKey, action: args.action },
+    await trustedReviewActor(ctx, args.actorUserId, args, "assets:publish")),
+});
+export const proposePlacement = mutation({ args: contributionCommandArgs, handler: async (ctx, args) =>
+  proposeContributionPlacement(ctx, args, await browserReviewActor(ctx)) });
+export const proposePlacementForMcpActor = internalMutation({
+  args: { ...contributionCommandArgs, actorUserId: v.id("users"), ...reviewActorAttestationArgs },
+  handler: async (ctx, args) => proposeContributionPlacement(ctx,
+    { submissionId: args.submissionId, expectedContributionVersion: args.expectedContributionVersion, idempotencyKey: args.idempotencyKey },
+    await trustedReviewActor(ctx, args.actorUserId, args, "assets:contribute")),
+});
 const requestedPlacement = v.union(v.literal("profile_image"), v.literal("primary_logo"), v.literal("gallery"));
 const reviewQueueStatus = v.union(
   v.literal("submitted"),
@@ -1158,7 +1189,7 @@ async function ownSubmission(
         .withIndex("by_submissionId", (q) => q.eq("submissionId", submission._id))
     .unique();
   const revision = attempt ? await ctx.db.get(attempt.revisionId) : null;
-  const snapshot = await reviewSnapshot(ctx, submission, profile);
+  const { placementTargetVersion: _placementTargetVersion, ...snapshot } = await reviewSnapshot(ctx, submission, profile);
   const asset = submission.approvedAssetId
     ? await ctx.db.get(submission.approvedAssetId)
     : null;
@@ -1648,7 +1679,7 @@ async function withdrawSubmission(
   const now = Date.now();
   await ctx.db.patch(submission._id, {
     status: "withdrawn",
-    blobDeleteAfter: now + PROFILE_MEDIA_SUBMISSION_RETENTION_MS,
+    ...(submission.requestKind === "identity_placement" ? {} : { blobDeleteAfter: now + PROFILE_MEDIA_SUBMISSION_RETENTION_MS }),
     updatedAt: now,
   });
   await ctx.db.insert("profileAuditEvents", {
@@ -2091,7 +2122,7 @@ async function authorizedReviewDetail(
     profile,
     access.access.superAdmin,
   );
-  const snapshot = await reviewSnapshot(ctx, submission, profile);
+  const { placementTargetVersion: _placementTargetVersion, ...snapshot } = await reviewSnapshot(ctx, submission, profile);
   return {
     ...projection,
     ...snapshot,
@@ -2129,6 +2160,14 @@ async function authorizedCandidateStorage(
   const detail = await authorizedReviewDetail(ctx, id, actor, publisher);
   if (detail?.candidate.rendition == null) return null;
   const submission = await ctx.db.get(id);
+  if (submission?.requestKind === "identity_placement" && submission.candidateAssetId) {
+    const asset = await ctx.db.get(submission.candidateAssetId);
+    return asset ? {
+      storageKey: asset.downloadStorageKey ?? asset.storageKey,
+      mimeType: asset.downloadMimeType ?? asset.mimeType,
+      originalFileName: asset.originalFileName, profileDisplayName: detail.profileDisplayName,
+    } : null;
+  }
   const intent =
     submission?.uploadIntentId === undefined
       ? null
