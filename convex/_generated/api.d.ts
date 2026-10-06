@@ -161,6 +161,7 @@ import type * as hostedSmokeFixtures from "../hostedSmokeFixtures.js";
 import type * as http from "../http.js";
 import type * as localFixtures from "../localFixtures.js";
 import type * as mcpToolEvents from "../mcpToolEvents.js";
+import type * as mediaKitPublicationMigration from "../mediaKitPublicationMigration.js";
 import type * as migrations from "../migrations.js";
 import type * as oauthApps from "../oauthApps.js";
 import type * as oauthConsentTransactions from "../oauthConsentTransactions.js";
@@ -350,6 +351,7 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   localFixtures: typeof localFixtures;
   mcpToolEvents: typeof mcpToolEvents;
+  mediaKitPublicationMigration: typeof mediaKitPublicationMigration;
   migrations: typeof migrations;
   oauthApps: typeof oauthApps;
   oauthConsentTransactions: typeof oauthConsentTransactions;

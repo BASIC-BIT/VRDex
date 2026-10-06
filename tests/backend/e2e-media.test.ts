@@ -662,6 +662,8 @@ describe("bounded staging media fixture", () => {
     const { t, args } = await seed();
     const result = await t.query(internal.e2eMedia.inspect, args);
     assert.equal(result.counts.submissions, 1);
+    assert.equal(result.mediaKitEnabled, true);
+    assert.equal(result.mediaKitPublic, true);
     const serialized = JSON.stringify(result);
     for (const forbidden of [
       "storageKey",
@@ -779,4 +781,43 @@ it("rejects publication fixture actor grants on production and foreign account g
   process.env.CONVEX_CLOUD_URL = "https://production.convex.cloud";
   await assert.rejects(t.mutation(internal.e2eMedia.grantPublicationActors, args), /Staging media fixture is unavailable/);
   enable();
+});
+
+it("bounds publication guard controls to exact run actors and an unclaimed fixture", async () => {
+  const f = await seed();
+  await f.t.mutation(internal.e2eMedia.grantPublicationActors, f.args);
+  const before = await f.t.run(ctx => ctx.db.get(f.args.profileId));
+  await f.t.mutation(internal.e2eMedia.exercisePublicationGuards, { ...f.args, action: "edit_bio" });
+  const after = await f.t.run(ctx => ctx.db.get(f.args.profileId));
+  assert.notEqual(after?.updatedAt, before?.updatedAt);
+  await f.t.mutation(internal.e2eMedia.exercisePublicationGuards, { ...f.args, action: "revoke_actors" });
+  const grants = await f.t.run(ctx => ctx.db.query("accountFeatureGrants").collect());
+  assert.equal(grants.every(g => g.state === "revoked"), true);
+  await f.t.run(ctx => ctx.db.patch(f.args.profileId, { claimState: "claimed_verified" }));
+  await assert.rejects(f.t.mutation(internal.e2eMedia.exercisePublicationGuards, { ...f.args, action: "edit_bio" }), /Unclaimed fixture required/);
+});
+
+it("reselects only the exact public approved fixture asset without changing its primary", async () => {
+  const f = await seed();
+  await assert.rejects(f.t.mutation(internal.e2eMedia.exercisePublicationGuards, { ...f.args, action: "reselect_primary" }), /Exact published fixture selection required/);
+  const placementId = await f.t.run(async ctx => {
+    const upload = (await ctx.db.get(f.intent.intentId))!;
+    const assetId = await ctx.db.insert("profileAssets", { profileId: f.args.profileId, storageKey: upload.storageKey,
+      mimeType: "image/png", byteSize: 512, visibility: "public", source: "community_submitted",
+      uploadedBy: upload.requestedBy, uploadedAt: 10, updatedAt: 10, state: "active" });
+    await ctx.db.patch(f.intent.submissionId, { status: "approved", approvedAssetId: assetId });
+    return ctx.db.insert("profileAssetPlacements", { profileId: f.args.profileId, assetId, placement: "profile_image",
+      position: 0, state: "active", updatedAt: 10, selectionActorUserId: f.users.contributorId, selectionOperationId: "publisher-selection" });
+  });
+  const before = await f.t.run(ctx => ctx.db.get(placementId));
+  await f.t.mutation(internal.e2eMedia.exercisePublicationGuards, { ...f.args, action: "reselect_primary" });
+  const after = await f.t.run(ctx => ctx.db.get(placementId));
+  assert.equal(after?.assetId, before?.assetId);
+  assert.equal(after?.state, "active");
+  assert.equal(after?.selectionActorUserId, f.users.reviewerId);
+  assert.notEqual(after?.selectionOperationId, before?.selectionOperationId);
+  assert.ok(after!.updatedAt > before!.updatedAt);
+  await f.t.run(ctx => ctx.db.patch(before!.assetId, { visibility: "private" }));
+  await assert.rejects(f.t.mutation(internal.e2eMedia.exercisePublicationGuards, { ...f.args, action: "reselect_primary" }), /Exact published fixture selection required/);
+  assert.deepEqual(await f.t.run(ctx => ctx.db.get(placementId)), after);
 });

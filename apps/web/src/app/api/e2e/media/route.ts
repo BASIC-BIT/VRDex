@@ -165,6 +165,9 @@ async function execute(request: NextRequest, cleanup: boolean) {
         throw new Error("Cleanup worker did not reclaim the exact pending upload.");
       return NextResponse.json({ workerReclaimedUpload: true });
     }
+    if (body.op === "exercise-publication-guards" && (body.action === "edit_bio" || body.action === "reselect_primary" || body.action === "revoke_actors")) {
+      return NextResponse.json(await client.mutation(internal.e2eMedia.exercisePublicationGuards, { ...args, action: body.action }));
+    }
     if (body.op === "grant-publication-actors") {
       return NextResponse.json(await client.mutation(internal.e2eMedia.grantPublicationActors, args));
     }

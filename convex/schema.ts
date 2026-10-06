@@ -981,6 +981,7 @@ export default defineSchema({
     .index("by_profileId_contentSha256_createdAt", ["profileId", "contentSha256", "createdAt"])
     .index("by_contentSha256", ["contentSha256"])
     .index("by_contentSha256_status", ["contentSha256", "status"])
+    .index("by_approvedAssetId", ["approvedAssetId"])
     .index("by_publicationMethod_actor", ["publicationMethod", "publicationActorUserId"]),
   profileAssets: defineTable({
     sourceSubmissionId: v.optional(v.id("profileMediaSubmissions")),
@@ -2946,7 +2947,8 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_profileId_createdAt", ["profileId", "createdAt"])
-    .index("by_action_createdAt", ["action", "createdAt"]),
+    .index("by_action_createdAt", ["action", "createdAt"])
+    .index("by_profileId_action", ["profileId", "action"]),
   seedImportBatches: defineTable({
     externalBatchId: v.string(),
     sourceName: v.string(),

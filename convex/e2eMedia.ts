@@ -1,3 +1,4 @@
+import { isProfileFieldVisible } from "./_profileFieldVisibility";
 import { queueProfileLinkDestinations } from "./_profileLinkDestinationCache";
 import { v } from "convex/values";
 import {
@@ -344,9 +345,11 @@ export const assignReviewOwner = internalMutation({
 export const inspect = internalQuery({
   args: fixtureArgs,
   handler: async (ctx, args) => {
-    await fixture(ctx, args);
+    const profile = await fixture(ctx, args);
     const data = await rows(ctx, args.profileId);
     return {
+      mediaKitEnabled: process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED === "true",
+      mediaKitPublic: isProfileFieldVisible(profile, "mediaKit", "profile_page"),
       counts: {
         intents: data.intents.length,
         reservations: data.reservations.length,
@@ -686,5 +689,35 @@ export const finishCleanup = internalMutation({
     ])
       await ctx.db.delete(row._id);
     return { slug: data.profile.slug, deletedMedia: true, releasedReservations: data.reservations.length };
+  },
+});
+
+export const exercisePublicationGuards = internalMutation({
+  args: { ...fixtureArgs, action: v.union(v.literal("edit_bio"), v.literal("reselect_primary"), v.literal("revoke_actors")) },
+  handler: async (ctx, args) => {
+    const profile = await fixture(ctx, args);
+    if (profile.claimState !== "unclaimed" || profile.publicationState !== "published" || profile.publicSurfacingState !== "public") throw new Error("Unclaimed fixture required.");
+    const actors = await Promise.all(["contributor", "reviewer"].map(suffix => ctx.db.query("users").withIndex("email", q =>
+      q.eq("email", `${args.runId}-${suffix}+clerk_test@e2e.vrdex.net`)).unique()));
+    if (actors.some(user => !user?.clerkUserId || user.emailVerificationTime === undefined)) throw new Error("Verified fixture actors required.");
+    const now = Date.now();
+    if (args.action === "edit_bio") await ctx.db.patch(profile._id, { bio: "Synthetic unrelated biography edit", updatedAt: Math.max(now, profile.updatedAt + 1) });
+    else if (args.action === "revoke_actors") {
+      for (const [index, feature] of ["trusted_publisher", "media_reviewer"].entries()) {
+        const grants = await ctx.db.query("accountFeatureGrants").withIndex("by_userId_feature_state", q =>
+          q.eq("userId", actors[index]!._id).eq("feature", feature as "trusted_publisher" | "media_reviewer").eq("state", "active")).take(2);
+        if (grants.length !== 1 || grants[0].grantedBy.tokenIdentifier !== `e2e:${args.runId}`) throw new Error("Exact fixture grant required.");
+        await ctx.db.patch(grants[0]._id, { state: "revoked", updatedAt: now });
+      }
+    } else {
+      const primary = await ctx.db.query("profileAssetPlacements").withIndex("by_profileId_placement_state_position", q =>
+        q.eq("profileId", profile._id).eq("placement", "profile_image").eq("state", "active")).take(2);
+      const data = await rows(ctx, profile._id);
+      if (primary.length !== 1 || !data.assets.some(asset => asset._id === primary[0].assetId && asset.state === "active" && asset.visibility === "public") ||
+        !data.submissions.some(submission => submission.submitterUserId === actors[0]!._id && submission.status === "approved" && submission.approvedAssetId === primary[0].assetId))
+        throw new Error("Exact published fixture selection required.");
+      await ctx.db.patch(primary[0]._id, { selectionActorUserId: actors[1]!._id, selectionOperationId: `e2e:${args.runId}:${crypto.randomUUID()}`, updatedAt: Math.max(now, primary[0].updatedAt + 1) });
+    }
+    return { changed: true };
   },
 });

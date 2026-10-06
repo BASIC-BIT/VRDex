@@ -96,11 +96,11 @@ async function grant(page: Page, request: APIRequestContext, origin: string, run
   return { ...tokens, clientId: body.application.clientId };
 }
 
-test("contributor A submits and different owner B reviews media @media-lifecycle", async ({ browser, request, baseURL }, testInfo) => {
+test("contributor A submits and distinct assigned reviewer B reviews media @media-lifecycle", async ({ browser, request, baseURL }, testInfo) => {
   test.skip(!enabled, "Explicit media lifecycle or cleanup proof opt-in is required.");
   if ([cleanupOnly, uploadCleanupOnly, process.env.VRDEX_E2E_MEDIA_LIFECYCLE === "true"].filter(Boolean).length !== 1)
     throw new Error("Select one media proof mode.");
-  test.setTimeout(240_000);
+  test.setTimeout(420_000);
   if (baseURL !== "https://staging.vrdex.net") throw new Error("Media lifecycle requires the designated staging origin.");
   if (!clerkTestAuthAvailability().available) throw new Error("Staging Clerk test auth is required.");
   const token = process.env.VRDEX_E2E_BROWSER_TOKEN;
@@ -228,7 +228,7 @@ test("contributor A submits and different owner B reviews media @media-lifecycle
       await testInfo.attach("media-cleanup-recovery", { body: JSON.stringify({ runId, profileId, cleanupErrors }), contentType: "application/json" });
     }
     expect(cleanupErrors, "All fixture cleanup operations must succeed").toEqual([]);
-    await testInfo.attach("media-lifecycle-evidence", { body: JSON.stringify({ candidate: expectedCommit, stages, cleanup: "verified", authority: "B assigned synthetic profile ownership; no live claim/provider proof" }), contentType: "application/json" });
+    await testInfo.attach("media-lifecycle-evidence", { body: JSON.stringify({ candidate: expectedCommit, stages, cleanup: "verified", authority: "B assigned media_reviewer for publication/replacement; synthetic ownership only for final claim refusal" }), contentType: "application/json" });
 
   };
   const a = await createClerkTestAccount(`${runId}-contributor`, { onEmailReserved: (email) => emails.push(email) });
@@ -374,9 +374,48 @@ test("contributor A submits and different owner B reviews media @media-lifecycle
   await pageB.goto(`/${profile.slug}`);
   await expect(pageB.getByRole("heading", { name: "Media kit" })).toBeVisible();
   await expect(pageB.locator(`img[src="${publishedFile}"]`)).toBeVisible();
+  const staleSelectionVersion = publishedDetail.contributionVersion;
+  const downloaded = await request.get(`${publishedFile}?download=1`);
+  expect(downloaded.ok(), "Public kit download must succeed").toBe(true);
+  const decoded = await sharp(await downloaded.body()).metadata();
+  expect(decoded.width).toBeGreaterThan(0);
+  expect(decoded.height).toBeGreaterThan(0);
+  expect(await pageB.locator(`img[src="${publishedFile}"]`).evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true);
+  const capturePicture = async (state: string) => {
+    await pageB.goto(`/${profile.slug}`);
+    for (const [size, width, height] of [["desktop", 1280, 900], ["mobile", 390, 844]] as const) {
+      await pageB.setViewportSize({ width, height });
+      await testInfo.attach(`public-kit-${state}-${size}`, { body: await pageB.screenshot({ fullPage: true }), contentType: "image/png" });
+    }
+    await pageB.setViewportSize({ width: 1280, height: 900 });
+  };
+  await capturePicture("unchanged");
   await publishedCard.getByRole("button", { name: "Select picture" }).click();
   await expect(publishedCard.getByRole("button", { name: "Remove", exact: true })).toHaveCount(0);
+  const selectedPublic = await call<{ avatarImageUrl?: string }>(request, undefined, "vrdex_get_profile", { slug: profile.slug });
+  expect(selectedPublic.avatarImageUrl).toContain(publishedDetail.assetId);
+  await capturePicture("selected");
+  const staleSelection = await rpc<UploadReceipt>(request, authA.access_token, "vrdex_media_contribution_place", { submissionId: publishedSubmissionId, expectedContributionVersion: staleSelectionVersion, action: "clear_primary", idempotencyKey: `${runId}-stale-selection` });
+  expect(staleSelection.result?.structuredContent).toMatchObject({ operationState: "refused", code: "contribution_changed" });
   await publishedCard.getByRole("button", { name: "Clear picture" }).click();
+  expect((await call<{ avatarImageUrl?: string }>(request, undefined, "vrdex_get_profile", { slug: profile.slug })).avatarImageUrl).toBe(before.avatarImageUrl);
+  await capturePicture("restored");
+  publishedDetail = await call<PublishedContributionDetail>(request, authA.access_token, "vrdex_media_contribution_get", { submissionId: publishedSubmissionId });
+  const rpcSelect = { submissionId: publishedSubmissionId, expectedContributionVersion: publishedDetail.contributionVersion, action: "select_primary", idempotencyKey: `${runId}-rpc-select` };
+  const selectedReceipt = await call<UploadReceipt>(request, authA.access_token, "vrdex_media_contribution_place", rpcSelect);
+  expect(selectedReceipt.operationState).toBe("committed");
+  expect(await call(request, authA.access_token, "vrdex_media_contribution_place", rpcSelect)).toEqual(selectedReceipt);
+  publishedDetail = await call<PublishedContributionDetail>(request, authA.access_token, "vrdex_media_contribution_get", { submissionId: publishedSubmissionId });
+  const rpcClear = { ...rpcSelect, expectedContributionVersion: publishedDetail.contributionVersion, action: "clear_primary", idempotencyKey: `${runId}-rpc-clear` };
+  const clearReceipt = await call<UploadReceipt>(request, authA.access_token, "vrdex_media_contribution_place", rpcClear);
+  expect(clearReceipt.operationState).toBe("committed");
+  expect(await call(request, authA.access_token, "vrdex_media_contribution_place", rpcClear)).toEqual(clearReceipt);
+  publishedDetail = await call<PublishedContributionDetail>(request, authA.access_token, "vrdex_media_contribution_get", { submissionId: publishedSubmissionId });
+  const rpcMetadata = { submissionId: publishedSubmissionId, expectedContributionVersion: publishedDetail.contributionVersion, action: "update_metadata", metadata: { credit: "Synthetic RPC corrected credit" }, idempotencyKey: `${runId}-rpc-metadata` };
+  const metadataReceipt = await call<UploadReceipt>(request, authA.access_token, "vrdex_media_contribution_manage", rpcMetadata);
+  expect(metadataReceipt.operationState).toBe("committed");
+  expect(await call(request, authA.access_token, "vrdex_media_contribution_manage", rpcMetadata)).toEqual(metadataReceipt);
+  stages.push("authenticated MCP select, undo and metadata correction with exact-key recovery");
   await publishedCard.getByRole("button", { name: "Edit metadata" }).click();
   await publishedCard.getByLabel("Title", { exact: true }).fill("Synthetic publisher title");
   await publishedCard.getByRole("button", { name: "Save", exact: true }).click();
@@ -385,6 +424,13 @@ test("contributor A submits and different owner B reviews media @media-lifecycle
   publishedDetail = await call<PublishedContributionDetail>(request, authA.access_token, "vrdex_media_contribution_get", { submissionId: publishedSubmissionId });
   expect(publishedDetail.canClearPrimary).toBe(true);
   expect(publishedDetail.canRemove).toBe(false);
+  const ownPicture = await call<{ avatarImageUrl?: string }>(request, undefined, "vrdex_get_profile", { slug: profile.slug });
+  expect((await request.post("/api/e2e/media", { headers, data: { op: "exercise-publication-guards", action: "reselect_primary", runId, profileId } })).status()).toBe(200);
+  publishedDetail = await call<PublishedContributionDetail>(request, authA.access_token, "vrdex_media_contribution_get", { submissionId: publishedSubmissionId });
+  expect(publishedDetail.canClearPrimary).toBe(false);
+  const protectedUndo = await call<UploadReceipt>(request, authA.access_token, "vrdex_media_contribution_place", { submissionId: publishedSubmissionId, expectedContributionVersion: publishedDetail.contributionVersion, action: "clear_primary", idempotencyKey: `${runId}-protected-same-asset-undo` });
+  expect(protectedUndo).toMatchObject({ operationState: "refused", code: "selection_changed" });
+  expect((await call<{ avatarImageUrl?: string }>(request, undefined, "vrdex_get_profile", { slug: profile.slug })).avatarImageUrl).toBe(ownPicture.avatarImageUrl);
   stages.push("trusted website kit publication without declarations or hero change, selection undo and metadata correction");
   await new Promise(resolve => setTimeout(resolve, 31_000));
   const refreshed = await call<{ updatedAt: number }>(request, undefined, "vrdex_get_profile", { slug: profile.slug });
@@ -422,7 +468,10 @@ test("contributor A submits and different owner B reviews media @media-lifecycle
   expect(submitted.submission.submissionId).not.toBe(rejectedCandidate.submission.submissionId);
   const directState = await request.post("/api/e2e/media", { headers, data: { op: "inspect", runId, profileId } });
   expect(directState.status()).toBe(200);
-  expect((await directState.json()).counts.reservations).toBe(3);
+  const directInspection = await directState.json();
+  expect(directInspection.counts.reservations).toBe(3);
+  expect(directInspection.mediaKitEnabled, "Deployed backend media-kit gate").toBe(true);
+  expect(directInspection.mediaKitPublic, "Fixture public media-kit field visibility").toBe(true);
   fixture.expectedReservations = 3;
   stages.push("minted direct S3 multipart transfer, completion replay and private contributor readback");
   expect((await request.post("/api/e2e/media", { headers, data: { op: "grant-publication-actors", runId, profileId } })).status()).toBe(200);
@@ -451,7 +500,7 @@ test("contributor A submits and different owner B reviews media @media-lifecycle
     expect(JSON.stringify(stillUnpublished)).not.toContain(privateValue);
   const reviewerHistory = await call<{ submissions: Submission[] }>(request, authB.access_token, "vrdex_list_my_media_submissions", {});
   expect(reviewerHistory.submissions).toEqual([]);
-  stages.push("different owner rejection, private reason isolation and no public rejected asset");
+  stages.push("distinct assigned reviewer rejection, private reason isolation and no public rejected asset");
 
   const reviewBeforeRebase = await call<{ reviewVersion: string }>(request, authB.access_token, "vrdex_media_review_get", {
     submissionId: submitted.submission.submissionId,
@@ -548,6 +597,88 @@ test("contributor A submits and different owner B reviews media @media-lifecycle
   await expect(pageA.getByText("Removed", { exact: true })).toBeVisible();
   expect((await request.get(publishedFile)).status()).toBe(404);
   stages.push("explicit replacement compares existing picture with published candidate, separate reviewer protects selection, logical removal of unused kit item");
+  // A fourth unique candidate proves successful MCP writes independently of browser mutations.
+  await new Promise(resolve => setTimeout(resolve, 31_000));
+  const rpcImage = await sharp({ create: { width: 48, height: 64, channels: 3, background: "#412f65" } }).png().toBuffer();
+  const rpcProfile = await call<{ updatedAt: number; avatarImageUrl?: string }>(request, undefined, "vrdex_get_profile", { slug: profile.slug });
+  const rpcUploadKey = `${runId}-rpc-upload`;
+  const rpcTarget = await call<UploadTarget>(request, authA.access_token, "vrdex_media_upload_begin", {
+    mode: "contributor", profileId, expectedUpdatedAt: rpcProfile.updatedAt, placement: "gallery", contentType: "image/png", byteLength: rpcImage.length,
+    sha256: createHash("sha256").update(rpcImage).digest("hex"), credit: "Synthetic MCP image", sourceDescription: "Synthetic RPC photograph", idempotencyKey: rpcUploadKey,
+  });
+  fixture.expiringTransfer = { ...rpcTarget.transfer, image: rpcImage };
+  fixture.expectedReservations = 4;
+  const rpcTransfer = await request.post(rpcTarget.transfer.url, { multipart: { ...rpcTarget.transfer.fields, [rpcTarget.transfer.fileField]: { name: "rpc.png", mimeType: "image/png", buffer: rpcImage } } });
+  expect([201, 204]).toContain(rpcTransfer.status());
+  const rpcCompleteInput = { intentId: rpcTarget.intentId, idempotencyKey: rpcUploadKey };
+  const rpcCompleted = await call<UploadReceipt>(request, authA.access_token, "vrdex_media_upload_complete", rpcCompleteInput);
+  expect(rpcCompleted.operationState).toBe("committed");
+  expect(await call(request, authA.access_token, "vrdex_media_upload_complete", rpcCompleteInput)).toEqual(rpcCompleted);
+  const rpcSubmissionId = rpcCompleted.resourceId!;
+  const rpcInspection = await call<{ reviewVersion: string }>(request, authA.access_token, "vrdex_media_submission_get", { submissionId: rpcSubmissionId });
+  const rpcPreview = await rpc(request, authA.access_token, "vrdex_media_submission_preview", { submissionId: rpcSubmissionId, expectedReviewVersion: rpcInspection.reviewVersion });
+  expect(rpcPreview.result?.content?.some(item => item.type === "image")).toBe(true);
+  expect((await request.post("/api/e2e/media", { headers, data: { op: "exercise-publication-guards", action: "edit_bio", runId, profileId } })).status()).toBe(200);
+  const rpcPublishInput = { submissionId: rpcSubmissionId, expectedReviewVersion: rpcInspection.reviewVersion, idempotencyKey: `${runId}-rpc-publish` };
+  // Discard the first response to model a client losing the committed result.
+  await call<UploadReceipt>(request, authA.access_token, "vrdex_media_submission_publish", rpcPublishInput);
+  const rpcPublication = await call<UploadReceipt>(request, authA.access_token, "vrdex_media_submission_publish", rpcPublishInput);
+  expect(rpcPublication.operationState).toBe("committed");
+  expect(await call(request, authA.access_token, "vrdex_media_submission_publish", rpcPublishInput)).toEqual(rpcPublication);
+  let rpcDetail = await call<PublishedContributionDetail>(request, authA.access_token, "vrdex_media_contribution_get", { submissionId: rpcSubmissionId });
+  expect(rpcDetail.canRemove).toBe(true);
+  const rpcPublic = await call<{ avatarImageUrl?: string }>(request, undefined, "vrdex_get_profile", { slug: profile.slug });
+  expect(rpcPublic.avatarImageUrl).toBe(rpcProfile.avatarImageUrl);
+  const rpcFile = `/api/v0/profiles/${profile.slug}/assets/${rpcDetail.assetId}/file`;
+  const rpcDownload = await request.get(`${rpcFile}?download=1`);
+  expect(rpcDownload.ok()).toBe(true);
+  expect((await sharp(await rpcDownload.body()).metadata()).width).toBe(48);
+  await pageB.goto(`/${profile.slug}`);
+  await expect(pageB.locator(`img[src="${rpcFile}"]`)).toBeVisible();
+  expect(await pageB.locator(`img[src="${rpcFile}"]`).evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true);
+  const rpcManageInput = { submissionId: rpcSubmissionId, expectedContributionVersion: rpcDetail.contributionVersion, action: "update_metadata", metadata: { label: "Synthetic MCP title" }, idempotencyKey: `${runId}-rpc-title` };
+  const rpcManaged = await call<UploadReceipt>(request, authA.access_token, "vrdex_media_contribution_manage", rpcManageInput);
+  expect(rpcManaged.operationState).toBe("committed");
+  expect(await call(request, authA.access_token, "vrdex_media_contribution_manage", rpcManageInput)).toEqual(rpcManaged);
+  rpcDetail = await call<PublishedContributionDetail>(request, authA.access_token, "vrdex_media_contribution_get", { submissionId: rpcSubmissionId });
+  const rpcProposeInput = { submissionId: rpcSubmissionId, expectedContributionVersion: rpcDetail.contributionVersion, idempotencyKey: `${runId}-rpc-propose` };
+  const rpcProposed = await call<UploadReceipt>(request, authA.access_token, "vrdex_media_contribution_propose_placement", rpcProposeInput);
+  expect(rpcProposed.operationState).toBe("committed");
+  expect(await call(request, authA.access_token, "vrdex_media_contribution_propose_placement", rpcProposeInput)).toEqual(rpcProposed);
+  expect((await request.post("/api/e2e/media", { headers, data: { op: "grant-publication-actors", runId, profileId } })).status()).toBe(200);
+  const rpcReview = await call<{ reviewVersion: string }>(request, authB.access_token, "vrdex_media_review_get", { submissionId: rpcProposed.resourceId! });
+  expect((await request.post("/api/e2e/media", { headers, data: { op: "exercise-publication-guards", action: "reselect_primary", runId, profileId } })).status()).toBe(200);
+  const rpcDecision = { submissionId: rpcProposed.resourceId!, expectedReviewVersion: rpcReview.reviewVersion, decision: "approve", privateReason: "Synthetic independent RPC replacement", idempotencyKey: `${runId}-rpc-review` };
+  const reselectedRefusal = await rpc<UploadReceipt>(request, authB.access_token, "vrdex_media_review_decide", rpcDecision);
+  expect(reselectedRefusal.result?.structuredContent).toMatchObject({ operationState: "refused" });
+  const changedReview = await call<{ reviewVersion: string }>(request, authB.access_token, "vrdex_media_review_get", { submissionId: rpcProposed.resourceId! });
+  const rpcRebase = await call<UploadReceipt>(request, authB.access_token, "vrdex_media_review_rebase", { submissionId: rpcProposed.resourceId!, expectedReviewVersion: changedReview.reviewVersion, idempotencyKey: `${runId}-rpc-rebase` });
+  expect(rpcRebase.operationState).toBe("committed");
+  const freshReview = await call<{ reviewVersion: string }>(request, authB.access_token, "vrdex_media_review_get", { submissionId: rpcProposed.resourceId! });
+  const freshDecisionInput = { ...rpcDecision, expectedReviewVersion: freshReview.reviewVersion, idempotencyKey: `${runId}-rpc-review-fresh` };
+  const rpcApproved = await call<UploadReceipt>(request, authB.access_token, "vrdex_media_review_decide", freshDecisionInput);
+  expect(rpcApproved.operationState).toBe("committed");
+  expect(await call(request, authB.access_token, "vrdex_media_review_decide", freshDecisionInput)).toEqual(rpcApproved);
+  const afterRpcReplacement = await call<{ avatarImageUrl?: string }>(request, undefined, "vrdex_get_profile", { slug: profile.slug });
+  expect(afterRpcReplacement.avatarImageUrl).toContain(rpcDetail.assetId);
+  expect((await call<PublishedContributionDetail>(request, authA.access_token, "vrdex_media_contribution_get", { submissionId: rpcSubmissionId })).canRemove).toBe(false);
+  const oldKit = await call<PublishedContributionDetail>(request, authA.access_token, "vrdex_media_contribution_get", { submissionId: submitted.submission.submissionId });
+  expect(oldKit.canRemove).toBe(true);
+  const rpcRemoveInput = { submissionId: submitted.submission.submissionId, expectedContributionVersion: oldKit.contributionVersion, action: "remove", idempotencyKey: `${runId}-rpc-remove` };
+  const rpcRemoved = await call<UploadReceipt>(request, authA.access_token, "vrdex_media_contribution_manage", rpcRemoveInput);
+  expect(rpcRemoved.operationState).toBe("committed");
+  expect(await call(request, authA.access_token, "vrdex_media_contribution_manage", rpcRemoveInput)).toEqual(rpcRemoved);
+  expect((await request.get(kitFile)).status()).toBe(404);
+  const rpcFinalState = await request.post("/api/e2e/media", { headers, data: { op: "inspect", runId, profileId } });
+  expect((await rpcFinalState.json()).counts.reservations).toBe(4);
+  expect((await request.post("/api/e2e/media", { headers, data: { op: "exercise-publication-guards", action: "revoke_actors", runId, profileId } })).status()).toBe(200);
+  expect((await rpc<UploadReceipt>(request, authA.access_token, "vrdex_media_submission_publish", rpcPublishInput)).result?.structuredContent).toMatchObject({ operationState: "refused", code: "MEDIA_PUBLISH_ACCESS_REQUIRED" });
+  expect((await rpc<UploadReceipt>(request, authA.access_token, "vrdex_media_contribution_place", { submissionId: rpcSubmissionId, expectedContributionVersion: rpcDetail.contributionVersion, action: "clear_primary", idempotencyKey: `${runId}-revoked-primary` })).result?.structuredContent).toMatchObject({ operationState: "refused", code: "publisher_required" });
+  const revokedReviewer = await rpc<UploadReceipt>(request, authB.access_token, "vrdex_media_review_decide", freshDecisionInput);
+  expect(revokedReviewer.result?.isError).toBe(true);
+  expect(revokedReviewer.result?.structuredContent).toMatchObject({ operationState: "refused", code: "MEDIA_REVIEW_ACCESS_REQUIRED" });
+  stages.push("actual authenticated MCP publish/get/render/download, own correction/removal, distinct assigned reviewer replacement, unchanged picture through bio edit, same-asset stale selection and feature-revoked replay denial");
+
   const assign = await request.post("/api/e2e/media", { headers, data: { op: "assign-review-owner", runId, profileId, reviewerEmail: b.email } });
   expect(assign.status(), "Assign only this synthetic profile to B").toBe(200);
   const claimedProfile = await call<{ updatedAt: number }>(request, undefined, "vrdex_get_profile", { slug: profile.slug });
