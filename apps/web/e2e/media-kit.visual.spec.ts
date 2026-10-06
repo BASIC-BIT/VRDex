@@ -767,7 +767,7 @@ test("public profile media kit @visual @fixture", async ({ page }, testInfo) => 
     mediaKit.getByRole("link", { name: "Artwork by Afterglow Studio" }),
   ).toHaveAttribute("href", "https://example.invalid/afterglow-studio");
   await expect(
-    mediaKit.getByRole("link", { name: "https://example.invalid/aurora-source" }),
+    mediaKit.getByRole("link", { name: "Open source" }),
   ).toHaveAttribute("href", "https://example.invalid/aurora-source");
   for (const title of [
     "Aurora press portrait",
@@ -787,5 +787,12 @@ test("public profile media kit @visual @fixture", async ({ page }, testInfo) => 
   await expect(mediaKit.getByRole("link", { name: "Download" }).first()).toBeVisible();
   await expect(mediaKit.getByText("PNG / 180 KB", { exact: true })).toBeVisible();
   await expect(mediaKit.locator("article")).toHaveCount(4);
+  await mediaKit.locator("img").evaluateAll(async images => {
+    await Promise.all(images.map(async image => {
+      (image as HTMLImageElement).loading = "eager";
+      await (image as HTMLImageElement).decode();
+    }));
+  });
   await captureRouteScreenshot(page, testInfo, "profile-media-kit");
+  await mediaKit.screenshot({ path: `playwright-artifacts/screenshots/${testInfo.project.name}-profile-media-kit-section.png` });
 });

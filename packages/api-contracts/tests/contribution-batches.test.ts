@@ -133,6 +133,7 @@ it("requires source URL or description for a local upload", () => {
     credit: "Artist",
     idempotencyKey: "upload",
   };
+  assert.equal(localUploadRequestSchema.safeParse({ ...input, placement: "gallery", sourceUrl: "https://artist.example/source" }).success, true);
   assert.equal(localUploadRequestSchema.safeParse(input).success, false);
   assert.equal(localUploadRequestSchema.safeParse({ ...input, sourceUrl: "   " }).success, false);
   assert.equal(localUploadRequestSchema.safeParse({ ...input, sourceUrl: "https://artist.example/source" }).success, true);

@@ -923,6 +923,8 @@ export default defineSchema({
   }).index("by_profileId_kind", ["profileId", "kind"]).index("by_contentSha256", ["contentSha256"])
     .index("by_contentSha256_kind", ["contentSha256", "kind"]),
   profileMediaSubmissions: defineTable({
+    requestKind: v.optional(v.union(v.literal("kit_asset"), v.literal("identity_placement"))),
+    candidateAssetId: v.optional(v.id("profileAssets")),
     publicationEvidenceId: v.optional(v.id("mediaPublicationEvidence")),
     publicationMethod: v.optional(v.union(v.literal("trusted_publisher"), v.literal("independent_review"))),
     publicationActorUserId: v.optional(v.id("users")),
@@ -948,6 +950,7 @@ export default defineSchema({
     status: profileMediaSubmissionStatus,
     targetProfileUpdatedAt: v.number(),
     targetPlacementAssetId: v.optional(v.id("profileAssets")),
+    targetPlacementVersion: v.optional(v.string()),
     decisionProfileUpdatedAt: v.optional(v.number()),
     reviewer: v.optional(authSubject),
     reviewedAt: v.optional(v.number()),
@@ -978,8 +981,11 @@ export default defineSchema({
     .index("by_profileId_contentSha256_createdAt", ["profileId", "contentSha256", "createdAt"])
     .index("by_contentSha256", ["contentSha256"])
     .index("by_contentSha256_status", ["contentSha256", "status"])
+    .index("by_approvedAssetId", ["approvedAssetId"])
     .index("by_publicationMethod_actor", ["publicationMethod", "publicationActorUserId"]),
   profileAssets: defineTable({
+    sourceSubmissionId: v.optional(v.id("profileMediaSubmissions")),
+    sourceDescription: v.optional(v.string()),
     profileId: v.id("profiles"),
     storageKey: v.string(),
     sourceStorageKey: v.optional(v.string()),
@@ -1017,6 +1023,8 @@ export default defineSchema({
     .index("by_profileId_contentSha256_state", ["profileId", "contentSha256", "state"])
     .index("by_profileId_state_visibility", ["profileId", "state", "visibility"]),
   profileAssetPlacements: defineTable({
+    selectionActorUserId: v.optional(v.id("users")),
+    selectionOperationId: v.optional(v.string()),
     profileId: v.id("profiles"),
     assetId: v.id("profileAssets"),
     placement: profileAssetPlacement,
@@ -1024,6 +1032,7 @@ export default defineSchema({
     state: profileAssetState,
     updatedAt: v.number(),
   })
+    .index("by_assetId_state", ["assetId", "state"])
     .index("by_profileId_placement_state_position", [
       "profileId",
       "placement",
@@ -2940,7 +2949,8 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_profileId_createdAt", ["profileId", "createdAt"])
-    .index("by_action_createdAt", ["action", "createdAt"]),
+    .index("by_action_createdAt", ["action", "createdAt"])
+    .index("by_profileId_action", ["profileId", "action"]),
   seedImportBatches: defineTable({
     externalBatchId: v.string(),
     sourceName: v.string(),

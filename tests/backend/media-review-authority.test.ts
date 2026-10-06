@@ -15,7 +15,7 @@ process.env.VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED = "true";
 process.env.VRDEX_PROFILE_MEDIA_DIRECT_UPLOAD_ENABLED = "true";
 process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "true";
 
-it("projects and versions the automatic image used by the public profile", async () => {
+it("projects automatic artwork without versioning unrelated kit state", async () => {
   const t = convexTest({ schema, modules });
   const seeded = await seed(t);
   const { intent } = await createAndUpload(t, seeded);
@@ -69,7 +69,20 @@ it("projects and versions the automatic image used by the public profile", async
   });
   assert.ok(after);
   assert.notEqual(after.currentAutomaticImageUrl, before.currentAutomaticImageUrl);
-  assert.notEqual(after.reviewVersion, before.reviewVersion);
+  assert.equal(after.reviewVersion, before.reviewVersion);
+  await t.run(ctx => ctx.db.patch(seeded.profileId, {
+    outboundLinks: [{ type: "vrchat_profile", label: "VRChat", source: "community_submitted",
+      url: "https://vrchat.com/home/user/usr_7023d326-083f-41fe-a3e9-27ea303b50c6" }],
+  }));
+  const changed = await actor.query(api.profileMediaSubmissions.reviewDetail, { submissionId: intent.submissionId });
+  assert.ok(changed);
+  assert.notEqual(changed.reviewVersion, after.reviewVersion);
+  const receipt = await actor.mutation(api.profileMediaSubmissions.decideWithReceipt, {
+    submissionId: intent.submissionId, expectedReviewVersion: after.reviewVersion, decision: "approve",
+    privateReason: "Inspected former identity", idempotencyKey: "old-linked-identity",
+  });
+  assert.equal(receipt.code, "review_changed");
+  assert.equal((await t.run(ctx => ctx.db.get(intent.submissionId)))?.status, "submitted");
 });
 
 it("projects owner evidence separately and rechecks revoked authority on replay", async () => {
@@ -352,10 +365,10 @@ it("invalidates versions when candidate, placement or rebase evidence changes", 
         idempotencyKey: change,
       },
     );
-    assert.equal(receipt.code, "review_changed", change);
+    assert.equal(receipt.code, ["candidate", "rebase"].includes(change) ? "review_changed" : undefined, change);
     assert.equal(
       (await t.run((ctx) => ctx.db.get(intent.submissionId)))?.status,
-      "submitted",
+      ["candidate", "rebase"].includes(change) ? "submitted" : "approved",
     );
   }
 });

@@ -22,3 +22,5 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 export const Comparison: Story = {};
+
+export const PublishedCandidate: Story = { args: { candidateAlt: "Published candidate", currentAlt: "Current picture" } };

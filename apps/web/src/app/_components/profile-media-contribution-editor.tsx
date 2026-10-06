@@ -97,7 +97,7 @@ export function ProfileMediaContributionEditor({
       const file = prepared.file;
       const intent = await createUploadIntent({
         profileId: profile.id,
-        requestedPlacement: profile.profileType === "person" ? "profile_image" : "primary_logo",
+        requestedPlacement: "gallery",
         originalFileName: file.name,
         mimeType: profileMediaMimeType(file.type, file.name) ?? file.type,
         byteSize: file.size,

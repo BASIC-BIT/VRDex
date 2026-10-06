@@ -54,17 +54,42 @@ expected review version, approve/reject, private reason, optional public reason,
 and an idempotency key. Rejection requires a public reason. Strict runtime
 contracts reject unknown fields and bound input strings.
 
-The version hashes candidate/provenance, stored upload identity, current target,
-current placement and asset, and the submission's optional `reviewRevision`.
-Missing revisions mean zero for existing rows. Advisory start-review updates do
-not invalidate it. Approval checks the original target and placement snapshots; a
-fresh detail read does not silently rebase the proposal. Rejection remains
-available against a refreshed version when that original placement has changed.
+The version hashes candidate/provenance, stored upload identity, relevant target
+state, and the submission's optional `reviewRevision`. Missing revisions mean
+zero for existing rows. Advisory start-review updates do not invalidate it.
+Kit publication excludes unrelated biography timestamps and existing picture
+artwork. Placement inspection includes the current placement and asset.
+Existing-asset placement requests store a narrow original-target snapshot that
+includes the exact selection operation. An intervening selection, including
+the same asset, requires a rebase. Unrelated biography edits do not invalidate
+these requests. Their authorized preview reads the existing stored asset.
+Meaningful evidence changes require fresh inspection. Placement changes also
+require an explicit rebase against the original selection snapshot.
+
+`manageContribution` and internal `manageContributionForMcpActor` accept an own
+approved submission ID, expected contribution version, idempotency key and either
+`update_metadata` or `remove`. Ordinary contributors need no publisher grant.
+MCP uses `assets:contribute` and `mcp:write` with current email/delegation checks.
+Corrections allow only title, alt text, credit, credit URL, source URL and source
+description. Optional values clear with `null`; title, credit and at least one
+provenance value remain required. Actor and before/after metadata enter the audit.
+The submission and publication evidence remain historical; published details and
+existing-asset placement reviews project the current public asset metadata.
+Corrections invalidate inspected placement review versions.
+
+Management requires a public, published, unclaimed target and visible public kit.
+Non-gallery placement, another actor's selection, moderation restriction,
+suppression or private media blocks contributor management. Legal holds block
+removal. Removal uses the existing owner logical-delete state and timestamp,
+excluding the item from public kit/download reads while retaining bytes, gallery
+references, accounting and approved history. It schedules no permanent deletion.
+Exact-input receipt replay recovers a removed item after response loss, with
+current ownership, visibility and selection authority still checked.
 
 Successful publication and its immutable receipt commit in one transaction.
 Expected terminal refusals also persist receipts. Projected active-public-asset
-capacity is checked before writes, accounting for singleton assets that retire
-only when no other active placement remains. `capacity_exceeded` remains refused
+capacity is checked before writes, with one new asset for each uploaded kit
+contribution. `capacity_exceeded` remains refused
 when capacity later becomes available. The upload consumer retains its final
 transactional capacity assertion. Reusing a key with identical
 canonical input returns the original receipt; changed input returns
@@ -75,6 +100,25 @@ may be retried with the same key.
 
 Legacy `decide` retains its argument/result shape and calls the shared transition.
 The receipt path is the required interface for new browser/MCP clients.
+
+## Published contribution placement
+
+`contributionDetail` and its internal MCP actor counterpart resolve the immutable
+source submission and active public asset. `placeContribution` accepts the source
+submission ID, expected contribution version, actor-scoped idempotency key, and
+`select_primary` or `clear_primary`. Verified trusted publishers may select their
+own asset on a public, published, unclaimed profile only when no managed, legacy,
+or automatic identity image occupies the slot. Undo requires current publisher
+authority and the exact unchanged publisher selection. Owner and reviewer actions
+stamp a fresh selection operation, including same-asset reselection.
+
+`proposePlacement` accepts the same base command without an action. It references
+the existing asset in an `identity_placement` review submission and uses current
+proposal count and rate limits. Approval requires a distinct authorized reviewer
+and changes only the identity placement. Both gallery entries remain published;
+no upload, blob, active asset, or published-byte charge is created. Rejection and
+withdrawal record the placement-request disposition without content rejection or
+proposal-blob cleanup. Explicit moderator suppression remains separate.
 
 ## Delegation and rollout
 
@@ -167,36 +211,33 @@ authenticated end-to-end or provider-storage test.
 
 `trusted_publisher` is a separately issued, revocable account feature. Neither
 super-admin, reviewer, application tier nor contribution capacity implies it.
-The browser uses `publisherDetail`, `declarePublicationEvidence`, and `publish`.
-MCP uses `vrdex_media_submission_get`, `vrdex_media_submission_preview`,
-`vrdex_media_submission_declare`, and `vrdex_media_submission_publish`.
-Reads require `mcp:read` and `assets:publish`; declarations and publication require
-`mcp:write` and `assets:publish`. These scopes are requestable, never defaults.
-Every backend operation requires fresh verified email and the explicit grant.
-Publisher projections are own-only and require a current public, published,
-unclaimed target. They omit private reviewer reasons and moderator identities.
-They do not confer independent reviewer authority.
+The browser uses `publisherDetail` and `publish`. MCP publication reads require
+`mcp:read` and `assets:publish`; publication requires `mcp:write` and
+`assets:publish`. These scopes are requestable, never defaults. Every backend
+operation requires fresh verified email and the explicit grant. Publisher
+projections are own-only and require a public, published, unclaimed target.
+They omit private reviewer reasons and moderator identities and do not confer
+independent reviewer authority.
 
 Publication takes exactly `{submissionId, expectedReviewVersion, idempotencyKey}`.
-Before publication, including for older pending proposals, the explicit declaration
-command takes those same fields plus four booleans: `identityConfirmed`,
-`attributionConfirmed`, `publicationPermitted`, and `noKnownRestrictions`.
-Declarations are immutable records bound to the candidate digest, target, placement,
-source reference or local provenance, and attribution. Recording one changes the
-review version. Inspect again before publishing. Absent, false or stale declarations
-require independent review. Nonempty credit or source text never implies consent
-or identity confirmation. Upload completion only submits; it never publishes.
-Choosing Independent review on the contributions page leaves the existing proposal
-in its independent-review queue and closes the publication controls locally.
+The explicit Publish command attaches the stored uploaded contribution to gallery.
+Independent approval uses the same attachment path. Intake stores `kit_asset`
+intent and gallery placement, including legacy picture/logo inputs. Owner upload
+placement behavior is unchanged. Gallery titles use the sanitized submission label
+or `Image`. Assets retain source, credit and immutable `sourceSubmissionId`
+provenance. Upload completion submits the proposal; it never publishes.
 
-The publication mutation reads the current target, both image/logo placements,
-legacy image visibility, actual automatic artwork, declarations and restrictions
-in one transaction. Review versions bind authored placements and cached source
-identity/artwork records, including changes without an observed-time bump. Visible
-VRChat icons, group logos and Discord artwork fill a slot. Disabled or hidden
-fallbacks follow public rendering semantics. Existing authored placements remain
-protected even when hidden. A target version or candidate change refuses the
-inspected command. Conflicts preserve the independent-review path.
+Legacy declaration endpoints remain for receipt compatibility. A same-key replay
+returns its historical receipt. A fresh declaration returns `declaration_retired`
+and creates no evidence. Existing evidence records remain untouched.
+
+Kit review versions bind the stored candidate and metadata, target identity,
+privacy, claim state and applicable restrictions. Biography-only edits and
+unrelated picture selection or automatic-artwork changes do not invalidate kit
+inspection. Identity-placement snapshots continue to bind artwork and selection
+provenance. Changed meaningful evidence requires a fresh inspection, with the
+original stored candidate bytes preserved. Existing managed, private, legacy or
+automatic pictures do not block additive kit publication or get replaced by it.
 
 Restriction history is indexed independently of mutable source URLs and collection
 item keys. Identity/dispute records restrict the target; rejection and suppression
@@ -204,7 +245,7 @@ restrict the exact content digest across targets. Legacy rejected submissions an
 suppressed assets are checked by indexed digest as well. An unrelated digest is
 not refused solely because the target once had a rejection. Matching new history
 is linked through `priorRestrictionId`. Byte-different variants are not identified
-perceptually; the explicit no-known-restrictions declaration remains required.
+perceptually.
 The digest lookup considers only rejection and suppression records. An identity or
 dispute record for another target cannot block identical bytes on this target.
 Admin `recordPublicationDispute` records identity/dispute restrictions. Existing
@@ -253,7 +294,7 @@ flowchart TD
   SignIn --> Account[/account/media-contributions]
   Account --> Own
   Own --> Withdraw[Versioned withdrawal]
-  Own --> Publisher[Separate publisher grant: inspect and declare]
+  Own --> Publisher[Separate publisher grant: inspect stored candidate]
   Publisher --> Publish[Explicit publish]
   OAuth --> Assigned[Discover assigned collections]
   Assigned --> Review[Authorized review queue]
@@ -298,8 +339,10 @@ input/key after response loss and expose Retry. Opposing controls stay locked.
 Unresolved single-review cards remain mounted even if the committed item leaves
 the reactive queue. Publication cards remain mounted while their command is
 unresolved, including when the own-inventory row changes to approved before a
-lost publish response is recovered. Pending recovery survives reactive updates in the mounted
-page, not a full browser reload.
+lost publish response is recovered. Decision, rebase and withdrawal recovery survives
+reactive updates in the mounted page, not a full browser reload. Publication and
+published contribution commands persist exact pending input/key in sessionStorage
+across same-tab reloads, including metadata drafts. Retry reuses that saved input/key.
 
 Upload and collection MCP failures use allowlisted bounded codes and structured
 receipt metadata: `retryable`, `retryCategory`, `nextAction`, and optional bounded
@@ -308,3 +351,15 @@ receipt metadata: `retryable`, `retryCategory`, `nextAction`, and optional bound
 correction, wait or inspection actions. Known backend codes travel as bounded `ConvexError.data.code`; raw backend
 exception text is not returned. Stale or unavailable profile-link targets persist
 a refusal on the exact revision. Terminal receipts remain authoritative on replay.
+
+## Bounded media-kit conversion
+
+Deploy backend schema/functions before the matching website/MCP candidate. New intake and pre-conversion admitted upload finalization both normalize uploaded contributions to gallery intent. Existing-asset identity replacement requests remain placement requests. Old review versions refuse after migration increments reviewRevision; inspect again before deciding. Existing declaration receipts remain historical, while fresh legacy declarations refuse as retired. Old clients publishing valid contributions now publish kit membership only, never implicitly choose a picture.
+
+Run `node --import tsx scripts/media-kit-publication-migration.mjs --target <approved-target> --limit 40` for one dry-run batch. The wrapper defaults to dry-run; `--apply` explicitly enables writes. Record each report's scanned/changed/skipped/conflicts, continueCursor and isDone. Follow continueCursor until isDone. Preview the entire traversal first; restart with a null cursor for the separately authorized apply traversal, inspect conflicts, and stop on drift. Do not reuse a preview's final cursor as the apply starting point. Each transaction scans 1..40 submissions and checks at most two indexed approved-asset matches. An ambiguous link is a conflict, never guessed provenance.
+
+Conversion preserves primary placements, uploaded renditions/digests, historical assertions, receipts, reviewers, accounting and legal holds. It backfills only uniquely linked active public community assets on public, published, unclaimed profiles. Only untouched legacy metadata (asset updatedAt equals immutable approval time (reviewedAt, or the trusted-publisher approved submission updatedAt), no current source URL/description, no contributor or owner profile metadata-correction audit) can initialize the immutable approved description. Any correction audit on the profile conservatively skips initialization; current provenance and intentional clears stay intact. Retained gallery references do not republish private media.
+
+Karly's approved submission handle is `x1747ftcbeq1k475kz4hqdn77d8fcz0r`. The correction is separate from generic conversion. A fresh authorized operator must resolve exact asset and placement IDs, the placement's own updatedAt and selectionOperationId. Never substitute profile or submission timestamps. Save those values with submissionId, expectedAssetId, expectedPlacementId, expectedPlacementUpdatedAt and expectedSelectionOperationId (explicit null for absent legacy provenance) in a local JSON file. Preview with `node --import tsx scripts/media-kit-publication-migration.mjs --target <approved-target> --correction-file <exact-preview.json>`. Apply requires separate exact-resource authorization and a fresh identical preview before adding `--apply`. Changed, reselected, duplicate, claimed, private, foreign, held or restricted resources refuse. The correction retires only the exact legacy primary placement and retains an active public gallery asset. It never selects a replacement picture or deletes bytes.
+
+Kit approval authorizes publication into the public media kit. Placement approval authorizes explicit use of an already published candidate as the picture. Logical removal hides an item but retains storage/accounting/history. Permanent byte deletion remains governed by existing cleanup and legal-hold policy.

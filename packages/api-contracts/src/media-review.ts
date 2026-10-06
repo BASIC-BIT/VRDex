@@ -1,6 +1,43 @@
 import { z } from "zod";
 
 const boundedId = z.string().min(1).max(200);
+export const contributionCommandBaseSchema = z.strictObject({
+  submissionId: boundedId,
+  expectedContributionVersion: z.string().min(1).max(128),
+  idempotencyKey: z.string().min(1).max(128),
+});
+export type ContributionCommandBase = z.infer<typeof contributionCommandBaseSchema>;
+export const contributionPlacementCommandSchema = z.strictObject({
+  ...contributionCommandBaseSchema.shape,
+  action: z.enum(["select_primary", "clear_primary"]),
+});
+export type ContributionPlacementCommand = z.infer<typeof contributionPlacementCommandSchema>;
+export const contributionMetadataPatchSchema = z.strictObject({
+  label: z.string().max(80).nullable().optional(),
+  altText: z.string().max(180).nullable().optional(),
+  credit: z.string().max(120).nullable().optional(),
+  creditUrl: z.string().max(4096).nullable().optional(),
+  sourceUrl: z.string().max(4096).nullable().optional(),
+  sourceDescription: z.string().max(1000).nullable().optional(),
+});
+export type ContributionMetadataPatch = z.infer<typeof contributionMetadataPatchSchema>;
+export const contributionManageCommandSchema = z.discriminatedUnion("action", [
+  z.strictObject({ ...contributionCommandBaseSchema.shape, action: z.literal("update_metadata"), metadata: contributionMetadataPatchSchema }),
+  z.strictObject({ ...contributionCommandBaseSchema.shape, action: z.literal("remove") }),
+]);
+export type ContributionManageCommand = z.infer<typeof contributionManageCommandSchema>;
+export const publishedContributionDetailSchema = z.strictObject({
+  submissionId: boundedId, assetId: boundedId, profileId: boundedId,
+  profileSlug: z.string().max(200), contributionVersion: z.string().min(1).max(128),
+  metadata: z.strictObject({
+    label: z.string().max(80), altText: z.string().max(180).optional(),
+    credit: z.string().max(120), creditUrl: z.string().max(4096).optional(),
+    sourceUrl: z.string().max(4096).optional(), sourceDescription: z.string().max(1000).optional(),
+  }),
+  canSelectPrimary: z.boolean(), canClearPrimary: z.boolean(), canProposePlacement: z.boolean(),
+  canEditMetadata: z.boolean(), canRemove: z.boolean(),
+});
+export type PublishedContributionDetail = z.infer<typeof publishedContributionDetailSchema>;
 export const commandReceiptSchema = z.strictObject({
   operationId: boundedId,
   operationState: z.enum(["committed", "refused", "in_progress"]),
@@ -90,6 +127,8 @@ export const reviewSnapshotSchema = z.strictObject({
 export type ReviewSnapshot = z.infer<typeof reviewSnapshotSchema>;
 
 export const reviewDetailSchema = z.strictObject({
+  requestKind: z.enum(["kit_asset", "identity_placement"]).optional(),
+  candidateAssetId: boundedId.optional(),
   publicationMethod: z
     .enum(["trusted_publisher", "independent_review"])
     .optional(),

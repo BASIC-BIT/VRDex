@@ -109,18 +109,18 @@ async function target(
   actor: Id<"users">,
   profileId: Id<"profiles">,
   mode: "owner" | "contributor",
-  placement: "profile_image" | "primary_logo",
+  placement: "profile_image" | "primary_logo" | "gallery",
   expected: number,
 ) {
   const profile = await ctx.db.get(profileId);
   if (!profile || profile.updatedAt !== expected)
     throw new ConvexError({ code: "UPLOAD_TARGET_CHANGED" });
+  if (mode === "contributor") return assertEligibleTarget(profile, "gallery");
   if (
     (profile.profileType === "person" ? "profile_image" : "primary_logo") !==
     placement
   )
     throw new ConvexError({ code: "UPLOAD_PLACEMENT_INVALID" });
-  if (mode === "contributor") return assertEligibleTarget(profile, placement);
   if (
     profile.claimState === "unclaimed" ||
     !(await userOwnsProfile(ctx.db, profileId, actor))
@@ -190,7 +190,7 @@ export const begin = internalMutation({
     mode: v.union(v.literal("owner"), v.literal("contributor")),
     profileId: v.id("profiles"),
     expectedUpdatedAt: v.number(),
-    placement: v.union(v.literal("profile_image"), v.literal("primary_logo")),
+    placement: v.union(v.literal("profile_image"), v.literal("primary_logo"), v.literal("gallery")),
     contentType: v.string(),
     byteLength: v.number(),
     sha256: v.string(),
@@ -443,15 +443,6 @@ export const begin = internalMutation({
       tokenIdentifier: `api:${actorUserId}`,
     };
     const expiresAt = now + 10 * 60 * 1000;
-    const placement = await ctx.db
-      .query("profileAssetPlacements")
-      .withIndex("by_profileId_placement_state_position", (q) =>
-        q
-          .eq("profileId", profile._id)
-          .eq("placement", request.placement)
-          .eq("state", "active"),
-      )
-      .first();
     const submissionId =
       request.mode === "owner"
         ? undefined
@@ -461,14 +452,15 @@ export const begin = internalMutation({
             targetProfileDisplayName: profile.displayName,
             submitterUserId: actorUserId,
             submitter: subject,
-            requestedPlacement: request.placement,
+            requestKind: "kit_asset",
+            requestedPlacement: "gallery",
             sourceUrl,
             sourceKind: "local",
             sourceDescription: request.sourceDescription,
             credit: request.credit,
             status: "upload_pending",
             targetProfileUpdatedAt: profile.updatedAt,
-            targetPlacementAssetId: placement?.assetId,
+
             expiresAt,
             createdAt: now,
             updatedAt: now,
@@ -481,8 +473,9 @@ export const begin = internalMutation({
       mimeType: request.contentType,
       byteSize: request.byteLength,
       credit: request.credit,
+      ...(request.mode === "owner" ? {} : { label: "Image" }),
       sourceUrl,
-      placements: [request.placement],
+      placements: [request.mode === "owner" ? request.placement : "gallery"],
       source:
         request.mode === "owner" ? "owner_authored" : "community_submitted",
       purpose:
@@ -583,7 +576,7 @@ export const claim = internalMutation({
       args.actorUserId,
       row.profileId,
       row.mode,
-      intent.placements![0] as "profile_image" | "primary_logo",
+      intent.placements![0] as "profile_image" | "primary_logo" | "gallery",
       row.expectedUpdatedAt,
     );
     if (row.expiresAt <= Date.now())
@@ -770,7 +763,7 @@ export const complete = internalMutation({
       args.actorUserId,
       row.profileId,
       row.mode,
-      intent.placements![0] as "profile_image" | "primary_logo",
+      intent.placements![0] as "profile_image" | "primary_logo" | "gallery",
       row.expectedUpdatedAt,
     );
     if (
