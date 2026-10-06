@@ -1,5 +1,7 @@
 # Event Routing And Authoring
 
+Contributor editor (2026-09-29): [visual reference](./event-editor-visual-reference-2026-09-29.md). Contributor creation now uses Source, Details, Lineup, and Review inside the existing header and footer. Owner/staff and correction presentation remain separate pending the next implementation tasks.
+
 ## Status
 
 Current implementation incorporates the 2026-08-31 owner-editor decisions and the
@@ -19,7 +21,7 @@ Current implementation incorporates the 2026-08-31 owner-editor decisions and th
 - Event URLs use the automatically generated seven-character short-link code.
 - Event URL codes are not editable and do not occupy the root profile and world
   slug namespace.
-- The browser editor calls the session area `Schedule`, not `Program`, `Lineup`,
+- The owner browser editor calls the session area `Schedule`, not `Program`, `Lineup`,
   or `Set times`.
 - The browser editor has one public Description field. Private notes are visible
   only to authorized event managers.
@@ -47,10 +49,29 @@ contribution needs a community, title and known date. An explicit Time TBA state
 needs no timezone; timed publication needs an IANA timezone and resolved local
 time. The date-only backend switch must be enabled after its migration.
 
-Manual entry, pasted text and private posters share a versioned draft. Extraction
-proposes tentative fields for explicit acceptance or editing. Uploading or parsing
-a poster never selects public artwork. Publish goes directly to the canonical
-event page; save draft stays in the editor. Unknown dates remain drafts.
+Manual entry, pasted text and one private poster share one
+controlled versioned draft across the contributor steps. One extraction submits
+the current text and poster together. Details and Lineup retain tentative values
+for explicit acceptance, source evidence, and unresolved questions on resume.
+Changing sources invalidates suggestions and evidence while keeping accepted fields.
+Unavailable extraction stays on Source with visible feedback and manual Continue.
+
+The poster becomes artwork after verified upload and processing. A new upload
+replaces it; removal clears it. Private evidence and public artwork derivatives
+remain separate. Uploads and saves retain draft version checks. No gallery,
+primary-image selection or fallback remains in contributor intake.
+A failed completion response retains Retry even when the source preview is available.
+Retry replays completion before saving later edits and preserves conflict checks.
+
+Lineup rows show matched public profile pictures with a name fallback. Native
+local dates and times map to the existing day-offset contract; numeric offsets
+are not exposed. Repeated hours retain an explicit occurrence choice. The side
+preview uses viewer-local timed dates and moves below the editor on narrow screens.
+
+Review uses the confirmed start date, including its day offset, and links back to
+Details and Lineup. Preflight reveals and focuses missing or unresolved fields; similar events appear only after the existing duplicate check finds them.
+Publish goes directly to the canonical event page. Save draft remains available
+at every step and stays in the editor. Unknown dates remain drafts.
 
 ```mermaid
 flowchart LR
@@ -58,8 +79,17 @@ flowchart LR
   Community[Community page] --> Add
   Direct[Direct community or draft link] --> Auth[Sign in if needed and return]
   Add --> Auth
-  Auth --> Intake[Manual, text or private poster draft]
-  Intake --> Review[Accept or edit tentative details]
+  Auth --> Source[Source: one poster and optional text, or manual entry]
+  Source --> Details[Details: accept or edit]
+  Details --> Lineup[Lineup: people and local dates]
+  Lineup --> Review[Review]
+  Review --> Details
+  Review --> Lineup
+  Source --> Saved[Save draft and resume]
+  Details --> Saved
+  Lineup --> Saved
+  Review --> Saved
+  Saved --> Source
   Review --> Publish[Preflight and publish]
   Publish --> Public[Canonical event page]
   Public --> Discovery[Public search and community events]

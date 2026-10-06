@@ -174,6 +174,7 @@ paths:
                     posterSourceId:
                       anyOf:
                         - type: string
+                          minLength: 1
                           maxLength: 200
                         - type: "null"
                     posterDeclaration:
@@ -390,6 +391,7 @@ paths:
                             posterSourceId:
                               anyOf:
                                 - type: string
+                                  minLength: 1
                                   maxLength: 200
                                 - type: "null"
                             posterDeclaration:
@@ -491,6 +493,41 @@ paths:
                                     additionalProperties: false
                                 - type: "null"
                           additionalProperties: false
+                        - type: "null"
+                    evidence:
+                      anyOf:
+                        - maxItems: 40
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              fieldPath:
+                                type: string
+                                maxLength: 120
+                              origin:
+                                type: string
+                                enum:
+                                  - text
+                                  - poster
+                                  - lookup
+                                  - calculation
+                              excerpt:
+                                anyOf:
+                                  - type: string
+                                    maxLength: 500
+                                  - type: "null"
+                              assessment:
+                                type: string
+                                enum:
+                                  - explicit
+                                  - inferred
+                                  - conflicting
+                            required:
+                              - fieldPath
+                              - origin
+                              - excerpt
+                              - assessment
+                            additionalProperties: false
                         - type: "null"
                     questions:
                       anyOf:
@@ -729,6 +766,7 @@ paths:
                       posterSourceId:
                         anyOf:
                           - type: string
+                            minLength: 1
                             maxLength: 200
                           - type: "null"
                       posterDeclaration:
@@ -945,6 +983,7 @@ paths:
                               posterSourceId:
                                 anyOf:
                                   - type: string
+                                    minLength: 1
                                     maxLength: 200
                                   - type: "null"
                               posterDeclaration:
@@ -1046,6 +1085,41 @@ paths:
                                       additionalProperties: false
                                   - type: "null"
                             additionalProperties: false
+                          - type: "null"
+                      evidence:
+                        anyOf:
+                          - maxItems: 40
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                fieldPath:
+                                  type: string
+                                  maxLength: 120
+                                origin:
+                                  type: string
+                                  enum:
+                                    - text
+                                    - poster
+                                    - lookup
+                                    - calculation
+                                excerpt:
+                                  anyOf:
+                                    - type: string
+                                      maxLength: 500
+                                    - type: "null"
+                                assessment:
+                                  type: string
+                                  enum:
+                                    - explicit
+                                    - inferred
+                                    - conflicting
+                              required:
+                                - fieldPath
+                                - origin
+                                - excerpt
+                                - assessment
+                              additionalProperties: false
                           - type: "null"
                       questions:
                         anyOf:
@@ -1247,6 +1321,7 @@ paths:
                     posterSourceId:
                       anyOf:
                         - type: string
+                          minLength: 1
                           maxLength: 200
                         - type: "null"
                     posterDeclaration:
@@ -1463,6 +1538,7 @@ paths:
                             posterSourceId:
                               anyOf:
                                 - type: string
+                                  minLength: 1
                                   maxLength: 200
                                 - type: "null"
                             posterDeclaration:
@@ -1565,6 +1641,41 @@ paths:
                                 - type: "null"
                           additionalProperties: false
                         - type: "null"
+                    evidence:
+                      anyOf:
+                        - maxItems: 40
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              fieldPath:
+                                type: string
+                                maxLength: 120
+                              origin:
+                                type: string
+                                enum:
+                                  - text
+                                  - poster
+                                  - lookup
+                                  - calculation
+                              excerpt:
+                                anyOf:
+                                  - type: string
+                                    maxLength: 500
+                                  - type: "null"
+                              assessment:
+                                type: string
+                                enum:
+                                  - explicit
+                                  - inferred
+                                  - conflicting
+                            required:
+                              - fieldPath
+                              - origin
+                              - excerpt
+                              - assessment
+                            additionalProperties: false
+                        - type: "null"
                     questions:
                       anyOf:
                         - maxItems: 100
@@ -1664,6 +1775,18 @@ paths:
                           - type: string
                             maxLength: 5
                           - type: "null"
+                      startDate:
+                        anyOf:
+                          - type: string
+                            format: date
+                            pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))$
+                          - type: "null"
+                      endDate:
+                        anyOf:
+                          - type: string
+                            format: date
+                            pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))$
+                          - type: "null"
                       timezone:
                         anyOf:
                           - type: string
@@ -1690,6 +1813,8 @@ paths:
                       - eventDate
                       - start
                       - end
+                      - startDate
+                      - endDate
                       - timezone
                       - venueLabel
                       - summary
@@ -1726,15 +1851,29 @@ paths:
                             - type: string
                               maxLength: 5
                             - type: "null"
+                        startDate:
+                          anyOf:
+                            - type: string
+                              format: date
+                              pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))$
+                            - type: "null"
+                        endDate:
+                          anyOf:
+                            - type: string
+                              format: date
+                              pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))$
+                            - type: "null"
                       required:
                         - performerLabel
                         - personSlug
                         - roleLabel
                         - start
                         - end
+                        - startDate
+                        - endDate
                       additionalProperties: false
                   evidence:
-                    maxItems: 100
+                    maxItems: 40
                     type: array
                     items:
                       type: object
@@ -2050,6 +2189,10 @@ paths:
                   type: string
                   minLength: 1
                   maxLength: 200
+                expectedVersion:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
               required:
                 - posterAssetId
               additionalProperties: false
@@ -2065,8 +2208,17 @@ paths:
                     type: string
                     minLength: 1
                     maxLength: 200
+                  artworkAssetId:
+                    type: string
+                    minLength: 1
+                    maxLength: 200
+                  version:
+                    type: integer
+                    exclusiveMinimum: 0
+                    maximum: 9007199254740991
                 required:
                   - posterAssetId
+                  - version
                 additionalProperties: false
         "400": *a1
         "401":
@@ -2326,6 +2478,7 @@ paths:
                       posterSourceId:
                         anyOf:
                           - type: string
+                            minLength: 1
                             maxLength: 200
                           - type: "null"
                       posterDeclaration:

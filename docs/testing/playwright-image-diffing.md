@@ -79,6 +79,8 @@ for (const route of capturedRoutes) {
 
 Baseline updates should be an explicit developer action, not a CI auto-commit.
 
+Generate baselines with Linux Chromium matching the CI Playwright version. Windows and macOS font metrics can change text wrapping and page height, so their screenshots are not interchangeable with the Linux baselines.
+
 PowerShell:
 
 ```powershell

@@ -25,10 +25,24 @@ community authority.
 Website and MCP drafts interoperate. Save the returned `draftId` and `version`.
 Publication returns `eventId`, `eventPath`, and `receiptId`. After a lost response,
 read the draft and replay publication with the same version and idempotency key.
-Never make a new draft or key just because the response was lost. Poster upload
-and extraction do not select public artwork; call `artwork_select` deliberately.
-Call `event_get` with the published slug to obtain `updatedAt` before
-`event_update`; pass that revision as `expectedUpdatedAt`.
+Never make a new draft or key just because the response was lost. Save the
+singular `posterSourceId` before upload completion, then use completion's returned
+`version` for the next save. Pass that saved version as `expectedVersion` when
+another editor may change the draft during upload. Completion prepares the
+poster's artwork automatically. Retry completion after a failed derivative or
+lost response. Save a replacement ID to replace artwork, or null to remove it
+atomically. The existing `artwork_select` tool still accepts a non-null singular
+source ID and returns the asset ID and version. Draft reads return
+`artworkSourceId` for preview. Call `event_get` with the published slug to obtain
+`updatedAt` before `event_update`; pass it as `expectedUpdatedAt`.
+
+`draft_save` accepts one private `posterSourceId`, validates its actor and draft,
+and permits pending uploads. `extract` accepts one `posterAssetId`, which must
+be ready and valid for the same actor and draft before quota is reserved.
+Optional text and the poster enter one bounded discovery run, with a 20 MB
+prepared-image data-URL ceiling. Missing model configuration retains manual
+entry. Candidate evidence remains private, capped at 40 entries with its origin;
+event and lineup times can carry nullable ISO `startDate` and `endDate`.
 
 The local-only `vrdex_event_intake_poster_upload_bytes` helper accepts `draftId`,
 `contentType`, and base64 content explicitly supplied from a chosen local file.
@@ -50,6 +64,11 @@ A date-only public event has `scheduleKind: "date_only"` and `eventDate`, with n
 `startAt`. Do not synthesize midnight or activate watch playback. Calendar export
 uses a date value with Time TBA; timed events retain exact instants. Lineup readback
 preserves ordered timed, untimed and unmatched entries.
+
+The website correction editor uses Details, Lineup, and Review; MCP keeps the
+same scoped `event_update` command. Neither path permits correction of community,
+private sources, artwork, live controls, or staff fields. Read `event_get` before
+editing and retain its `updatedAt` for the submitted patch.
 
 Staff takeover closes contributor updates/retraction even with a fresh revision.
 A contributor can retry a successful retraction; the replay returns `changed: false`.

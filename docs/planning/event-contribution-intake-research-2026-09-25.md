@@ -1,5 +1,7 @@
 # Event contribution and AI intake research (2026-09-25)
 
+Follow-on direction (2026-09-29): [event editor reference](./event-editor-visual-reference-2026-09-29.md). BASIC later clarified that an event poster is the event artwork, without a separate opt-in, and that text plus multiple images must feed one discovery-agent run. These decisions supersede the one-poster and separate artwork-selection assumptions below for future editor work. This historical research remains unchanged below; current behavior has not changed.
+
 Status: research and candidate direction. BASIC decided on 2026-09-25 that events contributed for any community must be able to publish and enter search immediately after a reasonable smell test, without prior community or moderator acceptance. BASIC also approved publishing a known-date event with its time TBA, keeping almost all fields partial while drafting, allowing any signed-in account to contribute without a separate verified-email requirement, scoped contributor self-edits, and keeping source posters private unless separately published as artwork. This is not an approved implementation plan. See [AI platform research](./event-intake-ai-platform-research-2026-09-25.md) for official OpenAI capability and data-handling sources.
 
 ## Problem and current path

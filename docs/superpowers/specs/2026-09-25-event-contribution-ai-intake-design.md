@@ -1,5 +1,7 @@
 # Community event contribution and AI intake
 
+Follow-on direction (2026-09-29): [event editor reference](../../planning/event-editor-visual-reference-2026-09-29.md). BASIC later clarified that an event poster is the event artwork, without a separate opt-in, and that text plus multiple images must feed one discovery-agent run. This supersedes the one-poster and separate artwork-selection instructions below for future editor work. The original intake design is retained as an implementation record; current behavior has not changed.
+
 Status: draft design for BASIC review, updated 2026-09-25. This incorporates BASIC's decisions that a useful contributed event can publish for any community after a reasonable preflight without prior staff or moderator acceptance, that a known-date event may publish with its time TBA, that any signed-in account may contribute without a separate verified-email gate, that contributors may make scoped self-edits, and that an uploaded source poster stays private unless separately published as artwork. Almost all fields may remain partial while drafting. The existing event editor and public page also need the timezone, publish-navigation, and lineup changes described below. Product implementation and exact public copy are not approved by this draft.
 
 Research: [repo survey and approach comparison](../../planning/event-contribution-intake-research-2026-09-25.md), [AI platform findings](../../planning/event-intake-ai-platform-research-2026-09-25.md), [product direction](../../planning/product-direction.md).
