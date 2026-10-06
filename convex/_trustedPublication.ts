@@ -6,6 +6,7 @@ import { getAccountFeatureAccess } from "./_accountFeatures";
 import {
   assertReviewActorVerified,
   reviewSnapshot,
+  publicKitAvailable,
   type ReviewActor,
 } from "./_mediaReview";
 import {
@@ -146,6 +147,8 @@ async function publicationOrLegacyDeclaration(
   let code =
     process.env.VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED !== "true"
       ? "review_disabled"
+      : !publicKitAvailable(profile)
+        ? "target_unavailable"
       : !["submitted", "under_review"].includes(submission.status)
         ? "already_decided"
         : submission.expiresAt <= Date.now()

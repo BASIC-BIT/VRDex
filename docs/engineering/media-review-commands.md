@@ -339,8 +339,10 @@ input/key after response loss and expose Retry. Opposing controls stay locked.
 Unresolved single-review cards remain mounted even if the committed item leaves
 the reactive queue. Publication cards remain mounted while their command is
 unresolved, including when the own-inventory row changes to approved before a
-lost publish response is recovered. Pending recovery survives reactive updates in the mounted
-page, not a full browser reload.
+lost publish response is recovered. Decision, rebase and withdrawal recovery survives
+reactive updates in the mounted page, not a full browser reload. Publication and
+published contribution commands persist exact pending input/key in sessionStorage
+across same-tab reloads, including metadata drafts. Retry reuses that saved input/key.
 
 Upload and collection MCP failures use allowlisted bounded codes and structured
 receipt metadata: `retryable`, `retryCategory`, `nextAction`, and optional bounded

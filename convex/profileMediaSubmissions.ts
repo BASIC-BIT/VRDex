@@ -4,7 +4,7 @@ import { effectiveContributionPolicy, contributionChargeRefusal, registerLegacyC
 import { requirePublisher, publicationCommand, legacyDeclarationCommand, recordPublicationRestriction } from "./_trustedPublication";
 import { readScopedPagination, writeScopedPagination } from "./_reviewCursor";
 import type { PaginationOptions } from "convex/server";
-import { activeBatchAssignment, hash } from "./_mediaReview";
+import { activeBatchAssignment, hash, publicKitAvailable, outwardReviewSnapshot } from "./_mediaReview";
 import {
   reviewRebaseSchema,
   contributionManageCommandSchema,
@@ -1177,7 +1177,7 @@ export const listMine = query({
     return await Promise.all(
       rows.map(async (submission) => {
         const profile = await ctx.db.get(submission.profileId);
-        return profile === null ? null : { ...publicSubmission(submission, profile, true), publisherTargetAvailable: profile.claimState === "unclaimed" && profile.publicationState === "published" && profile.publicSurfacingState === "public" };
+        return profile === null ? null : { ...publicSubmission(submission, profile, true), publisherTargetAvailable: publicKitAvailable(profile) && profile.claimState === "unclaimed" && profile.publicationState === "published" && profile.publicSurfacingState === "public" };
       }),
     ).then((items) => items.filter((item) => item !== null));
   },
@@ -1209,7 +1209,7 @@ async function ownSubmission(
         .withIndex("by_submissionId", (q) => q.eq("submissionId", submission._id))
     .unique();
   const revision = attempt ? await ctx.db.get(attempt.revisionId) : null;
-  const { placementTargetVersion: _placementTargetVersion, ...snapshot } = await reviewSnapshot(ctx, submission, profile);
+  const { placementTargetVersion: _placementTargetVersion, ...snapshot } = await outwardReviewSnapshot(ctx, submission, profile);
   const asset = submission.approvedAssetId
     ? await ctx.db.get(submission.approvedAssetId)
     : null;
@@ -1254,7 +1254,7 @@ async function ownSubmission(
         }
       : {}),
     ...(attempt ? { receipt: attempt.receipt } : {}),
-    publisherTargetAvailable: profile.claimState === "unclaimed" && profile.publicationState === "published" && profile.publicSurfacingState === "public",
+    publisherTargetAvailable: publicKitAvailable(profile) && profile.claimState === "unclaimed" && profile.publicationState === "published" && profile.publicSurfacingState === "public",
   };
 }
 async function ownSubmissionPage(
@@ -2146,7 +2146,7 @@ async function authorizedReviewDetail(
   const profile =
     submission === null ? null : await ctx.db.get(submission.profileId);
   if (submission === null || profile === null) return null;
-  const access = publisher ? { access: { superAdmin: false } } : await reviewerContext(ctx, profile, actor, submission);
+  const access = publisher ? { access: { superAdmin: false }, ownsProfile: false } : await reviewerContext(ctx, profile, actor, submission);
   if (publisher) await requirePublisher(ctx, actor ?? (await browserReviewActor(ctx)), submission, profile,
     );
   const projection = await reviewSubmission(
@@ -2155,7 +2155,7 @@ async function authorizedReviewDetail(
     profile,
     access.access.superAdmin,
   );
-  const { placementTargetVersion: _placementTargetVersion, ...snapshot } = await reviewSnapshot(ctx, submission, profile);
+  const { placementTargetVersion: _placementTargetVersion, ...snapshot } = await outwardReviewSnapshot(ctx, submission, profile, access.ownsProfile || access.access.superAdmin);
   return {
     ...projection,
     ...snapshot,

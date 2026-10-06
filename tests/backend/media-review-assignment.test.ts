@@ -522,7 +522,7 @@ it("refuses assigned approval of a private replacement with a stable receipt, in
     submissionId: f.intent.submissionId,
   });
   assert.ok(detail);
-  assert.equal(detail.currentPlacement?.assetId, assetId);
+  assert.equal(detail.currentPlacement, null);
   assert.equal(await f.actor.query(api.profileMediaSubmissions.getCurrentForStorage, {
     submissionId: f.intent.submissionId,
     assetId,

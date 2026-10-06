@@ -128,6 +128,25 @@ export const reviewActorAttestationArgs = {
   emailVerified: v.optional(v.boolean()),
   emailVerificationAttestedAt: v.optional(v.number()),
 };
+export function publicKitAvailable(profile: Doc<"profiles">) {
+  return process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED === "true" &&
+    isProfileFieldVisible(profile, "mediaKit", "profile_page");
+}
+export async function outwardReviewSnapshot(
+  ctx: Pick<QueryCtx, "db">, submission: Doc<"profileMediaSubmissions">,
+  profile: Doc<"profiles">, elevated = false,
+) {
+  const snapshot = await reviewSnapshot(ctx, submission, profile);
+  if (submission.requestKind !== "identity_placement") return { ...snapshot, currentPlacement: null };
+  const placement = snapshot.currentPlacement;
+  const asset = placement ? await ctx.db.get(placement.assetId) : null;
+  const field = submission.requestedPlacement === "profile_image" ? "avatarImageUrl"
+    : submission.requestedPlacement === "banner" ? "bannerImageUrl" : "mediaKit";
+  return { ...snapshot, currentPlacement: (!elevated && (!asset || asset.visibility !== "public" || asset.state !== "active" ||
+      asset.retiredAt !== undefined || asset.moderatorSuppressedAt !== undefined ||
+      profile.publicationState !== "published" || profile.publicSurfacingState !== "public" ||
+      !isProfileFieldVisible(profile, field, "profile_page"))) ? null : placement };
+}
 function assertContributionsEnabled() {
   if (process.env.VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED !== "true")
     throw new ConvexError({
@@ -244,6 +263,9 @@ export async function applyReviewDecision(
     actor,
     submission,
   );
+  if (args.decision === "approve" && submission.requestKind !== "identity_placement" &&
+    !publicKitAvailable(profile))
+    throw new ConvexError({ code: "MEDIA_RESOURCE_UNAVAILABLE", message: "Media contribution unavailable." });
   if (submission.submitterUserId === user._id) {
     throw new ConvexError({
       code: "MEDIA_SELF_REVIEW",
@@ -691,6 +713,8 @@ export async function decideReviewCommand(
     profile.publicSurfacingState !== "public"
   )
     code = "target_unavailable";
+  else if (args.decision === "approve" && submission.requestKind !== "identity_placement" &&
+    !publicKitAvailable(profile)) code = "target_unavailable";
   else if (snapshot.reviewVersion !== args.expectedReviewVersion)
     code = "review_changed";
   else if (
