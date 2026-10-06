@@ -1,6 +1,85 @@
 import { expect, test } from "@playwright/test";
 
 for (const mode of ["draft", "correction"] as const) {
+  test(`${mode} reveals invalid start dates and end ordering from Review @flow @fixture`, async ({ page }, info) => {
+    await page.goto(`/playwright/event-intake?revision=${mode}`);
+    if (mode === "correction") await page.getByRole("button", { name: "Correct event", exact: true }).click();
+    const navigation = page.getByRole("navigation", { name: "Event editor" });
+    await navigation.getByRole("button", { name: "Details", exact: true }).click();
+    await page.getByLabel("Time TBA", { exact: true }).uncheck();
+    await page.getByRole("combobox", { name: "Time zone", exact: true }).fill("UTC");
+    await page.getByRole("option", { name: /^UTC / }).click();
+    await page.getByLabel("Start time", { exact: true }).fill("23:00");
+    const startDate = page.getByLabel("Start time date", { exact: true });
+    await expect(startDate).toHaveAttribute("min", "2027-07-15");
+    await expect(startDate).toHaveAttribute("max", "2027-07-15");
+    for (const label of ["End time date", "Doors open date"]) {
+      await expect(page.getByLabel(label, { exact: true })).toHaveAttribute("min", "2027-07-14");
+      await expect(page.getByLabel(label, { exact: true })).toHaveAttribute("max", "2027-07-22");
+    }
+    const submit = () => page.getByRole("button", { name: mode === "draft" ? "Publish event" : "Save changes", exact: true }).click();
+    for (const date of ["2027-07-14", "2027-07-16"]) {
+      await startDate.fill(date);
+      expect(await startDate.evaluate(input => (input as HTMLInputElement).validity.valid)).toBe(false);
+      await navigation.getByRole("button", { name: "Review", exact: true }).click();
+      await submit();
+      await expect(startDate).toBeFocused();
+      expect(await page.evaluate(() => sessionStorage.getItem("event-intake-revision-submission"))).toBeNull();
+    }
+    await page.screenshot({ path: info.outputPath("start-date-focus.png"), fullPage: true, animations: "disabled" });
+    await startDate.fill("2027-07-15");
+    for (const end of ["22:00", "23:00"]) {
+      await page.getByLabel("End time", { exact: true }).fill(end);
+      await navigation.getByRole("button", { name: "Review", exact: true }).click();
+      await submit();
+      await expect(page.getByLabel("End time", { exact: true })).toBeFocused();
+      await expect(page.getByRole("status")).toHaveText("End time must follow start; choose the next day explicitly when crossing midnight.");
+      expect(await page.evaluate(() => sessionStorage.getItem("event-intake-revision-submission"))).toBeNull();
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: info.outputPath("end-order-focus.png"), fullPage: true, animations: "disabled" });
+    await page.getByLabel("End time", { exact: true }).fill("01:00");
+    await page.getByLabel("End time date", { exact: true }).fill("2027-07-16");
+    await navigation.getByRole("button", { name: "Review", exact: true }).click();
+    await submit();
+    const fields = await page.evaluate(mode => JSON.parse(sessionStorage.getItem(mode === "draft" ? "fixture-published" : "event-intake-revision-submission")!), mode);
+    expect(mode === "draft" ? fields.end : fields.patch.end).toEqual({ time: "01:00", dayOffset: 1 });
+    if (mode === "draft") await expect(page).toHaveURL(/playwright-afterglow-harbor-sessions$/);
+    else await expect(navigation).toHaveCount(0);
+  });
+
+  test(`${mode} compares repeated-hour resolved instants @flow @fixture`, async ({ page }) => {
+    await page.goto(`/playwright/event-intake?revision=${mode}`);
+    if (mode === "correction") await page.getByRole("button", { name: "Correct event", exact: true }).click();
+    const navigation = page.getByRole("navigation", { name: "Event editor" });
+    await navigation.getByRole("button", { name: "Details", exact: true }).click();
+    await page.getByLabel("Time TBA", { exact: true }).uncheck();
+    await page.getByLabel("Date", { exact: true }).fill("2026-11-01");
+    await page.getByRole("combobox", { name: "Time zone", exact: true }).fill("America/New_York");
+    await page.getByRole("option").first().click();
+    await page.getByLabel("Start time", { exact: true }).fill("01:15");
+    await page.getByLabel("Start time occurrence", { exact: true }).selectOption("later");
+    await page.getByLabel("End time", { exact: true }).fill("01:45");
+    await page.getByLabel("End time occurrence", { exact: true }).selectOption("earlier");
+    await navigation.getByRole("button", { name: "Review", exact: true }).click();
+    await page.getByRole("button", { name: mode === "draft" ? "Publish event" : "Save changes", exact: true }).click();
+    await expect(page.getByLabel("End time", { exact: true })).toBeFocused();
+    await expect(page.getByRole("status")).toContainText("End time must follow start");
+    expect(await page.evaluate(() => sessionStorage.getItem("event-intake-revision-submission"))).toBeNull();
+    await page.getByLabel("Start time", { exact: true }).fill("01:45");
+    await page.getByLabel("Start time occurrence", { exact: true }).selectOption("earlier");
+    await page.getByLabel("End time", { exact: true }).fill("01:15");
+    await page.getByLabel("End time occurrence", { exact: true }).selectOption("later");
+    await navigation.getByRole("button", { name: "Review", exact: true }).click();
+    await page.getByRole("button", { name: mode === "draft" ? "Publish event" : "Save changes", exact: true }).click();
+    const fields = await page.evaluate(mode => JSON.parse(sessionStorage.getItem(mode === "draft" ? "fixture-published" : "event-intake-revision-submission")!), mode);
+    expect(mode === "draft" ? fields.end : fields.patch.end).toEqual({ time: "01:15", occurrence: "later" });
+    if (mode === "draft") await expect(page).toHaveURL(/playwright-afterglow-harbor-sessions$/);
+    else await expect(navigation).toHaveCount(0);
+  });
+}
+
+for (const mode of ["draft", "correction"] as const) {
   test(`${mode} retains its editing revision across query refresh @flow @fixture`, async ({ page }) => {
     await page.goto(`/playwright/event-intake?revision=${mode}`);
     if (mode === "draft") await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Details", exact: true }).click();

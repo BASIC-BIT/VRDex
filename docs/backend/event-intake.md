@@ -75,7 +75,11 @@ cross-midnight intent relative to the event date. `occurrence` is `earlier` or
 `later` for a repeated local time. Timed publication requires a valid IANA
 timezone; date-only publication does not. `resolveEventLocalTime` returns zero,
 one, or multiple instants. `selectEventLocalTime` rejects gaps and unresolved
-repeated hours. Canonical schedules use `normalizeEventSchedule`.
+repeated hours. The website constrains the event start to the event date and
+reveals invalid fields from Review. End ordering uses resolved instants, including
+repeated hours; overnight ends require an explicit later date. Doors and lineup
+times retain the previous-day through seven-day offset range. Save draft bypasses
+publication validation. Canonical schedules use `normalizeEventSchedule`.
 
 The actual commit mutation calls `requireDateOnlyEventsEnabled` before inserting
 a date-only canonical event. Keep `EVENT_DATE_ONLY_ENABLED` disabled until the
@@ -117,11 +121,11 @@ Creating a new canonical event also records its actor and transport surface in
 
 Published records have `sourceType: "contributor"` and source label
 `Community-submitted`. Public projections omit contributor identity, private
-source text, poster references and draft provenance. The first image in a
-saved source order becomes artwork after verified upload and WebP preparation,
-unless the contributor explicitly selects another. Private source posters
-remain separate evidence. Participants and worlds retain the
-contributor source type. Contributor-selected world associations start
+source text, poster references and draft provenance. The draft's single poster
+becomes artwork after verified upload and WebP preparation. Replacing or removing
+the poster clears its artwork and source suggestions while preserving accepted
+fields. The private source poster remains separate evidence. Participants and
+worlds retain the contributor source type. Contributor-selected world associations start
 `unconfirmed`: they appear on the event page but not as confirmed world-page
 activity until staff confirm them. Contributor corrections to that world also
 start unconfirmed. An unchanged world association retains its existing state.
@@ -146,7 +150,7 @@ flowchart LR
   A[Events or community page] --> B[Add event]
   C[Direct contribution link] --> B
   B --> D[Sign in and return]
-  D --> E[Source, optional text and images]
+  D --> E[Source, optional text and one poster]
   E --> F[Details]
   F --> G[Lineup]
   G --> H[Review]

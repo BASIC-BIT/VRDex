@@ -36,14 +36,14 @@ function PerformerInput({ label, slug, onLabel, onSlug }: { label: string; slug:
   </div>;
 }
 
-export function IntakeTime({ label, value, date, timezone, onChange }: { label: string; value?: EventIntakeLocalTime | null; date?: string | null; timezone?: string | null; onChange: (value: EventIntakeLocalTime | null) => void }) {
+export function IntakeTime({ label, value, date, timezone, eventStart = false, onChange }: { label: string; value?: EventIntakeLocalTime | null; date?: string | null; timezone?: string | null; eventStart?: boolean; onChange: (value: EventIntakeLocalTime | null) => void }) {
   let choices: number[] = [];
   try { if (date && timezone && value) choices = resolveEventLocalTime(date, value, timezone); } catch { /* Incomplete fields remain editable. */ }
   const base = date ? Date.parse(`${date}T00:00:00Z`) : NaN;
   const selectedDate = eventLocalDate(date, value);
   return <div className="grid gap-2"><div className="grid grid-cols-2 gap-3">
     <Field>{label}<Input name={label} type="time" value={value?.time ?? ""} onChange={event => onChange(event.target.value ? { ...value, time: event.target.value, occurrence: undefined } : null)} /></Field>
-    <Field>Date<Input aria-label={`${label} date`} type="date" value={selectedDate} disabled={!value || !Number.isFinite(base)} min={Number.isFinite(base) ? new Date(base - 86_400_000).toISOString().slice(0, 10) : undefined} max={Number.isFinite(base) ? new Date(base + 7 * 86_400_000).toISOString().slice(0, 10) : undefined} onChange={event => { if (value && event.target.value) onChange({ ...value, dayOffset: (Date.parse(`${event.target.value}T00:00:00Z`) - base) / 86_400_000, occurrence: undefined }); }} /></Field>
+    <Field>Date<Input aria-label={`${label} date`} type="date" value={selectedDate} disabled={!value || !Number.isFinite(base)} min={Number.isFinite(base) ? eventStart ? date! : new Date(base - 86_400_000).toISOString().slice(0, 10) : undefined} max={Number.isFinite(base) ? eventStart ? date! : new Date(base + 7 * 86_400_000).toISOString().slice(0, 10) : undefined} onChange={event => { if (value && event.target.value) onChange({ ...value, dayOffset: (Date.parse(`${event.target.value}T00:00:00Z`) - base) / 86_400_000, occurrence: undefined }); }} /></Field>
   </div>{value && date && timezone && choices.length === 0 ? <p className="text-sm text-danger">This local time does not exist.</p> : null}
     {choices.length > 1 ? <Field>Repeated time<Select aria-label={`${label} occurrence`} value={value?.occurrence ?? ""} onChange={event => { if (value) onChange({ ...value, occurrence: event.target.value as "earlier" | "later" }); }}><option value="">Choose occurrence</option>{choices.map((instant, index) => <option key={instant} value={index === 0 ? "earlier" : "later"}>{index === 0 ? "Earlier" : "Later"} ({new Date(instant).toISOString().slice(11, 16)} UTC)</option>)}</Select></Field> : null}
   </div>;
@@ -90,6 +90,10 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
             }
           }
         }
+        if (!fields.timeTba && fields.start && fields.end && fields.timezone && selectEventLocalTime(fields.eventDate, fields.end, fields.timezone) <= selectEventLocalTime(fields.eventDate, fields.start, fields.timezone)) {
+          reveal("Details", '[name="End time"]');
+          throw new Error("End time must follow start; choose the next day explicitly when crossing midnight.");
+        }
         await onPublish(fields, revision);
       } else { await onSave?.(fields, revision); setMessage("Draft saved"); }
     } catch (error) {
@@ -99,7 +103,7 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
         else setMessage(BACKEND_ERROR_COPY);
       } else {
         const text = error instanceof Error ? error.message : "";
-        setMessage(/^(Add a community|Choose a time zone|Ambiguous local time|Local time does not exist|Event date must be valid)/.test(text) ? text : BACKEND_ERROR_COPY);
+        setMessage(/^(Add a community|Choose a time zone|Ambiguous local time|Local time does not exist|Event date must be valid|End time must follow start)/.test(text) ? text : BACKEND_ERROR_COPY);
       }
     }
     finally { setBusy(false); }
@@ -115,7 +119,7 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
     <Field>Date<Input name="eventDate" type="date" value={fields.eventDate ?? ""} onChange={event => set("eventDate", event.target.value)} /></Field>
     <label className="flex items-center gap-2"><input type="checkbox" checked={fields.timeTba ?? false} onChange={event => setFields(current => ({ ...current, timeTba: event.target.checked, ...(event.target.checked ? { start: null, end: null, doors: null, lineup: current.lineup?.map(row => ({ ...row, start: null, end: null })) } : {}) }))} />Time TBA</label>
     <div className="grid gap-2"><span className="text-sm font-medium">Time zone</span><EventTimezonePicker value={fields.timezone ?? null} date={fields.eventDate ?? null} onChange={value => set("timezone", value)} /></div>
-    {!fields.timeTba ? <><IntakeTime label="Start time" value={fields.start} date={fields.eventDate} timezone={fields.timezone} onChange={value => set("start", value)} /><IntakeTime label="End time" value={fields.end} date={fields.eventDate} timezone={fields.timezone} onChange={value => set("end", value)} /><IntakeTime label="Doors open" value={fields.doors} date={fields.eventDate} timezone={fields.timezone} onChange={value => set("doors", value)} /></> : null}
+    {!fields.timeTba ? <><IntakeTime label="Start time" eventStart value={fields.start} date={fields.eventDate} timezone={fields.timezone} onChange={value => set("start", value)} /><IntakeTime label="End time" value={fields.end} date={fields.eventDate} timezone={fields.timezone} onChange={value => set("end", value)} /><IntakeTime label="Doors open" value={fields.doors} date={fields.eventDate} timezone={fields.timezone} onChange={value => set("doors", value)} /></> : null}
     <Field>Venue<Input value={fields.venueLabel ?? ""} maxLength={120} onChange={event => set("venueLabel", event.target.value)} /></Field>
     <Field>World profile<Input value={fields.worldSlug ?? ""} maxLength={64} onChange={event => set("worldSlug", event.target.value)} /></Field>
     <Field>Description<Textarea value={fields.summary ?? ""} maxLength={240} onChange={event => set("summary", event.target.value)} /></Field>

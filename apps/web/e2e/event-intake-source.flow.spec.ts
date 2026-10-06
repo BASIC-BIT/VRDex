@@ -7,6 +7,42 @@ const step = async (page: Page, name: string) => {
 };
 const upload = "public/test-media/event-poster.png";
 
+test("loaded Time TBA draft delegates stale time ordering to publication @flow @fixture", async ({ page }) => {
+  await page.addInitScript(() => sessionStorage.setItem("fixture-source-draft", JSON.stringify({ version: 1, fields: { communitySlug: "afterglow", title: "Date only", eventDate: "2027-10-15", timeTba: true, timezone: "UTC", start: { time: "23:00" }, end: { time: "22:00" } } })));
+  await page.goto("/playwright/event-intake?source=text");
+  await step(page, "Details");
+  await expect(page.getByLabel("Time TBA", { exact: true })).toBeChecked();
+  await expect(page.getByLabel("End time", { exact: true })).toHaveCount(0);
+  await step(page, "Review");
+  await page.getByRole("button", { name: "Publish event", exact: true }).click();
+  // The fixture records the command. Backend preflight separately rejects stale TBA times.
+  await expect(page).toHaveURL(/playwright-afterglow-harbor-sessions$/);
+  expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("fixture-published")!))).toMatchObject({ timeTba: true, start: { time: "23:00" }, end: { time: "22:00" } });
+});
+
+test("incomplete draft bypasses native date and publish ordering validation @flow @fixture", async ({ page }) => {
+  await page.goto("/playwright/event-intake?source=text");
+  await step(page, "Details");
+  await page.getByLabel("Date", { exact: true }).fill("2027-10-15");
+  await page.getByLabel("Start time", { exact: true }).fill("23:00");
+  await page.getByLabel("Start time date", { exact: true }).fill("2027-10-16");
+  await page.getByLabel("End time", { exact: true }).fill("22:00");
+  await step(page, "Lineup");
+  await page.getByRole("button", { name: "Add performer", exact: true }).click();
+  await step(page, "Review");
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  await expect(page.getByRole("status")).toHaveText("Draft saved");
+  const saved = await page.evaluate(() => JSON.parse(sessionStorage.getItem("fixture-source-draft")!).fields);
+  expect(saved).toMatchObject({ eventDate: "2027-10-15", start: { time: "23:00", dayOffset: 1 }, end: { time: "22:00" }, lineup: [{ position: 0 }] });
+  expect(saved.title).toBeUndefined();
+  expect(saved.timezone).toBeUndefined();
+  expect(await page.evaluate(() => sessionStorage.getItem("fixture-published"))).toBeNull();
+  await page.goto("/playwright/event-intake?source=text");
+  await step(page, "Details");
+  await expect(page.getByLabel("Start time date", { exact: true })).toHaveValue("2027-10-16");
+  await expect(page.getByLabel("End time", { exact: true })).toHaveValue("22:00");
+});
+
 test("review publish reveals a blank lineup performer @flow @fixture", async ({ page }, info) => {
   await page.goto("/playwright/event-intake?source=text");
   await step(page, "Details");
