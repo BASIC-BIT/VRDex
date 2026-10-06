@@ -135,6 +135,7 @@ it("rechecks current ownership before replaying a completed admission", async ()
 async function fixture(
   mode: "owner" | "contributor" = "contributor",
   bytesRead?: number,
+  placement: "profile_image" | "primary_logo" | "gallery" = "profile_image",
 ) {
   const t = convexTest({
     schema,
@@ -179,7 +180,7 @@ async function fixture(
     mode,
     profileId: s.profileId,
     expectedUpdatedAt: NOW,
-    placement: "profile_image" as const,
+    placement,
     contentType: "image/png",
     byteLength: 512,
     sha256: "a".repeat(64),
@@ -623,3 +624,20 @@ it("scheduled proposal cleanup advances past a failed batch before retrying it",
     true,
   );
 });
+
+for (const mode of ["owner", "contributor"] as const) {
+  it(`admits actual gallery uploads only through contributor authority: ${mode}`, async () => {
+    if (mode === "owner") {
+      await assert.rejects(fixture(mode, undefined, "gallery"), /UPLOAD_PLACEMENT_INVALID/);
+      return;
+    }
+    const f = await fixture(mode, undefined, "gallery");
+    assert.ok(f.begun.intentId);
+    const stored = await f.t.run(async ctx => ({ intent: await ctx.db.get(f.begun.intentId), submission: await ctx.db.query("profileMediaSubmissions").first() }));
+    assert.deepEqual(stored.intent?.placements, ["gallery"]);
+    assert.equal(stored.submission?.requestedPlacement, "gallery");
+    assert.equal(stored.submission?.requestKind, "kit_asset");
+    await f.t.mutation(internal.contributionUploads.claim, f.claimInput);
+    assert.equal((await f.t.mutation(internal.contributionUploads.complete, f.completeInput)).operationState, "committed");
+  });
+}

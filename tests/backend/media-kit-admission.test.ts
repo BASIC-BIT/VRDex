@@ -105,3 +105,46 @@ it("replays exact successful receipts after kit privacy or gate changes", async 
     finally { process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "true"; }
   }
 });
+
+for (const publisher of [false, true]) for (const currentSource of [false, true]) {
+  it(`preserves legacy browser provenance through ${publisher ? "publication" : "approval"}, current source=${currentSource}`, async () => {
+    const t = convexTest({ schema, modules }); const s = await seed(t);
+    const actor = t.withIdentity(s.contributorIdentity);
+    const upload = await actor.mutation(api.profileMediaSubmissions.createUploadIntent, {
+      profileId: s.profileId, requestedPlacement: "profile_image", originalFileName: "legacy.webp",
+      mimeType: "image/webp", byteSize: 512, sourceUrl: "https://artist.example/original",
+      credit: "Original credit", expectedProfileUpdatedAt: NOW,
+    });
+    await t.run(async ctx => {
+      await ctx.db.patch(upload.submissionId, { requestKind: undefined, requestedPlacement: "profile_image" });
+      await ctx.db.patch(upload.intentId, { placements: ["profile_image"], sourceUrl: currentSource ? "https://artist.example/current" : undefined });
+      if (publisher) await ctx.db.insert("accountFeatureGrants", { userId: s.contributorUserId,
+        feature: "trusted_publisher", state: "active", grantedBy: { issuer: "test", subject: "operator", tokenIdentifier: "test:operator" },
+        grantedAt: Date.now(), updatedAt: Date.now() });
+    });
+    const processingToken = "legacy-worker";
+    await t.mutation(internal.profileAssets.claimUploadIntentForStorage, { intentId: upload.intentId, uploadToken: upload.uploadToken, processingToken });
+    await t.mutation(internal.profileAssets.markUploadIntentUploaded, { intentId: upload.intentId, uploadToken: upload.uploadToken,
+      processingToken, mimeType: "image/webp", byteSize: 512, contentSha256: "legacy-source", width: 800, height: 800 });
+    const before = await t.run(async ctx => ({ capacity: await ctx.db.query("contributionCapacity").collect(), reservations: await ctx.db.query("contributionUploadReservations").collect() }));
+    if (publisher) {
+      const detail = await actor.query(api.profileMediaSubmissions.publisherDetail, { submissionId: upload.submissionId }); assert.ok(detail);
+      assert.equal((await actor.mutation(api.profileMediaSubmissions.publish, { submissionId: upload.submissionId,
+        expectedReviewVersion: detail.reviewVersion, idempotencyKey: "legacy-publish" })).operationState, "committed");
+    } else await t.withIdentity(s.moderatorIdentity).mutation(api.profileMediaSubmissions.decide, {
+      submissionId: upload.submissionId, decision: "approve", expectedProfileUpdatedAt: NOW, privateReason: "Review" });
+    const after = await t.run(async ctx => ({ assets: await ctx.db.query("profileAssets").collect(), placements: await ctx.db.query("profileAssetPlacements").collect(),
+      profile: await ctx.db.get(s.profileId), capacity: await ctx.db.query("contributionCapacity").collect(), reservations: await ctx.db.query("contributionUploadReservations").collect() }));
+    assert.equal(after.assets.length, 1);
+    assert.equal(after.assets[0]?.sourceUrl, currentSource ? "https://artist.example/current" : "https://artist.example/original");
+    assert.equal(after.assets[0]?.credit, "Original credit");
+    assert.deepEqual(after.placements.map(p => p.placement), ["gallery"]);
+    assert.equal(after.profile?.avatarImageUrl, undefined);
+    assert.ok(before.reservations.length === 1 && after.reservations.length === 1);
+    assert.ok(after.capacity.every(row => row.processing === 0));
+    const reservation = after.reservations[0]!;
+    assert.equal(reservation.publishedBytes, before.reservations[0]!.chargedBytes - reservation.quarantineBytes);
+    assert.equal(after.capacity.find(row => row.scope === "published")?.bytes, reservation.publishedBytes);
+    assert.equal(reservation.chargedBytes, reservation.quarantineBytes);
+  });
+}

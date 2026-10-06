@@ -190,7 +190,7 @@ export const begin = internalMutation({
     mode: v.union(v.literal("owner"), v.literal("contributor")),
     profileId: v.id("profiles"),
     expectedUpdatedAt: v.number(),
-    placement: v.union(v.literal("profile_image"), v.literal("primary_logo")),
+    placement: v.union(v.literal("profile_image"), v.literal("primary_logo"), v.literal("gallery")),
     contentType: v.string(),
     byteLength: v.number(),
     sha256: v.string(),

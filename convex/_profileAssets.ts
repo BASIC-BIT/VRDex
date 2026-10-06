@@ -1088,7 +1088,10 @@ export async function finalizeProfileAssetUploadIntentUpload(
     await settleLegacyContribution(db,intent,input);
     if (submission.requestKind !== "identity_placement" && (submission.requestKind !== "kit_asset" || submission.requestedPlacement !== "gallery")) {
       await db.patch(submission._id, { requestKind: "kit_asset", requestedPlacement: "gallery", reviewRevision: (submission.reviewRevision ?? 0) + 1 });
-      await db.patch(intent._id, { placements: ["gallery"] });
+      await db.patch(intent._id, {
+        placements: ["gallery"],
+        ...(intent.sourceUrl === undefined ? { sourceUrl: submission.sourceUrl } : {}),
+      });
     }
     await db.patch(submission._id, {
       status: "submitted",
