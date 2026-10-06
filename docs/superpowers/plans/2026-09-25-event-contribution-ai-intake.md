@@ -1,5 +1,7 @@
 # Community Event Contribution and AI Intake Implementation Plan
 
+Follow-on direction (2026-09-29): [event editor visual reference](../../planning/event-editor-visual-reference-2026-09-29.md). For future editor work, BASIC superseded this historical plan's single-poster extraction and separate `Use as event artwork` action: text plus multiple images belong in one discovery run, and the event poster is artwork without a separate opt-in. The tasks below describe the original delivery, not the new editor implementation plan.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let any signed-in account create a useful event for any public community through manual, text, or poster intake, publish it immediately after preflight, and show a clean public lineup and DJ-link sheet.

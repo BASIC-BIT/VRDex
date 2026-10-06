@@ -135,6 +135,42 @@ caches for discovery. Date-only events accept untimed rows only. Existing timed
 sets retain their playback identity and selected stream when the person is unchanged.
 The legacy owner editor continues using its existing slot and participant writes.
 
+The owner/staff editor uses the shared Source, Details, Lineup, and Review
+navigation. Source retains the existing poster URL and media/link fields;
+private single-poster intake remains a separate contributor workflow. Details
+contains the current title, description, timing, timezone, and applicable venue
+controls. Lineup shows matched public portraits or initials beside timed and
+untimed performers, with timed rows displaying their actual event-local dates.
+Review contains publication controls and a collapsed Advanced area for live
+output, worker status, cancellation, restoration, and audit history.
+
+Inactive step fields stay mounted for canonical FormData serialization.
+Publication reveals the first invalid field's step and focuses it before calling
+the existing create/update command. An unselected timezone search, a nonexistent
+local start time, or a repeated time without an occurrence choice also returns
+to Details and focuses the corresponding timing control. Save draft remains available on every step
+under the existing canonical validation rules. Publication still redirects to
+the event page. These presentation changes do not alter `events:write`, community
+authority checks, stream assignment, or VRCDN output commands.
+
+```mermaid
+flowchart LR
+  Community[Managed community or account events] --> Auth[Sign in if needed]
+  Direct[Direct staff edit link] --> Auth
+  Auth --> Source[Source]
+  Source --> Details[Details]
+  Details --> Lineup[Lineup]
+  Lineup --> Review[Review]
+  Review -->|Edit details| Details
+  Review -->|Edit lineup| Lineup
+  Review -->|Publish or save changes| Event[Event page]
+  Review -->|Expand Advanced| Operations[Staff operations]
+  Source -->|Save draft| Draft[Private canonical draft]
+  Details -->|Save draft| Draft
+  Lineup -->|Save draft| Draft
+  Review -->|Save draft| Draft
+```
+
 The public page shows one Lineup with optional local set times and portraits or
 initials. Performer names lead to their profiles. A collapsed DJ links section at
 the bottom groups unique VRCDN and Twitch targets; other socials remain on the

@@ -66,7 +66,7 @@ function fixtureClient() {
     if (name === "events:getEditableBySlug") return event;
     if (name === "events:getPublicBySlug") return publicEvent ?? event;
     if (name === "events:getPersonStreamChoices") return event.slots.find(slot => slot.performer?.slug === args.slug)?.streamChoices ?? choices[args.slug as keyof typeof choices] ?? [];
-    if (name === "search:searchUniversal") return Object.values(people).filter(person => person.slug.includes(String(args.query))).map(person => ({ slug: person.slug, title: person.displayName, routePath: `/${person.slug}` }));
+    if (name === "search:searchUniversal") return Object.values(people).filter(person => person.slug.includes(String(args.query))).map(person => ({ slug: person.slug, title: person.displayName, routePath: `/${person.slug}`, imageUrl: "imageUrl" in person ? person.imageUrl : undefined }));
     if (name === "events:getEventMediaControlStatus") return mediaStatus;
     return empty;
   };
@@ -77,7 +77,9 @@ function fixtureClient() {
         journal: () => undefined };
     },
     async mutation(mutation: FunctionReference<"mutation">, args: Record<string, unknown>) {
-      if (getFunctionName(mutation) !== "events:updateCommunityEvent") throw new Error("Unsupported fixture mutation");
+      const command = getFunctionName(mutation);
+      if (!["events:updateCommunityEvent", "events:createCommunityEvent"].includes(command)) throw new Error("Unsupported fixture mutation");
+      localStorage.setItem("event-lineup-fixture-command", command);
       localStorage.setItem(`${storageKey}-submission`, JSON.stringify(args));
       const error = localStorage.getItem("event-lineup-fixture-save-error");
       if (error) throw new Error(error);
@@ -99,7 +101,7 @@ function fixtureClient() {
 function Editor() {
   const [bootstrap] = useState(() => JSON.parse(localStorage.getItem(storageKey) ?? JSON.stringify(fixtureEvent)) as EditableEvent);
   const event = useQuery(api.events.getEditableBySlug, { slug: bootstrap.slug });
-  return event ? <main className="mx-auto max-w-4xl p-5"><EventEditorForm communitySlug={bootstrap.communitySlug ?? "afterglow"} demoMode event={event} /></main> : null;
+  return event ? <main className="mx-auto max-w-6xl p-5"><EventEditorForm communitySlug={bootstrap.communitySlug ?? "afterglow"} demoMode event={new URLSearchParams(window.location.search).get("mode") === "create" ? undefined : event} /></main> : null;
 }
 export default function EventLineupFixture() {
   const [client] = useState(fixtureClient);

@@ -18,6 +18,17 @@ test("intake client carries bearer authority and uses the shared wire paths", as
   await assert.rejects(client.eventIntake("draft_save", { patch: { title: "Night" }, actorUserId: "forged" }));
 });
 
+test("intake client preserves singular source inputs", async () => {
+  const bodies: unknown[] = [];
+  const client = createVrdexApiClient({ apiBaseUrl: "http://127.0.0.1/api/v0", bearerToken: "test", outputMode: "compact", fetch: async (_url, init) => {
+    bodies.push(JSON.parse(String(init?.body)));
+    return Response.json(bodies.length === 1 ? { draftId: "draft", version: 2 } : { event: { title: null, communitySlug: null, eventDate: null, start: null, end: null, startDate: null, endDate: null, timezone: null, venueLabel: null, summary: null, sourceUrl: null }, lineup: [], evidence: [], questions: [] });
+  } });
+  await client.eventIntake("draft_save", { draftId: "draft", expectedVersion: 1, patch: { posterSourceId: "a" } });
+  await client.eventIntake("extract", { draftId: "draft", posterAssetId: "a" });
+  assert.deepEqual(bodies, [{ draftId: "draft", expectedVersion: 1, patch: { posterSourceId: "a" } }, { posterAssetId: "a" }]);
+});
+
 test("poster bridge rejects source URLs and unconfigured upload origins before network access", async () => {
   const client = createVrdexApiClient({ apiBaseUrl: "http://127.0.0.1/api/v0", outputMode: "compact", fetch: async () => { throw new Error("network called"); } });
   assert.equal(typeof client.uploadEventPosterBytes, "function");
@@ -30,7 +41,7 @@ test("poster bytes go only to a pinned HTTPS origin, without bearer headers or r
   let transfers = 0;
   const client = createVrdexApiClient({ apiBaseUrl: "http://127.0.0.1/api/v0", bearerToken: "secret", outputMode: "compact", posterUploadOrigin: "https://storage.example", fetch: async (url, init) => {
     if (String(url).endsWith("/begin")) return Response.json({ posterAssetId: "poster", expiresAt: Date.now()+600000, transfer: { method: "POST", url: uploadOrigin + "/upload", fields: { key: "private-source" }, fileField: "file" } });
-    if (String(url).endsWith("/complete")) return Response.json({ posterAssetId: "poster" });
+    if (String(url).endsWith("/complete")) return Response.json({ posterAssetId: "poster", version: 2 });
     assert.equal(new URL(String(url)).origin,"https://storage.example");
     assert.equal(new Headers(init?.headers).has("authorization"),false);
     assert.equal(init?.redirect,"error");
@@ -41,7 +52,7 @@ test("poster bytes go only to a pinned HTTPS origin, without bearer headers or r
   assert.equal(transfers,0);
   uploadOrigin="https://storage.example";
   const result=await client.uploadEventPosterBytes({ draftId:"draft",base64,contentType:"image/png" });
-  assert.deepEqual(result,{ok:true,data:{posterAssetId:"poster"}});assert.equal(transfers,1);
+  assert.deepEqual(result,{ok:true,data:{posterAssetId:"poster",version:2}});assert.equal(transfers,1);
   await assert.rejects(client.uploadEventPosterBytes({ draftId:"draft",base64,contentType:"image/jpeg" }),/type/);
   // Nonzero padding bits decode to the same bytes but are not canonical base64.
   const noncanonical = base64.slice(0, -2) + "J=";

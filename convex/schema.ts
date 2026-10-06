@@ -1128,6 +1128,7 @@ export default defineSchema({
   eventPosterArtwork: defineTable({
     actorUserId: v.id("users"), draftId: v.id("eventIntakeDrafts"), sourceId: v.id("eventPosterSources"),
     storageKey: v.optional(v.string()), sha256: v.optional(v.string()), byteLength: v.optional(v.number()),
+    appliedDraftVersion: v.optional(v.number()),
     state: v.union(v.literal("pending"), v.literal("ready"), v.literal("published"), v.literal("deleting"), v.literal("expired")),
     createdAt: v.number(), expiresAt: v.number(), eventId: v.optional(v.id("events")),
     cleanupToken: v.optional(v.string()), cleanupLeaseUntil: v.optional(v.number()),
@@ -1138,6 +1139,7 @@ export default defineSchema({
   }).index("by_actor_createdAt", ["actorUserId", "createdAt"]).index("by_createdAt", ["createdAt"]),
   eventIntakeDrafts: defineTable({
     artworkAssetId: v.optional(v.id("eventPosterArtwork")),
+    artworkIntentSourceId: v.optional(v.id("eventPosterSources")),
     actorUserId: v.id("users"), version: v.number(),
     // Validated by the shared strict EventIntakePatchSchema on every read/write.
     fields: v.any(),

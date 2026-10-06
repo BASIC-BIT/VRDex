@@ -115,6 +115,24 @@ it("rejects a poster completion bound to another draft", () => {
     await assert.rejects(run("poster_upload_begin",{draftId:"draft",sourceUrl:"https://internal.example/",contentType:"image/png",byteLength:1,sha256:"a".repeat(64)}));
   `);
 });
+it("rejects the removed artwork clearing command shape", () => {
+  probe(`import assert from "node:assert/strict";
+    import {SelectEventArtworkSchema} from "./packages/api-contracts/src/event-intake.ts";
+    assert.equal(SelectEventArtworkSchema.safeParse({draftId:"draft",posterAssetId:null,expectedVersion:3}).success,false);
+  `);
+});
+it("forwards singular text and poster extraction sources to actor authorization", () => {
+  probe(`import assert from "node:assert/strict";
+    import {createEventIntakeCommands} from "./apps/web/src/lib/server/event-intake-api.ts";
+    process.env.VRDEX_EVENT_INTAKE_AI_ENABLED="false";process.env.OPENAI_API_KEY="";
+    const calls=[];
+    const run=createEventIntakeCommands({actorUserId:"actor",admin:{query:async()=>{throw Error("unexpected query");},mutation:async(_ref,args)=>{calls.push(args);return {actorUserId:"actor",version:1};},action:async()=>{throw Error("unexpected action");}}});
+    await run("extract",{draftId:"draft",sourceText:"Night",posterAssetId:"a"});
+    await run("extract",{draftId:"draft",posterAssetId:"a"});
+    assert.deepEqual(calls.map(({posterAssetId})=>posterAssetId),["a","a"]);
+    assert.ok(calls.every(call=>call.actorUserId==="actor"&&call.reserveQuota===false));
+  `);
+});
 
 it("returns an OAuth scope challenge for intake writes and private readback", () => {
   probe(`import assert from "node:assert/strict";

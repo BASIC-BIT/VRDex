@@ -42,9 +42,11 @@ it("returns an unavailable draft for a malformed browser draft link", async () =
 
 it("saves a private poster-only draft and refuses wholly empty durable drafts", async () => {
   const { t, actor } = await fixture();
-  const result = await actor.mutation(save, { patch: { posterSourceId: "source-1" } });
+  const declaration = {contentType:"image/png",byteLength:128,sha256:"a".repeat(64)};
+  const result = await actor.mutation(save, { patch: { posterDeclaration: declaration } });
   assert.equal(result.version, 1);
-  assert.equal((await actor.query(get, { draftId: result.draftId })).fields.posterSourceId, "source-1");
+  assert.deepEqual((await actor.query(get, { draftId: result.draftId })).fields.posterDeclaration, declaration);
+  await assert.rejects(actor.mutation(save, { patch: { posterSourceId: "source-1" } }), /POSTER_DRAFT_MISMATCH/);
   await assert.rejects(actor.mutation(save, { patch: { title: " " } }), /meaningful/i);
   await assert.rejects(t.query(get, { draftId: result.draftId }));
   assert.equal(await t.withIdentity({ subject: "other-user" }).query(get, { draftId: result.draftId }), null);
@@ -142,6 +144,16 @@ it("bounds drafts, rejects authority and unsafe URLs, and preserves tentative va
   for (let i = 1; i < 20; i++) await actor.mutation(save, { patch: { title: `Draft ${i}` } });
   await assert.rejects(actor.mutation(save, { patch: { title: "Over quota" } }), /DRAFT_QUOTA/);
 });
+it("keeps accepted fields but clears stale discovery when source text changes", async () => {
+  const { actor } = await fixture();
+  const evidence = [{ fieldPath: "event.title", origin: "text", excerpt: "Night", assessment: "explicit" }];
+  const draft = await actor.mutation(save, { patch: { title: "My title", sourceText: "Night", tentative: { title: "Night" }, evidence, questions: ["event.date: unknown"] } });
+  assert.deepEqual((await actor.query(get, { draftId: draft.draftId })).fields.evidence, evidence);
+  await actor.mutation(save, { draftId: draft.draftId, expectedVersion: draft.version, patch: { sourceText: "New flyer" } });
+  const fields = (await actor.query(get, { draftId: draft.draftId })).fields;
+  assert.equal(fields.title, "My title"); assert.equal(fields.tentative, undefined);
+  assert.equal(fields.evidence, undefined); assert.equal(fields.questions, undefined);
+});
 it("requires explicit DST selection and cross-midnight day offsets for timed events and lineup", async () => {
   const { t, actor } = await fixture();
   const draft = await actor.mutation(save, { patch: { ...complete, eventDate: "2027-11-07", timeTba: false, timezone: "America/New_York", start: { time: "01:30" } } });
@@ -166,13 +178,13 @@ it("does not create an event or receipt when lineup validation fails", async () 
 it("shows contributor lineup matches without claiming a performer's profile before staff review", async () => {
   const { t, actor } = await fixture();
   const personId = await t.run(ctx => ctx.db.insert("profiles", { slug: "public-dj", displayName: "Public DJ", sortName: "public dj", profileType: "person", person: { roleTags: [] }, aliases: [], tags: [], claimState: "unclaimed", publicationState: "published", publicSurfacingState: "public", creationSource: "community", updatedAt: Date.now() }));
-  const draft = await actor.mutation(save, { patch: { ...complete, sourceText: "Private source evidence", posterSourceId: "private-poster", lineup: [{ clientKey: "a", position: 0, performerLabel: "Public DJ", personSlug: "public-dj" }] } });
+  const draft = await actor.mutation(save, { patch: { ...complete, sourceText: "Private source evidence", posterDeclaration: {contentType:"image/png",byteLength:128,sha256:"a".repeat(64)}, lineup: [{ clientKey: "a", position: 0, performerLabel: "Public DJ", personSlug: "public-dj" }] } });
   const result = await actor.action(publish, { draftId: draft.draftId, expectedVersion: 1, idempotencyKey: "matched" });
   const event = await t.run(ctx => ctx.db.get(result.eventId));
   const publicEvent = await t.query(api.events.getPublicBySlug, { slug: event!.slug! });
   assert.equal(publicEvent?.lineup[0].displayLabel, "Public DJ");
   assert.equal(publicEvent?.participants.length, 0);
-  for (const key of ["contributorUserId", "sourceText", "posterSourceId", "ownerConfirmed", "submitter"]) assert.equal(Object.hasOwn(publicEvent!, key), false);
+  for (const key of ["contributorUserId", "sourceText", "posterSourceId", "posterDeclaration", "ownerConfirmed", "submitter"]) assert.equal(Object.hasOwn(publicEvent!, key), false);
   assert.equal(publicEvent?.posterImageUrl, undefined);
   assert.equal((await t.run(ctx => ctx.db.query("eventParticipants").first()))?.confirmationState, "unconfirmed");
   assert.equal((await t.run(ctx => getPublicPersonUpcomingEvents(ctx.db, personId, Date.now()))).length, 0);
