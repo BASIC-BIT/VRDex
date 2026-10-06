@@ -72,27 +72,39 @@ as thin compatibility shims, not duplicated long playbooks.
 
 ## MCP Config
 
-Codex project MCP config lives at `.codex/config.toml` and mirrors the OpenCode
-`.opencode/opencode.json` servers:
+Codex project MCP defaults live at `.codex/config.toml`. They are separate from
+OpenCode's `.opencode/opencode.json` defaults.
 
-- `playwright`
-- `vercel_vrdex`
-- `convex`
-- `aws_docs`
-- `aws_iac`
-- `aws_terraform`
-- `aws_mcp`
-- `daytona`
+| Server | Fresh-checkout default | Preferred route |
+| --- | --- | --- |
+| `playwright` | Enabled | Configured browser MCP |
+| `vercel_vrdex` | Parked | Connected native Vercel plugin or Vercel CLI |
+| `convex` | Enabled | Configured Convex MCP or the project's Convex CLI |
+| `aws_docs` | Parked | Available AWS documentation tools or official AWS docs |
+| `aws_iac` | Parked | AWS CLI and CloudFormation tooling |
+| `aws_terraform` | Parked | Terraform CLI and provider documentation |
+| `aws_mcp` | Enabled | Configured AWS MCP with the intended account and region |
+| `daytona` | Parked | Deliberate reactivation when Daytona is needed |
 
-These are project-scoped VRDex servers. Keep them in repo-local config rather
-than relying on global Codex config inheritance. Global Codex MCP entries should
-be reserved for genuinely cross-repo tools.
+The five parked entries have `enabled = false` to avoid starting redundant or
+unused transports in each checkout. Their launch and account settings remain
+available for recovery. Missing parked tools are expected, not a setup failure.
+A native plugin or CLI must be available and authenticated for the intended task;
+its presence does not prove every MCP operation is covered.
 
-Project MCP commands should be PATH-resolved where possible. Personal absolute
-paths, account-specific environment variables, and machine-local command paths
-belong in local or global Codex config, not committed project config.
+For a required operation that the preferred route cannot provide, deliberately
+set `enabled = true` in that server's existing project table. Trust the intended
+checkout, confirm the declared runtime and account/region, then refresh the chat
+and verify the required operation. Preserve the other profile fields and approval
+rules. Return it to `enabled = false` when the temporary need is finished; do not
+make routine recovery a global registration.
 
-If an MCP server is not active in the current Codex session, use the documented
-CLI fallback (`vercel`, `aws`, `npx convex`, `gh`) or report the missing
-capability. Production data, infrastructure, billing, or secret mutations still
-require the normal approval and escalation workflow.
+Keep project-specific tools in repo-local config. Global Codex MCP entries should
+be reserved for tools needed across repositories. Project commands should be
+PATH-resolved where possible; personal absolute paths and account-specific
+environment values belong in personal configuration, not committed defaults.
+
+For other missing tools, use the documented CLI fallback (`vercel`, `aws`,
+`npx convex`, `gh`) or report the capability gap. Production data,
+infrastructure, billing, or secret mutations still require the normal approval
+and escalation workflow.
