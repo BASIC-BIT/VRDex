@@ -1,7 +1,7 @@
 import { ConvexError } from "convex/values";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { getAccountFeatureAccess } from "./_accountFeatures";
-import { assertReviewActorVerified, hash, reviewSnapshot, type ReviewActor } from "./_mediaReview";
+import { assertReviewActorVerified, hash, publicKitAvailable, reviewSnapshot, type ReviewActor } from "./_mediaReview";
 import { selectProfileAssetIdentity, PROFILE_MEDIA_SUBMISSION_RETENTION_MS,
   sanitizeProfileAssetLabel, sanitizeProfileAssetAltText, sanitizeProfileAssetCredit,
   sanitizeProfileAssetCreditUrl, normalizeProfileAssetSourceUrl } from "./_profileAssets";
@@ -49,7 +49,8 @@ async function contributionState(ctx: QueryCtx | MutationCtx, submissionId: stri
     q.eq("assetId", asset._id).eq("state", "active")).take(20);
   const protectedSelection = assetPlacements.length === 20 || assetPlacements.some(row => row.placement !== "gallery" ||
     (row.selectionActorUserId !== undefined && row.selectionActorUserId !== actor.user._id));
-  const ownKitOnly = kitVisible && !restrictions.some(Boolean) && asset.state === "active" &&
+  const ownKitOnly = process.env.VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED === "true" &&
+    publicKitAvailable(profile) && kitVisible && !restrictions.some(Boolean) && asset.state === "active" &&
     !protectedSelection;
   return { submission, profile, asset, placement, snapshot, current, identityPlacements, publisher, publicUnclaimed, restrictions, ownSelection, kitVisible, ownKitOnly, protectedSelection,
     version: await hash({ asset, source: submission, placement: current, assetPlacements, picture: snapshot.currentImage, restrictions, publicUnclaimed, revision: snapshot.reviewVersion }) };

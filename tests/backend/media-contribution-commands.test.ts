@@ -464,3 +464,35 @@ it("browser inventory hides logically removed and unavailable contributions and 
   await second.t.run(ctx => ctx.db.patch(current!.assetId, { moderatorSuppressedAt: Date.now() }));
   assert.equal(await second.detail(), null);
 });
+
+for (const gate of ["VRDEX_PROFILE_MEDIA_KIT_ENABLED", "VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED"] as const) {
+  it(`disables management capabilities and new commands when ${gate} is disabled, preserving receipts`, async () => {
+    const f = await fixture();
+    const d = await f.detail();
+    const priorArgs = { submissionId: f.intent.submissionId, expectedContributionVersion: d.contributionVersion,
+      idempotencyKey: "before-disabled", action: "update_metadata" as const, metadata: { credit: "Corrected credit" } };
+    const prior = await f.actor.mutation(api.profileMediaSubmissions.manageContribution, priorArgs);
+    assert.equal(prior.operationState, "committed");
+    const fresh = await f.detail();
+    const before = await f.t.run(ctx => ctx.db.get(fresh.assetId));
+    const previousGate = process.env[gate];
+    process.env[gate] = "false";
+    try {
+      const disabled = await f.detail();
+      assert.equal(disabled.canEditMetadata, false);
+      assert.equal(disabled.canRemove, false);
+      for (const action of ["update_metadata", "remove"] as const) {
+        const receipt = await f.actor.mutation(api.profileMediaSubmissions.manageContribution, {
+          submissionId: f.intent.submissionId, expectedContributionVersion: fresh.contributionVersion,
+          idempotencyKey: `disabled-${action}`, action, ...(action === "update_metadata" ? { metadata: priorArgs.metadata } : {}),
+        });
+        assert.equal(receipt.operationState, "refused");
+        assert.equal(receipt.code, "review_disabled");
+      }
+      assert.deepEqual(await f.actor.mutation(api.profileMediaSubmissions.manageContribution, priorArgs), prior);
+      assert.deepEqual(await f.t.run(ctx => ctx.db.get(fresh.assetId)), before);
+    } finally {
+      process.env[gate] = previousGate;
+    }
+  });
+}
