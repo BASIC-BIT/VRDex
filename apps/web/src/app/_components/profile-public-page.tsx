@@ -343,6 +343,7 @@ function mimeLabel(value: string): string {
 }
 
 function MediaAssetCard({ asset, label, featured = false }: { asset: PublicProfileAsset; label: string; featured?: boolean }) {
+  const title = asset.label?.trim() || label;
   const creditUrl = safeCreditUrl(asset.creditUrl);
   const downloadMimeType = asset.downloadMimeType ?? asset.mimeType;
   const downloadByteSize = asset.downloadByteSize ?? asset.byteSize;
@@ -350,17 +351,17 @@ function MediaAssetCard({ asset, label, featured = false }: { asset: PublicProfi
     <article className={cn("group grid overflow-hidden rounded-card border border-border bg-surface-strong text-sm transition hover:-translate-y-0.5 hover:shadow-panel", featured ? "lg:grid-cols-[minmax(0,1.35fr)_minmax(16rem,0.65fr)]" : undefined)}>
       <div className={cn("relative bg-canvas-muted", featured ? "min-h-72" : "aspect-[4/3]")}>
         <MediaPreviewImage
-          alt={asset.altText || asset.label || label}
+          alt={asset.altText || title}
           className="absolute inset-0 size-full object-contain"
           src={asset.imageUrl}
         />
       </div>
       <div className="grid content-start gap-2 p-4">
-        <h3 className={cn("font-medium", featured ? "text-xl" : undefined)}>{asset.label ?? label}</h3>
+        <h3 className={cn("font-medium", featured ? "text-xl" : undefined)}>{title}</h3>
         {asset.caption ? <p className="leading-6 text-muted">{asset.caption}</p> : null}
         {creditUrl ? (
           <a className="w-fit break-all text-xs text-muted underline underline-offset-4" href={creditUrl}>
-            {asset.credit || creditUrl}
+            {asset.credit || "Open source"}
           </a>
         ) : asset.credit ? (
           <p className="text-xs text-muted">{asset.credit}</p>
@@ -368,7 +369,7 @@ function MediaAssetCard({ asset, label, featured = false }: { asset: PublicProfi
         <p className="text-xs text-muted">
           {mimeLabel(downloadMimeType)} / {formatByteSize(downloadByteSize)}
         </p>
-        <a aria-label={`Download ${asset.label ?? label}`} className={cn(buttonVariants({ size: "sm", variant: "secondary" }), "mt-2 w-fit")} download href={asset.downloadUrl}>
+        <a aria-label={`Download ${title}`} className={cn(buttonVariants({ size: "sm", variant: "secondary" }), "mt-2 w-fit")} download href={asset.downloadUrl}>
           Download
         </a>
       </div>

@@ -55,7 +55,7 @@ const writeToolScopes: Record<string, string> = {
 };
 // Independent hosted contract fixture, deliberately not imported from runtime schemas.
 const contributionSchemas: Record<string, Record<string, unknown>> = {
-  vrdex_media_contribution_get: { inputSchema: { type: "object", additionalProperties: false, required: ["submissionId"] }, outputSchema: { required: ["submissionId", "assetId", "contributionVersion", "metadata", "canSelectPrimary", "canClearPrimary", "canEditMetadata", "canRemove"] } },
+  vrdex_media_contribution_get: { inputSchema: { type: "object", additionalProperties: false, required: ["submissionId"] }, outputSchema: { required: ["submissionId", "assetId", "contributionVersion", "metadata", "canSelectPrimary", "canClearPrimary", "canProposePlacement", "canEditMetadata", "canRemove"] } },
   vrdex_media_contribution_manage: { inputSchema: { type: "object", oneOf: [
     { additionalProperties: false, required: ["submissionId", "expectedContributionVersion", "idempotencyKey", "action", "metadata"] },
     { additionalProperties: false, required: ["submissionId", "expectedContributionVersion", "idempotencyKey", "action"] },

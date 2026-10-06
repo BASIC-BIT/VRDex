@@ -201,7 +201,7 @@ export function assertHostedContributionSchemas(tool: HostedToolDescriptor) {
     assert.equal(variants.length, 2, `${name} management actions changed.`);
     for (const variant of variants) assert.ok(variant?.required?.includes("action"), `${name} action is required.`);
   }
-  const outputFields = name === "vrdex_media_contribution_get" ? ["submissionId", "assetId", "contributionVersion", "metadata", "canSelectPrimary", "canClearPrimary", "canEditMetadata", "canRemove"] : ["operationId", "operationState"];
+  const outputFields = name === "vrdex_media_contribution_get" ? ["submissionId", "assetId", "contributionVersion", "metadata", "canSelectPrimary", "canClearPrimary", "canProposePlacement", "canEditMetadata", "canRemove"] : ["operationId", "operationState"];
   for (const field of outputFields) assert.ok(output?.required?.includes(field), `${name} ${name.endsWith("_get") ? "detail" : "receipt"} lacks ${field}.`);
 }
 

@@ -3410,7 +3410,7 @@ it("contribution protocol tools dispatch exact attested wrappers, reject missing
     import { assertHostedContributionSchemas } from "./scripts/smoke-vrdex-mcp-compat.ts";
     import { createVrdexMcpHandler } from "./apps/web/src/lib/server/vrdex-mcp.ts";
     const calls=[]; const receipt={operationId:"key",operationState:"committed"};
-    const detail={submissionId:"submission",assetId:"asset",profileId:"profile",profileSlug:"fixture",contributionVersion:"version",metadata:{label:"Image",credit:"Creator"},canSelectPrimary:true,canClearPrimary:false,canEditMetadata:true,canRemove:true};
+    const detail={submissionId:"submission",assetId:"asset",profileId:"profile",profileSlug:"fixture",contributionVersion:"version",metadata:{label:"Image",credit:"Creator"},canSelectPrimary:true,canClearPrimary:false,canProposePlacement:false,canEditMetadata:true,canRemove:true};
     const handler=createVrdexMcpHandler({now:()=>2000,verifyContributorEmail:async()=>true,adminConvex:{
       query:async(ref,args)=>{calls.push({name:getFunctionName(ref),args});return detail},
       mutation:async(ref,args)=>{const name=getFunctionName(ref);if(name==="mcpToolEvents:recordWriteInvocation")return null;calls.push({name,args});return name.includes("declarePublicationEvidence")?{operationId:"key",operationState:"refused",code:"legacy_declaration_retired"}:receipt},

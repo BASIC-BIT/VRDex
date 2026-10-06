@@ -33,7 +33,7 @@ it("bounds contribution commands and refuses caller-selected capabilities", () =
   assert.equal(publishedContributionDetailSchema.safeParse({
     submissionId: "submission", assetId: "asset", profileId: "profile", profileSlug: "dj",
     contributionVersion: "version", metadata: { label: "Image", credit: "Artist" },
-    canSelectPrimary: true, canClearPrimary: false, canEditMetadata: true, canRemove: true,
+    canSelectPrimary: true, canClearPrimary: false, canProposePlacement: false, canEditMetadata: true, canRemove: true,
   }).success, true);
 });
 import {

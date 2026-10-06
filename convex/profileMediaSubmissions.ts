@@ -55,8 +55,13 @@ const contributionMetadataPatch = v.object({ label: nullableText, altText: nulla
   creditUrl: nullableText, sourceUrl: nullableText, sourceDescription: nullableText });
 const manageCommandArgs = { ...contributionCommandArgs, action: v.union(v.literal("update_metadata"), v.literal("remove")),
   metadata: v.optional(contributionMetadataPatch) };
-export const contributionDetail = query({ args: { submissionId }, handler: async (ctx, args) =>
-  publishedContributionDetail(ctx, args.submissionId, await browserReviewActor(ctx)) });
+export const contributionDetail = query({ args: { submissionId }, handler: async (ctx, args) => {
+  try { return await publishedContributionDetail(ctx, args.submissionId, await browserReviewActor(ctx)); }
+  catch (error) {
+    if (error instanceof ConvexError && typeof error.data === "object" && error.data?.code === "MEDIA_RESOURCE_UNAVAILABLE") return null;
+    throw error;
+  }
+} });
 export const contributionDetailForMcpActor = internalQuery({
   args: { submissionId, actorUserId: v.id("users"), ...reviewActorAttestationArgs },
   handler: async (ctx, args) => publishedContributionDetail(ctx, args.submissionId,

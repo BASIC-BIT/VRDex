@@ -246,3 +246,11 @@ the import or clear the token merely to make cleanup pass.
 Production contribution approval and the first legitimate public target remain
 separate operator decisions. See
 [the hosted MCP rollout gate](../developers/hosted-mcp-oauth-writes.md#contribution-rollout-gate).
+
+## Media-kit publication candidate
+
+The media-kit publication candidate extends this same opt-in fixture. Contributor A receives a run-scoped, expiring trusted-publisher grant. Reviewer B receives an expiring media-reviewer grant and an active assignment to the run collection. They remain separate accounts. The guarded fixture attaches each synthetic submission to one revision and attempt, including a replacement proposal with no upload intent. It does not grant site-admin authority.
+
+The third image is a generated 64 by 48 PNG, distinct from both static source images. Assertions cover website publication without declarations, unchanged primary picture, selection and undo, metadata correction, ordinary review publication into the kit, explicit review comparison against a published candidate, protected removal refusal, and logical removal of an unused kit item. Removal keeps stored bytes and accounting until fixture teardown. The existing owner-claim refusal remains a separate final check.
+
+Teardown bounds and validates feature grants, batch revisions, attempts, assignments, media rows and receipts against the exact run actors before deleting them. Local Storybook and static Next screenshots prove UI fixture behavior only. Acceptance still requires the exact candidate deployed together to designated staging and an executed authenticated lifecycle with verified cleanup.

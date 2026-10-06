@@ -3,12 +3,18 @@
 import Link from "next/link";
 import { useState } from "react";
 import { PublicationCard } from "./publication-card";
+import { PublishedContributionCard } from "./published-contribution-card";
 import { useMutation, useQuery, usePaginatedQuery } from "convex/react";
 import { api } from "@convex-generated-api";
 
 import { Button } from "@/components/ui/button";
 import { Card, SectionTitle } from "@/components/ui/card";
 import { Notice } from "@/components/ui/notice";
+
+function hasPendingPublication(submissionId: string) {
+  try { return typeof window !== "undefined" && sessionStorage.getItem(`vrdex:publication:${submissionId}`) !== null; }
+  catch { return false; }
+}
 
 const statusLabel = {
   upload_pending: "Upload pending",
@@ -83,7 +89,9 @@ export function MediaContributionsPanel() {
               <div>
                 <dt className="text-muted">Requested use</dt>
                 <dd>
-                  {submission.requestedPlacement === "profile_image"
+                  {submission.requestedPlacement === "gallery"
+                    ? "Media kit"
+                    : submission.requestedPlacement === "profile_image"
                     ? "Profile image"
                     : "Primary logo"}
                 </dd>
@@ -94,6 +102,7 @@ export function MediaContributionsPanel() {
               </div>
             </dl>
             {pendingPublications.has(submission.submissionId) ||
+            hasPendingPublication(submission.submissionId) ||
             (access?.canPublishMedia &&
               submission.publisherTargetAvailable &&
               ["submitted", "under_review"].includes(submission.status)) ? (
@@ -104,6 +113,7 @@ export function MediaContributionsPanel() {
                 }
               />
             ) : null}
+            {submission.status === "approved" && submission.requestKind !== "identity_placement" ? <PublishedContributionCard submissionId={submission.submissionId} /> : null}
             {submission.status === "approved" ? (
               <p className="mt-3 text-sm text-muted">
                 {submission.publicationMethod === "trusted_publisher"

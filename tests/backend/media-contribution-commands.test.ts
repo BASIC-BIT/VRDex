@@ -230,7 +230,7 @@ for (const condition of ["legacy", "revoked", "claimed", "private", "other_contr
       if (condition === "private") await ctx.db.patch(f.s.profileId, { publicSurfacingState: "opted_out" });
       if (condition === "other_contributor") await ctx.db.patch(f.intent.submissionId, { submitterUserId: f.s.moderatorUserId });
     });
-    if (condition === "other_contributor") await assert.rejects(f.detail(), /unavailable/i);
+    if (condition === "other_contributor") assert.equal(await f.detail(), null);
     else {
       assert.equal((await f.detail()).canSelectPrimary, false);
       assert.equal((await f.place("select_primary")).operationState, "refused");
@@ -431,4 +431,36 @@ it("does not interpret a rejected placement as a digest-wide content rejection",
   const pending = await actor.query(api.profileMediaSubmissions.publisherDetail, { submissionId: intent.submissionId });
   assert.ok(pending);
   assert.equal((await actor.mutation(api.profileMediaSubmissions.publish, { submissionId: intent.submissionId, expectedReviewVersion: pending.reviewVersion, idempotencyKey: "another-publication" })).operationState, "committed");
+});
+
+it("projects replacement capability for an ordinary contributor only on eligible occupied targets", async () => {
+  const f = await fixture();
+  await f.t.run(ctx => ctx.db.patch(f.grant, { state: "revoked" }));
+  assert.equal((await f.detail()).canProposePlacement, false);
+  await f.t.run(ctx => ctx.db.patch(f.s.profileId, { avatarImageUrl: "https://example.test/current.png" }));
+  assert.equal((await f.detail()).canSelectPrimary, false);
+  assert.equal((await f.detail()).canProposePlacement, true);
+  await f.t.run(ctx => ctx.db.patch(f.s.profileId, { claimState: "claimed_verified" }));
+  assert.equal((await f.detail()).canProposePlacement, false);
+  await f.t.run(ctx => ctx.db.patch(f.s.profileId, { claimState: "unclaimed", publicSurfacingState: "opted_out" }));
+  assert.equal((await f.detail()).canProposePlacement, false);
+  await f.t.run(async ctx => {
+    await ctx.db.patch(f.s.profileId, { publicSurfacingState: "public" });
+    await ctx.db.insert("mediaPublicationRestrictions", { profileId: f.s.profileId, kind: "identity", submissionId: f.intent.submissionId, createdAt: Date.now(), actorUserId: f.s.moderatorUserId });
+  });
+  assert.equal((await f.detail()).canProposePlacement, false);
+});
+
+it("browser inventory hides logically removed and unavailable contributions and removal retry preserves its receipt", async () => {
+  const f = await fixture();
+  const d = await f.detail();
+  const input = { submissionId: f.intent.submissionId, expectedContributionVersion: d!.contributionVersion, idempotencyKey: "removed-inventory", action: "remove" as const };
+  const receipt = await f.actor.mutation(api.profileMediaSubmissions.manageContribution, input);
+  assert.equal(receipt.operationState, "committed");
+  assert.equal(await f.detail(), null);
+  assert.deepEqual(await f.actor.mutation(api.profileMediaSubmissions.manageContribution, input), receipt);
+  const second = await fixture();
+  const current = await second.detail();
+  await second.t.run(ctx => ctx.db.patch(current!.assetId, { moderatorSuppressedAt: Date.now() }));
+  assert.equal(await second.detail(), null);
 });

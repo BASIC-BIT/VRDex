@@ -594,7 +594,7 @@ it("declares evidence and publishes only through separate explicit commands", as
 it("contribution handlers bind verified actor, exact command and strict receipt/detail output", async () => {
   const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
   const receipt = { operationId: "operation-1", operationState: "committed" };
-  const projection = { submissionId: "submission-1", assetId: "asset-1", profileId: "profile-1", profileSlug: "fixture", contributionVersion: version, metadata: { label: "Image", credit: "Creator" }, canSelectPrimary: true, canClearPrimary: false, canEditMetadata: true, canRemove: true };
+  const projection = { submissionId: "submission-1", assetId: "asset-1", profileId: "profile-1", profileSlug: "fixture", contributionVersion: version, metadata: { label: "Image", credit: "Creator" }, canSelectPrimary: true, canClearPrimary: false, canProposePlacement: false, canEditMetadata: true, canRemove: true };
   const handlers = createMcpMediaReviewHandlers(dependencies({
     query: async (name, args) => { calls.push({ name, args }); return projection; },
     mutate: async (name, args) => { calls.push({ name, args }); return receipt; },

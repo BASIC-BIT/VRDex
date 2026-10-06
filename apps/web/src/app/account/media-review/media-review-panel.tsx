@@ -208,7 +208,9 @@ export function ReviewCardView({
             <p className="text-xl font-semibold">{row.profileDisplayName}</p>
           )}
           <p className="mt-1 text-sm text-muted">
-            {row.requestedPlacement === "profile_image"
+            {row.requestKind !== "identity_placement"
+              ? "Media kit"
+              : row.requestedPlacement === "profile_image"
               ? "Profile image"
               : "Primary logo"}
           </p>
@@ -235,7 +237,7 @@ export function ReviewCardView({
       ) : null}
       {detail ? (
         <div className="mt-5">
-          <MediaReviewComparison
+          {detail.requestKind === "identity_placement" ? <MediaReviewComparison
             candidateAlt={
               row.altText || `Candidate for ${row.profileDisplayName}`
             }
@@ -246,7 +248,10 @@ export function ReviewCardView({
             }
             currentAlt={`Current image for ${row.profileDisplayName}`}
             currentSrc={reviewPlacementImage(detail)}
-          />
+          /> : detail.candidate.rendition ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img className="h-64 w-full rounded-card bg-surface-raised object-contain" alt={row.altText || "Candidate"} src={`/api/account/media-review/submissions/${row.submissionId}/file`} />
+          ) : <Notice>Unavailable</Notice>}
         </div>
       ) : null}
       <dl className="mt-5 grid gap-3 text-sm sm:grid-cols-2">

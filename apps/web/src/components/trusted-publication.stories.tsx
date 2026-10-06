@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import type { ReviewDetail } from "@vrdex/api-contracts";
+import type { ReviewDetail, PublishedContributionDetail } from "@vrdex/api-contracts";
+import { PublishedContributionCardView } from "../app/account/media-contributions/published-contribution-card";
 import { PublicationCardView } from "../app/account/media-contributions/publication-card";
 import { MediaContributionsPanel } from "../app/account/media-contributions/media-contributions-panel";
 import { ConvexProvider, ConvexReactClient } from "convex/react";
@@ -12,7 +13,7 @@ const fixture: ReviewDetail = {
   profileDisplayName: "Fixture photographer",
   profileIsPublic: true,
   profileType: "person",
-  requestedPlacement: "profile_image",
+  requestedPlacement: "gallery",
   status: "submitted",
   sourceKind: "local",
   sourceDescription: "Local image supplied by the photographer.",
@@ -38,27 +39,20 @@ const fixture: ReviewDetail = {
 };
 function Fixture({ loseResponse = false }: { loseResponse?: boolean }) {
   const [lost, setLost] = useState(false);
-  const [version, setVersion] = useState("v1");
+
   const [calls, setCalls] = useState<string[]>([]);
   return (
     <main className="mx-auto max-w-4xl p-4">
       <h1 className="text-xl font-semibold">Fixture photographer</h1>
       <PublicationCardView
-        detail={{ ...fixture, reviewVersion: version }}
-        declare={async (input) => {
-          setCalls((previous) => [
-            ...previous,
-            JSON.stringify({ command: "declare", ...input }),
-          ]);
-          setVersion("v2");
-          return { operationId: "declare", operationState: "committed" };
-        }}
+        detail={fixture}
         publish={async (input) => {
           setCalls((previous) => [
             ...previous,
             JSON.stringify({ command: "publish", ...input }),
           ]);
-          if (loseResponse && !lost) {
+          if (loseResponse && !lost && !sessionStorage.getItem("fixture:lost")) {
+            sessionStorage.setItem("fixture:lost", "true");
             setLost(true);
             throw new Error("Lost committed response");
           }
@@ -115,6 +109,7 @@ function ReactiveInventoryFixture() {
             publicationMethod: approved ? "trusted_publisher" : undefined,
           };
           if (name.endsWith(":publisherDetail")) return row;
+          if (name.endsWith(":contributionDetail")) return null;
           return { page: [row], isDone: true, continueCursor: "" };
         },
       }),
@@ -150,3 +145,59 @@ function ReactiveInventoryFixture() {
 export const ReactiveInventory: Story = {
   render: () => <ReactiveInventoryFixture />,
 };
+const publishedFixture: PublishedContributionDetail = {
+  submissionId: "published-fixture", assetId: "fixture-asset", profileId: "profile", profileSlug: "fixture",
+  contributionVersion: "c1", metadata: { label: "Photographer portrait", credit: "Fixture photographer", sourceDescription: "Local image supplied by the photographer. ".repeat(8) },
+  canSelectPrimary: true, canClearPrimary: false, canProposePlacement: false, canEditMetadata: true, canRemove: true,
+};
+function PublishedFixture({ protectedSelection = false, loseResponse = false }: { protectedSelection?: boolean; loseResponse?: boolean }) {
+  const [detail, setDetail] = useState<PublishedContributionDetail>(() => ({ ...publishedFixture, ...(protectedSelection ? { canSelectPrimary: false, canClearPrimary: false, canProposePlacement: true, canEditMetadata: false, canRemove: false } : {}) }));
+  const [calls, setCalls] = useState<unknown[]>([]);
+  const [conflicted, setConflicted] = useState(false);
+  return <main className="mx-auto max-w-4xl p-4"><h1 className="text-xl font-semibold">Fixture photographer</h1>
+    <PublishedContributionCardView submissionId={detail.submissionId} detail={detail}
+      place={async input => {
+        setCalls(previous => [...previous, { kind: "place", input }]);
+        const selected = input.action === "select_primary";
+        setDetail(previous => ({ ...previous, contributionVersion: selected ? "c2" : "c3", canSelectPrimary: !selected, canClearPrimary: selected, canEditMetadata: !selected, canRemove: !selected }));
+        return { operationId: "placement", operationState: "committed" };
+      }}
+      propose={async input => { setCalls(previous => [...previous, { kind: "propose", input }]); return { operationId: "proposed", operationState: "committed" }; }}
+      manage={async input => {
+        setCalls(previous => [...previous, { kind: "manage", input }]);
+        if (loseResponse && !sessionStorage.getItem("fixture:published-lost")) {
+          sessionStorage.setItem("fixture:published-lost", "true");
+          setDetail(previous => ({ ...previous, contributionVersion: "committed-version" }));
+          throw new Error("Lost committed response");
+        }
+        if (!loseResponse && input.action === "update_metadata" && !conflicted) {
+          setConflicted(true);
+          setDetail(previous => ({ ...previous, contributionVersion: "conflict-version" }));
+          return { operationId: "stale", operationState: "refused", code: "contribution_changed" };
+        }
+        if (input.action === "update_metadata") setDetail(previous => ({ ...previous, metadata: { ...previous.metadata, ...Object.fromEntries(Object.entries(input.metadata).filter(([, value]) => value !== null)) }, contributionVersion: "c4" }));
+        return { operationId: "managed", operationState: "committed" };
+      }} />
+    <output className="sr-only" data-testid="published-commands">{JSON.stringify(calls)}</output>
+  </main>;
+}
+export const Published: Story = { render: () => <PublishedFixture /> };
+export const Protected: Story = { render: () => <PublishedFixture protectedSelection /> };
+export const PublishedUncertain: Story = { render: () => <PublishedFixture loseResponse /> };
+function RemovedUncertainFixture() {
+  const [detail, setDetail] = useState<PublishedContributionDetail | null>(() => sessionStorage.getItem("fixture:removed") ? null : publishedFixture);
+  const [calls, setCalls] = useState<unknown[]>([]);
+  return <main className="mx-auto max-w-4xl p-4"><PublishedContributionCardView submissionId={publishedFixture.submissionId} detail={detail}
+    place={async () => ({ operationId: "unused", operationState: "refused" })}
+    propose={async () => ({ operationId: "unused", operationState: "refused" })}
+    manage={async input => {
+      setCalls(previous => [...previous, input]);
+      if (!sessionStorage.getItem("fixture:removed")) {
+        sessionStorage.setItem("fixture:removed", "true");
+        setDetail(null);
+        throw new Error("Removal committed, response lost");
+      }
+      return { operationId: "removed", operationState: "committed" };
+    }} /><output className="sr-only" data-testid="removal-commands">{JSON.stringify(calls)}</output></main>;
+}
+export const RemovedUncertain: Story = { render: () => <RemovedUncertainFixture /> };

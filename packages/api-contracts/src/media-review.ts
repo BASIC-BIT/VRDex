@@ -34,7 +34,7 @@ export const publishedContributionDetailSchema = z.strictObject({
     credit: z.string().max(120), creditUrl: z.string().max(4096).optional(),
     sourceUrl: z.string().max(4096).optional(), sourceDescription: z.string().max(1000).optional(),
   }),
-  canSelectPrimary: z.boolean(), canClearPrimary: z.boolean(),
+  canSelectPrimary: z.boolean(), canClearPrimary: z.boolean(), canProposePlacement: z.boolean(),
   canEditMetadata: z.boolean(), canRemove: z.boolean(),
 });
 export type PublishedContributionDetail = z.infer<typeof publishedContributionDetailSchema>;

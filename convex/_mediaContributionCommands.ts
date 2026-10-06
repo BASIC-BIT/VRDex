@@ -65,6 +65,7 @@ export async function publishedContributionDetail(ctx: QueryCtx | MutationCtx, s
       creditUrl: metadata.creditUrl, sourceUrl: metadata.sourceUrl, sourceDescription: metadata.sourceDescription },
     canSelectPrimary: s.publisher && !s.identityPlacements.length && !s.snapshot.currentImage,
     canClearPrimary: s.publisher && s.ownSelection,
+    canProposePlacement: s.publicUnclaimed && !s.restrictions.some(Boolean) && !s.ownSelection && !!(s.identityPlacements.length || s.snapshot.currentImage),
     canEditMetadata: s.ownKitOnly, canRemove: s.ownKitOnly && s.submission.legalHoldAt === undefined,
   };
 }

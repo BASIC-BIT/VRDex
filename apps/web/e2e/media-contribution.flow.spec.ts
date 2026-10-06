@@ -1,3 +1,5 @@
+import sharp from "sharp";
+import type { PublishedContributionDetail } from "@vrdex/api-contracts";
 import { createHash, randomBytes } from "node:crypto";
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import {
@@ -61,7 +63,7 @@ function expectRefusal(response: Awaited<ReturnType<typeof rpc>>, text: string) 
 }
 
 async function grant(page: Page, request: APIRequestContext, origin: string, runId: string) {
-  const scopes = ["mcp:read", "assets:review:read", "mcp:write", "assets:contribute", "assets:review:write"];
+  const scopes = ["mcp:read", "assets:review:read", "mcp:write", "assets:contribute", "assets:publish", "assets:review:write"];
   const redirectUri = `${origin}/oauth/e2e-callback`;
   const response = await page.request.post("/api/developer/oauth-apps", {
     headers: { origin },
@@ -342,11 +344,55 @@ test("contributor A submits and different owner B reviews media @media-lifecycle
   // Let the normal creation cooldown expire before the second proposal.
   // The refused key is durable and must not be reused for this request.
   await new Promise((resolve) => setTimeout(resolve, 31_000));
+  const grants = await request.post("/api/e2e/media", { headers, data: { op: "grant-publication-actors", runId, profileId } });
+  expect(grants.status()).toBe(200);
+  const { batchId } = await grants.json() as { batchId: string };
+  const publisherImage = await sharp({ create: { width: 64, height: 48, channels: 3, background: "#173e35" } }).png().toBuffer();
+  const publisherKey = `${runId}-publisher-upload`;
+  const publisherTarget = await call<UploadTarget>(request, authA.access_token, "vrdex_media_upload_begin", {
+    mode: "contributor", profileId, expectedUpdatedAt: before.updatedAt, placement: "gallery", contentType: "image/png", byteLength: publisherImage.length,
+    sha256: createHash("sha256").update(publisherImage).digest("hex"), credit: input.credit, sourceDescription: "Synthetic publisher image", idempotencyKey: publisherKey,
+  });
+  fixture.expiringTransfer = { ...publisherTarget.transfer, image: publisherImage };
+  fixture.expectedReservations = 2;
+  const publisherTransfer = await request.post(publisherTarget.transfer.url, { multipart: { ...publisherTarget.transfer.fields, [publisherTarget.transfer.fileField]: { name: "publisher.png", mimeType: "image/png", buffer: publisherImage } } });
+  expect([201, 204]).toContain(publisherTransfer.status());
+  const publisherCompletion = await call<UploadReceipt>(request, authA.access_token, "vrdex_media_upload_complete", { intentId: publisherTarget.intentId, idempotencyKey: publisherKey });
+  expect(publisherCompletion.operationState).toBe("committed");
+  const publishedSubmissionId = publisherCompletion.resourceId!;
+  await pageA.goto("/account/media-contributions");
+  const publisherCard = pageA.locator("section").filter({ has: pageA.locator(`img[src^="/api/account/media-contributions/submissions/${publishedSubmissionId}/file"]`) });
+  await expect(publisherCard.getByRole("checkbox")).toHaveCount(0);
+  await expect(publisherCard.getByRole("button", { name: "Confirm evidence" })).toHaveCount(0);
+  await publisherCard.getByRole("button", { name: "Publish", exact: true }).click();
+  await expect.poll(async () => (await call<{ submissions: Submission[] }>(request, authA.access_token, "vrdex_list_my_media_submissions", {})).submissions.find(row => row.submissionId === publishedSubmissionId)?.status).toBe("approved");
+  let publishedDetail = await call<PublishedContributionDetail>(request, authA.access_token, "vrdex_media_contribution_get", { submissionId: publishedSubmissionId });
+  const publishedFile = `/api/v0/profiles/${profile.slug}/assets/${publishedDetail.assetId}/file`;
+  const publishedCard = pageA.locator("section").filter({ has: pageA.locator(`img[src="${publishedFile}"]`) });
+  const afterPublish = await call<{ avatarImageUrl?: string }>(request, undefined, "vrdex_get_profile", { slug: profile.slug });
+  expect(afterPublish.avatarImageUrl).toBe(before.avatarImageUrl);
+  await pageB.goto(`/${profile.slug}`);
+  await expect(pageB.getByRole("heading", { name: "Media kit" })).toBeVisible();
+  await expect(pageB.locator(`img[src="${publishedFile}"]`)).toBeVisible();
+  await publishedCard.getByRole("button", { name: "Select picture" }).click();
+  await expect(publishedCard.getByRole("button", { name: "Remove", exact: true })).toHaveCount(0);
+  await publishedCard.getByRole("button", { name: "Clear picture" }).click();
+  await publishedCard.getByRole("button", { name: "Edit metadata" }).click();
+  await publishedCard.getByLabel("Title", { exact: true }).fill("Synthetic publisher title");
+  await publishedCard.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(publishedCard.getByRole("heading", { name: "Synthetic publisher title" })).toBeVisible();
+  await publishedCard.getByRole("button", { name: "Select picture" }).click();
+  publishedDetail = await call<PublishedContributionDetail>(request, authA.access_token, "vrdex_media_contribution_get", { submissionId: publishedSubmissionId });
+  expect(publishedDetail.canClearPrimary).toBe(true);
+  expect(publishedDetail.canRemove).toBe(false);
+  stages.push("trusted website kit publication without declarations or hero change, selection undo and metadata correction");
+  await new Promise(resolve => setTimeout(resolve, 31_000));
+  const refreshed = await call<{ updatedAt: number }>(request, undefined, "vrdex_get_profile", { slug: profile.slug });
   const image = await source.body();
   const directKey = `${runId}-direct`;
   const target = await call<UploadTarget>(request, authA.access_token, "vrdex_media_upload_begin", {
-    mode: "contributor", profileId, expectedUpdatedAt: before.updatedAt,
-    placement: "profile_image", contentType: "image/png", byteLength: image.byteLength,
+    mode: "contributor", profileId, expectedUpdatedAt: refreshed.updatedAt,
+    placement: "gallery", contentType: "image/png", byteLength: image.byteLength,
     sha256: createHash("sha256").update(image).digest("hex"),
     credit: input.credit, sourceDescription: input.altText, idempotencyKey: directKey,
   });
@@ -376,18 +422,13 @@ test("contributor A submits and different owner B reviews media @media-lifecycle
   expect(submitted.submission.submissionId).not.toBe(rejectedCandidate.submission.submissionId);
   const directState = await request.post("/api/e2e/media", { headers, data: { op: "inspect", runId, profileId } });
   expect(directState.status()).toBe(200);
-  expect((await directState.json()).counts.reservations).toBe(2);
-  fixture.expectedReservations = 2;
+  expect((await directState.json()).counts.reservations).toBe(3);
+  fixture.expectedReservations = 3;
   stages.push("minted direct S3 multipart transfer, completion replay and private contributor readback");
+  expect((await request.post("/api/e2e/media", { headers, data: { op: "grant-publication-actors", runId, profileId } })).status()).toBe(200);
 
-  const assign = await request.post("/api/e2e/media", { headers, data: { op: "assign-review-owner", runId, profileId, reviewerEmail: b.email } });
-  expect(assign.status(), "Assign only this synthetic profile to B").toBe(200);
-  const claimedProfile = await call<{ updatedAt: number }>(request, undefined, "vrdex_get_profile", { slug: profile.slug });
-  const claimed = await rpc(request, authA.access_token, "vrdex_profile_media_submit", {
-    ...input, expectedUpdatedAt: claimedProfile.updatedAt, idempotencyKey: `${runId}-claimed`,
-  });
-  expectRefusal(claimed, "The public profile is claimed, so its owner manages profile media.");
   await pageB.goto("/account/media-review");
+  await pageB.getByRole("combobox", { name: "Collection", exact: true }).selectOption(batchId);
   const rejectFile = `/api/account/media-review/submissions/${rejectedCandidate.submission.submissionId}/file`;
   const rejectCard = pageB.locator("section").filter({ has: pageB.locator(`img[src="${rejectFile}"]`) });
   const privateRejection = `Private fixture rejection ${runId}`;
@@ -403,9 +444,9 @@ test("contributor A submits and different owner B reviews media @media-lifecycle
   }).toEqual({ status: "rejected", disposition, asset: undefined });
   const rejectedState = await request.post("/api/e2e/media", { headers, data: { op: "inspect", runId, profileId } });
   expect(rejectedState.status()).toBe(200);
-  expect((await rejectedState.json()).assets).toEqual([]);
+  expect((await rejectedState.json()).assets).toHaveLength(1);
   const stillUnpublished = await call<{ avatarImageUrl?: string }>(request, undefined, "vrdex_get_profile", { slug: profile.slug });
-  expect(stillUnpublished.avatarImageUrl).toBe(before.avatarImageUrl);
+  expect(stillUnpublished.avatarImageUrl).toContain(publishedDetail.assetId);
   for (const privateValue of [privateRejection, disposition, sourceUrl, rejectionSourceUrl])
     expect(JSON.stringify(stillUnpublished)).not.toContain(privateValue);
   const reviewerHistory = await call<{ submissions: Submission[] }>(request, authB.access_token, "vrdex_list_my_media_submissions", {});
@@ -466,18 +507,55 @@ test("contributor A submits and different owner B reviews media @media-lifecycle
   }).toBe("approved");
   const approved = await request.post("/api/e2e/media", { headers, data: { op: "inspect", runId, profileId } });
   const approvedState = await approved.json() as { assets: { id: string; source: string; state: string }[] };
-  expect(approvedState.assets).toHaveLength(1);
+  expect(approvedState.assets).toHaveLength(2);
   expect(approvedState.assets[0].source).toBe("community_submitted");
   const published = await call<{ avatarImageUrl?: string }>(request, undefined, "vrdex_get_profile", { slug: profile.slug });
-  expect(published.avatarImageUrl).toBeTruthy();
+  expect(published.avatarImageUrl).toBe(stillUnpublished.avatarImageUrl);
   expect((await request.get(published.avatarImageUrl!)).ok()).toBe(true);
   await pageB.goto("/account/media-review");
+  await pageB.getByRole("combobox", { name: "Collection", exact: true }).selectOption(batchId);
   await pageB.getByRole("combobox", { name: "Status", exact: true }).selectOption("approved");
   const approvedCard = pageB.locator("section").filter({ has: pageB.locator(`img[src="${privateFile}"]`) });
-  await expect(approvedCard.locator(`img[src="${published.avatarImageUrl}"]`)).toBeVisible();
+  await expect(approvedCard.getByRole("img")).toHaveCount(1);
   await pageB.goto(`/${profile.slug}`);
   await expect(pageB.locator(`img[src="${published.avatarImageUrl}"]`).first()).toBeVisible();
-  stages.push("donor authorization refusal, replay-safe MCP rebase and approval, native preview and authenticated browser/public readback");
+  stages.push("independent approval publishes into kit with unchanged primary picture");
+  const kitDetail = await call<PublishedContributionDetail>(request, authA.access_token, "vrdex_media_contribution_get", { submissionId: submitted.submission.submissionId });
+  expect(kitDetail.canProposePlacement).toBe(true);
+  await pageA.goto("/account/media-contributions");
+  const kitFile = `/api/v0/profiles/${profile.slug}/assets/${kitDetail.assetId}/file`;
+  const kitCard = pageA.locator("section").filter({ has: pageA.locator(`img[src="${kitFile}"]`) });
+  await expect(kitCard.getByRole("button", { name: "Select picture" })).toHaveCount(0);
+  await kitCard.getByRole("button", { name: "Request replacement" }).click();
+  await expect(kitCard.getByText("Submitted", { exact: true })).toBeVisible();
+  expect((await request.post("/api/e2e/media", { headers, data: { op: "grant-publication-actors", runId, profileId } })).status()).toBe(200);
+  const queue = await call<{ page: { submissionId: string; requestKind?: string }[] }>(request, authB.access_token, "vrdex_media_review_list", { batchId, status: "submitted" });
+  const proposal = queue.page.find(row => row.requestKind === "identity_placement");
+  expect(proposal).toBeTruthy();
+  await pageB.goto("/account/media-review");
+  await pageB.getByRole("combobox", { name: "Collection", exact: true }).selectOption(batchId);
+  const replacementFile = `/api/account/media-review/submissions/${proposal!.submissionId}/file`;
+  const replacementCard = pageB.locator("section").filter({ has: pageB.locator(`img[src="${replacementFile}"]`) });
+  await expect(replacementCard.locator(`img[src="${published.avatarImageUrl}"]`)).toBeVisible();
+  await replacementCard.getByLabel("Private review reason", { exact: true }).fill("Synthetic reviewed replacement.");
+  await replacementCard.getByRole("button", { name: "Approve", exact: true }).click();
+  await expect.poll(async () => (await call<PublishedContributionDetail>(request, authA.access_token, "vrdex_media_contribution_get", { submissionId: submitted.submission.submissionId })).canRemove).toBe(false);
+  const replaced = await call<{ avatarImageUrl?: string }>(request, undefined, "vrdex_get_profile", { slug: profile.slug });
+  expect(replaced.avatarImageUrl).toContain(kitDetail.assetId);
+  await pageA.goto("/account/media-contributions");
+  await expect(kitCard.getByRole("button", { name: "Remove", exact: true })).toHaveCount(0);
+  await publishedCard.getByRole("button", { name: "Remove", exact: true }).click();
+  await expect(pageA.getByText("Removed", { exact: true })).toBeVisible();
+  expect((await request.get(publishedFile)).status()).toBe(404);
+  stages.push("explicit replacement compares existing picture with published candidate, separate reviewer protects selection, logical removal of unused kit item");
+  const assign = await request.post("/api/e2e/media", { headers, data: { op: "assign-review-owner", runId, profileId, reviewerEmail: b.email } });
+  expect(assign.status(), "Assign only this synthetic profile to B").toBe(200);
+  const claimedProfile = await call<{ updatedAt: number }>(request, undefined, "vrdex_get_profile", { slug: profile.slug });
+  const claimed = await rpc(request, authA.access_token, "vrdex_profile_media_submit", {
+    ...input, expectedUpdatedAt: claimedProfile.updatedAt, idempotencyKey: `${runId}-claimed`,
+  });
+  expectRefusal(claimed, "The public profile is claimed, so its owner manages profile media.");
+
 
   const audit = await request.post("/api/e2e/media", { headers, data: { op: "inspect-audit", runId, profileId } });
   expect(audit.status()).toBe(200);

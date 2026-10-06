@@ -251,6 +251,51 @@ export const inspectPendingFixtureCleanup = internalQuery({
   },
 });
 
+export const grantPublicationActors = internalMutation({
+  args: fixtureArgs,
+  handler: async (ctx, args) => {
+    const profile = await fixture(ctx, args);
+    if (profile.claimState !== "unclaimed" || profile.publicationState !== "published")
+      throw new Error("Unclaimed fixture required.");
+    const now = Date.now();
+    const actors: Id<"users">[] = [];
+    for (const [suffix, feature] of [["contributor", "trusted_publisher"], ["reviewer", "media_reviewer"]] as const) {
+      const user = await ctx.db.query("users").withIndex("email", q => q.eq("email", `${args.runId}-${suffix}+clerk_test@e2e.vrdex.net`)).unique();
+      if (!user?.clerkUserId || user.emailVerificationTime === undefined) throw new Error("Verified fixture actor required.");
+      actors.push(user._id);
+      const previous = await ctx.db.query("accountFeatureGrants").withIndex("by_userId_feature_state", q => q.eq("userId", user._id).eq("feature", feature).eq("state", "active")).take(3);
+      if (previous.length > 1 || previous.some(row => row.grantedBy.tokenIdentifier !== `e2e:${args.runId}`)) throw new Error("Unscoped fixture grant.");
+      if (!previous.length) await ctx.db.insert("accountFeatureGrants", {
+        userId: user._id, feature, state: "active", grantedAt: now, updatedAt: now, expiresAt: now + 60 * 60_000,
+        grantedBy: { tokenIdentifier: `e2e:${args.runId}`, issuer: "vrdex:e2e", subject: args.runId },
+      });
+    }
+    const [contributorId, reviewerId] = actors;
+    let batch = await ctx.db.query("contributionBatches").withIndex("by_actor_key", q => q.eq("actorUserId", contributorId!).eq("idempotencyKey", `e2e:${args.runId}`)).unique();
+    const batchId = batch?._id ?? await ctx.db.insert("contributionBatches", { actorUserId: contributorId!, idempotencyKey: `e2e:${args.runId}`, label: args.runId, archived: false, rowCount: 0, createdAt: now });
+    batch ??= await ctx.db.get(batchId);
+    if (!batch || batch.archived || batch.rowCount > 20) throw new Error("Invalid fixture collection.");
+    const assignment = await ctx.db.query("contributionBatchReviewers").withIndex("by_batch_reviewer", q => q.eq("batchId", batchId).eq("reviewerUserId", reviewerId!)).unique();
+    if (!assignment) await ctx.db.insert("contributionBatchReviewers", { batchId, reviewerUserId: reviewerId!, active: true, expiresAt: now + 60 * 60_000 });
+    let rowCount = batch.rowCount;
+    for (const submission of (await rows(ctx, profile._id)).submissions) {
+      if (submission.submitterUserId !== contributorId) throw new Error("Unscoped fixture contribution.");
+      const attempt = await ctx.db.query("contributionItemAttempts").withIndex("by_submissionId", q => q.eq("submissionId", submission._id)).unique();
+      if (attempt) {
+        const revision = await ctx.db.get(attempt.revisionId);
+        if (revision?.batchId !== batchId || attempt.actorUserId !== contributorId) throw new Error("Unscoped fixture attempt.");
+        continue;
+      }
+      const payload = JSON.stringify({ kind: "media" });
+      const revisionId = await ctx.db.insert("contributionItemRevisions", { actorUserId: contributorId!, batchId, itemKey: submission._id, revision: 1, payload, bytes: payload.length, createdAt: now });
+      await ctx.db.insert("contributionItemAttempts", { actorUserId: contributorId!, revisionId, oauthClientId: `e2e:${args.runId}`, submissionId: submission._id, receipt: { operationId: submission._id, operationState: "committed" }, createdAt: now });
+      rowCount++;
+    }
+    await ctx.db.patch(batchId, { rowCount });
+    return { granted: true, batchId };
+  },
+});
+
 export const assignReviewOwner = internalMutation({
   args: { ...fixtureArgs, reviewerEmail: v.string() },
   handler: async (ctx, args) => {
@@ -274,7 +319,7 @@ export const assignReviewOwner = internalMutation({
       throw new Error("Unclaimed fixture required.");
     if (
       !submissions.some(
-        (s) => s.status === "submitted" && s.submitterUserId !== user._id,
+        (s) => ["submitted", "approved"].includes(s.status) && s.submitterUserId !== user._id,
       )
     )
       throw new Error("A different contributor must submit first.");
@@ -480,6 +525,21 @@ async function cleanupRows(
     .withIndex("email", (q) => q.eq("email", `${args.runId}-reviewer+clerk_test@e2e.vrdex.net`))
     .unique();
   const disposableActors = new Set([contributor?._id, reviewer?._id]);
+  const featureGrants = (await Promise.all([...disposableActors].filter((id): id is Id<"users"> => id !== undefined).map(async userId =>
+    (await Promise.all((["trusted_publisher", "media_reviewer"] as const).flatMap(feature => (["active", "revoked"] as const).map(state =>
+      ctx.db.query("accountFeatureGrants").withIndex("by_userId_feature_state", q => q.eq("userId", userId).eq("feature", feature).eq("state", state)).take(3))))).flat(),
+  ))).flat();
+  if (featureGrants.length > 2 || featureGrants.some(row => row.grantedBy.tokenIdentifier !== `e2e:${args.runId}`))
+    throw new Error("Unscoped media fixture feature grant.");
+  const batch = contributor ? await ctx.db.query("contributionBatches").withIndex("by_actor_key", q => q.eq("actorUserId", contributor._id).eq("idempotencyKey", `e2e:${args.runId}`)).unique() : null;
+  const revisions = batch ? await ctx.db.query("contributionItemRevisions").withIndex("by_batch_key_revision", q => q.eq("batchId", batch._id)).take(21) : [];
+  const assignments = batch ? await ctx.db.query("contributionBatchReviewers").withIndex("by_batch_reviewer", q => q.eq("batchId", batch._id)).take(3) : [];
+  const attempts = (await Promise.all(revisions.map(revision => ctx.db.query("contributionItemAttempts").withIndex("by_revision", q => q.eq("revisionId", revision._id)).take(2)))).flat();
+  if (revisions.length > 20 || attempts.length !== revisions.length || assignments.length > 1 ||
+    assignments.some(row => row.reviewerUserId !== reviewer?._id) ||
+    revisions.some(row => row.actorUserId !== contributor?._id || row.legalHoldAt !== undefined) ||
+    attempts.some(row => row.actorUserId !== contributor?._id || row.oauthClientId !== `e2e:${args.runId}` || !data.submissions.some(submission => submission._id === row.submissionId)))
+    throw new Error("Unscoped media fixture assignment.");
   const reviewRows = await Promise.all(data.submissions.map(async (submission) => {
     const [rebases, reviewReceipts, publicationEvidence] = await Promise.all([
       ctx.db.query("mediaReviewRebases")
@@ -515,7 +575,8 @@ async function cleanupRows(
   if (refusalReceipts.length > 20)
     throw new Error("Media fixture receipt bound exceeded.");
   return {
-    profile, ...data, refusalReceipts, publicationRestrictions,
+    profile, ...data, refusalReceipts, publicationRestrictions, featureGrants,
+    batchRows: [...attempts, ...revisions, ...assignments, ...(batch ? [batch] : [])],
     reviewRebases: reviewRows.flatMap((row) => row.rebases),
     reviewReceipts: reviewRows.flatMap((row) => row.reviewReceipts),
     publicationEvidence: reviewRows.flatMap((row) => row.publicationEvidence),
@@ -620,6 +681,8 @@ export const finishCleanup = internalMutation({
       ...data.submissions,
       ...data.intents,
       ...data.refusalReceipts,
+      ...data.featureGrants,
+      ...data.batchRows,
     ])
       await ctx.db.delete(row._id);
     return { slug: data.profile.slug, deletedMedia: true, releasedReservations: data.reservations.length };
