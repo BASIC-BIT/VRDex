@@ -23,8 +23,41 @@ import { BACKEND_ERROR_COPY } from "@/lib/error-copy";
 
 function CommunityInput({ value, disabled, onChange }: { value: string; disabled: boolean; onChange: (value: string) => void }) {
   const id = useId();
-  const matches = useQuery(api.search.searchUniversal, !disabled && value.trim().length >= 2 ? { query: value.trim(), entityType: "profile", profileType: "community", limit: 8 } : "skip");
-  return <><Input name="communitySlug" list={id} value={value} disabled={disabled} maxLength={64} onChange={event => onChange(event.target.value)} placeholder="Search communities" /><datalist id={id}>{matches?.map(match => <option key={match.slug} value={match.slug} label={match.title} />)}</datalist></>;
+  const container = useRef<HTMLDivElement>(null);
+  const [query, setQuery] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(-1);
+  const selectedMatches = useQuery(api.search.searchUniversal, !disabled && value ? { query: value, entityType: "profile", profileType: "community", limit: 8 } : "skip");
+  const matches = useQuery(api.search.searchUniversal, !disabled && open && query && query.trim().length >= 2 ? { query: query.trim(), entityType: "profile", profileType: "community", limit: 8 } : "skip");
+  const expanded = open && (query?.trim().length ?? 0) >= 2;
+  const selected = selectedMatches?.find(match => match.slug === value);
+  const title = selected?.title ?? value;
+  function focus(selector: string) { requestAnimationFrame(() => container.current?.querySelector<HTMLElement>(selector)?.focus()); }
+  function select(slug: string) { onChange(slug); setQuery(null); setOpen(false); setActive(-1); focus("[data-community-change]"); }
+  return <div ref={container} className="grid min-w-0 gap-2">
+    <span className="text-sm font-medium">Community</span>
+    {value ? <div role="group" aria-label="Selected community" className="flex min-w-0 flex-wrap items-center gap-3 rounded-control border border-border p-3">
+      <span className="relative flex size-10 shrink-0 overflow-hidden rounded-control bg-surface-strong"><ProfileAvatarImage alt={title} fallback={title.slice(0, 2).toUpperCase()} src={selected?.imageUrl} /></span>
+      <div className="min-w-0 flex-1 break-words"><p className="text-sm font-medium">{title}</p>{selected ? <p className="text-xs text-muted">{value}</p> : null}</div>
+      <div className="flex gap-2"><Button type="button" variant="secondary" disabled={disabled} data-community-change onClick={() => { setQuery(""); setOpen(true); setActive(-1); focus("input"); }}>Change</Button><Button type="button" variant="secondary" disabled={disabled} onClick={() => { onChange(""); setQuery(""); setOpen(true); setActive(-1); focus("input"); }}>Clear</Button></div>
+    </div> : null}
+    {!value || query !== null ? <div className="relative">
+      <Input name="communitySlug" role="combobox" aria-label="Community" aria-autocomplete="list" aria-expanded={expanded} aria-controls={`${id}-results`} aria-activedescendant={expanded && matches?.[active] ? `${id}-${active}` : undefined} value={query ?? ""} disabled={disabled} maxLength={64} autoComplete="off" placeholder="Search communities"
+        onFocus={() => setOpen(true)} onBlur={() => setOpen(false)}
+        onChange={event => { setQuery(event.target.value); setOpen(true); setActive(-1); }}
+        onKeyDown={event => {
+          if (event.key === "Escape") { event.preventDefault(); setQuery(null); setOpen(false); setActive(-1); if (value) focus("[data-community-change]"); }
+          if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); setOpen(true); setActive(index => Math.max(0, Math.min((matches?.length ?? 0) - 1, index + (event.key === "ArrowDown" ? 1 : -1)))); }
+          if (event.key === "Enter") { event.preventDefault(); const match = open ? matches?.[active] : undefined; if (match) select(match.slug); }
+        }} />
+      {expanded ? <ul id={`${id}-results`} role="listbox" aria-label="Communities" className="absolute top-full z-20 max-h-64 w-full overflow-auto rounded-control border border-border bg-surface-strong shadow-panel">
+        {matches?.map((match, index) => <li id={`${id}-${index}`} key={match.slug} role="option" aria-selected={active === index} className={`flex cursor-pointer items-center gap-3 px-3 py-2 text-sm ${active === index ? "bg-surface-elevated" : ""}`} onMouseDown={event => event.preventDefault()} onClick={() => select(match.slug)}>
+          <span aria-hidden="true" className="relative flex size-10 shrink-0 overflow-hidden rounded-control bg-surface-strong"><ProfileAvatarImage alt={match.title} fallback={match.title.slice(0, 2).toUpperCase()} src={match.imageUrl} /></span><span className="min-w-0 break-words"><span className="block font-medium">{match.title}</span><span className="block text-xs text-muted">{match.slug}</span></span>
+        </li>)}
+        {query && query.trim().length >= 2 && matches?.length === 0 ? <li className="px-3 py-2 text-sm text-muted">No matches</li> : null}
+      </ul> : null}
+    </div> : null}
+  </div>;
 }
 
 function PerformerInput({ label, slug, onLabel, onSlug }: { label: string; slug: string; onLabel: (value: string) => void; onSlug: (value: string) => void }) {
@@ -122,13 +155,13 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
     <EventEditorSteps heading={heading} actions={onSource ? <Button type="button" variant="primary" className="min-h-11 gap-2" onClick={() => setImportOpen(true)}><Upload aria-hidden="true" className="size-4" />Import poster or text</Button> : undefined} steps={steps} activeStep={activeStep} onSelect={setActiveStep} preview={<EventEditorPreview fields={fields} artwork={artwork} />}>
     <fieldset disabled={busy} className="grid min-w-0 gap-6">
     <div hidden={activeStep !== "Details"} data-step="Details"><section className="grid gap-4"><h2 className="text-xl font-semibold">Details</h2>{onSource ? <EventIntakeSuggestions fields={fields} onChange={setFields} /> : null}
-    {!correction ? <Field>Community<CommunityInput value={fields.communitySlug ?? ""} disabled={false} onChange={value => set("communitySlug", value)} /></Field> : null}
+    {!correction ? <CommunityInput value={fields.communitySlug ?? ""} disabled={false} onChange={value => set("communitySlug", value || null)} /> : null}
     <Field>Event title<Input name="title" value={fields.title ?? ""} maxLength={120} onChange={event => set("title", event.target.value)} /></Field>
     <Field>Date<Input name="eventDate" type="date" value={fields.eventDate ?? ""} onChange={event => set("eventDate", event.target.value)} /></Field>
     <label className="flex items-center gap-2"><input type="checkbox" checked={fields.timeTba ?? false} onChange={event => setFields(current => ({ ...current, timeTba: event.target.checked, ...(event.target.checked ? { start: null, end: null, doors: null, lineup: current.lineup?.map(row => ({ ...row, start: null, end: null })) } : {}) }))} />Time TBA</label>
     <div className="grid gap-2"><span className="text-sm font-medium">Time zone</span><EventTimezonePicker value={fields.timezone ?? null} date={fields.eventDate ?? null} onChange={value => set("timezone", value)} /></div>
     {!fields.timeTba ? <><IntakeTime label="Start time" eventStart value={fields.start} date={fields.eventDate} timezone={fields.timezone} onChange={value => set("start", value)} /><IntakeTime label="End time" value={fields.end} date={fields.eventDate} timezone={fields.timezone} onChange={value => set("end", value)} /><IntakeTime label="Doors open" value={fields.doors} date={fields.eventDate} timezone={fields.timezone} onChange={value => set("doors", value)} /></> : null}
-    <Field>Venue<Input value={fields.venueLabel ?? ""} maxLength={120} onChange={event => set("venueLabel", event.target.value)} /></Field>
+    <Field>Where (optional)<Input value={fields.venueLabel ?? ""} maxLength={120} onChange={event => set("venueLabel", event.target.value)} /></Field>
     <Field>World profile<Input value={fields.worldSlug ?? ""} maxLength={64} onChange={event => set("worldSlug", event.target.value)} /></Field>
     <Field>Description<Textarea value={fields.summary ?? ""} maxLength={240} onChange={event => set("summary", event.target.value)} /></Field>
     <Field>Source URL<Input type="url" value={fields.sourceUrl ?? ""} onChange={event => set("sourceUrl", event.target.value)} /></Field>

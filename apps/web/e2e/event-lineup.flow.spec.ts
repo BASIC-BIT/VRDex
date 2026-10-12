@@ -3,6 +3,7 @@ import { expect, test } from "@playwright/test";
 for (const mode of ["create", "edit"]) test(`staff ${mode} keeps mounted values through steps and saves a draft`, async ({ page }, testInfo) => {
   await page.goto(`/playwright/event-lineup?editor&mode=${mode}`);
   const navigation = page.getByRole("navigation", { name: "Event editor" });
+  await page.locator("summary").filter({ hasText: /^Source/ }).click();
   await page.getByLabel("Source URL", { exact: true }).fill("https://example.com/new-source");
   await navigation.getByRole("button", { name: "Details" }).click();
   await page.getByLabel("Event title", { exact: true }).fill("Retained staff event");
@@ -13,9 +14,9 @@ for (const mode of ["create", "edit"]) test(`staff ${mode} keeps mounted values 
   await expect(page.getByRole("img", { name: "Aurora", exact: true }).first()).toBeVisible();
   await expect(page.locator('img[src="/seed/fixture-avatar-luma.svg"]').first()).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath(`staff-${mode}-lineup.png`), fullPage: true });
-  await navigation.getByRole("button", { name: "Source" }).click();
-  await expect(page.getByLabel("Source URL", { exact: true })).toHaveValue("https://example.com/new-source");
   await expect(page.getByLabel("Event title", { exact: true })).toBeHidden();
+  await navigation.getByRole("button", { name: "Details" }).click();
+  await expect(page.getByLabel("Source URL", { exact: true })).toHaveValue("https://example.com/new-source");
   await navigation.getByRole("button", { name: "Review" }).click();
   await expect(page.getByRole("heading", { name: "Retained staff event" }).first()).toBeVisible();
   page.on("dialog", dialog => dialog.accept());
@@ -50,7 +51,7 @@ test("staff editor preserves Time TBA and artwork while correcting or removing c
   await expect(page.getByRole("checkbox", { name: "Time TBA", exact: true })).toBeChecked();
   await expect(page.getByLabel("Date", { exact: true })).toHaveValue("2027-10-15");
   await page.getByLabel("Event title", { exact: true }).fill("Corrected night");
-  await page.getByLabel("Venue", { exact: true }).fill("New harbor");
+  await page.getByLabel("Where (optional)", { exact: true }).fill("New harbor");
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Lineup" }).click();
   await expect(page.getByRole("img", { name: "Unmatched guest", exact: true })).toBeVisible();
   await page.getByLabel("Performer", { exact: true }).fill("Corrected guest");
@@ -126,7 +127,8 @@ test("staff editor sends explicit clears for optional event details", async ({ p
   await page.getByLabel("Private notes", { exact: true }).fill("");
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Review" }).click();
   await page.locator("summary").filter({ hasText: /^Advanced/ }).click();
-  await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Source" }).click();
+  await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Details" }).click();
+  await page.locator("summary").filter({ hasText: /^Source/ }).click();
   for (const name of ["sourceLabel", "sourceUrl", "posterImageUrl", "bannerImageUrl", "thumbnailImageUrl"]) {
     await page.locator(`[name="${name}"]`).fill("");
   }

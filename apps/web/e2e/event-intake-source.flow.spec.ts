@@ -6,6 +6,12 @@ const step = async (page: Page, name: string) => {
   await button.click();
   await expect(button).toHaveAttribute("aria-current", "step");
 };
+const selectCommunity = async (page: Page, slug: string) => {
+  const selected = page.getByRole("group", { name: "Selected community", exact: true });
+  if (await selected.isVisible()) await selected.getByRole("button", { name: "Change", exact: true }).click();
+  await page.getByRole("combobox", { name: "Community", exact: true }).fill(slug);
+  await page.getByRole("option", { name: slug === "afterglow" ? /^Afterglow afterglow$/ : /Afterglow Social.*playwright-afterglow-social/ }).click();
+};
 const openImport = async (page: Page) => {
   await page.getByRole("button", { name: "Import poster or text", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Import event info" })).toBeVisible();
@@ -57,7 +63,7 @@ test("review publish reveals a blank lineup performer @flow @fixture", async ({ 
   await openImport(page);
   await step(page, "Details");
   await page.getByLabel("Event title", { exact: true }).fill("Night");
-  await page.getByLabel("Community", { exact: true }).fill("afterglow");
+  await selectCommunity(page, "afterglow");
   await page.getByLabel("Date", { exact: true }).fill("2027-10-15");
   await page.getByRole("checkbox", { name: "Time TBA", exact: true }).check();
   await step(page, "Lineup");
@@ -91,7 +97,7 @@ test("manual partial draft survives steps and resume then publishes directly @fl
   await openImport(page);
   await step(page, "Details");
   await page.getByLabel("Event title", { exact: true }).fill("Afterglow Night");
-  await page.getByLabel("Community", { exact: true }).fill("playwright-afterglow-social");
+  await selectCommunity(page, "playwright-afterglow-social");
   await page.getByLabel("Date", { exact: true }).fill("2027-10-15");
   await page.getByRole("checkbox", { name: "Time TBA", exact: true }).check();
   await page.screenshot({ path: info.outputPath("details.png"), fullPage: true, animations: "disabled" });
@@ -218,7 +224,7 @@ test("review routes missing fields back to details and repeated times require oc
   await expect(page.getByLabel("Event title", { exact: true })).toBeVisible();
   await expect(page.getByLabel("Community", { exact: true })).toBeFocused();
   await page.getByLabel("Event title", { exact: true }).fill("Repeated hour");
-  await page.getByLabel("Community", { exact: true }).fill("afterglow");
+  await selectCommunity(page, "afterglow");
   await page.getByLabel("Date", { exact: true }).fill("2027-11-07");
   await page.getByRole("combobox", { name: "Time zone", exact: true }).fill("America/New_York");
   await page.getByRole("option").first().click();
@@ -241,7 +247,7 @@ test("similar events appear only when publish preflight returns a match @flow @f
   await openImport(page);
   await step(page, "Details");
   await page.getByLabel("Event title", { exact: true }).fill("Afterglow Night");
-  await page.getByLabel("Community", { exact: true }).fill("afterglow");
+  await selectCommunity(page, "afterglow");
   await page.getByLabel("Date", { exact: true }).fill("2027-10-15");
   await page.getByRole("checkbox", { name: "Time TBA", exact: true }).check();
   await step(page, "Review");
@@ -366,7 +372,7 @@ test("publish focuses invalid lineup time and hidden native field @flow @fixture
   await openImport(page);
   await step(page, "Details");
   await page.getByLabel("Event title", { exact: true }).fill("Spring event");
-  await page.getByLabel("Community", { exact: true }).fill("afterglow");
+  await selectCommunity(page, "afterglow");
   await page.getByLabel("Date", { exact: true }).fill("2027-03-14");
   await page.getByRole("combobox", { name: "Time zone", exact: true }).fill("America/New_York");
   await page.getByRole("option").first().click();

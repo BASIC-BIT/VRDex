@@ -938,7 +938,7 @@ function ConnectedEventEditorForm({
           Description
           <Textarea aria-label="Description" className="min-h-24" defaultValue={event?.summary} name="summary" />
         </Field>
-        {usesCanonicalLineup ? <Field>Venue<Input defaultValue={event?.venueLabel} name="venueLabel" /></Field> : null}
+        {usesCanonicalLineup ? <Field>Where (optional)<Input defaultValue={event?.venueLabel} name="venueLabel" /></Field> : null}
 
         <details className="group rounded-control border border-border bg-surface px-4 py-3">
           <summary className="flex cursor-pointer list-none items-center justify-between gap-4 font-medium marker:hidden">
@@ -1151,7 +1151,7 @@ function ConnectedEventEditorForm({
           <dl className="grid gap-3 text-sm sm:grid-cols-2">
             <div><dt className="text-muted">{timeTba ? "Date" : "Start"}</dt><dd>{timeTba ? eventDate : startLocal.replace("T", " ")}</dd></div>
             {!timeTba ? <div><dt className="text-muted">Time zone</dt><dd>{timezone}</dd></div> : null}
-            {preview.venueLabel ? <div><dt className="text-muted">Venue</dt><dd>{preview.venueLabel}</dd></div> : null}
+            {preview.venueLabel ? <div><dt className="text-muted">Where (optional)</dt><dd>{preview.venueLabel}</dd></div> : null}
           </dl>
           <div className="flex flex-wrap gap-3">
             {(["Details", "Lineup"] as const).map(step => <Button key={step} type="button" variant="secondary" onClick={() => setActiveStep(step)}>Edit {step.toLowerCase()}</Button>)}

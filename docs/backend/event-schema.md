@@ -138,8 +138,12 @@ The legacy owner editor continues using its existing slot and participant writes
 The owner/staff editor uses the shared Details, Lineup, and Review
 navigation. A Details disclosure retains the existing poster URL and media/link fields;
 private single-poster intake remains a separate contributor workflow. Details
-contains the current title, description, timing, timezone, and applicable venue
-controls. Lineup shows matched public portraits or initials beside timed and
+contains the current title, description, timing, timezone, and applicable
+`Where (optional)` controls, stored as `venueLabel`. Contributor drafts select
+a community from public directory search results; search text is separate from
+the selected slug, and Clear stores null. Staff community authority stays fixed
+by the route, and scoped corrections do not expose community selection. Lineup
+shows matched public portraits or initials beside timed and
 untimed performers, with timed rows displaying their actual event-local dates.
 Review contains publication controls and a collapsed Advanced area for live
 output, worker status, cancellation, restoration, and audit history.
@@ -157,16 +161,15 @@ authority checks, stream assignment, or VRCDN output commands.
 flowchart LR
   Community[Managed community or account events] --> Auth[Sign in if needed]
   Direct[Direct staff edit link] --> Auth
-  Auth --> Source[Source]
-  Source --> Details[Details]
+  Auth --> Details[Details]
+  Details --> Source[Source disclosure]
   Details --> Lineup[Lineup]
   Lineup --> Review[Review]
   Review -->|Edit details| Details
   Review -->|Edit lineup| Lineup
   Review -->|Publish or save changes| Event[Event page]
   Review -->|Expand Advanced| Operations[Staff operations]
-  Source -->|Save draft| Draft[Private canonical draft]
-  Details -->|Save draft| Draft
+  Details -->|Save draft| Draft[Private canonical draft]
   Lineup -->|Save draft| Draft
   Review -->|Save draft| Draft
 ```

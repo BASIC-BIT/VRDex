@@ -26,6 +26,9 @@ function revisionFixture(correction: boolean, sourceMode?: string, staff = false
   const listeners = new Set<() => void>();
   let access = { canCorrect: !staff, canSuggest: false, canTakeOver: staff, canRemove: staff };
   const empty: unknown[] = [];
+  const communities = [{ slug: "afterglow", title: "Afterglow", imageUrl: "/test-media/event-poster.png" }, { slug: "playwright-afterglow-social", title: "Afterglow Social", imageUrl: "/test-media/event-poster.png" }];
+  let searchLoading = sourceMode === "search-loading";
+  if (searchLoading && typeof window !== "undefined") window.addEventListener("release-community-search", () => { searchLoading = false; listeners.forEach(listener => listener()); }, { once: true });
   const people = [{ slug: "aurora", title: "Aurora", imageUrl: "/test-media/event-poster.png" }];
   const viewer = { user: { name: "Fixture contributor" } };
   const refresh = (patch: EventIntakePatch) => {
@@ -49,7 +52,10 @@ function revisionFixture(correction: boolean, sourceMode?: string, staff = false
           switch (getFunctionName(query)) {
             case "eventIntake:getEventIntakeDraft": return draft;
             case "accounts:viewer": return viewer;
-            case "search:searchUniversal": return args?.profileType === "person" && args.query?.toLowerCase().includes("aurora") ? people : empty;
+            case "search:searchUniversal": {
+              if (args?.profileType === "community") return searchLoading ? undefined : communities.filter(community => `${community.title} ${community.slug}`.toLowerCase().includes(args.query?.toLowerCase() ?? ""));
+              return args?.profileType === "person" && args.query?.toLowerCase().includes("aurora") ? people : empty;
+            }
             case "eventCorrections:getOwnContributedEvent": return event;
             case "eventCorrections:getEventContributionAccess": return access;
             default: return empty;
@@ -134,7 +140,7 @@ function revisionFixture(correction: boolean, sourceMode?: string, staff = false
   return { client, refresh, transport };
 }
 
-export function EventIntakeRevisionPreview({ correction, sourceMode, staff = false }: { correction: boolean; sourceMode?: string; staff?: boolean }) {
+export function EventIntakeRevisionPreview({ correction, sourceMode, staff = false, initialCommunitySlug }: { correction: boolean; sourceMode?: string; staff?: boolean; initialCommunitySlug?: string }) {
   const [fixture] = useState(() => revisionFixture(correction, sourceMode, staff));
   useEffect(() => {
     if (!sourceMode) return;
@@ -148,7 +154,7 @@ export function EventIntakeRevisionPreview({ correction, sourceMode, staff = fal
       {sourceMode ? <PageNav><BrandLink /></PageNav> : null}
       {!sourceMode ? <button onClick={() => { fixture.refresh({ venueLabel: "New venue" }); setRefreshed(true); }}>Update elsewhere</button> : null}
       {refreshed ? <output>Query refreshed</output> : null}
-      {correction ? <EventContributionControls eventId="fixture-event" /> : <EventIntakeForm heading={sourceMode ? <h1 className="text-3xl font-semibold">Add event</h1> : undefined} draftId="fixture-draft" />}
+      {correction ? <EventContributionControls eventId="fixture-event" /> : <EventIntakeForm heading={sourceMode ? <h1 className="text-3xl font-semibold">Add event</h1> : undefined} draftId={initialCommunitySlug ? undefined : "fixture-draft"} initialCommunitySlug={initialCommunitySlug} />}
     </main>
   </ConvexProviderWithAuth>;
 }

@@ -44,8 +44,13 @@ Current recommendation:
 5. Publish or save a draft.
 
 The owner editor binds the community from the route and rechecks management
-authority. The contribution form can select any public community. A useful
-contribution needs a community, title and known date. An explicit Time TBA state
+authority. The contribution picker searches public community names and slugs and
+saves the selected result's slug. Change and Escape retain the selected community.
+Clear stores a nullable community in an incomplete draft. Linked and resumed
+slugs stay selected while search loads or returns no match. The optional location
+control is labeled `Where (optional)` and keeps the existing `venueLabel` field.
+Scoped corrections omit community selection; staff communities remain bound to
+their route. A useful contribution needs a community, title and known date. An explicit Time TBA state
 needs no timezone; timed publication needs an IANA timezone and resolved local
 time. The date-only backend switch must be enabled after its migration.
 
@@ -54,7 +59,8 @@ controlled versioned draft across the contributor steps. One extraction submits
 the current text and poster together. Details and Lineup retain tentative values
 for explicit acceptance, source evidence, and unresolved questions on resume.
 Changing sources invalidates suggestions and evidence while keeping accepted fields.
-Unavailable extraction stays on Source with visible feedback and manual Continue.
+Unavailable extraction stays in the import dialog with visible feedback; closing
+it returns to the current editor step.
 
 The poster becomes artwork after verified upload and processing. A new upload
 replaces it; removal clears it. Private evidence and public artwork derivatives
@@ -79,17 +85,21 @@ flowchart LR
   Community[Community page] --> Add
   Direct[Direct community or draft link] --> Auth[Sign in if needed and return]
   Add --> Auth
-  Auth --> Source[Source: one poster and optional text, or manual entry]
-  Source --> Details[Details: accept or edit]
+  Auth --> Details[Details: select community and enter or accept fields]
+  Details --> Import[Optional import action]
+  Lineup --> Import
+  Review --> Import
+  Import --> Source[Dialog: one poster and optional text]
+  Source -->|Extraction succeeds| Details
+  Source -->|Close| Current[Return to current step]
   Details --> Lineup[Lineup: people and local dates]
   Lineup --> Review[Review]
   Review --> Details
   Review --> Lineup
-  Source --> Saved[Save draft and resume]
-  Details --> Saved
+  Details --> Saved[Save draft and resume]
   Lineup --> Saved
   Review --> Saved
-  Saved --> Source
+  Saved --> Details
   Review --> Publish[Preflight and publish]
   Publish --> Public[Canonical event page]
   Public --> Discovery[Public search and community events]

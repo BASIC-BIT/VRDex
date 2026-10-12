@@ -7,7 +7,7 @@ import { BACKEND_ERROR_COPY } from "@/lib/error-copy";
 import type { EventIntakePatch, EventIntakeCandidate } from "../../../../../packages/api-contracts/src/event-intake";
 
 export type IntakeSourceAction = (action: "extract" | "upload" | "read" | "remove" | "retry", fields: EventIntakePatch, revision: number, file?: File, onStaged?: (fields: EventIntakePatch) => void) => Promise<{ fields?: EventIntakePatch; preview?: string; candidate?: EventIntakeCandidate; artworkSourceId?: string | null }>;
-const labels: Record<string, string> = { title: "Event title", communitySlug: "Community", eventDate: "Date", start: "Start time", end: "End time", timezone: "Time zone", venueLabel: "Venue", summary: "Description", sourceUrl: "Source URL", lineup: "Lineup" };
+const labels: Record<string, string> = { title: "Event title", communitySlug: "Community", eventDate: "Date", start: "Start time", end: "End time", timezone: "Time zone", venueLabel: "Where (optional)", summary: "Description", sourceUrl: "Source URL", lineup: "Lineup" };
 function valueText(value: unknown): string {
   if (Array.isArray(value)) return value.map(row => [row.performerLabel, row.personSlug, row.roleLabel, valueText(row.start), valueText(row.end)].filter(Boolean).join(" · ")).join("\n");
   if (value && typeof value === "object" && "time" in value) return String(value.time);
