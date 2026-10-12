@@ -526,13 +526,15 @@ function ConnectedEventEditorForm({
   communitySlug,
   demoMode = false,
   event,
+  heading,
 }: {
   communitySlug: string;
   demoMode?: boolean;
   event?: EditableEvent;
+  heading?: ReactNode;
 }) {
   const router = useRouter();
-  const [activeStep, setActiveStep] = useState<EventEditorStep>("Source");
+  const [activeStep, setActiveStep] = useState<EventEditorStep>("Details");
   const [preview, setPreview] = useState({ title: event?.title ?? (demoMode ? "Afterglow Harbor Sessions" : ""), summary: event?.summary ?? "", venueLabel: event?.venueLabel ?? "", artwork: event?.posterImageUrl ?? "" });
   const [eventDate, setEventDate] = useState(event?.eventDate ?? formatZonedDateTimeInput(event?.startAt, event?.timezone).slice(0, 10));
   const [timeTba, setTimeTba] = useState(event?.scheduleKind === "date_only");
@@ -701,6 +703,7 @@ function ConnectedEventEditorForm({
     const form = submitEvent.currentTarget;
     const formData = new FormData(form, (submitEvent.nativeEvent as SubmitEvent).submitter);
     const intent = stringField(formData.get("intent"));
+    if (intent === "continue") { setActiveStep(activeStep === "Details" ? "Lineup" : "Review"); return; }
     function revealField(field: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement) {
       const panel = field.closest<HTMLElement>("[data-editor-step]");
       if (panel) setActiveStep(panel.dataset.editorStep as EventEditorStep);
@@ -918,45 +921,7 @@ function ConnectedEventEditorForm({
       const data = new FormData(change.currentTarget);
       setPreview({ title: stringField(data.get("title")), summary: stringField(data.get("summary")), venueLabel: stringField(data.get("venueLabel")), artwork: stringField(data.get("posterImageUrl")) });
     }}>
-      <EventEditorSteps steps={["Source", "Details", "Lineup", "Review"]} activeStep={activeStep} onSelect={setActiveStep} preview={<EventEditorPreview fields={previewFields} artwork={preview.artwork || undefined} />}>
-      <div hidden={activeStep !== "Source"} data-editor-step="Source">
-      <EditorSection title="Source">
-        <div className="grid gap-4 sm:grid-cols-3">
-        <Field className="sm:col-span-1">
-          Source label
-          <Input defaultValue={event?.source.label} name="sourceLabel" placeholder="Community event listing" />
-        </Field>
-        <Field className="sm:col-span-1">
-          Source URL
-          <Input defaultValue={event?.source.url} name="sourceUrl" placeholder="https://..." />
-        </Field>
-        <Field className="sm:col-span-1">
-          Poster image URL
-          <Input defaultValue={event?.posterImageUrl} name="posterImageUrl" placeholder="https://..." />
-        </Field>
-        </div>
-
-        <div className="grid gap-4 sm:grid-cols-2">
-        <Field>
-          Banner image URL
-          <Input defaultValue={event?.authoredBannerImageUrl} name="bannerImageUrl" placeholder="https://..." />
-          <FieldText>Wide event-page hero image. Falls back to the poster image.</FieldText>
-        </Field>
-        <Field>
-          Thumbnail image URL
-          <Input defaultValue={event?.authoredThumbnailImageUrl} name="thumbnailImageUrl" placeholder="https://..." />
-          <FieldText>Compact event-card image. Falls back to the poster or banner image.</FieldText>
-        </Field>
-        </div>
-
-      <Field>
-        Media links
-        <Textarea className="min-h-28" name="mediaLinks" onChange={(changeEvent) => setMediaLinksText(changeEvent.currentTarget.value)} placeholder="watch | Twitch watch link | https://... | open&#10;vrcdn | VRCDN Quest link | https://stream.vrcdn.live/live/name.live.ts | copy&#10;vrcdn | VRCDN PC link | rtspt://stream.vrcdn.live/live/name | copy" value={mediaLinksText} />
-        <FieldText>One per line: type | label | URL | open or copy. VRCDN variants derive Quest and PC player links automatically.</FieldText>
-      </Field>
-      <VrcdnMediaLinkAssistant mediaLinksText={mediaLinksText} />
-      </EditorSection>
-      </div>
+      <EventEditorSteps heading={heading} steps={["Details", "Lineup", "Review"]} activeStep={activeStep} onSelect={setActiveStep} preview={<EventEditorPreview fields={previewFields} artwork={preview.artwork || undefined} />}>
       <div hidden={activeStep !== "Details"} data-editor-step="Details" className="space-y-8">
       <EditorSection title="Details">
         <Field>
@@ -1023,6 +988,42 @@ function ConnectedEventEditorForm({
         </div>
       </EditorSection>
 
+      <EditorDisclosure title="Source">
+        <div className="grid gap-4 sm:grid-cols-3">
+        <Field className="sm:col-span-1">
+          Source label
+          <Input defaultValue={event?.source.label} name="sourceLabel" placeholder="Community event listing" />
+        </Field>
+        <Field className="sm:col-span-1">
+          Source URL
+          <Input defaultValue={event?.source.url} name="sourceUrl" placeholder="https://..." />
+        </Field>
+        <Field className="sm:col-span-1">
+          Poster image URL
+          <Input defaultValue={event?.posterImageUrl} name="posterImageUrl" placeholder="https://..." />
+        </Field>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+        <Field>
+          Banner image URL
+          <Input defaultValue={event?.authoredBannerImageUrl} name="bannerImageUrl" placeholder="https://..." />
+          <FieldText>Wide event-page hero image. Falls back to the poster image.</FieldText>
+        </Field>
+        <Field>
+          Thumbnail image URL
+          <Input defaultValue={event?.authoredThumbnailImageUrl} name="thumbnailImageUrl" placeholder="https://..." />
+          <FieldText>Compact event-card image. Falls back to the poster or banner image.</FieldText>
+        </Field>
+        </div>
+
+      <Field>
+        Media links
+        <Textarea className="min-h-28" name="mediaLinks" onChange={(changeEvent) => setMediaLinksText(changeEvent.currentTarget.value)} placeholder="watch | Twitch watch link | https://... | open&#10;vrcdn | VRCDN Quest link | https://stream.vrcdn.live/live/name.live.ts | copy&#10;vrcdn | VRCDN PC link | rtspt://stream.vrcdn.live/live/name | copy" value={mediaLinksText} />
+        <FieldText>One per line: type | label | URL | open or copy. VRCDN variants derive Quest and PC player links automatically.</FieldText>
+      </Field>
+      <VrcdnMediaLinkAssistant mediaLinksText={mediaLinksText} />
+      </EditorDisclosure>
       </div>
       <div hidden={activeStep !== "Lineup"} data-editor-step="Lineup">
       <EditorSection title="Lineup">
@@ -1153,7 +1154,7 @@ function ConnectedEventEditorForm({
             {preview.venueLabel ? <div><dt className="text-muted">Venue</dt><dd>{preview.venueLabel}</dd></div> : null}
           </dl>
           <div className="flex flex-wrap gap-3">
-            {(["Source", "Details", "Lineup"] as const).map(step => <Button key={step} type="button" variant="secondary" onClick={() => setActiveStep(step)}>Edit {step.toLowerCase()}</Button>)}
+            {(["Details", "Lineup"] as const).map(step => <Button key={step} type="button" variant="secondary" onClick={() => setActiveStep(step)}>Edit {step.toLowerCase()}</Button>)}
           </div>
         </EditorSection>
         <EditorDisclosure title="Advanced">
@@ -1445,7 +1446,9 @@ function ConnectedEventEditorForm({
         </EditorDisclosure>
       </div>
       </EventEditorSteps>
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+      <div className="flex flex-wrap items-center gap-3">
+        {activeStep !== "Details" ? <Button type="button" size="lg" variant="secondary" onClick={() => setActiveStep(activeStep === "Review" ? "Lineup" : "Details")}>Back</Button> : null}
+        <span className="mr-auto text-sm text-muted">{["Details", "Lineup", "Review"].indexOf(activeStep) + 1} / 3</span>
         {activeStep === "Review" ? (
         <Button disabled={isSubmitting} name="intent" size="lg" type="submit" value="publish" variant="primary">
           {isSubmitting
@@ -1456,7 +1459,7 @@ function ConnectedEventEditorForm({
                 ? "Save and publish"
                 : "Publish event"}
         </Button>
-        ) : <Button type="button" size="lg" onClick={() => setActiveStep(activeStep === "Source" ? "Details" : activeStep === "Details" ? "Lineup" : "Review")}>Continue</Button>}
+        ) : <Button type="submit" name="intent" value="continue" size="lg">Continue</Button>}
         <Button disabled={isSubmitting} name="intent" size="lg" type="submit" value="draft" variant="secondary">
           {isPublished ? "Unpublish and save draft" : "Save draft"}
         </Button>
@@ -1480,32 +1483,34 @@ export function EventEditorForm({
   communitySlug,
   demoMode = false,
   event,
+  heading,
 }: {
   communitySlug: string;
   demoMode?: boolean;
   event?: EditableEvent;
+  heading?: ReactNode;
 }) {
   if (demoMode) {
-    return <ConnectedEventEditorForm communitySlug={communitySlug} demoMode event={event} />;
+    return <ConnectedEventEditorForm communitySlug={communitySlug} demoMode event={event} heading={heading} />;
   }
 
   if (!convexUrl) {
-    return <DisabledEventEditorPanel />;
+    return <>{heading}<DisabledEventEditorPanel /></>;
   }
 
-  return <AuthenticatedEventEditorForm communitySlug={communitySlug} event={event} />;
+  return <AuthenticatedEventEditorForm communitySlug={communitySlug} event={event} heading={heading} />;
 }
 
-function AuthenticatedEventEditorForm({ communitySlug, event }: { communitySlug: string; event?: EditableEvent }) {
+function AuthenticatedEventEditorForm({ communitySlug, event, heading }: { communitySlug: string; event?: EditableEvent; heading?: ReactNode }) {
   const { isAuthenticated, isLoading } = useConvexAuth();
 
   if (isLoading) {
-    return <p className="text-sm text-muted">Loading sign-in state...</p>;
+    return <>{heading}<p className="text-sm text-muted">Loading sign-in state...</p></>;
   }
 
   if (!isAuthenticated) {
-    return <SignInRequiredEventEditorPanel />;
+    return <>{heading}<SignInRequiredEventEditorPanel /></>;
   }
 
-  return <ConnectedEventEditorForm communitySlug={communitySlug} event={event} />;
+  return <ConnectedEventEditorForm communitySlug={communitySlug} event={event} heading={heading} />;
 }

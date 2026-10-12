@@ -5,6 +5,8 @@ for (const mode of ["draft", "correction"] as const) {
     await page.goto(`/playwright/event-intake?revision=${mode}`);
     if (mode === "correction") await page.getByRole("button", { name: "Correct event", exact: true }).click();
     const navigation = page.getByRole("navigation", { name: "Event editor" });
+    await expect(navigation.getByRole("button")).toHaveText(["Details", "Lineup", "Review"]);
+    if (mode === "correction") await expect(page.getByRole("button", { name: "Import poster or text", exact: true })).toHaveCount(0);
     await navigation.getByRole("button", { name: "Details", exact: true }).click();
     await page.getByLabel("Time TBA", { exact: true }).uncheck();
     await page.getByRole("combobox", { name: "Time zone", exact: true }).fill("UTC");
@@ -273,4 +275,26 @@ test("date-only public fixture keeps its date, calendar export and no watch play
   expect(ics).not.toMatch(/DTSTART(?:;TZID=[^:]*)?:\d{8}T/);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath("event-date-only.png"), fullPage: true });
+});
+
+
+test("staff stages retain mounted source fields in Details disclosure @flow @fixture", async ({ page }, info) => {
+  await page.goto("/playwright/event-editor");
+  const navigation = page.getByRole("navigation", { name: "Event editor" });
+  await expect(navigation.getByRole("button")).toHaveText(["Details", "Lineup", "Review"]);
+  await expect(navigation.getByRole("button", { name: "Details", exact: true })).toHaveAttribute("aria-current", "step");
+  await expect(page.getByRole("button", { name: "Import poster or text", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Add event", exact: true })).toHaveCount(1);
+  await page.getByLabel("Event title", { exact: true }).press("Enter");
+  await expect(navigation.getByRole("button", { name: "Lineup", exact: true })).toHaveAttribute("aria-current", "step");
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+  await page.locator("summary").filter({ hasText: /^Source/ }).click();
+  await page.getByLabel("Source label", { exact: true }).fill("Retained source");
+  await page.getByLabel("Poster image URL", { exact: true }).fill("https://example.com/poster.png");
+  await page.screenshot({ path: info.outputPath("staff-source-disclosure.png"), fullPage: true, animations: "disabled" });
+  await page.locator("summary").filter({ hasText: /^Source/ }).click();
+  await navigation.getByRole("button", { name: "Review", exact: true }).click();
+  expect(await page.locator("form").evaluate(form => Object.fromEntries(new FormData(form as HTMLFormElement)))).toMatchObject({ sourceLabel: "Retained source", posterImageUrl: "https://example.com/poster.png" });
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+  await expect(navigation.getByRole("button", { name: "Lineup", exact: true })).toHaveAttribute("aria-current", "step");
 });

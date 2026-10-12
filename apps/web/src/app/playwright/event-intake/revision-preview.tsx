@@ -96,6 +96,7 @@ function revisionFixture(correction: boolean, sourceMode?: string, staff = false
         return Response.json({ posterAssetId: `poster-${count}`, expiresAt: Date.now() + 60000, transfer: { method: "POST", url: `${location.origin}/fixture-upload`, fields: {}, fileField: "file" } });
       }
       case "poster_upload_complete":
+        if (sourceMode === "completion-delay") await new Promise<void>(resolve => window.addEventListener("release-poster-completion", () => resolve(), { once: true }));
         if (sourceMode === "derivative-failure" && !sessionStorage.getItem("fixture-derivative-failed")) { sessionStorage.setItem("fixture-derivative-failed", "true"); return Response.json({}, { status: 503 }); }
         if (args.expectedVersion !== undefined && args.expectedVersion !== version && !(completion && completion.sourceId === args.posterAssetId && completion.version === version && args.expectedVersion === version - 1)) return Response.json({}, { status: 409 });
         if (!draft.artworkSourceId && fields.posterSourceId === args.posterAssetId) {
@@ -123,6 +124,7 @@ function revisionFixture(correction: boolean, sourceMode?: string, staff = false
         return Response.json({ artworkAssetId: sourceId ? "art" : null, artworkSourceId: sourceId, version });
       }
       case "extract":
+        if (sourceMode === "extraction-delay") await new Promise<void>(resolve => window.addEventListener("release-extraction", () => resolve(), { once: true }));
         sessionStorage.setItem("fixture-extraction", JSON.stringify(args));
         if (sourceMode === "stale") refresh({ venueLabel: "Changed elsewhere" });
         return Response.json({ event: { title: sourceMode === "poster" ? null : "Afterglow Night", communitySlug: null, eventDate: null, start: null, end: null, startDate: null, endDate: null, timezone: null, venueLabel: null, summary: null, sourceUrl: null }, lineup: [], evidence: [{ fieldPath: "event.title", origin: "text", excerpt: "Afterglow Night", assessment: "explicit" }], questions: [{ fieldPath: sourceMode === "poster" ? "source" : "timezone", reason: sourceMode === "poster" ? "disabled" : "Which time zone?", alternatives: [] }] });
@@ -144,10 +146,9 @@ export function EventIntakeRevisionPreview({ correction, sourceMode, staff = fal
   return <ConvexProviderWithAuth client={fixture.client} useAuth={useFixtureAuth}>
     <main className="mx-auto w-full max-w-6xl p-5">
       {sourceMode ? <PageNav><BrandLink /></PageNav> : null}
-      {sourceMode ? <h1 className="my-6 text-3xl font-semibold">Add event</h1> : null}
       {!sourceMode ? <button onClick={() => { fixture.refresh({ venueLabel: "New venue" }); setRefreshed(true); }}>Update elsewhere</button> : null}
       {refreshed ? <output>Query refreshed</output> : null}
-      {correction ? <EventContributionControls eventId="fixture-event" /> : <EventIntakeForm draftId="fixture-draft" />}
+      {correction ? <EventContributionControls eventId="fixture-event" /> : <EventIntakeForm heading={sourceMode ? <h1 className="text-3xl font-semibold">Add event</h1> : undefined} draftId="fixture-draft" />}
     </main>
   </ConvexProviderWithAuth>;
 }

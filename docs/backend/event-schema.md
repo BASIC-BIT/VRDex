@@ -135,8 +135,8 @@ caches for discovery. Date-only events accept untimed rows only. Existing timed
 sets retain their playback identity and selected stream when the person is unchanged.
 The legacy owner editor continues using its existing slot and participant writes.
 
-The owner/staff editor uses the shared Source, Details, Lineup, and Review
-navigation. Source retains the existing poster URL and media/link fields;
+The owner/staff editor uses the shared Details, Lineup, and Review
+navigation. A Details disclosure retains the existing poster URL and media/link fields;
 private single-poster intake remains a separate contributor workflow. Details
 contains the current title, description, timing, timezone, and applicable venue
 controls. Lineup shows matched public portraits or initials beside timed and

@@ -1,5 +1,7 @@
 "use client";
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { Upload } from "lucide-react";
+import { EventIntakeDialog } from "./event-intake-dialog";
 import { ConvexError } from "convex/values";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -49,10 +51,12 @@ export function IntakeTime({ label, value, date, timezone, eventStart = false, o
   </div>;
 }
 
-export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, correction = false, onSave, onPublish, onSource, initialArtworkSourceId }: { initialFields: EventIntakeFields; initialRevision?: number; correction?: boolean; onSource?: IntakeSourceAction; initialArtworkSourceId?: string; onSave?: (fields: EventIntakeFields, revision: number) => Promise<void>; onPublish: (fields: EventIntakeFields, revision: number) => Promise<void> }) {
+export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, correction = false, onSave, onPublish, onSource, initialArtworkSourceId, heading }: { heading?: ReactNode; initialFields: EventIntakeFields; initialRevision?: number; correction?: boolean; onSource?: IntakeSourceAction; initialArtworkSourceId?: string; onSave?: (fields: EventIntakeFields, revision: number) => Promise<void>; onPublish: (fields: EventIntakeFields, revision: number) => Promise<void> }) {
   const form = useRef<HTMLFormElement>(null);
   const [fields, setFields] = useState(initialFields);
-  const steps: EventEditorStep[] = onSource ? ["Source", "Details", "Lineup", "Review"] : ["Details", "Lineup", "Review"];
+  const steps: EventEditorStep[] = ["Details", "Lineup", "Review"];
+  const [importOpen, setImportOpen] = useState(false);
+  const focusExtractedDetails = useRef(false);
   const [activeStep, setActiveStep] = useState<EventEditorStep>(steps[0]);
   const [artwork, setArtwork] = useState<string>();
   // Keep the revision paired with the fields loaded when editing began.
@@ -60,6 +64,12 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [duplicates, setDuplicates] = useState<Array<{ eventId: string; title: string; eventPath: string }>>([]);
+  useEffect(() => {
+    if (!busy && !importOpen && focusExtractedDetails.current) {
+      focusExtractedDetails.current = false;
+      requestAnimationFrame(() => form.current?.querySelector<HTMLElement>('[data-step="Details"] button, [name="title"]')?.focus());
+    }
+  }, [busy, importOpen]);
   const set = <K extends keyof EventIntakeFields>(key: K, value: EventIntakeFields[K]) => setFields(current => ({ ...current, [key]: value }));
   function reveal(step: EventEditorStep, selector: string) {
     setActiveStep(step);
@@ -108,11 +118,9 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
     }
     finally { setBusy(false); }
   }
-  return <form ref={form} className="grid gap-6" onInvalidCapture={event => { const target = event.target as HTMLElement; const panel = target.closest<HTMLElement>("[data-step]"); if (panel) { event.preventDefault(); setActiveStep(panel.dataset.step as EventEditorStep); requestAnimationFrame(() => target.focus()); } }} onSubmit={event => { event.preventDefault(); if (activeStep === "Review") void submit(true); else setActiveStep(steps[steps.indexOf(activeStep) + 1]); }}>
+  return <><form ref={form} className="grid gap-6" onInvalidCapture={event => { const target = event.target as HTMLElement; const panel = target.closest<HTMLElement>("[data-step]"); if (panel) { event.preventDefault(); setActiveStep(panel.dataset.step as EventEditorStep); requestAnimationFrame(() => target.focus()); } }} onSubmit={event => { event.preventDefault(); if (activeStep === "Review") void submit(true); else setActiveStep(steps[steps.indexOf(activeStep) + 1]); }}>
+    <EventEditorSteps heading={heading} actions={onSource ? <Button type="button" variant="primary" className="min-h-11 gap-2" onClick={() => setImportOpen(true)}><Upload aria-hidden="true" className="size-4" />Import poster or text</Button> : undefined} steps={steps} activeStep={activeStep} onSelect={setActiveStep} preview={<EventEditorPreview fields={fields} artwork={artwork} />}>
     <fieldset disabled={busy} className="grid min-w-0 gap-6">
-    <EventEditorSteps steps={steps} activeStep={activeStep} onSelect={setActiveStep} preview={<EventEditorPreview fields={fields} artwork={artwork} />}>
-    <div className="grid gap-6">
-    <div hidden={activeStep !== "Source"}>{onSource ? <EventIntakeSource fields={fields} revision={revision} onChange={setFields} action={onSource} busy={busy} setBusy={setBusy} setMessage={setMessage} initialArtworkSourceId={initialArtworkSourceId} onPreview={setArtwork} onExtract={() => setActiveStep("Details")} /> : null}</div>
     <div hidden={activeStep !== "Details"} data-step="Details"><section className="grid gap-4"><h2 className="text-xl font-semibold">Details</h2>{onSource ? <EventIntakeSuggestions fields={fields} onChange={setFields} /> : null}
     {!correction ? <Field>Community<CommunityInput value={fields.communitySlug ?? ""} disabled={false} onChange={value => set("communitySlug", value)} /></Field> : null}
     <Field>Event title<Input name="title" value={fields.title ?? ""} maxLength={120} onChange={event => set("title", event.target.value)} /></Field>
@@ -144,15 +152,16 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
     </div></section>
     {duplicates.length ? <section className="grid gap-3"><h2 className="text-xl font-semibold">Similar events</h2>{duplicates.map(item => <div key={item.eventId}><Link className="underline" href={item.eventPath}>{item.title}</Link><label className="mt-2 flex items-center gap-2"><input type="checkbox" checked={fields.duplicateAcknowledgements?.includes(item.eventId) ?? false} onChange={event => set("duplicateAcknowledgements", event.target.checked ? [...fields.duplicateAcknowledgements ?? [], item.eventId] : fields.duplicateAcknowledgements?.filter(id => id !== item.eventId))} />Different event</label></div>)}</section> : null}
     </div>
-    </div>
-    </EventEditorSteps>
-    <div className="flex flex-wrap gap-3 border-t border-border pt-5">{activeStep !== steps[0] ? <Button type="button" variant="secondary" onClick={() => setActiveStep(steps[steps.indexOf(activeStep) - 1])}>Back</Button> : null}{activeStep === "Review" ? <Button type="submit" variant="primary" disabled={busy}>{correction ? "Save changes" : "Publish event"}</Button> : <Button type="button" variant="primary" onClick={() => setActiveStep(steps[steps.indexOf(activeStep) + 1])}>Continue</Button>}{onSave ? <Button type="button" disabled={busy} variant="secondary" onClick={() => void submit(false)}>Save draft</Button> : null}</div>
     </fieldset>
-    {message ? <Notice><span role="status">{message}</span></Notice> : null}
-  </form>;
+    </EventEditorSteps>
+    <fieldset disabled={busy} className="flex flex-wrap items-center gap-3 border-t border-border pt-5"><span className="mr-auto text-sm text-muted">{steps.indexOf(activeStep) + 1} / {steps.length}</span>{activeStep !== steps[0] ? <Button type="button" variant="secondary" onClick={() => setActiveStep(steps[steps.indexOf(activeStep) - 1])}>Back</Button> : null}{activeStep === "Review" ? <Button type="submit" variant="primary" disabled={busy}>{correction ? "Save changes" : "Publish event"}</Button> : <Button type="submit" variant="primary">Continue</Button>}{onSave ? <Button type="button" disabled={busy} variant="secondary" onClick={() => void submit(false)}>Save draft</Button> : null}</fieldset>
+    {message && !importOpen ? <Notice><span role="status">{message}</span></Notice> : null}
+  </form>
+  {onSource ? <EventIntakeDialog open={importOpen} onClose={() => setImportOpen(false)}><fieldset disabled={busy}><EventIntakeSource fields={fields} revision={revision} onChange={setFields} action={onSource} busy={busy} setBusy={setBusy} setMessage={setMessage} initialArtworkSourceId={initialArtworkSourceId} onPreview={setArtwork} onExtract={() => { focusExtractedDetails.current = true; setActiveStep("Details"); setImportOpen(false); }} /></fieldset>{message ? <Notice><span role="status">{message}</span></Notice> : null}</EventIntakeDialog> : null}
+  </>;
 }
 
-function ConnectedIntake({ draftId, initialCommunitySlug }: { draftId?: string; initialCommunitySlug?: string }) {
+function ConnectedIntake({ draftId, initialCommunitySlug, heading }: { draftId?: string; initialCommunitySlug?: string; heading?: ReactNode }) {
   const router = useRouter();
   const loaded = useQuery(api.eventIntake.getEventIntakeDraft, draftId ? { draftId } : "skip");
   const save = useMutation(api.eventIntake.saveEventIntakeDraft);
@@ -207,18 +216,18 @@ function ConnectedIntake({ draftId, initialCommunitySlug }: { draftId?: string; 
     await saveFields(next, revision);
     return { fields: next, candidate };
   };
-  if (draftId && loaded === undefined) return <p aria-busy="true">Loading draft…</p>;
-  if (draftId && loaded === null) return <Notice>Unavailable</Notice>;
-  return <EventIntakeFieldsForm initialFields={loaded?.fields ?? { communitySlug: initialCommunitySlug, timeTba: false }} initialRevision={loaded?.version} onSource={sourceAction} initialArtworkSourceId={loaded?.artworkSourceId} onSave={async (fields, revision) => { await saveFields(fields, revision); }} onPublish={async (fields, revision) => {
+  if (draftId && loaded === undefined) return <>{heading}<p aria-busy="true">Loading draft…</p></>;
+  if (draftId && loaded === null) return <>{heading}<Notice>Unavailable</Notice></>;
+  return <EventIntakeFieldsForm heading={heading} initialFields={loaded?.fields ?? { communitySlug: initialCommunitySlug, timeTba: false }} initialRevision={loaded?.version} onSource={sourceAction} initialArtworkSourceId={loaded?.artworkSourceId} onSave={async (fields, revision) => { await saveFields(fields, revision); }} onPublish={async (fields, revision) => {
     const current = await saveFields(fields, revision);
     if (request.current?.version !== current.version) request.current = { version: current.version, key: crypto.randomUUID() };
     const result = await publish({ draftId: current.draftId, expectedVersion: current.version, idempotencyKey: request.current.key });
     router.replace(result.eventPath);
   }} />;
 }
-export function EventIntakeForm(props: { draftId?: string; initialCommunitySlug?: string }) {
+export function EventIntakeForm(props: { draftId?: string; initialCommunitySlug?: string; heading?: ReactNode }) {
   const auth = useConvexAuth();
-  if (auth.isLoading) return <p aria-busy="true">Loading…</p>;
-  if (!auth.isAuthenticated) return <Link href={`/sign-in?returnTo=${encodeURIComponent(`/events/new?${new URLSearchParams({ ...(props.draftId ? { draft: props.draftId } : {}), ...(props.initialCommunitySlug ? { community: props.initialCommunitySlug } : {}) })}`)}`}>Sign in</Link>;
+  if (auth.isLoading) return <>{props.heading}<p aria-busy="true">Loading…</p></>;
+  if (!auth.isAuthenticated) return <>{props.heading}<Link href={`/sign-in?returnTo=${encodeURIComponent(`/events/new?${new URLSearchParams({ ...(props.draftId ? { draft: props.draftId } : {}), ...(props.initialCommunitySlug ? { community: props.initialCommunitySlug } : {}) })}`)}`}>Sign in</Link></>;
   return <ConnectedIntake {...props} />;
 }

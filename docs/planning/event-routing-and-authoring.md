@@ -1,6 +1,6 @@
 # Event Routing And Authoring
 
-Contributor editor (2026-09-29): [visual reference](./event-editor-visual-reference-2026-09-29.md). Contributor creation now uses Source, Details, Lineup, and Review inside the existing header and footer. Owner/staff and correction presentation remain separate pending the next implementation tasks.
+Editor navigation (2026-10-11): [wizard refinement](./event-editor-wizard-refinement-2026-10-11.md). Contributor, scoped correction, and owner/staff editors use Details, Lineup, and Review inside the existing header and footer. Contributor drafts support an optional import dialog beside the page heading; staff source controls remain in a Details disclosure.
 
 ## Status
 

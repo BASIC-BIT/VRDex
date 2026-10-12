@@ -67,7 +67,6 @@ export function EventIntakeSource({ fields, revision, onChange, action, busy, se
     } finally { inFlight.current = false; setBusy(false); }
   }
   return <section className="grid min-w-0 gap-5" aria-label="Event source">
-    <h2 className="text-xl font-semibold">Source</h2>
     <Field>Source text<Textarea value={fields.sourceText ?? ""} maxLength={12000} rows={6} onChange={event => onChange({ ...fields, sourceText: event.target.value, tentative: null, questions: null, evidence: null })} /></Field>
     <Field>Poster<Input type="file" accept="image/png,image/jpeg,image/webp" disabled={busy} onChange={event => { const file = event.target.files?.[0]; if (file) void run("upload", file); event.target.value = ""; }} /></Field>
     {sourceId ? <div className="grid content-start gap-3 rounded-control border border-border p-3">

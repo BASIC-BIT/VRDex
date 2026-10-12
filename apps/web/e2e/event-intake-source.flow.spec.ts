@@ -1,15 +1,21 @@
 import { expect, test, type Page } from "@playwright/test";
 
 const step = async (page: Page, name: string) => {
+  if (await page.getByRole("dialog").isVisible()) await page.getByRole("button", { name: "Close", exact: true }).click();
   const button = page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name, exact: true });
   await button.click();
   await expect(button).toHaveAttribute("aria-current", "step");
+};
+const openImport = async (page: Page) => {
+  await page.getByRole("button", { name: "Import poster or text", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Import event info" })).toBeVisible();
 };
 const upload = "public/test-media/event-poster.png";
 
 test("loaded Time TBA draft delegates stale time ordering to publication @flow @fixture", async ({ page }) => {
   await page.addInitScript(() => sessionStorage.setItem("fixture-source-draft", JSON.stringify({ version: 1, fields: { communitySlug: "afterglow", title: "Date only", eventDate: "2027-10-15", timeTba: true, timezone: "UTC", start: { time: "23:00" }, end: { time: "22:00" } } })));
   await page.goto("/playwright/event-intake?source=text");
+  await openImport(page);
   await step(page, "Details");
   await expect(page.getByLabel("Time TBA", { exact: true })).toBeChecked();
   await expect(page.getByLabel("End time", { exact: true })).toHaveCount(0);
@@ -22,6 +28,7 @@ test("loaded Time TBA draft delegates stale time ordering to publication @flow @
 
 test("incomplete draft bypasses native date and publish ordering validation @flow @fixture", async ({ page }) => {
   await page.goto("/playwright/event-intake?source=text");
+  await openImport(page);
   await step(page, "Details");
   await page.getByLabel("Date", { exact: true }).fill("2027-10-15");
   await page.getByLabel("Start time", { exact: true }).fill("23:00");
@@ -30,6 +37,7 @@ test("incomplete draft bypasses native date and publish ordering validation @flo
   await step(page, "Lineup");
   await page.getByRole("button", { name: "Add performer", exact: true }).click();
   await step(page, "Review");
+  if (await page.getByRole("dialog").isVisible()) await page.getByRole("button", { name: "Close", exact: true }).click();
   await page.getByRole("button", { name: "Save draft", exact: true }).click();
   await expect(page.getByRole("status")).toHaveText("Draft saved");
   const saved = await page.evaluate(() => JSON.parse(sessionStorage.getItem("fixture-source-draft")!).fields);
@@ -38,6 +46,7 @@ test("incomplete draft bypasses native date and publish ordering validation @flo
   expect(saved.timezone).toBeUndefined();
   expect(await page.evaluate(() => sessionStorage.getItem("fixture-published"))).toBeNull();
   await page.goto("/playwright/event-intake?source=text");
+  await openImport(page);
   await step(page, "Details");
   await expect(page.getByLabel("Start time date", { exact: true })).toHaveValue("2027-10-16");
   await expect(page.getByLabel("End time", { exact: true })).toHaveValue("22:00");
@@ -45,6 +54,7 @@ test("incomplete draft bypasses native date and publish ordering validation @flo
 
 test("review publish reveals a blank lineup performer @flow @fixture", async ({ page }, info) => {
   await page.goto("/playwright/event-intake?source=text");
+  await openImport(page);
   await step(page, "Details");
   await page.getByLabel("Event title", { exact: true }).fill("Night");
   await page.getByLabel("Community", { exact: true }).fill("afterglow");
@@ -78,6 +88,7 @@ test("review publish reveals a blank lineup performer @flow @fixture", async ({ 
 
 test("manual partial draft survives steps and resume then publishes directly @flow @fixture", async ({ page }, info) => {
   await page.goto("/playwright/event-intake?source=text");
+  await openImport(page);
   await step(page, "Details");
   await page.getByLabel("Event title", { exact: true }).fill("Afterglow Night");
   await page.getByLabel("Community", { exact: true }).fill("playwright-afterglow-social");
@@ -92,9 +103,11 @@ test("manual partial draft survives steps and resume then publishes directly @fl
   await expect(page.getByRole("heading", { name: "Similar events" })).toHaveCount(0);
   await page.screenshot({ path: info.outputPath("review.png"), fullPage: true, animations: "disabled" });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  if (await page.getByRole("dialog").isVisible()) await page.getByRole("button", { name: "Close", exact: true }).click();
   await page.getByRole("button", { name: "Save draft", exact: true }).click();
   await expect(page.getByRole("status")).toHaveText("Draft saved");
   await page.goto("/playwright/event-intake?source=text");
+  await openImport(page);
   await step(page, "Details");
   await expect(page.getByLabel("Event title", { exact: true })).toHaveValue("Afterglow Night");
   await step(page, "Review");
@@ -105,6 +118,7 @@ test("manual partial draft survives steps and resume then publishes directly @fl
 
 test("text and one poster extract together then replacement and removal preserve accepted fields @flow @fixture", async ({ page }, info) => {
   await page.goto("/playwright/event-intake?source=text");
+  await openImport(page);
   await page.getByRole("textbox", { name: "Source text", exact: true }).fill("Afterglow Night");
   await expect(page.getByLabel("Poster", { exact: true })).not.toHaveAttribute("multiple");
   await page.getByLabel("Poster", { exact: true }).setInputFiles(upload);
@@ -116,7 +130,7 @@ test("text and one poster extract together then replacement and removal preserve
   await expect(page.getByRole("button", { name: "Accept Event title" })).toBeVisible();
   expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("fixture-extraction")!))).toMatchObject({ sourceText: "Afterglow Night", posterAssetId: "poster-1" });
   await page.getByRole("button", { name: "Accept Event title" }).click();
-  await step(page, "Source");
+  await openImport(page);
   await page.getByLabel("Poster", { exact: true }).setInputFiles(upload);
   await expect(page.getByAltText("Source poster", { exact: true })).toHaveAttribute("src", /#poster-2$/);
   await expect(page.getByRole("img", { name: "Event artwork", exact: true })).toHaveAttribute("src", /#poster-2$/);
@@ -124,9 +138,11 @@ test("text and one poster extract together then replacement and removal preserve
   await step(page, "Details");
   await expect(page.getByLabel("Event title", { exact: true })).toHaveValue("Afterglow Night");
   await expect(page.getByText("Source evidence", { exact: true })).toHaveCount(0);
+  if (await page.getByRole("dialog").isVisible()) await page.getByRole("button", { name: "Close", exact: true }).click();
   await page.getByRole("button", { name: "Save draft", exact: true }).click();
   await expect(page.getByRole("status")).toHaveText("Draft saved");
   await page.goto("/playwright/event-intake?source=text");
+  await openImport(page);
   await expect(page.getByAltText("Source poster", { exact: true })).toHaveAttribute("src", /#poster-2$/);
   await expect(page.getByRole("img", { name: "Event artwork", exact: true })).toHaveAttribute("src", /#poster-2$/);
   await page.getByRole("button", { name: "Remove poster", exact: true }).click();
@@ -138,15 +154,17 @@ test("text and one poster extract together then replacement and removal preserve
 
 test("evidence resumes and source edits invalidate suggestions without losing accepted fields @flow @fixture", async ({ page }) => {
   await page.goto("/playwright/event-intake?source=text");
+  await openImport(page);
   await page.getByRole("textbox", { name: "Source text", exact: true }).fill("Original source");
   await page.getByRole("button", { name: "Extract details" }).click();
   await expect(page.getByRole("button", { name: "Accept Event title" })).toBeVisible();
   await page.goto("/playwright/event-intake?source=text");
+  await openImport(page);
   await step(page, "Details");
   await page.getByText("Source evidence", { exact: true }).click();
   await expect(page.getByText(/Afterglow Night \(explicit/)).toBeVisible();
   await page.getByRole("button", { name: "Accept Event title" }).click();
-  await step(page, "Source");
+  await openImport(page);
   await page.getByRole("textbox", { name: "Source text", exact: true }).fill("New source");
   await step(page, "Details");
   await expect(page.getByLabel("Event title", { exact: true })).toHaveValue("Afterglow Night");
@@ -156,6 +174,7 @@ test("evidence resumes and source edits invalidate suggestions without losing ac
 
 test("lineup uses local dates across midnight and matched avatars @flow @fixture", async ({ page }, info) => {
   await page.goto("/playwright/event-intake?source=text");
+  await openImport(page);
   await step(page, "Details");
   await page.getByLabel("Date", { exact: true }).fill("2027-10-15");
   await step(page, "Lineup");
@@ -167,6 +186,7 @@ test("lineup uses local dates across midnight and matched avatars @flow @fixture
   await page.getByLabel("Slot 1 start date", { exact: true }).fill("2027-10-16");
   await expect(page.getByText("Day offset", { exact: true })).toHaveCount(0);
   await page.screenshot({ path: info.outputPath("lineup.png"), fullPage: true, animations: "disabled" });
+  if (await page.getByRole("dialog").isVisible()) await page.getByRole("button", { name: "Close", exact: true }).click();
   await page.getByRole("button", { name: "Save draft", exact: true }).click();
   await expect(page.getByRole("status")).toHaveText("Draft saved");
   expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("fixture-source-draft")!).fields.lineup[0].start)).toEqual({ time: "00:30", dayOffset: 1 });
@@ -174,6 +194,7 @@ test("lineup uses local dates across midnight and matched avatars @flow @fixture
 
 for (const mode of ["stale", "upload-stale"]) test(`${mode} preserves external edits @flow @fixture`, async ({ page }) => {
   await page.goto(`/playwright/event-intake?source=${mode}`);
+  await openImport(page);
   if (mode === "stale") {
     await page.getByRole("textbox", { name: "Source text", exact: true }).fill("Original source");
     await page.getByRole("button", { name: "Extract details" }).click();
@@ -191,6 +212,7 @@ for (const mode of ["stale", "upload-stale"]) test(`${mode} preserves external e
 
 test("review routes missing fields back to details and repeated times require occurrence @flow @fixture", async ({ page }) => {
   await page.goto("/playwright/event-intake?source=text");
+  await openImport(page);
   await step(page, "Review");
   await page.getByRole("button", { name: "Publish event", exact: true }).click();
   await expect(page.getByLabel("Event title", { exact: true })).toBeVisible();
@@ -208,6 +230,7 @@ test("review routes missing fields back to details and repeated times require oc
   await expect(page.getByRole("status")).toContainText("Ambiguous local time");
   await expect(page.getByLabel("Start time occurrence")).toBeFocused();
   await page.getByLabel("Start time occurrence").selectOption("later");
+  if (await page.getByRole("dialog").isVisible()) await page.getByRole("button", { name: "Close", exact: true }).click();
   await page.getByRole("button", { name: "Save draft", exact: true }).click();
   await expect(page.getByRole("status")).toHaveText("Draft saved");
   expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("fixture-source-draft")!).fields.start.occurrence)).toBe("later");
@@ -215,6 +238,7 @@ test("review routes missing fields back to details and repeated times require oc
 
 test("similar events appear only when publish preflight returns a match @flow @fixture", async ({ page }) => {
   await page.goto("/playwright/event-intake?source=duplicates");
+  await openImport(page);
   await step(page, "Details");
   await page.getByLabel("Event title", { exact: true }).fill("Afterglow Night");
   await page.getByLabel("Community", { exact: true }).fill("afterglow");
@@ -231,6 +255,7 @@ test("similar events appear only when publish preflight returns a match @flow @f
 
 test("pending replacement preview never shows old artwork and removal stays empty @flow @fixture", async ({ page }) => {
   await page.goto("/playwright/event-intake?source=replacement-delay");
+  await openImport(page);
   await page.getByLabel("Poster", { exact: true }).setInputFiles(upload);
   await expect(page.getByRole("img", { name: "Event artwork", exact: true })).toHaveAttribute("src", /#poster-1$/);
   await page.getByLabel("Poster", { exact: true }).setInputFiles(upload);
@@ -243,16 +268,20 @@ test("pending replacement preview never shows old artwork and removal stays empt
   await expect(page.getByRole("img", { name: "Event artwork", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Extract details" })).toBeDisabled();
   await page.goto("/playwright/event-intake?source=text");
+  await openImport(page);
   await expect(page.getByAltText("Source poster", { exact: true })).toHaveCount(0);
 });
 
 test("image-only drafts upload before any manual details @flow @fixture", async ({ page }) => {
   await page.goto("/playwright/event-intake?source=image-only");
+  await openImport(page);
   await page.getByLabel("Poster", { exact: true }).setInputFiles(upload);
   await expect(page.getByAltText("Source poster", { exact: true })).toBeVisible();
   await expect(page.getByRole("img", { name: "Event artwork", exact: true })).toHaveAttribute("src", /#poster-1$/);
+  if (await page.getByRole("dialog").isVisible()) await page.getByRole("button", { name: "Close", exact: true }).click();
   await page.getByRole("button", { name: "Save draft", exact: true }).click();
   await expect(page.getByRole("status")).toHaveText("Draft saved");
+  await openImport(page);
   await page.getByRole("button", { name: "Remove poster", exact: true }).click();
   await expect(page.getByRole("img", { name: "Event artwork", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Extract details" })).toBeDisabled();
@@ -262,6 +291,7 @@ test("image-only drafts upload before any manual details @flow @fixture", async 
 
 test("lost completion response permits retry with a visible preview and later edits @flow @fixture", async ({ page }, info) => {
   await page.goto("/playwright/event-intake?source=completion-response-lost");
+  await openImport(page);
   await page.getByLabel("Poster", { exact: true }).setInputFiles(upload);
   await expect(page.getByRole("status")).toBeVisible();
   await expect(page.getByAltText("Source poster", { exact: true })).toBeVisible();
@@ -270,10 +300,11 @@ test("lost completion response permits retry with a visible preview and later ed
   await page.screenshot({ path: info.outputPath("completion-retry.png"), fullPage: true, animations: "disabled" });
   await step(page, "Details");
   await page.getByLabel("Event title", { exact: true }).fill("Edited after completion");
-  await step(page, "Source");
+  await openImport(page);
   await page.getByRole("button", { name: "Retry poster", exact: true }).click();
   await expect(page.getByRole("button", { name: "Retry poster", exact: true })).toHaveCount(0);
   await expect(page.getByRole("img", { name: "Event artwork", exact: true })).toHaveAttribute("src", /#poster-1$/);
+  if (await page.getByRole("dialog").isVisible()) await page.getByRole("button", { name: "Close", exact: true }).click();
   await page.getByRole("button", { name: "Save draft", exact: true }).click();
   await expect(page.getByRole("status")).toHaveText("Draft saved");
   expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("fixture-source-draft")!).fields.title)).toBe("Edited after completion");
@@ -281,10 +312,12 @@ test("lost completion response permits retry with a visible preview and later ed
 
 test("resumed failed artwork keeps the poster preview and completion retry @flow @fixture", async ({ page }, info) => {
   await page.goto("/playwright/event-intake?source=derivative-failure");
+  await openImport(page);
   await page.getByLabel("Poster", { exact: true }).setInputFiles(upload);
   await expect(page.getByRole("status")).toBeVisible();
   await expect(page.getByAltText("Source poster", { exact: true })).toBeVisible();
   await page.goto("/playwright/event-intake?source=derivative-failure");
+  await openImport(page);
   await expect(page.getByAltText("Source poster", { exact: true })).toBeVisible();
   await expect(page.getByRole("img", { name: "Event artwork", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Retry poster", exact: true })).toBeVisible();
@@ -292,25 +325,28 @@ test("resumed failed artwork keeps the poster preview and completion retry @flow
   await page.getByRole("button", { name: "Retry poster", exact: true }).click();
   await expect(page.getByRole("button", { name: "Retry poster", exact: true })).toHaveCount(0);
   await expect(page.getByRole("img", { name: "Event artwork", exact: true })).toHaveAttribute("src", /#poster-1$/);
+  if (await page.getByRole("dialog").isVisible()) await page.getByRole("button", { name: "Close", exact: true }).click();
   await page.getByRole("button", { name: "Save draft", exact: true }).click();
   await expect(page.getByRole("status")).toHaveText("Draft saved");
 });
 
 test("unavailable extraction keeps visible feedback and manual continuation @flow @fixture", async ({ page }, info) => {
   await page.goto("/playwright/event-intake?source=poster");
+  await openImport(page);
   await page.getByLabel("Poster", { exact: true }).setInputFiles(upload);
   await expect(page.getByRole("img", { name: "Event artwork", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Extract details" }).click();
   await expect(page.getByRole("status")).toHaveText("Extraction unavailable");
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({ path: info.outputPath("extraction-unavailable.png"), fullPage: true, animations: "disabled" });
-  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await page.getByRole("button", { name: "Close", exact: true }).click();
   await expect(page.getByLabel("Event title", { exact: true })).toBeVisible();
   await page.getByLabel("Event title", { exact: true }).fill("Manual event");
 });
 
 test("review shows the confirmed start date after midnight @flow @fixture", async ({ page }, info) => {
   await page.goto("/playwright/event-intake?source=text");
+  await openImport(page);
   await step(page, "Details");
   await page.getByLabel("Event title", { exact: true }).fill("After midnight");
   await page.getByLabel("Date", { exact: true }).fill("2027-10-15");
@@ -327,6 +363,7 @@ test("review shows the confirmed start date after midnight @flow @fixture", asyn
 
 test("publish focuses invalid lineup time and hidden native field @flow @fixture", async ({ page }) => {
   await page.goto("/playwright/event-intake?source=text");
+  await openImport(page);
   await step(page, "Details");
   await page.getByLabel("Event title", { exact: true }).fill("Spring event");
   await page.getByLabel("Community", { exact: true }).fill("afterglow");
@@ -346,4 +383,68 @@ test("publish focuses invalid lineup time and hidden native field @flow @fixture
   await step(page, "Review");
   await page.getByRole("button", { name: "Publish event", exact: true }).click();
   await expect(page.getByLabel("Source URL", { exact: true })).toBeFocused();
+});
+
+
+test("three direct stages preserve import text and restore focus after Escape @flow @fixture", async ({ page }, info) => {
+  await page.goto("/playwright/event-intake?source=text");
+  const navigation = page.getByRole("navigation", { name: "Event editor" });
+  await expect(navigation.getByRole("button")).toHaveText(["Details", "Lineup", "Review"]);
+  await expect(navigation.getByRole("button", { name: "Details", exact: true })).toHaveAttribute("aria-current", "step");
+  await expect(page.getByRole("heading", { name: "Add event", exact: true })).toHaveCount(1);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.getByLabel("Event title", { exact: true }).fill("Partial event");
+  await page.getByLabel("Event title", { exact: true }).press("Enter");
+  await expect(navigation.getByRole("button", { name: "Lineup", exact: true })).toHaveAttribute("aria-current", "step");
+  await openImport(page);
+  await page.getByRole("textbox", { name: "Source text", exact: true }).fill("Keep this source");
+  await page.screenshot({ path: info.outputPath("import-dialog.png"), fullPage: true, animations: "disabled" });
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("button", { name: "Import poster or text", exact: true })).toBeFocused();
+  await expect(navigation.getByRole("button", { name: "Lineup", exact: true })).toHaveAttribute("aria-current", "step");
+  await openImport(page);
+  await expect(page.getByRole("textbox", { name: "Source text", exact: true })).toHaveValue("Keep this source");
+  await page.getByRole("button", { name: "Extract details", exact: true }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Accept Event title", exact: true })).toBeFocused();
+  await expect(page.getByLabel("Event title", { exact: true })).toHaveValue("Partial event");
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  await expect(page.getByRole("status")).toHaveText("Draft saved");
+  await step(page, "Review");
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+  await expect(navigation.getByRole("button", { name: "Lineup", exact: true })).toHaveAttribute("aria-current", "step");
+});
+
+test("closing during poster completion preserves busy guard and retry state @flow @fixture", async ({ page }) => {
+  await page.goto("/playwright/event-intake?source=completion-delay");
+  await openImport(page);
+  await page.getByLabel("Poster", { exact: true }).setInputFiles(upload);
+  await expect(page.getByRole("button", { name: "Extract details", exact: true })).toBeDisabled();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("button", { name: "Import poster or text", exact: true })).toBeFocused();
+  await expect(page.getByRole("button", { name: "Save draft", exact: true })).toBeDisabled();
+  await openImport(page);
+  await expect(page.getByLabel("Poster", { exact: true })).toBeDisabled();
+  await page.evaluate(() => window.dispatchEvent(new Event("release-poster-completion")));
+  await expect(page.getByRole("button", { name: "Remove poster", exact: true })).toBeEnabled();
+  await expect(page.getByAltText("Source poster", { exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await openImport(page);
+  await expect(page.getByRole("button", { name: "Retry poster", exact: true })).toHaveCount(0);
+});
+
+
+test("extraction completed after closing import focuses Details suggestions @flow @fixture", async ({ page }) => {
+  await page.goto("/playwright/event-intake?source=extraction-delay");
+  await step(page, "Lineup");
+  await openImport(page);
+  await page.getByRole("textbox", { name: "Source text", exact: true }).fill("Source while closed");
+  await page.getByRole("button", { name: "Extract details", exact: true }).click();
+  await expect(page.getByLabel("Poster", { exact: true })).toBeDisabled();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("button", { name: "Import poster or text", exact: true })).toBeFocused();
+  await page.evaluate(() => window.dispatchEvent(new Event("release-extraction")));
+  await expect(page.getByRole("button", { name: "Accept Event title", exact: true })).toBeFocused();
+  await expect(page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Details", exact: true })).toHaveAttribute("aria-current", "step");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
 });
