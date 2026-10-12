@@ -1,5 +1,5 @@
 "use client";
-import { Fragment, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { CalendarDays, Music2, ClipboardCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -10,13 +10,16 @@ export function EventEditorSteps({ steps, activeStep, onSelect, children, previe
 }) {
   return <div className="grid min-w-0 gap-6">
     {heading || actions ? <div className="flex flex-wrap items-center justify-between gap-4">{heading}{actions}</div> : null}
-    {steps.length ? <nav aria-label="Event editor" className="flex items-center border-b border-border pb-4">
+    {steps.length ? <nav aria-label="Event editor" className="mx-auto grid w-full max-w-2xl grid-cols-3 pb-4">
       {steps.map((step, index) => {
         const Icon = icons[step];
-        return <Fragment key={step}>
-          {index > 0 ? <span aria-hidden="true" className="h-px w-3 shrink-0 bg-border sm:w-8" /> : null}
-          <Button type="button" variant="ghost" aria-current={activeStep === step ? "step" : undefined} onClick={() => onSelect(step)} className={`min-h-11 min-w-0 flex-1 flex-col gap-1 px-1 sm:flex-row sm:gap-2 sm:px-4 ${activeStep === step ? "bg-accent/10" : "text-muted"}`}><Icon aria-hidden="true" className={`size-5 shrink-0 ${activeStep === step ? "text-accent" : "text-muted"}`} />{step}</Button>
-        </Fragment>;
+        return <div key={step} className="relative min-w-0">
+          {index > 0 ? <span aria-hidden="true" className="pointer-events-none absolute left-[calc(-50%+1.625rem)] right-[calc(50%+1.625rem)] top-[26px] h-px bg-border" /> : null}
+          <Button type="button" variant="ghost" aria-current={activeStep === step ? "step" : undefined} onClick={() => onSelect(step)} className="min-h-11 min-w-11 w-full flex-col gap-3 px-1 py-1 hover:bg-transparent">
+            <span className={`relative flex size-11 shrink-0 items-center justify-center rounded-full border ${activeStep === step ? "border-accent bg-accent text-inverse ring-4 ring-accent/10" : "border-border-strong bg-background text-muted"}`}><Icon aria-hidden="true" className="size-5" /></span>
+            <span className={activeStep === step ? "text-foreground" : "text-muted"}>{step}</span>
+          </Button>
+        </div>;
       })}
     </nav> : null}
     <div className={preview ? "grid min-w-0 items-start gap-8 lg:grid-cols-[minmax(0,1fr)_18rem]" : "min-w-0"}>

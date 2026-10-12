@@ -392,6 +392,26 @@ test("three direct stages preserve import text and restore focus after Escape @f
   await expect(navigation.getByRole("button")).toHaveText(["Details", "Lineup", "Review"]);
   await expect(navigation.getByRole("button", { name: "Details", exact: true })).toHaveAttribute("aria-current", "step");
   await expect(page.getByRole("heading", { name: "Add event", exact: true })).toHaveCount(1);
+  const markers = await navigation.evaluate(nav => Array.from(nav.querySelectorAll("button")).map(button => {
+    const marker = button.querySelector("svg")!.parentElement!;
+    const markerBox = marker.getBoundingClientRect();
+    const labelBox = button.lastElementChild!.getBoundingClientRect();
+    const buttonBox = button.getBoundingClientRect();
+    const connector = button.parentElement!.querySelector(":scope > span");
+    const connectorBox = connector?.getBoundingClientRect();
+    return { markerWidth: markerBox.width, markerHeight: markerBox.height, radius: getComputedStyle(marker).borderRadius === "50%" ? markerBox.width / 2 : parseFloat(getComputedStyle(marker).borderRadius), buttonBackground: getComputedStyle(button).backgroundColor, buttonWidth: buttonBox.width, buttonHeight: buttonBox.height, labelBelow: labelBox.top >= markerBox.bottom, connectorOffset: connectorBox ? Math.abs(connectorBox.top + connectorBox.height / 2 - markerBox.top - markerBox.height / 2) : 0 };
+  }));
+  for (const marker of markers) {
+    expect(marker.markerWidth).toBe(44);
+    expect(marker.markerHeight).toBe(44);
+    expect(marker.radius).toBeGreaterThanOrEqual(marker.markerWidth / 2);
+    expect(marker.buttonBackground).toBe("rgba(0, 0, 0, 0)");
+    expect(marker.buttonWidth).toBeGreaterThanOrEqual(44);
+    expect(marker.buttonHeight).toBeGreaterThanOrEqual(44);
+    expect(marker.labelBelow).toBe(true);
+    expect(marker.connectorOffset).toBeLessThanOrEqual(1);
+  }
+  await page.screenshot({ path: info.outputPath("wizard-markers.png"), fullPage: true, animations: "disabled" });
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await page.getByLabel("Event title", { exact: true }).fill("Partial event");
   await page.getByLabel("Event title", { exact: true }).press("Enter");
