@@ -35,6 +35,11 @@ for (const mode of ["create", "edit"]) test(`staff ${mode} keeps mounted values 
 });
 
 test("staff editor preserves Time TBA and artwork while correcting or removing contributed names", async ({ page }, testInfo) => {
+  // This synthetic owned URL has no backend asset in the local transport fixture.
+  await page.route("**/api/v0/events/event-contributed/artwork/artwork-owned", route => route.fulfill({
+    contentType: "image/svg+xml",
+    body: '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="640"><rect width="640" height="640" fill="#1b4538"/></svg>',
+  }));
   await page.addInitScript(() => {
     if (localStorage.getItem("event-lineup-fixture-v1")) return;
     localStorage.setItem("event-lineup-fixture-v1", JSON.stringify({
@@ -48,6 +53,9 @@ test("staff editor preserves Time TBA and artwork while correcting or removing c
   });
   await page.goto("/playwright/event-lineup?editor");
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Details" }).click();
+  const artwork = page.getByRole("img", { name: "Event artwork", exact: true });
+  await expect(artwork).toHaveAttribute("src", "/api/v0/events/event-contributed/artwork/artwork-owned");
+  await expect.poll(() => artwork.evaluate(image => image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0)).toBe(true);
   await expect(page.getByRole("checkbox", { name: "Time TBA", exact: true })).toBeChecked();
   await expect(page.getByLabel("Date", { exact: true })).toHaveValue("2027-10-15");
   await page.getByLabel("Event title", { exact: true }).fill("Corrected night");
@@ -58,8 +66,11 @@ test("staff editor preserves Time TBA and artwork while correcting or removing c
   await page.screenshot({ path: testInfo.outputPath("staff-date-only-editor.png"), fullPage: true });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Review" }).click();
-  await page.getByRole("button", { name: "Save changes", exact: true }).click();
-  await expect(page).toHaveURL(/playwright-afterglow-social\/events\/playwright-afterglow-harbor-sessions$/);
+  // Destination RSC compilation can exceed the default five-second assertion budget.
+  await Promise.all([
+    page.waitForURL(/playwright-afterglow-social\/events\/playwright-afterglow-harbor-sessions$/, { timeout: 15_000 }),
+    page.getByRole("button", { name: "Save changes", exact: true }).click(),
+  ]);
   const payload = await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!));
   expect(payload.scheduleKind).toBe("date_only");
   expect(payload.startAt).toBeUndefined();
