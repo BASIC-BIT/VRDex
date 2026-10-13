@@ -73,6 +73,7 @@ import type * as _mcpWriteReceipts from "../_mcpWriteReceipts.js";
 import type * as _mediaCleanupUrl from "../_mediaCleanupUrl.js";
 import type * as _mediaContributionCommands from "../_mediaContributionCommands.js";
 import type * as _mediaReview from "../_mediaReview.js";
+import type * as _mediaSubmissionCleanup from "../_mediaSubmissionCleanup.js";
 import type * as _oauth from "../_oauth.js";
 import type * as _oauthConsentTransactions from "../_oauthConsentTransactions.js";
 import type * as _previewPersistence from "../_previewPersistence.js";
@@ -263,6 +264,7 @@ declare const fullApi: ApiFromModules<{
   _mediaCleanupUrl: typeof _mediaCleanupUrl;
   _mediaContributionCommands: typeof _mediaContributionCommands;
   _mediaReview: typeof _mediaReview;
+  _mediaSubmissionCleanup: typeof _mediaSubmissionCleanup;
   _oauth: typeof _oauth;
   _oauthConsentTransactions: typeof _oauthConsentTransactions;
   _previewPersistence: typeof _previewPersistence;
