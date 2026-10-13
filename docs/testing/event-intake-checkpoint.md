@@ -127,6 +127,9 @@ repeated-hour occurrence. An entered end must follow the start. Clearing Ends
 sends null for updates; a known final lineup end may still be submitted.
 Creation without either end omits the field. Staff create still requires a
 known start; contributor date-only drafts retain their existing commands.
+When an untouched stored end shifts with a changed start, Ends displays the
+pending event-local value and its repeated-hour choice. Event preview shows
+the same resulting instant in the viewer's local timezone.
 
 The new utility labels `Import poster or text`, `Import event info`,
 `Ends (optional)` and `Add end time` follow BASIC's approved wording in the

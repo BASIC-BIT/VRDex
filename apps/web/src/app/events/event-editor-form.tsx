@@ -905,8 +905,34 @@ function ConnectedEventEditorForm({
   const isSubmitting = status.kind === "submitting";
   let startChoices: number[] = [];
   try { if (startLocal && timezone) startChoices = resolveEventLocalTime(startLocal.slice(0, 10), { time: startLocal.slice(11, 16) }, timezone); } catch { /* The form remains editable while incomplete. */ }
+  const previewStart = startChoices.length === 1 ? startChoices[0] : occurrence === "earlier" ? startChoices[0] : occurrence === "later" ? startChoices.at(-1) : undefined;
+  let previewDerivedEndAt: number | undefined;
+  try {
+    if (!timeTba && previewStart !== undefined) {
+      const previewSlots = parseSlotRows(slotRows, previewStart);
+      if (previewSlots.length > 0 && previewSlots.every(slot => slot.endAt !== undefined)) {
+        previewDerivedEndAt = Math.max(...previewSlots.map(slot => slot.endAt!));
+      }
+    }
+  } catch { /* Incomplete slot rows do not provide a preview end. */ }
+  const implicitEndAt = timeTba || previewStart === undefined ? undefined : resolveAuthoredEventEndAt({
+    startAt: previewStart, derivedEndAt: previewDerivedEndAt,
+    previousStartAt: event?.startAt, previousEndAt: event?.endAt, scheduleChanged,
+  });
+  const displayedEndLocal = !endEdited && previewStart !== undefined
+    ? implicitEndAt === undefined ? "" : formatZonedDateTimeInput(implicitEndAt, timezone)
+    : endLocal;
+  const displayedEndOccurrence = !endEdited && previewStart !== undefined
+    ? storedTimeOccurrence(implicitEndAt, timezone)
+    : endOccurrence;
   let endChoices: number[] = [];
-  try { if (endLocal && timezone) endChoices = resolveEventLocalTime(endLocal.slice(0, 10), { time: endLocal.slice(11, 16) }, timezone); } catch { /* The form remains editable while incomplete. */ }
+  try { if (displayedEndLocal && timezone) endChoices = resolveEventLocalTime(displayedEndLocal.slice(0, 10), { time: displayedEndLocal.slice(11, 16) }, timezone); } catch { /* The form remains editable while incomplete. */ }
+  const previewEnteredEndAt = endChoices.length === 1 ? endChoices[0]
+    : displayedEndOccurrence === "earlier" ? endChoices[0]
+      : displayedEndOccurrence === "later" ? endChoices.at(-1) : undefined;
+  const previewEndAt = timeTba ? undefined : !endEdited ? implicitEndAt
+    : !endLocal && previewStart !== undefined ? previewDerivedEndAt
+      : previewEnteredEndAt;
   const vrcdnOutputAccountOptions = vrcdnOutputAccounts ?? [];
   const vrcdnOutputAccountsLoading = vrcdnOutputAccounts === undefined;
   const canSaveVrcdnOutput =
@@ -927,12 +953,13 @@ function ConnectedEventEditorForm({
 
   function previewTime(timestamp: number) {
     const local = formatZonedDateTimeInput(timestamp, timezone);
-    return { time: local.slice(11, 16), dayOffset: Math.round((Date.parse(`${local.slice(0, 10)}T00:00:00Z`) - Date.parse(`${eventDate}T00:00:00Z`)) / 86_400_000) };
+    const instantOccurrence = storedTimeOccurrence(timestamp, timezone);
+    return { time: local.slice(11, 16), dayOffset: Math.round((Date.parse(`${local.slice(0, 10)}T00:00:00Z`) - Date.parse(`${eventDate}T00:00:00Z`)) / 86_400_000), ...(instantOccurrence ? { occurrence: instantOccurrence } : {}) };
   }
-  const previewStart = startChoices.length === 1 ? startChoices[0] : occurrence === "earlier" ? startChoices[0] : occurrence === "later" ? startChoices.at(-1) : undefined;
   const previewFields = {
     ...preview, communitySlug, eventDate, timezone, timeTba,
     start: previewStart === undefined ? null : previewTime(previewStart),
+    end: previewEndAt === undefined ? null : previewTime(previewEndAt),
     lineup: [
       ...slotRows.map(row => ({ clientKey: row.id, performerLabel: row.displayLabel || row.personSlug, ...(previewStart === undefined || timeTba ? {} : { start: previewTime(previewStart + Number(row.offsetMinutes) * 60_000) }) })),
       ...untimedRows.map(row => ({ clientKey: row.clientKey, performerLabel: row.performerLabel || row.personSlug })),
@@ -984,15 +1011,15 @@ function ConnectedEventEditorForm({
           <details className="relative min-w-0" open={endOpen} onToggle={change => setEndOpen(change.currentTarget.open)}>
             <summary className={`cursor-pointer font-medium ${endOpen ? "absolute right-0 top-0 text-xs" : "text-sm"}`}>Add end time</summary>
             <div className="grid gap-2">
-              <Field>Ends (optional)<Input value={endLocal} name="endAt" type="datetime-local" onChange={change => { setEndLocal(change.target.value); setEndOccurrence(""); setEndEdited(true); }} /></Field>
-              {endLocal && endChoices.length === 0 ? <p className="text-sm text-danger">This local time does not exist.</p> : null}
-              {endChoices.length > 1 ? <Field>Repeated time<Select aria-label="End occurrence" value={endOccurrence} onChange={change => { setEndOccurrence(change.target.value === "later" ? "later" : change.target.value === "earlier" ? "earlier" : ""); setEndEdited(true); }}><option value="">Choose occurrence</option>{endChoices.map((instant, index) => <option key={instant} value={index === 0 ? "earlier" : "later"}>{index === 0 ? "Earlier" : "Later"} ({new Date(instant).toISOString().slice(11, 16)} UTC)</option>)}</Select></Field> : null}
+              <Field>Ends (optional)<Input value={displayedEndLocal} name="endAt" type="datetime-local" onChange={change => { setEndLocal(change.target.value); setEndOccurrence(""); setEndEdited(true); }} /></Field>
+              {displayedEndLocal && endChoices.length === 0 ? <p className="text-sm text-danger">This local time does not exist.</p> : null}
+              {endChoices.length > 1 ? <Field>Repeated time<Select aria-label="End occurrence" value={displayedEndOccurrence} onChange={change => { setEndLocal(displayedEndLocal); setEndOccurrence(change.target.value === "later" ? "later" : change.target.value === "earlier" ? "earlier" : ""); setEndEdited(true); }}><option value="">Choose occurrence</option>{endChoices.map((instant, index) => <option key={instant} value={index === 0 ? "earlier" : "later"}>{index === 0 ? "Earlier" : "Later"} ({new Date(instant).toISOString().slice(11, 16)} UTC)</option>)}</Select></Field> : null}
             </div>
           </details>
         </div>
         <Field>
           Time zone
-          <EventTimezonePicker value={timezone || null} date={eventDate || null} onChange={value => { setTimezone(value ?? ""); setOccurrence(""); setEndOccurrence(""); if (endLocal) setEndEdited(true); }} />
+          <EventTimezonePicker value={timezone || null} date={eventDate || null} onChange={value => { setTimezone(value ?? ""); setOccurrence(""); setEndOccurrence(""); if (displayedEndLocal) { setEndLocal(displayedEndLocal); setEndEdited(true); } }} />
         </Field>
         {startChoices.length > 1 ? <Field>Repeated time<Select aria-label="Start occurrence" value={occurrence} onChange={change => setOccurrence(change.target.value as "earlier" | "later")}><option value="">Choose occurrence</option><option value="earlier">Earlier</option><option value="later">Later</option></Select></Field> : null}
         <label className="flex items-center gap-3 text-sm font-medium">

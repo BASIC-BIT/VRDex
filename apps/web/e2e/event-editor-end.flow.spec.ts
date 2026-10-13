@@ -1,5 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
+test.use({ timezoneId: "UTC" });
+
 const storedStart = Date.UTC(2026, 10, 1, 5, 15);
 const storedEnd = Date.UTC(2026, 10, 1, 6, 45);
 
@@ -41,9 +43,22 @@ test("staff edit applies an occurrence-only end change @fixture", async ({ page 
 test("staff edit applies an occurrence-only start change @fixture", async ({ page }) => {
   await editWithRepeatedEnd(page);
   await page.getByLabel("Start occurrence").selectOption("later");
+  await expect(page.getByLabel("Ends (optional)", { exact: true })).toHaveValue("2026-11-01T02:45");
+  await expect(page.getByText("Nov 1, 7:45 AM", { exact: false })).toBeVisible();
   const payload = await saveEdit(page);
   expect(payload.startAt).toBe(Date.UTC(2026, 10, 1, 6, 15));
   expect(payload.endAt).toBe(storedEnd + 60 * 60_000);
+});
+
+test("staff edit reflects a shifted end in the earlier repeated hour @fixture", async ({ page }) => {
+  await editWithRepeatedEnd(page);
+  await page.getByLabel("Starts", { exact: true }).fill("2026-11-01T00:15");
+  await expect(page.getByLabel("Ends (optional)", { exact: true })).toHaveValue("2026-11-01T01:45");
+  await expect(page.getByLabel("End occurrence")).toHaveValue("earlier");
+  await expect(page.getByText("Nov 1, 5:45 AM", { exact: false })).toBeVisible();
+  const payload = await saveEdit(page);
+  expect(payload.startAt).toBe(Date.UTC(2026, 10, 1, 4, 15));
+  expect(payload.endAt).toBe(Date.UTC(2026, 10, 1, 5, 45));
 });
 
 test("staff edit clears its authored end explicitly @fixture", async ({ page }) => {

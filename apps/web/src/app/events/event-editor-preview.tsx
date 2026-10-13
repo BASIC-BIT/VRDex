@@ -16,7 +16,7 @@ export function EventEditorPreview({ fields, artwork }: { fields: EventIntakePat
     {fields.title ? <h3 className="break-words text-2xl font-semibold">{fields.title}</h3> : null}
     <div className="grid gap-2 text-sm text-muted">
       {fields.communitySlug ? <p>{fields.communitySlug}</p> : null}
-      {fields.eventDate ? <p>{time(fields.start) || eventLocalDate(fields.eventDate, fields.timeTba ? null : fields.start)}{fields.timeTba ? " · Time TBA" : ""}</p> : null}
+      {fields.eventDate ? <p>{time(fields.start) || eventLocalDate(fields.eventDate, fields.timeTba ? null : fields.start)}{!fields.timeTba && time(fields.end) ? ` – ${time(fields.end)}` : ""}{fields.timeTba ? " · Time TBA" : ""}</p> : null}
       {fields.venueLabel ? <p>{fields.venueLabel}</p> : null}
     </div>
     {fields.summary ? <p className="break-words text-sm">{fields.summary}</p> : null}

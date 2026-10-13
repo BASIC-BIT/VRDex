@@ -31,7 +31,7 @@ for (const editor of [
     await setTheme(page, editor.theme);
     if (editor.name === "event-editor-edit") {
       await expect(page.getByLabel("Ends (optional)", { exact: true })).toBeVisible();
-      await expect(page.getByText("Sep 12, 10:00 PM", { exact: true }).first()).toBeVisible();
+      await expect(page.getByText("Sep 12, 10:00 PM – Sep 13, 2:00 AM", { exact: true }).first()).toBeVisible();
     }
     for (const step of ["Details", "Lineup", "Review"]) {
       await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: step }).click();
