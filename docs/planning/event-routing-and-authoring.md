@@ -30,9 +30,11 @@ Current recommendation:
 
 - Use `/<community>/events/<event-code>` as the canonical public route and
   `/<community>/events/<event-code>/edit` as the editing route.
-- Keep the optional stored event end time for public/API compatibility, but do
-  not ask owner-editor authors for it in this slice. Derive the submitted end from
-  the final slot when the schedule has complete durations.
+- Staff Details offers an optional combined Ends control beside Start. An
+  untouched stored end retains its instant, including a later repeated-hour
+  occurrence. An entered end must follow the start; clearing it sends null on
+  update. A known final lineup end may still supply the end. Creation without
+  an authored or known lineup end omits it.
 - When template controls would replace edited schedule data, require confirmation.
 
 ## Owner authoring flow

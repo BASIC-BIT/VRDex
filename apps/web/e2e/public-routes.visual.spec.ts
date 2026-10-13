@@ -48,12 +48,13 @@ test("event editor @visual", async ({ page }, testInfo) => {
   await page.goto("/playwright/event-editor");
   await expect(page.getByRole("heading", { name: "Add event" })).toBeVisible();
   const steps = page.getByRole("navigation", { name: "Event editor" });
-  await expect(page.getByLabel("Source URL", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Details", exact: true })).toBeVisible();
+  await expect(page.locator("summary", { hasText: "Source" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Publish event" })).toHaveCount(0);
-  await captureRouteScreenshot(page, testInfo, "event-editor-source");
+  await captureRouteScreenshot(page, testInfo, "event-editor-initial");
   await steps.getByRole("button", { name: "Details", exact: true }).click();
-  await expect(page.getByLabel("Start", { exact: true })).toBeVisible();
-  await page.getByLabel("Start", { exact: true }).fill("2026-09-12T22:00");
+  await expect(page.getByLabel("Starts", { exact: true })).toBeVisible();
+  await page.getByLabel("Starts", { exact: true }).fill("2026-09-12T22:00");
   await expect(page.getByLabel("Community", { exact: true })).toHaveCount(0);
   await expect(page.getByLabel("World", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Timing", exact: true })).toBeVisible();

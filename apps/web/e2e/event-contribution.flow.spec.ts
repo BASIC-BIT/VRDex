@@ -161,7 +161,7 @@ test("correction steps retain allowed details and lineup without source or staff
 test("owner timezone keyboard search stores a region, not EST @flow @fixture", async ({ page }) => {
   await page.goto("/playwright/event-editor");
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Details", exact: true }).click();
-  await page.getByLabel("Start", { exact: true }).fill("2026-07-15T20:00");
+  await page.getByLabel("Starts", { exact: true }).fill("2026-07-15T20:00");
   const timezone = page.getByRole("combobox", { name: "Time zone" });
   await timezone.fill("EST");
   await expect(page.getByRole("option", { name: /New York.*UTC-04:00/ })).toBeVisible();

@@ -24,11 +24,39 @@ describe("event authoring end times", () => {
     }), 3_000);
   });
 
-  it("defaults a sessionless event to 60 minutes", () => {
+  it("leaves a sessionless event without an end", () => {
     const startAt = Date.parse("2026-09-01T20:00:00.000Z");
     assert.equal(resolveAuthoredEventEndAt({
       startAt,
       scheduleChanged: false,
-    }), startAt + 60 * 60_000);
+    }), undefined);
+  });
+
+  it("uses an explicitly authored end", () => {
+    assert.equal(resolveAuthoredEventEndAt({
+      startAt: 2_000,
+      authoredEndAt: 6_000,
+      previousStartAt: 1_000,
+      previousEndAt: 4_000,
+      scheduleChanged: false,
+    }), 6_000);
+  });
+
+  it("clears a stored end while retaining a known lineup end", () => {
+    assert.equal(resolveAuthoredEventEndAt({
+      startAt: 2_000,
+      authoredEndAt: null,
+      derivedEndAt: 3_000,
+      previousStartAt: 1_000,
+      previousEndAt: 4_000,
+      scheduleChanged: false,
+    }), 3_000);
+    assert.equal(resolveAuthoredEventEndAt({
+      startAt: 2_000,
+      authoredEndAt: null,
+      previousStartAt: 1_000,
+      previousEndAt: 4_000,
+      scheduleChanged: false,
+    }), undefined);
   });
 });

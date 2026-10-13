@@ -522,6 +522,13 @@ function SignInRequiredEventEditorPanel() {
   );
 }
 
+function storedTimeOccurrence(instant?: number, timezone?: string): "earlier" | "later" | "" {
+  if (instant === undefined || !timezone) return "";
+  const local = formatZonedDateTimeInput(instant, timezone);
+  const choices = resolveEventLocalTime(local.slice(0, 10), { time: local.slice(11, 16) }, timezone);
+  return choices.length > 1 ? (Math.floor(choices[0]! / 60_000) === Math.floor(instant / 60_000) ? "earlier" : "later") : "";
+}
+
 function ConnectedEventEditorForm({
   communitySlug,
   demoMode = false,
@@ -543,7 +550,11 @@ function ConnectedEventEditorForm({
     clientKey: row.key, position: row.position, performerLabel: row.displayLabel, personSlug: row.performer?.slug ?? "", roleLabel: row.roleLabel ?? "",
   })) : parseParticipantLinks(serializeOtherEventParticipants(event)).map((row, position) => ({ ...row, clientKey: `participant-${position}`, position, performerLabel: "" })));
   const [startLocal, setStartLocal] = useState(formatZonedDateTimeInput(event?.startAt, event?.timezone));
-  const [occurrence, setOccurrence] = useState<"earlier" | "later" | "">("");
+  const [occurrence, setOccurrence] = useState<"earlier" | "later" | "">(() => storedTimeOccurrence(event?.startAt, event?.timezone));
+  const [endLocal, setEndLocal] = useState(event?.endAt === undefined ? "" : formatZonedDateTimeInput(event.endAt, event.timezone));
+  const [endOccurrence, setEndOccurrence] = useState<"earlier" | "later" | "">(() => storedTimeOccurrence(event?.endAt, event?.timezone));
+  const [endOpen, setEndOpen] = useState(event?.endAt !== undefined);
+  const [endEdited, setEndEdited] = useState(false);
   const createEvent = useMutation(api.events.createCommunityEvent);
   const updateEvent = useMutation(api.events.updateCommunityEvent);
   const setEventCancelled = useMutation(api.events.setCommunityEventCancelled);
@@ -724,21 +735,30 @@ function ConnectedEventEditorForm({
     }
 
     setStatus({ kind: "submitting" });
-
+    let timeErrorField: "start" | "end" = "start";
     try {
       const submittedTimezone = optionalString(stringField(formData.get("timezone")));
       if (!timeTba && !submittedTimezone) throw new Error("Time zone must be a valid IANA time zone.");
       const timeZoneForParsing = submittedTimezone ?? browserTimeZone();
       const authoredStart = stringField(formData.get("startAt"));
-      const startAt = timeTba ? undefined : event?.startAt !== undefined && authoredStart === formatZonedDateTimeInput(event.startAt, event.timezone) && timezone === event.timezone
+      const startAt = timeTba ? undefined : event?.startAt !== undefined && authoredStart === formatZonedDateTimeInput(event.startAt, event.timezone) && timezone === event.timezone && occurrence === storedTimeOccurrence(event.startAt, event.timezone)
         ? event.startAt
         : selectEventLocalTime(authoredStart.slice(0, 10), { time: authoredStart.slice(11, 16), ...(occurrence ? { occurrence } : {}) }, timeZoneForParsing);
       const slotLinks = startAt === undefined ? [] : parseSlotRows(slotRows, startAt);
       const derivedEndAt = slotLinks.length === 0 || slotLinks.some((slot) => slot.endAt === undefined)
         ? undefined
         : Math.max(...slotLinks.map((slot) => slot.endAt!));
+      timeErrorField = "end";
+      const authoredEndAt = !endEdited ? undefined : !endLocal ? null
+        : event?.endAt !== undefined && endLocal === formatZonedDateTimeInput(event.endAt, event.timezone) && timezone === event.timezone && endOccurrence === storedTimeOccurrence(event.endAt, event.timezone)
+          ? event.endAt
+          : selectEventLocalTime(endLocal.slice(0, 10), { time: endLocal.slice(11, 16), ...(endOccurrence ? { occurrence: endOccurrence } : {}) }, timeZoneForParsing);
+      if (startAt !== undefined && typeof authoredEndAt === "number" && authoredEndAt <= startAt) {
+        throw new Error("Event end time must be after the start time.");
+      }
       const endAt = startAt === undefined ? undefined : resolveAuthoredEventEndAt({
         startAt,
+        authoredEndAt,
         derivedEndAt,
         previousStartAt: event?.startAt,
         previousEndAt: event?.endAt,
@@ -757,7 +777,7 @@ function ConnectedEventEditorForm({
         ...(doorsOffsetMinutes === undefined
           ? {}
           : { doorsOpenAt: startAt! - doorsOffsetMinutes * 60_000 }),
-        endAt,
+        ...(endAt === undefined ? {} : { endAt }),
         timezone: submittedTimezone,
         summary: optionalString(stringField(formData.get("summary"))),
         notes: optionalString(stringField(formData.get("notes"))),
@@ -835,8 +855,9 @@ function ConnectedEventEditorForm({
     } catch (error) {
       const message = eventEditorErrorMessage(error);
       const selector = message === "Time zone must be a valid IANA time zone." ? '[role="combobox"][aria-label="Time zone"]'
-        : message === "Local time does not exist in this timezone." ? '[name="startAt"]'
-        : message === "Ambiguous local time requires an earlier or later occurrence." ? '[aria-label="Start occurrence"]'
+        : message === "Local time does not exist in this timezone." ? `[name="${timeErrorField === "end" ? "endAt" : "startAt"}"]`
+        : message === "Ambiguous local time requires an earlier or later occurrence." ? `[aria-label="${timeErrorField === "end" ? "End" : "Start"} occurrence"]`
+        : message === "Event end time must be after the start time." ? '[name="endAt"]'
         : undefined;
       const field = selector ? form.querySelector<HTMLInputElement | HTMLSelectElement>(selector) : null;
       if (field) revealField(field);
@@ -884,6 +905,8 @@ function ConnectedEventEditorForm({
   const isSubmitting = status.kind === "submitting";
   let startChoices: number[] = [];
   try { if (startLocal && timezone) startChoices = resolveEventLocalTime(startLocal.slice(0, 10), { time: startLocal.slice(11, 16) }, timezone); } catch { /* The form remains editable while incomplete. */ }
+  let endChoices: number[] = [];
+  try { if (endLocal && timezone) endChoices = resolveEventLocalTime(endLocal.slice(0, 10), { time: endLocal.slice(11, 16) }, timezone); } catch { /* The form remains editable while incomplete. */ }
   const vrcdnOutputAccountOptions = vrcdnOutputAccounts ?? [];
   const vrcdnOutputAccountsLoading = vrcdnOutputAccounts === undefined;
   const canSaveVrcdnOutput =
@@ -951,18 +974,28 @@ function ConnectedEventEditorForm({
 
       <EditorSection title="Timing">
         {usesCanonicalLineup || event?.scheduleKind === "date_only" ? <label className="flex items-center gap-3 text-sm font-medium"><input checked={timeTba} onChange={change => setTimeTba(change.target.checked)} type="checkbox" />Time TBA</label> : null}
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-4">
         {timeTba ? <Field>Date<Input type="date" required value={eventDate} onChange={change => setEventDate(change.target.value)} /></Field> : <>
-        <Field>
-          Start
-          <Input value={startLocal} name="startAt" required type="datetime-local" onChange={change => { setStartLocal(change.target.value); setEventDate(change.target.value.slice(0, 10)); setOccurrence(""); }} />
-        </Field>
+        <div className="grid items-start gap-4 sm:grid-cols-2">
+          <Field>
+            Starts
+            <Input value={startLocal} name="startAt" required type="datetime-local" onChange={change => { setStartLocal(change.target.value); setEventDate(change.target.value.slice(0, 10)); setOccurrence(""); }} />
+          </Field>
+          <details className="relative min-w-0" open={endOpen} onToggle={change => setEndOpen(change.currentTarget.open)}>
+            <summary className={`cursor-pointer font-medium ${endOpen ? "absolute right-0 top-0 text-xs" : "text-sm"}`}>Add end time</summary>
+            <div className="grid gap-2">
+              <Field>Ends (optional)<Input value={endLocal} name="endAt" type="datetime-local" onChange={change => { setEndLocal(change.target.value); setEndOccurrence(""); setEndEdited(true); }} /></Field>
+              {endLocal && endChoices.length === 0 ? <p className="text-sm text-danger">This local time does not exist.</p> : null}
+              {endChoices.length > 1 ? <Field>Repeated time<Select aria-label="End occurrence" value={endOccurrence} onChange={change => { setEndOccurrence(change.target.value === "later" ? "later" : change.target.value === "earlier" ? "earlier" : ""); setEndEdited(true); }}><option value="">Choose occurrence</option>{endChoices.map((instant, index) => <option key={instant} value={index === 0 ? "earlier" : "later"}>{index === 0 ? "Earlier" : "Later"} ({new Date(instant).toISOString().slice(11, 16)} UTC)</option>)}</Select></Field> : null}
+            </div>
+          </details>
+        </div>
         <Field>
           Time zone
-          <EventTimezonePicker value={timezone || null} date={eventDate || null} onChange={value => { setTimezone(value ?? ""); setOccurrence(""); }} />
+          <EventTimezonePicker value={timezone || null} date={eventDate || null} onChange={value => { setTimezone(value ?? ""); setOccurrence(""); setEndOccurrence(""); if (endLocal) setEndEdited(true); }} />
         </Field>
         {startChoices.length > 1 ? <Field>Repeated time<Select aria-label="Start occurrence" value={occurrence} onChange={change => setOccurrence(change.target.value as "earlier" | "later")}><option value="">Choose occurrence</option><option value="earlier">Earlier</option><option value="later">Later</option></Select></Field> : null}
-        <label className="flex items-center gap-3 text-sm font-medium md:col-span-2">
+        <label className="flex items-center gap-3 text-sm font-medium">
           <input
             checked={doorsOpenBefore}
             className="h-4 w-4 accent-accent"
@@ -1149,7 +1182,7 @@ function ConnectedEventEditorForm({
         <EditorSection title="Review">
           <h3 className="break-words text-2xl font-semibold">{preview.title}</h3>
           <dl className="grid gap-3 text-sm sm:grid-cols-2">
-            <div><dt className="text-muted">{timeTba ? "Date" : "Start"}</dt><dd>{timeTba ? eventDate : startLocal.replace("T", " ")}</dd></div>
+            <div><dt className="text-muted">{timeTba ? "Date" : "Starts"}</dt><dd>{timeTba ? eventDate : startLocal.replace("T", " ")}</dd></div>
             {!timeTba ? <div><dt className="text-muted">Time zone</dt><dd>{timezone}</dd></div> : null}
             {preview.venueLabel ? <div><dt className="text-muted">Where (optional)</dt><dd>{preview.venueLabel}</dd></div> : null}
           </dl>

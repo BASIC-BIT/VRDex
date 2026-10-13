@@ -12,12 +12,22 @@ flowchart LR
     Account[Account events] --> Add
     Direct[Direct community or draft link] --> Auth[Sign in if needed]
     Add --> Auth
-    Auth --> Intake[Manual, text or private poster intake]
-    Intake --> Review[Accept tentative fields or edit manually]
-    Review --> Intake
-    Intake --> Save[Save draft and resume URL]
-    Save --> Intake
-    Intake --> Publish[Publish]
+    Auth --> Details[Details: community and event fields]
+    Details --> Import[Optional import action]
+    Lineup --> Import
+    Review --> Import
+    Import --> Modal[Dialog: one poster and optional text]
+    Modal -->|Accept tentative fields| Details
+    Modal -->|Close| Current[Return to current step]
+    Details --> Lineup[Lineup]
+    Lineup --> Review[Review]
+    Review --> Details
+    Review --> Lineup
+    Details --> Save[Save draft and resume URL]
+    Lineup --> Save
+    Review --> Save
+    Save --> Details
+    Review --> Publish[Publish]
     Publish --> Event[Canonical event page]
     Event --> Correct[Original contributor correction or retraction]
     Event --> Staff[Staff takeover]
@@ -34,6 +44,13 @@ Timezones are selected from the runtime IANA list with city and regional aliases
 Abbreviations are search terms, not stored fixed offsets. Offsets use the event
 date. Repeated local hours require an occurrence choice and missing local hours
 cannot publish. Existing owner timestamps remain exact when unchanged.
+
+Staff Details has Start and an optional Ends control using the selected event
+timezone. An untouched stored end retains its instant, including the later
+occurrence of a repeated hour. Clearing Ends sends null on update; creation
+omits an unknown end. A final known lineup end remains valid when Ends is
+clear. Staff creation still requires a known start, and date-only editing
+retains its existing restrictions.
 
 The owner editor loads contributed date-only events with Time TBA selected.
 Title, venue, artwork and lineup corrections preserve the authored date without
@@ -55,9 +72,11 @@ the subsequent suggestion goes through `reportEvent`, not a second store.
 
 Manual intake remains available without extraction. Source text is private draft
 input. `/api/event-intake` binds extraction and private poster operations to the
-website session. Candidates remain tentative until accepted; artwork requires
-a separate action on the currently previewed source. Replacing a poster never
-selects it as artwork. See [source handling](../backend/event-intake-sources.md). Date-only publishing remains subject to the backend
+website session. One extraction uses the current poster and optional text.
+Candidates remain tentative until accepted. A verified poster becomes artwork
+by default; replacing or removing it replaces or clears that artwork. Private
+source evidence remains separate from the public derivative. See
+[source handling](../backend/event-intake-sources.md). Date-only publishing remains subject to the backend
 `EVENT_DATE_ONLY_ENABLED` gate.
 
 Browser fixtures test form behavior and navigation without a live Convex backend.

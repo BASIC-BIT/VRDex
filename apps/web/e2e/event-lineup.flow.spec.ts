@@ -7,7 +7,7 @@ for (const mode of ["create", "edit"]) test(`staff ${mode} keeps mounted values 
   await page.getByLabel("Source URL", { exact: true }).fill("https://example.com/new-source");
   await navigation.getByRole("button", { name: "Details" }).click();
   await page.getByLabel("Event title", { exact: true }).fill("Retained staff event");
-  await page.getByLabel("Start", { exact: true }).fill("2027-10-15T23:00");
+  await page.getByLabel("Starts", { exact: true }).fill("2027-10-15T23:00");
   await page.getByLabel("Description", { exact: true }).fill("Retained description");
   await navigation.getByRole("button", { name: "Lineup" }).click();
   await page.getByLabel("Person", { exact: true }).first().fill("aurora");
@@ -87,7 +87,7 @@ test("staff editor preserves Time TBA and artwork while correcting or removing c
   await page.goto("/playwright/event-lineup?editor");
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Details" }).click();
   await page.getByRole("checkbox", { name: "Time TBA", exact: true }).uncheck();
-  await page.getByLabel("Start", { exact: true }).fill("2027-10-15T19:00");
+  await page.getByLabel("Starts", { exact: true }).fill("2027-10-15T19:00");
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Review" }).click();
   await page.getByRole("button", { name: "Save changes", exact: true }).click();
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!).scheduleKind)).toBe("timed");
@@ -113,7 +113,7 @@ test("staff title edit does not confirm an untouched contributed lineup", async 
   await page.goto("/playwright/event-lineup?editor");
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Details" }).click();
   await page.getByRole("checkbox", { name: "Time TBA", exact: true }).uncheck();
-  await page.getByLabel("Start", { exact: true }).fill("2027-10-15T19:00");
+  await page.getByLabel("Starts", { exact: true }).fill("2027-10-15T19:00");
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Review" }).click();
   await page.getByRole("button", { name: "Save changes", exact: true }).click();
   const rescheduled = await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!));
