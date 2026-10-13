@@ -147,3 +147,10 @@ for (const reload of [false, true]) {
     await captureStorybookScreenshot(page, testInfo, `concurrent-draft-${reload ? "restored" : "live"}`);
   });
 }
+
+test("provenance URL uses the neutral Source utility label @storybook-visual", async ({ page }, testInfo) => {
+  await gotoComponentStory(page, "account-trusted-publication--provenance-source");
+  await expect(page.getByRole("link", { name: "Source", exact: true })).toHaveAttribute("href", "https://photographer.example/press");
+  await expect(page.getByRole("link", { name: "Open source", exact: true })).toHaveCount(0);
+  await captureStorybookScreenshot(page, testInfo, "publication-provenance-source");
+});

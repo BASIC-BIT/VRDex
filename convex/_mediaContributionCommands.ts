@@ -28,8 +28,10 @@ async function contributionState(ctx: QueryCtx | MutationCtx, submissionId: stri
     asset.sourceSubmissionId !== submission._id || asset.profileId !== profile._id ||
     (!allowDeleted && asset.state !== "active") || asset.visibility !== "public" || asset.retiredAt !== undefined || asset.moderatorSuppressedAt !== undefined)
     throw new ConvexError({ code: "MEDIA_RESOURCE_UNAVAILABLE", message: "Published contribution unavailable." });
-  const placement = profile.profileType === "person" ? "profile_image" as const : "primary_logo" as const;
-  const snapshot = await reviewSnapshot(ctx, { ...submission, requestKind: "identity_placement", candidateAssetId: asset._id, requestedPlacement: placement }, profile);
+  const defaultPlacement = profile.profileType === "person" ? "profile_image" as const : "primary_logo" as const;
+  const identitySnapshot = await reviewSnapshot(ctx, { ...submission, requestKind: "identity_placement", candidateAssetId: asset._id, requestedPlacement: defaultPlacement }, profile);
+  const placement = identitySnapshot.effectiveIdentityPlacement ?? defaultPlacement;
+  const snapshot = placement === defaultPlacement ? identitySnapshot : await reviewSnapshot(ctx, { ...submission, requestKind: "identity_placement", candidateAssetId: asset._id, requestedPlacement: placement }, profile);
   const current = await ctx.db.query("profileAssetPlacements").withIndex("by_profileId_placement_state_position", q =>
     q.eq("profileId", profile._id).eq("placement", placement).eq("state", "active")).first();
   const access = await getAccountFeatureAccess(ctx.db, actor.user._id);

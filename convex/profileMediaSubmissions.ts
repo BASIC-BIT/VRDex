@@ -1,3 +1,4 @@
+import { isAssetBackedPlacement } from "./_mediaSubmissionCleanup";
 import { assertLiveContributionToken } from "./_contributionAuth";
 import { publishedContributionDetail, contributionPlacementCommand, proposeContributionPlacement, contributionManageCommand } from "./_mediaContributionCommands";
 import { effectiveContributionPolicy, contributionChargeRefusal, registerLegacyContribution, reservationBytes } from "./_contributionCapacity";
@@ -1710,7 +1711,7 @@ async function withdrawSubmission(
   const now = Date.now();
   await ctx.db.patch(submission._id, {
     status: "withdrawn",
-    ...(submission.requestKind === "identity_placement" && submission.candidateAssetId !== undefined
+    ...(isAssetBackedPlacement(submission)
       ? {} : { blobDeleteAfter: now + PROFILE_MEDIA_SUBMISSION_RETENTION_MS }),
     updatedAt: now,
   });
@@ -1921,7 +1922,7 @@ export async function prepareDueBlobCleanupCore(ctx: MutationCtx, subject: AuthS
         if (submission.expiresAt > now || submission.blobDeleteAfter !== undefined) continue;
         await ctx.db.patch(submission._id, {
           status: "superseded",
-          blobDeleteAfter: submission.expiresAt + PROFILE_MEDIA_SUBMISSION_RETENTION_MS,
+          ...(isAssetBackedPlacement(submission) ? {} : { blobDeleteAfter: submission.expiresAt + PROFILE_MEDIA_SUBMISSION_RETENTION_MS }),
           updatedAt: now,
         });
         await ctx.db.insert("profileAuditEvents", {
@@ -1944,8 +1945,14 @@ export async function prepareDueBlobCleanupCore(ctx: MutationCtx, subject: AuthS
           .lte("blobDeleteAfter", now),
       )
       .take(200);
+    for (const submission of due) {
+      if (isAssetBackedPlacement(submission)) await ctx.db.patch(submission._id, {
+        blobDeleteAfter: undefined, blobCleanupToken: undefined, blobCleanupReservedAt: undefined, updatedAt: now,
+      });
+    }
     const eligible = due
       .filter((submission) =>
+        !isAssetBackedPlacement(submission) &&
         submission.blobDeleteAfter !== undefined &&
         submission.blobDeleteAfter <= now &&
         submission.legalHoldAt === undefined &&
@@ -1994,6 +2001,7 @@ export async function markBlobCleanupCompleteCore(ctx: MutationCtx, args: { item
       const submission = await ctx.db.get(id);
       if (
         submission === null ||
+        isAssetBackedPlacement(submission) ||
         submission.blobCleanupToken !== cleanupToken ||
         submission.blobDeleteAfter === undefined ||
         submission.legalHoldAt !== undefined ||

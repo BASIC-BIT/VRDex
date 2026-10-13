@@ -37,7 +37,7 @@ const fixture: ReviewDetail = {
     contentSha256: "a".repeat(64),
   },
 };
-function Fixture({ loseResponse = false }: { loseResponse?: boolean }) {
+function Fixture({ loseResponse = false, urlOnly = false }: { loseResponse?: boolean; urlOnly?: boolean }) {
   const [lost, setLost] = useState(false);
 
   const [calls, setCalls] = useState<string[]>([]);
@@ -45,7 +45,7 @@ function Fixture({ loseResponse = false }: { loseResponse?: boolean }) {
     <main className="mx-auto max-w-4xl p-4">
       <h1 className="text-xl font-semibold">Fixture photographer</h1>
       <PublicationCardView
-        detail={fixture}
+        detail={urlOnly ? { ...fixture, sourceDescription: undefined, sourceUrl: "https://photographer.example/press" } : fixture}
         publish={async (input) => {
           setCalls((previous) => [
             ...previous,
@@ -216,3 +216,5 @@ function ConcurrentMetadataFixture() {
   </main>;
 }
 export const ConcurrentMetadata: Story = { render: () => <ConcurrentMetadataFixture /> };
+
+export const ProvenanceSource: StoryObj<typeof meta> = { args: { urlOnly: true } };

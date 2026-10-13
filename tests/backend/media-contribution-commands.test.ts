@@ -744,3 +744,104 @@ it("hidden fallback artwork leaves an empty replacement target", async () => {
   const d = await f.detail(); assert.equal(d.canProposePlacement, false);
   assert.equal((await f.actor.mutation(api.profileMediaSubmissions.proposePlacement, { submissionId: f.intent.submissionId, expectedContributionVersion: d.contributionVersion, idempotencyKey: "hidden-fallback" })).code, "primary_empty");
 });
+
+for (const profileType of ["person", "community"] as const) for (const bothSlots of [false, true]) for (const logoPreferred of [false, true]) {
+  it(`replaces the resolved picture for ${profileType}, both slots ${bothSlots}, logo preference ${logoPreferred}`, async () => {
+    const f = await fixture(profileType); const d = await f.detail();
+    const renderedSlot = logoPreferred ? "primary_logo" : "profile_image";
+    await f.t.run(async ctx => {
+      const asset = (await ctx.db.get(d.assetId))!;
+      const { _id, _creationTime, sourceSubmissionId, ...fields } = asset;
+      for (const placement of ["profile_image", "primary_logo"] as const) {
+        if (!bothSlots && placement !== renderedSlot) continue;
+        const oldId = await ctx.db.insert("profileAssets", { ...fields, storageKey: `${placement}-old.webp`, source: "owner_authored" });
+        await selectProfileAssetIdentity(ctx.db, { profileId: f.s.profileId, assetId: oldId, placement, actorUserId: f.s.moderatorUserId, now: Date.now() });
+      }
+      await ctx.db.insert("profileAssetDisplayPreferences", { profileId: f.s.profileId, compactDisplay: logoPreferred ? "logo" : "profile_image", updatedAt: Date.now() });
+    });
+    const resolved = () => f.t.run(async ctx => {
+      const kit = await getPublicProfileMediaKit(ctx.db, (await ctx.db.get(f.s.profileId))!);
+      return kit.compactDisplay === "logo" ? kit.primaryLogo ?? kit.profileImage : kit.profileImage ?? kit.primaryLogo;
+    });
+    assert.notEqual((await resolved())?.assetId, d.assetId);
+    const fresh = await f.detail(); assert.equal(fresh.canProposePlacement, true);
+    const proposal = await f.actor.mutation(api.profileMediaSubmissions.proposePlacement, { submissionId: f.intent.submissionId, expectedContributionVersion: fresh.contributionVersion, idempotencyKey: "resolved" });
+    assert.equal(proposal.operationState, "committed");
+    const row = await f.t.run(ctx => ctx.db.get(ctx.db.normalizeId("profileMediaSubmissions", proposal.resourceId!)!));
+    assert.equal(row?.requestedPlacement, renderedSlot);
+    const reviewer = f.t.withIdentity(f.s.moderatorIdentity);
+    const review = await reviewer.query(api.profileMediaSubmissions.reviewDetail, { submissionId: proposal.resourceId! }); assert.ok(review);
+    assert.equal((await reviewer.mutation(api.profileMediaSubmissions.decideWithReceipt, { submissionId: proposal.resourceId!, expectedReviewVersion: review.reviewVersion, decision: "approve", privateReason: "Distinct replacement reviewed", idempotencyKey: "approve-resolved" })).operationState, "committed");
+    assert.equal((await resolved())?.assetId, d.assetId);
+  });
+}
+
+it("expires asset-backed proposals without deleting shared asset bytes or blocking a later hold", async () => {
+  const { prepareDueBlobCleanupCore, markBlobCleanupCompleteCore } = await import("../../convex/profileMediaSubmissions");
+  const f = await fixture(); await occupyFallback(f); const d = await f.detail();
+  const proposal = await f.actor.mutation(api.profileMediaSubmissions.proposePlacement, { submissionId: f.intent.submissionId, expectedContributionVersion: d.contributionVersion, idempotencyKey: "expire-existing" });
+  const id = await f.t.run(ctx => ctx.db.normalizeId("profileMediaSubmissions", proposal.resourceId!)!);
+  const asset = await f.t.run(ctx => ctx.db.get(d.assetId));
+  const subject = { tokenIdentifier: "test:operator", issuer: "test", subject: "operator" };
+  await f.t.run(ctx => ctx.db.patch(id, { expiresAt: Date.now() - 100 * 24 * 60 * 60 * 1000 }));
+  assert.deepEqual(await f.t.run(ctx => prepareDueBlobCleanupCore(ctx, subject)), []);
+  const expired = await f.t.run(ctx => ctx.db.get(id));
+  assert.equal(expired?.status, "superseded");
+  for (const key of ["blobDeleteAfter", "blobDeletedAt", "blobCleanupToken", "blobCleanupReservedAt"] as const) assert.equal(expired?.[key], undefined);
+  // A pre-fix stale reservation must not create a false deletion ledger either.
+  await f.t.run(ctx => ctx.db.patch(id, { blobDeleteAfter: 1, blobCleanupToken: "stale" }));
+  assert.deepEqual(await f.t.run(ctx => prepareDueBlobCleanupCore(ctx, subject)), []);
+  assert.equal((await f.t.run(ctx => markBlobCleanupCompleteCore(ctx, { items: [{ submissionId: id, cleanupToken: "stale" }] }, subject))).completed, 0);
+  await f.t.withIdentity(f.s.moderatorIdentity).mutation(api.profileMediaSubmissions.setBlobLegalHold, { submissionId: id, held: true, reason: "Preserve existing asset evidence" });
+  assert.ok((await f.t.run(ctx => ctx.db.get(id)))?.legalHoldAt);
+  assert.deepEqual(await f.t.run(ctx => ctx.db.get(d.assetId)), asset);
+  const audits = await f.t.run(ctx => ctx.db.query("profileAuditEvents").collect());
+  assert.equal(audits.filter(row => row.action === "profile_media_submission_expired").length, 1);
+  assert.equal(audits.filter(row => row.action === "profile_media_submission_blob_deleted").length, 0);
+  const kit = await f.t.run(async ctx => getPublicProfileMediaKit(ctx.db, (await ctx.db.get(f.s.profileId))!));
+  assert.ok(kit.galleryAssets.some(row => row.assetId === d.assetId));
+});
+
+it("expires upload-backed legacy identity proposals through the blob deletion ledger", async () => {
+  const { prepareDueBlobCleanupCore, markBlobCleanupCompleteCore } = await import("../../convex/profileMediaSubmissions");
+  const t = convexTest({ schema, modules }); const s = await seed(t); const { intent } = await createAndUpload(t, s);
+  await t.run(ctx => ctx.db.patch(intent.submissionId, { requestKind: "identity_placement", requestedPlacement: "profile_image", expiresAt: Date.now() - 100 * 24 * 60 * 60 * 1000 }));
+  const subject = { tokenIdentifier: "test:operator", issuer: "test", subject: "operator" };
+  const due = await t.run(ctx => prepareDueBlobCleanupCore(ctx, subject));
+  assert.equal(due.length, 1); assert.ok(due[0].storageKeys.length > 0);
+  assert.equal((await t.run(ctx => markBlobCleanupCompleteCore(ctx, { items: due }, subject))).completed, 1);
+  assert.ok((await t.run(ctx => ctx.db.get(intent.submissionId)))?.blobDeletedAt);
+  const audits = await t.run(ctx => ctx.db.query("profileAuditEvents").collect());
+  assert.equal(audits.filter(row => row.action === "profile_media_submission_expired").length, 1);
+  assert.equal(audits.filter(row => row.action === "profile_media_submission_blob_deleted").length, 1);
+});
+
+for (const change of ["preference", "visibility"] as const) {
+  it(`refuses approval into the old displayed slot after ${change}, fresh inspection and rebase`, async () => {
+    const f = await fixture("community"); const d = await f.detail();
+    await f.t.run(async ctx => {
+      const asset = (await ctx.db.get(d.assetId))!; const { _id, _creationTime, sourceSubmissionId, ...fields } = asset;
+      for (const placement of ["profile_image", "primary_logo"] as const) {
+        const old = await ctx.db.insert("profileAssets", { ...fields, storageKey: `${placement}.webp`, source: "owner_authored" });
+        await selectProfileAssetIdentity(ctx.db, { profileId: f.s.profileId, assetId: old, placement, actorUserId: f.s.moderatorUserId, now: Date.now() });
+      }
+    });
+    const fresh = await f.detail();
+    const proposal = await f.actor.mutation(api.profileMediaSubmissions.proposePlacement, { submissionId: f.intent.submissionId, expectedContributionVersion: fresh.contributionVersion, idempotencyKey: "before-display-change" });
+    const reviewer = f.t.withIdentity(f.s.moderatorIdentity);
+    const before = await reviewer.query(api.profileMediaSubmissions.reviewDetail, { submissionId: proposal.resourceId! }); assert.ok(before);
+    await f.t.run(async ctx => {
+      if (change === "preference") await ctx.db.insert("profileAssetDisplayPreferences", { profileId: f.s.profileId, compactDisplay: "logo", updatedAt: Date.now() });
+      else await ctx.db.patch(f.s.profileId, { fieldVisibility: { avatarImageUrl: "private" } });
+    });
+    const changed = await reviewer.query(api.profileMediaSubmissions.reviewDetail, { submissionId: proposal.resourceId! }); assert.ok(changed);
+    assert.notEqual(changed.reviewVersion, before.reviewVersion);
+    assert.equal((await reviewer.mutation(api.profileMediaSubmissions.rebase, { submissionId: proposal.resourceId!, expectedReviewVersion: changed.reviewVersion, idempotencyKey: "rebase-display" })).operationState, "committed");
+    const rebased = await reviewer.query(api.profileMediaSubmissions.reviewDetail, { submissionId: proposal.resourceId! }); assert.ok(rebased);
+    const input = { submissionId: proposal.resourceId!, expectedReviewVersion: rebased.reviewVersion, decision: "approve" as const, privateReason: "Checked new display", idempotencyKey: "approve-old-slot" };
+    assert.equal((await reviewer.mutation(api.profileMediaSubmissions.decideWithReceipt, input)).code, "placement_changed");
+    await assert.rejects(reviewer.mutation(api.profileMediaSubmissions.decide, { submissionId: proposal.resourceId!, decision: "approve", expectedProfileUpdatedAt: rebased.currentProfileUpdatedAt, privateReason: "Legacy boundary checked" }), /displayed identity placement changed/);
+    const kit = await f.t.run(async ctx => getPublicProfileMediaKit(ctx.db, (await ctx.db.get(f.s.profileId))!));
+    assert.notEqual((kit.compactDisplay === "logo" ? kit.primaryLogo ?? kit.profileImage : kit.profileImage ?? kit.primaryLogo)?.assetId, d.assetId);
+  });
+}

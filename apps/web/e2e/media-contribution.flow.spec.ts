@@ -1,3 +1,4 @@
+import { expectDecodedImage } from "./image-readiness";
 import sharp from "sharp";
 import type { CommandReceipt, PublishedContributionDetail } from "@vrdex/api-contracts";
 import { createHash, randomBytes } from "node:crypto";
@@ -380,7 +381,7 @@ test("contributor A submits and distinct assigned reviewer B reviews media @medi
   const decoded = await sharp(await downloaded.body()).metadata();
   expect(decoded.width).toBeGreaterThan(0);
   expect(decoded.height).toBeGreaterThan(0);
-  expect(await pageB.locator(`img[src="${publishedFile}"]`).evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true);
+  await expectDecodedImage(pageB.locator(`img[src="${publishedFile}"]`));
   const capturePicture = async (state: string) => {
     await pageB.goto(`/${profile.slug}`);
     for (const [size, width, height] of [["desktop", 1280, 900], ["mobile", 390, 844]] as const) {
@@ -635,7 +636,7 @@ test("contributor A submits and distinct assigned reviewer B reviews media @medi
   expect((await sharp(await rpcDownload.body()).metadata()).width).toBe(48);
   await pageB.goto(`/${profile.slug}`);
   await expect(pageB.locator(`img[src="${rpcFile}"]`)).toBeVisible();
-  expect(await pageB.locator(`img[src="${rpcFile}"]`).evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true);
+  await expectDecodedImage(pageB.locator(`img[src="${rpcFile}"]`));
   const rpcManageInput = { submissionId: rpcSubmissionId, expectedContributionVersion: rpcDetail.contributionVersion, action: "update_metadata", metadata: { label: "Synthetic MCP title" }, idempotencyKey: `${runId}-rpc-title` };
   const rpcManaged = await call<UploadReceipt>(request, authA.access_token, "vrdex_media_contribution_manage", rpcManageInput);
   expect(rpcManaged.operationState).toBe("committed");

@@ -67,7 +67,7 @@ export function PublicationCardView({ detail, submissionId = detail?.submissionI
     <dl className="grid gap-3 text-sm sm:grid-cols-2">
       <div><dt className="text-muted">Destination</dt><dd>Media kit</dd></div>
       <div><dt className="text-muted">Credit</dt><dd className="break-words">{detail.credit}</dd></div>
-      <div className="min-w-0 sm:col-span-2"><dt className="text-muted">Source</dt><dd className="break-words [overflow-wrap:anywhere]">{detail.sourceUrl ? <a href={detail.sourceUrl} rel="noreferrer" target="_blank" className="underline">{detail.sourceDescription || "Open source"}</a> : detail.sourceDescription}</dd></div>
+      <div className="min-w-0 sm:col-span-2"><dt className="text-muted">Source</dt><dd className="break-words [overflow-wrap:anywhere]">{detail.sourceUrl ? <a href={detail.sourceUrl} rel="noreferrer" target="_blank" className="underline">{detail.sourceDescription || "Source"}</a> : detail.sourceDescription}</dd></div>
     </dl>
     <div className="flex flex-wrap gap-2">
       <Button type="button" variant="primary" disabled={!ready || busy || pending !== null} onClick={() => void command()}>Publish</Button>

@@ -1,3 +1,4 @@
+import { isAssetBackedPlacement } from "./_mediaSubmissionCleanup";
 import { transferPublishedCharge } from "./_contributionCapacity";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -136,7 +137,7 @@ export async function outwardReviewSnapshot(
   ctx: Pick<QueryCtx, "db">, submission: Doc<"profileMediaSubmissions">,
   profile: Doc<"profiles">, elevated = false,
 ) {
-  const { identityOccupied, ...snapshot } = await reviewSnapshot(ctx, submission, profile);
+  const { identityOccupied, effectiveIdentityPlacement, ...snapshot } = await reviewSnapshot(ctx, submission, profile);
   if (submission.requestKind !== "identity_placement") return { ...snapshot, currentPlacement: null };
   const placement = snapshot.currentPlacement;
   const asset = placement ? await ctx.db.get(placement.assetId) : null;
@@ -298,7 +299,7 @@ export async function applyReviewDecision(
       publicDisposition,
       privateReason,
       decisionProfileUpdatedAt: profile.updatedAt,
-      ...(submission.requestKind === "identity_placement" && submission.candidateAssetId !== undefined
+      ...(isAssetBackedPlacement(submission)
         ? {} : { blobDeleteAfter: now + PROFILE_MEDIA_SUBMISSION_RETENTION_MS }),
       updatedAt: now,
     });
@@ -315,6 +316,8 @@ export async function applyReviewDecision(
   if (submission.requestKind === "identity_placement" && submission.candidateAssetId) {
     const candidate = await ctx.db.get(submission.candidateAssetId);
     const snapshot = await reviewSnapshot(ctx, submission, profile);
+    if (snapshot.effectiveIdentityPlacement !== null && snapshot.effectiveIdentityPlacement !== submission.requestedPlacement)
+      throw new Error("The displayed identity placement changed. Refresh before deciding.");
     if (!snapshot.identityOccupied) throw new Error("Replacement requires an occupied identity placement.");
     if (!candidate || !snapshot.candidate.rendition) throw new Error("The placement candidate is unavailable.");
     if ((await publicationRestrictions(ctx, profile._id, candidate.contentSha256)).some(Boolean))
@@ -512,6 +515,9 @@ export async function reviewSnapshot(
     mediaKit.compactDisplay === "logo"
       ? (mediaKit.primaryLogo ?? mediaKit.profileImage)
       : (mediaKit.profileImage ?? mediaKit.primaryLogo);
+  const effectiveIdentityPlacement = effective
+    ? (effective === mediaKit.primaryLogo ? "primary_logo" as const : "profile_image" as const)
+    : null;
   const effectiveAsset = effective ? await ctx.db.get(effective.assetId) : null;
   const legacyUrl = isProfileFieldVisible(
     profile,
@@ -570,7 +576,7 @@ export async function reviewSnapshot(
     fieldVisibility: profile.fieldVisibility, identityDestinations: (profile.outboundLinks ?? []).flatMap(link => {
       const destination = parseProfileLinkDestination(link); return destination ? [destination.key] : [];
     }).sort(),
-    placement, currentImage, currentAutomaticImageUrl,
+    placement, currentImage, effectiveIdentityPlacement, currentAutomaticImageUrl,
     currentAsset: currentAsset && { id: currentAsset._id, credit: currentAsset.credit, sourceUrl: currentAsset.sourceUrl,
       state: currentAsset.state, visibility: currentAsset.visibility, retiredAt: currentAsset.retiredAt, moderatorSuppressedAt: currentAsset.moderatorSuppressedAt },
     identityPlacements: authoredPlacements.filter(row => row.placement === "profile_image" || row.placement === "primary_logo"),
@@ -629,12 +635,14 @@ export async function reviewSnapshot(
       artworkType: row.artworkType, observedAt: row.observedAt,
     })),
     currentImage: kitAsset ? undefined : currentImage,
+    effectiveIdentityPlacement: kitAsset ? undefined : effectiveIdentityPlacement,
     effectiveAsset: kitAsset ? undefined : effectiveAsset,
     revision: submission.reviewRevision ?? 0,
   });
   return {
     identityOccupied: authoredPlacements.some(row => row.placement === "profile_image" || row.placement === "primary_logo") || currentImage !== null,
     placementTargetVersion,
+    effectiveIdentityPlacement,
     reviewVersion,
     currentImage,
     currentPlacement:
@@ -734,6 +742,9 @@ export async function decideReviewCommand(
     (snapshot.currentPlacement?.assetId ?? undefined) !==
       submission.targetPlacementAssetId
   )
+    code = "placement_changed";
+  else if (args.decision === "approve" && submission.requestKind === "identity_placement" && submission.candidateAssetId &&
+    snapshot.effectiveIdentityPlacement !== null && snapshot.effectiveIdentityPlacement !== submission.requestedPlacement)
     code = "placement_changed";
   else if (args.decision === "approve" && submission.requestKind === "identity_placement" && submission.candidateAssetId && !snapshot.identityOccupied)
     code = "primary_empty";

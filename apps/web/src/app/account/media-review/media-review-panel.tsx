@@ -222,7 +222,7 @@ export function ReviewCardView({
             rel="noreferrer"
             target="_blank"
           >
-            Open source
+            Source
           </a>
         ) : (
           <span className="max-w-full break-words text-sm [overflow-wrap:anywhere]">
