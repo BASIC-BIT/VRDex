@@ -372,3 +372,43 @@ test("advanced partial duration establishes an end only on explicit commit @fixt
   const payload = await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!));
   expect(payload.lineup[0].endAt).toBe(Date.UTC(2027, 9, 15, 20, 45, 10, 123));
 });
+
+test("unresolved offset recovery preserves exact duration through untouched, rejected and cancelled commits @fixture", async ({ page }) => {
+  await canonicalStaff(page); await nav(page, "Lineup");
+  await page.locator('[data-lineup-row] summary').click();
+  const offset = page.getByLabel("Slot offset minutes", { exact: true });
+  const duration = page.getByLabel("Slot duration minutes", { exact: true });
+  for (const action of ["untouched blur", "untouched Enter", "invalid", "cancelled"]) {
+    await offset.fill("bad");
+    await expect(page.getByLabel("Duration", { exact: true })).toBeDisabled();
+    await duration.focus();
+    if (action === "invalid") await duration.fill("45.5");
+    if (action === "cancelled") { await duration.fill("45"); await duration.press("Escape"); }
+    if (action !== "untouched blur") await duration.press("Enter");
+    await duration.press("Tab");
+    await offset.fill("15");
+    await expect(page.getByLabel("Duration", { exact: true })).toHaveValue(String(3_620_333 / 60_000));
+  }
+  await page.getByRole("button", { name: "Set event end to lineup end", exact: true }).first().click();
+  await nav(page, "Review"); await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  const payload = await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!));
+  expect(payload.lineup[0].startAt).toBe(Date.UTC(2027, 9, 15, 20, 15, 10, 123));
+  expect(payload.lineup[0].endAt).toBe(Date.UTC(2027, 9, 15, 21, 15, 30, 456));
+});
+
+for (const minutes of [45, 60]) test(`unresolved offset accepts an explicit ${minutes}-minute duration before recovery @fixture`, async ({ page }) => {
+  await canonicalStaff(page); await nav(page, "Lineup");
+  await page.locator('[data-lineup-row] summary').click();
+  const offset = page.getByLabel("Slot offset minutes", { exact: true });
+  const duration = page.getByLabel("Slot duration minutes", { exact: true });
+  await offset.fill("bad");
+  await duration.fill(""); await duration.fill(String(minutes));
+  await duration.press("Enter"); await duration.press("Tab");
+  await offset.fill("15");
+  await expect(page.getByLabel("Duration", { exact: true })).toHaveValue(String(minutes));
+  await page.getByRole("button", { name: "Set event end to lineup end", exact: true }).first().click();
+  await nav(page, "Review"); await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  const payload = await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!));
+  expect(payload.lineup[0].startAt).toBe(Date.UTC(2027, 9, 15, 20, 15, 10, 123));
+  expect(payload.lineup[0].endAt).toBe(minutes === 45 ? Date.UTC(2027, 9, 15, 21, 0, 10, 123) : Date.UTC(2027, 9, 15, 21, 15, 10, 123));
+});

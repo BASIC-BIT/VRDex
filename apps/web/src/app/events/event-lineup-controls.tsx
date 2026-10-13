@@ -22,6 +22,7 @@ export function EventSlotDuration({ value, disabled, onCommit, unresolvedValue, 
   const lastCommit = useRef<string | null>(null);
   function commit() {
     setEdit(null);
+    if (edit?.source !== source) return;
     if (!disabled && (value !== undefined || unresolvedValue !== undefined) && validDuration(raw) && Number(raw) !== value && lastCommit.current !== raw) { lastCommit.current = raw; onCommit(Number(raw)); }
   }
   return <Field className={detailed ? undefined : "max-w-36 text-xs text-muted"}>{detailed ? "Slot duration minutes" : "Duration"}<Input data-slot-duration={detailed || undefined} inputMode="numeric" disabled={disabled || (value === undefined && unresolvedValue === undefined)} value={raw} onChange={event => { lastCommit.current = null; setEdit({ source, value: event.target.value }); }} onBlur={commit} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); commit(); } else if (event.key === "Escape") { event.preventDefault(); setEdit(null); } }} /></Field>;
