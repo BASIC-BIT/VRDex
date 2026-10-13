@@ -412,3 +412,78 @@ for (const minutes of [45, 60]) test(`unresolved offset accepts an explicit ${mi
   expect(payload.lineup[0].startAt).toBe(Date.UTC(2027, 9, 15, 20, 15, 10, 123));
   expect(payload.lineup[0].endAt).toBe(minutes === 45 ? Date.UTC(2027, 9, 15, 21, 0, 10, 123) : Date.UTC(2027, 9, 15, 21, 15, 10, 123));
 });
+
+for (const canonical of [true, false]) test(`${canonical ? "canonical" : "legacy"} staff clears only a slot end and preserves rows through two saves @fixture`, async ({ page }) => {
+  await page.addInitScript(canonical => localStorage.setItem("event-lineup-fixture-v1", JSON.stringify({
+    id: "clear-end", slug: "clear-end", title: "Clear end night", usesCanonicalLineup: canonical,
+    startAt: Date.UTC(2027, 9, 15, 20, 0, 10, 123), endAt: Date.UTC(2027, 9, 15, 21), timezone: "UTC", scheduleKind: "timed", status: "scheduled", communitySlug: "afterglow", publicationState: "draft_private",
+    source: { sourceType: canonical ? "contributor" : "community", label: "Original source" }, watchSurfaceEnabled: true, watchMode: "performer_sequence",
+    mediaLinks: [], authoredMediaLinks: [], worlds: [], participants: [], lineup: [],
+    slots: [
+      { clientKey: canonical ? "exact-row" : undefined, playbackKey: "stored-exact", position: 0, startAt: Date.UTC(2027, 9, 15, 20, 0, 10, 123), endAt: Date.UTC(2027, 9, 15, 21, 0, 30, 456), displayLabel: "Aurora", roleLabel: "DJ", performer: { slug: "aurora", displayName: "Aurora", trustLabel: "claimed_verified" }, source: { sourceType: "community", label: "Slot source" }, selectedStreamId: "vrcdn:aurora" },
+      { clientKey: canonical ? "later-row" : undefined, playbackKey: "stored-later", position: 1, startAt: Date.UTC(2027, 9, 15, 21, 15, 30, 456), endAt: Date.UTC(2027, 9, 15, 22, 15, 30, 456), displayLabel: "Lumen", roleLabel: "DJ", performer: { slug: "lumen", displayName: "Lumen", trustLabel: "claimed_verified" }, source: { sourceType: "community", label: "Later source" } },
+    ], preservedParticipantAssociationIds: ["protected-person"], preservedSlotAssociationIds: ["stored-exact", "stored-later"], preservedWorldAssociationIds: [],
+  })), canonical);
+  await page.goto("/playwright/event-lineup?editor"); await nav(page, "Lineup");
+  const rows = page.locator('[data-lineup-row]');
+  const firstKey = await rows.first().getAttribute("data-lineup-row");
+  await rows.first().locator("summary").click();
+  const duration = rows.first().getByLabel("Slot duration minutes", { exact: true });
+  await duration.fill(""); await duration.press("Escape"); await duration.press("Tab");
+  await expect(duration).toHaveValue(String(3_620_333 / 60_000));
+  await duration.fill("");
+  if (canonical) await duration.press("Enter");
+  await duration.press("Tab");
+  await expect(duration).toHaveValue("");
+  await expect(rows.first().getByLabel("Duration", { exact: true })).toBeDisabled();
+  await expect(rows).toHaveCount(2);
+  await expect(rows.first()).toHaveAttribute("data-lineup-row", firstKey!);
+  await expect(rows.nth(1)).toContainText("21:15:30.456 - 22:15:30.456");
+  await expect(page.getByText("The lineup ends after the event.", { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Set event end to lineup end", exact: true })).toHaveCount(0);
+  await duration.focus(); await duration.press("Enter"); await duration.press("Tab");
+  await nav(page, "Details");
+  await expect(page.getByLabel("Ends (optional)", { exact: true })).toHaveValue("2027-10-15T21:00");
+  await page.getByLabel("Ends (optional)", { exact: true }).fill("2027-10-15T22:30");
+  for (const count of [1, 2]) {
+    await nav(page, "Review"); await page.getByRole("button", { name: "Save draft", exact: true }).click();
+    await expect.poll(() => page.evaluate(() => Number(localStorage.getItem("event-lineup-fixture-command-count")))).toBe(count);
+    const payload = await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!));
+    const saved = canonical ? payload.lineup : payload.slotLinks;
+    expect(saved).toHaveLength(2);
+    expect(saved[0].endAt).toBeUndefined();
+    expect(saved[0].startAt).toBe(Date.UTC(2027, 9, 15, 20, 0, 10, 123));
+    expect(saved[0].personSlug).toBe("aurora");
+    expect(saved[0].selectedStreamId).toBe("vrcdn:aurora");
+    expect(saved[1].startAt).toBe(Date.UTC(2027, 9, 15, 21, 15, 30, 456));
+    expect(saved[1].endAt).toBe(Date.UTC(2027, 9, 15, 22, 15, 30, 456));
+    expect(payload.endAt).toBe(Date.UTC(2027, 9, 15, 22, 30));
+    if (canonical) expect(saved[0].clientKey).toBe("exact-row");
+    else expect(payload.storedSlotAssociations[0]).toEqual({ position: 0, slotId: "stored-exact" });
+  }
+});
+
+test("clearing an end drops its precise duration backup and leaves automatic event end unknown @fixture", async ({ page }) => {
+  await canonicalStaff(page); await nav(page, "Lineup");
+  const row = page.locator('[data-lineup-row]');
+  await row.locator("summary").click();
+  const offset = page.getByLabel("Slot offset minutes", { exact: true });
+  const duration = page.getByLabel("Slot duration minutes", { exact: true });
+  await offset.fill("bad");
+  await duration.fill(""); await duration.press("Tab");
+  await offset.fill("15");
+  await expect(row.getByLabel("Duration", { exact: true })).toBeDisabled();
+  await expect(duration).toHaveValue("");
+  await nav(page, "Details");
+  await page.getByLabel("Time TBA", { exact: true }).check();
+  await page.getByLabel("Time TBA", { exact: true }).uncheck();
+  await page.getByLabel("Ends (optional)", { exact: true }).fill("");
+  await nav(page, "Lineup");
+  await expect(page.getByLabel("Duration", { exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Set event end to lineup end", exact: true })).toHaveCount(0);
+  await nav(page, "Review"); await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  const payload = await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!));
+  expect(payload.lineup[0].startAt).toBe(Date.UTC(2027, 9, 15, 20, 15, 10, 123));
+  expect(payload.lineup[0].endAt).toBeUndefined();
+  expect(payload.endAt).toBeNull();
+});

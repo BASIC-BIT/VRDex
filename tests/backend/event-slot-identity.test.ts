@@ -77,3 +77,27 @@ test("legacy identities follow sanitizer sorting and a deliberate performer repl
   assert.equal(slot?.sourceUrl, "https://example.com/slot");
   assert.deepEqual(result.storedSlotAssociations?.find(row => row.slotId === slotId), { position: 0, slotId });
 });
+
+test("legacy clearing an end retains the exact stored slot and source across repeated saves", async () => {
+  const { t, owner, created, editable, slotId, personId, startAt } = await fixture();
+  await t.run(ctx => ctx.db.patch(slotId, { startAt: startAt + 10_123, endAt: startAt + 3_630_456 }));
+  const before = await t.run(ctx => ctx.db.get(slotId));
+  for (const save of [1, 2]) {
+    await owner.mutation(api.events.updateCommunityEvent, {
+      currentSlug: created.slug, communitySlug: "club", timezone: "UTC", preservedSlotAssociationIds: [slotId], preservedParticipantAssociationIds: editable.preservedParticipantAssociationIds,
+      storedSlotAssociations: [{ position: 0, slotId }],
+      slotLinks: [{ personSlug: "guest", displayLabel: "Guest", roleLabel: "DJ", startAt: startAt + 10_123, selectedStreamId: "guest" }],
+    });
+    const current = await t.run(ctx => ctx.db.get(slotId));
+    assert.ok(current, `save ${save}`);
+    assert.equal(current.endAt, undefined);
+    assert.equal(current.startAt, startAt + 10_123);
+    assert.equal(current.personProfileId, personId);
+    for (const field of ["selectedStreamId", "sourceType", "sourceLabel", "sourceUrl", "notes"] as const) assert.equal(current[field], before![field]);
+    const result = await owner.query(api.events.getEditableBySlug, { slug: created.slug });
+    assert.equal(result!.slots[0]!.endAt, undefined);
+    assert.equal(result!.slots[0]!.startAt, startAt + 10_123);
+    assert.equal(result!.endAt, editable.endAt);
+    assert.deepEqual(result!.preservedSlotAssociationIds, [slotId]);
+  }
+});

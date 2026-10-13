@@ -223,3 +223,32 @@ test("old untimed records and new rows use event provenance without inventing sl
     assert.equal(row.notes, undefined);
   }
 });
+
+test("canonical clearing an end preserves exact starts, later clocks, provenance and confirmation on repeated saves", async () => {
+  const { t, owner, event, read, update } = await fixture();
+  const initial = await read();
+  const first = initial.slots.find(row => row.clientKey === "guest")!;
+  await t.run(ctx => ctx.db.patch(first._id, { startAt: startAt + 10_123, endAt: startAt + 3_630_456, selectedStreamId: "retained-source", sourceLabel: "Slot source", sourceUrl: "https://example.com/slot", notes: "Stored note" }));
+  const before = await read();
+  const lineup = originalLineup.map((row, index) => index === 0 ? { ...row, startAt: startAt + 10_123, endAt: undefined } : row);
+  for (const save of [1, 2]) {
+    await update(lineup);
+    const after = await read();
+    assert.equal(after.slots.length, 2, `save ${save}`);
+    assert.equal(after.untimed.length, 0);
+    for (const previous of before.slots) {
+      const current = after.slots.find(row => row._id === previous._id)!;
+      assert.ok(current);
+      for (const field of ["startAt", "personProfileId", "selectedStreamId", "sourceType", "sourceLabel", "sourceUrl", "notes"] as const) assert.equal(current[field], previous[field]);
+      assert.equal(current.endAt, previous._id === first._id ? undefined : previous.endAt);
+    }
+    for (const previous of before.participants) {
+      const current = after.participants.find(row => row._id === previous._id)!;
+      assert.equal(current.confirmationState, previous.confirmationState);
+      assert.equal(current.confirmedAt, previous.confirmedAt);
+    }
+    const editable = await owner.query(api.events.getEditableBySlug, { slug: event.slug! });
+    assert.equal(editable!.slots.find(row => row.clientKey === "guest")!.endAt, undefined);
+    assert.equal(editable!.endAt, event.endAt);
+  }
+});

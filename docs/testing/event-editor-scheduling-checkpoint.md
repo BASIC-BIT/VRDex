@@ -212,3 +212,9 @@ The account preference contract accepts valid named IANA identifiers, including
 EST and EDT search still select `America/New_York`. Banning named constant-offset
 regions would require a separate preference/default policy decision, not a timezone
 migration in this fix.
+
+Clearing the advanced staff slot duration and committing with Enter or blur restores
+an unknown slot end. It preserves the exact start, identity, performer, stream and
+source, and leaves later slots unchanged. An unknown end has no duration delta to
+cascade and cannot supply a complete lineup end. Escape cancels the clear; focusing
+an untouched or already-empty duration does not edit timing.

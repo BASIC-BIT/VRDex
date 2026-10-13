@@ -15,7 +15,7 @@ export function EventLineupInsert({ index, disabled, onInsert, onAddUntimed, all
   const [duration, setDuration] = useState("60");
   return open ? <div className="flex flex-wrap items-end gap-3 rounded-control border border-border p-3"><Field>Duration<Input autoFocus aria-label="Slot duration" inputMode="numeric" value={duration} onChange={event => setDuration(event.target.value)} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); if (!disabled && validDuration(duration)) { onInsert(index, Number(duration)); setOpen(false); } } }} /></Field><Button type="button" disabled={disabled || atLimit || !validDuration(duration)} onClick={() => { onInsert(index, Number(duration)); setOpen(false); }}>Insert slot</Button>{allowUntimed ? <Button type="button" variant="secondary" disabled={atLimit} onClick={() => { onAddUntimed(index); setOpen(false); }}>Add performer</Button> : null}<Button type="button" variant="ghost" onClick={() => setOpen(false)}>Cancel</Button></div> : <Button type="button" variant="ghost" className="justify-self-start" aria-label={`Add slot at position ${index + 1}`} disabled={atLimit} onClick={() => { setDuration("60"); setOpen(true); }}>Add slot</Button>;
 }
-export function EventSlotDuration({ value, disabled, onCommit, unresolvedValue, detailed = false }: { value: number | undefined; disabled?: boolean; onCommit: (durationMinutes: number) => void; unresolvedValue?: string; detailed?: boolean }) {
+export function EventSlotDuration({ value, disabled, onCommit, onClear, unresolvedValue, detailed = false }: { value: number | undefined; disabled?: boolean; onCommit: (durationMinutes: number) => void; onClear?: () => void; unresolvedValue?: string; detailed?: boolean }) {
   const source = value === undefined ? unresolvedValue ?? "" : String(value);
   const [edit, setEdit] = useState<{ source: string; value: string } | null>(null);
   const raw = edit?.source === source ? edit.value : source;
@@ -23,6 +23,7 @@ export function EventSlotDuration({ value, disabled, onCommit, unresolvedValue, 
   function commit() {
     setEdit(null);
     if (edit?.source !== source) return;
+    if (!disabled && onClear && raw.trim() === "" && source.trim() !== "" && lastCommit.current !== raw) { lastCommit.current = raw; onClear(); return; }
     if (!disabled && (value !== undefined || unresolvedValue !== undefined) && validDuration(raw) && Number(raw) !== value && lastCommit.current !== raw) { lastCommit.current = raw; onCommit(Number(raw)); }
   }
   return <Field className={detailed ? undefined : "max-w-36 text-xs text-muted"}>{detailed ? "Slot duration minutes" : "Duration"}<Input data-slot-duration={detailed || undefined} inputMode="numeric" disabled={disabled || (value === undefined && unresolvedValue === undefined)} value={raw} onChange={event => { lastCommit.current = null; setEdit({ source, value: event.target.value }); }} onBlur={commit} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); commit(); } else if (event.key === "Escape") { event.preventDefault(); setEdit(null); } }} /></Field>;
