@@ -412,7 +412,7 @@ it("treats visible automatic artwork as occupied and refuses hidden authored ide
     await selectProfileAssetIdentity(ctx.db, { profileId: f.s.profileId, assetId: asset._id, placement: "primary_logo", actorUserId: f.s.moderatorUserId, now: Date.now() });
   });
   assert.equal((await f.detail()).canSelectPrimary, false);
-  assert.equal((await f.place("select_primary")).code, "primary_occupied");
+  assert.equal((await f.place("select_primary")).code, "target_unavailable");
 });
 
 it("does not interpret a rejected placement as a digest-wide content rejection", async () => {
@@ -493,6 +493,48 @@ for (const gate of ["VRDEX_PROFILE_MEDIA_KIT_ENABLED", "VRDEX_PROFILE_MEDIA_SUBM
       assert.deepEqual(await f.t.run(ctx => ctx.db.get(fresh.assetId)), before);
     } finally {
       process.env[gate] = previousGate;
+    }
+  });
+}
+
+for (const condition of ["disabled_kit", "hidden_kit", "disabled_submissions"] as const) {
+  it(`gates new placement and proposals after ${condition}, preserves historical replay and safe undo`, async () => {
+    const f = await fixture();
+    const initial = await f.detail();
+    await f.t.run(ctx => ctx.db.insert("oauthAccessTokens", { tokenId: "placement-token", clientId: "client", subjectType: "user", userId: f.s.contributorUserId, resource: "https://example.test/mcp", scopes: ["mcp:read", "mcp:write", "assets:contribute", "assets:publish"], status: "active", issuedAt: Date.now(), expiresAt: Date.now() + 60_000 }));
+    const attestation = { actorUserId: f.s.contributorUserId, oauthTokenId: "placement-token", oauthClientId: "client", emailVerified: true, emailVerificationAttestedAt: Date.now() };
+    const priorInput = { submissionId: f.intent.submissionId, expectedContributionVersion: initial.contributionVersion, idempotencyKey: "historical-select", action: "select_primary" as const };
+    const prior = await f.actor.mutation(api.profileMediaSubmissions.placeContribution, priorInput);
+    assert.equal(prior.operationState, "committed");
+    const env = { kit: process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED, submissions: process.env.VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED };
+    if (condition === "hidden_kit") await f.t.run(ctx => ctx.db.patch(f.s.profileId, { fieldVisibility: { mediaKit: "private" } }));
+    if (condition === "disabled_kit") process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "false";
+    if (condition === "disabled_submissions") process.env.VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED = "false";
+    try {
+      const detail = await f.detail();
+      assert.deepEqual(await f.t.query(internal.profileMediaSubmissions.contributionDetailForMcpActor, { submissionId: f.intent.submissionId, ...attestation }), detail);
+      assert.equal(detail.canSelectPrimary, false);
+      assert.equal(detail.canProposePlacement, false);
+      assert.equal(detail.canClearPrimary, condition !== "disabled_submissions");
+      assert.deepEqual(await f.actor.mutation(api.profileMediaSubmissions.placeContribution, priorInput), prior);
+      const cleared = await f.place("clear_primary", "new-clear");
+      assert.equal(cleared.operationState, condition === "disabled_submissions" ? "refused" : "committed");
+      if (condition === "disabled_submissions") assert.equal(cleared.code, "review_disabled");
+      const empty = await f.detail();
+      assert.equal(empty.canSelectPrimary, false);
+      assert.equal((await f.place("select_primary", "new-select")).code, condition === "disabled_submissions" ? "review_disabled" : "target_unavailable");
+      await f.t.run(ctx => ctx.db.patch(f.s.profileId, { avatarImageUrl: "https://example.test/current.png" }));
+      const mcpSelection = await f.t.mutation(internal.profileMediaSubmissions.placeContributionForMcpActor, { submissionId: f.intent.submissionId, expectedContributionVersion: (await f.detail()).contributionVersion, idempotencyKey: "mcp-new-select", action: "select_primary", ...attestation });
+      assert.equal(mcpSelection.code, condition === "disabled_submissions" ? "review_disabled" : "target_unavailable");
+      const occupied = await f.detail();
+      assert.equal(occupied.canProposePlacement, false);
+      const proposal = await f.actor.mutation(api.profileMediaSubmissions.proposePlacement, { submissionId: f.intent.submissionId, expectedContributionVersion: occupied.contributionVersion, idempotencyKey: "new-proposal" });
+      assert.equal(proposal.code, condition === "disabled_submissions" ? "review_disabled" : "target_unavailable");
+      const mcpProposal = await f.t.mutation(internal.profileMediaSubmissions.proposePlacementForMcpActor, { submissionId: f.intent.submissionId, expectedContributionVersion: occupied.contributionVersion, idempotencyKey: "mcp-new-proposal", ...attestation });
+      assert.equal(mcpProposal.code, proposal.code);
+    } finally {
+      process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = env.kit;
+      process.env.VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED = env.submissions;
     }
   });
 }

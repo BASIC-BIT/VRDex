@@ -361,7 +361,7 @@ function MediaAssetCard({ asset, label, featured = false }: { asset: PublicProfi
         {asset.caption ? <p className="leading-6 text-muted">{asset.caption}</p> : null}
         {creditUrl ? (
           <a className="w-fit break-all text-xs text-muted underline underline-offset-4" href={creditUrl}>
-            {asset.credit || "Open source"}
+            {asset.credit || "Credit"}
           </a>
         ) : asset.credit ? (
           <p className="text-xs text-muted">{asset.credit}</p>

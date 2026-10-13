@@ -201,3 +201,18 @@ function RemovedUncertainFixture() {
     }} /><output className="sr-only" data-testid="removal-commands">{JSON.stringify(calls)}</output></main>;
 }
 export const RemovedUncertain: Story = { render: () => <RemovedUncertainFixture /> };
+
+function ConcurrentMetadataFixture() {
+  const [corrected, setCorrected] = useState(() => sessionStorage.getItem("fixture:concurrent-correction") === "true");
+  const [calls, setCalls] = useState<unknown[]>([]);
+  const detail = { ...publishedFixture, contributionVersion: corrected ? "c2" : "c1", metadata: { ...publishedFixture.metadata, credit: corrected ? "Live corrected credit" : publishedFixture.metadata.credit } };
+  return <main className="mx-auto max-w-4xl p-4">
+    <button onClick={() => { sessionStorage.setItem("fixture:concurrent-correction", "true"); setCorrected(true); }}>Live correction</button>
+    <PublishedContributionCardView submissionId={detail.submissionId} detail={detail}
+      place={async () => ({ operationId: "unused", operationState: "refused" })}
+      propose={async () => ({ operationId: "unused", operationState: "refused" })}
+      manage={async input => { setCalls(previous => [...previous, input]); return input.expectedContributionVersion === detail.contributionVersion ? { operationId: "saved", operationState: "committed" } : { operationId: "stale", operationState: "refused", code: "contribution_changed" }; }} />
+    <output className="sr-only" data-testid="concurrent-commands">{JSON.stringify(calls)}</output>
+  </main>;
+}
+export const ConcurrentMetadata: Story = { render: () => <ConcurrentMetadataFixture /> };

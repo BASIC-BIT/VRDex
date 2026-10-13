@@ -143,6 +143,7 @@ function ProductionPanelFixture({
     let responseLost = loseResponse;
     const detail = {
       ...row,
+      requestKind: "identity_placement",
       targetProfileUpdatedAt: 2,
       reviewVersion: "v2",
       currentPlacement: null,
@@ -179,7 +180,7 @@ function ProductionPanelFixture({
             };
           if (name.endsWith(":reviewDetail")) return detail;
           return {
-            page: removed ? [] : [row],
+            page: removed ? [] : [{ ...row, requestKind: "identity_placement" }],
             isDone: true,
             continueCursor: "",
           };

@@ -103,6 +103,8 @@ The receipt path is the required interface for new browser/MCP clients.
 
 ## Published contribution placement
 
+New primary selection and replacement proposals require enabled submissions and a visible, enabled public media kit. Clearing an unchanged selection made by the contributor requires enabled submissions and current publisher authority, but remains available if the kit is hidden or disabled. Historical exact-input receipts retain their existing authority checks. Metadata drafts retain the contribution version inspected when editing began, including after reload; a concurrent correction refuses the stale draft rather than overwriting newer metadata.
+
 `contributionDetail` and its internal MCP actor counterpart resolve the immutable
 source submission and active public asset. `placeContribution` accepts the source
 submission ID, expected contribution version, actor-scoped idempotency key, and

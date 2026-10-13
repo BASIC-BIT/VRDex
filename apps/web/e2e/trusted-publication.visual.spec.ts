@@ -65,6 +65,9 @@ test("published actions follow capabilities and retain corrections on conflict @
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByText("Review changed. Inspect the current images before deciding again.", { exact: true })).toBeVisible();
   await expect(page.getByLabel("Title", { exact: true })).toHaveValue("Corrected portrait");
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await page.getByRole("button", { name: "Edit metadata" }).click();
+  await page.getByLabel("Title", { exact: true }).fill("Corrected portrait");
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Corrected portrait" })).toBeVisible();
   await page.getByRole("button", { name: "Remove", exact: true }).click();
@@ -125,3 +128,22 @@ test("logical removal recovery survives unavailable detail and reload @storybook
   await expect(page.getByText("Removed", { exact: true })).toBeVisible();
   expect(JSON.parse((await page.getByTestId("removal-commands").textContent())!)[0]).toEqual(first);
 });
+
+for (const reload of [false, true]) {
+  test(`metadata draft retains inspected version after live correction${reload ? " and reload" : ""} @storybook-visual`, async ({ page }, testInfo) => {
+    await gotoComponentStory(page, "account-trusted-publication--concurrent-metadata");
+    await page.getByRole("button", { name: "Edit metadata" }).click();
+    await page.getByLabel("Title", { exact: true }).fill("Draft portrait");
+    await page.getByRole("button", { name: "Live correction" }).click();
+    await expect(page.getByText("Live corrected credit", { exact: true })).toBeVisible();
+    if (reload) await page.reload();
+    await expect(page.getByLabel("Title", { exact: true })).toHaveValue("Draft portrait");
+    await expect(page.getByLabel("Credit", { exact: true })).toHaveValue("Fixture photographer");
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(page.getByText("Review changed. Inspect the current images before deciding again.", { exact: true })).toBeVisible();
+    const calls = JSON.parse((await page.getByTestId("concurrent-commands").textContent())!);
+    expect(calls[0].expectedContributionVersion).toBe("c1");
+    expect(calls[0].metadata.credit).toBe("Fixture photographer");
+    await captureStorybookScreenshot(page, testInfo, `concurrent-draft-${reload ? "restored" : "live"}`);
+  });
+}
