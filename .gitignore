@@ -54,3 +54,6 @@ __pycache__/
 
 # Claude Code personal settings
 .claude/settings.local.json
+
+# Local isolated development checkouts
+.worktrees/

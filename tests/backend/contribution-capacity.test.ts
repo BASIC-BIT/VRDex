@@ -1,3 +1,4 @@
+process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "true";
 import assert from "node:assert/strict";
 import { it } from "node:test";
 import { convexTest } from "convex-test";

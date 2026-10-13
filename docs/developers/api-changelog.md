@@ -9,6 +9,10 @@ docs update and a changelog entry so early consumers and agents can adapt.
 
 ## Unreleased
 
+- fixed hosted MCP URL media submissions returning a tool error after creating a
+  private gallery proposal. The output validator accepts gallery results and
+  legacy profile-image replays.
+
 - upgraded the hosted and stdio MCP SDK to `@modelcontextprotocol/server` 2.0.0.
   Modern `2026-07-28` discovery returns server identity in result `_meta` and
   accepts requests without `clientInfo`; legacy initialization remains supported.
