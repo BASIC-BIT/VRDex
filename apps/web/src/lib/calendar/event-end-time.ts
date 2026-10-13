@@ -1,10 +1,7 @@
 export function resolveAuthoredEventEndAt({
-  startAt,
   authoredEndAt,
   derivedEndAt,
-  previousStartAt,
   previousEndAt,
-  scheduleChanged,
 }: {
   startAt: number;
   authoredEndAt?: number | null;
@@ -14,9 +11,5 @@ export function resolveAuthoredEventEndAt({
   scheduleChanged: boolean;
 }): number | undefined {
   if (authoredEndAt !== undefined) return authoredEndAt ?? derivedEndAt;
-  if (!scheduleChanged && previousStartAt !== undefined && previousEndAt !== undefined) {
-    return previousEndAt + (startAt - previousStartAt);
-  }
-
-  return derivedEndAt;
+  return previousEndAt ?? derivedEndAt;
 }
