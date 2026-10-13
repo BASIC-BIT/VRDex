@@ -137,7 +137,7 @@ it("reserves discovery scans and exposes their raw candidate limits under volume
     for (const enabled of ["false", "true"]) {
       process.env.EVENT_DATE_ONLY_ENABLED = enabled;
       const slugs = (await t.query(api.search.listDiscovery, { now })).upcomingEvents.map(event => event.slug);
-      // Future starts can fill the raw end-index budget. The separate recent
+      // Future starts can fill the raw end-index budget. The separate started
       // scan still recovers the no-end event, and the future scan still returns.
       assert.equal(slugs.includes("long-active"), false);
       assert.equal(slugs.includes("no-end-active"), true);
@@ -147,7 +147,7 @@ it("reserves discovery scans and exposes their raw candidate limits under volume
     for (const enabled of ["false", "true"]) {
       process.env.EVENT_DATE_ONLY_ENABLED = enabled;
       const slugs = (await t.query(api.search.listDiscovery, { now })).upcomingEvents.map(event => event.slug);
-      // More than 500 newer starts can fill both raw start budgets. This is an
+      // More than 500 newer starts can fill the raw start budget. This is an
       // explicit capacity limit; neither raw scan grows to cover those rows.
       assert.equal(slugs.includes("no-end-active"), false);
       assert.equal(slugs.some(slug => slug.startsWith("future-budget-")), true);
@@ -159,4 +159,42 @@ it("preserves explicit runtime ends and the date-only UTC-12 expiry", () => {
   const startAt = Date.UTC(2026, 6, 4);
   assert.equal(eventSortEndAt({ startAt, endAt: startAt + 1000 }), startAt + 1000);
   assert.equal(eventSortEndAt({ scheduleKind: "date_only", eventDate: "2026-07-04", startAt, endAt: startAt + 1000 }), startAt + 36 * 3_600_000 - 1);
+});
+
+it("caps legacy future raw candidates when more than 500 non-event rows share the start index", async () => {
+  const schema = (schemaModule as unknown as { default?: typeof schemaModule }).default ?? schemaModule;
+  const t = convexTest({ schema, modules: {
+    "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
+    "../../convex/search.ts": () => import("../../convex/search"),
+  } });
+  const now = Date.now();
+  await t.run(async ctx => {
+    const communityId = await ctx.db.insert("profiles", { slug: "future-cap-club", displayName: "Future Cap Club", sortName: "future cap club",
+      profileType: "community", community: { categoryTags: [] }, aliases: [], tags: [], claimState: "unclaimed", creationSource: "self",
+      publicationState: "published", publicSurfacingState: "public", updatedAt: 1 });
+    const community = (await ctx.db.get(communityId))!;
+    const eventId = await ctx.db.insert("events", { slug: "future-cap-event", title: "Future Cap Event", sortTitle: "future cap event",
+      ...readEventSchedule({ startAt: now + 3_600_000 }), communityProfileId: communityId, eventStatus: "scheduled",
+      publicationState: "published", sourceType: "community", sourceLabel: "Club", updatedAt: 1 });
+    const document = createEventSearchDocument((await ctx.db.get(eventId))!, { community });
+    await ctx.db.insert("searchDocuments", { ...document, featuredRank: 8 });
+    // The featured event fallback must not mask the legacy future scan limit.
+    for (let index = 0; index < 501; index++) {
+      const slug = `future-cap-expired-${index}`;
+      const expiredId = await ctx.db.insert("events", { slug, title: slug, sortTitle: slug,
+        ...readEventSchedule({ startAt: now - 48 * 3_600_000 }), endAt: now - 47 * 3_600_000,
+        communityProfileId: communityId, eventStatus: "scheduled", publicationState: "published", sourceType: "community", sourceLabel: "Club", updatedAt: 1 });
+      await ctx.db.insert("searchDocuments", { ...createEventSearchDocument((await ctx.db.get(expiredId))!, { community }), featuredRank: 42 });
+      const { eventId: _eventId, ...nonEventDocument } = document;
+      await ctx.db.insert("searchDocuments", { ...nonEventDocument, entityType: "world", slug: `future-non-event-${index}`,
+        startsAt: now + 60_000, sortAt: now + 60_000 });
+    }
+  });
+  const previous = process.env.EVENT_DATE_ONLY_ENABLED;
+  try {
+    process.env.EVENT_DATE_ONLY_ENABLED = "false";
+    assert.deepEqual((await t.query(api.search.listDiscovery, { now })).upcomingEvents.map(event => event.slug), []);
+    process.env.EVENT_DATE_ONLY_ENABLED = "true";
+    assert.deepEqual((await t.query(api.search.listDiscovery, { now })).upcomingEvents.map(event => event.slug), ["future-cap-event"]);
+  } finally { if (previous === undefined) delete process.env.EVENT_DATE_ONLY_ENABLED; else process.env.EVENT_DATE_ONLY_ENABLED = previous; }
 });

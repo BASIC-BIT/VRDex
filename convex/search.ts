@@ -1,5 +1,4 @@
 import { dateOnlyEventsEnabled, eventSortAt, eventSortEndAt } from "./_eventSchedule";
-import { UNKNOWN_EVENT_END_WINDOW_MS } from "./_eventRuntime";
 import { v } from "convex/values";
 
 import { internalMutation, query, type QueryCtx } from "./_generated/server";
@@ -64,18 +63,12 @@ async function listDocumentsByType(
 }
 
 async function listUpcomingEventDocuments(ctx: QueryCtx, now: number) {
-  // Explicit ends can extend past the unknown-end lookback. Hydrate their
+  // Explicit ends can extend past the newest started candidates. Hydrate their
   // existing search rows separately so they cannot consume the future scan.
-  const [endCandidates, recentStartCandidates, startedCandidates] = await Promise.all([
+  const [endCandidates, startedCandidates] = await Promise.all([
     ctx.db.query("events")
       .withIndex("by_publicationState_eventStatus_endAt", index => index
         .eq("publicationState", "published").eq("eventStatus", "scheduled").gte("endAt", now))
-      .take(DISCOVERY_EVENT_SCAN_LIMIT),
-    ctx.db.query("events")
-      .withIndex("by_publicationState_eventStatus_startAt", index => index
-        .eq("publicationState", "published").eq("eventStatus", "scheduled")
-        .gte("startAt", now - UNKNOWN_EVENT_END_WINDOW_MS).lte("startAt", now))
-      .order("desc")
       .take(DISCOVERY_EVENT_SCAN_LIMIT),
     ctx.db.query("events")
       .withIndex("by_publicationState_eventStatus_startAt", index => index
@@ -85,7 +78,7 @@ async function listUpcomingEventDocuments(ctx: QueryCtx, now: number) {
   ]);
   // Bound raw reads before applying the second predicate. Existing indexes
   // cannot express both start and end ranges in the same scan.
-  const ongoingEvents = new Map([...endCandidates, ...recentStartCandidates, ...startedCandidates]
+  const ongoingEvents = new Map([...endCandidates, ...startedCandidates]
     .filter(event => event.startAt !== undefined && event.startAt <= now && eventSortEndAt(event) >= now)
     .map(event => [event._id, event]));
   const ongoingDocuments = (await Promise.all([...ongoingEvents.values()].map(event => ctx.db.query("searchDocuments")
@@ -107,9 +100,8 @@ async function listUpcomingEventDocuments(ctx: QueryCtx, now: number) {
   }
   const future = await ctx.db.query("searchDocuments")
     .withIndex("by_publicState_startsAt", index => index.eq("publicState", "public").gte("startsAt", now))
-    .filter(query => query.eq(query.field("entityType"), "event"))
     .take(DISCOVERY_EVENT_SCAN_LIMIT);
-  return [...ongoingDocuments, ...future];
+  return [...ongoingDocuments, ...future.filter(document => document.entityType === "event")];
 }
 
 async function listEventVocabularyDocuments(ctx: QueryCtx) {

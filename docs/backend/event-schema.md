@@ -46,18 +46,22 @@ calendar export. Date-only expiry remains the authored date's end in UTC-12.
 Discovery caps each index scan at 500 raw candidates before runtime filtering.
 Future events and date-only dates have separate allowances. The date-only
 lookback index includes `scheduleKind`; expired timed rows cannot consume it.
-Ongoing candidates combine three bounded scans: ascending known ends at or after
-now, descending starts within the last six hours, and descending starts at or
-before now. The recent-start range excludes old unknown-end rows before its cap.
+Ongoing candidates combine two bounded scans: ascending known ends at or after
+now and descending starts at or before now. The start ordering places current
+unknown-end events ahead of older unknown-end rows.
 The scans include legacy timed events without `scheduleKind` and retain explicit
 ends beyond six hours. Live search projection uses the current authored schedule.
 
 Person and world lists classify runtime eligibility from the current event,
 so older association caches containing a start-only end need no backfill for
 this behavior. The existing bounded association scans still apply. Future starts
-can fill the known-end scan, and expired rows can fill either start scan. An
-ongoing event outside all three raw allowances and the featured fallback can be
-absent from discovery. The separate future allowance still runs. These are
+can fill the known-end scan, and recently expired rows can fill the start scan.
+An ongoing event outside both raw allowances and the featured fallback can be
+absent from discovery. The separate future allowance still runs. With the
+date-only switch disabled, that allowance reads the shared start index and
+filters entity type after its raw cap; non-event rows can fill it and hide a
+future event outside the featured fallback. With the switch enabled, the future
+index includes the event type before the raw cap. These are
 candidate limits, not shorter runtime windows; no scan expands to read an
 unbounded number of nonmatching rows.
 
@@ -253,7 +257,7 @@ Canonical slot times are stored as timestamps. Discord timestamp tokens such as 
 
 The first slot editor uses relative minute offsets from the event start for operator-friendly sequential scheduling. Backend storage still receives absolute timestamps after the operator confirms the event start and a valid IANA timezone.
 
-Public previews include at most three ordered upcoming slot summaries. Discovery and profile queries include an event already in progress when `endAt` has not passed; a missing `endAt` means the event ends at `startAt` for this bounded query rule.
+Public previews include at most three ordered upcoming slot summaries. Discovery and profile queries include an event already in progress through its explicit end or the shared inclusive six-hour runtime window when `endAt` is absent, subject to their candidate limits.
 
 ## Discord Event Export
 
