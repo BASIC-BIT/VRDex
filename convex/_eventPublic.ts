@@ -961,7 +961,8 @@ export async function getPublicPersonUpcomingEvents(
       .take(EVENT_ASSOCIATION_SCAN_LIMIT),
   ]);
   const participantLinks = [
-    ...startedCandidates.filter((link) => (link.eventSortEndAt ?? link.eventEndAt ?? 0) >= now),
+    // The live event below owns the runtime end, including for older links.
+    ...startedCandidates,
     ...upcoming,
   ];
   const events = (

@@ -7,6 +7,9 @@ import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/cn";
 import { VrcdnStreamPlayer, WatchPlayPoster } from "./vrcdn-stream-player";
 import { parseVrcdnStreamLinks } from "../../../../../convex/_vrcdnLinks";
+import { isInScheduledWatchWindow } from "../../../../../convex/_eventRuntime";
+
+export { isInScheduledWatchWindow } from "../../../../../convex/_eventRuntime";
 
 type EventMediaLinkType = "event_page" | "watch" | "stream" | "vrcdn" | "discord" | "ticket" | "other";
 type EventMediaLinkPresentation = "open" | "copy";
@@ -95,27 +98,6 @@ function useBrowserHostname() {
 
 export function useCurrentTimestamp() {
   return useSyncExternalStore(subscribeToNow, getBrowserNow, getServerNow);
-}
-
-export function isInScheduledWatchWindow({
-  doorsOpenAt,
-  endAt,
-  now,
-  startAt,
-}: {
-  doorsOpenAt?: number;
-  endAt?: number;
-  now: number | null;
-  startAt: number;
-}) {
-  if (now === null) {
-    return false;
-  }
-
-  const opensAt = doorsOpenAt ?? startAt;
-  const closesAt = endAt ?? startAt + 6 * 60 * 60 * 1000;
-
-  return now >= opensAt && now <= closesAt;
 }
 
 function parseHttpsUrl(url: string): URL | null {

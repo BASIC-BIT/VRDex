@@ -389,10 +389,8 @@ export async function getPublicWorldEventContext(
       .order("desc")
       .take(WORLD_EVENT_SECTION_SCAN_LIMIT),
   ]);
-  const currentAssociations = startedAssociations.filter(
-    (association) => (association.eventSortEndAt ?? association.eventEndAt ?? 0) >= now,
-  );
-  const associations = [...currentAssociations, ...futureAssociations, ...previousAssociations];
+  // Classify from the live event below. Older links may still have a start-only end.
+  const associations = [...startedAssociations, ...futureAssociations, ...previousAssociations];
 
   const records = (
     await Promise.all(

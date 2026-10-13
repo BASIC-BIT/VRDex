@@ -52,6 +52,11 @@ omits an unknown end. A final known lineup end remains valid when Ends is
 clear. Staff creation still requires a known start, and date-only editing
 retains its existing restrictions.
 
+An unknown end remains absent from saved and public schedule fields. Public
+listing eligibility and live status use the existing six-hour watch fallback
+from the start. Explicit ends and date-only schedules retain their separate
+rules. See [event runtime windows](../backend/event-schema.md#event-times).
+
 The owner editor loads contributed date-only events with Time TBA selected.
 Title, venue, artwork and lineup corrections preserve the authored date without
 a start instant. Turning off Time TBA requires a start time. Contributed untimed

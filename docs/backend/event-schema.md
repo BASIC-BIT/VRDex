@@ -36,7 +36,30 @@ Date-only events omit `startAt`. Public cards show the authored date and `Time T
 
 `sortAt` is an internal index key, never a start instant or public JSON field. Timed rows use their start instant; date-only rows use a sortable UTC date key. Participant and world caches use `eventSortAt` and `eventSortEndAt`; timed slot playback keeps its own exact start and end instants. Date-only upcoming eligibility lasts until the authored date ends in UTC-12, so timezone-boundary viewers do not lose the listing early.
 
-Discovery scans future sort keys separately from the date-only lookback, with at most 500 records per scan. The lookback index includes `scheduleKind`, so expired timed records cannot consume either result allowance or hide eligible date-only records.
+Timed events with no known end remain current through six hours after `startAt`,
+including the final millisecond. Discovery, upcoming lists, community and person
+lists, world activity, search ranking, and the scheduled watch window use that
+same runtime end. An explicit `endAt` always wins. The runtime fallback never
+writes an authored `endAt`, adds an end to public schedule output, or changes
+calendar export. Date-only expiry remains the authored date's end in UTC-12.
+
+Discovery caps each index scan at 500 raw candidates before runtime filtering.
+Future events and date-only dates have separate allowances. The date-only
+lookback index includes `scheduleKind`; expired timed rows cannot consume it.
+Ongoing candidates combine three bounded scans: ascending known ends at or after
+now, descending starts within the last six hours, and descending starts at or
+before now. The recent-start range excludes old unknown-end rows before its cap.
+The scans include legacy timed events without `scheduleKind` and retain explicit
+ends beyond six hours. Live search projection uses the current authored schedule.
+
+Person and world lists classify runtime eligibility from the current event,
+so older association caches containing a start-only end need no backfill for
+this behavior. The existing bounded association scans still apply. Future starts
+can fill the known-end scan, and expired rows can fill either start scan. An
+ongoing event outside all three raw allowances and the featured fallback can be
+absent from discovery. The separate future allowance still runs. These are
+candidate limits, not shorter runtime windows; no scan expands to read an
+unbounded number of nonmatching rows.
 
 ### Schedule migration and rollout
 

@@ -1,4 +1,5 @@
 import { dateOnlyEventsEnabled, eventSortAt, eventSortEndAt } from "./_eventSchedule";
+import { UNKNOWN_EVENT_END_WINDOW_MS } from "./_eventRuntime";
 import { v } from "convex/values";
 
 import { internalMutation, query, type QueryCtx } from "./_generated/server";
@@ -63,6 +64,33 @@ async function listDocumentsByType(
 }
 
 async function listUpcomingEventDocuments(ctx: QueryCtx, now: number) {
+  // Explicit ends can extend past the unknown-end lookback. Hydrate their
+  // existing search rows separately so they cannot consume the future scan.
+  const [endCandidates, recentStartCandidates, startedCandidates] = await Promise.all([
+    ctx.db.query("events")
+      .withIndex("by_publicationState_eventStatus_endAt", index => index
+        .eq("publicationState", "published").eq("eventStatus", "scheduled").gte("endAt", now))
+      .take(DISCOVERY_EVENT_SCAN_LIMIT),
+    ctx.db.query("events")
+      .withIndex("by_publicationState_eventStatus_startAt", index => index
+        .eq("publicationState", "published").eq("eventStatus", "scheduled")
+        .gte("startAt", now - UNKNOWN_EVENT_END_WINDOW_MS).lte("startAt", now))
+      .order("desc")
+      .take(DISCOVERY_EVENT_SCAN_LIMIT),
+    ctx.db.query("events")
+      .withIndex("by_publicationState_eventStatus_startAt", index => index
+        .eq("publicationState", "published").eq("eventStatus", "scheduled").lte("startAt", now))
+      .order("desc")
+      .take(DISCOVERY_EVENT_SCAN_LIMIT),
+  ]);
+  // Bound raw reads before applying the second predicate. Existing indexes
+  // cannot express both start and end ranges in the same scan.
+  const ongoingEvents = new Map([...endCandidates, ...recentStartCandidates, ...startedCandidates]
+    .filter(event => event.startAt !== undefined && event.startAt <= now && eventSortEndAt(event) >= now)
+    .map(event => [event._id, event]));
+  const ongoingDocuments = (await Promise.all([...ongoingEvents.values()].map(event => ctx.db.query("searchDocuments")
+    .withIndex("by_eventId", index => index.eq("eventId", event._id)).unique())))
+    .filter((document): document is NonNullable<typeof document> => document !== null && document.publicState === "public");
   if (dateOnlyEventsEnabled()) {
     const [future, dateOnlyLookback] = await Promise.all([
       ctx.db.query("searchDocuments")
@@ -75,14 +103,13 @@ async function listUpcomingEventDocuments(ctx: QueryCtx, now: number) {
           .gt("sortAt", now - 36 * 60 * 60 * 1000).lt("sortAt", now))
         .take(DISCOVERY_EVENT_SCAN_LIMIT),
     ]);
-    return [...dateOnlyLookback, ...future];
+    return [...ongoingDocuments, ...dateOnlyLookback, ...future];
   }
-  return await ctx.db
-    .query("searchDocuments")
-    .withIndex("by_publicState_startsAt", (index) => index.eq("publicState", "public").gte("startsAt", now))
-    .filter((query) => query.eq(query.field("entityType"), "event"))
-    .order("asc")
+  const future = await ctx.db.query("searchDocuments")
+    .withIndex("by_publicState_startsAt", index => index.eq("publicState", "public").gte("startsAt", now))
+    .filter(query => query.eq(query.field("entityType"), "event"))
     .take(DISCOVERY_EVENT_SCAN_LIMIT);
+  return [...ongoingDocuments, ...future];
 }
 
 async function listEventVocabularyDocuments(ctx: QueryCtx) {
@@ -137,7 +164,7 @@ export const listDiscovery = query({
     const upcomingEvents = eventResults
       .filter((event) => event.scheduleKind === "date_only"
         ? eventSortEndAt(event) >= now
-        : event.startsAt !== undefined && event.startsAt >= now)
+        : event.startsAt !== undefined && eventSortEndAt({ ...event, startAt: event.startsAt }) >= now)
       .sort((first, second) => eventSortAt({ ...first, startAt: first.startsAt }) - eventSortAt({ ...second, startAt: second.startsAt }))
       .slice(0, DISCOVERY_SECTION_LIMIT);
     const publicEventVocabularyKeys = new Set<string>();

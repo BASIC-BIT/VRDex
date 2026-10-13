@@ -40,6 +40,7 @@ export type PublicSearchResult = {
   person?: NonNullable<ReturnType<typeof toProfileLookupResult>>;
   claimEligible?: boolean;
   startsAt?: number;
+  endAt?: number;
   eventDate?: string;
   scheduleKind?: "timed" | "date_only";
   score: number;
@@ -142,10 +143,12 @@ function publicProfileImageUrl(profile: Doc<"profiles">): string | undefined {
   );
 }
 
-function effectiveFeaturedRank(document: Doc<"searchDocuments">): number {
-  if (document.entityType === "event" && (document.scheduleKind === "date_only"
-    ? eventSortEndAt(document) < Date.now()
-    : document.startsAt !== undefined && document.startsAt < Date.now())) {
+type RuntimeSearchDocument = Doc<"searchDocuments"> & Pick<Doc<"events">, "endAt">;
+
+function effectiveFeaturedRank(document: RuntimeSearchDocument): number {
+  if (document.entityType === "event" &&
+      (document.scheduleKind === "date_only" || document.startsAt !== undefined) &&
+      eventSortEndAt({ ...document, startAt: document.startsAt }) < Date.now()) {
     return Math.min(document.featuredRank, 8);
   }
 
@@ -488,7 +491,7 @@ export async function reindexEventSearchDocument(
 }
 
 export function toPublicSearchResult(
-  document: Doc<"searchDocuments">,
+  document: RuntimeSearchDocument,
   query: string | undefined,
   mediaKit?: PublicProfileMediaKit,
 ): PublicSearchResult {
@@ -499,7 +502,8 @@ export function toPublicSearchResult(
       ? 80
       : 0
     : 0;
-  const freshnessBoost = document.startsAt && document.startsAt >= Date.now() ? 30 : 0;
+  const freshnessBoost = document.startsAt !== undefined &&
+    eventSortEndAt({ ...document, startAt: document.startsAt }) >= Date.now() ? 30 : 0;
   const identityRank = profileNameMatchRank(
     document.searchNames ?? [document.title, document.slug], query ?? "",
   );
@@ -547,6 +551,7 @@ export function toPublicSearchResult(
       ? { avatarAppearance: mediaKit.avatarAppearance }
       : {}),
     ...optionalField("startsAt", document.scheduleKind === "date_only" ? undefined : document.startsAt),
+    ...optionalField("endAt", document.scheduleKind === "date_only" ? undefined : document.endAt),
     ...optionalField("eventDate", document.eventDate),
     ...optionalField("scheduleKind", document.scheduleKind),
     source:

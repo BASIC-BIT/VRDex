@@ -2,6 +2,7 @@ import { projectProfileLinkDestinations } from "./_profileLinkDestinationCache";
 import type { Doc } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { eventPathForSlugs } from "./_eventPaths";
+import { eventSortAt, eventSortEndAt, readEventSchedule } from "./_eventSchedule";
 import { getPublicProfileMediaKit } from "./_profileAssets";
 import { toProfileLookupResult } from "./_profileLookup";
 import { canReadProfile } from "./_profilePermissions";
@@ -80,7 +81,15 @@ export async function projectPublicSearchResult(
     }
 
     return {
-      ...toPublicSearchResult(document, searchText),
+      ...toPublicSearchResult({
+        ...document,
+        startsAt: event.scheduleKind === "date_only" ? undefined : event.startAt,
+        endAt: event.scheduleKind === "date_only" ? undefined : event.endAt,
+        scheduleKind: event.scheduleKind,
+        eventDate: readEventSchedule(event).eventDate,
+        sortAt: eventSortAt(event),
+        featuredRank: eventSortEndAt(event) >= Date.now() ? 42 : 8,
+      }, searchText),
       slug: event.slug,
       routePath: eventPathForSlugs(community.slug, event.slug),
       subtitle: community.displayName,
