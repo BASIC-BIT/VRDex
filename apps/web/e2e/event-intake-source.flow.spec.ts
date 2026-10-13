@@ -613,3 +613,254 @@ for (const method of ["suggestion", "picker"] as const) {
     await expect(page.getByLabel("Starts occurrence", { exact: true })).toBeFocused();
   });
 }
+
+const seedTimingDraft = async (page: Page, fields: import("../../../packages/api-contracts/src/event-intake").EventIntakePatch) => {
+  await page.goto("/playwright/event-intake?source=text");
+  await page.evaluate(fields => sessionStorage.setItem("fixture-source-draft", JSON.stringify({ version: 1, fields })), fields);
+  await page.goto("/playwright/event-intake?source=text");
+};
+const savedTimingDraft = (page: Page) => page.evaluate(() => JSON.parse(sessionStorage.getItem("fixture-source-draft")!).fields);
+const saveTimingDraft = async (page: Page) => {
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  await expect(page.getByRole("status")).toHaveText("Draft saved");
+};
+const extractTimingProposal = async (page: Page, eventDate: string | null = "2026-10-11") => {
+  await page.evaluate(eventDate => {
+    const original = window.fetch;
+    window.fetch = async (input, init) => {
+      if (String(input) === "/api/event-intake" && JSON.parse(String(init?.body)).operation === "extract") return Response.json({
+        event: { title: null, communitySlug: null, eventDate, start: "23:00", end: "02:00", startDate: eventDate, endDate: eventDate ? "2026-10-12" : null, timezone: "UTC", venueLabel: null, summary: null, sourceUrl: null },
+        lineup: [{ performerLabel: "Proposed guest", personSlug: null, roleLabel: null, start: "00:30", end: "01:30", startDate: eventDate ? "2026-10-12" : null, endDate: eventDate ? "2026-10-12" : null }],
+        evidence: [], questions: [],
+      });
+      return original(input, init);
+    };
+  }, eventDate);
+  await openImport(page);
+  await page.getByRole("textbox", { name: "Source text", exact: true }).fill("October 11 overnight lineup");
+  await page.getByRole("button", { name: "Extract details", exact: true }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+};
+const existingTiming = {
+  communitySlug: "afterglow", title: "Current event", eventDate: "2026-10-10", timezone: "UTC",
+  start: { time: "20:00" }, end: { time: "21:00" }, doors: { time: "19:00" },
+  lineup: [{ clientKey: "unrelated", position: 0, performerLabel: "Existing guest", start: { time: "20:15" }, end: { time: "20:45" } }],
+};
+
+for (const selection of ["Start time", "End time", "Lineup"] as const) {
+  for (const order of ["timing first", "date first"] as const) {
+    test(`proposal timing keeps calendar dates for ${selection} ${order} @flow @fixture`, async ({ page }) => {
+      await seedTimingDraft(page, existingTiming);
+      await extractTimingProposal(page);
+      if (order === "date first") await page.getByRole("button", { name: "Accept Date", exact: true }).click();
+      if (selection === "Lineup") await step(page, "Lineup");
+      await page.getByRole("button", { name: `Accept ${selection}`, exact: true }).click();
+      const label = selection === "Lineup" ? "Slot 1 start" : selection === "Start time" ? "Starts" : "Ends (optional)";
+      const expected = selection === "Lineup" ? "2026-10-12T00:30" : selection === "Start time" ? "2026-10-11T23:00" : "2026-10-12T02:00";
+      await expect(page.getByLabel(label, { exact: true })).toHaveValue(expected);
+      await step(page, "Details");
+      if (order === "timing first") await page.getByRole("button", { name: "Accept Date", exact: true }).click();
+      await expect(page.getByLabel("Doors open", { exact: true })).toHaveValue("2026-10-10T19:00");
+      if (selection === "Lineup") {
+        await expect(page.getByLabel("Ends (optional)", { exact: true })).toHaveValue("2026-10-10T21:00");
+        await step(page, "Lineup");
+      }
+      await expect(page.getByLabel(label, { exact: true })).toHaveValue(expected);
+      await saveTimingDraft(page);
+      const saved = await savedTimingDraft(page);
+      expect(saved.eventDate).toBe("2026-10-11");
+      expect(saved.doors).toEqual({ time: "19:00", dayOffset: -1 });
+      if (selection === "Start time") expect(saved.start).toEqual({ time: "23:00", dayOffset: 0 });
+      if (selection === "End time") expect(saved.end).toEqual({ time: "02:00", dayOffset: 1 });
+      if (selection === "Lineup") expect(saved.lineup).toEqual([{ clientKey: "extracted-0", position: 0, performerLabel: "Proposed guest", start: { time: "00:30", dayOffset: 1 }, end: { time: "01:30", dayOffset: 1 } }]);
+      else expect(saved.lineup[0]).toMatchObject({ clientKey: "unrelated", start: { time: "20:15", dayOffset: -1 }, end: { time: "20:45", dayOffset: -1 } });
+    });
+  }
+}
+
+for (const resume of [false, true]) {
+  test(`proposal timing retains remaining dates after manual Starts edit${resume ? " and resume" : ""} @flow @fixture`, async ({ page }) => {
+    await seedTimingDraft(page, { communitySlug: "afterglow", title: "Current event", eventDate: "2026-10-10", timezone: "UTC", start: { time: "20:00" } });
+    await extractTimingProposal(page);
+    await page.getByRole("button", { name: "Accept Date", exact: true }).click();
+    await page.getByLabel("Starts", { exact: true }).fill("2026-10-12T20:00");
+    if (resume) {
+      await saveTimingDraft(page);
+      await page.goto("/playwright/event-intake?source=text");
+    }
+    await page.getByRole("button", { name: "Accept End time", exact: true }).click();
+    await expect(page.getByLabel("Ends (optional)", { exact: true })).toHaveValue("2026-10-12T02:00");
+    await step(page, "Lineup");
+    await page.getByRole("button", { name: "Accept Lineup", exact: true }).click();
+    await expect(page.getByLabel("Slot 1 start", { exact: true })).toHaveValue("2026-10-12T00:30");
+    await saveTimingDraft(page);
+    const saved = await savedTimingDraft(page);
+    expect(saved).toMatchObject({ eventDate: "2026-10-12", start: { time: "20:00", dayOffset: 0 }, end: { time: "02:00", dayOffset: 0 }, lineup: [{ start: { time: "00:30", dayOffset: 0 }, end: { time: "01:30", dayOffset: 0 } }] });
+  });
+}
+
+test("proposal timing guards missing bases and undated clocks without consuming suggestions @flow @fixture", async ({ page }) => {
+  await seedTimingDraft(page, { title: "No date", timezone: "UTC" });
+  await extractTimingProposal(page);
+  await expect(page.getByRole("button", { name: "Accept Start time", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Accept End time", exact: true })).toBeDisabled();
+  await step(page, "Lineup");
+  await expect(page.getByRole("button", { name: "Accept Lineup", exact: true })).toBeDisabled();
+  await saveTimingDraft(page);
+  expect((await savedTimingDraft(page)).tentative).toMatchObject({ eventDate: "2026-10-11", end: { time: "02:00", dayOffset: 1 } });
+  await step(page, "Details");
+  await page.getByRole("button", { name: "Accept Date", exact: true }).click();
+  await page.getByRole("button", { name: "Accept End time", exact: true }).click();
+  await expect(page.getByLabel("Ends (optional)", { exact: true })).toHaveValue("2026-10-12T02:00");
+  await step(page, "Lineup");
+  await page.getByRole("button", { name: "Accept Lineup", exact: true }).click();
+  await expect(page.getByLabel("Slot 1 start", { exact: true })).toHaveValue("2026-10-12T00:30");
+  await saveTimingDraft(page);
+  await seedTimingDraft(page, { eventDate: "2026-10-10", timezone: "UTC" });
+  await extractTimingProposal(page, null);
+  await expect(page.getByRole("button", { name: "Accept End time", exact: true })).toBeDisabled();
+  await expect(page.getByLabel("Starts", { exact: true })).toHaveValue("");
+  await step(page, "Lineup");
+  await expect(page.getByRole("button", { name: "Accept Lineup", exact: true })).toBeDisabled();
+  await saveTimingDraft(page);
+  expect((await savedTimingDraft(page)).tentative).toMatchObject({ end: { time: "02:00" }, lineup: [{ start: { time: "00:30" } }] });
+});
+
+for (const eventDate of ["2026-10-03", "2026-10-15"]) {
+  test(`proposal timing guards translated offsets outside range at ${eventDate} @flow @fixture`, async ({ page }) => {
+    await seedTimingDraft(page, { eventDate, timezone: "UTC", start: { time: "20:00" } });
+    await extractTimingProposal(page);
+    await expect(page.getByRole("button", { name: "Accept End time", exact: true })).toBeDisabled();
+    await step(page, "Lineup");
+    await expect(page.getByRole("button", { name: "Accept Lineup", exact: true })).toBeDisabled();
+    await saveTimingDraft(page);
+    expect((await savedTimingDraft(page)).tentative).toMatchObject({ eventDate: "2026-10-11", end: { time: "02:00", dayOffset: 1 } });
+    await step(page, "Details");
+    await page.getByRole("button", { name: "Accept Date", exact: true }).click();
+    await page.getByRole("button", { name: "Accept End time", exact: true }).click();
+    await expect(page.getByLabel("Ends (optional)", { exact: true })).toHaveValue("2026-10-12T02:00");
+  });
+}
+
+for (const loadedTba of [false, true]) {
+  test(`proposal timing accepted under Time TBA preserves selective backup${loadedTba ? " on loaded date-only draft" : ""} @flow @fixture`, async ({ page }, info) => {
+    await seedTimingDraft(page, { ...existingTiming, timeTba: loadedTba });
+    if (!loadedTba) await page.getByLabel("Time TBA", { exact: true }).check();
+    await extractTimingProposal(page);
+    await page.getByRole("button", { name: "Accept Start time", exact: true }).click();
+    await page.getByLabel("Time TBA", { exact: true }).uncheck();
+    await expect(page.getByLabel("Starts", { exact: true })).toHaveValue("2026-10-11T23:00");
+    await expect(page.getByLabel("Ends (optional)", { exact: true })).toHaveValue(loadedTba ? "" : "2026-10-10T21:00");
+    await page.getByLabel("Time TBA", { exact: true }).check();
+    await page.getByRole("button", { name: "Accept End time", exact: true }).click();
+    await step(page, "Lineup");
+    await page.getByRole("button", { name: "Accept Lineup", exact: true }).click();
+    await step(page, "Details");
+    await page.getByLabel("Time TBA", { exact: true }).uncheck();
+    await step(page, "Lineup");
+    await expect(page.getByLabel("Slot 1 start", { exact: true })).toHaveValue("2026-10-12T00:30");
+    await expect(page.getByLabel("Slot 1 end", { exact: true })).toHaveValue("2026-10-12T01:30");
+    await step(page, "Details");
+    await page.getByLabel("Time TBA", { exact: true }).check();
+    await step(page, "Lineup");
+    await page.getByRole("button", { name: "Remove slot", exact: true }).click();
+    await page.getByRole("button", { name: "Add performer", exact: true }).click();
+    await page.getByRole("textbox", { name: "Performer", exact: true }).fill("New guest");
+    await step(page, "Details");
+    // Unrelated source edits and accepts cannot erase remembered timing.
+    await page.getByRole("button", { name: "Accept Time zone", exact: true }).click();
+    await openImport(page);
+    await page.getByRole("textbox", { name: "Source text", exact: true }).fill("Edited source");
+    await page.keyboard.press("Escape");
+    await page.getByLabel("Time TBA", { exact: true }).uncheck();
+    await expect(page.getByLabel("Starts", { exact: true })).toHaveValue("2026-10-11T23:00");
+    await expect(page.getByLabel("Ends (optional)", { exact: true })).toHaveValue("2026-10-12T02:00");
+    await expect(page.getByLabel("Doors open", { exact: true })).toHaveValue(loadedTba ? "" : "2026-10-10T19:00");
+    await step(page, "Lineup");
+    await expect(page.getByLabel("Slot 1 start", { exact: true })).toHaveValue("");
+    await step(page, "Details");
+    await page.screenshot({ path: info.outputPath("accepted-tba-timing.png"), fullPage: true, animations: "disabled" });
+    await page.getByLabel("Time TBA", { exact: true }).check();
+    await saveTimingDraft(page);
+    expect(await savedTimingDraft(page)).toMatchObject({ timeTba: true, start: null, end: null, lineup: [{ start: null, end: null }] });
+    await step(page, "Review");
+    await page.getByRole("button", { name: "Publish event", exact: true }).click();
+    await expect(page).toHaveURL(/playwright-afterglow-harbor-sessions$/);
+    expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("fixture-published")!))).toMatchObject({ timeTba: true, start: null, end: null, lineup: [{ start: null, end: null }] });
+  });
+}
+
+for (const progression of ["click", "Enter"] as const) {
+  test(`Continue ${progression} bypasses mounted constraints but Publish focuses invalid controls @flow @fixture`, async ({ page }, info) => {
+    await seedTimingDraft(page, { communitySlug: "afterglow", title: "Partial event", eventDate: "2026-10-11", timeTba: true, lineup: [{ clientKey: "blank", position: 0 }] });
+    const navigation = page.getByRole("navigation", { name: "Event editor" });
+    const advance = async () => {
+      const button = page.getByRole("button", { name: "Continue", exact: true });
+      if (progression === "click") await button.click();
+      else await button.press("Enter");
+    };
+    await advance();
+    await expect(navigation.getByRole("button", { name: "Lineup", exact: true })).toHaveAttribute("aria-current", "step");
+    if (progression === "Enter") await page.getByRole("textbox", { name: "Performer", exact: true }).press("Enter");
+    else await advance();
+    await expect(navigation.getByRole("button", { name: "Review", exact: true })).toHaveAttribute("aria-current", "step");
+    await page.getByRole("button", { name: "Publish event", exact: true }).click();
+    await expect(page.getByRole("textbox", { name: "Performer", exact: true })).toBeFocused();
+    expect(await page.evaluate(() => sessionStorage.getItem("fixture-published"))).toBeNull();
+    await page.getByRole("textbox", { name: "Performer", exact: true }).fill("Guest");
+    await step(page, "Details");
+    await page.getByLabel("Source URL", { exact: true }).fill("invalid-url");
+    await step(page, "Lineup");
+    await advance();
+    await expect(navigation.getByRole("button", { name: "Review", exact: true })).toHaveAttribute("aria-current", "step");
+    await page.getByRole("button", { name: "Publish event", exact: true }).click();
+    await expect(page.getByLabel("Source URL", { exact: true })).toBeFocused();
+    expect(await page.evaluate(() => sessionStorage.getItem("fixture-published"))).toBeNull();
+    await page.screenshot({ path: info.outputPath("continue-publish-url-focus.png"), fullPage: true, animations: "disabled" });
+  });
+}
+
+test("proposal timing timezone acceptance resets newly remembered occurrences under TBA @flow @fixture", async ({ page }) => {
+  await seedTimingDraft(page, {
+    communitySlug: "afterglow", title: "Repeated hour proposal", eventDate: "2026-11-01", timezone: "America/New_York", start: { time: "00:30" }, doors: { time: "01:00", occurrence: "earlier" },
+    tentative: { eventDate: "2026-11-01", start: { time: "01:15", dayOffset: 0, occurrence: "later" }, end: { time: "01:45", dayOffset: 0, occurrence: "later" },
+      lineup: [{ clientKey: "new-proposal", position: 0, performerLabel: "Guest", start: { time: "01:20", dayOffset: 0, occurrence: "later" }, end: { time: "01:40", dayOffset: 0, occurrence: "later" } }],
+      timezone: "America/Chicago" },
+  });
+  await page.getByLabel("Time TBA", { exact: true }).check();
+  await page.getByRole("button", { name: "Accept Start time", exact: true }).click();
+  await page.getByRole("button", { name: "Accept End time", exact: true }).click();
+  await step(page, "Lineup");
+  await page.getByRole("button", { name: "Accept Lineup", exact: true }).click();
+  await step(page, "Details");
+  await page.getByRole("button", { name: "Accept Time zone", exact: true }).click();
+  await page.getByLabel("Time TBA", { exact: true }).uncheck();
+  for (const label of ["Starts", "Ends (optional)", "Doors open"]) await expect(page.getByLabel(`${label} occurrence`, { exact: true })).toHaveValue("");
+  await step(page, "Lineup");
+  for (const label of ["Slot 1 start", "Slot 1 end"]) await expect(page.getByLabel(`${label} occurrence`, { exact: true })).toHaveValue("");
+  await saveTimingDraft(page);
+  const saved = await savedTimingDraft(page);
+  expect(saved).toMatchObject({ timezone: "America/Chicago", start: { time: "01:15", dayOffset: 0 }, end: { time: "01:45", dayOffset: 0 }, lineup: [{ clientKey: "new-proposal", start: { time: "01:20", dayOffset: 0 }, end: { time: "01:40", dayOffset: 0 } }] });
+  for (const local of [saved.start, saved.end, saved.doors, saved.lineup[0].start, saved.lineup[0].end]) expect(local.occurrence).toBeUndefined();
+  await step(page, "Review");
+  await page.getByRole("button", { name: "Publish event", exact: true }).click();
+  await expect(page.getByLabel("Starts occurrence", { exact: true })).toBeFocused();
+  expect(await page.evaluate(() => sessionStorage.getItem("fixture-published"))).toBeNull();
+});
+
+test("proposal timing preserves unrelated backup dates through an empty TBA base and Date acceptance @flow @fixture", async ({ page }) => {
+  await seedTimingDraft(page, { ...existingTiming, tentative: { title: "Proposed title", eventDate: "2026-10-11" } });
+  await page.getByLabel("Time TBA", { exact: true }).check();
+  await page.getByLabel("Starts", { exact: true }).fill("");
+  await page.getByRole("button", { name: "Accept Event title", exact: true }).click();
+  await expect(page.getByLabel("Starts", { exact: true })).toHaveValue("");
+  await page.getByRole("button", { name: "Accept Date", exact: true }).click();
+  await page.getByLabel("Time TBA", { exact: true }).uncheck();
+  await expect(page.getByLabel("Starts", { exact: true })).toHaveValue("2026-10-10T20:00");
+  await expect(page.getByLabel("Ends (optional)", { exact: true })).toHaveValue("2026-10-10T21:00");
+  await expect(page.getByLabel("Doors open", { exact: true })).toHaveValue("2026-10-10T19:00");
+  await step(page, "Lineup");
+  await expect(page.getByLabel("Slot 1 start", { exact: true })).toHaveValue("2026-10-10T20:15");
+  await saveTimingDraft(page);
+  expect(await savedTimingDraft(page)).toMatchObject({ eventDate: "2026-10-11", title: "Proposed title", start: { time: "20:00", dayOffset: -1 }, end: { time: "21:00", dayOffset: -1 }, lineup: [{ clientKey: "unrelated", start: { time: "20:15", dayOffset: -1 } }] });
+});

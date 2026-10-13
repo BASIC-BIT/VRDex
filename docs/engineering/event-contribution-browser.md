@@ -45,6 +45,23 @@ Abbreviations are search terms, not stored fixed offsets. Offsets use the event
 date. Repeated local hours require an occurrence choice and missing local hours
 cannot publish. Existing owner timestamps remain exact when unchanged.
 
+Continue advances without validating the other mounted stages. Publish reveals
+and focuses invalid controls. Saving a partial draft remains available.
+
+Accepted timing suggestions keep their proposal calendar dates in either
+acceptance order. Accepting Date normalizes pending clocks onto that date, and
+later Starts edits retain their calendar dates through draft save and resume.
+Accept is disabled for clocks with no usable accepted or source date, or when a
+translated offset would fall outside -1 through 7. Selecting a compatible Date
+can make a dated suggestion available again. If a later base edit makes a pending
+offset invalid, its prior reference date stays in the private tentative fields.
+
+Time TBA keeps newly accepted timing in a reversible editor backup. Unrelated
+remembered fields survive, and removed lineup keys cannot restore. Timezone
+changes clear remembered occurrence choices. Date-only saved and published
+commands remain untimed. Reloading a date-only draft discards the backup and
+cannot restore stale stored clocks.
+
 Staff Details has Start and an optional Ends control using the selected event
 timezone. An untouched stored end retains its instant, including the later
 occurrence of a repeated hour. Clearing Ends sends null on update; creation

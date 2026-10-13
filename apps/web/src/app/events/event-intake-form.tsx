@@ -19,6 +19,7 @@ import { EventPosterUploadSchema } from "../../../../../packages/api-contracts/s
 import { EventEditorSteps, type EventEditorStep } from "./event-editor-steps";
 import { EventEditorPreview } from "./event-editor-preview";
 import { eventLocalDate, formatIntakeDateTimeInput, parseIntakeDateTimeInput } from "@/lib/calendar/event-intake-date-time";
+import { acceptIntakeSuggestion, rebaseIntakeTime as rebaseTime, rebaseIntakeTimes, rebaseIntakeSuggestions, restoreIntakeTiming, type IntakeSuggestionAcceptance } from "@/lib/calendar/event-intake-suggestions";
 import { ProfileAvatarImage } from "../_components/profile-avatar-image";
 import { BACKEND_ERROR_COPY } from "@/lib/error-copy";
 
@@ -109,14 +110,6 @@ function clearOccurrence(local?: EventIntakeLocalTime | null) {
 function resetTimeOccurrences(fields: EventIntakeFields, timezone: EventIntakeFields["timezone"]): EventIntakeFields {
   return { ...fields, timezone, start: clearOccurrence(fields.start), end: clearOccurrence(fields.end), doors: clearOccurrence(fields.doors), lineup: fields.lineup?.map(row => ({ ...row, start: clearOccurrence(row.start), end: clearOccurrence(row.end) })) };
 }
-function rebaseTime(local: EventIntakeLocalTime | null | undefined, previousDate: string | null | undefined, nextDate: string | null | undefined) {
-  if (!local || !previousDate || !nextDate || previousDate === nextDate) return local;
-  const date = eventLocalDate(previousDate, local);
-  if (!date || !eventLocalDate(nextDate)) return local;
-  // Keep the entered calendar date even when the new offset is invalid. The control blocks saving it.
-  return { ...local, dayOffset: (Date.parse(`${date}T00:00:00Z`) - Date.parse(`${nextDate}T00:00:00Z`)) / 86_400_000 };
-}
-
 export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, correction = false, onSave, onPublish, onSource, initialArtworkSourceId, heading }: { heading?: ReactNode; initialFields: EventIntakeFields; initialRevision?: number; correction?: boolean; onSource?: IntakeSourceAction; initialArtworkSourceId?: string; onSave?: (fields: EventIntakeFields, revision: number) => Promise<void>; onPublish: (fields: EventIntakeFields, revision: number) => Promise<void> }) {
   const form = useRef<HTMLFormElement>(null);
   const [fields, setFields] = useState(() => initialFields.timeTba ? untimed(initialFields) : initialFields);
@@ -163,22 +156,32 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
       return updated.timeTba ? untimed(updated) : updated;
     });
   }
+  function acceptSuggestion(acceptance: IntakeSuggestionAcceptance) {
+    const acceptanceFields = fields.timeTba && acceptance.key === "eventDate" && !fields.eventDate
+      ? { ...fields, eventDate: timedBackup.current?.eventDate } : fields;
+    const effective = fields.timeTba ? restoreIntakeTiming(acceptanceFields, timedBackup.current) : fields;
+    const updated = acceptIntakeSuggestion({ fields: effective, acceptance });
+    if (!updated) return;
+    const next = updated.timezone !== fields.timezone ? resetTimeOccurrences(updated, updated.timezone) : updated;
+    if (fields.timeTba) timedBackup.current = { ...next, eventDate: next.eventDate ?? timedBackup.current?.eventDate };
+    setFields(next.timeTba ? untimed(next) : next);
+  }
+  function changeDate(eventDate: string | null) {
+    if (eventDate && timedBackup.current) timedBackup.current = rebaseIntakeTimes(timedBackup.current, timedBackup.current.eventDate, eventDate);
+    setFields(current => rebaseIntakeSuggestions(rebaseIntakeTimes(current, current.eventDate, eventDate), current.eventDate));
+  }
   function changeStart(change: { eventDate: string | null; local: EventIntakeLocalTime | null }) {
-    setFields(current => ({ ...current, eventDate: change.eventDate, start: change.local,
+    setFields(current => rebaseIntakeSuggestions({ ...current, eventDate: change.eventDate, start: change.local,
       end: rebaseTime(current.end, current.eventDate, change.eventDate), doors: rebaseTime(current.doors, current.eventDate, change.eventDate),
       lineup: current.lineup?.map(row => ({ ...row, start: rebaseTime(row.start, current.eventDate, change.eventDate), end: rebaseTime(row.end, current.eventDate, change.eventDate) })),
-    }));
+    }, current.eventDate));
   }
   function toggleTba(checked: boolean) {
     const invalid = form.current?.querySelector<HTMLInputElement>('[data-intake-time][aria-invalid="true"]');
     if (checked && invalid) { reveal(invalid.closest('[data-step="Lineup"]') ? "Lineup" : "Details", `[name="${invalid.name}"]`); return; }
     if (checked) { timedBackup.current = fields; setFields({ ...untimed(fields), timeTba: true }); }
     else {
-      const backup = timedBackup.current;
-      setFields(current => ({ ...current, timeTba: false,
-        start: (backup?.eventDate === current.eventDate ? backup?.start : clearOccurrence(backup?.start)) ?? null, end: rebaseTime(backup?.end, backup?.eventDate, current.eventDate) ?? null, doors: rebaseTime(backup?.doors, backup?.eventDate, current.eventDate) ?? null,
-        lineup: current.lineup?.map(row => { const remembered = backup?.lineup?.find(item => item.clientKey === row.clientKey); return { ...row, start: rebaseTime(remembered?.start, backup?.eventDate, current.eventDate) ?? null, end: rebaseTime(remembered?.end, backup?.eventDate, current.eventDate) ?? null }; }),
-      }));
+      setFields(current => ({ ...restoreIntakeTiming(current, timedBackup.current), timeTba: false }));
     }
   }
   function changeTimezone(timezone: string | null) {
@@ -240,11 +243,11 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
       else setImportOpen(true);
     }}><Upload aria-hidden="true" className="size-4" />Import poster or text</Button> : undefined} steps={steps} activeStep={activeStep} onSelect={setActiveStep} preview={<EventEditorPreview fields={fields} artwork={artwork} />}>
     <fieldset disabled={busy} className="grid min-w-0 gap-6">
-    <div hidden={activeStep !== "Details"} data-step="Details"><section className="grid gap-4"><h2 className="text-xl font-semibold">Details</h2>{onSource ? <EventIntakeSuggestions fields={fields} onChange={receiveFields} /> : null}
+    <div hidden={activeStep !== "Details"} data-step="Details"><section className="grid gap-4"><h2 className="text-xl font-semibold">Details</h2>{onSource ? <EventIntakeSuggestions fields={fields} onAccept={acceptSuggestion} /> : null}
     {!correction ? <CommunityInput value={fields.communitySlug ?? ""} disabled={false} onChange={value => set("communitySlug", value || null)} /> : null}
     <Field>Event title<Input name="title" value={fields.title ?? ""} maxLength={120} onChange={event => set("title", event.target.value)} /></Field>
     <label className="flex items-center gap-2"><input type="checkbox" checked={fields.timeTba ?? false} onChange={event => toggleTba(event.target.checked)} />Time TBA</label>
-    {fields.timeTba ? <Field>Starts<Input name="Starts" type="date" value={fields.eventDate ?? ""} onChange={event => set("eventDate", event.target.value || null)} /></Field> : null}
+    {fields.timeTba ? <Field>Starts<Input name="Starts" type="date" value={fields.eventDate ?? ""} onChange={event => changeDate(event.target.value || null)} /></Field> : null}
     <div className="grid gap-2"><span className="text-sm font-medium">Time zone</span><EventTimezonePicker value={fields.timezone ?? null} date={fields.eventDate ?? null} onChange={changeTimezone} /></div>
     {!fields.timeTba ? <><div className="grid items-start gap-3 sm:grid-cols-2"><IntakeTime label="Starts" eventStart value={fields.start} date={fields.eventDate} timezone={fields.timezone} onChange={changeStart} /><details className="relative" open={endOpen} onToggle={event => setEndOpen(event.currentTarget.open)}><summary className={`cursor-pointer font-medium ${endOpen ? "absolute right-0 top-0 text-xs" : "text-sm"}`}>Add end time</summary><div><IntakeTime label="Ends (optional)" value={fields.end} date={fields.eventDate} timezone={fields.timezone} onChange={change => set("end", change.local)} /></div></details></div><IntakeTime label="Doors open" value={fields.doors} date={fields.eventDate} timezone={fields.timezone} onChange={change => set("doors", change.local)} /></> : null}
     <Field>Where (optional)<Input value={fields.venueLabel ?? ""} maxLength={120} onChange={event => set("venueLabel", event.target.value)} /></Field>
@@ -253,7 +256,7 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
     <Field>Source URL<Input type="url" value={fields.sourceUrl ?? ""} onChange={event => set("sourceUrl", event.target.value)} /></Field>
     {!correction && !onSource ? <details><summary className="cursor-pointer font-medium">Source text</summary><Textarea aria-label="Source text" className="mt-3" value={fields.sourceText ?? ""} maxLength={12000} onChange={event => set("sourceText", event.target.value)} /></details> : null}
     </section></div>
-    <div hidden={activeStep !== "Lineup"} data-step="Lineup"><section className="grid gap-4"><h2 className="text-xl font-semibold">Lineup</h2>{onSource ? <EventIntakeSuggestions fields={fields} onChange={receiveFields} lineup /> : null}
+    <div hidden={activeStep !== "Lineup"} data-step="Lineup"><section className="grid gap-4"><h2 className="text-xl font-semibold">Lineup</h2>{onSource ? <EventIntakeSuggestions fields={fields} onAccept={acceptSuggestion} lineup /> : null}
       {(fields.lineup ?? []).map((row, index) => <fieldset key={row.clientKey} className="grid gap-3 rounded-control border border-border p-4"><legend className="px-1">Slot {index + 1}</legend>
         <PerformerInput label={row.performerLabel ?? ""} slug={row.personSlug ?? ""} onLabel={value => set("lineup", fields.lineup!.map(item => item.clientKey === row.clientKey ? { ...item, performerLabel: value } : item))} onSlug={value => set("lineup", fields.lineup!.map(item => item.clientKey === row.clientKey ? { ...item, personSlug: value } : item))} />
         <Field>Role<Input value={row.roleLabel ?? ""} onChange={event => set("lineup", fields.lineup!.map(item => item.clientKey === row.clientKey ? { ...item, roleLabel: event.target.value } : item))} /></Field>
@@ -273,7 +276,7 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
     </div>
     </fieldset>
     </EventEditorSteps>
-    <fieldset disabled={busy} className="flex flex-wrap items-center gap-3 border-t border-border pt-5"><span className="mr-auto text-sm text-muted">{steps.indexOf(activeStep) + 1} / {steps.length}</span>{activeStep !== steps[0] ? <Button type="button" variant="secondary" onClick={() => setActiveStep(steps[steps.indexOf(activeStep) - 1])}>Back</Button> : null}{activeStep === "Review" ? <Button type="submit" variant="primary" disabled={busy}>{correction ? "Save changes" : "Publish event"}</Button> : <Button type="submit" variant="primary">Continue</Button>}{onSave ? <Button type="button" disabled={busy} variant="secondary" onClick={() => void submit(false)}>Save draft</Button> : null}</fieldset>
+    <fieldset disabled={busy} className="flex flex-wrap items-center gap-3 border-t border-border pt-5"><span className="mr-auto text-sm text-muted">{steps.indexOf(activeStep) + 1} / {steps.length}</span>{activeStep !== steps[0] ? <Button type="button" variant="secondary" onClick={() => setActiveStep(steps[steps.indexOf(activeStep) - 1])}>Back</Button> : null}{activeStep === "Review" ? <Button type="submit" variant="primary" disabled={busy}>{correction ? "Save changes" : "Publish event"}</Button> : <Button type="submit" formNoValidate variant="primary">Continue</Button>}{onSave ? <Button type="button" disabled={busy} variant="secondary" onClick={() => void submit(false)}>Save draft</Button> : null}</fieldset>
     {message && !importOpen ? <Notice><span role="status">{message}</span></Notice> : null}
   </form>
   {onSource ? <EventIntakeDialog open={importOpen} onClose={() => setImportOpen(false)}><fieldset disabled={busy}><EventIntakeSource fields={fields} revision={revision} onChange={receiveFields} action={onSource} busy={busy} setBusy={setBusy} setMessage={setMessage} initialArtworkSourceId={initialArtworkSourceId} onPreview={setArtwork} onExtract={() => { focusExtractedDetails.current = true; setActiveStep("Details"); setImportOpen(false); }} /></fieldset>{message ? <Notice><span role="status">{message}</span></Notice> : null}</EventIntakeDialog> : null}
