@@ -83,8 +83,8 @@ function fixtureClient() {
       localStorage.setItem(`${storageKey}-submission`, JSON.stringify(args));
       const error = localStorage.getItem("event-lineup-fixture-save-error");
       if (error) throw new Error(error);
-      const slots = ((args.slotLinks ?? (args.lineup as Array<Record<string, unknown>> | undefined)?.filter(row => row.startAt !== undefined).map(row => ({ ...row, displayLabel: row.performerLabel })) ?? []) as Array<Record<string, unknown>>).map((slot, index) => ({
-        ...slot, position: index, playbackKey: `saved-${index}`, discord: previewEvent.slots[0]!.discord, source: previewEvent.source,
+      const slots = args.slotLinks === undefined && args.lineup === undefined ? event.slots : ((args.slotLinks ?? (args.lineup as Array<Record<string, unknown>> | undefined)?.filter(row => row.startAt !== undefined).map(row => ({ ...row, displayLabel: row.performerLabel })) ?? event.slots) as Array<Record<string, unknown>>).map((slot, index) => ({
+        ...slot, position: slot.position ?? index, playbackKey: `saved-${index}`, discord: previewEvent.slots[0]!.discord, source: previewEvent.source,
         performer: people[slot.personSlug as keyof typeof people],
         streamChoices: choices[slot.personSlug as keyof typeof choices] ?? [],
         selectedStreamId: slot.selectedStreamId ?? undefined,

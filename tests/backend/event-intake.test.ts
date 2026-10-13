@@ -336,3 +336,17 @@ it("bounds and expires declared poster-only drafts without making them public", 
   await t.mutation(makeFunctionReference<"mutation">("eventIntake:expireDrafts"), {});
   assert.equal(await t.run(ctx => ctx.db.get(draft.draftId)), null);
 });
+
+it("saves an overrun draft across reload but rejects publication until the explicit end is extended", async () => {
+  const { actor } = await fixture();
+  const patch = { ...complete, timeTba: false, timezone: "UTC", start: { time: "20:00" }, end: { time: "21:00" }, lineup: [{ clientKey: "guest", position: 0, performerLabel: "Guest", start: { time: "20:00" }, end: { time: "22:00" } }] };
+  const saved = await actor.mutation(save, { patch });
+  const loaded = await actor.query(get, { draftId: saved.draftId });
+  assert.deepEqual(loaded.fields.lineup, patch.lineup);
+  assert.deepEqual(loaded.fields.end, { time: "21:00" });
+  await assert.rejects(actor.action(publish, { draftId: saved.draftId, expectedVersion: 1, idempotencyKey: "overrun" }), /Set times must be within the event schedule/);
+  const fixed = await actor.mutation(save, { draftId: saved.draftId, expectedVersion: 1, patch: { end: { time: "22:00" } } });
+  assert.deepEqual((await actor.query(get, { draftId: saved.draftId })).fields.lineup, patch.lineup);
+  const published = await actor.action(publish, { draftId: saved.draftId, expectedVersion: fixed.version, idempotencyKey: "overrun-fixed" });
+  assert.ok(published.eventPath);
+});

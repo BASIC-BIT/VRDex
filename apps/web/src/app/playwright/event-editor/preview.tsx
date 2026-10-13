@@ -33,6 +33,7 @@ export const previewEvent: EditableEvent = {
   slotCount: 4,
   slots: [
     {
+      clientKey: "preview-aurora",
       position: 0,
       startAt: Date.UTC(2026, 8, 12, 22),
       endAt: Date.UTC(2026, 8, 12, 23),
@@ -43,6 +44,7 @@ export const previewEvent: EditableEvent = {
       source: { sourceType: "community", label: "Afterglow calendar" },
     },
     {
+      clientKey: "preview-neon",
       position: 1,
       startAt: Date.UTC(2026, 8, 12, 23),
       endAt: Date.UTC(2026, 8, 13, 0),
@@ -52,6 +54,7 @@ export const previewEvent: EditableEvent = {
       source: { sourceType: "community", label: "Afterglow calendar" },
     },
     {
+      clientKey: "preview-lumen",
       position: 2,
       startAt: Date.UTC(2026, 8, 13, 0),
       endAt: Date.UTC(2026, 8, 13, 1),
@@ -62,6 +65,7 @@ export const previewEvent: EditableEvent = {
       source: { sourceType: "community", label: "Afterglow calendar" },
     },
     {
+      clientKey: "preview-closing",
       position: 3,
       startAt: Date.UTC(2026, 8, 13, 1),
       endAt: Date.UTC(2026, 8, 13, 2),

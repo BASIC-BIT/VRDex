@@ -28,10 +28,11 @@ test("staff publish reveals and focuses an invalid mounted field", async ({ page
   expect(await page.evaluate(() => localStorage.getItem("event-lineup-fixture-v1-submission"))).toBeNull();
   await page.getByLabel("Event title", { exact: true }).fill("Valid title");
   await navigation.getByRole("button", { name: "Lineup" }).click();
-  await page.getByLabel("Slots", { exact: true }).fill("");
+  await page.locator('[data-lineup-row]').first().locator("summary").click();
+  await page.getByLabel("Slot duration minutes", { exact: true }).first().fill("invalid");
   await navigation.getByRole("button", { name: "Review" }).click();
   await page.getByRole("button", { name: "Save changes", exact: true }).click();
-  await expect(page.getByLabel("Slots", { exact: true })).toBeFocused();
+  await expect(page.getByLabel("Slot duration minutes", { exact: true }).first()).toBeFocused();
 });
 
 for (const wrapped of [false, true]) test(`@fixture stale selected stream validation ${wrapped ? "wrapped" : "plain"}`, async ({page}, testInfo) => {

@@ -198,6 +198,7 @@ test("lineup uses local dates across midnight and matched avatars @flow @fixture
   await page.getByRole("textbox", { name: "Performer", exact: true }).fill("Aurora");
   await page.getByLabel("Person profile", { exact: true }).fill("aurora");
   await expect(page.getByRole("img", { name: "Aurora", exact: true }).locator("img")).toHaveAttribute("src", "/test-media/event-poster.png");
+  await page.locator('[data-lineup-row]').first().locator("summary").click();
   await page.getByLabel("Slot 1 start", { exact: true }).fill("2027-10-16T00:30");
   await expect(page.getByText("Day offset", { exact: true })).toHaveCount(0);
   await page.screenshot({ path: info.outputPath("lineup.png"), fullPage: true, animations: "disabled" });
@@ -398,6 +399,7 @@ test("publish focuses invalid lineup time and hidden native field @flow @fixture
   await step(page, "Lineup");
   await page.getByRole("button", { name: "Add performer" }).click();
   await page.getByRole("textbox", { name: "Performer", exact: true }).fill("Guest DJ");
+  await page.locator('[data-lineup-row]').first().locator("summary").click();
   await page.getByLabel("Slot 1 start", { exact: true }).fill("2027-03-14T02:30");
   await step(page, "Review");
   await page.getByRole("button", { name: "Publish event", exact: true }).click();
@@ -531,6 +533,7 @@ test("Time TBA restores only surviving lineup keys and reload discards the backu
   await page.getByLabel("Time TBA", { exact: true }).check();
   await step(page, "Lineup");
   await page.getByRole("button", { name: "Remove slot", exact: true }).first().click();
+  await page.getByRole("button", { name: "Add slot at position 2", exact: true }).click();
   await page.getByRole("button", { name: "Add performer", exact: true }).click();
   await page.getByRole("textbox", { name: "Performer", exact: true }).nth(1).fill("New performer");
   await step(page, "Details");
