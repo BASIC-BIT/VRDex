@@ -1,47 +1,48 @@
 import { expect, test } from "@playwright/test";
 
 for (const mode of ["draft", "correction"] as const) {
-  test(`${mode} reveals invalid start dates and end ordering from Review @flow @fixture`, async ({ page }, info) => {
+  test(`${mode} reveals invalid dates and end ordering from Review @flow @fixture`, async ({ page }, info) => {
     await page.goto(`/playwright/event-intake?revision=${mode}`);
     if (mode === "correction") await page.getByRole("button", { name: "Correct event", exact: true }).click();
     const navigation = page.getByRole("navigation", { name: "Event editor" });
     await expect(navigation.getByRole("button")).toHaveText(["Details", "Lineup", "Review"]);
     if (mode === "correction") await expect(page.getByRole("button", { name: "Import poster or text", exact: true })).toHaveCount(0);
-    await navigation.getByRole("button", { name: "Details", exact: true }).click();
     await page.getByLabel("Time TBA", { exact: true }).uncheck();
     await page.getByRole("combobox", { name: "Time zone", exact: true }).fill("UTC");
     await page.getByRole("option", { name: /^UTC / }).click();
-    await page.getByLabel("Start time", { exact: true }).fill("23:00");
-    const startDate = page.getByLabel("Start time date", { exact: true });
-    await expect(startDate).toHaveAttribute("min", "2027-07-15");
-    await expect(startDate).toHaveAttribute("max", "2027-07-15");
-    for (const label of ["End time date", "Doors open date"]) {
-      await expect(page.getByLabel(label, { exact: true })).toHaveAttribute("min", "2027-07-14");
-      await expect(page.getByLabel(label, { exact: true })).toHaveAttribute("max", "2027-07-22");
-    }
+    await page.getByLabel("Starts", { exact: true }).fill("2027-07-15T23:00");
+    await page.getByText("Add end time", { exact: true }).click();
+    const endInput = page.getByLabel("Ends (optional)", { exact: true });
     const submit = () => page.getByRole("button", { name: mode === "draft" ? "Publish event" : "Save changes", exact: true }).click();
-    for (const date of ["2027-07-14", "2027-07-16"]) {
-      await startDate.fill(date);
-      expect(await startDate.evaluate(input => (input as HTMLInputElement).validity.valid)).toBe(false);
+    for (const date of ["2027-07-13", "2027-07-23"]) {
+      await endInput.fill(`${date}T23:00`);
+      await page.getByText("Add end time", { exact: true }).click();
       await navigation.getByRole("button", { name: "Review", exact: true }).click();
       await submit();
-      await expect(startDate).toBeFocused();
+      await expect(endInput).toBeFocused();
+      await expect(endInput).toHaveValue(`${date}T23:00`);
       expect(await page.evaluate(() => sessionStorage.getItem("event-intake-revision-submission"))).toBeNull();
     }
-    await page.screenshot({ path: info.outputPath("start-date-focus.png"), fullPage: true, animations: "disabled" });
-    await startDate.fill("2027-07-15");
+    if (mode === "draft") {
+      await page.getByRole("button", { name: "Import poster or text", exact: true }).click();
+      await expect(page.getByRole("dialog")).toHaveCount(0);
+      await expect(endInput).toBeFocused();
+    }
+    await page.getByLabel("Time TBA", { exact: true }).click();
+    await expect(page.getByLabel("Time TBA", { exact: true })).not.toBeChecked();
+    await expect(endInput).toBeFocused();
     for (const end of ["22:00", "23:00"]) {
-      await page.getByLabel("End time", { exact: true }).fill(end);
+      await endInput.fill(`2027-07-15T${end}`);
+      await page.getByText("Add end time", { exact: true }).click();
       await navigation.getByRole("button", { name: "Review", exact: true }).click();
       await submit();
-      await expect(page.getByLabel("End time", { exact: true })).toBeFocused();
+      await expect(endInput).toBeFocused();
       await expect(page.getByRole("status")).toHaveText("End time must follow start; choose the next day explicitly when crossing midnight.");
       expect(await page.evaluate(() => sessionStorage.getItem("event-intake-revision-submission"))).toBeNull();
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: info.outputPath("end-order-focus.png"), fullPage: true, animations: "disabled" });
-    await page.getByLabel("End time", { exact: true }).fill("01:00");
-    await page.getByLabel("End time date", { exact: true }).fill("2027-07-16");
+    await endInput.fill("2027-07-16T01:00");
     await navigation.getByRole("button", { name: "Review", exact: true }).click();
     await submit();
     const fields = await page.evaluate(mode => JSON.parse(sessionStorage.getItem(mode === "draft" ? "fixture-published" : "event-intake-revision-submission")!), mode);
@@ -56,26 +57,26 @@ for (const mode of ["draft", "correction"] as const) {
     const navigation = page.getByRole("navigation", { name: "Event editor" });
     await navigation.getByRole("button", { name: "Details", exact: true }).click();
     await page.getByLabel("Time TBA", { exact: true }).uncheck();
-    await page.getByLabel("Date", { exact: true }).fill("2026-11-01");
     await page.getByRole("combobox", { name: "Time zone", exact: true }).fill("America/New_York");
     await page.getByRole("option").first().click();
-    await page.getByLabel("Start time", { exact: true }).fill("01:15");
-    await page.getByLabel("Start time occurrence", { exact: true }).selectOption("later");
-    await page.getByLabel("End time", { exact: true }).fill("01:45");
-    await page.getByLabel("End time occurrence", { exact: true }).selectOption("earlier");
+    await page.getByLabel("Starts", { exact: true }).fill("2026-11-01T01:15");
+    await page.getByLabel("Starts occurrence", { exact: true }).selectOption("later");
+    await page.getByText("Add end time", { exact: true }).click();
+    await page.getByLabel("Ends (optional)", { exact: true }).fill("2026-11-01T01:45");
+    await page.getByLabel("Ends (optional) occurrence", { exact: true }).selectOption("earlier");
     await navigation.getByRole("button", { name: "Review", exact: true }).click();
     await page.getByRole("button", { name: mode === "draft" ? "Publish event" : "Save changes", exact: true }).click();
-    await expect(page.getByLabel("End time", { exact: true })).toBeFocused();
+    await expect(page.getByLabel("Ends (optional)", { exact: true })).toBeFocused();
     await expect(page.getByRole("status")).toContainText("End time must follow start");
     expect(await page.evaluate(() => sessionStorage.getItem("event-intake-revision-submission"))).toBeNull();
-    await page.getByLabel("Start time", { exact: true }).fill("01:45");
-    await page.getByLabel("Start time occurrence", { exact: true }).selectOption("earlier");
-    await page.getByLabel("End time", { exact: true }).fill("01:15");
-    await page.getByLabel("End time occurrence", { exact: true }).selectOption("later");
+    await page.getByLabel("Starts", { exact: true }).fill("2026-11-01T01:45");
+    await page.getByLabel("Starts occurrence", { exact: true }).selectOption("earlier");
+    await page.getByLabel("Ends (optional)", { exact: true }).fill("2026-11-01T01:15");
+    await page.getByLabel("Ends (optional) occurrence", { exact: true }).selectOption("later");
     await navigation.getByRole("button", { name: "Review", exact: true }).click();
     await page.getByRole("button", { name: mode === "draft" ? "Publish event" : "Save changes", exact: true }).click();
     const fields = await page.evaluate(mode => JSON.parse(sessionStorage.getItem(mode === "draft" ? "fixture-published" : "event-intake-revision-submission")!), mode);
-    expect(mode === "draft" ? fields.end : fields.patch.end).toEqual({ time: "01:15", occurrence: "later" });
+    expect(mode === "draft" ? fields.end : fields.patch.end).toEqual({ time: "01:15", dayOffset: 0, occurrence: "later" });
     if (mode === "draft") await expect(page).toHaveURL(/playwright-afterglow-harbor-sessions$/);
     else await expect(navigation).toHaveCount(0);
   });
@@ -188,8 +189,8 @@ test("intake draft resumes, date-only publishes directly, and has no mobile over
   await page.goto("/playwright/event-intake");
   await expect(page.getByRole("group", { name: "Selected community", exact: true })).toContainText("playwright-afterglow-social");
   await page.getByLabel("Event title", { exact: true }).fill("Summer gathering");
-  await page.getByLabel("Date", { exact: true }).fill("2027-07-15");
   await page.getByLabel("Time TBA").check();
+  await page.getByLabel("Starts", { exact: true }).fill("2027-07-15");
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Lineup", exact: true }).click();
   await page.getByRole("button", { name: "Add performer" }).click();
   await page.getByRole("textbox", { name: "Performer", exact: true }).fill("Aurora");
@@ -210,16 +211,14 @@ test("intake draft resumes, date-only publishes directly, and has no mobile over
 test("ambiguous start requires occurrence and gap is refused @flow @fixture", async ({ page }) => {
   await page.goto("/playwright/event-intake");
   await page.getByLabel("Event title").fill("Autumn gathering");
-  await page.getByLabel("Date", { exact: true }).fill("2026-11-01");
   const timezone = page.getByRole("combobox", { name: "Time zone" });
   await timezone.fill("EST"); await timezone.press("ArrowDown"); await timezone.press("Enter");
-  await page.getByLabel("Start time", { exact: true }).fill("01:30");
+  await page.getByLabel("Starts", { exact: true }).fill("2026-11-01T01:30");
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Review", exact: true }).click();
   await page.getByRole("button", { name: "Publish event" }).click();
   await expect(page.getByRole("status")).toContainText("Ambiguous local time");
-  await page.getByLabel("Start time occurrence").selectOption("later");
-  await page.getByLabel("Date", { exact: true }).fill("2027-03-14");
-  await page.getByLabel("Start time", { exact: true }).fill("02:30");
+  await page.getByLabel("Starts occurrence").selectOption("later");
+  await page.getByLabel("Starts", { exact: true }).fill("2027-03-14T02:30");
   await expect(page.getByText("This local time does not exist.", { exact: true })).toBeVisible();
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Review", exact: true }).click();
   await page.getByRole("button", { name: "Publish event" }).click();
@@ -232,8 +231,8 @@ test("manual publish reads back direct URL, search and community fixtures @flow 
   const eventPath = "/playwright-afterglow-social/events/playwright-afterglow-harbor-sessions";
   await page.goto("/playwright/event-intake");
   await page.getByLabel("Event title", { exact: true }).fill("Afterglow Harbor Sessions");
-  await page.getByLabel("Date", { exact: true }).fill("2027-07-15");
   await page.getByLabel("Time TBA").check();
+  await page.getByLabel("Starts", { exact: true }).fill("2027-07-15");
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Review", exact: true }).click();
   await page.getByRole("button", { name: "Publish event", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`${eventPath}$`));
@@ -369,4 +368,43 @@ test("initial community links and resumed missing slugs survive unresolved searc
   await expect(selected).toContainText("missing-community");
   await page.getByRole("button", { name: "Save draft", exact: true }).click();
   expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("event-intake-revision-submission")!).patch.communitySlug)).toBe("missing-community");
+});
+
+
+test("combined controls preserve dates, reversible TBA and overnight times @flow @fixture", async ({ page }, info) => {
+  await page.goto("/playwright/event-intake?source=text");
+  await page.getByRole("combobox", { name: "Community", exact: true }).fill("afterglow");
+  await page.getByRole("option", { name: /^Afterglow afterglow$/ }).click();
+  const portrait = page.getByRole("group", { name: "Selected community", exact: true }).getByRole("img", { name: "Afterglow", exact: true }).locator("img");
+  await expect.poll(() => portrait.evaluate(image => (image as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+  await page.getByLabel("Event title", { exact: true }).fill("Overnight gathering");
+  await page.getByLabel("Starts", { exact: true }).fill("2026-10-10T23:00");
+  await page.getByText("Add end time", { exact: true }).click();
+  await page.getByLabel("Ends (optional)", { exact: true }).fill("2026-10-11T02:00");
+  await page.getByRole("combobox", { name: "Time zone" }).fill("UTC");
+  await page.getByRole("combobox", { name: "Time zone" }).press("ArrowDown");
+  await page.getByRole("combobox", { name: "Time zone" }).press("Enter");
+  await page.getByLabel("Time TBA", { exact: true }).check();
+  await expect(page.getByLabel("Starts", { exact: true })).toHaveValue("2026-10-10");
+  await page.getByLabel("Time TBA", { exact: true }).uncheck();
+  await expect(page.getByLabel("Starts", { exact: true })).toHaveValue("2026-10-10T23:00");
+  await expect(page.getByLabel("Ends (optional)", { exact: true })).toHaveValue("2026-10-11T02:00");
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  await expect(page.getByRole("status")).toHaveText("Draft saved");
+  expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("fixture-source-draft")!).fields)).toMatchObject({ eventDate: "2026-10-10", start: { time: "23:00", dayOffset: 0 }, end: { time: "02:00", dayOffset: 1 } });
+  const startsBox = await page.getByLabel("Starts", { exact: true }).boundingBox();
+  const endsBox = await page.getByLabel("Ends (optional)", { exact: true }).boundingBox();
+  if (!startsBox || !endsBox) throw new Error("Expected visible time controls");
+  if ((page.viewportSize()?.width ?? 0) >= 640) expect(Math.abs(startsBox.y - endsBox.y)).toBeLessThanOrEqual(1);
+  else expect(endsBox.y).toBeGreaterThanOrEqual(startsBox.y + startsBox.height);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath("combined-time-controls.png"), fullPage: true, animations: "disabled" });
+  await page.getByLabel("Starts", { exact: true }).fill("2026-10-13T23:00");
+  await page.getByText("Add end time", { exact: true }).click();
+  await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Review", exact: true }).click();
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  await expect(page.getByLabel("Ends (optional)", { exact: true })).toBeFocused();
+  await expect(page.getByLabel("Ends (optional)", { exact: true })).toHaveValue("2026-10-11T02:00");
+  expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("fixture-source-draft")!).fields.eventDate)).toBe("2026-10-10");
 });

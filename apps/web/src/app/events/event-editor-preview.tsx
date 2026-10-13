@@ -1,11 +1,7 @@
 "use client";
+import { eventLocalDate } from "@/lib/calendar/event-intake-date-time";
 import type { EventIntakePatch, EventIntakeLocalTime } from "../../../../../packages/api-contracts/src/event-intake";
 import { selectEventLocalTime } from "../../../../../packages/api-contracts/src/event-intake";
-
-export function eventLocalDate(date?: string | null, value?: EventIntakeLocalTime | null) {
-  const base = date ? Date.parse(`${date}T00:00:00Z`) : NaN;
-  return Number.isFinite(base) ? new Date(base + (value?.dayOffset ?? 0) * 86_400_000).toISOString().slice(0, 10) : "";
-}
 
 export function EventEditorPreview({ fields, artwork }: { fields: EventIntakePatch; artwork?: string }) {
   function time(local?: EventIntakeLocalTime | null) {

@@ -18,28 +18,32 @@ const openImport = async (page: Page) => {
 };
 const upload = "public/test-media/event-poster.png";
 
-test("loaded Time TBA draft delegates stale time ordering to publication @flow @fixture", async ({ page }) => {
+test("loaded Time TBA draft clears hidden times without restoring them @flow @fixture", async ({ page }) => {
   await page.addInitScript(() => sessionStorage.setItem("fixture-source-draft", JSON.stringify({ version: 1, fields: { communitySlug: "afterglow", title: "Date only", eventDate: "2027-10-15", timeTba: true, timezone: "UTC", start: { time: "23:00" }, end: { time: "22:00" } } })));
   await page.goto("/playwright/event-intake?source=text");
   await openImport(page);
   await step(page, "Details");
   await expect(page.getByLabel("Time TBA", { exact: true })).toBeChecked();
-  await expect(page.getByLabel("End time", { exact: true })).toHaveCount(0);
+  await page.getByLabel("Time TBA", { exact: true }).uncheck();
+  await expect(page.getByLabel("Starts", { exact: true })).toHaveValue("");
+  await page.getByLabel("Time TBA", { exact: true }).check();
+  await expect(page.getByLabel("Ends (optional)", { exact: true })).toHaveCount(0);
   await step(page, "Review");
   await page.getByRole("button", { name: "Publish event", exact: true }).click();
-  // The fixture records the command. Backend preflight separately rejects stale TBA times.
   await expect(page).toHaveURL(/playwright-afterglow-harbor-sessions$/);
-  expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("fixture-published")!))).toMatchObject({ timeTba: true, start: { time: "23:00" }, end: { time: "22:00" } });
+  expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("fixture-published")!))).toMatchObject({ timeTba: true, start: null, end: null });
 });
 
 test("incomplete draft bypasses native date and publish ordering validation @flow @fixture", async ({ page }) => {
   await page.goto("/playwright/event-intake?source=text");
   await openImport(page);
   await step(page, "Details");
-  await page.getByLabel("Date", { exact: true }).fill("2027-10-15");
-  await page.getByLabel("Start time", { exact: true }).fill("23:00");
-  await page.getByLabel("Start time date", { exact: true }).fill("2027-10-16");
-  await page.getByLabel("End time", { exact: true }).fill("22:00");
+  await page.getByLabel("Time TBA", { exact: true }).check();
+  await page.getByLabel("Starts", { exact: true }).fill("2027-10-15");
+  await page.getByLabel("Time TBA", { exact: true }).uncheck();
+  await page.getByLabel("Starts", { exact: true }).fill("2027-10-16T23:00");
+  await page.getByText("Add end time", { exact: true }).click();
+  await page.getByLabel("Ends (optional)", { exact: true }).fill("2027-10-16T22:00");
   await step(page, "Lineup");
   await page.getByRole("button", { name: "Add performer", exact: true }).click();
   await step(page, "Review");
@@ -47,15 +51,15 @@ test("incomplete draft bypasses native date and publish ordering validation @flo
   await page.getByRole("button", { name: "Save draft", exact: true }).click();
   await expect(page.getByRole("status")).toHaveText("Draft saved");
   const saved = await page.evaluate(() => JSON.parse(sessionStorage.getItem("fixture-source-draft")!).fields);
-  expect(saved).toMatchObject({ eventDate: "2027-10-15", start: { time: "23:00", dayOffset: 1 }, end: { time: "22:00" }, lineup: [{ position: 0 }] });
+  expect(saved).toMatchObject({ eventDate: "2027-10-16", start: { time: "23:00", dayOffset: 0 }, end: { time: "22:00", dayOffset: 0 }, lineup: [{ position: 0 }] });
   expect(saved.title).toBeUndefined();
   expect(saved.timezone).toBeUndefined();
   expect(await page.evaluate(() => sessionStorage.getItem("fixture-published"))).toBeNull();
   await page.goto("/playwright/event-intake?source=text");
   await openImport(page);
   await step(page, "Details");
-  await expect(page.getByLabel("Start time date", { exact: true })).toHaveValue("2027-10-16");
-  await expect(page.getByLabel("End time", { exact: true })).toHaveValue("22:00");
+  await expect(page.getByLabel("Starts", { exact: true })).toHaveValue("2027-10-16T23:00");
+  await expect(page.getByLabel("Ends (optional)", { exact: true })).toHaveValue("2027-10-16T22:00");
 });
 
 test("review publish reveals a blank lineup performer @flow @fixture", async ({ page }, info) => {
@@ -64,7 +68,9 @@ test("review publish reveals a blank lineup performer @flow @fixture", async ({ 
   await step(page, "Details");
   await page.getByLabel("Event title", { exact: true }).fill("Night");
   await selectCommunity(page, "afterglow");
-  await page.getByLabel("Date", { exact: true }).fill("2027-10-15");
+  await page.getByLabel("Time TBA", { exact: true }).check();
+  await page.getByLabel("Starts", { exact: true }).fill("2027-10-15");
+  await page.getByLabel("Time TBA", { exact: true }).uncheck();
   await page.getByRole("checkbox", { name: "Time TBA", exact: true }).check();
   await step(page, "Lineup");
   await page.getByRole("button", { name: "Add performer", exact: true }).click();
@@ -98,7 +104,9 @@ test("manual partial draft survives steps and resume then publishes directly @fl
   await step(page, "Details");
   await page.getByLabel("Event title", { exact: true }).fill("Afterglow Night");
   await selectCommunity(page, "playwright-afterglow-social");
-  await page.getByLabel("Date", { exact: true }).fill("2027-10-15");
+  await page.getByLabel("Time TBA", { exact: true }).check();
+  await page.getByLabel("Starts", { exact: true }).fill("2027-10-15");
+  await page.getByLabel("Time TBA", { exact: true }).uncheck();
   await page.getByRole("checkbox", { name: "Time TBA", exact: true }).check();
   await page.screenshot({ path: info.outputPath("details.png"), fullPage: true, animations: "disabled" });
   await step(page, "Lineup");
@@ -182,14 +190,15 @@ test("lineup uses local dates across midnight and matched avatars @flow @fixture
   await page.goto("/playwright/event-intake?source=text");
   await openImport(page);
   await step(page, "Details");
-  await page.getByLabel("Date", { exact: true }).fill("2027-10-15");
+  await page.getByLabel("Time TBA", { exact: true }).check();
+  await page.getByLabel("Starts", { exact: true }).fill("2027-10-15");
+  await page.getByLabel("Time TBA", { exact: true }).uncheck();
   await step(page, "Lineup");
   await page.getByRole("button", { name: "Add performer" }).click();
   await page.getByRole("textbox", { name: "Performer", exact: true }).fill("Aurora");
   await page.getByLabel("Person profile", { exact: true }).fill("aurora");
   await expect(page.getByRole("img", { name: "Aurora", exact: true }).locator("img")).toHaveAttribute("src", "/test-media/event-poster.png");
-  await page.getByLabel("Slot 1 start", { exact: true }).fill("00:30");
-  await page.getByLabel("Slot 1 start date", { exact: true }).fill("2027-10-16");
+  await page.getByLabel("Slot 1 start", { exact: true }).fill("2027-10-16T00:30");
   await expect(page.getByText("Day offset", { exact: true })).toHaveCount(0);
   await page.screenshot({ path: info.outputPath("lineup.png"), fullPage: true, animations: "disabled" });
   if (await page.getByRole("dialog").isVisible()) await page.getByRole("button", { name: "Close", exact: true }).click();
@@ -225,17 +234,19 @@ test("review routes missing fields back to details and repeated times require oc
   await expect(page.getByLabel("Community", { exact: true })).toBeFocused();
   await page.getByLabel("Event title", { exact: true }).fill("Repeated hour");
   await selectCommunity(page, "afterglow");
-  await page.getByLabel("Date", { exact: true }).fill("2027-11-07");
+  await page.getByLabel("Time TBA", { exact: true }).check();
+  await page.getByLabel("Starts", { exact: true }).fill("2027-11-07");
+  await page.getByLabel("Time TBA", { exact: true }).uncheck();
   await page.getByRole("combobox", { name: "Time zone", exact: true }).fill("America/New_York");
   await page.getByRole("option").first().click();
-  await page.getByLabel("Start time", { exact: true }).fill("01:30");
-  await expect(page.getByLabel("Start time occurrence")).toBeVisible();
+  await page.getByLabel("Starts", { exact: true }).fill("2027-11-07T01:30");
+  await expect(page.getByLabel("Starts occurrence")).toBeVisible();
   await step(page, "Review");
   await page.getByRole("button", { name: "Publish event", exact: true }).click();
-  await expect(page.getByLabel("Start time occurrence")).toBeVisible();
+  await expect(page.getByLabel("Starts occurrence")).toBeVisible();
   await expect(page.getByRole("status")).toContainText("Ambiguous local time");
-  await expect(page.getByLabel("Start time occurrence")).toBeFocused();
-  await page.getByLabel("Start time occurrence").selectOption("later");
+  await expect(page.getByLabel("Starts occurrence")).toBeFocused();
+  await page.getByLabel("Starts occurrence").selectOption("later");
   if (await page.getByRole("dialog").isVisible()) await page.getByRole("button", { name: "Close", exact: true }).click();
   await page.getByRole("button", { name: "Save draft", exact: true }).click();
   await expect(page.getByRole("status")).toHaveText("Draft saved");
@@ -248,7 +259,9 @@ test("similar events appear only when publish preflight returns a match @flow @f
   await step(page, "Details");
   await page.getByLabel("Event title", { exact: true }).fill("Afterglow Night");
   await selectCommunity(page, "afterglow");
-  await page.getByLabel("Date", { exact: true }).fill("2027-10-15");
+  await page.getByLabel("Time TBA", { exact: true }).check();
+  await page.getByLabel("Starts", { exact: true }).fill("2027-10-15");
+  await page.getByLabel("Time TBA", { exact: true }).uncheck();
   await page.getByRole("checkbox", { name: "Time TBA", exact: true }).check();
   await step(page, "Review");
   await expect(page.getByRole("heading", { name: "Similar events" })).toHaveCount(0);
@@ -355,9 +368,10 @@ test("review shows the confirmed start date after midnight @flow @fixture", asyn
   await openImport(page);
   await step(page, "Details");
   await page.getByLabel("Event title", { exact: true }).fill("After midnight");
-  await page.getByLabel("Date", { exact: true }).fill("2027-10-15");
-  await page.getByLabel("Start time", { exact: true }).fill("00:30");
-  await page.getByLabel("Start time date", { exact: true }).fill("2027-10-16");
+  await page.getByLabel("Time TBA", { exact: true }).check();
+  await page.getByLabel("Starts", { exact: true }).fill("2027-10-15");
+  await page.getByLabel("Time TBA", { exact: true }).uncheck();
+  await page.getByLabel("Starts", { exact: true }).fill("2027-10-16T00:30");
   await step(page, "Review");
   await expect(page.locator('[data-step="Review"]')).toContainText("2027-10-16");
   await expect(page.locator('[data-step="Review"]')).not.toContainText("2027-10-15");
@@ -373,14 +387,16 @@ test("publish focuses invalid lineup time and hidden native field @flow @fixture
   await step(page, "Details");
   await page.getByLabel("Event title", { exact: true }).fill("Spring event");
   await selectCommunity(page, "afterglow");
-  await page.getByLabel("Date", { exact: true }).fill("2027-03-14");
+  await page.getByLabel("Time TBA", { exact: true }).check();
+  await page.getByLabel("Starts", { exact: true }).fill("2027-03-14");
+  await page.getByLabel("Time TBA", { exact: true }).uncheck();
   await page.getByRole("combobox", { name: "Time zone", exact: true }).fill("America/New_York");
   await page.getByRole("option").first().click();
-  await page.getByLabel("Start time", { exact: true }).fill("01:00");
+  await page.getByLabel("Starts", { exact: true }).fill("2027-03-14T01:00");
   await step(page, "Lineup");
   await page.getByRole("button", { name: "Add performer" }).click();
   await page.getByRole("textbox", { name: "Performer", exact: true }).fill("Guest DJ");
-  await page.getByLabel("Slot 1 start", { exact: true }).fill("02:30");
+  await page.getByLabel("Slot 1 start", { exact: true }).fill("2027-03-14T02:30");
   await step(page, "Review");
   await page.getByRole("button", { name: "Publish event", exact: true }).click();
   await expect(page.getByLabel("Slot 1 start", { exact: true })).toBeFocused();
@@ -473,4 +489,91 @@ test("extraction completed after closing import focuses Details suggestions @flo
   await expect(page.getByRole("button", { name: "Accept Event title", exact: true })).toBeFocused();
   await expect(page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Details", exact: true })).toHaveAttribute("aria-current", "step");
   await expect(page.getByRole("dialog")).toHaveCount(0);
+});
+
+
+test("partial combined input saves its base date and date-only extraction stays untimed @flow @fixture", async ({ page }) => {
+  await page.goto("/playwright/event-intake?source=text");
+  await page.evaluate(() => sessionStorage.setItem("fixture-source-draft", JSON.stringify({ version: 1, fields: { eventDate: "2026-10-10", start: { time: "23:00" } } })));
+  await page.goto("/playwright/event-intake?source=text");
+  await page.getByLabel("Starts", { exact: true }).fill("");
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  await expect(page.getByRole("status")).toHaveText("Draft saved");
+  expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("fixture-source-draft")!).fields)).toMatchObject({ eventDate: "2026-10-10", start: null });
+  await openImport(page);
+  await page.evaluate(() => {
+    const original = window.fetch;
+    window.fetch = async (input, init) => {
+      if (String(input) === "/api/event-intake" && JSON.parse(String(init?.body)).operation === "extract") return Response.json({ event: { title: null, communitySlug: null, eventDate: "2026-10-11", start: null, end: null, startDate: null, endDate: null, timezone: null, venueLabel: null, summary: null, sourceUrl: null }, lineup: [], evidence: [], questions: [] });
+      return original(input, init);
+    };
+  });
+  await page.getByRole("textbox", { name: "Source text", exact: true }).fill("October 11 gathering");
+  await page.getByRole("button", { name: "Extract details", exact: true }).click();
+  await page.getByRole("button", { name: "Accept Date", exact: true }).click();
+  await expect(page.getByLabel("Starts", { exact: true })).toHaveValue("");
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  await expect(page.getByRole("status")).toHaveText("Draft saved");
+  expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("fixture-source-draft")!).fields)).toMatchObject({ eventDate: "2026-10-11", start: null });
+  await page.goto("/playwright/event-intake?source=text");
+  await expect(page.getByLabel("Starts", { exact: true })).toHaveValue("");
+  await page.getByLabel("Time TBA", { exact: true }).check();
+  await expect(page.getByLabel("Starts", { exact: true })).toHaveValue("2026-10-11");
+});
+
+test("Time TBA restores only surviving lineup keys and reload discards the backup @flow @fixture", async ({ page }) => {
+  await page.goto("/playwright/event-intake?source=text");
+  await page.evaluate(() => sessionStorage.setItem("fixture-source-draft", JSON.stringify({ version: 1, fields: { eventDate: "2026-10-10", start: { time: "23:00" }, end: { time: "02:00", dayOffset: 1 }, lineup: [{ clientKey: "first", position: 0, performerLabel: "First", start: { time: "23:30" } }, { clientKey: "second", position: 1, performerLabel: "Second", start: { time: "01:00", dayOffset: 1 } }] } })));
+  await page.goto("/playwright/event-intake?source=text");
+  await expect(page.getByLabel("Ends (optional)", { exact: true })).toBeVisible();
+  await page.getByLabel("Time TBA", { exact: true }).check();
+  await step(page, "Lineup");
+  await page.getByRole("button", { name: "Remove slot", exact: true }).first().click();
+  await page.getByRole("button", { name: "Add performer", exact: true }).click();
+  await page.getByRole("textbox", { name: "Performer", exact: true }).nth(1).fill("New performer");
+  await step(page, "Details");
+  await page.getByLabel("Time TBA", { exact: true }).uncheck();
+  await step(page, "Lineup");
+  await expect(page.getByLabel("Slot 1 start", { exact: true })).toHaveValue("2026-10-11T01:00");
+  await expect(page.getByLabel("Slot 2 start", { exact: true })).toHaveValue("");
+  await step(page, "Details");
+  await page.getByLabel("Time TBA", { exact: true }).check();
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  await expect(page.getByRole("status")).toHaveText("Draft saved");
+  const fields = await page.evaluate(() => JSON.parse(sessionStorage.getItem("fixture-source-draft")!).fields);
+  expect(fields).toMatchObject({ eventDate: "2026-10-10", timeTba: true, start: null, end: null });
+  expect(fields.lineup).toHaveLength(2);
+  expect(fields.lineup.map((row: { clientKey: string; start: unknown; end: unknown }) => ({ clientKey: row.clientKey, start: row.start, end: row.end ?? null }))).toEqual([{ clientKey: "second", start: null, end: null }, { clientKey: expect.any(String), start: null, end: null }]);
+  await page.goto("/playwright/event-intake?source=text");
+  await expect(page.getByLabel("Starts", { exact: true })).toHaveValue("2026-10-10");
+  await page.getByLabel("Time TBA", { exact: true }).uncheck();
+  await expect(page.getByLabel("Starts", { exact: true })).toHaveValue("");
+  await step(page, "Lineup");
+  await expect(page.getByLabel("Slot 1 start", { exact: true })).toHaveValue("");
+});
+
+test.describe("event timezone differs from browser timezone", () => {
+  test.use({ timezoneId: "Pacific/Honolulu" });
+  test("unchanged later occurrence survives resume and title edits @flow @fixture", async ({ page }) => {
+    await page.goto("/playwright/event-intake?source=text");
+    await page.evaluate(() => sessionStorage.setItem("fixture-source-draft", JSON.stringify({ version: 1, fields: { communitySlug: "afterglow", title: "Repeated hour", eventDate: "2026-11-01", timezone: "America/New_York", start: { time: "01:30", occurrence: "later" }, end: { time: "02:30" } } })));
+    await page.goto("/playwright/event-intake?source=text");
+    await expect(page.getByLabel("Starts", { exact: true })).toHaveValue("2026-11-01T01:30");
+    await expect(page.getByLabel("Starts occurrence", { exact: true })).toHaveValue("later");
+    await page.getByLabel("Event title", { exact: true }).fill("Edited title");
+    await page.getByRole("button", { name: "Save draft", exact: true }).click();
+    await expect(page.getByRole("status")).toHaveText("Draft saved");
+    expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("fixture-source-draft")!).fields.start)).toEqual({ time: "01:30", occurrence: "later" });
+    await page.goto("/playwright/event-intake?source=text");
+    await expect(page.getByLabel("Starts occurrence", { exact: true })).toHaveValue("later");
+    await page.getByLabel("Starts", { exact: true }).fill("2026-11-01T01:45");
+    await expect(page.getByLabel("Starts occurrence", { exact: true })).toHaveValue("");
+    await page.getByLabel("Starts occurrence", { exact: true }).selectOption("later");
+    await page.getByRole("combobox", { name: "Time zone", exact: true }).fill("UTC");
+    await page.getByRole("option", { name: /^UTC / }).click();
+    await expect(page.getByLabel("Starts occurrence", { exact: true })).toHaveCount(0);
+    await page.getByRole("button", { name: "Save draft", exact: true }).click();
+    await expect(page.getByRole("status")).toHaveText("Draft saved");
+    expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("fixture-source-draft")!).fields.start.occurrence)).toBeUndefined();
+  });
 });
