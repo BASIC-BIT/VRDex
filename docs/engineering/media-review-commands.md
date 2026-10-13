@@ -404,8 +404,10 @@ New replacement proposals require an occupied identity slot, including visible l
 
 A replacement candidate inherits reviewer authority from its approved asset's original submission and collection assignment. Current reviewer grant and assignment are required for queue, inspection and decision. Assigned website and MCP queues project the new proposal's submission ID; direct media review commands operate on that ID. Original collection revisions, attempts, receipts and audits remain unchanged. Collection item apply continues to refer to its original item, so review replacements through the media-review queue or exact media-review commands.
 
-Assigned queue pages read at most the requested 1 to 40 indexed source revisions
+Assigned queue pages read at most 40 indexed source revisions
 and eleven indexed, unexpired proposals of the requested open status per source.
+Native `endCursor` ranges are subject to the same server row-read bound. Smaller
+positive integer `maximumRowsRead` hints remain effective; invalid hints refuse.
 More than ten matching proposals fails closed. A page returns at most its requested
 number of rows. If sources expand beyond that limit, the scope-bound cursor saves
 remaining revision IDs and the current source's remaining submission IDs. Resuming

@@ -1599,6 +1599,12 @@ async function authorizedReviewPage(
         !(await activeBatchAssignment(ctx, batch._id, currentActor.user._id)))
     )
       throw new Error("BATCH_UNAVAILABLE");
+    const requestedReadLimit = paginationOpts.maximumRowsRead;
+    if (requestedReadLimit !== undefined && (!Number.isInteger(requestedReadLimit) || requestedReadLimit < 1))
+      throw new Error("Invalid review page.");
+    // endCursor overrides numItems in native pagination, so bound the source
+    // pipeline independently before capturing any remaining revision IDs.
+    const maximumRowsRead = Math.min(requestedReadLimit ?? 40, 40);
     const checkpoint = readBatchReviewCursor(paginationOpts.cursor);
     const end = paginationOpts.endCursor == null ? null : readBatchReviewCursor(paginationOpts.endCursor);
     const { cursor: _cursor, endCursor: _endCursor, ...revisionOptions } = paginationOpts;
@@ -1617,7 +1623,7 @@ async function authorizedReviewPage(
         splitCursor: null, pageStatus: null }
       : await ctx.db.query("contributionItemRevisions")
         .withIndex("by_batch_key_revision", q => q.eq("batchId", batch._id))
-        .paginate({ ...revisionOptions, cursor: checkpoint.nativeCursor,
+        .paginate({ ...revisionOptions, maximumRowsRead, cursor: checkpoint.nativeCursor,
           ...(end ? { endCursor: end.nativeCursor } : {}) });
     const pendingRevisions = [...revisions.page];
     let pendingRows = checkpoint.submissionIds;
