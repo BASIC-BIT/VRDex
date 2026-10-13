@@ -111,11 +111,12 @@ async function target(
   mode: "owner" | "contributor",
   placement: "profile_image" | "primary_logo" | "gallery",
   expected: number,
+  newKitIntake = false,
 ) {
   const profile = await ctx.db.get(profileId);
   if (!profile || profile.updatedAt !== expected)
     throw new ConvexError({ code: "UPLOAD_TARGET_CHANGED" });
-  if (mode === "contributor") return assertEligibleTarget(profile, "gallery");
+  if (mode === "contributor") return assertEligibleTarget(profile, "gallery", newKitIntake);
   if (
     (profile.profileType === "person" ? "profile_image" : "primary_logo") !==
     placement
@@ -368,6 +369,7 @@ export const begin = internalMutation({
       request.mode,
       request.placement,
       request.expectedUpdatedAt,
+      !old,
     );
     if (old) {
       if (old.state !== "pending" || old.expiresAt <= Date.now())

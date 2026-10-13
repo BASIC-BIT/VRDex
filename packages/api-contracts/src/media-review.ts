@@ -16,7 +16,7 @@ export const contributionMetadataPatchSchema = z.strictObject({
   label: z.string().max(80).nullable().optional(),
   altText: z.string().max(180).nullable().optional(),
   credit: z.string().max(120).nullable().optional(),
-  creditUrl: z.string().max(4096).nullable().optional(),
+  creditUrl: z.string().max(2048).nullable().optional(),
   sourceUrl: z.string().max(4096).nullable().optional(),
   sourceDescription: z.string().max(1000).nullable().optional(),
 });
@@ -31,7 +31,7 @@ export const publishedContributionDetailSchema = z.strictObject({
   profileSlug: z.string().max(200), contributionVersion: z.string().min(1).max(128),
   metadata: z.strictObject({
     label: z.string().max(80), altText: z.string().max(180).optional(),
-    credit: z.string().max(120), creditUrl: z.string().max(4096).optional(),
+    credit: z.string().max(120), creditUrl: z.string().max(2048).optional(),
     sourceUrl: z.string().max(4096).optional(), sourceDescription: z.string().max(1000).optional(),
   }),
   canSelectPrimary: z.boolean(), canClearPrimary: z.boolean(), canProposePlacement: z.boolean(),
@@ -161,7 +161,7 @@ export const reviewDetailSchema = z.strictObject({
   label: z.string().max(1000).optional(),
   altText: z.string().max(1000).optional(),
   credit: z.string().max(1000),
-  creditUrl: z.string().max(4096).optional(),
+  creditUrl: z.string().max(2048).optional(),
   contributorNote: z.string().max(1000).optional(),
   publicDisposition: z.string().max(240).optional(),
   approvedAssetId: boundedId.optional(),

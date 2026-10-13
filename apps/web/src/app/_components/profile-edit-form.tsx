@@ -303,6 +303,7 @@ function ConnectedProfileEditForm({
       ) : null}
       {mediaContributionsEnabled && profile.subject === "community_submitter" ? (
         <ProfileMediaContributionEditor
+          available={profile.canContributeMedia}
           autoFocus={mediaContributionFocus}
           profile={{
             id: profile.id,

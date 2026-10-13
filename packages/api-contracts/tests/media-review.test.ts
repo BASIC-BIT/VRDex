@@ -155,3 +155,10 @@ it("describes additive and placement intent without adding assertions to publica
   assert.deepEqual(mediaPublicationSchema.parse(command), command);
   assert.equal(mediaPublicationSchema.safeParse({ ...command, identityConfirmed: true }).success, false);
 });
+
+it("credit URL command contract bounds 2048 independently of the 4096 source URL limit", () => {
+  const prefix = "https://credit.example/";
+  const base = { submissionId: "submission", expectedContributionVersion: "version", idempotencyKey: "key", action: "update_metadata", metadata: { creditUrl: prefix + "a".repeat(2048 - prefix.length), sourceUrl: "https://source.example/" + "a".repeat(4000) } };
+  assert.equal(contributionManageCommandSchema.safeParse(base).success, true);
+  assert.equal(contributionManageCommandSchema.safeParse({ ...base, metadata: { creditUrl: base.metadata.creditUrl + "a" } }).success, false);
+});

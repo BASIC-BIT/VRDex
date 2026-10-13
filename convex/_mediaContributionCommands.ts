@@ -1,3 +1,4 @@
+import { publicationRestrictions } from "./_trustedPublication";
 import { ConvexError } from "convex/values";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { getAccountFeatureAccess } from "./_accountFeatures";
@@ -34,12 +35,7 @@ async function contributionState(ctx: QueryCtx | MutationCtx, submissionId: stri
   const current = await ctx.db.query("profileAssetPlacements").withIndex("by_profileId_placement_state_position", q =>
     q.eq("profileId", profile._id).eq("placement", placement).eq("state", "active")).first();
   const access = await getAccountFeatureAccess(ctx.db, actor.user._id);
-  const restrictions = await Promise.all([
-    ctx.db.query("mediaPublicationRestrictions").withIndex("by_profileId_kind", q => q.eq("profileId", profile._id).eq("kind", "identity")).first(),
-    ctx.db.query("mediaPublicationRestrictions").withIndex("by_profileId_kind", q => q.eq("profileId", profile._id).eq("kind", "dispute")).first(),
-    asset.contentSha256 ? ctx.db.query("mediaPublicationRestrictions").withIndex("by_contentSha256_kind", q => q.eq("contentSha256", asset.contentSha256).eq("kind", "suppression")).first() : null,
-    asset.contentSha256 ? ctx.db.query("mediaPublicationRestrictions").withIndex("by_contentSha256_kind", q => q.eq("contentSha256", asset.contentSha256).eq("kind", "rejection")).first() : null,
-  ]);
+  const restrictions = await publicationRestrictions(ctx, profile._id, asset.contentSha256);
   const publicUnclaimed = profile.claimState === "unclaimed" && profile.publicationState === "published" && profile.publicSurfacingState === "public";
   const publisher = access.canPublishMedia && publicUnclaimed && !restrictions.some(Boolean);
   const ownSelection = !!current && current.assetId === asset._id && current.selectionActorUserId === actor.user._id &&

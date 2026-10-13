@@ -47,6 +47,21 @@ when no URL exists. Legacy URL intake still requires a URL. The
 [local upload verification guide](../testing/local-media-upload.md) documents
 transport, reservations, cleanup configuration, and the separate S3 proof gate.
 
+New browser, local-upload, and URL-import kit intake requires the kit feature and
+public media-kit field to be available before reserving upload capacity. Existing
+admitted uploads can finish and replay their receipts. Owner identity uploads
+keep their separate authority and target rules. The editable-profile projection
+uses the same availability predicate to hide unavailable contribution intake.
+
+Existing-asset placement proposals recheck public-kit availability and current
+profile identity/dispute and content suppression/rejection restrictions at fresh
+approval, through both receipt and legacy decision wrappers. Profile restrictions
+apply even without a content digest. Historical committed receipts retain their
+existing replay checks.
+
+Credit URL command contracts and form inputs allow at most 2,048 characters,
+matching backend credit validation. Source URLs retain their separate 4,096 limit.
+
 ## Decisions and retries
 
 `decideWithReceipt` and internal `decideForMcpActor` accept submission ID,

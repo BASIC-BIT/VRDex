@@ -767,7 +767,7 @@ test("public profile media kit @visual @fixture", async ({ page }, testInfo) => 
     mediaKit.getByRole("link", { name: "Artwork by Afterglow Studio" }),
   ).toHaveAttribute("href", "https://example.invalid/afterglow-studio");
   await expect(
-    mediaKit.getByRole("link", { name: "Open source" }),
+    mediaKit.locator('a[href="https://example.invalid/aurora-source"]'),
   ).toHaveAttribute("href", "https://example.invalid/aurora-source");
   for (const title of [
     "Aurora press portrait",

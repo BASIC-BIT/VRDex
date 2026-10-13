@@ -3431,6 +3431,18 @@ it("contribution protocol tools dispatch exact attested wrappers, reject missing
     };
     for(const [name,description] of Object.entries(descriptions))assert.equal(tools.find(tool=>tool.name===name)?.description,description,name);
 
+    const manageTool=tools.find(tool=>tool.name==="vrdex_media_contribution_manage");
+    assert.ok(manageTool);
+    const findCreditSchema=value=>{if(!value||typeof value!=="object")return undefined;if(value.creditUrl)return value.creditUrl;for(const child of Object.values(value)){const found=findCreditSchema(child);if(found)return found}};
+    const creditSchema=findCreditSchema(manageTool.inputSchema);
+    const creditStringSchema=creditSchema.anyOf?.find(schema=>schema.type==="string")??creditSchema;
+    assert.equal(creditStringSchema.maxLength,2048);
+    const prefix="https://credit.example/";
+    const creditBase={submissionId:"submission",expectedContributionVersion:"version",idempotencyKey:"credit-boundary",action:"update_metadata",metadata:{creditUrl:prefix+"a".repeat(2048-prefix.length)}};
+    assert.equal((await request("tools/call",{name:"vrdex_media_contribution_manage",arguments:creditBase},["mcp:write","assets:contribute"])).isError,undefined);
+    const count=calls.length;
+    assert.equal((await request("tools/call",{name:"vrdex_media_contribution_manage",arguments:{...creditBase,metadata:{creditUrl:creditBase.metadata.creditUrl+"a"}}},["mcp:write","assets:contribute"])).isError,true);
+    assert.equal(calls.length,count);
     const base={submissionId:"submission",expectedContributionVersion:"version",idempotencyKey:"key"};
     const operations=[
       ["vrdex_media_contribution_get","contributionDetailForMcpActor",{submissionId:"submission"},"mcp:read","assets:contribute",detail],

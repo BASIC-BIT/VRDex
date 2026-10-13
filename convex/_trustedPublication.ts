@@ -1,5 +1,5 @@
 import { transferPublishedCharge } from "./_contributionCapacity";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { ConvexError } from "convex/values";
 import { getAccountFeatureAccess } from "./_accountFeatures";
@@ -66,6 +66,19 @@ export async function requirePublisher(
       message: "Trusted publication access is required.",
     });
   return access;
+}
+
+export async function publicationRestrictions(
+  ctx: Pick<QueryCtx, "db">,
+  profileId: Id<"profiles">,
+  contentSha256?: string,
+) {
+  return Promise.all([
+    ctx.db.query("mediaPublicationRestrictions").withIndex("by_profileId_kind", q => q.eq("profileId", profileId).eq("kind", "identity")).first(),
+    ctx.db.query("mediaPublicationRestrictions").withIndex("by_profileId_kind", q => q.eq("profileId", profileId).eq("kind", "dispute")).first(),
+    contentSha256 ? ctx.db.query("mediaPublicationRestrictions").withIndex("by_contentSha256_kind", q => q.eq("contentSha256", contentSha256).eq("kind", "suppression")).first() : null,
+    contentSha256 ? ctx.db.query("mediaPublicationRestrictions").withIndex("by_contentSha256_kind", q => q.eq("contentSha256", contentSha256).eq("kind", "rejection")).first() : null,
+  ]);
 }
 
 export async function recordPublicationRestriction(

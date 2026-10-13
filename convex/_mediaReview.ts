@@ -28,7 +28,7 @@ import {
   identityEmailVerified,
   isCurrentEmailVerificationAttestation,
 } from "./_identity";
-import { recordPublicationRestriction } from "./_trustedPublication";
+import { publicationRestrictions, recordPublicationRestriction } from "./_trustedPublication";
 import { isProfileFieldVisible } from "./_profileFieldVisibility";
 import { parseProfileLinkDestination } from "./_profileLinkDestination";
 import {
@@ -263,7 +263,7 @@ export async function applyReviewDecision(
     actor,
     submission,
   );
-  if (args.decision === "approve" && submission.requestKind !== "identity_placement" &&
+  if (args.decision === "approve" && (submission.requestKind !== "identity_placement" || submission.candidateAssetId !== undefined) &&
     !publicKitAvailable(profile))
     throw new ConvexError({ code: "MEDIA_RESOURCE_UNAVAILABLE", message: "Media contribution unavailable." });
   if (submission.submitterUserId === user._id) {
@@ -316,6 +316,8 @@ export async function applyReviewDecision(
     const candidate = await ctx.db.get(submission.candidateAssetId);
     const snapshot = await reviewSnapshot(ctx, submission, profile);
     if (!candidate || !snapshot.candidate.rendition) throw new Error("The placement candidate is unavailable.");
+    if ((await publicationRestrictions(ctx, profile._id, candidate.contentSha256)).some(Boolean))
+      throw new ConvexError({ code: "MEDIA_PUBLICATION_RESTRICTED", message: "Media contribution unavailable." });
     if (submission.targetPlacementVersion !== snapshot.placementTargetVersion)
       throw new Error("The profile media placement changed. Rebase before deciding.");
     if ((snapshot.currentPlacement?.assetId ?? undefined) !== submission.targetPlacementAssetId)
@@ -713,7 +715,7 @@ export async function decideReviewCommand(
     profile.publicSurfacingState !== "public"
   )
     code = "target_unavailable";
-  else if (args.decision === "approve" && submission.requestKind !== "identity_placement" &&
+  else if (args.decision === "approve" && (submission.requestKind !== "identity_placement" || submission.candidateAssetId !== undefined) &&
     !publicKitAvailable(profile)) code = "target_unavailable";
   else if (snapshot.reviewVersion !== args.expectedReviewVersion)
     code = "review_changed";
@@ -737,6 +739,12 @@ export async function decideReviewCommand(
     code = "candidate_unavailable";
   else if (args.decision === "approve" && submission.candidateAssetId &&
     submission.targetPlacementVersion !== snapshot.placementTargetVersion) code = "placement_changed";
+  if (code === undefined && args.decision === "approve" &&
+    submission.requestKind === "identity_placement" && submission.candidateAssetId) {
+    const candidate = await ctx.db.get(submission.candidateAssetId);
+    if ((await publicationRestrictions(ctx, profile._id, candidate?.contentSha256)).some(Boolean))
+      code = "publication_restricted";
+  }
   if (code === undefined && args.decision === "approve" &&
     submission.requestKind === "identity_placement" &&
     await privateReplacementRequiresElevatedAccess(

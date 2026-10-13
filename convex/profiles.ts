@@ -1,4 +1,5 @@
 import { projectProfileLinkDestinations, queueProfileLinkDestinations } from "./_profileLinkDestinationCache";
+import { publicKitAvailable } from "./_mediaReview";
 import { ConvexError, type Infer, v } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
@@ -876,6 +877,7 @@ export const editableProfile = query({
       // including them, so the editor has to know not to send them there once
       // the save succeeds.
       publiclyViewable: canReadProfile("public", profile),
+      canContributeMedia: profile.claimState === "unclaimed" && canReadProfile("public", profile) && publicKitAvailable(profile),
       // Sent back with the save, so a second editor is told the profile moved
       // rather than quietly overwriting whatever changed underneath them.
       updatedAt: profile.updatedAt,

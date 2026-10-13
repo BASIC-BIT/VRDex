@@ -538,3 +538,78 @@ for (const condition of ["disabled_kit", "hidden_kit", "disabled_submissions"] a
     }
   });
 }
+
+for (const unavailable of ["hidden", "disabled"] as const) {
+  it(`refuses fresh candidate approval for a ${unavailable} kit, including a fresh inspection and legacy decisions`, async () => {
+    const f = await fixture();
+    const d = await f.detail();
+    const proposal = await f.actor.mutation(api.profileMediaSubmissions.proposePlacement, { submissionId: f.intent.submissionId, expectedContributionVersion: d.contributionVersion, idempotencyKey: "candidate-proposal" });
+    const reviewer = f.t.withIdentity(f.s.moderatorIdentity);
+    const id = proposal.resourceId!;
+    if (unavailable === "hidden") await f.t.run(ctx => ctx.db.patch(f.s.profileId, { fieldVisibility: { mediaKit: "private" } }));
+    else process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "false";
+    try {
+      const fresh = await reviewer.query(api.profileMediaSubmissions.reviewDetail, { submissionId: id });
+      assert.ok(fresh);
+      assert.equal((await reviewer.mutation(api.profileMediaSubmissions.decideWithReceipt, { submissionId: id, expectedReviewVersion: fresh.reviewVersion, decision: "approve", privateReason: "Checked", idempotencyKey: "unavailable" })).code, "target_unavailable");
+      await assert.rejects(reviewer.mutation(api.profileMediaSubmissions.decide, { submissionId: id, expectedProfileUpdatedAt: (await f.t.run(ctx => ctx.db.get(f.s.profileId)))!.updatedAt, decision: "approve", privateReason: "Checked" }), /unavailable/i);
+      assert.deepEqual(await f.placements(), ["gallery"]);
+      assert.equal((await f.t.run(ctx => ctx.db.query("profileMediaSubmissions").filter(q => q.eq(q.field("candidateAssetId"), d.assetId)).first()))?.status, "submitted");
+    } finally { process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "true"; }
+  });
+}
+for (const kind of ["identity", "dispute", "suppression", "rejection"] as const) {
+  it(`rechecks current ${kind} restrictions at receipt and legacy candidate approval`, async () => {
+    const f = await fixture();
+    const d = await f.detail();
+    if (kind === "identity" || kind === "dispute") await f.t.run(ctx => ctx.db.patch(d.assetId, { contentSha256: undefined }));
+    const freshContribution = await f.detail();
+    const p = await f.actor.mutation(api.profileMediaSubmissions.proposePlacement, { submissionId: f.intent.submissionId, expectedContributionVersion: freshContribution.contributionVersion, idempotencyKey: "candidate-proposal" });
+    const reviewer = f.t.withIdentity(f.s.moderatorIdentity);
+    const before = await reviewer.query(api.profileMediaSubmissions.reviewDetail, { submissionId: p.resourceId! });
+    assert.ok(before);
+    await f.t.run(async ctx => {
+      const asset = await ctx.db.get(d.assetId);
+      await ctx.db.insert("mediaPublicationRestrictions", { profileId: f.s.profileId, submissionId: f.intent.submissionId, kind, actorUserId: f.s.moderatorUserId, createdAt: Date.now(), ...(kind === "identity" || kind === "dispute" ? {} : { contentSha256: asset!.contentSha256 }) });
+    });
+    const after = await reviewer.query(api.profileMediaSubmissions.reviewDetail, { submissionId: p.resourceId! });
+    assert.ok(after);
+    assert.equal((await reviewer.mutation(api.profileMediaSubmissions.decideWithReceipt, { submissionId: p.resourceId!, expectedReviewVersion: after.reviewVersion, decision: "approve", privateReason: "Checked", idempotencyKey: "restricted" })).code, "publication_restricted");
+    await assert.rejects(reviewer.mutation(api.profileMediaSubmissions.decide, { submissionId: p.resourceId!, expectedProfileUpdatedAt: (await f.t.run(ctx => ctx.db.get(f.s.profileId)))!.updatedAt, decision: "approve", privateReason: "Checked" }), /RESTRICTED/);
+    assert.deepEqual(await f.placements(), ["gallery"]);
+  });
+}
+it("credit URL metadata accepts 2048 and rejects 2049 at the strict backend command boundary", async () => {
+  const f = await fixture(); const d = await f.detail();
+  const prefix = "https://credit.example/";
+  const input = { submissionId: f.intent.submissionId, expectedContributionVersion: d.contributionVersion, idempotencyKey: "credit-boundary", action: "update_metadata" as const, metadata: { creditUrl: prefix + "a".repeat(2048 - prefix.length) } };
+  assert.equal((await f.actor.mutation(api.profileMediaSubmissions.manageContribution, input)).operationState, "committed");
+  const fresh = await f.detail(); assert.equal(fresh.metadata.creditUrl?.length, 2048);
+  await assert.rejects(f.actor.mutation(api.profileMediaSubmissions.manageContribution, { ...input, expectedContributionVersion: fresh.contributionVersion, idempotencyKey: "credit-too-long", metadata: { creditUrl: input.metadata.creditUrl + "a" } }), /2048/);
+});
+
+it("editable profile projection uses current public-kit availability for intake", async () => {
+  const t = convexTest({ schema, modules: { ...modules, "../../convex/profiles.ts": () => import("../../convex/profiles") } });
+  const s = await seed(t); const actor = t.withIdentity(s.contributorIdentity);
+  assert.equal((await actor.query(api.profiles.editableProfile, { slug: "community-dj" }))?.canContributeMedia, true);
+  await t.run(ctx => ctx.db.patch(s.profileId, { fieldVisibility: { mediaKit: "private" } }));
+  assert.equal((await actor.query(api.profiles.editableProfile, { slug: "community-dj" }))?.canContributeMedia, false);
+  await t.run(ctx => ctx.db.patch(s.profileId, { fieldVisibility: {} }));
+  process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "false";
+  try { assert.equal((await actor.query(api.profiles.editableProfile, { slug: "community-dj" }))?.canContributeMedia, false); }
+  finally { process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "true"; }
+});
+
+it("replays exact committed placement review after kit withdrawal and a later restriction", async () => {
+  const f = await fixture(); const d = await f.detail();
+  const p = await f.actor.mutation(api.profileMediaSubmissions.proposePlacement, { submissionId: f.intent.submissionId, expectedContributionVersion: d.contributionVersion, idempotencyKey: "candidate-proposal" });
+  const reviewer = f.t.withIdentity(f.s.moderatorIdentity);
+  const detail = await reviewer.query(api.profileMediaSubmissions.reviewDetail, { submissionId: p.resourceId! }); assert.ok(detail);
+  const args = { submissionId: p.resourceId!, expectedReviewVersion: detail.reviewVersion, decision: "approve" as const, privateReason: "Checked", idempotencyKey: "approved-review" };
+  const receipt = await reviewer.mutation(api.profileMediaSubmissions.decideWithReceipt, args); assert.equal(receipt.operationState, "committed");
+  await f.t.run(async ctx => { await ctx.db.patch(f.s.profileId, { fieldVisibility: { mediaKit: "private" } }); await ctx.db.insert("mediaPublicationRestrictions", { profileId: f.s.profileId, submissionId: f.intent.submissionId, kind: "identity", actorUserId: f.s.moderatorUserId, createdAt: Date.now() }); });
+  process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "false";
+  try { assert.deepEqual(await reviewer.mutation(api.profileMediaSubmissions.decideWithReceipt, args), receipt); }
+  finally { process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "true"; }
+  assert.deepEqual(await f.placements(), ["gallery", "profile_image"]);
+});

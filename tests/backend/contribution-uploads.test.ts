@@ -641,3 +641,28 @@ for (const mode of ["owner", "contributor"] as const) {
     assert.equal((await f.t.mutation(internal.contributionUploads.complete, f.completeInput)).operationState, "committed");
   });
 }
+
+for (const unavailable of ["hidden", "disabled"] as const) {
+  it(`refuses new ${unavailable} kit intake before quota, keeps legacy completion and replay`, async () => {
+    const f = await fixture();
+    const before = await f.t.run(async ctx => ({ intents: await ctx.db.query("profileAssetUploadIntents").collect(), reservations: await ctx.db.query("contributionUploadReservations").collect(), capacity: await ctx.db.query("contributionCapacity").collect() }));
+    if (unavailable === "hidden") await f.t.run(ctx => ctx.db.patch(f.s.profileId, { fieldVisibility: { mediaKit: "private" } }));
+    else process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "false";
+    try {
+      await assert.rejects(f.t.mutation(internal.contributionUploads.begin, { ...f.input, idempotencyKey: "new-intake" }), /MEDIA_TARGET_UNAVAILABLE/);
+      const after = await f.t.run(async ctx => ({ intents: await ctx.db.query("profileAssetUploadIntents").collect(), reservations: await ctx.db.query("contributionUploadReservations").collect(), capacity: await ctx.db.query("contributionCapacity").collect() }));
+      assert.deepEqual(after, before);
+      await assert.rejects(f.t.withIdentity(f.s.contributorIdentity).mutation(api.profileMediaSubmissions.createUploadIntent, { profileId: f.s.profileId, requestedPlacement: "profile_image", originalFileName: "new.png", mimeType: "image/png", byteSize: 512, sourceUrl: "https://artist.example/source", credit: "Artist", expectedProfileUpdatedAt: NOW }), /MEDIA_TARGET_UNAVAILABLE/);
+      await f.t.mutation(internal.contributionUploads.claim, f.claimInput);
+      const completed = await f.t.mutation(internal.contributionUploads.complete, f.completeInput);
+      assert.equal(completed.operationState, "committed");
+      assert.deepEqual((await f.t.mutation(internal.contributionUploads.begin, f.input)).receipt, completed);
+    } finally { process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "true"; }
+  });
+}
+
+it("keeps private owner identity intake distinct from public-kit visibility", async () => {
+  const f = await fixture("owner");
+  await f.t.run(ctx => ctx.db.patch(f.s.profileId, { publicSurfacingState: "opted_out", fieldVisibility: { mediaKit: "private" } }));
+  assert.ok((await f.t.mutation(internal.contributionUploads.begin, { ...f.input, idempotencyKey: "private-owner-upload" })).intentId);
+});

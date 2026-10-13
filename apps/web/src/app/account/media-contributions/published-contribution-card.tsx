@@ -101,7 +101,7 @@ export function PublishedContributionCardView({ submissionId, detail, manage, pl
         <fieldset disabled={locked} className="grid gap-4 sm:grid-cols-2">
           <Field>Title<Input required maxLength={80} value={draft.metadata.label} onChange={e => update("label", e.target.value)} /></Field>
           <Field>Credit<Input required maxLength={120} value={draft.metadata.credit} onChange={e => update("credit", e.target.value)} /></Field>
-          <Field>Credit URL<Input type="url" maxLength={4096} value={draft.metadata.creditUrl ?? ""} onChange={e => update("creditUrl", e.target.value)} /></Field>
+          <Field>Credit URL<Input type="url" maxLength={2048} value={draft.metadata.creditUrl ?? ""} onChange={e => update("creditUrl", e.target.value)} /></Field>
           <Field>Source URL<Input type="url" maxLength={4096} value={draft.metadata.sourceUrl ?? ""} onChange={e => update("sourceUrl", e.target.value)} /></Field>
           <Field>Alt text<Input maxLength={180} value={draft.metadata.altText ?? ""} onChange={e => update("altText", e.target.value)} /></Field>
           <Field>Source description<Textarea maxLength={1000} rows={3} value={draft.metadata.sourceDescription ?? ""} onChange={e => update("sourceDescription", e.target.value)} /></Field>

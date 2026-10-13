@@ -67,9 +67,11 @@ function safeMessage(error: unknown) {
 
 export function ProfileMediaContributionEditor({
   autoFocus = false,
+  available = true,
   profile,
 }: {
   autoFocus?: boolean;
+  available?: boolean;
   profile: ContributionProfile;
 }) {
   const router = useRouter();
@@ -131,16 +133,18 @@ export function ProfileMediaContributionEditor({
     }
   }
 
-  return <ProfileMediaContributionEditorView autoFocus={autoFocus} busy={busy} onSubmit={submit} status={status} />;
+  return <ProfileMediaContributionEditorView available={available} autoFocus={autoFocus} busy={busy} onSubmit={submit} status={status} />;
 }
 
 export function ProfileMediaContributionEditorView({
   autoFocus = false,
+  available = true,
   busy = false,
   onSubmit,
   status = null,
 }: {
   autoFocus?: boolean;
+  available?: boolean;
   busy?: boolean;
   onSubmit?: (event: FormEvent<HTMLFormElement>) => void;
   status?: string | null;
@@ -150,6 +154,8 @@ export function ProfileMediaContributionEditorView({
   useEffect(() => {
     if (autoFocus) sectionRef.current?.scrollIntoView({ block: "start" });
   }, [autoFocus]);
+
+  if (!available) return null;
 
   return (
     <section className="border-t border-border py-6" id="media-contributions" ref={sectionRef}>
@@ -171,7 +177,7 @@ export function ProfileMediaContributionEditorView({
             </Field>
             <Field>
               Credit URL
-              <Input name="creditUrl" placeholder="https://" type="url" />
+              <Input maxLength={2048} name="creditUrl" placeholder="https://" type="url" />
             </Field>
             <Field>
               Public label

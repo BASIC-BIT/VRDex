@@ -273,11 +273,13 @@ export async function assertSubmissionRateLimits(
 export function assertEligibleTarget(
   profile: Doc<"profiles"> | null,
   placement: "profile_image" | "primary_logo" | "gallery",
+  newKitIntake = false,
 ) {
   if (
     profile === null ||
     profile.publicationState !== "published" ||
-    profile.publicSurfacingState !== "public"
+    profile.publicSurfacingState !== "public" ||
+    (newKitIntake && !publicKitAvailable(profile))
   ) {
     throw new ConvexError({
       code: "MEDIA_TARGET_UNAVAILABLE",
@@ -423,7 +425,7 @@ export const createUploadIntent = mutation({
     if (!(await identityEmailVerified(ctx)) || user.email === undefined) {
       throw new ConvexError({ code: "MEDIA_EMAIL_UNVERIFIED", message: "Verify email" });
     }
-    const profile = assertEligibleTarget(await ctx.db.get(args.profileId), "gallery");
+    const profile = assertEligibleTarget(await ctx.db.get(args.profileId), "gallery", true);
     if (profile.updatedAt !== args.expectedProfileUpdatedAt) {
       throw new ConvexError({ code: "MEDIA_PROFILE_CHANGED", message: "Refresh profile" });
     }
@@ -657,6 +659,7 @@ export const prepareMcpMediaSubmission = internalMutation({
       return await refuse(targetRefusal);
     }
     const eligible = profile!;
+    if (!publicKitAvailable(eligible)) return await refuse("MCP_MEDIA_TARGET_UNAVAILABLE");
 
     const now = Date.now();
     if (

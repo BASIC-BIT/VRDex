@@ -846,3 +846,18 @@ it("reconciles a legacy hosted URL admission into gallery without importing anot
   assert.equal(state.rows[0].sourceUrl, input(f.actorUserId).sourceUrl);
   assert.equal(state.charges.length, 1);
 });
+
+for (const unavailable of ["hidden", "disabled"] as const) {
+  it(`refuses new URL intake for a ${unavailable} kit without a submission or reservation`, async () => {
+    const f = await seed();
+    if (unavailable === "hidden") await f.t.run(ctx => ctx.db.patch(f.profileId, { fieldVisibility: { mediaKit: "private" } }));
+    else process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "false";
+    try {
+      const result = await f.t.mutation(internal.profileMediaSubmissions.prepareMcpMediaSubmission, input(f.actorUserId));
+      assert.equal(result.status, "failed");
+      assert.equal(result.errorCode, "MCP_MEDIA_TARGET_UNAVAILABLE");
+      const counts = await f.t.run(async ctx => ({ submissions: (await ctx.db.query("profileMediaSubmissions").collect()).length, intents: (await ctx.db.query("profileAssetUploadIntents").collect()).length, reservations: (await ctx.db.query("contributionUploadReservations").collect()).length, capacity: (await ctx.db.query("contributionCapacity").collect()).length }));
+      assert.deepEqual(counts, { submissions: 0, intents: 0, reservations: 0, capacity: 0 });
+    } finally { process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "true"; }
+  });
+}
