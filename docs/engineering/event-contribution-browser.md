@@ -41,9 +41,36 @@ flowchart LR
 ```
 
 Timezones are selected from the runtime IANA list with city and regional aliases.
-Abbreviations are search terms, not stored fixed offsets. Offsets use the event
-date. Repeated local hours require an occurrence choice and missing local hours
-cannot publish. Existing owner timestamps remain exact when unchanged.
+Abbreviations are search terms, not stored fixed offsets. The compact selector
+opens a search popover. Opening, searching and cancelling leave the selected
+IANA value and occurrence choices unchanged. Selection commits once. Search results show
+an abbreviation and offset only when the event start resolves to an instant;
+incomplete or ambiguous starts show the region without guessing an offset.
+Repeated local hours require an occurrence choice and missing local hours cannot
+publish. Existing owner timestamps remain exact when unchanged.
+
+New drafts use the private Account default event time zone, then browser
+detection, then UTC. Authenticated editor wrappers query the self viewer;
+fixture and demo editors receive preferences explicitly. Persisted drafts and
+events keep their authored zone, including missing-zone validation. Manual
+schedule edits and accepted imports prevent a late preference from changing the
+zone. Selecting a zone for an event never changes the account preference.
+Account settings save or clear the preference only through explicit actions.
+
+```mermaid
+flowchart LR
+    Account[Account] --> Preference[Default event time zone]
+    Preference --> Save[Save or Clear]
+    Save --> New[New event: Details]
+    Direct[Direct event creation link] --> Auth[Sign in if needed]
+    Auth --> New
+    New --> Picker[Open timezone search]
+    Picker -->|Select| New
+    Picker -->|Cancel| New
+    New --> Lineup[Lineup]
+    Lineup --> Review[Review]
+    Review --> Event[Publish to event page]
+```
 
 Continue advances without validating the other mounted stages. Publish reveals
 and focuses invalid controls. Saving a partial draft remains available.

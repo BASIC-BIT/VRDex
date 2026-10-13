@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { resolveEventTimezoneDefault } from "@/lib/event-timezone-default";
 import { EventTimezonePicker } from "../_components/event-timezone-picker";
 import { resolveEventLocalTime, selectEventLocalTime } from "../../../../../packages/api-contracts/src/event-intake";
 import type { ChangeEvent, FormEvent, ReactNode } from "react";
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { api } from "@convex-generated-api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
@@ -541,11 +542,13 @@ function ConnectedEventEditorForm({
   demoMode = false,
   event,
   heading,
+  savedTimezonePreference,
 }: {
   communitySlug: string;
   demoMode?: boolean;
   event?: EditableEvent;
   heading?: ReactNode;
+  savedTimezonePreference?: string | null;
 }) {
   const router = useRouter();
   const [activeStep, setActiveStep] = useState<EventEditorStep>("Details");
@@ -575,7 +578,12 @@ function ConnectedEventEditorForm({
   );
   const [status, setStatus] = useState<EventEditorStatus>({ kind: "idle" });
   const [vrcdnOutputStatus, setVrcdnOutputStatus] = useState<VrcdnOutputStatus>({ kind: "idle" });
-  const [timezone, setTimezone] = useState(event?.timezone ?? "UTC");
+  const [timezone, setTimezone] = useState(event?.timezone ?? "");
+  const timezoneAuthored = useRef(event !== undefined);
+  useEffect(() => {
+    if (timezoneAuthored.current) return;
+    setTimezone(resolveEventTimezoneDefault({ savedPreference: savedTimezonePreference, browserTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone }));
+  }, [savedTimezonePreference]);
   const [doorsOpenBefore, setDoorsOpenBefore] = useState(event?.doorsOpenAt !== undefined);
   const [doorsOpenMinutes, setDoorsOpenMinutes] = useState(() => event?.doorsOpenAt === undefined || event.startAt === undefined
     ? "15"
@@ -599,12 +607,6 @@ function ConnectedEventEditorForm({
     preservedWorldAssociationIds: event?.preservedWorldAssociationIds ?? [],
   });
   const [, startTransition] = useTransition();
-
-  useEffect(() => {
-    if (event === undefined) {
-      setTimezone(browserTimeZone());
-    }
-  }, [event]);
 
   useEffect(() => {
     if (vrcdnOutputAccounts === undefined || vrcdnOutputAccounts.length === 0) {
@@ -653,6 +655,7 @@ function ConnectedEventEditorForm({
   }
 
   function updateSlotRows(updater: (rows: SlotFormRow[]) => SlotFormRow[]) {
+    timezoneAuthored.current = true;
     setSlotRows((rows) => updater(rows));
     setSlotRowsDirty(true);
     setLineupEdited(true);
@@ -1006,33 +1009,33 @@ function ConnectedEventEditorForm({
       </EditorSection>
 
       <EditorSection title="Timing">
-        {usesCanonicalLineup || event?.scheduleKind === "date_only" ? <label className="flex items-center gap-3 text-sm font-medium"><input checked={timeTba} onChange={change => setTimeTba(change.target.checked)} type="checkbox" />Time TBA</label> : null}
+        {usesCanonicalLineup || event?.scheduleKind === "date_only" ? <label className="flex items-center gap-3 text-sm font-medium"><input checked={timeTba} onChange={change => { timezoneAuthored.current = true; setTimeTba(change.target.checked); }} type="checkbox" />Time TBA</label> : null}
         <div className="grid gap-4">
-        {timeTba ? <Field>Date<Input type="date" required value={eventDate} onChange={change => setEventDate(change.target.value)} /></Field> : <>
+        {timeTba ? <Field>Date<Input type="date" required value={eventDate} onChange={change => { timezoneAuthored.current = true; setEventDate(change.target.value); }} /></Field> : <>
         <div className="grid items-start gap-4 sm:grid-cols-2">
           <Field>
             Starts
-            <Input value={startLocal} name="startAt" required type="datetime-local" onChange={change => { setStartLocal(change.target.value); setEventDate(change.target.value.slice(0, 10)); setOccurrence(""); }} />
+            <Input value={startLocal} name="startAt" required type="datetime-local" onChange={change => { timezoneAuthored.current = true; setStartLocal(change.target.value); setEventDate(change.target.value.slice(0, 10)); setOccurrence(""); }} />
           </Field>
           <details className="relative min-w-0" open={endOpen} onToggle={change => setEndOpen(change.currentTarget.open)}>
             <summary className={`cursor-pointer font-medium ${endOpen ? "absolute right-0 top-0 text-xs" : "text-sm"}`}>Add end time</summary>
             <div className="grid gap-2">
-              <Field>Ends (optional)<Input value={displayedEndLocal} name="endAt" type="datetime-local" onChange={change => { setEndLocal(change.target.value); setEndOccurrence(""); setEndEdited(true); }} /></Field>
+              <Field>Ends (optional)<Input value={displayedEndLocal} name="endAt" type="datetime-local" onChange={change => { timezoneAuthored.current = true; setEndLocal(change.target.value); setEndOccurrence(""); setEndEdited(true); }} /></Field>
               {displayedEndLocal && endChoices.length === 0 ? <p className="text-sm text-danger">This local time does not exist.</p> : null}
-              {endChoices.length > 1 ? <Field>Repeated time<Select aria-label="End occurrence" value={displayedEndOccurrence} onChange={change => { setEndLocal(displayedEndLocal); setEndOccurrence(change.target.value === "later" ? "later" : change.target.value === "earlier" ? "earlier" : ""); setEndEdited(true); }}><option value="">Choose occurrence</option>{endChoices.map((instant, index) => <option key={instant} value={index === 0 ? "earlier" : "later"}>{index === 0 ? "Earlier" : "Later"} ({new Date(instant).toISOString().slice(11, 16)} UTC)</option>)}</Select></Field> : null}
+              {endChoices.length > 1 ? <Field>Repeated time<Select aria-label="End occurrence" value={displayedEndOccurrence} onChange={change => { timezoneAuthored.current = true; setEndLocal(displayedEndLocal); setEndOccurrence(change.target.value === "later" ? "later" : change.target.value === "earlier" ? "earlier" : ""); setEndEdited(true); }}><option value="">Choose occurrence</option>{endChoices.map((instant, index) => <option key={instant} value={index === 0 ? "earlier" : "later"}>{index === 0 ? "Earlier" : "Later"} ({new Date(instant).toISOString().slice(11, 16)} UTC)</option>)}</Select></Field> : null}
             </div>
           </details>
         </div>
         <Field>
           Time zone
-          <EventTimezonePicker value={timezone || null} date={eventDate || null} onChange={value => { setTimezone(value ?? ""); setOccurrence(""); setEndOccurrence(""); if (displayedEndLocal) { setEndLocal(displayedEndLocal); setEndEdited(true); } }} />
+          <EventTimezonePicker value={timezone || null} date={eventDate || null} instant={previewStart} preferredValue={savedTimezonePreference} onChange={value => { timezoneAuthored.current = true; setTimezone(value ?? ""); setOccurrence(""); setEndOccurrence(""); if (displayedEndLocal) { setEndLocal(displayedEndLocal); setEndEdited(true); } }} />
         </Field>
-        {startChoices.length > 1 ? <Field>Repeated time<Select aria-label="Start occurrence" value={occurrence} onChange={change => setOccurrence(change.target.value as "earlier" | "later")}><option value="">Choose occurrence</option><option value="earlier">Earlier</option><option value="later">Later</option></Select></Field> : null}
+        {startChoices.length > 1 ? <Field>Repeated time<Select aria-label="Start occurrence" value={occurrence} onChange={change => { timezoneAuthored.current = true; setOccurrence(change.target.value === "later" ? "later" : change.target.value === "earlier" ? "earlier" : ""); }}><option value="">Choose occurrence</option><option value="earlier">Earlier</option><option value="later">Later</option></Select></Field> : null}
         <label className="flex items-center gap-3 text-sm font-medium">
           <input
             checked={doorsOpenBefore}
             className="h-4 w-4 accent-accent"
-            onChange={(changeEvent) => setDoorsOpenBefore(eventTargetChecked(changeEvent))}
+            onChange={(changeEvent) => { timezoneAuthored.current = true; setDoorsOpenBefore(eventTargetChecked(changeEvent)); }}
             type="checkbox"
           />
           Do doors open before?
@@ -1043,7 +1046,7 @@ function ConnectedEventEditorForm({
             <Input
               inputMode="numeric"
               min="0"
-              onChange={(changeEvent) => setDoorsOpenMinutes(eventTargetValue(changeEvent))}
+              onChange={(changeEvent) => { timezoneAuthored.current = true; setDoorsOpenMinutes(eventTargetValue(changeEvent)); }}
               required
               type="number"
               value={doorsOpenMinutes}
@@ -1550,14 +1553,16 @@ export function EventEditorForm({
   demoMode = false,
   event,
   heading,
+  savedTimezonePreference,
 }: {
   communitySlug: string;
   demoMode?: boolean;
   event?: EditableEvent;
   heading?: ReactNode;
+  savedTimezonePreference?: string | null;
 }) {
   if (demoMode) {
-    return <ConnectedEventEditorForm communitySlug={communitySlug} demoMode event={event} heading={heading} />;
+    return <ConnectedEventEditorForm communitySlug={communitySlug} demoMode event={event} heading={heading} savedTimezonePreference={savedTimezonePreference} />;
   }
 
   if (!convexUrl) {
@@ -1578,5 +1583,10 @@ function AuthenticatedEventEditorForm({ communitySlug, event, heading }: { commu
     return <>{heading}<SignInRequiredEventEditorPanel /></>;
   }
 
-  return <ConnectedEventEditorForm communitySlug={communitySlug} event={event} heading={heading} />;
+  return <AuthenticatedConnectedEventEditorForm communitySlug={communitySlug} event={event} heading={heading} />;
+}
+
+function AuthenticatedConnectedEventEditorForm(props: { communitySlug: string; event?: EditableEvent; heading?: ReactNode }) {
+  const viewer = useQuery(api.accounts.viewer);
+  return <ConnectedEventEditorForm {...props} savedTimezonePreference={viewer?.user.defaultEventTimezone} />;
 }

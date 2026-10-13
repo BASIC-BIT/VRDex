@@ -101,7 +101,7 @@ function fixtureClient() {
 function Editor() {
   const [bootstrap] = useState(() => JSON.parse(localStorage.getItem(storageKey) ?? JSON.stringify(fixtureEvent)) as EditableEvent);
   const event = useQuery(api.events.getEditableBySlug, { slug: bootstrap.slug });
-  return event ? <main className="mx-auto max-w-6xl p-5"><EventEditorForm communitySlug={bootstrap.communitySlug ?? "afterglow"} demoMode event={new URLSearchParams(window.location.search).get("mode") === "create" ? undefined : event} /></main> : null;
+  return event ? <main className="mx-auto max-w-6xl p-5"><EventEditorForm savedTimezonePreference={null} communitySlug={bootstrap.communitySlug ?? "afterglow"} demoMode event={new URLSearchParams(window.location.search).get("mode") === "create" ? undefined : event} /></main> : null;
 }
 export default function EventLineupFixture() {
   const [client] = useState(fixtureClient);

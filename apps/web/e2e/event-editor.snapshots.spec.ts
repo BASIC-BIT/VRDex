@@ -88,6 +88,7 @@ test("import dialog, failure, and DST states @snapshot @fixture", async ({ page 
   await capture(page, info.outputPath("import-error.png"));
   await dialog.getByRole("button", { name: "Close" }).click();
   await page.getByLabel("Time TBA", { exact: true }).uncheck();
+  await page.getByRole("button", { name: "Time zone", exact: true }).click();
   await page.getByRole("combobox", { name: "Time zone" }).fill("America/New_York");
   await page.getByRole("option").first().click();
   await page.getByLabel("Starts", { exact: true }).fill("2027-03-14T02:30");

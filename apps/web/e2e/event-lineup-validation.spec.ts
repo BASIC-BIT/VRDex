@@ -2,7 +2,6 @@ import { expect, test } from "@playwright/test";
 import { BACKEND_ERROR_COPY } from "../src/lib/error-copy";
 
 for (const scenario of [
-  { name: "unselected timezone", start: "2027-10-15T19:00", timezone: "Indianapolis", field: "Time zone", message: "Time zone must be a valid IANA time zone." },
   { name: "DST gap", start: "2027-03-14T02:30", field: "Starts", message: "Local time does not exist in this timezone." },
   { name: "DST fold", start: "2027-11-07T01:30", field: "Start occurrence", message: "Ambiguous local time requires an earlier or later occurrence." },
 ]) test(`staff publish reveals and focuses ${scenario.name}`, async ({ page }, testInfo) => {
@@ -10,7 +9,6 @@ for (const scenario of [
   const navigation = page.getByRole("navigation", { name: "Event editor" });
   await navigation.getByRole("button", { name: "Details" }).click();
   await page.getByLabel("Starts", { exact: true }).fill(scenario.start);
-  if (scenario.timezone) await page.getByRole("combobox", { name: "Time zone", exact: true }).fill(scenario.timezone);
   await navigation.getByRole("button", { name: "Review" }).click();
   await page.getByRole("button", { name: "Save changes", exact: true }).click();
   await expect(page.getByText(scenario.message, { exact: true })).toBeVisible();
@@ -62,4 +60,17 @@ test("@fixture stream validation phrase inside an unrelated error stays generic"
  await page.getByRole("button",{name:"Save changes",exact:true}).click();
  await expect(page.getByText(BACKEND_ERROR_COPY,{exact:true})).toBeVisible();
  await expect(page.getByText("Stream unavailable",{exact:true})).toHaveCount(0);
+});
+
+
+test("invalid timezone search preserves the selected event zone", async ({ page }) => {
+  await page.goto("/playwright/event-lineup?editor");
+  await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Details" }).click();
+  const selected = await page.locator('input[name="timezone"]').inputValue();
+  await page.getByRole("button", { name: "Time zone", exact: true }).click();
+  const search = page.getByRole("combobox", { name: "Time zone", exact: true });
+  await search.fill("not a zone");
+  await expect(page.getByText("No matches", { exact: true })).toBeVisible();
+  await search.press("Escape");
+  await expect(page.locator('input[name="timezone"]')).toHaveValue(selected);
 });

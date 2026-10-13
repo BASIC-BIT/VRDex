@@ -12,6 +12,7 @@ import { resolveEventLocalTime, selectEventLocalTime, type EventIntakePatch as E
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
+import { resolveEventTimezoneDefault } from "@/lib/event-timezone-default";
 import { EventTimezonePicker } from "../_components/event-timezone-picker";
 import { EventIntakeSource, EventIntakeSuggestions, type IntakeSourceAction } from "./event-intake-source";
 import { candidatePatch, posterDeclaration, websiteIntakeCommand, EventIntakeCandidateSchema } from "@/lib/event-intake-source";
@@ -110,9 +111,15 @@ function clearOccurrence(local?: EventIntakeLocalTime | null) {
 function resetTimeOccurrences(fields: EventIntakeFields, timezone: EventIntakeFields["timezone"]): EventIntakeFields {
   return { ...fields, timezone, start: clearOccurrence(fields.start), end: clearOccurrence(fields.end), doors: clearOccurrence(fields.doors), lineup: fields.lineup?.map(row => ({ ...row, start: clearOccurrence(row.start), end: clearOccurrence(row.end) })) };
 }
-export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, correction = false, onSave, onPublish, onSource, initialArtworkSourceId, heading }: { heading?: ReactNode; initialFields: EventIntakeFields; initialRevision?: number; correction?: boolean; onSource?: IntakeSourceAction; initialArtworkSourceId?: string; onSave?: (fields: EventIntakeFields, revision: number) => Promise<void>; onPublish: (fields: EventIntakeFields, revision: number) => Promise<void> }) {
+export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, correction = false, onSave, onPublish, onSource, initialArtworkSourceId, heading, savedTimezonePreference, newDraft = false }: { savedTimezonePreference?: string | null; newDraft?: boolean; heading?: ReactNode; initialFields: EventIntakeFields; initialRevision?: number; correction?: boolean; onSource?: IntakeSourceAction; initialArtworkSourceId?: string; onSave?: (fields: EventIntakeFields, revision: number) => Promise<void>; onPublish: (fields: EventIntakeFields, revision: number) => Promise<void> }) {
   const form = useRef<HTMLFormElement>(null);
   const [fields, setFields] = useState(() => initialFields.timeTba ? untimed(initialFields) : initialFields);
+  const timezoneAuthored = useRef(Boolean(initialFields.timezone) || !newDraft);
+  useEffect(() => {
+    if (timezoneAuthored.current) return;
+    const timezone = resolveEventTimezoneDefault({ savedPreference: savedTimezonePreference, browserTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone });
+    setFields(current => current.timezone === timezone ? current : resetTimeOccurrences(current, timezone));
+  }, [savedTimezonePreference]);
   const timedBackup = useRef<EventIntakeFields | null>(null);
   const [endOpen, setEndOpen] = useState(Boolean(!initialFields.timeTba && initialFields.end));
   useEffect(() => { if (fields.end) setEndOpen(true); }, [fields.end]);
@@ -143,6 +150,7 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
     });
   }
   function receiveFields(next: EventIntakeFields) {
+    if (next.timezone !== fields.timezone || next.eventDate !== fields.eventDate || next.start !== fields.start || next.end !== fields.end || next.doors !== fields.doors) timezoneAuthored.current = true;
     if (next.timezone !== fields.timezone && timedBackup.current) timedBackup.current = resetTimeOccurrences(timedBackup.current, next.timezone);
     setFields(current => {
       const dateChanged = next.eventDate !== current.eventDate;
@@ -162,21 +170,25 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
     const effective = fields.timeTba ? restoreIntakeTiming(acceptanceFields, timedBackup.current) : fields;
     const updated = acceptIntakeSuggestion({ fields: effective, acceptance });
     if (!updated) return;
+    if (["timezone", "eventDate", "start", "end", "doors", "lineup"].includes(acceptance.key)) timezoneAuthored.current = true;
     const next = updated.timezone !== fields.timezone ? resetTimeOccurrences(updated, updated.timezone) : updated;
     if (fields.timeTba) timedBackup.current = { ...next, eventDate: next.eventDate ?? timedBackup.current?.eventDate };
     setFields(next.timeTba ? untimed(next) : next);
   }
   function changeDate(eventDate: string | null) {
+    timezoneAuthored.current = true;
     if (eventDate && timedBackup.current) timedBackup.current = rebaseIntakeTimes(timedBackup.current, timedBackup.current.eventDate, eventDate);
     setFields(current => rebaseIntakeSuggestions(rebaseIntakeTimes(current, current.eventDate, eventDate), current.eventDate));
   }
   function changeStart(change: { eventDate: string | null; local: EventIntakeLocalTime | null }) {
+    timezoneAuthored.current = true;
     setFields(current => rebaseIntakeSuggestions({ ...current, eventDate: change.eventDate, start: change.local,
       end: rebaseTime(current.end, current.eventDate, change.eventDate), doors: rebaseTime(current.doors, current.eventDate, change.eventDate),
       lineup: current.lineup?.map(row => ({ ...row, start: rebaseTime(row.start, current.eventDate, change.eventDate), end: rebaseTime(row.end, current.eventDate, change.eventDate) })),
     }, current.eventDate));
   }
   function toggleTba(checked: boolean) {
+    timezoneAuthored.current = true;
     const invalid = form.current?.querySelector<HTMLInputElement>('[data-intake-time][aria-invalid="true"]');
     if (checked && invalid) { reveal(invalid.closest('[data-step="Lineup"]') ? "Lineup" : "Details", `[name="${invalid.name}"]`); return; }
     if (checked) { timedBackup.current = fields; setFields({ ...untimed(fields), timeTba: true }); }
@@ -185,6 +197,7 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
     }
   }
   function changeTimezone(timezone: string | null) {
+    timezoneAuthored.current = true;
     setFields(current => resetTimeOccurrences(current, timezone));
     if (timedBackup.current) timedBackup.current = resetTimeOccurrences(timedBackup.current, timezone);
   }
@@ -223,7 +236,7 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
           throw new Error("End time must follow start; choose the next day explicitly when crossing midnight.");
         }
         await onPublish(fields.timeTba ? untimed(fields) : fields, revision);
-      } else { await onSave?.(fields.timeTba ? untimed(fields) : fields, revision); setMessage("Draft saved"); }
+      } else { await onSave?.(fields.timeTba ? untimed(fields) : fields, revision); timezoneAuthored.current = true; setMessage("Draft saved"); }
     } catch (error) {
       if (error instanceof ConvexError && typeof error.data === "object" && error.data && "code" in error.data) {
         if (error.data.code === "NEAR_DUPLICATE" && "choices" in error.data) { setActiveStep("Review"); setDuplicates(error.data.choices as typeof duplicates); setMessage("Check similar events before publishing."); }
@@ -236,7 +249,12 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
     }
     finally { setBusy(false); }
   }
-  return <><form ref={form} className="grid gap-6" onInvalidCapture={event => { const target = event.target as HTMLElement; const panel = target.closest<HTMLElement>("[data-step]"); if (panel) { event.preventDefault(); setActiveStep(panel.dataset.step as EventEditorStep); requestAnimationFrame(() => { const disclosure = target.closest("details"); if (disclosure) { disclosure.open = true; setEndOpen(true); } target.focus(); }); } }} onSubmit={event => { event.preventDefault(); if (activeStep === "Review") void submit(true); else setActiveStep(steps[steps.indexOf(activeStep) + 1]); }}>
+  let timezoneInstant: number | undefined;
+  try { if (!fields.timeTba && fields.eventDate && fields.start && fields.timezone) timezoneInstant = selectEventLocalTime(fields.eventDate, fields.start, fields.timezone); } catch { /* Ambiguous or incomplete time has no offset yet. */ }
+  return <><form ref={form} className="grid gap-6" onChangeCapture={event => {
+    const target = event.target;
+    if (target instanceof HTMLElement && target.closest("[data-intake-time]")) timezoneAuthored.current = true;
+  }} onInvalidCapture={event => { const target = event.target as HTMLElement; const panel = target.closest<HTMLElement>("[data-step]"); if (panel) { event.preventDefault(); setActiveStep(panel.dataset.step as EventEditorStep); requestAnimationFrame(() => { const disclosure = target.closest("details"); if (disclosure) { disclosure.open = true; setEndOpen(true); } target.focus(); }); } }} onSubmit={event => { event.preventDefault(); if (activeStep === "Review") void submit(true); else setActiveStep(steps[steps.indexOf(activeStep) + 1]); }}>
     <EventEditorSteps heading={heading} actions={onSource ? <Button type="button" variant="primary" className="min-h-11 gap-2" onClick={() => {
       const invalid = form.current?.querySelector<HTMLInputElement>('[data-intake-time][aria-invalid="true"]');
       if (invalid) reveal(invalid.closest('[data-step="Lineup"]') ? "Lineup" : "Details", `[name="${invalid.name}"]`);
@@ -248,7 +266,7 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
     <Field>Event title<Input name="title" value={fields.title ?? ""} maxLength={120} onChange={event => set("title", event.target.value)} /></Field>
     <label className="flex items-center gap-2"><input type="checkbox" checked={fields.timeTba ?? false} onChange={event => toggleTba(event.target.checked)} />Time TBA</label>
     {fields.timeTba ? <Field>Starts<Input name="Starts" type="date" value={fields.eventDate ?? ""} onChange={event => changeDate(event.target.value || null)} /></Field> : null}
-    <div className="grid gap-2"><span className="text-sm font-medium">Time zone</span><EventTimezonePicker value={fields.timezone ?? null} date={fields.eventDate ?? null} onChange={changeTimezone} /></div>
+    <div className="grid gap-2"><span className="text-sm font-medium">Time zone</span><EventTimezonePicker value={fields.timezone ?? null} date={fields.eventDate ?? null} instant={timezoneInstant} preferredValue={savedTimezonePreference} onChange={changeTimezone} /></div>
     {!fields.timeTba ? <><div className="grid items-start gap-3 sm:grid-cols-2"><IntakeTime label="Starts" eventStart value={fields.start} date={fields.eventDate} timezone={fields.timezone} onChange={changeStart} /><details className="relative" open={endOpen} onToggle={event => setEndOpen(event.currentTarget.open)}><summary className={`cursor-pointer font-medium ${endOpen ? "absolute right-0 top-0 text-xs" : "text-sm"}`}>Add end time</summary><div><IntakeTime label="Ends (optional)" value={fields.end} date={fields.eventDate} timezone={fields.timezone} onChange={change => set("end", change.local)} /></div></details></div><IntakeTime label="Doors open" value={fields.doors} date={fields.eventDate} timezone={fields.timezone} onChange={change => set("doors", change.local)} /></> : null}
     <Field>Where (optional)<Input value={fields.venueLabel ?? ""} maxLength={120} onChange={event => set("venueLabel", event.target.value)} /></Field>
     <Field>World profile<Input value={fields.worldSlug ?? ""} maxLength={64} onChange={event => set("worldSlug", event.target.value)} /></Field>
@@ -285,6 +303,7 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
 
 function ConnectedIntake({ draftId, initialCommunitySlug, heading }: { draftId?: string; initialCommunitySlug?: string; heading?: ReactNode }) {
   const router = useRouter();
+  const viewer = useQuery(api.accounts.viewer);
   const loaded = useQuery(api.eventIntake.getEventIntakeDraft, draftId ? { draftId } : "skip");
   const save = useMutation(api.eventIntake.saveEventIntakeDraft);
   const publish = useAction(api.eventIntake.publishEventIntake);
@@ -340,7 +359,7 @@ function ConnectedIntake({ draftId, initialCommunitySlug, heading }: { draftId?:
   };
   if (draftId && loaded === undefined) return <>{heading}<p aria-busy="true">Loading draft…</p></>;
   if (draftId && loaded === null) return <>{heading}<Notice>Unavailable</Notice></>;
-  return <EventIntakeFieldsForm heading={heading} initialFields={loaded?.fields ?? { communitySlug: initialCommunitySlug, timeTba: false }} initialRevision={loaded?.version} onSource={sourceAction} initialArtworkSourceId={loaded?.artworkSourceId} onSave={async (fields, revision) => { await saveFields(fields, revision); }} onPublish={async (fields, revision) => {
+  return <EventIntakeFieldsForm heading={heading} savedTimezonePreference={viewer?.user.defaultEventTimezone} newDraft={!draftId} initialFields={loaded?.fields ?? { communitySlug: initialCommunitySlug, timeTba: false }} initialRevision={loaded?.version} onSource={sourceAction} initialArtworkSourceId={loaded?.artworkSourceId} onSave={async (fields, revision) => { await saveFields(fields, revision); }} onPublish={async (fields, revision) => {
     const current = await saveFields(fields, revision);
     if (request.current?.version !== current.version) request.current = { version: current.version, key: crypto.randomUUID() };
     const result = await publish({ draftId: current.draftId, expectedVersion: current.version, idempotencyKey: request.current.key });
