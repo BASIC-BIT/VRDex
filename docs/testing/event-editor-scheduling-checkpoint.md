@@ -197,3 +197,18 @@ The two conversion regressions first failed on missing stored source fields.
 Their GREEN assertions inspect actual stored metadata, supported command/query
 responses and restored operator times. Earlier logs remain separate from the
 `final-fix-tba-*` logs in the ignored task evidence folder.
+
+## PR review follow-up
+
+Clearing Starts before selecting a timezone retains the last valid scheduling anchor.
+The next valid start edit moves the lineup once, including contributor wall-clock
+reinterpretation. Rejected duration input restores the committed value; Escape cancels.
+Both staff duration controls commit on Enter or blur and cascade known durations.
+An incomplete row establishes its duration explicitly without guessing an old duration.
+Subminute values remain exact until an explicit valid edit.
+
+The account preference contract accepts valid named IANA identifiers, including
+`Etc/GMT+5` and legacy aliases; numeric offsets such as `+05:00` remain invalid.
+EST and EDT search still select `America/New_York`. Banning named constant-offset
+regions would require a separate preference/default policy decision, not a timezone
+migration in this fix.

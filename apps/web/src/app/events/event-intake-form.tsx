@@ -215,7 +215,15 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
   function changeTimezone(timezone: string | null) {
     timezoneAuthored.current = true;
     const next = resetTimeOccurrences(fields, timezone);
-    startAnchor.current = readIntakeInstant(next, next.start);
+    // Local lineup clocks change zone immediately, even while Starts is empty.
+    // Reinterpret the retained anchor in the same zone before the next start edit.
+    let nextAnchor = readIntakeInstant(next, next.start);
+    if (nextAnchor === undefined && startAnchor.current !== undefined && !fields.timeTba) {
+      try {
+        nextAnchor = readIntakeInstant(next, clearOccurrence(intakeLocalFromInstant(fields, startAnchor.current)));
+      } catch { /* An unresolved date or zone cannot establish a cascade anchor. */ }
+    }
+    startAnchor.current = nextAnchor;
     setFields(next);
     if (timedBackup.current) timedBackup.current = resetTimeOccurrences(timedBackup.current, timezone);
   }

@@ -93,15 +93,15 @@ test("Time TBA removal and reset never restore deleted intake rows @fixture", as
   await expect(page.locator('[data-lineup-row]')).toHaveCount(0);
 });
 
-async function canonicalStaff(page: Page) {
-  await page.addInitScript(() => localStorage.setItem("event-lineup-fixture-v1", JSON.stringify({
+async function canonicalStaff(page: Page, partial = false) {
+  await page.addInitScript(partial => localStorage.setItem("event-lineup-fixture-v1", JSON.stringify({
     id: "precise", slug: "precise", title: "Precise night", usesCanonicalLineup: true,
     startAt: Date.UTC(2027,9,15,20,0,10,123), endAt: Date.UTC(2027,9,15,21), timezone: "UTC", scheduleKind: "timed", status: "scheduled", communitySlug: "afterglow", publicationState: "published",
     source: { sourceType: "contributor", label: "Afterglow" }, watchSurfaceEnabled: true, watchMode: "performer_sequence",
     mediaLinks: [], authoredMediaLinks: [], worlds: [], participants: [],
-    slots: [{ clientKey: "exact-row", position: 0, startAt: Date.UTC(2027,9,15,20,0,10,123), endAt: Date.UTC(2027,9,15,21,0,30,456), displayLabel: "Aurora", roleLabel: "DJ", performer: { slug: "aurora", displayName: "Aurora", trustLabel: "claimed_verified" }, source: { sourceType: "contributor", label: "Original source" }, selectedStreamId: "vrcdn:aurora" }],
+    slots: [{ clientKey: "exact-row", position: 0, startAt: Date.UTC(2027,9,15,20,0,10,123), endAt: partial ? undefined : Date.UTC(2027,9,15,21,0,30,456), displayLabel: "Aurora", roleLabel: "DJ", performer: { slug: "aurora", displayName: "Aurora", trustLabel: "claimed_verified" }, source: { sourceType: "contributor", label: "Original source" }, selectedStreamId: "vrcdn:aurora" }],
     lineup: [], preservedParticipantAssociationIds: ["protected-person"], preservedSlotAssociationIds: ["protected-slot"], preservedWorldAssociationIds: ["protected-world"],
-  })));
+  })), partial);
   await page.goto("/playwright/event-lineup?editor");
 }
 
@@ -284,4 +284,91 @@ test("canonical scheduling requests surviving-match preservation on every save @
   await save();
   await nav(page, "Details"); await page.getByLabel("Starts", { exact: true }).fill("2027-10-15T20:15");
   await save(); await save();
+});
+
+for (const editor of ["staff", "intake"]) test(`${editor} retains the last start through a timezone change while Starts is empty @fixture`, async ({ page }) => {
+  if (editor === "staff") await canonicalStaff(page);
+  else await intake(page, { end: { time: "21:00" }, lineup: [{ clientKey: "a", position: 0, performerLabel: "A", start: { time: "20:00" }, end: { time: "21:00" } }] });
+  await page.getByLabel("Starts", { exact: true }).fill("");
+  await page.getByRole("button", { name: "Time zone", exact: true }).click();
+  await page.getByRole("combobox", { name: "Time zone", exact: true }).fill("Tokyo");
+  await page.getByRole("option").first().click();
+  await page.getByLabel("Starts", { exact: true }).fill("2027-10-15T20:15");
+  await nav(page, "Lineup");
+  await expect(page.locator('[data-lineup-row]')).toContainText("20:15");
+  await nav(page, "Details");
+  await page.getByLabel("Starts", { exact: true }).fill("2027-10-15T20:30");
+  await nav(page, "Lineup");
+  await expect(page.locator('[data-lineup-row]')).toContainText("20:30");
+  await page.getByRole("button", { name: "Set event end to lineup end", exact: true }).first().click();
+  await nav(page, "Review");
+  await page.getByRole("button", { name: editor === "staff" ? "Save changes" : "Save draft", exact: true }).click();
+  if (editor === "staff") {
+    const payload = await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!));
+    expect(payload.lineup[0].startAt).toBe(Date.UTC(2027, 9, 15, 11, 30));
+    expect(payload.lineup[0].endAt).toBe(Date.UTC(2027, 9, 15, 12, 30, 20, 333));
+  } else {
+    const payload = await page.evaluate(() => JSON.parse(sessionStorage.getItem("event-intake-fixture")!));
+    expect(payload.lineup[0].start).toEqual({ time: "20:30", dayOffset: 0 });
+  }
+});
+
+for (const editor of ["staff", "intake"]) test(`${editor} rejected and cancelled durations restore committed timing @fixture`, async ({ page }, testInfo) => {
+  if (editor === "staff") await canonicalStaff(page);
+  else await intake(page, { lineup: [{ clientKey: "a", position: 0, performerLabel: "A", start: { time: "20:00" }, end: { time: "21:00" } }] });
+  await nav(page, "Lineup");
+  const duration = page.locator('[data-lineup-row]').first().getByLabel("Duration", { exact: true });
+  const committed = editor === "staff" ? String(3_620_333 / 60_000) : "60";
+  for (const invalid of ["45.5", "0", "abc"]) {
+    await duration.fill(invalid); await duration.press("Enter");
+    await expect(duration).toHaveValue(committed);
+    await duration.fill(invalid); await duration.press("Tab");
+    await expect(duration).toHaveValue(committed);
+  }
+  await duration.fill("45"); await duration.press("Escape"); await duration.press("Tab");
+  await expect(duration).toHaveValue(committed);
+  await duration.fill("45"); await duration.press("Enter"); await duration.press("Tab");
+  await expect(duration).toHaveValue("45");
+  await expect(page.locator('[data-lineup-row]').first()).toContainText("20:45");
+  await page.screenshot({ path: testInfo.outputPath(`${editor}-rejected-duration.png`), fullPage: true });
+});
+
+test("advanced known duration commits one cascade and preserves precise clocks until edited @fixture", async ({ page }, testInfo) => {
+  await canonicalStaff(page); await nav(page, "Lineup");
+  await page.getByRole("button", { name: "Add slot at position 2", exact: true }).click();
+  await page.getByRole("button", { name: "Insert slot", exact: true }).click();
+  const rows = page.locator('[data-lineup-row]');
+  await rows.nth(1).getByRole("combobox", { name: "Person", exact: true }).fill("lumen");
+  await rows.first().locator("summary").click();
+  const duration = rows.first().getByLabel("Slot duration minutes", { exact: true });
+  await duration.focus(); await duration.press("Tab");
+  await expect(rows.first().getByLabel("Duration", { exact: true })).toHaveValue(String(3_620_333 / 60_000));
+  await duration.fill("45");
+  await expect(rows.first().getByLabel("Duration", { exact: true })).toHaveValue(String(3_620_333 / 60_000));
+  await expect(rows.nth(1)).toContainText("21:00:30.456");
+  await duration.press("Enter"); await duration.press("Tab");
+  await expect(rows.nth(1)).toContainText("20:45:10.123");
+  await expect(rows.first().getByLabel("Duration", { exact: true })).toHaveValue("45");
+  await page.screenshot({ path: testInfo.outputPath("advanced-duration.png"), fullPage: true });
+  await page.getByRole("button", { name: "Set event end to lineup end", exact: true }).first().click();
+  await nav(page, "Review"); await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  const payload = await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!));
+  expect(payload.lineup[1].startAt).toBe(Date.UTC(2027, 9, 15, 20, 45, 10, 123));
+  expect(payload.lineup[0].selectedStreamId).toBe("vrcdn:aurora");
+});
+
+test("advanced partial duration establishes an end only on explicit commit @fixture", async ({ page }) => {
+  await canonicalStaff(page, true); await nav(page, "Lineup");
+  const row = page.locator('[data-lineup-row]').first();
+  await expect(row.getByLabel("Duration", { exact: true })).toBeDisabled();
+  await row.locator("summary").click();
+  const duration = row.getByLabel("Slot duration minutes", { exact: true });
+  await duration.fill("45");
+  await expect(row.getByLabel("Duration", { exact: true })).toBeDisabled();
+  await duration.press("Enter"); await duration.press("Tab");
+  await expect(row.getByLabel("Duration", { exact: true })).toHaveValue("45");
+  await expect(row).toContainText("20:45:10.123");
+  await nav(page, "Review"); await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  const payload = await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!));
+  expect(payload.lineup[0].endAt).toBe(Date.UTC(2027, 9, 15, 20, 45, 10, 123));
 });

@@ -16,3 +16,9 @@ test("fixed offsets are not event timezone defaults", () => {
   assert.equal(resolveEventTimezoneDefault({ savedPreference: "+05:00", browserTimezone: "Europe/London" }), "Europe/London");
   assert.equal(resolveEventTimezoneDefault({ browserTimezone: "-04:00" }), "UTC");
 });
+
+test("named IANA zones remain valid preferences even with constant offsets", () => {
+  assert.equal(resolveEventTimezoneDefault({ savedPreference: "Etc/GMT+5", browserTimezone: "Europe/London" }), "Etc/GMT+5");
+  assert.equal(resolveEventTimezoneDefault({ browserTimezone: "Etc/GMT+5" }), "Etc/GMT+5");
+  assert.equal(resolveEventTimezoneDefault({ savedPreference: "UTC" }), "UTC");
+});

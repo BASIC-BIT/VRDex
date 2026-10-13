@@ -56,6 +56,14 @@ describe("private account event timezone preference", () => {
     assert.equal(await t.query(api.accounts.viewer, {}), null);
   });
 
+  it("accepts named IANA identifiers including fixed-offset regions and legacy aliases", async () => {
+    const { actor } = await fixture();
+    for (const timezone of ["Etc/GMT+5", "America/Indiana/Indianapolis", "UTC"]) {
+      await actor.mutation(api.accounts.setEventTimezonePreference, { timezone });
+      assert.equal((await actor.query(api.accounts.viewer, {}))?.user.defaultEventTimezone, timezone);
+    }
+  });
+
   it("clears the saved preference with null", async () => {
     const { actor, t, actorId } = await fixture();
     await actor.mutation(api.accounts.setEventTimezonePreference, {

@@ -927,9 +927,9 @@ function ConnectedEventEditorForm({
     const nextZone = value ?? "";
     try {
       const next = resolveStaffStartAt(startLocal, nextZone, "");
-      if (previewStart !== undefined) setSlotRows(applyStaffLineupTimings(slotRows, shiftLineupStart(staffTimings, next - previewStart), next).map((row, index) => ({ ...row, position: slotRows[index]?.position })));
+      if (startAnchor.current !== undefined) setSlotRows(applyStaffLineupTimings(slotRows, shiftLineupStart(readStaffLineupTimings(slotRows, startAnchor.current), next - startAnchor.current), next).map((row, index) => ({ ...row, position: slotRows[index]?.position })));
       startAnchor.current = next;
-    } catch { startAnchor.current = previewStart; }
+    } catch { /* Keep the last valid anchor while the authored start is incomplete. */ }
     setTimezone(nextZone); setOccurrence(""); setEndOccurrence(""); setEndAtOverride(undefined);
     if (displayedEndLocal) { setEndLocal(displayedEndLocal); setEndEdited(true); }
   }
@@ -1147,7 +1147,7 @@ function ConnectedEventEditorForm({
                   <span aria-hidden="true" className="text-muted transition group-open:rotate-45">+</span>
                 </summary>
                 <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                  {!timeTba ? <><Field>Slot offset minutes<Input data-slot-offset inputMode="numeric" value={slot.offsetMinutes} onChange={change => updateSlotRows(rows => rows.map(row => row.id === slot.id ? changeStaffSlotOffset(row, change.target.value, previewStart ?? NaN) : row))} /></Field><Field>Slot duration minutes<Input data-slot-duration inputMode="numeric" value={slot.durationMinutes} onChange={change => updateSlotRows(rows => rows.map(row => row.id === slot.id ? { ...row, durationMinutes: change.target.value, endAtOverride: undefined, durationMsOverride: undefined } : row))} /></Field></> : null}
+                  {!timeTba ? <><Field>Slot offset minutes<Input data-slot-offset inputMode="numeric" value={slot.offsetMinutes} onChange={change => updateSlotRows(rows => rows.map(row => row.id === slot.id ? changeStaffSlotOffset(row, change.target.value, previewStart ?? NaN) : row))} /></Field><EventSlotDuration detailed value={duration} unresolvedValue={slot.durationMinutes} onCommit={minutes => duration === undefined ? updateSlotRows(rows => rows.map(row => row.id === slot.id ? { ...row, durationMinutes: String(minutes), endAtOverride: undefined, durationMsOverride: undefined } : row)) : applyTimingEdit(changeLineupDuration(timings, slot.id, minutes))} /></> : null}
                   <Field className="text-xs text-muted">
                     Display name
                     <Input
