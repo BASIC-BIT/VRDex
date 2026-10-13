@@ -1336,6 +1336,10 @@ export default defineSchema({
     performerLabel: v.string(),
     personProfileId: v.optional(v.id("profiles")),
     roleLabel: v.optional(v.string()),
+    sourceType: v.optional(eventSourceType),
+    sourceLabel: v.optional(v.string()),
+    sourceUrl: v.optional(v.string()),
+    notes: v.optional(v.string()),
     updatedAt: v.number(),
   }).index("by_eventId_position", ["eventId", "position"]),
   eventSlots: defineTable({

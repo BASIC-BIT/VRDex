@@ -150,6 +150,13 @@ These controller decisions narrow implementation at existing command boundaries:
   API-owner compatibility. This narrow update-only exception to the initial
   no-payload-expansion constraint leaves create and permission/revision authority intact.
 
+- Untimed `eventLineupEntries` may carry optional internal `sourceType`, `sourceLabel`,
+  `sourceUrl` and `notes` to preserve provenance through stable-key timed/untimed
+  conversions and repeated saves. This is a narrow storage exception, with no
+  public wire/input expansion, hidden clocks, backfill or auth change. Old records
+  and new rows fall back to event source type/label. Legacy date-only conversion
+  carries the same provenance; deliberate source edits retain their explicit route.
+
 See [browser command details](../../engineering/event-contribution-browser.md#legacy-stored-slot-identity).
 The journey diagram above remains unchanged because entry and return routes did not change.
 

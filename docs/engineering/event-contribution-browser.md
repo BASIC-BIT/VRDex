@@ -166,7 +166,25 @@ performers have editable names, optional person matches and roles, plus remove
 controls. Lineup or schedule edits replace the canonical lineup and retain
 unchanged timed-set stream selections. Content-only saves leave contributed
 performer links unconfirmed. Schedule-only saves preserve each existing person
-match's confirmation state. Clearing optional editor fields sends explicit
+match's confirmation state. Canonical editor updates request that preservation
+consistently, including repeated saves. The backend compares stable lineup keys
+and resolved people across the whole submitted lineup: a genuinely new or
+replaced explicit person match retains the existing staff confirmation behavior,
+even when another unchanged row names the same person. Timing, ordering, labels
+and roles alone do not confirm an unchanged match.
+
+Surviving canonical slots retain their source type, label, URL and notes.
+Stable-key timed-to-untimed and untimed-to-timed conversions carry that provenance
+through four optional internal fields on `eventLineupEntries`; unchanged untimed
+saves retain it too. Legacy date-only conversion uses the same storage fields.
+Old untimed records and new rows use event source type/label defaults. The untimed
+records contain no hidden clocks, and canonical inputs and public/operator lineup
+projections expose none of these internal provenance fields. No backfill is needed.
+Existing participant records also retain their IDs and source metadata while
+schedule, role and confirmation fields update. Removed people and duplicate
+participant records are deleted; new records use event provenance. Deliberate
+source edits remain available through the existing explicit source-capable
+commands. Clearing optional editor fields sends explicit
 values so they do not silently retain old content. Contributor correction
 readback merges timed and untimed performers by authored position. Existing
 timed owner events keep the slot/participant editor.

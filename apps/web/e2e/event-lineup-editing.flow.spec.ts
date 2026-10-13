@@ -256,3 +256,32 @@ test("legacy fixture allocates unique identities across repeated inserted saves 
   await save();
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!).storedSlotAssociations)).toEqual(nextIds.map((slotId, position) => ({ slotId, position })));
 });
+
+
+test("canonical scheduling requests surviving-match preservation on every save @fixture", async ({ page }) => {
+  await canonicalStaff(page);
+  page.on("dialog", dialog => dialog.accept());
+  await page.getByLabel("Ends (optional)", { exact: true }).fill("2027-10-16T00:00");
+  const save = async () => {
+    await page.evaluate(() => localStorage.removeItem("event-lineup-fixture-v1-submission"));
+    await nav(page, "Review");
+    await page.getByRole("button", { name: /^(Unpublish and save draft|Save draft)$/ }).click();
+    await expect(page.getByRole("button", { name: "Save draft", exact: true })).toBeEnabled();
+    const payload = await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!));
+    expect(payload.preserveLineupConfirmation).toBe(true);
+    expect(payload.lineup.some((row: { clientKey: string; personSlug?: string }) => row.clientKey === "exact-row" && row.personSlug === "aurora")).toBe(true);
+  };
+  await nav(page, "Lineup");
+  const duration = page.locator('[data-lineup-row]').first().getByLabel("Duration", { exact: true });
+  await duration.fill("45"); await duration.press("Enter");
+  await save(); await save();
+  await nav(page, "Lineup");
+  await page.getByRole("button", { name: "Add slot at position 1", exact: true }).click();
+  await page.getByRole("button", { name: "Insert slot", exact: true }).click();
+  await save();
+  await nav(page, "Lineup");
+  await page.locator('[data-lineup-row]').first().getByRole("button", { name: "Remove slot", exact: true }).click();
+  await save();
+  await nav(page, "Details"); await page.getByLabel("Starts", { exact: true }).fill("2027-10-15T20:15");
+  await save(); await save();
+});

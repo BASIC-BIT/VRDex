@@ -19,6 +19,11 @@ uses protected readback IDs at pre-sort submitted positions, validates current-e
 membership and uniqueness, preserves omitted source/hidden links/unchanged streams,
 and returns IDs reconciled by submitted row key. Old callers without the argument
 retain compatibility. Create and authority contracts remain unchanged.
+The fourth ruling permits four optional internal untimed provenance fields so
+stable-key timed/untimed conversions retain source type, label, URL and notes.
+Canonical input and public/operator projections stay unchanged. No clocks,
+backfill or auth expansion is included; old records use event provenance defaults.
+The final fix tests both conversion paths, repeated saves and projection boundaries.
 
 Implementation runs in `C:/Users/steve/.codex/worktrees/event-editor-scheduling/VRDex`
 on `codex/event-editor-scheduling`. The planning checkout below is historical context.

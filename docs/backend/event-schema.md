@@ -175,6 +175,16 @@ caches for discovery. Date-only events accept untimed rows only. Existing timed
 sets retain their playback identity and selected stream when the person is unchanged.
 The legacy owner editor continues using its existing slot and participant writes.
 
+Untimed storage also accepts optional internal `sourceType`, `sourceLabel`,
+`sourceUrl` and `notes`. Canonical stable-key conversions and legacy date-only
+conversion retain slot provenance in these fields without retaining hidden times.
+Unchanged untimed saves carry it forward; retiming restores it onto the new slot.
+Old records without these fields and new rows fall back to event source type/label.
+There is no backfill. These fields are absent from canonical wire inputs and the
+explicit public/editor lineup and operator slot projections. After retiming, the
+existing public `slots[].source` still exposes source type, label and sanitized
+URL; notes stay private. That timed-slot projection is unchanged.
+
 The owner/staff editor uses the shared Details, Lineup, and Review
 navigation. A Details disclosure retains the existing poster URL and media/link fields;
 private single-poster intake remains a separate contributor workflow. Details

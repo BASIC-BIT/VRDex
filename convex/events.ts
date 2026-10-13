@@ -1405,6 +1405,8 @@ async function updateCommunityEventRecord(
         eventId: event._id, clientKey: slot.clientKey ?? slot._id, position: slot.position,
         performerLabel: slot.displayLabel, personProfileId: slot.personProfileId,
         roleLabel: slot.roleLabel, updatedAt: now,
+        sourceType: slot.sourceType, sourceLabel: slot.sourceLabel,
+        sourceUrl: slot.sourceUrl, notes: slot.notes,
       });
       await db.delete(slot._id);
     }

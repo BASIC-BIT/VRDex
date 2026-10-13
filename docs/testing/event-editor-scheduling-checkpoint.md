@@ -21,7 +21,7 @@ can save unresolved overruns; staff saves/publication retain existing bounds val
 Timezone preference precedence is authored draft/event, then Account default for a new
 draft, browser, UTC. Event timezone selection does not write the account default.
 
-The controller's three implementation rulings are retained:
+The controller's four implementation rulings are retained:
 
 1. Shared `getLineupEndAt` supplies fully-known derivation; untimed rows do not add bounds
    and incomplete timed rows prevent a whole-lineup end claim.
@@ -36,6 +36,11 @@ The controller's three implementation rulings are retained:
    reconcile by submitted local key across pending edits. Create, actor permissions,
    revision authority and absent-argument API-owner compatibility stay unchanged.
    See [the full command boundary](../engineering/event-contribution-browser.md#legacy-stored-slot-identity).
+
+4. Untimed storage may carry optional `sourceType`, `sourceLabel`, `sourceUrl` and
+   `notes` for stable-key conversion preservation. No hidden clocks, migration,
+   public wire/input expansion or auth change. Old rows use event provenance
+   defaults; canonical and legacy date-only conversions carry distinct sources.
 
 ## Approved copy
 
@@ -115,3 +120,80 @@ persistence, deployment or production acceptance. No worker pushed, created a PR
 merged or deployed. PR #365 at `77146a33b` remains open in the last controller refresh;
 the controller must establish the final base, review the combined branch and apply the
 30-minute current-head PR gate before declaring merge readiness.
+
+## Final canonical preservation fix
+
+The whole-branch review of `2a9394bdc1289a1118ad3b7d5a666bb32e4f13c6` found two
+canonical preservation defects: timing edits could confirm unchanged contributed
+person matches, and matched slots could inherit the event's source label.
+
+Canonical editor updates now consistently request confirmation preservation.
+The backend evaluates all submitted stable-key/person pairs before writing.
+Unchanged surviving matches retain their prior confirmation and confirmed-at
+value; a genuinely new or replaced explicit match keeps existing staff confirmation
+behavior, including when the same person appears in another unchanged row.
+Input ordering does not determine that confirmation result.
+
+Matched slots retain their distinct source type, label, URL and notes. The adjacent
+participant writer now patches surviving records, retaining their IDs and source
+metadata while updating schedule, role and confirmation fields. Deliberate orphans
+and duplicate participant records are still removed. New slots and participants
+use event provenance. Existing explicit source-capable commands retain their role.
+The fourth ruling extends internal untimed storage by four optional provenance
+fields to preserve timed/untimed conversions. Public inputs/projections and auth
+remain unchanged; no hidden clocks or backfill are introduced.
+
+Actual backend regressions create contributed events through intake publication,
+then exercise insertion, duration, removal, start changes, untiming, reset and
+repeated staff saves. Separate source tests establish distinct slot/participant
+provenance through supported legacy update commands, then perform canonical timing
+saves. New/replaced matches and both duplicate-person input orders are covered.
+Browser regressions inspect the preservation flag over repeated real form payloads.
+
+Initial final fix checks (before the fourth-ruling storage extension):
+
+| Command | Result |
+| --- | --- |
+| Focused actual backend regressions, first GREEN | 38 passed, 0 failed |
+| `pnpm test:backend`, including seven new preservation cases | 1,288 passed, 0 failed |
+| `pnpm typecheck:backend` and web typecheck | Passed |
+| Scoped web ESLint | Passed |
+| `pnpm check:backend:generated`, anonymous local 3340/3341 | Passed, health ok and generated diff empty |
+| Lineup, Review actions, end and validation flow specs, desktop/mobile | 96 passed, 0 failed |
+
+No layout or public product prose changed, and no golden files were regenerated.
+The previous visual evidence remains applicable. Changed documentation is checked
+with markdown lint and the documentation build. Exact RED/GREEN, terminal checks
+and self-review evidence are retained in the ignored `final-fix-report.md` beside
+the task reports. The controller's scoped final re-review and remote delivery gates
+remain outstanding; these local results do not claim hosted authentication or
+production acceptance.
+
+## Fourth-ruling storage verification
+
+The completed storage extension preserves provenance over canonical timed/untimed
+roundtrips, unchanged untimed saves and legacy event date-only conversion. Real
+query regressions verify public/editor lineups omit all four fields and hidden
+clocks; operator readback has no current/next slot while untimed and returns the
+restored schedule without provenance after retiming. Surviving participant IDs
+remain stable. Old optional-field-free records and new rows use event defaults.
+After retiming, the existing public `slots[].source` attribution returns type,
+label and sanitized URL; notes stay private. No public DTO fields were added.
+
+Fresh checks after the schema/source change:
+
+| Command | Result |
+| --- | --- |
+| Actual Convex preservation file | 10 passed, 0 failed |
+| `pnpm test:backend` | 1,291 passed, 0 failed, 131 suites |
+| `pnpm typecheck:backend` and web typecheck | Passed |
+| Scoped web ESLint | Passed |
+| `pnpm check:backend:generated`, local 3340/3341 | Passed, health ok, generated diff empty |
+| Lineup, Review actions, end and validation flow specs, desktop/mobile | 96 passed, 0 failed |
+| `pnpm lint:markdown` | Passed, 205 files, zero errors |
+| `pnpm build:docs` | Passed |
+
+The two conversion regressions first failed on missing stored source fields.
+Their GREEN assertions inspect actual stored metadata, supported command/query
+responses and restored operator times. Earlier logs remain separate from the
+`final-fix-tba-*` logs in the ignored task evidence folder.

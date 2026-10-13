@@ -734,7 +734,7 @@ function ConnectedEventEditorForm({
                 ? { published: false }
                 : {}),
             ...payload,
-            preserveLineupConfirmation: usesCanonicalLineup && !lineupEdited && startAt !== event.startAt,
+            preserveLineupConfirmation: usesCanonicalLineup,
             doorsOpenAt: doorsOffsetMinutes === undefined ? null : startAt! - doorsOffsetMinutes * 60_000,
             endAt: endAt ?? null,
             summary: payload.summary ?? null,
