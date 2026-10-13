@@ -329,6 +329,8 @@ export async function applyReviewDecision(
       throw new Error("The profile media placement changed. Refresh before deciding.");
     if (await privateReplacementRequiresElevatedAccess(ctx, profile._id, snapshot.currentPlacement?.assetId, ownsProfile || access.superAdmin))
       throw new Error("Private replacement requires profile owner or admin access.");
+    if (!submission.uploadIntentId && !commandEvidence)
+      throw new ConvexError({ code: "MEDIA_REVIEW_VERSION_REQUIRED" });
     const operationId = commandEvidence?.operationId ?? crypto.randomUUID();
     if (submission.requestedPlacement !== "profile_image" && submission.requestedPlacement !== "primary_logo")
       throw new Error("Identity placement is invalid.");

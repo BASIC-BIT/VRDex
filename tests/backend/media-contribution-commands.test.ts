@@ -4,10 +4,41 @@ import { convexTest } from "convex-test";
 import { api, internal } from "../../convex/_generated/api";
 import { modules, schema, seed, createAndUpload } from "./_mediaReviewFixture";
 import { getProfileMediaVersion, getPublicProfileMediaKit, selectProfileAssetIdentity } from "../../convex/_profileAssets";
+import { publishedContributionDetailSchema, reviewDetailSchema } from "../../packages/api-contracts/src/media-review";
 
 process.env.VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED = "true";
 process.env.VRDEX_PROFILE_MEDIA_DIRECT_UPLOAD_ENABLED = "true";
 process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "true";
+
+
+it("round-trips a normalized 4096-character source and refuses encoded oversize metadata without changing the asset", async () => {
+  const f = await fixture(); const before = await f.detail();
+  const prefix = "https://source.example/";
+  const exact = prefix + "a".repeat(4096 - prefix.length);
+  assert.equal((await f.actor.mutation(api.profileMediaSubmissions.manageContribution, {
+    submissionId: f.intent.submissionId, expectedContributionVersion: before.contributionVersion,
+    idempotencyKey: "max-source", action: "update_metadata", metadata: { sourceUrl: exact },
+  })).operationState, "committed");
+  const current = await f.detail();
+  assert.equal(publishedContributionDetailSchema.parse(current).metadata.sourceUrl, exact);
+  for (const sourceUrl of [prefix + "é".repeat(800), exact + "x"]) {
+    assert.ok(new URL(sourceUrl).href.length > 4096);
+    const args = { submissionId: f.intent.submissionId, expectedContributionVersion: current.contributionVersion,
+      idempotencyKey: sourceUrl === exact + "x" ? "raw-oversize" : "encoded-oversize",
+      action: "update_metadata" as const, metadata: { sourceUrl } };
+    if (sourceUrl.length > 4096) await assert.rejects(f.actor.mutation(api.profileMediaSubmissions.manageContribution, args));
+    else assert.equal((await f.actor.mutation(api.profileMediaSubmissions.manageContribution, args)).code, "invalid_metadata");
+    assert.deepEqual(await f.detail(), current);
+  }
+  await occupyFallback(f);
+  const fresh = await f.detail();
+  const proposal = await f.actor.mutation(api.profileMediaSubmissions.proposePlacement, {
+    submissionId: f.intent.submissionId, expectedContributionVersion: fresh.contributionVersion, idempotencyKey: "review-max-source",
+  });
+  const review = await f.t.withIdentity(f.s.moderatorIdentity).query(api.profileMediaSubmissions.reviewDetail, { submissionId: proposal.resourceId! });
+  assert.ok(review);
+  assert.equal(reviewDetailSchema.parse(review).candidate.sourceUrl, exact);
+});
 
 it("corrects own approved kit metadata without publisher authority and keeps evidence immutable", async () => {
   const f = await fixture();
@@ -124,6 +155,59 @@ it("metadata correction invalidates inspected placement review and refreshes its
   assert.equal(after.credit, "Corrected credit");
   assert.equal(after.sourceUrl, "https://corrected.example/source");
   assert.equal((await reviewer.mutation(api.profileMediaSubmissions.decideWithReceipt, { submissionId: proposal.resourceId!, expectedReviewVersion: before.reviewVersion, decision: "approve", privateReason: "Checked", idempotencyKey: "stale" })).code, "review_changed");
+});
+
+for (const metadata of [{ credit: "Edited credit" }, { sourceUrl: "https://edited.example/source" },
+  { label: "Edited title" }, { altText: "Edited alt text" }]) {
+  it(`requires a review-version receipt for existing-asset legacy approval after ${Object.keys(metadata)[0]} changes`, async () => {
+    const f = await fixture(); await occupyFallback(f); const d = await f.detail();
+    const proposal = await f.actor.mutation(api.profileMediaSubmissions.proposePlacement, {
+      submissionId: f.intent.submissionId, expectedContributionVersion: d.contributionVersion, idempotencyKey: "proposal",
+    });
+    const reviewer = f.t.withIdentity(f.s.moderatorIdentity);
+    const before = await reviewer.query(api.profileMediaSubmissions.reviewDetail, { submissionId: proposal.resourceId! });
+    assert.ok(before);
+    assert.equal((await f.actor.mutation(api.profileMediaSubmissions.manageContribution, {
+      submissionId: f.intent.submissionId, expectedContributionVersion: d.contributionVersion,
+      idempotencyKey: "edit", action: "update_metadata", metadata,
+    })).operationState, "committed");
+    await assert.rejects(reviewer.mutation(api.profileMediaSubmissions.decide, {
+      submissionId: proposal.resourceId!, expectedProfileUpdatedAt: before.currentProfileUpdatedAt,
+      decision: "approve", privateReason: "Inspected earlier",
+    }), /MEDIA_REVIEW_VERSION_REQUIRED/);
+    assert.equal((await reviewer.mutation(api.profileMediaSubmissions.decideWithReceipt, {
+      submissionId: proposal.resourceId!, expectedReviewVersion: before.reviewVersion,
+      decision: "approve", privateReason: "Inspected earlier", idempotencyKey: "stale",
+    })).code, "review_changed");
+    const current = await reviewer.query(api.profileMediaSubmissions.reviewDetail, { submissionId: proposal.resourceId! });
+    assert.ok(current);
+    const args = { submissionId: proposal.resourceId!, expectedReviewVersion: current.reviewVersion,
+      decision: "approve" as const, privateReason: "Fresh inspection", idempotencyKey: "fresh" };
+    const receipt = await reviewer.mutation(api.profileMediaSubmissions.decideWithReceipt, args);
+    assert.equal(receipt.operationState, "committed");
+    assert.deepEqual(await reviewer.mutation(api.profileMediaSubmissions.decideWithReceipt, args), receipt);
+  });
+}
+
+it("keeps legacy rejection of an existing-asset proposal and real upload-backed approval", async () => {
+  const f = await fixture(); await occupyFallback(f); const d = await f.detail();
+  const proposal = await f.actor.mutation(api.profileMediaSubmissions.proposePlacement, {
+    submissionId: f.intent.submissionId, expectedContributionVersion: d.contributionVersion, idempotencyKey: "proposal",
+  });
+  const reviewer = f.t.withIdentity(f.s.moderatorIdentity);
+  const detail = await reviewer.query(api.profileMediaSubmissions.reviewDetail, { submissionId: proposal.resourceId! });
+  assert.ok(detail);
+  assert.equal((await reviewer.mutation(api.profileMediaSubmissions.decide, {
+    submissionId: proposal.resourceId!, expectedProfileUpdatedAt: detail.currentProfileUpdatedAt,
+    decision: "reject", privateReason: "Reviewed", publicDisposition: "Declined",
+  })).status, "rejected");
+  const t = convexTest({ schema, modules }); const s = await seed(t);
+  const { intent } = await createAndUpload(t, s);
+  await t.run(ctx => ctx.db.patch(intent.submissionId, { requestKind: "identity_placement" }));
+  assert.equal((await t.withIdentity(s.moderatorIdentity).mutation(api.profileMediaSubmissions.decide, {
+    submissionId: intent.submissionId, expectedProfileUpdatedAt: (await t.run(ctx => ctx.db.get(s.profileId)))!.updatedAt,
+    decision: "approve", privateReason: "Uploaded candidate inspected",
+  })).status, "approved");
 });
 
 async function fixture(profileType: "person" | "community" = "person", independentlyApproved = false) {
@@ -697,6 +781,127 @@ it("inherits only the original batch assignment for a candidate replacement", as
   await assert.rejects(reviewer.query(api.profileMediaSubmissions.reviewDetail, { submissionId: p.resourceId! }), /ACCESS_REQUIRED/);
   await f.t.run(ctx => ctx.db.patch(assignment.id, { active: true }));
   assert.equal((await reviewer.mutation(api.profileMediaSubmissions.decideWithReceipt, { submissionId: p.resourceId!, expectedReviewVersion: detail.reviewVersion, decision: "approve", privateReason: "Assigned replacement checked", idempotencyKey: "assigned-approve" })).operationState, "committed");
+});
+
+it("resumes bounded batch expansion across revisions without dropped or duplicate proposals and rechecks cursor authority", async () => {
+  const f = await fixture(); await occupyFallback(f); const d = await f.detail();
+  const proposed = await f.actor.mutation(api.profileMediaSubmissions.proposePlacement, {
+    submissionId: f.intent.submissionId, expectedContributionVersion: d.contributionVersion, idempotencyKey: "queue-proposal",
+  });
+  const other = await seed(f.t, "community");
+  const setup = await f.t.run(async ctx => {
+    const grants = await ctx.db.query("accountFeatureGrants").collect();
+    const grant = grants.find(g => g.userId === f.s.moderatorUserId)!;
+    await ctx.db.patch(grant._id, { feature: "media_reviewer" });
+    const batchId = await ctx.db.insert("contributionBatches", { actorUserId: f.s.contributorUserId,
+      idempotencyKey: "pagination", label: "Source", archived: false, rowCount: 3, createdAt: Date.now() });
+    const addRevision = async (itemKey: string, submissionId?: typeof f.intent.submissionId) => {
+      const revisionId = await ctx.db.insert("contributionItemRevisions", { actorUserId: f.s.contributorUserId,
+        batchId, itemKey, revision: 1, payload: "{}", bytes: 2, createdAt: Date.now() });
+      if (submissionId) await ctx.db.insert("contributionItemAttempts", { actorUserId: f.s.contributorUserId,
+        revisionId, oauthClientId: "client", submissionId, receipt: { operationId: itemKey, operationState: "committed" }, createdAt: Date.now() });
+    };
+    await addRevision("a-source", f.intent.submissionId);
+    await addRevision("b-nonmatching");
+    const proposalId = ctx.db.normalizeId("profileMediaSubmissions", proposed.resourceId!)!;
+    const { _id, _creationTime, ...proposal } = (await ctx.db.get(proposalId))!;
+    const ids = [proposalId];
+    for (let i = 0; i < 3; i++) ids.push(await ctx.db.insert("profileMediaSubmissions", { ...proposal, createdAt: Date.now() + i }));
+    await ctx.db.insert("profileMediaSubmissions", { ...proposal, status: "under_review" });
+    await ctx.db.insert("profileMediaSubmissions", { ...proposal, expiresAt: Date.now() - 1 });
+    const foreignId = await ctx.db.insert("profileMediaSubmissions", { ...proposal, profileId: other.profileId });
+    const { _id: sourceId, _creationTime: sourceTime, ...source } = (await ctx.db.get(f.intent.submissionId))!;
+    const secondSource = await ctx.db.insert("profileMediaSubmissions", { ...source, profileId: other.profileId });
+    const { _id: assetId, _creationTime: assetTime, ...asset } = (await ctx.db.get(d.assetId))!;
+    const secondAsset = await ctx.db.insert("profileAssets", { ...asset, profileId: other.profileId, sourceSubmissionId: secondSource });
+    await ctx.db.patch(secondSource, { approvedAssetId: secondAsset });
+    const secondProposal = await ctx.db.insert("profileMediaSubmissions", { ...proposal, profileId: other.profileId, candidateAssetId: secondAsset });
+    await addRevision("c-source", secondSource);
+    const assignment = await ctx.db.insert("contributionBatchReviewers", { batchId, reviewerUserId: f.s.moderatorUserId, active: true, expiresAt: Date.now() + 60000 });
+    return { batchId, assignment, grantId: grant._id, ids, secondProposal, foreignId };
+  });
+  const reviewer = f.t.withIdentity(f.s.moderatorIdentity);
+  const args = { batchId: setup.batchId, status: "submitted" as const, paginationOpts: { cursor: null, numItems: 1 } };
+  const first = await reviewer.query(api.profileMediaSubmissions.listForReview, args);
+  assert.equal(first.page.length, 1); assert.equal(first.isDone, false);
+  const full = await reviewer.query(api.profileMediaSubmissions.listForReview, { ...args, paginationOpts: { cursor: null, numItems: 20 } });
+  assert.deepEqual(full.page.map(row => row.submissionId).sort(), [...setup.ids, setup.secondProposal].sort());
+  assert.equal(full.isDone, true);
+  const buffered = await reviewer.query(api.profileMediaSubmissions.listForReview, { ...args, paginationOpts: { cursor: null, numItems: 3 } });
+  assert.equal(buffered.page.length, 3);
+  const bufferedIds = buffered.page.map(row => row.submissionId);
+  let bufferedPage = buffered;
+  for (let n = 0; !bufferedPage.isDone && n < 10; n++) {
+    bufferedPage = await reviewer.query(api.profileMediaSubmissions.listForReview, { ...args, paginationOpts: { cursor: bufferedPage.continueCursor, numItems: 1 } });
+    assert.ok(bufferedPage.page.length <= 1);
+    bufferedIds.push(...bufferedPage.page.map(row => row.submissionId));
+  }
+  assert.equal(bufferedPage.isDone, true);
+  assert.deepEqual([...bufferedIds].sort(), [...setup.ids, setup.secondProposal].sort());
+  assert.equal(new Set(bufferedIds).size, bufferedIds.length);
+  const bounded = await reviewer.query(api.profileMediaSubmissions.listForReview, {
+    ...args, paginationOpts: { ...args.paginationOpts, numItems: 40, endCursor: first.continueCursor },
+  });
+  assert.deepEqual(bounded.page, first.page); assert.equal(bounded.isDone, true);
+  const scope = JSON.parse(first.continueCursor);
+  const inner = JSON.parse(scope.cursor);
+  const foreignRevision = await f.t.run(async ctx => {
+    const batchId = await ctx.db.insert("contributionBatches", { actorUserId: f.s.contributorUserId,
+      idempotencyKey: "foreign-cursor", label: "Other", archived: false, rowCount: 1, createdAt: Date.now() });
+    return await ctx.db.insert("contributionItemRevisions", { actorUserId: f.s.contributorUserId,
+      batchId, itemKey: "other", revision: 1, payload: "{}", bytes: 2, createdAt: Date.now() });
+  });
+  for (const cursor of ["malformed", JSON.stringify({ ...scope, cursor: "{}" }),
+    JSON.stringify({ ...scope, cursor: JSON.stringify({ ...inner, revisionIds: [foreignRevision] }) }),
+    JSON.stringify({ ...scope, cursor: JSON.stringify({ ...inner, submissionIds: [...inner.submissionIds, ...inner.submissionIds] }) }),
+    JSON.stringify({ ...scope, cursor: JSON.stringify({ ...inner, submissionIds: [setup.foreignId] }) })])
+    await assert.rejects(reviewer.query(api.profileMediaSubmissions.listForReview, { ...args, paginationOpts: { cursor, numItems: 1 } }), /CURSOR/);
+  await assert.rejects(reviewer.query(api.profileMediaSubmissions.listForReview, {
+    ...args, paginationOpts: { cursor: null, numItems: 1,
+      endCursor: JSON.stringify({ ...scope, cursor: JSON.stringify({ ...inner, revisionIds: [foreignRevision] }) }) },
+  }), /CURSOR/);
+  for (const change of [{ status: "under_review" as const }, { profileId: other.profileId }])
+    await assert.rejects(reviewer.query(api.profileMediaSubmissions.listForReview, { ...args, ...change, paginationOpts: { cursor: first.continueCursor, numItems: 1 } }), /CURSOR/);
+  for (const numItems of [0, 41, 1.5])
+    await assert.rejects(reviewer.query(api.profileMediaSubmissions.listForReview, { ...args, paginationOpts: { cursor: null, numItems } }), /Invalid review page/);
+  const seen = first.page.map(row => row.submissionId);
+  let page = first;
+  for (let i = 0; !page.isDone && i < 12; i++) {
+    page = await reviewer.query(api.profileMediaSubmissions.listForReview, { ...args, paginationOpts: { cursor: page.continueCursor, numItems: 1 } });
+    assert.ok(page.page.length <= 1); seen.push(...page.page.map(row => row.submissionId));
+  }
+  assert.equal(page.isDone, true);
+  assert.deepEqual([...seen].sort(), [...setup.ids, setup.secondProposal].sort());
+  assert.equal(new Set(seen).size, seen.length);
+  const changing = setup.ids.filter(id => id !== first.page[0].submissionId);
+  await f.t.run(async ctx => {
+    await ctx.db.patch(first.page[0].submissionId, { status: "rejected" });
+    await ctx.db.patch(changing[0], { expiresAt: Date.now() - 1 });
+    await ctx.db.patch(changing[1], { status: "under_review" });
+  });
+  const resumed = await reviewer.query(api.profileMediaSubmissions.listForReview, { ...args, paginationOpts: { cursor: first.continueCursor, numItems: 40 } });
+  assert.deepEqual(resumed.page.map(row => row.submissionId), [changing[2]]);
+  const matching = await reviewer.query(api.profileMediaSubmissions.listForReview, {
+    ...args, profileId: f.s.profileId, paginationOpts: { cursor: null, numItems: 40 },
+  });
+  assert.deepEqual(matching.page.map(row => row.submissionId), [changing[2]]);
+  const otherStatus = await reviewer.query(api.profileMediaSubmissions.listForReview, {
+    ...args, status: "under_review", paginationOpts: { cursor: null, numItems: 40 },
+  });
+  assert.equal(otherStatus.page.length, 2);
+  await f.t.run(ctx => ctx.db.patch(setup.assignment, { active: false }));
+  await assert.rejects(reviewer.query(api.profileMediaSubmissions.listForReview, { ...args, paginationOpts: { cursor: first.continueCursor, numItems: 1 } }), /BATCH_UNAVAILABLE/);
+  await f.t.run(async ctx => { await ctx.db.patch(setup.assignment, { active: true }); await ctx.db.patch(setup.grantId, { state: "revoked" }); });
+  await assert.rejects(reviewer.query(api.profileMediaSubmissions.listForReview, { ...args, paginationOpts: { cursor: first.continueCursor, numItems: 1 } }), /BATCH_UNAVAILABLE/);
+  await f.t.run(async ctx => {
+    await ctx.db.patch(setup.grantId, { state: "active" });
+    const revisionId = await ctx.db.insert("contributionItemRevisions", { actorUserId: f.s.contributorUserId,
+      batchId: setup.batchId, itemKey: "duplicate-source", revision: 2, payload: "{}", bytes: 2, createdAt: Date.now() });
+    await ctx.db.insert("contributionItemAttempts", { actorUserId: f.s.contributorUserId, revisionId,
+      oauthClientId: "client", submissionId: f.intent.submissionId, receipt: { operationId: "duplicate", operationState: "committed" }, createdAt: Date.now() });
+  });
+  const uniqueOnly = await reviewer.query(api.profileMediaSubmissions.listForReview, { ...args, paginationOpts: { cursor: null, numItems: 40 } });
+  assert.deepEqual(uniqueOnly.page.map(row => row.submissionId), [setup.secondProposal]);
 });
 it("unbatched replacement refuses an ordinary reviewer and keeps distinct admin review", async () => {
   const f = await fixture(); await occupyFallback(f); const d = await f.detail();

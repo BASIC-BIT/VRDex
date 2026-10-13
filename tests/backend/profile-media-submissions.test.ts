@@ -16,6 +16,27 @@ process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "true";
 import { modules, schema, NOW, FIRST_REVIEW_PAGE, TARGET_PROFILE_SNAPSHOT, seed, createAndUpload } from "./_mediaReviewFixture";
 
 describe("unclaimed-profile media submissions", () => {
+  it("bounds normalized browser source URLs before admission and round-trips the maximum accepted URL", async () => {
+    const t = convexTest({ schema, modules }); const seeded = await seed(t);
+    const actor = t.withIdentity(seeded.contributorIdentity);
+    const prefix = "https://source.example/";
+    const exact = prefix + "a".repeat(4096 - prefix.length);
+    const input = { profileId: seeded.profileId, requestedPlacement: "gallery" as const,
+      originalFileName: "artist.webp", mimeType: "image/webp", byteSize: 512,
+      sourceUrl: exact, credit: "Artist", expectedProfileUpdatedAt: NOW };
+    const before = await t.run(async ctx => ({ submissions: await ctx.db.query("profileMediaSubmissions").collect(),
+      intents: await ctx.db.query("profileAssetUploadIntents").collect(), reservations: await ctx.db.query("contributionUploadReservations").collect() }));
+    for (const sourceUrl of [exact + "a", prefix + "é".repeat(800)]) {
+      assert.ok(new URL(sourceUrl).href.length > 4096);
+      await assert.rejects(actor.mutation(api.profileMediaSubmissions.createUploadIntent, { ...input, sourceUrl }), /MEDIA_SOURCE_URL_TOO_LONG/);
+    }
+    assert.deepEqual(await t.run(async ctx => ({ submissions: await ctx.db.query("profileMediaSubmissions").collect(),
+      intents: await ctx.db.query("profileAssetUploadIntents").collect(), reservations: await ctx.db.query("contributionUploadReservations").collect() })), before);
+    const created = await actor.mutation(api.profileMediaSubmissions.createUploadIntent, input);
+    assert.equal((await t.run(ctx => ctx.db.get(created.submissionId)))?.sourceUrl, exact);
+    assert.equal((await t.run(ctx => ctx.db.get(created.intentId)))?.sourceUrl, exact);
+    assert.equal((await actor.query(api.profileMediaSubmissions.getMine, { submissionId: created.submissionId }))?.sourceUrl, exact);
+  });
   for (const disposition of ["reject", "withdraw"] as const) {
     it(`schedules retained upload bytes after ${disposition} of an upload-backed identity proposal`, async () => {
       const t = convexTest({ schema, modules });

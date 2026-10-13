@@ -436,6 +436,7 @@ export const createUploadIntent = mutation({
     if (profile.updatedAt !== args.expectedProfileUpdatedAt) {
       throw new ConvexError({ code: "MEDIA_PROFILE_CHANGED", message: "Refresh profile" });
     }
+    const sourceUrl = normalizeProfileAssetSourceUrl(args.sourceUrl);
     const now = Date.now();
     if (
       (await openSubmissionCountForUser(ctx, user._id, now)) >= (await effectiveContributionPolicy(ctx.db, user._id)).limits.openActor) {
@@ -447,7 +448,6 @@ export const createUploadIntent = mutation({
     }
 
     await assertSubmissionRateLimits(ctx, user._id, profile._id, now);
-    const sourceUrl = normalizeProfileAssetSourceUrl(args.sourceUrl);
     const originalFileName = normalizeProfileAssetFileName(args.originalFileName);
     const credit = sanitizeProfileAssetCredit(args.credit);
     if (sourceUrl === undefined || originalFileName === undefined || credit === undefined) {
@@ -1528,6 +1528,40 @@ const reviewPageArgs = {
   status: v.optional(reviewQueueStatus),
   paginationOpts: paginationOptsValidator,
 };
+type BatchReviewCursor = {
+  nativeCursor: string | null;
+  revisionIds: string[];
+  submissionIds: string[] | null;
+  sourceIsDone: boolean;
+};
+function readBatchReviewIds(value: unknown, maximum: number): string[] {
+  if (!Array.isArray(value) || value.length > maximum) throw new Error();
+  const ids: string[] = [];
+  for (const id of value) {
+    if (typeof id !== "string" || !id || ids.includes(id)) throw new Error();
+    ids.push(id);
+  }
+  return ids;
+}
+function readBatchReviewCursor(cursor: string | null): BatchReviewCursor {
+  if (cursor === null) return { nativeCursor: null, revisionIds: [], submissionIds: null, sourceIsDone: false };
+  try {
+    const value: unknown = JSON.parse(cursor);
+    if (typeof value !== "object" || value === null ||
+      !("kind" in value) || value.kind !== "batch_review_v2" ||
+      !("nativeCursor" in value) || !(value.nativeCursor === null || typeof value.nativeCursor === "string") ||
+      !("revisionIds" in value) || !("submissionIds" in value) ||
+      !("sourceIsDone" in value) || typeof value.sourceIsDone !== "boolean" ||
+      Object.keys(value).length !== 5) throw new Error();
+    const revisionIds = readBatchReviewIds(value.revisionIds, 40);
+    const submissionIds = value.submissionIds === null ? null : readBatchReviewIds(value.submissionIds, 11);
+    if (submissionIds !== null && (!submissionIds.length || !revisionIds.length)) throw new Error();
+    return { nativeCursor: value.nativeCursor, revisionIds, submissionIds, sourceIsDone: value.sourceIsDone };
+  } catch { throw new Error("PAGE_CURSOR_INVALID"); }
+}
+function writeBatchReviewCursor(checkpoint: BatchReviewCursor) {
+  return JSON.stringify({ kind: "batch_review_v2", ...checkpoint });
+}
 async function authorizedReviewPage(
   ctx: QueryCtx,
   args: {
@@ -1542,7 +1576,8 @@ async function authorizedReviewPage(
     !Number.isInteger(args.paginationOpts.numItems) ||
     args.paginationOpts.numItems < 1 ||
     args.paginationOpts.numItems > 40 ||
-    (args.paginationOpts.cursor?.length ?? 0) > 8192
+    (args.paginationOpts.cursor?.length ?? 0) > 8192 ||
+    (args.paginationOpts.endCursor?.length ?? 0) > 8192
   )
     throw new Error("Invalid review page.");
   const status = args.status ?? "submitted";
@@ -1564,44 +1599,107 @@ async function authorizedReviewPage(
         !(await activeBatchAssignment(ctx, batch._id, currentActor.user._id)))
     )
       throw new Error("BATCH_UNAVAILABLE");
-    // Traverse immutable revisions through the batch index. Filter this bounded page,
-    // preserve its continuation even when no submission matches the status.
-    const revisions = await ctx.db
-      .query("contributionItemRevisions")
-      .withIndex("by_batch_key_revision", (q) => q.eq("batchId", batch._id))
-      .paginate(paginationOpts);
+    const checkpoint = readBatchReviewCursor(paginationOpts.cursor);
+    const end = paginationOpts.endCursor == null ? null : readBatchReviewCursor(paginationOpts.endCursor);
+    const { cursor: _cursor, endCursor: _endCursor, ...revisionOptions } = paginationOpts;
+    const loadRevision = async (value: string) => {
+      const id = ctx.db.normalizeId("contributionItemRevisions", value);
+      const revision = id ? await ctx.db.get(id) : null;
+      if (!revision || revision.batchId !== batch._id) throw new Error("PAGE_CURSOR_INVALID");
+      return revision;
+    };
+    if (end) await Promise.all(end.revisionIds.map(loadRevision));
+    // Capture one native source page. Freeze only its remaining revision IDs and
+    // the current source's remaining row IDs, then revalidate them on every call.
+    const revisions = checkpoint.revisionIds.length
+      ? { page: await Promise.all(checkpoint.revisionIds.map(loadRevision)),
+        isDone: checkpoint.sourceIsDone, continueCursor: checkpoint.nativeCursor ?? "",
+        splitCursor: null, pageStatus: null }
+      : await ctx.db.query("contributionItemRevisions")
+        .withIndex("by_batch_key_revision", q => q.eq("batchId", batch._id))
+        .paginate({ ...revisionOptions, cursor: checkpoint.nativeCursor,
+          ...(end ? { endCursor: end.nativeCursor } : {}) });
+    const pendingRevisions = [...revisions.page];
+    let pendingRows = checkpoint.submissionIds;
     const page = [];
-    const seen = new Set<string>();
-    for (const rev of revisions.page) {
+    let reachedEnd = false;
+    while (pendingRevisions.length) {
+      const rev = pendingRevisions[0];
+      if (page.length === args.paginationOpts.numItems) break;
+      if (end?.revisionIds[0] === rev._id && end.submissionIds === null) { reachedEnd = true; break; }
       const attempt = await ctx.db.query("contributionItemAttempts")
         .withIndex("by_revision", q => q.eq("revisionId", rev._id)).unique();
       const source = attempt?.submissionId ? await ctx.db.get(attempt.submissionId) : null;
-      if (!source || rev.actorUserId !== source.submitterUserId) continue;
+      if (!source || rev.actorUserId !== source.submitterUserId) {
+        pendingRevisions.shift(); pendingRows = null; continue;
+      }
+      // Assignment provenance must be unique, just as in reviewerContext.
+      const sourceAttempts = await ctx.db.query("contributionItemAttempts")
+        .withIndex("by_submissionId", q => q.eq("submissionId", source._id)).take(2);
+      if (sourceAttempts.length !== 1 || sourceAttempts[0].revisionId !== rev._id) {
+        pendingRevisions.shift(); pendingRows = null; continue;
+      }
       const candidate = source.approvedAssetId ? await ctx.db.get(source.approvedAssetId) : null;
-      const inherited = source.status === "approved" && source.requestKind !== "identity_placement" &&
+      const inheritedEligible = source.status === "approved" && source.requestKind !== "identity_placement" &&
         candidate && candidate.profileId === source.profileId && candidate.sourceSubmissionId === source._id &&
-        (status === "submitted" || status === "under_review")
-        ? await ctx.db.query("profileMediaSubmissions")
-          .withIndex("by_candidateAssetId_status_expiresAt", q => q.eq("candidateAssetId", candidate._id).eq("status", status).gt("expiresAt", Date.now()))
-          .take(11) : [];
-      // Open target capacity is ten; fail closed rather than truncate unexpected overflow.
-      if (inherited.length > 10) throw new Error("Replacement review queue exceeds target capacity.");
-      for (const submission of [source, ...inherited]) {
-        if (seen.has(submission._id) || submission.profileId !== source.profileId ||
-          submission.submitterUserId !== source.submitterUserId || submission.status !== status ||
-          (submission !== source && submission.requestKind !== "identity_placement") ||
+        (status === "submitted" || status === "under_review");
+      const linked = (row: Doc<"profileMediaSubmissions">) => row.profileId === source.profileId &&
+        row.submitterUserId === source.submitterUserId &&
+        (row._id === source._id || (row.requestKind === "identity_placement" && row.candidateAssetId === candidate?._id));
+      const loadRows = async (ids: string[]) => await Promise.all(ids.map(async value => {
+        const id = ctx.db.normalizeId("profileMediaSubmissions", value);
+        const row = id ? await ctx.db.get(id) : null;
+        if (!row || !linked(row)) throw new Error("PAGE_CURSOR_INVALID");
+        return row;
+      }));
+      let rows;
+      if (pendingRows !== null) rows = await loadRows(pendingRows);
+      else {
+        const inherited = inheritedEligible
+          ? await ctx.db.query("profileMediaSubmissions")
+            .withIndex("by_candidateAssetId_status_expiresAt", q => q.eq("candidateAssetId", candidate._id).eq("status", status).gt("expiresAt", Date.now()))
+            .take(11) : [];
+        // Open target capacity is ten; refuse unexpected overflow.
+        if (inherited.length > 10) throw new Error("Replacement review queue exceeds target capacity.");
+        rows = [source, ...inherited].filter(linked).sort((a, b) => a._id.localeCompare(b._id));
+      }
+      const endingRows = end?.revisionIds[0] === rev._id ? end.submissionIds : null;
+      if (endingRows !== null) await loadRows(endingRows);
+      let processed = 0;
+      for (const submission of rows) {
+        if (page.length === args.paginationOpts.numItems) break;
+        if (endingRows !== null && submission._id.localeCompare(endingRows[0]) >= 0) { reachedEnd = true; break; }
+        processed++;
+        if ((submission._id !== source._id && !inheritedEligible) || submission.status !== status ||
           (args.profileId && submission.profileId !== args.profileId) ||
           (["submitted", "under_review"].includes(status) && submission.expiresAt <= Date.now())) continue;
         const profile = await ctx.db.get(submission.profileId);
         if (!profile) continue;
         try { await reviewerContext(ctx, profile, currentActor, submission); }
         catch { continue; }
-        seen.add(submission._id);
         page.push(await reviewSubmission(ctx, submission, profile, access.superAdmin));
       }
+      pendingRows = rows.slice(processed).map(row => row._id);
+      if (reachedEnd) break;
+      if (pendingRows.length) break;
+      pendingRevisions.shift(); pendingRows = null;
+      if (endingRows !== null) { reachedEnd = true; break; }
     }
+    const next: BatchReviewCursor = reachedEnd && end ? end : {
+      nativeCursor: revisions.continueCursor, sourceIsDone: revisions.isDone,
+      revisionIds: pendingRevisions.map(rev => rev._id), submissionIds: pendingRows,
+    };
+    const paused = next.revisionIds.length > 0;
+    const reachedNativeEnd = !paused && end?.revisionIds.length === 0 && next.nativeCursor === end.nativeCursor;
     return {
-      ...writeScopedPagination(revisions,scope),
+      ...writeScopedPagination({ ...revisions,
+        isDone: reachedEnd || reachedNativeEnd || (!paused && revisions.isDone),
+        continueCursor: writeBatchReviewCursor(next),
+        splitCursor: paused || !revisions.splitCursor ? null : writeBatchReviewCursor({
+          nativeCursor: revisions.splitCursor, revisionIds: [], submissionIds: null, sourceIsDone: false,
+        }),
+        pageStatus: paused ? null : revisions.pageStatus,
+      }, scope),
       page,
     };
   }

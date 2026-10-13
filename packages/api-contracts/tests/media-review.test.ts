@@ -7,8 +7,21 @@ import {
   contributionPlacementCommandSchema,
   contributionManageCommandSchema,
   publishedContributionDetailSchema,
+  reviewSnapshotSchema,
 } from "../src/media-review";
 import { apiScopes } from "../src/auth";
+it("preserves historical long source URLs in authenticated detail reads while keeping metadata writes bounded", () => {
+  const sourceUrl = "https://legacy.example/source?signature=" + "a".repeat(5000);
+  const detail = { submissionId: "submission", assetId: "asset", profileId: "profile", profileSlug: "dj",
+    contributionVersion: "version", metadata: { label: "Image", credit: "Artist", sourceUrl },
+    canSelectPrimary: true, canClearPrimary: false, canProposePlacement: false, canEditMetadata: true, canRemove: true };
+  assert.equal(publishedContributionDetailSchema.parse(detail).metadata.sourceUrl, sourceUrl);
+  assert.equal(reviewSnapshotSchema.shape.candidate.shape.sourceUrl.parse(sourceUrl), sourceUrl);
+  assert.equal(reviewSnapshotSchema.shape.currentPlacement.unwrap().shape.sourceUrl.parse(sourceUrl), sourceUrl);
+  assert.equal(reviewDetailSchema.shape.sourceUrl.parse(sourceUrl), sourceUrl);
+  assert.equal(contributionManageCommandSchema.safeParse({ submissionId: "submission", expectedContributionVersion: "version",
+    idempotencyKey: "key", action: "update_metadata", metadata: { sourceUrl } }).success, false);
+});
 it("bounds contribution metadata patches and forbids byte, authority, target and placement changes", () => {
   const base = { submissionId: "submission", expectedContributionVersion: "version", idempotencyKey: "key" };
   assert.equal(contributionManageCommandSchema.safeParse({ ...base, action: "remove" }).success, true);

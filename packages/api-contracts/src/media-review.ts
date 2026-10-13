@@ -1,6 +1,8 @@
 import { z } from "zod";
 
 const boundedId = z.string().min(1).max(200);
+// Authenticated reads preserve provenance stored before normalized write limits.
+const retainedSourceUrlSchema = z.string();
 export const contributionCommandBaseSchema = z.strictObject({
   submissionId: boundedId,
   expectedContributionVersion: z.string().min(1).max(128),
@@ -32,7 +34,7 @@ export const publishedContributionDetailSchema = z.strictObject({
   metadata: z.strictObject({
     label: z.string().max(80), altText: z.string().max(180).optional(),
     credit: z.string().max(120), creditUrl: z.string().max(2048).optional(),
-    sourceUrl: z.string().max(4096).optional(), sourceDescription: z.string().max(1000).optional(),
+    sourceUrl: retainedSourceUrlSchema.optional(), sourceDescription: z.string().max(1000).optional(),
   }),
   canSelectPrimary: z.boolean(), canClearPrimary: z.boolean(), canProposePlacement: z.boolean(),
   canEditMetadata: z.boolean(), canRemove: z.boolean(),
@@ -105,7 +107,7 @@ export const reviewSnapshotSchema = z.strictObject({
       assetId: boundedId,
       placementId: boundedId,
       credit: z.string().max(1000).nullable(),
-      sourceUrl: z.string().max(4096).nullable(),
+      sourceUrl: retainedSourceUrlSchema.nullable(),
     })
     .nullable(),
   currentAvatarImageUrl: z.string().max(4096).nullable(),
@@ -117,7 +119,7 @@ export const reviewSnapshotSchema = z.strictObject({
         kind: z.literal("stored_candidate"),
       })
       .nullable(),
-    sourceUrl: z.string().max(4096).optional(),
+    sourceUrl: retainedSourceUrlSchema.optional(),
     sourceKind: z.enum(["url", "local"]).optional(),
     sourceDescription: z.string().max(1000).optional(),
     credit: z.string().max(1000),
@@ -155,7 +157,7 @@ export const reviewDetailSchema = z.strictObject({
     "withdrawn",
     "superseded",
   ]),
-  sourceUrl: z.string().max(4096).optional(),
+  sourceUrl: retainedSourceUrlSchema.optional(),
   sourceKind: z.enum(["url", "local"]).optional(),
   sourceDescription: z.string().max(1000).optional(),
   label: z.string().max(1000).optional(),

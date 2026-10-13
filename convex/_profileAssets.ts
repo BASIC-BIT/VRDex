@@ -478,9 +478,13 @@ export function normalizeProfileAssetSourceUrl(value: string | undefined): strin
       throw new Error("Profile media asset imports must not include URL credentials.");
     }
 
+    if (url.href.length > 4096) {
+      throw new ConvexError({ code: "MEDIA_SOURCE_URL_TOO_LONG" });
+    }
+
     return url.href;
   } catch (error) {
-    if (error instanceof Error && (error.message.includes("HTTPS") || error.message.includes("credentials"))) {
+    if (error instanceof ConvexError || (error instanceof Error && (error.message.includes("HTTPS") || error.message.includes("credentials")))) {
       throw error;
     }
 

@@ -24,6 +24,27 @@ process.env.VRDEX_MEDIA_CLEANUP_URL =
 process.env.VRDEX_MEDIA_CLEANUP_TOKEN = "test-only";
 process.env.VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED = "true";
 process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "true";
+it("refuses percent-encoded oversize local-upload provenance before quota or insertion", async () => {
+  for (const mode of ["contributor", "owner"] as const) {
+    const f = await fixture(mode);
+    const before = await f.t.run(async ctx => ({ reservations: await ctx.db.query("contributionUploadReservations").collect(),
+      intents: await ctx.db.query("profileAssetUploadIntents").collect(), submissions: await ctx.db.query("profileMediaSubmissions").collect() }));
+    const sourceUrl = "https://source.example/" + "é".repeat(800);
+    assert.ok(sourceUrl.length < 2048); assert.ok(new URL(sourceUrl).href.length > 4096);
+    await assert.rejects(f.t.mutation(internal.contributionUploads.begin, { ...f.input, sourceUrl, idempotencyKey: "oversize" }), /MEDIA_SOURCE_URL_TOO_LONG/);
+    assert.deepEqual(await f.t.run(async ctx => ({ reservations: await ctx.db.query("contributionUploadReservations").collect(),
+      intents: await ctx.db.query("profileAssetUploadIntents").collect(), submissions: await ctx.db.query("profileMediaSubmissions").collect() })), before);
+  }
+});
+it("round-trips a percent-encoded local source at the normalized 4096-character limit", async () => {
+  const sourceUrl = "https://source.example/" + "é".repeat(678) + "aaaaa";
+  assert.equal(new URL(sourceUrl).href.length, 4096);
+  const f = await fixture("contributor", undefined, "gallery", sourceUrl);
+  const normalized = new URL(sourceUrl).href;
+  assert.equal((await f.t.run(ctx => ctx.db.get(f.begun.intentId)))?.sourceUrl, normalized);
+  assert.equal((await f.t.run(ctx => ctx.db.query("profileMediaSubmissions").first()))?.sourceUrl, normalized);
+  assert.deepEqual(await f.t.mutation(internal.contributionUploads.begin, f.input), f.begun);
+});
 it("identifies the stored upload mode scope before claiming with an alternative grant", async () => {
   for (const mode of ["owner", "contributor"] as const) {
     const f = await fixture(mode);
@@ -136,6 +157,7 @@ async function fixture(
   mode: "owner" | "contributor" = "contributor",
   bytesRead?: number,
   placement: "profile_image" | "primary_logo" | "gallery" = "profile_image",
+  sourceUrl?: string,
 ) {
   const t = convexTest({
     schema,
@@ -186,6 +208,7 @@ async function fixture(
     sha256: "a".repeat(64),
     credit: "Artist",
     sourceDescription: "Artist supplied local image",
+    ...(sourceUrl === undefined ? {} : { sourceUrl }),
     idempotencyKey: "begin",
   };
   const begun = await t.mutation(internal.contributionUploads.begin, input);

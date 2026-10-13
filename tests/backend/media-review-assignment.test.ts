@@ -710,6 +710,26 @@ it("binds review cursors to authenticated actors, batches and status filters", a
     /BATCH_UNAVAILABLE/,
   );
 });
+it("returns twenty ordinary assigned submissions in one requested source page", async () => {
+  const f = await fixture();
+  await f.t.run(async ctx => {
+    const { _id, _creationTime, ...fields } = (await ctx.db.get(f.intent.submissionId))!;
+    for (let n = 0; n < 19; n++) {
+      const submissionId = await ctx.db.insert("profileMediaSubmissions", { ...fields, createdAt: NOW + n });
+      const revisionId = await ctx.db.insert("contributionItemRevisions", {
+        actorUserId: f.s.contributorUserId, batchId: f.batchId, itemKey: `ordinary-${n}`, revision: 1,
+        payload: "{}", bytes: 2, createdAt: NOW,
+      });
+      await ctx.db.insert("contributionItemAttempts", { actorUserId: f.s.contributorUserId, revisionId,
+        oauthClientId: "fixture", submissionId, receipt: { operationId: `ordinary-${n}`, operationState: "committed" }, createdAt: NOW });
+    }
+  });
+  const page = await f.actor.query(api.profileMediaSubmissions.listForReview, {
+    batchId: f.batchId, paginationOpts: { cursor: null, numItems: 20 },
+  });
+  assert.equal(page.page.length, 20); assert.equal(page.isDone, true);
+  assert.equal(new Set(page.page.map(row => row.submissionId)).size, 20);
+});
 it("traverses past nonmatching indexed revisions instead of truncating the filtered queue", async () => {
   const f = await fixture();
   await f.t.run(async (ctx) => {

@@ -169,7 +169,7 @@ export function ProfileMediaContributionEditorView({
           <div className="grid gap-4 sm:grid-cols-2">
             <Field>
               Source URL
-              <Input name="sourceUrl" placeholder="https://" required type="url" />
+              <Input maxLength={4096} name="sourceUrl" placeholder="https://" required type="url" />
             </Field>
             <Field>
               Credit

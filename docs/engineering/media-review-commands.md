@@ -55,12 +55,29 @@ uses the same availability predicate to hide unavailable contribution intake.
 
 Existing-asset placement proposals recheck public-kit availability and current
 profile identity/dispute and content suppression/rejection restrictions at fresh
-approval, through both receipt and legacy decision wrappers. Profile restrictions
+approval through the review-version receipt command. The legacy decision refuses
+approval of proposals that reuse an existing asset without their own upload.
+Its `MEDIA_REVIEW_VERSION_REQUIRED` refusal requires fresh inspection followed by
+`decideWithReceipt` with the inspected version.
+Legacy upload-backed decisions and rejection retain their existing paths. Profile restrictions
 apply even without a content digest. Historical committed receipts retain their
 existing replay checks.
 
 Credit URL command contracts and form inputs allow at most 2,048 characters,
 matching backend credit validation. Source URLs retain their separate 4,096 limit.
+The shared source normalizer enforces that limit on the normalized URL, including
+percent-encoding expansion, before intake writes or metadata updates.
+`MEDIA_SOURCE_URL_TOO_LONG` identifies normalized overlength source URLs. Browser
+intake and metadata forms also cap raw input at 4,096 characters. MCP URL imports
+retain their stricter 2,048-character raw and normalized bounds; local-upload
+contracts retain their 2,048-character raw-input bound. URLs are never truncated.
+Authenticated detail read contracts preserve source URLs stored before those
+limits, including longer URLs. Write contracts remain bounded; historical
+provenance is not rewritten or erased during a read.
+Authenticated contributor, publisher and reviewer views retain private provenance.
+Anonymous kit/profile projections expose credit and credit URL, without source
+URLs or source descriptions, as required by the
+[source-provenance policy](../planning/trusted-contributor-lifecycle-research-2026-09-11.md).
 
 ## Decisions and retries
 
@@ -387,7 +404,19 @@ New replacement proposals require an occupied identity slot, including visible l
 
 A replacement candidate inherits reviewer authority from its approved asset's original submission and collection assignment. Current reviewer grant and assignment are required for queue, inspection and decision. Assigned website and MCP queues project the new proposal's submission ID; direct media review commands operate on that ID. Original collection revisions, attempts, receipts and audits remain unchanged. Collection item apply continues to refer to its original item, so review replacements through the media-review queue or exact media-review commands.
 
-Queue projection reads at most 40 source revisions and eleven indexed, unexpired proposals of the requested open status per source asset. More than ten matching proposals fails closed instead of truncating unexpected overflow. Duplicate submission IDs are removed, foreign profile/submitter proposals are excluded, and each row passes current reviewer authority. This permits up to 440 projected rows on a source-revision page; the continuation cursor remains tied to the source revisions. Direct trusted contributions without a source collection retain distinct admin review and do not acquire an ordinary reviewer assignment automatically. A future assignment intake is needed for those contributions.
+Assigned queue pages read at most the requested 1 to 40 indexed source revisions
+and eleven indexed, unexpired proposals of the requested open status per source.
+More than ten matching proposals fails closed. A page returns at most its requested
+number of rows. If sources expand beyond that limit, the scope-bound cursor saves
+remaining revision IDs and the current source's remaining submission IDs. Resuming
+does not skip unreturned proposals or shift an offset through changed statuses.
+Ordinary source pages retain their requested batch size. Filtered pages may contain fewer rows, including zero,
+so follow the cursor until `isDone`. Current status, expiry, profile/submitter
+links and reviewer authority are rechecked on each page. Nonunique source-attempt
+provenance is excluded rather than choosing an arbitrary assignment. Direct
+contributions without a source collection retain distinct admin review and do not
+acquire an ordinary reviewer assignment automatically. A future assignment intake
+is needed for those contributions.
 
 Restriction versions track existence of each indexed restriction kind, using one bounded read per kind. Adding more history while the same restriction already exists does not invalidate inspection again; the first restriction changes the version and fresh approval still refuses. MCP contribution lookup returns the existing unavailable tool result only for known missing or unavailable resources. Token, scope and verification errors retain their authority failure.
 
