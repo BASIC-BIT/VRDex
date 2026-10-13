@@ -1,5 +1,11 @@
 # Contributed event intake checkpoint
 
+The 2026-10-13 scheduling follow-up is recorded in the
+[event editor scheduling checkpoint](./event-editor-scheduling-checkpoint.md): explicit
+generation, fixed ends, timezone preferences, prominent Review actions, Linux visual
+evidence and the update-only legacy identity exception. The original acceptance
+boundaries below remain historical evidence.
+
 Date: 2026-09-28. Scope: Tasks 1 through 9, final review corrections and the
 merge with `main` at `326fe66e3` on `codex/event-contribution-ai-intake-design`.
 This is local evidence. Nothing here asserts deployment,

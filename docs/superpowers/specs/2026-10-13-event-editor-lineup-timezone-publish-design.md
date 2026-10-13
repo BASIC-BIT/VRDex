@@ -132,6 +132,27 @@ If no end was entered, retain automatic derivation from fully known lineup timin
 
 The backend already rejects slots beyond a defined event end. Preserve that constraint and surface it before submission. Publication and canonical staff saves require resolution by extending the end or editing the lineup. Incomplete contributor drafts remain saveable under the existing draft contract, including unresolved timing; do not strengthen draft validation to match publication. Unknown ends do not produce a made-up target for the conflict button or a claim that the entire lineup fits.
 
+## Implementation rulings, 2026-10-13
+
+These controller decisions narrow implementation at existing command boundaries:
+
+- `getLineupEndAt` is shared by both adapters for fully known end derivation. Untimed
+  performers are ignored; incomplete timed rows prevent a whole-lineup end claim.
+- Legacy staff creation retains required `startAt`, and legacy `participantLinks`
+  keeps untimed performers in a separate group. Canonical and contributor positional
+  lineups keep their existing Time TBA/untimed support. No command migration is included.
+- Legacy staff updates may add optional `storedSlotAssociations` with pre-sort submitted
+  positions and stored event-slot IDs from the protected snapshot. Backend validation
+  requires uniqueness, valid positions and current same-event membership before writes.
+  IDs preserve hidden links and unchanged unavailable streams through reflow; explicit
+  removal remains deliberate. Current IDs return at submitted positions and reconcile
+  by captured local row key after pending saves. The absent argument preserves existing
+  API-owner compatibility. This narrow update-only exception to the initial
+  no-payload-expansion constraint leaves create and permission/revision authority intact.
+
+See [browser command details](../../engineering/event-contribution-browser.md#legacy-stored-slot-identity).
+The journey diagram above remains unchanged because entry and return routes did not change.
+
 ## Review and publication
 
 Put the primary action in the main Review pane, next to the final event summary and above the long secondary details. It should be a prominent blue button with enough space to read as the completion of the wizard. Keep Save draft secondary and Back as navigation. Use one primary submission action rather than duplicating prominent Publish buttons at the top and bottom.

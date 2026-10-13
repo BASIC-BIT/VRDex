@@ -1,4 +1,5 @@
 "use client";
+import { formatLineupTimeRange } from "@/lib/calendar/event-lineup-display";
 import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Upload } from "lucide-react";
 import { EventIntakeDialog } from "./event-intake-dialog";
@@ -24,7 +25,6 @@ import { acceptIntakeSuggestion, rebaseIntakeTime as rebaseTime, rebaseIntakeTim
 import { ProfileAvatarImage } from "../_components/profile-avatar-image";
 import { applyIntakeLineupTimings, intakeLocalFromInstant, readIntakeInstant, readIntakeLineupTimings } from "@/lib/calendar/event-lineup-adapters";
 import { changeLineupDuration, generateLineupTimings, getLineupEndAt, getLineupEndConflict, insertLineupSlot, removeLineupSlot, shiftLineupStart, type LineupEditResult, type LineupTimingRow } from "@/lib/calendar/event-lineup-timing";
-import { formatZonedDateTimeInput } from "@/lib/calendar/zoned-date-time";
 import { EventLineupSetup, EventLineupInsert, EventSlotDuration, EventLineupReset, EventLineupConflict } from "./event-lineup-controls";
 import { BACKEND_ERROR_COPY } from "@/lib/error-copy";
 
@@ -244,6 +244,7 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
   }} />;
   const endConflict = conflict && eventEndAt !== undefined ? <EventLineupConflict {...conflict} eventEndAt={eventEndAt} timezone={fields.timezone ?? "UTC"} onExtend={endAt => { try { set("end", intakeLocalFromInstant(fields, endAt)); } catch { reveal("Details", '[name="Ends (optional)"]'); } }} /> : null;
   async function submit(publish: boolean) {
+    if (busy) return;
     setBusy(true); setMessage("");
     try {
       const invalidTime = Array.from(form.current?.querySelectorAll<HTMLInputElement>("[data-intake-time]") ?? []).find(input => input.validity.customError);
@@ -328,18 +329,18 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
         const duration = timing?.startAt !== undefined && timing.endAt !== undefined && timing.endAt > timing.startAt ? (timing.endAt - timing.startAt) / 60_000 : undefined;
         return <Fragment key={row.clientKey}>{gap !== 0 ? <p className={gap < 0 ? "text-sm text-danger" : "text-sm text-muted"}>{gap < 0 ? "Overlap" : "Break"}: {Math.abs(gap)} min</p> : null}<fieldset data-lineup-row={row.clientKey} className="grid gap-3 rounded-control border border-border p-4"><legend className="px-1">Slot {index + 1}</legend>
         <PerformerInput label={row.performerLabel ?? ""} slug={row.personSlug ?? ""} onLabel={value => set("lineup", fields.lineup!.map(item => item.clientKey === row.clientKey ? { ...item, performerLabel: value } : item))} onSlug={value => set("lineup", fields.lineup!.map(item => item.clientKey === row.clientKey ? { ...item, personSlug: value } : item))} />
-        {!fields.timeTba ? <div className="flex flex-wrap items-end justify-between gap-3"><p className="text-sm text-muted">{[timing?.startAt, timing?.endAt].map(at => at === undefined ? "" : formatZonedDateTimeInput(at, fields.timezone ?? undefined).replace("T", " ")).filter(Boolean).join(" - ")}</p><EventSlotDuration value={duration} onCommit={minutes => applyTimingEdit(changeLineupDuration(timings, row.clientKey, minutes))} /></div> : null}
+        {!fields.timeTba ? <div className="flex flex-wrap items-end justify-between gap-3"><p className="text-sm text-muted">{formatLineupTimeRange({ ...timing, timezone: fields.timezone ?? "UTC", eventDate: fields.eventDate })}</p><EventSlotDuration value={duration} onCommit={minutes => applyTimingEdit(changeLineupDuration(timings, row.clientKey, minutes))} /></div> : null}
         <details><summary className="cursor-pointer text-sm font-medium">Details</summary><div className="mt-3 grid gap-3">
         <Field>Role<Input value={row.roleLabel ?? ""} onChange={event => set("lineup", fields.lineup!.map(item => item.clientKey === row.clientKey ? { ...item, roleLabel: event.target.value } : item))} /></Field>
         {!fields.timeTba ? <><IntakeTime label={`Slot ${index + 1} start`} value={row.start} date={fields.eventDate} timezone={fields.timezone} onChange={change => set("lineup", fields.lineup!.map(item => item.clientKey === row.clientKey ? { ...item, start: change.local } : item))} /><IntakeTime label={`Slot ${index + 1} end`} value={row.end} date={fields.eventDate} timezone={fields.timezone} onChange={change => set("lineup", fields.lineup!.map(item => item.clientKey === row.clientKey ? { ...item, end: change.local } : item))} /></> : null}
-        </div></details><Button type="button" variant="secondary" onClick={() => applyTimingEdit(removeLineupSlot(timings, row.clientKey))}>Remove slot</Button>
+        </div></details><Button type="button" variant="ghost" className="justify-self-start" onClick={() => applyTimingEdit(removeLineupSlot(timings, row.clientKey))}>Remove slot</Button>
       </fieldset>{insertion(index + 1)}</Fragment>; })}
       {timings.length ? <EventLineupReset onConfirm={() => { set("lineup", []); if (timedBackup.current) timedBackup.current = { ...timedBackup.current, lineup: [] }; }} /> : null}
       {endConflict}
     </section>
     </div>
     <div hidden={activeStep !== "Review"} data-step="Review" className="space-y-5">
-    <section className="grid gap-4"><h2 className="text-xl font-semibold">Review</h2>{endConflict}<div className="grid gap-4 rounded-control border border-border p-4">
+    <section className="grid gap-4"><h2 className="text-xl font-semibold">Review</h2>{activeStep === "Review" ? <Button type="submit" variant="primary" className="justify-self-start" disabled={busy}>{correction ? "Save changes" : "Publish event"}</Button> : null}{endConflict}<div className="grid gap-4 rounded-control border border-border p-4">
       <div className="flex items-start justify-between gap-4"><div><h3 className="font-semibold">{fields.title || "Event title"}</h3><p className="text-sm text-muted">{[fields.communitySlug, eventLocalDate(fields.eventDate, fields.timeTba ? null : fields.start), fields.timeTba ? "Time TBA" : fields.start?.time, fields.timezone, fields.venueLabel].filter(Boolean).join(" · ")}</p></div><Button type="button" variant="secondary" onClick={() => setActiveStep("Details")}>Edit details</Button></div>
       {fields.summary ? <p className="text-sm">{fields.summary}</p> : null}
       <div className="flex items-start justify-between gap-4 border-t border-border pt-4"><div><h3 className="font-semibold">Lineup</h3>{fields.lineup?.map(row => <p key={row.clientKey} className="text-sm">{row.performerLabel || row.personSlug}</p>)}</div><Button type="button" variant="secondary" onClick={() => setActiveStep("Lineup")}>Edit lineup</Button></div>
@@ -348,7 +349,7 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
     </div>
     </fieldset>
     </EventEditorSteps>
-    <fieldset disabled={busy} className="flex flex-wrap items-center gap-3 border-t border-border pt-5"><span className="mr-auto text-sm text-muted">{steps.indexOf(activeStep) + 1} / {steps.length}</span>{activeStep !== steps[0] ? <Button type="button" variant="secondary" onClick={() => setActiveStep(steps[steps.indexOf(activeStep) - 1])}>Back</Button> : null}{activeStep === "Review" ? <Button type="submit" variant="primary" disabled={busy}>{correction ? "Save changes" : "Publish event"}</Button> : <Button type="submit" formNoValidate variant="primary">Continue</Button>}{onSave ? <Button type="button" disabled={busy} variant="secondary" onClick={() => void submit(false)}>Save draft</Button> : null}</fieldset>
+    <fieldset disabled={busy} className="flex flex-wrap items-center gap-3 border-t border-border pt-5"><span className="mr-auto text-sm text-muted">{steps.indexOf(activeStep) + 1} / {steps.length}</span>{activeStep !== steps[0] ? <Button type="button" variant="secondary" onClick={() => setActiveStep(steps[steps.indexOf(activeStep) - 1])}>Back</Button> : null}{activeStep !== "Review" ? <Button type="submit" formNoValidate variant="primary">Continue</Button> : null}{onSave ? <Button type="button" disabled={busy} variant="secondary" onClick={() => void submit(false)}>Save draft</Button> : null}</fieldset>
     {message && !importOpen ? <Notice><span role="status">{message}</span></Notice> : null}
   </form>
   {onSource ? <EventIntakeDialog open={importOpen} onClose={() => setImportOpen(false)}><fieldset disabled={busy}><EventIntakeSource fields={fields} revision={revision} onChange={receiveFields} action={onSource} busy={busy} setBusy={setBusy} setMessage={setMessage} initialArtworkSourceId={initialArtworkSourceId} onPreview={setArtwork} onExtract={() => { focusExtractedDetails.current = true; setActiveStep("Details"); setImportOpen(false); }} /></fieldset>{message ? <Notice><span role="status">{message}</span></Notice> : null}</EventIntakeDialog> : null}

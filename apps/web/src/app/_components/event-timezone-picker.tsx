@@ -24,7 +24,7 @@ export function EventTimezonePicker({ value, date, instant, preferredValue, name
       <span>{value ? eventTimezoneLabel(value, instant) : "Time zone"}</span><span aria-hidden="true">▾</span>
     </Button>
     <input name={name} type="hidden" value={value ?? ""} />
-    {open ? <div className="absolute top-full z-20 mt-1 w-full min-w-0 sm:w-96 sm:max-w-[min(24rem,80vw)] rounded-control border border-border bg-surface shadow-panel">
+    {open ? <div className="absolute top-full z-20 mt-1 w-full min-w-0 sm:w-96 sm:max-w-[min(24rem,80vw)] rounded-control border border-border bg-surface-elevated shadow-panel">
       <div className="p-2"><Input role="combobox" aria-label="Time zone" aria-autocomplete="list" aria-expanded={open} aria-controls={id} aria-activedescendant={active >= 0 ? `${id}-${active}` : undefined}
         autoComplete="off" value={query} placeholder="City, region or abbreviation"
         onChange={event => { setQuery(event.target.value); setActive(-1); }}

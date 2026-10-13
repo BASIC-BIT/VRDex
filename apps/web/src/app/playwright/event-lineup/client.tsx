@@ -80,6 +80,7 @@ function fixtureClient() {
       const command = getFunctionName(mutation);
       if (!["events:updateCommunityEvent", "events:createCommunityEvent"].includes(command)) throw new Error("Unsupported fixture mutation");
       localStorage.setItem("event-lineup-fixture-command", command);
+      localStorage.setItem("event-lineup-fixture-command-count", String(Number(localStorage.getItem("event-lineup-fixture-command-count") ?? "0") + 1));
       localStorage.setItem(`${storageKey}-submission`, JSON.stringify(args));
       if (localStorage.getItem("event-lineup-fixture-defer-save") === "true") {
         await new Promise<void>(resolve => window.addEventListener("event-lineup-fixture-release-save", () => resolve(), { once: true }));
@@ -88,7 +89,7 @@ function fixtureClient() {
       const error = localStorage.getItem("event-lineup-fixture-save-error");
       if (error) throw new Error(error);
       const slots = args.slotLinks === undefined && args.lineup === undefined ? event.slots : ((args.slotLinks ?? (args.lineup as Array<Record<string, unknown>> | undefined)?.filter(row => row.startAt !== undefined).map(row => ({ ...row, displayLabel: row.performerLabel })) ?? event.slots) as Array<Record<string, unknown>>).map((slot, index) => ({
-        ...slot, position: slot.position ?? index, playbackKey: storedSlotAssociations?.find(row => row.position === index)?.slotId ?? `saved-${index}`, discord: previewEvent.slots[0]!.discord, source: previewEvent.source,
+        ...slot, position: slot.position ?? index, playbackKey: storedSlotAssociations?.find(row => row.position === index)?.slotId ?? `saved-${crypto.randomUUID()}`, discord: previewEvent.slots[0]!.discord, source: previewEvent.source,
         performer: people[slot.personSlug as keyof typeof people],
         streamChoices: choices[slot.personSlug as keyof typeof choices] ?? [],
         selectedStreamId: slot.selectedStreamId ?? undefined,

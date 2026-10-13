@@ -2,6 +2,19 @@
 
 Editor navigation (2026-10-11): [wizard refinement](./event-editor-wizard-refinement-2026-10-11.md). Contributor, scoped correction, and owner/staff editors use Details, Lineup, and Review inside the existing header and footer. Contributor drafts support an optional import dialog beside the page heading; staff source controls remain in a Details disclosure.
 
+Scheduling (2026-10-13): [approved design](../superpowers/specs/2026-10-13-event-editor-lineup-timezone-publish-design.md)
+and [local checkpoint](../testing/event-editor-scheduling-checkpoint.md). Generation is
+explicit; insertion/removal/duration changes cascade later timed rows while explicit
+ends stay fixed. Reset clears editable lineup rows after confirmation. Account timezone
+defaults apply only to new drafts; event selection never saves an account preference.
+Review now contains the single primary submit, with draft save and withdrawal secondary.
+The existing entry and event-page return journey remains the design's diagram.
+
+Legacy staff creation still requires a start and its untimed performers remain a separate
+group. The authorized update-only stored-slot mapping preserves hidden associations
+through timing reflow without migrating records or widening actor authority. See the
+[command boundary](../engineering/event-contribution-browser.md#legacy-stored-slot-identity).
+
 ## Status
 
 Current implementation incorporates the 2026-08-31 owner-editor decisions and the
@@ -164,7 +177,7 @@ for local evidence and outstanding hosted checks.
   payloads.
 - API and MCP results return community-scoped browser paths.
 - Desktop and mobile screenshots for the exact event editor.
-- Manual visual review of template regeneration, edited-data confirmation, and
+- Manual visual review of explicit generation, individual editing, reset confirmation, and
   responsive session rows.
 
 ## Performer streams and roster links

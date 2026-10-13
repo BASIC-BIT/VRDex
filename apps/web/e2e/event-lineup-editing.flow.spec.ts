@@ -237,3 +237,22 @@ for (const cascade of [false, true]) test(`advanced offset preserves exact durat
   expect(payload.lineup[0].clientKey).toBe("exact-row");
   expect(payload.lineup[0].selectedStreamId).toBe("vrcdn:aurora");
 });
+
+test("legacy fixture allocates unique identities across repeated inserted saves @fixture", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("event-lineup-fixture-v1", JSON.stringify({
+    id: "legacy", slug: "legacy", title: "Legacy night", startAt: Date.UTC(2027,9,15,20), endAt: Date.UTC(2027,9,16,0), timezone: "UTC", status: "scheduled", communitySlug: "afterglow", publicationState: "draft",
+    source: { sourceType: "community", label: "Afterglow" }, mediaLinks: [], authoredMediaLinks: [], worlds: [], participants: [], slots: [], preservedParticipantAssociationIds: [], preservedSlotAssociationIds: [], preservedWorldAssociationIds: [],
+  })));
+  await page.goto("/playwright/event-lineup?editor");
+  await nav(page, "Lineup"); await page.getByLabel("Slots", { exact: true }).fill("1"); await page.getByRole("button", { name: "Generate", exact: true }).click();
+  const save = async () => { await nav(page, "Review"); await page.getByRole("button", { name: "Save draft", exact: true }).click(); await expect(page.getByRole("button", { name: "Save draft", exact: true })).toBeEnabled(); };
+  const insert = async () => { await nav(page, "Lineup"); await page.getByRole("button", { name: "Add slot at position 2", exact: true }).click(); await page.getByRole("button", { name: "Insert slot", exact: true }).click(); };
+  await save(); await insert(); await save();
+  const firstIds: string[] = await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1")!).slots.map((slot: { playbackKey: string }) => slot.playbackKey));
+  await insert(); await save();
+  const nextIds: string[] = await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1")!).slots.map((slot: { playbackKey: string }) => slot.playbackKey));
+  expect(new Set(nextIds).size).toBe(3);
+  expect(nextIds[0]).toBe(firstIds[0]); expect(nextIds[2]).toBe(firstIds[1]);
+  await save();
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!).storedSlotAssociations)).toEqual(nextIds.map((slotId, position) => ({ slotId, position })));
+});

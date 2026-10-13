@@ -10,6 +10,24 @@
 
 **Spec:** [Approved design](../specs/2026-10-13-event-editor-lineup-timezone-publish-design.md). BASIC approved the full design and its five proposed public strings in chat on 2026-10-13.
 
+## Implementation amendment, 2026-10-13
+
+The [design rulings](../specs/2026-10-13-event-editor-lineup-timezone-publish-design.md#implementation-rulings-2026-10-13)
+record shared fully-known end derivation, retained legacy start/untimed boundaries,
+and the necessary optional update-only stored-slot association mapping. The mapping
+uses protected readback IDs at pre-sort submitted positions, validates current-event
+membership and uniqueness, preserves omitted source/hidden links/unchanged streams,
+and returns IDs reconciled by submitted row key. Old callers without the argument
+retain compatibility. Create and authority contracts remain unchanged.
+
+Implementation runs in `C:/Users/steve/.codex/worktrees/event-editor-scheduling/VRDex`
+on `codex/event-editor-scheduling`. The planning checkout below is historical context.
+Workers complete local implementation, docs and verification. The controller owns
+whole-branch review and external delivery. PR #365 at `77146a33b` remains an explicit
+open dependency in the last controller refresh; final base/readiness requires refresh.
+The [checkpoint](../../testing/event-editor-scheduling-checkpoint.md) preserves local
+fixture, generated binding and signed-in acceptance boundaries.
+
 ## Global constraints
 
 - One implementation PR, with internal commits. No separate planning PR.
@@ -256,6 +274,6 @@ test("new event publication is in the main Review pane @fixture", async ({ page 
 
 All approved spec sections map to a task: account preference in Task 1, picker/defaults in Task 2, elapsed timing and fixed ends in Task 3, generation/individual editing/reset/partial data in Task 4, and publication hierarchy/docs/visual evidence in Task 5. The five Review focus cases have explicit assertions in their owning tasks.
 
-The adapters keep current payload schemas, the pure timing functions preserve row metadata, and the Review action reuses existing submissions. Exact saved timestamps and unknown durations are explicit cases rather than guesses. This is a five-task plan with internal commits and one implementation PR.
+The adapters keep current create and canonical payload schemas, with the controller-approved optional legacy update identity mapping described in the design rulings; the pure timing functions preserve row metadata, and the Review action reuses existing submissions. Exact saved timestamps and unknown durations are explicit cases rather than guesses. This is a five-task plan with internal commits and one implementation PR.
 
 Execution method remains subagent-driven. Review this plan before execution; no product code has changed during planning.

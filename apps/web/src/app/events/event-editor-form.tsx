@@ -1,4 +1,5 @@
 "use client";
+import { formatLineupTimeRange } from "@/lib/calendar/event-lineup-display";
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -631,11 +632,12 @@ function ConnectedEventEditorForm({
 
   async function onSubmit(submitEvent: FormEvent<HTMLFormElement>) {
     submitEvent.preventDefault();
+    if (status.kind === "submitting") return;
 
     const form = submitEvent.currentTarget;
     const formData = new FormData(form, (submitEvent.nativeEvent as SubmitEvent).submitter);
     const intent = stringField(formData.get("intent"));
-    if (intent === "continue") { setActiveStep(activeStep === "Details" ? "Lineup" : "Review"); return; }
+    if (intent === "continue" || (!intent && activeStep !== "Review")) { setActiveStep(activeStep === "Details" ? "Lineup" : "Review"); return; }
     function revealField(field: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | HTMLButtonElement) {
       const panel = field.closest<HTMLElement>("[data-editor-step]");
       if (panel) setActiveStep(panel.dataset.editorStep as EventEditorStep);
@@ -1107,7 +1109,7 @@ function ConnectedEventEditorForm({
               <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_7rem] sm:items-end">
                 <div className="sm:col-span-2">
                   <h4 className="font-semibold">{slot.displayLabel || `Slot ${index + 1}`}</h4>
-                  <span className="text-xs text-muted">{timeTba ? "Time TBA" : [timing.startAt, timing.endAt].map(at => at === undefined ? "" : formatZonedDateTimeInput(at, timezone).replace("T", " ")).filter(Boolean).join(" - ")}</span>
+                  <span className="text-xs text-muted">{timeTba ? "Time TBA" : formatLineupTimeRange({ ...timing, timezone, eventDate: startLocal.slice(0, 10) })}</span>
                 </div>
                 <Field className="text-xs text-muted">
                   Person
@@ -1181,6 +1183,15 @@ function ConnectedEventEditorForm({
       </div>
       <div hidden={activeStep !== "Review"} data-editor-step="Review" className="space-y-8">
         <EditorSection title="Review">
+        {activeStep === "Review" ? <Button disabled={isSubmitting} name="intent" size="lg" type="submit" value="publish" variant="primary" className="justify-self-start">
+          {isSubmitting
+            ? "Saving..."
+            : isPublished
+              ? "Save changes"
+              : event
+                ? "Save and publish"
+                : "Publish event"}
+        </Button> : null}
           {conflictNotice}
           <h3 className="break-words text-2xl font-semibold">{preview.title}</h3>
           <dl className="grid gap-3 text-sm sm:grid-cols-2">
@@ -1484,17 +1495,7 @@ function ConnectedEventEditorForm({
       <div className="flex flex-wrap items-center gap-3">
         {activeStep !== "Details" ? <Button type="button" size="lg" variant="secondary" onClick={() => setActiveStep(activeStep === "Review" ? "Lineup" : "Details")}>Back</Button> : null}
         <span className="mr-auto text-sm text-muted">{["Details", "Lineup", "Review"].indexOf(activeStep) + 1} / 3</span>
-        {activeStep === "Review" ? (
-        <Button disabled={isSubmitting} name="intent" size="lg" type="submit" value="publish" variant="primary">
-          {isSubmitting
-            ? "Saving..."
-            : isPublished
-              ? "Save changes"
-              : event
-                ? "Save and publish"
-                : "Publish event"}
-        </Button>
-        ) : <Button type="submit" name="intent" value="continue" size="lg">Continue</Button>}
+        {activeStep !== "Review" ? <Button type="submit" name="intent" value="continue" size="lg">Continue</Button> : null}
         <Button disabled={isSubmitting} name="intent" size="lg" type="submit" value="draft" variant="secondary">
           {isPublished ? "Unpublish and save draft" : "Save draft"}
         </Button>

@@ -72,6 +72,64 @@ flowchart LR
     Review --> Event[Publish to event page]
 ```
 
+## Scheduling and Review
+
+An empty lineup offers `Slots` and `Minutes each`, initially 4 and 60. Only
+`Generate` creates the rows. The setup disappears while rows exist, including
+partial saved or imported rows. `Add slot` inserts at a resolved boundary;
+positive whole-minute durations are limited to 1,440 and lineups to 80 rows.
+Unknown boundaries require the existing timing controls or an untimed addition.
+Insertion, removal and committed duration edits shift later timed rows by elapsed
+minutes, preserving durations, gaps, keys, performer matches and stream choices.
+Enter followed by blur commits a duration change once. Changing Starts shifts
+the timed lineup together. Compact row times use the authored timezone and retain
+crossing dates, seconds and milliseconds where present.
+
+`Reset lineup` requires confirmation and removes editable timed and untimed rows.
+Cancel keeps edits; confirmation keeps details, artwork, timezone and explicit end.
+Time TBA preserves timing only in the current editor backup; removed keys stay removed.
+Canonical staff and contributor lineups retain untimed row positions. Legacy staff
+`participantLinks` remains a separate untimed group because that command has no
+position field. Legacy creation still requires `startAt`.
+
+Entered and persisted event ends remain fixed through all lineup/start edits.
+Lineup and Review repeat an overrun with actual bounds. `Set event end to lineup end`
+changes only the end to a fully known timed lineup end. Partial rows never produce
+an invented extension target. Contributor drafts can retain unresolved overruns;
+publication and staff saves must resolve them. Clearing Ends restores fully known
+lineup derivation, while unknown ends remain absent.
+
+Review contains one primary submit near its summary: `Publish event` for new events,
+`Save and publish` for staff drafts, and `Save changes` for published staff events
+or scoped contributor corrections. It reuses the existing form handlers and commands.
+The button mounts only during Review so native Enter on earlier steps keeps navigation.
+Pending guards prevent repeated submissions; Save draft and withdrawal stay secondary.
+Contributor correction still sends only changed permitted fields and closes back to
+its existing event surface. New publication and staff publication/save return directly
+to the command's event page. Validation reveals and focuses Details or Lineup,
+including missing timezone, DST gaps and unresolved repeated-hour choices.
+
+### Legacy stored-slot identity
+
+`events.updateCommunityEvent` accepts the optional update-only
+`storedSlotAssociations: Array<{ position: number; slotId: Id<"eventSlots"> }>`.
+`position` is the submitted slot index before start-time sorting. Editor readback
+uses legacy `playbackKey` for the stored ID, separately from local row keys.
+Only surviving IDs in `preservedSlotAssociationIds` are mapped. New rows are unmapped.
+The response returns current IDs at submitted positions; the editor reconciles them
+to captured submitted keys so edits made while saving cannot take another row's ID.
+
+After existing actor/event permission checks and before writes, the backend checks
+integer in-range positions, unique IDs/positions, at most 80 mappings, protected
+snapshot inclusion and current membership in the same event. Mappings require
+submitted slots and cannot accompany canonical `lineup`. Matching by ID preserves
+omitted legacy source label/URL/notes, hidden performer links and unchanged unavailable
+streams through reflow. Deliberate removal/replacement still detaches/revalidates choices.
+An unmapped row is new when mappings are supplied; omitting the argument retains
+older API-owner compatibility. Create, slotLinks schemas, revision checks, permission
+rules and canonical commands are unchanged. This is the controller-approved narrow
+exception to the original no-payload-expansion constraint.
+
 Continue advances without validating the other mounted stages. Publish reveals
 and focuses invalid controls. Saving a partial draft remains available.
 

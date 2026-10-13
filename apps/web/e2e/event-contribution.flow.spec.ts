@@ -10,7 +10,7 @@ for (const mode of ["draft", "correction"] as const) {
     await page.getByLabel("Time TBA", { exact: true }).uncheck();
     await page.getByRole("button", { name: "Time zone", exact: true }).click();
     await page.getByRole("combobox", { name: "Time zone", exact: true }).fill("UTC");
-    await page.getByRole("option", { name: /^UTC / }).click();
+    await page.getByRole("option", { name: /^UTC(?: |$)/ }).click();
     await page.getByLabel("Starts", { exact: true }).fill("2027-07-15T23:00");
     await page.getByText("Add end time", { exact: true }).click();
     const endInput = page.getByLabel("Ends (optional)", { exact: true });

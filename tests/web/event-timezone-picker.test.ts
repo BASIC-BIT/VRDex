@@ -27,3 +27,11 @@ test("valid legacy zones remain selectable with readable labels", () => {
   assert.equal(eventTimezoneLabel("America/Indiana/Indianapolis"), "America / Indiana / Indianapolis");
   assert.deepEqual(searchEventTimezones("not a zone", null), []);
 });
+
+test("UTC labels omit identical region, abbreviation and IANA parts", () => {
+  const instant = Date.UTC(2027, 9, 15, 20);
+  assert.equal(eventTimezoneLabel("UTC", instant), "UTC");
+  const option = searchEventTimezones("UTC", "2027-10-15", instant).find(option => option.value === "UTC");
+  assert.equal(option?.value, "UTC");
+  assert.doesNotMatch(option!.label, / · UTC/);
+});

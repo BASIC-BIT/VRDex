@@ -22,7 +22,7 @@ export function eventTimezoneLabel(value: string, instant?: number): string {
   if (instant === undefined || !Number.isFinite(instant)) return region;
   try {
     const abbreviation = new Intl.DateTimeFormat("en-US", { timeZone: value, timeZoneName: "short" }).formatToParts(instant).find(part => part.type === "timeZoneName")?.value;
-    return abbreviation ? `${region} · ${abbreviation}` : region;
+    return abbreviation && abbreviation !== region ? `${region} · ${abbreviation}` : region;
   } catch { return region; }
 }
 
@@ -37,6 +37,9 @@ export function searchEventTimezones(query: string, _date: string | null, instan
     .sort((a, b) => Number(aliases[b]?.includes(search) || b.toLowerCase() === search) - Number(aliases[a]?.includes(search) || a.toLowerCase() === search) || a.localeCompare(b))
     .map(value => {
       const offset = instant === undefined || !Number.isFinite(instant) ? undefined : new Intl.DateTimeFormat("en-US", { timeZone: value, timeZoneName: "longOffset" }).formatToParts(instant).find(part => part.type === "timeZoneName")?.value.replace("GMT", "UTC");
-      return { value, label: `${eventTimezoneLabel(value, instant)}${offset ? ` (${offset})` : ""} · ${value.replaceAll("_", " ")}` };
+      const name = eventTimezoneLabel(value, instant);
+      const identifier = value.replaceAll("_", " ");
+      const label = `${name}${offset && offset !== name ? ` (${offset})` : ""}`;
+      return { value, label: name.split(" \u00b7 ").includes(identifier) ? label : `${label} \u00b7 ${identifier}` };
     });
 }

@@ -14,9 +14,10 @@ async function setTheme(page: Page, value: "light" | "dark") {
 }
 
 async function capture(page: Page, path: string) {
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   await page.evaluate(() => scrollTo(0, 0));
-  await page.screenshot({ path, animations: "disabled", caret: "hide", fullPage: true });
+  await page.screenshot({ path, animations: "disabled", caret: "hide", fullPage: true, scale: "css" });
+  await expect(page).toHaveScreenshot(path.split("/").pop()!.split("\\").pop()!, { animations: "disabled", caret: "hide", fullPage: true, scale: "css", maxDiffPixelRatio: 0.002, threshold: 0.2 });
 }
 
 for (const editor of [
@@ -36,7 +37,7 @@ for (const editor of [
     for (const step of ["Details", "Lineup", "Review"]) {
       await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: step }).click();
       await waitForVisualReady(page);
-      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
       await expect(page).toHaveScreenshot(`${editor.name}-${step.toLowerCase()}.png`, {
         animations: "disabled", caret: "hide", fullPage: true,
         maxDiffPixelRatio: 0.002, scale: "css", threshold: 0.2,
@@ -45,13 +46,13 @@ for (const editor of [
   });
 }
 
-for (const mode of ["create", "resumed", "correction", "staff-edit"] as const) {
+for (const mode of ["create", "resumed", "correction", "staff-create", "staff-edit"] as const) {
   for (const color of ["light", "dark"] as const) {
     test(`${mode} ${color} editor evidence @snapshot @fixture`, async ({ page }, info) => {
       if (mode === "resumed") await page.addInitScript(() => sessionStorage.setItem("fixture-source-draft", JSON.stringify({
         version: 1, fields: { communitySlug: "afterglow", title: "Resumed night", eventDate: "2027-10-15", timezone: "UTC", start: { time: "20:00" }, end: { time: "23:00" }, venueLabel: "Harbor" },
       })));
-      const path = mode === "staff-edit" ? "/playwright/event-editor/edit"
+      const path = mode === "staff-create" ? "/playwright/event-editor" : mode === "staff-edit" ? "/playwright/event-editor/edit"
         : mode === "correction" ? "/playwright/event-intake?revision=correction"
           : mode === "resumed" ? "/playwright/event-intake?source=text"
             : "/playwright/event-intake?revision=draft";
@@ -100,4 +101,34 @@ test("import dialog, failure, and DST states @snapshot @fixture", async ({ page 
   await page.getByLabel("Ends (optional)", { exact: true }).fill("2026-11-01T01:45");
   await expect(page.getByLabel("Ends (optional) occurrence")).toBeVisible();
   await capture(page, info.outputPath("dst-repeat-and-end.png"));
+});
+
+for (const color of ["light", "dark"] as const) test(`scheduling states ${color} @snapshot @fixture`, async ({ page }, info) => {
+  await page.addInitScript(() => sessionStorage.setItem("event-intake-fixture", JSON.stringify({ communitySlug: "playwright-afterglow-social", title: "Harbor night", eventDate: "2027-10-15", timezone: "UTC", start: { time: "20:00" }, end: { time: "21:00" } })));
+  await page.goto("/playwright/event-intake"); await setTheme(page, color);
+  await expect(page.getByRole("button", { name: "Time zone", exact: true })).toHaveText(/^UTC\s*▾$/);
+  await page.getByRole("button", { name: "Time zone", exact: true }).click();
+  await expect(page.getByRole("option").first()).not.toContainText(" · UTC");
+  await expect(page.getByRole("combobox", { name: "Time zone" })).toBeFocused();
+  const popoverBackground = await page.getByRole("listbox").evaluate(list => getComputedStyle(list.parentElement!).backgroundColor);
+  expect(popoverBackground).not.toContain("rgba");
+  await capture(page, info.outputPath(`schedule-${color}-timezone.png`));
+  await page.getByRole("combobox", { name: "Time zone" }).press("Escape");
+  const nav = page.getByRole("navigation", { name: "Event editor" });
+  await nav.getByRole("button", { name: "Lineup", exact: true }).click();
+  await capture(page, info.outputPath(`schedule-${color}-setup.png`));
+  await page.getByRole("button", { name: "Generate", exact: true }).click();
+  for (const [index, row] of (await page.locator('[data-lineup-row]').all()).entries()) await row.getByRole("textbox", { name: "Performer", exact: true }).fill(["Aurora", "Neon Harbor", "Lumen", "Closing session"][index]);
+  await capture(page, info.outputPath(`schedule-${color}-lineup-conflict.png`));
+  await page.getByRole("button", { name: "Add slot at position 2", exact: true }).click();
+  await page.getByLabel("Slot duration", { exact: true }).fill("15");
+  await capture(page, info.outputPath(`schedule-${color}-insertion.png`));
+  await page.getByRole("button", { name: "Insert slot", exact: true }).click();
+  await page.getByRole("button", { name: "Reset lineup", exact: true }).click();
+  await capture(page, info.outputPath(`schedule-${color}-reset.png`));
+  await page.getByRole("dialog").getByRole("button", { name: "Cancel", exact: true }).click();
+  await nav.getByRole("button", { name: "Review", exact: true }).click();
+  await capture(page, info.outputPath(`schedule-${color}-review-conflict.png`));
+  await page.getByRole("button", { name: "Set event end to lineup end", exact: true }).click();
+  await capture(page, info.outputPath(`schedule-${color}-review.png`));
 });
