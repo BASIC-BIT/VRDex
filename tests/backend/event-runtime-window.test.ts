@@ -54,7 +54,13 @@ it("keeps no-end events in actual discovery and listings through the existing si
         assert.deepEqual((await t.query(api.events.listPublicUpcoming, { now })).map(event => event.slug), expected, `upcoming ${message}`);
         assert.deepEqual((await t.run(ctx => getPublicCommunityHostedEvents(ctx.db, ids.community, now))).map(event => event.slug), expected, `community ${message}`);
         assert.deepEqual((await t.run(ctx => getPublicPersonUpcomingEvents(ctx.db, ids.person, now))).map(event => event.slug), expected, `person ${message}`);
-        const world = await t.run(ctx => getPublicWorldEventContext(ctx.db, ids.world, now));
+        const world = await t.run(async ctx => {
+          const get = context.mock.method(ctx.db, "get");
+          const result = await getPublicWorldEventContext(ctx.db, ids.world, now);
+          assert.equal(get.mock.calls.filter(call => call.arguments[0] === ids.event).length, 1, `world event reads ${message}`);
+          assert.equal(get.mock.calls.filter(call => call.arguments[0] === ids.community).length, 1, `world community reads ${message}`);
+          return result;
+        });
         assert.deepEqual(world.upcoming.map(event => event.slug), expected, `world ${message}`);
         assert.deepEqual((await t.run(ctx => getPublicActiveWorlds(ctx.db, now, 8))).map(world => world.nextEvent.slug), expected, `active world ${message}`);
         const results = await t.query(api.search.searchUniversal, { query: "Window Event", entityType: "event" });

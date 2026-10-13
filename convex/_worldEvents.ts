@@ -390,7 +390,10 @@ export async function getPublicWorldEventContext(
       .take(WORLD_EVENT_SECTION_SCAN_LIMIT),
   ]);
   // Classify from the live event below. Older links may still have a start-only end.
-  const associations = [...startedAssociations, ...futureAssociations, ...previousAssociations];
+  const associations = [...new Map(
+    [...startedAssociations, ...futureAssociations, ...previousAssociations]
+      .map(association => [association._id, association]),
+  ).values()];
 
   const records = (
     await Promise.all(
