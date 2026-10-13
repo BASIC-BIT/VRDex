@@ -1,6 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import { internalMutation, type MutationCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
+import { publicKitAvailable } from "./_mediaReview";
 
 async function eligible(ctx: MutationCtx, submission: Doc<"profileMediaSubmissions">) {
   const profile = await ctx.db.get(submission.profileId);
@@ -60,8 +61,14 @@ export const convertBatch = internalMutation({
       // ponytail: any profile metadata correction blocks initialization; asset-scoped audit index if needed.
       const audits = await Promise.all(["profile_media_contribution_metadata_updated", "profile_asset_metadata_updated"].map(action =>
         ctx.db.query("profileAuditEvents").withIndex("by_profileId_action", q => q.eq("profileId", s.profile._id).eq("action", action)).first()));
-      const approvalTime = submission.reviewedAt ?? (submission.publicationMethod === "trusted_publisher" ? submission.updatedAt : undefined);
-      if (legacy && approvalTime !== undefined && s.asset.updatedAt === approvalTime && !s.asset.sourceUrl && !s.asset.sourceDescription && submission.sourceDescription && !audits.some(Boolean))
+      const intent = submission.uploadIntentId ? await ctx.db.get(submission.uploadIntentId) : null;
+      // Consumption writes the asset's initial updatedAt and intent.consumedAt from
+      // the same input.now. Submission approval may use a later Date.now().
+      const untouchedPublication = intent?.state === "consumed" && intent.purpose === "community_proposal" &&
+        intent.targetSubmissionId === submission._id && intent.targetProfileId === s.profile._id &&
+        intent.storageKey === s.asset.storageKey && intent.contentSha256 === s.asset.contentSha256 &&
+        intent.consumedAt !== undefined && s.asset.updatedAt === intent.consumedAt;
+      if (legacy && untouchedPublication && !s.asset.sourceUrl && !s.asset.sourceDescription && submission.sourceDescription && !audits.some(Boolean))
         patch.sourceDescription = submission.sourceDescription;
       const retained = await gallery(ctx, s.asset, args.dryRun);
       if (Object.keys(patch).length && !args.dryRun) await ctx.db.patch(s.asset._id, patch);
@@ -77,7 +84,7 @@ export const correctPrimaryToKit = internalMutation({
     const submission = await ctx.db.get(args.submissionId);
     const s = submission ? await eligible(ctx, submission) : null;
     const placement = await ctx.db.get(args.expectedPlacementId);
-    if (!s || !placement || s.asset._id !== args.expectedAssetId || placement.assetId !== s.asset._id ||
+    if (!s || !publicKitAvailable(s.profile) || !placement || s.asset._id !== args.expectedAssetId || placement.assetId !== s.asset._id ||
       placement.profileId !== s.profile._id || placement.state !== "active" ||
       placement.placement !== (s.profile.profileType === "person" ? "profile_image" : "primary_logo") ||
       placement.updatedAt !== args.expectedPlacementUpdatedAt || (placement.selectionOperationId ?? null) !== args.expectedSelectionOperationId ||

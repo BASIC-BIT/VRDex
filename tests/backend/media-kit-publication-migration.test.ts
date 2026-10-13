@@ -46,6 +46,7 @@ async function legacyFixture() {
       mimeType: "image/webp", byteSize: 512, contentSha256: "legacy-digest", visibility: "public", source: "community_submitted",
       uploadedBy: upload.requestedBy, uploadedAt: 10, updatedAt: 11, state: "active", credit: "Artist", label: "Image" });
     await ctx.db.patch(intent.submissionId, { status: "approved", requestKind: undefined, approvedAssetId: id, sourceUrl: undefined, sourceDescription: "Original photograph", reviewedAt: 11 });
+    await ctx.db.patch(intent.intentId, { state: "consumed", consumedAt: 11, updatedAt: 11, sourceUrl: undefined });
     return id;
   });
   const placementId = await t.run(ctx => ctx.db.insert("profileAssetPlacements", { profileId: s.profileId, assetId, placement: "profile_image", position: 0, state: "active", updatedAt: 12 }));
@@ -62,6 +63,60 @@ it("backfills unique public legacy provenance and gallery while preserving prima
   assert.deepEqual(await f.t.run(ctx => ctx.db.get(f.intent.submissionId)), before);
   assert.equal((await f.t.run(ctx => ctx.db.get(f.placementId)))?.state, "active");
   assert.equal((await f.t.mutation(convert, { dryRun: false, cursor: null, limit: 40 })).changed, 0);
+});
+it("refuses exact correction when the public kit is hidden or disabled without changing any records", async () => {
+  for (const unavailable of ["hidden", "disabled"] as const) {
+    const f = await legacyFixture();
+    if (unavailable === "hidden") await f.t.run(ctx => ctx.db.patch(f.s.profileId, { fieldVisibility: { mediaKit: "private" } }));
+    const snapshot = () => f.t.run(async ctx => ({ profile: await ctx.db.get(f.s.profileId), asset: await ctx.db.get(f.assetId), placements: await ctx.db.query("profileAssetPlacements").collect() }));
+    const before = await snapshot();
+    if (unavailable === "disabled") process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "false";
+    try {
+      for (const dryRun of [true, false]) {
+        assert.deepEqual(await f.t.mutation(correct, { ...f.args, dryRun }), { changed: false, code: "resource_changed_or_protected" });
+        assert.deepEqual(await snapshot(), before);
+      }
+    } finally { process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "true"; }
+  }
+});
+it("restores untouched legacy descriptions using consumption evidence despite differing approval timestamps", async () => {
+  for (const method of ["trusted_publisher", "independent_review"] as const) {
+    const f = await legacyFixture();
+    await f.t.run(ctx => ctx.db.patch(f.intent.submissionId, { publicationMethod: method, reviewedAt: method === "trusted_publisher" ? undefined : 5000, updatedAt: 5001 }));
+    const before = await f.t.run(ctx => ctx.db.get(f.intent.submissionId));
+    await f.t.mutation(convert, { dryRun: true, cursor: null, limit: 40 });
+    assert.equal((await f.t.run(ctx => ctx.db.get(f.assetId)))?.sourceDescription, undefined);
+    await f.t.mutation(convert, { dryRun: false, cursor: null, limit: 40 });
+    assert.equal((await f.t.run(ctx => ctx.db.get(f.assetId)))?.sourceDescription, "Original photograph", method);
+    assert.deepEqual(await f.t.run(ctx => ctx.db.get(f.intent.submissionId)), before);
+  }
+});
+it("retains generic public asset backfill when the kit is currently hidden or disabled", async () => {
+  for (const unavailable of ["hidden", "disabled"] as const) {
+    const f = await legacyFixture();
+    if (unavailable === "hidden") await f.t.run(ctx => ctx.db.patch(f.s.profileId, { fieldVisibility: { mediaKit: "private" } }));
+    if (unavailable === "disabled") process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "false";
+    try {
+      assert.equal((await f.t.mutation(convert, { dryRun: false, cursor: null, limit: 40 })).changed, 1);
+      assert.equal((await f.t.run(ctx => ctx.db.get(f.placementId)))?.state, "active");
+      assert.equal((await f.t.run(ctx => ctx.db.get(f.assetId)))?.sourceSubmissionId, f.intent.submissionId);
+    } finally { process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "true"; }
+  }
+});
+it("skips description initialization without durable consumption linkage", async () => {
+  for (const condition of ["unconsumed", "foreign", "storage", "digest", "timestamp", "provenance"] as const) {
+    const f = await legacyFixture();
+    await f.t.run(async ctx => {
+      if (condition === "unconsumed") await ctx.db.patch(f.intent.intentId, { state: "uploaded" });
+      if (condition === "foreign") await ctx.db.patch(f.intent.intentId, { targetSubmissionId: undefined });
+      if (condition === "storage") await ctx.db.patch(f.intent.intentId, { storageKey: "different" });
+      if (condition === "digest") await ctx.db.patch(f.intent.intentId, { contentSha256: "different" });
+      if (condition === "timestamp") await ctx.db.patch(f.intent.intentId, { consumedAt: 12 });
+      if (condition === "provenance") await ctx.db.patch(f.assetId, { sourceDescription: "Current source" });
+    });
+    await f.t.mutation(convert, { dryRun: false, cursor: null, limit: 40 });
+    assert.equal((await f.t.run(ctx => ctx.db.get(f.assetId)))?.sourceDescription, condition === "provenance" ? "Current source" : undefined, condition);
+  }
 });
 it("refuses ambiguous asset provenance rather than choosing a submission", async () => {
   const f = await legacyFixture();

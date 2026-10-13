@@ -8,6 +8,12 @@ import { readOption, unknownOption } from "./publish-seed-batch.mjs";
 export function migrationInput(args) {
   const values = ["--target", "--cursor", "--limit", "--correction-file"];
   if (unknownOption(args, [...values, "--apply"], values)) throw new Error("Unknown or repeated migration option.");
+  for (const name of values) {
+    const inline = name === "--target" ? args.find(arg => arg.startsWith("--target="))?.slice("--target=".length) : undefined;
+    if (!args.includes(name) && inline === undefined) continue;
+    const value = inline ?? readOption(args, name);
+    if (!value?.trim() || value.startsWith("--")) throw new Error(`Missing value for ${name}.`);
+  }
   const file = readOption(args, "--correction-file");
   const dryRun = !args.includes("--apply");
   if (file) return { operation: "correctPrimaryToKit", input: { ...JSON.parse(readFileSync(file, "utf8")), dryRun } };

@@ -576,6 +576,8 @@ test("contributor A submits and distinct assigned reviewer B reviews media @medi
   const kitFile = `/api/v0/profiles/${profile.slug}/assets/${kitDetail.assetId}/file`;
   const kitCard = pageA.locator("section").filter({ has: pageA.locator(`img[src="${kitFile}"]`) });
   await expect(kitCard.getByRole("button", { name: "Select picture" })).toHaveCount(0);
+  // Replacement proposals share the contributor cooldown with the preceding upload.
+  await new Promise(resolve => setTimeout(resolve, 31_000));
   await kitCard.getByRole("button", { name: "Request replacement" }).click();
   await expect(kitCard.getByText("Submitted", { exact: true })).toBeVisible();
   expect((await request.post("/api/e2e/media", { headers, data: { op: "grant-publication-actors", runId, profileId } })).status()).toBe(200);
