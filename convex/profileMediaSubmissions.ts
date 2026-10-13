@@ -64,8 +64,14 @@ export const contributionDetail = query({ args: { submissionId }, handler: async
 } });
 export const contributionDetailForMcpActor = internalQuery({
   args: { submissionId, actorUserId: v.id("users"), ...reviewActorAttestationArgs },
-  handler: async (ctx, args) => publishedContributionDetail(ctx, args.submissionId,
-    await trustedReviewActor(ctx, args.actorUserId, args, "assets:contribute", false)),
+  handler: async (ctx, args) => {
+    const actor = await trustedReviewActor(ctx, args.actorUserId, args, "assets:contribute", false);
+    try { return await publishedContributionDetail(ctx, args.submissionId, actor); }
+    catch (error) {
+      if (error instanceof ConvexError && typeof error.data === "object" && error.data?.code === "MEDIA_RESOURCE_UNAVAILABLE") return null;
+      throw error;
+    }
+  },
 });
 export const placeContribution = mutation({ args: placementCommandArgs, handler: async (ctx, args) =>
   contributionPlacementCommand(ctx, args, await browserReviewActor(ctx)) });
@@ -1564,32 +1570,34 @@ async function authorizedReviewPage(
       .withIndex("by_batch_key_revision", (q) => q.eq("batchId", batch._id))
       .paginate(paginationOpts);
     const page = [];
+    const seen = new Set<string>();
     for (const rev of revisions.page) {
-      const attempt = await ctx.db
-        .query("contributionItemAttempts")
-        .withIndex("by_revision", (q) => q.eq("revisionId", rev._id))
-        .unique();
-      const submission = attempt?.submissionId
-        ? await ctx.db.get(attempt.submissionId)
-        : null;
-      if (
-        !submission ||
-        submission.status !== status ||
-        (args.profileId && submission.profileId !== args.profileId) ||
-        (["submitted", "under_review"].includes(status) &&
-          submission.expiresAt <= Date.now())
-      )
-        continue;
-      const profile = await ctx.db.get(submission.profileId);
-      if (!profile) continue;
-      try {
-        await reviewerContext(ctx, profile, currentActor, submission);
-      } catch {
-        continue;
+      const attempt = await ctx.db.query("contributionItemAttempts")
+        .withIndex("by_revision", q => q.eq("revisionId", rev._id)).unique();
+      const source = attempt?.submissionId ? await ctx.db.get(attempt.submissionId) : null;
+      if (!source || rev.actorUserId !== source.submitterUserId) continue;
+      const candidate = source.approvedAssetId ? await ctx.db.get(source.approvedAssetId) : null;
+      const inherited = source.status === "approved" && source.requestKind !== "identity_placement" &&
+        candidate && candidate.profileId === source.profileId && candidate.sourceSubmissionId === source._id &&
+        (status === "submitted" || status === "under_review")
+        ? await ctx.db.query("profileMediaSubmissions")
+          .withIndex("by_candidateAssetId_status_expiresAt", q => q.eq("candidateAssetId", candidate._id).eq("status", status).gt("expiresAt", Date.now()))
+          .take(11) : [];
+      // Open target capacity is ten; fail closed rather than truncate unexpected overflow.
+      if (inherited.length > 10) throw new Error("Replacement review queue exceeds target capacity.");
+      for (const submission of [source, ...inherited]) {
+        if (seen.has(submission._id) || submission.profileId !== source.profileId ||
+          submission.submitterUserId !== source.submitterUserId || submission.status !== status ||
+          (submission !== source && submission.requestKind !== "identity_placement") ||
+          (args.profileId && submission.profileId !== args.profileId) ||
+          (["submitted", "under_review"].includes(status) && submission.expiresAt <= Date.now())) continue;
+        const profile = await ctx.db.get(submission.profileId);
+        if (!profile) continue;
+        try { await reviewerContext(ctx, profile, currentActor, submission); }
+        catch { continue; }
+        seen.add(submission._id);
+        page.push(await reviewSubmission(ctx, submission, profile, access.superAdmin));
       }
-      page.push(
-        await reviewSubmission(ctx, submission, profile, access.superAdmin),
-      );
     }
     return {
       ...writeScopedPagination(revisions,scope),

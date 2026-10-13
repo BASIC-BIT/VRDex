@@ -30,8 +30,6 @@ async function contributionState(ctx: QueryCtx | MutationCtx, submissionId: stri
     throw new ConvexError({ code: "MEDIA_RESOURCE_UNAVAILABLE", message: "Published contribution unavailable." });
   const placement = profile.profileType === "person" ? "profile_image" as const : "primary_logo" as const;
   const snapshot = await reviewSnapshot(ctx, { ...submission, requestKind: "identity_placement", candidateAssetId: asset._id, requestedPlacement: placement }, profile);
-  const identityPlacements = await ctx.db.query("profileAssetPlacements").withIndex("by_profileId_state", q => q.eq("profileId", profile._id).eq("state", "active"))
-    .filter(q => q.or(q.eq(q.field("placement"), "profile_image"), q.eq(q.field("placement"), "primary_logo"))).collect();
   const current = await ctx.db.query("profileAssetPlacements").withIndex("by_profileId_placement_state_position", q =>
     q.eq("profileId", profile._id).eq("placement", placement).eq("state", "active")).first();
   const access = await getAccountFeatureAccess(ctx.db, actor.user._id);
@@ -50,7 +48,7 @@ async function contributionState(ctx: QueryCtx | MutationCtx, submissionId: stri
   const ownKitOnly = submissionsEnabled &&
     publicKitAvailable(profile) && kitVisible && !restrictions.some(Boolean) && asset.state === "active" &&
     !protectedSelection;
-  return { submission, profile, asset, placement, snapshot, current, identityPlacements, publisher, submissionsEnabled, newPlacementAvailable, publicUnclaimed, restrictions, ownSelection, kitVisible, ownKitOnly, protectedSelection,
+  return { submission, profile, asset, placement, snapshot, current, publisher, submissionsEnabled, newPlacementAvailable, publicUnclaimed, restrictions, ownSelection, kitVisible, ownKitOnly, protectedSelection,
     version: await hash({ asset, source: submission, placement: current, assetPlacements, picture: snapshot.currentImage, restrictions, publicUnclaimed, revision: snapshot.reviewVersion }) };
 }
 
@@ -62,9 +60,9 @@ export async function publishedContributionDetail(ctx: QueryCtx | MutationCtx, s
     contributionVersion: s.version,
     metadata: { label: metadata.label ?? "Image", altText: metadata.altText, credit: metadata.credit ?? "",
       creditUrl: metadata.creditUrl, sourceUrl: metadata.sourceUrl, sourceDescription: metadata.sourceDescription },
-    canSelectPrimary: s.newPlacementAvailable && s.publisher && !s.identityPlacements.length && !s.snapshot.currentImage,
+    canSelectPrimary: s.newPlacementAvailable && s.publisher && !s.snapshot.identityOccupied,
     canClearPrimary: s.submissionsEnabled && s.publisher && s.ownSelection,
-    canProposePlacement: s.newPlacementAvailable && s.publicUnclaimed && !s.restrictions.some(Boolean) && !s.ownSelection && !!(s.identityPlacements.length || s.snapshot.currentImage),
+    canProposePlacement: s.newPlacementAvailable && s.publicUnclaimed && !s.restrictions.some(Boolean) && !s.ownSelection && s.snapshot.identityOccupied,
     canEditMetadata: s.ownKitOnly, canRemove: s.ownKitOnly && s.submission.legalHoldAt === undefined,
   };
 }
@@ -85,7 +83,8 @@ async function command(ctx: MutationCtx, input: ContributionCommandBase | Contri
     !s.publicUnclaimed ? "target_unavailable" : s.restrictions.some(Boolean) ? "publication_restricted" :
     !proposal && !s.publisher ? "publisher_required" : s.version !== args.expectedContributionVersion ? "contribution_changed" :
     (proposal || selecting) && !s.newPlacementAvailable ? "target_unavailable" :
-    !proposal && selecting && (s.identityPlacements.length || s.snapshot.currentImage) ? "primary_occupied" :
+    proposal && !s.snapshot.identityOccupied ? "primary_empty" :
+    !proposal && selecting && s.snapshot.identityOccupied ? "primary_occupied" :
     !proposal && !selecting && !s.ownSelection ? "selection_changed" : undefined;
   if (!code && proposal) {
     const now = Date.now();

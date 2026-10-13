@@ -108,6 +108,7 @@ for (const condition of ["primary", "other_selection", "claimed", "private_profi
 
 it("metadata correction invalidates inspected placement review and refreshes its candidate projection", async () => {
   const f = await fixture();
+    await occupyFallback(f);
   const d = await f.detail();
   const proposal = await f.actor.mutation(api.profileMediaSubmissions.proposePlacement, { submissionId: f.intent.submissionId, expectedContributionVersion: d.contributionVersion, idempotencyKey: "proposal" });
   const reviewer = f.t.withIdentity(f.s.moderatorIdentity);
@@ -276,12 +277,13 @@ it("owner same-asset selection stamps new provenance and retains the contributio
 
 it("ignores biography edits but binds review to the exact original primary selection", async () => {
   const f = await fixture();
+    await occupyFallback(f);
   const d = await f.detail();
   await f.t.run(ctx => ctx.db.patch(f.s.profileId, { headline: "Changed biography", updatedAt: Date.now() }));
   assert.equal((await f.detail()).contributionVersion, d.contributionVersion);
   const p = await f.actor.mutation(api.profileMediaSubmissions.proposePlacement, { submissionId: f.intent.submissionId, expectedContributionVersion: d.contributionVersion, idempotencyKey: "proposal" });
   assert.equal(p.operationState, "committed");
-  await f.place("select_primary");
+  await f.t.run(ctx => selectProfileAssetIdentity(ctx.db, { profileId: f.s.profileId, assetId: d.assetId, placement: "profile_image", actorUserId: f.s.moderatorUserId, now: Date.now() }));
   const reviewer = f.t.withIdentity(f.s.moderatorIdentity);
   const review = await reviewer.query(api.profileMediaSubmissions.reviewDetail, { submissionId: p.resourceId! });
   assert.ok(review);
@@ -312,6 +314,7 @@ it("legacy placements never authorize undo and publisher revocation refuses hist
 
 it("reviews existing-asset placement without a new upload or published charge", async () => {
   const f = await fixture();
+    await occupyFallback(f);
   const d = await f.detail();
   const proposal = await f.actor.mutation(api.profileMediaSubmissions.proposePlacement, {
     submissionId: f.intent.submissionId, expectedContributionVersion: d.contributionVersion, idempotencyKey: "proposal",
@@ -336,6 +339,7 @@ it("reviews existing-asset placement without a new upload or published charge", 
 for (const disposition of ["reject", "withdraw"] as const) {
   it(`${disposition} leaves the published asset and its bytes alone`, async () => {
     const f = await fixture();
+    await occupyFallback(f);
     const beforeCharge = await f.t.run(ctx => ctx.db.query("contributionUploadReservations").first());
     const d = await f.detail();
     const p = await f.actor.mutation(api.profileMediaSubmissions.proposePlacement, { submissionId: f.intent.submissionId, expectedContributionVersion: d.contributionVersion, idempotencyKey: "proposal" });
@@ -417,6 +421,7 @@ it("treats visible automatic artwork as occupied and refuses hidden authored ide
 
 it("does not interpret a rejected placement as a digest-wide content rejection", async () => {
   const f = await fixture();
+  await occupyFallback(f);
   const d = await f.detail();
   const p = await f.actor.mutation(api.profileMediaSubmissions.proposePlacement, { submissionId: f.intent.submissionId, expectedContributionVersion: d.contributionVersion, idempotencyKey: "proposal" });
   assert.equal(p.operationState, "committed");
@@ -542,6 +547,7 @@ for (const condition of ["disabled_kit", "hidden_kit", "disabled_submissions"] a
 for (const unavailable of ["hidden", "disabled"] as const) {
   it(`refuses fresh candidate approval for a ${unavailable} kit, including a fresh inspection and legacy decisions`, async () => {
     const f = await fixture();
+    await occupyFallback(f);
     const d = await f.detail();
     const proposal = await f.actor.mutation(api.profileMediaSubmissions.proposePlacement, { submissionId: f.intent.submissionId, expectedContributionVersion: d.contributionVersion, idempotencyKey: "candidate-proposal" });
     const reviewer = f.t.withIdentity(f.s.moderatorIdentity);
@@ -561,6 +567,7 @@ for (const unavailable of ["hidden", "disabled"] as const) {
 for (const kind of ["identity", "dispute", "suppression", "rejection"] as const) {
   it(`rechecks current ${kind} restrictions at receipt and legacy candidate approval`, async () => {
     const f = await fixture();
+    await occupyFallback(f);
     const d = await f.detail();
     if (kind === "identity" || kind === "dispute") await f.t.run(ctx => ctx.db.patch(d.assetId, { contentSha256: undefined }));
     const freshContribution = await f.detail();
@@ -601,7 +608,8 @@ it("editable profile projection uses current public-kit availability for intake"
 });
 
 it("replays exact committed placement review after kit withdrawal and a later restriction", async () => {
-  const f = await fixture(); const d = await f.detail();
+  const f = await fixture();
+    await occupyFallback(f); const d = await f.detail();
   const p = await f.actor.mutation(api.profileMediaSubmissions.proposePlacement, { submissionId: f.intent.submissionId, expectedContributionVersion: d.contributionVersion, idempotencyKey: "candidate-proposal" });
   const reviewer = f.t.withIdentity(f.s.moderatorIdentity);
   const detail = await reviewer.query(api.profileMediaSubmissions.reviewDetail, { submissionId: p.resourceId! }); assert.ok(detail);
@@ -612,4 +620,127 @@ it("replays exact committed placement review after kit withdrawal and a later re
   try { assert.deepEqual(await reviewer.mutation(api.profileMediaSubmissions.decideWithReceipt, args), receipt); }
   finally { process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "true"; }
   assert.deepEqual(await f.placements(), ["gallery", "profile_image"]);
+});
+
+async function occupyFallback(f: Awaited<ReturnType<typeof fixture>>) {
+  await f.t.run(ctx => ctx.db.patch(f.s.profileId, { avatarImageUrl: "https://example.test/current.png" }));
+}
+for (const trusted of [false, true]) for (const mcp of [false, true]) {
+  it(`durably refuses empty replacement for ${trusted ? "trusted" : "ordinary"} ${mcp ? "MCP" : "browser"} contributors`, async () => {
+    const f = await fixture("person", !trusted); const d = await f.detail();
+    const attestation = await contributionAttestation(f);
+    const args = { submissionId: f.intent.submissionId, expectedContributionVersion: d.contributionVersion, idempotencyKey: "empty" };
+    const call = () => mcp ? f.t.mutation(internal.profileMediaSubmissions.proposePlacementForMcpActor, { ...args, ...attestation }) : f.actor.mutation(api.profileMediaSubmissions.proposePlacement, args);
+    const receipt = await call(); assert.equal(receipt.code, "primary_empty"); assert.equal(receipt.operationState, "refused");
+    await occupyFallback(f); assert.deepEqual(await call(), receipt);
+    assert.equal((await f.t.run(ctx => ctx.db.query("profileMediaSubmissions").collect())).length, 1);
+  });
+}
+async function contributionAttestation(f: Awaited<ReturnType<typeof fixture>>) {
+  await f.t.run(ctx => ctx.db.insert("oauthAccessTokens", { tokenId: "replacement-token", clientId: "client", subjectType: "user", userId: f.s.contributorUserId,
+    resource: "https://example.test/mcp", scopes: ["mcp:read", "mcp:write", "assets:contribute"], status: "active", issuedAt: Date.now(), expiresAt: Date.now() + 60_000 }));
+  return { actorUserId: f.s.contributorUserId, oauthTokenId: "replacement-token", oauthClientId: "client", emailVerified: true, emailVerificationAttestedAt: Date.now() };
+}
+it("actual MCP proposal boundary reports upload cooldown and admits a fresh key after the unchanged window", async () => {
+  const f = await fixture(); await occupyFallback(f); const attestation = await contributionAttestation(f);
+  await f.t.run(ctx => ctx.db.patch(f.intent.submissionId, { createdAt: Date.now() }));
+  const d = await f.detail(); const args = { submissionId: f.intent.submissionId, expectedContributionVersion: d.contributionVersion, idempotencyKey: "cooldown", ...attestation };
+  const refused = await f.t.mutation(internal.profileMediaSubmissions.proposePlacementForMcpActor, args);
+  assert.equal(refused.code, "proposal_rate_limited"); assert.equal(refused.operationState, "refused");
+  await f.t.run(ctx => ctx.db.patch(f.intent.submissionId, { createdAt: Date.now() - 31_000 }));
+  assert.deepEqual(await f.t.mutation(internal.profileMediaSubmissions.proposePlacementForMcpActor, args), refused);
+  const fresh = await f.detail();
+  assert.equal((await f.t.mutation(internal.profileMediaSubmissions.proposePlacementForMcpActor, { ...args, expectedContributionVersion: fresh.contributionVersion, idempotencyKey: "after-cooldown" })).operationState, "committed");
+});
+it("refuses fresh receipt and legacy approval after an old replacement is rebased onto an empty slot", async () => {
+  const f = await fixture(); await occupyFallback(f); const d = await f.detail();
+  const proposal = await f.actor.mutation(api.profileMediaSubmissions.proposePlacement, { submissionId: f.intent.submissionId, expectedContributionVersion: d.contributionVersion, idempotencyKey: "occupied" });
+  const reviewer = f.t.withIdentity(f.s.moderatorIdentity); await f.t.run(ctx => ctx.db.patch(f.s.profileId, { avatarImageUrl: undefined }));
+  const detail = await reviewer.query(api.profileMediaSubmissions.reviewDetail, { submissionId: proposal.resourceId! }); assert.ok(detail);
+  await reviewer.mutation(api.profileMediaSubmissions.rebase, { submissionId: proposal.resourceId!, expectedReviewVersion: detail.reviewVersion, idempotencyKey: "empty-rebase" });
+  const fresh = await reviewer.query(api.profileMediaSubmissions.reviewDetail, { submissionId: proposal.resourceId! }); assert.ok(fresh);
+  const args = { submissionId: proposal.resourceId!, expectedReviewVersion: fresh.reviewVersion, decision: "approve" as const, privateReason: "Checked", idempotencyKey: "empty-review" };
+  const refused = await reviewer.mutation(api.profileMediaSubmissions.decideWithReceipt, args); assert.equal(refused.code, "primary_empty");
+  assert.deepEqual(await reviewer.mutation(api.profileMediaSubmissions.decideWithReceipt, args), refused);
+  await assert.rejects(reviewer.mutation(api.profileMediaSubmissions.decide, { submissionId: proposal.resourceId!, expectedProfileUpdatedAt: (await f.t.run(ctx => ctx.db.get(f.s.profileId)))!.updatedAt, decision: "approve", privateReason: "Checked" }), /occupied/);
+  assert.deepEqual(await f.placements(), ["gallery"]);
+});
+it("inherits only the original batch assignment for a candidate replacement", async () => {
+  const f = await fixture(); await occupyFallback(f); const d = await f.detail();
+  const assignment = await f.t.run(async ctx => {
+    const grants = await ctx.db.query("accountFeatureGrants").collect();
+    for (const grant of grants) if (grant.userId === f.s.moderatorUserId) await ctx.db.patch(grant._id, { state: "revoked" });
+    await ctx.db.insert("accountFeatureGrants", { userId: f.s.moderatorUserId, feature: "media_reviewer", state: "active", grantedAt: Date.now(), updatedAt: Date.now(), grantedBy: { issuer: "test", subject: "operator", tokenIdentifier: "test:operator" } });
+    const batchId = await ctx.db.insert("contributionBatches", { actorUserId: f.s.contributorUserId, idempotencyKey: "source-batch", label: "Source", archived: false, rowCount: 1, createdAt: Date.now() });
+    const revisionId = await ctx.db.insert("contributionItemRevisions", { actorUserId: f.s.contributorUserId, batchId, itemKey: "source", revision: 1, payload: "{}", bytes: 2, createdAt: Date.now() });
+    await ctx.db.insert("contributionItemAttempts", { actorUserId: f.s.contributorUserId, revisionId, oauthClientId: "client", submissionId: f.intent.submissionId, receipt: { operationId: "source", operationState: "committed" }, createdAt: Date.now() });
+    return { id: await ctx.db.insert("contributionBatchReviewers", { batchId, reviewerUserId: f.s.moderatorUserId, active: true, expiresAt: Date.now() + 60_000 }), batchId };
+  });
+  const p = await f.actor.mutation(api.profileMediaSubmissions.proposePlacement, { submissionId: f.intent.submissionId, expectedContributionVersion: d.contributionVersion, idempotencyKey: "assigned-replacement" });
+  const reviewer = f.t.withIdentity(f.s.moderatorIdentity); const detail = await reviewer.query(api.profileMediaSubmissions.reviewDetail, { submissionId: p.resourceId! }); assert.ok(detail);
+  const foreign = await seed(f.t, "community");
+  await f.t.run(async ctx => {
+    const proposal = (await ctx.db.get(ctx.db.normalizeId("profileMediaSubmissions", p.resourceId!)!))!;
+    const { _id, _creationTime, ...fields } = proposal;
+    await ctx.db.insert("profileMediaSubmissions", { ...fields, profileId: foreign.profileId });
+    await ctx.db.insert("profileMediaSubmissions", { ...fields, submitterUserId: f.s.moderatorUserId });
+    await ctx.db.insert("profileMediaSubmissions", { ...fields, status: "rejected" });
+  });
+  const listArgs = { batchId: assignment.batchId, status: "submitted" as const, paginationOpts: { cursor: null, numItems: 40 } };
+  const queue = await reviewer.query(api.profileMediaSubmissions.listForReview, listArgs);
+  assert.deepEqual(queue.page.map(row => row.submissionId), [p.resourceId]);
+  const mcpQueue = await f.t.query(internal.profileMediaSubmissions.listForReviewForMcpActor, { ...listArgs, actorUserId: f.s.moderatorUserId, emailVerified: true, emailVerificationAttestedAt: Date.now() });
+  assert.deepEqual(mcpQueue.page.map(row => row.submissionId), [p.resourceId]);
+  assert.equal(await f.t.run(ctx => ctx.db.query("contributionItemAttempts").withIndex("by_submissionId", q => q.eq("submissionId", ctx.db.normalizeId("profileMediaSubmissions", p.resourceId!)!)).first()), null);
+  await f.t.run(ctx => ctx.db.patch(assignment.id, { active: false }));
+  await assert.rejects(reviewer.query(api.profileMediaSubmissions.listForReview, listArgs), /BATCH_UNAVAILABLE/);
+  await assert.rejects(reviewer.query(api.profileMediaSubmissions.reviewDetail, { submissionId: p.resourceId! }), /ACCESS_REQUIRED/);
+  await f.t.run(ctx => ctx.db.patch(assignment.id, { active: true }));
+  assert.equal((await reviewer.mutation(api.profileMediaSubmissions.decideWithReceipt, { submissionId: p.resourceId!, expectedReviewVersion: detail.reviewVersion, decision: "approve", privateReason: "Assigned replacement checked", idempotencyKey: "assigned-approve" })).operationState, "committed");
+});
+it("unbatched replacement refuses an ordinary reviewer and keeps distinct admin review", async () => {
+  const f = await fixture(); await occupyFallback(f); const d = await f.detail();
+  const p = await f.actor.mutation(api.profileMediaSubmissions.proposePlacement, { submissionId: f.intent.submissionId, expectedContributionVersion: d.contributionVersion, idempotencyKey: "unbatched" });
+  const grant = await f.t.run(async ctx => { const old = (await ctx.db.query("accountFeatureGrants").collect()).find(g => g.userId === f.s.moderatorUserId)!; await ctx.db.patch(old._id, { feature: "media_reviewer" }); return old._id; });
+  const reviewer = f.t.withIdentity(f.s.moderatorIdentity);
+  await assert.rejects(reviewer.query(api.profileMediaSubmissions.reviewDetail, { submissionId: p.resourceId! }), /ACCESS_REQUIRED/);
+  await f.t.run(ctx => ctx.db.patch(grant, { feature: "super_admin" }));
+  const detail = await reviewer.query(api.profileMediaSubmissions.reviewDetail, { submissionId: p.resourceId! }); assert.ok(detail);
+  assert.equal((await reviewer.mutation(api.profileMediaSubmissions.decideWithReceipt, { submissionId: p.resourceId!, expectedReviewVersion: detail.reviewVersion, decision: "approve", privateReason: "Admin checked", idempotencyKey: "admin" })).operationState, "committed");
+});
+it("MCP get returns known unavailable as null but preserves token and verification errors", async () => {
+  const f = await fixture(); const attestation = await contributionAttestation(f); const d = await f.detail();
+  await f.t.run(ctx => ctx.db.patch(d.assetId, { state: "deleted" }));
+  assert.equal(await f.t.query(internal.profileMediaSubmissions.contributionDetailForMcpActor, { submissionId: f.intent.submissionId, ...attestation }), null);
+  await assert.rejects(f.t.query(internal.profileMediaSubmissions.contributionDetailForMcpActor, { submissionId: f.intent.submissionId, ...attestation, emailVerified: false }), /verified/i);
+  await f.t.run(async ctx => { const token = await ctx.db.query("oauthAccessTokens").withIndex("by_tokenId", q => q.eq("tokenId", "replacement-token")).unique(); await ctx.db.patch(token!._id, { status: "revoked" }); });
+  await assert.rejects(f.t.query(internal.profileMediaSubmissions.contributionDetailForMcpActor, { submissionId: f.intent.submissionId, ...attestation }), /DENIED/);
+});
+it("restriction snapshot tracks bounded existence rather than append-only history", async () => {
+  const f = await fixture(); await occupyFallback(f); const d = await f.detail();
+  const p = await f.actor.mutation(api.profileMediaSubmissions.proposePlacement, { submissionId: f.intent.submissionId, expectedContributionVersion: d.contributionVersion, idempotencyKey: "restricted-history" });
+  const reviewer = f.t.withIdentity(f.s.moderatorIdentity);
+  const insert = (count: number) => f.t.run(async ctx => { for (let i = 0; i < count; i++) await ctx.db.insert("mediaPublicationRestrictions", { profileId: f.s.profileId, submissionId: f.intent.submissionId, kind: "identity", actorUserId: f.s.moderatorUserId, createdAt: Date.now() }); });
+  const clean = await reviewer.query(api.profileMediaSubmissions.reviewDetail, { submissionId: p.resourceId! }); await insert(1);
+  const blocked = await reviewer.query(api.profileMediaSubmissions.reviewDetail, { submissionId: p.resourceId! }); assert.notEqual(blocked!.reviewVersion, clean!.reviewVersion);
+  await insert(250); const more = await reviewer.query(api.profileMediaSubmissions.reviewDetail, { submissionId: p.resourceId! }); assert.equal(more!.reviewVersion, blocked!.reviewVersion);
+  assert.equal((await reviewer.mutation(api.profileMediaSubmissions.decideWithReceipt, { submissionId: p.resourceId!, expectedReviewVersion: more!.reviewVersion, decision: "approve", privateReason: "Checked", idempotencyKey: "blocked" })).code, "publication_restricted");
+});
+for (const managed of [false, true]) for (const mcp of [false, true]) {
+  it(`admits ${mcp ? "MCP" : "browser"} replacement with ${managed ? "managed" : "visible fallback"} identity occupancy`, async () => {
+    const f = await fixture("person", true); const d = await f.detail();
+    if (!managed) await occupyFallback(f);
+    else await f.t.run(async ctx => { const asset = (await ctx.db.get(d.assetId))!; const { _id, _creationTime, sourceSubmissionId, ...fields } = asset; const id = await ctx.db.insert("profileAssets", { ...fields, storageKey: "other.webp", source: "owner_authored" }); await selectProfileAssetIdentity(ctx.db, { profileId: f.s.profileId, assetId: id, placement: "profile_image", actorUserId: f.s.moderatorUserId, now: Date.now() }); });
+    const fresh = await f.detail(); assert.equal(fresh.canProposePlacement, true);
+    const args = { submissionId: f.intent.submissionId, expectedContributionVersion: fresh.contributionVersion, idempotencyKey: "occupied" };
+    const receipt = mcp ? await f.t.mutation(internal.profileMediaSubmissions.proposePlacementForMcpActor, { ...args, ...await contributionAttestation(f) }) : await f.actor.mutation(api.profileMediaSubmissions.proposePlacement, args);
+    assert.equal(receipt.operationState, "committed");
+    const reviewer = f.t.withIdentity(f.s.moderatorIdentity); const review = await reviewer.query(api.profileMediaSubmissions.reviewDetail, { submissionId: receipt.resourceId! }); assert.ok(review);
+    assert.equal((await reviewer.mutation(api.profileMediaSubmissions.decideWithReceipt, { submissionId: receipt.resourceId!, expectedReviewVersion: review.reviewVersion, decision: "approve", privateReason: "Replacement checked", idempotencyKey: "approve" })).operationState, "committed");
+  });
+}
+it("hidden fallback artwork leaves an empty replacement target", async () => {
+  const f = await fixture(); await f.t.run(ctx => ctx.db.patch(f.s.profileId, { avatarImageUrl: "https://example.test/hidden.png", fieldVisibility: { avatarImageUrl: "private" } }));
+  const d = await f.detail(); assert.equal(d.canProposePlacement, false);
+  assert.equal((await f.actor.mutation(api.profileMediaSubmissions.proposePlacement, { submissionId: f.intent.submissionId, expectedContributionVersion: d.contributionVersion, idempotencyKey: "hidden-fallback" })).code, "primary_empty");
 });

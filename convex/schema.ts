@@ -982,6 +982,7 @@ export default defineSchema({
     .index("by_contentSha256", ["contentSha256"])
     .index("by_contentSha256_status", ["contentSha256", "status"])
     .index("by_approvedAssetId", ["approvedAssetId"])
+    .index("by_candidateAssetId_status_expiresAt", ["candidateAssetId", "status", "expiresAt"])
     .index("by_publicationMethod_actor", ["publicationMethod", "publicationActorUserId"]),
   profileAssets: defineTable({
     sourceSubmissionId: v.optional(v.id("profileMediaSubmissions")),

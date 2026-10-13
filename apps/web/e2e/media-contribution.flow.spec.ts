@@ -1,5 +1,5 @@
 import sharp from "sharp";
-import type { PublishedContributionDetail } from "@vrdex/api-contracts";
+import type { CommandReceipt, PublishedContributionDetail } from "@vrdex/api-contracts";
 import { createHash, randomBytes } from "node:crypto";
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import {
@@ -641,11 +641,14 @@ test("contributor A submits and distinct assigned reviewer B reviews media @medi
   expect(rpcManaged.operationState).toBe("committed");
   expect(await call(request, authA.access_token, "vrdex_media_contribution_manage", rpcManageInput)).toEqual(rpcManaged);
   rpcDetail = await call<PublishedContributionDetail>(request, authA.access_token, "vrdex_media_contribution_get", { submissionId: rpcSubmissionId });
-  const rpcProposeInput = { submissionId: rpcSubmissionId, expectedContributionVersion: rpcDetail.contributionVersion, idempotencyKey: `${runId}-rpc-propose` };
-  const rpcProposed = await call<UploadReceipt>(request, authA.access_token, "vrdex_media_contribution_propose_placement", rpcProposeInput);
-  expect(rpcProposed.operationState).toBe("committed");
-  expect(await call(request, authA.access_token, "vrdex_media_contribution_propose_placement", rpcProposeInput)).toEqual(rpcProposed);
+  // Upload begin and replacement proposals share the actor submission cooldown.
+  await new Promise(resolve => setTimeout(resolve, 31_000));
   expect((await request.post("/api/e2e/media", { headers, data: { op: "grant-publication-actors", runId, profileId } })).status()).toBe(200);
+  const rpcProposeInput = { submissionId: rpcSubmissionId, expectedContributionVersion: rpcDetail.contributionVersion, idempotencyKey: `${runId}-rpc-propose` };
+  const rpcProposed = await call<CommandReceipt>(request, authA.access_token, "vrdex_media_contribution_propose_placement", rpcProposeInput);
+  expect(rpcProposed, "RPC replacement must pass the shared submission cooldown").toMatchObject({ operationState: "committed" });
+  expect(rpcProposed.code).toBeUndefined();
+  expect(await call(request, authA.access_token, "vrdex_media_contribution_propose_placement", rpcProposeInput)).toEqual(rpcProposed);
   const rpcReview = await call<{ reviewVersion: string }>(request, authB.access_token, "vrdex_media_review_get", { submissionId: rpcProposed.resourceId! });
   expect((await request.post("/api/e2e/media", { headers, data: { op: "exercise-publication-guards", action: "reselect_primary", runId, profileId } })).status()).toBe(200);
   const rpcDecision = { submissionId: rpcProposed.resourceId!, expectedReviewVersion: rpcReview.reviewVersion, decision: "approve", privateReason: "Synthetic independent RPC replacement", idempotencyKey: `${runId}-rpc-review` };

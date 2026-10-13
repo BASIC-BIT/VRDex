@@ -170,3 +170,19 @@ it("does not add gallery references for a restricted legacy contribution", async
   await f.t.run(ctx => ctx.db.insert("mediaPublicationRestrictions", { profileId: f.s.profileId, kind: "dispute", submissionId: f.intent.submissionId, createdAt: Date.now(), actorUserId: f.s.moderatorUserId }));
   assert.equal((await f.t.mutation(convert, { dryRun: false, cursor: null, limit: 40 })).changed, 0);
 });
+for (const existing of [undefined, "https://current.example/provenance"]) {
+  it(`migration before completion preserves ${existing ? "existing" : "missing legacy"} URL provenance through publication`, async () => {
+    const t = convexTest({ schema, modules: migrationModules }); const s = await seed(t);
+    const { api, internal } = await import("../../convex/_generated/api");
+    const intent = await t.withIdentity(s.contributorIdentity).mutation(api.profileMediaSubmissions.createUploadIntent, { profileId: s.profileId, requestedPlacement: "profile_image", originalFileName: "before.webp", mimeType: "image/webp", byteSize: 512, credit: "Artist", sourceUrl: "https://artist.example/source", expectedProfileUpdatedAt: (await t.run(ctx => ctx.db.get(s.profileId)))!.updatedAt });
+    await t.run(async ctx => { await ctx.db.patch(intent.submissionId, { requestKind: undefined, requestedPlacement: "profile_image" }); await ctx.db.patch(intent.intentId, { placements: ["profile_image"], sourceUrl: existing }); });
+    await t.mutation(convert, { dryRun: true, cursor: null, limit: 40 }); assert.equal((await t.run(ctx => ctx.db.get(intent.intentId)))!.sourceUrl, existing);
+    await t.mutation(convert, { dryRun: false, cursor: null, limit: 40 });
+    assert.equal((await t.run(ctx => ctx.db.get(intent.intentId)))!.sourceUrl, existing ?? "https://artist.example/source");
+    await t.mutation(internal.profileAssets.claimUploadIntentForStorage, { intentId: intent.intentId, uploadToken: intent.uploadToken, processingToken: "migration" });
+    await t.mutation(internal.profileAssets.markUploadIntentUploaded, { intentId: intent.intentId, uploadToken: intent.uploadToken, processingToken: "migration", mimeType: "image/webp", byteSize: 512, contentSha256: "migrated-url" });
+    const reviewer = t.withIdentity(s.moderatorIdentity); const detail = await reviewer.query(api.profileMediaSubmissions.reviewDetail, { submissionId: intent.submissionId }); assert.ok(detail);
+    assert.equal((await reviewer.mutation(api.profileMediaSubmissions.decideWithReceipt, { submissionId: intent.submissionId, expectedReviewVersion: detail.reviewVersion, decision: "approve", privateReason: "Migrated", idempotencyKey: "migrated-publish" })).operationState, "committed");
+    assert.equal((await t.run(ctx => ctx.db.query("profileAssets").first()))!.sourceUrl, existing ?? "https://artist.example/source");
+  });
+}

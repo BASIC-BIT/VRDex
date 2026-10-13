@@ -614,3 +614,9 @@ it("contribution handlers bind verified actor, exact command and strict receipt/
   await assert.rejects(() => invalid.contributionGet({ submissionId: "submission-1" }));
   await assert.rejects(() => invalid.contributionPlace({ ...base, action: "clear_primary" }));
 });
+it("known unavailable contribution returns the stable tool refusal", async () => {
+  const handlers = createMcpMediaReviewHandlers(dependencies({ query: async () => null }));
+  const result = await handlers.contributionGet({ submissionId: "submission-1" });
+  assert.equal(result.isError, true);
+  assert.deepEqual(result.content, [{ type: "text", text: "Contribution unavailable." }]);
+});

@@ -136,7 +136,7 @@ export async function outwardReviewSnapshot(
   ctx: Pick<QueryCtx, "db">, submission: Doc<"profileMediaSubmissions">,
   profile: Doc<"profiles">, elevated = false,
 ) {
-  const snapshot = await reviewSnapshot(ctx, submission, profile);
+  const { identityOccupied, ...snapshot } = await reviewSnapshot(ctx, submission, profile);
   if (submission.requestKind !== "identity_placement") return { ...snapshot, currentPlacement: null };
   const placement = snapshot.currentPlacement;
   const asset = placement ? await ctx.db.get(placement.assetId) : null;
@@ -315,6 +315,7 @@ export async function applyReviewDecision(
   if (submission.requestKind === "identity_placement" && submission.candidateAssetId) {
     const candidate = await ctx.db.get(submission.candidateAssetId);
     const snapshot = await reviewSnapshot(ctx, submission, profile);
+    if (!snapshot.identityOccupied) throw new Error("Replacement requires an occupied identity placement.");
     if (!candidate || !snapshot.candidate.rendition) throw new Error("The placement candidate is unavailable.");
     if ((await publicationRestrictions(ctx, profile._id, candidate.contentSha256)).some(Boolean))
       throw new ConvexError({ code: "MEDIA_PUBLICATION_RESTRICTED", message: "Media contribution unavailable." });
@@ -575,10 +576,10 @@ export async function reviewSnapshot(
     identityPlacements: authoredPlacements.filter(row => row.placement === "profile_image" || row.placement === "primary_logo"),
   });
   const restrictions = await Promise.all([
-    ctx.db.query("mediaPublicationRestrictions").withIndex("by_profileId_kind", q => q.eq("profileId", profile._id).eq("kind", "identity")).collect(),
-    ctx.db.query("mediaPublicationRestrictions").withIndex("by_profileId_kind", q => q.eq("profileId", profile._id).eq("kind", "dispute")).collect(),
-    submission.contentSha256 ? ctx.db.query("mediaPublicationRestrictions").withIndex("by_contentSha256_kind", q => q.eq("contentSha256", submission.contentSha256).eq("kind", "rejection")).collect() : [],
-    submission.contentSha256 ? ctx.db.query("mediaPublicationRestrictions").withIndex("by_contentSha256_kind", q => q.eq("contentSha256", submission.contentSha256).eq("kind", "suppression")).collect() : [],
+    ctx.db.query("mediaPublicationRestrictions").withIndex("by_profileId_kind", q => q.eq("profileId", profile._id).eq("kind", "identity")).first(),
+    ctx.db.query("mediaPublicationRestrictions").withIndex("by_profileId_kind", q => q.eq("profileId", profile._id).eq("kind", "dispute")).first(),
+    submission.contentSha256 ? ctx.db.query("mediaPublicationRestrictions").withIndex("by_contentSha256_kind", q => q.eq("contentSha256", submission.contentSha256).eq("kind", "rejection")).first() : null,
+    submission.contentSha256 ? ctx.db.query("mediaPublicationRestrictions").withIndex("by_contentSha256_kind", q => q.eq("contentSha256", submission.contentSha256).eq("kind", "suppression")).first() : null,
   ]);
   const reviewVersion = await hash({
     candidate: {
@@ -606,7 +607,7 @@ export async function reviewSnapshot(
     },
     intent,
     candidateAsset,
-    restrictions,
+    restrictions: restrictions.map(Boolean),
     profile: kitAsset || submission.candidateAssetId ? {
       id: profile._id, profileType: profile.profileType, slug: profile.slug,
       displayName: profile.displayName, claimState: profile.claimState,
@@ -632,6 +633,7 @@ export async function reviewSnapshot(
     revision: submission.reviewRevision ?? 0,
   });
   return {
+    identityOccupied: authoredPlacements.some(row => row.placement === "profile_image" || row.placement === "primary_logo") || currentImage !== null,
     placementTargetVersion,
     reviewVersion,
     currentImage,
@@ -733,6 +735,8 @@ export async function decideReviewCommand(
       submission.targetPlacementAssetId
   )
     code = "placement_changed";
+  else if (args.decision === "approve" && submission.requestKind === "identity_placement" && submission.candidateAssetId && !snapshot.identityOccupied)
+    code = "primary_empty";
   else if (args.decision === "reject" && args.publicReason === undefined)
     code = "public_reason_required";
   else if (args.decision === "approve" && snapshot.candidate.rendition === null)
@@ -832,9 +836,16 @@ export async function hasSubmissionAssignment(
   submission: Doc<"profileMediaSubmissions">,
   userId: Id<"users">,
 ) {
+  const candidate = submission.requestKind === "identity_placement" && submission.candidateAssetId
+    ? await ctx.db.get(submission.candidateAssetId) : null;
+  const source = candidate?.sourceSubmissionId ? await ctx.db.get(candidate.sourceSubmissionId) : null;
+  const assignedSubmission = source && source.status === "approved" && source.requestKind !== "identity_placement" &&
+    candidate?.profileId === submission.profileId && source.profileId === submission.profileId &&
+    source.submitterUserId === submission.submitterUserId && source.approvedAssetId === candidate?._id
+    ? source : submission;
   const attempt = await ctx.db
     .query("contributionItemAttempts")
-    .withIndex("by_submissionId", (q) => q.eq("submissionId", submission._id))
+    .withIndex("by_submissionId", (q) => q.eq("submissionId", assignedSubmission._id))
     .unique();
   const revision = attempt ? await ctx.db.get(attempt.revisionId) : null;
   return (

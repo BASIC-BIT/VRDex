@@ -46,7 +46,8 @@ export const convertBatch = internalMutation({
           intent.targetProfileId !== submission.profileId || !["pending", "uploaded"].includes(intent.state)) { conflicts++; continue; }
         if (!args.dryRun) {
           await ctx.db.patch(submission._id, { requestKind: "kit_asset", requestedPlacement: "gallery", reviewRevision: (submission.reviewRevision ?? 0) + 1 });
-          await ctx.db.patch(intent._id, { placements: ["gallery"] });
+          await ctx.db.patch(intent._id, { placements: ["gallery"],
+            ...(intent.sourceUrl === undefined && submission.sourceUrl !== undefined ? { sourceUrl: submission.sourceUrl } : {}) });
         }
         changed++; continue;
       }

@@ -281,6 +281,8 @@ export const grantPublicationActors = internalMutation({
     let rowCount = batch.rowCount;
     for (const submission of (await rows(ctx, profile._id)).submissions) {
       if (submission.submitterUserId !== contributorId) throw new Error("Unscoped fixture contribution.");
+      // Existing-asset replacements inherit the original contribution assignment.
+      if (submission.requestKind === "identity_placement" && submission.candidateAssetId) continue;
       const attempt = await ctx.db.query("contributionItemAttempts").withIndex("by_submissionId", q => q.eq("submissionId", submission._id)).unique();
       if (attempt) {
         const revision = await ctx.db.get(attempt.revisionId);
