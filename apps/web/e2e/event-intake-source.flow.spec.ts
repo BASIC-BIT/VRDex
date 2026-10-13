@@ -577,3 +577,39 @@ test.describe("event timezone differs from browser timezone", () => {
     expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("fixture-source-draft")!).fields.start.occurrence)).toBeUndefined();
   });
 });
+
+
+for (const method of ["suggestion", "picker"] as const) {
+  test(`${method} timezone edit clears remembered repeated-hour choices under Time TBA @flow @fixture`, async ({ page }) => {
+    await page.goto("/playwright/event-intake?source=text");
+    await page.evaluate(() => sessionStorage.setItem("fixture-source-draft", JSON.stringify({ version: 1, fields: {
+      communitySlug: "afterglow", title: "Repeated hour", eventDate: "2026-11-01", timezone: "America/New_York",
+      start: { time: "01:30", occurrence: "later" }, end: { time: "01:45", occurrence: "later" }, doors: { time: "01:00", occurrence: "earlier" },
+      lineup: [{ clientKey: "remembered", position: 0, performerLabel: "Guest", start: { time: "01:15", occurrence: "later" }, end: { time: "01:30", occurrence: "later" } }],
+      tentative: { timezone: "America/Chicago" },
+    } })));
+    await page.goto("/playwright/event-intake?source=text");
+    await expect(page.getByLabel("Starts occurrence", { exact: true })).toHaveValue("later");
+    await page.getByLabel("Time TBA", { exact: true }).check();
+    if (method === "suggestion") await page.getByRole("button", { name: "Accept Time zone", exact: true }).click();
+    else {
+      await page.getByRole("combobox", { name: "Time zone", exact: true }).fill("America/Chicago");
+      await page.getByRole("option").first().click();
+    }
+    await expect(page.getByRole("combobox", { name: "Time zone", exact: true })).toHaveValue("America/Chicago");
+    await page.getByLabel("Time TBA", { exact: true }).uncheck();
+    await expect(page.getByLabel("Starts", { exact: true })).toHaveValue("2026-11-01T01:30");
+    for (const label of ["Starts", "Ends (optional)", "Doors open"]) await expect(page.getByLabel(`${label} occurrence`, { exact: true })).toHaveValue("");
+    await step(page, "Lineup");
+    for (const label of ["Slot 1 start", "Slot 1 end"]) await expect(page.getByLabel(`${label} occurrence`, { exact: true })).toHaveValue("");
+    await page.getByRole("button", { name: "Save draft", exact: true }).click();
+    await expect(page.getByRole("status")).toHaveText("Draft saved");
+    const fields = await page.evaluate(() => JSON.parse(sessionStorage.getItem("fixture-source-draft")!).fields);
+    expect(fields).toMatchObject({ eventDate: "2026-11-01", timezone: "America/Chicago", start: { time: "01:30" }, end: { time: "01:45" }, doors: { time: "01:00" }, lineup: [{ clientKey: "remembered", start: { time: "01:15" }, end: { time: "01:30" } }] });
+    expect([fields.start, fields.end, fields.doors, fields.lineup[0].start, fields.lineup[0].end].map((time: { occurrence?: string }) => time.occurrence)).toEqual([undefined, undefined, undefined, undefined, undefined]);
+    await step(page, "Review");
+    await page.getByRole("button", { name: "Publish event", exact: true }).click();
+    await expect(page.getByRole("status")).toContainText("Ambiguous local time");
+    await expect(page.getByLabel("Starts occurrence", { exact: true })).toBeFocused();
+  });
+}

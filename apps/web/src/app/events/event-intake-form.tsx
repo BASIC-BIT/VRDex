@@ -102,6 +102,9 @@ function untimed(fields: EventIntakeFields): EventIntakeFields {
 function clearOccurrence(local?: EventIntakeLocalTime | null) {
   return local ? { ...local, occurrence: undefined } : local;
 }
+function resetTimeOccurrences(fields: EventIntakeFields, timezone: EventIntakeFields["timezone"]): EventIntakeFields {
+  return { ...fields, timezone, start: clearOccurrence(fields.start), end: clearOccurrence(fields.end), doors: clearOccurrence(fields.doors), lineup: fields.lineup?.map(row => ({ ...row, start: clearOccurrence(row.start), end: clearOccurrence(row.end) })) };
+}
 function rebaseTime(local: EventIntakeLocalTime | null | undefined, previousDate: string | null | undefined, nextDate: string | null | undefined) {
   if (!local || !previousDate || !nextDate || previousDate === nextDate) return local;
   const date = eventLocalDate(previousDate, local);
@@ -143,6 +146,7 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
     });
   }
   function receiveFields(next: EventIntakeFields) {
+    if (next.timezone !== fields.timezone && timedBackup.current) timedBackup.current = resetTimeOccurrences(timedBackup.current, next.timezone);
     setFields(current => {
       const dateChanged = next.eventDate !== current.eventDate;
       let updated = dateChanged ? { ...next,
@@ -151,7 +155,7 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
         doors: next.doors === current.doors ? rebaseTime(next.doors, current.eventDate, next.eventDate) : next.doors,
         lineup: next.lineup?.map(row => { const previous = current.lineup?.find(item => item.clientKey === row.clientKey); return { ...row, start: row.start === previous?.start ? rebaseTime(row.start, current.eventDate, next.eventDate) : row.start, end: row.end === previous?.end ? rebaseTime(row.end, current.eventDate, next.eventDate) : row.end }; }),
       } : next;
-      if (next.timezone !== current.timezone) updated = { ...updated, start: clearOccurrence(updated.start), end: clearOccurrence(updated.end), doors: clearOccurrence(updated.doors), lineup: updated.lineup?.map(row => ({ ...row, start: clearOccurrence(row.start), end: clearOccurrence(row.end) })) };
+      if (next.timezone !== current.timezone) updated = resetTimeOccurrences(updated, next.timezone);
       return updated.timeTba ? untimed(updated) : updated;
     });
   }
@@ -174,9 +178,8 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
     }
   }
   function changeTimezone(timezone: string | null) {
-    const clearTimes = (current: EventIntakeFields) => ({ ...current, timezone, start: clearOccurrence(current.start), end: clearOccurrence(current.end), doors: clearOccurrence(current.doors), lineup: current.lineup?.map(row => ({ ...row, start: clearOccurrence(row.start), end: clearOccurrence(row.end) })) });
-    setFields(clearTimes);
-    if (timedBackup.current) timedBackup.current = clearTimes(timedBackup.current);
+    setFields(current => resetTimeOccurrences(current, timezone));
+    if (timedBackup.current) timedBackup.current = resetTimeOccurrences(timedBackup.current, timezone);
   }
   async function submit(publish: boolean) {
     setBusy(true); setMessage("");
