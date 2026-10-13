@@ -3,13 +3,13 @@ import { BACKEND_ERROR_COPY } from "../src/lib/error-copy";
 
 for (const scenario of [
   { name: "unselected timezone", start: "2027-10-15T19:00", timezone: "Indianapolis", field: "Time zone", message: "Time zone must be a valid IANA time zone." },
-  { name: "DST gap", start: "2027-03-14T02:30", field: "Start", message: "Local time does not exist in this timezone." },
+  { name: "DST gap", start: "2027-03-14T02:30", field: "Starts", message: "Local time does not exist in this timezone." },
   { name: "DST fold", start: "2027-11-07T01:30", field: "Start occurrence", message: "Ambiguous local time requires an earlier or later occurrence." },
 ]) test(`staff publish reveals and focuses ${scenario.name}`, async ({ page }, testInfo) => {
   await page.goto("/playwright/event-lineup?editor");
   const navigation = page.getByRole("navigation", { name: "Event editor" });
   await navigation.getByRole("button", { name: "Details" }).click();
-  await page.getByLabel("Start", { exact: true }).fill(scenario.start);
+  await page.getByLabel("Starts", { exact: true }).fill(scenario.start);
   if (scenario.timezone) await page.getByRole("combobox", { name: "Time zone", exact: true }).fill(scenario.timezone);
   await navigation.getByRole("button", { name: "Review" }).click();
   await page.getByRole("button", { name: "Save changes", exact: true }).click();

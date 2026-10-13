@@ -1,21 +1,22 @@
-const DEFAULT_EVENT_DURATION_MS = 60 * 60_000;
-
 export function resolveAuthoredEventEndAt({
   startAt,
+  authoredEndAt,
   derivedEndAt,
   previousStartAt,
   previousEndAt,
   scheduleChanged,
 }: {
   startAt: number;
+  authoredEndAt?: number | null;
   derivedEndAt?: number;
   previousStartAt?: number;
   previousEndAt?: number;
   scheduleChanged: boolean;
-}): number {
+}): number | undefined {
+  if (authoredEndAt !== undefined) return authoredEndAt ?? derivedEndAt;
   if (!scheduleChanged && previousStartAt !== undefined && previousEndAt !== undefined) {
     return previousEndAt + (startAt - previousStartAt);
   }
 
-  return derivedEndAt ?? startAt + DEFAULT_EVENT_DURATION_MS;
+  return derivedEndAt;
 }

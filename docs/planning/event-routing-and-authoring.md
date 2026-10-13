@@ -1,6 +1,6 @@
 # Event Routing And Authoring
 
-Contributor editor (2026-09-29): [visual reference](./event-editor-visual-reference-2026-09-29.md). Contributor creation now uses Source, Details, Lineup, and Review inside the existing header and footer. Owner/staff and correction presentation remain separate pending the next implementation tasks.
+Editor navigation (2026-10-11): [wizard refinement](./event-editor-wizard-refinement-2026-10-11.md). Contributor, scoped correction, and owner/staff editors use Details, Lineup, and Review inside the existing header and footer. Contributor drafts support an optional import dialog beside the page heading; staff source controls remain in a Details disclosure.
 
 ## Status
 
@@ -30,9 +30,11 @@ Current recommendation:
 
 - Use `/<community>/events/<event-code>` as the canonical public route and
   `/<community>/events/<event-code>/edit` as the editing route.
-- Keep the optional stored event end time for public/API compatibility, but do
-  not ask owner-editor authors for it in this slice. Derive the submitted end from
-  the final slot when the schedule has complete durations.
+- Staff Details offers an optional combined Ends control beside Start. An
+  untouched stored end retains its instant, including a later repeated-hour
+  occurrence. An entered end must follow the start; clearing it sends null on
+  update. A known final lineup end may still supply the end. Creation without
+  an authored or known lineup end omits it.
 - When template controls would replace edited schedule data, require confirmation.
 
 ## Owner authoring flow
@@ -44,8 +46,13 @@ Current recommendation:
 5. Publish or save a draft.
 
 The owner editor binds the community from the route and rechecks management
-authority. The contribution form can select any public community. A useful
-contribution needs a community, title and known date. An explicit Time TBA state
+authority. The contribution picker searches public community names and slugs and
+saves the selected result's slug. Change and Escape retain the selected community.
+Clear stores a nullable community in an incomplete draft. Linked and resumed
+slugs stay selected while search loads or returns no match. The optional location
+control is labeled `Where (optional)` and keeps the existing `venueLabel` field.
+Scoped corrections omit community selection; staff communities remain bound to
+their route. A useful contribution needs a community, title and known date. An explicit Time TBA state
 needs no timezone; timed publication needs an IANA timezone and resolved local
 time. The date-only backend switch must be enabled after its migration.
 
@@ -54,7 +61,8 @@ controlled versioned draft across the contributor steps. One extraction submits
 the current text and poster together. Details and Lineup retain tentative values
 for explicit acceptance, source evidence, and unresolved questions on resume.
 Changing sources invalidates suggestions and evidence while keeping accepted fields.
-Unavailable extraction stays on Source with visible feedback and manual Continue.
+Unavailable extraction stays in the import dialog with visible feedback; closing
+it returns to the current editor step.
 
 The poster becomes artwork after verified upload and processing. A new upload
 replaces it; removal clears it. Private evidence and public artwork derivatives
@@ -79,17 +87,21 @@ flowchart LR
   Community[Community page] --> Add
   Direct[Direct community or draft link] --> Auth[Sign in if needed and return]
   Add --> Auth
-  Auth --> Source[Source: one poster and optional text, or manual entry]
-  Source --> Details[Details: accept or edit]
+  Auth --> Details[Details: select community and enter or accept fields]
+  Details --> Import[Optional import action]
+  Lineup --> Import
+  Review --> Import
+  Import --> Source[Dialog: one poster and optional text]
+  Source -->|Extraction succeeds| Details
+  Source -->|Close| Current[Return to current step]
   Details --> Lineup[Lineup: people and local dates]
   Lineup --> Review[Review]
   Review --> Details
   Review --> Lineup
-  Source --> Saved[Save draft and resume]
-  Details --> Saved
+  Details --> Saved[Save draft and resume]
   Lineup --> Saved
   Review --> Saved
-  Saved --> Source
+  Saved --> Details
   Review --> Publish[Preflight and publish]
   Publish --> Public[Canonical event page]
   Public --> Discovery[Public search and community events]

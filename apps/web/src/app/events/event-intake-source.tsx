@@ -4,24 +4,25 @@ import { ConvexError } from "convex/values";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Textarea } from "@/components/ui/field";
 import { BACKEND_ERROR_COPY } from "@/lib/error-copy";
+import { acceptIntakeSuggestion, intakeSuggestionKeys, type IntakeSuggestionAcceptance } from "@/lib/calendar/event-intake-suggestions";
 import type { EventIntakePatch, EventIntakeCandidate } from "../../../../../packages/api-contracts/src/event-intake";
 
 export type IntakeSourceAction = (action: "extract" | "upload" | "read" | "remove" | "retry", fields: EventIntakePatch, revision: number, file?: File, onStaged?: (fields: EventIntakePatch) => void) => Promise<{ fields?: EventIntakePatch; preview?: string; candidate?: EventIntakeCandidate; artworkSourceId?: string | null }>;
-const labels: Record<string, string> = { title: "Event title", communitySlug: "Community", eventDate: "Date", start: "Start time", end: "End time", timezone: "Time zone", venueLabel: "Venue", summary: "Description", sourceUrl: "Source URL", lineup: "Lineup" };
+const labels: Partial<Record<string, string>> = { title: "Event title", communitySlug: "Community", eventDate: "Date", start: "Start time", end: "End time", timezone: "Time zone", venueLabel: "Where (optional)", summary: "Description", sourceUrl: "Source URL", lineup: "Lineup" };
 function valueText(value: unknown): string {
   if (Array.isArray(value)) return value.map(row => [row.performerLabel, row.personSlug, row.roleLabel, valueText(row.start), valueText(row.end)].filter(Boolean).join(" · ")).join("\n");
   if (value && typeof value === "object" && "time" in value) return String(value.time);
   return value == null ? "" : String(value);
 }
-export function EventIntakeSuggestions({ fields, onChange, lineup = false }: { fields: EventIntakePatch; onChange: (fields: EventIntakePatch) => void; lineup?: boolean }) {
-  const tentative = Object.entries(fields.tentative ?? {}).filter(([key, value]) => value != null && (key === "lineup") === lineup);
+export function EventIntakeSuggestions({ fields, onAccept, lineup = false }: { fields: EventIntakePatch; onAccept: (acceptance: IntakeSuggestionAcceptance) => void; lineup?: boolean }) {
+  const tentative = intakeSuggestionKeys.filter(key => fields.tentative?.[key] != null && (key === "lineup") === lineup);
   const questions = fields.questions?.filter(question => !question.startsWith("source: ") && question.startsWith("lineup") === lineup);
   const evidence = fields.evidence?.filter(row => row.fieldPath.startsWith("lineup") === lineup);
   return <>
     {tentative.length ? <section className="grid gap-3 rounded-control border border-border p-4"><h2 className="text-lg font-semibold">Tentative details</h2>
-      {tentative.map(([key, value]) => <div key={key} className="grid min-w-0 gap-2 border-t border-border pt-3 sm:grid-cols-[1fr_auto]">
-        <div className="min-w-0"><p className="text-sm text-muted">{labels[key] ?? key}</p><p className="whitespace-pre-wrap break-words">{valueText(value)}</p></div>
-        <Button type="button" variant="secondary" aria-label={`Accept ${labels[key] ?? key}`} onClick={() => { const next = { ...fields.tentative }; delete next[key as keyof typeof next]; onChange({ ...fields, [key]: value, tentative: next }); }}>Accept</Button>
+      {tentative.map(key => <div key={key} className="grid min-w-0 gap-2 border-t border-border pt-3 sm:grid-cols-[1fr_auto]">
+        <div className="min-w-0"><p className="text-sm text-muted">{labels[key] ?? key}</p><p className="whitespace-pre-wrap break-words">{valueText(fields.tentative?.[key])}</p></div>
+        <Button type="button" variant="secondary" aria-label={`Accept ${labels[key] ?? key}`} disabled={!acceptIntakeSuggestion({ fields, acceptance: { key, proposalDate: fields.tentative?.eventDate } })} onClick={() => onAccept({ key, proposalDate: fields.tentative?.eventDate })}>Accept</Button>
       </div>)}
     </section> : null}
     {questions?.length ? <section className="grid gap-2"><h2 className="text-lg font-semibold">Questions</h2>{questions.map((question, index) => <p key={index} className="break-words text-sm">{question}</p>)}</section> : null}
@@ -67,7 +68,6 @@ export function EventIntakeSource({ fields, revision, onChange, action, busy, se
     } finally { inFlight.current = false; setBusy(false); }
   }
   return <section className="grid min-w-0 gap-5" aria-label="Event source">
-    <h2 className="text-xl font-semibold">Source</h2>
     <Field>Source text<Textarea value={fields.sourceText ?? ""} maxLength={12000} rows={6} onChange={event => onChange({ ...fields, sourceText: event.target.value, tentative: null, questions: null, evidence: null })} /></Field>
     <Field>Poster<Input type="file" accept="image/png,image/jpeg,image/webp" disabled={busy} onChange={event => { const file = event.target.files?.[0]; if (file) void run("upload", file); event.target.value = ""; }} /></Field>
     {sourceId ? <div className="grid content-start gap-3 rounded-control border border-border p-3">

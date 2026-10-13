@@ -138,27 +138,33 @@ published draft return a conflict.
 
 ## Website editor
 
-Contributors enter Source, Details, Lineup, and Review inside the existing page
-layout. Manual entry needs no source upload. One versioned draft retains values
-across steps and resume. Review links back to editable fields, applies the
+Contributors start at Details, with direct access to Lineup and Review. Import
+poster or text opens an optional dialog beside the heading from any stage.
+Closing retains the source and current stage, including an upload in progress.
+Successful extraction returns to Details with tentative suggestions. One
+versioned draft retains values across stages and resume. Review applies the
 existing preflight and duplicate checks, and publishes directly to the event page.
-The staff editor uses the same steps with canonical commands and staff-only
-advanced controls. Its Source step uses existing URLs and media controls.
+The staff editor uses the same three stages with canonical commands and staff-only
+advanced controls. Existing source URLs and media controls stay mounted in a
+Details disclosure. Scoped corrections and staff edits have no import action.
 
 ```mermaid
 flowchart LR
   A[Events or community page] --> B[Add event]
   C[Direct contribution link] --> B
   B --> D[Sign in and return]
-  D --> E[Source, optional text and one poster]
-  E --> F[Details]
-  F --> G[Lineup]
-  G --> H[Review]
-  H -->|Edit| F
+  D --> F[Details]
+  F <--> G[Lineup]
+  G <--> H[Review]
+  F --> E[Optional import dialog]
+  G --> E
+  H --> E
+  E -->|Close, preserve stage and source| R[Current stage]
+  E -->|Extraction succeeds| F
   H -->|Publish| I[Event page]
   I -->|Correct own contribution| J[Details, Lineup, Review]
   J -->|Save changes| I
-  I -->|Staff edit| K[Staff Source, Details, Lineup, Review]
+  I -->|Staff edit| K[Details, Lineup, Review]
   K -->|Save| I
 ```
 

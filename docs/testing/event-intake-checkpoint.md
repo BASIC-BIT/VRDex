@@ -79,10 +79,17 @@ flowchart LR
   Add --> SignIn
   MCP[User-scoped MCP intake] --> Draft[Versioned private draft]
   SignIn --> Draft
-  Draft --> Source[Manual fields, text or private poster]
-  Source --> Review[Accept tentative fields or edit]
-  Source --> Art[Optional separate artwork selection]
-  Art --> Review
+  Draft --> Details[Details: community and event fields]
+  Details --> Import[Optional import action]
+  Lineup --> Import
+  Review --> Import
+  Import --> Modal[Dialog: one poster and optional text]
+  Modal -->|Accept tentative fields| Details
+  Modal -->|Close| Current[Return to current step]
+  Details --> Lineup[Lineup]
+  Lineup --> Review[Review]
+  Review --> Details
+  Review --> Lineup
   Review --> Publish[Preflight and publish]
   Publish --> Event[Canonical event page]
   Event --> Readback[Search and community listing]
@@ -93,10 +100,52 @@ flowchart LR
 
 The owner editor retains its authority and live controls, uses searchable IANA
 zones and explicit DST occurrence selection, and labels generated rows Slot N.
+Its optional Ends control preserves an untouched stored instant, accepts an
+explicit end, sends null to clear a stored end, and omits an unknown end on
+staff create. A known final lineup end remains available after an explicit
+clear. The editor still requires a known start for staff create.
+Contributor import is a top-right action that opens a dialog. The same one
+poster and optional text are sent through one extraction. A verified poster
+becomes artwork by default, and replacement or removal updates that artwork.
+Scoped corrections and staff edits do not expose this import action.
 One public Lineup includes matched/unmatched and timed/untimed entries. Repeated
 sets remain distinct; participant-only duplicates disappear. Performer and
 event-level VRCDN/Twitch stream targets share a collapsed, deduplicated DJ links
 accordion. Ordinary event links and the contextual watch player remain separate.
+
+### Three-stage editor refinement, 2026-10-13
+
+The current editor has Details, Lineup and Review. Draft import sits beside the
+heading, outside those stages. The staff editor keeps Source fields inside the
+Details disclosure, including mounted values for save and error focus. Staff
+edits of published events and scoped contributor corrections have no import
+action under the approved draft-only scope.
+
+Staff Starts and optional Ends use native combined date/time controls. A stored
+end survives an unrelated edit at its exact instant, including the later
+repeated-hour occurrence. An entered end must follow the start. Clearing Ends
+sends null for updates; a known final lineup end may still be submitted.
+Creation without either end omits the field. Staff create still requires a
+known start; contributor date-only drafts retain their existing commands.
+When an untouched stored end shifts with a changed start, Ends displays the
+pending event-local value and its repeated-hour choice. Event preview shows
+the same resulting instant in the viewer's local timezone.
+
+The new utility labels `Import poster or text`, `Import event info`,
+`Ends (optional)` and `Add end time` follow BASIC's approved wording in the
+[wizard specification](../planning/event-editor-wizard-refinement-2026-10-11.md).
+The staff ordering error reuses `Event end time must be after the start time.`
+from the existing staff error set. No new substantive product sentence was added.
+
+The committed Linux Chromium baselines include the [desktop staff Details](../../apps/web/e2e/__screenshots__/desktop-chromium/event-editor-edit-details.png)
+and [mobile staff Details](../../apps/web/e2e/__screenshots__/mobile-chromium/event-editor-edit-details.png)
+screens with the optional end visible. The fixture-backed
+[`event-editor.snapshots.spec.ts`](../../apps/web/e2e/event-editor.snapshots.spec.ts)
+also captures create, resumed draft, correction and staff edit in light and dark
+themes on desktop and mobile, plus import open/error, DST gap and repeated-time
+states. Those additional captures are generated test artifacts; the two linked
+baseline images are durable repository evidence. Fixture transport verifies
+form behavior and payloads, not live authentication or model accuracy.
 
 ## Automated evidence
 
@@ -153,7 +202,7 @@ and Pixel 7 Chromium with one worker:
 
 Coverage includes manual/text/poster publication navigation, resumed drafts,
 explicit candidate acceptance, provider-disabled manual fallback, poster
-replacement/preview failures, separate artwork selection, DST gap/fold controls,
+replacement/preview failures, poster artwork handling, DST gap/fold controls,
 stale revisions, community/direct authentication entry, public URL reload,
 search/community readback, staff takeover/removal controls and date-only calendar
 export/no-player behavior. Staff fixture mutations do not prove backend authority;
@@ -177,9 +226,9 @@ Visual review accepted the captures. Desktop uses clear grouped rows; mobile
 wraps long stream targets without overflow and keeps copy controls reachable.
 Matched portraits, fallback initials, repeated sets and untimed entries remain
 readable. Date-only views show the authored date and Time TBA with no player.
-Text candidates have explicit Accept actions; source preview and artwork choice
-remain distinct. Replacement-pending screenshots show no stale image and a
-disabled artwork action. Forms remain long; reducing unrelated profile/edit-page
+Text candidates have explicit Accept actions; private source preview and public
+artwork remain distinct. Replacement-pending screenshots show no stale image.
+Forms remain long; reducing unrelated profile/edit-page
 complexity is outside this slice. The Update elsewhere button is fixture-only.
 
 Both viewport variants were captured. Paths below are relative to `apps/web/`;

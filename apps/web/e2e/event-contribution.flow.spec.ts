@@ -1,45 +1,48 @@
 import { expect, test } from "@playwright/test";
 
 for (const mode of ["draft", "correction"] as const) {
-  test(`${mode} reveals invalid start dates and end ordering from Review @flow @fixture`, async ({ page }, info) => {
+  test(`${mode} reveals invalid dates and end ordering from Review @flow @fixture`, async ({ page }, info) => {
     await page.goto(`/playwright/event-intake?revision=${mode}`);
     if (mode === "correction") await page.getByRole("button", { name: "Correct event", exact: true }).click();
     const navigation = page.getByRole("navigation", { name: "Event editor" });
-    await navigation.getByRole("button", { name: "Details", exact: true }).click();
+    await expect(navigation.getByRole("button")).toHaveText(["Details", "Lineup", "Review"]);
+    if (mode === "correction") await expect(page.getByRole("button", { name: "Import poster or text", exact: true })).toHaveCount(0);
     await page.getByLabel("Time TBA", { exact: true }).uncheck();
     await page.getByRole("combobox", { name: "Time zone", exact: true }).fill("UTC");
     await page.getByRole("option", { name: /^UTC / }).click();
-    await page.getByLabel("Start time", { exact: true }).fill("23:00");
-    const startDate = page.getByLabel("Start time date", { exact: true });
-    await expect(startDate).toHaveAttribute("min", "2027-07-15");
-    await expect(startDate).toHaveAttribute("max", "2027-07-15");
-    for (const label of ["End time date", "Doors open date"]) {
-      await expect(page.getByLabel(label, { exact: true })).toHaveAttribute("min", "2027-07-14");
-      await expect(page.getByLabel(label, { exact: true })).toHaveAttribute("max", "2027-07-22");
-    }
+    await page.getByLabel("Starts", { exact: true }).fill("2027-07-15T23:00");
+    await page.getByText("Add end time", { exact: true }).click();
+    const endInput = page.getByLabel("Ends (optional)", { exact: true });
     const submit = () => page.getByRole("button", { name: mode === "draft" ? "Publish event" : "Save changes", exact: true }).click();
-    for (const date of ["2027-07-14", "2027-07-16"]) {
-      await startDate.fill(date);
-      expect(await startDate.evaluate(input => (input as HTMLInputElement).validity.valid)).toBe(false);
+    for (const date of ["2027-07-13", "2027-07-23"]) {
+      await endInput.fill(`${date}T23:00`);
+      await page.getByText("Add end time", { exact: true }).click();
       await navigation.getByRole("button", { name: "Review", exact: true }).click();
       await submit();
-      await expect(startDate).toBeFocused();
+      await expect(endInput).toBeFocused();
+      await expect(endInput).toHaveValue(`${date}T23:00`);
       expect(await page.evaluate(() => sessionStorage.getItem("event-intake-revision-submission"))).toBeNull();
     }
-    await page.screenshot({ path: info.outputPath("start-date-focus.png"), fullPage: true, animations: "disabled" });
-    await startDate.fill("2027-07-15");
+    if (mode === "draft") {
+      await page.getByRole("button", { name: "Import poster or text", exact: true }).click();
+      await expect(page.getByRole("dialog")).toHaveCount(0);
+      await expect(endInput).toBeFocused();
+    }
+    await page.getByLabel("Time TBA", { exact: true }).click();
+    await expect(page.getByLabel("Time TBA", { exact: true })).not.toBeChecked();
+    await expect(endInput).toBeFocused();
     for (const end of ["22:00", "23:00"]) {
-      await page.getByLabel("End time", { exact: true }).fill(end);
+      await endInput.fill(`2027-07-15T${end}`);
+      await page.getByText("Add end time", { exact: true }).click();
       await navigation.getByRole("button", { name: "Review", exact: true }).click();
       await submit();
-      await expect(page.getByLabel("End time", { exact: true })).toBeFocused();
+      await expect(endInput).toBeFocused();
       await expect(page.getByRole("status")).toHaveText("End time must follow start; choose the next day explicitly when crossing midnight.");
       expect(await page.evaluate(() => sessionStorage.getItem("event-intake-revision-submission"))).toBeNull();
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: info.outputPath("end-order-focus.png"), fullPage: true, animations: "disabled" });
-    await page.getByLabel("End time", { exact: true }).fill("01:00");
-    await page.getByLabel("End time date", { exact: true }).fill("2027-07-16");
+    await endInput.fill("2027-07-16T01:00");
     await navigation.getByRole("button", { name: "Review", exact: true }).click();
     await submit();
     const fields = await page.evaluate(mode => JSON.parse(sessionStorage.getItem(mode === "draft" ? "fixture-published" : "event-intake-revision-submission")!), mode);
@@ -54,26 +57,26 @@ for (const mode of ["draft", "correction"] as const) {
     const navigation = page.getByRole("navigation", { name: "Event editor" });
     await navigation.getByRole("button", { name: "Details", exact: true }).click();
     await page.getByLabel("Time TBA", { exact: true }).uncheck();
-    await page.getByLabel("Date", { exact: true }).fill("2026-11-01");
     await page.getByRole("combobox", { name: "Time zone", exact: true }).fill("America/New_York");
     await page.getByRole("option").first().click();
-    await page.getByLabel("Start time", { exact: true }).fill("01:15");
-    await page.getByLabel("Start time occurrence", { exact: true }).selectOption("later");
-    await page.getByLabel("End time", { exact: true }).fill("01:45");
-    await page.getByLabel("End time occurrence", { exact: true }).selectOption("earlier");
+    await page.getByLabel("Starts", { exact: true }).fill("2026-11-01T01:15");
+    await page.getByLabel("Starts occurrence", { exact: true }).selectOption("later");
+    await page.getByText("Add end time", { exact: true }).click();
+    await page.getByLabel("Ends (optional)", { exact: true }).fill("2026-11-01T01:45");
+    await page.getByLabel("Ends (optional) occurrence", { exact: true }).selectOption("earlier");
     await navigation.getByRole("button", { name: "Review", exact: true }).click();
     await page.getByRole("button", { name: mode === "draft" ? "Publish event" : "Save changes", exact: true }).click();
-    await expect(page.getByLabel("End time", { exact: true })).toBeFocused();
+    await expect(page.getByLabel("Ends (optional)", { exact: true })).toBeFocused();
     await expect(page.getByRole("status")).toContainText("End time must follow start");
     expect(await page.evaluate(() => sessionStorage.getItem("event-intake-revision-submission"))).toBeNull();
-    await page.getByLabel("Start time", { exact: true }).fill("01:45");
-    await page.getByLabel("Start time occurrence", { exact: true }).selectOption("earlier");
-    await page.getByLabel("End time", { exact: true }).fill("01:15");
-    await page.getByLabel("End time occurrence", { exact: true }).selectOption("later");
+    await page.getByLabel("Starts", { exact: true }).fill("2026-11-01T01:45");
+    await page.getByLabel("Starts occurrence", { exact: true }).selectOption("earlier");
+    await page.getByLabel("Ends (optional)", { exact: true }).fill("2026-11-01T01:15");
+    await page.getByLabel("Ends (optional) occurrence", { exact: true }).selectOption("later");
     await navigation.getByRole("button", { name: "Review", exact: true }).click();
     await page.getByRole("button", { name: mode === "draft" ? "Publish event" : "Save changes", exact: true }).click();
     const fields = await page.evaluate(mode => JSON.parse(sessionStorage.getItem(mode === "draft" ? "fixture-published" : "event-intake-revision-submission")!), mode);
-    expect(mode === "draft" ? fields.end : fields.patch.end).toEqual({ time: "01:15", occurrence: "later" });
+    expect(mode === "draft" ? fields.end : fields.patch.end).toEqual({ time: "01:15", dayOffset: 0, occurrence: "later" });
     if (mode === "draft") await expect(page).toHaveURL(/playwright-afterglow-harbor-sessions$/);
     else await expect(navigation).toHaveCount(0);
   });
@@ -87,7 +90,7 @@ for (const mode of ["draft", "correction"] as const) {
     await page.getByLabel("Event title", { exact: true }).fill("My local edit");
     await page.getByRole("button", { name: "Update elsewhere" }).click();
     await expect(page.getByText("Query refreshed", { exact: true })).toBeVisible();
-    await expect(page.getByLabel("Venue", { exact: true })).toHaveValue("Original venue");
+    await expect(page.getByLabel("Where (optional)", { exact: true })).toHaveValue("Original venue");
     if (mode === "correction") await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Review", exact: true }).click();
     await page.getByRole("button", { name: mode === "draft" ? "Save draft" : "Save changes", exact: true }).click();
     await expect(page.getByRole("status").filter({ hasText: "This draft changed elsewhere." })).toBeVisible();
@@ -131,7 +134,7 @@ test("correction steps retain allowed details and lineup without source or staff
     await expect(page.getByLabel(name, { exact: true })).toHaveCount(0);
   await expect(page.getByText("Advanced", { exact: true })).toHaveCount(0);
   await page.getByLabel("Event title", { exact: true }).fill("Corrected gathering");
-  await page.getByLabel("Venue", { exact: true }).fill("Corrected venue");
+  await page.getByLabel("Where (optional)", { exact: true }).fill("Corrected venue");
   await page.screenshot({ path: info.outputPath("correction-details.png"), fullPage: true, animations: "disabled" });
   await navigation.getByRole("button", { name: "Lineup", exact: true }).click();
   await page.getByRole("textbox", { name: "Performer", exact: true }).fill("Aurora");
@@ -146,7 +149,7 @@ test("correction steps retain allowed details and lineup without source or staff
   await page.screenshot({ path: info.outputPath("correction-review.png"), fullPage: true, animations: "disabled" });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.getByRole("button", { name: "Edit details", exact: true }).click();
-  await expect(page.getByLabel("Venue", { exact: true })).toHaveValue("Corrected venue");
+  await expect(page.getByLabel("Where (optional)", { exact: true })).toHaveValue("Corrected venue");
   await navigation.getByRole("button", { name: "Review", exact: true }).click();
   await page.getByRole("button", { name: "Save changes", exact: true }).click();
   await expect(navigation).toHaveCount(0);
@@ -158,7 +161,7 @@ test("correction steps retain allowed details and lineup without source or staff
 test("owner timezone keyboard search stores a region, not EST @flow @fixture", async ({ page }) => {
   await page.goto("/playwright/event-editor");
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Details", exact: true }).click();
-  await page.getByLabel("Start", { exact: true }).fill("2026-07-15T20:00");
+  await page.getByLabel("Starts", { exact: true }).fill("2026-07-15T20:00");
   const timezone = page.getByRole("combobox", { name: "Time zone" });
   await timezone.fill("EST");
   await expect(page.getByRole("option", { name: /New York.*UTC-04:00/ })).toBeVisible();
@@ -184,10 +187,10 @@ test("community and Events expose intake entry @flow @fixture", async ({ page })
 
 test("intake draft resumes, date-only publishes directly, and has no mobile overflow @flow @fixture", async ({ page }, testInfo) => {
   await page.goto("/playwright/event-intake");
-  await expect(page.getByLabel("Community", { exact: true })).toHaveValue("playwright-afterglow-social");
+  await expect(page.getByRole("group", { name: "Selected community", exact: true })).toContainText("playwright-afterglow-social");
   await page.getByLabel("Event title", { exact: true }).fill("Summer gathering");
-  await page.getByLabel("Date", { exact: true }).fill("2027-07-15");
   await page.getByLabel("Time TBA").check();
+  await page.getByLabel("Starts", { exact: true }).fill("2027-07-15");
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Lineup", exact: true }).click();
   await page.getByRole("button", { name: "Add performer" }).click();
   await page.getByRole("textbox", { name: "Performer", exact: true }).fill("Aurora");
@@ -208,16 +211,14 @@ test("intake draft resumes, date-only publishes directly, and has no mobile over
 test("ambiguous start requires occurrence and gap is refused @flow @fixture", async ({ page }) => {
   await page.goto("/playwright/event-intake");
   await page.getByLabel("Event title").fill("Autumn gathering");
-  await page.getByLabel("Date", { exact: true }).fill("2026-11-01");
   const timezone = page.getByRole("combobox", { name: "Time zone" });
   await timezone.fill("EST"); await timezone.press("ArrowDown"); await timezone.press("Enter");
-  await page.getByLabel("Start time", { exact: true }).fill("01:30");
+  await page.getByLabel("Starts", { exact: true }).fill("2026-11-01T01:30");
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Review", exact: true }).click();
   await page.getByRole("button", { name: "Publish event" }).click();
   await expect(page.getByRole("status")).toContainText("Ambiguous local time");
-  await page.getByLabel("Start time occurrence").selectOption("later");
-  await page.getByLabel("Date", { exact: true }).fill("2027-03-14");
-  await page.getByLabel("Start time", { exact: true }).fill("02:30");
+  await page.getByLabel("Starts occurrence").selectOption("later");
+  await page.getByLabel("Starts", { exact: true }).fill("2027-03-14T02:30");
   await expect(page.getByText("This local time does not exist.", { exact: true })).toBeVisible();
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Review", exact: true }).click();
   await page.getByRole("button", { name: "Publish event" }).click();
@@ -230,8 +231,8 @@ test("manual publish reads back direct URL, search and community fixtures @flow 
   const eventPath = "/playwright-afterglow-social/events/playwright-afterglow-harbor-sessions";
   await page.goto("/playwright/event-intake");
   await page.getByLabel("Event title", { exact: true }).fill("Afterglow Harbor Sessions");
-  await page.getByLabel("Date", { exact: true }).fill("2027-07-15");
   await page.getByLabel("Time TBA").check();
+  await page.getByLabel("Starts", { exact: true }).fill("2027-07-15");
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Review", exact: true }).click();
   await page.getByRole("button", { name: "Publish event", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`${eventPath}$`));
@@ -273,4 +274,162 @@ test("date-only public fixture keeps its date, calendar export and no watch play
   expect(ics).not.toMatch(/DTSTART(?:;TZID=[^:]*)?:\d{8}T/);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath("event-date-only.png"), fullPage: true });
+});
+
+
+test("staff stages retain mounted source fields in Details disclosure @flow @fixture", async ({ page }, info) => {
+  await page.goto("/playwright/event-editor");
+  const navigation = page.getByRole("navigation", { name: "Event editor" });
+  await expect(navigation.getByRole("button")).toHaveText(["Details", "Lineup", "Review"]);
+  await expect(navigation.getByRole("button", { name: "Details", exact: true })).toHaveAttribute("aria-current", "step");
+  await expect(page.getByRole("button", { name: "Import poster or text", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Add event", exact: true })).toHaveCount(1);
+  await page.getByLabel("Event title", { exact: true }).press("Enter");
+  await expect(navigation.getByRole("button", { name: "Lineup", exact: true })).toHaveAttribute("aria-current", "step");
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+  await page.locator("summary").filter({ hasText: /^Source/ }).click();
+  await page.getByLabel("Source label", { exact: true }).fill("Retained source");
+  await page.getByLabel("Poster image URL", { exact: true }).fill("https://example.com/poster.png");
+  await page.screenshot({ path: info.outputPath("staff-source-disclosure.png"), fullPage: true, animations: "disabled" });
+  await page.locator("summary").filter({ hasText: /^Source/ }).click();
+  await navigation.getByRole("button", { name: "Review", exact: true }).click();
+  expect(await page.locator("form").evaluate(form => Object.fromEntries(new FormData(form as HTMLFormElement)))).toMatchObject({ sourceLabel: "Retained source", posterImageUrl: "https://example.com/poster.png" });
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+  await expect(navigation.getByRole("button", { name: "Lineup", exact: true })).toHaveAttribute("aria-current", "step");
+});
+
+
+test("community name and slug search select directory results without persisting queries @flow @fixture", async ({ page }, info) => {
+  await page.goto("/playwright/event-intake?revision=draft");
+  const selected = page.getByRole("group", { name: "Selected community", exact: true });
+  await expect(selected).toContainText("Afterglow");
+  await selected.getByRole("button", { name: "Change", exact: true }).click();
+  const search = page.getByRole("combobox", { name: "Community", exact: true });
+  await expect(search).toBeFocused();
+  await search.fill("no matching community");
+  await expect(page.getByRole("option")).toHaveCount(0);
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("event-intake-revision-submission")!).patch.communitySlug)).toBe("afterglow");
+  await search.press("Escape");
+  await expect(search).toHaveCount(0);
+  await expect(selected.getByRole("button", { name: "Change", exact: true })).toBeFocused();
+  await expect(selected).toContainText("Afterglow");
+  await selected.getByRole("button", { name: "Change", exact: true }).click();
+  await search.fill("Afterglow Social");
+  const option = page.getByRole("option", { name: /Afterglow Social.*playwright-afterglow-social/ });
+  await expect(option).toBeVisible();
+  await search.press("ArrowDown");
+  await expect(option).toHaveAttribute("aria-selected", "true");
+  await search.press("Enter");
+  await expect(selected).toContainText("Afterglow Social");
+  await expect(page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Details", exact: true })).toHaveAttribute("aria-current", "step");
+  const portrait = selected.getByRole("img", { name: "Afterglow Social", exact: true }).locator("img");
+  await expect(portrait).toHaveAttribute("src", "/test-media/event-poster.png");
+  await expect.poll(() => portrait.evaluate(image => (image as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("event-intake-revision-submission")!).patch.communitySlug)).toBe("playwright-afterglow-social");
+  await selected.getByRole("button", { name: "Change", exact: true }).click();
+  await search.fill("playwright-afterglow");
+  await expect(option).toBeVisible();
+  await search.press("ArrowUp");
+  await search.press("Enter");
+  await selected.getByRole("button", { name: "Change", exact: true }).click();
+  await search.fill("afterglow");
+  await page.screenshot({ path: info.outputPath("community-search.png"), fullPage: true, animations: "disabled" });
+  await page.getByRole("option", { name: /^Afterglow afterglow$/ }).click();
+  await expect(selected).toContainText("afterglow");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath("community-selected.png"), fullPage: true, animations: "disabled" });
+});
+
+test("keyboard-active community stays visible before selection @flow @fixture", async ({ page }, info) => {
+  await page.goto("/playwright/event-intake?revision=draft");
+  const selected = page.getByRole("group", { name: "Selected community", exact: true });
+  await selected.getByRole("button", { name: "Change", exact: true }).click();
+  const search = page.getByRole("combobox", { name: "Community", exact: true });
+  await search.fill("scroll community");
+  const options = page.getByRole("listbox", { name: "Communities" }).getByRole("option");
+  await expect(options).toHaveCount(8);
+  for (let index = 0; index < 8; index += 1) await search.press("ArrowDown");
+  const last = options.last();
+  await expect(search).toBeFocused();
+  await expect(last).toHaveAttribute("aria-selected", "true");
+  await expect.poll(() => last.evaluate(option => {
+    const list = option.parentElement!;
+    const optionBounds = option.getBoundingClientRect();
+    const listBounds = list.getBoundingClientRect();
+    return optionBounds.top >= listBounds.top && optionBounds.bottom <= listBounds.bottom;
+  })).toBe(true);
+  await page.screenshot({ path: info.outputPath("community-keyboard-last.png"), animations: "disabled" });
+  await search.press("Enter");
+  await expect(selected).toContainText("Scroll Community 8");
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("event-intake-revision-submission")!).patch.communitySlug)).toBe("scroll-community-8");
+});
+
+test("community Clear saves a nullable incomplete draft and focuses missing community on publish @flow @fixture", async ({ page }) => {
+  await page.goto("/playwright/event-intake?revision=draft");
+  await page.getByRole("group", { name: "Selected community", exact: true }).getByRole("button", { name: "Clear", exact: true }).click();
+  await expect(page.getByRole("combobox", { name: "Community", exact: true })).toBeFocused();
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  await expect(page.getByRole("status")).toHaveText("Draft saved");
+  expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("event-intake-revision-submission")!).patch.communitySlug)).toBeNull();
+  await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Review", exact: true }).click();
+  await page.getByRole("button", { name: "Publish event", exact: true }).click();
+  await expect(page.getByRole("combobox", { name: "Community", exact: true })).toBeFocused();
+  await expect(page.getByRole("status")).toHaveText("Add a community, title and date.");
+});
+
+test("initial community links and resumed missing slugs survive unresolved searches @flow @fixture", async ({ page }) => {
+  await page.goto("/playwright/event-intake?revision=initial&community=afterglow");
+  await expect(page.getByRole("group", { name: "Selected community", exact: true })).toContainText("Afterglow");
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("event-intake-revision-submission")!).patch.communitySlug)).toBe("afterglow");
+  await page.evaluate(() => sessionStorage.setItem("fixture-source-draft", JSON.stringify({ version: 1, fields: { communitySlug: "missing-community", title: "Resumed title" } })));
+  await page.goto("/playwright/event-intake?source=search-loading");
+  const selected = page.getByRole("group", { name: "Selected community", exact: true });
+  await expect(selected).toContainText("missing-community");
+  await page.evaluate(() => window.dispatchEvent(new Event("release-community-search")));
+  await expect(selected).toContainText("missing-community");
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("event-intake-revision-submission")!).patch.communitySlug)).toBe("missing-community");
+});
+
+
+test("combined controls preserve dates, reversible TBA and overnight times @flow @fixture", async ({ page }, info) => {
+  await page.goto("/playwright/event-intake?source=text");
+  await page.getByRole("combobox", { name: "Community", exact: true }).fill("afterglow");
+  await page.getByRole("option", { name: /^Afterglow afterglow$/ }).click();
+  const portrait = page.getByRole("group", { name: "Selected community", exact: true }).getByRole("img", { name: "Afterglow", exact: true }).locator("img");
+  await expect.poll(() => portrait.evaluate(image => (image as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+  await page.getByLabel("Event title", { exact: true }).fill("Overnight gathering");
+  await page.getByLabel("Starts", { exact: true }).fill("2026-10-10T23:00");
+  await page.getByText("Add end time", { exact: true }).click();
+  await page.getByLabel("Ends (optional)", { exact: true }).fill("2026-10-11T02:00");
+  await page.getByRole("combobox", { name: "Time zone" }).fill("UTC");
+  await page.getByRole("combobox", { name: "Time zone" }).press("ArrowDown");
+  await page.getByRole("combobox", { name: "Time zone" }).press("Enter");
+  await page.getByLabel("Time TBA", { exact: true }).check();
+  await expect(page.getByLabel("Starts", { exact: true })).toHaveValue("2026-10-10");
+  await page.getByLabel("Time TBA", { exact: true }).uncheck();
+  await expect(page.getByLabel("Starts", { exact: true })).toHaveValue("2026-10-10T23:00");
+  await expect(page.getByLabel("Ends (optional)", { exact: true })).toHaveValue("2026-10-11T02:00");
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  await expect(page.getByRole("status")).toHaveText("Draft saved");
+  expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("fixture-source-draft")!).fields)).toMatchObject({ eventDate: "2026-10-10", start: { time: "23:00", dayOffset: 0 }, end: { time: "02:00", dayOffset: 1 } });
+  const startsBox = await page.getByLabel("Starts", { exact: true }).boundingBox();
+  const endsBox = await page.getByLabel("Ends (optional)", { exact: true }).boundingBox();
+  if (!startsBox || !endsBox) throw new Error("Expected visible time controls");
+  if ((page.viewportSize()?.width ?? 0) >= 640) expect(Math.abs(startsBox.y - endsBox.y)).toBeLessThanOrEqual(1);
+  else expect(endsBox.y).toBeGreaterThanOrEqual(startsBox.y + startsBox.height);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath("combined-time-controls.png"), fullPage: true, animations: "disabled" });
+  await page.getByLabel("Starts", { exact: true }).fill("2026-10-13T23:00");
+  await page.getByText("Add end time", { exact: true }).click();
+  await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Review", exact: true }).click();
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  await expect(page.getByLabel("Ends (optional)", { exact: true })).toBeFocused();
+  await expect(page.getByLabel("Ends (optional)", { exact: true })).toHaveValue("2026-10-11T02:00");
+  expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("fixture-source-draft")!).fields.eventDate)).toBe("2026-10-10");
 });

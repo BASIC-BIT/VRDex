@@ -1,5 +1,6 @@
 import { eventProfileStreamChoices, resolveEventStream, type PlaybackStream } from "./_eventPlayback";
 import { dateOnlyEventsEnabled, eventSortAt, eventSortEndAt, publicEventSchedule, type StoredEventSchedule } from "./_eventSchedule";
+import { UNKNOWN_EVENT_END_WINDOW_MS } from "./_eventRuntime";
 import { publicProfileOutboundLinks } from "./_profilePublic";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
@@ -933,7 +934,7 @@ export async function getPublicPersonUpcomingEvents(
   now: number,
   limit = EVENT_PREVIEW_DEFAULT_LIMIT,
 ): Promise<PublicEventPreview[]> {
-  // ponytail: Current events use a fixed recent-start window. If real volume
+  // ponytail: Current events use a bounded started-candidate scan. If real volume
   // can hide a valid multi-day event, replace this with indexed active state.
   const [startedCandidates, upcoming] = await Promise.all([
     db
@@ -961,7 +962,13 @@ export async function getPublicPersonUpcomingEvents(
       .take(EVENT_ASSOCIATION_SCAN_LIMIT),
   ]);
   const participantLinks = [
-    ...startedCandidates.filter((link) => (link.eventSortEndAt ?? link.eventEndAt ?? 0) >= now),
+    // Current caches retain long events. Recent starts recover old no-end caches.
+    // The live event below remains authoritative for final eligibility.
+    ...startedCandidates.filter(link => {
+      const startAt = link.eventSortAt ?? link.eventStartAt;
+      return Math.max(link.eventSortEndAt ?? 0, link.eventEndAt ?? 0) >= now ||
+        (startAt !== undefined && startAt >= now - UNKNOWN_EVENT_END_WINDOW_MS);
+    }),
     ...upcoming,
   ];
   const events = (

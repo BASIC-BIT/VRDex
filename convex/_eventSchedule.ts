@@ -1,3 +1,5 @@
+import { timedEventRuntimeEndAt } from "./_eventRuntime";
+
 export type EventSchedule =
   | { kind: "timed"; startAt: number; date: string; timeZone?: string }
   | { kind: "date_only"; date: string };
@@ -51,7 +53,8 @@ export function eventSortAt(event: StoredEventSchedule): number {
 
 export function eventSortEndAt(event: StoredEventSchedule): number {
   // Keep the authored date upcoming until that date has ended everywhere (UTC-12).
-  return event.scheduleKind === "date_only" ? eventSortAt(event) + 36 * 60 * 60 * 1000 - 1 : event.endAt ?? eventSortAt(event);
+  return event.scheduleKind === "date_only" ? eventSortAt(event) + 36 * 60 * 60 * 1000 - 1
+    : timedEventRuntimeEndAt({ startAt: event.startAt ?? eventSortAt(event), endAt: event.endAt });
 }
 
 export function publicEventSchedule(event: StoredEventSchedule) {

@@ -36,7 +36,47 @@ Date-only events omit `startAt`. Public cards show the authored date and `Time T
 
 `sortAt` is an internal index key, never a start instant or public JSON field. Timed rows use their start instant; date-only rows use a sortable UTC date key. Participant and world caches use `eventSortAt` and `eventSortEndAt`; timed slot playback keeps its own exact start and end instants. Date-only upcoming eligibility lasts until the authored date ends in UTC-12, so timezone-boundary viewers do not lose the listing early.
 
-Discovery scans future sort keys separately from the date-only lookback, with at most 500 records per scan. The lookback index includes `scheduleKind`, so expired timed records cannot consume either result allowance or hide eligible date-only records.
+Timed events with no known end remain current through six hours after `startAt`,
+including the final millisecond. Discovery, upcoming lists, community and person
+lists, world activity, search ranking, and the scheduled watch window use that
+same runtime end. An explicit `endAt` always wins. The runtime fallback never
+writes an authored `endAt`, adds an end to public schedule output, or changes
+calendar export. Date-only expiry remains the authored date's end in UTC-12.
+
+Discovery caps each index scan at 500 raw candidates before runtime filtering.
+Future events and date-only dates have separate allowances. The date-only
+lookback index includes `scheduleKind`; expired timed rows cannot consume it.
+Ongoing candidates combine two bounded scans: ascending known ends at or after
+now and descending starts at or before now. The start ordering places current
+unknown-end events ahead of older unknown-end rows.
+The scans include legacy timed events without `scheduleKind` and retain explicit
+ends beyond six hours. Live search projection uses the current authored schedule.
+
+Person and world lists classify runtime eligibility from the current event,
+so older association caches containing a start-only end need no backfill for
+this behavior. Person lists first retain started links with a current cached end
+or a start within the inclusive six-hour fallback. Older expired links do not
+require event hydration; explicit long-event caches remain eligible. The loaded
+event still determines final eligibility. The existing bounded association scans
+still apply. Future starts
+can fill the known-end scan, and recently expired rows can fill the start scan.
+An ongoing event outside both raw allowances and the featured fallback can be
+absent from discovery. The separate future allowance still runs. With the
+date-only switch disabled, that allowance reads the shared start index and
+filters entity type after its raw cap; non-event rows can fill it and hide a
+future event outside the featured fallback. With the switch enabled, the future
+index includes the event type before the raw cap. These are
+candidate limits, not shorter runtime windows; no scan expands to read an
+unbounded number of nonmatching rows.
+
+Public search reads at most 256 candidates across its keyword and profile-name
+indexes. Event candidates resolve their current schedules before result ordering
+and the requested limit. Selected events reuse their loaded event records;
+communities are loaded only for selected results and visibility-driven refill.
+Profile and
+media-kit hydration remains limited to the ranked window needed to fill results,
+with the existing refill after hidden records are removed. Search documents do
+not store an authored or synthetic end for this ranking rule.
 
 ### Schedule migration and rollout
 
@@ -135,11 +175,15 @@ caches for discovery. Date-only events accept untimed rows only. Existing timed
 sets retain their playback identity and selected stream when the person is unchanged.
 The legacy owner editor continues using its existing slot and participant writes.
 
-The owner/staff editor uses the shared Source, Details, Lineup, and Review
-navigation. Source retains the existing poster URL and media/link fields;
+The owner/staff editor uses the shared Details, Lineup, and Review
+navigation. A Details disclosure retains the existing poster URL and media/link fields;
 private single-poster intake remains a separate contributor workflow. Details
-contains the current title, description, timing, timezone, and applicable venue
-controls. Lineup shows matched public portraits or initials beside timed and
+contains the current title, description, timing, timezone, and applicable
+`Where (optional)` controls, stored as `venueLabel`. Contributor drafts select
+a community from public directory search results; search text is separate from
+the selected slug, and Clear stores null. Staff community authority stays fixed
+by the route, and scoped corrections do not expose community selection. Lineup
+shows matched public portraits or initials beside timed and
 untimed performers, with timed rows displaying their actual event-local dates.
 Review contains publication controls and a collapsed Advanced area for live
 output, worker status, cancellation, restoration, and audit history.
@@ -157,16 +201,15 @@ authority checks, stream assignment, or VRCDN output commands.
 flowchart LR
   Community[Managed community or account events] --> Auth[Sign in if needed]
   Direct[Direct staff edit link] --> Auth
-  Auth --> Source[Source]
-  Source --> Details[Details]
+  Auth --> Details[Details]
+  Details --> Source[Source disclosure]
   Details --> Lineup[Lineup]
   Lineup --> Review[Review]
   Review -->|Edit details| Details
   Review -->|Edit lineup| Lineup
   Review -->|Publish or save changes| Event[Event page]
   Review -->|Expand Advanced| Operations[Staff operations]
-  Source -->|Save draft| Draft[Private canonical draft]
-  Details -->|Save draft| Draft
+  Details -->|Save draft| Draft[Private canonical draft]
   Lineup -->|Save draft| Draft
   Review -->|Save draft| Draft
 ```
@@ -227,7 +270,7 @@ Canonical slot times are stored as timestamps. Discord timestamp tokens such as 
 
 The first slot editor uses relative minute offsets from the event start for operator-friendly sequential scheduling. Backend storage still receives absolute timestamps after the operator confirms the event start and a valid IANA timezone.
 
-Public previews include at most three ordered upcoming slot summaries. Discovery and profile queries include an event already in progress when `endAt` has not passed; a missing `endAt` means the event ends at `startAt` for this bounded query rule.
+Public previews include at most three ordered upcoming slot summaries. Discovery and profile queries include an event already in progress through its explicit end or the shared inclusive six-hour runtime window when `endAt` is absent, subject to their candidate limits.
 
 ## Discord Event Export
 

@@ -37,7 +37,7 @@ export function EventEditorPage({
             ) : null}
           </PageNav>
 
-          <header className="border-b border-border pb-6 pt-2">
+          <EventEditorForm heading={<header className="pt-2">
             {event === undefined ? (
               <Link className="text-sm font-medium text-muted underline-offset-4 hover:underline" href={`/${communitySlug}`}>
                 {communityName}
@@ -48,9 +48,7 @@ export function EventEditorPage({
             <h1 className="mt-2 text-4xl font-semibold tracking-[-0.04em] sm:text-5xl">
               {event?.title ?? "Add event"}
             </h1>
-          </header>
-
-          <EventEditorForm communitySlug={communitySlug} demoMode={demoMode} event={event} />
+          </header>} communitySlug={communitySlug} demoMode={demoMode} event={event} />
           {discordPostText ? <EventDiscordExportPanel text={discordPostText} /> : null}
         </PageContainer>
       </PageShell>

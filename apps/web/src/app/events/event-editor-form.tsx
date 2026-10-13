@@ -522,17 +522,33 @@ function SignInRequiredEventEditorPanel() {
   );
 }
 
+function storedTimeOccurrence(instant?: number, timezone?: string): "earlier" | "later" | "" {
+  if (instant === undefined || !timezone) return "";
+  const local = formatZonedDateTimeInput(instant, timezone);
+  const choices = resolveEventLocalTime(local.slice(0, 10), { time: local.slice(11, 16) }, timezone);
+  return choices.length > 1 ? (Math.floor(choices[0]! / 60_000) === Math.floor(instant / 60_000) ? "earlier" : "later") : "";
+}
+
+function resolveStaffStartAt(local: string, timezone: string, occurrence: "earlier" | "later" | "", event?: { startAt?: number; timezone?: string }): number {
+  if (event?.startAt !== undefined && local === formatZonedDateTimeInput(event.startAt, event.timezone) && timezone === event.timezone && occurrence === storedTimeOccurrence(event.startAt, event.timezone)) {
+    return event.startAt;
+  }
+  return selectEventLocalTime(local.slice(0, 10), { time: local.slice(11, 16), ...(occurrence ? { occurrence } : {}) }, timezone);
+}
+
 function ConnectedEventEditorForm({
   communitySlug,
   demoMode = false,
   event,
+  heading,
 }: {
   communitySlug: string;
   demoMode?: boolean;
   event?: EditableEvent;
+  heading?: ReactNode;
 }) {
   const router = useRouter();
-  const [activeStep, setActiveStep] = useState<EventEditorStep>("Source");
+  const [activeStep, setActiveStep] = useState<EventEditorStep>("Details");
   const [preview, setPreview] = useState({ title: event?.title ?? (demoMode ? "Afterglow Harbor Sessions" : ""), summary: event?.summary ?? "", venueLabel: event?.venueLabel ?? "", artwork: event?.posterImageUrl ?? "" });
   const [eventDate, setEventDate] = useState(event?.eventDate ?? formatZonedDateTimeInput(event?.startAt, event?.timezone).slice(0, 10));
   const [timeTba, setTimeTba] = useState(event?.scheduleKind === "date_only");
@@ -541,7 +557,11 @@ function ConnectedEventEditorForm({
     clientKey: row.key, position: row.position, performerLabel: row.displayLabel, personSlug: row.performer?.slug ?? "", roleLabel: row.roleLabel ?? "",
   })) : parseParticipantLinks(serializeOtherEventParticipants(event)).map((row, position) => ({ ...row, clientKey: `participant-${position}`, position, performerLabel: "" })));
   const [startLocal, setStartLocal] = useState(formatZonedDateTimeInput(event?.startAt, event?.timezone));
-  const [occurrence, setOccurrence] = useState<"earlier" | "later" | "">("");
+  const [occurrence, setOccurrence] = useState<"earlier" | "later" | "">(() => storedTimeOccurrence(event?.startAt, event?.timezone));
+  const [endLocal, setEndLocal] = useState(event?.endAt === undefined ? "" : formatZonedDateTimeInput(event.endAt, event.timezone));
+  const [endOccurrence, setEndOccurrence] = useState<"earlier" | "later" | "">(() => storedTimeOccurrence(event?.endAt, event?.timezone));
+  const [endOpen, setEndOpen] = useState(event?.endAt !== undefined);
+  const [endEdited, setEndEdited] = useState(false);
   const createEvent = useMutation(api.events.createCommunityEvent);
   const updateEvent = useMutation(api.events.updateCommunityEvent);
   const setEventCancelled = useMutation(api.events.setCommunityEventCancelled);
@@ -701,6 +721,7 @@ function ConnectedEventEditorForm({
     const form = submitEvent.currentTarget;
     const formData = new FormData(form, (submitEvent.nativeEvent as SubmitEvent).submitter);
     const intent = stringField(formData.get("intent"));
+    if (intent === "continue") { setActiveStep(activeStep === "Details" ? "Lineup" : "Review"); return; }
     function revealField(field: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement) {
       const panel = field.closest<HTMLElement>("[data-editor-step]");
       if (panel) setActiveStep(panel.dataset.editorStep as EventEditorStep);
@@ -721,21 +742,28 @@ function ConnectedEventEditorForm({
     }
 
     setStatus({ kind: "submitting" });
-
+    let timeErrorField: "start" | "end" = "start";
     try {
       const submittedTimezone = optionalString(stringField(formData.get("timezone")));
       if (!timeTba && !submittedTimezone) throw new Error("Time zone must be a valid IANA time zone.");
       const timeZoneForParsing = submittedTimezone ?? browserTimeZone();
       const authoredStart = stringField(formData.get("startAt"));
-      const startAt = timeTba ? undefined : event?.startAt !== undefined && authoredStart === formatZonedDateTimeInput(event.startAt, event.timezone) && timezone === event.timezone
-        ? event.startAt
-        : selectEventLocalTime(authoredStart.slice(0, 10), { time: authoredStart.slice(11, 16), ...(occurrence ? { occurrence } : {}) }, timeZoneForParsing);
+      const startAt = timeTba ? undefined : resolveStaffStartAt(authoredStart, timeZoneForParsing, occurrence, event);
       const slotLinks = startAt === undefined ? [] : parseSlotRows(slotRows, startAt);
       const derivedEndAt = slotLinks.length === 0 || slotLinks.some((slot) => slot.endAt === undefined)
         ? undefined
         : Math.max(...slotLinks.map((slot) => slot.endAt!));
+      timeErrorField = "end";
+      const authoredEndAt = timeTba || !endEdited ? undefined : !endLocal ? null
+        : event?.endAt !== undefined && endLocal === formatZonedDateTimeInput(event.endAt, event.timezone) && timezone === event.timezone && endOccurrence === storedTimeOccurrence(event.endAt, event.timezone)
+          ? event.endAt
+          : selectEventLocalTime(endLocal.slice(0, 10), { time: endLocal.slice(11, 16), ...(endOccurrence ? { occurrence: endOccurrence } : {}) }, timeZoneForParsing);
+      if (startAt !== undefined && typeof authoredEndAt === "number" && authoredEndAt <= startAt) {
+        throw new Error("Event end time must be after the start time.");
+      }
       const endAt = startAt === undefined ? undefined : resolveAuthoredEventEndAt({
         startAt,
+        authoredEndAt,
         derivedEndAt,
         previousStartAt: event?.startAt,
         previousEndAt: event?.endAt,
@@ -754,7 +782,7 @@ function ConnectedEventEditorForm({
         ...(doorsOffsetMinutes === undefined
           ? {}
           : { doorsOpenAt: startAt! - doorsOffsetMinutes * 60_000 }),
-        endAt,
+        ...(endAt === undefined ? {} : { endAt }),
         timezone: submittedTimezone,
         summary: optionalString(stringField(formData.get("summary"))),
         notes: optionalString(stringField(formData.get("notes"))),
@@ -832,8 +860,9 @@ function ConnectedEventEditorForm({
     } catch (error) {
       const message = eventEditorErrorMessage(error);
       const selector = message === "Time zone must be a valid IANA time zone." ? '[role="combobox"][aria-label="Time zone"]'
-        : message === "Local time does not exist in this timezone." ? '[name="startAt"]'
-        : message === "Ambiguous local time requires an earlier or later occurrence." ? '[aria-label="Start occurrence"]'
+        : message === "Local time does not exist in this timezone." ? `[name="${timeErrorField === "end" ? "endAt" : "startAt"}"]`
+        : message === "Ambiguous local time requires an earlier or later occurrence." ? `[aria-label="${timeErrorField === "end" ? "End" : "Start"} occurrence"]`
+        : message === "Event end time must be after the start time." ? '[name="endAt"]'
         : undefined;
       const field = selector ? form.querySelector<HTMLInputElement | HTMLSelectElement>(selector) : null;
       if (field) revealField(field);
@@ -881,6 +910,35 @@ function ConnectedEventEditorForm({
   const isSubmitting = status.kind === "submitting";
   let startChoices: number[] = [];
   try { if (startLocal && timezone) startChoices = resolveEventLocalTime(startLocal.slice(0, 10), { time: startLocal.slice(11, 16) }, timezone); } catch { /* The form remains editable while incomplete. */ }
+  let previewStart: number | undefined;
+  try { if (!timeTba && startLocal && timezone) previewStart = resolveStaffStartAt(startLocal, timezone, occurrence, event); } catch { /* The preview waits for a valid local time. */ }
+  let previewDerivedEndAt: number | undefined;
+  try {
+    if (!timeTba && previewStart !== undefined) {
+      const previewSlots = parseSlotRows(slotRows, previewStart);
+      if (previewSlots.length > 0 && previewSlots.every(slot => slot.endAt !== undefined)) {
+        previewDerivedEndAt = Math.max(...previewSlots.map(slot => slot.endAt!));
+      }
+    }
+  } catch { /* Incomplete slot rows do not provide a preview end. */ }
+  const implicitEndAt = timeTba || previewStart === undefined ? undefined : resolveAuthoredEventEndAt({
+    startAt: previewStart, derivedEndAt: previewDerivedEndAt,
+    previousStartAt: event?.startAt, previousEndAt: event?.endAt, scheduleChanged,
+  });
+  const displayedEndLocal = !endEdited && previewStart !== undefined
+    ? implicitEndAt === undefined ? "" : formatZonedDateTimeInput(implicitEndAt, timezone)
+    : endLocal;
+  const displayedEndOccurrence = !endEdited && previewStart !== undefined
+    ? storedTimeOccurrence(implicitEndAt, timezone)
+    : endOccurrence;
+  let endChoices: number[] = [];
+  try { if (displayedEndLocal && timezone) endChoices = resolveEventLocalTime(displayedEndLocal.slice(0, 10), { time: displayedEndLocal.slice(11, 16) }, timezone); } catch { /* The form remains editable while incomplete. */ }
+  const previewEnteredEndAt = endChoices.length === 1 ? endChoices[0]
+    : displayedEndOccurrence === "earlier" ? endChoices[0]
+      : displayedEndOccurrence === "later" ? endChoices.at(-1) : undefined;
+  const previewEndAt = timeTba ? undefined : !endEdited ? implicitEndAt
+    : !endLocal && previewStart !== undefined ? previewDerivedEndAt
+      : previewEnteredEndAt;
   const vrcdnOutputAccountOptions = vrcdnOutputAccounts ?? [];
   const vrcdnOutputAccountsLoading = vrcdnOutputAccounts === undefined;
   const canSaveVrcdnOutput =
@@ -901,12 +959,13 @@ function ConnectedEventEditorForm({
 
   function previewTime(timestamp: number) {
     const local = formatZonedDateTimeInput(timestamp, timezone);
-    return { time: local.slice(11, 16), dayOffset: Math.round((Date.parse(`${local.slice(0, 10)}T00:00:00Z`) - Date.parse(`${eventDate}T00:00:00Z`)) / 86_400_000) };
+    const instantOccurrence = storedTimeOccurrence(timestamp, timezone);
+    return { time: local.slice(11, 16), dayOffset: Math.round((Date.parse(`${local.slice(0, 10)}T00:00:00Z`) - Date.parse(`${eventDate}T00:00:00Z`)) / 86_400_000), ...(instantOccurrence ? { occurrence: instantOccurrence } : {}) };
   }
-  const previewStart = startChoices.length === 1 ? startChoices[0] : occurrence === "earlier" ? startChoices[0] : occurrence === "later" ? startChoices.at(-1) : undefined;
   const previewFields = {
     ...preview, communitySlug, eventDate, timezone, timeTba,
     start: previewStart === undefined ? null : previewTime(previewStart),
+    end: previewEndAt === undefined ? null : previewTime(previewEndAt),
     lineup: [
       ...slotRows.map(row => ({ clientKey: row.id, performerLabel: row.displayLabel || row.personSlug, ...(previewStart === undefined || timeTba ? {} : { start: previewTime(previewStart + Number(row.offsetMinutes) * 60_000) }) })),
       ...untimedRows.map(row => ({ clientKey: row.clientKey, performerLabel: row.performerLabel || row.personSlug })),
@@ -918,9 +977,84 @@ function ConnectedEventEditorForm({
       const data = new FormData(change.currentTarget);
       setPreview({ title: stringField(data.get("title")), summary: stringField(data.get("summary")), venueLabel: stringField(data.get("venueLabel")), artwork: stringField(data.get("posterImageUrl")) });
     }}>
-      <EventEditorSteps steps={["Source", "Details", "Lineup", "Review"]} activeStep={activeStep} onSelect={setActiveStep} preview={<EventEditorPreview fields={previewFields} artwork={preview.artwork || undefined} />}>
-      <div hidden={activeStep !== "Source"} data-editor-step="Source">
-      <EditorSection title="Source">
+      <EventEditorSteps heading={heading} steps={["Details", "Lineup", "Review"]} activeStep={activeStep} onSelect={setActiveStep} preview={<EventEditorPreview fields={previewFields} artwork={preview.artwork || undefined} />}>
+      <div hidden={activeStep !== "Details"} data-editor-step="Details" className="space-y-8">
+      <EditorSection title="Details">
+        <Field>
+          Event title
+          <Input
+            defaultValue={event?.title ?? (demoMode ? "Afterglow Harbor Sessions" : "")}
+            name="title"
+            placeholder="Afterglow Harbor Sessions"
+            required
+          />
+        </Field>
+
+        <Field>
+          Description
+          <Textarea aria-label="Description" className="min-h-24" defaultValue={event?.summary} name="summary" />
+        </Field>
+        {usesCanonicalLineup ? <Field>Where (optional)<Input defaultValue={event?.venueLabel} name="venueLabel" /></Field> : null}
+
+        <details className="group rounded-control border border-border bg-surface px-4 py-3">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-4 font-medium marker:hidden">
+            Private notes
+            <span aria-hidden="true" className="text-muted transition group-open:rotate-45">+</span>
+          </summary>
+          <Textarea aria-label="Private notes" className="mt-4 min-h-24" defaultValue={event?.notes} name="notes" />
+        </details>
+      </EditorSection>
+
+      <EditorSection title="Timing">
+        {usesCanonicalLineup || event?.scheduleKind === "date_only" ? <label className="flex items-center gap-3 text-sm font-medium"><input checked={timeTba} onChange={change => setTimeTba(change.target.checked)} type="checkbox" />Time TBA</label> : null}
+        <div className="grid gap-4">
+        {timeTba ? <Field>Date<Input type="date" required value={eventDate} onChange={change => setEventDate(change.target.value)} /></Field> : <>
+        <div className="grid items-start gap-4 sm:grid-cols-2">
+          <Field>
+            Starts
+            <Input value={startLocal} name="startAt" required type="datetime-local" onChange={change => { setStartLocal(change.target.value); setEventDate(change.target.value.slice(0, 10)); setOccurrence(""); }} />
+          </Field>
+          <details className="relative min-w-0" open={endOpen} onToggle={change => setEndOpen(change.currentTarget.open)}>
+            <summary className={`cursor-pointer font-medium ${endOpen ? "absolute right-0 top-0 text-xs" : "text-sm"}`}>Add end time</summary>
+            <div className="grid gap-2">
+              <Field>Ends (optional)<Input value={displayedEndLocal} name="endAt" type="datetime-local" onChange={change => { setEndLocal(change.target.value); setEndOccurrence(""); setEndEdited(true); }} /></Field>
+              {displayedEndLocal && endChoices.length === 0 ? <p className="text-sm text-danger">This local time does not exist.</p> : null}
+              {endChoices.length > 1 ? <Field>Repeated time<Select aria-label="End occurrence" value={displayedEndOccurrence} onChange={change => { setEndLocal(displayedEndLocal); setEndOccurrence(change.target.value === "later" ? "later" : change.target.value === "earlier" ? "earlier" : ""); setEndEdited(true); }}><option value="">Choose occurrence</option>{endChoices.map((instant, index) => <option key={instant} value={index === 0 ? "earlier" : "later"}>{index === 0 ? "Earlier" : "Later"} ({new Date(instant).toISOString().slice(11, 16)} UTC)</option>)}</Select></Field> : null}
+            </div>
+          </details>
+        </div>
+        <Field>
+          Time zone
+          <EventTimezonePicker value={timezone || null} date={eventDate || null} onChange={value => { setTimezone(value ?? ""); setOccurrence(""); setEndOccurrence(""); if (displayedEndLocal) { setEndLocal(displayedEndLocal); setEndEdited(true); } }} />
+        </Field>
+        {startChoices.length > 1 ? <Field>Repeated time<Select aria-label="Start occurrence" value={occurrence} onChange={change => setOccurrence(change.target.value as "earlier" | "later")}><option value="">Choose occurrence</option><option value="earlier">Earlier</option><option value="later">Later</option></Select></Field> : null}
+        <label className="flex items-center gap-3 text-sm font-medium">
+          <input
+            checked={doorsOpenBefore}
+            className="h-4 w-4 accent-accent"
+            onChange={(changeEvent) => setDoorsOpenBefore(eventTargetChecked(changeEvent))}
+            type="checkbox"
+          />
+          Do doors open before?
+        </label>
+        {doorsOpenBefore ? (
+          <Field>
+            Minutes before start
+            <Input
+              inputMode="numeric"
+              min="0"
+              onChange={(changeEvent) => setDoorsOpenMinutes(eventTargetValue(changeEvent))}
+              required
+              type="number"
+              value={doorsOpenMinutes}
+            />
+          </Field>
+        ) : null}
+        </>}
+        </div>
+      </EditorSection>
+
+      <EditorDisclosure title="Source">
         <div className="grid gap-4 sm:grid-cols-3">
         <Field className="sm:col-span-1">
           Source label
@@ -955,74 +1089,7 @@ function ConnectedEventEditorForm({
         <FieldText>One per line: type | label | URL | open or copy. VRCDN variants derive Quest and PC player links automatically.</FieldText>
       </Field>
       <VrcdnMediaLinkAssistant mediaLinksText={mediaLinksText} />
-      </EditorSection>
-      </div>
-      <div hidden={activeStep !== "Details"} data-editor-step="Details" className="space-y-8">
-      <EditorSection title="Details">
-        <Field>
-          Event title
-          <Input
-            defaultValue={event?.title ?? (demoMode ? "Afterglow Harbor Sessions" : "")}
-            name="title"
-            placeholder="Afterglow Harbor Sessions"
-            required
-          />
-        </Field>
-
-        <Field>
-          Description
-          <Textarea aria-label="Description" className="min-h-24" defaultValue={event?.summary} name="summary" />
-        </Field>
-        {usesCanonicalLineup ? <Field>Venue<Input defaultValue={event?.venueLabel} name="venueLabel" /></Field> : null}
-
-        <details className="group rounded-control border border-border bg-surface px-4 py-3">
-          <summary className="flex cursor-pointer list-none items-center justify-between gap-4 font-medium marker:hidden">
-            Private notes
-            <span aria-hidden="true" className="text-muted transition group-open:rotate-45">+</span>
-          </summary>
-          <Textarea aria-label="Private notes" className="mt-4 min-h-24" defaultValue={event?.notes} name="notes" />
-        </details>
-      </EditorSection>
-
-      <EditorSection title="Timing">
-        {usesCanonicalLineup || event?.scheduleKind === "date_only" ? <label className="flex items-center gap-3 text-sm font-medium"><input checked={timeTba} onChange={change => setTimeTba(change.target.checked)} type="checkbox" />Time TBA</label> : null}
-        <div className="grid gap-4 md:grid-cols-2">
-        {timeTba ? <Field>Date<Input type="date" required value={eventDate} onChange={change => setEventDate(change.target.value)} /></Field> : <>
-        <Field>
-          Start
-          <Input value={startLocal} name="startAt" required type="datetime-local" onChange={change => { setStartLocal(change.target.value); setEventDate(change.target.value.slice(0, 10)); setOccurrence(""); }} />
-        </Field>
-        <Field>
-          Time zone
-          <EventTimezonePicker value={timezone || null} date={eventDate || null} onChange={value => { setTimezone(value ?? ""); setOccurrence(""); }} />
-        </Field>
-        {startChoices.length > 1 ? <Field>Repeated time<Select aria-label="Start occurrence" value={occurrence} onChange={change => setOccurrence(change.target.value as "earlier" | "later")}><option value="">Choose occurrence</option><option value="earlier">Earlier</option><option value="later">Later</option></Select></Field> : null}
-        <label className="flex items-center gap-3 text-sm font-medium md:col-span-2">
-          <input
-            checked={doorsOpenBefore}
-            className="h-4 w-4 accent-accent"
-            onChange={(changeEvent) => setDoorsOpenBefore(eventTargetChecked(changeEvent))}
-            type="checkbox"
-          />
-          Do doors open before?
-        </label>
-        {doorsOpenBefore ? (
-          <Field>
-            Minutes before start
-            <Input
-              inputMode="numeric"
-              min="0"
-              onChange={(changeEvent) => setDoorsOpenMinutes(eventTargetValue(changeEvent))}
-              required
-              type="number"
-              value={doorsOpenMinutes}
-            />
-          </Field>
-        ) : null}
-        </>}
-        </div>
-      </EditorSection>
-
+      </EditorDisclosure>
       </div>
       <div hidden={activeStep !== "Lineup"} data-editor-step="Lineup">
       <EditorSection title="Lineup">
@@ -1148,12 +1215,12 @@ function ConnectedEventEditorForm({
         <EditorSection title="Review">
           <h3 className="break-words text-2xl font-semibold">{preview.title}</h3>
           <dl className="grid gap-3 text-sm sm:grid-cols-2">
-            <div><dt className="text-muted">{timeTba ? "Date" : "Start"}</dt><dd>{timeTba ? eventDate : startLocal.replace("T", " ")}</dd></div>
+            <div><dt className="text-muted">{timeTba ? "Date" : "Starts"}</dt><dd>{timeTba ? eventDate : startLocal.replace("T", " ")}</dd></div>
             {!timeTba ? <div><dt className="text-muted">Time zone</dt><dd>{timezone}</dd></div> : null}
-            {preview.venueLabel ? <div><dt className="text-muted">Venue</dt><dd>{preview.venueLabel}</dd></div> : null}
+            {preview.venueLabel ? <div><dt className="text-muted">Where (optional)</dt><dd>{preview.venueLabel}</dd></div> : null}
           </dl>
           <div className="flex flex-wrap gap-3">
-            {(["Source", "Details", "Lineup"] as const).map(step => <Button key={step} type="button" variant="secondary" onClick={() => setActiveStep(step)}>Edit {step.toLowerCase()}</Button>)}
+            {(["Details", "Lineup"] as const).map(step => <Button key={step} type="button" variant="secondary" onClick={() => setActiveStep(step)}>Edit {step.toLowerCase()}</Button>)}
           </div>
         </EditorSection>
         <EditorDisclosure title="Advanced">
@@ -1445,7 +1512,9 @@ function ConnectedEventEditorForm({
         </EditorDisclosure>
       </div>
       </EventEditorSteps>
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+      <div className="flex flex-wrap items-center gap-3">
+        {activeStep !== "Details" ? <Button type="button" size="lg" variant="secondary" onClick={() => setActiveStep(activeStep === "Review" ? "Lineup" : "Details")}>Back</Button> : null}
+        <span className="mr-auto text-sm text-muted">{["Details", "Lineup", "Review"].indexOf(activeStep) + 1} / 3</span>
         {activeStep === "Review" ? (
         <Button disabled={isSubmitting} name="intent" size="lg" type="submit" value="publish" variant="primary">
           {isSubmitting
@@ -1456,7 +1525,7 @@ function ConnectedEventEditorForm({
                 ? "Save and publish"
                 : "Publish event"}
         </Button>
-        ) : <Button type="button" size="lg" onClick={() => setActiveStep(activeStep === "Source" ? "Details" : activeStep === "Details" ? "Lineup" : "Review")}>Continue</Button>}
+        ) : <Button type="submit" name="intent" value="continue" size="lg">Continue</Button>}
         <Button disabled={isSubmitting} name="intent" size="lg" type="submit" value="draft" variant="secondary">
           {isPublished ? "Unpublish and save draft" : "Save draft"}
         </Button>
@@ -1480,32 +1549,34 @@ export function EventEditorForm({
   communitySlug,
   demoMode = false,
   event,
+  heading,
 }: {
   communitySlug: string;
   demoMode?: boolean;
   event?: EditableEvent;
+  heading?: ReactNode;
 }) {
   if (demoMode) {
-    return <ConnectedEventEditorForm communitySlug={communitySlug} demoMode event={event} />;
+    return <ConnectedEventEditorForm communitySlug={communitySlug} demoMode event={event} heading={heading} />;
   }
 
   if (!convexUrl) {
-    return <DisabledEventEditorPanel />;
+    return <>{heading}<DisabledEventEditorPanel /></>;
   }
 
-  return <AuthenticatedEventEditorForm communitySlug={communitySlug} event={event} />;
+  return <AuthenticatedEventEditorForm communitySlug={communitySlug} event={event} heading={heading} />;
 }
 
-function AuthenticatedEventEditorForm({ communitySlug, event }: { communitySlug: string; event?: EditableEvent }) {
+function AuthenticatedEventEditorForm({ communitySlug, event, heading }: { communitySlug: string; event?: EditableEvent; heading?: ReactNode }) {
   const { isAuthenticated, isLoading } = useConvexAuth();
 
   if (isLoading) {
-    return <p className="text-sm text-muted">Loading sign-in state...</p>;
+    return <>{heading}<p className="text-sm text-muted">Loading sign-in state...</p></>;
   }
 
   if (!isAuthenticated) {
-    return <SignInRequiredEventEditorPanel />;
+    return <>{heading}<SignInRequiredEventEditorPanel /></>;
   }
 
-  return <ConnectedEventEditorForm communitySlug={communitySlug} event={event} />;
+  return <ConnectedEventEditorForm communitySlug={communitySlug} event={event} heading={heading} />;
 }
