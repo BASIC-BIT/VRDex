@@ -74,3 +74,26 @@ test("invalid timezone search preserves the selected event zone", async ({ page 
   await search.press("Escape");
   await expect(page.locator('input[name="timezone"]')).toHaveValue(selected);
 });
+
+
+test("staff missing timezone reveals Details and focuses the picker trigger without submitting", async ({ page }, testInfo) => {
+  await page.addInitScript(() => localStorage.setItem("event-lineup-fixture-v1", JSON.stringify({
+    id: "legacy-no-zone", slug: "legacy-no-zone", title: "Legacy event", startAt: Date.UTC(2027, 8, 12, 20),
+    scheduleKind: "timed", status: "scheduled", communitySlug: "afterglow", publicationState: "published",
+    source: { sourceType: "community", label: "Afterglow" }, watchSurfaceEnabled: false,
+    mediaLinks: [], authoredMediaLinks: [], worlds: [], participants: [], slots: [], lineup: [],
+    preservedParticipantAssociationIds: [], preservedSlotAssociationIds: [], preservedWorldAssociationIds: [],
+  })));
+  await page.goto("/playwright/event-lineup?editor");
+  const details = page.locator('[data-editor-step="Details"]');
+  await expect(page.locator('input[name="timezone"]')).toHaveValue("");
+  await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Review", exact: true }).click();
+  await expect(details).toBeHidden();
+  await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  await expect(page.getByText("Time zone must be a valid IANA time zone.", { exact: true })).toBeVisible();
+  await expect(details).toBeVisible();
+  await expect(page.getByRole("button", { name: "Time zone", exact: true })).toBeFocused();
+  expect(await page.evaluate(() => localStorage.getItem("event-lineup-fixture-command"))).toBeNull();
+  expect(await page.evaluate(() => localStorage.getItem("event-lineup-fixture-v1-submission"))).toBeNull();
+  await page.screenshot({ path: testInfo.outputPath("staff-missing-zone-focus.png"), fullPage: true });
+});

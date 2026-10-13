@@ -725,7 +725,7 @@ function ConnectedEventEditorForm({
     const formData = new FormData(form, (submitEvent.nativeEvent as SubmitEvent).submitter);
     const intent = stringField(formData.get("intent"));
     if (intent === "continue") { setActiveStep(activeStep === "Details" ? "Lineup" : "Review"); return; }
-    function revealField(field: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement) {
+    function revealField(field: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | HTMLButtonElement) {
       const panel = field.closest<HTMLElement>("[data-editor-step]");
       if (panel) setActiveStep(panel.dataset.editorStep as EventEditorStep);
       for (let parent = field.parentElement; parent && parent !== form; parent = parent.parentElement) {
@@ -862,12 +862,12 @@ function ConnectedEventEditorForm({
       );
     } catch (error) {
       const message = eventEditorErrorMessage(error);
-      const selector = message === "Time zone must be a valid IANA time zone." ? '[role="combobox"][aria-label="Time zone"]'
+      const selector = message === "Time zone must be a valid IANA time zone." ? 'button[aria-label="Time zone"]'
         : message === "Local time does not exist in this timezone." ? `[name="${timeErrorField === "end" ? "endAt" : "startAt"}"]`
         : message === "Ambiguous local time requires an earlier or later occurrence." ? `[aria-label="${timeErrorField === "end" ? "End" : "Start"} occurrence"]`
         : message === "Event end time must be after the start time." ? '[name="endAt"]'
         : undefined;
-      const field = selector ? form.querySelector<HTMLInputElement | HTMLSelectElement>(selector) : null;
+      const field = selector ? form.querySelector<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>(selector) : null;
       if (field) revealField(field);
       if (isUnavailableStreamError(error)) setActiveStep("Lineup");
       startTransition(() => setStatus({
