@@ -409,9 +409,11 @@ describe("profile media-kit owner management", () => {
     const profile = await seeded.t.query(api.profiles.getPublicBySlug, { slug: "media-owner" });
     for (const response of [kit, profile]) {
       assert.ok(response);
+      const asset = response.mediaKit.assets.find((asset) => asset.assetId === seeded.assetIds[0]);
+      assert.ok(asset);
+      assert.equal(asset.credit, "Public photographer");
+      assert.equal(asset.creditUrl, "https://photographer.example/");
       const serialized = JSON.stringify(response);
-      assert.ok(serialized.includes("Public photographer"));
-      assert.ok(serialized.includes("https://photographer.example/"));
       assert.ok(!serialized.includes("private-query"));
       assert.ok(!serialized.includes("Private source-message context"));
       assert.ok(!serialized.includes("discord.com/channels/private"));
