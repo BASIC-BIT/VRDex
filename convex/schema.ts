@@ -765,6 +765,7 @@ export default defineSchema({
     emailVerificationTime: v.optional(v.number()),
     phone: v.optional(v.string()),
     phoneVerificationTime: v.optional(v.number()),
+    defaultEventTimezone: v.optional(v.string()),
   })
     .index("clerkUserId", ["clerkUserId"])
     .index("email", ["email"])

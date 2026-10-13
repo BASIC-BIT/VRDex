@@ -1,8 +1,10 @@
+import { v } from "convex/values";
+
 import { claimError } from "./_claimErrors";
 
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { query } from "./_generated/server";
+import { mutation, query } from "./_generated/server";
 import { currentUserOrNull, identityEmail, identityEmailVerified } from "./_identity";
 
 type AccountCtx = QueryCtx | MutationCtx;
@@ -100,6 +102,19 @@ export async function getLinkedProviderAccount(
 
 export const viewer = query({
   args: {},
+  returns: v.union(
+    v.null(),
+    v.object({
+      user: v.object({
+        id: v.id("users"),
+        name: v.optional(v.string()),
+        email: v.optional(v.string()),
+        emailVerified: v.boolean(),
+        image: v.optional(v.string()),
+        defaultEventTimezone: v.optional(v.string()),
+      }),
+    }),
+  ),
   handler: async (ctx) => {
     const user = await getCurrentUser(ctx);
 
@@ -125,7 +140,29 @@ export const viewer = query({
         email: identity.email ?? user.email,
         emailVerified: identity.emailVerified,
         image: user.image,
+        defaultEventTimezone: user.defaultEventTimezone,
       },
     };
+  },
+});
+
+export const setEventTimezonePreference = mutation({
+  args: { timezone: v.union(v.string(), v.null()) },
+  returns: v.null(),
+  handler: async (ctx, { timezone }) => {
+    const user = await requireCurrentUser(ctx);
+
+    if (timezone !== null) {
+      try {
+        // Intl also accepts fixed offsets, which are not IANA identifiers.
+        if (/^[+-]/.test(timezone)) throw new RangeError("Fixed offset");
+        new Intl.DateTimeFormat("en", { timeZone: timezone }).format(new Date(0));
+      } catch {
+        throw new Error("Time zone must be a valid IANA time zone.");
+      }
+    }
+
+    await ctx.db.patch(user._id, { defaultEventTimezone: timezone ?? undefined });
+    return null;
   },
 });
