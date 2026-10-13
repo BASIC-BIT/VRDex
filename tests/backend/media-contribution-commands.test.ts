@@ -845,3 +845,44 @@ for (const change of ["preference", "visibility"] as const) {
     assert.notEqual((kit.compactDisplay === "logo" ? kit.primaryLogo ?? kit.profileImage : kit.profileImage ?? kit.primaryLogo)?.assetId, d.assetId);
   });
 }
+
+it("refuses hidden-only managed replacement after fresh inspection and rebase at both approval boundaries", async () => {
+  const f = await fixture("community"); const d = await f.detail();
+  await f.t.run(async ctx => {
+    const asset = (await ctx.db.get(d.assetId))!; const { _id, _creationTime, sourceSubmissionId, ...fields } = asset;
+    const old = await ctx.db.insert("profileAssets", { ...fields, storageKey: "only-picture.webp", source: "owner_authored" });
+    await selectProfileAssetIdentity(ctx.db, { profileId: f.s.profileId, assetId: old, placement: "profile_image", actorUserId: f.s.moderatorUserId, now: Date.now() });
+  });
+  const fresh = await f.detail();
+  const proposal = await f.actor.mutation(api.profileMediaSubmissions.proposePlacement, { submissionId: f.intent.submissionId, expectedContributionVersion: fresh.contributionVersion, idempotencyKey: "before-hidden-only" });
+  const reviewer = f.t.withIdentity(f.s.moderatorIdentity);
+  await f.t.run(ctx => ctx.db.patch(f.s.profileId, { fieldVisibility: { avatarImageUrl: "private" } }));
+  const changed = await reviewer.query(api.profileMediaSubmissions.reviewDetail, { submissionId: proposal.resourceId! }); assert.ok(changed);
+  assert.equal(changed.currentImage, null);
+  assert.equal((await reviewer.mutation(api.profileMediaSubmissions.rebase, { submissionId: proposal.resourceId!, expectedReviewVersion: changed.reviewVersion, idempotencyKey: "rebase-hidden-only" })).operationState, "committed");
+  const rebased = await reviewer.query(api.profileMediaSubmissions.reviewDetail, { submissionId: proposal.resourceId! }); assert.ok(rebased);
+  assert.equal((await reviewer.mutation(api.profileMediaSubmissions.decideWithReceipt, { submissionId: proposal.resourceId!, expectedReviewVersion: rebased.reviewVersion, decision: "approve", privateReason: "Hidden only target checked", idempotencyKey: "refuse-hidden-only" })).code, "placement_changed");
+  await assert.rejects(reviewer.mutation(api.profileMediaSubmissions.decide, { submissionId: proposal.resourceId!, expectedProfileUpdatedAt: rebased.currentProfileUpdatedAt, decision: "approve", privateReason: "Hidden only legacy target checked" }), /displayed identity placement changed/);
+  const hidden = await f.detail();
+  assert.equal(hidden.canProposePlacement, false);
+  assert.equal(hidden.canSelectPrimary, false);
+  assert.equal((await f.actor.mutation(api.profileMediaSubmissions.proposePlacement, { submissionId: f.intent.submissionId, expectedContributionVersion: hidden.contributionVersion, idempotencyKey: "new-hidden-only" })).code, "primary_empty");
+  assert.equal((await f.place("select_primary")).code, "primary_occupied");
+});
+
+it("keeps visible automatic artwork replacement valid with no managed rendered slot", async () => {
+  const f = await fixture();
+  await f.t.run(async ctx => {
+    const external = "usr_7023d326-083f-41fe-a3e9-27ea303b50c5";
+    await ctx.db.patch(f.s.profileId, { outboundLinks: [{ type: "vrchat_profile", label: "VRChat", url: `https://vrchat.com/home/user/${external}`, source: "community_submitted" }] });
+    await ctx.db.insert("profileLinkDestinations", { key: `vrchat_user:${external}`, kind: "vrchat_user", locator: external, provider: "vrchat", status: "resolved", artworkSourceUrl: "https://example.test/icon.webp", artworkType: "user_icon", observedAt: 1 });
+  });
+  const d = await f.detail(); assert.equal(d.canProposePlacement, true);
+  const p = await f.actor.mutation(api.profileMediaSubmissions.proposePlacement, { submissionId: f.intent.submissionId, expectedContributionVersion: d.contributionVersion, idempotencyKey: "automatic-control" });
+  const reviewer = f.t.withIdentity(f.s.moderatorIdentity);
+  const review = await reviewer.query(api.profileMediaSubmissions.reviewDetail, { submissionId: p.resourceId! }); assert.ok(review);
+  assert.equal(review.currentImage?.kind, "automatic");
+  assert.equal((await reviewer.mutation(api.profileMediaSubmissions.decideWithReceipt, { submissionId: p.resourceId!, expectedReviewVersion: review.reviewVersion, decision: "approve", privateReason: "Visible automatic control checked", idempotencyKey: "approve-automatic" })).operationState, "committed");
+  const kit = await f.t.run(async ctx => getPublicProfileMediaKit(ctx.db, (await ctx.db.get(f.s.profileId))!));
+  assert.equal(kit.profileImage?.assetId, d.assetId);
+});

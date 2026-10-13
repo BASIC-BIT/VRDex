@@ -64,7 +64,7 @@ export async function publishedContributionDetail(ctx: QueryCtx | MutationCtx, s
       creditUrl: metadata.creditUrl, sourceUrl: metadata.sourceUrl, sourceDescription: metadata.sourceDescription },
     canSelectPrimary: s.newPlacementAvailable && s.publisher && !s.snapshot.identityOccupied,
     canClearPrimary: s.submissionsEnabled && s.publisher && s.ownSelection,
-    canProposePlacement: s.newPlacementAvailable && s.publicUnclaimed && !s.restrictions.some(Boolean) && !s.ownSelection && s.snapshot.identityOccupied,
+    canProposePlacement: s.newPlacementAvailable && s.publicUnclaimed && !s.restrictions.some(Boolean) && !s.ownSelection && s.snapshot.currentImage !== null,
     canEditMetadata: s.ownKitOnly, canRemove: s.ownKitOnly && s.submission.legalHoldAt === undefined,
   };
 }
@@ -85,7 +85,7 @@ async function command(ctx: MutationCtx, input: ContributionCommandBase | Contri
     !s.publicUnclaimed ? "target_unavailable" : s.restrictions.some(Boolean) ? "publication_restricted" :
     !proposal && !s.publisher ? "publisher_required" : s.version !== args.expectedContributionVersion ? "contribution_changed" :
     (proposal || selecting) && !s.newPlacementAvailable ? "target_unavailable" :
-    proposal && !s.snapshot.identityOccupied ? "primary_empty" :
+    proposal && s.snapshot.currentImage === null ? "primary_empty" :
     !proposal && selecting && s.snapshot.identityOccupied ? "primary_occupied" :
     !proposal && !selecting && !s.ownSelection ? "selection_changed" : undefined;
   if (!code && proposal) {

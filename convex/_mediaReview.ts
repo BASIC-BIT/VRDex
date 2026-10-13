@@ -316,7 +316,8 @@ export async function applyReviewDecision(
   if (submission.requestKind === "identity_placement" && submission.candidateAssetId) {
     const candidate = await ctx.db.get(submission.candidateAssetId);
     const snapshot = await reviewSnapshot(ctx, submission, profile);
-    if (snapshot.effectiveIdentityPlacement !== null && snapshot.effectiveIdentityPlacement !== submission.requestedPlacement)
+    if ((snapshot.effectiveIdentityPlacement !== null && snapshot.effectiveIdentityPlacement !== submission.requestedPlacement ||
+      snapshot.effectiveIdentityPlacement === null && snapshot.currentImage === null && snapshot.identityOccupied))
       throw new Error("The displayed identity placement changed. Refresh before deciding.");
     if (!snapshot.identityOccupied) throw new Error("Replacement requires an occupied identity placement.");
     if (!candidate || !snapshot.candidate.rendition) throw new Error("The placement candidate is unavailable.");
@@ -744,7 +745,8 @@ export async function decideReviewCommand(
   )
     code = "placement_changed";
   else if (args.decision === "approve" && submission.requestKind === "identity_placement" && submission.candidateAssetId &&
-    snapshot.effectiveIdentityPlacement !== null && snapshot.effectiveIdentityPlacement !== submission.requestedPlacement)
+    (snapshot.effectiveIdentityPlacement !== null && snapshot.effectiveIdentityPlacement !== submission.requestedPlacement ||
+      snapshot.effectiveIdentityPlacement === null && snapshot.currentImage === null && snapshot.identityOccupied))
     code = "placement_changed";
   else if (args.decision === "approve" && submission.requestKind === "identity_placement" && submission.candidateAssetId && !snapshot.identityOccupied)
     code = "primary_empty";
