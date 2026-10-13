@@ -15,14 +15,23 @@ export type SlotFormRow = {
   roleLabel: string;
   startAtOverride?: number;
   endAtOverride?: number;
+  durationMsOverride?: number;
 };
 
 export function readStaffLineupTimings(rows: readonly SlotFormRow[], eventStartAt: number): LineupTimingRow[] {
   return rows.map(row => {
     const startAt = row.startAtOverride ?? (row.offsetMinutes.trim() && Number.isInteger(Number(row.offsetMinutes)) && Number.isFinite(eventStartAt) ? eventStartAt + Number(row.offsetMinutes) * 60_000 : undefined);
-    const endAt = row.endAtOverride ?? (startAt !== undefined && row.durationMinutes.trim() && Number.isInteger(Number(row.durationMinutes)) && Number(row.durationMinutes) > 0 ? startAt + Number(row.durationMinutes) * 60_000 : undefined);
+    const endAt = row.endAtOverride ?? (startAt !== undefined && row.durationMsOverride !== undefined ? startAt + row.durationMsOverride : undefined) ?? (startAt !== undefined && row.durationMinutes.trim() && Number.isInteger(Number(row.durationMinutes)) && Number(row.durationMinutes) > 0 ? startAt + Number(row.durationMinutes) * 60_000 : undefined);
     return { key: row.id, ...(startAt === undefined ? {} : { startAt }), ...(endAt === undefined ? {} : { endAt }) };
   });
+}
+
+/** Offset edits retain the exact duration even while the new offset is incomplete. */
+export function changeStaffSlotOffset(row: SlotFormRow, offsetMinutes: string, eventStartAt: number): SlotFormRow {
+  const timing = readStaffLineupTimings([row], eventStartAt)[0]!;
+  const durationMsOverride = timing.startAt !== undefined && timing.endAt !== undefined
+    ? timing.endAt - timing.startAt : row.durationMsOverride;
+  return { ...row, offsetMinutes, startAtOverride: undefined, endAtOverride: undefined, durationMsOverride };
 }
 
 export function applyStaffLineupTimings(rows: readonly SlotFormRow[], timings: readonly LineupTimingRow[], eventStartAt: number): SlotFormRow[] {
@@ -32,7 +41,7 @@ export function applyStaffLineupTimings(rows: readonly SlotFormRow[], timings: r
     const row = originals.get(timing.key) ?? { id: timing.key, offsetMinutes: "", durationMinutes: "", personSlug: "", displayLabel: "", roleLabel: "Participant" };
     const old = previous.get(timing.key);
     if (old?.startAt === timing.startAt && old?.endAt === timing.endAt) return { ...row, position };
-    return { ...row, position, startAtOverride: timing.startAt, endAtOverride: timing.endAt,
+    return { ...row, position, startAtOverride: timing.startAt, endAtOverride: timing.endAt, durationMsOverride: undefined,
       offsetMinutes: timing.startAt === undefined ? "" : String((timing.startAt - eventStartAt) / 60_000),
       durationMinutes: timing.startAt === undefined || timing.endAt === undefined ? "" : String((timing.endAt - timing.startAt) / 60_000),
     };

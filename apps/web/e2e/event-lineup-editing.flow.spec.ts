@@ -185,3 +185,55 @@ test("canonical untimed insertion retains order in preview and submitted lineup 
   expect(payload.lineup[0].startAt).toBeUndefined();
   expect(payload.lineup[1].clientKey).toBe("exact-row");
 });
+
+
+for (const insert of [false, true]) test(`legacy deferred save retains surviving keys with insertion=${insert} before a second save @fixture`, async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("event-lineup-fixture-defer-save", "true");
+    localStorage.setItem("event-lineup-fixture-v1", JSON.stringify({
+      id: "legacy", slug: "legacy", title: "Legacy night", startAt: Date.UTC(2027,9,15,20), endAt: Date.UTC(2027,9,16,0), timezone: "UTC", scheduleKind: "timed", status: "scheduled", communitySlug: "afterglow", publicationState: "draft",
+      source: { sourceType: "community", label: "Afterglow" }, mediaLinks: [], authoredMediaLinks: [], worlds: [], participants: [], lineup: [],
+      slots: ["a", "b"].map((key, position) => ({ playbackKey: `slot-${key}`, position, startAt: Date.UTC(2027,9,15,20 + position), endAt: Date.UTC(2027,9,15,21 + position), displayLabel: key.toUpperCase(), roleLabel: "DJ", source: { sourceType: "community", label: key }, selectedStreamId: `private-${key}` })),
+      preservedParticipantAssociationIds: [], preservedSlotAssociationIds: ["slot-a", "slot-b"], preservedWorldAssociationIds: [],
+    }));
+  });
+  await page.goto("/playwright/event-lineup?editor"); await nav(page, "Review");
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("event-lineup-fixture-v1-submission"))).not.toBeNull();
+  await nav(page, "Lineup");
+  await page.locator('[data-lineup-row]').first().getByRole("button", { name: "Remove slot", exact: true }).click();
+  if (insert) {
+    await page.getByRole("button", { name: "Add slot at position 1", exact: true }).click();
+    await page.getByRole("button", { name: "Insert slot", exact: true }).click();
+  }
+  await page.evaluate(() => { localStorage.removeItem("event-lineup-fixture-defer-save"); window.dispatchEvent(new Event("event-lineup-fixture-release-save")); });
+  await nav(page, "Review"); await expect(page.getByRole("button", { name: "Save draft", exact: true })).toBeEnabled();
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  const payload = await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!));
+  expect(payload.storedSlotAssociations).toEqual([{ position: insert ? 1 : 0, slotId: "slot-b" }]);
+  expect(payload.slotLinks[insert ? 1 : 0].displayLabel).toBe("B");
+  expect(payload.slotLinks[insert ? 1 : 0].selectedStreamId).toBe("private-b");
+});
+
+for (const cascade of [false, true]) test(`advanced offset preserves exact duration after cascade=${cascade} and rejects invalid offset @fixture`, async ({ page }) => {
+  await canonicalStaff(page);
+  if (cascade) await page.getByLabel("Starts", { exact: true }).fill("2027-10-15T20:15");
+  await nav(page, "Lineup");
+  await page.locator('[data-lineup-row] summary').click();
+  const offset = page.getByLabel("Slot offset minutes", { exact: true });
+  await offset.fill("15");
+  await expect(page.getByLabel("Duration", { exact: true })).toHaveValue(String(3_620_333 / 60_000));
+  await page.getByRole("button", { name: "Set event end to lineup end", exact: true }).first().click();
+  await offset.fill("bad");
+  await nav(page, "Review"); await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  await expect(offset).toBeFocused();
+  expect(await page.evaluate(() => localStorage.getItem("event-lineup-fixture-v1-submission"))).toBeNull();
+  await offset.fill("15");
+  await nav(page, "Review"); await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("event-lineup-fixture-v1-submission"))).not.toBeNull();
+  const payload = await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!));
+  expect(payload.lineup[0].endAt - payload.lineup[0].startAt).toBe(3_620_333);
+  expect(payload.lineup[0].startAt).toBe(cascade ? Date.UTC(2027,9,15,20,30) : Date.UTC(2027,9,15,20,15,10,123));
+  expect(payload.lineup[0].clientKey).toBe("exact-row");
+  expect(payload.lineup[0].selectedStreamId).toBe("vrcdn:aurora");
+});

@@ -81,10 +81,14 @@ function fixtureClient() {
       if (!["events:updateCommunityEvent", "events:createCommunityEvent"].includes(command)) throw new Error("Unsupported fixture mutation");
       localStorage.setItem("event-lineup-fixture-command", command);
       localStorage.setItem(`${storageKey}-submission`, JSON.stringify(args));
+      if (localStorage.getItem("event-lineup-fixture-defer-save") === "true") {
+        await new Promise<void>(resolve => window.addEventListener("event-lineup-fixture-release-save", () => resolve(), { once: true }));
+      }
+      const storedSlotAssociations = args.storedSlotAssociations as Array<{ position: number; slotId: string }> | undefined;
       const error = localStorage.getItem("event-lineup-fixture-save-error");
       if (error) throw new Error(error);
       const slots = args.slotLinks === undefined && args.lineup === undefined ? event.slots : ((args.slotLinks ?? (args.lineup as Array<Record<string, unknown>> | undefined)?.filter(row => row.startAt !== undefined).map(row => ({ ...row, displayLabel: row.performerLabel })) ?? event.slots) as Array<Record<string, unknown>>).map((slot, index) => ({
-        ...slot, position: slot.position ?? index, playbackKey: `saved-${index}`, discord: previewEvent.slots[0]!.discord, source: previewEvent.source,
+        ...slot, position: slot.position ?? index, playbackKey: storedSlotAssociations?.find(row => row.position === index)?.slotId ?? `saved-${index}`, discord: previewEvent.slots[0]!.discord, source: previewEvent.source,
         performer: people[slot.personSlug as keyof typeof people],
         streamChoices: choices[slot.personSlug as keyof typeof choices] ?? [],
         selectedStreamId: slot.selectedStreamId ?? undefined,
@@ -94,7 +98,9 @@ function fixtureClient() {
       } as EditableEvent;
       localStorage.setItem(storageKey, JSON.stringify(event));
       listeners.forEach(listener => listener());
-      return { slug: event.slug, eventPath: "/playwright-afterglow-social/events/playwright-afterglow-harbor-sessions", preservedParticipantAssociationIds: [], preservedSlotAssociationIds: [], preservedWorldAssociationIds: [] };
+      return { slug: event.slug, eventPath: "/playwright-afterglow-social/events/playwright-afterglow-harbor-sessions", preservedParticipantAssociationIds: [], preservedSlotAssociationIds: slots.map(slot => slot.playbackKey), preservedWorldAssociationIds: [],
+        ...(storedSlotAssociations === undefined ? {} : { storedSlotAssociations: slots.map((slot, position) => ({ position, slotId: slot.playbackKey })) }),
+      };
     },
   } as unknown as ConvexReactClient;
 }

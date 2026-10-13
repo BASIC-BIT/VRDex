@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyIntakeLineupTimings, applyStaffLineupTimings, readIntakeLineupTimings, readStaffLineupTimings, type SlotFormRow } from "../../apps/web/src/lib/calendar/event-lineup-adapters";
+import { applyIntakeLineupTimings, applyStaffLineupTimings, changeStaffSlotOffset, readIntakeLineupTimings, readStaffLineupTimings, type SlotFormRow } from "../../apps/web/src/lib/calendar/event-lineup-adapters";
 import { shiftLineupStart } from "../../apps/web/src/lib/calendar/event-lineup-timing";
 import { restoreIntakeTiming } from "../../apps/web/src/lib/calendar/event-intake-suggestions";
 import type { EventIntakePatch } from "../../packages/api-contracts/src/event-intake";
@@ -53,4 +53,23 @@ test("removing an untimed row does not restore it from a Time TBA backup", () =>
   const backup: EventIntakePatch = { eventDate: "2026-10-13", timezone: "UTC", lineup: [{ clientKey: "keep", position: 0, start: { time: "20:00" } }, { clientKey: "remove", position: 1, start: { time: "21:00" } }] };
   const current = applyIntakeLineupTimings({ ...backup, timeTba: true, lineup: backup.lineup?.map(row => ({ ...row, start: null })) }, [{ key: "keep" }]);
   assert.deepEqual(restoreIntakeTiming(current, backup).lineup?.map(row => row.clientKey), ["keep"]);
+});
+
+
+for (const cascade of [false, true]) test(`offset-only edits retain exact duration through invalid input after cascade=${cascade}`, () => {
+  const startAt = Date.UTC(2027, 9, 15, 20, 0, 10, 123);
+  let row: SlotFormRow = { id: "precise", offsetMinutes: "0", durationMinutes: "60", personSlug: "guest", displayLabel: "Guest", roleLabel: "DJ", startAtOverride: startAt, endAtOverride: startAt + 3_620_333 };
+  if (cascade) row = applyStaffLineupTimings([row], shiftLineupStart(readStaffLineupTimings([row], startAt), 900_000), startAt)[0]!;
+  const invalid = changeStaffSlotOffset(row, "bad", startAt);
+  assert.deepEqual(readStaffLineupTimings([invalid], startAt), [{ key: "precise" }]);
+  const cleared = changeStaffSlotOffset(invalid, "", startAt);
+  const corrected = changeStaffSlotOffset(cleared, "15", startAt);
+  assert.deepEqual(readStaffLineupTimings([corrected], startAt), [{ key: "precise", startAt: startAt + 900_000, endAt: startAt + 900_000 + 3_620_333 }]);
+  assert.equal(corrected.personSlug, "guest");
+  assert.equal(row.endAtOverride! - row.startAtOverride!, 3_620_333);
+});
+
+test("offset-only edits do not invent an unknown end", () => {
+  const row: SlotFormRow = { id: "partial", offsetMinutes: "0", durationMinutes: "", personSlug: "", displayLabel: "Guest", roleLabel: "DJ", startAtOverride: 1_000 };
+  assert.deepEqual(readStaffLineupTimings([changeStaffSlotOffset(row, "15", 1_000)], 1_000), [{ key: "partial", startAt: 901_000 }]);
 });

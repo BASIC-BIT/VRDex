@@ -24,7 +24,7 @@ import {
   browserTimeZone,
   formatZonedDateTimeInput,
 } from "@/lib/calendar/zoned-date-time";
-import { applyStaffLineupTimings, readStaffLineupTimings, type SlotFormRow } from "@/lib/calendar/event-lineup-adapters";
+import { applyStaffLineupTimings, changeStaffSlotOffset, readStaffLineupTimings, type SlotFormRow } from "@/lib/calendar/event-lineup-adapters";
 import { changeLineupDuration, generateLineupTimings, getLineupEndAt, getLineupEndConflict, insertLineupSlot, removeLineupSlot, shiftLineupStart, type LineupEditResult, type LineupTimingRow } from "@/lib/calendar/event-lineup-timing";
 import { EventLineupSetup, EventLineupInsert, EventSlotDuration, EventLineupReset, EventLineupConflict } from "./event-lineup-controls";
 import { resolveAuthoredEventEndAt } from "@/lib/calendar/event-end-time";
@@ -336,7 +336,7 @@ function parseParticipantLinks(value: string) {
 function parseSlotRows(rows: SlotFormRow[], eventStartAt: number) {
   return rows.map((row) => {
       const offsetMinutes = row.startAtOverride === undefined ? parseInteger(row.offsetMinutes, "Slot offset minutes") : 0;
-      const durationMinutes = row.endAtOverride !== undefined || optionalString(row.durationMinutes) === undefined
+      const durationMinutes = row.endAtOverride !== undefined || row.durationMsOverride !== undefined || optionalString(row.durationMinutes) === undefined
         ? undefined
         : parseInteger(row.durationMinutes, "Slot duration minutes");
       const startAt = row.startAtOverride ?? eventStartAt + offsetMinutes * 60_000;
@@ -350,7 +350,7 @@ function parseSlotRows(rows: SlotFormRow[], eventStartAt: number) {
           "",
         roleLabel: optionalString(row.roleLabel) ?? "Participant",
         startAt,
-        ...(row.endAtOverride !== undefined ? { endAt: row.endAtOverride } : durationMinutes === undefined ? {} : { endAt: startAt + durationMinutes * 60_000 }),
+        ...(row.endAtOverride !== undefined ? { endAt: row.endAtOverride } : row.durationMsOverride !== undefined ? { endAt: startAt + row.durationMsOverride } : durationMinutes === undefined ? {} : { endAt: startAt + durationMinutes * 60_000 }),
       };
     });
 }
@@ -716,6 +716,7 @@ function ConnectedEventEditorForm({
           participantLinks: parseParticipantLinks(stringField(formData.get("participantLinks"))), slotLinks,
         } : {}),
       };
+      const submittedSlotKeys = slotRows.map(row => row.id);
       const result = event
           ? await updateEvent({
             currentSlug: currentSlug!,
@@ -753,7 +754,8 @@ function ConnectedEventEditorForm({
       if (event !== undefined) {
         setCurrentSlug(result.slug);
         if ("storedSlotAssociations" in result && result.storedSlotAssociations) {
-          setSlotRows(rows => rows.map((row, position) => ({ ...row, id: result.storedSlotAssociations?.find(item => item.position === position)?.slotId ?? row.id })));
+          const storedIdsBySubmittedKey = new Map(result.storedSlotAssociations.map(item => [submittedSlotKeys[item.position], item.slotId]));
+          setSlotRows(rows => rows.map(row => ({ ...row, id: storedIdsBySubmittedKey.get(row.id) ?? row.id })));
         }
         if ("preservedParticipantAssociationIds" in result) {
           setAssociationSnapshot({
@@ -959,9 +961,12 @@ function ConnectedEventEditorForm({
     start: previewStart === undefined ? null : previewTime(previewStart),
     end: previewEndAt === undefined ? null : previewTime(previewEndAt),
     lineup: [
-      ...displayRows.map(item => item.kind === "untimed"
-        ? { clientKey: item.row.clientKey, performerLabel: item.row.performerLabel || item.row.personSlug }
-        : { clientKey: item.row.id, performerLabel: item.row.displayLabel || item.row.personSlug, ...(previewStart === undefined || timeTba ? {} : { start: previewTime(item.row.startAtOverride ?? previewStart + Number(item.row.offsetMinutes) * 60_000) }) }),
+      ...displayRows.map((item, index) => {
+        const startAt = timings[index]?.startAt;
+        return item.kind === "untimed"
+          ? { clientKey: item.row.clientKey, performerLabel: item.row.performerLabel || item.row.personSlug }
+          : { clientKey: item.row.id, performerLabel: item.row.displayLabel || item.row.personSlug, ...(previewStart === undefined || startAt === undefined ? {} : { start: previewTime(startAt) }) };
+      }),
       ...(!usesCanonicalLineup ? untimedRows.map(row => ({ clientKey: row.clientKey, performerLabel: row.performerLabel || row.personSlug })) : []),
     ].filter(row => row.performerLabel).map((row, position) => ({ ...row, position })),
   };
@@ -1140,7 +1145,7 @@ function ConnectedEventEditorForm({
                   <span aria-hidden="true" className="text-muted transition group-open:rotate-45">+</span>
                 </summary>
                 <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                  {!timeTba ? <><Field>Slot offset minutes<Input data-slot-offset inputMode="numeric" value={slot.offsetMinutes} onChange={change => updateSlotRows(rows => rows.map(row => row.id === slot.id ? { ...row, offsetMinutes: change.target.value, startAtOverride: undefined, endAtOverride: undefined } : row))} /></Field><Field>Slot duration minutes<Input data-slot-duration inputMode="numeric" value={slot.durationMinutes} onChange={change => updateSlotRows(rows => rows.map(row => row.id === slot.id ? { ...row, durationMinutes: change.target.value, endAtOverride: undefined } : row))} /></Field></> : null}
+                  {!timeTba ? <><Field>Slot offset minutes<Input data-slot-offset inputMode="numeric" value={slot.offsetMinutes} onChange={change => updateSlotRows(rows => rows.map(row => row.id === slot.id ? changeStaffSlotOffset(row, change.target.value, previewStart ?? NaN) : row))} /></Field><Field>Slot duration minutes<Input data-slot-duration inputMode="numeric" value={slot.durationMinutes} onChange={change => updateSlotRows(rows => rows.map(row => row.id === slot.id ? { ...row, durationMinutes: change.target.value, endAtOverride: undefined, durationMsOverride: undefined } : row))} /></Field></> : null}
                   <Field className="text-xs text-muted">
                     Display name
                     <Input
