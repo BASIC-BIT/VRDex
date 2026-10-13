@@ -54,7 +54,11 @@ ends beyond six hours. Live search projection uses the current authored schedule
 
 Person and world lists classify runtime eligibility from the current event,
 so older association caches containing a start-only end need no backfill for
-this behavior. The existing bounded association scans still apply. Future starts
+this behavior. Person lists first retain started links with a current cached end
+or a start within the inclusive six-hour fallback. Older expired links do not
+require event hydration; explicit long-event caches remain eligible. The loaded
+event still determines final eligibility. The existing bounded association scans
+still apply. Future starts
 can fill the known-end scan, and recently expired rows can fill the start scan.
 An ongoing event outside both raw allowances and the featured fallback can be
 absent from discovery. The separate future allowance still runs. With the
@@ -64,6 +68,15 @@ future event outside the featured fallback. With the switch enabled, the future
 index includes the event type before the raw cap. These are
 candidate limits, not shorter runtime windows; no scan expands to read an
 unbounded number of nonmatching rows.
+
+Public search reads at most 256 candidates across its keyword and profile-name
+indexes. Event candidates resolve their current schedules before result ordering
+and the requested limit. Selected events reuse their loaded event records;
+communities are loaded only for selected results and visibility-driven refill.
+Profile and
+media-kit hydration remains limited to the ranked window needed to fill results,
+with the existing refill after hidden records are removed. Search documents do
+not store an authored or synthetic end for this ranking rule.
 
 ### Schedule migration and rollout
 

@@ -59,13 +59,30 @@ function matchesKeywordTerms(document: Doc<"searchDocuments">, query: string): b
     index === terms.length - 1 ? word.startsWith(term) : word === term));
 }
 
+function toLiveEventSearchResult(
+  document: Doc<"searchDocuments">,
+  event: Doc<"events">,
+  searchText: string | undefined,
+): PublicSearchResult {
+  return toPublicSearchResult({
+    ...document,
+    startsAt: event.scheduleKind === "date_only" ? undefined : event.startAt,
+    endAt: event.scheduleKind === "date_only" ? undefined : event.endAt,
+    scheduleKind: event.scheduleKind,
+    eventDate: readEventSchedule(event).eventDate,
+    sortAt: eventSortAt(event),
+    featuredRank: eventSortEndAt(event) >= Date.now() ? 42 : 8,
+  }, searchText);
+}
+
 export async function projectPublicSearchResult(
   ctx: QueryCtx,
   document: Doc<"searchDocuments">,
   searchText: string | undefined,
+  loadedEvent?: Doc<"events"> | null,
 ): Promise<PublicSearchResult | null> {
   if (document.entityType === "event" && document.eventId !== undefined) {
-    const event = await ctx.db.get(document.eventId);
+    const event = loadedEvent === undefined ? await ctx.db.get(document.eventId) : loadedEvent;
     const community = event?.communityProfileId === undefined
       ? null
       : await ctx.db.get(event.communityProfileId);
@@ -81,15 +98,7 @@ export async function projectPublicSearchResult(
     }
 
     return {
-      ...toPublicSearchResult({
-        ...document,
-        startsAt: event.scheduleKind === "date_only" ? undefined : event.startAt,
-        endAt: event.scheduleKind === "date_only" ? undefined : event.endAt,
-        scheduleKind: event.scheduleKind,
-        eventDate: readEventSchedule(event).eventDate,
-        sortAt: eventSortAt(event),
-        featuredRank: eventSortEndAt(event) >= Date.now() ? 42 : 8,
-      }, searchText),
+      ...toLiveEventSearchResult(document, event, searchText),
       slug: event.slug,
       routePath: eventPathForSlugs(community.slug, event.slug),
       subtitle: community.displayName,
@@ -209,11 +218,21 @@ export async function searchPublicDocuments(
       profileNameMatchRank(document.searchNames ?? [], searchText) > 0),
   ].map((document) => [`${document.entityType}:${document.slug}`, document])).values()];
 
-  const documentsByKey = new Map(
-    documents.map((document) => [`${document.entityType}:${document.slug}`, document]),
-  );
+  const documentsByResult = new Map<PublicSearchResult, Doc<"searchDocuments">>();
+  const liveEventsByDocument = new Map<Doc<"searchDocuments">, Doc<"events"> | null>();
+  // Only events need their live schedule before ranking. Keep community/profile
+  // hydration lazy and reuse the event records when filling the limit.
   const rankedDocuments = sortSearchResults(
-    documents.map((document) => toPublicSearchResult(document, searchText)),
+    (await Promise.all(documents.map(async document => {
+      let result: PublicSearchResult | null;
+      if (document.entityType === "event" && document.eventId !== undefined) {
+        const event = await ctx.db.get(document.eventId);
+        liveEventsByDocument.set(document, event);
+        result = event === null ? null : toLiveEventSearchResult(document, event, searchText);
+      } else result = toPublicSearchResult(document, searchText);
+      if (result !== null) documentsByResult.set(result, document);
+      return result;
+    }))).filter((result): result is PublicSearchResult => result !== null),
   );
   const projected: PublicSearchResult[] = [];
   let offset = 0;
@@ -223,13 +242,10 @@ export async function searchPublicDocuments(
     const batch = rankedDocuments.slice(offset, offset + batchSize);
     offset += batch.length;
     const batchResults = await Promise.all(
-      batch.map((result) =>
-        projectPublicSearchResult(
-          ctx,
-          documentsByKey.get(`${result.entityType}:${result.slug}`)!,
-          searchText,
-        ),
-      ),
+      batch.map((result) => {
+        const document = documentsByResult.get(result)!;
+        return projectPublicSearchResult(ctx, document, searchText, liveEventsByDocument.get(document));
+      }),
     );
 
     projected.push(
