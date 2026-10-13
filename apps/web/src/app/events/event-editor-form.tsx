@@ -529,6 +529,13 @@ function storedTimeOccurrence(instant?: number, timezone?: string): "earlier" | 
   return choices.length > 1 ? (Math.floor(choices[0]! / 60_000) === Math.floor(instant / 60_000) ? "earlier" : "later") : "";
 }
 
+function resolveStaffStartAt(local: string, timezone: string, occurrence: "earlier" | "later" | "", event?: { startAt?: number; timezone?: string }): number {
+  if (event?.startAt !== undefined && local === formatZonedDateTimeInput(event.startAt, event.timezone) && timezone === event.timezone && occurrence === storedTimeOccurrence(event.startAt, event.timezone)) {
+    return event.startAt;
+  }
+  return selectEventLocalTime(local.slice(0, 10), { time: local.slice(11, 16), ...(occurrence ? { occurrence } : {}) }, timezone);
+}
+
 function ConnectedEventEditorForm({
   communitySlug,
   demoMode = false,
@@ -741,15 +748,13 @@ function ConnectedEventEditorForm({
       if (!timeTba && !submittedTimezone) throw new Error("Time zone must be a valid IANA time zone.");
       const timeZoneForParsing = submittedTimezone ?? browserTimeZone();
       const authoredStart = stringField(formData.get("startAt"));
-      const startAt = timeTba ? undefined : event?.startAt !== undefined && authoredStart === formatZonedDateTimeInput(event.startAt, event.timezone) && timezone === event.timezone && occurrence === storedTimeOccurrence(event.startAt, event.timezone)
-        ? event.startAt
-        : selectEventLocalTime(authoredStart.slice(0, 10), { time: authoredStart.slice(11, 16), ...(occurrence ? { occurrence } : {}) }, timeZoneForParsing);
+      const startAt = timeTba ? undefined : resolveStaffStartAt(authoredStart, timeZoneForParsing, occurrence, event);
       const slotLinks = startAt === undefined ? [] : parseSlotRows(slotRows, startAt);
       const derivedEndAt = slotLinks.length === 0 || slotLinks.some((slot) => slot.endAt === undefined)
         ? undefined
         : Math.max(...slotLinks.map((slot) => slot.endAt!));
       timeErrorField = "end";
-      const authoredEndAt = !endEdited ? undefined : !endLocal ? null
+      const authoredEndAt = timeTba || !endEdited ? undefined : !endLocal ? null
         : event?.endAt !== undefined && endLocal === formatZonedDateTimeInput(event.endAt, event.timezone) && timezone === event.timezone && endOccurrence === storedTimeOccurrence(event.endAt, event.timezone)
           ? event.endAt
           : selectEventLocalTime(endLocal.slice(0, 10), { time: endLocal.slice(11, 16), ...(endOccurrence ? { occurrence: endOccurrence } : {}) }, timeZoneForParsing);
@@ -905,7 +910,8 @@ function ConnectedEventEditorForm({
   const isSubmitting = status.kind === "submitting";
   let startChoices: number[] = [];
   try { if (startLocal && timezone) startChoices = resolveEventLocalTime(startLocal.slice(0, 10), { time: startLocal.slice(11, 16) }, timezone); } catch { /* The form remains editable while incomplete. */ }
-  const previewStart = startChoices.length === 1 ? startChoices[0] : occurrence === "earlier" ? startChoices[0] : occurrence === "later" ? startChoices.at(-1) : undefined;
+  let previewStart: number | undefined;
+  try { if (!timeTba && startLocal && timezone) previewStart = resolveStaffStartAt(startLocal, timezone, occurrence, event); } catch { /* The preview waits for a valid local time. */ }
   let previewDerivedEndAt: number | undefined;
   try {
     if (!timeTba && previewStart !== undefined) {

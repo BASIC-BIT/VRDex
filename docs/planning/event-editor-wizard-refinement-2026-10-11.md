@@ -49,9 +49,9 @@ real implementation; the last prototype viewport override did not apply.
 
 ## Capability boundary
 
-Current recommendation, awaiting the scope question sent during planning:
-keep extraction on contributor drafts, where `IntakeSourceAction` already
-exists. Apply shared navigation and Details improvements to staff create/edit
+Locked decision, approved by BASIC: extraction stays on contributor drafts,
+where `IntakeSourceAction` already exists. Apply shared navigation and Details
+improvements to staff create/edit
 and scoped contributor corrections. Keep staff artwork/link controls in a
 Details disclosure instead of a Source stage. Do not show a nonfunctional
 import action on staff published-event editing or scoped corrections.
