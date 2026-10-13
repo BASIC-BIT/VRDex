@@ -178,10 +178,12 @@ turn a local path into a server-readable path and does not add a second import
 tool.
 
 `vrdex_profile_media_submit` imports one image from a public HTTPS URL for the
-profile image of an unclaimed, public person profile. It requires the exact
+media kit of an unclaimed, public person profile. It requires the exact
 `updatedAt` revision read from the public profile, an operator-chosen
 `idempotencyKey`, and a credit. The server imports and validates the bytes, then
-creates only a private media proposal. It never creates a public profile asset,
+creates only a private gallery media proposal. The result also accepts the
+legacy `profile_image` placement for existing same-key replays. It never
+creates a public profile asset,
 placement, or approval. Claimed, community, stale, hidden, and unpublished
 targets are refused. Every submission call, including a same-key replay, checks
 the current primary-email verification state through Clerk. It does not trust

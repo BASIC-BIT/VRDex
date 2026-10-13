@@ -477,7 +477,7 @@ const mcpProfileMediaSubmitResultSchema = z.object({
   operation: z.literal("submit"),
   replayed: z.boolean(),
   submission: mcpProfileMediaSubmissionSchema.extend({
-    requestedPlacement: z.literal("profile_image"),
+    requestedPlacement: z.enum(["profile_image", "gallery"]),
   }),
 });
 const ownSubmissionPageInput = z.strictObject({

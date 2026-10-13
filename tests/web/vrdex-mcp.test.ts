@@ -2179,7 +2179,7 @@ describe("VRDex MCP server", () => {
         submissionId: "submission_123",
         profileSlug: "community-dj",
         profileDisplayName: "Community DJ",
-        requestedPlacement: "profile_image",
+        requestedPlacement: "gallery",
         status: "submitted",
         createdAt: 1,
         updatedAt: 2,
@@ -2344,6 +2344,8 @@ describe("VRDex MCP server", () => {
     );
     assert.match(result.submitted, /"operation":"submit"/);
     assert.match(result.submitted, /"replayed":false/);
+    assert.match(result.submitted, /"requestedPlacement":"gallery"/);
+    assert.doesNotMatch(result.submitted, /"isError":true/);
     assert.match(result.status, /"submissions"/);
     assert.match(result.status, /"status":"submitted"/);
     assert.match(result.invalid, /unrecognized|invalid/i);
