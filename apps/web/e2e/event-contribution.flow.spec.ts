@@ -342,6 +342,31 @@ test("community name and slug search select directory results without persisting
   await page.screenshot({ path: info.outputPath("community-selected.png"), fullPage: true, animations: "disabled" });
 });
 
+test("keyboard-active community stays visible before selection @flow @fixture", async ({ page }, info) => {
+  await page.goto("/playwright/event-intake?revision=draft");
+  const selected = page.getByRole("group", { name: "Selected community", exact: true });
+  await selected.getByRole("button", { name: "Change", exact: true }).click();
+  const search = page.getByRole("combobox", { name: "Community", exact: true });
+  await search.fill("scroll community");
+  const options = page.getByRole("listbox", { name: "Communities" }).getByRole("option");
+  await expect(options).toHaveCount(8);
+  for (let index = 0; index < 8; index += 1) await search.press("ArrowDown");
+  const last = options.last();
+  await expect(search).toBeFocused();
+  await expect(last).toHaveAttribute("aria-selected", "true");
+  await expect.poll(() => last.evaluate(option => {
+    const list = option.parentElement!;
+    const optionBounds = option.getBoundingClientRect();
+    const listBounds = list.getBoundingClientRect();
+    return optionBounds.top >= listBounds.top && optionBounds.bottom <= listBounds.bottom;
+  })).toBe(true);
+  await page.screenshot({ path: info.outputPath("community-keyboard-last.png"), animations: "disabled" });
+  await search.press("Enter");
+  await expect(selected).toContainText("Scroll Community 8");
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("event-intake-revision-submission")!).patch.communitySlug)).toBe("scroll-community-8");
+});
+
 test("community Clear saves a nullable incomplete draft and focuses missing community on publish @flow @fixture", async ({ page }) => {
   await page.goto("/playwright/event-intake?revision=draft");
   await page.getByRole("group", { name: "Selected community", exact: true }).getByRole("button", { name: "Clear", exact: true }).click();

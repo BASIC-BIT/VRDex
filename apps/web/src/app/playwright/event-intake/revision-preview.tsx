@@ -27,6 +27,7 @@ function revisionFixture(correction: boolean, sourceMode?: string, staff = false
   let access = { canCorrect: !staff, canSuggest: false, canTakeOver: staff, canRemove: staff };
   const empty: unknown[] = [];
   const communities = [{ slug: "afterglow", title: "Afterglow", imageUrl: "/test-media/event-poster.png" }, { slug: "playwright-afterglow-social", title: "Afterglow Social", imageUrl: "/test-media/event-poster.png" }];
+  const scrollCommunities = Array.from({ length: 8 }, (_, index) => ({ slug: `scroll-community-${index + 1}`, title: `Scroll Community ${index + 1}` }));
   let searchLoading = sourceMode === "search-loading";
   if (searchLoading && typeof window !== "undefined") window.addEventListener("release-community-search", () => { searchLoading = false; listeners.forEach(listener => listener()); }, { once: true });
   const people = [{ slug: "aurora", title: "Aurora", imageUrl: "/test-media/event-poster.png" }];
@@ -53,7 +54,12 @@ function revisionFixture(correction: boolean, sourceMode?: string, staff = false
             case "eventIntake:getEventIntakeDraft": return draft;
             case "accounts:viewer": return viewer;
             case "search:searchUniversal": {
-              if (args?.profileType === "community") return searchLoading ? undefined : communities.filter(community => `${community.title} ${community.slug}`.toLowerCase().includes(args.query?.toLowerCase() ?? ""));
+              if (args?.profileType === "community") {
+                if (searchLoading) return undefined;
+                const query = args.query?.toLowerCase() ?? "";
+                const results = query.startsWith("scroll") ? scrollCommunities : communities;
+                return results.filter(community => `${community.title} ${community.slug}`.toLowerCase().includes(query));
+              }
               return args?.profileType === "person" && args.query?.toLowerCase().includes("aurora") ? people : empty;
             }
             case "eventCorrections:getOwnContributedEvent": return event;

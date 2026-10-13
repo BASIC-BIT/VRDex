@@ -25,12 +25,16 @@ import { BACKEND_ERROR_COPY } from "@/lib/error-copy";
 function CommunityInput({ value, disabled, onChange }: { value: string; disabled: boolean; onChange: (value: string) => void }) {
   const id = useId();
   const container = useRef<HTMLDivElement>(null);
+  const results = useRef<HTMLUListElement>(null);
   const [query, setQuery] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
   const selectedMatches = useQuery(api.search.searchUniversal, !disabled && value ? { query: value, entityType: "profile", profileType: "community", limit: 8 } : "skip");
   const matches = useQuery(api.search.searchUniversal, !disabled && open && query && query.trim().length >= 2 ? { query: query.trim(), entityType: "profile", profileType: "community", limit: 8 } : "skip");
   const expanded = open && (query?.trim().length ?? 0) >= 2;
+  useEffect(() => {
+    if (expanded && active >= 0) results.current?.children.item(active)?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [active, expanded, matches]);
   const selected = selectedMatches?.find(match => match.slug === value);
   const title = selected?.title ?? value;
   function focus(selector: string) { requestAnimationFrame(() => container.current?.querySelector<HTMLElement>(selector)?.focus()); }
@@ -51,7 +55,7 @@ function CommunityInput({ value, disabled, onChange }: { value: string; disabled
           if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); setOpen(true); setActive(index => Math.max(0, Math.min((matches?.length ?? 0) - 1, index + (event.key === "ArrowDown" ? 1 : -1)))); }
           if (event.key === "Enter") { event.preventDefault(); const match = open ? matches?.[active] : undefined; if (match) select(match.slug); }
         }} />
-      {expanded ? <ul id={`${id}-results`} role="listbox" aria-label="Communities" className="absolute top-full z-20 max-h-64 w-full overflow-auto rounded-control border border-border bg-surface-strong shadow-panel">
+      {expanded ? <ul ref={results} id={`${id}-results`} role="listbox" aria-label="Communities" className="absolute top-full z-20 max-h-64 w-full overflow-auto rounded-control border border-border bg-surface-strong shadow-panel">
         {matches?.map((match, index) => <li id={`${id}-${index}`} key={match.slug} role="option" aria-selected={active === index} className={`flex cursor-pointer items-center gap-3 px-3 py-2 text-sm ${active === index ? "bg-surface-elevated" : ""}`} onMouseDown={event => event.preventDefault()} onClick={() => select(match.slug)}>
           <span aria-hidden="true" className="relative flex size-10 shrink-0 overflow-hidden rounded-control bg-surface-strong"><ProfileAvatarImage alt={match.title} fallback={match.title.slice(0, 2).toUpperCase()} src={match.imageUrl} /></span><span className="min-w-0 break-words"><span className="block font-medium">{match.title}</span><span className="block text-xs text-muted">{match.slug}</span></span>
         </li>)}
