@@ -14,12 +14,12 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..");
 
 const USAGE = [
-  `Usage: pnpm cx -- <${CONVEX_TARGET_NAMES.join("|")}> <convex args...>`,
+  `Usage: pnpm cx <${CONVEX_TARGET_NAMES.join("|")}> <convex args...>`,
   "",
-  "  pnpm cx -- prod run seedImports:listBatchesForReview",
-  "  pnpm cx -- prod run migrations:publishGatedProfiles '{\"dryRun\": true}'",
-  "  pnpm cx -- dev  env list",
-  "  pnpm cx -- local run health:status",
+  "  pnpm cx prod run seedImports:listBatchesForReview",
+  "  pnpm cx prod run migrations:publishGatedProfiles '{\"dryRun\": true}'",
+  "  pnpm cx dev  env list",
+  "  pnpm cx local run health:status",
   "",
   "The target is required and never inferred. Cloud credentials come from the",
   "main checkout's .env.local; local resolves from the active worktree first.",
@@ -55,7 +55,9 @@ function run(name: string, convexArgs: string[]) {
 }
 
 function main(argv: string[]) {
-  const [name, ...convexArgs] = argv;
+  // pnpm preserves its argument delimiter on Linux but may strip it on Windows.
+  // Remove only the package-manager delimiter, leaving Convex arguments intact.
+  const [name, ...convexArgs] = argv[0] === "--" ? argv.slice(1) : argv;
 
   if (name === undefined || name === "--help" || name === "-h") {
     console.error(USAGE);
