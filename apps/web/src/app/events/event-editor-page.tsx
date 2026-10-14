@@ -9,12 +9,14 @@ export function EventEditorPage({
   communityName,
   communitySlug,
   demoMode = false,
+  savedTimezonePreference = null,
   discordPostText,
   event,
 }: {
   communityName: string;
   communitySlug: string;
   demoMode?: boolean;
+  savedTimezonePreference?: string | null;
   discordPostText?: string | null;
   event?: EditableEvent;
 }) {
@@ -48,7 +50,7 @@ export function EventEditorPage({
             <h1 className="mt-2 text-4xl font-semibold tracking-[-0.04em] sm:text-5xl">
               {event?.title ?? "Add event"}
             </h1>
-          </header>} communitySlug={communitySlug} demoMode={demoMode} event={event} />
+          </header>} communitySlug={communitySlug} demoMode={demoMode} event={event} savedTimezonePreference={savedTimezonePreference} />
           {discordPostText ? <EventDiscordExportPanel text={discordPostText} /> : null}
         </PageContainer>
       </PageShell>

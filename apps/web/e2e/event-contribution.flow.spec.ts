@@ -8,8 +8,9 @@ for (const mode of ["draft", "correction"] as const) {
     await expect(navigation.getByRole("button")).toHaveText(["Details", "Lineup", "Review"]);
     if (mode === "correction") await expect(page.getByRole("button", { name: "Import poster or text", exact: true })).toHaveCount(0);
     await page.getByLabel("Time TBA", { exact: true }).uncheck();
+    await page.getByRole("button", { name: "Time zone", exact: true }).click();
     await page.getByRole("combobox", { name: "Time zone", exact: true }).fill("UTC");
-    await page.getByRole("option", { name: /^UTC / }).click();
+    await page.getByRole("option", { name: /^UTC(?: |$)/ }).click();
     await page.getByLabel("Starts", { exact: true }).fill("2027-07-15T23:00");
     await page.getByText("Add end time", { exact: true }).click();
     const endInput = page.getByLabel("Ends (optional)", { exact: true });
@@ -57,6 +58,7 @@ for (const mode of ["draft", "correction"] as const) {
     const navigation = page.getByRole("navigation", { name: "Event editor" });
     await navigation.getByRole("button", { name: "Details", exact: true }).click();
     await page.getByLabel("Time TBA", { exact: true }).uncheck();
+    await page.getByRole("button", { name: "Time zone", exact: true }).click();
     await page.getByRole("combobox", { name: "Time zone", exact: true }).fill("America/New_York");
     await page.getByRole("option").first().click();
     await page.getByLabel("Starts", { exact: true }).fill("2026-11-01T01:15");
@@ -162,14 +164,17 @@ test("owner timezone keyboard search stores a region, not EST @flow @fixture", a
   await page.goto("/playwright/event-editor");
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Details", exact: true }).click();
   await page.getByLabel("Starts", { exact: true }).fill("2026-07-15T20:00");
+  await page.getByRole("button", { name: "Time zone", exact: true }).click();
   const timezone = page.getByRole("combobox", { name: "Time zone" });
   await timezone.fill("EST");
-  await expect(page.getByRole("option", { name: /New York.*UTC-04:00/ })).toBeVisible();
+  await expect(page.getByRole("option", { name: /Eastern.*UTC-04:00/ })).toBeVisible();
   await timezone.press("ArrowDown");
   await timezone.press("Enter");
   await expect(page.locator('input[name="timezone"]')).toHaveValue("America/New_York");
+  await page.getByRole("button", { name: "Time zone", exact: true }).click();
   await timezone.fill("not a zone");
-  await expect(page.locator('input[name="timezone"]')).toHaveValue("");
+  await expect(page.locator('input[name="timezone"]')).toHaveValue("America/New_York");
+  await timezone.press("Escape");
 });
 
 test("direct intake auth preserves community and draft @flow @fixture", async ({ page }) => {
@@ -211,6 +216,7 @@ test("intake draft resumes, date-only publishes directly, and has no mobile over
 test("ambiguous start requires occurrence and gap is refused @flow @fixture", async ({ page }) => {
   await page.goto("/playwright/event-intake");
   await page.getByLabel("Event title").fill("Autumn gathering");
+  await page.getByRole("button", { name: "Time zone", exact: true }).click();
   const timezone = page.getByRole("combobox", { name: "Time zone" });
   await timezone.fill("EST"); await timezone.press("ArrowDown"); await timezone.press("Enter");
   await page.getByLabel("Starts", { exact: true }).fill("2026-11-01T01:30");
@@ -406,6 +412,7 @@ test("combined controls preserve dates, reversible TBA and overnight times @flow
   await page.getByLabel("Starts", { exact: true }).fill("2026-10-10T23:00");
   await page.getByText("Add end time", { exact: true }).click();
   await page.getByLabel("Ends (optional)", { exact: true }).fill("2026-10-11T02:00");
+  await page.getByRole("button", { name: "Time zone", exact: true }).click();
   await page.getByRole("combobox", { name: "Time zone" }).fill("UTC");
   await page.getByRole("combobox", { name: "Time zone" }).press("ArrowDown");
   await page.getByRole("combobox", { name: "Time zone" }).press("Enter");

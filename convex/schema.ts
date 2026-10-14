@@ -765,6 +765,7 @@ export default defineSchema({
     emailVerificationTime: v.optional(v.number()),
     phone: v.optional(v.string()),
     phoneVerificationTime: v.optional(v.number()),
+    defaultEventTimezone: v.optional(v.string()),
   })
     .index("clerkUserId", ["clerkUserId"])
     .index("email", ["email"])
@@ -1345,6 +1346,10 @@ export default defineSchema({
     performerLabel: v.string(),
     personProfileId: v.optional(v.id("profiles")),
     roleLabel: v.optional(v.string()),
+    sourceType: v.optional(eventSourceType),
+    sourceLabel: v.optional(v.string()),
+    sourceUrl: v.optional(v.string()),
+    notes: v.optional(v.string()),
     updatedAt: v.number(),
   }).index("by_eventId_position", ["eventId", "position"]),
   eventSlots: defineTable({

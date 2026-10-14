@@ -81,25 +81,25 @@ test("staff edit applies an occurrence-only end change @fixture", async ({ page 
   expect(payload.endAt).toBe(Date.UTC(2026, 10, 1, 5, 45));
 });
 
-test("staff edit applies an occurrence-only start change @fixture", async ({ page }) => {
+test("staff edit applies an occurrence-only start change while keeping the stored end fixed @fixture", async ({ page }) => {
   await editWithRepeatedEnd(page);
   await page.getByLabel("Start occurrence").selectOption("later");
-  await expect(page.getByLabel("Ends (optional)", { exact: true })).toHaveValue("2026-11-01T02:45");
-  await expect(page.getByText("Nov 1, 7:45 AM", { exact: false })).toBeVisible();
+  await expect(page.getByLabel("Ends (optional)", { exact: true })).toHaveValue("2026-11-01T01:45");
+  await expect(page.getByText("Nov 1, 6:45 AM", { exact: false })).toBeVisible();
   const payload = await saveEdit(page);
   expect(payload.startAt).toBe(Date.UTC(2026, 10, 1, 6, 15));
-  expect(payload.endAt).toBe(storedEnd + 60 * 60_000);
+  expect(payload.endAt).toBe(storedEnd);
 });
 
-test("staff edit reflects a shifted end in the earlier repeated hour @fixture", async ({ page }) => {
+test("staff edit keeps the later repeated-hour end when the start moves earlier @fixture", async ({ page }) => {
   await editWithRepeatedEnd(page);
   await page.getByLabel("Starts", { exact: true }).fill("2026-11-01T00:15");
   await expect(page.getByLabel("Ends (optional)", { exact: true })).toHaveValue("2026-11-01T01:45");
-  await expect(page.getByLabel("End occurrence")).toHaveValue("earlier");
-  await expect(page.getByText("Nov 1, 5:45 AM", { exact: false })).toBeVisible();
+  await expect(page.getByLabel("End occurrence")).toHaveValue("later");
+  await expect(page.getByText("Nov 1, 6:45 AM", { exact: false })).toBeVisible();
   const payload = await saveEdit(page);
   expect(payload.startAt).toBe(Date.UTC(2026, 10, 1, 4, 15));
-  expect(payload.endAt).toBe(Date.UTC(2026, 10, 1, 5, 45));
+  expect(payload.endAt).toBe(storedEnd);
 });
 
 test("staff edit clears its authored end explicitly @fixture", async ({ page }) => {
@@ -130,7 +130,6 @@ test("staff create omits an unknown end without slots @fixture", async ({ page }
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Details" }).click();
   await page.getByLabel("Starts", { exact: true }).fill("2027-10-15T20:00");
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Lineup" }).click();
-  await page.getByLabel("Slots", { exact: true }).fill("0");
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Review" }).click();
   await page.getByRole("button", { name: "Save draft", exact: true }).click();
   await expect.poll(() => page.evaluate(() => localStorage.getItem("event-lineup-fixture-v1-submission"))).not.toBeNull();

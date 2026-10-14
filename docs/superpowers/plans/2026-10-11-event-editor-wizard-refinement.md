@@ -191,6 +191,11 @@ focused validation until corrected, rather than reverting or saving stale data.
 `tests/web/event-end-time.test.ts`, `apps/web/e2e/event-editor.snapshots.spec.ts`
 and affected fixture/snapshot selectors. Update the three docs in the file map.
 
+**Superseded timing guidance (2026-10-13):** The stored-end shifting described below
+is historical. Entered and persisted ends now remain fixed through schedule edits;
+see the [current fixed-end policy](../specs/2026-10-13-event-editor-lineup-timezone-publish-design.md#event-end-and-overrun).
+Historical completion evidence remains unchanged.
+
 **Interfaces:** Extend the existing end helper with
 `authoredEndAt?: number | null` and return `number | undefined`. A number is an
 explicit end; null clears an authored/stored end and may retain a legitimate

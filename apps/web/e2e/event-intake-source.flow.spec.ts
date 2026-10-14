@@ -198,6 +198,7 @@ test("lineup uses local dates across midnight and matched avatars @flow @fixture
   await page.getByRole("textbox", { name: "Performer", exact: true }).fill("Aurora");
   await page.getByLabel("Person profile", { exact: true }).fill("aurora");
   await expect(page.getByRole("img", { name: "Aurora", exact: true }).locator("img")).toHaveAttribute("src", "/test-media/event-poster.png");
+  await page.locator('[data-lineup-row]').first().locator("summary").click();
   await page.getByLabel("Slot 1 start", { exact: true }).fill("2027-10-16T00:30");
   await expect(page.getByText("Day offset", { exact: true })).toHaveCount(0);
   await page.screenshot({ path: info.outputPath("lineup.png"), fullPage: true, animations: "disabled" });
@@ -237,6 +238,7 @@ test("review routes missing fields back to details and repeated times require oc
   await page.getByLabel("Time TBA", { exact: true }).check();
   await page.getByLabel("Starts", { exact: true }).fill("2027-11-07");
   await page.getByLabel("Time TBA", { exact: true }).uncheck();
+  await page.getByRole("button", { name: "Time zone", exact: true }).click();
   await page.getByRole("combobox", { name: "Time zone", exact: true }).fill("America/New_York");
   await page.getByRole("option").first().click();
   await page.getByLabel("Starts", { exact: true }).fill("2027-11-07T01:30");
@@ -390,12 +392,14 @@ test("publish focuses invalid lineup time and hidden native field @flow @fixture
   await page.getByLabel("Time TBA", { exact: true }).check();
   await page.getByLabel("Starts", { exact: true }).fill("2027-03-14");
   await page.getByLabel("Time TBA", { exact: true }).uncheck();
+  await page.getByRole("button", { name: "Time zone", exact: true }).click();
   await page.getByRole("combobox", { name: "Time zone", exact: true }).fill("America/New_York");
   await page.getByRole("option").first().click();
   await page.getByLabel("Starts", { exact: true }).fill("2027-03-14T01:00");
   await step(page, "Lineup");
   await page.getByRole("button", { name: "Add performer" }).click();
   await page.getByRole("textbox", { name: "Performer", exact: true }).fill("Guest DJ");
+  await page.locator('[data-lineup-row]').first().locator("summary").click();
   await page.getByLabel("Slot 1 start", { exact: true }).fill("2027-03-14T02:30");
   await step(page, "Review");
   await page.getByRole("button", { name: "Publish event", exact: true }).click();
@@ -529,6 +533,7 @@ test("Time TBA restores only surviving lineup keys and reload discards the backu
   await page.getByLabel("Time TBA", { exact: true }).check();
   await step(page, "Lineup");
   await page.getByRole("button", { name: "Remove slot", exact: true }).first().click();
+  await page.getByRole("button", { name: "Add slot at position 2", exact: true }).click();
   await page.getByRole("button", { name: "Add performer", exact: true }).click();
   await page.getByRole("textbox", { name: "Performer", exact: true }).nth(1).fill("New performer");
   await step(page, "Details");
@@ -569,6 +574,7 @@ test.describe("event timezone differs from browser timezone", () => {
     await page.getByLabel("Starts", { exact: true }).fill("2026-11-01T01:45");
     await expect(page.getByLabel("Starts occurrence", { exact: true })).toHaveValue("");
     await page.getByLabel("Starts occurrence", { exact: true }).selectOption("later");
+    await page.getByRole("button", { name: "Time zone", exact: true }).click();
     await page.getByRole("combobox", { name: "Time zone", exact: true }).fill("UTC");
     await page.getByRole("option", { name: /^UTC / }).click();
     await expect(page.getByLabel("Starts occurrence", { exact: true })).toHaveCount(0);
@@ -593,10 +599,11 @@ for (const method of ["suggestion", "picker"] as const) {
     await page.getByLabel("Time TBA", { exact: true }).check();
     if (method === "suggestion") await page.getByRole("button", { name: "Accept Time zone", exact: true }).click();
     else {
+      await page.getByRole("button", { name: "Time zone", exact: true }).click();
       await page.getByRole("combobox", { name: "Time zone", exact: true }).fill("America/Chicago");
       await page.getByRole("option").first().click();
     }
-    await expect(page.getByRole("combobox", { name: "Time zone", exact: true })).toHaveValue("America/Chicago");
+    await expect(page.locator('input[name="timezone"]')).toHaveValue("America/Chicago");
     await page.getByLabel("Time TBA", { exact: true }).uncheck();
     await expect(page.getByLabel("Starts", { exact: true })).toHaveValue("2026-11-01T01:30");
     for (const label of ["Starts", "Ends (optional)", "Doors open"]) await expect(page.getByLabel(`${label} occurrence`, { exact: true })).toHaveValue("");
@@ -625,6 +632,8 @@ const saveTimingDraft = async (page: Page) => {
   await expect(page.getByRole("status")).toHaveText("Draft saved");
 };
 const extractTimingProposal = async (page: Page, eventDate: string | null = "2026-10-11") => {
+  await openImport(page);
+  await page.getByRole("textbox", { name: "Source text", exact: true }).fill("October 11 overnight lineup");
   await page.evaluate(eventDate => {
     const original = window.fetch;
     window.fetch = async (input, init) => {
@@ -636,8 +645,6 @@ const extractTimingProposal = async (page: Page, eventDate: string | null = "202
       return original(input, init);
     };
   }, eventDate);
-  await openImport(page);
-  await page.getByRole("textbox", { name: "Source text", exact: true }).fill("October 11 overnight lineup");
   await page.getByRole("button", { name: "Extract details", exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
 };

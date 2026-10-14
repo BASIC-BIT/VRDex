@@ -72,47 +72,20 @@ test("event editor @visual", async ({ page }, testInfo) => {
 
   await captureRouteScreenshot(page, testInfo, "event-editor-details");
   await steps.getByRole("button", { name: "Lineup", exact: true }).click();
+  await expect(page.getByRole("heading", { name: /^Slot [1-4]$/ })).toHaveCount(0);
+  await page.getByLabel("Slots", { exact: true }).fill("81");
+  await expect(page.getByRole("button", { name: "Generate", exact: true })).toBeDisabled();
+  await page.getByLabel("Slots", { exact: true }).fill("4");
+  await page.getByLabel("Minutes each", { exact: true }).fill("60.5");
+  await expect(page.getByRole("button", { name: "Generate", exact: true })).toBeDisabled();
+  await page.getByLabel("Minutes each", { exact: true }).fill("60");
+  await page.getByRole("button", { name: "Generate", exact: true }).click();
   await expect(page.getByRole("heading", { name: /^Slot [1-4]$/ })).toHaveCount(4);
   await page.locator('[data-editor-step="Lineup"] details').first().locator("summary").click();
   await page.getByLabel("Display name").first().fill("Aurora");
-  page.once("dialog", async (dialog) => {
-    expect(dialog.message()).toBe("Replace edited schedule?");
-    await dialog.dismiss();
-  });
-  await page.getByLabel("Slots").fill("5");
+  await page.getByRole("button", { name: "Reset lineup", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(page.getByLabel("Display name").first()).toHaveValue("Aurora");
-  await expect(page.getByRole("heading", { name: /^(Aurora|Slot [2-4])$/ })).toHaveCount(4);
-
-  page.once("dialog", (dialog) => dialog.accept());
-  await page.getByLabel("Slots").fill("0");
-  await expect(page.getByRole("heading", { name: /^Slot \d+$/ })).toHaveCount(0);
-  await page.getByLabel("Slots").fill("4");
-  await expect(page.getByRole("heading", { name: /^Slot [1-4]$/ })).toHaveCount(4);
-
-  page.once("dialog", (dialog) => dialog.accept());
-  await page.getByLabel("Slots").fill("5");
-  await expect(page.getByRole("heading", { name: /^Slot [1-5]$/ })).toHaveCount(5);
-  await page.getByLabel("Slots").fill("4");
-  await expect(page.getByRole("heading", { name: /^Slot [1-4]$/ })).toHaveCount(4);
-  await page.getByLabel("Slots").fill("81");
-  await expect(page.getByLabel("Slots")).toHaveValue("80");
-  await page.getByLabel("Slots").fill("4");
-  await expect(page.getByRole("heading", { name: /^Slot [1-4]$/ })).toHaveCount(4);
-  await page.getByLabel("Slots").fill("");
-  await steps.getByRole("button", { name: "Review", exact: true }).click();
-  await page.getByRole("button", { name: "Publish event" }).click();
-  await expect(page.getByLabel("Slots")).toBeFocused();
-  await page.getByLabel("Slots").fill("4");
-  await page.getByLabel("Minutes each").fill("");
-  await steps.getByRole("button", { name: "Review", exact: true }).click();
-  await page.getByRole("button", { name: "Save draft" }).click();
-  await expect(page.getByLabel("Minutes each")).toBeVisible();
-  await expect(page.getByLabel("Minutes each")).toHaveValue("");
-  await page.getByLabel("Minutes each").fill("60.5");
-  await steps.getByRole("button", { name: "Review", exact: true }).click();
-  await page.getByRole("button", { name: "Publish event" }).click();
-  await expect(page.getByLabel("Minutes each")).toBeFocused();
-  await page.getByLabel("Minutes each").fill("60");
   await captureRouteScreenshot(page, testInfo, "event-editor-lineup");
   await steps.getByRole("button", { name: "Review", exact: true }).click();
   await expect(page.getByRole("button", { name: "Publish event" })).toBeEnabled();

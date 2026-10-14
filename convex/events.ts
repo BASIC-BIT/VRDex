@@ -713,6 +713,7 @@ async function replaceEventSlots(
     preserveNonPublic?: boolean;
     preserveAssociationIds?: Id<"eventSlots">[];
     previousEventStartAt?: number;
+    storedSlots?: ReadonlyMap<number, Doc<"eventSlots">>;
   } = {},
 ) {
   const existing = await db
@@ -743,7 +744,7 @@ async function replaceEventSlots(
         )
       : [];
 
-  const preservedSlotFor = (slot: (typeof slots)[number]) => slot.personSlug === undefined
+  const preservedSlotFor = (slot: (typeof slots)[number]) => options.storedSlots !== undefined ? options.storedSlots.get(slot.position) : slot.personSlug === undefined
     ? nonPublicExisting.find(({ slot: existingSlot }) =>
         existingSlot.position === slot.position &&
         existingSlot.startAt - (options.previousEventStartAt ?? eventStartAt!) === slot.startAt - eventStartAt! &&
@@ -766,14 +767,17 @@ async function replaceEventSlots(
 
   for (const slot of slots) {
     const preservedSlot = preservedSlotFor(slot);
-    const profile = slot.personSlug === undefined || preservedSlot !== undefined
-      ? undefined
-      : await getPublishedPersonBySlug(db, slot.personSlug);
+    const previousProfile = preservedSlot?.personProfileId === undefined ? null : await db.get(preservedSlot.personProfileId);
+    const samePerson = preservedSlot !== undefined && (slot.personSlug === undefined
+      ? preservedSlot.personProfileId === undefined || previousProfile === null || !canReadProfile("public", previousProfile)
+      : previousProfile?.slug === slot.personSlug);
+    const profile = slot.personSlug === undefined || samePerson ? undefined : await getPublishedPersonBySlug(db, slot.personSlug);
+    const personProfileId = samePerson ? preservedSlot?.personProfileId : profile?._id;
 
     // An unchanged stored choice may have become unavailable since authoring.
     // Retain it, but validate every new choice against discovery-visible links.
-    if (slot.selectedStreamId !== undefined && slot.selectedStreamId !== preservedSlot?.selectedStreamId) {
-      const sourceProfile = profile ?? (preservedSlot?.personProfileId === undefined ? null : await db.get(preservedSlot.personProfileId));
+    if (slot.selectedStreamId !== undefined && !(samePerson && slot.selectedStreamId === preservedSlot?.selectedStreamId)) {
+      const sourceProfile = profile ?? (samePerson ? previousProfile : null);
       if (sourceProfile == null || !canReadProfile("public", sourceProfile) ||
           !eventProfileStreamChoices(sourceProfile).some((choice) => choice.streamId === slot.selectedStreamId)) {
         throw new Error("Selected stream must belong to the performer's public streams.");
@@ -788,10 +792,10 @@ async function replaceEventSlots(
         position: slot.position,
         startAt: slot.startAt,
         endAt: slot.endAt,
-        personProfileId: preservedSlot.personProfileId,
+        personProfileId,
         displayLabel: slot.displayLabel,
         roleLabel: slot.roleLabel,
-        sourceType: "community",
+        sourceType: options.storedSlots?.has(slot.position) ? preservedSlot.sourceType : "community",
         sourceLabel: slot.sourceLabel,
         sourceUrl: slot.sourceUrl,
         confidence: 1,
@@ -1275,6 +1279,7 @@ async function updateCommunityEventRecord(
     preserveCommunityName?: boolean;
     preserveParticipantAssociationIds?: Id<"eventParticipants">[];
     preserveSlotAssociationIds?: Id<"eventSlots">[];
+    storedSlots?: ReadonlyMap<number, Doc<"eventSlots">>;
     preserveWorldAssociationIds?: Id<"eventWorlds">[];
     preserveLineupConfirmation?: boolean;
     updateFields?: ReadonlySet<keyof EventOwnerDraftInput>;
@@ -1400,6 +1405,8 @@ async function updateCommunityEventRecord(
         eventId: event._id, clientKey: slot.clientKey ?? slot._id, position: slot.position,
         performerLabel: slot.displayLabel, personProfileId: slot.personProfileId,
         roleLabel: slot.roleLabel, updatedAt: now,
+        sourceType: slot.sourceType, sourceLabel: slot.sourceLabel,
+        sourceUrl: slot.sourceUrl, notes: slot.notes,
       });
       await db.delete(slot._id);
     }
@@ -1417,6 +1424,7 @@ async function updateCommunityEventRecord(
       preserveNonPublic: preserveNonPublicAssociations,
       preserveAssociationIds: preserveSlotAssociationIds,
       previousEventStartAt: event.startAt,
+      storedSlots: options.storedSlots,
     });
   }
 
@@ -3032,6 +3040,7 @@ export const updateCommunityEvent = mutation({
     preservedSlotAssociationIds: v.optional(v.array(v.id("eventSlots"))),
     preservedWorldAssociationIds: v.optional(v.array(v.id("eventWorlds"))),
     preserveLineupConfirmation: v.optional(v.boolean()),
+    storedSlotAssociations: v.optional(v.array(v.object({ position: v.number(), slotId: v.id("eventSlots") }))),
     ...eventDraftUpdateArgs,
   },
   handler: async (ctx, args) => {
@@ -3053,7 +3062,34 @@ export const updateCommunityEvent = mutation({
       throw new Error("You do not have permission to update this event.");
     }
 
-    const input = await sanitizeOwnerEventInput(ctx.db, event, { ...normalizeEventDraftUpdateInput(args), title: args.title ?? event.title });
+    // Browser update-only identities refer to the submitted (pre-sort) positions.
+    // Snapshot membership is necessary, but the current event remains the authority.
+    const submittedSlots = args.slotLinks;
+    const sortedPositions = submittedSlots?.map((slot, position) => ({ startAt: slot.startAt, position }))
+      .sort((a, b) => a.startAt - b.startAt || a.position - b.position).map(slot => slot.position) ?? [];
+    let storedSlots: Map<number, Doc<"eventSlots">> | undefined;
+    let slotLinks = submittedSlots;
+    if (args.storedSlotAssociations !== undefined) {
+      if (submittedSlots === undefined || args.lineup !== undefined || args.storedSlotAssociations.length > 80) throw new Error("Stored slot association is invalid.");
+      storedSlots = new Map();
+      const seenIds = new Set<Id<"eventSlots">>();
+      const seenPositions = new Set<number>();
+      slotLinks = [...submittedSlots];
+      for (const association of args.storedSlotAssociations) {
+        if (!Number.isInteger(association.position) || association.position < 0 || association.position >= submittedSlots.length || seenIds.has(association.slotId) || seenPositions.has(association.position) || !args.preservedSlotAssociationIds?.includes(association.slotId)) throw new Error("Stored slot association is invalid.");
+        const stored = await ctx.db.get(association.slotId);
+        if (stored === null || stored.eventId !== event._id) throw new Error("Stored slot association is invalid.");
+        seenIds.add(association.slotId); seenPositions.add(association.position);
+        storedSlots.set(sortedPositions.indexOf(association.position), stored);
+        const submitted = submittedSlots[association.position]!;
+        slotLinks[association.position] = { ...submitted,
+          sourceLabel: submitted.sourceLabel ?? stored.sourceLabel,
+          sourceUrl: submitted.sourceUrl ?? stored.sourceUrl,
+          notes: submitted.notes ?? stored.notes,
+        };
+      }
+    }
+    const input = await sanitizeOwnerEventInput(ctx.db, event, { ...normalizeEventDraftUpdateInput({ ...args, slotLinks }), title: args.title ?? event.title });
     const currentCommunity = event.communityProfileId === undefined
       ? null
       : await ctx.db.get(event.communityProfileId);
@@ -3128,6 +3164,7 @@ export const updateCommunityEvent = mutation({
       preserveNonPublicAssociations: true,
       preserveParticipantAssociationIds: args.preservedParticipantAssociationIds,
       preserveSlotAssociationIds: args.preservedSlotAssociationIds,
+      storedSlots,
       preserveWorldAssociationIds: preservedWorldAssociations.map(
         ({ association }) => association._id,
       ),
@@ -3172,6 +3209,7 @@ export const updateCommunityEvent = mutation({
         (association) => association._id,
       ),
       preservedSlotAssociationIds: slotAssociations.map((association) => association._id),
+      ...(storedSlots === undefined ? {} : { storedSlotAssociations: slotAssociations.map(slot => ({ position: sortedPositions[slot.position]!, slotId: slot._id })) }),
       preservedWorldAssociationIds: worldAssociations.map((association) => association._id),
     };
   },

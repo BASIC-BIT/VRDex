@@ -53,6 +53,26 @@ export async function replaceEventLineup(
     }
     return { entry, profile, personProfileId: profile._id };
   }));
+  // A new explicit match confirms that person even if another unchanged row for
+  // them appears first. Timing and order changes never count as match approval.
+  const authoredMatches = new Set<Id<"profiles">>();
+  for (const { entry, personProfileId } of resolved) {
+    if (personProfileId === undefined || entry.personSlug === undefined) continue;
+    const previous = slots.find(row => (row.clientKey ?? row._id) === entry.clientKey)
+      ?? untimed.find(row => row.clientKey === entry.clientKey);
+    if (previous?.personProfileId !== personProfileId) authoredMatches.add(personProfileId);
+  }
+  const personConfirmations = new Map(resolved.flatMap(({ personProfileId }) => {
+    if (personProfileId === undefined) return [];
+    const previous = participants.find(row => row.personProfileId === personProfileId);
+    const confirmationState = options.confirmPersonLinks === false ? "unconfirmed" as const
+      : options.preservePersonConfirmation && !authoredMatches.has(personProfileId)
+        ? previous?.confirmationState ?? "confirmed" as const : "confirmed" as const;
+    return [[personProfileId, { previous, confirmationState,
+      confirmedAt: confirmationState === "confirmed" ? previous?.confirmedAt ?? now : undefined,
+    }] as const];
+  }));
+  const keptParticipants = new Set<Id<"eventParticipants">>();
   const keptSlots = new Set<Id<"eventSlots">>();
   const matchedPeople = new Set<Id<"profiles">>();
   for (const { entry, profile, personProfileId } of resolved) {
@@ -68,13 +88,15 @@ export async function replaceEventLineup(
           (profile === undefined || !canReadProfile("public", profile) || !eventProfileStreamChoices(profile).some(choice => choice.streamId === selectedStreamId))) {
         throw new Error("Selected stream must belong to the performer's public streams.");
       }
+      const source = existing ?? untimed.find(row => row.clientKey === entry.clientKey);
       const fields = {
         selectedStreamId,
         eventId: event._id, clientKey: entry.clientKey, position: entry.position,
         eventStartAt: event.startAt, eventSortAt: eventSortAt(event),
         startAt: entry.startAt, endAt: entry.endAt, personProfileId,
         displayLabel: entry.performerLabel, roleLabel: entry.roleLabel ?? "",
-        sourceType: event.sourceType, sourceLabel: event.sourceLabel,
+        sourceType: source?.sourceType ?? event.sourceType, sourceLabel: source?.sourceLabel ?? event.sourceLabel,
+        sourceUrl: source?.sourceUrl, notes: source?.notes,
         confidence: 1, reviewState: "confirmed" as const, updatedAt: now,
       };
       if (existing !== undefined) {
@@ -82,29 +104,33 @@ export async function replaceEventLineup(
         await db.patch(existing._id, fields);
       } else await db.insert("eventSlots", { ...fields, createdAt: now });
     } else {
+      const source = untimed.find(row => row.clientKey === entry.clientKey)
+        ?? slots.find(row => (row.clientKey ?? row._id) === entry.clientKey);
       await db.insert("eventLineupEntries", {
         eventId: event._id, clientKey: entry.clientKey, position: entry.position,
         performerLabel: entry.performerLabel, personProfileId,
         roleLabel: entry.roleLabel, updatedAt: now,
+        sourceType: source?.sourceType ?? event.sourceType, sourceLabel: source?.sourceLabel ?? event.sourceLabel,
+        sourceUrl: source?.sourceUrl, notes: source?.notes,
       });
     }
     if (personProfileId !== undefined && !matchedPeople.has(personProfileId)) {
       matchedPeople.add(personProfileId);
-      const previousParticipant = options.preservePersonConfirmation
-        ? participants.find(row => row.personProfileId === personProfileId)
-        : undefined;
-      const confirmationState = options.confirmPersonLinks === false
-        ? "unconfirmed" : previousParticipant?.confirmationState ?? "confirmed";
-      await db.insert("eventParticipants", {
+      const { previous, confirmationState, confirmedAt } = personConfirmations.get(personProfileId)!;
+      const fields = {
         eventId: event._id, personProfileId, roleLabel: entry.roleLabel ?? "",
         eventStartAt: event.startAt, eventEndAt: event.endAt ?? event.startAt,
         eventSortAt: eventSortAt(event), eventSortEndAt: eventSortEndAt(event),
         eventPublicationState: event.publicationState, eventStatus: event.eventStatus,
-        sourceType: event.sourceType, sourceLabel: event.sourceLabel,
-        confirmationState,
-        ...(confirmationState === "confirmed" ? { confirmedAt: previousParticipant?.confirmedAt ?? now } : {}), updatedAt: now,
+        confirmationState, confirmedAt, updatedAt: now,
+      };
+      if (previous !== undefined) {
+        keptParticipants.add(previous._id);
+        await db.patch(previous._id, fields);
+      } else await db.insert("eventParticipants", {
+        ...fields, sourceType: event.sourceType, sourceLabel: event.sourceLabel,
       });
     }
   }
-  for (const row of [...slots.filter(slot => !keptSlots.has(slot._id)), ...untimed, ...participants]) await db.delete(row._id);
+  for (const row of [...slots.filter(slot => !keptSlots.has(slot._id)), ...untimed, ...participants.filter(row => !keptParticipants.has(row._id))]) await db.delete(row._id);
 }

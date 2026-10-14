@@ -71,7 +71,8 @@ function revisionFixture(correction: boolean, sourceMode?: string, staff = false
         journal: () => undefined,
       };
     },
-    async action(_action: unknown, args: { expectedVersion: number }) {
+    async action(action: FunctionReference<"action">, args: { expectedVersion: number }) {
+      sessionStorage.setItem("event-intake-review-command", getFunctionName(action));
       if (args.expectedVersion !== version) throw new ConvexError({ code: "VERSION_CONFLICT" });
       if (sourceMode === "duplicates" && !fields.duplicateAcknowledgements?.includes("similar-event")) throw new ConvexError({ code: "NEAR_DUPLICATE", choices: [{ eventId: "similar-event", title: "Another Afterglow Night", eventPath: "/playwright-afterglow-social/events/playwright-afterglow-harbor-sessions" }] });
       sessionStorage.setItem("fixture-published", JSON.stringify(fields));
@@ -79,6 +80,9 @@ function revisionFixture(correction: boolean, sourceMode?: string, staff = false
     },
     async mutation(mutation: FunctionReference<"mutation">, args: Record<string, unknown>) {
       const name = getFunctionName(mutation);
+      sessionStorage.setItem("event-intake-review-command", name);
+      sessionStorage.setItem("event-intake-review-count", String(Number(sessionStorage.getItem("event-intake-review-count") ?? "0") + 1));
+      if (sessionStorage.getItem("event-intake-review-defer") === "true") await new Promise<void>(resolve => window.addEventListener("event-intake-review-release", () => resolve(), { once: true }));
       sessionStorage.setItem("event-intake-revision-submission", JSON.stringify(args));
       if (name === "eventCorrections:takeOverContributedEvent") {
         access = { ...access, canTakeOver: false };
