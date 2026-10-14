@@ -24,6 +24,27 @@ process.env.VRDEX_MEDIA_CLEANUP_URL =
 process.env.VRDEX_MEDIA_CLEANUP_TOKEN = "test-only";
 process.env.VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED = "true";
 process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "true";
+it("refuses percent-encoded oversize local-upload provenance before quota or insertion", async () => {
+  for (const mode of ["contributor", "owner"] as const) {
+    const f = await fixture(mode);
+    const before = await f.t.run(async ctx => ({ reservations: await ctx.db.query("contributionUploadReservations").collect(),
+      intents: await ctx.db.query("profileAssetUploadIntents").collect(), submissions: await ctx.db.query("profileMediaSubmissions").collect() }));
+    const sourceUrl = "https://source.example/" + "é".repeat(800);
+    assert.ok(sourceUrl.length < 2048); assert.ok(new URL(sourceUrl).href.length > 4096);
+    await assert.rejects(f.t.mutation(internal.contributionUploads.begin, { ...f.input, sourceUrl, idempotencyKey: "oversize" }), /MEDIA_SOURCE_URL_TOO_LONG/);
+    assert.deepEqual(await f.t.run(async ctx => ({ reservations: await ctx.db.query("contributionUploadReservations").collect(),
+      intents: await ctx.db.query("profileAssetUploadIntents").collect(), submissions: await ctx.db.query("profileMediaSubmissions").collect() })), before);
+  }
+});
+it("round-trips a percent-encoded local source at the normalized 4096-character limit", async () => {
+  const sourceUrl = "https://source.example/" + "é".repeat(678) + "aaaaa";
+  assert.equal(new URL(sourceUrl).href.length, 4096);
+  const f = await fixture("contributor", undefined, "gallery", sourceUrl);
+  const normalized = new URL(sourceUrl).href;
+  assert.equal((await f.t.run(ctx => ctx.db.get(f.begun.intentId)))?.sourceUrl, normalized);
+  assert.equal((await f.t.run(ctx => ctx.db.query("profileMediaSubmissions").first()))?.sourceUrl, normalized);
+  assert.deepEqual(await f.t.mutation(internal.contributionUploads.begin, f.input), f.begun);
+});
 it("identifies the stored upload mode scope before claiming with an alternative grant", async () => {
   for (const mode of ["owner", "contributor"] as const) {
     const f = await fixture(mode);
@@ -135,6 +156,8 @@ it("rechecks current ownership before replaying a completed admission", async ()
 async function fixture(
   mode: "owner" | "contributor" = "contributor",
   bytesRead?: number,
+  placement: "profile_image" | "primary_logo" | "gallery" = "profile_image",
+  sourceUrl?: string,
 ) {
   const t = convexTest({
     schema,
@@ -179,12 +202,13 @@ async function fixture(
     mode,
     profileId: s.profileId,
     expectedUpdatedAt: NOW,
-    placement: "profile_image" as const,
+    placement,
     contentType: "image/png",
     byteLength: 512,
     sha256: "a".repeat(64),
     credit: "Artist",
     sourceDescription: "Artist supplied local image",
+    ...(sourceUrl === undefined ? {} : { sourceUrl }),
     idempotencyKey: "begin",
   };
   const begun = await t.mutation(internal.contributionUploads.begin, input);
@@ -622,4 +646,46 @@ it("scheduled proposal cleanup advances past a failed batch before retrying it",
       ?.blobDeletedAt !== undefined,
     true,
   );
+});
+
+for (const mode of ["owner", "contributor"] as const) {
+  it(`admits actual gallery uploads only through contributor authority: ${mode}`, async () => {
+    if (mode === "owner") {
+      await assert.rejects(fixture(mode, undefined, "gallery"), /UPLOAD_PLACEMENT_INVALID/);
+      return;
+    }
+    const f = await fixture(mode, undefined, "gallery");
+    assert.ok(f.begun.intentId);
+    const stored = await f.t.run(async ctx => ({ intent: await ctx.db.get(f.begun.intentId), submission: await ctx.db.query("profileMediaSubmissions").first() }));
+    assert.deepEqual(stored.intent?.placements, ["gallery"]);
+    assert.equal(stored.submission?.requestedPlacement, "gallery");
+    assert.equal(stored.submission?.requestKind, "kit_asset");
+    await f.t.mutation(internal.contributionUploads.claim, f.claimInput);
+    assert.equal((await f.t.mutation(internal.contributionUploads.complete, f.completeInput)).operationState, "committed");
+  });
+}
+
+for (const unavailable of ["hidden", "disabled"] as const) {
+  it(`refuses new ${unavailable} kit intake before quota, keeps legacy completion and replay`, async () => {
+    const f = await fixture();
+    const before = await f.t.run(async ctx => ({ intents: await ctx.db.query("profileAssetUploadIntents").collect(), reservations: await ctx.db.query("contributionUploadReservations").collect(), capacity: await ctx.db.query("contributionCapacity").collect() }));
+    if (unavailable === "hidden") await f.t.run(ctx => ctx.db.patch(f.s.profileId, { fieldVisibility: { mediaKit: "private" } }));
+    else process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "false";
+    try {
+      await assert.rejects(f.t.mutation(internal.contributionUploads.begin, { ...f.input, idempotencyKey: "new-intake" }), /MEDIA_TARGET_UNAVAILABLE/);
+      const after = await f.t.run(async ctx => ({ intents: await ctx.db.query("profileAssetUploadIntents").collect(), reservations: await ctx.db.query("contributionUploadReservations").collect(), capacity: await ctx.db.query("contributionCapacity").collect() }));
+      assert.deepEqual(after, before);
+      await assert.rejects(f.t.withIdentity(f.s.contributorIdentity).mutation(api.profileMediaSubmissions.createUploadIntent, { profileId: f.s.profileId, requestedPlacement: "profile_image", originalFileName: "new.png", mimeType: "image/png", byteSize: 512, sourceUrl: "https://artist.example/source", credit: "Artist", expectedProfileUpdatedAt: NOW }), /MEDIA_TARGET_UNAVAILABLE/);
+      await f.t.mutation(internal.contributionUploads.claim, f.claimInput);
+      const completed = await f.t.mutation(internal.contributionUploads.complete, f.completeInput);
+      assert.equal(completed.operationState, "committed");
+      assert.deepEqual((await f.t.mutation(internal.contributionUploads.begin, f.input)).receipt, completed);
+    } finally { process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "true"; }
+  });
+}
+
+it("keeps private owner identity intake distinct from public-kit visibility", async () => {
+  const f = await fixture("owner");
+  await f.t.run(ctx => ctx.db.patch(f.s.profileId, { publicSurfacingState: "opted_out", fieldVisibility: { mediaKit: "private" } }));
+  assert.ok((await f.t.mutation(internal.contributionUploads.begin, { ...f.input, idempotencyKey: "private-owner-upload" })).intentId);
 });

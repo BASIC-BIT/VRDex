@@ -36,22 +36,6 @@ async function fixture() {
     actor.query(api.profileMediaSubmissions.publisherDetail, {
       submissionId: intent.submissionId,
     });
-  const declare = async () => {
-    const before = await detail();
-    assert.ok(before);
-    await actor.mutation(
-      api.profileMediaSubmissions.declarePublicationEvidence,
-      {
-        submissionId: intent.submissionId,
-        expectedReviewVersion: before.reviewVersion,
-        identityConfirmed: true,
-        attributionConfirmed: true,
-        publicationPermitted: true,
-        noKnownRestrictions: true,
-        idempotencyKey: crypto.randomUUID(),
-      },
-    );
-  };
   const publish = async () => {
     const before = await detail();
     assert.ok(before);
@@ -61,47 +45,43 @@ async function fixture() {
       idempotencyKey: crypto.randomUUID(),
     });
   };
-  return { t, s, intent, grantId, actor, detail, declare, publish };
+  return { t, s, intent, grantId, actor, detail, publish };
 }
-it("requires an explicit declaration and records own publication without inventing review", async () => {
+it("publishes into the kit without declarations or inventing review", async () => {
   const f = await fixture();
-  assert.equal((await f.publish()).code, "independent_review_required");
-  await f.declare();
   assert.equal((await f.publish()).operationState, "committed");
   const row = await f.t.run((ctx) => ctx.db.get(f.intent.submissionId));
   assert.equal(row?.publicationMethod, "trusted_publisher");
   assert.equal(row?.reviewer, undefined);
   assert.ok(row?.publicationOperationId);
+  const assets = await f.t.run((ctx) => ctx.db.query("profileAssets").collect());
+  assert.equal(assets[0]?.sourceSubmissionId, f.intent.submissionId);
+  assert.equal(assets[0]?.label, "Image");
+  assert.equal(assets[0]?.sourceUrl, "https://artist.example/press");
+  assert.ok((await f.t.run(ctx => ctx.db.query("contributionUploadReservations").first()))?.publishedBytes);
+  assert.deepEqual((await f.t.run((ctx) => ctx.db.query("profileAssetPlacements").collect())).map(p => p.placement), ["gallery"]);
+  assert.equal((await f.t.run((ctx) => ctx.db.query("mediaPublicationEvidence").collect())).length, 0);
   assert.equal((await f.detail())?.publicationMethod, "trusted_publisher");
 });
 for (const scenario of [
-  "legacy",
   "claimed",
   "missing_credit",
   "dispute",
   "suppression",
   "rejection",
   "revoked",
-  "changed",
 ] as const) {
   it(`refuses trusted publication: ${scenario}`, async () => {
     const f = await fixture();
-    await f.declare();
     const before = await f.detail();
     assert.ok(before);
     await f.t.run(async (ctx) => {
-      if (scenario === "legacy")
-        await ctx.db.patch(f.s.profileId, {
-          avatarImageUrl: "https://example.test/old.png",
-        });
       if (scenario === "claimed")
         await ctx.db.patch(f.s.profileId, { claimState: "claimed_verified" });
       if (scenario === "missing_credit")
         await ctx.db.patch(f.intent.submissionId, { credit: "" });
       if (scenario === "revoked")
         await ctx.db.patch(f.grantId, { state: "revoked" });
-      if (scenario === "changed")
-        await ctx.db.patch(f.s.profileId, { updatedAt: Date.now() });
       if (["dispute", "suppression", "rejection"].includes(scenario))
         await ctx.db.insert("mediaPublicationRestrictions", {
           profileId: f.s.profileId,
@@ -153,13 +133,6 @@ it("separates the publisher grant from admin and reviewer authority", () => {
     ownSubmission: true,
     sourceRecorded: true,
     credit: "Photographer",
-    identityConfirmed: true,
-    attributionConfirmed: true,
-    publicationPermitted: true,
-    noKnownRestrictions: true,
-    currentPlacement: null,
-    legacyImageUrl: null,
-    automaticImageUrl: null,
     priorSuppression: false,
     priorRejection: false,
     unresolvedDispute: false,
@@ -167,15 +140,9 @@ it("separates the publisher grant from admin and reviewer authority", () => {
   assert.equal(eligible(facts), true);
   for (const patch of [
     { publisherGrant: false, independentReviewerGrant: true },
-    { identityConfirmed: false },
-    { attributionConfirmed: false },
     { sourceRecorded: false },
-    { publicationPermitted: false },
-    { noKnownRestrictions: false },
     { ownSubmission: false },
     { publicUnclaimed: false },
-    { currentPlacement: {} },
-    { legacyImageUrl: "https://example.test/old.png" },
   ]) {
     assert.equal(eligible({ ...facts, ...patch }), false);
   }
@@ -210,7 +177,6 @@ it("publishes a community logo, preserves independent self-review refusal, and r
       updatedAt: Date.now(),
     });
   });
-  await f.declare();
   const detail = await f.detail();
   assert.ok(detail);
   assert.equal(
@@ -293,7 +259,7 @@ it("confines publisher-only detail and candidate to own public unclaimed submiss
   );
 });
 for (const kind of ["vrchat_user", "vrchat_group", "discord_guild"] as const) {
-  it(`refuses rendered ${kind} automatic artwork and versions cache changes`, async () => {
+  it(`publishes beside rendered ${kind} automatic artwork without invalidating kit inspection`, async () => {
     const f = await fixture();
     const locator =
       kind === "vrchat_user"
@@ -350,10 +316,8 @@ for (const kind of ["vrchat_user", "vrchat_group", "discord_guild"] as const) {
         observedAt: 1,
       });
     });
-    await f.declare();
     const before = await f.detail();
     assert.ok(before?.currentAutomaticImageUrl);
-    assert.equal((await f.publish()).code, "independent_review_required");
     await f.t.run((ctx) =>
       ctx.db.patch(destinationId, {
         artworkSourceUrl: "https://example.test/changed.png",
@@ -361,7 +325,7 @@ for (const kind of ["vrchat_user", "vrchat_group", "discord_guild"] as const) {
     );
     const after = await f.detail();
     assert.ok(after);
-    assert.notEqual(after.reviewVersion, before.reviewVersion);
+    assert.equal(after.reviewVersion, before.reviewVersion);
     await f.t.run((ctx) =>
       ctx.db.patch(f.s.profileId, { imageFallback: { disabled: true } }),
     );
@@ -371,7 +335,6 @@ for (const kind of ["vrchat_user", "vrchat_group", "discord_guild"] as const) {
 }
 it("keeps unrelated rejection eligible but prevents fresh URLs and item keys evading known content", async () => {
   const f = await fixture();
-  await f.declare();
   await f.t.run((ctx) =>
     ctx.db.insert("mediaPublicationRestrictions", {
       profileId: f.s.profileId,
@@ -384,7 +347,6 @@ it("keeps unrelated rejection eligible but prevents fresh URLs and item keys eva
   );
   assert.equal((await f.publish()).operationState, "committed");
   const g = await fixture();
-  await g.declare();
   await g.t.run(async (ctx) => {
     const row = await ctx.db.get(g.intent.submissionId);
     assert.ok(row);
@@ -401,8 +363,7 @@ it("keeps unrelated rejection eligible but prevents fresh URLs and item keys eva
 for (const kind of ["identity", "dispute"] as const) {
   it(`does not apply another profile's ${kind} restriction to identical bytes`, async () => {
     const f = await fixture();
-    await f.declare();
-    await f.t.run(async (ctx) => {
+      await f.t.run(async (ctx) => {
       const target = (await ctx.db.get(f.s.profileId))!;
       const { _id, _creationTime, ...fields } = target;
       const otherProfileId = await ctx.db.insert("profiles", {
@@ -424,8 +385,7 @@ for (const kind of ["identity", "dispute"] as const) {
 for (const kind of ["rejection", "suppression"] as const) {
   it(`applies another profile's ${kind} restriction to identical bytes`, async () => {
     const f = await fixture();
-    await f.declare();
-    await f.t.run(async (ctx) => {
+      await f.t.run(async (ctx) => {
       const target = (await ctx.db.get(f.s.profileId))!;
       const { _id, _creationTime, ...fields } = target;
       const otherProfileId = await ctx.db.insert("profiles", {
@@ -444,14 +404,14 @@ for (const kind of ["rejection", "suppression"] as const) {
     assert.equal((await f.publish()).code, "independent_review_required");
   });
 }
-it("invalidates declarations on changed credit or source and records correction lineage", async () => {
+it("invalidates inspection on changed credit and records correction lineage", async () => {
   const f = await fixture();
-  await f.declare();
+  const before = await f.detail();
+  assert.ok(before);
   await f.t.run((ctx) =>
     ctx.db.patch(f.intent.submissionId, { credit: "Different attribution" }),
   );
-  assert.equal((await f.publish()).code, "independent_review_required");
-  await f.declare();
+  assert.equal((await f.actor.mutation(api.profileMediaSubmissions.publish, { submissionId: f.intent.submissionId, expectedReviewVersion: before.reviewVersion, idempotencyKey: "stale-credit" })).code, "review_changed");
   const published = await f.publish();
   assert.equal(published.operationState, "committed");
   await f.t
@@ -465,9 +425,8 @@ it("invalidates declarations on changed credit or source and records correction 
   );
   assert.equal(restriction?.correctionOfOperationId, published.operationId);
 });
-it("fresh transaction refuses concurrent slot fill and independent review can still approve legacy evidence", async () => {
+it("fresh transaction adds to a nonempty kit and independent review can still approve legacy evidence", async () => {
   const f = await fixture();
-  await f.declare();
   const before = await f.detail();
   assert.ok(before);
   const command = {
@@ -501,9 +460,8 @@ it("fresh transaction refuses concurrent slot fill and independent review can st
   assert.equal(
     (await f.actor.mutation(api.profileMediaSubmissions.publish, command))
       .operationState,
-    "refused",
+    "committed",
   );
-  assert.equal((await f.publish()).code, "independent_review_required");
   const row = await f.t.run((ctx) => ctx.db.get(competitor.submissionId));
   assert.equal(row?.publicationMethod, "independent_review");
   assert.ok(row?.publicationOperationId);
@@ -530,7 +488,7 @@ it("fresh transaction refuses concurrent slot fill and independent review can st
   );
 });
 
-it("records explicit unresolved declarations and local provenance without inferring truth from credit", async () => {
+it("retires fresh legacy declarations without evidence and accepts local provenance", async () => {
   const f = await fixture();
   await f.t.run((ctx) =>
     ctx.db.patch(f.intent.submissionId, {
@@ -541,7 +499,7 @@ it("records explicit unresolved declarations and local provenance without inferr
   );
   const before = await f.detail();
   assert.ok(before);
-  await f.actor.mutation(
+  const retired = await f.actor.mutation(
     api.profileMediaSubmissions.declarePublicationEvidence,
     {
       submissionId: f.intent.submissionId,
@@ -553,13 +511,12 @@ it("records explicit unresolved declarations and local provenance without inferr
       idempotencyKey: "uncertain",
     },
   );
-  assert.equal((await f.publish()).code, "independent_review_required");
-  await f.declare();
+  assert.equal(retired.code, "declaration_retired");
+  assert.equal((await f.t.run(ctx => ctx.db.query("mediaPublicationEvidence").collect())).length, 0);
   assert.equal((await f.publish()).operationState, "committed");
 });
 it("samples publisher publications with resource-bound pagination and omits legacy approvals", async () => {
   const f = await fixture();
-  await f.declare();
   const published = await f.publish();
   const admin = f.t.withIdentity(f.s.moderatorIdentity);
   const page = await admin.query(
@@ -586,3 +543,95 @@ it("samples publisher publications with resource-bound pagination and omits lega
     /Super admin/,
   );
 });
+
+for (const change of ["biography", "identity", "metadata", "privacy", "restriction"] as const) {
+  it(`kit freshness responds to ${change}`, async () => {
+    const f = await fixture();
+    const before = await f.detail();
+    assert.ok(before);
+    await f.t.run(async (ctx) => {
+      if (change === "biography") await ctx.db.patch(f.s.profileId, { bio: "Updated biography", updatedAt: Date.now() });
+      if (change === "identity") await ctx.db.patch(f.s.profileId, { displayName: "Changed identity", updatedAt: Date.now() });
+      if (change === "metadata") await ctx.db.patch(f.intent.submissionId, { credit: "Changed credit" });
+      if (change === "privacy") await ctx.db.patch(f.s.profileId, { publicSurfacingState: "opted_out" });
+      if (change === "restriction") await ctx.db.insert("mediaPublicationRestrictions", { profileId: f.s.profileId, submissionId: f.intent.submissionId, kind: "dispute", actorUserId: f.s.moderatorUserId, createdAt: Date.now() });
+    });
+    if (change !== "privacy") {
+      const after = await f.detail();
+      assert.ok(after);
+      assert.equal(after.reviewVersion === before.reviewVersion, change === "biography");
+      const receipt = await f.actor.mutation(api.profileMediaSubmissions.publish, { submissionId: f.intent.submissionId, expectedReviewVersion: before.reviewVersion, idempotencyKey: change });
+      assert.equal(receipt.operationState, change === "biography" ? "committed" : "refused");
+    } else await assert.rejects(f.publish(), /publication access/);
+  });
+}
+
+for (const visibility of ["public", "private"] as const) {
+  it(`adds gallery media without changing ${visibility} managed picture selection`, async () => {
+    const f = await fixture();
+    const oldAssetId = await f.t.run(async ctx => {
+      const assetId = await ctx.db.insert("profileAssets", {
+        profileId: f.s.profileId, storageKey: "existing.webp", mimeType: "image/webp", byteSize: 100,
+        label: "Existing", visibility, source: "owner_authored", uploadedBy: { issuer: "test", subject: "owner", tokenIdentifier: "owner" },
+        uploadedAt: Date.now(), state: "active", updatedAt: Date.now(),
+      });
+      for (const placement of ["profile_image", "gallery"] as const) await ctx.db.insert("profileAssetPlacements", {
+        profileId: f.s.profileId, assetId, placement, position: 0, state: "active", updatedAt: Date.now(),
+      });
+      return assetId;
+    });
+    const before = await f.detail(); assert.ok(before);
+    const command = { submissionId: f.intent.submissionId, expectedReviewVersion: before.reviewVersion, idempotencyKey: visibility };
+    const receipt = await f.actor.mutation(api.profileMediaSubmissions.publish, command);
+    assert.equal(receipt.operationState, "committed");
+    assert.deepEqual(await f.actor.mutation(api.profileMediaSubmissions.publish, command), receipt);
+    const placements = await f.t.run(ctx => ctx.db.query("profileAssetPlacements").collect());
+    assert.equal(placements.find(p => p.placement === "profile_image" && p.state === "active")?.assetId, oldAssetId);
+    assert.equal(placements.filter(p => p.placement === "gallery" && p.state === "active").length, 2);
+    assert.equal((await f.t.run(ctx => ctx.db.query("profileAssets").collect())).length, 2);
+    assert.equal((await f.t.run(ctx => ctx.db.query("mediaPublicationEvidence").collect())).length, 0);
+  });
+}
+it("replays historical declaration receipts without rewriting legacy evidence", async () => {
+  const f = await fixture(); const detail = await f.detail(); assert.ok(detail);
+  const args = { submissionId: f.intent.submissionId, expectedReviewVersion: detail.reviewVersion, identityConfirmed: true, attributionConfirmed: true, publicationPermitted: true, noKnownRestrictions: true, idempotencyKey: "historical" };
+  const receipt = { operationId: "old-operation", operationState: "committed" as const, resourceId: f.intent.submissionId };
+  const { hash } = await import("../../convex/_mediaReview");
+  const { publicationEvidenceSchema } = await import("../../packages/api-contracts/src/media-review");
+  await f.t.run(async ctx => {
+    const evidenceId = await ctx.db.insert("mediaPublicationEvidence", { submissionId: f.intent.submissionId, actorUserId: f.s.contributorUserId, candidateVersion: "historical", identityConfirmed: true, attributionConfirmed: true, publicationPermitted: true, noKnownRestrictions: true, createdAt: 1 });
+    await ctx.db.patch(f.intent.submissionId, { publicationEvidenceId: evidenceId });
+    await ctx.db.insert("mediaReviewReceipts", { actorUserId: f.s.contributorUserId, idempotencyKey: args.idempotencyKey, inputHash: await hash({ command: "declare", ...publicationEvidenceSchema.parse(args) }), submissionId: f.intent.submissionId, receipt, createdAt: 1 });
+  });
+  assert.deepEqual(await f.actor.mutation(api.profileMediaSubmissions.declarePublicationEvidence, args), receipt);
+  assert.equal((await f.t.run(ctx => ctx.db.query("mediaPublicationEvidence").collect())).length, 1);
+});
+
+it("publishes kit media beside a visible legacy picture", async () => {
+  const f = await fixture();
+  await f.t.run(ctx => ctx.db.patch(f.s.profileId, { avatarImageUrl: "https://example.test/legacy.webp" }));
+  assert.equal((await f.publish()).operationState, "committed");
+  assert.equal((await f.t.run(ctx => ctx.db.get(f.s.profileId)))?.avatarImageUrl, "https://example.test/legacy.webp");
+  assert.deepEqual((await f.t.run(ctx => ctx.db.query("profileAssetPlacements").collect())).map(p => p.placement), ["gallery"]);
+});
+
+for (const kind of ["vrchat_user", "vrchat_group", "discord_guild"] as const) {
+  it(`requires fresh kit inspection after replacing linked ${kind} identity`, async () => {
+    const f = await fixture();
+    const url = (suffix: string) => kind === "discord_guild"
+      ? `https://discord.gg/Club${suffix}`
+      : `https://vrchat.com/home/${kind === "vrchat_user" ? "user/usr" : "group/grp"}_7023d326-083f-41fe-a3e9-27ea303b50c${suffix}`;
+    const link = { type: "website" as const, label: "Identity", source: "community_submitted" as const };
+    await f.t.run(ctx => ctx.db.patch(f.s.profileId, { outboundLinks: [{ ...link, url: url("5") }] }));
+    const before = await f.detail(); assert.ok(before);
+    await f.t.run(ctx => ctx.db.patch(f.s.profileId, { outboundLinks: [{ ...link, url: url("6") }] }));
+    const after = await f.detail(); assert.ok(after);
+    assert.notEqual(after.reviewVersion, before.reviewVersion);
+    const receipt = await f.actor.mutation(api.profileMediaSubmissions.publish, {
+      submissionId: f.intent.submissionId, expectedReviewVersion: before.reviewVersion, idempotencyKey: kind,
+    });
+    assert.equal(receipt.code, "review_changed");
+    assert.equal((await f.t.run(ctx => ctx.db.query("profileAssets").collect())).length, 0);
+    assert.equal((await f.publish()).operationState, "committed");
+  });
+}

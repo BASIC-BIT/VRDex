@@ -26,6 +26,7 @@ import { canReadProfile } from "./_profilePermissions";
 import { isProfileFieldVisible } from "./_profileFieldVisibility";
 import {
   PROFILE_ASSET_MAX_ACTIVE_COUNT,
+  selectProfileAssetIdentity,
   PROFILE_ASSET_UPLOAD_PROCESSING_MAX_ATTEMPTS,
   PROFILE_ASSET_UPLOAD_PROCESSING_LEASE_MS,
   assertProfileMediaVersion,
@@ -1320,6 +1321,7 @@ async function replaceOwnedAssetPlacements(
   asset: Doc<"profileAssets">,
   placements: ProfileAssetPlacement[],
   now: number,
+  actorUserId: Id<"users">,
 ) {
   const uniquePlacements = [...new Set(placements)];
 
@@ -1342,6 +1344,8 @@ async function replaceOwnedAssetPlacements(
     .filter((query) => query.eq(query.field("state"), "active"))
     .collect();
   const desired = new Set(uniquePlacements);
+  if (asset.sourceSubmissionId && uniquePlacements.some(p => p === "profile_image" || p === "primary_logo") &&
+    current.some(p => p.placement === "gallery")) desired.add("gallery");
 
   await Promise.all(
     current
@@ -1350,6 +1354,10 @@ async function replaceOwnedAssetPlacements(
   );
 
   for (const placement of uniquePlacements) {
+    if (placement === "profile_image" || placement === "primary_logo") {
+      await selectProfileAssetIdentity(db, { profileId, assetId: asset._id, placement, actorUserId, now });
+      continue;
+    }
     if (current.some((item) => item.placement === placement)) {
       continue;
     }
@@ -1549,6 +1557,7 @@ export const manageOwnedMediaForMcpActor = internalMutation({
           currentAsset,
           args.asset.placements,
           now,
+          args.ownerUserId,
         );
       }
 

@@ -662,6 +662,8 @@ describe("bounded staging media fixture", () => {
     const { t, args } = await seed();
     const result = await t.query(internal.e2eMedia.inspect, args);
     assert.equal(result.counts.submissions, 1);
+    assert.equal(result.mediaKitEnabled, true);
+    assert.equal(result.mediaKitPublic, true);
     const serialized = JSON.stringify(result);
     for (const forbidden of [
       "storageKey",
@@ -742,4 +744,80 @@ describe("bounded staging media fixture", () => {
     assert.equal(proposal?.status, "withdrawn");
     assert.equal(proposal?.blobDeleteAfter, undefined);
   });
+});
+
+it("grants only run-linked publisher and assigned reviewer actors and cleans all fixture assignment records", async () => {
+  const { t, args, users, intent } = await seed();
+  const result = await t.mutation(internal.e2eMedia.grantPublicationActors, args);
+  assert.equal(result.granted, true);
+  assert.deepEqual(await t.mutation(internal.e2eMedia.grantPublicationActors, args), result);
+  const records = await t.run(async ctx => ({ grants: await ctx.db.query("accountFeatureGrants").collect(), attempts: await ctx.db.query("contributionItemAttempts").collect(), assignments: await ctx.db.query("contributionBatchReviewers").collect() }));
+  assert.deepEqual(records.grants.map(row => [row.userId, row.feature]), [[users.contributorId, "trusted_publisher"], [users.reviewerId, "media_reviewer"]]);
+  assert.equal(records.attempts.length, 1);
+  assert.equal(records.attempts[0].submissionId, intent.submissionId);
+  assert.equal(records.assignments[0].reviewerUserId, users.reviewerId);
+  await t.run(ctx => ctx.db.patch(intent.submissionId, { status: "submitted" }));
+  const reviewer = (await t.run(ctx => ctx.db.get(users.reviewerId)))!;
+  const reviewerActor = t.withIdentity({ subject: reviewer.clerkUserId!, issuer: "test", tokenIdentifier: `test|${reviewer.clerkUserId}`, email: reviewer.email!, emailVerified: true });
+  assert.equal((await reviewerActor.query(api.profileMediaSubmissions.reviewDetail, { submissionId: intent.submissionId }))?.submissionId, intent.submissionId);
+  await assert.rejects(t.withIdentity(users.identity).query(api.profileMediaSubmissions.reviewDetail, { submissionId: intent.submissionId }), /MEDIA_REVIEW_ACCESS_REQUIRED/);
+  const replacement = await t.run(async ctx => {
+    const original = (await ctx.db.get(intent.submissionId))!;
+    const { _id, _creationTime, uploadIntentId, ...fields } = original;
+    return ctx.db.insert("profileMediaSubmissions", { ...fields, requestKind: "identity_placement" });
+  });
+  await t.mutation(internal.e2eMedia.grantPublicationActors, args);
+  const noUpload = await t.run(ctx => ctx.db.query("contributionItemAttempts").withIndex("by_submissionId", q => q.eq("submissionId", replacement)).unique());
+  assert.equal(noUpload?.intentId, undefined);
+  const prepared = await t.mutation(internal.e2eMedia.prepareCleanup, args);
+  await t.mutation(internal.e2eMedia.finishCleanup, { ...args, deletedStorageKeys: prepared.storageKeys });
+  assert.deepEqual(await t.run(async ctx => [await ctx.db.query("accountFeatureGrants").collect(), await ctx.db.query("contributionBatches").collect(), await ctx.db.query("contributionItemRevisions").collect(), await ctx.db.query("contributionItemAttempts").collect(), await ctx.db.query("contributionBatchReviewers").collect()]), [[], [], [], [], []]);
+});
+
+it("rejects publication fixture actor grants on production and foreign account grants", async () => {
+  const { t, args, users } = await seed();
+  await t.run(ctx => ctx.db.insert("accountFeatureGrants", { userId: users.contributorId, feature: "trusted_publisher", state: "active", grantedAt: Date.now(), updatedAt: Date.now(), grantedBy: { issuer: "test", subject: "foreign", tokenIdentifier: "foreign" } }));
+  await assert.rejects(t.mutation(internal.e2eMedia.grantPublicationActors, args), /Unscoped fixture grant/);
+  process.env.CONVEX_CLOUD_URL = "https://production.convex.cloud";
+  await assert.rejects(t.mutation(internal.e2eMedia.grantPublicationActors, args), /Staging media fixture is unavailable/);
+  enable();
+});
+
+it("bounds publication guard controls to exact run actors and an unclaimed fixture", async () => {
+  const f = await seed();
+  await f.t.mutation(internal.e2eMedia.grantPublicationActors, f.args);
+  const before = await f.t.run(ctx => ctx.db.get(f.args.profileId));
+  await f.t.mutation(internal.e2eMedia.exercisePublicationGuards, { ...f.args, action: "edit_bio" });
+  const after = await f.t.run(ctx => ctx.db.get(f.args.profileId));
+  assert.notEqual(after?.updatedAt, before?.updatedAt);
+  await f.t.mutation(internal.e2eMedia.exercisePublicationGuards, { ...f.args, action: "revoke_actors" });
+  const grants = await f.t.run(ctx => ctx.db.query("accountFeatureGrants").collect());
+  assert.equal(grants.every(g => g.state === "revoked"), true);
+  await f.t.run(ctx => ctx.db.patch(f.args.profileId, { claimState: "claimed_verified" }));
+  await assert.rejects(f.t.mutation(internal.e2eMedia.exercisePublicationGuards, { ...f.args, action: "edit_bio" }), /Unclaimed fixture required/);
+});
+
+it("reselects only the exact public approved fixture asset without changing its primary", async () => {
+  const f = await seed();
+  await assert.rejects(f.t.mutation(internal.e2eMedia.exercisePublicationGuards, { ...f.args, action: "reselect_primary" }), /Exact published fixture selection required/);
+  const placementId = await f.t.run(async ctx => {
+    const upload = (await ctx.db.get(f.intent.intentId))!;
+    const assetId = await ctx.db.insert("profileAssets", { profileId: f.args.profileId, storageKey: upload.storageKey,
+      mimeType: "image/png", byteSize: 512, visibility: "public", source: "community_submitted",
+      uploadedBy: upload.requestedBy, uploadedAt: 10, updatedAt: 10, state: "active" });
+    await ctx.db.patch(f.intent.submissionId, { status: "approved", approvedAssetId: assetId });
+    return ctx.db.insert("profileAssetPlacements", { profileId: f.args.profileId, assetId, placement: "profile_image",
+      position: 0, state: "active", updatedAt: 10, selectionActorUserId: f.users.contributorId, selectionOperationId: "publisher-selection" });
+  });
+  const before = await f.t.run(ctx => ctx.db.get(placementId));
+  await f.t.mutation(internal.e2eMedia.exercisePublicationGuards, { ...f.args, action: "reselect_primary" });
+  const after = await f.t.run(ctx => ctx.db.get(placementId));
+  assert.equal(after?.assetId, before?.assetId);
+  assert.equal(after?.state, "active");
+  assert.equal(after?.selectionActorUserId, f.users.reviewerId);
+  assert.notEqual(after?.selectionOperationId, before?.selectionOperationId);
+  assert.ok(after!.updatedAt > before!.updatedAt);
+  await f.t.run(ctx => ctx.db.patch(before!.assetId, { visibility: "private" }));
+  await assert.rejects(f.t.mutation(internal.e2eMedia.exercisePublicationGuards, { ...f.args, action: "reselect_primary" }), /Exact published fixture selection required/);
+  assert.deepEqual(await f.t.run(ctx => ctx.db.get(placementId)), after);
 });

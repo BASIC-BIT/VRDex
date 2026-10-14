@@ -376,7 +376,7 @@ describe("hosted MCP profile media contributions", () => {
       null,
     );
     await seeded.t.run((ctx) => ctx.db.patch(seeded.profileId, {
-      fieldVisibility: { avatarImageUrl: "private" },
+      fieldVisibility: { mediaKit: "private" },
     }));
     const privateStatus = await seeded.t.query(
       internal.profileMediaSubmissions.listMcpMediaSubmissionsForActor,
@@ -823,3 +823,41 @@ describe("hosted MCP profile media contributions", () => {
     );
   });
 });
+
+it("reconciles a legacy hosted URL admission into gallery without importing another candidate", async () => {
+  const f = await seed();
+  const prepared = await f.t.mutation(internal.profileMediaSubmissions.prepareMcpMediaSubmission, input(f.actorUserId));
+  assert.equal(prepared.status, "pending");
+  if (prepared.status !== "pending") throw new Error("Expected prepared fixture");
+  await f.t.run(async ctx => {
+    const intent = (await ctx.db.get(prepared.intentId))!;
+    await ctx.db.patch(intent.targetSubmissionId!, { requestKind: undefined, requestedPlacement: "profile_image" });
+    await ctx.db.patch(intent._id, { placements: ["profile_image"] });
+  });
+  const processingToken = crypto.randomUUID();
+  await f.t.mutation(internal.profileMediaSubmissions.claimMcpMediaSubmissionImport, { intentId: prepared.intentId, processingToken });
+  const completed = await f.t.mutation(internal.profileMediaSubmissions.markMcpMediaSubmissionImported, { intentId: prepared.intentId, processingToken, mimeType: "image/webp", byteSize: 128, contentSha256: "legacy-hosted-candidate" });
+  assert.equal(completed.status, "submitted");
+  const state = await f.t.run(async ctx => ({ intent: await ctx.db.get(prepared.intentId), rows: await ctx.db.query("profileMediaSubmissions").collect(), charges: await ctx.db.query("contributionUploadReservations").collect() }));
+  assert.deepEqual(state.intent?.placements, ["gallery"]);
+  assert.equal(state.rows.length, 1);
+  assert.equal(state.rows[0].requestKind, "kit_asset");
+  assert.equal(state.rows[0].reviewRevision, 1);
+  assert.equal(state.rows[0].sourceUrl, input(f.actorUserId).sourceUrl);
+  assert.equal(state.charges.length, 1);
+});
+
+for (const unavailable of ["hidden", "disabled"] as const) {
+  it(`refuses new URL intake for a ${unavailable} kit without a submission or reservation`, async () => {
+    const f = await seed();
+    if (unavailable === "hidden") await f.t.run(ctx => ctx.db.patch(f.profileId, { fieldVisibility: { mediaKit: "private" } }));
+    else process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "false";
+    try {
+      const result = await f.t.mutation(internal.profileMediaSubmissions.prepareMcpMediaSubmission, input(f.actorUserId));
+      assert.equal(result.status, "failed");
+      assert.equal(result.errorCode, "MCP_MEDIA_TARGET_UNAVAILABLE");
+      const counts = await f.t.run(async ctx => ({ submissions: (await ctx.db.query("profileMediaSubmissions").collect()).length, intents: (await ctx.db.query("profileAssetUploadIntents").collect()).length, reservations: (await ctx.db.query("contributionUploadReservations").collect()).length, capacity: (await ctx.db.query("contributionCapacity").collect()).length }));
+      assert.deepEqual(counts, { submissions: 0, intents: 0, reservations: 0, capacity: 0 });
+    } finally { process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "true"; }
+  });
+}

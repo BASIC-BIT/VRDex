@@ -3,7 +3,7 @@ export const localUploadRequestSchema = z.strictObject({
   mode: z.enum(["owner", "contributor"]),
   profileId: z.string().min(1).max(200),
   expectedUpdatedAt: z.number().int().nonnegative(),
-  placement: z.enum(["profile_image", "primary_logo"]),
+  placement: z.enum(["profile_image", "primary_logo", "gallery"]),
   contentType: z.enum([
     "image/png",
     "image/jpeg",

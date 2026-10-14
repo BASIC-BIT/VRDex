@@ -24,3 +24,14 @@ export const Inline: Story = {
     </PageShell>
   ),
 };
+
+export const Unavailable: Story = {
+  render: () => (
+    <PageShell className="py-10">
+      <PageContainer max="3xl">
+        <h1 className="text-3xl font-semibold">Edit profile</h1>
+        <div className="mt-8"><ProfileMediaContributionEditorView available={false} /></div>
+      </PageContainer>
+    </PageShell>
+  ),
+};

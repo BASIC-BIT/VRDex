@@ -4,6 +4,8 @@ const conflictCodes = new Set([
   "target_changed",
   "review_changed",
   "placement_changed",
+  "contribution_changed",
+  "selection_changed",
   "target_unavailable",
 ]);
 
@@ -23,7 +25,9 @@ export function reviewDecisionMessage(
   if (
     receipt.code === "target_changed" ||
     receipt.code === "review_changed" ||
-    receipt.code === "placement_changed"
+    receipt.code === "placement_changed" ||
+    receipt.code === "contribution_changed" ||
+    receipt.code === "selection_changed"
   ) {
     return {
       message:
