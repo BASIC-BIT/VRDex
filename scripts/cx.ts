@@ -70,7 +70,14 @@ function main(argv: string[]) {
     return 1;
   }
 
-  return run(name, convexArgs).status ?? 1;
+  const result = run(name, convexArgs);
+
+  if ("error" in result && result.error !== undefined) {
+    console.error(`Failed to launch Convex CLI: ${result.error.message}`);
+    return 1;
+  }
+
+  return result.status ?? 1;
 }
 
 // Only when invoked as a command, so this stays importable by tests.

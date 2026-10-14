@@ -10,7 +10,7 @@ import { describe, it } from "node:test";
 const repoRoot = path.resolve(import.meta.dirname, "../..");
 const loader = pathToFileURL(createRequire(import.meta.url).resolve("tsx")).href;
 
-function invoke(args: string[], extraEnv: NodeJS.ProcessEnv = {}) {
+function invoke(args: string[], extraEnv: NodeJS.ProcessEnv = {}, failProviderSpawn = false) {
   const root = mkdtempSync(path.join(tmpdir(), "vrdex-cx-cli-"));
   try {
     mkdirSync(path.join(root, "scripts"));
@@ -38,12 +38,31 @@ function invoke(args: string[], extraEnv: NodeJS.ProcessEnv = {}) {
         selfHosted: process.env.CONVEX_SELF_HOSTED_URL,
       }));
     `);
-    return spawnSync(process.execPath, ["--import", loader, path.join(root, "scripts/cx.ts"), ...args], {
+    const preload = path.join(root, "provider-spawn-failure.mjs");
+    if (failProviderSpawn) {
+      writeFileSync(preload, `
+        import childProcess from "node:child_process";
+        import { syncBuiltinESMExports } from "node:module";
+        import path from "node:path";
+        const original = childProcess.spawnSync;
+        childProcess.spawnSync = (command, args, options) => {
+          if (args?.[0]?.endsWith(path.join("convex", "bin", "main.js"))) {
+            return { status: 0, error: Object.assign(new Error("fixture spawn blocked"), { code: "EPERM" }) };
+          }
+          return original(command, args, options);
+        };
+        syncBuiltinESMExports();
+      `);
+    }
+    const imports = failProviderSpawn ? ["--import", pathToFileURL(preload).href] : [];
+    const result = spawnSync(process.execPath, [...imports, "--import", loader, path.join(root, "scripts/cx.ts"), ...args], {
       cwd: root,
       encoding: "utf8",
       env: { ...process.env, ...extraEnv },
       windowsHide: true,
     });
+    assert.ifError(result.error);
+    return result;
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -87,6 +106,13 @@ describe("cx command entry point", () => {
       assert.equal(result.stdout, "");
     });
   }
+
+  it("reports a provider spawn error even when the runtime supplies exit status zero", () => {
+    const result = invoke(["--", "dev", "run", "health:status"], {}, true);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /Failed to launch Convex CLI: fixture spawn blocked/);
+    assert.equal(result.stdout, "");
+  });
 
   it("handles help after a package-manager delimiter", () => {
     const result = invoke(["--", "--help"]);
