@@ -68,6 +68,7 @@ for (const mode of ["create", "resumed", "correction", "staff-create", "staff-ed
       }
       if (mode === "correction") await expect(page.getByRole("button", { name: "Import poster or text" })).toHaveCount(0);
       if (mode === "staff-edit") await expect(page.getByLabel("Ends (optional)", { exact: true })).toBeVisible();
+      await expect(page.locator('[data-step="Details"], [data-editor-step="Details"]')).toBeVisible();
       await capture(page, info.outputPath(`${mode}-${color}-details.png`));
       for (const step of ["Lineup", "Review"]) {
         await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: step }).click();
