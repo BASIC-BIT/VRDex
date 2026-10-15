@@ -5,14 +5,14 @@ test.use({ timezoneId: "UTC" });
 const storedStart = Date.UTC(2026, 10, 1, 5, 15);
 const storedEnd = Date.UTC(2026, 10, 1, 6, 45);
 
-async function editWithRepeatedEnd(page: Page, startAt = storedStart, endAt = storedEnd) {
-  await page.addInitScript(({ startAt, endAt }) => localStorage.setItem("event-lineup-fixture-v1", JSON.stringify({
-    id: "event-end-fixture", slug: "repeated-night", title: "Repeated night", startAt, endAt,
+async function editWithRepeatedEnd(page: Page, startAt = storedStart, endAt = storedEnd, doorsOpenAt?: number) {
+  await page.addInitScript(({ startAt, endAt, doorsOpenAt }) => localStorage.setItem("event-lineup-fixture-v1", JSON.stringify({
+    id: "event-end-fixture", slug: "repeated-night", title: "Repeated night", startAt, endAt, doorsOpenAt,
     timezone: "America/New_York", scheduleKind: "timed", status: "scheduled", communitySlug: "afterglow", publicationState: "published",
     source: { sourceType: "community", label: "Afterglow" }, watchSurfaceEnabled: false, watchMode: "event_stream",
     mediaLinks: [], authoredMediaLinks: [], worlds: [], participants: [], slots: [], lineup: [],
     preservedParticipantAssociationIds: [], preservedSlotAssociationIds: [], preservedWorldAssociationIds: [],
-  })), { startAt, endAt });
+  })), { startAt, endAt, doorsOpenAt });
   await page.goto("/playwright/event-lineup?editor");
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Details" }).click();
 }
@@ -136,4 +136,49 @@ test("staff create omits an unknown end without slots @fixture", async ({ page }
   const payload = await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!));
   expect(payload.endAt).toBeUndefined();
   expect(payload.slotLinks).toEqual([]);
+});
+
+
+test("staff doors disclosure preserves its value on collapse and clearing removes it @fixture", async ({ page }) => {
+  await editWithRepeatedEnd(page);
+  const disclosure = page.getByText("Add doors-open time", { exact: true });
+  await expect(page.getByLabel("Minutes before start", { exact: true })).toBeHidden();
+  await disclosure.click();
+  await page.getByLabel("Minutes before start", { exact: true }).fill("15");
+  await disclosure.click();
+  expect((await saveEdit(page)).doorsOpenAt).toBe(storedStart - 15 * 60_000);
+});
+
+test("staff stored doors start expanded and can be explicitly cleared @fixture", async ({ page }) => {
+  await editWithRepeatedEnd(page, storedStart, storedEnd, storedStart - 15 * 60_000);
+  await expect(page.getByLabel("Minutes before start", { exact: true })).toHaveValue("15");
+  await page.getByLabel("Minutes before start", { exact: true }).fill("");
+  expect((await saveEdit(page)).doorsOpenAt).toBeNull();
+});
+
+for (const unavailable of [false, true]) test(`staff explicit manual location preserves unrepresented associations when public hydration is ${unavailable ? "unavailable" : "available"} @fixture`, async ({ page }) => {
+  await page.addInitScript(({ startAt, unavailable }) => localStorage.setItem("event-lineup-fixture-v1", JSON.stringify({
+    id: "event-location-fixture", slug: "location-night", title: "Location night", startAt, timezone: "UTC", status: "scheduled", communitySlug: "afterglow", communityName: "Afterglow", publicationState: "published",
+    source: { sourceType: "community", label: "Afterglow", url: "https://example.com/original-post" }, venueLabel: "Custom pier", watchSurfaceEnabled: false, watchMode: "event_stream", mediaLinks: [], authoredMediaLinks: [], participants: [], slots: [], lineup: [],
+    worlds: unavailable ? [] : [{ slug: "harbor-world", displayName: "Harbor World", tags: [], association: { sourceType: "community", confirmationState: "confirmed" } }],
+    editableWorldAssociation: unavailable ? undefined : { associationId: "editable-world", worldSlug: "harbor-world" },
+    preservedParticipantAssociationIds: [], preservedSlotAssociationIds: [], preservedWorldAssociationIds: ["editable-world", "extra-public", "private-world"],
+  })), { startAt: storedStart, unavailable });
+  await page.goto("/playwright/event-lineup?editor");
+  await page.getByLabel("Event title", { exact: true }).fill("Updated title");
+  let payload = await saveEdit(page);
+  expect(payload.worldSlug).toBeUndefined();
+  expect(payload.preservedWorldAssociationIds).toEqual(["editable-world", "extra-public", "private-world"]);
+  expect(payload.venueLabel).toBe("Custom pier");
+  expect(payload.sourceUrl).toBe("https://example.com/original-post");
+  if (!unavailable) {
+    await page.waitForURL("**/playwright-afterglow-social/events/playwright-afterglow-harbor-sessions");
+    await page.goto("/playwright/event-lineup?editor");
+    await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Details" }).click();
+    await page.getByRole("button", { name: "Use manual location", exact: true }).click();
+    payload = await saveEdit(page);
+    expect(payload.worldSlug).toBeNull();
+    expect(payload.preservedWorldAssociationIds).toEqual(["extra-public", "private-world"]);
+    expect(payload.venueLabel).toBe("Custom pier");
+  }
 });

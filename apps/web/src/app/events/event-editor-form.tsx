@@ -30,7 +30,9 @@ import { changeLineupDuration, generateLineupTimings, getLineupEndAt, getLineupE
 import { EventLineupSetup, EventLineupInsert, EventSlotDuration, EventLineupReset, EventLineupConflict } from "./event-lineup-controls";
 import { resolveAuthoredEventEndAt } from "@/lib/calendar/event-end-time";
 import { EventEditorSteps, type EventEditorStep } from "./event-editor-steps";
-import { EventEditorPreview } from "./event-editor-preview";
+import { EventLocationField } from "./event-location-field";
+import type { EventIdentityOption } from "@/lib/event-editor-identity";
+import { EventEditorPreview, EventCommunitySummary, useEventCommunity } from "./event-editor-preview";
 import { ProfileAvatarImage } from "../_components/profile-avatar-image";
 import { serializeOtherEventParticipants } from "@/lib/calendar/event-participants";
 
@@ -67,6 +69,7 @@ export type EditableEvent = Omit<PublicEvent, "slots"> & {
   preservedParticipantAssociationIds: Id<"eventParticipants">[];
   preservedSlotAssociationIds: Id<"eventSlots">[];
   preservedWorldAssociationIds: Id<"eventWorlds">[];
+  editableWorldAssociation?: { associationId: Id<"eventWorlds">; worldSlug: string };
   publicationState?: "draft_private" | "published";
 };
 
@@ -484,12 +487,14 @@ function resolveStaffStartAt(local: string, timezone: string, occurrence: "earli
 
 function ConnectedEventEditorForm({
   communitySlug,
+  communityName,
   demoMode = false,
   event,
   heading,
   savedTimezonePreference,
 }: {
   communitySlug: string;
+  communityName?: string;
   demoMode?: boolean;
   event?: EditableEvent;
   heading?: ReactNode;
@@ -497,6 +502,14 @@ function ConnectedEventEditorForm({
 }) {
   const router = useRouter();
   const [activeStep, setActiveStep] = useState<EventEditorStep>("Details");
+  const knownCommunity: EventIdentityOption | undefined = communityName || event?.communityName ? { kind: "community", slug: communitySlug, title: communityName || event?.communityName || "", href: `/${communitySlug}`, imageUrl: event?.communityImageUrl, imageKind: "logo", appearance: event?.communityAvatarAppearance } : undefined;
+  const community = useEventCommunity(communitySlug, knownCommunity);
+  const initialWorld = event?.worlds[0];
+  const [location, setLocation] = useState({ worldSlug: initialWorld?.slug ?? "", venueLabel: event?.venueLabel ?? "" });
+  const [worldEdited, setWorldEdited] = useState(false);
+  const worldEditRevision = useRef(0);
+  const [editableWorld, setEditableWorld] = useState(event?.editableWorldAssociation);
+  const selectedWorld: EventIdentityOption | undefined = initialWorld ? { kind: "world", slug: initialWorld.slug, title: initialWorld.displayName, href: `/${initialWorld.slug}`, imageUrl: initialWorld.heroImageUrl, imageKind: "profile" } : undefined;
   const [preview, setPreview] = useState({ title: event?.title ?? (demoMode ? "Afterglow Harbor Sessions" : ""), summary: event?.summary ?? "", venueLabel: event?.venueLabel ?? "", artwork: event?.posterImageUrl ?? "" });
   const [eventDate, setEventDate] = useState(event?.eventDate ?? formatZonedDateTimeInput(event?.startAt, event?.timezone).slice(0, 10));
   const [timeTba, setTimeTba] = useState(event?.scheduleKind === "date_only");
@@ -529,9 +542,9 @@ function ConnectedEventEditorForm({
     if (timezoneAuthored.current) return;
     setTimezone(resolveEventTimezoneDefault({ savedPreference: savedTimezonePreference, browserTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone }));
   }, [savedTimezonePreference]);
-  const [doorsOpenBefore, setDoorsOpenBefore] = useState(event?.doorsOpenAt !== undefined);
+  const [doorsOpen, setDoorsOpen] = useState(event?.doorsOpenAt !== undefined);
   const [doorsOpenMinutes, setDoorsOpenMinutes] = useState(() => event?.doorsOpenAt === undefined || event.startAt === undefined
-    ? "15"
+    ? ""
     : String(Math.max(0, Math.round((event.startAt - event.doorsOpenAt) / 60_000))));
   const [watchSurfaceEnabled, setWatchSurfaceEnabled] = useState(event?.watchSurfaceEnabled ?? false);
   const [watchMode, setWatchMode] = useState<"event_stream" | "performer_sequence">(event?.watchMode ?? "event_stream");
@@ -683,7 +696,7 @@ function ConnectedEventEditorForm({
         previousEndAt: event?.endAt,
         scheduleChanged,
       });
-      const doorsOffsetMinutes = !timeTba && doorsOpenBefore
+      const doorsOffsetMinutes = !timeTba && doorsOpenMinutes.trim() !== ""
         ? parseInteger(doorsOpenMinutes, "Doors-open offset minutes")
         : undefined;
       if (doorsOffsetMinutes !== undefined && doorsOffsetMinutes < 0) {
@@ -692,6 +705,8 @@ function ConnectedEventEditorForm({
       const payload = {
         title: stringField(formData.get("title")),
         communitySlug,
+        ...(worldEdited ? { worldSlug: location.worldSlug || undefined } : {}),
+        venueLabel: location.venueLabel,
         startAt,
         ...(doorsOffsetMinutes === undefined
           ? {}
@@ -719,11 +734,13 @@ function ConnectedEventEditorForm({
         } : {}),
       };
       const submittedSlotKeys = slotRows.map(row => row.id);
+      const submittedWorldRevision = worldEditRevision.current;
       const result = event
           ? await updateEvent({
             currentSlug: currentSlug!,
             preservedCommunityProfileId: event.preservedCommunityProfileId,
             ...associationSnapshot,
+            ...(worldEdited ? { preservedWorldAssociationIds: associationSnapshot.preservedWorldAssociationIds.filter(id => id !== editableWorld?.associationId) } : {}),
             ...(!usesCanonicalLineup ? { storedSlotAssociations: timeTba ? [] : slotRows.flatMap((row, position) => {
               const slotId = associationSnapshot.preservedSlotAssociationIds.find(id => id === row.id);
               return slotId === undefined ? [] : [{ position, slotId }];
@@ -734,6 +751,7 @@ function ConnectedEventEditorForm({
                 ? { published: false }
                 : {}),
             ...payload,
+            ...(worldEdited ? { worldSlug: location.worldSlug || null } : {}),
             preserveLineupConfirmation: usesCanonicalLineup,
             doorsOpenAt: doorsOffsetMinutes === undefined ? null : startAt! - doorsOffsetMinutes * 60_000,
             endAt: endAt ?? null,
@@ -746,7 +764,7 @@ function ConnectedEventEditorForm({
             thumbnailImageUrl: payload.thumbnailImageUrl ?? null,
             scheduleKind: timeTba ? "date_only" : "timed",
             ...(timeTba ? { eventDate } : {}),
-            venueLabel: optionalString(stringField(formData.get("venueLabel"))) ?? "",
+            venueLabel: location.venueLabel,
           })
         : await createEvent({ ...payload, startAt: startAt!, published: intent === "publish" });
 
@@ -760,6 +778,8 @@ function ConnectedEventEditorForm({
           setSlotRows(rows => rows.map(row => ({ ...row, id: storedIdsBySubmittedKey.get(row.id) ?? row.id })));
         }
         if ("preservedParticipantAssociationIds" in result) {
+          if (worldEdited) setEditableWorld(result.editableWorldAssociation ?? undefined);
+          if (worldEditRevision.current === submittedWorldRevision) setWorldEdited(false);
           setAssociationSnapshot({
             preservedParticipantAssociationIds: result.preservedParticipantAssociationIds,
             preservedSlotAssociationIds: result.preservedSlotAssociationIds,
@@ -959,7 +979,7 @@ function ConnectedEventEditorForm({
     return { time: local.slice(11, 16), dayOffset: Math.round((Date.parse(`${local.slice(0, 10)}T00:00:00Z`) - Date.parse(`${eventDate}T00:00:00Z`)) / 86_400_000), ...(instantOccurrence ? { occurrence: instantOccurrence } : {}) };
   }
   const previewFields = {
-    ...preview, communitySlug, eventDate, timezone, timeTba,
+    ...preview, venueLabel: location.venueLabel, communitySlug, eventDate, timezone, timeTba,
     start: previewStart === undefined ? null : previewTime(previewStart),
     end: previewEndAt === undefined ? null : previewTime(previewEndAt),
     lineup: [
@@ -978,7 +998,7 @@ function ConnectedEventEditorForm({
       const data = new FormData(change.currentTarget);
       setPreview({ title: stringField(data.get("title")), summary: stringField(data.get("summary")), venueLabel: stringField(data.get("venueLabel")), artwork: stringField(data.get("posterImageUrl")) });
     }}>
-      <EventEditorSteps heading={heading} steps={["Details", "Lineup", "Review"]} activeStep={activeStep} onSelect={setActiveStep} preview={<EventEditorPreview fields={previewFields} artwork={preview.artwork || undefined} />}>
+      <EventEditorSteps heading={heading} steps={["Details", "Lineup", "Review"]} activeStep={activeStep} onSelect={setActiveStep} preview={<EventEditorPreview fields={previewFields} artwork={preview.artwork || undefined} community={community} />}>
       <div hidden={activeStep !== "Details"} data-editor-step="Details" className="space-y-8">
       <EditorSection title="Details">
         <Field>
@@ -995,7 +1015,8 @@ function ConnectedEventEditorForm({
           Description
           <Textarea aria-label="Description" className="min-h-24" defaultValue={event?.summary} name="summary" />
         </Field>
-        {usesCanonicalLineup ? <Field>Where (optional)<Input defaultValue={event?.venueLabel} name="venueLabel" /></Field> : null}
+        <EventCommunitySummary community={community} />
+        <EventLocationField {...location} selectedWorld={selectedWorld} onChange={next => { if (next.worldSlug !== location.worldSlug) { worldEditRevision.current += 1; setWorldEdited(true); } setLocation(next); }} />
 
         <details className="group rounded-control border border-border bg-surface px-4 py-3">
           <summary className="flex cursor-pointer list-none items-center justify-between gap-4 font-medium marker:hidden">
@@ -1029,28 +1050,10 @@ function ConnectedEventEditorForm({
           <EventTimezonePicker value={timezone || null} date={eventDate || null} instant={previewStart} preferredValue={savedTimezonePreference} onChange={changeTimezone} />
         </Field>
         {startChoices.length > 1 ? <Field>Repeated time<Select aria-label="Start occurrence" value={occurrence} onChange={change => changeStart(startLocal, change.target.value === "later" ? "later" : change.target.value === "earlier" ? "earlier" : "") }><option value="">Choose occurrence</option><option value="earlier">Earlier</option><option value="later">Later</option></Select></Field> : null}
-        <label className="flex items-center gap-3 text-sm font-medium">
-          <input
-            checked={doorsOpenBefore}
-            className="h-4 w-4 accent-accent"
-            onChange={(changeEvent) => { timezoneAuthored.current = true; setDoorsOpenBefore(eventTargetChecked(changeEvent)); }}
-            type="checkbox"
-          />
-          Do doors open before?
-        </label>
-        {doorsOpenBefore ? (
-          <Field>
-            Minutes before start
-            <Input
-              inputMode="numeric"
-              min="0"
-              onChange={(changeEvent) => { timezoneAuthored.current = true; setDoorsOpenMinutes(eventTargetValue(changeEvent)); }}
-              required
-              type="number"
-              value={doorsOpenMinutes}
-            />
-          </Field>
-        ) : null}
+        <details className="relative" open={doorsOpen} onToggle={change => setDoorsOpen(change.currentTarget.open)}>
+          <summary className={`cursor-pointer font-medium ${doorsOpen ? "absolute right-0 top-0 text-xs" : "text-sm"}`}>Add doors-open time</summary>
+          <Field>Minutes before start<Input inputMode="numeric" min="0" type="number" value={doorsOpenMinutes} onChange={change => { timezoneAuthored.current = true; setDoorsOpenMinutes(change.target.value); }} /></Field>
+        </details>
         </>}
         </div>
       </EditorSection>
@@ -1062,7 +1065,7 @@ function ConnectedEventEditorForm({
           <Input defaultValue={event?.source.label} name="sourceLabel" placeholder="Community event listing" />
         </Field>
         <Field className="sm:col-span-1">
-          Source URL
+          Original event post
           <Input defaultValue={event?.source.url} name="sourceUrl" placeholder="https://..." />
         </Field>
         <Field className="sm:col-span-1">
@@ -1197,7 +1200,8 @@ function ConnectedEventEditorForm({
           <dl className="grid gap-3 text-sm sm:grid-cols-2">
             <div><dt className="text-muted">{timeTba ? "Date" : "Starts"}</dt><dd>{timeTba ? eventDate : startLocal.replace("T", " ")}</dd></div>
             {!timeTba ? <div><dt className="text-muted">Time zone</dt><dd>{timezone}</dd></div> : null}
-            {preview.venueLabel ? <div><dt className="text-muted">Where (optional)</dt><dd>{preview.venueLabel}</dd></div> : null}
+            <div><dt className="text-muted">Community</dt><dd><EventCommunitySummary community={community} /></dd></div>
+            {location.venueLabel ? <div><dt className="text-muted">Where</dt><dd>{location.venueLabel}</dd></div> : null}
           </dl>
           <div className="flex flex-wrap gap-3">
             {(["Details", "Lineup"] as const).map(step => <Button key={step} type="button" variant="secondary" onClick={() => setActiveStep(step)}>Edit {step.toLowerCase()}</Button>)}
@@ -1517,29 +1521,31 @@ function ConnectedEventEditorForm({
 
 export function EventEditorForm({
   communitySlug,
+  communityName,
   demoMode = false,
   event,
   heading,
   savedTimezonePreference,
 }: {
   communitySlug: string;
+  communityName?: string;
   demoMode?: boolean;
   event?: EditableEvent;
   heading?: ReactNode;
   savedTimezonePreference?: string | null;
 }) {
   if (demoMode) {
-    return <ConnectedEventEditorForm communitySlug={communitySlug} demoMode event={event} heading={heading} savedTimezonePreference={savedTimezonePreference} />;
+    return <ConnectedEventEditorForm communitySlug={communitySlug} communityName={communityName} demoMode event={event} heading={heading} savedTimezonePreference={savedTimezonePreference} />;
   }
 
   if (!convexUrl) {
     return <>{heading}<DisabledEventEditorPanel /></>;
   }
 
-  return <AuthenticatedEventEditorForm communitySlug={communitySlug} event={event} heading={heading} />;
+  return <AuthenticatedEventEditorForm communitySlug={communitySlug} communityName={communityName} event={event} heading={heading} />;
 }
 
-function AuthenticatedEventEditorForm({ communitySlug, event, heading }: { communitySlug: string; event?: EditableEvent; heading?: ReactNode }) {
+function AuthenticatedEventEditorForm({ communitySlug, communityName, event, heading }: { communitySlug: string; communityName?: string; event?: EditableEvent; heading?: ReactNode }) {
   const { isAuthenticated, isLoading } = useConvexAuth();
 
   if (isLoading) {
@@ -1550,10 +1556,10 @@ function AuthenticatedEventEditorForm({ communitySlug, event, heading }: { commu
     return <>{heading}<SignInRequiredEventEditorPanel /></>;
   }
 
-  return <AuthenticatedConnectedEventEditorForm communitySlug={communitySlug} event={event} heading={heading} />;
+  return <AuthenticatedConnectedEventEditorForm communitySlug={communitySlug} communityName={communityName} event={event} heading={heading} />;
 }
 
-function AuthenticatedConnectedEventEditorForm(props: { communitySlug: string; event?: EditableEvent; heading?: ReactNode }) {
+function AuthenticatedConnectedEventEditorForm(props: { communitySlug: string; communityName?: string; event?: EditableEvent; heading?: ReactNode }) {
   const viewer = useQuery(api.accounts.viewer);
   return <ConnectedEventEditorForm {...props} savedTimezonePreference={viewer?.user.defaultEventTimezone} />;
 }

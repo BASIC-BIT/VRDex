@@ -50,7 +50,7 @@ export function EventEditorPage({
             <h1 className="mt-2 text-4xl font-semibold tracking-[-0.04em] sm:text-5xl">
               {event?.title ?? "Add event"}
             </h1>
-          </header>} communitySlug={communitySlug} demoMode={demoMode} event={event} savedTimezonePreference={savedTimezonePreference} />
+          </header>} communitySlug={communitySlug} communityName={communityName} demoMode={demoMode} event={event} savedTimezonePreference={savedTimezonePreference} />
           {discordPostText ? <EventDiscordExportPanel text={discordPostText} /> : null}
         </PageContainer>
       </PageShell>

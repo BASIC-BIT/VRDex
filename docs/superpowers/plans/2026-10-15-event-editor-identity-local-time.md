@@ -221,6 +221,22 @@ Also assert missing date/zone stays unresolved with unchanged source clock, blan
 - [ ] Complete the repository's PR feedback loop. Before every follow-up push, triage every outstanding review comment, reply or react with its disposition, and resolve handled threads. New commits reset the required 30-minute window.
 - [ ] After at least 30 minutes from the latest commit timestamp, refresh checks, ordinary comments, inline threads, formal reviews and mutable sticky AI summaries for the exact pushed head. Address valid new feedback, then reread the mutable summaries. Call the PR merge-ready only with acceptable terminal checks, clean mergeability, no unresolved blocking feedback and a final post-window refresh. Report the PR URL and remaining limits.
 
+## Task 2 implementation notes
+
+The controller approved a file-list correction for the existing protected-world
+requirement. Task 2 also changes `convex/events.ts`, `convex/_eventPublic.ts` and
+adds `tests/backend/event-location-preservation.test.ts`. Authorized editor
+readback returns optional `editableWorldAssociation: { associationId, worldSlug }`
+for its first projected public world. The public/API projections stay unchanged.
+The parent adapter removes only that represented ID on an explicit chooser edit,
+retains every unrepresented association, and keeps its current selection on
+unrelated saves. An explicit world command returns a fresh mapping for that exact
+selection, including an already-retained world. Null clears the represented link;
+omission preserves it. Private links survive a public-hydration failure or a
+world becoming private after load. No schema or authorization expansion is needed.
+The existing guarded contributor and staff fixture transports also support the
+new presentation reads and managed-community shortcuts.
+
 ## Evidence appendix
 
 - Planning inspected fetched `origin/main` at `21e48169d4f0cd54e55bbe48b1662ff128c8fe7f` on 2026-10-15. Refresh again at execution. Source evidence came from Git objects because the shared primary checkout contains unrelated edits and deletions.

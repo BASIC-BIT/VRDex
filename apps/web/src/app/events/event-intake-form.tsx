@@ -19,7 +19,10 @@ import { EventIntakeSource, EventIntakeSuggestions, type IntakeSourceAction } fr
 import { candidatePatch, posterDeclaration, websiteIntakeCommand, EventIntakeCandidateSchema } from "@/lib/event-intake-source";
 import { EventPosterUploadSchema } from "../../../../../packages/api-contracts/src/event-intake";
 import { EventEditorSteps, type EventEditorStep } from "./event-editor-steps";
-import { EventEditorPreview } from "./event-editor-preview";
+import { EventIdentityPicker } from "./event-identity-picker";
+import { EventLocationField } from "./event-location-field";
+import type { EventIdentityOption } from "@/lib/event-editor-identity";
+import { EventEditorPreview, EventCommunitySummary, useEventCommunity } from "./event-editor-preview";
 import { eventLocalDate, formatIntakeDateTimeInput, parseIntakeDateTimeInput } from "@/lib/calendar/event-intake-date-time";
 import { acceptIntakeSuggestion, rebaseIntakeTime as rebaseTime, rebaseIntakeTimes, rebaseIntakeSuggestions, restoreIntakeTiming, type IntakeSuggestionAcceptance } from "@/lib/calendar/event-intake-suggestions";
 import { ProfileAvatarImage } from "../_components/profile-avatar-image";
@@ -27,49 +30,6 @@ import { applyIntakeLineupTimings, intakeLocalFromInstant, readIntakeInstant, re
 import { changeLineupDuration, generateLineupTimings, getLineupEndAt, getLineupEndConflict, insertLineupSlot, removeLineupSlot, shiftLineupStart, type LineupEditResult, type LineupTimingRow } from "@/lib/calendar/event-lineup-timing";
 import { EventLineupSetup, EventLineupInsert, EventSlotDuration, EventLineupReset, EventLineupConflict } from "./event-lineup-controls";
 import { BACKEND_ERROR_COPY } from "@/lib/error-copy";
-
-function CommunityInput({ value, disabled, onChange }: { value: string; disabled: boolean; onChange: (value: string) => void }) {
-  const id = useId();
-  const container = useRef<HTMLDivElement>(null);
-  const results = useRef<HTMLUListElement>(null);
-  const [query, setQuery] = useState<string | null>(null);
-  const [open, setOpen] = useState(false);
-  const [active, setActive] = useState(-1);
-  const selectedMatches = useQuery(api.search.searchUniversal, !disabled && value ? { query: value, entityType: "profile", profileType: "community", limit: 8 } : "skip");
-  const matches = useQuery(api.search.searchUniversal, !disabled && open && query && query.trim().length >= 2 ? { query: query.trim(), entityType: "profile", profileType: "community", limit: 8 } : "skip");
-  const expanded = open && (query?.trim().length ?? 0) >= 2;
-  useEffect(() => {
-    if (expanded && active >= 0) results.current?.children.item(active)?.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }, [active, expanded, matches]);
-  const selected = selectedMatches?.find(match => match.slug === value);
-  const title = selected?.title ?? value;
-  function focus(selector: string) { requestAnimationFrame(() => container.current?.querySelector<HTMLElement>(selector)?.focus()); }
-  function select(slug: string) { onChange(slug); setQuery(null); setOpen(false); setActive(-1); focus("[data-community-change]"); }
-  return <div ref={container} className="grid min-w-0 gap-2">
-    <span className="text-sm font-medium">Community</span>
-    {value ? <div role="group" aria-label="Selected community" className="flex min-w-0 flex-wrap items-center gap-3 rounded-control border border-border p-3">
-      <span className="relative flex size-10 shrink-0 overflow-hidden rounded-control bg-surface-strong"><ProfileAvatarImage alt={title} fallback={title.slice(0, 2).toUpperCase()} src={selected?.imageUrl} /></span>
-      <div className="min-w-0 flex-1 break-words"><p className="text-sm font-medium">{title}</p>{selected ? <p className="text-xs text-muted">{value}</p> : null}</div>
-      <div className="flex gap-2"><Button type="button" variant="secondary" disabled={disabled} data-community-change onClick={() => { setQuery(""); setOpen(true); setActive(-1); focus("input"); }}>Change</Button><Button type="button" variant="secondary" disabled={disabled} onClick={() => { onChange(""); setQuery(""); setOpen(true); setActive(-1); focus("input"); }}>Clear</Button></div>
-    </div> : null}
-    {!value || query !== null ? <div className="relative">
-      <Input name="communitySlug" role="combobox" aria-label="Community" aria-autocomplete="list" aria-expanded={expanded} aria-controls={`${id}-results`} aria-activedescendant={expanded && matches?.[active] ? `${id}-${active}` : undefined} value={query ?? ""} disabled={disabled} maxLength={64} autoComplete="off" placeholder="Search communities"
-        onFocus={() => setOpen(true)} onBlur={() => setOpen(false)}
-        onChange={event => { setQuery(event.target.value); setOpen(true); setActive(-1); }}
-        onKeyDown={event => {
-          if (event.key === "Escape") { event.preventDefault(); setQuery(null); setOpen(false); setActive(-1); if (value) focus("[data-community-change]"); }
-          if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); setOpen(true); setActive(index => Math.max(0, Math.min((matches?.length ?? 0) - 1, index + (event.key === "ArrowDown" ? 1 : -1)))); }
-          if (event.key === "Enter") { event.preventDefault(); const match = open ? matches?.[active] : undefined; if (match) select(match.slug); }
-        }} />
-      {expanded ? <ul ref={results} id={`${id}-results`} role="listbox" aria-label="Communities" className="absolute top-full z-20 max-h-64 w-full overflow-auto rounded-control border border-border bg-surface-strong shadow-panel">
-        {matches?.map((match, index) => <li id={`${id}-${index}`} key={match.slug} role="option" aria-selected={active === index} className={`flex cursor-pointer items-center gap-3 px-3 py-2 text-sm ${active === index ? "bg-surface-elevated" : ""}`} onMouseDown={event => event.preventDefault()} onClick={() => select(match.slug)}>
-          <span aria-hidden="true" className="relative flex size-10 shrink-0 overflow-hidden rounded-control bg-surface-strong"><ProfileAvatarImage alt={match.title} fallback={match.title.slice(0, 2).toUpperCase()} src={match.imageUrl} /></span><span className="min-w-0 break-words"><span className="block font-medium">{match.title}</span><span className="block text-xs text-muted">{match.slug}</span></span>
-        </li>)}
-        {query && query.trim().length >= 2 && matches?.length === 0 ? <li className="px-3 py-2 text-sm text-muted">No matches</li> : null}
-      </ul> : null}
-    </div> : null}
-  </div>;
-}
 
 function PerformerInput({ label, slug, onLabel, onSlug }: { label: string; slug: string; onLabel: (value: string) => void; onSlug: (value: string) => void }) {
   const id = useId();
@@ -118,6 +78,11 @@ function resetTimeOccurrences(fields: EventIntakeFields, timezone: EventIntakeFi
 export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, correction = false, onSave, onPublish, onSource, initialArtworkSourceId, heading, savedTimezonePreference, newDraft = false }: { savedTimezonePreference?: string | null; newDraft?: boolean; heading?: ReactNode; initialFields: EventIntakeFields; initialRevision?: number; correction?: boolean; onSource?: IntakeSourceAction; initialArtworkSourceId?: string; onSave?: (fields: EventIntakeFields, revision: number) => Promise<void>; onPublish: (fields: EventIntakeFields, revision: number) => Promise<void> }) {
   const form = useRef<HTMLFormElement>(null);
   const [fields, setFields] = useState(() => initialFields.timeTba ? untimed(initialFields) : initialFields);
+  const { isAuthenticated } = useConvexAuth();
+  const managed = useQuery(api.events.listManagedCommunities, isAuthenticated ? {} : "skip");
+  const shortcuts: EventIdentityOption[] = (managed ?? []).map(item => ({ kind: "community", slug: item.slug, title: item.displayName, href: `/${item.slug}`, imageUrl: item.imageUrl, imageKind: "logo", context: item.roleLabel }));
+  const [selectedCommunity, setSelectedCommunity] = useState<EventIdentityOption>();
+  const community = useEventCommunity(fields.communitySlug, selectedCommunity);
   const timezoneAuthored = useRef(Boolean(initialFields.timezone) || !newDraft);
   useEffect(() => {
     if (timezoneAuthored.current) return;
@@ -128,6 +93,8 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
   const startAnchor = useRef(readIntakeInstant(initialFields, initialFields.start));
   const [endOpen, setEndOpen] = useState(Boolean(!initialFields.timeTba && initialFields.end));
   useEffect(() => { if (fields.end) setEndOpen(true); }, [fields.end]);
+  const [doorsOpen, setDoorsOpen] = useState(Boolean(initialFields.doors));
+  useEffect(() => { if (fields.doors) setDoorsOpen(true); }, [fields.doors]);
   const steps: EventEditorStep[] = ["Details", "Lineup", "Review"];
   const [importOpen, setImportOpen] = useState(false);
   const focusExtractedDetails = useRef(false);
@@ -261,7 +228,7 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
         throw new Error("Event date must be valid.");
       }
       if (publish) {
-        if (!fields.communitySlug || !fields.title || !fields.eventDate) { reveal("Details", `[name="${!fields.communitySlug ? "communitySlug" : !fields.title ? "title" : "Starts"}"]`); throw new Error("Add a community, title and date."); }
+        if (!fields.communitySlug || !fields.title || !fields.eventDate) { reveal("Details", !fields.communitySlug ? '[role="combobox"][aria-label="Community"]' : `[name="${!fields.title ? "title" : "Starts"}"]`); throw new Error("Add a community, title and date."); }
         if (!fields.timeTba && (!fields.timezone || !fields.start)) { reveal("Details", !fields.timezone ? '[aria-label="Time zone"]' : '[name="Starts"]'); throw new Error("Choose a time zone and start time, or Time TBA."); }
         const times: Array<{ local?: EventIntakeLocalTime | null; label: string; step: EventEditorStep }> = [
           { local: fields.start, label: "Starts", step: "Details" satisfies EventEditorStep },
@@ -313,19 +280,18 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
       const invalid = form.current?.querySelector<HTMLInputElement>('[data-intake-time][aria-invalid="true"]');
       if (invalid) reveal(invalid.closest('[data-step="Lineup"]') ? "Lineup" : "Details", `[name="${invalid.name}"]`);
       else setImportOpen(true);
-    }}><Upload aria-hidden="true" className="size-4" />Import poster or text</Button> : undefined} steps={steps} activeStep={activeStep} onSelect={setActiveStep} preview={<EventEditorPreview fields={fields} artwork={artwork} />}>
+    }}><Upload aria-hidden="true" className="size-4" />Import poster or text</Button> : undefined} steps={steps} activeStep={activeStep} onSelect={setActiveStep} preview={<EventEditorPreview fields={fields} artwork={artwork} community={community} />}>
     <fieldset disabled={busy} className="grid min-w-0 gap-6">
     <div hidden={activeStep !== "Details"} data-step="Details"><section className="grid gap-4"><h2 className="text-xl font-semibold">Details</h2>{onSource ? <EventIntakeSuggestions fields={fields} onAccept={acceptSuggestion} /> : null}
-    {!correction ? <CommunityInput value={fields.communitySlug ?? ""} disabled={false} onChange={value => set("communitySlug", value || null)} /> : null}
+    {!correction ? <div className="grid gap-2"><span className="text-sm font-medium">Community</span><EventIdentityPicker kind="community" selectedSlug={fields.communitySlug} selectedOption={community} shortcuts={shortcuts} onSelect={option => { setSelectedCommunity(option); set("communitySlug", option.slug); }} onClear={() => { setSelectedCommunity(undefined); set("communitySlug", null); }} /></div> : null}
     <Field>Event title<Input name="title" value={fields.title ?? ""} maxLength={120} onChange={event => set("title", event.target.value)} /></Field>
     <label className="flex items-center gap-2"><input type="checkbox" checked={fields.timeTba ?? false} onChange={event => toggleTba(event.target.checked)} />Time TBA</label>
     {fields.timeTba ? <Field>Starts<Input name="Starts" type="date" value={fields.eventDate ?? ""} onChange={event => changeDate(event.target.value || null)} /></Field> : null}
     <div className="grid gap-2"><span className="text-sm font-medium">Time zone</span><EventTimezonePicker value={fields.timezone ?? null} date={fields.eventDate ?? null} instant={timezoneInstant} preferredValue={savedTimezonePreference} onChange={changeTimezone} /></div>
-    {!fields.timeTba ? <><div className="grid items-start gap-3 sm:grid-cols-2"><IntakeTime label="Starts" eventStart value={fields.start} date={fields.eventDate} timezone={fields.timezone} onChange={changeStart} /><details className="relative" open={endOpen} onToggle={event => setEndOpen(event.currentTarget.open)}><summary className={`cursor-pointer font-medium ${endOpen ? "absolute right-0 top-0 text-xs" : "text-sm"}`}>Add end time</summary><div><IntakeTime label="Ends (optional)" value={fields.end} date={fields.eventDate} timezone={fields.timezone} onChange={change => set("end", change.local)} /></div></details></div><IntakeTime label="Doors open" value={fields.doors} date={fields.eventDate} timezone={fields.timezone} onChange={change => set("doors", change.local)} /></> : null}
-    <Field>Where (optional)<Input value={fields.venueLabel ?? ""} maxLength={120} onChange={event => set("venueLabel", event.target.value)} /></Field>
-    <Field>World profile<Input value={fields.worldSlug ?? ""} maxLength={64} onChange={event => set("worldSlug", event.target.value)} /></Field>
+    {!fields.timeTba ? <><div className="grid items-start gap-3 sm:grid-cols-2"><IntakeTime label="Starts" eventStart value={fields.start} date={fields.eventDate} timezone={fields.timezone} onChange={changeStart} /><details className="relative" open={endOpen} onToggle={event => setEndOpen(event.currentTarget.open)}><summary className={`cursor-pointer font-medium ${endOpen ? "absolute right-0 top-0 text-xs" : "text-sm"}`}>Add end time</summary><div><IntakeTime label="Ends (optional)" value={fields.end} date={fields.eventDate} timezone={fields.timezone} onChange={change => set("end", change.local)} /></div></details></div><details className="relative" open={doorsOpen} onToggle={event => setDoorsOpen(event.currentTarget.open)}><summary className={`cursor-pointer font-medium ${doorsOpen ? "absolute right-0 top-0 text-xs" : "text-sm"}`}>Add doors-open time</summary><IntakeTime label="Doors open" value={fields.doors} date={fields.eventDate} timezone={fields.timezone} onChange={change => set("doors", change.local)} /></details></> : null}
+    <EventLocationField worldSlug={fields.worldSlug ?? ""} venueLabel={fields.venueLabel ?? ""} onChange={next => setFields(current => ({ ...current, worldSlug: next.worldSlug || null, venueLabel: next.venueLabel || null }))} />
     <Field>Description<Textarea value={fields.summary ?? ""} maxLength={240} onChange={event => set("summary", event.target.value)} /></Field>
-    <Field>Source URL<Input type="url" value={fields.sourceUrl ?? ""} onChange={event => set("sourceUrl", event.target.value)} /></Field>
+    <details><summary className="cursor-pointer text-sm font-medium">Original event post</summary><Field className="mt-3">Original event post<Input type="url" value={fields.sourceUrl ?? ""} onChange={event => set("sourceUrl", event.target.value)} /></Field></details>
     {!correction && !onSource ? <details><summary className="cursor-pointer font-medium">Source text</summary><Textarea aria-label="Source text" className="mt-3" value={fields.sourceText ?? ""} maxLength={12000} onChange={event => set("sourceText", event.target.value)} /></details> : null}
     </section></div>
     <div hidden={activeStep !== "Lineup"} data-step="Lineup"><section className="grid gap-4"><h2 className="text-xl font-semibold">Lineup</h2>{onSource ? <EventIntakeSuggestions fields={fields} onAccept={acceptSuggestion} lineup /> : null}
@@ -349,7 +315,7 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
     </div>
     <div hidden={activeStep !== "Review"} data-step="Review" className="space-y-5">
     <section className="grid gap-4"><h2 className="text-xl font-semibold">Review</h2>{activeStep === "Review" ? <Button type="submit" variant="primary" className="justify-self-start" disabled={busy}>{correction ? "Save changes" : "Publish event"}</Button> : null}{endConflict}<div className="grid gap-4 rounded-control border border-border p-4">
-      <div className="flex items-start justify-between gap-4"><div><h3 className="font-semibold">{fields.title || "Event title"}</h3><p className="text-sm text-muted">{[fields.communitySlug, eventLocalDate(fields.eventDate, fields.timeTba ? null : fields.start), fields.timeTba ? "Time TBA" : fields.start?.time, fields.timezone, fields.venueLabel].filter(Boolean).join(" · ")}</p></div><Button type="button" variant="secondary" onClick={() => setActiveStep("Details")}>Edit details</Button></div>
+      <div className="flex items-start justify-between gap-4"><div><h3 className="font-semibold">{fields.title || "Event title"}</h3>{fields.communitySlug ? <EventCommunitySummary community={community} /> : null}<p className="text-sm text-muted">{[eventLocalDate(fields.eventDate, fields.timeTba ? null : fields.start), fields.timeTba ? "Time TBA" : fields.start?.time, fields.timezone, fields.venueLabel].filter(Boolean).join(" · ")}</p></div><Button type="button" variant="secondary" onClick={() => setActiveStep("Details")}>Edit details</Button></div>
       {fields.summary ? <p className="text-sm">{fields.summary}</p> : null}
       <div className="flex items-start justify-between gap-4 border-t border-border pt-4"><div><h3 className="font-semibold">Lineup</h3>{fields.lineup?.map(row => <p key={row.clientKey} className="text-sm">{row.performerLabel || row.personSlug}</p>)}</div><Button type="button" variant="secondary" onClick={() => setActiveStep("Lineup")}>Edit lineup</Button></div>
     </div></section>

@@ -553,18 +553,13 @@ export async function replaceEventWorldLink(
     .withIndex("by_eventId", (query) => query.eq("eventId", event._id))
     .take(20);
   const preserveAssociationIds = new Set(options.preserveAssociationIds);
-  const preserved = world !== undefined
-    ? []
-    : options.preserveAssociationIds !== undefined
-      ? existing
-          .filter((association) => preserveAssociationIds.has(association._id))
-          .map((association) => ({ association }))
-      : options.preserveNonPublic === true
-        ? (await Promise.all(existing.map(async (association) => ({
-            association,
-            world: await db.get(association.worldId),
-          })))).filter(({ world: linkedWorld }) => linkedWorld?.publicationState !== "published")
-        : [];
+  const preserved = (await Promise.all(existing.map(async association => ({
+    association,
+    world: await db.get(association.worldId),
+  })))).filter(({ association, world: linkedWorld }) =>
+    preserveAssociationIds.has(association._id) ||
+    (options.preserveNonPublic === true && linkedWorld?.publicationState !== "published"),
+  );
   const preservedIds = new Set(preserved.map(({ association }) => association._id));
 
   await Promise.all([
@@ -582,7 +577,7 @@ export async function replaceEventWorldLink(
     })),
   ]);
 
-  if (world === undefined) {
+  if (world === undefined || preserved.some(({ association }) => association.worldId === world._id)) {
     return;
   }
 
@@ -3180,12 +3175,11 @@ export const updateCommunityEvent = mutation({
           world: await ctx.db.get(association.worldId),
         })),
     );
-    const preservedWorldAssociations = input.worldSlug === undefined
-      ? loadedWorldAssociations
-      : loadedWorldAssociations.filter(
-          ({ world: loadedWorld }) => loadedWorld?.slug === input.worldSlug,
-        );
-    const world = input.worldSlug === undefined || preservedWorldAssociations.length > 0
+    // IDs stay scoped to this event. Only the chooser's represented association
+    // is omitted by an explicit client edit; other public and private rows stay.
+    const preservedWorldAssociations = loadedWorldAssociations;
+    const retainedSelection = input.worldSlug === undefined ? undefined : loadedWorldAssociations.find(({ world: linked }) => linked?.slug === input.worldSlug);
+    const world = args.worldSlug === undefined || args.worldSlug === null || retainedSelection
       ? undefined
       : await getPublishedWorldBySlug(ctx.db, input.worldSlug);
 
@@ -3245,8 +3239,20 @@ export const updateCommunityEvent = mutation({
         .withIndex("by_eventId", (query) => query.eq("eventId", event._id))
         .collect(),
     ]);
+    // Return a fresh mapping only for an explicit chooser edit. An unrelated
+    // update must not select a different first world for an already-open editor.
+    const selectedWorldAssociations = args.worldSlug == null ? [] : await Promise.all(
+      worldAssociations.map(async association => {
+        const linked = await ctx.db.get(association.worldId);
+        return linked?.publicationState === "published" && linked.slug === args.worldSlug
+          ? { associationId: association._id, worldSlug: linked.slug }
+          : null;
+      }),
+    );
+    const editableWorldAssociation = selectedWorldAssociations.find(association => association !== null) ?? null;
     return {
       ...result,
+      ...(args.worldSlug === undefined ? {} : { editableWorldAssociation }),
       preservedParticipantAssociationIds: participantAssociations.map(
         (association) => association._id,
       ),

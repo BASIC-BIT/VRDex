@@ -239,3 +239,83 @@ test.describe("@fixture event identity picker", () => {
     await expect(page.getByTestId("selected-slug")).toHaveText("");
   });
 });
+
+test("Details keeps optional doors collapsed and preserves them when collapsed @fixture", async ({ page }) => {
+  await page.addInitScript(() => sessionStorage.setItem("event-intake-fixture", JSON.stringify({ title: "Details night", timezone: "UTC", eventDate: "2027-10-15", start: { time: "20:00" }, timeTba: false })));
+  await page.goto("/playwright/event-intake");
+  const disclosure = page.getByText("Add doors-open time", { exact: true });
+  await expect(disclosure).toBeVisible();
+  await expect(page.getByLabel("Doors open", { exact: true })).toBeHidden();
+  await disclosure.click();
+  await page.getByLabel("Doors open", { exact: true }).fill("2027-10-15T19:45");
+  await disclosure.click();
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => JSON.parse(sessionStorage.getItem("event-intake-fixture")!).doors?.time)).toBe("19:45");
+  await disclosure.click();
+  await page.getByLabel("Doors open", { exact: true }).fill("");
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => JSON.parse(sessionStorage.getItem("event-intake-fixture")!).doors)).toBeNull();
+});
+
+
+test("connected Details offers managed communities without selecting one and retains public identity in preview and Review @fixture", async ({ page }, testInfo) => {
+  await page.goto("/playwright/event-intake?source=details");
+  await expect(page.getByTestId("selected-identity")).toHaveCount(0);
+  const community = page.getByRole("combobox", { name: "Community", exact: true });
+  await community.focus();
+  await expect(page.getByText("Your communities", { exact: true })).toBeVisible();
+  await expect(page.getByRole("option")).toHaveCount(2);
+  await expect(page.getByRole("option").first()).toContainText("Owner");
+  await expect(page.getByRole("option").last()).toContainText("Staff");
+  await community.fill("Market");
+  await page.getByRole("option").filter({ hasText: "Night Market" }).click();
+  await expect(page.getByTestId("selected-identity")).toContainText("Night Market");
+  await expect(page.getByTestId("selected-identity").locator("img")).toBeVisible();
+  await expect(page.getByRole("complementary", { name: "Event preview" })).toContainText("Night Market");
+  await expect(page.getByRole("complementary", { name: "Event preview" }).locator("img")).toBeVisible();
+  await expect(page.getByText("night-market", { exact: true })).toHaveCount(0);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({ path: testInfo.outputPath("details-community-desktop.png"), fullPage: true });
+  await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Review" }).click();
+  await expect(page.locator('[data-step="Review"]')).toContainText("Night Market");
+  await expect(page.locator('[data-step="Review"] img')).toBeVisible();
+  await expect(page.locator('[data-step="Review"]')).not.toContainText("night-market");
+});
+
+test("explicit community entry immediately displays its title without a slug @fixture", async ({ page }) => {
+  await page.goto("/playwright/event-intake?revision=initial&community=playwright-afterglow-social");
+  await expect(page.getByTestId("selected-identity")).toContainText("Afterglow Social");
+  await expect(page.getByText("playwright-afterglow-social", { exact: true })).toHaveCount(0);
+});
+
+test("stored Details retain doors world label and optional source through save @fixture", async ({ page }, testInfo) => {
+  await page.addInitScript(() => sessionStorage.setItem("fixture-source-draft", JSON.stringify({ version: 1, fields: { communitySlug: "afterglow", title: "Harbor night", eventDate: "2027-10-15", timezone: "UTC", start: { time: "20:00" }, doors: { time: "19:45" }, worldSlug: "harbor-world", venueLabel: "Custom pier", sourceUrl: "https://example.com/original-post" } })));
+  await page.goto("/playwright/event-intake?source=details");
+  await expect(page.getByLabel("Doors open", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Where", { exact: true })).toHaveValue("Custom pier");
+  await expect(page.getByLabel("Original event post", { exact: true })).toBeHidden();
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => JSON.parse(sessionStorage.getItem("event-intake-revision-submission")!).patch)).toMatchObject({ worldSlug: "harbor-world", venueLabel: "Custom pier", sourceUrl: "https://example.com/original-post", doors: { time: "19:45" } });
+  await page.getByRole("button", { name: "Use manual location", exact: true }).click();
+  await expect(page.getByLabel("Where", { exact: true })).toHaveValue("Custom pier");
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => JSON.parse(sessionStorage.getItem("event-intake-revision-submission")!).patch.worldSlug)).toBeNull();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({ path: testInfo.outputPath("details-manual-mobile.png"), fullPage: true });
+  await page.getByRole("button", { name: "Change", exact: true }).last().click();
+  await page.getByRole("combobox", { name: "Where", exact: true }).fill("Harbor");
+  await page.getByRole("option").filter({ hasText: "Harbor World" }).click();
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => JSON.parse(sessionStorage.getItem("event-intake-revision-submission")!).patch.worldSlug)).toBe("harbor-world");
+});
+
+
+test("accepting imported doors expands the disclosure @fixture", async ({ page }) => {
+  await page.addInitScript(() => sessionStorage.setItem("fixture-source-draft", JSON.stringify({ version: 1, fields: { title: "Imported night", eventDate: "2027-10-15", timezone: "UTC", start: { time: "20:00" }, tentative: { eventDate: "2027-10-15", doors: { time: "19:30", dayOffset: 0 } } } })));
+  await page.goto("/playwright/event-intake?source=details");
+  await expect(page.getByLabel("Doors open", { exact: true })).toBeHidden();
+  await page.getByRole("button", { name: "Accept doors", exact: true }).click();
+  await expect(page.getByLabel("Doors open", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Doors open", { exact: true })).toHaveValue("2027-10-15T19:30");
+});

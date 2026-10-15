@@ -40,6 +40,32 @@ flowchart LR
     Owner --> Event
 ```
 
+## Details identity and optional fields
+
+Generic Add event starts without a selected community. A community entry link
+preselects that community. The empty picker offers owner and staff communities
+under Your communities; public search remains available for other groups.
+Selection, preview and Review share the retained display name and image. Public
+presentation refreshes without replacing known names with slugs. Staff editing
+keeps its existing community restriction.
+
+Where searches published worlds or accepts an explicit manual location. A saved
+world and custom venue label remain separate. The label appears in the selected
+world's Details. Switching to manual location clears only the represented world
+link. Unrelated published and protected world associations remain attached.
+
+The authorized staff readback adds `editableWorldAssociation` for the first
+projected public world. Its association ID stays in the parent command adapter.
+Explicit replacement or clearing excludes only that ID from the preserved
+snapshot. The mutation scopes preserved IDs to the current event and returns a
+new mapping for the explicitly selected world. Unrelated saves keep the live
+mapping. Public/API event projections contain no editor mapping or private slugs.
+
+Doors-open time starts collapsed when absent. Stored or accepted imported values
+expand it. Collapsing preserves the value; clearing the input removes it.
+Original event post is optional and starts in a collapsed disclosure, preserving
+the existing source URL and provenance rules.
+
 Timezones are selected from the runtime IANA list with city and regional aliases.
 Abbreviations are search terms, not stored fixed offsets. The compact selector
 opens a search popover. Opening, searching and cancelling leave the selected

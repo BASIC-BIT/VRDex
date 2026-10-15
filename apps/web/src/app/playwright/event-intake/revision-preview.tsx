@@ -27,6 +27,7 @@ function revisionFixture(correction: boolean, sourceMode?: string, staff = false
   let access = { canCorrect: !staff, canSuggest: false, canTakeOver: staff, canRemove: staff };
   const empty: unknown[] = [];
   const communities = [{ slug: "afterglow", title: "Afterglow", imageUrl: "/test-media/event-poster.png" }, { slug: "playwright-afterglow-social", title: "Afterglow Social", imageUrl: "/test-media/event-poster.png" }];
+  const publicCommunities = [...communities, { slug: "night-market", title: "Night Market", imageUrl: "/test-media/event-poster.png" }];
   const scrollCommunities = Array.from({ length: 8 }, (_, index) => ({ slug: `scroll-community-${index + 1}`, title: `Scroll Community ${index + 1}` }));
   let searchLoading = sourceMode === "search-loading";
   if (searchLoading && typeof window !== "undefined") window.addEventListener("release-community-search", () => { searchLoading = false; listeners.forEach(listener => listener()); }, { once: true });
@@ -47,12 +48,28 @@ function revisionFixture(correction: boolean, sourceMode?: string, staff = false
   const client = {
     setAuth(_fetch: unknown, onChange: (authenticated: boolean) => void) { onChange(true); },
     clearAuth() {},
+    async query(query: FunctionReference<"query">, args: { query?: string; profileType?: string; entityType?: string; slug?: string }) {
+      const name = getFunctionName(query);
+      if (name === "profiles:getPublicBySlug") {
+        const community = publicCommunities.find(item => item.slug === args.slug);
+        return community ? { slug: community.slug, displayName: community.title, avatarImageUrl: community.imageUrl, mediaKit: { primaryLogo: { imageUrl: community.imageUrl } } } : null;
+      }
+      if (name === "worlds:getPublicBySlug") return args.slug === "harbor-world" ? { slug: args.slug, displayName: "Harbor World", tags: [], heroImageUrl: "/test-media/event-poster.png" } : null;
+      if (name === "search:searchUniversal") {
+        if (searchLoading) await new Promise<void>(resolve => window.addEventListener("release-community-search", () => resolve(), { once: true }));
+        if (args.entityType === "world") return [{ entityType: "world", slug: "harbor-world", title: "Harbor World", routePath: "/harbor-world", imageUrl: "/test-media/event-poster.png" }];
+        const query = args.query?.toLowerCase() ?? "";
+        return (query.startsWith("scroll") ? scrollCommunities : publicCommunities).filter(item => `${item.title} ${item.slug}`.toLowerCase().includes(query)).map(item => ({ ...item, entityType: "profile", profileType: "community", routePath: `/${item.slug}`, logoImageUrl: "imageUrl" in item ? item.imageUrl : undefined }));
+      }
+      return null;
+    },
     watchQuery(query: FunctionReference<"query">, args?: { query?: string; profileType?: string }) {
       return {
         localQueryResult: () => {
           switch (getFunctionName(query)) {
             case "eventIntake:getEventIntakeDraft": return draft;
             case "accounts:viewer": return viewer;
+            case "events:listManagedCommunities": return communities.map((community, index) => ({ profileId: `community-${index}`, slug: community.slug, displayName: community.title, imageUrl: community.imageUrl, roleLabel: index === 0 ? "Owner" : "Staff" }));
             case "search:searchUniversal": {
               if (args?.profileType === "community") {
                 if (searchLoading) return undefined;
