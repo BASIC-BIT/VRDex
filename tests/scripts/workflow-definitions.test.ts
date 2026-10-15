@@ -170,34 +170,49 @@ describe("fork-aware preview workflows", () => {
 });
 
 
-describe("optional visual evidence contract", () => {
+describe("optional browser and visual evidence contract", () => {
   const workflow = parseYaml(readFileSync(".github/workflows/baseline-checks.yml", "utf8"));
-  it("keeps browser assertions automatic and selects both comparison jobs explicitly", () => {
+  it("selects all browser consumers and Storybook build without changing normal trigger or deploy controls", () => {
     assert.deepEqual(workflow.on.pull_request.types, ["opened", "synchronize", "reopened", "ready_for_review"]);
     assert.equal(workflow.on.workflow_dispatch, undefined);
-    for (const name of ["playwright-public-preview", "storybook-component-preview"]) {
+    assert.equal(workflow.jobs["visual-selection"].outputs.browsers, "${{ steps.selection.outputs.browsers }}");
+    assert.equal(workflow.jobs["visual-selection"].outputs.visuals, "${{ steps.selection.outputs.visuals }}");
+    for (const name of ["playwright-public-smoke", "playwright-data-flow", "playwright-hosted-data-flow", "playwright-public-preview", "storybook-component-preview", "build-storybook"]) {
       const job = workflow.jobs[name];
-      assert.equal(job.if, "github.event_name == 'pull_request'");
-      assert.ok(job.needs.includes("visual-selection"));
-      assert.equal(job.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS, "${{ needs.visual-selection.outputs.selected }}");
+      assert.ok(job.needs.includes("visual-selection"), name);
+      assert.ok(job.if.includes("needs.visual-selection.outputs.browsers == 'true'"), name);
+      assert.ok(job.if.includes("github.event_name == 'pull_request'"), name);
+      assert.equal(job["continue-on-error"], undefined);
+    }
+    for (const name of ["playwright-public-smoke", "playwright-data-flow", "playwright-hosted-data-flow", "playwright-public-preview", "storybook-component-preview"]) {
+      assert.equal(workflow.jobs[name].env?.PLAYWRIGHT_CAPTURE_SCREENSHOTS, "${{ needs.visual-selection.outputs.visuals }}");
     }
     for (const name of ["playwright-image-diff", "storybook-image-diff"]) {
       const job = workflow.jobs[name];
-      assert.ok(job.needs.includes("visual-selection"));
-      assert.equal(job.if, "github.event_name == 'pull_request' && needs.visual-selection.outputs.selected == 'true'");
+      assert.equal(job.if, "github.event_name == 'pull_request' && needs.visual-selection.outputs.visuals == 'true'");
       assert.equal(job["continue-on-error"], undefined);
     }
-    assert.equal(workflow.jobs["playwright-public-smoke"].if, "github.event_name == 'pull_request'");
-    assert.equal(workflow.jobs["playwright-data-flow"].if, "github.event_name == 'pull_request'");
-    assert.ok(workflow.jobs["pr-verification-report"].needs.includes("playwright-public-smoke"));
+    for (const name of ["lint-web", "verify-docs", "verify-api-mcp", "typecheck-web", "typecheck-backend", "verify-backend-local", "restream-local-checks", "build-web", "build-storybook"]) {
+      assert.ok(workflow.jobs["pr-verification-report"].needs.includes(name), name);
+      if (name !== "build-storybook") {
+        assert.equal(workflow.jobs[name].if, undefined, name);
+        assert.ok(!(workflow.jobs[name].needs ?? []).includes("visual-selection"), name);
+      }
+    }
     assert.equal(workflow.jobs["deploy-convex-production"].if, "github.event_name == 'push' && github.ref == 'refs/heads/main'");
+    assert.deepEqual(workflow.jobs["deploy-convex-production"].needs, ["build-web"]);
+    assert.ok(workflow.jobs["playwright-hosted-data-flow"].if.includes("head.repo.fork == false"));
+    const account = workflow.jobs["playwright-hosted-data-flow"].steps.find((step: { name?: string }) => step.name === "Run signed-in account assertions and selected captures");
+    assert.equal(account.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS, "${{ needs.visual-selection.outputs.visuals }}");
   });
-  it("label removal cannot execute code from a pull request", () => {
+  it("either selector removal uses trusted inline code and cannot launch the app pipeline", () => {
     const optOut = parseYaml(readFileSync(".github/workflows/visual-evidence-opt-out.yml", "utf8"));
     assert.deepEqual(optOut.on.pull_request_target.types, ["unlabeled"]);
     const job = optOut.jobs["invalidate-evidence"];
+    assert.ok(job.if.includes("ci:browsers")); assert.ok(job.if.includes("ci:visuals"));
     assert.equal(job.steps.length, 1);
     assert.equal(job.steps[0].uses, "actions/github-script@v9");
     assert.equal(job.concurrency.group, workflow.jobs["pr-verification-report"].concurrency.group);
+    assert.doesNotMatch(JSON.stringify(job), /actions\/checkout|workflow_dispatch|createWorkflowDispatch/);
   });
 });
