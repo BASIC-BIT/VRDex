@@ -37,6 +37,7 @@ for (const editor of [
     }
     for (const step of ["Details", "Lineup", "Review"]) {
       await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: step }).click();
+      await expect(page.locator(`[data-editor-step="${step}"]`)).toBeVisible();
       await waitForVisualReady(page);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
       await expect(page).toHaveScreenshot(`${editor.name}-${step.toLowerCase()}.png`, {
@@ -70,6 +71,7 @@ for (const mode of ["create", "resumed", "correction", "staff-create", "staff-ed
       await capture(page, info.outputPath(`${mode}-${color}-details.png`));
       for (const step of ["Lineup", "Review"]) {
         await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: step }).click();
+        await expect(page.locator(`[data-step="${step}"], [data-editor-step="${step}"]`)).toBeVisible();
         await capture(page, info.outputPath(`${mode}-${color}-${step.toLowerCase()}.png`));
       }
     });
