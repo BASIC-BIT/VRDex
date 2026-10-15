@@ -1,5 +1,6 @@
 import type { PlaybackStream } from "../../../../../convex/_eventPlayback";
-import { resolveEventLocalTime, selectEventLocalTime, type EventIntakePatch, type EventIntakeLocalTime } from "../../../../../packages/api-contracts/src/event-intake";
+import { resolveEventLocalTime, type EventIntakePatch, type EventIntakeLocalTime } from "../../../../../packages/api-contracts/src/event-intake";
+import { readIntakeEditorClock } from "./event-editor-time";
 import type { LineupTimingRow } from "./event-lineup-timing";
 import { formatZonedDateTimeInput } from "./zoned-date-time";
 
@@ -49,8 +50,8 @@ export function applyStaffLineupTimings(rows: readonly SlotFormRow[], timings: r
 }
 
 export function readIntakeInstant(fields: EventIntakePatch, local: EventIntakeLocalTime | null | undefined): number | undefined {
-  if (fields.timeTba || !fields.eventDate || !fields.timezone || !local) return undefined;
-  try { return selectEventLocalTime(fields.eventDate, local, fields.timezone); } catch { return undefined; }
+  const clock = readIntakeEditorClock({ fields, local });
+  return clock.kind === "resolved" ? clock.instant : undefined;
 }
 
 export function readIntakeLineupTimings(fields: EventIntakePatch): LineupTimingRow[] {
