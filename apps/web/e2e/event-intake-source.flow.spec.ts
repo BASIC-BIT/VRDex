@@ -540,6 +540,7 @@ test("Time TBA restores only surviving lineup keys and reload discards the backu
   await page.getByLabel("Time TBA", { exact: true }).check();
   await step(page, "Lineup");
   await page.getByRole("button", { name: "Remove slot", exact: true }).first().click();
+  await page.getByRole("dialog").getByRole("button", { name: "Remove slot", exact: true }).click();
   await page.getByRole("button", { name: "Add slot at position 2", exact: true }).click();
   await page.getByRole("button", { name: "Add performer", exact: true }).click();
   await manualPerformer(page.locator("[data-performer-field]").nth(1), "New performer");
@@ -762,6 +763,7 @@ for (const loadedTba of [false, true]) {
     await page.getByLabel("Time TBA", { exact: true }).check();
     await step(page, "Lineup");
     await page.getByRole("button", { name: "Remove slot", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Remove slot", exact: true }).click();
     await page.getByRole("button", { name: "Add performer", exact: true }).click();
     await manualPerformer(page.locator("[data-performer-field]").nth(0), "New guest");
     await step(page, "Details");

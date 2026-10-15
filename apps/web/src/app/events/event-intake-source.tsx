@@ -30,7 +30,8 @@ export function EventIntakeSuggestions({ fields, onAccept, lineup = false }: { f
     {evidence?.length ? <details><summary className="cursor-pointer text-sm">Source evidence</summary><ul className="mt-2 grid gap-2 text-sm">{evidence.map((row, index) => <li key={index} className="break-words">{labels[row.fieldPath.replace(/^event\./, "")] ?? row.fieldPath}: {row.excerpt} ({row.assessment}{` · ${row.origin}`})</li>)}</ul></details> : null}
   </>;
 }
-export function EventIntakeSource({ fields, revision, onChange, action, busy, setBusy, setMessage, initialArtworkSourceId, onPreview, onExtract }: {
+export function EventIntakeSource({ fields, revision, onChange, onSaved, action, busy, setBusy, setMessage, initialArtworkSourceId, onPreview, onExtract }: {
+  onSaved?: (submitted: EventIntakePatch, saved: EventIntakePatch) => void;
   fields: EventIntakePatch; revision: number; onChange: (fields: EventIntakePatch) => void; action: IntakeSourceAction;
   busy: boolean; setBusy: (busy: boolean) => void; setMessage: (message: string) => void; initialArtworkSourceId?: string;
   onPreview: (url: string | undefined) => void; onExtract: () => void;
@@ -56,11 +57,11 @@ export function EventIntakeSource({ fields, revision, onChange, action, busy, se
     let current = fields;
     try {
       const result = await action(kind, current, revision, file, staged => {
-        current = staged; onChange(staged);
+        if (onSaved) onSaved(current, staged); else onChange(staged); current = staged;
         if (kind === "upload") setPendingCompletion(staged.posterSourceId ?? undefined);
       });
       setPendingCompletion(undefined);
-      if (result.fields) { current = result.fields; onChange(current); }
+      if (result.fields) { if (onSaved) onSaved(current, result.fields); else onChange(result.fields); current = result.fields; }
       if (result.artworkSourceId !== undefined) setArtworkSourceId(result.artworkSourceId);
       if (kind === "extract" && !current.questions?.some(question => question.startsWith("source: "))) onExtract();
     } catch (error) {

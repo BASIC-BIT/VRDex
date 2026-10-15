@@ -132,6 +132,7 @@ test("unrepresentable Starts update keeps every canonical field intact", async (
 test("removed TBA rows never return on restoration", async ({ page }) => {
   await openIntake(page); await page.getByLabel("Time TBA", { exact: true }).check();
   await nav(page, "Lineup"); await page.getByRole("button", { name: "Remove slot", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Remove slot", exact: true }).click();
   await nav(page, "Details"); await page.getByLabel("Time TBA", { exact: true }).uncheck();
   expect((await saveIntake(page)).lineup).toEqual([]);
 });

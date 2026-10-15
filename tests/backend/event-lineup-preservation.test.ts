@@ -366,3 +366,17 @@ test("new browser staff creation persists manual and linked billing alongside ti
   assert.equal(editor.slots[0]!.startAt, startAt);
   assert.equal((await t.run(ctx => ctx.db.query("eventParticipants").withIndex("by_eventId", q => q.eq("eventId", created.eventId)).collect()))[0]!.confirmationState, "confirmed");
 });
+
+test("staff creation retained in the editor updates the same event and preserves its associations", async () => {
+  const { owner, t } = await fixture();
+  const lineup = [{ clientKey: "retained", position: 0, performerLabel: "Guest", personSlug: "guest", startAt, endAt: startAt + 3_600_000 }];
+  const created = await owner.mutation(api.events.createCommunityEvent, { title: "Retained identity", communitySlug: "club", startAt, timezone: "UTC", lineup, published: true });
+  const loaded = (await owner.query(api.events.getEditableBySlug, { slug: created.slug }))!;
+  const result = await owner.mutation(api.events.updateCommunityEvent, { currentSlug: created.slug, title: "Newer edit", communitySlug: "club", startAt, timezone: "UTC", lineup, preserveLineupConfirmation: true, preservedSlotAssociationIds: loaded.preservedSlotAssociationIds, preservedParticipantAssociationIds: loaded.preservedParticipantAssociationIds, preservedWorldAssociationIds: loaded.preservedWorldAssociationIds });
+  assert.equal(result.eventId, created.eventId);
+  const after = (await owner.query(api.events.getEditableBySlug, { slug: result.slug }))!;
+  assert.equal(after.title, "Newer edit");
+  assert.equal(after.slots[0]!.clientKey, "retained");
+  assert.equal(after.slots[0]!.playbackKey, loaded.slots[0]!.playbackKey);
+  assert.equal((await t.run(ctx => ctx.db.query("events").collect())).filter(event => event._id === created.eventId).length, 1);
+});

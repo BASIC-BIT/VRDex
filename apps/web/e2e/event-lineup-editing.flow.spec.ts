@@ -48,6 +48,7 @@ for (const editor of ["staff", "intake"]) {
     } else { expect(payload.lineup[2].start.time).toBe("21:00"); expect(payload.lineup[1].performerLabel).toBe("Inserted"); }
     await nav(page, "Lineup");
     await rows.nth(1).getByRole("button", { name: "Remove slot", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Remove slot", exact: true }).click();
     await expect(rows.nth(1)).toContainText("20:45");
     await page.getByRole("button", { name: "Add slot at position 1", exact: true }).click();
     await page.getByRole("button", { name: "Cancel", exact: true }).click();
@@ -88,6 +89,7 @@ test("Time TBA removal and reset never restore deleted intake rows @fixture", as
   await page.getByRole("button", { name: "Add slot at position 2", exact: true }).click();
   await page.getByRole("button", { name: "Add performer", exact: true }).click();
   await page.locator('[data-lineup-row]').first().getByRole("button", { name: "Remove slot", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Remove slot", exact: true }).click();
   await nav(page, "Details"); await page.getByLabel("Time TBA", { exact: true }).uncheck(); await nav(page, "Lineup");
   await expect(page.locator('[data-lineup-row]')).toHaveCount(1);
   await expect(page.locator('[data-lineup-row]').getByRole("combobox", { name: "Performer", exact: true })).toHaveValue("");
@@ -163,6 +165,7 @@ test("canonical Time TBA rows can be removed without returning on toggle and res
   await page.getByRole("button", { name: "Add slot at position 2", exact: true }).click();
   await page.getByRole("button", { name: "Add performer", exact: true }).click();
   await page.locator('[data-lineup-row]').first().getByRole("button", { name: "Remove slot", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Remove slot", exact: true }).click();
   await nav(page, "Details"); await page.getByLabel("Time TBA", { exact: true }).uncheck(); await nav(page, "Lineup");
   await expect(page.locator('[data-lineup-row]')).toHaveCount(1);
   await page.getByRole("button", { name: "Reset lineup", exact: true }).click();
@@ -206,6 +209,7 @@ for (const insert of [false, true]) test(`legacy deferred save retains surviving
   await expect.poll(() => page.evaluate(() => localStorage.getItem("event-lineup-fixture-v1-submission"))).not.toBeNull();
   await nav(page, "Lineup");
   await page.locator('[data-lineup-row]').first().getByRole("button", { name: "Remove slot", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Remove slot", exact: true }).click();
   if (insert) {
     await page.getByRole("button", { name: "Add slot at position 1", exact: true }).click();
     await page.getByRole("button", { name: "Insert slot", exact: true }).click();
@@ -258,6 +262,7 @@ test("legacy fixture allocates unique identities across repeated inserted saves 
   expect(new Set(nextIds).size).toBe(3);
   expect(nextIds[0]).toBe(firstIds[0]); expect(nextIds[2]).toBe(firstIds[1]);
   await save();
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1")!).slots.map((slot: { playbackKey: string }) => slot.playbackKey))).toEqual(nextIds);
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!).lineup.map((row: { clientKey: string }) => row.clientKey))).toEqual(await page.locator("[data-lineup-row]").evaluateAll(rows => rows.map(row => row.getAttribute("data-lineup-row"))));
 });
 
@@ -285,6 +290,7 @@ test("canonical scheduling requests surviving-match preservation on every save @
   await save();
   await nav(page, "Lineup");
   await page.locator('[data-lineup-row]').first().getByRole("button", { name: "Remove slot", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Remove slot", exact: true }).click();
   await save();
   await nav(page, "Details"); await page.getByLabel("Starts", { exact: true }).fill("2027-10-15T20:15");
   await save(); await save();
@@ -316,7 +322,7 @@ for (const editor of ["staff", "intake"]) test(`${editor} retains the last start
   }
 });
 
-for (const editor of ["staff", "intake"]) test(`${editor} rejected and cancelled durations restore committed timing @fixture`, async ({ page }, testInfo) => {
+for (const editor of ["staff", "intake"]) test(`${editor} rejected durations remain pending until cancellation restores committed timing @fixture`, async ({ page }, testInfo) => {
   if (editor === "staff") await canonicalStaff(page);
   else await intake(page, { lineup: [{ clientKey: "a", position: 0, performerLabel: "A", start: { time: "20:00" }, end: { time: "21:00" } }] });
   await nav(page, "Lineup");
@@ -324,8 +330,11 @@ for (const editor of ["staff", "intake"]) test(`${editor} rejected and cancelled
   const committed = editor === "staff" ? String(3_620_333 / 60_000) : "60";
   for (const invalid of ["45.5", "0", "abc"]) {
     await duration.fill(invalid); await duration.press("Enter");
-    await expect(duration).toHaveValue(committed);
-    await duration.fill(invalid); await duration.press("Tab");
+    await expect(duration).toHaveValue(invalid);
+    await duration.press("Tab");
+    await expect(duration).toHaveValue(invalid);
+    await expect(page.locator("form[data-event-dirty]")).toHaveAttribute("data-event-dirty", "true");
+    await duration.press("Escape");
     await expect(duration).toHaveValue(committed);
   }
   await duration.fill("45"); await duration.press("Escape"); await duration.press("Tab");

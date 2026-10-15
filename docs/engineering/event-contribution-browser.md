@@ -3,7 +3,8 @@
 The browser intake at `/events/new` uses `eventIntake.saveEventIntakeDraft`,
 `getEventIntakeDraft`, and `publishEventIntake`. The `community` query parameter
 preselects a community. Saving sets a resumable `draft` URL and stays on the form.
-Publishing replaces the route with the command's canonical `eventPath`.
+Publishing returns the command's canonical `eventPath`. The form records the successful
+submitted snapshot before deciding whether to leave.
 
 ```mermaid
 flowchart LR
@@ -297,3 +298,56 @@ publication, corrections, reports, and takeover.
 The [integrated checkpoint](../testing/event-intake-checkpoint.md) records desktop/mobile
 fixture screenshots, exact copy awaiting approval and the connected hosted journey
 that remains unverified. Fixed public fixtures do not prove write persistence.
+
+## Unsaved edits and removal
+
+Both editors compare command-relevant authored fields with the last successful
+submitted snapshot. Profile images, search queries, disclosures and display-zone
+conversion do not change that baseline. Pending invalid clocks, durations and
+name overrides count as edits until committed or canceled. Default timezone
+initialization on an untouched new draft remains clean.
+
+A save records only what it submitted. Later local fields survive the response
+and remain dirty. Upload and extraction responses merge unchanged fields against
+the submitted source state. Newer source text does not regain stale suggestions.
+Pending clock context and lineup buffers survive source completion.
+
+`Remove slot` opens a native confirmation dialog for timed and untimed rows.
+Cancel preserves the row and schedule. Confirmation invokes the keyed removal
+and timing cascade once. Deleted keys cannot return from a Time TBA backup.
+
+Leaving a dirty editor asks `Leave without saving?`. Changing wizard stages and
+closing the retained import dialog keep the form mounted and do not ask.
+Correction-panel close is abandonment. Native refresh, close and document exit
+use `beforeunload` while dirty; browser activation and platform rules determine
+whether that dialog appears. It cannot protect against every browser or process
+termination.
+
+Cancelable same-document traversals use the public Navigation API. The public
+history fallback restores a known indexed entry before asking and replays an
+approved traversal once. Unknown history entries are currently allowed through
+without guessing their direction. Complete fallback indexing remains pending
+approval in the [history indexing proposal](../testing/event-editor-history-indexing-proposal.md).
+Browser noncancelable traversals must remain an escape route.
+
+The early capture dispatcher uses the public
+[instrumentation-client hook](https://nextjs.org/docs/app/api-reference/file-conventions/instrumentation-client)
+before router hydration. A later editor-only listener lost its mounted form when
+the earlier router listener handled traversal first. The inert dispatcher stays
+installed for the page lifetime; its editor delegate and dirty closures detach
+on unmount. A mistake here can regress app-wide navigation or leave stale blocking.
+The [HTML navigation standard](https://html.spec.whatwg.org/multipage/nav-history-apis.html)
+describes the browser cancellation limits.
+
+If publication succeeds while newer edits exist, Stay retains the published
+identity. The next contributor submission uses the existing correction command
+and its revision and field restrictions. Forbidden changes fail visibly rather
+than being dropped. Staff creation retains its slug and reads the authorized
+association snapshot before its next update. Neither path creates a second event.
+A failed command leaves the saved baseline unchanged.
+
+The prior [Square discard journey](https://mobbin.com/flows/f142a720-3023-4b5f-9ccb-d6f5d5b04398)
+supports placing the discard decision at abandonment. Its three inspected
+screens show editor, confirmation and overview; they do not prove persistence.
+This editor uses native confirmation. Separate profile-editor progressive
+disclosure remains deferred.

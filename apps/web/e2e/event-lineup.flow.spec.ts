@@ -84,7 +84,8 @@ test("staff editor preserves Time TBA and artwork while correcting or removing c
   await page.goto("/playwright/event-lineup?editor");
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Details" }).click();
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Lineup" }).click();
-  await page.getByRole("button", { name: "Remove performer", exact: true }).click();
+  await page.getByRole("button", { name: "Remove slot", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Remove slot", exact: true }).click();
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Review" }).click();
   await page.getByRole("button", { name: "Save changes", exact: true }).click();
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!).lineup)).toEqual([]);

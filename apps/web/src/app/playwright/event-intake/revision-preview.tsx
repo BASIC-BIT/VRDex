@@ -50,6 +50,7 @@ function revisionFixture(correction: boolean, sourceMode?: string, staff = false
     clearAuth() {},
     async query(query: FunctionReference<"query">, args: { query?: string; profileType?: string; entityType?: string; slug?: string }) {
       const name = getFunctionName(query);
+      if (name === "eventCorrections:getOwnContributedEvent") return event;
       if (name === "profiles:lookupPeople") return people.filter(person => person.title.toLowerCase().includes(args.query?.toLowerCase() ?? "")).map(person => ({ slug: person.slug, displayName: person.title, avatarImageUrl: person.imageUrl, profilePath: `/${person.slug}`, roleTags: [], tags: [] }));
       if (name === "profiles:getPublicBySlug") {
         if (args.profileType === "person") {
@@ -100,8 +101,10 @@ function revisionFixture(correction: boolean, sourceMode?: string, staff = false
       sessionStorage.setItem("event-intake-review-command", getFunctionName(action));
       if (args.expectedVersion !== version) throw new ConvexError({ code: "VERSION_CONFLICT" });
       if (sourceMode === "duplicates" && !fields.duplicateAcknowledgements?.includes("similar-event")) throw new ConvexError({ code: "NEAR_DUPLICATE", choices: [{ eventId: "similar-event", title: "Another Afterglow Night", eventPath: "/playwright-afterglow-social/events/playwright-afterglow-harbor-sessions" }] });
+      sessionStorage.setItem("fixture-publication-count", String(Number(sessionStorage.getItem("fixture-publication-count") ?? "0") + 1));
+      if (sessionStorage.getItem("fixture-publication-defer") === "true") await new Promise<void>(resolve => window.addEventListener("release-publication", () => resolve(), { once: true }));
       sessionStorage.setItem("fixture-published", JSON.stringify(fields));
-      return { eventPath: "/playwright-afterglow-social/events/playwright-afterglow-harbor-sessions" };
+      return { eventId: "fixture-event", eventPath: "/playwright-afterglow-social/events/playwright-afterglow-harbor-sessions" };
     },
     async mutation(mutation: FunctionReference<"mutation">, args: Record<string, unknown>) {
       const name = getFunctionName(mutation);
@@ -117,7 +120,9 @@ function revisionFixture(correction: boolean, sourceMode?: string, staff = false
       if (name === "eventCorrections:removeContributedEvent") return true;
       const expected = name === "eventIntake:saveEventIntakeDraft" ? args.expectedVersion : args.expectedUpdatedAt;
       if (expected !== version) throw new ConvexError({ code: "VERSION_CONFLICT" });
+      if (sessionStorage.getItem("fixture-save-fail") === "true") throw new Error("Fixture save failed");
       const patch = args.patch as EventIntakePatch;
+      if (name === "eventCorrections:updateOwnContributedEvent" && Object.keys(patch).some(key => !["title", "eventDate", "timeTba", "timezone", "start", "end", "doors", "venueLabel", "worldSlug", "sourceUrl", "summary", "lineup"].includes(key))) throw new ConvexError({ code: "PATCH_FIELD" });
       refresh(patch);
       return name === "eventIntake:saveEventIntakeDraft" ? { draftId: draft._id, version } : { eventId: event.eventId, updatedAt: version };
     },

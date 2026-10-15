@@ -1,12 +1,14 @@
 "use client";
+import { authoredSnapshot, hasUnsavedEventChanges, mergeSavedEventFields } from "@/lib/event-editor-persistence";
+import { EventEditorPendingContext, useEventEditorPending, useEventEditorLeaveGuard, usePendingEventInput } from "./use-event-editor-leave-guard";
 import { formatLineupTimeRange } from "@/lib/calendar/event-lineup-display";
-import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Upload } from "lucide-react";
 import { EventIntakeDialog } from "./event-intake-dialog";
 import { ConvexError } from "convex/values";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useAction, useConvexAuth, useMutation, useQuery } from "convex/react";
+import { useAction, useConvex, useConvexAuth, useMutation, useQuery } from "convex/react";
 import { api } from "@convex-generated-api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
 import { EventIntakePatchSchema, selectEventLocalTime, type EventIntakePatch as EventIntakeFields, type EventIntakeLocalTime } from "../../../../../packages/api-contracts/src/event-intake";
@@ -28,7 +30,7 @@ import { acceptIntakeSuggestion, rebaseIntakeTime as rebaseTime, rebaseIntakeTim
 import { EventPerformerField, useEventPerformerEditor } from "./event-performer-field";
 import { applyIntakeLineupTimings, intakeLocalFromInstant, readIntakeInstant, readIntakeLineupTimings } from "@/lib/calendar/event-lineup-adapters";
 import { changeLineupDuration, generateLineupTimings, getLineupEndAt, getLineupEndConflict, insertLineupSlot, removeLineupSlot, shiftLineupStart, type LineupEditResult, type LineupTimingRow } from "@/lib/calendar/event-lineup-timing";
-import { EventLineupSetup, EventLineupInsert, EventSlotDuration, EventLineupReset, EventLineupConflict } from "./event-lineup-controls";
+import { EventSlotRemove, EventLineupSetup, EventLineupInsert, EventSlotDuration, EventLineupReset, EventLineupConflict } from "./event-lineup-controls";
 import { projectEditorTime, readIntakeEditorClock, resolveEditorTime } from "@/lib/calendar/event-editor-time";
 import { eventTimezoneLabel } from "@/lib/event-timezones";
 import { BACKEND_ERROR_COPY } from "@/lib/error-copy";
@@ -45,7 +47,8 @@ export function IntakeTime({ label, name = label, occurrenceLabel = `${label} oc
   const projected = clock.kind === "resolved" ? projectEditorTime({ instant: clock.instant, timezone: displayTimezone }) : { value: formatIntakeDateTimeInput({ eventDate: date, local: value }), occurrence: value?.occurrence };
   const source = JSON.stringify([date, timezone, value, displayTimezone]);
   const [edit, setEdit] = useState<{ source: string; value: string; occurrence?: EventIntakeLocalTime["occurrence"] } | null>(null);
-  const pending = edit?.source === source ? edit : null;
+  const pending = edit;
+  usePendingEventInput(pending !== null);
   const raw = pending?.value ?? projected.value;
   const occurrence = pending ? pending.occurrence : projected.occurrence;
   const resolution = resolveEditorTime({ value: raw, timezone: zone ?? "", occurrence });
@@ -84,10 +87,22 @@ function untimed(fields: EventIntakeFields): EventIntakeFields {
 function clearOccurrence(local?: EventIntakeLocalTime | null) {
   return local ? { ...local, occurrence: undefined } : local;
 }
-export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, correction = false, onSave, onPublish, onSource, initialArtworkSourceId, heading, savedTimezonePreference, newDraft = false }: { savedTimezonePreference?: string | null; newDraft?: boolean; heading?: ReactNode; initialFields: EventIntakeFields; initialRevision?: number; correction?: boolean; onSource?: IntakeSourceAction; initialArtworkSourceId?: string; onSave?: (fields: EventIntakeFields, revision: number) => Promise<void>; onPublish: (fields: EventIntakeFields, revision: number) => Promise<void> }) {
+export type EventSubmitCompletion = { kind: "saved" } | { kind: "published"; eventId: Id<"events">; eventPath: string };
+
+export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, correction = false, onSave, onPublish, onSource, initialArtworkSourceId, heading, savedTimezonePreference, newDraft = false, onDone, onGuardChange }: { onDone?: () => void; onGuardChange?: (requestLeave: (navigate: () => void) => boolean) => void; savedTimezonePreference?: string | null; newDraft?: boolean; heading?: ReactNode; initialFields: EventIntakeFields; initialRevision?: number; correction?: boolean; onSource?: IntakeSourceAction; initialArtworkSourceId?: string; onSave?: (fields: EventIntakeFields, revision: number) => Promise<void>; onPublish: (fields: EventIntakeFields, revision: number) => Promise<EventSubmitCompletion> }) {
+  const router = useRouter();
   const form = useRef<HTMLFormElement>(null);
   const performers = useEventPerformerEditor();
   const [fields, setFields] = useState(() => initialFields.timeTba ? untimed(initialFields) : initialFields);
+  const pendingInputs = useEventEditorPending();
+  const [persisted, setPersisted] = useState(() => authoredSnapshot(initialFields.timeTba ? untimed(initialFields) : initialFields));
+  const pendingRef = useRef(pendingInputs.pending);
+  useLayoutEffect(() => { pendingRef.current = pendingInputs.pending; }, [pendingInputs.pending]);
+  const dirty = hasUnsavedEventChanges({ current: authoredSnapshot(fields), persisted, pendingInput: pendingInputs.pending });
+  const { requestLeave } = useEventEditorLeaveGuard({ dirty });
+  const [completion, setCompletion] = useState<EventSubmitCompletion>();
+  useEffect(() => { if (completion) { setCompletion(undefined); if (completion.kind === "saved" && !onDone) return; requestLeave(() => { if (completion.kind === "published") router.replace(completion.eventPath); else onDone?.(); }); } }, [completion, requestLeave, router, onDone]);
+  useEffect(() => { onGuardChange?.(requestLeave); }, [onGuardChange, requestLeave]);
   const { isAuthenticated } = useConvexAuth();
   const managed = useQuery(api.events.listManagedCommunities, isAuthenticated ? {} : "skip");
   const shortcuts: EventIdentityOption[] = (managed ?? []).map(item => ({ kind: "community", slug: item.slug, title: item.displayName, href: `/${item.slug}`, imageUrl: item.imageUrl, imageKind: "logo", context: item.roleLabel }));
@@ -105,7 +120,13 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
     editingTimezoneInitialized.current = true;
     const timezone = resolveEventTimezoneDefault({ savedPreference: savedTimezonePreference, browserTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone });
     setEditingTimezone(timezone);
-    if (!timezoneAuthored.current) setFields(current => ({ ...current, timezone }));
+    if (!timezoneAuthored.current) {
+      setFields(current => {
+        const next = { ...current, timezone };
+        setPersisted(previous => previous === authoredSnapshot(current) ? authoredSnapshot(next) : previous);
+        return next;
+      });
+    }
   }, [savedTimezonePreference, newDraft]);
   const timedBackup = useRef<EventIntakeFields | null>(null);
   const tbaDateEdited = useRef(false);
@@ -265,6 +286,8 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
     if (busy) return;
     setBusy(true); setMessage("");
     try {
+      const pendingInput = form.current?.querySelector<HTMLInputElement>('[data-pending-event-input="true"]');
+      if (pendingInput) { setActiveStep(pendingInput.closest('[data-step="Lineup"]') ? "Lineup" : "Details"); requestAnimationFrame(() => { const detail = pendingInput.closest("details"); if (detail) detail.open = true; pendingInput.focus(); pendingInput.reportValidity(); }); return; }
       const invalidTime = Array.from(form.current?.querySelectorAll<HTMLInputElement>("[data-intake-time]") ?? []).find(input => input.validity.customError);
       if (invalidTime) {
         reveal(invalidTime.closest('[data-step="Lineup"]') ? "Lineup" : "Details", invalidTime.validationMessage.startsWith("Ambiguous") ? `[aria-label="${invalidTime.name} occurrence"]` : `[name="${invalidTime.name}"]`);
@@ -299,8 +322,11 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
         if (conflict) { reveal("Lineup", '[data-lineup-conflict] button, [data-lineup-row] [data-intake-time]'); setBusy(false); return; }
         const derivedEnd = fields.end ? undefined : getLineupEndAt(timings);
         const published = derivedEnd === undefined ? fields : { ...fields, end: intakeLocalFromInstant(fields, derivedEnd) };
-        await onPublish(fields.timeTba ? untimed(published) : published, revision);
-      } else { await onSave?.(fields.timeTba ? untimed(fields) : fields, revision); timezoneAuthored.current = true; setMessage("Draft saved"); }
+        const submitted = fields;
+        const result = await onPublish(fields.timeTba ? untimed(published) : published, revision);
+        setPersisted(authoredSnapshot(submitted));
+        setCompletion(result);
+      } else { await onSave?.(fields.timeTba ? untimed(fields) : fields, revision); setPersisted(authoredSnapshot(fields)); timezoneAuthored.current = true; setMessage("Draft saved"); }
     } catch (error) {
       if (error instanceof ConvexError && typeof error.data === "object" && error.data && "code" in error.data) {
         if (error.data.code === "NEAR_DUPLICATE" && "choices" in error.data) { setActiveStep("Review"); setDuplicates(error.data.choices as typeof duplicates); setMessage("Check similar events before publishing."); }
@@ -315,7 +341,7 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
   }
   let timezoneInstant: number | undefined;
   try { if (!fields.timeTba && fields.eventDate && fields.start && fields.timezone) timezoneInstant = selectEventLocalTime(fields.eventDate, fields.start, fields.timezone); } catch { /* Ambiguous or incomplete time has no offset yet. */ }
-  return <><form ref={form} className="grid gap-6" onChangeCapture={event => {
+  return <EventEditorPendingContext.Provider value={pendingInputs.register}><form ref={form} data-event-dirty={dirty} className="grid gap-6" onChangeCapture={event => {
     const target = event.target;
     if (target instanceof HTMLElement && target.closest("[data-intake-time]")) timezoneAuthored.current = true;
   }} onInvalidCapture={event => { event.preventDefault(); const target = event.target as HTMLElement; if (target !== form.current?.querySelector("input:invalid, select:invalid, textarea:invalid")) return; const panel = target.closest<HTMLElement>("[data-step]"); if (panel) { event.preventDefault(); setActiveStep(panel.dataset.step as EventEditorStep); requestAnimationFrame(() => { const disclosure = target.closest("details"); if (disclosure) { disclosure.open = true; setEndOpen(true); } if (target instanceof HTMLInputElement && target.validationMessage.startsWith("Ambiguous")) {
@@ -326,7 +352,7 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
       if (invalid) reveal(invalid.closest('[data-step="Lineup"]') ? "Lineup" : "Details", `[name="${invalid.name}"]`);
       else setImportOpen(true);
     }}><Upload aria-hidden="true" className="size-4" />Import poster or text</Button> : undefined} steps={steps} activeStep={activeStep} onSelect={setActiveStep} preview={<EventEditorPreview editingTimezone={editingTimezone} fields={{ ...fields, lineup: fields.lineup?.map(row => ({ ...row, performerLabel: row.performerLabel || performers.person(row.personSlug)?.title })) }} artwork={artwork} community={community} world={world} />}>
-    <fieldset disabled={busy} className="grid min-w-0 gap-6">
+    <fieldset className="grid min-w-0 gap-6">
     <div hidden={activeStep !== "Details"} data-step="Details"><section className="grid gap-4"><h2 className="text-xl font-semibold">Details</h2>{onSource ? <EventIntakeSuggestions fields={fields} onAccept={acceptSuggestion} /> : null}
     {!correction ? <div className="grid gap-2"><span className="text-sm font-medium">Community</span><EventIdentityPicker kind="community" selectedSlug={fields.communitySlug} selectedOption={community} shortcuts={shortcuts} onSelect={option => { setSelectedCommunity(option); set("communitySlug", option.slug); }} onClear={() => { setSelectedCommunity(undefined); set("communitySlug", null); }} /></div> : null}
     <Field>Event title<Input name="title" value={fields.title ?? ""} maxLength={120} onChange={event => set("title", event.target.value)} /></Field>
@@ -348,7 +374,7 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
         const gap = timing?.startAt !== undefined && previousEnd !== undefined ? (timing.startAt - previousEnd) / 60_000 : 0;
         const duration = timing?.startAt !== undefined && timing.endAt !== undefined && timing.endAt > timing.startAt ? (timing.endAt - timing.startAt) / 60_000 : undefined;
         return <Fragment key={row.clientKey}>{gap !== 0 ? <p className={gap < 0 ? "text-sm text-danger" : "text-sm text-muted"}>{gap < 0 ? "Overlap" : "Break"}: {Math.abs(gap)} min</p> : null}<fieldset data-lineup-row={row.clientKey} className="grid gap-3 rounded-control border border-border p-4"><legend className="px-1">Slot {index + 1}</legend>
-        <EventPerformerField required value={performers.value({ key: row.clientKey, label: row.performerLabel ?? "", personSlug: row.personSlug })} selectedPerson={performers.person(row.personSlug)} onResolve={performers.resolve} disabled={busy} onChange={value => {
+        <EventPerformerField required value={performers.value({ key: row.clientKey, label: row.performerLabel ?? "", personSlug: row.personSlug })} selectedPerson={performers.person(row.personSlug)} onResolve={performers.resolve} onChange={value => {
           const next = performers.change({ key: row.clientKey, label: row.performerLabel ?? "", personSlug: row.personSlug }, value);
           set("lineup", fields.lineup!.map(item => item.clientKey === row.clientKey ? { ...item, performerLabel: next.label, personSlug: next.personSlug || undefined } : item));
         }} />
@@ -356,7 +382,7 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
         <details><summary className="cursor-pointer text-sm font-medium">Details</summary><div className="mt-3 grid gap-3">
         <Field>Role<Input value={row.roleLabel ?? ""} onChange={event => set("lineup", fields.lineup!.map(item => item.clientKey === row.clientKey ? { ...item, roleLabel: event.target.value } : item))} /></Field>
         {!fields.timeTba ? <><IntakeTime label={`Slot ${index + 1} start`} value={row.start} date={fields.eventDate} timezone={fields.timezone} displayTimezone={editingTimezone} onChange={change => set("lineup", fields.lineup!.map(item => item.clientKey === row.clientKey ? { ...item, start: change.local } : item))} /><IntakeTime label={`Slot ${index + 1} end`} value={row.end} date={fields.eventDate} timezone={fields.timezone} displayTimezone={editingTimezone} onChange={change => set("lineup", fields.lineup!.map(item => item.clientKey === row.clientKey ? { ...item, end: change.local } : item))} /></> : null}
-        </div></details><Button type="button" variant="ghost" className="justify-self-start" onClick={() => applyTimingEdit(removeLineupSlot(timings, row.clientKey))}>Remove slot</Button>
+        </div></details><EventSlotRemove label={row.performerLabel || performers.person(row.personSlug)?.title} range={formatLineupTimeRange({ ...timing, timezone: editingTimezone })} onConfirm={() => applyTimingEdit(removeLineupSlot(timings, row.clientKey))} />
       </fieldset>{insertion(index + 1)}</Fragment>; })}
       {timings.length ? <EventLineupReset onConfirm={() => { set("lineup", []); if (timedBackup.current) timedBackup.current = { ...timedBackup.current, lineup: [] }; }} /> : null}
       {endConflict}
@@ -375,12 +401,26 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
     <fieldset disabled={busy} className="flex flex-wrap items-center gap-3 border-t border-border pt-5"><span className="mr-auto text-sm text-muted">{steps.indexOf(activeStep) + 1} / {steps.length}</span>{activeStep !== steps[0] ? <Button type="button" variant="secondary" onClick={() => setActiveStep(steps[steps.indexOf(activeStep) - 1])}>Back</Button> : null}{activeStep !== "Review" ? <Button type="submit" formNoValidate variant="primary">Continue</Button> : null}{onSave ? <Button type="button" disabled={busy} variant="secondary" onClick={() => void submit(false)}>Save draft</Button> : null}</fieldset>
     {message && !importOpen ? <Notice><span role="status">{message}</span></Notice> : null}
   </form>
-  {onSource ? <EventIntakeDialog open={importOpen} onClose={() => setImportOpen(false)}><fieldset disabled={busy}><EventIntakeSource fields={fields} revision={revision} onChange={receiveFields} action={onSource} busy={busy} setBusy={setBusy} setMessage={setMessage} initialArtworkSourceId={initialArtworkSourceId} onPreview={setArtwork} onExtract={() => { focusExtractedDetails.current = true; setActiveStep("Details"); setImportOpen(false); }} /></fieldset>{message ? <Notice><span role="status">{message}</span></Notice> : null}</EventIntakeDialog> : null}
-  </>;
+  {onSource ? <EventIntakeDialog open={importOpen} onClose={() => setImportOpen(false)}><fieldset><EventIntakeSource fields={fields} revision={revision} onChange={receiveFields} onSaved={(submitted, saved) => { setPersisted(authoredSnapshot(saved)); setFields(current => mergeSavedEventFields(current, submitted, pendingRef.current ? { ...saved, timezone: current.timezone, eventDate: current.eventDate, start: current.start, end: current.end, doors: current.doors, lineup: current.lineup } : saved)); }} action={onSource} busy={busy} setBusy={setBusy} setMessage={setMessage} initialArtworkSourceId={initialArtworkSourceId} onPreview={setArtwork} onExtract={() => { focusExtractedDetails.current = true; setActiveStep("Details"); setImportOpen(false); }} /></fieldset>{message ? <Notice><span role="status">{message}</span></Notice> : null}</EventIntakeDialog> : null}
+  </EventEditorPendingContext.Provider>;
 }
 
 function ConnectedIntake({ draftId, initialCommunitySlug, heading }: { draftId?: string; initialCommunitySlug?: string; heading?: ReactNode }) {
-  const router = useRouter();
+  const convex = useConvex();
+  const updateContribution = useMutation(api.eventCorrections.updateOwnContributedEvent);
+  const published = useRef<{ completion: Extract<EventSubmitCompletion, { kind: "published" }>; fields: EventIntakeFields; revision?: number } | undefined>(undefined);
+  async function correctPublished(fields: EventIntakeFields) {
+    const current = published.current;
+    if (!current) throw new Error("CONTRIBUTOR_REQUIRED");
+    if (current.revision === undefined) current.revision = (await convex.query(api.eventCorrections.getOwnContributedEvent, { eventId: current.completion.eventId })).updatedAt;
+    const patch = Object.fromEntries(Object.entries(fields).filter(([key, value]) => key !== "duplicateAcknowledgements" && authoredSnapshot(value) !== authoredSnapshot(current.fields[key as keyof EventIntakeFields])));
+    if (Object.keys(patch).length) {
+      const result = await updateContribution({ eventId: current.completion.eventId, expectedUpdatedAt: current.revision, patch, duplicateAcknowledgements: fields.duplicateAcknowledgements?.map(id => id as Id<"events">) });
+      current.revision = result.updatedAt;
+      current.fields = fields;
+    }
+    return current.completion;
+  }
   const viewer = useQuery(api.accounts.viewer);
   const loaded = useQuery(api.eventIntake.getEventIntakeDraft, draftId ? { draftId } : "skip");
   const save = useMutation(api.eventIntake.saveEventIntakeDraft);
@@ -393,11 +433,12 @@ function ConnectedIntake({ draftId, initialCommunitySlug, heading }: { draftId?:
     const current = saved.current ?? (loaded ? { draftId: loaded._id, version: initialVersion } : null);
     const result = await save({ ...(current ? { draftId: current.draftId, expectedVersion: current.version } : {}), patch: fields });
     saved.current = { ...result, fields: serialized };
-    window.history.replaceState(null, "", `/events/new?draft=${result.draftId}`);
+    window.history.replaceState(window.history.state, "", `/events/new?draft=${result.draftId}`);
     return saved.current;
   }
   const sourceAction: IntakeSourceAction = async (action, fields, revision, file, onStaged) => {
     if (action === "read") return websiteIntakeCommand("poster_read", { posterAssetId: fields.posterSourceId }).then(result => ({ preview: result.dataUrl }));
+    if (published.current) throw new ConvexError({ code: "PATCH_FIELD" });
     const targetSourceId = fields.posterSourceId;
     let next: EventIntakeFields = { ...fields };
     if (action === "upload") {
@@ -405,6 +446,7 @@ function ConnectedIntake({ draftId, initialCommunitySlug, heading }: { draftId?:
       const declaration = await posterDeclaration(file);
       next = { ...next, posterDeclaration: declaration };
       const current = await saveFields(next, revision);
+      onStaged?.(next);
       const upload = EventPosterUploadSchema.parse(await websiteIntakeCommand("poster_upload_begin", { draftId: current.draftId, ...declaration }));
       next = { ...next, posterSourceId: upload.posterAssetId, posterDeclaration: declaration, tentative: null, questions: null, evidence: null };
       const staged = await saveFields(next, revision);
@@ -423,6 +465,7 @@ function ConnectedIntake({ draftId, initialCommunitySlug, heading }: { draftId?:
     }
     // Replay completion against its saved version before persisting later local edits.
     const current = action === "retry" && saved.current ? saved.current : await saveFields(next, revision);
+    if (action !== "retry") onStaged?.(next);
     if (action === "retry") {
       const result = await websiteIntakeCommand("poster_upload_complete", { draftId: current.draftId, posterAssetId: targetSourceId, expectedVersion: current.version });
       saved.current = { ...current, version: result.version };
@@ -437,11 +480,16 @@ function ConnectedIntake({ draftId, initialCommunitySlug, heading }: { draftId?:
   };
   if (draftId && loaded === undefined) return <>{heading}<p aria-busy="true">Loading draft…</p></>;
   if (draftId && loaded === null) return <>{heading}<Notice>Unavailable</Notice></>;
-  return <EventIntakeFieldsForm heading={heading} savedTimezonePreference={viewer?.user.defaultEventTimezone} newDraft={!draftId} initialFields={loaded?.fields ?? { communitySlug: initialCommunitySlug, timeTba: false }} initialRevision={loaded?.version} onSource={sourceAction} initialArtworkSourceId={loaded?.artworkSourceId} onSave={async (fields, revision) => { await saveFields(fields, revision); }} onPublish={async (fields, revision) => {
+  return <EventIntakeFieldsForm heading={heading} savedTimezonePreference={viewer?.user.defaultEventTimezone} newDraft={!draftId} initialFields={loaded?.fields ?? { communitySlug: initialCommunitySlug, timeTba: false }} initialRevision={loaded?.version} onSource={sourceAction} initialArtworkSourceId={loaded?.artworkSourceId} onSave={async (fields, revision) => { if (published.current) await correctPublished(fields); else await saveFields(fields, revision); }} onPublish={async (fields, revision) => {
+    if (published.current) return correctPublished(fields);
     const current = await saveFields(fields, revision);
     if (request.current?.version !== current.version) request.current = { version: current.version, key: crypto.randomUUID() };
     const result = await publish({ draftId: current.draftId, expectedVersion: current.version, idempotencyKey: request.current.key });
-    router.replace(result.eventPath);
+    const completion = { kind: "published" as const, eventId: result.eventId, eventPath: result.eventPath };
+    published.current = { completion, fields };
+    // Capture the authorized revision now; subsequent submits never adopt a refreshed revision.
+    published.current.revision = (await convex.query(api.eventCorrections.getOwnContributedEvent, { eventId: result.eventId })).updatedAt;
+    return completion;
   }} />;
 }
 export function EventIntakeForm(props: { draftId?: string; initialCommunitySlug?: string; heading?: ReactNode }) {

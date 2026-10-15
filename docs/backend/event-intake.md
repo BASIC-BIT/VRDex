@@ -143,7 +143,8 @@ poster or text opens an optional dialog beside the heading from any stage.
 Closing retains the source and current stage, including an upload in progress.
 Successful extraction returns to Details with tentative suggestions. One
 versioned draft retains values across stages and resume. Review applies the
-existing preflight and duplicate checks, and publishes directly to the event page.
+existing preflight and duplicate checks. A clean successful publication returns to
+the event page. Newer pending edits require an abandonment decision first.
 The staff editor uses the same three stages with canonical commands and staff-only
 advanced controls. Existing source URLs and media controls stay mounted in a
 Details disclosure. Scoped corrections and staff edits have no import action.
@@ -301,3 +302,23 @@ The [Task 9 checkpoint](../testing/event-intake-checkpoint.md) separates local
 transaction, transport and browser fixtures from hosted/storage/provider proof.
 Exact public copy was approved by BASIC on 2026-09-28. The connected production
 journey, hosted verification and deployment remain open.
+
+## Browser completion and retained edits
+
+Save and publish transports return completion data. The form advances its dirty
+baseline only to the successful submitted fields. Intermediate source saves
+follow the same rule, while later local fields and pending buffers remain intact.
+Failed commands never advance that baseline.
+
+After publication plus Stay, the connected intake wrapper retains `eventId` and
+`eventPath`, reads the contributor correction revision, and uses
+`updateOwnContributedEvent` for later edits. It preserves the revision returned
+by each successful correction. It does not publish the draft again. Changed
+forbidden fields reach the correction boundary and fail; the wrapper does not
+silently filter them. Staff takeover and stale revisions retain their existing
+errors and authority checks.
+
+Retained staff creation uses `updateCommunityEvent` with the same slug. It reads
+`getEditableBySlug` before that update to obtain the authorized association IDs
+without replacing newer form fields. Staff creation still requires `startAt`;
+contributor drafts still allow partial timing.

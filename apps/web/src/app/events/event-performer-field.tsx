@@ -1,5 +1,6 @@
 "use client";
 
+import { usePendingEventInput } from "./use-event-editor-leave-guard";
 import { useRef, useState } from "react";
 import { Field, Input } from "@/components/ui/field";
 import { EventIdentityPicker } from "./event-identity-picker";
@@ -38,6 +39,7 @@ export function EventPerformerField({ value, selectedPerson, onChange, onResolve
   disabled?: boolean;
   required?: boolean;
 }) {
+  usePendingEventInput(value.kind === "linked" && value.billing.kind === "override" && !value.billing.label.trim());
   const [linking, setLinking] = useState(false);
   const [cached, setCached] = useState<EventIdentityOption>();
   const person = value.kind === "linked" ? [selectedPerson, cached].find(option => option?.slug === value.personSlug) : undefined;
@@ -57,7 +59,7 @@ export function EventPerformerField({ value, selectedPerson, onChange, onResolve
     /> : null}
     {value.kind === "linked" ? <details open={override || undefined} className="text-sm">
       <summary className="cursor-pointer text-muted">Display name as</summary>
-      <Field className="mt-2"><span className="sr-only">Display name as</span><Input required={required && override} pattern={".*\\S.*"} disabled={disabled} value={value.billing.kind === "override" ? value.billing.label : ""} placeholder={person?.title} onChange={event => onChange({ ...value, billing: event.currentTarget.value ? { kind: "override", label: event.currentTarget.value } : { kind: "default" } })} /></Field>
+      <Field className="mt-2"><span className="sr-only">Display name as</span><Input data-pending-event-input={value.billing.kind === "override" && !value.billing.label.trim() || undefined} required={required && override} pattern={".*\\S.*"} disabled={disabled} value={value.billing.kind === "override" ? value.billing.label : ""} placeholder={person?.title} onChange={event => onChange({ ...value, billing: event.currentTarget.value ? { kind: "override", label: event.currentTarget.value } : { kind: "default" } })} /></Field>
     </details> : null}
   </div>;
 }
