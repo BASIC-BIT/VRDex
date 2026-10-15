@@ -57,3 +57,7 @@ __pycache__/
 
 # Local isolated development checkouts
 .worktrees/
+
+# Scoped public media acceptance artifacts
+/apps/web/test-results-public-media*/
+/.cache/artifacts/public-media-*.png

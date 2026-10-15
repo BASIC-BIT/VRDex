@@ -1,6 +1,6 @@
 import { expectDecodedImage } from "./image-readiness";
 import sharp from "sharp";
-import type { CommandReceipt, PublishedContributionDetail } from "@vrdex/api-contracts";
+import { PublicProfileMediaDetailsSchema, type CommandReceipt, type PublishedContributionDetail } from "@vrdex/api-contracts";
 import { createHash, randomBytes } from "node:crypto";
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import {
@@ -559,6 +559,56 @@ test("contributor A submits and distinct assigned reviewer B reviews media @medi
   const approvedState = await approved.json() as { assets: { id: string; source: string; state: string }[] };
   expect(approvedState.assets).toHaveLength(2);
   expect(approvedState.assets[0].source).toBe("community_submitted");
+  const preparedDetails = await request.post("/api/e2e/media", { headers, data: { op: "public-details", action: "prepare", runId, profileId, assetId: publishedDetail.assetId } });
+  expect(preparedDetails.status()).toBe(200);
+  const { ownerAssetId } = await preparedDetails.json() as { ownerAssetId: string };
+  const independentAssetId = approvedState.assets.find(asset => asset.id !== publishedDetail.assetId)?.id;
+  expect(independentAssetId).toBeTruthy();
+  const joinedAssets = [
+    { assetId: ownerAssetId, kinds: ["uploaded"] },
+    { assetId: publishedDetail.assetId, kinds: ["uploaded", "published"] },
+    { assetId: independentAssetId!, kinds: ["uploaded", "approved", "published"] },
+  ];
+  const publicContext = await browser.newContext({ baseURL });
+  try {
+    const publicPage = await publicContext.newPage();
+    for (const item of joinedAssets) {
+      const endpoint = `/api/v0/profiles/${profile.slug}/assets/${item.assetId}`;
+      const rest = await request.get(endpoint);
+      expect(rest.status()).toBe(200);
+      const details = PublicProfileMediaDetailsSchema.parse(await rest.json());
+      expect(details.history.map(event => event.kind)).toEqual(item.kinds);
+      expect(details.asset.downloadUrl).toBeTruthy();
+      expect((await request.get(details.asset.downloadUrl!)).ok()).toBe(true);
+      expect(details.uploadedBy?.profileSlug).toBe(`${runId}-actor-contributor`);
+      if (item.kinds.includes("approved")) {
+        expect(details.history[1].actor?.profileSlug).toBe(`${runId}-actor-reviewer`);
+        expect(details.history[2].actor?.profileSlug).toBe(`${runId}-actor-reviewer`);
+      }
+      expect(await call(request, undefined, "vrdex_get_profile_media", { slug: profile.slug, assetId: item.assetId })).toEqual(details);
+      expect(await call(request, authA.access_token, "vrdex_get_profile_media", { slug: profile.slug, assetId: item.assetId })).toEqual(details);
+      expect(JSON.stringify(details)).not.toMatch(/tokenIdentifier|sourceUrl|privateReason|contributorNote|clerkUserId|@e2e/);
+      await publicPage.goto(`/${profile.slug}#media-${item.assetId}`);
+      const card = publicPage.locator(`article#media-${item.assetId}`);
+      await expect(card.getByText("Uploaded by", { exact: true })).toBeVisible();
+      await expect(card.getByRole("link", { name: "Synthetic contributor", exact: true }).first()).toBeVisible();
+      for (const event of details.history) await expect(card.getByText(event.kind[0].toUpperCase() + event.kind.slice(1), { exact: true })).toBeVisible();
+      if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") await card.screenshot({ path: testInfo.outputPath(`joined-public-media-${item.kinds.length}.png`) });
+    }
+    try {
+      const hidden = await request.post("/api/e2e/media", { headers, data: { op: "public-details", action: "hide", runId, profileId } });
+      expect(hidden.status()).toBe(200);
+      for (const item of joinedAssets) {
+        expect((await request.get(`/api/v0/profiles/${profile.slug}/assets/${item.assetId}`)).status()).toBe(404);
+        for (const auth of [undefined, authA.access_token]) expect((await rpc(request, auth, "vrdex_get_profile_media", { slug: profile.slug, assetId: item.assetId })).result?.isError).toBe(true);
+      }
+      await publicPage.reload();
+      await expect(publicPage.locator(`article#media-${ownerAssetId}`)).toHaveCount(0);
+    } finally {
+      expect((await request.post("/api/e2e/media", { headers, data: { op: "public-details", action: "restore", runId, profileId } })).status()).toBe(200);
+    }
+  } finally { await publicContext.close(); }
+  stages.push("joined website, REST and anonymous/signed-in MCP public history for record-backed owner upload, trusted publication and independent approval; privacy refusal and restoration");
   const published = await call<{ avatarImageUrl?: string }>(request, undefined, "vrdex_get_profile", { slug: profile.slug });
   expect(published.avatarImageUrl).toBe(stillUnpublished.avatarImageUrl);
   expect((await request.get(published.avatarImageUrl!)).ok()).toBe(true);

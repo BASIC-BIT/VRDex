@@ -123,7 +123,7 @@ Both tools:
 - call the public API rather than a private Convex mutation path
 - require an API-resource credential with `events:write`, user authority, and
   ownership of the target community
-- keep the six public read tools anonymous even when the local server has a
+- keep the seven public read tools anonymous even when the local server has a
   write credential configured
 - are annotated as mutating and open-world so an MCP host can require
   explicit user approval
@@ -169,8 +169,10 @@ An API-resource OAuth access token can be supplied through
 bound to the MCP resource and cannot be reused for these API-backed local
 tools.
 
-If no bearer credential is configured, local stdio lists only the six public
-read tools. A present but revoked, expired, under-scoped, wrong-resource, or
+If no bearer credential is configured, local stdio lists only the seven public
+read tools, including `vrdex_get_profile_media`. With a credential, it lists
+23 tools: seven public reads, the five profile/event operations, ten event-intake
+tools, and the local poster-upload helper. A revoked, expired, under-scoped, wrong-resource, or
 wrong-owner credential still lists the tools, but the API rejects every write
 before mutation.
 

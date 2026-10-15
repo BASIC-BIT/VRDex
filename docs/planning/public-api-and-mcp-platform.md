@@ -859,6 +859,7 @@ Current anonymous hosted tools:
 
 - `vrdex_search`
 - `vrdex_get_profile`
+- `vrdex_get_profile_media`
 - `vrdex_get_event`
 - `vrdex_list_upcoming_events`
 - `vrdex_get_world`
@@ -903,7 +904,10 @@ Package candidate:
 Current checkpoint:
 
 - implemented as the `packages/vrdex-mcp` workspace package
-- starts a stdio MCP server with the same six curated read tools as hosted MCP
+- starts a stdio MCP server with the same seven curated read tools as hosted MCP, including
+  `vrdex_get_profile_media`
+- with a bearer credential, lists 23 tools: seven public reads, five profile/event
+  operations, ten event-intake tools, and the local poster-upload helper
 - calls `/api/v0` public API routes and validates responses with
   `@vrdex/api-contracts`
 - supports anonymous public reads, personal API tokens, OAuth access tokens, and

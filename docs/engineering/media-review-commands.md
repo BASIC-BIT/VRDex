@@ -427,3 +427,17 @@ Replacement proposals bind the identity slot selected by the public compact-imag
 Expiry of an existing-asset placement without its own upload records the expired disposition and audit without a blob cleanup reservation or deletion ledger. Rejection and withdrawal use the same exemption. Cleanup also removes stale pending reservations for these proposals and refuses completion, preserving the shared asset and future legal holds. Upload-backed legacy identity submissions retain their storage cleanup and deletion audit.
 
 A hidden-only authored identity still blocks direct empty-slot selection, but it does not expose or admit a new replacement proposal without a visible picture. Existing-asset approval refuses a hidden-only target after inspection or rebase; visible legacy and automatic fallback images remain eligible replacement targets.
+
+## Public image details
+
+`profileAssets.getPublicAssetDetails` supplies the website disclosure, public
+REST read and `vrdex_get_profile_media`. It projects the canonical public media
+visibility rules into the strict `PublicProfileMediaDetailsSchema` allowlist.
+This public read does not grant access to the private contribution/reviewer
+models described above. Uploader, publisher, reviewer and stored credit remain
+separate. Public history includes only recorded upload, independent approval
+and publication evidence, at most three events. Missing actors are null;
+missing dates remain null or unsupported events are omitted.
+
+[Acceptance and synthetic fixture boundaries](../testing/public-media-details-history.md)
+cover the joined website, REST and hosted MCP proof.

@@ -1,3 +1,11 @@
+export const publicMediaDetails = {
+  profileSlug: "target", asset: { assetId: "asset" }, referenceUrl: null, credit: null,
+  uploadedBy: { displayName: "Uploader A", profileSlug: "a", profileUrl: "/a" },
+  history: [
+    { kind: "uploaded", at: 10, actor: { displayName: "Uploader A", profileSlug: "a", profileUrl: "/a" } },
+    { kind: "published", at: 20, actor: { displayName: "Publisher B", profileSlug: "b", profileUrl: "/b" } },
+  ],
+};
 export const lineupRoster = {
   watchMode: "performer_sequence",
   participants: [{ slug: "performer", displayName: "Performer", trustLabel: "unclaimed", roleLabel: "DJ",
@@ -62,6 +70,13 @@ async function handleFixtureRequest(
     searchParams: url.searchParams,
   });
 
+  if (url.pathname === "/api/v0/profiles/target/assets/asset") {
+    assert.equal(request.headers.authorization, undefined);
+    writeJson(response, 200, publicMediaDetails); return;
+  }
+  if (url.pathname === "/api/v0/profiles/target/assets/hidden") {
+    writeJson(response, 404, { title: "Not found", status: 404 }); return;
+  }
   if (url.pathname === "/api/v0/event-intake" && request.method === "POST") {
     assert.equal(request.headers.authorization, "Bearer vrdx_stdio_token");
     writeJson(response, 200, { draftId: "intake-fixture", version: 1 }); return;
