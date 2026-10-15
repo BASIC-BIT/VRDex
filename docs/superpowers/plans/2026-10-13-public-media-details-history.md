@@ -69,7 +69,7 @@ Regenerate `convex/_generated/api.d.ts` normally.
 - `PublicMediaHistoryEventSchema = { kind: "uploaded" | "approved" | "published"; at: number | null; actor: PublicMediaActor | null }`; strict.
 - `PublicProfileMediaDetailsInputSchema = { slug: string; assetId: string }`.
 - `PublicProfileMediaDetailsSchema = { profileSlug: string; asset: PublicProfileAsset; referenceUrl: string | null; credit: string | null; uploadedBy: PublicMediaActor | null; history: PublicMediaHistoryEvent[] }`; strict outer/actor/events and a strict copy of PublicProfileAssetSchema for the nested asset, history maximum three. Derive types from these schemas.
-- Add optional `detailsUrl` to `PublicProfileAssetSchema` and its Convex public type. Value: `/<slug>#media-<assetId>`. No uploader fields on list/card payloads.
+- Add optional `detailsUrl` to `PublicProfileAssetSchema` and its Convex public type. Value: `/<slug>#media-<assetId>` only when the public profile renders a gallery or logo disclosure for that asset under its current profile-page field and feature gates. Keep this URL when the asset also has an identity placement. Omit it for avatar-only, banner-only and unplaced assets while retaining their canonical public REST/MCP details reads. No hero disclosures or new pages. No uploader fields on list/card payloads.
 - `resolvePublicMediaActor(db: DatabaseReader, userId: Id<"users">): Promise<PublicMediaActor | null>` in `_publicMediaDetails.ts`.
 - `projectPublicMediaDetails(db: DatabaseReader, input: { profile: Doc<"profiles">; asset: Doc<"profileAssets">; publicAsset: PublicProfileAsset }): Promise<PublicProfileMediaDetails>`.
 - Public query `profileAssets.getPublicAssetDetails({ slug, assetId })` returns that schema or null.

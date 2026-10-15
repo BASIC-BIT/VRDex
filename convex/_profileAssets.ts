@@ -631,7 +631,11 @@ export async function getProfileAssetDisplayPreference(
     .unique();
 }
 
-function toPublicAsset(profile: Doc<"profiles">, asset: Doc<"profileAssets">): PublicProfileAsset {
+function toPublicAsset(
+  profile: Doc<"profiles">,
+  asset: Doc<"profileAssets">,
+  detailsAssetIds: ReadonlySet<Id<"profileAssets">>,
+): PublicProfileAsset {
   return {
     assetId: asset._id,
     ...(asset.label !== undefined ? { label: asset.label } : {}),
@@ -646,7 +650,7 @@ function toPublicAsset(profile: Doc<"profiles">, asset: Doc<"profileAssets">): P
     sourcePreserved: asset.sourceStorageKey !== undefined,
     imageUrl: publicProfileAssetImageUrl(profile.slug, asset._id),
     downloadUrl: publicProfileAssetDownloadUrl(profile.slug, asset._id),
-    detailsUrl: `/${profile.slug}#media-${asset._id}`,
+    ...(detailsAssetIds.has(asset._id) ? { detailsUrl: `/${profile.slug}#media-${asset._id}` } : {}),
   };
 }
 
@@ -729,15 +733,33 @@ export async function getPublicProfileMediaKit(
   const additionalLogoAssets = placedAssets(assetsById, sortedPlacements, "additional_logo").filter(
     (asset) => mediaKitVisible && asset._id !== primaryLogoAsset?._id,
   );
-  const profileImage = profileImageAsset ? toPublicAsset(profile, profileImageAsset) : undefined;
-  const primaryLogo = primaryLogoAsset ? toPublicAsset(profile, primaryLogoAsset) : undefined;
-  const additionalLogos = additionalLogoAssets.map((asset) => toPublicAsset(profile, asset));
-  const logos = primaryLogo ? [primaryLogo, ...additionalLogos] : additionalLogos;
   const galleryAssets = mediaKitVisible
     ? placedAssets(assetsById, sortedPlacements, "gallery").filter(
         (asset) => sanitizeProfileAssetLabel(asset.label) !== undefined,
       )
     : [];
+  // Website destinations follow profile-page visibility even on discovery reads.
+  // Logos render in both modes; gallery cards require the page's gallery flag.
+  const pageMediaKitVisible = isProfileFieldVisible(profile, "mediaKit", "profile_page");
+  const galleryEnabled = process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED === "true" ||
+    process.env.VRDEX_ENABLE_PLAYWRIGHT_FIXTURES === "true";
+  const pagePrimaryLogo = pageMediaKitVisible
+    ? firstPlacedAsset(assetsById, sortedPlacements, "primary_logo")
+    : undefined;
+  const detailsAssetIds = new Set<Id<"profileAssets">>([
+    ...(pagePrimaryLogo ? [pagePrimaryLogo._id] : []),
+    ...(pageMediaKitVisible ? placedAssets(assetsById, sortedPlacements, "additional_logo").map(asset => asset._id) : []),
+    ...(pageMediaKitVisible && galleryEnabled
+      ? placedAssets(assetsById, sortedPlacements, "gallery")
+          .filter(asset => sanitizeProfileAssetLabel(asset.label) !== undefined)
+          .map(asset => asset._id)
+      : []),
+  ]);
+  const projectAsset = (asset: Doc<"profileAssets">) => toPublicAsset(profile, asset, detailsAssetIds);
+  const profileImage = profileImageAsset ? projectAsset(profileImageAsset) : undefined;
+  const primaryLogo = primaryLogoAsset ? projectAsset(primaryLogoAsset) : undefined;
+  const additionalLogos = additionalLogoAssets.map(projectAsset);
+  const logos = primaryLogo ? [primaryLogo, ...additionalLogos] : additionalLogos;
   const featuredCandidate = firstPlacedAsset(assetsById, sortedPlacements, "featured");
   const featuredAsset = galleryAssets.find((asset) => asset._id === featuredCandidate?._id);
   const orderedAssets = mediaKitVisible
@@ -764,13 +786,13 @@ export async function getPublicProfileMediaKit(
   return {
     ...(automaticAvatarImageUrl ? { automaticAvatarImageUrl } : {}),
     ...(profileImage ? { profileImage } : {}),
-    ...(bannerAsset ? { banner: toPublicAsset(profile, bannerAsset) } : {}),
-    ...(featuredAsset ? { featuredAsset: toPublicAsset(profile, featuredAsset) } : {}),
+    ...(bannerAsset ? { banner: projectAsset(bannerAsset) } : {}),
+    ...(featuredAsset ? { featuredAsset: projectAsset(featuredAsset) } : {}),
     ...(primaryLogo ? { primaryLogo } : {}),
     additionalLogos,
     logos,
-    assets: orderedAssets.map((asset) => toPublicAsset(profile, asset)),
-    galleryAssets: galleryAssets.map((asset) => toPublicAsset(profile, asset)),
+    assets: orderedAssets.map(projectAsset),
+    galleryAssets: galleryAssets.map(projectAsset),
     ...(logos.length > 0 ? { logoZipUrl: publicProfileLogoZipUrl(profile.slug) } : {}),
     compactDisplay,
     avatarAppearance,

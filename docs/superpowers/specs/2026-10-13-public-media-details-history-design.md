@@ -37,6 +37,11 @@ flowchart LR
 The card and its disclosure remain on the profile page. Do not introduce a new
 image-management page, account setup step or attribution chooser in this slice.
 A direct profile URL with `#media-<assetId>` opens the corresponding disclosure.
+Emit the optional `detailsUrl` only when the public profile renders a gallery or
+logo card for that asset, under the current profile-page field and feature gates.
+An asset that also fills an identity slot keeps that card URL. Avatar-only,
+banner-only and unplaced assets retain their canonical public REST/MCP details
+reads without a website details URL. Do not add hero disclosures or new pages.
 
 ## Attribution and source rules
 

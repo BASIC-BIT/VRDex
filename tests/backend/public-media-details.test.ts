@@ -3,6 +3,8 @@ import { it } from "node:test";
 import { convexTest } from "convex-test";
 import { api } from "../../convex/_generated/api";
 import schemaModule from "../../convex/schema";
+import { execFileSync } from "node:child_process";
+import { getPublicProfileMediaKit, type ProfileAssetPlacement } from "../../convex/_profileAssets";
 import { resolvePublicMediaActor } from "../../convex/_publicMediaDetails";
 const schema =
   (schemaModule as unknown as { default?: typeof schemaModule }).default ??
@@ -143,7 +145,7 @@ it("keeps uploader and publisher distinct, with immutable dates and public refer
   );
   assert.equal(d.uploadedBy?.profileSlug, "public-a");
   assert.equal(d.referenceUrl, "https://example.test/reference");
-  assert.equal(d.asset.detailsUrl, `/target#media-${s.asset}`);
+  assert.equal(d.asset.detailsUrl, undefined);
   assert.doesNotMatch(
     JSON.stringify(d),
     /PRIVATE|private\.test|signature|privateReason|tokenIdentifier|storageKey/,
@@ -350,4 +352,100 @@ it("unsafe legacy credit links are omitted without consulting private sourceUrl"
   assert.ok(d);
   assert.equal(d.referenceUrl, null);
   assert.equal(d.asset.creditUrl, undefined);
+});
+
+for (const mismatch of ["profile", "approved asset"] as const) {
+  it(`rejects a source submission with a mismatched ${mismatch}`, async () => {
+    const s = await seed();
+    await s.t.run(async ({ db }) => {
+      if (mismatch === "profile") await db.patch(s.submission, { profileId: s.pa });
+      else {
+        const original = await db.get(s.asset);
+        assert.ok(original);
+        const { _id, _creationTime, ...data } = original;
+        const otherAsset = await db.insert("profileAssets", data);
+        await db.patch(s.submission, { approvedAssetId: otherAsset });
+      }
+    });
+    const details = await s.read();
+    assert.ok(details);
+    assert.equal(details.uploadedBy, null);
+    assert.deepEqual(details.history, [{ kind: "uploaded", at: 10, actor: null }]);
+  });
+}
+
+it("advertises only destinations rendered by the real public profile page", async () => {
+  const cases: Array<{
+    name: string; placements: ProfileAssetPlacement[]; link: boolean;
+    galleryEnabled?: boolean; hiddenKit?: boolean; untitled?: boolean; privateAsset?: boolean; unlistedKit?: boolean;
+  }> = [
+    { name: "avatar only", placements: ["profile_image"], link: false },
+    { name: "banner only", placements: ["banner"], link: false },
+    { name: "unplaced", placements: [], link: false },
+    { name: "private gallery asset", placements: ["gallery"], privateAsset: true, link: false },
+    { name: "unlisted kit with avatar", placements: ["profile_image", "gallery"], unlistedKit: true, link: true },
+    { name: "gallery", placements: ["gallery"], link: true },
+    { name: "featured gallery", placements: ["gallery", "featured"], link: true },
+    { name: "primary logo", placements: ["primary_logo"], link: true },
+    { name: "additional logo", placements: ["additional_logo"], link: true },
+    { name: "avatar and gallery", placements: ["profile_image", "gallery"], link: true },
+    { name: "hidden kit with avatar", placements: ["profile_image", "gallery"], hiddenKit: true, link: false },
+    { name: "untitled gallery with avatar", placements: ["profile_image", "gallery"], untitled: true, link: false },
+    { name: "gallery disabled", placements: ["gallery"], galleryEnabled: false, link: false },
+    { name: "logo with gallery disabled", placements: ["primary_logo", "gallery"], galleryEnabled: false, link: true },
+  ];
+  const renders = [];
+  for (const scenario of cases) {
+    const s = await seed();
+    const galleryEnabled = scenario.galleryEnabled ?? true;
+    process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = String(galleryEnabled);
+    try {
+      const kit = await s.t.run(async ({ db }) => {
+        for (const placement of scenario.placements) await db.insert("profileAssetPlacements", {
+          profileId: s.target, assetId: s.asset, placement, position: 0, state: "active", updatedAt: 1,
+        });
+        if (scenario.hiddenKit) await db.patch(s.target, { fieldVisibility: { mediaKit: "private" } });
+        if (scenario.privateAsset) await db.patch(s.asset, { visibility: "private" });
+        if (scenario.unlistedKit) await db.patch(s.target, { fieldVisibility: { mediaKit: "unlisted" } });
+        if (scenario.untitled) await db.patch(s.asset, { label: undefined });
+        const profile = await db.get(s.target);
+        assert.ok(profile);
+        if (scenario.unlistedKit) {
+          const discovery = await getPublicProfileMediaKit(db, profile, { surface: "discovery" });
+          assert.equal(discovery.galleryAssets.length, 0);
+          assert.equal(discovery.profileImage?.detailsUrl, `/target#media-${s.asset}`);
+        }
+        return getPublicProfileMediaKit(db, profile);
+      });
+      const projected = [...kit.assets, ...kit.logos, ...kit.galleryAssets, kit.profileImage, kit.banner, kit.featuredAsset].filter(a => a?.assetId === s.asset);
+      assert.equal(projected.length > 0, !scenario.privateAsset, scenario.name);
+      for (const asset of projected) assert.equal(asset?.detailsUrl, scenario.link ? `/target#media-${s.asset}` : undefined, scenario.name);
+      if (galleryEnabled) {
+        const details = await s.read();
+        if (scenario.privateAsset) assert.equal(details, null);
+        else {
+          assert.ok(details, `${scenario.name} remains publicly readable`);
+          assert.equal(details.asset.detailsUrl, scenario.link ? `/target#media-${s.asset}` : undefined, scenario.name);
+        }
+      }
+      renders.push({ name: scenario.name, kit, galleryEnabled, assetId: s.asset, link: scenario.link });
+    } finally {
+      process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "true";
+    }
+  }
+  execFileSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", `
+    import assert from "node:assert/strict";
+    import { readFileSync } from "node:fs";
+    import React from "./apps/web/node_modules/react/index.js";
+    import { renderToStaticMarkup } from "./apps/web/node_modules/react-dom/server.node.js";
+    import { ProfilePublicPage } from "./apps/web/src/app/_components/profile-public-page.tsx";
+    for (const scenario of JSON.parse(readFileSync(0, "utf8"))) {
+      const profile = { profileType: "person", slug: "target", displayName: "Target", person: { roleTags: [] },
+        aliases: [], tags: [], genres: [], outboundLinks: [], worldCredits: [], upcomingEvents: [], hostedEvents: [],
+        trustLabel: "Unclaimed", mediaKit: scenario.kit };
+      const html = renderToStaticMarkup(React.createElement(ProfilePublicPage, { profile, embedded: true, mediaKitGalleryEnabled: scenario.galleryEnabled }));
+      assert.equal(html.includes('id="media-' + scenario.assetId + '"'), scenario.link, scenario.name);
+      assert.equal(html.includes('Details &amp; history'), scenario.link, scenario.name);
+    }
+  `], { cwd: process.cwd(), input: JSON.stringify(renders), env: { ...process.env, TSX_TSCONFIG_PATH: "apps/web/tsconfig.json" }, stdio: ["pipe", "pipe", "pipe"] });
 });
