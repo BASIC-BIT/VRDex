@@ -143,6 +143,37 @@ Output:
 - public links and events where allowed
 - no private or suppressed fields
 
+### `vrdex_get_profile_media`
+
+Read an image's public details, uploader attribution and publication history.
+
+Inputs: `slug` and `assetId`. Hosted and standalone stdio expose the same strict
+`PublicProfileMediaDetailsSchema` response. The standalone adapter calls
+`GET /api/v0/profiles/{slug}/assets/{assetId}` without credentials. Hosted MCP
+calls `profileAssets.getPublicAssetDetails` through the public Convex client.
+Anonymous and signed-in callers receive the same public model.
+
+`referenceUrl` comes only from the public credit URL. `credit` preserves the
+stored credit text. `uploadedBy` identifies the uploader independently of the
+publication actor. Actors contain only a public display name, slug and profile
+link. Missing, ambiguous or no-longer-public actors are null. History contains
+at most Uploaded, Approved and Published, backed by recorded evidence. An
+unsupported legacy event is omitted; a known event without a recorded date has
+a null date. Updated timestamps do not supply missing history.
+
+The tool is read-only and idempotent, with the existing public read security
+schemes and no new scopes. Private notes, account IDs and storage/source fields
+are excluded. Revoked image/profile visibility returns not found; knowing an ID
+or signing in grants no additional access through this tool.
+
+A server deployment and a client's loaded catalog are separate acceptance
+checks. Refresh the client's catalog through its normal supported refresh path
+and verify `tools/list` before calling the new tool. A cached catalog missing the
+tool fails client acceptance, even when a direct hosted protocol read passes.
+Do not reinstall the connector or rotate credentials to compensate.
+
+See [public media acceptance](../testing/public-media-details-history.md).
+
 ### `vrdex_list_upcoming_events`
 
 Purpose: list upcoming public events.

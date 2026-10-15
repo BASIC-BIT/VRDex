@@ -9,6 +9,7 @@ export const mcpToolNameValidator = v.union(
   v.literal("fetch"),
   v.literal("vrdex_search"),
   v.literal("vrdex_get_profile"),
+  v.literal("vrdex_get_profile_media"),
   v.literal("vrdex_get_event"),
   v.literal("vrdex_list_upcoming_events"),
   v.literal("vrdex_get_world"),

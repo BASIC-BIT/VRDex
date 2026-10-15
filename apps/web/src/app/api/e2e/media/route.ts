@@ -129,6 +129,9 @@ async function execute(request: NextRequest, cleanup: boolean) {
         releasedReservations: finished.releasedReservations,
       });
     }
+    if (body.op === "public-details" && (body.action === "prepare" || body.action === "hide" || body.action === "restore"))
+      return NextResponse.json(await client.mutation(internal.e2eMedia.publicDetailsFixture, { ...args, action: body.action,
+        ...(typeof body.assetId === "string" ? { assetId: body.assetId as Id<"profileAssets"> } : {}) }));
     if (body.op === "inspect")
       return NextResponse.json(
         await client.query(internal.e2eMedia.inspect, args),

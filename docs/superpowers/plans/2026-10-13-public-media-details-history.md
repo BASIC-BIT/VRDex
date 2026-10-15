@@ -118,6 +118,9 @@ responses. No new production fixture endpoint.
 `docs/developers/vrdex-mcp-read-tools.md`,
 `docs/engineering/media-review-commands.md`.
 Create `docs/testing/public-media-details-history.md`.
+Modify `packages/vrdex-mcp/src/api-client.ts`, `server.ts` and their focused
+package tests so standalone stdio clients expose the same public read through
+the REST endpoint. Reuse the approved tool name, description and output schema.
 Update existing tool-catalog/OpenAPI documentation fixtures and the installed-client
 preflight's expected catalog when required by its current schema.
 
@@ -132,6 +135,7 @@ preflight's expected catalog when required by its current schema.
 - [ ] **Write failing protocol tests.** Actual tools/list advertises the new read tool without retired declarations or new write capabilities. Actual tools/call validates the shared output, distinguishes A uploader/B publisher, and anonymously reads the same model as REST. Private/source-note/account fields cannot appear. Revoked public visibility produces an unavailable result; known IDs and signed-in status cannot bypass it.
 - [ ] **Run to failure:** `node --import tsx --test tests/web/vrdex-mcp.test.ts` and `node --conditions=import --import tsx --test tests/backend/hosted-mcp-profile-media.test.ts`, expecting the new tool to be absent.
 - [ ] **Implement the read adapter and docs.** Call the public query with the public Convex client, validate mcpJsonResult with the shared schema, and preserve protocol/rate-limit behavior. Document actor/date fallback, public-only history scope and client catalog refresh separately from server deployment.
+- [ ] **Verify standalone parity.** Register the same tool in the stdio package, route it through the new public REST read, and test actual tools/list and tools/call with the shared strict schema and unavailable response handling.
 - [ ] **Run joined acceptance.** Use synthetic local/staging assets for owner upload, trusted publication and distinct independent approval. Inspect actual website disclosures, public API and anonymous hosted MCP results for the same asset IDs and histories. Change privacy and verify fresh refusal. Keep any fixture setup/cleanup within the existing approved staging harness; do not publish real user media as a test. A missing/new tool in the loaded client catalog is a failed client acceptance condition, not proof of a server failure or permission to reinstall/rotate credentials.
 - [ ] **Verify and commit.** Focused tests, web/backend types, generated Convex/OpenAPI/catalog checks and exact-candidate hosted public-read proof pass. Independent task review, then one whole-branch review. No repeated broad suite/review unless new findings justify it.
 
@@ -143,11 +147,10 @@ owning test above. Website and MCP consume the same schema/query; actor/history
 field names match across tasks. The model adds one bounded receipt index,
 not a second public event database or a migration.
 
-Planning has not changed product code or production state. Present the design
-and plan for review, including planner recommendations on missing public actors,
-legacy history and original credit text in details. Execution approval also
-approves the exact new MCP description above; otherwise obtain that copy approval
-before publishing it.
+Execution approved 2026-10-15, including the exact MCP description above. Tasks 1
+and 2 passed independent review. Task 3 implements hosted/stdio parity, docs and
+the guarded joined staging acceptance extension. Independent Task 3 review, whole-branch
+review and controller-owned exact-candidate staging proof remain required.
 
 After execution approval, use the preserved subagent implementation/review
 workflow and one PR. Any later merge-ready review loop must satisfy the pushed

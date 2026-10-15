@@ -14,6 +14,8 @@ import {
   PublicEventSchema,
   PublicEventsResponseSchema,
   PublicProfileSchema,
+  PublicProfileMediaDetailsSchema,
+  PublicProfileMediaDetailsInputSchema,
   PublicSearchResponseSchema,
   PublicWorldSchema,
   z,
@@ -255,6 +257,22 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       const result = await apiClient.search({ query: searchText, type: normalizedType, limit: cappedLimit });
 
       return result.ok ? mcpJsonResult(PublicSearchResponseSchema, result.data, config.outputMode) : mcpApiError(result);
+    },
+  );
+
+  server.registerTool(
+    "vrdex_get_profile_media",
+    {
+      title: "Get VRDex Profile Media",
+      description: "Read an image's public details, uploader attribution and publication history.",
+      inputSchema: PublicProfileMediaDetailsInputSchema,
+      outputSchema: mcpOutputSchema(PublicProfileMediaDetailsSchema),
+      annotations: { readOnlyHint: true, idempotentHint: true },
+    },
+    async ({ slug, assetId }) => {
+      const result = await apiClient.getProfileMedia({ slug, assetId });
+      if (!result.ok) return result.status === 404 ? mcpNotFound("Profile media", slug) : mcpApiError(result);
+      return mcpJsonResult(PublicProfileMediaDetailsSchema, result.data, config.outputMode);
     },
   );
 

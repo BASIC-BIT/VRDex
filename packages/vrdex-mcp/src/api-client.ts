@@ -13,6 +13,8 @@ import {
   PublicEventSchema,
   PublicEventsResponseSchema,
   PublicProfileSchema,
+  PublicProfileMediaDetailsSchema,
+  PublicProfileMediaDetailsInputSchema,
   PublicSearchResponseSchema,
   PublicWorldSchema,
 } from "@vrdex/api-contracts";
@@ -235,6 +237,10 @@ export function createVrdexApiClient(options: ApiClientOptions) {
       return request(PublicEventSchema, `events/${encodeURIComponent(slug)}`, {
         authenticate: false,
       });
+    },
+    getProfileMedia(input: z.infer<typeof PublicProfileMediaDetailsInputSchema>) {
+      const { slug, assetId } = PublicProfileMediaDetailsInputSchema.parse(input);
+      return request(PublicProfileMediaDetailsSchema, `profiles/${encodeURIComponent(slug)}/assets/${encodeURIComponent(assetId)}`, { authenticate: false });
     },
     getProfile(input: { profileType?: VrdexProfileType; slug: string }) {
       const segment =

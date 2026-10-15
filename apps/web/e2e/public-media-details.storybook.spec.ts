@@ -19,7 +19,7 @@ for (const state of ["collapsed", "expanded"]) {
     await expect(card.locator("img")).toHaveClass(/opacity-100/);
     await expect(card.getByRole("status", { name: "Loading image" })).toHaveCount(0);
     expect(await card.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
-    await card.screenshot({ path: path.resolve(process.cwd(), "../../.cache/artifacts", `public-media-story-${testInfo.project.name}-${state}.png`) });
+    if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") await card.screenshot({ path: path.resolve(process.cwd(), "../../.cache/artifacts", `public-media-story-${testInfo.project.name}-${state}.png`) });
   });
 }
 

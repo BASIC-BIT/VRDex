@@ -24,7 +24,7 @@ test("anonymous connected disclosure loads once and keeps attribution collapsed 
   await expect(card.getByText("Shared by Karly")).toHaveCount(0);
   expect(reads).toBe(0);
   await expect(card.locator("img")).toHaveClass(/opacity-100/);
-  await card.screenshot({ path: testInfo.outputPath("public-media-collapsed.png") });
+  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") await card.screenshot({ path: testInfo.outputPath("public-media-collapsed.png") });
   const toggle = card.locator("summary");
   await toggle.focus();
   await page.keyboard.press("Enter");
@@ -33,7 +33,7 @@ test("anonymous connected disclosure loads once and keeps attribution collapsed 
   await expect(card.getByText("Published", { exact: true })).toBeVisible();
   const localized = await page.evaluate(at => new Date(at).toLocaleString(), uploadedAt);
   await expect(card.locator("time")).toHaveText(localized);
-  await card.screenshot({ path: testInfo.outputPath("public-media-expanded.png") });
+  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") await card.screenshot({ path: testInfo.outputPath("public-media-expanded.png") });
   expect(await card.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
   await toggle.click(); await toggle.click();
   expect(reads).toBe(1);
@@ -62,7 +62,8 @@ test("missing actor stays unavailable without a fabricated contributor link @flo
   await page.route(`**${endpoint}`, route => route.fulfill({ json: { ...details, uploadedBy: null, history: [{ kind: "uploaded", at: uploadedAt, actor: null }] } }));
   await page.goto(`/${slug}#media-${assetId}`);
   const card = page.locator(`article#media-${assetId}`);
-  await expect(card.getByText("Unavailable", { exact: true })).toBeVisible();
+  await expect(card.getByText("Unavailable", { exact: true })).toHaveCount(2);
+  for (const row of await card.getByText("Unavailable", { exact: true }).all()) await expect(row).toBeVisible();
   await expect(card.getByRole("link", { name: "BASICBIT" })).toHaveCount(0);
 });
 

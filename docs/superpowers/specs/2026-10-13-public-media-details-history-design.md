@@ -1,6 +1,6 @@
 # Public media details and history
 
-Status: design agreed in chat; implementation plan awaiting review.
+Status: approved 2026-10-15. Implementation proceeds through the three-task plan; exact-candidate hosted proof remains pending.
 
 ## Intent and locked decisions
 

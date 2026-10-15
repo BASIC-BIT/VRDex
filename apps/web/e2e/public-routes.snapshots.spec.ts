@@ -12,6 +12,13 @@ for (const route of capturedRoutes) {
     await page.goto(route.path);
     await route.expectPage(page);
     await waitForVisualReady(page);
+    if (route.name === "person-profile") {
+      await page.locator('article[id^="media-"] img').evaluateAll(async images => {
+        await Promise.all(images.map(async image => {
+          if (image instanceof HTMLImageElement) { image.loading = "eager"; await image.decode(); }
+        }));
+      });
+    }
 
     // Several captured routes are protected and render the sign-in page after a
     // redirect. Without auth credentials that page shows an unavailable
