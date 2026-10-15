@@ -1,10 +1,11 @@
 # Event editor identity and local-time checkpoint
 
-BASIC approved the history indexing change, which is now applied. Its current
-covering checks are recorded below. Tasks 1 through 6 and the scoped Task 6
-fix review are complete. Final whole-branch review found two issues, pending
-duration loss on TBA and equal-name linking intent. Both have focused fixes;
-the controller's scoped rereview, PR and CI remain pending.
+BASIC approved the history indexing change, which is now applied. Tasks 1
+through 6, whole-branch source review and the final scoped rereview are complete.
+Both final findings, pending duration loss on TBA and equal-name linking intent,
+are closed with no new findings. Final product source passed 56 covering browser
+cases, 50 pure tests and 30 Linux editor snapshot comparisons. External PR, CI
+and the 30-minute feedback gate remain pending.
 The earlier broad browser run passed 418 of 422 cases. Its covering rerun passed
 18 of 18; that does not turn the broad run into a clean pass.
 
@@ -337,6 +338,26 @@ Lineup disclosure on mobile staff and desktop intake. No visual baseline changed
 This wave starts at `32bb10c44b2ebaee0cb1d6ca5728d43122a02ac8` and changes web
 source, focused tests and behavior/checkpoint docs only. All seven generated and
 OpenAPI status entries retain empty normalized diffs and remain excluded.
-Earlier Linux proof remains at `9b79f286b7f1104d2aa041e26f99bf84231c5b03`.
-The controller owns the scoped rereview, final committed-source Linux refresh,
-PR/CI and the feedback window. There is no new-source Linux or merge-ready claim.
+The earlier integrated-source Linux proof is at
+`9b79f286b7f1104d2aa041e26f99bf84231c5b03`.
+
+### Final source review and Linux receipt
+
+Final product source is `1e7a325a6e8373182d909cde13622499b8ac5619`.
+The fresh scoped rereview closed I1 and M1 with zero new findings. Its source
+verdict is separate from external PR readiness. The 56 covering browser cases
+and 50 pure tests above apply to this product source.
+
+The controller refreshed Linux to that exact source, confirmed the backend ready
+at 23:14:47 UTC and received HTTP 200 from the web runtime. The affected
+`event-editor.snapshots.spec.ts` hard comparison passed 30 cases with zero
+failures, skips or flakies and no baseline updates. It started at
+2026-10-15T23:15:03.324Z and took 41.821 seconds. Actual JSON and log are
+`apps/web/test-results/final-linux-editor-snapshots.json` and
+`apps/web/test-results/final-linux-editor-snapshots.log`.
+
+The controller also inspected the two pending-TBA images and confirmed focused
+`45.5`, revealed Lineup, retained committed ranges and contained layouts. Earlier
+UNKNOWN failures, hosted-auth limits and deferred profile-editor cleanup remain
+unchanged. External PR, CI, mergeability and the 30-minute feedback gate remain
+pending. No merge-ready, hosted-user or production acceptance is claimed.
