@@ -4,11 +4,11 @@
 
 Make screenshot collection and image comparisons opt-in through the `ci:visuals` PR label. Keep the interaction assertions currently embedded in VRDex's visual suites automatic. This adapts Perkcord's explicit visual selection to VRDex's existing jobs and consolidated PR report.
 
-**Current recommendation:** approve the bounded change below. Without the label, the two preview jobs run their browser assertions without collecting review screenshots, and the two image-diff jobs skip. With the label, all four retain their current visual behavior. Add automatic public-route smoke coverage using the existing spec. UI changes still require screenshots and visual review under AGENTS.md.
+**Approved scope:** BASIC approved the bounded change below. Without the label, the two preview jobs run their browser assertions without collecting review screenshots, and the two image-diff jobs skip. With the label, all four retain their current visual behavior. Add automatic public-route smoke coverage using the existing spec. UI changes still require screenshots and visual review under AGENTS.md.
 
-**Decision needing BASIC's approval:** accept assertion-only preview runs as the default. This avoids making existing editing, publication-recovery, and access checks optional. It saves less browser time than skipping every visual job because the assertions still run. The smaller alternative makes only image comparisons optional and continues automatic screenshot collection; it does not fully cover the requested screenshot opt-in behavior.
+**Approved decision:** assertion-only preview runs are the default. This avoids making existing editing, publication-recovery, and access checks optional. It saves less browser time than skipping every visual job because the assertions still run. The smaller alternative makes only image comparisons optional and continues automatic screenshot collection; it does not fully cover the requested screenshot opt-in behavior.
 
-Status: proposed, awaiting BASIC's approval. Only this design has been written. Approval covers implementation, validation, and a separate PR, with no merge or deployment.
+Status: approved by BASIC in chat on 2026-10-14. Approval covers implementation, validation, and a separate PR, with no merge or deployment.
 
 ## Confirmed constraints
 

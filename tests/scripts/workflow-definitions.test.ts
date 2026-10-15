@@ -168,3 +168,36 @@ describe("fork-aware preview workflows", () => {
     assert.ok(JSON.stringify(post).includes("head_sha"));
   });
 });
+
+
+describe("optional visual evidence contract", () => {
+  const workflow = parseYaml(readFileSync(".github/workflows/baseline-checks.yml", "utf8"));
+  it("keeps browser assertions automatic and selects both comparison jobs explicitly", () => {
+    assert.deepEqual(workflow.on.pull_request.types, ["opened", "synchronize", "reopened", "ready_for_review"]);
+    assert.equal(workflow.on.workflow_dispatch, undefined);
+    for (const name of ["playwright-public-preview", "storybook-component-preview"]) {
+      const job = workflow.jobs[name];
+      assert.equal(job.if, "github.event_name == 'pull_request'");
+      assert.ok(job.needs.includes("visual-selection"));
+      assert.equal(job.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS, "${{ needs.visual-selection.outputs.selected }}");
+    }
+    for (const name of ["playwright-image-diff", "storybook-image-diff"]) {
+      const job = workflow.jobs[name];
+      assert.ok(job.needs.includes("visual-selection"));
+      assert.equal(job.if, "github.event_name == 'pull_request' && needs.visual-selection.outputs.selected == 'true'");
+      assert.equal(job["continue-on-error"], undefined);
+    }
+    assert.equal(workflow.jobs["playwright-public-smoke"].if, "github.event_name == 'pull_request'");
+    assert.equal(workflow.jobs["playwright-data-flow"].if, "github.event_name == 'pull_request'");
+    assert.ok(workflow.jobs["pr-verification-report"].needs.includes("playwright-public-smoke"));
+    assert.equal(workflow.jobs["deploy-convex-production"].if, "github.event_name == 'push' && github.ref == 'refs/heads/main'");
+  });
+  it("label removal cannot execute code from a pull request", () => {
+    const optOut = parseYaml(readFileSync(".github/workflows/visual-evidence-opt-out.yml", "utf8"));
+    assert.deepEqual(optOut.on.pull_request_target.types, ["unlabeled"]);
+    const job = optOut.jobs["invalidate-evidence"];
+    assert.equal(job.steps.length, 1);
+    assert.equal(job.steps[0].uses, "actions/github-script@v9");
+    assert.equal(job.concurrency.group, workflow.jobs["pr-verification-report"].concurrency.group);
+  });
+});

@@ -794,5 +794,7 @@ test("public profile media kit @visual @fixture", async ({ page }, testInfo) => 
     }));
   });
   await captureRouteScreenshot(page, testInfo, "profile-media-kit");
-  await mediaKit.screenshot({ path: `playwright-artifacts/screenshots/${testInfo.project.name}-profile-media-kit-section.png` });
+  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") {
+    await mediaKit.screenshot({ path: `playwright-artifacts/screenshots/${testInfo.project.name}-profile-media-kit-section.png` });
+  }
 });

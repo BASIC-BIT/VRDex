@@ -20,10 +20,12 @@ test("assigned bot remains inspectable when omitted from the directory @storyboo
   await expect(
     page.getByRole("heading", { name: "Club bot", exact: true }),
   ).toBeVisible();
-  await page.screenshot({
-    path: `../../.cache/artifacts/member-bot-${test.info().project.name}.png`,
-    fullPage: true,
-  });
+  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") {
+    await page.screenshot({
+      path: `../../.cache/artifacts/member-bot-${test.info().project.name}.png`,
+      fullPage: true,
+    });
+  }
 });
 test("member search, pagination and confirmed actions @storybook-visual", async ({
   page,
@@ -169,10 +171,12 @@ test("staff can select uppercase provider roles against lowercase grants @storyb
   await page.getByRole("button", { name: "Assign selected", exact: true }).click();
   await page.getByRole("button", { name: "Confirm action" }).click();
   await expect(page.getByText("Queued", { exact: true })).toBeVisible();
-  await page.screenshot({
-    path: `../../.cache/artifacts/member-mixed-case-role-${test.info().project.name}.png`,
-    fullPage: true,
-  });
+  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") {
+    await page.screenshot({
+      path: `../../.cache/artifacts/member-mixed-case-role-${test.info().project.name}.png`,
+      fullPage: true,
+    });
+  }
 });
 
 for (const story of ["owner-directory-unavailable", "mixed-role-directory-unavailable"]) {
@@ -187,7 +191,9 @@ for (const story of ["owner-directory-unavailable", "mixed-role-directory-unavai
     await page.getByLabel("VRChat role").selectOption({ label: "DJ" });
     await expect(page.getByRole("button", { name: "Assign role", exact: true })).toBeEnabled();
     await expect(page.getByRole("button", { name: "Remove member", exact: true })).toBeEnabled();
-    await page.screenshot({ path: `../../.cache/artifacts/member-${story}-${test.info().project.name}.png`, fullPage: true });
+    if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") {
+      await page.screenshot({ path: `../../.cache/artifacts/member-${story}-${test.info().project.name}.png`, fullPage: true });
+    }
     await page.getByRole("button", { name: "Assign role", exact: true }).click();
     await expect(page.getByText("Review action", { exact: true })).toBeVisible();
   });
@@ -204,7 +210,9 @@ test("role-only staff can assign a permitted role by ID without a directory read
   await expect(page.getByRole("button", { name: "Assign role", exact: true })).toBeDisabled();
   await page.getByLabel("VRChat user ID").fill("usr_00000000-0000-0000-0000-000000000001");
   await expect(page.getByRole("button", { name: "Assign role", exact: true })).toBeEnabled();
-  await page.screenshot({ path: `../../.cache/artifacts/member-role-only-${test.info().project.name}.png`, fullPage: true });
+  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") {
+    await page.screenshot({ path: `../../.cache/artifacts/member-role-only-${test.info().project.name}.png`, fullPage: true });
+  }
   await page.getByRole("button", { name: "Assign role", exact: true }).click();
   await expect(page.getByText("Review action", { exact: true })).toBeVisible();
   await expect(page.getByText("usr_00000000-0000-0000-0000-000000000001", { exact: true })).toBeVisible();
@@ -246,7 +254,9 @@ test("ban-only staff can ban by ID without directory access @storybook-visual", 
   await expect(page.getByText("Review action", { exact: true })).toBeVisible();
   await expect(page.getByText("usr_00000000-0000-0000-0000-000000000001", { exact: true })).toBeVisible();
   await expect(page.getByText("Queued", { exact: true })).toHaveCount(0);
-  await page.screenshot({ path: `../../.cache/artifacts/member-ban-only-${test.info().project.name}.png`, fullPage: true });
+  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") {
+    await page.screenshot({ path: `../../.cache/artifacts/member-ban-only-${test.info().project.name}.png`, fullPage: true });
+  }
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(page.getByText("Review action", { exact: true })).toHaveCount(0);
   await ban.click();
@@ -273,7 +283,9 @@ test("live directory revocation switches to permitted actions without remounting
   await page.getByLabel("VRChat role").selectOption({ label: "DJ" });
   await page.getByRole("button", { name: "Assign role", exact: true }).click();
   await expect(page.getByText("Review action", { exact: true })).toBeVisible();
-  await page.screenshot({ path: `../../.cache/artifacts/member-live-permissions-${test.info().project.name}.png`, fullPage: true });
+  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") {
+    await page.screenshot({ path: `../../.cache/artifacts/member-live-permissions-${test.info().project.name}.png`, fullPage: true });
+  }
   await page.getByRole("button", { name: "Switch permissions" }).click();
   await expect(page.getByRole("tab", { name: "Directory", exact: true })).toBeVisible();
   await page.getByRole("tab", { name: "Directory", exact: true }).click();

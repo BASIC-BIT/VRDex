@@ -12,8 +12,10 @@ const {
 
 function successfulNeeds() {
   return {
+    "visual-selection": { result: "success", outputs: { selected: "true" } },
+    "playwright-public-smoke": { result: "success" },
     "playwright-data-flow": { outputs: {}, result: "success" },
-    "playwright-hosted-data-flow": { outputs: {}, result: "success" },
+    "playwright-hosted-data-flow": { outputs: { configured: "false" }, result: "success" },
     "playwright-image-diff": { outputs: {}, result: "success" },
     "playwright-public-preview": { outputs: {}, result: "success" },
     "storybook-component-preview": { outputs: {}, result: "success" },
@@ -95,6 +97,7 @@ test("updatePrVerificationReport updates one report and deletes legacy comments"
         updateComment: async (input) => updated.push(input),
       },
       pulls: {
+        get: async () => ({ data: { head: { sha: "0123456789abcdef" }, labels: [{ name: "ci:visuals" }] } }),
         listFiles: (methods.listFiles = () => {}),
       },
     },
@@ -109,7 +112,7 @@ test("updatePrVerificationReport updates one report and deletes legacy comments"
 
   await updatePrVerificationReport({
     context,
-    core: { warning: assert.fail },
+    core: { warning: assert.fail, setFailed: () => {} },
     github,
     needs: successfulNeeds(),
   });
@@ -117,4 +120,50 @@ test("updatePrVerificationReport updates one report and deletes legacy comments"
   assert.equal(updated.length, 1);
   assert.equal(updated[0].comment_id, 1);
   assert.deepEqual(deleted, [2]);
+});
+
+
+test("default report distinguishes assertion success from unselected image comparisons", () => {
+  const needs = successfulNeeds();
+  needs["visual-selection"].outputs.selected = "false";
+  needs["playwright-image-diff"].result = "skipped";
+  needs["storybook-image-diff"].result = "skipped";
+  const artifacts = ["playwright-public-smoke", "playwright-data-flow", "playwright-public-preview", "storybook-component-preview"].map(name => ({ name, id: 1 }));
+  const report = buildReport({ artifacts, headSha: "0123456789abcdef", needs, owner: "BASIC-BIT", repo: "VRDex", runId: 456 });
+  assert.match(report, /assertions only/i);
+  assert.match(report, /Public route image diff \| NOT SELECTED/);
+  assert.doesNotMatch(report, /need attention/);
+  assert.doesNotMatch(report, /Public route screenshots \| PASSED/);
+});
+
+test("old-head runs never publish a report", async () => {
+  await updatePrVerificationReport({
+    context: { issue: { number: 1 }, repo: { owner: "BASIC-BIT", repo: "VRDex" }, payload: { pull_request: { head: { sha: "old-head" } } } },
+    github: { rest: { pulls: { get: async () => ({ data: { head: { sha: "new-head" }, labels: [] } }) } } },
+    core: { info: () => {}, warning: assert.fail, setFailed: assert.fail },
+    needs: successfulNeeds(),
+  });
+});
+
+test("report preserves run selection when the label changes after it started", () => {
+  const report = buildReport({ artifacts: [], headSha: "0123456789abcdef", needs: successfulNeeds(), owner: "BASIC-BIT", repo: "VRDex", runId: 456, selectionChanged: true });
+  assert.match(report, /selection changed since this run/i);
+});
+
+
+test("a head changed during artifact collection cannot publish stale evidence", async () => {
+  let reads = 0;
+  const github = {
+    paginate: async () => [],
+    rest: {
+      pulls: { get: async () => ({ data: { head: { sha: ++reads === 1 ? "old-head" : "new-head" }, labels: [] } }), listFiles: () => {} },
+      actions: { listWorkflowRunArtifacts: () => {} },
+      issues: { listComments: () => {}, createComment: assert.fail, updateComment: assert.fail },
+    },
+  };
+  await updatePrVerificationReport({
+    context: { issue: { number: 1 }, repo: { owner: "BASIC-BIT", repo: "VRDex" }, payload: { pull_request: { head: { sha: "old-head" } } } },
+    github, core: { info: () => {}, warning: assert.fail, setFailed: () => {} }, needs: successfulNeeds(),
+  });
+  assert.equal(reads, 2);
 });

@@ -103,14 +103,16 @@ test("individual invitation eligibility requires an explicit check @storybook-vi
   await expect(
     page.getByRole("link", { name: "Open assigned bot in VRChat" }),
   ).toBeVisible();
-  await page.screenshot({
-    path: path.resolve(
-      process.cwd(),
-      "../../.cache/artifacts",
-      `invitation-eligibility-${isMobile ? "mobile" : "desktop"}.png`,
-    ),
-    fullPage: true,
-  });
+  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") {
+    await page.screenshot({
+      path: path.resolve(
+        process.cwd(),
+        "../../.cache/artifacts",
+        `invitation-eligibility-${isMobile ? "mobile" : "desktop"}.png`,
+      ),
+      fullPage: true,
+    });
+  }
 });
 
 test("connected invitation workspace saves lists and cancels only unsent outcomes @storybook-visual", async ({
@@ -150,14 +152,16 @@ test("connected invitation workspace saves lists and cancels only unsent outcome
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBeTruthy();
-  await page.screenshot({
-    path: path.resolve(
-      process.cwd(),
-      "../../.cache/artifacts",
-      `invitation-workspace-${isMobile ? "mobile" : "desktop"}.png`,
-    ),
-    fullPage: true,
-  });
+  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") {
+    await page.screenshot({
+      path: path.resolve(
+        process.cwd(),
+        "../../.cache/artifacts",
+        `invitation-workspace-${isMobile ? "mobile" : "desktop"}.png`,
+      ),
+      fullPage: true,
+    });
+  }
   expect(errors).toEqual([]);
 });
 
@@ -189,14 +193,16 @@ test("invitation list editing and frozen review @storybook-visual", async ({
       .getByRole("listitem"),
   ).toHaveCount(2);
   await expect(page.getByTestId("queued-review")).toHaveCount(0);
-  await page.screenshot({
-    path: path.resolve(
-      process.cwd(),
-      "../../.cache/artifacts",
-      `invitation-review-${isMobile ? "mobile" : "desktop"}.png`,
-    ),
-    fullPage: true,
-  });
+  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") {
+    await page.screenshot({
+      path: path.resolve(
+        process.cwd(),
+        "../../.cache/artifacts",
+        `invitation-review-${isMobile ? "mobile" : "desktop"}.png`,
+      ),
+      fullPage: true,
+    });
+  }
   await page.getByRole("button", { name: "Confirm invitations" }).click();
   await expect(page.getByTestId("queued-review")).toHaveText(
     "2 recipients · group · immediate",
@@ -228,14 +234,16 @@ test("instance-only staff review a creation with event-relative timing @storyboo
   ).toHaveAttribute("href", `https://vrchat.com/home/user/${alice}`);
   await page.getByRole("button", { name: "Review invitations", exact: true }).click();
   await expect(page.getByRole("region", { name: "Review invitations" })).toContainText("9:30 PM");
-  await page.screenshot({
-    path: path.resolve(
-      process.cwd(),
-      "../../.cache/artifacts",
-      `invitation-creation-default-${isMobile ? "mobile" : "desktop"}.png`,
-    ),
-    fullPage: true,
-  });
+  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") {
+    await page.screenshot({
+      path: path.resolve(
+        process.cwd(),
+        "../../.cache/artifacts",
+        `invitation-creation-default-${isMobile ? "mobile" : "desktop"}.png`,
+      ),
+      fullPage: true,
+    });
+  }
   await page.getByRole("button", { name: "Confirm invitations" }).click();
   await expect(page.getByTestId("queued-review")).toHaveText(
     "2 recipients · scheduled_instance · fixed",
@@ -250,14 +258,16 @@ test("instance-only staff review a creation with event-relative timing @storyboo
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBeTruthy();
-  await page.screenshot({
-    path: path.resolve(
-      process.cwd(),
-      "../../.cache/artifacts",
-      `invitation-composer-${isMobile ? "mobile" : "desktop"}.png`,
-    ),
-    fullPage: true,
-  });
+  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") {
+    await page.screenshot({
+      path: path.resolve(
+        process.cwd(),
+        "../../.cache/artifacts",
+        `invitation-composer-${isMobile ? "mobile" : "desktop"}.png`,
+      ),
+      fullPage: true,
+    });
+  }
   await page
     .getByRole("button", { name: "Review invitations", exact: true })
     .click();
@@ -342,10 +352,12 @@ test("deleting a list requires the revision shown at confirmation @storybook-vis
   await page.getByRole("button", { name: "Confirm deletion" }).click();
   await expect(page.getByRole("alert")).toHaveText("List changed. Reload before saving.");
   await expect(page.getByLabel("Saved list").locator("option")).toHaveCount(2);
-  await page.screenshot({
-    path: path.resolve(process.cwd(), "../../.cache/artifacts", `invitation-stale-list-${isMobile ? "mobile" : "desktop"}.png`),
-    fullPage: true,
-  });
+  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") {
+    await page.screenshot({
+      path: path.resolve(process.cwd(), "../../.cache/artifacts", `invitation-stale-list-${isMobile ? "mobile" : "desktop"}.png`),
+      fullPage: true,
+    });
+  }
 });
 
 test("recipient review deduplicates user IDs regardless of hex case @storybook-visual", async ({ page }) => {

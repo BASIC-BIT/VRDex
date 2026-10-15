@@ -12,7 +12,11 @@ test("count and graph switches stay independent @storybook-visual", async ({ pag
     await page.goto(story(name));
     await expect(page.getByText("Group members", { exact: true })).toHaveCount(count ? 1 : 0);
     await expect(page.getByRole("group", { name: "Total group membership" })).toHaveCount(graph ? 1 : 0);
-    if (name === "both") await testInfo.attach("membership-both", { body: await page.screenshot({ fullPage: true }), contentType: "image/png" });
+    if (name === "both") {
+      if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") {
+        await testInfo.attach("membership-both", { body: await page.screenshot({ fullPage: true }), contentType: "image/png" });
+      }
+    }
     if (name === "neither") {
       await expect(page.getByRole("heading", { name: "Activity" })).toBeVisible();
       await expect(page.getByText("Member growth", { exact: true })).toBeVisible();
@@ -37,7 +41,9 @@ test("a single observation and missing creation time remain honest @storybook-vi
   await expect(page.locator(".recharts-tooltip-wrapper").getByText("Group founded", { exact: true })).toBeVisible();
   await expect(page.locator(".recharts-tooltip-wrapper").getByText("1 member", { exact: true })).toBeVisible();
   await expect(page.locator(".recharts-tooltip-wrapper").getByText("Sep 21, 2026")).toBeVisible();
-  await testInfo.attach("single-observation", { body: await page.screenshot({ fullPage: true }), contentType: "image/png" });
+  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") {
+    await testInfo.attach("single-observation", { body: await page.screenshot({ fullPage: true }), contentType: "image/png" });
+  }
 
   await page.goto(story("unknown-creation"));
   await expect(page.getByRole("group", { name: "Total group membership" })).toBeVisible();
@@ -62,7 +68,9 @@ test("skipped UTC day uses a dotted segment even over 35 hours @storybook-visual
   await expect(page.locator('.recharts-line-dots circle')).toHaveCount(3);
   await expect(page.locator('.recharts-line-curve[stroke-dasharray="3 4"]')).toHaveCount(1);
   await expect(page.getByText("Unobserved", { exact: true })).toBeVisible();
-  await testInfo.attach("membership-missing-days", { body: await page.screenshot({ fullPage: true }), contentType: "image/png" });
+  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") {
+    await testInfo.attach("membership-missing-days", { body: await page.screenshot({ fullPage: true }), contentType: "image/png" });
+  }
 
   await page.goto(story("adjacent-long-interval"));
   await expect(page.locator('.recharts-line-curve[stroke="var(--accent)"]')).toHaveCount(1);
@@ -82,5 +90,7 @@ test("sampled history has its own connector, while raw missing days remain unobs
   await expect(page.locator('.recharts-line-curve[stroke-dasharray="7 5"]')).toHaveCount(1);
   await expect(page.locator('.recharts-line-curve[stroke-dasharray="3 4"]')).toHaveCount(1);
   await expect(page.getByText("Unobserved", { exact: true })).toBeVisible();
-  await testInfo.attach("sampled-and-missing", { body: await page.screenshot({ fullPage: true }), contentType: "image/png" });
+  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") {
+    await testInfo.attach("sampled-and-missing", { body: await page.screenshot({ fullPage: true }), contentType: "image/png" });
+  }
 });

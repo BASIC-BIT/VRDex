@@ -1,0 +1,40 @@
+name: Visual evidence opt-out
+
+on:
+  pull_request_target:
+    types: [unlabeled]
+
+permissions:
+  contents: read
+
+jobs:
+  invalidate-evidence:
+    if: github.event.label.name == 'ci:visuals' && github.event.pull_request.head.repo.fork == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: pr-verification-comment-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    permissions:
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/github-script@v9
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const { data: current } = await github.rest.pulls.get({ owner, repo, pull_number: context.issue.number });
+            if (current.labels.some(label => label.name === "ci:visuals")) return;
+            const marker = "<!-- vrdex-pr-verification-report -->";
+            const note = "<!-- vrdex-visual-selection-note -->";
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner, repo, issue_number: context.issue.number, per_page: 100,
+            });
+            const { data: latest } = await github.rest.pulls.get({ owner, repo, pull_number: context.issue.number });
+            if (latest.labels.some(label => label.name === "ci:visuals")) return;
+            for (const comment of comments) {
+              if (comment.user?.type !== "Bot" || !comment.body?.includes(marker)) continue;
+              const historical = comment.body.split(note)[0].trimEnd();
+              const body = `${historical}\n\n${note}\nVisuals are not selected for current commit \`${latest.head.sha}\`. Historical run results above are preserved, including failures. Add \`ci:visuals\` before the next normal PR run to request current visual evidence.`;
+              await github.rest.issues.updateComment({ owner, repo, comment_id: comment.id, body });
+            }

@@ -199,6 +199,8 @@ export async function captureRouteScreenshot(
   const fileName = `${projectPrefix}-${name}.png`;
   const screenshotPath = path.join(screenshotDir, fileName);
 
+  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS === "false") return;
+
   mkdirSync(screenshotDir, { recursive: true });
   await page.screenshot({ path: screenshotPath, fullPage: true, mask: options?.mask });
   await testInfo.attach(fileName, { path: screenshotPath, contentType: "image/png" });

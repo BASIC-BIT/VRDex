@@ -71,6 +71,8 @@ export async function captureStorybookScreenshot(page: Page, testInfo: TestInfo,
   const fileName = `${projectPrefix}-${name}.png`;
   const screenshotPath = path.join(screenshotDir, fileName);
 
+  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS === "false") return;
+
   mkdirSync(screenshotDir, { recursive: true });
   await page.screenshot({ path: screenshotPath, fullPage: true });
   await testInfo.attach(fileName, { path: screenshotPath, contentType: "image/png" });
