@@ -26,6 +26,13 @@ function PublicActor({ actor }: { actor: PublicMediaActor | null }) {
   return actor ? <a className="break-words underline underline-offset-4" href={actor.profileUrl}>{actor.displayName}</a> : <span className="text-muted">Unavailable</span>;
 }
 
+function PublicEventTime({ at }: { at: number | null }) {
+  if (at === null) return null;
+  const date = new Date(at);
+  if (!Number.isFinite(date.getTime())) return null;
+  return <time className="text-xs text-muted" dateTime={date.toISOString()} suppressHydrationWarning>{date.toLocaleString()}</time>;
+}
+
 function MediaDetails({ state }: { state: PublicMediaDetailsState }) {
   switch (state.kind) {
     case "closed": return null;
@@ -39,8 +46,8 @@ function MediaDetails({ state }: { state: PublicMediaDetailsState }) {
       <ol className="grid gap-3 border-t border-border pt-3">
         {state.details.history.map(event => <li className="grid gap-1" key={event.kind}>
           <span className="font-medium">{{ uploaded: "Uploaded", approved: "Approved", published: "Published" }[event.kind]}</span>
-          {event.actor ? <PublicActor actor={event.actor} /> : null}
-          {event.at !== null ? <time className="text-xs text-muted" dateTime={new Date(event.at).toISOString()} suppressHydrationWarning>{new Date(event.at).toLocaleString()}</time> : null}
+          <PublicActor actor={event.actor} />
+          <PublicEventTime at={event.at} />
         </li>)}
       </ol>
     </div>;
