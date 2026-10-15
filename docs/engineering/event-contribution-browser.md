@@ -325,17 +325,20 @@ termination.
 
 Cancelable same-document traversals use the public Navigation API. The public
 history fallback restores a known indexed entry before asking and replays an
-approved traversal once. Unknown history entries are currently allowed through
-without guessing their direction. Complete fallback indexing remains pending
-approval in the [history indexing proposal](../testing/event-editor-history-indexing-proposal.md).
+approved traversal once. Public pushState and replaceState indexing starts before
+hydration and remains installed for the page lifetime. Unknown history entries
+pass through without guessed direction or replay. They can trigger framework
+document navigation and native unload confirmation. The
+[approved history indexing decision](../testing/event-editor-history-indexing-proposal.md)
+records the implementation scope and verification.
 Browser noncancelable traversals must remain an escape route.
 
 The early capture dispatcher uses the public
 [instrumentation-client hook](https://nextjs.org/docs/app/api-reference/file-conventions/instrumentation-client)
 before router hydration. A later editor-only listener lost its mounted form when
-the earlier router listener handled traversal first. The inert dispatcher stays
-installed for the page lifetime; its editor delegate and dirty closures detach
-on unmount. A mistake here can regress app-wide navigation or leave stale blocking.
+the earlier router listener handled traversal first. The inert dispatcher and
+state-preserving public history wrappers stay installed for the page lifetime.
+Editor delegates, dirty closures and editor-specific listeners detach on unmount. A mistake here can regress app-wide navigation or leave stale blocking.
 The [HTML navigation standard](https://html.spec.whatwg.org/multipage/nav-history-apis.html)
 describes the browser cancellation limits.
 

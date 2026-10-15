@@ -1,5 +1,5 @@
 "use client";
-import { registerEventEditorHistoryCapture } from "@/lib/event-editor-history";
+import { eventEditorHistoryPosition as position, registerEventEditorHistoryCapture } from "@/lib/event-editor-history";
 import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 
 export const EventEditorPendingContext = createContext<(key: string, pending: boolean) => void>(() => {});
@@ -14,10 +14,6 @@ export function usePendingEventInput(pending: boolean) {
   useEffect(() => { register(key, pending); return () => register(key, false); }, [key, pending, register]);
 }
 
-const positionKey = "vrdexEventEditorPosition";
-function position(state: unknown): number | undefined {
-  return state && typeof state === "object" && positionKey in state && typeof state[positionKey] === "number" ? state[positionKey] : undefined;
-}
 export function useEventEditorLeaveGuard({ dirty }: { dirty: boolean }): { requestLeave: (navigate: () => void) => boolean } {
   const currentDirty = useRef(dirty);
   useLayoutEffect(() => { currentDirty.current = dirty; }, [dirty]);
@@ -36,19 +32,6 @@ export function useEventEditorLeaveGuard({ dirty }: { dirty: boolean }): { reque
   }, [dirty]);
   useEffect(() => {
     let index = position(history.state) ?? 0;
-    const originalPush = history.pushState;
-    const originalReplace = history.replaceState;
-    originalReplace.call(history, { ...history.state, [positionKey]: index }, "");
-    const push: History["pushState"] = function (state, unused, url) {
-      index += 1;
-      originalPush.call(history, { ...state, [positionKey]: index }, unused, url);
-      approved.current = false;
-    };
-    const replace: History["replaceState"] = function (state, unused, url) {
-      originalReplace.call(history, { ...state, [positionKey]: index }, unused, url);
-    };
-    history.pushState = push;
-    history.replaceState = replace;
     let restoring: { delta: number } | undefined;
     let replaying = false;
     let browserEscape = false;
@@ -63,7 +46,7 @@ export function useEventEditorLeaveGuard({ dirty }: { dirty: boolean }): { reque
         return;
       }
       const target = position(event.state);
-      // Pre-editor entries have no reliable direction or distance. Never guess.
+      // Entries created before bootstrap have no reliable direction or distance. Never guess.
       if (target === undefined) return;
       if (!currentDirty.current || approved.current) { index = target; return; }
       event.stopImmediatePropagation();
@@ -102,8 +85,6 @@ export function useEventEditorLeaveGuard({ dirty }: { dirty: boolean }): { reque
       navigation?.removeEventListener("navigate", traverse);
       unregisterHistory();
       document.removeEventListener("click", click, true);
-      if (history.pushState === push) history.pushState = originalPush;
-      if (history.replaceState === replace) history.replaceState = originalReplace;
     };
   }, []);
   return { requestLeave };

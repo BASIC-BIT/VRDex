@@ -141,26 +141,107 @@ test('source completion retains newer text and pending unresolved clock across s
 
 });
 
-test('history fallback cancels twice, replays once and permits a second traversal @fixture', async ({ page }) => {
-  await page.addInitScript(() => Object.defineProperty(window, 'navigation', { value: undefined, configurable: true }));
+for (const editor of ['intake', 'staff']) for (const acceptedDelta of [-2, -1, 1]) {
+  test(`${editor} history fallback preserves Back Forward and multi-step cancellation, accepts ${acceptedDelta} @fixture`, async ({ page }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(window, 'navigation', { value: undefined, configurable: true });
+      sessionStorage.setItem('history-fallback-before-bootstrap', String(globalThis.__vrdexEventEditorHistory === undefined && Reflect.get(window, 'navigation') === undefined));
+    });
+    await page.goto(`/playwright/event-intake?entry=${editor}`);
+    await expect(page.getByRole('link', { name: 'Open editor' })).toBeVisible();
+    expect(await page.evaluate(() => sessionStorage.getItem('history-fallback-before-bootstrap'))).toBe('true');
+    const initialUrl = page.url();
+    const normalState = await page.evaluate(() => {
+      const original = history.state;
+      history.replaceState({ ...original, caller: { value: 'normal' } }, '');
+      return { original, updated: history.state };
+    });
+    expect(normalState.updated).toMatchObject(normalState.original);
+    expect(normalState.updated.caller).toEqual({ value: 'normal' });
+    expect(normalState.updated.vrdexEventEditorPosition).toEqual(expect.any(Number));
+    await page.evaluate(() => history.pushState({ ...history.state, caller: { value: 'second' } }, '', `${location.href}&second=1`));
+    const secondUrl = page.url();
+    expect(await page.evaluate(() => history.state.caller)).toEqual({ value: 'second' });
+    await page.getByRole('link', { name: 'Open editor' }).click();
+    await expect(page.getByLabel('Event title', { exact: true })).toBeVisible();
+    const editorUrl = page.url();
+    // Create a real forward entry while clean, then return to the editor.
+    await page.getByRole('link', { name: 'Contact', exact: true }).click();
+    await expect(page).toHaveURL(/\/support$/);
+    const forwardUrl = page.url();
+    await page.goBack();
+    await expect(page.getByLabel('Event title', { exact: true })).toBeVisible();
+    const editorState = await page.evaluate(() => {
+      const original = history.state;
+      history.replaceState({ ...original, caller: { value: 'editor' } }, '');
+      return { original, updated: history.state };
+    });
+    expect(editorState.updated).toMatchObject(editorState.original);
+    await page.getByLabel('Event title', { exact: true }).fill('Fallback edit');
+    let prompts = 0;
+    page.on('dialog', () => prompts++);
+    for (const delta of [-1, 1, -2, 1, -1]) {
+      const confirmation = page.waitForEvent('dialog');
+      await page.evaluate(delta => history.go(delta), delta);
+      const dialog = await confirmation;
+      expect(dialog.type()).toBe('confirm');
+      expect(dialog.message()).toBe('Leave without saving?');
+      await dialog.dismiss();
+      await expect(page).toHaveURL(editorUrl);
+      await expect(page.getByLabel('Event title', { exact: true })).toHaveValue('Fallback edit');
+      expect(await page.evaluate(() => history.state)).toEqual(editorState.updated);
+    }
+    expect(prompts).toBe(5);
+    const accepted = page.waitForEvent('dialog');
+    await page.evaluate(delta => history.go(delta), acceptedDelta);
+    await (await accepted).accept();
+    await expect(page).toHaveURL(acceptedDelta === 1 ? forwardUrl : acceptedDelta === -1 ? secondUrl : initialUrl);
+    await expect(page.getByLabel('Event title', { exact: true })).toHaveCount(0);
+    expect(prompts).toBe(6);
+    // Editor callbacks are gone, but public indexing still works on normal pages.
+    await page.evaluate(delta => history.go(-delta), acceptedDelta);
+    await expect(page.getByLabel('Event title', { exact: true })).toBeVisible();
+    await page.evaluate(() => history.go(-2));
+    await expect(page).toHaveURL(initialUrl);
+    expect(await page.evaluate(() => history.state.caller)).toEqual({ value: 'normal' });
+    await page.goForward();
+    await expect(page).toHaveURL(secondUrl);
+    expect(await page.evaluate(() => history.state.caller)).toEqual({ value: 'second' });
+    expect(prompts).toBe(6);
+  });
+}
+
+test('history fallback lets an unindexed destination escape without replay @fixture', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, 'navigation', { value: undefined, configurable: true });
+    if (!sessionStorage.getItem('unknown-history-created')) {
+      // This public entry predates the app bootstrap and must remain unknown.
+      history.replaceState({ caller: 'before-bootstrap' }, '', '/playwright/event-intake?entry=intake&unknown=1');
+      history.pushState({ caller: 'bootstrap-entry' }, '', '/playwright/event-intake?entry=intake');
+      sessionStorage.setItem('unknown-history-created', 'true');
+    }
+    const go = history.go;
+    history.go = function (delta) {
+      sessionStorage.setItem('unknown-history-go-count', String(Number(sessionStorage.getItem('unknown-history-go-count') ?? 0) + 1));
+      go.call(history, delta);
+    };
+  });
   await page.goto('/playwright/event-intake?entry=intake');
   await page.getByRole('link', { name: 'Open editor' }).click();
-  await page.getByLabel('Event title', { exact: true }).fill('Fallback edit');
-  for (const accept of [false, false, true]) {
-    const confirmation = page.waitForEvent('dialog');
-    const traversal = page.evaluate(() => history.back());
-    const dialog = await confirmation;
-    if (accept) await dialog.accept(); else await dialog.dismiss();
-    await traversal;
-    if (!accept) await expect(page.getByLabel('Event title', { exact: true })).toHaveValue('Fallback edit');
-  }
-  await expect(page).toHaveURL(/entry=intake/);
-  await page.goForward();
-  await expect(page.getByLabel('Event title', { exact: true })).toBeVisible();
-  await page.goBack();
-  await expect(page).toHaveURL(/entry=intake/);
+  await page.getByLabel('Event title', { exact: true }).fill('Unknown escape');
+  const dialogs: string[] = [];
+  page.on('dialog', async dialog => { dialogs.push(dialog.type()); await dialog.accept(); });
+  await page.evaluate(() => history.go(-2));
+  await expect(page).toHaveURL(/unknown=1/);
+  await expect(page.getByRole('link', { name: 'Open editor' })).toBeVisible();
+  expect(await page.evaluate(() => history.state.caller)).toBe('before-bootstrap');
+  expect(dialogs).toEqual(['beforeunload']);
+  expect(await page.evaluate(() => sessionStorage.getItem('unknown-history-go-count'))).toBe('1');
+  await page.evaluate(() => history.forward());
+  await expect(page).toHaveURL(/entry=intake$/);
+  await expect(page.getByRole('link', { name: 'Open editor' })).toBeVisible();
+  expect(dialogs).toEqual(['beforeunload']);
 });
-
 for (const editor of ['intake', 'staff']) {
   test(`${editor} presentation changes and unchanged save keep the baseline clean @fixture`, async ({ page }) => {
     await page.addInitScript(() => sessionStorage.setItem('event-intake-fixture', JSON.stringify({ communitySlug: 'playwright-afterglow-social', title: 'Loaded', eventDate: '2027-10-15', timezone: 'UTC', start: { time: '20:00' } })));
