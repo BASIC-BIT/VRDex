@@ -40,7 +40,9 @@ for (const story of ["no-destination", "invalid-destination"]) {
     await expect(card.locator("details, summary")).toHaveCount(0);
     expect(reads).toBe(0);
     expect(await card.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
-    if (story === "no-destination" && process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") await card.screenshot({ path: path.resolve(process.cwd(), "../../.cache/artifacts", `public-media-story-${testInfo.project.name}-no-destination.png`) });
+    if (story === "no-destination") {
+      if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") await card.screenshot({ path: path.resolve(process.cwd(), "../../.cache/artifacts", `public-media-story-${testInfo.project.name}-no-destination.png`) });
+    }
   });
 }
 
