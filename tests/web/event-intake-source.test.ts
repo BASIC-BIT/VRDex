@@ -25,7 +25,7 @@ it("leaves undated and ambiguous times unresolved",()=>{
  const event={title:null,communitySlug:null,eventDate:"2026-11-01",start:null,end:null,startDate:null,endDate:null,timezone:"America/New_York",venueLabel:null,summary:null,sourceUrl:null};
  const row={performerLabel:"DJ",personSlug:null,roleLabel:null,start:"01:30",end:null,startDate:"2026-11-01",endDate:null};
  const ambiguous=candidatePatch({event,lineup:[row],evidence:[],questions:[]});
- assert.equal(ambiguous.tentative?.lineup?.[0]?.start,undefined);
+ assert.deepEqual(ambiguous.tentative?.lineup?.[0]?.start,{time:"01:30",dayOffset:0});
  assert.ok(ambiguous.questions?.some(question=>question.includes("ambiguous_local_time")));
  const undated=candidatePatch({event:{...event,eventDate:null},lineup:[{...row,startDate:null}],evidence:[],questions:[]});
  assert.deepEqual(undated.tentative?.lineup?.[0]?.start,{time:"01:30"});
@@ -48,4 +48,12 @@ it("allows bounded poster-only draft input without placeholder event facts", () 
 it("rejects oversized and non-image files before reading their bytes", async () => {
   await assert.rejects(posterDeclaration(new File([new Uint8Array(12 * 1024 * 1024 + 1)], "large.png", {type:"image/png"})), /INVALID_POSTER/);
   await assert.rejects(posterDeclaration(new File(["text"], "poster.txt", {type:"text/plain"})), /INVALID_POSTER/);
+});
+
+it("retains missing source zone and dated clocks without borrowing the editor zone", () => {
+  const patch = candidatePatch({ event: { title: null, communitySlug: null, eventDate: "2026-10-15", start: "23:00", end: null, startDate: "2026-10-15", endDate: null, timezone: null, venueLabel: null, summary: null, sourceUrl: null }, lineup: [], evidence: [], questions: [] });
+  assert.equal(patch.tentative?.timezone, null);
+  assert.deepEqual(patch.tentative?.start, { time: "23:00", dayOffset: 0 });
+  assert.ok(patch.questions?.some(question => question.includes("date_timezone_required")));
+  assert.ok(EventIntakePatchSchema.safeParse(patch).success);
 });

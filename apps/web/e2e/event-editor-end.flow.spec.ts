@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-test.use({ timezoneId: "UTC" });
+test.use({ timezoneId: "America/New_York" });
 
 const storedStart = Date.UTC(2026, 10, 1, 5, 15);
 const storedEnd = Date.UTC(2026, 10, 1, 6, 45);
@@ -66,6 +66,9 @@ for (const invalidEnd of ["2026-11-01T01:45", "2026-03-08T02:30"]) {
       ? "Ambiguous local time requires an earlier or later occurrence."
       : "Local time does not exist in this timezone.", { exact: true })).toBeVisible();
     await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Details" }).click();
+    await page.getByLabel("Time TBA", { exact: true }).click();
+    await expect(page.getByLabel("Time TBA", { exact: true })).not.toBeChecked();
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
     await page.getByLabel("Time TBA", { exact: true }).check();
     const payload = await saveEdit(page);
     expect(payload.startAt).toBeUndefined();
@@ -85,7 +88,7 @@ test("staff edit applies an occurrence-only start change while keeping the store
   await editWithRepeatedEnd(page);
   await page.getByLabel("Start occurrence").selectOption("later");
   await expect(page.getByLabel("Ends (optional)", { exact: true })).toHaveValue("2026-11-01T01:45");
-  await expect(page.getByText("Nov 1, 6:45 AM", { exact: false })).toBeVisible();
+  await expect(page.getByText("Nov 1, 1:45 AM", { exact: false })).toBeVisible();
   const payload = await saveEdit(page);
   expect(payload.startAt).toBe(Date.UTC(2026, 10, 1, 6, 15));
   expect(payload.endAt).toBe(storedEnd);
@@ -96,7 +99,7 @@ test("staff edit keeps the later repeated-hour end when the start moves earlier 
   await page.getByLabel("Starts", { exact: true }).fill("2026-11-01T00:15");
   await expect(page.getByLabel("Ends (optional)", { exact: true })).toHaveValue("2026-11-01T01:45");
   await expect(page.getByLabel("End occurrence")).toHaveValue("later");
-  await expect(page.getByText("Nov 1, 6:45 AM", { exact: false })).toBeVisible();
+  await expect(page.getByText("Nov 1, 1:45 AM", { exact: false })).toBeVisible();
   const payload = await saveEdit(page);
   expect(payload.startAt).toBe(Date.UTC(2026, 10, 1, 4, 15));
   expect(payload.endAt).toBe(storedEnd);
@@ -135,24 +138,25 @@ test("staff create omits an unknown end without slots @fixture", async ({ page }
   await expect.poll(() => page.evaluate(() => localStorage.getItem("event-lineup-fixture-v1-submission"))).not.toBeNull();
   const payload = await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!));
   expect(payload.endAt).toBeUndefined();
-  expect(payload.slotLinks).toEqual([]);
+  expect(payload.lineup).toEqual([]);
 });
 
 
 test("staff doors disclosure preserves its value on collapse and clearing removes it @fixture", async ({ page }) => {
   await editWithRepeatedEnd(page);
   const disclosure = page.getByText("Add doors-open time", { exact: true });
-  await expect(page.getByLabel("Minutes before start", { exact: true })).toBeHidden();
+  await expect(page.getByLabel("Doors open", { exact: true })).toBeHidden();
   await disclosure.click();
-  await page.getByLabel("Minutes before start", { exact: true }).fill("15");
+  await page.getByLabel("Doors open", { exact: true }).fill("2026-11-01T01:00");
+  await page.getByLabel("Doors open occurrence").selectOption("earlier");
   await disclosure.click();
   expect((await saveEdit(page)).doorsOpenAt).toBe(storedStart - 15 * 60_000);
 });
 
 test("staff stored doors start expanded and can be explicitly cleared @fixture", async ({ page }) => {
   await editWithRepeatedEnd(page, storedStart, storedEnd, storedStart - 15 * 60_000);
-  await expect(page.getByLabel("Minutes before start", { exact: true })).toHaveValue("15");
-  await page.getByLabel("Minutes before start", { exact: true }).fill("");
+  await expect(page.getByLabel("Doors open", { exact: true })).toHaveValue("2026-11-01T01:00");
+  await page.getByLabel("Doors open", { exact: true }).fill("");
   expect((await saveEdit(page)).doorsOpenAt).toBeNull();
 });
 

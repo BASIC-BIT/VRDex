@@ -79,13 +79,34 @@ incomplete or ambiguous starts show the region without guessing an offset.
 Repeated local hours require an occurrence choice and missing local hours cannot
 publish. Existing owner timestamps remain exact when unchanged.
 
-New drafts use the private Account default event time zone, then browser
-detection, then UTC. Authenticated editor wrappers query the self viewer;
-fixture and demo editors receive preferences explicitly. Persisted drafts and
-events keep their authored zone, including missing-zone validation. Manual
-schedule edits and accepted imports prevent a late preference from changing the
-zone. Selecting a zone for an event never changes the account preference.
-Account settings save or clear the preference only through explicit actions.
+Both editors display schedules in the private Account timezone preference,
+otherwise the browser zone, otherwise UTC. The correction wrapper uses the same
+viewer preference. Deliberate display-zone choices survive step navigation and
+late preference data. Once a new draft has timing context, late defaults cannot
+reinterpret it. Opening an editor or choosing its display zone never updates the
+account preference.
+
+The canonical event date, zone, occurrences and precise instants remain the
+persistence source. Display conversion does not edit that state or cascade the
+lineup. Deliberate clock edits resolve in the displayed zone and serialize through
+the canonical zone. Starts invokes the existing elapsed-time cascade once, with
+the explicit end fixed. An update outside the -1 through 7 day-offset bounds
+leaves all prior fields intact and reveals the timing correction controls.
+
+Accepted imports resolve in their supplied source date and zone before local
+projection. Questions and evidence remain. Unknown source dates, missing zones,
+DST gaps and unresolved repeated hours remain unresolved. Saved unresolved
+clocks show their source context under `Unresolved time`; an absent source zone
+has an explicit contextual picker. Correcting a clock makes its resolved instant
+available in the local display. Pending invalid input blocks a display-zone
+change or Time TBA toggle and receives focus. `Cancel` or Escape restores the
+previous value without editing the schedule.
+
+Selecting Time TBA uses the calendar date currently displayed in Starts.
+Date-only previews keep that authored date. Switching back restores the precise
+canonical schedule. A date edited while TBA is selected becomes one local start-date
+change on restoration, retaining the explicit end and its conflict rules.
+Only surviving lineup keys receive backed-up timing; removed rows never return.
 
 ```mermaid
 flowchart LR
@@ -112,8 +133,10 @@ Unknown boundaries require the existing timing controls or an untimed addition.
 Insertion, removal and committed duration edits shift later timed rows by elapsed
 minutes, preserving durations, gaps, keys, performer matches and stream choices.
 Enter followed by blur commits a duration change once. Changing Starts shifts
-the timed lineup together. Compact row times use the authored timezone and retain
-crossing dates, seconds and milliseconds where present.
+the timed lineup together. Compact row times use the editing timezone and retain
+crossing dates, seconds and milliseconds where present. Repeated-hour ranges show
+the offset for each instant. Details and Review show the friendly zone label;
+ordinary rows do not repeat raw IANA identifiers.
 
 `Reset lineup` requires confirmation and removes editable timed and untimed rows.
 Cancel keeps edits; confirmation keeps details, artwork, timezone and explicit end.
@@ -203,12 +226,12 @@ can make a dated suggestion available again. If a later base edit makes a pendin
 offset invalid, its prior reference date stays in the private tentative fields.
 
 Time TBA keeps newly accepted timing in a reversible editor backup. Unrelated
-remembered fields survive, and removed lineup keys cannot restore. Timezone
-changes clear remembered occurrence choices. Date-only saved and published
+remembered fields survive, and removed lineup keys cannot restore. Display-zone
+changes preserve remembered instants and occurrence choices. Date-only saved and published
 commands remain untimed. Reloading a date-only draft discards the backup and
 cannot restore stale stored clocks.
 
-Staff Details has Start and an optional Ends control using the selected event
+Staff Details has Starts and an optional Ends control using the selected editing
 timezone. An untouched stored end retains its instant, including the later
 occurrence of a repeated hour. Clearing Ends sends null on update; creation
 omits an unknown end. A final known lineup end remains valid when Ends is

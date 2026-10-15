@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { ConvexError } from "convex/values";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Textarea } from "@/components/ui/field";
+import { eventTimezoneLabel } from "@/lib/event-timezones";
 import { BACKEND_ERROR_COPY } from "@/lib/error-copy";
 import { acceptIntakeSuggestion, intakeSuggestionKeys, type IntakeSuggestionAcceptance } from "@/lib/calendar/event-intake-suggestions";
 import type { EventIntakePatch, EventIntakeCandidate } from "../../../../../packages/api-contracts/src/event-intake";
@@ -19,7 +20,7 @@ export function EventIntakeSuggestions({ fields, onAccept, lineup = false }: { f
   const questions = fields.questions?.filter(question => !question.startsWith("source: ") && question.startsWith("lineup") === lineup);
   const evidence = fields.evidence?.filter(row => row.fieldPath.startsWith("lineup") === lineup);
   return <>
-    {tentative.length ? <section className="grid gap-3 rounded-control border border-border p-4"><h2 className="text-lg font-semibold">Tentative details</h2>
+    {tentative.length ? <section className="grid gap-3 rounded-control border border-border p-4"><h2 className="text-lg font-semibold">Tentative details</h2>{fields.tentative?.timezone || fields.tentative?.eventDate ? <p className="text-xs text-muted">{[fields.tentative.eventDate, fields.tentative.timezone ? eventTimezoneLabel(fields.tentative.timezone) : null].filter(Boolean).join(" · ")}</p> : null}
       {tentative.map(key => <div key={key} className="grid min-w-0 gap-2 border-t border-border pt-3 sm:grid-cols-[1fr_auto]">
         <div className="min-w-0"><p className="text-sm text-muted">{labels[key] ?? key}</p><p className="whitespace-pre-wrap break-words">{valueText(fields.tentative?.[key])}</p></div>
         <Button type="button" variant="secondary" aria-label={`Accept ${labels[key] ?? key}`} disabled={!acceptIntakeSuggestion({ fields, acceptance: { key, proposalDate: fields.tentative?.eventDate } })} onClick={() => onAccept({ key, proposalDate: fields.tentative?.eventDate })}>Accept</Button>

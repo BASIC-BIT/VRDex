@@ -10,10 +10,11 @@ import { Notice } from "@/components/ui/notice";
 import { EventIntakeFieldsForm } from "./event-intake-form";
 
 function CorrectionForm({ eventId, onDone }: { eventId: Id<"events">; onDone: () => void }) {
+  const viewer = useQuery(api.accounts.viewer);
   const event = useQuery(api.eventCorrections.getOwnContributedEvent, { eventId });
   const update = useMutation(api.eventCorrections.updateOwnContributedEvent);
   if (!event) return <p aria-busy="true">Loading…</p>;
-  return <EventIntakeFieldsForm correction initialFields={event.fields} initialRevision={event.updatedAt} onPublish={async (fields, revision) => {
+  return <EventIntakeFieldsForm correction savedTimezonePreference={viewer?.user.defaultEventTimezone} initialFields={event.fields} initialRevision={event.updatedAt} onPublish={async (fields, revision) => {
     const patch = { ...fields };
     delete patch.communitySlug; delete patch.sourceText; delete patch.posterSourceId;
     delete patch.posterDeclaration; delete patch.evidence;

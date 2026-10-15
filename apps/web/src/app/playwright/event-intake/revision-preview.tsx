@@ -32,7 +32,7 @@ function revisionFixture(correction: boolean, sourceMode?: string, staff = false
   let searchLoading = sourceMode === "search-loading";
   if (searchLoading && typeof window !== "undefined") window.addEventListener("release-community-search", () => { searchLoading = false; listeners.forEach(listener => listener()); }, { once: true });
   const people = [{ slug: "aurora", title: "Aurora", imageUrl: "/test-media/event-poster.png" }];
-  const viewer = { user: { name: "Fixture contributor" } };
+  const viewer = { user: { name: "Fixture contributor", defaultEventTimezone: typeof sessionStorage !== "undefined" ? sessionStorage.getItem("fixture-correction-timezone") ?? undefined : undefined } };
   const refresh = (patch: EventIntakePatch) => {
     fields = { ...fields, ...patch };
     if (draft?.artworkSourceId && "posterSourceId" in patch && fields.posterSourceId !== draft.artworkSourceId) {

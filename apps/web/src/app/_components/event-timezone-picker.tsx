@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/field";
 import { commonEventTimezones, eventTimezoneLabel, searchEventTimezones } from "@/lib/event-timezones";
 
 export function EventTimezonePicker({ value, date, instant, preferredValue, name = "timezone", onChange }: {
-  value: string | null; date: string | null; instant?: number; preferredValue?: string | null; name?: string; onChange: (value: string | null) => void;
+  value: string | null; date: string | null; instant?: number; preferredValue?: string | null; name?: string; onChange: (value: string | null) => void | boolean;
 }) {
   const id = useId();
   const root = useRef<HTMLDivElement>(null);
@@ -17,7 +17,7 @@ export function EventTimezonePicker({ value, date, instant, preferredValue, name
   useEffect(() => { if (open) root.current?.querySelector<HTMLInputElement>('[role="combobox"]')?.focus(); }, [open]);
   useEffect(() => { if (open && active >= 0) document.getElementById(`${id}-${active}`)?.scrollIntoView({ block: "nearest" }); }, [active, id, open]);
   function close() { setOpen(false); setQuery(""); setActive(-1); root.current?.querySelector<HTMLButtonElement>("button")?.focus(); }
-  function select(zone: string) { onChange(zone); close(); }
+  function select(zone: string) { const accepted = onChange(zone); if (accepted === false) { setOpen(false); setQuery(""); setActive(-1); } else close(); }
   return <div ref={root} className="relative w-full sm:w-fit sm:max-w-md" onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) { setOpen(false); setQuery(""); setActive(-1); } }}>
     <Button type="button" aria-label="Time zone" aria-haspopup="listbox" aria-expanded={open} aria-controls={id} className="w-full justify-between gap-3 text-left" variant="surface"
       onClick={() => { setQuery(""); setActive(-1); setOpen(current => !current); }}>

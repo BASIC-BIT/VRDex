@@ -4,6 +4,9 @@ import { formatLineupTimeRange } from "@/lib/calendar/event-lineup-display";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { resolveEventTimezoneDefault } from "@/lib/event-timezone-default";
+import { IntakeTime } from "./event-intake-form";
+import { projectEditorTime, resolveEditorTime } from "@/lib/calendar/event-editor-time";
+import { eventTimezoneLabel } from "@/lib/event-timezones";
 import { EventTimezonePicker } from "../_components/event-timezone-picker";
 import { resolveEventLocalTime, selectEventLocalTime } from "../../../../../packages/api-contracts/src/event-intake";
 import type { ChangeEvent, FormEvent, ReactNode } from "react";
@@ -459,6 +462,7 @@ function ConnectedEventEditorForm({
   const [untimedRows, setUntimedRows] = useState(() => (event?.lineup ?? []).filter(row => row.startAt === undefined).map(row => ({
     clientKey: row.key, position: row.position, performerLabel: row.displayLabel, personSlug: row.performer?.slug ?? "", roleLabel: row.roleLabel ?? "",
   })));
+  const [startInstantOverride, setStartInstantOverride] = useState<number>();
   const [startLocal, setStartLocal] = useState(formatZonedDateTimeInput(event?.startAt, event?.timezone));
   const [occurrence, setOccurrence] = useState<"earlier" | "later" | "">(() => storedTimeOccurrence(event?.startAt, event?.timezone));
   const [endLocal, setEndLocal] = useState(event?.endAt === undefined ? "" : formatZonedDateTimeInput(event.endAt, event.timezone));
@@ -480,10 +484,17 @@ function ConnectedEventEditorForm({
   const [vrcdnOutputStatus, setVrcdnOutputStatus] = useState<VrcdnOutputStatus>({ kind: "idle" });
   const [timezone, setTimezone] = useState(event?.timezone ?? "");
   const timezoneAuthored = useRef(event !== undefined);
+  const editingTimezoneAuthored = useRef(false);
+  const [editingTimezone, setEditingTimezone] = useState(() => resolveEventTimezoneDefault({ savedPreference: savedTimezonePreference }));
   useEffect(() => {
-    if (timezoneAuthored.current) return;
-    setTimezone(resolveEventTimezoneDefault({ savedPreference: savedTimezonePreference, browserTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone }));
-  }, [savedTimezonePreference]);
+    if (editingTimezoneAuthored.current || (!event && timezoneAuthored.current) || formRef.current?.querySelector('[data-time-pending="true"]')) return;
+    const zone = resolveEventTimezoneDefault({ savedPreference: savedTimezonePreference, browserTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone });
+    setEditingTimezone(zone);
+    if (!timezoneAuthored.current) setTimezone(zone);
+  }, [savedTimezonePreference, event]);
+  const tbaDisplayDate = useRef<string | undefined>(undefined);
+  const timedDateBackup = useRef<string | undefined>(undefined);
+  const [doorsAtOverride, setDoorsAtOverride] = useState<number | null>();
   const [doorsOpen, setDoorsOpen] = useState(event?.doorsOpenAt !== undefined);
   const [doorsOpenMinutes, setDoorsOpenMinutes] = useState(() => event?.doorsOpenAt === undefined || event.startAt === undefined
     ? ""
@@ -603,7 +614,8 @@ function ConnectedEventEditorForm({
       requestAnimationFrame(() => { field.focus(); field.reportValidity(); });
     }
     const invalid = form.querySelector<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>("input:invalid, select:invalid, textarea:invalid");
-    if (intent === "publish" && invalid) {
+    if (invalid && (intent === "publish" || invalid.dataset.timePending === "true")) {
+      if (invalid.dataset.timePending === "true") setStatus({ kind: "error", message: invalid.validationMessage });
       revealField(invalid);
       return;
     }
@@ -619,8 +631,8 @@ function ConnectedEventEditorForm({
       const submittedTimezone = optionalString(stringField(formData.get("timezone")));
       if (!timeTba && !submittedTimezone) throw new Error("Time zone must be a valid IANA time zone.");
       const timeZoneForParsing = submittedTimezone ?? browserTimeZone();
-      const authoredStart = stringField(formData.get("startAt"));
-      const startAt = timeTba ? undefined : resolveStaffStartAt(authoredStart, timeZoneForParsing, occurrence, event);
+      const authoredStart = startLocal;
+      const startAt = timeTba ? undefined : startInstantOverride ?? resolveStaffStartAt(authoredStart, timeZoneForParsing, occurrence, event);
       const slotLinks = startAt === undefined ? [] : parseSlotRows(slotRows, startAt);
       const derivedEndAt = getLineupEndAt(slotLinks.map((slot, index) => ({ ...slot, key: slotRows[index]!.id })));
       timeErrorField = "end";
@@ -645,15 +657,16 @@ function ConnectedEventEditorForm({
       if (doorsOffsetMinutes !== undefined && doorsOffsetMinutes < 0) {
         throw new Error("Doors-open offset minutes must be zero or greater.");
       }
+      const doorsOpenAt = timeTba ? undefined : doorsAtOverride !== undefined ? doorsAtOverride ?? undefined
+        : event?.doorsOpenAt !== undefined && event.startAt !== undefined && startAt !== undefined ? event.doorsOpenAt + startAt - event.startAt
+          : doorsOffsetMinutes === undefined || startAt === undefined ? undefined : startAt - doorsOffsetMinutes * 60_000;
       const payload = {
         title: stringField(formData.get("title")),
         communitySlug,
         ...(worldEdited ? { worldSlug: location.worldSlug || undefined } : {}),
         venueLabel: location.venueLabel,
         startAt,
-        ...(doorsOffsetMinutes === undefined
-          ? {}
-          : { doorsOpenAt: startAt! - doorsOffsetMinutes * 60_000 }),
+        ...(doorsOpenAt === undefined ? {} : { doorsOpenAt }),
         ...(endAt === undefined ? {} : { endAt }),
         timezone: submittedTimezone,
         summary: optionalString(stringField(formData.get("summary"))),
@@ -694,7 +707,7 @@ function ConnectedEventEditorForm({
               participantIds: unrepresentedLineupAssociations.participantIds.filter(id => associationSnapshot.preservedParticipantAssociationIds.includes(id)),
               slotIds: unrepresentedLineupAssociations.slotIds.filter(id => associationSnapshot.preservedSlotAssociationIds.includes(id)),
             } } : {}),
-            doorsOpenAt: doorsOffsetMinutes === undefined ? null : startAt! - doorsOffsetMinutes * 60_000,
+            doorsOpenAt: doorsOpenAt ?? null,
             endAt: endAt ?? null,
             summary: payload.summary ?? null,
             notes: payload.notes ?? null,
@@ -794,10 +807,8 @@ function ConnectedEventEditorForm({
   }
 
   const isSubmitting = status.kind === "submitting";
-  let startChoices: number[] = [];
-  try { if (startLocal && timezone) startChoices = resolveEventLocalTime(startLocal.slice(0, 10), { time: startLocal.slice(11, 16) }, timezone); } catch { /* The form remains editable while incomplete. */ }
   let previewStart: number | undefined;
-  try { if (!timeTba && startLocal && timezone) previewStart = resolveStaffStartAt(startLocal, timezone, occurrence, event); } catch { /* The preview waits for a valid local time. */ }
+  try { if (!timeTba && startLocal && timezone) previewStart = startInstantOverride ?? resolveStaffStartAt(startLocal, timezone, occurrence, event); } catch { /* The preview waits for a valid local time. */ }
   let previewDerivedEndAt: number | undefined;
   try {
     if (!timeTba && previewStart !== undefined) {
@@ -822,6 +833,10 @@ function ConnectedEventEditorForm({
   const previewEndAt = timeTba ? undefined : !endEdited ? implicitEndAt
     : !endLocal && previewStart !== undefined ? previewDerivedEndAt
       : endAtOverride ?? previewEnteredEndAt;
+  const displayedStart = previewStart === undefined ? startLocal : projectEditorTime({ instant: previewStart, timezone: editingTimezone }).value;
+  const doorsAt = doorsAtOverride !== undefined ? doorsAtOverride : event?.doorsOpenAt !== undefined && event.startAt !== undefined && previewStart !== undefined ? event.doorsOpenAt + previewStart - event.startAt : undefined;
+  const doorsLocal = doorsAt == null ? "" : formatZonedDateTimeInput(doorsAt, timezone);
+  const doorsOccurrence = doorsAt == null ? "" : storedTimeOccurrence(doorsAt, timezone);
   const vrcdnOutputAccountOptions = vrcdnOutputAccounts ?? [];
   const vrcdnOutputAccountsLoading = vrcdnOutputAccounts === undefined;
   const canSaveVrcdnOutput =
@@ -869,10 +884,10 @@ function ConnectedEventEditorForm({
     applyTimingEdit({ ok: true, rows: [...timings.slice(0, index), { key }, ...timings.slice(index)] }, key);
     requestAnimationFrame(() => formRef.current?.querySelector<HTMLElement>(`[data-lineup-row="${key}"] input`)?.focus());
   }
-  function changeStart(local: string, nextOccurrence: "earlier" | "later" | "") {
+  function changeStart(local: string, nextOccurrence: "earlier" | "later" | "", exactInstant?: number) {
     timezoneAuthored.current = true;
     try {
-      const next = resolveStaffStartAt(local, timezone, nextOccurrence, event);
+      const next = exactInstant ?? resolveStaffStartAt(local, timezone, nextOccurrence, event);
       if (startAnchor.current !== undefined) {
         const shifted = shiftLineupStart(readStaffLineupTimings(slotRows, startAnchor.current), next - startAnchor.current);
         setSlotRows(applyStaffLineupTimings(slotRows, shifted, next).map((row, index) => ({ ...row, position: slotRows[index]?.position })));
@@ -880,25 +895,41 @@ function ConnectedEventEditorForm({
       startAnchor.current = next;
       setScheduleChanged(true);
     } catch { /* Incomplete authored starts keep the last valid cascade anchor. */ }
+    setStartInstantOverride(exactInstant);
     setStartLocal(local); setEventDate(local.slice(0, 10)); setOccurrence(nextOccurrence);
   }
   function changeTimezone(value: string | null) {
+    const invalid = formRef.current?.querySelector<HTMLInputElement>('[data-time-pending="true"]');
+    if (invalid) { setActiveStep(invalid.closest('[data-editor-step="Lineup"]') ? "Lineup" : "Details"); requestAnimationFrame(() => invalid.focus()); return false; }
+    if (!value) return false;
+    editingTimezoneAuthored.current = true;
+    setEditingTimezone(value);
+    if (!timezoneAuthored.current) setTimezone(value);
+    return true;
+  }
+  function toggleTba(checked: boolean) {
+    const invalid = formRef.current?.querySelector<HTMLInputElement>('[data-time-pending="true"]');
+    if (checked && invalid) { invalid.focus(); return; }
     timezoneAuthored.current = true;
-    const nextZone = value ?? "";
-    try {
-      const next = resolveStaffStartAt(startLocal, nextZone, "");
-      if (startAnchor.current !== undefined) setSlotRows(applyStaffLineupTimings(slotRows, shiftLineupStart(readStaffLineupTimings(slotRows, startAnchor.current), next - startAnchor.current), next).map((row, index) => ({ ...row, position: slotRows[index]?.position })));
-      startAnchor.current = next;
-    } catch { /* Keep the last valid anchor while the authored start is incomplete. */ }
-    setTimezone(nextZone); setOccurrence(""); setEndOccurrence(""); setEndAtOverride(undefined);
-    if (displayedEndLocal) { setEndLocal(displayedEndLocal); setEndEdited(true); }
+    if (checked) {
+      timedDateBackup.current = eventDate;
+      const localDate = previewStart === undefined ? eventDate : projectEditorTime({ instant: previewStart, timezone: editingTimezone }).value.slice(0, 10);
+      tbaDisplayDate.current = localDate; setEventDate(localDate);
+    } else if (tbaDisplayDate.current && eventDate !== tbaDisplayDate.current && startAnchor.current !== undefined) {
+      const original = projectEditorTime({ instant: startAnchor.current, timezone: editingTimezone });
+      const next = resolveEditorTime({ value: `${eventDate}T${original.value.slice(11)}`, timezone: editingTimezone, occurrence: original.occurrence });
+      if (next.kind !== "resolved") return;
+      const canonical = projectEditorTime({ instant: next.instant, timezone });
+      changeStart(canonical.value, canonical.occurrence ?? "", next.instant + startAnchor.current % 60_000);
+    } else if (timedDateBackup.current) setEventDate(timedDateBackup.current);
+    setTimeTba(checked);
   }
   const insertion = (index: number) => <EventLineupInsert index={index} allowUntimed atLimit={slotRows.length + untimedRows.length >= 80} disabled={timeTba || (index === 0 ? previewStart : timings[index - 1]?.endAt) === undefined} onAddUntimed={addUntimed} onInsert={(index, durationMinutes) => {
     const key = crypto.randomUUID();
     applyTimingEdit(insertLineupSlot({ rows: timings, index, row: { key }, durationMinutes, eventStartAt: previewStart }));
     requestAnimationFrame(() => formRef.current?.querySelector<HTMLElement>(`[data-lineup-row="${key}"] input`)?.focus());
   }} />;
-  const conflictNotice = endConflict && previewEndAt !== undefined ? <EventLineupConflict {...endConflict} eventEndAt={previewEndAt} timezone={timezone} onExtend={endAt => { setEndAtOverride(endAt); setEndLocal(formatZonedDateTimeInput(endAt, timezone)); setEndOccurrence(storedTimeOccurrence(endAt, timezone)); setEndEdited(true); setEndOpen(true); }} /> : null;
+  const conflictNotice = endConflict && previewEndAt !== undefined ? <EventLineupConflict {...endConflict} eventEndAt={previewEndAt} timezone={editingTimezone} onExtend={endAt => { setEndAtOverride(endAt); setEndLocal(formatZonedDateTimeInput(endAt, timezone)); setEndOccurrence(storedTimeOccurrence(endAt, timezone)); setEndEdited(true); setEndOpen(true); }} /> : null;
   function renderUntimed(row: (typeof untimedRows)[number]) {
     return <Card data-lineup-row={row.clientKey} key={row.clientKey} className="grid gap-3" padding="sm" surface="dashed">
       <EventPerformerField value={performers.value({ key: row.clientKey, label: row.performerLabel, personSlug: row.personSlug })} selectedPerson={performers.person(row.personSlug)} onResolve={performers.resolve} onChange={value => {
@@ -939,7 +970,7 @@ function ConnectedEventEditorForm({
       const data = new FormData(change.currentTarget);
       setPreview({ title: stringField(data.get("title")), summary: stringField(data.get("summary")), venueLabel: stringField(data.get("venueLabel")), artwork: stringField(data.get("posterImageUrl")) });
     }}>
-      <EventEditorSteps heading={heading} steps={["Details", "Lineup", "Review"]} activeStep={activeStep} onSelect={setActiveStep} preview={<EventEditorPreview fields={previewFields} artwork={preview.artwork || undefined} community={community} world={world} />}>
+      <EventEditorSteps heading={heading} steps={["Details", "Lineup", "Review"]} activeStep={activeStep} onSelect={setActiveStep} preview={<EventEditorPreview editingTimezone={editingTimezone} fields={previewFields} artwork={preview.artwork || undefined} community={community} world={world} />}>
       <div hidden={activeStep !== "Details"} data-editor-step="Details" className="space-y-8">
       <EditorSection title="Details">
         <Field>
@@ -968,32 +999,23 @@ function ConnectedEventEditorForm({
         </details>
       </EditorSection>
 
+      <input type="hidden" name="timezone" value={timezone} />
       <EditorSection title="Timing">
-        {event ? <label className="flex items-center gap-3 text-sm font-medium"><input checked={timeTba} onChange={change => { timezoneAuthored.current = true; setTimeTba(change.target.checked); }} type="checkbox" />Time TBA</label> : null}
+        {event ? <label className="flex items-center gap-3 text-sm font-medium"><input checked={timeTba} onChange={change => toggleTba(change.target.checked)} type="checkbox" />Time TBA</label> : null}
         <div className="grid gap-4">
         {timeTba ? <Field>Date<Input type="date" required value={eventDate} onChange={change => { timezoneAuthored.current = true; setEventDate(change.target.value); }} /></Field> : <>
         <div className="grid items-start gap-4 sm:grid-cols-2">
-          <Field>
-            Starts
-            <Input value={startLocal} name="startAt" required type="datetime-local" onChange={change => changeStart(change.target.value, "")} />
-          </Field>
+          <div className="grid gap-2"><IntakeTime label="Starts" name="startAt" occurrenceLabel="Start occurrence" required eventStart date={startLocal.slice(0, 10) || eventDate} value={startLocal ? { time: startLocal.slice(11), ...(occurrence ? { occurrence } : {}) } : null} timezone={timezone} displayTimezone={editingTimezone} onChange={change => changeStart(change.local ? `${change.eventDate}T${change.local.time}` : "", change.local?.occurrence ?? "")} /><EventTimezonePicker name="editingTimezone" value={editingTimezone} date={eventDate || null} instant={previewStart} preferredValue={savedTimezonePreference} onChange={changeTimezone} /></div>
           <details className="relative min-w-0" open={endOpen} onToggle={change => setEndOpen(change.currentTarget.open)}>
             <summary className={`cursor-pointer font-medium ${endOpen ? "absolute right-0 top-0 text-xs" : "text-sm"}`}>Add end time</summary>
             <div className="grid gap-2">
-              <Field>Ends (optional)<Input value={displayedEndLocal} name="endAt" type="datetime-local" onChange={change => { timezoneAuthored.current = true; setEndAtOverride(undefined); setEndLocal(change.target.value); setEndOccurrence(""); setEndEdited(true); }} /></Field>
-              {displayedEndLocal && endChoices.length === 0 ? <p className="text-sm text-danger">This local time does not exist.</p> : null}
-              {endChoices.length > 1 ? <Field>Repeated time<Select aria-label="End occurrence" value={displayedEndOccurrence} onChange={change => { timezoneAuthored.current = true; setEndAtOverride(undefined); setEndLocal(displayedEndLocal); setEndOccurrence(change.target.value === "later" ? "later" : change.target.value === "earlier" ? "earlier" : ""); setEndEdited(true); }}><option value="">Choose occurrence</option>{endChoices.map((instant, index) => <option key={instant} value={index === 0 ? "earlier" : "later"}>{index === 0 ? "Earlier" : "Later"} ({new Date(instant).toISOString().slice(11, 16)} UTC)</option>)}</Select></Field> : null}
+              <IntakeTime label="Ends (optional)" name="endAt" occurrenceLabel="End occurrence" eventStart date={displayedEndLocal.slice(0, 10) || eventDate} value={displayedEndLocal ? { time: displayedEndLocal.slice(11), ...(displayedEndOccurrence ? { occurrence: displayedEndOccurrence } : {}) } : null} timezone={timezone} displayTimezone={editingTimezone} onChange={change => { timezoneAuthored.current = true; setEndAtOverride(undefined); setEndLocal(change.local ? `${change.eventDate}T${change.local.time}` : ""); setEndOccurrence(change.local?.occurrence ?? ""); setEndEdited(true); }} />
             </div>
           </details>
         </div>
-        <Field>
-          Time zone
-          <EventTimezonePicker value={timezone || null} date={eventDate || null} instant={previewStart} preferredValue={savedTimezonePreference} onChange={changeTimezone} />
-        </Field>
-        {startChoices.length > 1 ? <Field>Repeated time<Select aria-label="Start occurrence" value={occurrence} onChange={change => changeStart(startLocal, change.target.value === "later" ? "later" : change.target.value === "earlier" ? "earlier" : "") }><option value="">Choose occurrence</option><option value="earlier">Earlier</option><option value="later">Later</option></Select></Field> : null}
         <details className="relative" open={doorsOpen} onToggle={change => setDoorsOpen(change.currentTarget.open)}>
           <summary className={`cursor-pointer font-medium ${doorsOpen ? "absolute right-0 top-0 text-xs" : "text-sm"}`}>Add doors-open time</summary>
-          <Field>Minutes before start<Input inputMode="numeric" min="0" type="number" value={doorsOpenMinutes} onChange={change => { timezoneAuthored.current = true; setDoorsOpenMinutes(change.target.value); }} /></Field>
+          <IntakeTime label="Doors open" eventStart date={doorsLocal.slice(0, 10) || eventDate} value={doorsLocal ? { time: doorsLocal.slice(11), ...(doorsOccurrence ? { occurrence: doorsOccurrence } : {}) } : null} timezone={timezone} displayTimezone={editingTimezone} onChange={change => { timezoneAuthored.current = true; setDoorsAtOverride(change.local && change.eventDate ? selectEventLocalTime(change.eventDate, change.local, timezone) : null); setDoorsOpenMinutes(""); }} />
         </details>
         </>}
         </div>
@@ -1038,7 +1060,7 @@ function ConnectedEventEditorForm({
       </div>
       <div hidden={activeStep !== "Lineup"} data-editor-step="Lineup">
       <EditorSection title="Lineup">
-        {!timeTba ? <p className="text-sm text-muted">{timezone}</p> : null}
+
         {slotRows.length + untimedRows.length === 0 ? <EventLineupSetup disabled={previewStart === undefined || timeTba} onAddPerformer={() => addUntimed()} onGenerate={(count, durationMinutes) => applyTimingEdit(generateLineupTimings({ startAt: previewStart ?? NaN, count, durationMinutes, keys: Array.from({ length: count }, () => crypto.randomUUID()) }))} /> : null}
         <div className="grid gap-3">
           {slotRows.length + untimedRows.length > 0 ? insertion(0) : null}
@@ -1050,10 +1072,10 @@ function ConnectedEventEditorForm({
             const gap = timing.startAt !== undefined && previousEnd !== undefined ? (timing.startAt - previousEnd) / 60_000 : 0;
             const duration = timing.startAt !== undefined && timing.endAt !== undefined && timing.endAt > timing.startAt ? (timing.endAt - timing.startAt) / 60_000 : undefined;
             return <Fragment key={slot.id}>{gap !== 0 ? <p className={gap < 0 ? "text-sm text-danger" : "text-sm text-muted"}>{gap < 0 ? "Overlap" : "Break"}: {Math.abs(gap)} min</p> : null}<Card data-lineup-row={slot.id} className="grid gap-3" padding="sm" surface="dashed">
-              <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_7rem] sm:items-end">
-                <div className="sm:col-span-2">
+              <div className={duration !== undefined && !Number.isInteger(duration) ? "grid gap-3" : "grid gap-3 sm:grid-cols-[minmax(0,1fr)_7rem] sm:items-end"}>
+                <div className={duration !== undefined && !Number.isInteger(duration) ? undefined : "sm:col-span-2"}>
                   <h4 className="font-semibold">{slot.displayLabel || `Slot ${index + 1}`}</h4>
-                  <span className="text-xs text-muted">{timeTba ? "Time TBA" : formatLineupTimeRange({ ...timing, timezone, eventDate: startLocal.slice(0, 10) })}</span>
+                  <span className="text-xs text-muted">{timeTba ? "Time TBA" : formatLineupTimeRange({ ...timing, timezone: editingTimezone, eventDate: displayedStart.slice(0, 10) })}</span>
                 </div>
                 <EventPerformerField value={performers.value({ key: slot.id, label: slot.displayLabel, personSlug: slot.personSlug })} selectedPerson={performers.person(slot.personSlug)} onResolve={performers.resolve} onChange={value => {
                   const next = performers.change({ key: slot.id, label: slot.displayLabel, personSlug: slot.personSlug }, value);
@@ -1108,8 +1130,8 @@ function ConnectedEventEditorForm({
           {conflictNotice}
           <h3 className="break-words text-2xl font-semibold">{preview.title}</h3>
           <dl className="grid gap-3 text-sm sm:grid-cols-2">
-            <div><dt className="text-muted">{timeTba ? "Date" : "Starts"}</dt><dd>{timeTba ? eventDate : startLocal.replace("T", " ")}</dd></div>
-            {!timeTba ? <div><dt className="text-muted">Time zone</dt><dd>{timezone}</dd></div> : null}
+            <div><dt className="text-muted">{timeTba ? "Date" : "Starts"}</dt><dd>{timeTba ? eventDate : displayedStart.replace("T", " ")}</dd></div>
+            {!timeTba ? <div><dt className="text-muted">Time zone</dt><dd>{eventTimezoneLabel(editingTimezone, previewStart)}</dd></div> : null}
             <div><dt className="text-muted">Community</dt><dd><EventCommunitySummary community={community} /></dd></div>
             {location.venueLabel || world?.title ? <div><dt className="text-muted">Where</dt><dd>{location.venueLabel || world?.title}</dd></div> : null}
           </dl>

@@ -1,3 +1,4 @@
+import { resolveEditorTime } from "./event-editor-time";
 import { formatCalendarDate, formatZonedDateTimeInput } from "./zoned-date-time";
 
 /** Compact authoring times retain dates at day changes and exact stored precision. */
@@ -13,7 +14,10 @@ export function formatLineupTimeRange({ startAt, endAt, timezone, eventDate }: {
       time += `:${String(date.getUTCSeconds()).padStart(2, "0")}`;
       if (date.getUTCMilliseconds()) time += `.${String(date.getUTCMilliseconds()).padStart(3, "0")}`;
     }
-    return showDates ? `${formatCalendarDate(local.slice(0, 10))} ${time}` : time;
+    const repeated = resolveEditorTime({ value: local, timezone }).kind === "ambiguous";
+    const offset = repeated ? new Intl.DateTimeFormat("en-US", { timeZone: timezone, timeZoneName: "shortOffset" }).formatToParts(at).find(part => part.type === "timeZoneName")?.value : undefined;
+    const displayed = showDates ? `${formatCalendarDate(local.slice(0, 10))} ${time}` : time;
+    return offset ? `${displayed} ${offset}` : displayed;
   }).join(" - ");
-  return `${range} · ${timezone}`;
+  return range;
 }

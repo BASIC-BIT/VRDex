@@ -304,7 +304,6 @@ for (const editor of ["staff", "intake"]) test(`${editor} retains the last start
   await page.getByLabel("Starts", { exact: true }).fill("2027-10-15T20:30");
   await nav(page, "Lineup");
   await expect(page.locator('[data-lineup-row]')).toContainText("20:30");
-  await page.getByRole("button", { name: "Set event end to lineup end", exact: true }).first().click();
   await nav(page, "Review");
   await page.getByRole("button", { name: editor === "staff" ? "Save changes" : "Save draft", exact: true }).click();
   if (editor === "staff") {
@@ -313,7 +312,7 @@ for (const editor of ["staff", "intake"]) test(`${editor} retains the last start
     expect(payload.lineup[0].endAt).toBe(Date.UTC(2027, 9, 15, 12, 30, 20, 333));
   } else {
     const payload = await page.evaluate(() => JSON.parse(sessionStorage.getItem("event-intake-fixture")!));
-    expect(payload.lineup[0].start).toEqual({ time: "20:30", dayOffset: 0 });
+    expect(payload.lineup[0].start).toEqual({ time: "11:30", dayOffset: 0 });
   }
 });
 

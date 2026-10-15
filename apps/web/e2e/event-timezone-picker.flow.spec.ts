@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+test.use({ timezoneId: "America/New_York" });
 
 test("search and cancellation preserve authored timezone and occurrences", async ({ page }, testInfo) => {
   await page.addInitScript(() => sessionStorage.setItem("event-intake-fixture", JSON.stringify({ communitySlug: "playwright-afterglow-social", eventDate: "2026-11-01", timezone: "America/New_York", start: { time: "01:30", occurrence: "later" }, end: { time: "01:45", occurrence: "later" }, timeTba: false })));
@@ -16,9 +17,10 @@ test("search and cancellation preserve authored timezone and occurrences", async
   await expect(page.getByLabel("Starts occurrence")).toHaveValue("later");
   await page.getByRole("button", { name: "Time zone", exact: true }).click();
   await search.fill("London");
-  await page.getByRole("option").first().click();
-  await expect(hidden).toHaveValue("Europe/London");
-  await expect(page.locator('[name="Starts"]')).toHaveValue("2026-11-01T01:30");
+  await page.getByRole("listbox", { name: "Time zones" }).getByRole("option").first().click();
+  await expect(page.locator('input[name="editingTimezone"]')).toHaveValue("Europe/London");
+  await expect(hidden).toHaveValue("America/New_York");
+  await expect(page.locator('[name="Starts"]')).toHaveValue("2026-11-01T06:30");
 });
 
 

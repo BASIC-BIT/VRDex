@@ -28,11 +28,11 @@ export function EventCommunitySummary({ community }: { community?: EventIdentity
   return <div className="flex min-h-10 items-center gap-3" aria-label="Community">{community ? <ProfileSuggestion option={{ ...community, context: undefined, trustLabel: undefined }} /> : <span aria-label="Loading community" className="h-8 w-32 animate-pulse rounded-control bg-surface-strong" />}</div>;
 }
 
-export function EventEditorPreview({ fields, artwork, community, world }: { fields: EventIntakePatch; artwork?: string; community?: EventIdentityOption; world?: EventIdentityOption }) {
+export function EventEditorPreview({ fields, editingTimezone, artwork, community, world }: { editingTimezone: string; fields: EventIntakePatch; artwork?: string; community?: EventIdentityOption; world?: EventIdentityOption }) {
   const locationLabel = fields.venueLabel || (world?.slug === fields.worldSlug ? world?.title : undefined);
   function time(local?: EventIntakeLocalTime | null) {
-    if (!local || !fields.eventDate || !fields.timezone) return "";
-    try { return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(selectEventLocalTime(fields.eventDate, local, fields.timezone)); }
+    if (fields.timeTba || !local || !fields.eventDate || !fields.timezone) return "";
+    try { return new Intl.DateTimeFormat(undefined, { timeZone: editingTimezone, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(selectEventLocalTime(fields.eventDate, local, fields.timezone)); }
     catch { return ""; }
   }
   return <>

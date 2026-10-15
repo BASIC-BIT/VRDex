@@ -1,4 +1,6 @@
-import { EventIntakeFieldsSchema, EventIntakeLocalTimeSchema, type EventIntakeFields, type EventIntakeLocalTime, type EventIntakePatch } from "../../../../../packages/api-contracts/src/event-intake";
+import { EventIntakeFieldsSchema, EventIntakeLocalTimeSchema, selectEventLocalTime, type EventIntakeFields, type EventIntakeLocalTime, type EventIntakePatch } from "../../../../../packages/api-contracts/src/event-intake";
+import { intakeLocalFromInstant, readIntakeInstant } from "./event-lineup-adapters";
+import { projectEditorTime } from "./event-editor-time";
 import { eventLocalDate } from "./event-intake-date-time";
 
 export const intakeSuggestionKeys = EventIntakeFieldsSchema.keyof().options;
@@ -24,12 +26,12 @@ export function rebaseIntakeTimes<T extends EventIntakeFields>(fields: T, previo
 
 export function restoreIntakeTiming(fields: EventIntakePatch, backup: EventIntakePatch | null): EventIntakePatch {
   return { ...fields,
-    start: rebaseIntakeTime(backup?.start, backup?.eventDate, fields.eventDate) ?? null,
-    end: rebaseIntakeTime(backup?.end, backup?.eventDate, fields.eventDate) ?? null,
-    doors: rebaseIntakeTime(backup?.doors, backup?.eventDate, fields.eventDate) ?? null,
+    start: backup ? rebaseIntakeTime(backup.start, backup.eventDate, fields.eventDate) : null,
+    end: backup ? rebaseIntakeTime(backup.end, backup.eventDate, fields.eventDate) : null,
+    doors: backup ? rebaseIntakeTime(backup.doors, backup.eventDate, fields.eventDate) : null,
     lineup: fields.lineup ? fields.lineup.map(row => {
       const remembered = backup?.lineup?.find(item => item.clientKey === row.clientKey);
-      return { ...row, start: rebaseIntakeTime(remembered?.start, backup?.eventDate, fields.eventDate) ?? null, end: rebaseIntakeTime(remembered?.end, backup?.eventDate, fields.eventDate) ?? null };
+      return { ...row, start: remembered ? rebaseIntakeTime(remembered.start, backup?.eventDate, fields.eventDate) : null, end: remembered ? rebaseIntakeTime(remembered.end, backup?.eventDate, fields.eventDate) : null };
     }) : fields.lineup,
   };
 }
@@ -84,7 +86,18 @@ export function rebaseIntakeSuggestions(fields: EventIntakePatch, previousDate: 
   return { ...fields, tentative };
 }
 
-/** Accept atomically, retaining the suggestion when its date cannot be placed safely. */
+/** Resolve source clocks before serializing into the accepted canonical context. */
+function acceptSourceClock(fields: EventIntakePatch, local: EventIntakeLocalTime | null | undefined, proposalDate: EventIntakeFields["eventDate"], path: string) {
+  if (!local) return local;
+  const sourceZone = fields.tentative && Object.hasOwn(fields.tentative, "timezone") ? fields.tentative.timezone : fields.timezone;
+  const sourceDate = proposalDate ?? (local.dayOffset !== undefined ? fields.eventDate : undefined);
+  if (!sourceZone || !sourceDate || !fields.timezone || !fields.eventDate) throw new RangeError("Event date must be valid.");
+  if (fields.questions?.some(question => question.startsWith(`${path}:`) && /date_timezone_required|start_date_required/.test(question))) throw new RangeError("Event date must be valid.");
+  const instant = selectEventLocalTime(sourceDate, local, sourceZone);
+  return intakeLocalFromInstant(fields, instant);
+}
+
+/** Accept atomically, retaining unknown source context and unrepresentable clocks. */
 export function acceptIntakeSuggestion({ fields, acceptance }: { fields: EventIntakePatch; acceptance: IntakeSuggestionAcceptance }): EventIntakePatch | null {
   const { key, proposalDate } = acceptance;
   const value = fields.tentative?.[key];
@@ -98,15 +111,25 @@ export function acceptIntakeSuggestion({ fields, acceptance }: { fields: EventIn
     if (!normalized) return null;
     return { ...rebaseIntakeTimes(fields, fields.eventDate, date), tentative: normalized };
   }
-  if (key === "start" || key === "end" || key === "doors") {
-    const local = translateSuggestionTime(fields.tentative?.[key], proposalDate, fields.eventDate);
-    if (local === false) return null;
-    return { ...fields, [key]: local, tentative };
-  }
-  if (key === "lineup") {
-    const normalized = translateSuggestionTimes({ lineup: fields.tentative?.lineup }, proposalDate, fields.eventDate);
-    if (!normalized) return null;
-    return { ...fields, lineup: normalized.lineup, tentative };
-  }
-  return { ...fields, [key]: value, tentative };
+  try {
+    if (key === "start" || key === "end" || key === "doors") return { ...fields, [key]: acceptSourceClock(fields, fields.tentative?.[key], proposalDate, `event.${key}`), tentative };
+    if (key === "lineup") {
+      const lineup = fields.tentative?.lineup?.map((row, index) => ({ ...row, personSlug: undefined, start: acceptSourceClock(fields, row.start, proposalDate, `lineup.${index}.start`), end: acceptSourceClock(fields, row.end, proposalDate, `lineup.${index}.end`) }));
+      return { ...fields, lineup, tentative };
+    }
+    if (key === "timezone" && fields.timezone && fields.timezone !== value) {
+      const sourceZone = fields.tentative?.timezone;
+      if (!sourceZone) return null;
+      const start = readIntakeInstant(fields, fields.start);
+      const target = { ...fields, timezone: sourceZone, eventDate: start === undefined ? fields.eventDate : projectEditorTime({ instant: start, timezone: sourceZone }).value.slice(0, 10) };
+      const convert = (local: EventIntakeLocalTime | null | undefined) => {
+        if (!local) return local;
+        const instant = readIntakeInstant(fields, local);
+        if (instant === undefined) throw new RangeError("Event date must be valid.");
+        return intakeLocalFromInstant(target, instant);
+      };
+      return { ...target, start: convert(fields.start), end: convert(fields.end), doors: convert(fields.doors), lineup: fields.lineup?.map(row => ({ ...row, start: convert(row.start), end: convert(row.end) })), tentative };
+    }
+    return { ...fields, [key]: value, tentative };
+  } catch { return null; }
 }
