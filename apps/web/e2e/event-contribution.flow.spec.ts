@@ -196,7 +196,10 @@ test("community and Events expose intake entry @flow @fixture", async ({ page })
 
 test("intake draft resumes, date-only publishes directly, and has no mobile overflow @flow @fixture", async ({ page }, testInfo) => {
   await page.goto("/playwright/event-intake");
-  await expect(page.locator('[data-step="Details"] [data-testid="selected-identity"]').first().locator("..")).toContainText("Afterglow Social");
+  const community = page.locator('[data-step="Details"]').getByTestId("selected-identity");
+  await expect(community.getByRole("status", { name: "Loading", exact: true })).toHaveCount(0);
+  await expect(community.getByText("Afterglow Social", { exact: true })).toBeVisible();
+  await expect(page.getByRole("complementary", { name: "Event preview" }).getByLabel("Community", { exact: true })).toContainText("Afterglow Social");
   await page.getByLabel("Event title", { exact: true }).fill("Summer gathering");
   await page.getByLabel("Time TBA").check();
   await page.getByLabel("Starts", { exact: true }).fill("2027-07-15");
@@ -226,13 +229,19 @@ test("ambiguous start requires occurrence and gap is refused @flow @fixture", as
   await page.getByLabel("Starts", { exact: true }).fill("2026-11-01T01:30");
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Review", exact: true }).click();
   await page.getByRole("button", { name: "Publish event" }).click();
-  await expect(page.getByRole("status")).toContainText("Ambiguous local time");
+  await expect(page.getByRole("status").filter({ hasText: "Ambiguous local time requires an earlier or later occurrence." })).toBeVisible();
+  await expect(page.getByLabel("Starts occurrence", { exact: true })).toBeFocused();
+  await expect(page.getByLabel("Starts", { exact: true })).toHaveValue("2026-11-01T01:30");
+  expect(await page.evaluate(() => sessionStorage.getItem("event-intake-published"))).toBeNull();
   await page.getByLabel("Starts occurrence").selectOption("later");
   await page.getByLabel("Starts", { exact: true }).fill("2027-03-14T02:30");
   await expect(page.getByText("This local time does not exist.", { exact: true })).toBeVisible();
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Review", exact: true }).click();
   await page.getByRole("button", { name: "Publish event" }).click();
-  await expect(page.getByRole("status")).toContainText("Local time does not exist");
+  await expect(page.getByRole("status").filter({ hasText: "Local time does not exist in this timezone." })).toBeVisible();
+  await expect(page.getByLabel("Starts", { exact: true })).toBeFocused();
+  await expect(page.getByLabel("Starts", { exact: true })).toHaveValue("2027-03-14T02:30");
+  expect(await page.evaluate(() => sessionStorage.getItem("event-intake-published"))).toBeNull();
 });
 
 // The public pages below use pre-existing server fixtures. This checks navigation

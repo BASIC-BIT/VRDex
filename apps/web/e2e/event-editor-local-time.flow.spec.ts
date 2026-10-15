@@ -264,3 +264,104 @@ test("missing-zone rejected Starts retains raw input until Escape restores canon
   await page.getByLabel("Starts", { exact: true }).press("Escape");
   expect(await saveIntake(page)).toEqual(partial);
 });
+
+const timezoneLessStart = Date.UTC(2026, 9, 16, 6, 0, 12, 123);
+const timezoneLessEvent = {
+  id: "timezone-less", slug: "timezone-less", title: "Timezone-less event", eventDate: "2026-10-16", startAt: timezoneLessStart,
+  endAt: timezoneLessStart + 7_200_333, doorsOpenAt: timezoneLessStart - 1_801_334,
+  scheduleKind: "timed", status: "scheduled", communitySlug: "afterglow", publicationState: "published",
+  source: { sourceType: "community", label: "Afterglow" }, watchSurfaceEnabled: false,
+  watchMode: "event_stream", mediaLinks: [], authoredMediaLinks: [], worlds: [], participants: [],
+  slots: [{ clientKey: "precise", playbackKey: "slot-precise", position: 0, displayLabel: "Guest", roleLabel: "DJ", startAt: timezoneLessStart, endAt: timezoneLessStart + 3_620_333 }],
+  usesCanonicalLineup: true,
+  lineup: [{ key: "precise", position: 0, displayLabel: "Guest", roleLabel: "DJ", startAt: timezoneLessStart, endAt: timezoneLessStart + 3_620_333 }],
+  preservedParticipantAssociationIds: ["protected-person"], preservedSlotAssociationIds: ["slot-precise", "protected-slot"], preservedWorldAssociationIds: ["protected-world"],
+};
+async function openTimezoneLessStaff(page: Page) {
+  await page.addInitScript(event => localStorage.setItem("event-lineup-fixture-v1", JSON.stringify(event)), timezoneLessEvent);
+  await page.goto("/playwright/event-lineup?editor");
+  await expect(page.getByLabel("Event title", { exact: true })).toHaveValue(timezoneLessEvent.title);
+}
+async function saveTimezoneLessStaff(page: Page) {
+  await nav(page, "Review");
+  await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("event-lineup-fixture-v1-submission"))).not.toBeNull();
+  return page.evaluate(() => ({ submitted: JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!), stored: JSON.parse(localStorage.getItem("event-lineup-fixture-v1")!) }));
+}
+
+test("staff timezone-less timed event accepts an unrelated save with exact instants and associations", async ({ page }) => {
+  await openTimezoneLessStaff(page);
+  await page.getByLabel("Event title", { exact: true }).fill("Changed title");
+  const { submitted, stored } = await saveTimezoneLessStaff(page);
+  expect(submitted.timezone).toBeUndefined();
+  expect(stored.timezone).toBeUndefined();
+  for (const key of ["startAt", "endAt", "doorsOpenAt", "preservedParticipantAssociationIds", "preservedSlotAssociationIds", "preservedWorldAssociationIds"] as const) expect(submitted[key]).toEqual(timezoneLessEvent[key]);
+  expect(submitted.lineup).toBeUndefined();
+  expect(stored.slots).toEqual(timezoneLessEvent.slots);
+  expect(stored.lineup).toEqual(timezoneLessEvent.lineup);
+  expect(stored.eventDate).toBe(timezoneLessEvent.eventDate);
+});
+
+test("staff timezone-less resolved clocks convert cleanly and restore exactly after TBA", async ({ page }, info) => {
+  await openTimezoneLessStaff(page);
+  await expect(page.getByLabel("Starts", { exact: true })).toHaveValue("2026-10-16T02:00");
+  await expect(page.getByLabel("Doors open", { exact: true })).toHaveValue("2026-10-16T01:30");
+  await zone(page, "Los Angeles");
+  await expect(page.getByLabel("Starts", { exact: true })).toHaveValue("2026-10-15T23:00");
+  await expect(page.locator('form[data-event-dirty]')).toHaveAttribute("data-event-dirty", "false");
+  await zone(page, "Tokyo");
+  await expect(page.getByLabel("Starts", { exact: true })).toHaveValue("2026-10-16T15:00");
+  await expect(page.getByLabel("Ends (optional)", { exact: true })).toHaveValue("2026-10-16T17:00");
+  await expect(page.getByLabel("Doors open", { exact: true })).toHaveValue("2026-10-16T14:30");
+  await expect(page.getByText("Unresolved time", { exact: false })).toHaveCount(0);
+  await expect(page.locator('form[data-event-dirty]')).toHaveAttribute("data-event-dirty", "false");
+  await expect(page.locator('[name="timezone"]')).toHaveValue("");
+  await expect(page.getByRole("complementary", { name: "Event preview" })).toContainText("3:00 PM");
+  await page.screenshot({ path: info.outputPath("timezone-less-converted.png"), fullPage: true });
+  await page.getByLabel("Time TBA", { exact: true }).check();
+  await expect(page.getByLabel("Date", { exact: true })).toHaveValue("2026-10-16");
+  await page.getByLabel("Time TBA", { exact: true }).uncheck();
+  await expect(page.locator('form[data-event-dirty]')).toHaveAttribute("data-event-dirty", "false");
+  await nav(page, "Lineup");
+  await expect(page.locator('[data-lineup-row="precise"]')).toContainText("15:00:12.123 - 16:00:32.456");
+  const { submitted, stored } = await saveTimezoneLessStaff(page);
+  expect(submitted.startAt).toBe(timezoneLessEvent.startAt);
+  expect(submitted.endAt).toBe(timezoneLessEvent.endAt);
+  expect(submitted.doorsOpenAt).toBe(timezoneLessEvent.doorsOpenAt);
+  expect(stored.timezone).toBeUndefined();
+  expect(stored.lineup).toEqual(timezoneLessEvent.lineup);
+});
+
+for (const [label, value, field, instant, query, canonicalZone] of [
+  ["Starts", "2026-10-16T15:30", "startAt", Date.UTC(2026, 9, 16, 6, 30), "Tokyo", "Asia/Tokyo"],
+  ["Ends (optional)", "2026-10-16T18:00", "endAt", Date.UTC(2026, 9, 16, 9), "Tokyo", "Asia/Tokyo"],
+  ["Doors open", "2026-10-16T14:00", "doorsOpenAt", Date.UTC(2026, 9, 16, 5), "Tokyo", "Asia/Tokyo"],
+  ["Ends (optional)", "2026-10-16T02:00", "endAt", Date.UTC(2026, 9, 16, 9), "Los Angeles", "America/Los_Angeles"],
+  ["Doors open", "2026-10-15T22:00", "doorsOpenAt", Date.UTC(2026, 9, 16, 5), "Los Angeles", "America/Los_Angeles"],
+] as const) test(`staff timezone-less deliberate ${label} resolves in ${query} once`, async ({ page }) => {
+  await openTimezoneLessStaff(page);
+  await zone(page, query);
+  await page.getByLabel(label, { exact: true }).fill(value);
+  await expect(page.getByLabel(label, { exact: true })).toHaveValue(value);
+  await expect(page.locator('[name="timezone"]')).toHaveValue(canonicalZone);
+  if (query === "Los Angeles") {
+    await expect(page.getByLabel("Starts", { exact: true })).toHaveValue("2026-10-15T23:00");
+    if (field === "doorsOpenAt") await expect(page.getByLabel("Ends (optional)", { exact: true })).toHaveValue("2026-10-16T01:00");
+    await page.getByLabel("Time TBA", { exact: true }).check();
+    await expect(page.getByLabel("Date", { exact: true })).toHaveValue("2026-10-15");
+    await page.getByLabel("Time TBA", { exact: true }).uncheck();
+    await expect(page.getByLabel(label, { exact: true })).toHaveValue(value);
+  }
+  await zone(page, "London");
+  const { submitted, stored } = await saveTimezoneLessStaff(page);
+  expect(submitted.timezone).toBe(canonicalZone);
+  expect(submitted[field]).toBe(instant);
+  const shift = field === "startAt" ? instant - timezoneLessEvent.startAt : 0;
+  expect(submitted.startAt).toBe(timezoneLessEvent.startAt + shift);
+  expect(submitted.endAt).toBe(field === "endAt" ? instant : timezoneLessEvent.endAt);
+  expect(submitted.doorsOpenAt).toBe(field === "doorsOpenAt" ? instant : timezoneLessEvent.doorsOpenAt + shift);
+  expect(stored.lineup[0].key).toBe("precise");
+  expect(stored.lineup[0].startAt).toBe(timezoneLessStart + shift);
+  expect(stored.lineup[0].endAt).toBe(timezoneLessEvent.lineup[0].endAt + shift);
+  for (const key of ["preservedParticipantAssociationIds", "preservedSlotAssociationIds", "preservedWorldAssociationIds"] as const) expect(submitted[key]).toEqual(timezoneLessEvent[key]);
+});

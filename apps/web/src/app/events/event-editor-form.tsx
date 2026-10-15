@@ -26,10 +26,7 @@ import { BACKEND_ERROR_COPY } from "@/lib/error-copy";
 import { VrcdnMediaLinkAssistant } from "../_components/vrcdn-media-link-assistant";
 import { ViewerLocalEventDateTime } from "../_components/viewer-local-event-times";
 import { parseVrcdnStreamLinks } from "../../../../../convex/_vrcdnLinks";
-import {
-  browserTimeZone,
-  formatZonedDateTimeInput,
-} from "@/lib/calendar/zoned-date-time";
+import { formatZonedDateTimeInput } from "@/lib/calendar/zoned-date-time";
 import { applyStaffLineupTimings, changeStaffSlotOffset, readStaffLineupTimings, type SlotFormRow } from "@/lib/calendar/event-lineup-adapters";
 import { changeLineupDuration, generateLineupTimings, getLineupEndAt, getLineupEndConflict, insertLineupSlot, removeLineupSlot, shiftLineupStart, type LineupEditResult, type LineupTimingRow } from "@/lib/calendar/event-lineup-timing";
 import { EventSlotRemove, EventLineupSetup, EventLineupInsert, EventSlotDuration, EventLineupReset, EventLineupConflict } from "./event-lineup-controls";
@@ -466,7 +463,8 @@ function ConnectedEventEditorForm({
   const [untimedRows, setUntimedRows] = useState(() => (event?.lineup ?? []).filter(row => row.startAt === undefined).map(row => ({
     clientKey: row.key, position: row.position, performerLabel: row.displayLabel, personSlug: row.performer?.slug ?? "", roleLabel: row.roleLabel ?? "",
   })));
-  const [startInstantOverride, setStartInstantOverride] = useState<number>();
+  // A known instant does not need a canonical source zone to remain exact.
+  const [startInstantOverride, setStartInstantOverride] = useState<number | undefined>(event?.timezone ? undefined : event?.startAt);
   const [startLocal, setStartLocal] = useState(formatZonedDateTimeInput(event?.startAt, event?.timezone));
   const [occurrence, setOccurrence] = useState<"earlier" | "later" | "">(() => storedTimeOccurrence(event?.startAt, event?.timezone));
   const [endLocal, setEndLocal] = useState(event?.endAt === undefined ? "" : formatZonedDateTimeInput(event.endAt, event.timezone));
@@ -647,8 +645,8 @@ function ConnectedEventEditorForm({
     try {
       const submittedSnapshot = snapshot;
       const submittedTimezone = optionalString(timezone);
-      if (!timeTba && !submittedTimezone) throw new Error("Time zone must be a valid IANA time zone.");
-      const timeZoneForParsing = submittedTimezone ?? browserTimeZone();
+      if (!timeTba && !submittedTimezone && startInstantOverride === undefined) throw new Error("Time zone must be a valid IANA time zone.");
+      const timeZoneForParsing = submittedTimezone ?? editingTimezone;
       const authoredStart = startLocal;
       const startAt = timeTba ? undefined : startInstantOverride ?? resolveStaffStartAt(authoredStart, timeZoneForParsing, occurrence, event);
       const slotLinks = startAt === undefined ? [] : parseSlotRows(slotRows, startAt);
@@ -834,7 +832,7 @@ function ConnectedEventEditorForm({
 
   const isSubmitting = status.kind === "submitting";
   let previewStart: number | undefined;
-  try { if (!timeTba && startLocal && timezone) previewStart = startInstantOverride ?? resolveStaffStartAt(startLocal, timezone, occurrence, event); } catch { /* The preview waits for a valid local time. */ }
+  try { if (!timeTba && startLocal) previewStart = startInstantOverride ?? (timezone ? resolveStaffStartAt(startLocal, timezone, occurrence, event) : undefined); } catch { /* The preview waits for a valid local time. */ }
   let previewDerivedEndAt: number | undefined;
   try {
     if (!timeTba && previewStart !== undefined) {
@@ -846,10 +844,10 @@ function ConnectedEventEditorForm({
     previousStartAt: event?.startAt, previousEndAt: event?.endAt, scheduleChanged,
   });
   const displayedEndLocal = !endEdited && previewStart !== undefined
-    ? implicitEndAt === undefined ? "" : formatZonedDateTimeInput(implicitEndAt, timezone)
+    ? implicitEndAt === undefined ? "" : formatZonedDateTimeInput(implicitEndAt, timezone || editingTimezone)
     : endLocal;
   const displayedEndOccurrence = !endEdited && previewStart !== undefined
-    ? storedTimeOccurrence(implicitEndAt, timezone)
+    ? storedTimeOccurrence(implicitEndAt, timezone || editingTimezone)
     : endOccurrence;
   let endChoices: number[] = [];
   try { if (displayedEndLocal && timezone) endChoices = resolveEventLocalTime(displayedEndLocal.slice(0, 10), { time: displayedEndLocal.slice(11, 16) }, timezone); } catch { /* The form remains editable while incomplete. */ }
@@ -859,10 +857,12 @@ function ConnectedEventEditorForm({
   const previewEndAt = timeTba ? undefined : !endEdited ? implicitEndAt
     : !endLocal && previewStart !== undefined ? previewDerivedEndAt
       : endAtOverride ?? previewEnteredEndAt;
+  const startClockLocal = !timezone && previewStart !== undefined ? formatZonedDateTimeInput(previewStart, editingTimezone) : startLocal;
+  const startClockOccurrence = !timezone && previewStart !== undefined ? storedTimeOccurrence(previewStart, editingTimezone) : occurrence;
   const displayedStart = previewStart === undefined ? startLocal : projectEditorTime({ instant: previewStart, timezone: editingTimezone }).value;
   const doorsAt = doorsAtOverride !== undefined ? doorsAtOverride : event?.doorsOpenAt !== undefined && event.startAt !== undefined && previewStart !== undefined ? event.doorsOpenAt + previewStart - event.startAt : undefined;
-  const doorsLocal = doorsAt == null ? "" : formatZonedDateTimeInput(doorsAt, timezone);
-  const doorsOccurrence = doorsAt == null ? "" : storedTimeOccurrence(doorsAt, timezone);
+  const doorsLocal = doorsAt == null ? "" : formatZonedDateTimeInput(doorsAt, timezone || editingTimezone);
+  const doorsOccurrence = doorsAt == null ? "" : storedTimeOccurrence(doorsAt, timezone || editingTimezone);
   const vrcdnOutputAccountOptions = vrcdnOutputAccounts ?? [];
   const vrcdnOutputAccountsLoading = vrcdnOutputAccounts === undefined;
   const canSaveVrcdnOutput =
@@ -910,10 +910,30 @@ function ConnectedEventEditorForm({
     applyTimingEdit({ ok: true, rows: [...timings.slice(0, index), { key }, ...timings.slice(index)] }, key);
     requestAnimationFrame(() => formRef.current?.querySelector<HTMLElement>(`[data-lineup-row="${key}"] input`)?.focus());
   }
+  function authorTimezone() {
+    timezoneAuthored.current = true;
+    const zone = timezone || editingTimezone;
+    if (!timezone) {
+      setTimezone(zone);
+      // Establish source context only on a clock edit. Reproject the other
+      // controls without changing their known instants or cascading the lineup.
+      if (previewStart !== undefined) {
+        setStartInstantOverride(previewStart);
+        const localStart = formatZonedDateTimeInput(previewStart, zone);
+        setStartLocal(localStart);
+        setEventDate(localStart.slice(0, 10));
+        setOccurrence(storedTimeOccurrence(previewStart, zone));
+      }
+      if (previewEndAt !== undefined) {
+        setEndLocal(formatZonedDateTimeInput(previewEndAt, zone));
+        setEndOccurrence(storedTimeOccurrence(previewEndAt, zone));
+      }
+    }
+    return zone;
+  }
   function changeStart(local: string, nextOccurrence: "earlier" | "later" | "", exactInstant?: number) {
     timezoneAuthored.current = true;
-    const canonicalZone = timezone || editingTimezone;
-    if (local && !timezone) setTimezone(canonicalZone);
+    const canonicalZone = local ? authorTimezone() : timezone || editingTimezone;
     try {
       const next = exactInstant ?? resolveStaffStartAt(local, canonicalZone, nextOccurrence, event);
       if (startAnchor.current !== undefined) {
@@ -955,7 +975,7 @@ function ConnectedEventEditorForm({
       const original = projectEditorTime({ instant: startAnchor.current, timezone: editingTimezone });
       const next = resolveEditorTime({ value: `${eventDate}T${original.value.slice(11)}`, timezone: editingTimezone, occurrence: original.occurrence });
       if (next.kind !== "resolved") return;
-      const canonical = projectEditorTime({ instant: next.instant, timezone });
+      const canonical = projectEditorTime({ instant: next.instant, timezone: timezone || editingTimezone });
       changeStart(canonical.value, canonical.occurrence ?? "", next.instant + startAnchor.current % 60_000);
     } else if (timedDateBackup.current) setEventDate(timedDateBackup.current);
     setTimeTba(checked);
@@ -965,7 +985,7 @@ function ConnectedEventEditorForm({
     applyTimingEdit(insertLineupSlot({ rows: timings, index, row: { key }, durationMinutes, eventStartAt: previewStart }));
     requestAnimationFrame(() => formRef.current?.querySelector<HTMLElement>(`[data-lineup-row="${key}"] input`)?.focus());
   }} />;
-  const conflictNotice = endConflict && previewEndAt !== undefined ? <EventLineupConflict {...endConflict} eventEndAt={previewEndAt} timezone={editingTimezone} onExtend={endAt => { setEndAtOverride(endAt); setEndLocal(formatZonedDateTimeInput(endAt, timezone)); setEndOccurrence(storedTimeOccurrence(endAt, timezone)); setEndEdited(true); setEndOpen(true); }} /> : null;
+  const conflictNotice = endConflict && previewEndAt !== undefined ? <EventLineupConflict {...endConflict} eventEndAt={previewEndAt} timezone={editingTimezone} onExtend={endAt => { setEndAtOverride(endAt); setEndLocal(formatZonedDateTimeInput(endAt, timezone || editingTimezone)); setEndOccurrence(storedTimeOccurrence(endAt, timezone || editingTimezone)); setEndEdited(true); setEndOpen(true); }} /> : null;
   function renderUntimed(row: (typeof untimedRows)[number]) {
     return <Card data-lineup-row={row.clientKey} key={row.clientKey} className="grid gap-3" padding="sm" surface="dashed">
       <EventPerformerField value={performers.value({ key: row.clientKey, label: row.performerLabel, personSlug: row.personSlug })} selectedPerson={performers.person(row.personSlug)} onResolve={performers.resolve} onChange={value => {
@@ -983,12 +1003,12 @@ function ConnectedEventEditorForm({
     </Card>;
   }
   function previewTime(timestamp: number) {
-    const local = formatZonedDateTimeInput(timestamp, timezone);
-    const instantOccurrence = storedTimeOccurrence(timestamp, timezone);
+    const local = formatZonedDateTimeInput(timestamp, timezone || editingTimezone);
+    const instantOccurrence = storedTimeOccurrence(timestamp, timezone || editingTimezone);
     return { time: local.slice(11, 16), dayOffset: Math.round((Date.parse(`${local.slice(0, 10)}T00:00:00Z`) - Date.parse(`${eventDate}T00:00:00Z`)) / 86_400_000), ...(instantOccurrence ? { occurrence: instantOccurrence } : {}) };
   }
   const previewFields = {
-    ...preview, worldSlug: location.worldSlug, venueLabel: location.venueLabel, communitySlug, eventDate, timezone, timeTba,
+    ...preview, worldSlug: location.worldSlug, venueLabel: location.venueLabel, communitySlug, eventDate, timezone: timezone || (previewStart === undefined ? "" : editingTimezone), timeTba,
     start: previewStart === undefined ? null : previewTime(previewStart),
     end: previewEndAt === undefined ? null : previewTime(previewEndAt),
     lineup: [
@@ -1039,17 +1059,17 @@ function ConnectedEventEditorForm({
         <div className="grid gap-4">
         {timeTba ? <Field>Date<Input type="date" required value={eventDate} onChange={change => { timezoneAuthored.current = true; setEventDate(change.target.value); }} /></Field> : <>
         <div className="grid items-start gap-4 sm:grid-cols-2">
-          <div className="grid gap-2"><IntakeTime label="Starts" name="startAt" occurrenceLabel="Start occurrence" required eventStart date={startLocal.slice(0, 10) || eventDate} value={startLocal ? { time: startLocal.slice(11), ...(occurrence ? { occurrence } : {}) } : null} timezone={timezone} displayTimezone={editingTimezone} onChange={change => changeStart(change.local ? `${change.eventDate}T${change.local.time}` : "", change.local?.occurrence ?? "")} /><EventTimezonePicker name="editingTimezone" value={editingTimezone} date={eventDate || null} instant={previewStart} preferredValue={savedTimezonePreference} onChange={changeTimezone} /></div>
+          <div className="grid gap-2"><IntakeTime label="Starts" name="startAt" occurrenceLabel="Start occurrence" required eventStart date={startClockLocal.slice(0, 10) || eventDate} value={startClockLocal ? { time: startClockLocal.slice(11), ...(startClockOccurrence ? { occurrence: startClockOccurrence } : {}) } : null} timezone={timezone || editingTimezone} displayTimezone={editingTimezone} onChange={change => changeStart(change.local ? `${change.eventDate}T${change.local.time}` : "", change.local?.occurrence ?? "")} /><EventTimezonePicker name="editingTimezone" value={editingTimezone} date={eventDate || null} instant={previewStart} preferredValue={savedTimezonePreference} onChange={changeTimezone} /></div>
           <details className="relative min-w-0" open={endOpen} onToggle={change => setEndOpen(change.currentTarget.open)}>
             <summary className={`cursor-pointer font-medium ${endOpen ? "absolute right-0 top-0 text-xs" : "text-sm"}`}>Add end time</summary>
             <div className="grid gap-2">
-              <IntakeTime label="Ends (optional)" name="endAt" occurrenceLabel="End occurrence" eventStart date={displayedEndLocal.slice(0, 10) || eventDate} value={displayedEndLocal ? { time: displayedEndLocal.slice(11), ...(displayedEndOccurrence ? { occurrence: displayedEndOccurrence } : {}) } : null} timezone={timezone} displayTimezone={editingTimezone} onChange={change => { timezoneAuthored.current = true; setEndAtOverride(undefined); setEndLocal(change.local ? `${change.eventDate}T${change.local.time}` : ""); setEndOccurrence(change.local?.occurrence ?? ""); setEndEdited(true); }} />
+              <IntakeTime label="Ends (optional)" name="endAt" occurrenceLabel="End occurrence" eventStart date={displayedEndLocal.slice(0, 10) || eventDate} value={displayedEndLocal ? { time: displayedEndLocal.slice(11), ...(displayedEndOccurrence ? { occurrence: displayedEndOccurrence } : {}) } : null} timezone={timezone || editingTimezone} displayTimezone={editingTimezone} onChange={change => { timezoneAuthored.current = true; if (change.local) authorTimezone(); setEndAtOverride(undefined); setEndLocal(change.local ? `${change.eventDate}T${change.local.time}` : ""); setEndOccurrence(change.local?.occurrence ?? ""); setEndEdited(true); }} />
             </div>
           </details>
         </div>
         <details className="relative" open={doorsOpen} onToggle={change => setDoorsOpen(change.currentTarget.open)}>
           <summary className={`cursor-pointer font-medium ${doorsOpen ? "absolute right-0 top-0 text-xs" : "text-sm"}`}>Add doors-open time</summary>
-          <IntakeTime label="Doors open" eventStart date={doorsLocal.slice(0, 10) || eventDate} value={doorsLocal ? { time: doorsLocal.slice(11), ...(doorsOccurrence ? { occurrence: doorsOccurrence } : {}) } : null} timezone={timezone} displayTimezone={editingTimezone} onChange={change => { timezoneAuthored.current = true; setDoorsAtOverride(change.local && change.eventDate ? selectEventLocalTime(change.eventDate, change.local, timezone) : null); setDoorsOpenMinutes(""); }} />
+          <IntakeTime label="Doors open" eventStart date={doorsLocal.slice(0, 10) || eventDate} value={doorsLocal ? { time: doorsLocal.slice(11), ...(doorsOccurrence ? { occurrence: doorsOccurrence } : {}) } : null} timezone={timezone || editingTimezone} displayTimezone={editingTimezone} onChange={change => { timezoneAuthored.current = true; setDoorsAtOverride(change.local && change.eventDate ? selectEventLocalTime(change.eventDate, change.local, authorTimezone()) : null); setDoorsOpenMinutes(""); }} />
         </details>
         </>}
         </div>

@@ -94,6 +94,15 @@ the canonical zone. Starts invokes the existing elapsed-time cascade once, with
 the explicit end fixed. An update outside the -1 through 7 day-offset bounds
 leaves all prior fields intact and reveals the timing correction controls.
 
+Staff records can have known absolute instants without a stored timezone.
+Opening those records, converting the display zone and saving unrelated edits
+preserve the missing source zone and exact start, end, doors and lineup timing.
+Their controls and preview project the known instants into the editing zone.
+A deliberate Starts, Ends or Doors clock edit establishes missing source context
+in that selected zone. It reprojects untouched controls without moving their
+instants. Only Starts reschedules the lineup. Date-only records and unresolved
+contributor source clocks keep their existing explicit-authoring rules.
+
 Accepted imports resolve in their supplied source date and zone before local
 projection. Questions and evidence remain. Unknown source dates, missing zones,
 DST gaps and unresolved repeated hours remain unresolved. Saved unresolved

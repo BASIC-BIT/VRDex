@@ -110,6 +110,11 @@ test("import dialog, failure, and DST states @snapshot @fixture", async ({ page 
 for (const color of ["light", "dark"] as const) test(`scheduling states ${color} @snapshot @fixture`, async ({ page }, info) => {
   await page.addInitScript(() => sessionStorage.setItem("event-intake-fixture", JSON.stringify({ communitySlug: "playwright-afterglow-social", title: "Harbor night", eventDate: "2027-10-15", timezone: "UTC", start: { time: "20:00" }, end: { time: "21:00" } })));
   await page.goto("/playwright/event-intake"); await setTheme(page, color);
+  const selectedCommunity = page.locator('[data-step="Details"]').getByTestId("selected-identity");
+  const previewCommunity = page.getByRole("complementary", { name: "Event preview" }).getByLabel("Community", { exact: true });
+  for (const community of [selectedCommunity, previewCommunity]) {
+    await expect(community).toContainText("Afterglow Social");
+  }
   await expect(page.getByRole("button", { name: "Time zone", exact: true })).toHaveText(/^UTC\s*▾$/);
   await page.getByRole("button", { name: "Time zone", exact: true }).click();
   await expect(page.getByRole("option").first()).not.toContainText(" · UTC");

@@ -361,3 +361,62 @@ The controller also inspected the two pending-TBA images and confirmed focused
 UNKNOWN failures, hosted-auth limits and deferred profile-editor cleanup remain
 unchanged. External PR, CI, mergeability and the 30-minute feedback gate remain
 pending. No merge-ready, hosted-user or production acceptance is claimed.
+
+## PR 374 external feedback correction
+
+The review of head `7bcda74d5c0a4248a1c395ad09eb64b976f87d35` found that
+existing timed events without a stored timezone could not save. The staff editor
+now preserves their known absolute instants and missing source zone through
+opening, display conversion and unrelated saves. Starts, end, doors and preview
+use the editing zone for presentation. Deliberate clock edits establish missing
+source context in that selected zone and reproject untouched controls. Only a
+Starts edit runs the lineup cascade.
+
+Seven new browser cases cover unrelated saves, clean display conversion, exact
+TBA restoration and deliberate Starts, Ends and Doors edits. The optional-clock
+cases include a Los Angeles display on the previous calendar day. All 14 cases
+passed across desktop and mobile with exact subminute timestamps and retained
+association IDs. Existing date-only Starts authoring and unresolved contributor
+clock cases also passed. The initial RED run failed four of five desktop cases
+before the production fix. Starts already passed.
+
+The four-file covering run passed 116 cases and failed six. The failures were
+three older validation tests on both viewports. A bounded comparison against
+unchanged head reproduced all three on desktop. They assumed the browser used
+the source zone and selected an ambiguous Details disclosure. Their correction
+pins the intended DST zone, targets the timing disclosure and retains pending
+raw input, rejection, focus and Escape restoration checks. All six corrected
+viewport cases passed. The earlier 116/6 run remains a recorded failed run.
+
+CI run `38822867515` also exposed outdated public editor selectors, a scheduling
+snapshot captured during community hydration and two contribution locators.
+Public editor coverage now uses the approved community summary, Where chooser,
+doors disclosure and Performer control while retaining generation bounds,
+reset cancellation, Review, publish and Advanced assertions. It passed both
+viewports. Contribution coverage waits for the selected community presentation
+and scopes validation status to its exact message. Both cases passed on both
+viewports. Scheduling snapshots wait for the known community title in Details
+and preview. Their four Windows assertion cases passed with pixel comparisons
+disabled. No golden or threshold changed. The controller still owns the new
+Linux hard comparison and external PR readiness checks.
+
+The pure editor time, identity, persistence and lineup-adapter tests passed
+34 of 34. Web types, web lint, Markdown lint and the Docusaurus build passed. Screenshots of the corrected missing-zone view were inspected on both
+viewports. These browser fixtures use the actual editor with local substituted
+transport. Backend source permits omitted timezones for known timestamps;
+legacy `slotLinks` still requires a zone when submitted. The unrelated browser
+save omits lineup changes. No backend or publication rule changed, and this
+correction adds no hosted-user or production evidence.
+
+Local browser JSON and output folders use `pr374-timezone-red`,
+`pr374-timezone-green1`, `pr374-timezone-covering`,
+`pr374-validation-baseline`, `pr374-ci-test-fixes`, `pr374-public-visual`,
+`pr374-contribution`, `pr374-contribution-green`,
+`pr374-scheduling-assertions`, `pr374-scheduling-assertions-final` and
+`pr374-scheduling-assertions-green` under `apps/web/test-results/`.
+The ignored delivery directory
+`.tmp-gh-artifacts/event-editor-identity-local/` holds exact commands, logs,
+intermediate assertion corrections and `pr374-timezone-fix-report.md`.
+HTML reports use its `reports/` subdirectory. Earlier UNKNOWN failures and
+hosted-auth limits remain unchanged. The seven generated/OpenAPI entries still
+have empty normalized diffs and are excluded from this correction.
