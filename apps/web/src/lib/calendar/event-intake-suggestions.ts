@@ -128,7 +128,7 @@ export function acceptIntakeSuggestion({ fields, acceptance }: { fields: EventIn
         if (instant === undefined) throw new RangeError("Event date must be valid.");
         return intakeLocalFromInstant(target, instant);
       };
-      return { ...target, start: convert(fields.start), end: convert(fields.end), doors: convert(fields.doors), lineup: fields.lineup?.map(row => ({ ...row, start: convert(row.start), end: convert(row.end) })), tentative };
+      return rebaseIntakeSuggestions({ ...target, start: convert(fields.start), end: convert(fields.end), doors: convert(fields.doors), lineup: fields.lineup?.map(row => ({ ...row, start: convert(row.start), end: convert(row.end) })), tentative }, fields.eventDate);
     }
     return { ...fields, [key]: value, tentative };
   } catch { return null; }

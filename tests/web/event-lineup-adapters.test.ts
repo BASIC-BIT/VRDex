@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyIntakeLineupTimings, applyStaffLineupTimings, changeStaffSlotOffset, readIntakeLineupTimings, readStaffLineupTimings, type SlotFormRow } from "../../apps/web/src/lib/calendar/event-lineup-adapters";
+import { applyIntakeLineupTimings, applyStaffLineupTimings, changeStaffSlotOffset, readIntakeInstant, readIntakeLineupTimings, readStaffLineupTimings, type SlotFormRow } from "../../apps/web/src/lib/calendar/event-lineup-adapters";
 import { formatLineupTimeRange } from "../../apps/web/src/lib/calendar/event-lineup-display";
 import { shiftLineupStart } from "../../apps/web/src/lib/calendar/event-lineup-timing";
 import { acceptIntakeSuggestion, restoreIntakeTiming } from "../../apps/web/src/lib/calendar/event-intake-suggestions";
@@ -117,4 +117,17 @@ test("accepting source fields in either order preserves resolved instants", () =
     assert.deepEqual(fields.end, { time: "01:00", dayOffset: 1 });
     assert.deepEqual(fields.questions, ["keep source"]);
   }
+});
+
+for (const order of [["eventDate", "timezone", "end"], ["eventDate", "end", "timezone"]] as const) test(`accepting ${order.join(" then ")} preserves pending source dates across a canonical date boundary`, () => {
+  let fields: EventIntakePatch = { eventDate: "2026-10-15", timezone: "America/Indiana/Indianapolis", start: { time: "02:00", dayOffset: 0 }, tentative: { eventDate: "2026-10-15", timezone: "America/Los_Angeles", end: { time: "01:00", dayOffset: 1 } }, questions: ["keep source question"] };
+  for (const key of order) {
+    const next = acceptIntakeSuggestion({ fields, acceptance: { key, proposalDate: fields.tentative?.eventDate } });
+    assert.ok(next); fields = next;
+  }
+  assert.equal(fields.eventDate, "2026-10-14");
+  assert.deepEqual(fields.start, { time: "23:00", dayOffset: 0 });
+  assert.deepEqual(fields.end, { time: "01:00", dayOffset: 2 });
+  assert.equal(readIntakeInstant(fields, fields.end), Date.UTC(2026, 9, 16, 8));
+  assert.deepEqual(fields.questions, ["keep source question"]);
 });

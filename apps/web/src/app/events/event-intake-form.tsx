@@ -55,8 +55,8 @@ export function IntakeTime({ label, name = label, occurrenceLabel = `${label} oc
   useEffect(() => { control.current?.querySelector("input")?.setCustomValidity(validityMessage); onPendingEditChange?.(invalid); }, [invalid, validityMessage, onPendingEditChange]);
   function commit(next: string, nextOccurrence?: EventIntakeLocalTime["occurrence"]) {
     try {
-      if (!next) { onChange({ eventDate: date ?? null, local: null }); setEdit(null); return; }
-      if (!zone) { const change = parseIntakeDateTimeInput({ value: next, eventDate: date, eventStart }); onChange(change); setEdit(null); return; }
+      if (!next) { if (onChange({ eventDate: date ?? null, local: null }) === false) { setEdit({ source, value: next, occurrence: nextOccurrence }); return; } setEdit(null); return; }
+      if (!zone) { const change = parseIntakeDateTimeInput({ value: next, eventDate: date, eventStart }); if (onChange(change) === false) { setEdit({ source, value: next, occurrence: nextOccurrence }); return; } setEdit(null); return; }
       const resolved = resolveEditorTime({ value: next, timezone: zone, occurrence: nextOccurrence });
       if (resolved.kind !== "resolved") { setEdit({ source, value: next, occurrence: nextOccurrence }); return; }
       const canonicalZone = timezone || zone;
@@ -176,7 +176,8 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
   }
   function changeStart(change: { eventDate: string | null; local: EventIntakeLocalTime | null }) {
     timezoneAuthored.current = true;
-    const next = rebaseIntakeSuggestions({ ...fields, timezone: fields.timezone ?? (!fields.start && change.local ? editingTimezone : fields.timezone), eventDate: change.eventDate, start: change.local,
+    const hasSourceClocks = [fields.start, fields.end, fields.doors, ...(fields.lineup ?? []).flatMap(row => [row.start, row.end])].some(Boolean);
+    const next = rebaseIntakeSuggestions({ ...fields, timezone: fields.timezone ?? (!hasSourceClocks && change.local ? editingTimezone : fields.timezone), eventDate: change.eventDate, start: change.local,
       end: rebaseTime(fields.end, fields.eventDate, change.eventDate), doors: rebaseTime(fields.doors, fields.eventDate, change.eventDate),
       lineup: fields.lineup?.map(row => ({ ...row, start: rebaseTime(row.start, fields.eventDate, change.eventDate), end: rebaseTime(row.end, fields.eventDate, change.eventDate) })),
     }, fields.eventDate);
@@ -192,8 +193,7 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
   }
   function toggleTba(checked: boolean) {
     timezoneAuthored.current = true;
-    const invalid = form.current?.querySelector<HTMLInputElement>('[data-intake-time][aria-invalid="true"]');
-    if (checked && invalid) { reveal(invalid.closest('[data-step="Lineup"]') ? "Lineup" : "Details", `[name="${invalid.name}"]`); return; }
+    if (checked && revealPendingTime()) return;
     if (checked) {
       timedBackup.current = fields;
       tbaDateEdited.current = false;
@@ -223,9 +223,14 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
       setFields(next);
     }
   }
-  function changeTimezone(timezone: string | null) {
+  function revealPendingTime() {
     const invalid = form.current?.querySelector<HTMLInputElement>('[data-time-pending="true"]');
-    if (invalid) { reveal(invalid.closest('[data-step="Lineup"]') ? "Lineup" : "Details", `[name="${invalid.name}"]`); return false; }
+    if (!invalid) return false;
+    reveal(invalid.closest('[data-step="Lineup"]') ? "Lineup" : "Details", `[name="${invalid.name}"]`);
+    return true;
+  }
+  function changeTimezone(timezone: string | null) {
+    if (revealPendingTime()) return false;
     if (!timezone) return false;
     editingTimezoneAuthored.current = true;
     setEditingTimezone(timezone);
@@ -328,7 +333,7 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
     <label className="flex items-center gap-2"><input type="checkbox" checked={fields.timeTba ?? false} onChange={event => toggleTba(event.target.checked)} />Time TBA</label>
     {fields.timeTba ? <div className="grid gap-2"><Field>Starts<Input name="Starts" type="date" value={fields.eventDate ?? ""} onChange={event => changeDate(event.target.value || null)} /></Field><EventTimezonePicker name="editingTimezone" value={editingTimezone} date={null} preferredValue={savedTimezonePreference} onChange={changeTimezone} /></div> : null}
     <input type="hidden" name="timezone" value={fields.timezone ?? ""} />
-    {!fields.timezone && [fields.start, fields.end, fields.doors, ...(fields.lineup ?? []).flatMap(row => [row.start, row.end])].some(Boolean) ? <section className="grid gap-2"><h3>Unresolved time</h3><EventTimezonePicker name="sourceTimezone" value={null} date={fields.eventDate ?? null} onChange={zone => { timezoneAuthored.current = true; const next = { ...fields, timezone: zone }; startAnchor.current = readIntakeInstant(next, next.start); setFields(next); }} /></section> : null}
+    {!fields.timezone && [fields.start, fields.end, fields.doors, ...(fields.lineup ?? []).flatMap(row => [row.start, row.end])].some(Boolean) ? <section className="grid gap-2"><h3>Unresolved time</h3><EventTimezonePicker name="sourceTimezone" value={null} date={fields.eventDate ?? null} onChange={zone => { if (revealPendingTime()) return false; timezoneAuthored.current = true; const next = { ...fields, timezone: zone }; startAnchor.current = readIntakeInstant(next, next.start); setFields(next); }} /></section> : null}
     {!fields.timeTba ? <><div className="grid items-start gap-3 sm:grid-cols-2"><div className="grid gap-2"><IntakeTime label="Starts" eventStart value={fields.start} date={fields.eventDate} timezone={fields.timezone} displayTimezone={editingTimezone} onChange={changeStart} /><div className="grid gap-2"><EventTimezonePicker name="editingTimezone" value={editingTimezone} date={fields.eventDate ?? null} instant={timezoneInstant} preferredValue={savedTimezonePreference} onChange={changeTimezone} /></div></div><details className="relative" open={endOpen} onToggle={event => setEndOpen(event.currentTarget.open)}><summary className={`cursor-pointer font-medium ${endOpen ? "absolute right-0 top-0 text-xs" : "text-sm"}`}>Add end time</summary><div><IntakeTime label="Ends (optional)" value={fields.end} date={fields.eventDate} timezone={fields.timezone} displayTimezone={editingTimezone} onChange={change => set("end", change.local)} /></div></details></div><details className="relative" open={doorsOpen} onToggle={event => setDoorsOpen(event.currentTarget.open)}><summary className={`cursor-pointer font-medium ${doorsOpen ? "absolute right-0 top-0 text-xs" : "text-sm"}`}>Add doors-open time</summary><IntakeTime label="Doors open" value={fields.doors} date={fields.eventDate} timezone={fields.timezone} displayTimezone={editingTimezone} onChange={change => set("doors", change.local)} /></details></> : null}
     <EventLocationField selectedWorld={world} onWorldPresentation={setSelectedWorld} worldSlug={fields.worldSlug ?? ""} venueLabel={fields.venueLabel ?? ""} onChange={next => setFields(current => ({ ...current, worldSlug: next.worldSlug || null, venueLabel: next.venueLabel || null }))} />
     <Field>Description<Textarea value={fields.summary ?? ""} maxLength={240} onChange={event => set("summary", event.target.value)} /></Field>

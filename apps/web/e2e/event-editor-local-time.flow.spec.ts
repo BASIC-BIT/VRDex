@@ -90,6 +90,7 @@ test("missing-zone authored clocks survive display switch then resolve only by e
   await page.locator('[name="editingTimezone"]').locator("..").getByRole("button", { name: "Time zone", exact: true }).click();
   await page.getByRole("combobox", { name: "Time zone", exact: true }).fill("Tokyo"); await page.getByRole("option").first().click();
   expect(await saveIntake(page)).toEqual(partial);
+  await nav(page, "Details");
   await page.locator('[name="sourceTimezone"]').locator("..").getByRole("button", { name: "Time zone", exact: true }).click();
   await page.getByRole("combobox", { name: "Time zone", exact: true }).fill("Los Angeles"); await page.getByRole("option").first().click();
   await expect(page.getByLabel("Starts", { exact: true })).toHaveValue("2026-10-16T15:00");
@@ -212,4 +213,50 @@ test("connected correction form uses the saved display preference and preserves 
   await zone(page, "London");
   await expect(page.locator('[name="editingTimezone"]')).toHaveValue("Europe/London");
   await expect(page.getByLabel("Starts", { exact: true })).toHaveValue("2027-07-15");
+});
+
+test("missing-zone partial clocks remain unresolved when an absent Starts is authored", async ({ page }) => {
+  const partial = { ...intake, timezone: null, start: null };
+  await page.addInitScript(fields => sessionStorage.setItem("event-intake-fixture", JSON.stringify(fields)), partial);
+  await page.goto("/playwright/event-intake");
+  await page.getByLabel("Starts", { exact: true }).fill("2026-10-15T21:00");
+  await expect(page.locator('[name="sourceTimezone"]')).toHaveValue("");
+  const saved = await saveIntake(page);
+  expect(saved).toEqual({ ...partial, start: { time: "21:00", dayOffset: 0 } });
+  await expect(page.getByLabel("Ends (optional)", { exact: true }).locator("xpath=ancestor::*[@data-unresolved-time]")).toBeVisible();
+});
+
+for (const clockLabel of ["Ends (optional)", "Slot 1 end"]) test(`missing-zone source selection preserves pending ${clockLabel} until cancellation`, async ({ page }) => {
+  const partial = { ...intake, timezone: null };
+  await page.addInitScript(fields => sessionStorage.setItem("event-intake-fixture", JSON.stringify(fields)), partial);
+  await page.goto("/playwright/event-intake");
+  if (clockLabel === "Slot 1 end") { await nav(page, "Lineup"); await page.locator("[data-lineup-row]").first().getByText("Details", { exact: true }).click(); }
+  const end = page.getByLabel(clockLabel, { exact: true });
+  await end.fill("2026-10-30T05:00");
+  await nav(page, "Details");
+  await page.locator('[name="sourceTimezone"]').locator("..").getByRole("button", { name: "Time zone", exact: true }).click();
+  await page.getByRole("combobox", { name: "Time zone", exact: true }).fill("Los Angeles"); await page.getByRole("option").first().click();
+  await expect(page.locator('[name="sourceTimezone"]')).toHaveValue("");
+  await expect(end).toHaveValue("2026-10-30T05:00"); await expect(end).toBeFocused();
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  expect(await saveIntake(page)).toEqual(partial);
+  await nav(page, "Details");
+  await page.locator('[name="sourceTimezone"]').locator("..").getByRole("button", { name: "Time zone", exact: true }).click();
+  await page.getByRole("combobox", { name: "Time zone", exact: true }).fill("Los Angeles"); await page.getByRole("option").first().click();
+  expect(await saveIntake(page)).toEqual(intake);
+});
+
+test("missing-zone rejected Starts retains raw input until Escape restores canonical fields", async ({ page }) => {
+  const partial = { ...intake, timezone: null };
+  await page.addInitScript(fields => sessionStorage.setItem("event-intake-fixture", JSON.stringify(fields)), partial);
+  await page.goto("/playwright/event-intake");
+  await page.getByLabel("Starts", { exact: true }).fill("2026-10-25T23:00");
+  await nav(page, "Details");
+  await expect(page.getByLabel("Starts", { exact: true })).toHaveValue("2026-10-25T23:00");
+  await expect(page.getByRole("button", { name: "Cancel", exact: true })).toBeVisible();
+  await zone(page, "Tokyo");
+  await expect(page.getByLabel("Starts", { exact: true })).toBeFocused();
+  await expect(page.getByLabel("Starts", { exact: true })).toHaveValue("2026-10-25T23:00");
+  await page.getByLabel("Starts", { exact: true }).press("Escape");
+  expect(await saveIntake(page)).toEqual(partial);
 });
