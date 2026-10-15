@@ -138,15 +138,15 @@ function buildReport({
       row.optional && job.result === "success" && job.outputs?.configured === "false";
     const result = optionalWasSkipped ? "skipped" : job.result || "unknown";
 
-    if (COMPARISON_JOBS.has(row.job) && !evaluation.selected && job.result === "skipped") {
+    if (COMPARISON_JOBS.has(row.job) && evaluation.selected === false && job.result === "skipped") {
       return `| ${row.label} | NOT SELECTED | Not requested |`;
     }
-    const label = !evaluation.selected ? row.label.replace("screenshots", "assertions only") : row.label;
+    const label = evaluation.selected === false ? row.label.replace("screenshots", "assertions only") : row.label;
     let evidence = "Missing evidence";
     if (artifact) {
       evidence = `[Open artifact](${artifactUrl({ artifact, owner, repo, runId })})`;
     } else if (result === "skipped") {
-      evidence = "Not configured";
+      evidence = optionalWasSkipped ? "Not configured" : "Not generated (unexpected skip)";
     }
 
     return `| ${escapeTableCell(label)} | ${resultLabel(result)} | ${evidence} |`;
@@ -174,7 +174,7 @@ function buildReport({
       ? "One or more reported checks need attention."
       : "All configured preview and verification checks passed.",
     "",
-    `Visuals selected for this run: ${evaluation.selected ? "yes" : "no (assertions only)"}.`,
+    `Visuals selected for this run: ${evaluation.selected === null ? "UNKNOWN" : evaluation.selected ? "yes" : "no (assertions only)"}.`,
     ...(selectionChanged ? ["Visual selection changed since this run. Run results below describe the original selection; request a new normal PR run for current visual evidence.", ""] : []),
     ...(needsAttention ? evaluation.errors.map(error => `- ${error}`) : []),
     "",

@@ -11,8 +11,9 @@ function evaluateVerification({ needs, artifacts }) {
   const errors = [];
   const selection = needs["visual-selection"];
   const value = selection?.outputs?.selected;
-  const selected = value === "true";
-  if (selection?.result !== "success" || !["true", "false"].includes(value)) {
+  const validSelection = selection?.result === "success" && ["true", "false"].includes(value);
+  const selected = validSelection ? value === "true" : null;
+  if (!validSelection) {
     errors.push("Visual selection is missing or invalid.");
   }
   const available = new Set(artifacts.filter(artifact => !artifact.expired).map(artifact => artifact.name));
@@ -22,8 +23,8 @@ function evaluateVerification({ needs, artifacts }) {
   }
   for (const job of REQUIRED_JOBS) requireSuccess(job);
   for (const job of COMPARISON_JOBS) {
-    if (selected) requireSuccess(job);
-    else if (needs[job]?.result !== "skipped") errors.push(`${job} must skip when visuals are not selected.`);
+    if (selected === true) requireSuccess(job);
+    else if (selected === false && needs[job]?.result !== "skipped") errors.push(`${job} must skip when visuals are not selected.`);
   }
   const hosted = needs["playwright-hosted-data-flow"];
   if (hosted?.result !== "success") errors.push("playwright-hosted-data-flow did not succeed.");

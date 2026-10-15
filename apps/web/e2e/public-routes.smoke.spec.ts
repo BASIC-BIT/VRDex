@@ -206,9 +206,13 @@ test("profile links expose Discord-ready metadata and a generated image", async 
   const missingSlugImage = await page.request.get("/scanner-unique-123/opengraph-image");
   expect(missingSlugImage.status()).toBe(404);
 
+  // Events have a community-scoped, revision-bound image route, covered below.
+  const bareEventImage = await page.request.get("/playwright-afterglow-harbor-sessions/opengraph-image");
+  expect(bareEventImage.status()).toBe(404);
+
   for (const entitySlug of [
     "playwright-neon-harbor",
-    "playwright-afterglow-harbor-sessions",
+    "playwright-afterglow-social",
   ]) {
     const entityImage = await page.request.get(`/${entitySlug}/opengraph-image`);
     expect(entityImage.status()).toBe(200);
@@ -880,7 +884,8 @@ test.describe("fixture lookup smoke", () => {
     await searchInput.fill("basic");
     await expect(page.getByRole("option", { name: /BASICBIT/i })).toBeVisible();
     await searchInput.press("ArrowDown");
-    await expect(page.getByRole("option", { name: /BASICBIT/i })).toHaveClass(/bg-surface-strong/);
+    await expect(page.getByRole("option", { name: /BASICBIT/i })).toHaveAttribute("aria-selected", "true");
+    await expect(searchInput).toBeFocused();
     await searchInput.press("Enter");
     await expect(page).toHaveURL(/\/basicbit$/);
 

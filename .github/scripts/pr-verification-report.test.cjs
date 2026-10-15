@@ -167,3 +167,14 @@ test("a head changed during artifact collection cannot publish stale evidence", 
   });
   assert.equal(reads, 2);
 });
+test("missing selection is UNKNOWN, while a selected unexpected skip is not called unconfigured", () => {
+  const needs = successfulNeeds();
+  needs["visual-selection"].outputs.selected = "";
+  const input = { artifacts: [], headSha: "0123456789abcdef", needs, owner: "BASIC-BIT", repo: "VRDex", runId: 456 };
+  const unknown = buildReport(input);
+  assert.match(unknown, /Visuals selected for this run: UNKNOWN/);
+  assert.doesNotMatch(unknown, /no \(assertions only\)/);
+  needs["visual-selection"].outputs.selected = "true";
+  needs["playwright-image-diff"].result = "skipped";
+  assert.match(buildReport(input), /Public route image diff \| SKIPPED \| Not generated \(unexpected skip\)/);
+});
