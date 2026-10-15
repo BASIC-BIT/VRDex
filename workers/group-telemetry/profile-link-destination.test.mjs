@@ -155,3 +155,104 @@ test("user icon remains eligible without a profile override", async () => {
   assert.equal(result.artworkSourceUrl, portraitThumbnail);
   assert.equal(result.artworkType, "user_icon");
 });
+
+const iconFileId = "file_df4eb0c6-4d36-468d-934f-26523453aa0e";
+const modernIcon = `https://api.vrchat.cloud/api/1/image/${iconFileId}/1/256`;
+const modernUser = { id: userId, displayName: "Person", iconUrl: modernIcon };
+const iconFile = {
+  id: iconFileId, ownerId: userId, tags: ["icon"], mimeType: "image/png",
+  versions: [{ version: 0, status: "complete" }, { version: 1, status: "complete", file: {
+    status: "complete", url: `https://api.vrchat.cloud/api/1/file/${iconFileId}/1/file`,
+  } }],
+};
+
+test("current iconUrl resolves custom artwork only after verifying its file", async () => {
+  const paths = [];
+  const result = await resolveProfileLinkDestination({ kind: "vrchat_user", locator: userId }, {
+    requestVrchat: async path => {
+      paths.push(path);
+      if (path === `/users/${userId}`) return modernUser;
+      if (path === `/file/${iconFileId}`) return iconFile;
+      assert.fail(`Unexpected provider path: ${path}`);
+    },
+  });
+  assert.deepEqual(result, { status: "resolved", entityId: userId, displayName: "Person", artworkSourceUrl: modernIcon, artworkType: "user_icon" });
+  assert.deepEqual(paths, [`/users/${userId}`, `/file/${iconFileId}`]);
+});
+
+test("modern file URLs and unsafe legacy icons use the verified current icon", async () => {
+  for (const iconUrl of [modernIcon, iconFile.versions[1].file.url]) {
+    const result = await resolveProfileLinkDestination({ kind: "vrchat_user", locator: userId }, {
+      requestVrchat: async path => path === `/users/${userId}` ? { ...modernUser, iconUrl, userIcon: "https://evil.example/icon" } : iconFile,
+    });
+    assert.equal(result.artworkSourceUrl, iconUrl);
+    assert.equal(result.artworkType, "user_icon");
+  }
+});
+
+test("an explicit legacy icon takes precedence without extra metadata requests", async () => {
+  const result = await resolveProfileLinkDestination({ kind: "vrchat_user", locator: userId }, {
+    requestVrchat: async path => {
+      assert.equal(path, `/users/${userId}`);
+      return { ...modernUser, userIcon: portraitThumbnail };
+    },
+  });
+  assert.equal(result.artworkSourceUrl, portraitThumbnail);
+});
+
+test("modern display icons with missing or conflicting provenance resolve only the name", async () => {
+  for (const metadata of [
+    null, {}, { ...iconFile, id: "file_11111111-1111-4111-8111-111111111111" },
+    { ...iconFile, ownerId: "usr_22222222-2222-4222-8222-222222222222" },
+    ...[undefined, [], ["avatarimage"], ["avatargallery"], ["icon", "avatarimage"], ["icon", "unknown"]].map(tags => ({ ...iconFile, tags })),
+    { ...iconFile, versions: [] },
+    { ...iconFile, versions: [{ ...iconFile.versions[1], version: 2 }] },
+    { ...iconFile, versions: [{ ...iconFile.versions[1], status: "waiting" }] },
+    { ...iconFile, versions: [{ ...iconFile.versions[1], deleted: true }] },
+    { ...iconFile, versions: [{ ...iconFile.versions[1], file: { ...iconFile.versions[1].file, status: "waiting" } }] },
+    { ...iconFile, versions: [{ ...iconFile.versions[1], file: { ...iconFile.versions[1].file, url: artwork } }] },
+  ]) {
+    const result = await resolveProfileLinkDestination({ kind: "vrchat_user", locator: userId }, {
+      requestVrchat: async path => path === `/users/${userId}` ? modernUser : metadata,
+    });
+    assert.deepEqual(result, { status: "resolved", entityId: userId, displayName: "Person" });
+  }
+});
+
+test("unsupported modern icon references do not trigger a file lookup or select avatar fields", async () => {
+  for (const iconUrl of [undefined, "", "https://evil.example/icon.png", "https://files.vrchat.cloud/unknown-layout.png", modernIcon.replace("/1/256", "/0/256"), modernIcon.replace("/256", "/file"), modernIcon.replace("/image/", "/file/")]) {
+    const result = await resolveProfileLinkDestination({ kind: "vrchat_user", locator: userId }, {
+      requestVrchat: async path => {
+        assert.equal(path, `/users/${userId}`);
+        return { ...modernUser, iconUrl, profilePicOverride: portraitThumbnail, bannerUrl: portraitThumbnail, currentAvatarImageUrl: portraitThumbnail };
+      },
+    });
+    assert.deepEqual(result, { status: "resolved", entityId: userId, displayName: "Person" });
+  }
+});
+
+test("file absence omits artwork without invalidating the resolved person", async () => {
+  for (const status of [403, 404, 410]) {
+    const result = await resolveProfileLinkDestination({ kind: "vrchat_user", locator: userId }, {
+      requestVrchat: async path => {
+        if (path === `/users/${userId}`) return modernUser;
+        throw Object.assign(new Error("file inaccessible"), { status });
+      },
+    });
+    assert.deepEqual(result, { status: "resolved", entityId: userId, displayName: "Person" });
+  }
+});
+
+test("temporary icon metadata failures preserve cached results and propagate account failures", async () => {
+  for (const error of [Object.assign(new Error("unavailable"), { status: 503 }), Object.assign(new Error("timeout"), { category: "timeout" })]) {
+    assert.deepEqual(await resolveProfileLinkDestination({ kind: "vrchat_user", locator: userId }, {
+      requestVrchat: async path => { if (path === `/users/${userId}`) return modernUser; throw error; },
+    }), { status: "transient" });
+  }
+  for (const category of ["authentication", "rate_limit", "metadata_budget", "control_plane"]) {
+    const error = Object.assign(new Error("account failure"), { category });
+    await assert.rejects(resolveProfileLinkDestination({ kind: "vrchat_user", locator: userId }, {
+      requestVrchat: async path => { if (path === `/users/${userId}`) return modernUser; throw error; },
+    }), value => value === error);
+  }
+});
