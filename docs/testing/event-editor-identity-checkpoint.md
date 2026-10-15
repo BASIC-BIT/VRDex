@@ -1,7 +1,8 @@
 # Event editor identity and local-time checkpoint
 
 BASIC approved the history indexing change, which is now applied. Its current
-covering checks are recorded below. Controller review remains open.
+covering checks are recorded below. Tasks 1 through 6 and the scoped Task 6
+fix review are complete. Final whole-branch review, PR and CI remain pending.
 The earlier broad browser run passed 418 of 422 cases. Its covering rerun passed
 18 of 18; that does not turn the broad run into a clean pass.
 
@@ -151,5 +152,142 @@ records survive, but the missing images cannot support this checkpoint. Every
 later run uses unique output and separate report directories. The images linked
 above are new tracked artifacts and survive SDD scratch cleanup.
 
-The separate profile-editor disclosure request remains deferred. Controller review,
+The separate profile-editor disclosure request remains deferred. Final whole-branch review,
 final CI and the PR feedback loop remain outstanding.
+
+## Integration with current main
+
+The feature branch now includes the public media details/history change from main.
+The merge needed no conflict resolution and changed no feature code or tests.
+Tasks 1 through 6 and the scoped Task 6 fix review are complete. Final whole-branch
+review, PR, CI and the PR feedback loop remain pending. This is not merge-ready.
+
+| Integrated check | Result |
+| --- | --- |
+| Web lint and types | Passed |
+| Full web units | 731 passed, 0 skipped |
+| Backend types and full tests | Passed; 1,490 passed, 0 skipped |
+| API contracts | OpenAPI parity, types and 68 tests passed after local LF regeneration |
+| MCP verification repeat | Types, 12 protocol tests, 261 script tests and local stdio smoke passed; one opt-in script case skipped |
+| Production web build | Passed; existing middleware deprecation warning retained |
+| Generated backend | Passed after coordinated stop; isolated one-shot health status was ok |
+| Docs | Markdown lint and Docusaurus build passed |
+| Nine combined editor flow files, desktop/mobile | 414 passed, 2 failed, 0 skipped, 0 flaky |
+| Remaining lineup flow and asserted evidence cases, desktop/mobile | 53 passed, 1 failed, 0 skipped, 0 flaky |
+| Three failing case names, both viewports, three unchanged traced repetitions | 18 passed, 0 failed, 0 skipped, 0 flaky |
+| Public routes and public media details, desktop/mobile | 118 passed, 0 failed, 4 hosted-only skips, 0 flaky |
+| Controller full Linux hard snapshots | 76 passed, 0 failed, 12 conditional auth skips, 0 flaky |
+
+The combined run failed when community navigation returned `net::ERR_ABORTED`
+and when staff slot removal found Generate disabled after filling Starts.
+The latter snapshot showed only the footer after a navigation. The separate
+mobile lineup case reached its second-save URL assertion while Review still
+showed Saving. Each case passed three unchanged traced repetitions on both
+viewports after the broad runs ended. Causes remain UNKNOWN. These covering
+passes do not turn either broad run into a clean pass. No assertion, timeout,
+threshold, product code or test code changed during integration.
+
+The first API check compared generated LF output with CRLF checkout bytes.
+Both exact committed blobs matched the generator; normalized original checkout
+content matched too. Original bytes were backed up before local regeneration.
+The API rerun passed without a normalized content change. The first MCP chain
+passed its type and protocol checks, then one script subprocess-timeout case took
+3,354 ms against its 3,000 ms bound. The unchanged focused case passed in 2,429 ms;
+the final full-chain repeat passed that case in 2,804 ms. The original overrun's
+cause remains UNKNOWN. The opt-in script skip requires `EVENT_PLAYBACK_PROOF=true`.
+Hosted Streamable HTTP smoke was not selected, and the matrix check reads existing
+evidence. Neither establishes new hosted-user or hosted-client proof.
+
+The four public-route skips are the hosted-only anonymous API search and lookup
+route/suggest cases on each viewport. The 12 snapshot skips remain the same six
+Clerk-dependent routes per viewport. No golden changed. Hard thresholds and
+explicit stage assertions stayed intact. The controller refreshed the Linux
+source and ran its comparison; this worker did not run Docker tests.
+
+Windows browser checks used the existing webpack web port 3186 and isolated
+Convex ports 3290/3291. After the merge, the watcher compiled the added media index
+and reported ready at 22:37:23 UTC. Both HTTP probes returned 200 before browser
+checks. The controller stopped only its owned services for the production build
+and generated check. The one-shot backend reported ready, returned health status
+ok and exited; ports 3186/3290 had no listeners before controller restart.
+The replacement backend reported ready at 22:53:13 UTC, and webpack web returned
+ready after 4.4 seconds. Existing CLI deprecation, beta and update notices remain.
+Backend authority tests use authenticated `convex-test` identities. Browser
+fixtures substitute local transport. These remain local integration evidence,
+separate from deployed HTTP or hosted signed-in acceptance.
+
+## Execution decisions retained from the controller ledger
+
+These eight rulings preserve the approved implementation refinements in their
+original order. They do not add product scope. The direct human approval below
+supersedes the earlier requirement to restore history wrappers on editor unmount.
+
+1. **Preserve world associations.** Task 2 could change the existing nullable
+   `worldSlug` command to distinguish omission from explicit clearing and retain
+   untouched protected/private links. The risk was deleting a valid association or
+   retaining one unexpectedly. Backend and browser readback coverage was required.
+2. **Identify the represented world.** Authenticated editor readback could include
+   `editableWorldAssociation` with its association ID and public world slug.
+   Replacement/clear preserves every unrepresented link, including other public
+   worlds, deduplicates a retained selection and refreshes its mapping after save.
+   Public projections omit this metadata and private slugs. Fresh opens still use
+   the first projected public world, without a persisted primary-world field.
+   The risk was deleting the wrong link or misrepresenting a multiworld event.
+3. **Use canonical lineup commands for deliberate browser edits.** New events and
+   edited lineups could use the existing canonical command, while unrelated saves
+   omit lineup and external legacy commands remain compatible. Stable authenticated
+   association mapping preserves legacy identity, provenance and confirmation.
+   Scoped snapshot IDs retain unrepresented protected/private links; represented
+   explicit removals still delete. The risk was association, billing, provenance
+   or confirmation loss. Repeated-save and protected-association tests were required.
+4. **Resolve missing source zones explicitly.** An Unresolved time control could
+   author missing canonical zone context. The normal zone selector stays display
+   only; known source zones remain intact. No account preference write, discarded
+   evidence or extra cascade was permitted. The risk was resolving a clock in the
+   wrong zone. Tests require unchanged payloads before deliberate source resolution.
+5. **Retain invalid clock buffers before hiding time.** Pending invalid clocks
+   block Time TBA and display-zone changes, retain timing/backups and focus the
+   input. A visible Cancel action complements Escape. The cost is one extra action
+   before choosing TBA after invalid input. Both recoveries and exact TBA restoration
+   require coverage.
+6. **Use public cancelable traversal.** Task 6 could use the Navigation API plus a
+   public history fallback after framework listener order defeated a later editor
+   listener. No private framework keys or navigation trap was permitted.
+   Noncancelable browser traversal can escape. The risk was lost edits or broken
+   history. Real Back/Forward, repeated cancel/accept and absent-API tests were required.
+7. **Capture before hydration.** The standard instrumentation-client bootstrap
+   could install one inert page-lifetime popstate dispatcher, idempotently.
+   Editor delegates, dirty closures and editor-specific listeners still detach.
+   This ruling initially also required wrapper restoration on editor unmount;
+   ruling 8 and direct human approval supersede that part. The risk was app-wide
+   navigation regression or stale blocking. Normal-page and unmount coverage was required.
+8. **Index public history for the page lifetime.** Public `pushState`/`replaceState`
+   wrappers and position tracking could remain in the same bootstrap. They preserve
+   caller/framework state, never interpret private keys or rewrite unrelated older
+   entries, and never guess an unknown traversal direction. Editor state still
+   cleans up. The risk was app-wide history regression. Two automatic-review
+   rejections held this change until BASIC directly approved the exact two-file
+   proposal and granted bounded standing authorization. That approval is recorded
+   in the [history indexing decision](./event-editor-history-indexing-proposal.md).
+   Repeated Back/Forward, multi-step and unknown-entry coverage proves the current
+   contract; browser-controlled escape remains a limit.
+
+## Integration evidence reference
+
+The feature pre-merge head was `effaefeb7d89f76336d8aeadfba318f1c013d156`.
+Refreshed main was `ebd4ef1a77b1b76d7a309d83e24d2e94bfcaafd3`, with merge
+base `21e48169d4f0cd54e55bbe48b1662ff128c8fe7f`. Exact integrated source was
+`9b79f286b7f1104d2aa041e26f99bf84231c5b03`. The normal merge had no conflicts
+or deleted paths. Later evidence-only documentation does not change that source.
+
+Current local result files under `apps/web/test-results/` are
+`integration-combined.json`, `integration-lineup-evidence.json`,
+`integration-failure-covering.json`, `integration-public.json` and controller-owned
+`integration-linux-snapshots.json`, with matching logs. Unique browser output
+folders use those same run names. HTML reports are under the ignored root
+`.tmp-gh-artifacts/event-editor-identity-local/reports/` with the same names,
+except the controller's Linux report remains with its runtime artifacts.
+`integration-checks/` holds exact static, API/MCP, build, generated and docs logs.
+The plan-owned `integration-report.md` retains exact commands, timestamps and
+failure dispositions. Original generated/OpenAPI bytes and equality manifests
+remain in plan-owned scratch. None of the generated line-ending noise is committed.
