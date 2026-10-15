@@ -101,6 +101,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Test CI selection and report contracts
+        run: node --test .github/scripts/visual-ci.test.cjs .github/scripts/pr-verification-report.test.cjs .github/scripts/visual-label-removal.test.cjs
+
       - name: Run API contract verification
         run: pnpm verify:api-contracts
 
@@ -433,9 +436,6 @@ jobs:
     permissions:
       contents: read
 
-    env:
-      PLAYWRIGHT_CAPTURE_SCREENSHOTS: ${{ needs.visual-selection.outputs.visuals }}
-
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -491,9 +491,6 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
-
-    env:
-      PLAYWRIGHT_CAPTURE_SCREENSHOTS: ${{ needs.visual-selection.outputs.visuals }}
 
     steps:
       - name: Checkout
@@ -571,9 +568,6 @@ jobs:
 
     outputs:
       configured: ${{ steps.gate.outputs.enabled }}
-
-    env:
-      PLAYWRIGHT_CAPTURE_SCREENSHOTS: ${{ needs.visual-selection.outputs.visuals }}
 
     steps:
       - name: Checkout

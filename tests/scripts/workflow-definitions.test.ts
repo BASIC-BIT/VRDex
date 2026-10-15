@@ -184,7 +184,7 @@ describe("optional browser and visual evidence contract", () => {
       assert.ok(job.if.includes("github.event_name == 'pull_request'"), name);
       assert.equal(job["continue-on-error"], undefined);
     }
-    for (const name of ["playwright-public-smoke", "playwright-data-flow", "playwright-hosted-data-flow", "playwright-public-preview", "storybook-component-preview"]) {
+    for (const name of ["playwright-public-preview", "storybook-component-preview"]) {
       assert.equal(workflow.jobs[name].env?.PLAYWRIGHT_CAPTURE_SCREENSHOTS, "${{ needs.visual-selection.outputs.visuals }}");
     }
     for (const name of ["playwright-image-diff", "storybook-image-diff"]) {
@@ -204,6 +204,20 @@ describe("optional browser and visual evidence contract", () => {
     assert.ok(workflow.jobs["playwright-hosted-data-flow"].if.includes("head.repo.fork == false"));
     const account = workflow.jobs["playwright-hosted-data-flow"].steps.find((step: { name?: string }) => step.name === "Run signed-in account assertions and selected captures");
     assert.equal(account.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS, "${{ needs.visual-selection.outputs.visuals }}");
+  });
+  it("keeps existing functional diagnostic captures independent of review selection", () => {
+    for (const name of ["playwright-public-smoke", "playwright-data-flow", "playwright-hosted-data-flow"]) {
+      assert.equal(workflow.jobs[name].env?.PLAYWRIGHT_CAPTURE_SCREENSHOTS, undefined, name);
+    }
+  });
+  it("executes removal, selection and report contracts after Linux core dependencies are installed", () => {
+    const steps = workflow.jobs["verify-api-mcp"].steps;
+    const install = steps.findIndex((step: { name?: string }) => step.name === "Install dependencies");
+    const contracts = steps.findIndex((step: { run?: string }) => step.run?.includes("visual-label-removal.test.cjs"));
+    assert.ok(install >= 0 && contracts > install, "trusted removal handler contracts must execute with yaml installed");
+    for (const file of ["visual-ci.test.cjs", "pr-verification-report.test.cjs", "visual-label-removal.test.cjs"]) {
+      assert.ok(steps[contracts].run.includes(file));
+    }
   });
   it("either selector removal uses trusted inline code and cannot launch the app pipeline", () => {
     const optOut = parseYaml(readFileSync(".github/workflows/visual-evidence-opt-out.yml", "utf8"));

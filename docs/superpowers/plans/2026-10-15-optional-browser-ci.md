@@ -53,7 +53,7 @@ There are no open product decisions. This plan records the approved implementati
 - [x] Write failing workflow contracts for selection dependencies, Storybook gating, all browser consumers, required report dependencies, unchanged deploy controls and no label-triggered application run.
 - [x] Run the focused contracts and confirm the expected failures. Implement the smallest changes that satisfy them, then pass all contracts.
 - [x] Update agent selection guidance and docs. Apply unslop. Run full scripts, helper tests and docs verification; inspect the diff for changes to assertions, local defaults or baselines.
-- [ ] Commit the independently testable implementation, then request one fresh whole-branch review. Address valid important findings with reproducing tests before publishing.
+- [x] Commit the independently testable implementation, then request one fresh whole-branch review. Address valid important findings with reproducing tests before publishing.
 
 **Verification:** `node --import tsx --test .github/scripts/visual-ci.test.cjs .github/scripts/pr-verification-report.test.cjs .github/scripts/visual-label-removal.test.cjs tests/scripts/workflow-definitions.test.ts tests/scripts/review-capture-boundaries.test.ts`, `pnpm test:scripts`, `pnpm verify:docs`. Expected: focused contracts and docs pass; negative cases fail closed. Record unrelated whole-suite failures explicitly and require fresh Linux full-script success before readiness.
 
