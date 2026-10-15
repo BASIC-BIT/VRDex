@@ -17,41 +17,60 @@ export function usePendingEventInput(pending: boolean) {
 export function useEventEditorLeaveGuard({ dirty }: { dirty: boolean }): { requestLeave: (navigate: () => void) => boolean } {
   const currentDirty = useRef(dirty);
   useLayoutEffect(() => { currentDirty.current = dirty; }, [dirty]);
-  const approved = useRef(false);
-  const requestLeave = useCallback((navigate: () => void) => {
-    if (currentDirty.current && !window.confirm("Leave without saving?")) return false;
-    approved.current = true;
-    navigate();
-    return true;
+  const approved = useRef<{ click?: MouseEvent } | undefined>(undefined);
+  const approvalExpiry = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const rearm = useCallback(() => {
+    approved.current = undefined;
+    if (approvalExpiry.current !== undefined) clearTimeout(approvalExpiry.current);
+    approvalExpiry.current = undefined;
   }, []);
+  const approveUnload = useCallback((click?: MouseEvent) => {
+    rearm();
+    approved.current = { click };
+    // Native document departure belongs to this dispatch turn. A retained editor
+    // must not keep a bypass when the action is canceled or does not navigate.
+    approvalExpiry.current = setTimeout(rearm, 0);
+  }, [rearm]);
+  useEffect(() => rearm, [rearm]);
+  const requestLeave = useCallback((navigate: () => void) => {
+    rearm();
+    if (currentDirty.current && !window.confirm("Leave without saving?")) return false;
+    approveUnload();
+    try { navigate(); } catch (error) { rearm(); throw error; }
+    return true;
+  }, [approveUnload, rearm]);
   useEffect(() => {
     if (!dirty) return;
-    const beforeUnload = (event: BeforeUnloadEvent) => { if (!approved.current) { event.preventDefault(); event.returnValue = ""; } };
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      const attempt = approved.current;
+      rearm();
+      if (attempt && !attempt.click?.defaultPrevented) return;
+      event.preventDefault(); event.returnValue = "";
+    };
     window.addEventListener("beforeunload", beforeUnload);
     return () => window.removeEventListener("beforeunload", beforeUnload);
-  }, [dirty]);
+  }, [dirty, rearm]);
   useEffect(() => {
-    let index = position(history.state) ?? 0;
+    let approvedTraversal = false;
     let restoring: { delta: number } | undefined;
     let replaying = false;
     let browserEscape = false;
-    const pop = (event: PopStateEvent) => {
-      if (browserEscape) { browserEscape = false; index = position(event.state) ?? index; return; }
-      if (replaying) { replaying = false; index = position(event.state) ?? index; return; }
+    const pop = (event: PopStateEvent, previousPosition: number | undefined) => {
+      if (browserEscape) { browserEscape = false; return; }
+      if (replaying || approvedTraversal) { replaying = false; approvedTraversal = false; approveUnload(); return; }
       if (restoring) {
         event.stopImmediatePropagation();
         const { delta } = restoring;
         restoring = undefined;
-        if (window.confirm("Leave without saving?")) { approved.current = true; replaying = true; history.go(delta); }
+        if (window.confirm("Leave without saving?")) { replaying = true; history.go(delta); }
         return;
       }
       const target = position(event.state);
       // Entries created before bootstrap have no reliable direction or distance. Never guess.
-      if (target === undefined) return;
-      if (!currentDirty.current || approved.current) { index = target; return; }
-      event.stopImmediatePropagation();
-      const delta = target - index;
+      if (target === undefined || previousPosition === undefined || !currentDirty.current) return;
+      const delta = target - previousPosition;
       if (!delta) return;
+      event.stopImmediatePropagation();
       restoring = { delta };
       history.go(-delta);
     };
@@ -61,9 +80,10 @@ export function useEventEditorLeaveGuard({ dirty }: { dirty: boolean }): { reque
       if (!(anchor instanceof HTMLAnchorElement) || anchor.download || (anchor.target && anchor.target !== "_self")) return;
       const destination = new URL(anchor.href);
       if (destination.origin === location.origin && destination.pathname === location.pathname && destination.search === location.search) return;
-      if (anchor.href === location.href || !currentDirty.current || approved.current) return;
+      if (anchor.href === location.href || !currentDirty.current) return;
+      rearm();
       if (!window.confirm("Leave without saving?")) { event.preventDefault(); event.stopImmediatePropagation(); }
-      else approved.current = true;
+      else approveUnload(event);
     };
     // Some routers begin traversal work at the public Navigation API event,
     // before popstate. Ask while the editor is still mounted; allow an approved traversal.
@@ -74,18 +94,25 @@ export function useEventEditorLeaveGuard({ dirty }: { dirty: boolean }): { reque
       const entry = navigation && "currentEntry" in navigation ? navigation.currentEntry : undefined;
       if (!destination || typeof destination !== "object" || !("sameDocument" in destination) || !destination.sameDocument || !("index" in destination) || typeof destination.index !== "number" || !entry || typeof entry !== "object" || !("index" in entry) || typeof entry.index !== "number") return;
       if (!event.cancelable) { browserEscape = true; return; }
-      if (replaying || restoring || approved.current || !currentDirty.current) return;
-      if (window.confirm("Leave without saving?")) approved.current = true;
+      if (replaying || restoring || !currentDirty.current) return;
+      approvedTraversal = false;
+      rearm();
+      if (window.confirm("Leave without saving?")) { approvedTraversal = true; approveUnload(); }
       else event.preventDefault();
     };
+    const cancelTraversal = () => { approvedTraversal = false; rearm(); };
     navigation?.addEventListener("navigate", traverse);
+    navigation?.addEventListener("navigatesuccess", rearm);
+    navigation?.addEventListener("navigateerror", cancelTraversal);
     const unregisterHistory = registerEventEditorHistoryCapture(pop);
     document.addEventListener("click", click, true);
     return () => {
       navigation?.removeEventListener("navigate", traverse);
+      navigation?.removeEventListener("navigatesuccess", rearm);
+      navigation?.removeEventListener("navigateerror", cancelTraversal);
       unregisterHistory();
       document.removeEventListener("click", click, true);
     };
-  }, []);
+  }, [approveUnload, rearm]);
   return { requestLeave };
 }

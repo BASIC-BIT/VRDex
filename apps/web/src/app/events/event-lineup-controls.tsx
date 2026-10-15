@@ -27,7 +27,7 @@ export function EventSlotDuration({ value, disabled, onCommit, onClear, unresolv
   useEffect(() => { const input = document.getElementById(inputId); if (input instanceof HTMLInputElement) input.setCustomValidity(invalid ? "Slot duration minutes must be a whole number." : ""); }, [invalid, inputId]);
   function commit() {
     if (!edit) return;
-    if (raw.trim() && !validDuration(raw)) return;
+    if (!validDuration(raw) && !(onClear && raw.trim() === "")) return;
     setEdit(null);
     if (!disabled && onClear && raw.trim() === "" && source.trim() !== "" && lastCommit.current !== raw) { lastCommit.current = raw; onClear(); return; }
     if (!disabled && (value !== undefined || unresolvedValue !== undefined) && validDuration(raw) && Number(raw) !== value && lastCommit.current !== raw) { lastCommit.current = raw; onCommit(Number(raw)); }

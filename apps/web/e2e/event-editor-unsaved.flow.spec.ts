@@ -38,6 +38,62 @@ for (const editor of ['intake', 'staff']) {
   });
 }
 
+
+for (const editor of ['intake', 'staff']) for (const fallback of [false, true]) {
+  test(`${editor} accepted same-component traversal rearms the next edited exit, fallback=${fallback} @fixture`, async ({ page }) => {
+    if (fallback) await page.addInitScript(() => Object.defineProperty(window, 'navigation', { value: undefined, configurable: true }));
+    await page.goto(editor === 'intake' ? '/playwright/event-intake' : '/playwright/event-lineup?editor&mode=create');
+    await page.getByLabel('Event title', { exact: true }).fill('Before accepted traversal');
+    await expect(page.locator('form[data-event-dirty]')).toHaveAttribute('data-event-dirty', 'true');
+    const dialogs: string[] = [];
+    page.on('dialog', dialog => { dialogs.push(dialog.type()); });
+    const originalUrl = page.url();
+    const originalState = await page.evaluate(() => {
+      history.replaceState({ ...history.state, caller: { retained: true } }, '');
+      const state = history.state;
+      history.pushState(state, '', location.href + '#retained-editor');
+      return state;
+    });
+    const accepted = page.waitForEvent('dialog');
+    await page.evaluate(() => history.back());
+    expect((await accepted).message()).toBe('Leave without saving?');
+    await (await accepted).accept();
+    await expect(page).toHaveURL(originalUrl);
+    await expect(page.getByLabel('Event title', { exact: true })).toHaveValue('Before accepted traversal');
+    expect(await page.evaluate(() => history.state)).toEqual(originalState);
+    await page.getByLabel('Event title', { exact: true }).fill('New edit after accepted traversal');
+    await dismissLeave(page);
+    await expect(page).toHaveURL(originalUrl);
+    await expect(page.getByLabel('Event title', { exact: true })).toHaveValue('New edit after accepted traversal');
+    await expect(page.locator('form[data-event-dirty]')).toHaveAttribute('data-event-dirty', 'true');
+    // Another handler can cancel an accepted click and keep this editor mounted.
+    await page.evaluate(() => document.addEventListener('click', event => {
+      event.preventDefault(); event.stopImmediatePropagation();
+    }, { capture: true, once: true }));
+    const canceledAttempt = page.waitForEvent('dialog');
+    const canceledClick = page.getByRole('link', { name: 'Contact', exact: true }).click();
+    await (await canceledAttempt).accept(); await canceledClick;
+    await expect(page).toHaveURL(originalUrl);
+    const unload = page.waitForEvent('dialog');
+    const reload = page.reload({ timeout: 1500 }).catch(() => {});
+    expect((await unload).type()).toBe('beforeunload');
+    await (await unload).dismiss(); await reload;
+    await expect(page.getByLabel('Event title', { exact: true })).toHaveValue('New edit after accepted traversal');
+    // A real accepted document link must not show a second native warning.
+    await page.evaluate(() => {
+      const link = document.createElement('a');
+      link.href = '/support?native=1'; link.textContent = 'Native test exit';
+      document.body.append(link);
+    });
+    const nativeApproval = page.waitForEvent('dialog');
+    const nativeClick = page.getByRole('link', { name: 'Native test exit', exact: true }).click();
+    expect((await nativeApproval).type()).toBe('confirm');
+    await (await nativeApproval).accept(); await nativeClick;
+    await expect(page).toHaveURL(/support\?native=1$/);
+    expect(dialogs).toEqual(['confirm', 'confirm', 'confirm', 'beforeunload', 'confirm']);
+  });
+}
+
 const nav = (page: import('@playwright/test').Page, step: string) => page.getByRole('navigation', { name: 'Event editor' }).getByRole('button', { name: step, exact: true }).click();
 async function dismissLeave(page: import('@playwright/test').Page) {
   const confirmation = page.waitForEvent('dialog');

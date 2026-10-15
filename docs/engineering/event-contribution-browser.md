@@ -133,7 +133,10 @@ positive whole-minute durations are limited to 1,440 and lineups to 80 rows.
 Unknown boundaries require the existing timing controls or an untimed addition.
 Insertion, removal and committed duration edits shift later timed rows by elapsed
 minutes, preserving durations, gaps, keys, performer matches and stream choices.
-Enter followed by blur commits a duration change once. Changing Starts shifts
+Enter followed by blur commits a valid duration change once. Invalid duration
+text, including blank or whitespace in controls without a clear operation, stays
+pending until a valid commit or explicit Escape. Detailed controls that support
+clearing still commit an empty value. Changing Starts shifts
 the timed lineup together. Compact row times use the editing timezone and retain
 crossing dates, seconds and milliseconds where present. Repeated-hour ranges show
 the offset for each instant. Details and Review show the friendly zone label;
@@ -316,7 +319,9 @@ Pending clock context and lineup buffers survive source completion.
 Cancel preserves the row and schedule. Confirmation invokes the keyed removal
 and timing cascade once. Deleted keys cannot return from a Time TBA backup.
 
-Leaving a dirty editor asks `Leave without saving?`. Changing wizard stages and
+Leaving a dirty editor asks `Leave without saving?`. Approval covers one
+navigation attempt. If a traversal or canceled action keeps the editor mounted,
+later exits ask again while authored changes remain dirty. Changing wizard stages and
 closing the retained import dialog keep the form mounted and do not ask.
 Correction-panel close is abandonment. Native refresh, close and document exit
 use `beforeunload` while dirty; browser activation and platform rules determine
@@ -335,7 +340,10 @@ Browser noncancelable traversals must remain an escape route.
 
 The early capture dispatcher uses the public
 [instrumentation-client hook](https://nextjs.org/docs/app/api-reference/file-conventions/instrumentation-client)
-before router hydration. A later editor-only listener lost its mounted form when
+before router hydration. The disposable editor callback receives the previous
+public position as well as the destination event, so entries pushed while the
+editor stays mounted have the correct traversal distance. A later editor-only
+listener lost its mounted form when
 the earlier router listener handled traversal first. The inert dispatcher and
 state-preserving public history wrappers stay installed for the page lifetime.
 Editor delegates, dirty closures and editor-specific listeners detach on unmount. A mistake here can regress app-wide navigation or leave stale blocking.

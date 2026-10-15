@@ -328,7 +328,7 @@ for (const editor of ["staff", "intake"]) test(`${editor} rejected durations rem
   await nav(page, "Lineup");
   const duration = page.locator('[data-lineup-row]').first().getByLabel("Duration", { exact: true });
   const committed = editor === "staff" ? String(3_620_333 / 60_000) : "60";
-  for (const invalid of ["45.5", "0", "abc"]) {
+  for (const invalid of ["", "   ", "45.5", "0", "abc"]) {
     await duration.fill(invalid); await duration.press("Enter");
     await expect(duration).toHaveValue(invalid);
     await duration.press("Tab");
@@ -336,6 +336,7 @@ for (const editor of ["staff", "intake"]) test(`${editor} rejected durations rem
     await expect(page.locator("form[data-event-dirty]")).toHaveAttribute("data-event-dirty", "true");
     await duration.press("Escape");
     await expect(duration).toHaveValue(committed);
+    await expect(page.locator("form[data-event-dirty]")).toHaveAttribute("data-event-dirty", "false");
   }
   await duration.fill("45"); await duration.press("Escape"); await duration.press("Tab");
   await expect(duration).toHaveValue(committed);

@@ -34,7 +34,8 @@ remains a compatibility limit.
 | Docs | Passed after approval, behavior and checkpoint updates |
 | Focused persistence | 5 passed, repeated after history indexing |
 | History fallback and native-refresh covering run | 16 passed, 0 skipped, desktop and mobile |
-| Final history/editor/lineup covering pair | 112 passed, 0 failed, 0 skipped, desktop and mobile |
+| Pre-review history/editor/lineup covering pair | 112 passed, 0 failed, 0 skipped, desktop and mobile |
+| Review-fix guard/lineup covering pair | 120 passed, 0 failed, 0 skipped, desktop and mobile |
 | Focused authority/association tests | 91 passed using `convex-test` authenticated identities |
 | Final combined desktop/mobile browser run | 418 passed, 4 failed, 0 skipped |
 | Covering repeat run | 18 passed, 0 skipped; three case names, two viewports, three repeats |
@@ -56,6 +57,21 @@ reload; waiting for the destination fixed that test synchronization. One desktop
 staff native-refresh case lost its edited title after dismissal. Its cause is
 UNKNOWN. The unchanged case passed in the focused 16/16 run and the final 112/112
 covering pair. Neither result erases the earlier failure.
+
+Scoped review found two unsaved-work defects. Accepted traversal left approval
+active when the same editor stayed mounted, and compact duration controls dropped
+blank invalid input on blur or Enter. Both are fixed. Approval now covers one
+attempt, with separate native-unload and traversal handling. The capture callback
+receives the prior public position, so same-component pushes cannot leave a stale
+traversal distance. Blank and whitespace duration input stays dirty until Escape
+or a valid commit; detailed controls retain their explicit clear operation.
+
+The new regression cases reproduce both findings before the fix. The final
+120-case covering pair also checks accepted clicks canceled by another handler,
+immediate native reload protection and accepted native document exits with one
+confirmation. Earlier failures and their causes remain in the Task 6 report.
+The existing middleware deprecation warning is deferred, and no unrelated backend
+or visual suite was repeated for these fixes.
 
 The fallback cases remove the Navigation API before bootstrap. Both editors
 retain URL, values and caller/framework state through repeated Back, Forward and
@@ -110,6 +126,11 @@ Local artifacts live under `apps/web/test-results/`:
 - `task6-history-covering.json`: 101 passes and three failures described above.
 - `task6-history-focused.json`: 16 passing fallback/native cases, with traces.
 - `task6-history-final.json`: 112 passing editor/lineup cases after indexing.
+- `task6-review1-red.json`: six reproduced review failures before fixes.
+- `task6-review1-focused.json`, `task6-review1-corrected.json` and
+  `task6-review1-attempt.json`: intermediate failures and corrected implementation
+  boundaries, explained in the Task 6 report.
+- `task6-review1-green.json`: 120 passing guard/lineup cases after review fixes.
 - `task6-final-covering.json`: 18/18 covering result with traces.
 - `task6-linux-captures-final/` and matching JSON: 34 asserted visual cases.
 - `task6-linux-golden-compare/` and matching JSON: rejected wrong-stage comparison.

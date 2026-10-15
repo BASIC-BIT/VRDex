@@ -1,5 +1,5 @@
 /** Public history indexing starts before hydration; editor delegates remain disposable. */
-type EditorPopListener = (event: PopStateEvent) => void;
+type EditorPopListener = (event: PopStateEvent, previousPosition: number | undefined) => void;
 const positionKey = "vrdexEventEditorPosition";
 export function eventEditorHistoryPosition(state: unknown): number | undefined {
   return state && typeof state === "object" && positionKey in state && typeof state[positionKey] === "number" ? state[positionKey] : undefined;
@@ -24,8 +24,9 @@ export function installEventEditorHistoryCapture(): void {
     originalReplace.call(history, { ...value, ...(state.position === undefined ? {} : { [positionKey]: state.position }) }, unused, url);
   };
   window.addEventListener("popstate", event => {
+    const previousPosition = state.position;
     state.position = eventEditorHistoryPosition(event.state);
-    state.listener?.(event);
+    state.listener?.(event, previousPosition);
   }, true);
 }
 export function registerEventEditorHistoryCapture(listener: EditorPopListener): () => void {
