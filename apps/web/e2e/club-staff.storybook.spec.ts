@@ -10,10 +10,12 @@ test("a role editor keeps its displayed revision after a second tab changes perm
   await expect(page.getByRole("alert")).toContainText("Refresh to continue.");
   await expect(page.getByLabel("Submitted role token")).toHaveText(String(Date.UTC(2026, 8, 12, 21)));
   await expect(page.getByLabel("Stored role permissions")).not.toContainText("manage_staff");
-  await page.screenshot({
-    path: `../../.cache/artifacts/club-stale-role-${test.info().project.name}.png`,
-    fullPage: true,
-  });
+  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") {
+    await page.screenshot({
+      path: `../../.cache/artifacts/club-stale-role-${test.info().project.name}.png`,
+      fullPage: true,
+    });
+  }
 });
 
 test("a stale delete confirmation preserves a concurrently edited role @storybook-visual", async ({ page }) => {
@@ -24,8 +26,10 @@ test("a stale delete confirmation preserves a concurrently edited role @storyboo
   await expect(page.getByRole("alert")).toContainText("Refresh to continue.");
   await expect(page.getByLabel("Submitted deletion token")).toHaveText(String(Date.UTC(2026, 8, 12, 21)));
   await expect(page.getByText("Admin", { exact: true }).first()).toBeVisible();
-  await page.screenshot({
-    path: `../../.cache/artifacts/club-stale-role-deletion-${test.info().project.name}.png`,
-    fullPage: true,
-  });
+  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") {
+    await page.screenshot({
+      path: `../../.cache/artifacts/club-stale-role-deletion-${test.info().project.name}.png`,
+      fullPage: true,
+    });
+  }
 });

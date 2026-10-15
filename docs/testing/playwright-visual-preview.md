@@ -1,6 +1,6 @@
 # Playwright visual preview
 
-Playwright gives VRDex a lightweight screenshot loop and a committed-baseline visual regression gate.
+Playwright runs browser assertions automatically. The `ci:visuals` PR label selects review screenshots and committed-baseline image comparisons.
 
 See `docs/testing/playwright-image-diffing.md` for the committed-baseline image diff workflow. Screenshot preview and image diffing are intentionally separate checks.
 
@@ -313,16 +313,15 @@ Each data-flow run uses a unique `VRDEX_E2E_RUN_ID` prefix and creates only `e2e
 
 ## CI behavior
 
-The required `Playwright Public Preview` job:
+`Playwright Public Preview` and `Storybook Component Preview` always run their browser assertions on normal PR runs. Without `ci:visuals`, they set `PLAYWRIGHT_CAPTURE_SCREENSHOTS=false` and skip review PNG writes and attachments. Navigation, stabilization, editing, publication recovery, access checks, and cleanup still execute. Their artifacts contain reports and failure diagnostics, not proof that review screenshots were captured.
 
-- runs `pnpm test:e2e:visual`
-- uploads `apps/web/playwright-report`, `apps/web/test-results`, and `apps/web/playwright-artifacts`, failing if no artifact files are found
+`Playwright Public Smoke` runs the existing public-route smoke suite on desktop and mobile Chromium. `Playwright Data Flow` retains the local mutation-backed journey and its screenshot/video evidence. Failure screenshots and functional-flow diagnostics do not depend on visual selection.
 
-This blocks PRs when public route rendering or screenshot capture fails. Pixel review is still artifact-based until committed baseline snapshots and a separate diff gate are added.
+With `ci:visuals`, both preview jobs collect review screenshots, and `Playwright Image Diff` and `Storybook Image Diff` compare committed baselines. Requested comparisons fail on mismatches, runtime failures, cancellation, or unexpected skips. CI never updates baselines.
 
-The required `Playwright Image Diff` job runs the `@snapshot` suite against committed PNG baselines under `apps/web/e2e/__screenshots__` and uploads expected/actual/diff artifacts on failure.
+Add the label before the next normal PR run (opened, synchronized, reopened, or marked ready for review). Label edits do not start application CI. Removing the label preserves previous failures and marks historical visual claims unselected. A completed failure remains a failure; a new normal run records its own selection. Main pushes do not run these PR-only visual jobs.
 
-The required `Playwright Data Flow` job runs the `@flow` test against local Convex and the local Next dev server with `PLAYWRIGHT_RECORD_VIDEO=true`, then uploads screenshots, traces, and videos as the `playwright-data-flow` artifact.
+Local visual commands keep screenshot collection enabled by default. Set `PLAYWRIGHT_CAPTURE_SCREENSHOTS=false` only when intentionally exercising assertions without review captures. This switch does not disable `toHaveScreenshot` comparisons. There is no visual-only manual workflow dispatch.
 
 The optional `Playwright Hosted Data Flow` job runs on pull requests only when both repository settings are present:
 
@@ -331,7 +330,7 @@ The optional `Playwright Hosted Data Flow` job runs on pull requests only when b
 
 When configured, the job runs `pnpm test:e2e:hosted` with `PLAYWRIGHT_BASE_URL`, `PLAYWRIGHT_SKIP_WEBSERVERS=true`, `PLAYWRIGHT_RECORD_VIDEO=true`, and a GitHub Actions run-scoped `VRDEX_E2E_RUN_ID`. Extended profile, auth, adapter, and developer-credential flows skip unless `VRDEX_HOSTED_E2E_EXTENDED_PROFILE_FLOW`, `VRDEX_HOSTED_E2E_AUTH_HELPERS`, `VRDEX_HOSTED_E2E_ADAPTER_HELPERS`, and `VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS` are explicitly set to `true`.
 
-The final `PR Verification Report` job runs after the Playwright and Storybook jobs. It collates their results, artifact links, and changed visual baselines into one marker-based PR comment that is updated in place. Changed baselines appear as a complete inline image gallery inside a collapsed details section so reviewers can inspect every snapshot without filling the default PR view. The producer jobs do not write PR comments. The report job also removes legacy per-job comments when it first runs on an existing pull request.
+The final `PR Verification Report` job runs after the Playwright and Storybook jobs. It records run selection, validates expected job results and required artifacts, and collates their results, artifact links, and changed visual baselines into one marker-based PR comment that is updated in place. Changed baselines appear as a complete inline image gallery inside a collapsed details section so reviewers can inspect every snapshot without filling the default PR view. Unselected comparisons appear as `NOT SELECTED`; assertion-only preview results do not claim screenshot success. An invalid selection, missing artifact, failed job, or unexpected skip fails report verification. The report checks the current PR head before publication and calls out label changes since the run. The producer jobs do not write PR comments. The report job also removes legacy per-job comments when it first runs on an existing pull request.
 
 The `Deployed Health Checks` workflow runs after merges to `main`, after successful GitHub deployment status events for production deployments, on a daily schedule, and through manual dispatch. It has two independent checks:
 

@@ -84,6 +84,8 @@ Then read the issue-specific and area-specific docs that actually apply to the t
 - use the minimum verification that matches the risk of the change
 - stronger checks are expected for permissions, billing, trust, identity, verification, and significant UI changes
 - UI-heavy work should include visual evidence when appropriate
+- Browser assertions remain automatic. Add `ci:visuals` before the next normal PR run to request screenshots and both image-diff suites. Label edits do not launch application CI.
+- Review selected visual artifacts and intentional baseline changes before calling UI work complete. An unselected run is not visual verification. See [Playwright CI selection](../testing/playwright-visual-preview.md#ci-behavior).
 - docs-only and low-risk changes can use lighter verification when that is honest and explicit
 
 ## Review and recycle posture

@@ -7,10 +7,12 @@ test("event managers review private suggestions from Analytics @storybook-visual
   await expect(page.getByText("Suggested match · 75% confidence")).toHaveCount(2);
   const stale = page.getByText("Instance unavailable.").locator("..").locator("..");
   await expect(stale.getByRole("button", { name: "Confirm" })).toBeDisabled();
-  await page.screenshot({
-    path: `../../.cache/artifacts/suggestion-review-${isMobile ? "mobile" : "desktop"}.png`,
-    fullPage: true,
-  });
+  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") {
+    await page.screenshot({
+      path: `../../.cache/artifacts/suggestion-review-${isMobile ? "mobile" : "desktop"}.png`,
+      fullPage: true,
+    });
+  }
   await page.getByRole("button", { name: /Afterhours Lounge/ }).click();
   await expect(page.getByText("Data completeness", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Back to instances" }).click();
@@ -35,10 +37,12 @@ test("event managers without instance history can review suggestions without a d
   await expect(page.getByRole("heading", { name: "Event associations", exact: true })).toBeVisible();
   await expect(page.getByText(/Afterhours Lounge/)).toBeVisible();
   await expect(page.getByRole("button", { name: /Afterhours Lounge/ })).toHaveCount(0);
-  await page.screenshot({
-    path: `../../.cache/artifacts/suggestion-review-limited-${isMobile ? "mobile" : "desktop"}.png`,
-    fullPage: true,
-  });
+  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") {
+    await page.screenshot({
+      path: `../../.cache/artifacts/suggestion-review-limited-${isMobile ? "mobile" : "desktop"}.png`,
+      fullPage: true,
+    });
+  }
   await page.getByRole("button", { name: "Confirm", exact: true }).first().click();
   await expect(page.getByText("Suggestion confirmed.", { exact: true })).toBeVisible();
   await expect(page.getByText("Suggested match · 75% confidence")).toHaveCount(1);
@@ -161,10 +165,12 @@ test("instance list emphasizes population and opens detail @storybook-visual", a
   await expect(
     page.getByText("Event: Afterhours 043", { exact: true }),
   ).toBeVisible();
-  await page.screenshot({
-    path: `../../.cache/artifacts/event-association-${isMobile ? "mobile" : "desktop"}.png`,
-    fullPage: true,
-  });
+  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") {
+    await page.screenshot({
+      path: `../../.cache/artifacts/event-association-${isMobile ? "mobile" : "desktop"}.png`,
+      fullPage: true,
+    });
+  }
   await page.getByRole("button", { name: "Back to instances" }).click();
   await expect(page.getByText("Instance history", { exact: true })).toBeVisible();
   expect(
@@ -184,11 +190,15 @@ test("membership lines segment collection gaps in range and selected day @storyb
   await expect.poll(segments).toBeGreaterThan(1);
   await expect(chart.locator('circle[r="3"]').first()).toBeVisible();
   await chart.scrollIntoViewIfNeeded();
-  await chart.screenshot({ path: `../../.cache/artifacts/task8-membership-range-${isMobile ? "mobile" : "desktop"}.png` });
+  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") {
+    await chart.screenshot({ path: `../../.cache/artifacts/task8-membership-range-${isMobile ? "mobile" : "desktop"}.png` });
+  }
   await page.getByLabel("Inspect day", { exact: true }).fill("2026-08-01");
   await expect.poll(segments).toBe(2);
   await chart.scrollIntoViewIfNeeded();
-  await chart.screenshot({ path: `../../.cache/artifacts/task8-membership-day-${isMobile ? "mobile" : "desktop"}.png` });
+  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") {
+    await chart.screenshot({ path: `../../.cache/artifacts/task8-membership-day-${isMobile ? "mobile" : "desktop"}.png` });
+  }
   await chart.locator("..").getByRole("button", { name: "Show data table" }).click();
   await expect(chart.locator("..").getByRole("cell", { name: "Unknown" }).first()).toBeVisible();
   await page.getByRole("button", { name: "Back to range" }).click();
@@ -235,9 +245,13 @@ for (const reactive of [false, true]) {
     await expect.poll(connections).toBe(0);
     await expect(chart.locator('circle[r="3"]')).toHaveCount(2);
     if (!reactive)
-      await chart.screenshot({
-        path: `../../.cache/artifacts/task8-i1-expired-${test.info().project.name}.png`,
-      });
+      {
+        if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") {
+          await chart.screenshot({
+            path: `../../.cache/artifacts/task8-i1-expired-${test.info().project.name}.png`,
+          });
+        }
+      }
     await chart
       .locator("..")
       .getByRole("button", { name: "Show data table" })

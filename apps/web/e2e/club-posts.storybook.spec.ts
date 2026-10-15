@@ -22,10 +22,12 @@ test("post confirmation rejects content changed after review @storybook-visual",
   await expect(page.getByRole("alert")).toHaveText("Refresh to continue.");
   await expect(page.getByRole("status")).toHaveCount(0);
   await page.getByRole("button", { name: "Publish now" }).click();
-  await page.screenshot({
-    path: path.resolve(process.cwd(), "../../.cache/artifacts", `post-review-confirmation-${isMobile ? "mobile" : "desktop"}.png`),
-    fullPage: true,
-  });
+  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") {
+    await page.screenshot({
+      path: path.resolve(process.cwd(), "../../.cache/artifacts", `post-review-confirmation-${isMobile ? "mobile" : "desktop"}.png`),
+      fullPage: true,
+    });
+  }
   await page.getByRole("button", { name: "Confirm", exact: true }).click();
   await expect(page.getByRole("status")).toHaveText("Post queued: immediate.");
 });
@@ -113,14 +115,16 @@ test("posts workspace saves drafts and queues confirmed writes @storybook-visual
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBeTruthy();
-  await page.screenshot({
-    path: path.resolve(
-      process.cwd(),
-      "../../.cache/artifacts",
-      `posts-workspace-${isMobile ? "mobile" : "desktop"}.png`,
-    ),
-    fullPage: true,
-  });
+  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") {
+    await page.screenshot({
+      path: path.resolve(
+        process.cwd(),
+        "../../.cache/artifacts",
+        `posts-workspace-${isMobile ? "mobile" : "desktop"}.png`,
+      ),
+      fullPage: true,
+    });
+  }
   expect(errors).toEqual([]);
 });
 test("post preview and explicit scheduled confirmation @storybook-visual", async ({
@@ -158,14 +162,16 @@ test("post preview and explicit scheduled confirmation @storybook-visual", async
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBeTruthy();
-  await page.screenshot({
-    path: path.resolve(
-      process.cwd(),
-      "../../.cache/artifacts",
-      `posts-${isMobile ? "mobile" : "desktop"}.png`,
-    ),
-    fullPage: true,
-  });
+  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") {
+    await page.screenshot({
+      path: path.resolve(
+        process.cwd(),
+        "../../.cache/artifacts",
+        `posts-${isMobile ? "mobile" : "desktop"}.png`,
+      ),
+      fullPage: true,
+    });
+  }
   expect(errors).toEqual([]);
 });
 

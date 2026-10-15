@@ -37,18 +37,22 @@ for (const kind of ["population", "authority"] as const) {
   }) => {
     await open(page, "aged");
     await expect(value(page)).toBeVisible();
-    await page.screenshot({
-      path: `../../.cache/artifacts/task-3-${kind}-fresh-${test.info().project.name}.png`,
-      fullPage: true,
-    });
+    if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") {
+      await page.screenshot({
+        path: `../../.cache/artifacts/task-3-${kind}-fresh-${test.info().project.name}.png`,
+        fullPage: true,
+      });
+    }
     await page.clock.runFor(15_000);
     await expect(value(page)).toBeVisible();
     await page.clock.runFor(1);
     await expect(value(page)).toHaveCount(0);
-    await page.screenshot({
-      path: `../../.cache/artifacts/task-3-${kind}-expired-${test.info().project.name}.png`,
-      fullPage: true,
-    });
+    if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") {
+      await page.screenshot({
+        path: `../../.cache/artifacts/task-3-${kind}-expired-${test.info().project.name}.png`,
+        fullPage: true,
+      });
+    }
   });
   test(`${kind} expiry between render and passive effect clears the display @storybook-visual`, async ({
     page,

@@ -6,7 +6,7 @@
 
 Screenshot preview proves the screenshots attached to a pull request came from a passing Playwright run. It is review evidence.
 
-Image diffing proves the UI still matches committed screenshot baselines. It is a regression gate.
+When selected with `ci:visuals`, image diffing compares the UI with committed screenshot baselines and fails on differences. Without the label, comparison jobs skip. Browser assertions continue in the preview and functional jobs. See [visual preview selection](./playwright-visual-preview.md#ci-behavior) for triggers and assertion-only behavior.
 
 ## Research notes
 
@@ -28,7 +28,7 @@ References:
 1. Keep the current `Playwright Public Preview` job.
 2. Run a separate `Playwright Image Diff` job that performs committed snapshot comparisons.
 3. Commit approved baseline PNGs under an explicit screenshot baseline directory.
-4. Fail the image diff job when a UI change is not accompanied by updated baselines.
+4. Fail a selected image-diff job on unexpected baseline differences. Investigate before updating baselines.
 5. Post inline only the screenshot baselines that are added or modified in the PR.
 6. Keep actual/expected/diff failure artifacts in the Playwright report instead of committing generated failure files.
 
@@ -102,48 +102,26 @@ pnpm --filter web exec playwright test --grep @snapshot --update-snapshots
 
 ## CI behavior
 
-`Playwright Image Diff`:
+`Playwright Image Diff` and `Storybook Image Diff` run only when the PR has `ci:visuals` at the start of a normal PR run. The label selects both suites regardless of changed paths. Label edits do not launch application CI. Both jobs skip on main pushes.
 
-1. Runs `pnpm test:e2e:snapshots` without `--update-snapshots`.
-2. Uploads the Playwright report and `test-results` artifacts on success or failure.
-3. If the test passes, find added/modified PNG baselines in the PR diff.
-4. Post or update a single PR comment with inline images for those added/modified baselines.
-5. If no baseline PNGs changed, say that no baseline images changed instead of listing every route.
+Comparison jobs run the existing commands without `--update-snapshots` and upload reports, results, and expected/actual/diff PNGs on success or failure. Preserve their failures. An unselected run does not prove comparisons pass.
 
-Candidate diff command:
+The single `PR Verification Report` records selection, job results, and artifact links. Its collapsed gallery shows every added or modified committed baseline, pinned to the PR head. These source images are review material; a gallery alone does not establish that the comparison passed. Individual image-diff jobs do not write comments.
+
+## Inspect and update baselines
+
+Download the matching run's artifact:
 
 ```sh
-git fetch origin main --depth=1
-git diff --name-status origin/main...HEAD -- 'apps/web/e2e/__screenshots__/**/*.png'
+gh run download <run-id> --name playwright-image-diff --dir .cache/visual-review/playwright
+gh run download <run-id> --name storybook-image-diff --dir .cache/visual-review/storybook
 ```
 
-Candidate markdown image URL for public repo baselines:
+Open the HTML report and inspect the expected, actual, and diff PNGs. A selector, navigation, server, or fixture error without a diff image is a runtime failure. Fix that failure before considering baseline updates. Dimension differences may indicate unintended layout or screenshot-scope changes.
 
-```text
-https://raw.githubusercontent.com/BASIC-BIT/VRDex/<head-sha>/<path-to-png>
-```
+Generate intentional baseline updates using the existing `test:e2e:snapshots:update` and `test:storybook:snapshots:update` commands in a Linux environment matching CI. Do not adopt Windows rendering as Linux evidence. Alternatively, inspect the failure artifact and manually copy only reviewed actual images into the matching existing baseline paths. Remove the generated `-actual` suffix and preserve each project and snapshot name.
 
-## PR comment shape
-
-Keep the comment short and image-forward:
-
-```md
-<!-- vrdex-playwright-image-diff -->
-## Playwright Image Diff
-Outcome: success
-Run: <actions-run-url>
-Report: <artifact-url>
-
-Changed screenshot baselines:
-
-<details open>
-<summary>desktop-chromium / home</summary>
-
-![desktop-chromium home](https://raw.githubusercontent.com/BASIC-BIT/VRDex/<head-sha>/apps/web/e2e/__screenshots__/desktop-chromium/home.png)
-</details>
-```
-
-Cap inline images to a reasonable number, such as 12, then link the artifact for the rest.
+Open every updated PNG, confirm the intended state, and commit only baseline images. Keep failure reports and generated diff files out of Git. Re-run the selected comparisons after updating. A changed PNG is not permission to raise tolerances or bypass a selector failure.
 
 ## Pushback and tradeoffs
 
@@ -163,6 +141,6 @@ Preview screenshots are still useful before baselines exist for every route and 
 2. Generated and committed baseline PNGs for desktop and mobile Chromium.
 3. Added `test:e2e:snapshots` and `test:e2e:snapshots:update` package scripts.
 4. Added the `Playwright Image Diff` CI job.
-5. Added a `github-script` step that comments inline changed/added baseline PNGs.
+5. Consolidated baseline galleries and artifact links into `PR Verification Report`.
 6. Kept the current preview job artifact-only.
 7. Keep `maxDiffPixelRatio` unchanged unless CI noise appears after real PR traffic.

@@ -7,10 +7,12 @@ test("fixed instance time uses server clock when device time is skewed @storyboo
   await page.getByLabel("Creation time").fill("2026-09-14T20:05");
   await page.getByRole("button", { name: "Schedule instance" }).click();
   await expect(page.getByRole("status")).toHaveText("Creation scheduled.");
-  await page.screenshot({
-    path: "../../.cache/artifacts/schedule-clock-instance-desktop.png",
-    fullPage: true,
-  });
+  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") {
+    await page.screenshot({
+      path: "../../.cache/artifacts/schedule-clock-instance-desktop.png",
+      fullPage: true,
+    });
+  }
   await page.clock.setFixedTime(new Date("2026-09-14T19:50:00Z"));
   await page.getByLabel("Creation time").fill("2026-09-14T19:55");
   await page.getByRole("button", { name: "Schedule instance" }).click();
@@ -97,10 +99,12 @@ test("instance options and event-relative schedule preserve reviewed values @sto
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBe(true);
-  await page.screenshot({
-    path: `../../.cache/artifacts/instance-actions-${test.info().project.name}.png`,
-    fullPage: true,
-  });
+  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") {
+    await page.screenshot({
+      path: `../../.cache/artifacts/instance-actions-${test.info().project.name}.png`,
+      fullPage: true,
+    });
+  }
 });
 test("instance review keeps the displayed time when an event moves during submission @storybook-visual", async ({ page }) => {
   const now = new Date("2026-09-14T20:00:00Z");
@@ -187,19 +191,23 @@ test("known event worlds prefill, switch and clear without replacing a staff ove
     .getByRole("combobox", { name: "Create", exact: true })
     .selectOption("event_relative");
   await page.getByLabel("Minutes from event start").fill("-45");
-  await page.screenshot({
-    path: `../../.cache/artifacts/event-world-prefill-${testInfo.project.name}.png`,
-    fullPage: true,
-  });
+  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") {
+    await page.screenshot({
+      path: `../../.cache/artifacts/event-world-prefill-${testInfo.project.name}.png`,
+      fullPage: true,
+    });
+  }
   await events.selectOption("second-event");
   await expect(world).toHaveValue(second);
   await expect(
     page.getByTestId("instance-scheduled-time").locator("time"),
   ).toHaveAttribute("datetime", "2026-09-22T19:15:00.000Z");
-  await page.screenshot({
-    path: `../../.cache/artifacts/event-world-switched-${testInfo.project.name}.png`,
-    fullPage: true,
-  });
+  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") {
+    await page.screenshot({
+      path: `../../.cache/artifacts/event-world-switched-${testInfo.project.name}.png`,
+      fullPage: true,
+    });
+  }
   await events.selectOption("missing-world");
   await expect(world).toHaveValue("");
   await events.selectOption("fixture-event");
