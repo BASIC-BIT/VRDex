@@ -83,6 +83,10 @@ Prefer explicit labels in docs:
 - If the user intent is clear and the step is ship-safe, continue to commit and push without asking again.
 - Ask before pushing only for risky/destructive/security/billing posture changes, or when the user explicitly asks to hold.
 
+## Cloud task startup
+
+In a managed cloud task, discover and read `.agents/skills/vrdex-cloud-start/SKILL.md` before starting services or using hosted bindings. If catalog discovery fails, report the gap and read that checked-in path, which routes to the canonical startup guide.
+
 ## Infrastructure and environment rule
 
 - Prefer infrastructure-as-code or checked-in configuration for infrastructure, CI settings, and environment variable definitions whenever the platform supports it.

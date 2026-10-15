@@ -32,6 +32,13 @@ export type CapturedRoute = {
  * anonymous captures, off for authenticated ones.
  */
 export async function prepareVisualPage(page: Page, options?: { freezeClock?: boolean }) {
+  // Next's dev server can reload an open editor when another route compiles.
+  // Hold only local Next HMR sockets, preserving application data connections.
+  await page.routeWebSocket(
+    (url) => ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)
+      && url.pathname === "/_next/webpack-hmr",
+    () => { /* Leave the socket open without connecting to the dev server. */ },
+  );
   await page.addInitScript(({ freezeClock }: { freezeClock: boolean }) => {
     const storedTheme = window.localStorage.getItem("vrdex-theme");
     if (storedTheme !== "light" && storedTheme !== "dark") {

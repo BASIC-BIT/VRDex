@@ -75,6 +75,13 @@ for (const route of capturedRoutes) {
 
 `apps/web/playwright.config.mjs` configures `expect.toHaveScreenshot.pathTemplate` so snapshots land in the baseline directory.
 
+`prepareVisualPage` holds loopback Next.js HMR sockets open without connecting
+them to the development server. Next 16.1.6 can broadcast a changed compilation
+hash when another test opens a route, triggering a document reload and losing
+editor state during capture. Application WebSockets, including Convex sync,
+continue normally. Runtime errors, interaction assertions and image comparisons
+remain active. This preparation is for visual tests, not HMR verification.
+
 ## Update command
 
 Baseline updates should be an explicit developer action, not a CI auto-commit.
