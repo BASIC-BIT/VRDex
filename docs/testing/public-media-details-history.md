@@ -20,7 +20,12 @@ These checks do not prove a deployed server or a refreshed installed client.
 Run `public-media-details.flow.spec.ts` against the configured local web fixture
 and `public-media-details.storybook.spec.ts` against Storybook. Verify keyboard
 opening, direct image anchors, collapsed attribution, actor/date fallbacks and
-refusal. `PLAYWRIGHT_CAPTURE_SCREENSHOTS=false` keeps assertions active without
+refusal. The connected Storybook cases also verify that absent or mismatched
+details destinations have no disclosure or reads, including matching hash changes.
+Backend tests render actual owner previews for draft, opted-out, suppressed,
+archived and private-kit profiles, and public cards for suppressed gallery and
+logo assets. Image and download visibility retain their existing rules.
+`PLAYWRIGHT_CAPTURE_SCREENSHOTS=false` keeps assertions active without
 explicit PNG capture; enabling capture records desktop and mobile evidence.
 
 ## Joined staging proof

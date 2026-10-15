@@ -651,7 +651,7 @@ function toPublicAsset(
     sourcePreserved: asset.sourceStorageKey !== undefined,
     imageUrl: publicProfileAssetImageUrl(profile.slug, asset._id),
     downloadUrl: publicProfileAssetDownloadUrl(profile.slug, asset._id),
-    ...(detailsAssetIds.has(asset._id) ? { detailsUrl: `/${profile.slug}#media-${asset._id}` } : {}),
+    ...(asset.moderatorSuppressedAt === undefined && detailsAssetIds.has(asset._id) ? { detailsUrl: `/${profile.slug}#media-${asset._id}` } : {}),
   };
 }
 

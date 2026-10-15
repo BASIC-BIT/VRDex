@@ -22,6 +22,13 @@ function safeCreditUrl(value?: string): string | null {
   } catch { return null; }
 }
 
+function publicDetailsSlug(asset: PublicProfileAsset): string | null {
+  const match = asset.detailsUrl?.match(/^\/([^/#?]+)#media-(.+)$/);
+  if (!match || match[2] !== asset.assetId) return null;
+  try { return decodeURIComponent(match[1]); }
+  catch { return null; }
+}
+
 function PublicActor({ actor }: { actor: PublicMediaActor | null }) {
   return actor ? <a className="break-words underline underline-offset-4" href={actor.profileUrl}>{actor.displayName}</a> : <span className="text-muted">Unavailable</span>;
 }
@@ -74,42 +81,42 @@ export function PublicMediaAssetCardView({ asset, label, featured = false, state
       {creditUrl ? <a className="w-fit text-xs text-muted underline underline-offset-4" href={creditUrl}>View source</a> : null}
       <p className="text-xs text-muted">{[mimeType?.replace(/^image\//, "").replace("svg+xml", "svg").toUpperCase(), size].filter(Boolean).join(" / ")}</p>
       <a aria-label={`Download ${title}`} className={cn(buttonVariants({ size: "sm", variant: "secondary" }), "mt-2 w-fit")} download href={asset.downloadUrl}>Download</a>
-      <details className="mt-3 min-w-0 border-t border-border pt-3" open={open}>
+      {publicDetailsSlug(asset) !== null ? <details className="mt-3 min-w-0 border-t border-border pt-3" open={open}>
         <summary onClick={onOpenChange ? event => { event.preventDefault(); onOpenChange(!open); } : undefined} className="cursor-pointer rounded-sm py-1 text-xs font-medium focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent">Details &amp; history</summary>
         {open ? <div className="pt-4"><MediaDetails state={state} /></div> : null}
-      </details>
+      </details> : null}
     </div>
   </article>;
 }
 
 function ConnectedPublicMediaAssetCard(props: CardProps) {
   const { asset } = props;
+  const detailsSlug = publicDetailsSlug(asset);
   const [state, setState] = useState<PublicMediaDetailsState>({ kind: "closed" });
   const [open, setOpen] = useState(false);
   const requested = useRef(false);
   const load = useCallback(async () => {
-    if (requested.current) return;
+    if (detailsSlug === null || !asset.assetId || requested.current) return;
     requested.current = true;
     setState({ kind: "loading" });
     try {
-      const match = asset.detailsUrl?.match(/^\/([^/#?]+)#media-(.+)$/);
-      if (!match || match[2] !== asset.assetId) throw new Error("Unavailable");
-      const slug = decodeURIComponent(match[1]);
+      const slug = detailsSlug;
       const response = await fetch(`/api/v0/profiles/${encodeURIComponent(slug)}/assets/${encodeURIComponent(asset.assetId)}`, { cache: "no-store" });
       if (!response.ok) throw new Error("Unavailable");
       const details = PublicProfileMediaDetailsSchema.parse(await response.json());
       if (details.asset.assetId !== asset.assetId || details.profileSlug !== slug) throw new Error("Unavailable");
       setState({ kind: "ready", details });
     } catch { setState({ kind: "unavailable" }); }
-  }, [asset.assetId, asset.detailsUrl]);
+  }, [asset.assetId, detailsSlug]);
   useEffect(() => {
+    if (detailsSlug === null) return;
     const followAnchor = () => {
       if (window.location.hash === `#media-${asset.assetId}`) { setOpen(true); void load(); }
     };
     followAnchor();
     window.addEventListener("hashchange", followAnchor);
     return () => window.removeEventListener("hashchange", followAnchor);
-  }, [asset.assetId, load]);
+  }, [asset.assetId, detailsSlug, load]);
   return <PublicMediaAssetCardView {...props} state={state} open={open} onOpenChange={expanded => {
     setOpen(expanded);
     if (expanded) void load();

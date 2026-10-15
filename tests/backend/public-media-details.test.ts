@@ -377,13 +377,16 @@ for (const mismatch of ["profile", "approved asset"] as const) {
 it("advertises only destinations rendered by the real public profile page", async () => {
   const cases: Array<{
     name: string; placements: ProfileAssetPlacement[]; link: boolean;
-    galleryEnabled?: boolean; hiddenKit?: boolean; untitled?: boolean; privateAsset?: boolean; unlistedKit?: boolean;
+    suppressed?: boolean; card?: boolean; galleryEnabled?: boolean; hiddenKit?: boolean; untitled?: boolean; privateAsset?: boolean; unlistedKit?: boolean;
   }> = [
     { name: "avatar only", placements: ["profile_image"], link: false },
     { name: "banner only", placements: ["banner"], link: false },
     { name: "unplaced", placements: [], link: false },
     { name: "private gallery asset", placements: ["gallery"], privateAsset: true, link: false },
     { name: "unlisted kit with avatar", placements: ["profile_image", "gallery"], unlistedKit: true, link: true },
+    { name: "suppressed gallery", placements: ["gallery"], suppressed: true, card: true, link: false },
+    { name: "suppressed primary logo", placements: ["primary_logo"], suppressed: true, card: true, galleryEnabled: false, link: false },
+    { name: "suppressed additional logo", placements: ["additional_logo"], suppressed: true, card: true, galleryEnabled: false, link: false },
     { name: "gallery", placements: ["gallery"], link: true },
     { name: "featured gallery", placements: ["gallery", "featured"], link: true },
     { name: "primary logo", placements: ["primary_logo"], link: true },
@@ -410,6 +413,7 @@ it("advertises only destinations rendered by the real public profile page", asyn
         for (const placement of scenario.placements) await db.insert("profileAssetPlacements", {
           profileId: s.target, assetId: s.asset, placement, position: 0, state: "active", updatedAt: 1,
         });
+        if (scenario.suppressed) await db.patch(s.asset, { moderatorSuppressedAt: 100 });
         if (scenario.hiddenKit) await db.patch(s.target, { fieldVisibility: { mediaKit: "private" } });
         if (scenario.privateAsset) await db.patch(s.asset, { visibility: "private" });
         if (scenario.unlistedKit) await db.patch(s.target, { fieldVisibility: { mediaKit: "unlisted" } });
@@ -428,13 +432,13 @@ it("advertises only destinations rendered by the real public profile page", asyn
       for (const asset of projected) assert.equal(asset?.detailsUrl, scenario.link ? `/target#media-${s.asset}` : undefined, scenario.name);
       {
         const details = await s.read();
-        if (scenario.privateAsset || (!galleryEnabled && !scenario.link)) assert.equal(details, null, scenario.name);
+        if (scenario.suppressed || scenario.privateAsset || (!galleryEnabled && !scenario.link)) assert.equal(details, null, scenario.name);
         else {
           assert.ok(details, `${scenario.name} remains publicly readable`);
           assert.equal(details.asset.detailsUrl, scenario.link ? `/target#media-${s.asset}` : undefined, scenario.name);
         }
       }
-      renders.push({ name: scenario.name, kit, galleryEnabled, assetId: s.asset, link: scenario.link });
+      renders.push({ name: scenario.name, kit, galleryEnabled, assetId: s.asset, link: scenario.link, card: scenario.card ?? scenario.link });
     } finally {
       process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "true";
     }
@@ -450,7 +454,7 @@ it("advertises only destinations rendered by the real public profile page", asyn
         aliases: [], tags: [], genres: [], outboundLinks: [], worldCredits: [], upcomingEvents: [], hostedEvents: [],
         trustLabel: "Unclaimed", mediaKit: scenario.kit };
       const html = renderToStaticMarkup(React.createElement(ProfilePublicPage, { profile, embedded: true, mediaKitGalleryEnabled: scenario.galleryEnabled }));
-      assert.equal(html.includes('id="media-' + scenario.assetId + '"'), scenario.link, scenario.name);
+      assert.equal(html.includes('id="media-' + scenario.assetId + '"'), scenario.card, scenario.name);
       assert.equal(html.includes('Details &amp; history'), scenario.link, scenario.name);
     }
   `], { cwd: process.cwd(), input: JSON.stringify(renders), env: { ...process.env, TSX_TSCONFIG_PATH: "apps/web/tsconfig.json" }, stdio: ["pipe", "pipe", "pipe"] });

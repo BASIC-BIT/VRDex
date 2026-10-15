@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { it } from "node:test";
 import { convexTest } from "convex-test";
 import { api } from "../../convex/_generated/api";
@@ -114,6 +115,7 @@ it("uses authenticated asset routes for hidden owner previews without widening p
   const owner = t.withIdentity({ subject: ownerId, issuer: "test", emailVerified: true });
   const other = t.withIdentity({ subject: otherId, issuer: "test", emailVerified: true });
   const path = `/api/account/media-kit/${profileId}/assets/${assetId}/file`;
+  const renderedPreviews = [];
   for (const patch of [
     { publicationState: "draft_private" as const },
     { publicationState: "published" as const, publicSurfacingState: "opted_out" as const },
@@ -122,6 +124,7 @@ it("uses authenticated asset routes for hidden owner previews without widening p
   ]) {
     await t.run((ctx) => ctx.db.patch(profileId, patch));
     const preview = await owner.query(api.profiles.previewProfileFromBrowser, { expectedUpdatedAt: now, slug: "preview-assets", displayName: "Preview Assets" });
+    renderedPreviews.push({ profile: preview, hasCard: true });
     assert.equal(preview.avatarImageUrl, path);
     assert.equal(preview.bannerImageUrl, path);
     assert.equal(preview.mediaKit.logoZipUrl, undefined);
@@ -166,6 +169,21 @@ it("uses authenticated asset routes for hidden owner previews without widening p
   const unsavedMetadata = await owner.query(api.profiles.previewProfileFromBrowser, {
     expectedUpdatedAt: now, slug: "preview-assets", displayName: "Unsaved Preview Assets",
   });
+  renderedPreviews.push({ profile: unsavedMetadata, hasCard: false });
+  execFileSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", `
+    import assert from "node:assert/strict";
+    import { readFileSync } from "node:fs";
+    import React from "./apps/web/node_modules/react/index.js";
+    import { renderToStaticMarkup } from "./apps/web/node_modules/react-dom/server.node.js";
+    import { ProfilePublicPage } from "./apps/web/src/app/_components/profile-public-page.tsx";
+    for (const { profile, hasCard } of JSON.parse(readFileSync(0, "utf8"))) {
+      const html = renderToStaticMarkup(React.createElement(ProfilePublicPage, { profile, embedded: true, mediaKitGalleryEnabled: true }));
+      assert.equal(html.includes('id="media-'), hasCard, "preview card visibility");
+      if (hasCard) assert.ok(html.includes('Download'), "preview retains download");
+      assert.ok(!html.includes('Details &amp; history'), "hidden preview has no public disclosure");
+      assert.ok(!html.includes('<summary'), "hidden preview has no disclosure control");
+    }
+  `], { cwd: process.cwd(), input: JSON.stringify(renderedPreviews), env: { ...process.env, TSX_TSCONFIG_PATH: "apps/web/tsconfig.json" }, stdio: ["pipe", "pipe", "pipe"] });
   assert.equal(unsavedMetadata.displayName, "Unsaved Preview Assets");
   assert.equal(unsavedMetadata.mediaKit.primaryLogo?.detailsUrl, undefined);
   await t.run((ctx) => ctx.db.patch(profileId, { fieldVisibility: undefined }));

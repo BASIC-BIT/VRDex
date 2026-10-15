@@ -1,8 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import type { PublicProfileMediaDetails } from "@vrdex/api-contracts";
-import { PublicMediaAssetCardView } from "@/app/_components/public-media-asset-card";
+import { PublicMediaAssetCard, PublicMediaAssetCardView } from "@/app/_components/public-media-asset-card";
 
 const asset = {
+  detailsUrl: "/aurora#media-synthetic-portrait",
   assetId: "synthetic-portrait", label: "Aurora press portrait", altText: "Synthetic portrait artwork",
   credit: "Shared by Karly", creditUrl: "https://example.invalid/source", mimeType: "image/png", byteSize: 184000,
   imageUrl: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='640' height='480'%3E%3Crect width='640' height='480' fill='%2325384d'/%3E%3Ccircle cx='320' cy='240' r='150' fill='%2389a9c8'/%3E%3C/svg%3E", downloadUrl: "https://example.invalid/portrait.png",
@@ -27,3 +28,15 @@ export const Unavailable: Story = { args: { open: true, state: { kind: "unavaila
 export const MissingActor: Story = { args: { open: true, state: { kind: "ready", details: { ...details, uploadedBy: null, history: [{ kind: "uploaded", at: null, actor: null }] } } } };
 export const UnsafeSource: Story = { args: { asset: { ...asset, creditUrl: "javascript:alert(1)" } } };
 
+
+export const NoDestination: Story = {
+  args: { asset: { ...asset, detailsUrl: undefined } },
+  render: args => <PublicMediaAssetCard asset={args.asset} label={args.label} />,
+};
+export const InvalidDestination: Story = {
+  args: { asset: { ...asset, detailsUrl: "/aurora#media-other-asset" } },
+  render: args => <PublicMediaAssetCard asset={args.asset} label={args.label} />,
+};
+export const Connected: Story = {
+  render: args => <PublicMediaAssetCard asset={args.asset} label={args.label} />,
+};
