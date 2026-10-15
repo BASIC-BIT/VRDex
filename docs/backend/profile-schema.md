@@ -97,7 +97,14 @@ Implementation and acceptance criteria: [Profile link destination names](../plan
 
 When no authored profile image or primary-logo placement exists, a profile can use cached
 destination artwork. Hidden authored media still blocks replacement. People use only custom
-VRChat `userIcon` images, never profile overrides, banners, or current-avatar images. A matching primary VRChat connection
+VRChat icons, never profile overrides, banners, or current-avatar images. The collector uses
+the explicit legacy `userIcon` when present. For current `iconUrl` responses, it reads the
+exact referenced file and requires matching file identity and user ownership, only the
+`icon` purpose tag, and a complete matching file version. Unknown URL layouts or missing,
+inaccessible, or ambiguous provenance supply no artwork. Temporary file-read failures
+preserve cached metadata; authentication, rate-limit, and request-budget failures retain
+the existing collector handling. Each file lookup consumes its own shared and local budget
+reservation. A matching primary VRChat connection
 is preferred among public outbound links; otherwise saved link order decides. Communities
 prefer their selected VRChat group, then selected Discord server. Without a selection, the
 first eligible link of each kind is used, including on unclaimed communities.
@@ -109,7 +116,8 @@ event identities, owner previews, and share cards. Both image and source-link vi
 apply for the requested surface. The 512px image route rechecks the currently selected
 fallback before serving bytes, including after source removal or preference changes.
 
-VRChat user artwork requires `artworkType: user_icon`. Legacy rows without provenance,
+VRChat user artwork requires `artworkType: user_icon`, including modern icons validated
+through their referenced file. Legacy rows without provenance,
 including the former `profile_picture` marker (which incorrectly identified profile overrides),
 are suppressed immediately on new reads and old URLs fail authorization; the existing
 demand-driven refresh can repopulate custom pictures. Existing browser-cached bytes may
