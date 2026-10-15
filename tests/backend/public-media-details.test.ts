@@ -399,12 +399,19 @@ it("advertises only destinations rendered by the real public profile page", asyn
     { name: "additional logo with gallery disabled", placements: ["additional_logo"], galleryEnabled: false, link: true },
     { name: "logo and gallery with gallery disabled", placements: ["primary_logo", "gallery"], galleryEnabled: false, link: true },
     { name: "avatar with gallery disabled", placements: ["profile_image"], galleryEnabled: false, link: false },
+    { name: "banner with gallery disabled", placements: ["banner"], galleryEnabled: false, link: false },
+    { name: "hidden kit with avatar and gallery disabled", placements: ["profile_image", "gallery"], hiddenKit: true, galleryEnabled: false, link: false },
     { name: "unplaced with gallery disabled", placements: [], galleryEnabled: false, link: false },
     { name: "hidden logo with gallery disabled", placements: ["primary_logo"], hiddenKit: true, galleryEnabled: false, link: false },
     { name: "private logo with gallery disabled", placements: ["additional_logo"], privateAsset: true, galleryEnabled: false, link: false },
   ];
   const renders = [];
-  for (const scenario of cases) {
+  const scenarios = cases.flatMap(scenario => scenario.galleryEnabled !== undefined ? [scenario] : [
+    { ...scenario, galleryEnabled: true },
+    { ...scenario, name: `${scenario.name} with gallery disabled`, galleryEnabled: false, card: scenario.card && scenario.placements.some(placement => placement === "primary_logo" || placement === "additional_logo"),
+      link: scenario.link && scenario.placements.some(placement => placement === "primary_logo" || placement === "additional_logo") },
+  ]);
+  for (const scenario of scenarios) {
     const s = await seed();
     const galleryEnabled = scenario.galleryEnabled ?? true;
     process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = String(galleryEnabled);
@@ -423,18 +430,28 @@ it("advertises only destinations rendered by the real public profile page", asyn
         if (scenario.unlistedKit) {
           const discovery = await getPublicProfileMediaKit(db, profile, { surface: "discovery" });
           assert.equal(discovery.galleryAssets.length, 0);
-          assert.equal(discovery.profileImage?.detailsUrl, `/target#media-${s.asset}`);
+          assert.equal(discovery.profileImage?.detailsUrl, scenario.link ? `/target#media-${s.asset}` : undefined);
         }
         return getPublicProfileMediaKit(db, profile);
       });
+      const listed = await s.t.query(api.profileAssets.listPublicBySlug, { slug: "target" });
+      assert.ok(listed, scenario.name);
+      assert.deepEqual(listed.mediaKit, kit, scenario.name);
+      const canonicalAssets = [...listed.mediaKit.assets, ...listed.mediaKit.logos,
+        ...listed.mediaKit.galleryAssets, listed.mediaKit.profileImage, listed.mediaKit.banner,
+        listed.mediaKit.featuredAsset, listed.mediaKit.primaryLogo];
+      const canonicalAsset = canonicalAssets.find(asset => asset?.assetId === s.asset);
+      const stored = await s.t.query(api.profileAssets.getPublicAssetForStorage, { slug: "target", assetId: s.asset });
+      assert.equal(stored !== null, canonicalAsset !== undefined, scenario.name);
       const projected = [...kit.assets, ...kit.logos, ...kit.galleryAssets, kit.profileImage, kit.banner, kit.featuredAsset].filter(a => a?.assetId === s.asset);
       assert.equal(projected.length > 0, !scenario.privateAsset && !(scenario.hiddenKit && !scenario.placements.includes("profile_image")), scenario.name);
       for (const asset of projected) assert.equal(asset?.detailsUrl, scenario.link ? `/target#media-${s.asset}` : undefined, scenario.name);
       {
         const details = await s.read();
-        if (scenario.suppressed || scenario.privateAsset || (!galleryEnabled && !scenario.link)) assert.equal(details, null, scenario.name);
+        if (scenario.suppressed || !canonicalAsset) assert.equal(details, null, scenario.name);
         else {
-          assert.ok(details, `${scenario.name} remains publicly readable`);
+          assert.ok(details, `${scenario.name} remains publicly readable through the canonical list`);
+          assert.deepEqual(details.asset, canonicalAsset, scenario.name);
           assert.equal(details.asset.detailsUrl, scenario.link ? `/target#media-${s.asset}` : undefined, scenario.name);
         }
       }
@@ -457,7 +474,7 @@ it("advertises only destinations rendered by the real public profile page", asyn
       assert.equal(html.includes('id="media-' + scenario.assetId + '"'), scenario.card, scenario.name);
       assert.equal(html.includes('Details &amp; history'), scenario.link, scenario.name);
     }
-  `], { cwd: process.cwd(), input: JSON.stringify(renders), env: { ...process.env, TSX_TSCONFIG_PATH: "apps/web/tsconfig.json" }, stdio: ["pipe", "pipe", "pipe"] });
+  `], { cwd: process.cwd(), input: JSON.stringify(renders), env: { ...process.env, TSX_TSCONFIG_PATH: "apps/web/tsconfig.json" }, stdio: ["pipe", "pipe", "inherit"] });
 });
 
 for (const patch of [

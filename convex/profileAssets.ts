@@ -2140,8 +2140,7 @@ export const getPublicAssetDetails = query({
     const profile = await getProfileBySlug(ctx.db, validation.slug);
     if (!profile || !canReadProfile("public", profile)) return null;
     const kit = await getPublicProfileMediaKit(ctx.db, profile);
-    // Selected logo cards remain public when the gallery feature is disabled.
-    const publicAssets = process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED === "true" ? [
+    const publicAssets = [
       ...kit.assets,
       ...kit.galleryAssets,
       ...kit.logos,
@@ -2149,7 +2148,7 @@ export const getPublicAssetDetails = query({
       kit.banner,
       kit.featuredAsset,
       kit.primaryLogo,
-    ] : kit.logos;
+    ];
     const publicAsset = publicAssets.find((asset) => asset?.assetId === assetId);
     if (!publicAsset) return null;
     const asset = await ctx.db.get(assetId);

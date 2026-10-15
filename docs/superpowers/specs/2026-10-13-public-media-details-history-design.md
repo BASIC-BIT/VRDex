@@ -113,7 +113,7 @@ payloads or general profile audit rows.
   resolve actors/history for every gallery image.
 - Details must be unavailable wherever the corresponding image is unavailable
   in the existing canonical public media projection. Reuse its profile, field,
-  asset, placement and feature visibility rules rather than granting access from
+  asset and placement visibility rules rather than granting access from
   knowledge of an asset or submission ID.
 - A profile hidden after the card loads must refuse the subsequent details read.
 - Anonymous and signed-in callers receive the same public details.
@@ -151,3 +151,14 @@ Staging acceptance must exercise an actual anonymous MCP read and website
 disclosure against synthetic owner-uploaded, trusted-published and independently
 approved images, including visibility revocation. Production acceptance is
 read-only after a separately authorized release.
+
+### Gallery switch and public reads
+
+The existing canonical public media list and image reads remain available when
+`VRDEX_PROFILE_MEDIA_KIT_ENABLED` is off. Details reads use that same canonical
+projection in both modes, with the existing suppression and ownership checks.
+The switch controls authoring and website gallery cards, including their
+`detailsUrl` destinations. Selected logo cards still render with working details.
+Avatar, banner and unplaced assets can remain readable through REST/MCP without
+a website disclosure destination. This clarification preserves the approved
+decisions and status above.
