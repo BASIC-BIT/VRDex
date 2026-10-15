@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { ConvexProvider, ConvexReactClient } from "convex/react";
 import {
   getFunctionName,
@@ -60,6 +60,8 @@ export function EventIdentityPreview() {
   const [selectedSlug, setSelectedSlug] = useState("");
   const [selected, setSelected] = useState<EventIdentityOption | null>(null);
   const [manual, setManual] = useState("");
+  const [manualHandoff, setManualHandoff] = useState(false);
+  const manualInputRef = useRef<HTMLInputElement>(null);
   const [requestStarted, setRequestStarted] = useState(false);
   const [lastRequest, setLastRequest] = useState("");
   const [pending] = useState<Array<() => void>>([]);
@@ -243,7 +245,13 @@ export function EventIdentityPreview() {
               }}
               manualAction={
                 kind === "person"
-                  ? { label: "Add manual entry", onChoose: setManual }
+                  ? {
+                      label: "Add manual entry",
+                      onChoose: (text) => {
+                        setManual(text);
+                        if (manualHandoff) manualInputRef.current?.focus();
+                      },
+                    }
                   : kind === "world"
                     ? { label: "Use manual location", onChoose: setManual }
                     : undefined
@@ -251,6 +259,21 @@ export function EventIdentityPreview() {
             />
           </ConvexProvider>
         </div>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={manualHandoff}
+            onChange={(event) => setManualHandoff(event.currentTarget.checked)}
+          />
+          Hand off manual focus
+        </label>
+        {manualHandoff ? (
+          <input
+            ref={manualInputRef}
+            aria-label="Manual performer"
+            defaultValue={manual}
+          />
+        ) : null}
         <div className="mt-[28rem] grid gap-2 text-xs text-muted">
           <output data-testid="selected-slug">{selectedSlug}</output>
           <output data-testid="manual-name">{manual}</output>

@@ -380,6 +380,13 @@ export function EventIdentityPicker({
                     setQuery("");
                     setOpen(false);
                     setActiveIndex(-1);
+                    requestAnimationFrame(() => {
+                      // Preserve a callback's deliberate focus handoff, including
+                      // a replacement manual-entry control mounted by its parent.
+                      if (document.activeElement === document.body) {
+                        rootRef.current?.querySelector("input")?.focus();
+                      }
+                    });
                   }}
                 >
                   {manualAction.label}

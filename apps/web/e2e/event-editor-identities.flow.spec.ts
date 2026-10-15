@@ -92,11 +92,45 @@ test.describe("@fixture event identity picker", () => {
     expect(after?.width).toBe(before?.width);
     expect(after?.height).toBe(before?.height);
     await input.fill("Failure");
-    await page
-      .getByRole("button", { name: "Add manual entry", exact: true })
-      .click();
+    const manualAction = page.getByRole("button", {
+      name: "Add manual entry",
+      exact: true,
+    });
+    await input.press("Tab");
+    await expect(manualAction).toBeFocused();
+    await manualAction.press("Enter");
     await expect(page.getByTestId("manual-name")).toHaveText("Failure");
     await expect(page.getByTestId("selected-slug")).toHaveText("");
+    await expect(input).toBeFocused();
+  });
+  test("preserves a deliberate manual-entry focus handoff", async ({
+    page,
+  }) => {
+    await page
+      .getByRole("checkbox", { name: "Hand off manual focus", exact: true })
+      .check();
+    const input = page.getByRole("combobox", {
+      name: "Performer",
+      exact: true,
+    });
+    await input.fill("Failure");
+    const manualAction = page.getByRole("button", {
+      name: "Add manual entry",
+      exact: true,
+    });
+    await input.press("Tab");
+    await expect(manualAction).toBeFocused();
+    await manualAction.press("Enter");
+    await expect(page.getByTestId("manual-name")).toHaveText("Failure");
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
+    await expect(
+      page.getByRole("textbox", { name: "Manual performer", exact: true }),
+    ).toBeFocused();
   });
   test("uses managed shortcuts and filtered public world/community searches", async ({
     page,
