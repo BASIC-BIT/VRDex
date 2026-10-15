@@ -859,6 +859,7 @@ Current anonymous hosted tools:
 
 - `vrdex_search`
 - `vrdex_get_profile`
+- `vrdex_get_profile_media`
 - `vrdex_get_event`
 - `vrdex_list_upcoming_events`
 - `vrdex_get_world`
