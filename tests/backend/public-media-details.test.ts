@@ -392,7 +392,13 @@ it("advertises only destinations rendered by the real public profile page", asyn
     { name: "hidden kit with avatar", placements: ["profile_image", "gallery"], hiddenKit: true, link: false },
     { name: "untitled gallery with avatar", placements: ["profile_image", "gallery"], untitled: true, link: false },
     { name: "gallery disabled", placements: ["gallery"], galleryEnabled: false, link: false },
-    { name: "logo with gallery disabled", placements: ["primary_logo", "gallery"], galleryEnabled: false, link: true },
+    { name: "primary logo with gallery disabled", placements: ["primary_logo"], galleryEnabled: false, link: true },
+    { name: "additional logo with gallery disabled", placements: ["additional_logo"], galleryEnabled: false, link: true },
+    { name: "logo and gallery with gallery disabled", placements: ["primary_logo", "gallery"], galleryEnabled: false, link: true },
+    { name: "avatar with gallery disabled", placements: ["profile_image"], galleryEnabled: false, link: false },
+    { name: "unplaced with gallery disabled", placements: [], galleryEnabled: false, link: false },
+    { name: "hidden logo with gallery disabled", placements: ["primary_logo"], hiddenKit: true, galleryEnabled: false, link: false },
+    { name: "private logo with gallery disabled", placements: ["additional_logo"], privateAsset: true, galleryEnabled: false, link: false },
   ];
   const renders = [];
   for (const scenario of cases) {
@@ -418,11 +424,11 @@ it("advertises only destinations rendered by the real public profile page", asyn
         return getPublicProfileMediaKit(db, profile);
       });
       const projected = [...kit.assets, ...kit.logos, ...kit.galleryAssets, kit.profileImage, kit.banner, kit.featuredAsset].filter(a => a?.assetId === s.asset);
-      assert.equal(projected.length > 0, !scenario.privateAsset, scenario.name);
+      assert.equal(projected.length > 0, !scenario.privateAsset && !(scenario.hiddenKit && !scenario.placements.includes("profile_image")), scenario.name);
       for (const asset of projected) assert.equal(asset?.detailsUrl, scenario.link ? `/target#media-${s.asset}` : undefined, scenario.name);
-      if (galleryEnabled) {
+      {
         const details = await s.read();
-        if (scenario.privateAsset) assert.equal(details, null);
+        if (scenario.privateAsset || (!galleryEnabled && !scenario.link)) assert.equal(details, null, scenario.name);
         else {
           assert.ok(details, `${scenario.name} remains publicly readable`);
           assert.equal(details.asset.detailsUrl, scenario.link ? `/target#media-${s.asset}` : undefined, scenario.name);
@@ -448,4 +454,45 @@ it("advertises only destinations rendered by the real public profile page", asyn
       assert.equal(html.includes('Details &amp; history'), scenario.link, scenario.name);
     }
   `], { cwd: process.cwd(), input: JSON.stringify(renders), env: { ...process.env, TSX_TSCONFIG_PATH: "apps/web/tsconfig.json" }, stdio: ["pipe", "pipe", "pipe"] });
+});
+
+for (const patch of [
+  { moderatorSuppressedAt: 100 },
+  { state: "deleted" as const },
+]) {
+  it(`refuses unavailable selected logos with gallery disabled: ${JSON.stringify(patch)}`, async () => {
+    const s = await seed();
+    await s.t.run(async ({ db }) => {
+      await db.insert("profileAssetPlacements", {
+        profileId: s.target, assetId: s.asset, placement: "primary_logo", position: 0, state: "active", updatedAt: 1,
+      });
+      await db.patch(s.asset, patch);
+    });
+    process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "false";
+    try { assert.equal(await s.read(), null); }
+    finally { process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "true"; }
+  });
+}
+
+it("refuses foreign and hidden-profile logo reads with gallery disabled", async () => {
+  const s = await seed();
+  await s.t.run(({ db }) => db.insert("profileAssetPlacements", {
+    profileId: s.target, assetId: s.asset, placement: "additional_logo", position: 0, state: "active", updatedAt: 1,
+  }));
+  process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "false";
+  try {
+    await s.t.run(({ db }) => db.patch(s.asset, { profileId: s.pa }));
+    assert.equal(await s.read(), null);
+    await s.t.run(({ db }) => db.patch(s.asset, { profileId: s.target }));
+    for (const patch of [
+      { publicationState: "draft_private" as const },
+      { publicSurfacingState: "opted_out" as const },
+    ]) {
+      await s.t.run(({ db }) => db.patch(s.target, patch));
+      assert.equal(await s.read(), null);
+      await s.t.run(({ db }) => db.patch(s.target, {
+        publicationState: "published", publicSurfacingState: "public",
+      }));
+    }
+  } finally { process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "true"; }
 });

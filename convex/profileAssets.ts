@@ -2134,14 +2134,14 @@ export const getOwnedAssetForStorage = query({
 export const getPublicAssetDetails = query({
   args: { slug: v.string(), assetId: v.string() },
   handler: async (ctx, args) => {
-    if (process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED !== "true") return null;
     const validation = validateProfileSlug(args.slug);
     const assetId = ctx.db.normalizeId("profileAssets", args.assetId);
     if (!validation.ok || assetId === null) return null;
     const profile = await getProfileBySlug(ctx.db, validation.slug);
     if (!profile || !canReadProfile("public", profile)) return null;
     const kit = await getPublicProfileMediaKit(ctx.db, profile);
-    const publicAsset = [
+    // Selected logo cards remain public when the gallery feature is disabled.
+    const publicAssets = process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED === "true" ? [
       ...kit.assets,
       ...kit.galleryAssets,
       ...kit.logos,
@@ -2149,7 +2149,8 @@ export const getPublicAssetDetails = query({
       kit.banner,
       kit.featuredAsset,
       kit.primaryLogo,
-    ].find((asset) => asset?.assetId === assetId);
+    ] : kit.logos;
+    const publicAsset = publicAssets.find((asset) => asset?.assetId === assetId);
     if (!publicAsset) return null;
     const asset = await ctx.db.get(assetId);
     if (!asset || asset.profileId !== profile._id || asset.moderatorSuppressedAt !== undefined) return null;
