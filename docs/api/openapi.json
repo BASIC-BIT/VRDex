@@ -7362,6 +7362,290 @@
         }
       }
     },
+    "/api/v0/profiles/{slug}/assets/{assetId}": {
+      "get": {
+        "operationId": "getPublicProfileMediaDetails",
+        "tags": [
+          "Profiles",
+          "Assets"
+        ],
+        "summary": "Get public image details and history",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "oauth2": [
+              "public:read"
+            ]
+          },
+          {}
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160,
+              "description": "Public profile slug."
+            },
+            "required": true,
+            "description": "Public profile slug."
+          },
+          {
+            "in": "path",
+            "name": "assetId",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Public profile asset id."
+            },
+            "required": true,
+            "description": "Public profile asset id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Public image details and history.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "profileSlug": {
+                      "type": "string"
+                    },
+                    "asset": {
+                      "type": "object",
+                      "properties": {
+                        "assetId": {
+                          "type": "string"
+                        },
+                        "byteSize": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "caption": {
+                          "type": "string"
+                        },
+                        "altText": {
+                          "type": "string"
+                        },
+                        "credit": {
+                          "type": "string"
+                        },
+                        "creditUrl": {
+                          "type": "string",
+                          "maxLength": 2048,
+                          "format": "uri"
+                        },
+                        "downloadUrl": {
+                          "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                        },
+                        "detailsUrl": {
+                          "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                        },
+                        "downloadByteSize": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "downloadMimeType": {
+                          "type": "string"
+                        },
+                        "imageUrl": {
+                          "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "mimeType": {
+                          "type": "string"
+                        },
+                        "sourcePreserved": {
+                          "type": "boolean"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "referenceUrl": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 2048,
+                          "format": "uri"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "credit": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "uploadedBy": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "displayName": {
+                              "type": "string"
+                            },
+                            "profileSlug": {
+                              "type": "string"
+                            },
+                            "profileUrl": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "displayName",
+                            "profileSlug",
+                            "profileUrl"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "history": {
+                      "maxItems": 3,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "uploaded",
+                              "approved",
+                              "published"
+                            ]
+                          },
+                          "at": {
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "actor": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "displayName": {
+                                    "type": "string"
+                                  },
+                                  "profileSlug": {
+                                    "type": "string"
+                                  },
+                                  "profileUrl": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "displayName",
+                                  "profileSlug",
+                                  "profileUrl"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "at",
+                          "actor"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "profileSlug",
+                    "asset",
+                    "referenceUrl",
+                    "credit",
+                    "uploadedBy",
+                    "history"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or used an unsupported bearer-token location.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The requested public resource was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The request exceeded a rate limit.",
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retrying.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Public profile data is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v0/profiles/{slug}/assets/{assetId}/file": {
       "get": {
         "operationId": "downloadPublicProfileAssetFile",

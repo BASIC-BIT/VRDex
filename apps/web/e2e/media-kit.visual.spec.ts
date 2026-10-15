@@ -764,7 +764,7 @@ test("public profile media kit @visual @fixture", async ({ page }, testInfo) => 
   ).toHaveCount(1);
   await expect(mediaKit.getByRole("img", { name: "Aurora wordmark" })).toHaveCount(1);
   await expect(
-    mediaKit.getByRole("link", { name: "Artwork by Afterglow Studio" }),
+    mediaKit.locator('a[href="https://example.invalid/afterglow-studio"]'),
   ).toHaveAttribute("href", "https://example.invalid/afterglow-studio");
   await expect(
     mediaKit.locator('a[href="https://example.invalid/aurora-source"]'),
@@ -779,7 +779,8 @@ test("public profile media kit @visual @fixture", async ({ page }, testInfo) => 
   }
   const nameOnlyCredit = mediaKit.getByRole("heading", { name: "Square mark" })
     .locator("xpath=ancestor::article");
-  await expect(nameOnlyCredit.getByText("Aurora Studio", { exact: true })).toBeVisible();
+  await expect(nameOnlyCredit.getByText("Aurora Studio", { exact: true })).toHaveCount(0);
+  await expect(nameOnlyCredit.getByRole("link", { name: "View source" })).toHaveCount(0);
   await expect(nameOnlyCredit.getByRole("link")).toHaveCount(1);
   const noCredit = mediaKit.getByRole("heading", { name: "Uncredited mark" })
     .locator("xpath=ancestor::article");

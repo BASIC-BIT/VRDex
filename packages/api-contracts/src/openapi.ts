@@ -4,6 +4,7 @@ import { z } from "zod";
 import { eventIntakeOperations, ReportEventSchema } from "./event-intake";
 
 import { oauthApiScopes } from "./auth";
+import { PublicProfileMediaDetailsSchema } from "./public-media-details";
 import {
   ApiSimpleErrorResponseSchema,
   ApiEventCreateRequestSchema,
@@ -788,6 +789,20 @@ export const openApiSource = {
             content: jsonContent(PublicProfileAssetsResponseSchema),
           },
           ...publicReadProblemResponses,
+        },
+      },
+    },
+    "/api/v0/profiles/{slug}/assets/{assetId}": {
+      get: {
+        operationId: "getPublicProfileMediaDetails",
+        tags: ["Profiles", "Assets"],
+        summary: "Get public image details and history",
+        security: optionalPublicReadSecurity,
+        requestParams: { path: AssetPathParamsSchema },
+        responses: {
+          "200": { description: "Public image details and history.", content: jsonContent(PublicProfileMediaDetailsSchema) },
+          ...publicReadProblemResponses,
+          "503": { description: "Public profile data is unavailable.", content: jsonContent(ApiProblemSchema) },
         },
       },
     },

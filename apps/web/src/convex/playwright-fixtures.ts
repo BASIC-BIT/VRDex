@@ -43,6 +43,7 @@ type FixturePersonProfile = Extract<PublicProfile, { profileType: "person" }> & 
 
 const auroraProfileImage = {
   assetId: "fixture-aurora-profile-image",
+  detailsUrl: "/playwright-dj-aurora#media-fixture-aurora-profile-image",
   label: "Aurora press portrait",
   caption: "Warm-room portrait for lineups and editorial coverage.",
   altText: "DJ Aurora framed by violet light and a warm orange glow.",
@@ -59,6 +60,7 @@ const auroraProfileImage = {
 
 const auroraPrimaryLogo = {
   assetId: "fixture-aurora-primary-logo",
+  detailsUrl: "/playwright-dj-aurora#media-fixture-aurora-primary-logo",
   label: "Primary logo",
   caption: "Aurora wordmark for event flyers and lineup cards.",
   altText: "AURORA wordmark in white over violet and cyan light.",
@@ -74,6 +76,7 @@ const auroraPrimaryLogo = {
 
 const auroraAdditionalLogo = {
   assetId: "fixture-aurora-alt-logo",
+  detailsUrl: "/playwright-dj-aurora#media-fixture-aurora-alt-logo",
   label: "Square mark",
   altText: "Square Aurora monogram in warm orange light.",
   credit: "Aurora Studio",
@@ -86,6 +89,7 @@ const auroraAdditionalLogo = {
 
 const auroraUncreditedMedia = {
   assetId: "fixture-aurora-uncredited-media",
+  detailsUrl: "/playwright-dj-aurora#media-fixture-aurora-uncredited-media",
   label: "Uncredited mark",
   altText: "Square Aurora monogram in warm orange light.",
   mimeType: "image/png",
