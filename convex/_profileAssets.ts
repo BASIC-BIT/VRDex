@@ -9,6 +9,7 @@ import {
   isProfileFieldVisible,
   type ProfileVisibilitySurface,
 } from "./_profileFieldVisibility";
+import { canReadProfile } from "./_profilePermissions";
 import { userOwnsProfile } from "./_profileOwnership";
 
 export const PROFILE_ASSET_UPLOAD_MAX_BYTES = 12 * 1024 * 1024;
@@ -740,7 +741,8 @@ export async function getPublicProfileMediaKit(
     : [];
   // Website destinations follow profile-page visibility even on discovery reads.
   // Logos render in both modes; gallery cards require the page's gallery flag.
-  const pageMediaKitVisible = isProfileFieldVisible(profile, "mediaKit", "profile_page");
+  const pageMediaKitVisible = canReadProfile("public", profile) &&
+    isProfileFieldVisible(profile, "mediaKit", "profile_page");
   const galleryEnabled = process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED === "true" ||
     process.env.VRDEX_ENABLE_PLAYWRIGHT_FIXTURES === "true";
   const pagePrimaryLogo = pageMediaKitVisible
