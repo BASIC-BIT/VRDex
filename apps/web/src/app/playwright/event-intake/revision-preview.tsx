@@ -50,7 +50,12 @@ function revisionFixture(correction: boolean, sourceMode?: string, staff = false
     clearAuth() {},
     async query(query: FunctionReference<"query">, args: { query?: string; profileType?: string; entityType?: string; slug?: string }) {
       const name = getFunctionName(query);
+      if (name === "profiles:lookupPeople") return people.filter(person => person.title.toLowerCase().includes(args.query?.toLowerCase() ?? "")).map(person => ({ slug: person.slug, displayName: person.title, avatarImageUrl: person.imageUrl, profilePath: `/${person.slug}`, roleTags: [], tags: [] }));
       if (name === "profiles:getPublicBySlug") {
+        if (args.profileType === "person") {
+          const person = people.find(item => item.slug === args.slug);
+          return person ? { slug: person.slug, displayName: person.title, avatarImageUrl: person.imageUrl, profileType: "person", person: { roleTags: [] }, tags: [], mediaKit: {} } : null;
+        }
         const community = publicCommunities.find(item => item.slug === args.slug);
         return community ? { slug: community.slug, displayName: community.title, avatarImageUrl: community.imageUrl, mediaKit: { primaryLogo: { imageUrl: community.imageUrl } } } : null;
       }

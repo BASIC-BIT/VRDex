@@ -3,6 +3,9 @@ import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { it } from "node:test";
 import {
+  selectEventPerformer,
+  eventPerformerLabel,
+  savedEventPerformer,
   personIdentityOption,
   searchIdentityOption,
   type EventPersonResult,
@@ -116,4 +119,24 @@ it("renders contained logos, verified trust and context without printing routing
     },
   );
   assert.match(output, /presentation pass/);
+});
+
+it("preserves manual billing through links and replacements, while default follows the selected profile", () => {
+  const aurora = personIdentityOption(person);
+  const lumen = { ...aurora, slug: "lumen", title: "Lumen" };
+  const linked = selectEventPerformer({ current: { kind: "manual", label: "Guest A" }, person: aurora });
+  assert.deepEqual(linked, { kind: "linked", personSlug: "aurora-one", billing: { kind: "override", label: "Guest A" } });
+  const changed = selectEventPerformer({ current: linked, person: lumen });
+  assert.equal(eventPerformerLabel({ value: changed, profileName: "Lumen" }), "Guest A");
+  const cleared = { kind: "linked", personSlug: "aurora-one", billing: { kind: "default" } } as const;
+  assert.equal(eventPerformerLabel({ value: cleared, profileName: "Aurora" }), "Aurora");
+  assert.equal(eventPerformerLabel({ value: selectEventPerformer({ current: cleared, person: lumen }), profileName: lumen.title }), "Lumen");
+  assert.deepEqual(selectEventPerformer({ current: { kind: "manual", label: "" }, person: aurora }), { kind: "linked", personSlug: aurora.slug, billing: { kind: "default" } });
+});
+it("hydrates saved label intent without erasing unknown or unavailable linked identities", () => {
+  assert.deepEqual(savedEventPerformer({ label: "Aurora", personSlug: "aurora-one" }), { kind: "linked", personSlug: "aurora-one", billing: { kind: "override", label: "Aurora" } });
+  assert.deepEqual(savedEventPerformer({ label: "Aurora", personSlug: "aurora-one", profileName: "Aurora" }), { kind: "linked", personSlug: "aurora-one", billing: { kind: "default" } });
+  assert.equal(eventPerformerLabel({ value: savedEventPerformer({ label: "Guest A", personSlug: "unavailable" }) }), "Guest A");
+  const override = { kind: "linked", personSlug: "aurora-one", billing: { kind: "override", label: "Aurora" } } as const;
+  assert.deepEqual(selectEventPerformer({ current: override, person: { ...personIdentityOption(person), slug: "lumen" } }), { ...override, personSlug: "lumen" });
 });

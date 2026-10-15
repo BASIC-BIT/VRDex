@@ -1,3 +1,4 @@
+import { manualPerformer } from "./event-performer-helpers";
 import { expect, test, type Page } from "@playwright/test";
 
 import { prepareVisualPage, waitForVisualReady } from "./public-routes";
@@ -118,7 +119,7 @@ for (const color of ["light", "dark"] as const) test(`scheduling states ${color}
   await nav.getByRole("button", { name: "Lineup", exact: true }).click();
   await capture(page, info.outputPath(`schedule-${color}-setup.png`));
   await page.getByRole("button", { name: "Generate", exact: true }).click();
-  for (const [index, row] of (await page.locator('[data-lineup-row]').all()).entries()) await row.getByRole("textbox", { name: "Performer", exact: true }).fill(["Aurora", "Neon Harbor", "Lumen", "Closing session"][index]);
+  for (const [index, row] of (await page.locator('[data-lineup-row]').all()).entries()) await manualPerformer(row.locator("[data-performer-field]"), ["Aurora", "Neon Harbor", "Lumen", "Closing session"][index]);
   await capture(page, info.outputPath(`schedule-${color}-lineup-conflict.png`));
   await page.getByRole("button", { name: "Add slot at position 2", exact: true }).click();
   await page.getByLabel("Slot duration", { exact: true }).fill("15");

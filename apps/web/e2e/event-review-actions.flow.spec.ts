@@ -1,3 +1,4 @@
+import { manualPerformer } from "./event-performer-helpers";
 import { expect, test, type Page } from "@playwright/test";
 
 test.use({ timezoneId: "UTC" });
@@ -99,7 +100,7 @@ for (const editor of ["staff", "contributor"]) test(`${editor} extends a Review 
     await page.goto("/playwright/event-intake");
   }
   await nav(page, "Lineup"); await page.getByRole("button", { name: "Generate", exact: true }).click();
-  if (editor === "contributor") for (const [index, row] of (await page.locator("[data-lineup-row]").all()).entries()) await row.getByRole("textbox", { name: "Performer", exact: true }).fill(`Guest ${index + 1}`);
+  if (editor === "contributor") for (const [index, row] of (await page.locator("[data-lineup-row]").all()).entries()) await manualPerformer(row.locator("[data-performer-field]"), `Guest ${index + 1}`);
   await nav(page, "Review");
   const panel = page.locator(editor === "staff" ? '[data-editor-step="Review"]' : '[data-step="Review"]');
   await expect(panel.getByText("The lineup ends after the event.", { exact: true })).toBeVisible();

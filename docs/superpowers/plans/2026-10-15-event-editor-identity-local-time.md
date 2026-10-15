@@ -237,6 +237,43 @@ world becoming private after load. No schema or authorization expansion is neede
 The existing guarded contributor and staff fixture transports also support the
 new presentation reads and managed-community shortcuts.
 
+## Task 3 implementation notes
+
+The controller approved canonical lineup transport for browser creation and
+explicit lineup edits after the legacy untimed serializer proved unable to carry
+manual names or billing overrides. Unchanged lineups remain omitted. Staff rows
+now keep the stable participant keys already returned by `getEventForEditor`.
+No additional identity mapping or database migration is needed.
+
+The approved file list also includes `convex/events.ts`, `convex/_eventLineup.ts`,
+`convex/_eventPublic.ts` and the guarded staff fixture transport. The update-only
+`retainedLineupAssociations` list carries opaque slot and participant IDs that the
+loaded editor did not represent. The server checks current-event membership and
+snapshot inclusion. Represented removals remain deletions. This distinction
+prevents lost hidden associations and unintended confirmation of legacy matches.
+Already-unconfirmed standalone participants remain outside the existing public
+projection and are retained without exposing private profile data.
+
+`EventPerformerField` also accepts optional presentation-only `onResolve`, matching
+the shared picker. Parent adapters retain explicit billing intent by row key and
+keep profile hydration separate from authored fields. The optional `required`
+prop keeps the intake publication constraint: a query is not a selection, manual
+names and explicit overrides must contain a non-whitespace character. Staff
+schedule placeholders retain their existing behavior.
+
+The controller also approved updating obsolete behavioral selectors in the
+contribution, intake-source, review-actions, lineup and editor snapshot suites.
+These now choose a profile or manual entry explicitly. Shared identity images
+and display names replace old slug and separate-profile-field assumptions.
+Task 6 still owns final screenshot baselines and broad visual verification.
+
+Real Convex command tests caught a fixture gap. Browser creation previously
+rejected `venueLabel` and `lineup`, and its insertion helper used only legacy
+associations. The additive browser-create validators now reuse the existing
+validators, and canonical creation calls the existing lineup helper. Legacy
+callers keep their old path. Create/readback tests cover manual location, manual
+performers, linked billing, timed rows and their stable keys.
+
 ## Evidence appendix
 
 - Planning inspected fetched `origin/main` at `21e48169d4f0cd54e55bbe48b1662ff128c8fe7f` on 2026-10-15. Refresh again at execution. Source evidence came from Git objects because the shared primary checkout contains unrelated edits and deletions.

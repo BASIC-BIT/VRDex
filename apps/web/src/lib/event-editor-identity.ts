@@ -70,3 +70,21 @@ export function searchIdentityOption(
     trustLabel: result.trustLabel,
   };
 }
+
+export type EventPerformerValue =
+  | { kind: "manual"; label: string }
+  | { kind: "linked"; personSlug: string; billing: { kind: "default" } | { kind: "override"; label: string } };
+
+export function savedEventPerformer({ label, personSlug, profileName }: { label: string; personSlug?: string | null; profileName?: string }): EventPerformerValue {
+  if (!personSlug) return { kind: "manual", label };
+  return { kind: "linked", personSlug, billing: profileName !== undefined && (!label || label === profileName) ? { kind: "default" } : { kind: "override", label } };
+}
+
+export function selectEventPerformer({ current, person }: { current: EventPerformerValue; person: EventIdentityOption }): EventPerformerValue {
+  if (person.kind !== "person") throw new Error("Performer selection requires a person.");
+  return { kind: "linked", personSlug: person.slug, billing: current.kind === "linked" ? current.billing : current.label.trim() ? { kind: "override", label: current.label } : { kind: "default" } };
+}
+
+export function eventPerformerLabel({ value, profileName }: { value: EventPerformerValue; profileName?: string }): string {
+  return value.kind === "manual" ? value.label : value.billing.kind === "override" ? value.billing.label : profileName ?? "";
+}

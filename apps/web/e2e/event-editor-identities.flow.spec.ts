@@ -367,3 +367,119 @@ test("late world hydration cannot replace a manual location or write a venue ove
   await page.getByRole("button", { name: "Save draft", exact: true }).click();
   await expect.poll(() => page.evaluate(() => JSON.parse(sessionStorage.getItem("event-intake-revision-submission")!).patch)).toMatchObject({ worldSlug: null, venueLabel: "New room" });
 });
+
+for (const editor of ["staff", "intake"]) test(`${editor} adds an explicit manual performer and links without changing billing @fixture`, async ({ page }) => {
+  if (editor === "staff") await page.goto("/playwright/event-lineup?editor&mode=create");
+  else await page.goto("/playwright/event-intake");
+  await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Lineup", exact: true }).click();
+  await page.getByRole("button", { name: "Add performer", exact: true }).click();
+  const row = page.locator("[data-lineup-row]").first();
+  await row.getByRole("combobox", { name: "Performer", exact: true }).fill("Guest A");
+  await row.getByRole("button", { name: "Add manual entry", exact: true }).click();
+  await expect(row.getByText("Unlinked", { exact: true })).toBeVisible();
+  await expect(row.getByRole("textbox", { name: "Performer", exact: true })).toHaveValue("Guest A");
+  await row.getByRole("button", { name: "Link profile", exact: true }).click();
+  await row.getByRole("combobox", { name: "Performer", exact: true }).fill("Aurora");
+  await row.getByRole("option").first().click();
+  await expect(row.getByLabel("Display name as", { exact: true })).toHaveValue("Guest A");
+});
+
+
+for (const timed of [true, false]) test(`staff performer actions preserve billing intent and row data with timed=${timed} @fixture`, async ({ page }, testInfo) => {
+  const startAt = Date.UTC(2027, 9, 15, 20, 0, 10, 123);
+  const endAt = Date.UTC(2027, 9, 15, 21, 0, 30, 456);
+  await page.addInitScript(({ timed, startAt, endAt }) => {
+    const performer = { slug: "aurora", displayName: "Aurora", imageUrl: "/seed/fixture-avatar-luma.svg", trustLabel: "claimed_verified" };
+    const row = { key: "identity-row", clientKey: "identity-row", position: 0, displayLabel: "Guest A", roleLabel: "DJ", performer, ...(timed ? { startAt, endAt, selectedStreamId: "vrcdn:aurora" } : {}) };
+    localStorage.setItem("event-lineup-fixture-v1", JSON.stringify({ id: "identities", slug: "identities", title: "Identity night", usesCanonicalLineup: true, startAt, endAt: endAt + 3_600_000, timezone: "UTC", scheduleKind: "timed", status: "scheduled", communitySlug: "afterglow", publicationState: "draft_private", source: { sourceType: "contributor", label: "Stored source" }, watchSurfaceEnabled: true, watchMode: "performer_sequence", mediaLinks: [], authoredMediaLinks: [], worlds: [], participants: [], slots: timed ? [{ ...row, playbackKey: "stored-slot", source: { sourceType: "contributor", label: "Stored source" } }] : [], lineup: [row, { key: "manual-row", position: 1, displayLabel: "Opening guest", roleLabel: "DJ" }], preservedParticipantAssociationIds: ["protected-person", "hidden-person"], preservedSlotAssociationIds: ["stored-slot", "hidden-slot"], preservedWorldAssociationIds: [], retainedLineupAssociations: { participantIds: ["hidden-person"], slotIds: ["hidden-slot"] } }));
+  }, { timed, startAt, endAt });
+  await page.goto("/playwright/event-lineup?editor");
+  const nav = (step: string) => page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: step, exact: true }).click();
+  await nav("Lineup");
+  const row = page.locator('[data-lineup-row="identity-row"]');
+  const bill = row.getByLabel("Display name as", { exact: true });
+  await expect(bill).toHaveValue("Guest A");
+  await expect(row.getByTestId("selected-identity")).toContainText("Aurora");
+  await page.screenshot({ path: testInfo.outputPath("performers-desktop.png"), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: testInfo.outputPath("performers-mobile.png"), fullPage: true });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await nav("Review"); await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!).lineup)).toBeUndefined();
+  await nav("Lineup");
+  const select = async (name: string) => {
+    await row.getByRole("button", { name: "Change", exact: true }).click();
+    const input = row.getByRole("combobox", { name: "Performer", exact: true });
+    await input.fill(name);
+    await row.getByRole("option").first().click();
+    await expect(row).toHaveAttribute("data-lineup-row", "identity-row");
+    if (timed) {
+      await expect(row).toContainText("20:00:10.123 - 21:00:30.456");
+      await expect(row.getByLabel("Stream", { exact: true })).toHaveValue("vrcdn:aurora");
+    }
+  };
+  await select("Lumen"); await expect(bill).toHaveValue("Guest A");
+  await bill.fill("");
+  await select("Aurora");
+  await row.locator("summary").filter({ hasText: "Display name as" }).click();
+  await expect(bill).toHaveValue("");
+  await bill.fill("Aurora");
+  await select("Lumen"); await expect(bill).toHaveValue("Aurora");
+  await select("Aurora");
+  await row.getByRole("button", { name: "Change", exact: true }).click();
+  await row.getByRole("combobox", { name: "Performer", exact: true }).fill("Guest A");
+  await row.getByRole("button", { name: "Add manual entry", exact: true }).click();
+  await expect(row.getByText("Unlinked", { exact: true })).toBeVisible();
+  if (timed) await expect(row.getByLabel("Stream", { exact: true })).toHaveValue("vrcdn:aurora");
+  await row.getByRole("button", { name: "Link profile", exact: true }).click();
+  await row.getByRole("combobox", { name: "Performer", exact: true }).fill("Aurora");
+  await row.getByRole("option").first().click();
+  await expect(bill).toHaveValue("Guest A");
+  await nav("Review"); await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  const payload = await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!));
+  expect(payload.lineup[0]).toMatchObject({ clientKey: "identity-row", personSlug: "aurora", performerLabel: "Guest A", roleLabel: "DJ" });
+  expect(payload.lineup[0].startAt).toBe(timed ? startAt : undefined);
+  expect(payload.lineup[0].endAt).toBe(timed ? endAt : undefined);
+  if (timed) expect(payload.lineup[0].selectedStreamId).toBe("vrcdn:aurora");
+  expect(payload.preserveLineupConfirmation).toBe(true);
+  expect(payload.retainedLineupAssociations).toEqual({ participantIds: ["hidden-person"], slotIds: ["hidden-slot"] });
+});
+
+for (const timed of [true, false]) test(`intake performer linking preserves raw row timing with timed=${timed} @fixture`, async ({ page }) => {
+  const initialRow = { clientKey: "saved-row", position: 0, performerLabel: "Guest A", roleLabel: "DJ", ...(timed ? { start: { time: "20:15", dayOffset: 0 }, end: { time: "21:45", dayOffset: 0 } } : {}) };
+  await page.addInitScript(row => { if (!sessionStorage.getItem("event-intake-fixture")) sessionStorage.setItem("event-intake-fixture", JSON.stringify({ communitySlug: "playwright-afterglow-social", title: "Identity night", eventDate: "2027-10-15", timezone: "UTC", start: { time: "20:00" }, lineup: [row] })); }, initialRow);
+  await page.goto("/playwright/event-intake");
+  await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Lineup", exact: true }).click();
+  const row = page.locator('[data-lineup-row="saved-row"]');
+  await row.getByRole("button", { name: "Link profile", exact: true }).click();
+  const input = row.getByRole("combobox", { name: "Performer", exact: true });
+  await input.fill("Aurora"); await input.press("Tab");
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  expect((await page.evaluate(() => JSON.parse(sessionStorage.getItem("event-intake-fixture")!))).lineup[0]).toEqual(initialRow);
+  await input.focus(); await row.getByRole("option").first().click();
+  await expect(row.getByLabel("Display name as", { exact: true })).toHaveValue("Guest A");
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  const saved = (await page.evaluate(() => JSON.parse(sessionStorage.getItem("event-intake-fixture")!))).lineup[0];
+  expect(saved).toMatchObject(initialRow);
+  expect(saved.personSlug).toBeTruthy();
+  expect(saved.start).toEqual(initialRow.start);
+  expect(saved.end).toEqual(initialRow.end);
+  await page.reload();
+  await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Lineup", exact: true }).click();
+  await expect(row.getByLabel("Display name as", { exact: true })).toHaveValue("Guest A");
+});
+
+
+test("saved unavailable intake performer remains linked through billing edits @fixture", async ({ page }) => {
+  await page.addInitScript(() => sessionStorage.setItem("event-intake-fixture", JSON.stringify({ communitySlug: "playwright-afterglow-social", title: "Unavailable person", eventDate: "2027-10-15", timeTba: true, lineup: [{ clientKey: "unavailable", position: 0, performerLabel: "Saved billing", personSlug: "not-a-public-person", roleLabel: "DJ" }] })));
+  await page.goto("/playwright/event-intake");
+  await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Lineup", exact: true }).click();
+  const row = page.locator('[data-lineup-row="unavailable"]');
+  await expect(row.getByRole("button", { name: "Change", exact: true })).toBeVisible();
+  await expect(row.getByLabel("Display name as", { exact: true })).toHaveValue("Saved billing");
+  await row.getByLabel("Display name as", { exact: true }).fill("Updated billing");
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  const saved = (await page.evaluate(() => JSON.parse(sessionStorage.getItem("event-intake-fixture")!))).lineup[0];
+  expect(saved).toMatchObject({ clientKey: "unavailable", personSlug: "not-a-public-person", performerLabel: "Updated billing", roleLabel: "DJ" });
+});

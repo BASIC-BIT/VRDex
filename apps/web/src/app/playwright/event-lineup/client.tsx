@@ -63,6 +63,11 @@ function fixtureClient() {
   const empty: unknown[] = [];
   const mediaStatus = { program: null, outputs: [], sessions: [], queuedCommandCount: 0 };
   const read = (name: string, args: Record<string, unknown>) => {
+    if (name === "profiles:lookupPeople") return Object.values(people).filter(person => `${person.displayName} ${person.slug}`.toLowerCase().includes(String(args.query).toLowerCase())).map(person => ({ ...person, profilePath: `/${person.slug}`, aliases: [], tags: [], genres: [], roleTags: ["DJ"], avatarImageUrl: "imageUrl" in person ? person.imageUrl : undefined }));
+    if (name === "profiles:getPublicBySlug" && args.profileType === "person") {
+      const person = people[args.slug as keyof typeof people];
+      return person ? { ...person, profileType: "person", tags: [], person: { roleTags: ["DJ"] }, avatarImageUrl: "imageUrl" in person ? person.imageUrl : undefined, mediaKit: {} } : null;
+    }
     if (name === "profiles:getPublicBySlug") return { slug: args.slug, displayName: "Afterglow", avatarImageUrl: "/seed/fixture-avatar-velvet-circuit.svg", mediaKit: { primaryLogo: { imageUrl: "/seed/fixture-avatar-velvet-circuit.svg" } } };
     if (name === "worlds:getPublicBySlug") return event.worlds.find(world => world.slug === args.slug) ?? null;
     if (name === "events:getEditableBySlug") return event;
@@ -92,17 +97,19 @@ function fixtureClient() {
       const error = localStorage.getItem("event-lineup-fixture-save-error");
       if (error) throw new Error(error);
       const slots = args.slotLinks === undefined && args.lineup === undefined ? event.slots : ((args.slotLinks ?? (args.lineup as Array<Record<string, unknown>> | undefined)?.filter(row => row.startAt !== undefined).map(row => ({ ...row, displayLabel: row.performerLabel })) ?? event.slots) as Array<Record<string, unknown>>).map((slot, index) => ({
-        ...slot, position: slot.position ?? index, playbackKey: storedSlotAssociations?.find(row => row.position === index)?.slotId ?? `saved-${crypto.randomUUID()}`, discord: previewEvent.slots[0]!.discord, source: previewEvent.source,
+        ...slot, position: slot.position ?? index, playbackKey: storedSlotAssociations?.find(row => row.position === index)?.slotId ?? event.slots.find(row => (row.clientKey ?? row.playbackKey) === slot.clientKey)?.playbackKey ?? `saved-${crypto.randomUUID()}`, discord: previewEvent.slots[0]!.discord, source: previewEvent.source,
         performer: people[slot.personSlug as keyof typeof people],
         streamChoices: choices[slot.personSlug as keyof typeof choices] ?? [],
         selectedStreamId: slot.selectedStreamId ?? undefined,
       }));
       event = { ...event, ...args, slots,
-        ...(args.lineup === undefined ? {} : { lineup: (args.lineup as Array<Record<string, unknown>>).map(row => ({ ...row, key: row.clientKey, displayLabel: row.performerLabel, performer: people[row.personSlug as keyof typeof people] })) }),
+        ...(args.lineup === undefined ? {} : { usesCanonicalLineup: true, lineup: (args.lineup as Array<Record<string, unknown>>).map(row => ({ ...row, key: row.clientKey, displayLabel: row.performerLabel, performer: people[row.personSlug as keyof typeof people] })) }),
       } as EditableEvent;
+      // Real editor readback omits cleared optional timing fields.
+      for (const key of ["startAt", "endAt", "doorsOpenAt", "timezone"] as const) if (event[key] === null) delete event[key];
       localStorage.setItem(storageKey, JSON.stringify(event));
       listeners.forEach(listener => listener());
-      return { slug: event.slug, eventPath: "/playwright-afterglow-social/events/playwright-afterglow-harbor-sessions", preservedParticipantAssociationIds: [], preservedSlotAssociationIds: slots.map(slot => slot.playbackKey), preservedWorldAssociationIds: args.preservedWorldAssociationIds ?? [], editableWorldAssociation: args.worldSlug === null ? null : event.editableWorldAssociation ?? null,
+      return { slug: event.slug, eventPath: "/playwright-afterglow-social/events/playwright-afterglow-harbor-sessions", preservedParticipantAssociationIds: args.preservedParticipantAssociationIds ?? [], preservedSlotAssociationIds: [...new Set([...slots.map(slot => slot.playbackKey), ...((args.lineup === undefined ? event.retainedLineupAssociations : args.retainedLineupAssociations as { slotIds?: string[] } | undefined)?.slotIds ?? [])])], preservedWorldAssociationIds: args.preservedWorldAssociationIds ?? [], editableWorldAssociation: args.worldSlug === null ? null : event.editableWorldAssociation ?? null,
         ...(storedSlotAssociations === undefined ? {} : { storedSlotAssociations: slots.map((slot, position) => ({ position, slotId: slot.playbackKey })) }),
       };
     },

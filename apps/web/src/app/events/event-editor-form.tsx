@@ -33,8 +33,7 @@ import { EventEditorSteps, type EventEditorStep } from "./event-editor-steps";
 import { EventLocationField } from "./event-location-field";
 import type { EventIdentityOption } from "@/lib/event-editor-identity";
 import { EventEditorPreview, EventCommunitySummary, useEventCommunity } from "./event-editor-preview";
-import { ProfileAvatarImage } from "../_components/profile-avatar-image";
-import { serializeOtherEventParticipants } from "@/lib/calendar/event-participants";
+import { EventPerformerField, useEventPerformerEditor } from "./event-performer-field";
 
 type EventMediaLinkType = PublicEvent["mediaLinks"][number]["type"];
 
@@ -63,6 +62,7 @@ type VrcdnOutputFormState = {
 
 export type EditableEvent = Omit<PublicEvent, "slots"> & {
   usesCanonicalLineup?: boolean;
+  retainedLineupAssociations?: { participantIds: Id<"eventParticipants">[]; slotIds: Id<"eventSlots">[] };
   slots: Array<PublicEvent["slots"][number] & { clientKey?: string; selectedStreamId?: string; streamChoices?: PlaybackStream[] }>;
   notes?: string;
   preservedCommunityProfileId?: Id<"profiles">;
@@ -90,57 +90,10 @@ type VrcdnOutputAccountOption = {
   }>;
 };
 
-function PersonProfileInput({
-  inputId,
-  onChange,
-  value,
-  label,
-  imageUrl,
-}: {
-  inputId: string;
-  label?: string;
-  imageUrl?: string;
-  onChange: (value: string, displayName?: string) => void;
-  value: string;
-}) {
-  const query = value.trim();
-  const matches = useQuery(
-    api.search.searchUniversal,
-    query.length >= 2
-      ? { query, entityType: "profile", profileType: "person", limit: 6 }
-      : "skip",
-  );
-  const listId = `${inputId}-matches`;
-  const match = matches?.find(person => person.slug === value);
-  const name = match?.title || label || value || "Performer";
-  return (
-    <span className="flex min-w-0 items-center gap-3">
-      <span className="relative flex size-12 shrink-0 overflow-hidden rounded-control bg-surface-strong"><ProfileAvatarImage alt={name} fallback={name.slice(0, 2).toUpperCase()} src={match?.imageUrl ?? imageUrl} /></span>
-      <Input
-        aria-label={inputId.startsWith("slot-person-") ? "Person" : "Person profile"}
-        id={inputId}
-        list={listId}
-        onChange={(changeEvent) => {
-          const nextValue = eventTargetValue(changeEvent);
-          const selected = matches?.find((match) => match.slug === nextValue);
-          onChange(nextValue, selected?.title);
-        }}
-        placeholder="Search name or slug"
-        value={value}
-      />
-      <datalist id={listId}>
-        {matches?.map((match) => (
-          <option key={match.routePath} label={match.title} value={match.slug} />
-        ))}
-      </datalist>
-    </span>
-  );
-}
-
 function SlotStreamSelect({ row, invalid, onChange }: { row: SlotFormRow; invalid?: boolean; onChange: (value: string) => void }) {
   const slug = row.personSlug.trim();
   const currentChoices = useQuery(api.events.getPersonStreamChoices, /^[a-z0-9-]{1,64}$/.test(slug) ? { slug } : "skip");
-  const choices = currentChoices ?? row.streamChoices ?? [];
+  const choices = slug ? currentChoices ?? row.streamChoices ?? [] : [];
   const unavailable = Boolean(row.selectedStreamId && !choices.some(choice => choice.streamId === row.selectedStreamId));
   return <Field className="text-xs text-muted">
     Stream
@@ -325,18 +278,6 @@ function normalizeMediaType(value: string): EventMediaLinkType {
   return "other" as const;
 }
 
-function parseParticipantLinks(value: string) {
-  return value
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const [personSlug = "", roleLabel = "Performer"] = line.split("|").map((part) => part.trim());
-
-      return { personSlug, roleLabel };
-    });
-}
-
 function parseSlotRows(rows: SlotFormRow[], eventStartAt: number) {
   return rows.map((row) => {
       const offsetMinutes = row.startAtOverride === undefined ? parseInteger(row.offsetMinutes, "Slot offset minutes") : 0;
@@ -350,7 +291,6 @@ function parseSlotRows(rows: SlotFormRow[], eventStartAt: number) {
         selectedStreamId: optionalString(row.selectedStreamId ?? "") ?? null,
         displayLabel:
           optionalString(row.displayLabel) ??
-          optionalString(row.personSlug) ??
           "",
         roleLabel: optionalString(row.roleLabel) ?? "Participant",
         startAt,
@@ -515,10 +455,10 @@ function ConnectedEventEditorForm({
   const [preview, setPreview] = useState({ title: event?.title ?? (demoMode ? "Afterglow Harbor Sessions" : ""), summary: event?.summary ?? "", venueLabel: event?.venueLabel ?? "", artwork: event?.posterImageUrl ?? "" });
   const [eventDate, setEventDate] = useState(event?.eventDate ?? formatZonedDateTimeInput(event?.startAt, event?.timezone).slice(0, 10));
   const [timeTba, setTimeTba] = useState(event?.scheduleKind === "date_only");
-  const usesCanonicalLineup = event?.usesCanonicalLineup ?? event?.source.sourceType === "contributor";
-  const [untimedRows, setUntimedRows] = useState(() => usesCanonicalLineup ? (event?.lineup ?? []).filter(row => row.startAt === undefined).map(row => ({
+  const performers = useEventPerformerEditor([...(event?.slots.flatMap(row => row.performer ? [row.performer] : []) ?? []), ...(event?.participants ?? []), ...(event?.lineup?.flatMap(row => row.performer ? [row.performer] : []) ?? [])].map(person => ({ kind: "person", slug: person.slug, title: person.displayName, href: `/${person.slug}`, imageUrl: person.imageUrl, imageKind: "profile", trustLabel: person.trustLabel })));
+  const [untimedRows, setUntimedRows] = useState(() => (event?.lineup ?? []).filter(row => row.startAt === undefined).map(row => ({
     clientKey: row.key, position: row.position, performerLabel: row.displayLabel, personSlug: row.performer?.slug ?? "", roleLabel: row.roleLabel ?? "",
-  })) : parseParticipantLinks(serializeOtherEventParticipants(event)).map((row, position) => ({ ...row, clientKey: `participant-${position}`, position, performerLabel: "" })));
+  })));
   const [startLocal, setStartLocal] = useState(formatZonedDateTimeInput(event?.startAt, event?.timezone));
   const [occurrence, setOccurrence] = useState<"earlier" | "later" | "">(() => storedTimeOccurrence(event?.startAt, event?.timezone));
   const [endLocal, setEndLocal] = useState(event?.endAt === undefined ? "" : formatZonedDateTimeInput(event.endAt, event.timezone));
@@ -561,6 +501,7 @@ function ConnectedEventEditorForm({
   const [cancellationReason, setCancellationReason] = useState("");
   const [eventStatus, setEventStatus] = useState(event?.status);
   const [isPublished, setIsPublished] = useState(event?.publicationState === "published");
+  const [unrepresentedLineupAssociations] = useState(event?.retainedLineupAssociations);
   const [associationSnapshot, setAssociationSnapshot] = useState<EventAssociationSnapshot>({
     preservedParticipantAssociationIds: event?.preservedParticipantAssociationIds ?? [],
     preservedSlotAssociationIds: event?.preservedSlotAssociationIds ?? [],
@@ -725,15 +666,13 @@ function ConnectedEventEditorForm({
         watchSurfaceEnabled,
         watchMode,
         mediaLinks: parseMediaLinks(mediaLinksText),
-        ...(usesCanonicalLineup && (lineupEdited || startAt !== event?.startAt) ? { lineup: [
+        ...((!event || lineupEdited || startAt !== event.startAt) ? { lineup: [
           ...slotRows.map((row, index) => ({
-            clientKey: row.id, position: row.position ?? index, performerLabel: row.displayLabel || row.personSlug, personSlug: optionalString(row.personSlug), roleLabel: optionalString(row.roleLabel),
+            clientKey: row.id, position: row.position ?? index, performerLabel: row.displayLabel || performers.person(row.personSlug)?.title || `Session ${index + 1}`, personSlug: optionalString(row.personSlug), roleLabel: optionalString(row.roleLabel),
             ...(!timeTba ? { startAt: slotLinks[index]!.startAt, endAt: slotLinks[index]!.endAt, selectedStreamId: slotLinks[index]!.selectedStreamId } : {}),
           })),
           ...untimedRows.map(row => ({ ...row, personSlug: optionalString(row.personSlug), roleLabel: optionalString(row.roleLabel) })),
-        ].sort((a, b) => a.position - b.position).map((row, position) => ({ ...row, position })) } : !usesCanonicalLineup ? {
-          participantLinks: parseParticipantLinks(stringField(formData.get("participantLinks"))), slotLinks,
-        } : {}),
+        ].sort((a, b) => a.position - b.position).map((row, position) => ({ ...row, position })) } : {}),
       };
       const submittedSlotKeys = slotRows.map(row => row.id);
       const submittedWorldRevision = worldEditRevision.current;
@@ -743,10 +682,6 @@ function ConnectedEventEditorForm({
             preservedCommunityProfileId: event.preservedCommunityProfileId,
             ...associationSnapshot,
             ...(worldEdited ? { preservedWorldAssociationIds: associationSnapshot.preservedWorldAssociationIds.filter(id => id !== editableWorld?.associationId) } : {}),
-            ...(!usesCanonicalLineup ? { storedSlotAssociations: timeTba ? [] : slotRows.flatMap((row, position) => {
-              const slotId = associationSnapshot.preservedSlotAssociationIds.find(id => id === row.id);
-              return slotId === undefined ? [] : [{ position, slotId }];
-            }) } : {}),
             ...(intent === "publish"
               ? { published: true }
               : intent === "draft"
@@ -754,7 +689,11 @@ function ConnectedEventEditorForm({
                 : {}),
             ...payload,
             ...(worldEdited ? { worldSlug: location.worldSlug || null } : {}),
-            preserveLineupConfirmation: usesCanonicalLineup,
+            preserveLineupConfirmation: true,
+            ...(payload.lineup && unrepresentedLineupAssociations ? { retainedLineupAssociations: {
+              participantIds: unrepresentedLineupAssociations.participantIds.filter(id => associationSnapshot.preservedParticipantAssociationIds.includes(id)),
+              slotIds: unrepresentedLineupAssociations.slotIds.filter(id => associationSnapshot.preservedSlotAssociationIds.includes(id)),
+            } } : {}),
             doorsOpenAt: doorsOffsetMinutes === undefined ? null : startAt! - doorsOffsetMinutes * 60_000,
             endAt: endAt ?? null,
             summary: payload.summary ?? null,
@@ -903,7 +842,7 @@ function ConnectedEventEditorForm({
 
   const displayRows = [
     ...slotRows.map((row, index) => ({ kind: "timed" as const, row, position: row.position ?? index })),
-    ...(usesCanonicalLineup ? untimedRows.map(row => ({ kind: "untimed" as const, row, position: row.position })) : []),
+    ...untimedRows.map(row => ({ kind: "untimed" as const, row, position: row.position })),
   ].sort((a, b) => a.position - b.position);
   const staffTimings = readStaffLineupTimings(slotRows, previewStart ?? NaN);
   const timings = displayRows.map(item => item.kind === "untimed" || timeTba ? { key: item.kind === "timed" ? item.row.id : item.row.clientKey } : staffTimings.find(timing => timing.key === item.row.id)!);
@@ -917,7 +856,7 @@ function ConnectedEventEditorForm({
     // Time TBA leaves surviving stored clocks reversible in this open editor.
     const nextSlots = timeTba ? slots.flatMap(timing => { const row = slotRows.find(row => row.id === timing.key); return row ? [row] : []; }) : applyStaffLineupTimings(slotRows, slots, previewStart ?? NaN);
     updateSlotRows(() => nextSlots.map(row => ({ ...row, position: result.rows.findIndex(timing => timing.key === row.id) })));
-    if (usesCanonicalLineup) updateUntimedRows(rows => result.rows.flatMap((timing, position) => {
+    updateUntimedRows(rows => result.rows.flatMap((timing, position) => {
       if (!untimedKeys.has(timing.key)) return [];
       const original = rows.find(row => row.clientKey === timing.key);
       return [{ ...(original ?? { clientKey: timing.key, performerLabel: "", personSlug: "", roleLabel: "" }), position }];
@@ -927,8 +866,7 @@ function ConnectedEventEditorForm({
   function addUntimed(index = displayRows.length) {
     if (slotRows.length + untimedRows.length >= 80) return;
     const key = crypto.randomUUID();
-    if (usesCanonicalLineup) applyTimingEdit({ ok: true, rows: [...timings.slice(0, index), { key }, ...timings.slice(index)] }, key);
-    else updateUntimedRows(rows => [...rows, { clientKey: key, position: rows.length, performerLabel: "", personSlug: "", roleLabel: "" }]);
+    applyTimingEdit({ ok: true, rows: [...timings.slice(0, index), { key }, ...timings.slice(index)] }, key);
     requestAnimationFrame(() => formRef.current?.querySelector<HTMLElement>(`[data-lineup-row="${key}"] input`)?.focus());
   }
   function changeStart(local: string, nextOccurrence: "earlier" | "later" | "") {
@@ -955,7 +893,7 @@ function ConnectedEventEditorForm({
     setTimezone(nextZone); setOccurrence(""); setEndOccurrence(""); setEndAtOverride(undefined);
     if (displayedEndLocal) { setEndLocal(displayedEndLocal); setEndEdited(true); }
   }
-  const insertion = (index: number) => <EventLineupInsert index={index} allowUntimed={usesCanonicalLineup} atLimit={slotRows.length + untimedRows.length >= 80} disabled={timeTba || (index === 0 ? previewStart : timings[index - 1]?.endAt) === undefined} onAddUntimed={addUntimed} onInsert={(index, durationMinutes) => {
+  const insertion = (index: number) => <EventLineupInsert index={index} allowUntimed atLimit={slotRows.length + untimedRows.length >= 80} disabled={timeTba || (index === 0 ? previewStart : timings[index - 1]?.endAt) === undefined} onAddUntimed={addUntimed} onInsert={(index, durationMinutes) => {
     const key = crypto.randomUUID();
     applyTimingEdit(insertLineupSlot({ rows: timings, index, row: { key }, durationMinutes, eventStartAt: previewStart }));
     requestAnimationFrame(() => formRef.current?.querySelector<HTMLElement>(`[data-lineup-row="${key}"] input`)?.focus());
@@ -963,16 +901,18 @@ function ConnectedEventEditorForm({
   const conflictNotice = endConflict && previewEndAt !== undefined ? <EventLineupConflict {...endConflict} eventEndAt={previewEndAt} timezone={timezone} onExtend={endAt => { setEndAtOverride(endAt); setEndLocal(formatZonedDateTimeInput(endAt, timezone)); setEndOccurrence(storedTimeOccurrence(endAt, timezone)); setEndEdited(true); setEndOpen(true); }} /> : null;
   function renderUntimed(row: (typeof untimedRows)[number]) {
     return <Card data-lineup-row={row.clientKey} key={row.clientKey} className="grid gap-3" padding="sm" surface="dashed">
-      {usesCanonicalLineup ? <Field>Performer<Input required value={row.performerLabel} onChange={change => updateUntimedRows(rows => rows.map(item => item.clientKey === row.clientKey ? { ...item, performerLabel: change.target.value } : item))} /></Field> : null}
-      <Field>Person profile<PersonProfileInput inputId={`untimed-${row.clientKey}`} label={row.performerLabel} imageUrl={event?.lineup?.find(item => item.performer?.slug === row.personSlug)?.performer?.imageUrl ?? event?.participants.find(item => item.slug === row.personSlug)?.imageUrl} value={row.personSlug} onChange={personSlug => updateUntimedRows(rows => rows.map(item => item.clientKey === row.clientKey ? { ...item, personSlug } : item))} /></Field>
+      <EventPerformerField value={performers.value({ key: row.clientKey, label: row.performerLabel, personSlug: row.personSlug })} selectedPerson={performers.person(row.personSlug)} onResolve={performers.resolve} onChange={value => {
+        const next = performers.change({ key: row.clientKey, label: row.performerLabel, personSlug: row.personSlug }, value);
+        updateUntimedRows(rows => rows.map(item => item.clientKey === row.clientKey ? { ...item, performerLabel: next.label, personSlug: next.personSlug } : item));
+      }} />
       <Field>Role<Input value={row.roleLabel} onChange={change => updateUntimedRows(rows => rows.map(item => item.clientKey === row.clientKey ? { ...item, roleLabel: change.target.value } : item))} /></Field>
-      {usesCanonicalLineup && !timeTba ? <details><summary className="cursor-pointer text-sm font-medium">Details</summary><Field className="mt-3">Slot offset minutes<Input inputMode="numeric" disabled={previewStart === undefined} onKeyDown={change => { if (change.key === "Enter") { change.preventDefault(); change.currentTarget.blur(); } }} onBlur={change => {
+      {!timeTba ? <details><summary className="cursor-pointer text-sm font-medium">Details</summary><Field className="mt-3">Slot offset minutes<Input inputMode="numeric" disabled={previewStart === undefined} onKeyDown={change => { if (change.key === "Enter") { change.preventDefault(); change.currentTarget.blur(); } }} onBlur={change => {
         const value = change.currentTarget.value;
         if (previewStart === undefined || !value.trim() || !Number.isInteger(Number(value))) return;
         updateSlotRows(rows => [...rows, { id: row.clientKey, position: row.position, personSlug: row.personSlug, displayLabel: row.performerLabel, roleLabel: row.roleLabel, offsetMinutes: value, durationMinutes: "", startAtOverride: previewStart + Number(value) * 60_000 }]);
         updateUntimedRows(rows => rows.filter(item => item.clientKey !== row.clientKey));
       }} /></Field></details> : null}
-      <Button type="button" variant="secondary" onClick={() => usesCanonicalLineup ? applyTimingEdit(removeLineupSlot(timings, row.clientKey)) : updateUntimedRows(rows => rows.filter(item => item.clientKey !== row.clientKey))}>Remove performer</Button>
+      <Button type="button" variant="secondary" onClick={() => applyTimingEdit(removeLineupSlot(timings, row.clientKey))}>Remove performer</Button>
     </Card>;
   }
   function previewTime(timestamp: number) {
@@ -988,10 +928,9 @@ function ConnectedEventEditorForm({
       ...displayRows.map((item, index) => {
         const startAt = timings[index]?.startAt;
         return item.kind === "untimed"
-          ? { clientKey: item.row.clientKey, performerLabel: item.row.performerLabel || item.row.personSlug }
-          : { clientKey: item.row.id, performerLabel: item.row.displayLabel || item.row.personSlug, ...(previewStart === undefined || startAt === undefined ? {} : { start: previewTime(startAt) }) };
+          ? { clientKey: item.row.clientKey, performerLabel: item.row.performerLabel || performers.person(item.row.personSlug)?.title || "" }
+          : { clientKey: item.row.id, performerLabel: item.row.displayLabel || performers.person(item.row.personSlug)?.title || "", ...(previewStart === undefined || startAt === undefined ? {} : { start: previewTime(startAt) }) };
       }),
-      ...(!usesCanonicalLineup ? untimedRows.map(row => ({ clientKey: row.clientKey, performerLabel: row.performerLabel || row.personSlug })) : []),
     ].filter(row => row.performerLabel).map((row, position) => ({ ...row, position })),
   };
 
@@ -1030,7 +969,7 @@ function ConnectedEventEditorForm({
       </EditorSection>
 
       <EditorSection title="Timing">
-        {usesCanonicalLineup || event?.scheduleKind === "date_only" ? <label className="flex items-center gap-3 text-sm font-medium"><input checked={timeTba} onChange={change => { timezoneAuthored.current = true; setTimeTba(change.target.checked); }} type="checkbox" />Time TBA</label> : null}
+        {event ? <label className="flex items-center gap-3 text-sm font-medium"><input checked={timeTba} onChange={change => { timezoneAuthored.current = true; setTimeTba(change.target.checked); }} type="checkbox" />Time TBA</label> : null}
         <div className="grid gap-4">
         {timeTba ? <Field>Date<Input type="date" required value={eventDate} onChange={change => { timezoneAuthored.current = true; setEventDate(change.target.value); }} /></Field> : <>
         <div className="grid items-start gap-4 sm:grid-cols-2">
@@ -1116,32 +1055,13 @@ function ConnectedEventEditorForm({
                   <h4 className="font-semibold">{slot.displayLabel || `Slot ${index + 1}`}</h4>
                   <span className="text-xs text-muted">{timeTba ? "Time TBA" : formatLineupTimeRange({ ...timing, timezone, eventDate: startLocal.slice(0, 10) })}</span>
                 </div>
-                <Field className="text-xs text-muted">
-                  Person
-                  <PersonProfileInput
-                    inputId={`slot-person-${slot.id}`}
-                    label={slot.displayLabel}
-                    imageUrl={event?.slots.find(row => row.performer?.slug === slot.personSlug)?.performer?.imageUrl}
-                    onChange={(value, displayName) => {
-                      updateSlotRows((rows) => rows.map((row) => row.id === slot.id
-                        ? {
-                            ...row,
-                            personSlug: value,
-                            ...(value !== row.personSlug ? { selectedStreamId: undefined, streamChoices: [] } : {}),
-                            ...(displayName !== undefined && (
-                              row.displayLabel.trim() === "" || row.displayLabel === `Session ${index + 1}`
-                            )
-                              ? { displayLabel: displayName }
-                              : {}),
-                          }
-                        : row));
-                    }}
-                    value={slot.personSlug}
-                  />
-                </Field>
+                <EventPerformerField value={performers.value({ key: slot.id, label: slot.displayLabel, personSlug: slot.personSlug })} selectedPerson={performers.person(slot.personSlug)} onResolve={performers.resolve} onChange={value => {
+                  const next = performers.change({ key: slot.id, label: slot.displayLabel, personSlug: slot.personSlug }, value);
+                  updateSlotRows(rows => rows.map(row => row.id === slot.id ? { ...row, displayLabel: next.label, personSlug: next.personSlug } : row));
+                }} />
                 {!timeTba ? <EventSlotDuration value={duration} onCommit={minutes => applyTimingEdit(changeLineupDuration(timings, slot.id, minutes))} /> : null}
               </div>
-              {watchSurfaceEnabled && watchMode === "performer_sequence" && slot.personSlug.trim() ? <SlotStreamSelect
+              {watchSurfaceEnabled && watchMode === "performer_sequence" && (slot.personSlug.trim() || slot.selectedStreamId) ? <SlotStreamSelect
                 row={slot}
                 invalid={status.kind === "error" && Boolean(slot.selectedStreamId) && status.streamSelections?.[slot.id] === slot.selectedStreamId}
                 onChange={value => updateSlotRows(rows => rows.map(row => row.id === slot.id ? { ...row, selectedStreamId: value || undefined } : row))}
@@ -1153,16 +1073,6 @@ function ConnectedEventEditorForm({
                 </summary>
                 <div className="mt-3 grid gap-3 sm:grid-cols-2">
                   {!timeTba ? <><Field>Slot offset minutes<Input data-slot-offset inputMode="numeric" value={slot.offsetMinutes} onChange={change => updateSlotRows(rows => rows.map(row => row.id === slot.id ? changeStaffSlotOffset(row, change.target.value, previewStart ?? NaN) : row))} /></Field><EventSlotDuration detailed value={duration} unresolvedValue={slot.durationMinutes} onClear={() => updateSlotRows(rows => rows.map(row => row.id === slot.id ? { ...row, durationMinutes: "", endAtOverride: undefined, durationMsOverride: undefined } : row))} onCommit={minutes => duration === undefined ? updateSlotRows(rows => rows.map(row => row.id === slot.id ? { ...row, durationMinutes: String(minutes), endAtOverride: undefined, durationMsOverride: undefined } : row)) : applyTimingEdit(changeLineupDuration(timings, slot.id, minutes))} /></> : null}
-                  <Field className="text-xs text-muted">
-                    Display name
-                    <Input
-                      onChange={(changeEvent) => {
-                        const value = eventTargetValue(changeEvent);
-                        updateSlotRows((rows) => rows.map((row) => row.id === slot.id ? { ...row, displayLabel: value } : row));
-                      }}
-                      value={slot.displayLabel}
-                    />
-                  </Field>
                   <Field className="text-xs text-muted">
                     Role or style
                     <Input
@@ -1179,10 +1089,8 @@ function ConnectedEventEditorForm({
             </Card>{insertion(index + 1)}</Fragment>;
           })}
         </div>
-        {!usesCanonicalLineup && untimedRows.length ? <div className="grid gap-3">{untimedRows.map(renderUntimed)}</div> : null}
-        {slotRows.length + untimedRows.length > 0 ? <div className="flex flex-wrap gap-3">{!usesCanonicalLineup ? <Button type="button" variant="secondary" disabled={slotRows.length + untimedRows.length >= 80} onClick={() => addUntimed()}>Add performer</Button> : null}<EventLineupReset onConfirm={() => { updateSlotRows(() => []); updateUntimedRows(() => []); }} /></div> : null}
+        {slotRows.length + untimedRows.length > 0 ? <div className="flex flex-wrap gap-3"><EventLineupReset onConfirm={() => { updateSlotRows(() => []); updateUntimedRows(() => []); }} /></div> : null}
         {conflictNotice}
-        {!usesCanonicalLineup ? <textarea hidden readOnly name="participantLinks" value={untimedRows.filter(row => row.personSlug.trim()).map(row => `${row.personSlug} | ${row.roleLabel}`).join("\n")} /> : null}
       </EditorSection>
 
       </div>

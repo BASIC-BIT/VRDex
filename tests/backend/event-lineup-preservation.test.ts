@@ -252,3 +252,117 @@ test("canonical clearing an end preserves exact starts, later clocks, provenance
     assert.equal(editable!.endAt, event.endAt);
   }
 });
+
+
+test("browser legacy conversion preserves standalone identity, private associations and provenance, but explicit deletion removes represented rows", async () => {
+  const { t, owner, event, read } = await fixture();
+  await t.run(async ctx => {
+    await ctx.db.patch(event._id, { sourceType: "community" });
+    const rows = await ctx.db.query("eventSlots").withIndex("by_eventId", q => q.eq("eventId", event._id)).collect();
+    for (const row of rows) await ctx.db.patch(row._id, { clientKey: undefined, selectedStreamId: "saved-stream", sourceLabel: "Original slot", sourceUrl: "https://example.com/slot", notes: "Slot note" });
+    await ctx.db.delete(rows.find(row => row.personProfileId !== rows[0]!.personProfileId)!._id);
+    const participants = await ctx.db.query("eventParticipants").withIndex("by_eventId", q => q.eq("eventId", event._id)).collect();
+    for (const row of participants) await ctx.db.patch(row._id, { confirmationState: "confirmed", sourceLabel: "Original person", sourceUrl: "https://example.com/person", notes: "Person note" });
+    const privateProfile = await ctx.db.query("profiles").withIndex("by_slug", q => q.eq("slug", "new")).unique();
+    await ctx.db.patch(privateProfile!._id, { publicationState: "draft_private" });
+    const { _id, _creationTime, ...participant } = participants[0]!;
+    await ctx.db.insert("eventParticipants", { ...participant, personProfileId: privateProfile!._id, notes: "Hidden association" });
+  });
+  const snapshot = (await owner.query(api.events.getEditableBySlug, { slug: event.slug! }))!;
+  await t.run(async ctx => { for (const row of (await ctx.db.query("eventParticipants").withIndex("by_eventId", q => q.eq("eventId", event._id)).collect())) await ctx.db.patch(row._id, { confirmationState: "unconfirmed", confirmedAt: undefined }); });
+  const before = await read();
+  assert.equal(snapshot.usesCanonicalLineup, false);
+  const standalone = snapshot.lineup.find(row => row.startAt === undefined)!;
+  const slot = snapshot.slots[0]!;
+  const lineup = [{ clientKey: slot.playbackKey, position: 0, performerLabel: "Slot billing", personSlug: slot.performer!.slug, roleLabel: slot.roleLabel, startAt: slot.startAt, endAt: slot.endAt, selectedStreamId: slot.selectedStreamId }, { clientKey: standalone.key, position: 1, performerLabel: "Guest A", personSlug: standalone.performer!.slug, roleLabel: standalone.roleLabel }, { clientKey: "manual", position: 2, performerLabel: "Manual guest" }];
+  const update = (rows: EventLineupInput) => owner.mutation(api.events.updateCommunityEvent, { currentSlug: event.slug!, communitySlug: "club", lineup: rows, preserveLineupConfirmation: true, preservedSlotAssociationIds: snapshot.preservedSlotAssociationIds, preservedParticipantAssociationIds: snapshot.preservedParticipantAssociationIds, retainedLineupAssociations: snapshot.retainedLineupAssociations });
+  for (const iteration of [1, 2]) {
+    await update(lineup);
+    const after = await read();
+    for (const old of before.participants) {
+      const current = after.participants.find(row => row._id === old._id)!;
+      assert.ok(current, `participant retained on save ${iteration}`);
+      for (const field of ["sourceType", "sourceLabel", "sourceUrl", "notes", "confirmationState", "confirmedAt"] as const) assert.equal(current[field], old[field]);
+    }
+    const current = after.slots.find(row => row._id === slot.playbackKey)!;
+    for (const field of ["startAt", "endAt", "selectedStreamId", "sourceLabel", "sourceUrl", "notes"] as const) assert.equal(current[field], before.slots[0]![field]);
+    assert.equal(after.untimed.find(row => row.clientKey === standalone.key)!.sourceLabel, "Original person");
+    assert.equal(after.untimed.find(row => row.clientKey === "manual")!.performerLabel, "Manual guest");
+    assert.equal(after.untimed.find(row => row.clientKey === standalone.key)!.performerLabel, "Guest A");
+  }
+  await update(lineup.filter(row => row.clientKey !== standalone.key));
+  assert.equal((await read()).participants.some(row => row._id === standalone.key), false);
+  assert.ok((await read()).participants.some(row => row.notes === "Hidden association"));
+});
+
+
+for (const replacement of [false, true]) test(`legacy standalone public-to-private snapshot keeps the association unless explicitly replaced=${replacement}`, async () => {
+  const { t, owner, event, read } = await fixture();
+  const initial = await read();
+  await t.run(async ctx => {
+    await ctx.db.patch(event._id, { sourceType: "community" });
+    for (const slot of initial.slots) await ctx.db.delete(slot._id);
+    for (const participant of initial.participants) await ctx.db.patch(participant._id, { confirmationState: "confirmed", sourceLabel: "Legacy source", sourceUrl: "https://example.com/legacy", notes: "Legacy note" });
+  });
+  const snapshot = (await owner.query(api.events.getEditableBySlug, { slug: event.slug! }))!;
+  const row = snapshot.lineup.find(row => row.performer?.slug === "guest")!;
+  const personId = initial.slots.find(slot => slot.clientKey === "guest")!.personProfileId!;
+  await t.run(async ctx => {
+    await ctx.db.patch(personId, { publicationState: "draft_private" });
+    for (const participant of initial.participants) await ctx.db.patch(participant._id, { confirmationState: "unconfirmed", confirmedAt: undefined });
+  });
+  const lineup = snapshot.lineup.map(item => ({ clientKey: item.key, position: item.position, performerLabel: item.key === row.key ? "Billing override" : item.displayLabel, personSlug: item.key === row.key && replacement ? "new" : item.performer?.slug, roleLabel: item.roleLabel }));
+  for (const save of [1, 2]) {
+    await owner.mutation(api.events.updateCommunityEvent, { currentSlug: event.slug!, communitySlug: "club", lineup, preserveLineupConfirmation: true, preservedParticipantAssociationIds: snapshot.preservedParticipantAssociationIds, preservedSlotAssociationIds: snapshot.preservedSlotAssociationIds, retainedLineupAssociations: snapshot.retainedLineupAssociations });
+    const after = await read();
+    const entry = after.untimed.find(item => item.clientKey === row.key)!;
+    assert.equal(entry.performerLabel, "Billing override");
+    assert.equal(entry.sourceLabel, "Legacy source");
+    const participant = after.participants.find(item => item.personProfileId === entry.personProfileId)!;
+    assert.equal(participant.confirmationState, replacement ? "confirmed" : "unconfirmed", `save ${save}`);
+    assert.equal(entry.personProfileId === personId, !replacement);
+    if (!replacement) assert.equal(participant._id, row.key);
+  }
+});
+
+test("unrepresented slots survive canonical conversion and retained IDs must belong to this loaded event", async () => {
+  const { t, owner, event, read } = await fixture();
+  const before = await read();
+  const hidden = before.slots[1]!;
+  await t.run(async ctx => {
+    await ctx.db.patch(hidden._id, { reviewState: "draft" });
+  });
+  const snapshot = (await owner.query(api.events.getEditableBySlug, { slug: event.slug! }))!;
+  assert.ok(snapshot.retainedLineupAssociations.slotIds.includes(hidden._id));
+  const command = { currentSlug: event.slug!, communitySlug: "club", lineup: [{ ...originalLineup[0]!, performerLabel: "Override" }], preserveLineupConfirmation: true, preservedSlotAssociationIds: snapshot.preservedSlotAssociationIds, preservedParticipantAssociationIds: snapshot.preservedParticipantAssociationIds, retainedLineupAssociations: snapshot.retainedLineupAssociations };
+  await owner.mutation(api.events.updateCommunityEvent, command);
+  assert.deepEqual((await read()).slots.find(row => row._id === hidden._id), { ...hidden, reviewState: "draft" });
+  const foreignId = await t.run(async ctx => {
+    const { _id, _creationTime, ...fields } = hidden;
+    const { _id: eventId, _creationTime: created, ...eventFields } = event;
+    const other = await ctx.db.insert("events", { ...eventFields, slug: "foreign" });
+    return ctx.db.insert("eventSlots", { ...fields, eventId: other });
+  });
+  for (const ids of [[foreignId], [hidden._id]]) {
+    const beforeRejected = await read();
+    await assert.rejects(owner.mutation(api.events.updateCommunityEvent, { ...command, preservedSlotAssociationIds: ids[0] === hidden._id ? [] : [foreignId], retainedLineupAssociations: { participantIds: [], slotIds: ids } }), /Retained lineup association is invalid/);
+    assert.deepEqual(await read(), beforeRejected);
+  }
+});
+
+
+test("new browser staff creation persists manual and linked billing alongside timed rows", async () => {
+  const { owner, t } = await fixture();
+  const created = await owner.mutation(api.events.createCommunityEvent, { title: "Staff manual night", communitySlug: "club", startAt, timezone: "UTC", venueLabel: "Local venue", lineup: [
+    { clientKey: "timed", position: 0, performerLabel: "Timed guest", startAt, endAt: startAt + 3_600_000 },
+    { clientKey: "linked", position: 1, performerLabel: "Guest A", personSlug: "guest" },
+    { clientKey: "manual", position: 2, performerLabel: "Unlinked guest" },
+  ] });
+  const editor = (await owner.query(api.events.getEditableBySlug, { slug: created.slug }))!;
+  assert.equal(editor.usesCanonicalLineup, true);
+  assert.equal(editor.venueLabel, "Local venue");
+  assert.deepEqual(editor.lineup.map(row => [row.key, row.displayLabel, row.performer?.slug]), [[editor.slots[0]!.playbackKey, "Timed guest", undefined], ["linked", "Guest A", "guest"], ["manual", "Unlinked guest", undefined]]);
+  assert.equal(editor.slots[0]!.clientKey, "timed");
+  assert.equal(editor.slots[0]!.startAt, startAt);
+  assert.equal((await t.run(ctx => ctx.db.query("eventParticipants").withIndex("by_eventId", q => q.eq("eventId", created.eventId)).collect()))[0]!.confirmationState, "confirmed");
+});

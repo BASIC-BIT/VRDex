@@ -1,3 +1,4 @@
+import { manualPerformer, linkedPerformer } from "./event-performer-helpers";
 import { expect, test } from "@playwright/test";
 
 for (const mode of ["draft", "correction"] as const) {
@@ -92,7 +93,7 @@ for (const mode of ["draft", "correction"] as const) {
     await page.getByLabel("Event title", { exact: true }).fill("My local edit");
     await page.getByRole("button", { name: "Update elsewhere" }).click();
     await expect(page.getByText("Query refreshed", { exact: true })).toBeVisible();
-    await expect(page.getByLabel("Where (optional)", { exact: true })).toHaveValue("Original venue");
+    await expect(page.getByLabel("Where", { exact: true })).toHaveValue("Original venue");
     if (mode === "correction") await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Review", exact: true }).click();
     await page.getByRole("button", { name: mode === "draft" ? "Save draft" : "Save changes", exact: true }).click();
     await expect(page.getByRole("status").filter({ hasText: "This draft changed elsewhere." })).toBeVisible();
@@ -132,17 +133,18 @@ test("correction steps retain allowed details and lineup without source or staff
   await page.getByRole("button", { name: "Correct event", exact: true }).click();
   const navigation = page.getByRole("navigation", { name: "Event editor" });
   await expect(navigation.getByRole("button")).toHaveText([/Details$/, /Lineup$/, /Review$/]);
-  for (const name of ["Community", "Source text", "Poster images", "Poster URL", "Output URL", "Stream"])
+  await expect(page.getByRole("combobox", { name: "Community", exact: true })).toHaveCount(0);
+  for (const name of ["Source text", "Poster images", "Poster URL", "Output URL", "Stream"])
     await expect(page.getByLabel(name, { exact: true })).toHaveCount(0);
   await expect(page.getByText("Advanced", { exact: true })).toHaveCount(0);
   await page.getByLabel("Event title", { exact: true }).fill("Corrected gathering");
-  await page.getByLabel("Where (optional)", { exact: true }).fill("Corrected venue");
+  await page.getByLabel("Where", { exact: true }).fill("Corrected venue");
   await page.screenshot({ path: info.outputPath("correction-details.png"), fullPage: true, animations: "disabled" });
   await navigation.getByRole("button", { name: "Lineup", exact: true }).click();
-  await page.getByRole("textbox", { name: "Performer", exact: true }).fill("Aurora");
-  await page.getByLabel("Person profile", { exact: true }).fill("aurora");
-  const portrait = page.getByRole("img", { name: "Aurora", exact: true }).locator("img");
-  await expect(portrait).toHaveAttribute("src", "/test-media/event-poster.png");
+  await manualPerformer(page.locator("[data-performer-field]").nth(0), "Aurora");
+  await linkedPerformer(page.locator("[data-performer-field]").first(), "Aurora");
+  const portrait = page.locator("[data-performer-field]").getByTestId("selected-identity").locator("img");
+  await expect(portrait).toHaveAttribute("src", new URL("/test-media/event-poster.png", page.url()).href);
   await expect.poll(() => portrait.evaluate(image => (image as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
   await page.screenshot({ path: info.outputPath("correction-lineup.png"), fullPage: true, animations: "disabled" });
   await navigation.getByRole("button", { name: "Review", exact: true }).click();
@@ -151,13 +153,13 @@ test("correction steps retain allowed details and lineup without source or staff
   await page.screenshot({ path: info.outputPath("correction-review.png"), fullPage: true, animations: "disabled" });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.getByRole("button", { name: "Edit details", exact: true }).click();
-  await expect(page.getByLabel("Where (optional)", { exact: true })).toHaveValue("Corrected venue");
+  await expect(page.getByLabel("Where", { exact: true })).toHaveValue("Corrected venue");
   await navigation.getByRole("button", { name: "Review", exact: true }).click();
   await page.getByRole("button", { name: "Save changes", exact: true }).click();
   await expect(navigation).toHaveCount(0);
   const submission = await page.evaluate(() => JSON.parse(sessionStorage.getItem("event-intake-revision-submission")!));
   expect(submission.expectedUpdatedAt).toBe(1);
-  expect(submission.patch).toEqual({ title: "Corrected gathering", venueLabel: "Corrected venue", lineup: [{ clientKey: "private-person", position: 0, performerLabel: "Aurora", personSlug: "aurora" }] });
+  expect(submission.patch).toEqual({ title: "Corrected gathering", venueLabel: "Corrected venue", worldSlug: null, lineup: [{ clientKey: "private-person", position: 0, performerLabel: "Aurora", personSlug: "aurora" }] });
 });
 
 test("owner timezone keyboard search stores a region, not EST @flow @fixture", async ({ page }) => {
@@ -192,13 +194,13 @@ test("community and Events expose intake entry @flow @fixture", async ({ page })
 
 test("intake draft resumes, date-only publishes directly, and has no mobile overflow @flow @fixture", async ({ page }, testInfo) => {
   await page.goto("/playwright/event-intake");
-  await expect(page.getByRole("group", { name: "Selected community", exact: true })).toContainText("playwright-afterglow-social");
+  await expect(page.locator('[data-step="Details"] [data-testid="selected-identity"]').first().locator("..")).toContainText("Afterglow Social");
   await page.getByLabel("Event title", { exact: true }).fill("Summer gathering");
   await page.getByLabel("Time TBA").check();
   await page.getByLabel("Starts", { exact: true }).fill("2027-07-15");
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Lineup", exact: true }).click();
   await page.getByRole("button", { name: "Add performer" }).click();
-  await page.getByRole("textbox", { name: "Performer", exact: true }).fill("Aurora");
+  await manualPerformer(page.locator("[data-performer-field]").nth(0), "Aurora");
   await page.getByRole("button", { name: "Save draft", exact: true }).click();
   await expect(page.getByRole("status")).toHaveText("Draft saved");
   await page.reload();
@@ -307,7 +309,7 @@ test("staff stages retain mounted source fields in Details disclosure @flow @fix
 
 test("community name and slug search select directory results without persisting queries @flow @fixture", async ({ page }, info) => {
   await page.goto("/playwright/event-intake?revision=draft");
-  const selected = page.getByRole("group", { name: "Selected community", exact: true });
+  const selected = page.locator('[data-step="Details"] [data-testid="selected-identity"]').first().locator("..");
   await expect(selected).toContainText("Afterglow");
   await selected.getByRole("button", { name: "Change", exact: true }).click();
   const search = page.getByRole("combobox", { name: "Community", exact: true });
@@ -322,15 +324,15 @@ test("community name and slug search select directory results without persisting
   await expect(selected).toContainText("Afterglow");
   await selected.getByRole("button", { name: "Change", exact: true }).click();
   await search.fill("Afterglow Social");
-  const option = page.getByRole("option", { name: /Afterglow Social.*playwright-afterglow-social/ });
+  const option = page.getByRole("option", { name: /^Afterglow Social$/ });
   await expect(option).toBeVisible();
   await search.press("ArrowDown");
   await expect(option).toHaveAttribute("aria-selected", "true");
   await search.press("Enter");
   await expect(selected).toContainText("Afterglow Social");
   await expect(page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Details", exact: true })).toHaveAttribute("aria-current", "step");
-  const portrait = selected.getByRole("img", { name: "Afterglow Social", exact: true }).locator("img");
-  await expect(portrait).toHaveAttribute("src", "/test-media/event-poster.png");
+  const portrait = selected.locator("img");
+  await expect(portrait).toHaveAttribute("src", new URL("/test-media/event-poster.png", page.url()).href);
   await expect.poll(() => portrait.evaluate(image => (image as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
   await page.getByRole("button", { name: "Save draft", exact: true }).click();
   expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("event-intake-revision-submission")!).patch.communitySlug)).toBe("playwright-afterglow-social");
@@ -342,19 +344,19 @@ test("community name and slug search select directory results without persisting
   await selected.getByRole("button", { name: "Change", exact: true }).click();
   await search.fill("afterglow");
   await page.screenshot({ path: info.outputPath("community-search.png"), fullPage: true, animations: "disabled" });
-  await page.getByRole("option", { name: /^Afterglow afterglow$/ }).click();
-  await expect(selected).toContainText("afterglow");
+  await page.getByRole("option", { name: /^Afterglow$/ }).click();
+  await expect(selected).toContainText("Afterglow");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath("community-selected.png"), fullPage: true, animations: "disabled" });
 });
 
 test("keyboard-active community stays visible before selection @flow @fixture", async ({ page }, info) => {
   await page.goto("/playwright/event-intake?revision=draft");
-  const selected = page.getByRole("group", { name: "Selected community", exact: true });
+  const selected = page.locator('[data-step="Details"] [data-testid="selected-identity"]').first().locator("..");
   await selected.getByRole("button", { name: "Change", exact: true }).click();
   const search = page.getByRole("combobox", { name: "Community", exact: true });
   await search.fill("scroll community");
-  const options = page.getByRole("listbox", { name: "Communities" }).getByRole("option");
+  const options = page.getByRole("listbox", { name: "Community" }).getByRole("option");
   await expect(options).toHaveCount(8);
   for (let index = 0; index < 8; index += 1) await search.press("ArrowDown");
   const last = options.last();
@@ -375,7 +377,7 @@ test("keyboard-active community stays visible before selection @flow @fixture", 
 
 test("community Clear saves a nullable incomplete draft and focuses missing community on publish @flow @fixture", async ({ page }) => {
   await page.goto("/playwright/event-intake?revision=draft");
-  await page.getByRole("group", { name: "Selected community", exact: true }).getByRole("button", { name: "Clear", exact: true }).click();
+  await page.locator('[data-step="Details"] [data-testid="selected-identity"]').first().locator("..").getByRole("button", { name: "Clear", exact: true }).click();
   await expect(page.getByRole("combobox", { name: "Community", exact: true })).toBeFocused();
   await page.getByRole("button", { name: "Save draft", exact: true }).click();
   await expect(page.getByRole("status")).toHaveText("Draft saved");
@@ -388,15 +390,17 @@ test("community Clear saves a nullable incomplete draft and focuses missing comm
 
 test("initial community links and resumed missing slugs survive unresolved searches @flow @fixture", async ({ page }) => {
   await page.goto("/playwright/event-intake?revision=initial&community=afterglow");
-  await expect(page.getByRole("group", { name: "Selected community", exact: true })).toContainText("Afterglow");
+  await expect(page.locator('[data-step="Details"] [data-testid="selected-identity"]').first().locator("..")).toContainText("Afterglow");
   await page.getByRole("button", { name: "Save draft", exact: true }).click();
   expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("event-intake-revision-submission")!).patch.communitySlug)).toBe("afterglow");
   await page.evaluate(() => sessionStorage.setItem("fixture-source-draft", JSON.stringify({ version: 1, fields: { communitySlug: "missing-community", title: "Resumed title" } })));
   await page.goto("/playwright/event-intake?source=search-loading");
-  const selected = page.getByRole("group", { name: "Selected community", exact: true });
-  await expect(selected).toContainText("missing-community");
+  const selected = page.locator('[data-step="Details"] [data-testid="selected-identity"]').first().locator("..");
+  await expect(selected.getByRole("button", { name: "Change", exact: true })).toBeVisible();
+  await expect(selected).not.toContainText("missing-community");
   await page.evaluate(() => window.dispatchEvent(new Event("release-community-search")));
-  await expect(selected).toContainText("missing-community");
+  await expect(selected.getByRole("button", { name: "Change", exact: true })).toBeVisible();
+  await expect(selected).not.toContainText("missing-community");
   await page.getByRole("button", { name: "Save draft", exact: true }).click();
   expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("event-intake-revision-submission")!).patch.communitySlug)).toBe("missing-community");
 });
@@ -405,8 +409,8 @@ test("initial community links and resumed missing slugs survive unresolved searc
 test("combined controls preserve dates, reversible TBA and overnight times @flow @fixture", async ({ page }, info) => {
   await page.goto("/playwright/event-intake?source=text");
   await page.getByRole("combobox", { name: "Community", exact: true }).fill("afterglow");
-  await page.getByRole("option", { name: /^Afterglow afterglow$/ }).click();
-  const portrait = page.getByRole("group", { name: "Selected community", exact: true }).getByRole("img", { name: "Afterglow", exact: true }).locator("img");
+  await page.getByRole("option", { name: /^Afterglow$/ }).click();
+  const portrait = page.locator('[data-step="Details"] [data-testid="selected-identity"]').first().locator("..").locator("img");
   await expect.poll(() => portrait.evaluate(image => (image as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
   await page.getByLabel("Event title", { exact: true }).fill("Overnight gathering");
   await page.getByLabel("Starts", { exact: true }).fill("2026-10-10T23:00");

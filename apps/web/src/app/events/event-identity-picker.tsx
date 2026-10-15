@@ -19,6 +19,7 @@ export type EventIdentityPickerProps = {
   selectedOption?: EventIdentityOption | null;
   shortcuts?: readonly EventIdentityOption[];
   disabled?: boolean;
+  required?: boolean;
   onSelect(option: EventIdentityOption): void;
   /** Presentation hydration only; never treat this as an authored selection. */
   onResolve?(option: EventIdentityOption): void;
@@ -38,6 +39,7 @@ export function EventIdentityPicker({
   selectedOption,
   shortcuts = [],
   disabled,
+  required,
   onSelect,
   onResolve,
   onClear,
@@ -279,6 +281,9 @@ export function EventIdentityPicker({
             className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted"
           />
           <Input
+            // A search query is not an accepted identity or manual value.
+            required={required && !selectedSlug}
+            pattern={required && !selectedSlug ? "(?!)" : undefined}
             role="combobox"
             aria-label={label}
             aria-autocomplete="list"

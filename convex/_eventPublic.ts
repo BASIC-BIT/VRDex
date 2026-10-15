@@ -823,6 +823,15 @@ export async function getEventForEditor(
     (association) => association._id,
   );
   const preservedSlotAssociationIds = slotAssociations.map((association) => association._id);
+  const representedPersonIds = new Set([
+    ...(record?.slots.flatMap(row => row.slot.personProfileId ? [row.slot.personProfileId] : []) ?? []),
+    ...(record?.lineupEntries?.flatMap(row => row.entry.personProfileId ? [row.entry.personProfileId] : []) ?? []),
+    ...(record?.participants.map(row => row.profile._id) ?? []),
+  ]);
+  const retainedLineupAssociations = {
+    participantIds: participantAssociations.filter(row => !representedPersonIds.has(row.personProfileId)).map(row => row._id),
+    slotIds: slotAssociations.filter(row => !projected?.slots.some(slot => slot.playbackKey === row._id)).map(row => row._id),
+  };
   return projected === null
     ? null
     : {
@@ -846,6 +855,7 @@ export async function getEventForEditor(
           : {}),
         authoredMediaLinks,
         ...optionalField("notes", event.notes),
+        retainedLineupAssociations,
         preservedParticipantAssociationIds,
         preservedSlotAssociationIds,
         preservedWorldAssociationIds,

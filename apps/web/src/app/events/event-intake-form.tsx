@@ -1,6 +1,6 @@
 "use client";
 import { formatLineupTimeRange } from "@/lib/calendar/event-lineup-display";
-import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { Upload } from "lucide-react";
 import { EventIntakeDialog } from "./event-intake-dialog";
 import { ConvexError } from "convex/values";
@@ -25,22 +25,11 @@ import type { EventIdentityOption } from "@/lib/event-editor-identity";
 import { EventEditorPreview, EventCommunitySummary, useEventCommunity } from "./event-editor-preview";
 import { eventLocalDate, formatIntakeDateTimeInput, parseIntakeDateTimeInput } from "@/lib/calendar/event-intake-date-time";
 import { acceptIntakeSuggestion, rebaseIntakeTime as rebaseTime, rebaseIntakeTimes, rebaseIntakeSuggestions, restoreIntakeTiming, type IntakeSuggestionAcceptance } from "@/lib/calendar/event-intake-suggestions";
-import { ProfileAvatarImage } from "../_components/profile-avatar-image";
+import { EventPerformerField, useEventPerformerEditor } from "./event-performer-field";
 import { applyIntakeLineupTimings, intakeLocalFromInstant, readIntakeInstant, readIntakeLineupTimings } from "@/lib/calendar/event-lineup-adapters";
 import { changeLineupDuration, generateLineupTimings, getLineupEndAt, getLineupEndConflict, insertLineupSlot, removeLineupSlot, shiftLineupStart, type LineupEditResult, type LineupTimingRow } from "@/lib/calendar/event-lineup-timing";
 import { EventLineupSetup, EventLineupInsert, EventSlotDuration, EventLineupReset, EventLineupConflict } from "./event-lineup-controls";
 import { BACKEND_ERROR_COPY } from "@/lib/error-copy";
-
-function PerformerInput({ label, slug, onLabel, onSlug }: { label: string; slug: string; onLabel: (value: string) => void; onSlug: (value: string) => void }) {
-  const id = useId();
-  const query = slug || label;
-  const matches = useQuery(api.search.searchUniversal, query.trim().length >= 2 ? { query: query.trim(), entityType: "profile", profileType: "person", limit: 8 } : "skip");
-  const match = matches?.find(person => person.slug === slug);
-  return <div className="flex items-start gap-3">
-    <span className="relative mt-6 flex size-12 shrink-0 overflow-hidden rounded-control bg-surface-strong"><ProfileAvatarImage alt={label || slug || "Performer"} fallback={(label || slug || "?").slice(0, 2).toUpperCase()} src={match?.imageUrl} /></span>
-    <div className="grid min-w-0 flex-1 gap-3 sm:grid-cols-2"><Field>Performer<Input value={label} required pattern=".*\S.*" onChange={event => onLabel(event.target.value)} /></Field><Field>Person profile<Input list={id} value={slug} onChange={event => onSlug(event.target.value)} /><datalist id={id}>{matches?.map(person => <option key={person.slug} value={person.slug} label={person.title} />)}</datalist></Field></div>
-  </div>;
-}
 
 export function IntakeTime({ label, value, date, timezone, eventStart = false, onChange }: { label: string; value?: EventIntakeLocalTime | null; date?: string | null; timezone?: string | null; eventStart?: boolean; onChange: (change: { eventDate: string | null; local: EventIntakeLocalTime | null }) => void }) {
   const control = useRef<HTMLDivElement>(null);
@@ -77,6 +66,7 @@ function resetTimeOccurrences(fields: EventIntakeFields, timezone: EventIntakeFi
 }
 export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, correction = false, onSave, onPublish, onSource, initialArtworkSourceId, heading, savedTimezonePreference, newDraft = false }: { savedTimezonePreference?: string | null; newDraft?: boolean; heading?: ReactNode; initialFields: EventIntakeFields; initialRevision?: number; correction?: boolean; onSource?: IntakeSourceAction; initialArtworkSourceId?: string; onSave?: (fields: EventIntakeFields, revision: number) => Promise<void>; onPublish: (fields: EventIntakeFields, revision: number) => Promise<void> }) {
   const form = useRef<HTMLFormElement>(null);
+  const performers = useEventPerformerEditor();
   const [fields, setFields] = useState(() => initialFields.timeTba ? untimed(initialFields) : initialFields);
   const { isAuthenticated } = useConvexAuth();
   const managed = useQuery(api.events.listManagedCommunities, isAuthenticated ? {} : "skip");
@@ -282,7 +272,7 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
       const invalid = form.current?.querySelector<HTMLInputElement>('[data-intake-time][aria-invalid="true"]');
       if (invalid) reveal(invalid.closest('[data-step="Lineup"]') ? "Lineup" : "Details", `[name="${invalid.name}"]`);
       else setImportOpen(true);
-    }}><Upload aria-hidden="true" className="size-4" />Import poster or text</Button> : undefined} steps={steps} activeStep={activeStep} onSelect={setActiveStep} preview={<EventEditorPreview fields={fields} artwork={artwork} community={community} world={world} />}>
+    }}><Upload aria-hidden="true" className="size-4" />Import poster or text</Button> : undefined} steps={steps} activeStep={activeStep} onSelect={setActiveStep} preview={<EventEditorPreview fields={{ ...fields, lineup: fields.lineup?.map(row => ({ ...row, performerLabel: row.performerLabel || performers.person(row.personSlug)?.title })) }} artwork={artwork} community={community} world={world} />}>
     <fieldset disabled={busy} className="grid min-w-0 gap-6">
     <div hidden={activeStep !== "Details"} data-step="Details"><section className="grid gap-4"><h2 className="text-xl font-semibold">Details</h2>{onSource ? <EventIntakeSuggestions fields={fields} onAccept={acceptSuggestion} /> : null}
     {!correction ? <div className="grid gap-2"><span className="text-sm font-medium">Community</span><EventIdentityPicker kind="community" selectedSlug={fields.communitySlug} selectedOption={community} shortcuts={shortcuts} onSelect={option => { setSelectedCommunity(option); set("communitySlug", option.slug); }} onClear={() => { setSelectedCommunity(undefined); set("communitySlug", null); }} /></div> : null}
@@ -304,7 +294,10 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
         const gap = timing?.startAt !== undefined && previousEnd !== undefined ? (timing.startAt - previousEnd) / 60_000 : 0;
         const duration = timing?.startAt !== undefined && timing.endAt !== undefined && timing.endAt > timing.startAt ? (timing.endAt - timing.startAt) / 60_000 : undefined;
         return <Fragment key={row.clientKey}>{gap !== 0 ? <p className={gap < 0 ? "text-sm text-danger" : "text-sm text-muted"}>{gap < 0 ? "Overlap" : "Break"}: {Math.abs(gap)} min</p> : null}<fieldset data-lineup-row={row.clientKey} className="grid gap-3 rounded-control border border-border p-4"><legend className="px-1">Slot {index + 1}</legend>
-        <PerformerInput label={row.performerLabel ?? ""} slug={row.personSlug ?? ""} onLabel={value => set("lineup", fields.lineup!.map(item => item.clientKey === row.clientKey ? { ...item, performerLabel: value } : item))} onSlug={value => set("lineup", fields.lineup!.map(item => item.clientKey === row.clientKey ? { ...item, personSlug: value } : item))} />
+        <EventPerformerField required value={performers.value({ key: row.clientKey, label: row.performerLabel ?? "", personSlug: row.personSlug })} selectedPerson={performers.person(row.personSlug)} onResolve={performers.resolve} disabled={busy} onChange={value => {
+          const next = performers.change({ key: row.clientKey, label: row.performerLabel ?? "", personSlug: row.personSlug }, value);
+          set("lineup", fields.lineup!.map(item => item.clientKey === row.clientKey ? { ...item, performerLabel: next.label, personSlug: next.personSlug || undefined } : item));
+        }} />
         {!fields.timeTba ? <div className="flex flex-wrap items-end justify-between gap-3"><p className="text-sm text-muted">{formatLineupTimeRange({ ...timing, timezone: fields.timezone ?? "UTC", eventDate: fields.eventDate })}</p><EventSlotDuration value={duration} onCommit={minutes => applyTimingEdit(changeLineupDuration(timings, row.clientKey, minutes))} /></div> : null}
         <details><summary className="cursor-pointer text-sm font-medium">Details</summary><div className="mt-3 grid gap-3">
         <Field>Role<Input value={row.roleLabel ?? ""} onChange={event => set("lineup", fields.lineup!.map(item => item.clientKey === row.clientKey ? { ...item, roleLabel: event.target.value } : item))} /></Field>
@@ -319,7 +312,7 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
     <section className="grid gap-4"><h2 className="text-xl font-semibold">Review</h2>{activeStep === "Review" ? <Button type="submit" variant="primary" className="justify-self-start" disabled={busy}>{correction ? "Save changes" : "Publish event"}</Button> : null}{endConflict}<div className="grid gap-4 rounded-control border border-border p-4">
       <div className="flex items-start justify-between gap-4"><div><h3 className="font-semibold">{fields.title || "Event title"}</h3>{fields.communitySlug ? <EventCommunitySummary community={community} /> : null}<p className="text-sm text-muted">{[eventLocalDate(fields.eventDate, fields.timeTba ? null : fields.start), fields.timeTba ? "Time TBA" : fields.start?.time, fields.timezone, fields.venueLabel || world?.title].filter(Boolean).join(" · ")}</p></div><Button type="button" variant="secondary" onClick={() => setActiveStep("Details")}>Edit details</Button></div>
       {fields.summary ? <p className="text-sm">{fields.summary}</p> : null}
-      <div className="flex items-start justify-between gap-4 border-t border-border pt-4"><div><h3 className="font-semibold">Lineup</h3>{fields.lineup?.map(row => <p key={row.clientKey} className="text-sm">{row.performerLabel || row.personSlug}</p>)}</div><Button type="button" variant="secondary" onClick={() => setActiveStep("Lineup")}>Edit lineup</Button></div>
+      <div className="flex items-start justify-between gap-4 border-t border-border pt-4"><div><h3 className="font-semibold">Lineup</h3>{fields.lineup?.map(row => <p key={row.clientKey} className="text-sm">{row.performerLabel || performers.person(row.personSlug)?.title}</p>)}</div><Button type="button" variant="secondary" onClick={() => setActiveStep("Lineup")}>Edit lineup</Button></div>
     </div></section>
     {duplicates.length ? <section className="grid gap-3"><h2 className="text-xl font-semibold">Similar events</h2>{duplicates.map(item => <div key={item.eventId}><Link className="underline" href={item.eventPath}>{item.title}</Link><label className="mt-2 flex items-center gap-2"><input type="checkbox" checked={fields.duplicateAcknowledgements?.includes(item.eventId) ?? false} onChange={event => set("duplicateAcknowledgements", event.target.checked ? [...fields.duplicateAcknowledgements ?? [], item.eventId] : fields.duplicateAcknowledgements?.filter(id => id !== item.eventId))} />Different event</label></div>)}</section> : null}
     </div>

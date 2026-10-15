@@ -118,9 +118,11 @@ crossing dates, seconds and milliseconds where present.
 `Reset lineup` requires confirmation and removes editable timed and untimed rows.
 Cancel keeps edits; confirmation keeps details, artwork, timezone and explicit end.
 Time TBA preserves timing only in the current editor backup; removed keys stay removed.
-Canonical staff and contributor lineups retain untimed row positions. Legacy staff
-`participantLinks` remains a separate untimed group because that command has no
-position field. Legacy creation still requires `startAt`.
+Staff and contributor lineups retain untimed row positions. The staff browser
+uses canonical `lineup` for new events and deliberately edited lineups. An
+unrelated save omits the lineup, including for legacy events. Existing external
+`participantLinks` and `slotLinks` commands retain their contracts. Staff creation
+still requires `startAt`.
 
 Entered and persisted event ends remain fixed through all lineup/start edits.
 Lineup and Review repeat an overrun with actual bounds. `Set event end to lineup end`
@@ -139,15 +141,44 @@ its existing event surface. New publication and staff publication/save return di
 to the command's event page. Validation reveals and focuses Details or Lineup,
 including missing timezone, DST gaps and unresolved repeated-hour choices.
 
+### Performer identity
+
+Timed and untimed rows share one `Performer` lookup. Typing or blurring a name
+does not link a profile. Selecting a person links it; `Add manual entry` keeps the
+entered text unlinked, even when search returns matches or fails. Manual rows
+show `Unlinked` and `Link profile`.
+
+`Display name as` holds optional billing text. Linking `Guest A` to Aurora keeps
+`Guest A` as an override. Changing the profile keeps that override. Clearing the
+override adopts the selected profile's name, and later profile changes follow
+the new name. A saved differing label opens the disclosure. Profile hydration
+only updates presentation, preserves unavailable links and does not author a save.
+The parent retains explicit override intent for the open editing session.
+Intake publication requires a selected profile or a nonblank manual name. Search
+text alone cannot satisfy that constraint; saving an incomplete draft remains allowed.
+
+Browser creation accepts canonical lineup and venue fields. Existing browser
+lineup edits reuse slot client keys or stored IDs and the editor's existing
+standalone participant keys. The canonical helper uses authorized, current-event
+participant IDs to preserve legacy source data and confirmation. Explicit new
+matches still confirm. The update-only `retainedLineupAssociations` list preserves
+associations the loaded editor did not represent. Every retained ID must belong
+to this event and its loaded snapshot. Removing a represented row still removes
+it. Public/API readback does not expose these editor-only lists or private slugs.
+
+Stream choices and exact stored times remain on the row during identity edits.
+An incompatible saved stream remains available to clear or replace explicitly;
+the existing server ownership validation still applies.
+
 ### Legacy stored-slot identity
 
-`events.updateCommunityEvent` accepts the optional update-only
+External legacy callers of `events.updateCommunityEvent` may still use the optional update-only
 `storedSlotAssociations: Array<{ position: number; slotId: Id<"eventSlots"> }>`.
 `position` is the submitted slot index before start-time sorting. Editor readback
 uses legacy `playbackKey` for the stored ID, separately from local row keys.
 Only surviving IDs in `preservedSlotAssociationIds` are mapped. New rows are unmapped.
-The response returns current IDs at submitted positions; the editor reconciles them
-to captured submitted keys so edits made while saving cannot take another row's ID.
+The response returns current IDs at submitted positions. The canonical browser
+adapter uses stable row keys instead.
 
 After existing actor/event permission checks and before writes, the backend checks
 integer in-range positions, unique IDs/positions, at most 80 mappings, protected
@@ -217,7 +248,7 @@ source edits remain available through the existing explicit source-capable
 commands. Clearing optional editor fields sends explicit
 values so they do not silently retain old content. Contributor correction
 readback merges timed and untimed performers by authored position. Existing
-timed owner events keep the slot/participant editor.
+timed owner events keep their slot keys through the shared lineup editor.
 
 `getEventContributionAccess` returns capabilities only. Contributor identifiers
 stay out of the public event DTO. Correction mutations retain server authorization

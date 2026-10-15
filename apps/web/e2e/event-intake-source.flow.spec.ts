@@ -1,3 +1,4 @@
+import { manualPerformer, linkedPerformer } from "./event-performer-helpers";
 import { expect, test, type Page } from "@playwright/test";
 
 const step = async (page: Page, name: string) => {
@@ -7,10 +8,10 @@ const step = async (page: Page, name: string) => {
   await expect(button).toHaveAttribute("aria-current", "step");
 };
 const selectCommunity = async (page: Page, slug: string) => {
-  const selected = page.getByRole("group", { name: "Selected community", exact: true });
+  const selected = page.locator('[data-step="Details"] [data-testid="selected-identity"]').first().locator("..");
   if (await selected.isVisible()) await selected.getByRole("button", { name: "Change", exact: true }).click();
   await page.getByRole("combobox", { name: "Community", exact: true }).fill(slug);
-  await page.getByRole("option", { name: slug === "afterglow" ? /^Afterglow afterglow$/ : /Afterglow Social.*playwright-afterglow-social/ }).click();
+  await page.getByRole("option", { name: slug === "afterglow" ? /^Afterglow$/ : /^Afterglow Social$/ }).click();
 };
 const openImport = async (page: Page) => {
   await page.getByRole("button", { name: "Import poster or text", exact: true }).click();
@@ -76,23 +77,28 @@ test("review publish reveals a blank lineup performer @flow @fixture", async ({ 
   await page.getByRole("button", { name: "Add performer", exact: true }).click();
   await step(page, "Review");
   await page.getByRole("button", { name: "Publish event", exact: true }).click();
-  await expect(page.getByRole("textbox", { name: "Performer", exact: true })).toBeFocused();
+  const performer = page.getByRole("combobox", { name: "Performer", exact: true });
+  await expect(performer).toBeFocused();
   expect(await page.evaluate(() => sessionStorage.getItem("fixture-published"))).toBeNull();
   await page.screenshot({ path: info.outputPath("blank-performer-focus.png"), fullPage: true, animations: "disabled" });
-  await page.getByRole("textbox", { name: "Performer", exact: true }).fill("  ");
-  await step(page, "Review");
-  await page.getByRole("button", { name: "Publish event", exact: true }).click();
-  await expect(page.getByRole("textbox", { name: "Performer", exact: true })).toBeFocused();
-  await page.getByLabel("Person profile", { exact: true }).fill("aurora");
-  for (const blankName of ["", "  "]) {
-    await page.getByRole("textbox", { name: "Performer", exact: true }).fill(blankName);
+  for (const query of ["  ", "Aurora"]) {
+    await performer.fill(query);
     await step(page, "Review");
     await page.getByRole("button", { name: "Publish event", exact: true }).click();
-    await expect(page.getByRole("textbox", { name: "Performer", exact: true })).toBeFocused();
+    await expect(performer).toBeFocused();
     expect(await page.evaluate(() => sessionStorage.getItem("fixture-published"))).toBeNull();
   }
+  await linkedPerformer(page.locator("[data-performer-field]").first(), "Aurora");
+  await page.locator("summary").filter({ hasText: "Display name as" }).click();
+  const billing = page.getByRole("textbox", { name: "Display name as", exact: true });
+  await billing.fill("  ");
+  await step(page, "Review");
+  await page.getByRole("button", { name: "Publish event", exact: true }).click();
+  await expect(billing).toBeFocused();
+  expect(await page.evaluate(() => sessionStorage.getItem("fixture-published"))).toBeNull();
   await page.screenshot({ path: info.outputPath("selected-profile-name-focus.png"), fullPage: true, animations: "disabled" });
-  await page.getByRole("textbox", { name: "Performer", exact: true }).fill("Aurora");
+  // Clearing the override intentionally restores the selected profile's name.
+  await billing.fill("");
   await step(page, "Review");
   await page.getByRole("button", { name: "Publish event", exact: true }).click();
   await expect(page).toHaveURL(/playwright-afterglow-harbor-sessions$/);
@@ -111,8 +117,8 @@ test("manual partial draft survives steps and resume then publishes directly @fl
   await page.screenshot({ path: info.outputPath("details.png"), fullPage: true, animations: "disabled" });
   await step(page, "Lineup");
   await page.getByRole("button", { name: "Add performer" }).click();
-  await page.getByRole("textbox", { name: "Performer", exact: true }).fill("Guest DJ");
-  await expect(page.getByRole("img", { name: "Guest DJ" })).toBeVisible();
+  await manualPerformer(page.locator("[data-performer-field]").nth(0), "Guest DJ");
+  await expect(page.getByRole("textbox", { name: "Performer", exact: true })).toHaveValue("Guest DJ");
   await step(page, "Review");
   await expect(page.getByRole("heading", { name: "Similar events" })).toHaveCount(0);
   await page.screenshot({ path: info.outputPath("review.png"), fullPage: true, animations: "disabled" });
@@ -195,10 +201,10 @@ test("lineup uses local dates across midnight and matched avatars @flow @fixture
   await page.getByLabel("Time TBA", { exact: true }).uncheck();
   await step(page, "Lineup");
   await page.getByRole("button", { name: "Add performer" }).click();
-  await page.getByRole("textbox", { name: "Performer", exact: true }).fill("Aurora");
-  await page.getByLabel("Person profile", { exact: true }).fill("aurora");
-  await expect(page.getByRole("img", { name: "Aurora", exact: true }).locator("img")).toHaveAttribute("src", "/test-media/event-poster.png");
-  await page.locator('[data-lineup-row]').first().locator("summary").click();
+  await manualPerformer(page.locator("[data-performer-field]").nth(0), "Aurora");
+  await linkedPerformer(page.locator("[data-performer-field]").first(), "Aurora");
+  await expect(page.locator("[data-performer-field]").getByTestId("selected-identity").locator("img")).toHaveAttribute("src", new URL("/test-media/event-poster.png", page.url()).href);
+  await page.locator('[data-lineup-row]').first().locator("summary").filter({ hasText: "Details" }).click();
   await page.getByLabel("Slot 1 start", { exact: true }).fill("2027-10-16T00:30");
   await expect(page.getByText("Day offset", { exact: true })).toHaveCount(0);
   await page.screenshot({ path: info.outputPath("lineup.png"), fullPage: true, animations: "disabled" });
@@ -232,7 +238,7 @@ test("review routes missing fields back to details and repeated times require oc
   await step(page, "Review");
   await page.getByRole("button", { name: "Publish event", exact: true }).click();
   await expect(page.getByLabel("Event title", { exact: true })).toBeVisible();
-  await expect(page.getByLabel("Community", { exact: true })).toBeFocused();
+  await expect(page.getByRole("combobox", { name: "Community", exact: true })).toBeFocused();
   await page.getByLabel("Event title", { exact: true }).fill("Repeated hour");
   await selectCommunity(page, "afterglow");
   await page.getByLabel("Time TBA", { exact: true }).check();
@@ -398,17 +404,18 @@ test("publish focuses invalid lineup time and hidden native field @flow @fixture
   await page.getByLabel("Starts", { exact: true }).fill("2027-03-14T01:00");
   await step(page, "Lineup");
   await page.getByRole("button", { name: "Add performer" }).click();
-  await page.getByRole("textbox", { name: "Performer", exact: true }).fill("Guest DJ");
-  await page.locator('[data-lineup-row]').first().locator("summary").click();
+  await manualPerformer(page.locator("[data-performer-field]").nth(0), "Guest DJ");
+  await page.locator('[data-lineup-row]').first().locator("summary").filter({ hasText: "Details" }).click();
   await page.getByLabel("Slot 1 start", { exact: true }).fill("2027-03-14T02:30");
   await step(page, "Review");
   await page.getByRole("button", { name: "Publish event", exact: true }).click();
   await expect(page.getByLabel("Slot 1 start", { exact: true })).toBeFocused();
   await step(page, "Details");
-  await page.getByLabel("Source URL", { exact: true }).fill("invalid-url");
+  await page.locator("summary").filter({ hasText: "Original event post" }).click();
+  await page.getByLabel("Original event post", { exact: true }).fill("invalid-url");
   await step(page, "Review");
   await page.getByRole("button", { name: "Publish event", exact: true }).click();
-  await expect(page.getByLabel("Source URL", { exact: true })).toBeFocused();
+  await expect(page.getByLabel("Original event post", { exact: true })).toBeFocused();
 });
 
 
@@ -535,7 +542,7 @@ test("Time TBA restores only surviving lineup keys and reload discards the backu
   await page.getByRole("button", { name: "Remove slot", exact: true }).first().click();
   await page.getByRole("button", { name: "Add slot at position 2", exact: true }).click();
   await page.getByRole("button", { name: "Add performer", exact: true }).click();
-  await page.getByRole("textbox", { name: "Performer", exact: true }).nth(1).fill("New performer");
+  await manualPerformer(page.locator("[data-performer-field]").nth(1), "New performer");
   await step(page, "Details");
   await page.getByLabel("Time TBA", { exact: true }).uncheck();
   await step(page, "Lineup");
@@ -772,7 +779,7 @@ for (const loadedTba of [false, true]) {
     await step(page, "Lineup");
     await page.getByRole("button", { name: "Remove slot", exact: true }).click();
     await page.getByRole("button", { name: "Add performer", exact: true }).click();
-    await page.getByRole("textbox", { name: "Performer", exact: true }).fill("New guest");
+    await manualPerformer(page.locator("[data-performer-field]").nth(0), "New guest");
     await step(page, "Details");
     // Unrelated source edits and accepts cannot erase remembered timing.
     await page.getByRole("button", { name: "Accept Time zone", exact: true }).click();
@@ -808,20 +815,21 @@ for (const progression of ["click", "Enter"] as const) {
     };
     await advance();
     await expect(navigation.getByRole("button", { name: "Lineup", exact: true })).toHaveAttribute("aria-current", "step");
-    if (progression === "Enter") await page.getByRole("textbox", { name: "Performer", exact: true }).press("Enter");
+    if (progression === "Enter") await page.getByRole("button", { name: "Continue", exact: true }).press("Enter");
     else await advance();
     await expect(navigation.getByRole("button", { name: "Review", exact: true })).toHaveAttribute("aria-current", "step");
     await page.getByRole("button", { name: "Publish event", exact: true }).click();
-    await expect(page.getByRole("textbox", { name: "Performer", exact: true })).toBeFocused();
+    await expect(page.getByRole("combobox", { name: "Performer", exact: true })).toBeFocused();
     expect(await page.evaluate(() => sessionStorage.getItem("fixture-published"))).toBeNull();
-    await page.getByRole("textbox", { name: "Performer", exact: true }).fill("Guest");
+    await manualPerformer(page.locator("[data-performer-field]").nth(0), "Guest");
     await step(page, "Details");
-    await page.getByLabel("Source URL", { exact: true }).fill("invalid-url");
+    await page.locator("summary").filter({ hasText: "Original event post" }).click();
+  await page.getByLabel("Original event post", { exact: true }).fill("invalid-url");
     await step(page, "Lineup");
     await advance();
     await expect(navigation.getByRole("button", { name: "Review", exact: true })).toHaveAttribute("aria-current", "step");
     await page.getByRole("button", { name: "Publish event", exact: true }).click();
-    await expect(page.getByLabel("Source URL", { exact: true })).toBeFocused();
+    await expect(page.getByLabel("Original event post", { exact: true })).toBeFocused();
     expect(await page.evaluate(() => sessionStorage.getItem("fixture-published"))).toBeNull();
     await page.screenshot({ path: info.outputPath("continue-publish-url-focus.png"), fullPage: true, animations: "disabled" });
   });

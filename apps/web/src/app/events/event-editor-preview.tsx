@@ -46,6 +46,6 @@ export function EventEditorPreview({ fields, artwork, community, world }: { fiel
       {locationLabel ? <p>{locationLabel}</p> : null}
     </div>
     {fields.summary ? <p className="break-words text-sm">{fields.summary}</p> : null}
-    {fields.lineup?.length ? <div className="grid gap-3 border-t border-border pt-4"><h3 className="font-medium">Lineup</h3>{fields.lineup.map(row => <div key={row.clientKey} className="text-sm"><p>{row.performerLabel || row.personSlug}</p><p className="text-muted">{time(row.start)}{time(row.end) ? ` – ${time(row.end)}` : ""}</p></div>)}</div> : null}
+    {fields.lineup?.length ? <div className="grid gap-3 border-t border-border pt-4"><h3 className="font-medium">Lineup</h3>{fields.lineup.map(row => <div key={row.clientKey} className="text-sm"><p>{row.performerLabel}</p><p className="text-muted">{time(row.start)}{time(row.end) ? ` – ${time(row.end)}` : ""}</p></div>)}</div> : null}
   </>;
 }
