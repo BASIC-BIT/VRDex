@@ -210,7 +210,7 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
       setFields(updated);
       if (nextStart !== undefined) startAnchor.current = nextStart;
       return true;
-    } catch { reveal("Lineup", '[data-lineup-row] [data-intake-time]'); return false; }
+    } catch { reveal("Details", '[name="Starts"]'); return false; }
   }
   function toggleTba(checked: boolean) {
     timezoneAuthored.current = true;
@@ -344,8 +344,8 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
   return <EventEditorPendingContext.Provider value={pendingInputs.register}><form ref={form} data-event-dirty={dirty} className="grid gap-6" onChangeCapture={event => {
     const target = event.target;
     if (target instanceof HTMLElement && target.closest("[data-intake-time]")) timezoneAuthored.current = true;
-  }} onInvalidCapture={event => { event.preventDefault(); const target = event.target as HTMLElement; if (target !== form.current?.querySelector("input:invalid, select:invalid, textarea:invalid")) return; const panel = target.closest<HTMLElement>("[data-step]"); if (panel) { event.preventDefault(); setActiveStep(panel.dataset.step as EventEditorStep); requestAnimationFrame(() => { const disclosure = target.closest("details"); if (disclosure) { disclosure.open = true; setEndOpen(true); } if (target instanceof HTMLInputElement && target.validationMessage.startsWith("Ambiguous")) {
-      setMessage(target.validationMessage); form.current?.querySelector<HTMLElement>(`[aria-label="${target.name} occurrence"]`)?.focus();
+  }} onInvalidCapture={event => { event.preventDefault(); const target = event.target as HTMLElement; if (target !== form.current?.querySelector("input:invalid, select:invalid, textarea:invalid")) return; const panel = target.closest<HTMLElement>("[data-step]"); if (panel) { event.preventDefault(); setActiveStep(panel.dataset.step as EventEditorStep); requestAnimationFrame(() => { const disclosure = target.closest("details"); if (disclosure) { disclosure.open = true; setEndOpen(true); } if (target instanceof HTMLInputElement && target.validity.customError) setMessage(target.validationMessage);
+    if (target instanceof HTMLInputElement && target.validationMessage.startsWith("Ambiguous")) { form.current?.querySelector<HTMLElement>(`[aria-label="${target.name} occurrence"]`)?.focus();
     } else target.focus(); }); } }} onSubmit={event => { event.preventDefault(); if (activeStep === "Review") void submit(true); else setActiveStep(steps[steps.indexOf(activeStep) + 1]); }}>
     <EventEditorSteps heading={heading} actions={onSource ? <Button type="button" variant="primary" className="min-h-11 gap-2" onClick={() => {
       const invalid = form.current?.querySelector<HTMLInputElement>('[data-intake-time][aria-invalid="true"]');
@@ -401,7 +401,7 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
     <fieldset disabled={busy} className="flex flex-wrap items-center gap-3 border-t border-border pt-5"><span className="mr-auto text-sm text-muted">{steps.indexOf(activeStep) + 1} / {steps.length}</span>{activeStep !== steps[0] ? <Button type="button" variant="secondary" onClick={() => setActiveStep(steps[steps.indexOf(activeStep) - 1])}>Back</Button> : null}{activeStep !== "Review" ? <Button type="submit" formNoValidate variant="primary">Continue</Button> : null}{onSave ? <Button type="button" disabled={busy} variant="secondary" onClick={() => void submit(false)}>Save draft</Button> : null}</fieldset>
     {message && !importOpen ? <Notice><span role="status">{message}</span></Notice> : null}
   </form>
-  {onSource ? <EventIntakeDialog open={importOpen} onClose={() => setImportOpen(false)}><fieldset><EventIntakeSource fields={fields} revision={revision} onChange={receiveFields} onSaved={(submitted, saved) => { setPersisted(authoredSnapshot(saved)); setFields(current => mergeSavedEventFields(current, submitted, pendingRef.current ? { ...saved, timezone: current.timezone, eventDate: current.eventDate, start: current.start, end: current.end, doors: current.doors, lineup: current.lineup } : saved)); }} action={onSource} busy={busy} setBusy={setBusy} setMessage={setMessage} initialArtworkSourceId={initialArtworkSourceId} onPreview={setArtwork} onExtract={() => { focusExtractedDetails.current = true; setActiveStep("Details"); setImportOpen(false); }} /></fieldset>{message ? <Notice><span role="status">{message}</span></Notice> : null}</EventIntakeDialog> : null}
+  {onSource ? <EventIntakeDialog open={importOpen} onClose={() => setImportOpen(false)}><fieldset><EventIntakeSource fields={fields} revision={revision} onChange={receiveFields} onSaved={(submitted, saved) => { if (saved.timezone || saved.eventDate || saved.start) timezoneAuthored.current = true; setPersisted(authoredSnapshot(saved)); setFields(current => mergeSavedEventFields(current, submitted, pendingRef.current ? { ...saved, timezone: current.timezone, eventDate: current.eventDate, start: current.start, end: current.end, doors: current.doors, lineup: current.lineup } : saved)); }} action={onSource} busy={busy} setBusy={setBusy} setMessage={setMessage} initialArtworkSourceId={initialArtworkSourceId} onPreview={setArtwork} onExtract={() => { focusExtractedDetails.current = true; setActiveStep("Details"); setImportOpen(false); }} /></fieldset>{message ? <Notice><span role="status">{message}</span></Notice> : null}</EventIntakeDialog> : null}
   </EventEditorPendingContext.Provider>;
 }
 

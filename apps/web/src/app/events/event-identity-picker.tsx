@@ -345,7 +345,7 @@ export function EventIdentityPicker({
           {open &&
           !disabled &&
           (options.length > 0 || (text && manualAction)) ? (
-            <div className="absolute z-30 mt-1 w-full overflow-hidden rounded-md border border-border bg-surface shadow-lg">
+            <div className="absolute z-30 mt-1 w-full overflow-hidden rounded-md border border-border bg-surface-elevated shadow-lg">
               {!text && kind === "community" && options.length > 0 ? (
                 <p className="px-3 pt-2 text-xs text-muted">Your communities</p>
               ) : null}

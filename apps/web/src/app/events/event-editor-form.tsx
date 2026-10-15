@@ -912,8 +912,10 @@ function ConnectedEventEditorForm({
   }
   function changeStart(local: string, nextOccurrence: "earlier" | "later" | "", exactInstant?: number) {
     timezoneAuthored.current = true;
+    const canonicalZone = timezone || editingTimezone;
+    if (local && !timezone) setTimezone(canonicalZone);
     try {
-      const next = exactInstant ?? resolveStaffStartAt(local, timezone, nextOccurrence, event);
+      const next = exactInstant ?? resolveStaffStartAt(local, canonicalZone, nextOccurrence, event);
       if (startAnchor.current !== undefined) {
         const shifted = shiftLineupStart(readStaffLineupTimings(slotRows, startAnchor.current), next - startAnchor.current);
         setSlotRows(applyStaffLineupTimings(slotRows, shifted, next).map((row, index) => ({ ...row, position: slotRows[index]?.position })));

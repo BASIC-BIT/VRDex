@@ -62,7 +62,7 @@ for (const mode of ["create", "resumed", "correction", "staff-create", "staff-ed
       await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Details" }).click();
       await setTheme(page, color);
       if (mode === "resumed") {
-        await expect(page.getByRole("group", { name: "Selected community" })).toBeVisible();
+        await expect(page.locator('[data-step="Details"] [data-testid="selected-identity"]').first()).toBeVisible();
         await expect(page.getByLabel("Ends (optional)", { exact: true })).toBeVisible();
       }
       if (mode === "correction") await expect(page.getByRole("button", { name: "Import poster or text" })).toHaveCount(0);

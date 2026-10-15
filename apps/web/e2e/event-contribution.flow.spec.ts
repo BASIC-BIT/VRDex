@@ -162,7 +162,7 @@ test("correction steps retain allowed details and lineup without source or staff
   expect(submission.patch).toEqual({ title: "Corrected gathering", venueLabel: "Corrected venue", worldSlug: null, lineup: [{ clientKey: "private-person", position: 0, performerLabel: "Aurora", personSlug: "aurora" }] });
 });
 
-test("owner timezone keyboard search stores a region, not EST @flow @fixture", async ({ page }) => {
+test("owner timezone keyboard search converts display and preserves canonical context @flow @fixture", async ({ page }) => {
   await page.goto("/playwright/event-editor");
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Details", exact: true }).click();
   await page.getByLabel("Starts", { exact: true }).fill("2026-07-15T20:00");
@@ -172,10 +172,12 @@ test("owner timezone keyboard search stores a region, not EST @flow @fixture", a
   await expect(page.getByRole("option", { name: /Eastern.*UTC-04:00/ })).toBeVisible();
   await timezone.press("ArrowDown");
   await timezone.press("Enter");
-  await expect(page.locator('input[name="timezone"]')).toHaveValue("America/New_York");
+  await expect(page.locator('input[name="timezone"]')).toHaveValue("UTC");
+  await expect(page.getByLabel("Starts", { exact: true })).toHaveValue("2026-07-15T16:00");
+  await expect(page.getByRole("button", { name: "Time zone", exact: true })).toContainText("Eastern");
   await page.getByRole("button", { name: "Time zone", exact: true }).click();
   await timezone.fill("not a zone");
-  await expect(page.locator('input[name="timezone"]')).toHaveValue("America/New_York");
+  await expect(page.locator('input[name="timezone"]')).toHaveValue("UTC");
   await timezone.press("Escape");
 });
 
@@ -437,10 +439,11 @@ test("combined controls preserve dates, reversible TBA and overnight times @flow
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath("combined-time-controls.png"), fullPage: true, animations: "disabled" });
   await page.getByLabel("Starts", { exact: true }).fill("2026-10-13T23:00");
-  await page.getByText("Add end time", { exact: true }).click();
+  await expect(page.getByLabel("Starts", { exact: true })).toHaveAttribute("aria-invalid", "true");
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Review", exact: true }).click();
   await page.getByRole("button", { name: "Save draft", exact: true }).click();
-  await expect(page.getByLabel("Ends (optional)", { exact: true })).toBeFocused();
+  await expect(page.getByLabel("Starts", { exact: true })).toBeFocused();
+  await expect(page.getByLabel("Starts", { exact: true })).toHaveValue("2026-10-13T23:00");
   await expect(page.getByLabel("Ends (optional)", { exact: true })).toHaveValue("2026-10-11T02:00");
   expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("fixture-source-draft")!).fields.eventDate)).toBe("2026-10-10");
 });
