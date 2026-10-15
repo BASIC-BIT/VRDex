@@ -1,6 +1,6 @@
 "use strict";
 
-const { COMPARISON_JOBS, evaluateVerification, selectVisuals } = require("./visual-ci.cjs");
+const { BROWSER_JOBS, COMPARISON_JOBS, evaluateVerification, selectEvidence } = require("./visual-ci.cjs");
 
 const REPORT_MARKER = "<!-- vrdex-pr-verification-report -->";
 const LEGACY_MARKERS = [
@@ -14,6 +14,15 @@ const LEGACY_MARKERS = [
 ];
 
 const REPORT_ROWS = [
+  { job: "lint-web", label: "Web lint" },
+  { job: "verify-docs", label: "Docs" },
+  { job: "verify-api-mcp", label: "API and MCP" },
+  { job: "typecheck-web", label: "Web types and unit tests" },
+  { job: "typecheck-backend", label: "Backend types and unit tests" },
+  { job: "verify-backend-local", label: "Backend bootstrap" },
+  { job: "restream-local-checks", label: "Restream checks" },
+  { job: "build-web", label: "Web build" },
+  { job: "build-storybook", label: "Storybook build" },
   { artifact: "playwright-public-smoke", job: "playwright-public-smoke", label: "Public route smoke" },
   {
     artifact: "playwright-data-flow",
@@ -138,11 +147,14 @@ function buildReport({
       row.optional && job.result === "success" && job.outputs?.configured === "false";
     const result = optionalWasSkipped ? "skipped" : job.result || "unknown";
 
-    if (COMPARISON_JOBS.has(row.job) && evaluation.selected === false && job.result === "skipped") {
-      return `| ${row.label} | NOT SELECTED | Not requested |`;
+    const expected = COMPARISON_JOBS.has(row.job) ? evaluation.visuals
+      : BROWSER_JOBS.includes(row.job) || row.job === "build-storybook" ? evaluation.browsers : null;
+    if (expected === false && job.result === "skipped") {
+      return `| ${row.label.replace("screenshots", "preview")} | NOT SELECTED | Not requested |`;
     }
-    const label = evaluation.selected === false ? row.label.replace("screenshots", "assertions only") : row.label;
-    let evidence = "Missing evidence";
+    const label = evaluation.visuals === false && evaluation.browsers === true
+      ? row.label.replace("screenshots", "assertions only") : row.label;
+    let evidence = row.artifact ? "Missing evidence" : `[Open run](${runUrl})`;
     if (artifact) {
       evidence = `[Open artifact](${artifactUrl({ artifact, owner, repo, runId })})`;
     } else if (result === "skipped") {
@@ -168,14 +180,16 @@ function buildReport({
 
   return [
     REPORT_MARKER,
+    `<!-- vrdex-test-selection:${JSON.stringify({ head: headSha, browsers: evaluation.browsers, visuals: evaluation.visuals })} -->`,
     "## PR verification report",
     "",
     needsAttention
       ? "One or more reported checks need attention."
-      : "All configured preview and verification checks passed.",
+      : "All required checks and selected coverage passed.",
     "",
-    `Visuals selected for this run: ${evaluation.selected === null ? "UNKNOWN" : evaluation.selected ? "yes" : "no (assertions only)"}.`,
-    ...(selectionChanged ? ["Visual selection changed since this run. Run results below describe the original selection; request a new normal PR run for current visual evidence.", ""] : []),
+    `Browsers selected for this run: ${evaluation.browsers === null ? "UNKNOWN" : evaluation.browsers ? "yes" : "no"}.`,
+    `Visuals selected for this run: ${evaluation.visuals === null ? "UNKNOWN" : evaluation.visuals ? "yes" : "no"}.`,
+    ...(selectionChanged ? ["Test selection changed since this run. Run results below describe the original selection; request a new normal PR run for current selected coverage.", ""] : []),
     ...(needsAttention ? evaluation.errors.map(error => `- ${error}`) : []),
     "",
     "| Check | Result | Evidence |",
@@ -197,7 +211,6 @@ async function updatePrVerificationReport({ core, context, github, needs }) {
     core.info("Ignoring verification evidence for an outdated PR head.");
     return;
   }
-  const evaluationSelection = needs["visual-selection"]?.outputs?.selected;
 
   let artifacts = [];
   let files = [];
@@ -246,7 +259,9 @@ async function updatePrVerificationReport({ core, context, github, needs }) {
     core.info("Ignoring verification evidence because the PR head changed during collection.");
     return;
   }
-  const selectionChanged = String(selectVisuals("pull_request", latest.labels)) !== evaluationSelection;
+  const currentSelection = selectEvidence("pull_request", latest.labels || []);
+  const selectionChanged = evaluation.browsers !== null && evaluation.visuals !== null
+    && (currentSelection.browsers !== evaluation.browsers || currentSelection.visuals !== evaluation.visuals);
   const body = buildReport({
     artifacts,
     files,

@@ -1,5 +1,7 @@
 # Optional visual CI for VRDex
 
+Historical implementation: the [approved optional browser CI scope](../plans/2026-10-15-optional-browser-ci.md) supersedes the automatic-browser default described here.
+
 ## Proposed outcome and review decision
 
 Make screenshot collection and image comparisons opt-in through the `ci:visuals` PR label. Keep the interaction assertions currently embedded in VRDex's visual suites automatic. This adapts Perkcord's explicit visual selection to VRDex's existing jobs and consolidated PR report.

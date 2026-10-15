@@ -6,7 +6,7 @@
 
 Screenshot preview proves the screenshots attached to a pull request came from a passing Playwright run. It is review evidence.
 
-When selected with `ci:visuals`, image diffing compares the UI with committed screenshot baselines and fails on differences. Without the label, comparison jobs skip. Browser assertions continue in the preview and functional jobs. See [visual preview selection](./playwright-visual-preview.md#ci-behavior) for triggers and assertion-only behavior.
+When selected with `ci:visuals`, image diffing compares the UI with committed screenshot baselines and fails on differences. Without the label, comparison jobs skip. Browser assertions run only when `ci:browsers` or `ci:visuals` is selected. See [visual preview selection](./playwright-visual-preview.md#ci-behavior) for triggers and assertion-only behavior.
 
 ## Research notes
 
@@ -102,7 +102,7 @@ pnpm --filter web exec playwright test --grep @snapshot --update-snapshots
 
 ## CI behavior
 
-`Playwright Image Diff` and `Storybook Image Diff` run only when the PR has `ci:visuals` at the start of a normal PR run. The label selects both suites regardless of changed paths. Label edits do not launch application CI. Both jobs skip on main pushes.
+`Playwright Image Diff` and `Storybook Image Diff` run only when the PR has `ci:visuals` at the start of a normal PR run. The label selects both suites and implies browser coverage, including the Storybook build, regardless of changed paths. `ci:browsers` alone selects assertions without review captures or image comparisons. With neither label, all PR browser suites and the Storybook build skip. Label edits do not launch application CI. Both comparison jobs skip on main pushes.
 
 Comparison jobs run the existing commands without `--update-snapshots` and upload reports, results, and expected/actual/diff PNGs on success or failure. Preserve their failures. An unselected run does not prove comparisons pass.
 

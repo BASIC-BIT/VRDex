@@ -21,7 +21,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      selected: ${{ steps.selection.outputs.selected }}
+      browsers: ${{ steps.selection.outputs.browsers }}
+      visuals: ${{ steps.selection.outputs.visuals }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -99,6 +100,9 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Test CI selection and report contracts
+        run: node --test .github/scripts/visual-ci.test.cjs .github/scripts/pr-verification-report.test.cjs .github/scripts/visual-label-removal.test.cjs
 
       - name: Run API contract verification
         run: pnpm verify:api-contracts
@@ -328,7 +332,8 @@ jobs:
 
   build-storybook:
     name: Build Storybook
-    needs: [lint-web, verify-docs, typecheck-web]
+    if: github.event_name == 'pull_request' && needs.visual-selection.outputs.browsers == 'true'
+    needs: [lint-web, verify-docs, typecheck-web, visual-selection]
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -424,8 +429,8 @@ jobs:
 
   playwright-public-smoke:
     name: Playwright Public Smoke
-    if: github.event_name == 'pull_request'
-    needs: [build-web]
+    if: github.event_name == 'pull_request' && needs.visual-selection.outputs.browsers == 'true'
+    needs: [build-web, visual-selection]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -480,8 +485,8 @@ jobs:
 
   playwright-data-flow:
     name: Playwright Data Flow
-    if: github.event_name == 'pull_request'
-    needs: [build-web]
+    if: github.event_name == 'pull_request' && needs.visual-selection.outputs.browsers == 'true'
+    needs: [build-web, visual-selection]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -554,7 +559,7 @@ jobs:
 
   playwright-hosted-data-flow:
     name: Playwright Hosted Data Flow
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
+    if: github.event_name == 'pull_request' && needs.visual-selection.outputs.browsers == 'true' && github.event.pull_request.head.repo.fork == false
     needs: [build-web, visual-selection]
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -658,7 +663,7 @@ jobs:
         if: always() && steps.gate.outputs.enabled == 'true' && vars.VRDEX_HOSTED_E2E_CLERK_AUTH == 'true'
         id: account-visual
         env:
-          PLAYWRIGHT_CAPTURE_SCREENSHOTS: ${{ needs.visual-selection.outputs.selected }}
+          PLAYWRIGHT_CAPTURE_SCREENSHOTS: ${{ needs.visual-selection.outputs.visuals }}
           PLAYWRIGHT_OUTPUT_DIR: test-results-account-visual
           PLAYWRIGHT_HTML_REPORT_DIR: playwright-report-account-visual
           PLAYWRIGHT_JSON_REPORT_FILE: playwright-artifacts/results-account-visual.json
@@ -681,7 +686,7 @@ jobs:
           # said `success` while the account captures failed would contradict the
           # job it is attached to — which is the failure mode this whole summary
           # was added to prevent.
-          CAPTURE_SELECTED: ${{ needs.visual-selection.outputs.selected }}
+          CAPTURE_SELECTED: ${{ needs.visual-selection.outputs.visuals }}
           ACCOUNT_VISUAL_OUTCOME: ${{ steps.account-visual.outcome }}
           HOSTED_BASE_URL: ${{ vars.VRDEX_HOSTED_E2E_BASE_URL }}
           HOSTED_EXTENDED_PROFILE_FLOW: ${{ vars.VRDEX_HOSTED_E2E_EXTENDED_PROFILE_FLOW }}
@@ -745,7 +750,7 @@ jobs:
 
   playwright-public-preview:
     name: Playwright Public Preview
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && needs.visual-selection.outputs.browsers == 'true'
     needs: [build-web, visual-selection]
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -753,7 +758,7 @@ jobs:
       contents: read
 
     env:
-      PLAYWRIGHT_CAPTURE_SCREENSHOTS: ${{ needs.visual-selection.outputs.selected }}
+      PLAYWRIGHT_CAPTURE_SCREENSHOTS: ${{ needs.visual-selection.outputs.visuals }}
 
     steps:
       - name: Checkout
@@ -785,7 +790,7 @@ jobs:
         if: always()
         env:
           VISUAL_OUTCOME: ${{ steps.visual.outcome }}
-          CAPTURE_SELECTED: ${{ needs.visual-selection.outputs.selected }}
+          CAPTURE_SELECTED: ${{ needs.visual-selection.outputs.visuals }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           mkdir -p apps/web/playwright-artifacts
@@ -868,7 +873,7 @@ jobs:
 
   playwright-image-diff:
     name: Playwright Image Diff
-    if: github.event_name == 'pull_request' && needs.visual-selection.outputs.selected == 'true'
+    if: github.event_name == 'pull_request' && needs.visual-selection.outputs.visuals == 'true'
     needs: [build-web, visual-selection]
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -944,7 +949,7 @@ jobs:
 
   storybook-component-preview:
     name: Storybook Component Preview
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && needs.visual-selection.outputs.browsers == 'true'
     needs: [build-storybook, visual-selection]
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -952,7 +957,7 @@ jobs:
       contents: read
 
     env:
-      PLAYWRIGHT_CAPTURE_SCREENSHOTS: ${{ needs.visual-selection.outputs.selected }}
+      PLAYWRIGHT_CAPTURE_SCREENSHOTS: ${{ needs.visual-selection.outputs.visuals }}
 
     steps:
       - name: Checkout
@@ -984,7 +989,7 @@ jobs:
         if: always()
         env:
           VISUAL_OUTCOME: ${{ steps.visual.outcome }}
-          CAPTURE_SELECTED: ${{ needs.visual-selection.outputs.selected }}
+          CAPTURE_SELECTED: ${{ needs.visual-selection.outputs.visuals }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           mkdir -p apps/web/playwright-artifacts
@@ -1014,7 +1019,7 @@ jobs:
 
   storybook-image-diff:
     name: Storybook Image Diff
-    if: github.event_name == 'pull_request' && needs.visual-selection.outputs.selected == 'true'
+    if: github.event_name == 'pull_request' && needs.visual-selection.outputs.visuals == 'true'
     needs: [build-storybook, visual-selection]
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -1095,6 +1100,15 @@ jobs:
       group: pr-verification-comment-${{ github.event.pull_request.number }}
       cancel-in-progress: false
     needs:
+      - lint-web
+      - verify-docs
+      - verify-api-mcp
+      - typecheck-web
+      - typecheck-backend
+      - verify-backend-local
+      - restream-local-checks
+      - build-web
+      - build-storybook
       - visual-selection
       - playwright-public-smoke
       - playwright-data-flow

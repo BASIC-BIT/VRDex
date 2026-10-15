@@ -1,5 +1,7 @@
 # Optional visual CI implementation plan
 
+Historical implementation: the [approved optional browser CI scope](./2026-10-15-optional-browser-ci.md) supersedes the automatic-browser default described here.
+
 > **For agentic workers:** Use superpowers:executing-plans to implement this plan task-by-task. Track completion below and in the local execution ledger.
 
 **Goal:** Make visual evidence opt-in while preserving automatic browser assertions.
