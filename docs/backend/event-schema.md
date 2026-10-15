@@ -120,8 +120,11 @@ Private actor IDs and poster evidence never enter the public event DTO. See
 
 The browser editor obtains its community choices from
 `events:listManagedCommunities`, which combines active ownership and active
-`manage_events` grants and returns public community display data only. Revoking
-a grant removes the choice and blocks subsequent writes immediately.
+`manage_events` grants and returns public community display data only. Its optional
+`imageUrl` uses the existing discovery media-kit resolver, including the chosen
+logo or avatar and automatic fallback. Private and unlisted image fields remain
+excluded, even for owners and staff. Revoking a grant removes the choice and
+blocks subsequent writes immediately.
 
 `events:listManagedEvents` applies the same live authority and backs the private
 account event list. It returns bounded editor links and schedule/publication

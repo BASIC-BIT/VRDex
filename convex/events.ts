@@ -74,6 +74,9 @@ import {
 } from "./_eventPublic";
 import { getEventBySlug, validateEventSlug } from "./_eventSlugs";
 import { canReadProfile } from "./_profilePermissions";
+import { getPublicProfileMediaKit } from "./_profileAssets";
+import { visibleProfileField } from "./_profileFieldVisibility";
+import { firstSafePublicImageUrl } from "./_publicFields";
 import { userOwnsProfile } from "./_profileOwnership";
 import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 import { reindexEventSearchDocument } from "./_searchDocuments";
@@ -2765,13 +2768,52 @@ export async function managedCommunitiesForBrowser(
 
 export const listManagedCommunities = query({
   args: {},
+  returns: v.array(
+    v.object({
+      profileId: v.id("profiles"),
+      slug: v.string(),
+      displayName: v.string(),
+      roleLabel: v.string(),
+      imageUrl: v.optional(v.string()),
+    }),
+  ),
   handler: async (ctx) => {
-    return (await managedCommunitiesForBrowser(ctx)).map(({ profile, roleLabel }) => ({
-      profileId: profile._id,
-      slug: profile.slug,
-      displayName: profile.displayName,
-      roleLabel,
-    }));
+    return await Promise.all(
+      (await managedCommunitiesForBrowser(ctx)).map(
+        async ({ profile, roleLabel }) => {
+          const mediaKit = await getPublicProfileMediaKit(ctx.db, profile, {
+            surface: "discovery",
+          });
+          const profileImage = mediaKit.profileImage?.imageUrl;
+          const logo = mediaKit.primaryLogo?.imageUrl;
+          const imageUrl = firstSafePublicImageUrl(
+            mediaKit.compactDisplay === "logo"
+              ? (logo ?? profileImage)
+              : (profileImage ?? logo),
+            mediaKit.automaticAvatarImageUrl,
+            visibleProfileField(
+              profile,
+              "avatarImageUrl",
+              profile.avatarImageUrl,
+              "discovery",
+            ),
+            visibleProfileField(
+              profile,
+              "bannerImageUrl",
+              profile.bannerImageUrl,
+              "discovery",
+            ),
+          );
+          return {
+            profileId: profile._id,
+            slug: profile.slug,
+            displayName: profile.displayName,
+            roleLabel,
+            ...(imageUrl ? { imageUrl } : {}),
+          };
+        },
+      ),
+    );
   },
 });
 

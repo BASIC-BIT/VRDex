@@ -9,7 +9,7 @@ import type {
   SeedLookupViewerAccess,
 } from "./profile-lookup-page";
 import { EntityImage } from "@/components/ui/entity-image";
-import { ProfileAvatarImage } from "@/components/ui/profile-avatar-image";
+import { ProfileSuggestion } from "./profile-suggestion";
 import { mergeLookupSuggestions } from "./lookup-suggestion-merge";
 import { Input, Textarea } from "@/components/ui/field";
 import { cn } from "@/lib/cn";
@@ -32,53 +32,6 @@ function isPrivateSuggestion(
   profile: ProfileLookupDisplayResult,
 ): profile is PrivateSeedLookupResult {
   return "publicationState" in profile;
-}
-
-function profileOptionLabel(profile: ProfileLookupDisplayResult): string | undefined {
-  if (isPrivateSuggestion(profile)) {
-    return undefined;
-  }
-
-  const context = [...new Set([...profile.roleTags, ...profile.tags])].slice(0, 3).join(" / ");
-
-  return context || profile.profilePath;
-}
-
-function SuggestionAvatar({ profile }: { profile: ProfileLookupDisplayResult }) {
-  if (isPrivateSuggestion(profile)) {
-    return (
-      <EntityImage
-        alt=""
-        className="lookup-suggestion-avatar"
-        label={profile.displayName}
-        sizes="38px"
-      />
-    );
-  }
-
-  if (profile.avatarImageKind === "logo") {
-    return (
-      <EntityImage
-        alt=""
-        className="lookup-suggestion-avatar lookup-avatar--logo"
-        imageClassName="object-contain"
-        label={profile.displayName}
-        sizes="38px"
-        src={profile.avatarImageUrl}
-      />
-    );
-  }
-
-  return (
-    <ProfileAvatarImage
-      alt=""
-      appearance={profile.avatarAppearance}
-      className="lookup-suggestion-avatar"
-      label={profile.displayName}
-      sizes="38px"
-      src={profile.avatarImageUrl}
-    />
-  );
 }
 
 function parseBulkLookupLines(value: string): string[] {
@@ -540,13 +493,31 @@ export function LookupSearchBox({
                     onMouseDown={(event) => event.preventDefault()}
                     onClick={() => submitQuery(profile.displayName)}
                   >
-                    <SuggestionAvatar profile={profile} />
-                    <span className="min-w-0">
-                      <span className="block truncate font-medium">{profile.displayName}</span>
-                      {profileOptionLabel(profile) ? (
-                        <span className="block truncate text-xs text-muted">{profileOptionLabel(profile)}</span>
-                      ) : null}
-                    </span>
+                    {isPrivateSuggestion(profile) ? (
+                      <>
+                        <EntityImage
+                          alt=""
+                          className="lookup-suggestion-avatar"
+                          label={profile.displayName}
+                          sizes="38px"
+                        />
+                        <span className="min-w-0">
+                          <span className="block truncate font-medium">{profile.displayName}</span>
+                        </span>
+                      </>
+                    ) : (
+                      <ProfileSuggestion option={{
+                        kind: "person",
+                        slug: profile.slug,
+                        title: profile.displayName,
+                        href: profile.profilePath,
+                        imageUrl: profile.avatarImageUrl ?? undefined,
+                        imageKind: profile.avatarImageKind ?? "profile",
+                        appearance: profile.avatarAppearance,
+                        trustLabel: profile.trustLabel,
+                        context: [...new Set([...profile.roleTags, ...profile.tags])].slice(0, 3).join(" / ") || undefined,
+                      }} />
+                    )}
                   </button>
                 ))}
               </div>
