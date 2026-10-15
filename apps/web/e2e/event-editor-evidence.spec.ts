@@ -88,7 +88,7 @@ for (const mode of ["create", "resumed", "correction", "staff-create", "staff-ed
       await capture(page, info.outputPath(`${mode}-${color}-details.png`));
       for (const step of ["Lineup", "Review"]) {
         await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: step }).click();
-        await expect(page.locator(`[data-step="${step}"]`)).toBeVisible();
+        await expect(page.locator(`[data-step="${step}"], [data-editor-step="${step}"]`)).toBeVisible();
         await capture(page, info.outputPath(`${mode}-${color}-${step.toLowerCase()}.png`));
       }
     });

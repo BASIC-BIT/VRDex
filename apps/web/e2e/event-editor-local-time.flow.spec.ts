@@ -125,8 +125,11 @@ test("ordinary local Starts edit shifts lineup once and retains explicit end", a
 test("unrepresentable Starts update keeps every canonical field intact", async ({ page }) => {
   await openIntake(page);
   await page.getByLabel("Starts", { exact: true }).fill("2026-10-25T02:00");
-  await expect(page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Lineup", exact: true })).toHaveAttribute("aria-current", "step");
-  await nav(page, "Details"); await page.getByLabel("Starts", { exact: true }).press("Escape");
+  await expect(page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Details", exact: true })).toHaveAttribute("aria-current", "step");
+  await expect(page.getByLabel("Starts", { exact: true })).toBeFocused();
+  await expect(page.getByLabel("Starts", { exact: true })).toHaveValue("2026-10-25T02:00");
+  await expect(page.getByLabel("Starts", { exact: true })).toHaveAttribute("aria-invalid", "true");
+  await page.getByLabel("Starts", { exact: true }).press("Escape");
   expect(await saveIntake(page)).toEqual(intake);
 });
 test("removed TBA rows never return on restoration", async ({ page }) => {
