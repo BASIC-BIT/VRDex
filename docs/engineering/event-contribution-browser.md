@@ -135,8 +135,12 @@ Insertion, removal and committed duration edits shift later timed rows by elapse
 minutes, preserving durations, gaps, keys, performer matches and stream choices.
 Enter followed by blur commits a valid duration change once. Invalid duration
 text, including blank or whitespace in controls without a clear operation, stays
-pending until a valid commit or explicit Escape. Detailed controls that support
-clearing still commit an empty value. Changing Starts shifts
+pending until a valid commit or explicit Escape. Time TBA refuses that conversion
+while a duration is pending, opens Lineup and its containing Details disclosure,
+and focuses the input without changing its raw text or committed schedule.
+After correction or Escape, TBA can proceed and restore the surviving schedule.
+Intake has a compact duration control; staff supports compact and detailed controls.
+Detailed controls that support clearing still commit an empty value. Changing Starts shifts
 the timed lineup together. Compact row times use the editing timezone and retain
 crossing dates, seconds and milliseconds where present. Repeated-hour ranges show
 the offset for each instant. Details and Review show the friendly zone label;
@@ -176,7 +180,10 @@ entered text unlinked, even when search returns matches or fails. Manual rows
 show `Unlinked` and `Link profile`.
 
 `Display name as` holds optional billing text. Linking `Guest A` to Aurora keeps
-`Guest A` as an override. Changing the profile keeps that override. Clearing the
+`Guest A` as an override. A manual name equal to the selected profile name uses
+default billing, so replacing that profile adopts the new person's name. An
+already-explicit override retains its intent even if its text equals a profile
+name. Changing the profile keeps that override. Clearing the
 override adopts the selected profile's name, and later profile changes follow
 the new name. A saved differing label opens the disclosure. Profile hydration
 only updates presentation, preserves unavailable links and does not author a save.

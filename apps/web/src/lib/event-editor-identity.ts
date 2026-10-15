@@ -82,7 +82,7 @@ export function savedEventPerformer({ label, personSlug, profileName }: { label:
 
 export function selectEventPerformer({ current, person }: { current: EventPerformerValue; person: EventIdentityOption }): EventPerformerValue {
   if (person.kind !== "person") throw new Error("Performer selection requires a person.");
-  return { kind: "linked", personSlug: person.slug, billing: current.kind === "linked" ? current.billing : current.label.trim() ? { kind: "override", label: current.label } : { kind: "default" } };
+  return { kind: "linked", personSlug: person.slug, billing: current.kind === "linked" ? current.billing : current.label.trim() && current.label !== person.title ? { kind: "override", label: current.label } : { kind: "default" } };
 }
 
 export function eventPerformerLabel({ value, profileName }: { value: EventPerformerValue; profileName?: string }): string {

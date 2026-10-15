@@ -140,3 +140,19 @@ it("hydrates saved label intent without erasing unknown or unavailable linked id
   const override = { kind: "linked", personSlug: "aurora-one", billing: { kind: "override", label: "Aurora" } } as const;
   assert.deepEqual(selectEventPerformer({ current: override, person: { ...personIdentityOption(person), slug: "lumen" } }), { ...override, personSlug: "lumen" });
 });
+
+it("equal manual names establish default billing while explicit equal overrides retain intent", () => {
+  const aurora = personIdentityOption(person);
+  const lumen = { ...aurora, slug: "lumen", title: "Lumen" };
+  for (const label of ["Aurora", ""]) {
+    const linked = selectEventPerformer({ current: { kind: "manual", label }, person: aurora });
+    assert.deepEqual(linked, { kind: "linked", personSlug: "aurora-one", billing: { kind: "default" } });
+    const changed = selectEventPerformer({ current: linked, person: lumen });
+    assert.equal(eventPerformerLabel({ value: changed, profileName: lumen.title }), "Lumen");
+  }
+  for (const label of ["Guest A", "Aurora"]) {
+    const linked = selectEventPerformer({ current: { kind: "linked", personSlug: aurora.slug, billing: { kind: "override", label } }, person: lumen });
+    assert.equal(eventPerformerLabel({ value: linked, profileName: lumen.title }), label);
+    assert.deepEqual(linked, { kind: "linked", personSlug: "lumen", billing: { kind: "override", label } });
+  }
+});

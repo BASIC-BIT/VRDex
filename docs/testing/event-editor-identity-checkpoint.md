@@ -2,7 +2,9 @@
 
 BASIC approved the history indexing change, which is now applied. Its current
 covering checks are recorded below. Tasks 1 through 6 and the scoped Task 6
-fix review are complete. Final whole-branch review, PR and CI remain pending.
+fix review are complete. Final whole-branch review found two issues, pending
+duration loss on TBA and equal-name linking intent. Both have focused fixes;
+the controller's scoped rereview, PR and CI remain pending.
 The earlier broad browser run passed 418 of 422 cases. Its covering rerun passed
 18 of 18; that does not turn the broad run into a clean pass.
 
@@ -291,3 +293,50 @@ except the controller's Linux report remains with its runtime artifacts.
 The plan-owned `integration-report.md` retains exact commands, timestamps and
 failure dispositions. Original generated/OpenAPI bytes and equality manifests
 remain in plan-owned scratch. None of the generated line-ending noise is committed.
+
+## Final whole-branch fix wave
+
+The whole-branch review found pending duration loss during Time TBA conversion
+and equal-name manual linking that created an unintended billing override.
+The focused fixes block TBA before any pending duration can unmount, reveal
+Lineup and the control's disclosure, and focus its retained raw input. A valid
+commit or Escape permits conversion and exact restoration of surviving timing.
+Display-zone conversion keeps its existing pending-clock guard. Optional clear
+and explicit row removal keep their existing behavior.
+
+A manual name equal to the selected profile name now starts with default billing.
+A differing name remains an override. Already-explicit overrides retain their
+intent even when the text equals a profile name.
+
+The corrected browser RED matrix failed all six desktop cases at the expected
+TBA assertion before production edits. The final bounded run passed 56 cases,
+with zero skips, failures or flakies, across desktop and mobile. This includes
+12 new regressions: intake compact duration and staff compact/detailed duration,
+each with Escape and valid-commit recovery from a successfully saved clean
+baseline. They assert raw pending input, focus, dirty state, row identity and
+persisted canonical timing through the TBA round trip. Existing source-buffer,
+optional-clear, removed-row, precise-duration and local-time cases also passed.
+Pure identity/time/persistence/lineup tests passed 50 of 50. Web lint, web types
+and documentation lint/build passed.
+
+The first GREEN attempt passed 11 of 12. One mobile staff fixture never rendered
+the editor and timed out before its initial Ends edit. Its unchanged target
+passed after route warmup, and the full bounded final run also passed it. The
+initial cause remains UNKNOWN. Type generation completed before the final browser
+run. No timeout or assertion was relaxed. Earlier broad browser and script
+UNKNOWN failures above remain unchanged.
+
+Browser JSON and output folders are `final-fix-tba-red3`,
+`final-fix-tba-green1`, `final-fix-tba-target` and `final-fix-covering` under
+`apps/web/test-results/`. HTML uses matching names under the ignored root
+`.tmp-gh-artifacts/event-editor-identity-local/reports/`. Plan-owned
+`final-fix-report.md` records setup corrections, exact commands, logs and final
+commit. Screenshot inspection confirmed the focused raw duration and visible
+Lineup disclosure on mobile staff and desktop intake. No visual baseline changed.
+
+This wave starts at `32bb10c44b2ebaee0cb1d6ca5728d43122a02ac8` and changes web
+source, focused tests and behavior/checkpoint docs only. All seven generated and
+OpenAPI status entries retain empty normalized diffs and remain excluded.
+Earlier Linux proof remains at `9b79f286b7f1104d2aa041e26f99bf84231c5b03`.
+The controller owns the scoped rereview, final committed-source Linux refresh,
+PR/CI and the feedback window. There is no new-source Linux or merge-ready claim.

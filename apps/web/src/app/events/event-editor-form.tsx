@@ -936,8 +936,16 @@ function ConnectedEventEditorForm({
     return true;
   }
   function toggleTba(checked: boolean) {
-    const invalid = formRef.current?.querySelector<HTMLInputElement>('[data-time-pending="true"]');
-    if (checked && invalid) { invalid.focus(); return; }
+    const invalid = formRef.current?.querySelector<HTMLInputElement>('[data-time-pending="true"], [data-lineup-row] input[inputmode="numeric"][data-pending-event-input="true"]');
+    if (checked && invalid) {
+      setActiveStep(invalid.closest('[data-editor-step="Lineup"]') ? "Lineup" : "Details");
+      requestAnimationFrame(() => {
+        const disclosure = invalid.closest("details");
+        if (disclosure) disclosure.open = true;
+        invalid.focus();
+      });
+      return;
+    }
     timezoneAuthored.current = true;
     if (checked) {
       timedDateBackup.current = eventDate;

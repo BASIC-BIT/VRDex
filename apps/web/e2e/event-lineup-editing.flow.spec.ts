@@ -500,3 +500,69 @@ test("clearing an end drops its precise duration backup and leaves automatic eve
   expect(payload.lineup[0].endAt).toBeUndefined();
   expect(payload.endAt).toBeNull();
 });
+
+for (const editor of ["staff", "intake"]) for (const detailed of editor === "staff" ? [false, true] : [false]) for (const recovery of ["Escape", "commit"]) {
+  test(`${editor} TBA protects pending duration, detailed=${detailed}, recovery=${recovery} @fixture`, async ({ page }, testInfo) => {
+    page.on("dialog", dialog => dialog.accept());
+    if (editor === "staff") {
+      await canonicalStaff(page);
+      await page.getByLabel("Ends (optional)", { exact: true }).fill("2027-10-16T00:00");
+    } else await intake(page, { lineup: [{ clientKey: "a", position: 0, performerLabel: "A", start: { time: "20:00" }, end: { time: "21:00" } }] });
+    const save = async () => {
+      await nav(page, "Review");
+      await page.getByRole("button", { name: /^(Unpublish and save draft|Save draft)$/ }).click();
+      await expect(page.getByRole("button", { name: "Save draft", exact: true })).toBeEnabled();
+      await expect(page.locator("form[data-event-dirty]")).toHaveAttribute("data-event-dirty", "false");
+    };
+    const storedSchedule = () => page.evaluate(editor => {
+      const value = JSON.parse(editor === "staff" ? localStorage.getItem("event-lineup-fixture-v1")! : sessionStorage.getItem("event-intake-fixture")!);
+      return editor === "staff" ? { startAt: value.startAt, endAt: value.endAt, timezone: value.timezone, slots: value.slots.map((slot: { clientKey: string; startAt: number; endAt: number }) => ({ clientKey: slot.clientKey, startAt: slot.startAt, endAt: slot.endAt })) } : { start: value.start, end: value.end, eventDate: value.eventDate, timezone: value.timezone, lineup: value.lineup };
+    }, editor);
+    await save();
+    const baseline = await storedSchedule();
+    await nav(page, "Lineup");
+    const row = page.locator('[data-lineup-row]').first();
+    const rowKey = await row.getAttribute("data-lineup-row");
+    const details = row.locator("summary").filter({ hasText: "Details" });
+    if (detailed) await details.click();
+    const duration = row.getByLabel(detailed ? "Slot duration minutes" : "Duration", { exact: true });
+    const committed = await duration.inputValue();
+    await duration.fill("45.5");
+    await nav(page, "Details");
+    // Closing the disclosure while hidden must still reveal the actual pending control.
+    if (detailed) await details.evaluate(summary => { const disclosure = summary.closest("details"); if (disclosure) disclosure.open = false; });
+    await page.getByLabel("Time TBA", { exact: true }).click();
+    await expect(page.getByLabel("Time TBA", { exact: true })).not.toBeChecked();
+    await expect(duration).toBeVisible();
+    await expect(duration).toBeFocused();
+    await expect(duration).toHaveValue("45.5");
+    await expect(page.locator('[data-pending-event-input="true"]')).toHaveCount(1);
+    await expect(page.locator("form[data-event-dirty]")).toHaveAttribute("data-event-dirty", "true");
+    expect(await storedSchedule()).toEqual(baseline);
+    await page.screenshot({ path: testInfo.outputPath(`${editor}-${detailed ? "detailed" : "compact"}-pending-tba.png`), fullPage: true });
+    if (recovery === "Escape") {
+      await duration.press("Escape");
+      await expect(duration).toHaveValue(committed);
+      await expect(page.locator("form[data-event-dirty]")).toHaveAttribute("data-event-dirty", "false");
+    } else {
+      await duration.fill("45"); await duration.press("Enter");
+      await expect(duration).toHaveValue("45");
+      await save();
+    }
+    const restoredBaseline = await storedSchedule();
+    await nav(page, "Details");
+    const start = await page.getByLabel("Starts", { exact: true }).inputValue();
+    const end = await page.getByLabel("Ends (optional)", { exact: true }).inputValue();
+    await page.getByLabel("Time TBA", { exact: true }).check();
+    await page.getByLabel("Time TBA", { exact: true }).uncheck();
+    await expect(page.getByLabel("Starts", { exact: true })).toHaveValue(start);
+    await expect(page.getByLabel("Ends (optional)", { exact: true })).toHaveValue(end);
+    await nav(page, "Lineup");
+    await expect(row).toHaveAttribute("data-lineup-row", rowKey!);
+    if (detailed && !(await duration.isVisible())) await details.click();
+    await expect(duration).toHaveValue(recovery === "Escape" ? committed : "45");
+    await expect(page.locator('[data-pending-event-input="true"]')).toHaveCount(0);
+    await save();
+    expect(await storedSchedule()).toEqual(restoredBaseline);
+  });
+}

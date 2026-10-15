@@ -214,7 +214,7 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
   }
   function toggleTba(checked: boolean) {
     timezoneAuthored.current = true;
-    if (checked && revealPendingTime()) return;
+    if (checked && revealPendingTime(true)) return;
     if (checked) {
       timedBackup.current = fields;
       tbaDateEdited.current = false;
@@ -244,10 +244,17 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
       setFields(next);
     }
   }
-  function revealPendingTime() {
-    const invalid = form.current?.querySelector<HTMLInputElement>('[data-time-pending="true"]');
+  function revealPendingTime(includeDurations = false) {
+    const invalid = form.current?.querySelector<HTMLInputElement>(includeDurations
+      ? '[data-time-pending="true"], [data-lineup-row] input[inputmode="numeric"][data-pending-event-input="true"]'
+      : '[data-time-pending="true"]');
     if (!invalid) return false;
-    reveal(invalid.closest('[data-step="Lineup"]') ? "Lineup" : "Details", `[name="${invalid.name}"]`);
+    setActiveStep(invalid.closest('[data-step="Lineup"]') ? "Lineup" : "Details");
+    requestAnimationFrame(() => {
+      const disclosure = invalid.closest("details");
+      if (disclosure) { disclosure.open = true; setEndOpen(true); }
+      invalid.focus();
+    });
     return true;
   }
   function changeTimezone(timezone: string | null) {
