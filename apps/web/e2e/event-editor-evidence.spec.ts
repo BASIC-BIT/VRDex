@@ -1,3 +1,4 @@
+import { manualPerformer } from "./event-performer-helpers";
 import { expect, test, type Page } from "@playwright/test";
 
 import { prepareVisualPage, waitForVisualReady } from "./public-routes";
@@ -94,3 +95,61 @@ for (const mode of ["create", "resumed", "correction", "staff-create", "staff-ed
     });
   }
 }
+
+test("import dialog, failure, and DST states capture @fixture", async ({ page }, info) => {
+  await page.goto("/playwright/event-intake?source=stale");
+  await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Details" }).click();
+  await setTheme(page, "light");
+  await page.getByRole("button", { name: "Import poster or text" }).click();
+  const dialog = page.getByRole("dialog", { name: "Import event info" });
+  await expect(dialog).toBeVisible();
+  await capture(page, info.outputPath("import-open.png"));
+  await dialog.getByLabel("Source text").fill("Afterglow Night");
+  await dialog.getByRole("button", { name: "Extract details" }).click();
+  await expect(dialog.getByRole("status")).toBeVisible();
+  await capture(page, info.outputPath("import-error.png"));
+  await dialog.getByRole("button", { name: "Close" }).click();
+  await page.getByLabel("Time TBA", { exact: true }).uncheck();
+  await page.getByRole("button", { name: "Time zone", exact: true }).click();
+  await page.getByRole("combobox", { name: "Time zone" }).fill("America/New_York");
+  await page.getByRole("option").first().click();
+  await page.getByLabel("Starts", { exact: true }).fill("2027-03-14T02:30");
+  await expect(page.getByText("This local time does not exist.")).toBeVisible();
+  await capture(page, info.outputPath("dst-gap.png"));
+  await page.getByLabel("Starts", { exact: true }).fill("2026-11-01T01:30");
+  await expect(page.getByLabel("Starts occurrence")).toBeVisible();
+  await page.getByText("Add end time", { exact: true }).click();
+  await page.getByLabel("Ends (optional)", { exact: true }).fill("2026-11-01T01:45");
+  await expect(page.getByLabel("Ends (optional) occurrence")).toBeVisible();
+  await capture(page, info.outputPath("dst-repeat-and-end.png"));
+});
+
+for (const color of ["light", "dark"] as const) test(`scheduling states ${color} capture @fixture`, async ({ page }, info) => {
+  await page.addInitScript(() => sessionStorage.setItem("event-intake-fixture", JSON.stringify({ communitySlug: "playwright-afterglow-social", title: "Harbor night", eventDate: "2027-10-15", timezone: "UTC", start: { time: "20:00" }, end: { time: "21:00" } })));
+  await page.goto("/playwright/event-intake"); await setTheme(page, color);
+  await expect(page.getByRole("button", { name: "Time zone", exact: true })).toHaveText(/^UTC\s*▾$/);
+  await page.getByRole("button", { name: "Time zone", exact: true }).click();
+  await expect(page.getByRole("option").first()).not.toContainText(" · UTC");
+  await expect(page.getByRole("combobox", { name: "Time zone" })).toBeFocused();
+  const popoverBackground = await page.getByRole("listbox").evaluate(list => getComputedStyle(list.parentElement!).backgroundColor);
+  expect(popoverBackground).not.toContain("rgba");
+  await capture(page, info.outputPath(`schedule-${color}-timezone.png`));
+  await page.getByRole("combobox", { name: "Time zone" }).press("Escape");
+  const nav = page.getByRole("navigation", { name: "Event editor" });
+  await nav.getByRole("button", { name: "Lineup", exact: true }).click();
+  await capture(page, info.outputPath(`schedule-${color}-setup.png`));
+  await page.getByRole("button", { name: "Generate", exact: true }).click();
+  for (const [index, row] of (await page.locator('[data-lineup-row]').all()).entries()) await manualPerformer(row.locator("[data-performer-field]"), ["Aurora", "Neon Harbor", "Lumen", "Closing session"][index]);
+  await capture(page, info.outputPath(`schedule-${color}-lineup-conflict.png`));
+  await page.getByRole("button", { name: "Add slot at position 2", exact: true }).click();
+  await page.getByLabel("Slot duration", { exact: true }).fill("15");
+  await capture(page, info.outputPath(`schedule-${color}-insertion.png`));
+  await page.getByRole("button", { name: "Insert slot", exact: true }).click();
+  await page.getByRole("button", { name: "Reset lineup", exact: true }).click();
+  await capture(page, info.outputPath(`schedule-${color}-reset.png`));
+  await page.getByRole("dialog").getByRole("button", { name: "Cancel", exact: true }).click();
+  await nav.getByRole("button", { name: "Review", exact: true }).click();
+  await capture(page, info.outputPath(`schedule-${color}-review-conflict.png`));
+  await page.getByRole("button", { name: "Set event end to lineup end", exact: true }).click();
+  await capture(page, info.outputPath(`schedule-${color}-review.png`));
+});
