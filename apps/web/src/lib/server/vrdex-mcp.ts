@@ -42,6 +42,8 @@ import {
   PublicEventSchema,
   PublicEventsResponseSchema,
   PublicProfileSchema,
+  PublicProfileMediaDetailsSchema,
+  PublicProfileMediaDetailsInputSchema,
   PublicSearchResponseSchema,
   PublicWorldSchema,
   reviewDecisionSchema,
@@ -251,6 +253,7 @@ const mcpToolNames = [
   "fetch",
   "vrdex_search",
   "vrdex_get_profile",
+  "vrdex_get_profile_media",
   "vrdex_get_event",
   "vrdex_list_upcoming_events",
   "vrdex_get_world",
@@ -2466,6 +2469,28 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       }
 
       return mcpJsonResult(PublicSearchResponseSchema, search);
+    },
+  );
+
+  registerTool(
+    "vrdex_get_profile_media",
+    {
+      title: "Get VRDex Profile Media",
+      description: "Read an image's public details, uploader attribution and publication history.",
+      inputSchema: PublicProfileMediaDetailsInputSchema,
+      outputSchema: mcpOutputSchema(PublicProfileMediaDetailsSchema),
+      annotations: { readOnlyHint: true, idempotentHint: true },
+      _meta: readToolMeta,
+    },
+    async ({ slug, assetId }) => {
+      let details;
+      try {
+        details = await convex().query(api.profileAssets.getPublicAssetDetails, { slug, assetId });
+      } catch {
+        return mcpPublicReadUnavailable("profile media lookup");
+      }
+      if (details === null) return mcpNotFound("Profile media", slug);
+      return mcpJsonResult(PublicProfileMediaDetailsSchema, details);
     },
   );
 

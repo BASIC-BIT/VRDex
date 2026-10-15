@@ -25,6 +25,7 @@
     // the suite locally.
     "apps/web/playwright-report-storybook/**",
     "apps/web/test-results/**",
+    "apps/web/test-results-public-media*/**",
     "apps/web/playwright-artifacts/**",
     "artifacts/profile-link-destinations/**"
   ],

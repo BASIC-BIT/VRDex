@@ -101,6 +101,42 @@ async function seed() {
 }
 
 describe("bounded staging media fixture", () => {
+  it("joins exact public actor fixtures, owner history and privacy with guarded replay and cleanup", async () => {
+    const { t, args, users, intent } = await seed();
+    const assetId = await t.run(async ({ db }) => {
+      const upload = await db.get(intent.intentId);
+      if (!upload) throw new Error("Missing fixture intent");
+      const assetId = await db.insert("profileAssets", { profileId: args.profileId, storageKey: upload.storageKey,
+        mimeType: "image/png", byteSize: 512, visibility: "public", source: "community_submitted", state: "active",
+        uploadedBy: { issuer: "vrdex:api", subject: users.contributorId, tokenIdentifier: `api:${users.contributorId}` }, uploadedAt: 10, updatedAt: 999 });
+      await db.patch(intent.submissionId, { status: "approved", approvedAssetId: assetId });
+      await db.insert("profileAssetPlacements", { profileId: args.profileId, assetId, placement: "gallery", position: 0, state: "active", updatedAt: 1 });
+      return assetId;
+    });
+    const prepared = await t.mutation(internal.e2eMedia.publicDetailsFixture, { ...args, action: "prepare", assetId });
+    assert.ok(prepared.ownerAssetId);
+    assert.deepEqual(await t.mutation(internal.e2eMedia.publicDetailsFixture, { ...args, action: "prepare", assetId }), prepared);
+    const read = () => t.query(api.profileAssets.getPublicAssetDetails, { slug: `media-test-${runId}`, assetId: String(prepared.ownerAssetId) });
+    const details = await read();
+    assert.equal(details?.uploadedBy?.profileSlug, `${runId}-actor-contributor`);
+    assert.deepEqual(details?.history.map(event => event.kind), ["uploaded"]);
+    await assert.rejects(t.mutation(internal.e2eMedia.publicDetailsFixture, { ...args, secret: "wrong", action: "hide" }), /unavailable/);
+    await t.mutation(internal.e2eMedia.publicDetailsFixture, { ...args, action: "hide" });
+    assert.equal(await read(), null);
+    await t.mutation(internal.e2eMedia.publicDetailsFixture, { ...args, action: "restore" });
+    assert.deepEqual(await read(), details);
+    const actor = await t.run(ctx => ctx.db.query("profiles").withIndex("by_slug", q => q.eq("slug", `${runId}-actor-contributor`)).unique());
+    assert.ok(actor);
+    await t.run(({ db }) => db.patch(actor._id, { sourceAttribution: undefined }));
+    const cleanup = await t.mutation(internal.e2eMedia.prepareCleanup, args);
+    await assert.rejects(t.mutation(internal.e2eMedia.finishCleanup, { ...args, deletedStorageKeys: cleanup.storageKeys }), /Exact public actor/);
+    assert.ok(await t.run(({ db }) => db.get(prepared.ownerAssetId!)));
+    await t.run(({ db }) => db.patch(actor._id, { sourceAttribution: actor.sourceAttribution }));
+    await t.mutation(internal.e2eMedia.finishCleanup, { ...args, deletedStorageKeys: cleanup.storageKeys });
+    assert.equal(await t.run(({ db }) => db.get(actor._id)), null);
+    assert.equal(await t.run(({ db }) => db.get(prepared.ownerAssetId!)), null);
+  });
+
   it("preflights direct uploads and refuses paused intake before creating accounts", async () => {
     const { t } = await seed();
     assert.deepEqual(await t.query(internal.e2eMedia.preflight, { secret }), { ready: true });

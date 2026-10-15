@@ -14,6 +14,34 @@ function runMcpProbe(script: string) {
     },
   });
 }
+it("public media protocol lists a strict anonymous read and refuses revoked visibility", () => {
+  const output = runMcpProbe(`
+    import assert from "node:assert/strict";
+    import { getFunctionName } from "convex/server";
+    import { PublicProfileMediaDetailsSchema } from "./packages/api-contracts/src/public-media-details.ts";
+    import { createVrdexMcpHandler } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+    const uploader={displayName:"Uploader A",profileSlug:"a",profileUrl:"/a"};
+    const publisher={displayName:"Publisher B",profileSlug:"b",profileUrl:"/b"};
+    const details={profileSlug:"target",asset:{assetId:"asset"},referenceUrl:null,credit:null,uploadedBy:uploader,history:[{kind:"uploaded",at:10,actor:uploader},{kind:"published",at:20,actor:publisher}]};
+    let visible=true;
+    const handler=createVrdexMcpHandler({convex:{query:async(ref,args)=>{assert.equal(getFunctionName(ref),"profileAssets:getPublicAssetDetails");assert.deepEqual(args,{slug:"target",assetId:"asset"});return visible?details:null;}}});
+    async function rpc(method,params,authInfo){const r=await handler.fetch(new Request("https://app.example.test/mcp",{method:"POST",headers:{accept:"application/json, text/event-stream","content-type":"application/json"},body:JSON.stringify({jsonrpc:"2.0",id:1,method,params})}),{authInfo});const body=await r.text();return JSON.parse(body.split(/\\r?\\n/).find(l=>l.startsWith("data: "))?.slice(6)??body).result;}
+    const catalog=await rpc("tools/list",{});
+    const tool=catalog.tools.find(t=>t.name==="vrdex_get_profile_media");
+    assert.ok(tool);assert.equal(tool.description,"Read an image's public details, uploader attribution and publication history.");
+    assert.deepEqual(tool.annotations,{readOnlyHint:true,idempotentHint:true});
+    assert.ok(tool._meta.securitySchemes.some(s=>s.type==="noauth"));
+    assert.equal(tool.outputSchema.additionalProperties,false);
+    const args={name:tool.name,arguments:{slug:"target",assetId:"asset"}};
+    const result=await rpc("tools/call",args);assert.deepEqual(PublicProfileMediaDetailsSchema.parse(result.structuredContent),details);
+    assert.doesNotMatch(JSON.stringify(result),/tokenIdentifier|privateReason|sourceUrl|email|clerk/);
+    visible=false;assert.equal((await rpc("tools/call",args)).isError,true);
+    const authInfo={token:"test",clientId:"client",scopes:["mcp:read"],resource:new URL("https://app.example.test/mcp"),extra:{subjectType:"user",userId:"user",tokenId:"token",requestId:"request"}};
+    assert.equal((await rpc("tools/call",args,authInfo)).isError,true);
+    await handler.close();console.log("public media protocol passed");
+  `);
+  assert.match(output, /public media protocol passed/);
+});
 it("hosted review writes return safe refusals and preserve uncertain outcomes", () => {
   const output = runMcpProbe(`
     import assert from "node:assert/strict";
@@ -846,7 +874,7 @@ describe("VRDex MCP server", () => {
     const readTools = tools.filter((tool) => !tool.name?.startsWith("vrdex_contribution_") && !isWriteToolName(tool.name) && !isOwnedReadToolName(tool.name));
 
     assert.match(output, /^200/m);
-    assert.equal(readTools.length, 8);
+    assert.equal(readTools.length, 9);
 
     for (const tool of readTools) {
       assertAuthenticatedReadSecuritySchemes(tool._meta);

@@ -299,6 +299,67 @@ export const grantPublicationActors = internalMutation({
   },
 });
 
+// Public history proof uses only the exact disposable actors and recorded fixture objects.
+async function publicDetailsActors(ctx: QueryCtx, runId: string) {
+  const result = [];
+  for (const suffix of ["contributor", "reviewer"] as const) {
+    const user = await ctx.db.query("users").withIndex("email", q => q.eq("email", `${runId}-${suffix}+clerk_test@e2e.vrdex.net`)).unique();
+    if (!user?.clerkUserId || user.emailVerificationTime === undefined) throw new Error("Verified fixture actor required.");
+    const profile = await getProfileBySlug(ctx.db, `${runId}-actor-${suffix}`);
+    const owners = profile ? await ctx.db.query("profileOwners").withIndex("by_profileId_state", q => q.eq("profileId", profile._id)).take(3) : [];
+    if (profile && (profile.creationSource !== "community" || profile.sourceAttribution?.submitter.tokenIdentifier !== `e2e:${runId}` ||
+      profile.sourceAttribution.submitter.issuer !== "vrdex:e2e" || profile.sourceAttribution.submitter.subject !== runId ||
+      owners.length !== 1 || owners[0].userId !== user._id || owners[0].roleKey !== "owner")) throw new Error("Exact public actor fixture required.");
+    result.push({ suffix, user, profile, owners });
+  }
+  return result;
+}
+
+export const publicDetailsFixture = internalMutation({
+  args: { ...fixtureArgs, action: v.union(v.literal("prepare"), v.literal("hide"), v.literal("restore")), assetId: v.optional(v.id("profileAssets")) },
+  handler: async (ctx, args) => {
+    const target = await fixture(ctx, args);
+    if (target.publicationState !== "published" || target.claimState !== "unclaimed") throw new Error("Unclaimed fixture required.");
+    if (args.action !== "prepare") {
+      if (args.action === "restore" && target.publicSurfacingState === "public") return { changed: false };
+      if (target.publicSurfacingState !== (args.action === "hide" ? "public" : "suppressed")) throw new Error("Exact fixture visibility required.");
+      await ctx.db.patch(target._id, { publicSurfacingState: args.action === "hide" ? "suppressed" : "public" });
+      return { changed: true };
+    }
+    if (target.publicSurfacingState !== "public" || !args.assetId) throw new Error("Public fixture asset required.");
+    const data = await cleanupRows(ctx, args);
+    const source = data.assets.find(asset => asset._id === args.assetId && asset.state === "active" && asset.visibility === "public");
+    if (!source || !data.submissions.some(row => row.approvedAssetId === source._id && row.status === "approved")) throw new Error("Published fixture object required.");
+    const now = Date.now();
+    const actors = await publicDetailsActors(ctx, args.runId);
+    for (const actor of actors) {
+      if (!actor.profile) {
+        const id = await ctx.db.insert("profiles", {
+          profileType: "person", slug: `${args.runId}-actor-${actor.suffix}`, displayName: `Synthetic ${actor.suffix}`,
+          sortName: `synthetic ${actor.suffix}`, aliases: [], tags: [], claimState: "claimed_verified", publicationState: "published", publicSurfacingState: "public", creationSource: "community", person: { roleTags: [] }, updatedAt: now,
+          sourceAttribution: { submittedAt: now, submitter: { tokenIdentifier: `e2e:${args.runId}`, issuer: "vrdex:e2e", subject: args.runId } },
+        });
+        await ctx.db.insert("profileOwners", { profileId: id, userId: actor.user._id, roleKey: "owner", state: "active", grantedAt: now, updatedAt: now });
+      }
+    }
+    const existing = data.assets.filter(asset => asset.label === `${args.runId}-owner-history`);
+    if (existing.length > 1 || existing.some(asset => asset.source !== "owner_authored" || asset.sourceSubmissionId !== undefined || asset.uploadedBy.issuer !== "vrdex:api" || asset.uploadedBy.subject !== actors[0].user._id)) throw new Error("Ambiguous fixture owner asset.");
+    let ownerAssetId = existing[0]?._id;
+    if (!ownerAssetId) {
+      const contributor = actors.find(actor => actor.suffix === "contributor");
+      if (!contributor) throw new Error("Fixture contributor required.");
+      ownerAssetId = await ctx.db.insert("profileAssets", {
+        profileId: target._id, storageKey: source.storageKey, sourceStorageKey: source.sourceStorageKey,
+        downloadStorageKey: source.downloadStorageKey, mimeType: source.mimeType, byteSize: source.byteSize,
+        label: `${args.runId}-owner-history`, visibility: "public", source: "owner_authored", state: "active",
+        uploadedBy: { issuer: "vrdex:api", subject: contributor.user._id, tokenIdentifier: `api:${contributor.user._id}` }, uploadedAt: now, updatedAt: now,
+      });
+      await ctx.db.insert("profileAssetPlacements", { profileId: target._id, assetId: ownerAssetId, placement: "gallery", position: 19, state: "active", updatedAt: now });
+    }
+    return { ownerAssetId };
+  },
+});
+
 export const assignReviewOwner = internalMutation({
   args: { ...fixtureArgs, reviewerEmail: v.string() },
   handler: async (ctx, args) => {
@@ -654,6 +715,11 @@ export const finishCleanup = internalMutation({
       throw new Error("Fixture cleanup changed or was not prepared.");
     if (Date.now() < signedTransferSafeAfter(data.intents))
       throw new Error("Fixture signed transfer may still be valid.");
+    const publicActors = await publicDetailsActors(ctx, args.runId);
+    for (const actor of publicActors) {
+      for (const owner of actor.owners) await ctx.db.delete(owner._id);
+      if (actor.profile) await ctx.db.delete(actor.profile._id);
+    }
     for (const row of data.reservations) {
       if (row.chargedBytes || row.processing)
         await changeContributionCharge(ctx.db, row, -row.chargedBytes, row.processing ? -1 : 0);

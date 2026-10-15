@@ -314,3 +314,16 @@ test("returns structured failures for API problem responses", async () => {
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   }
 });
+
+
+test("public media REST adapter encodes IDs, omits credentials and rejects private output", async () => {
+  let privateOutput = false;
+  const client = createVrdexApiClient({ apiBaseUrl: "https://example.test/api/v0", bearerToken: "secret", outputMode: "compact", fetch: async (url, init) => {
+    assert.equal(String(url), "https://example.test/api/v0/profiles/a%2Fb/assets/c%2Fd");
+    assert.equal(new Headers(init?.headers).get("authorization"), null);
+    return new Response(JSON.stringify({ profileSlug: "a/b", asset: { assetId: "c/d" }, referenceUrl: null, credit: null, uploadedBy: null, history: [], ...(privateOutput ? { sourceUrl: "private" } : {}) }));
+  } });
+  assert.equal((await client.getProfileMedia({ slug: "a/b", assetId: "c/d" })).ok, true);
+  privateOutput = true;
+  await assert.rejects(client.getProfileMedia({ slug: "a/b", assetId: "c/d" }), /Unrecognized key/);
+});

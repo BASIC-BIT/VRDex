@@ -52,6 +52,7 @@ type HostedToolDescriptor = {
 
 const localReadTools = [
   "vrdex_search",
+  "vrdex_get_profile_media",
   "vrdex_get_profile",
   "vrdex_get_event",
   "vrdex_list_upcoming_events",
@@ -356,20 +357,8 @@ async function callTool(args: {
   return call;
 }
 
-function pnpmExecCommand() {
-  const args = ["--silent", "exec", "tsx", "packages/vrdex-mcp/src/stdio.ts"];
-
-  if (process.env.npm_execpath !== undefined) {
-    return {
-      command: process.execPath,
-      args: [process.env.npm_execpath, ...args],
-    };
-  }
-
-  return {
-    command: process.platform === "win32" ? "pnpm.cmd" : "pnpm",
-    args,
-  };
+function stdioCommand() {
+  return { command: process.execPath, args: ["--import", "tsx", "packages/vrdex-mcp/src/stdio.ts"] };
 }
 
 function waitForMessage(
@@ -403,7 +392,7 @@ async function smokeLocalStdioProtocol() {
   const messages: JsonRpcMessage[] = [];
   const stderr: string[] = [];
   const messageListeners = new Set<() => void>();
-  const command = pnpmExecCommand();
+  const command = stdioCommand();
   const child = spawn(command.command, command.args, {
     cwd: process.cwd(),
     env: {
@@ -458,6 +447,7 @@ async function smokeLocalStdioProtocol() {
     const toolNames = ((tools.result as { tools: Array<{ name: string }> }).tools).map((tool) => tool.name);
 
     assert.deepEqual(toolNames, localExpectedTools);
+
 
     await callTool({
       id: 3,
@@ -531,6 +521,9 @@ async function smokeLocalStdioProtocol() {
     assert.equal(fixture.captured[0]?.searchParams.get("limit"), "2");
     assert.equal(fixture.captured[3]?.searchParams.get("limit"), "1");
     assert.equal(fixture.captured[5]?.searchParams.get("limit"), "1");
+    await callTool({ id: 103, messages, name: "vrdex_get_profile_media", onMessage, send, stderr,
+      toolArgs: { slug: "target", assetId: "asset" } });
+    assert.equal(fixture.captured.at(-1)?.pathname, "/api/v0/profiles/target/assets/asset");
   } finally {
     child.stdin.end();
     child.kill();

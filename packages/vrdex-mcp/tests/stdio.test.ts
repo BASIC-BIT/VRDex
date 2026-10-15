@@ -1,4 +1,5 @@
-import { lineupRoster } from "./api-fixture";
+import { PublicProfileMediaDetailsSchema } from "@vrdex/api-contracts";
+import { publicMediaDetails, lineupRoster } from "./api-fixture";
 import assert from "node:assert/strict";
 import { createInterface } from "node:readline";
 import { spawn } from "node:child_process";
@@ -84,20 +85,8 @@ function waitForMessage(
   });
 }
 
-function pnpmExecCommand(repoRoot: string) {
-  const args = ["--silent", "--dir", repoRoot, "exec", "tsx", "packages/vrdex-mcp/src/stdio.ts"];
-
-  if (process.env.npm_execpath !== undefined) {
-    return {
-      command: process.execPath,
-      args: [process.env.npm_execpath, ...args],
-    };
-  }
-
-  return {
-    command: process.platform === "win32" ? "pnpm.cmd" : "pnpm",
-    args,
-  };
+function stdioCommand() {
+  return { command: process.execPath, args: ["--import", "tsx", "packages/vrdex-mcp/src/stdio.ts"] };
 }
 
 test("serves VRDex tools over stdio and calls the configured API base URL", async () => {
@@ -106,7 +95,7 @@ test("serves VRDex tools over stdio and calls the configured API base URL", asyn
   const stderr: string[] = [];
   const messageListeners = new Set<() => void>();
   const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
-  const command = pnpmExecCommand(repoRoot);
+  const command = stdioCommand();
   const child = spawn(command.command, command.args, {
     cwd: repoRoot,
     env: {
@@ -182,6 +171,7 @@ test("serves VRDex tools over stdio and calls the configured API base URL", asyn
         "vrdex_event_intake_artwork_select", "vrdex_event_intake_event_get", "vrdex_event_intake_event_update",
         "vrdex_event_intake_event_retract", "vrdex_event_intake_poster_upload_bytes",
         "vrdex_search",
+        "vrdex_get_profile_media",
         "vrdex_get_profile",
         "vrdex_get_event",
         "vrdex_list_upcoming_events",
@@ -516,6 +506,10 @@ test("serves VRDex tools over stdio and calls the configured API base URL", asyn
     });
     assert.equal(fixture.captured[8]?.method, "PATCH");
     assert.deepEqual(fixture.captured[8]?.body, { summary: null });
+    const media = await callTool({ id: 101, messages, name: "vrdex_get_profile_media", onMessage, send, stderr, toolArgs: { slug: "target", assetId: "asset" } });
+    assert.deepEqual(PublicProfileMediaDetailsSchema.parse((media.result as { structuredContent: unknown }).structuredContent), publicMediaDetails);
+    const hiddenMedia = await callTool({ id: 102, messages, name: "vrdex_get_profile_media", onMessage, send, stderr, toolArgs: { slug: "target", assetId: "hidden" } });
+    assert.equal((hiddenMedia.result as { isError?: boolean }).isError, true);
     const saved = await callTool({ id: 30, messages, name: "vrdex_event_intake_draft_save", onMessage, send, stderr, toolArgs: { patch: { title: "Night" } } });
     assert.deepEqual((saved.result as { structuredContent: unknown }).structuredContent, { draftId: "intake-fixture", version: 1 });
     const intake = await callTool({ id: 31, messages, name: "vrdex_event_intake_draft_get", onMessage, send, stderr, toolArgs: { draftId: "intake-fixture" } });
@@ -541,7 +535,7 @@ test("keeps event write tools hidden when local stdio has no bearer credential",
   const stderr: string[] = [];
   const messageListeners = new Set<() => void>();
   const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
-  const command = pnpmExecCommand(repoRoot);
+  const command = stdioCommand();
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     VRDEX_API_BASE_URL: "http://127.0.0.1:1",
@@ -600,7 +594,8 @@ test("keeps event write tools hidden when local stdio has no bearer credential",
 
     assert.deepEqual(names, [
       "vrdex_search",
-      "vrdex_get_profile",
+      "vrdex_get_profile_media",
+        "vrdex_get_profile",
       "vrdex_get_event",
       "vrdex_list_upcoming_events",
       "vrdex_get_world",
