@@ -43,6 +43,8 @@ Codex-valid frontmatter and points back to the OpenCode source skill. If a
 Codex session does not auto-discover repo-local skills, open the wrapper or
 source skill by path.
 
+New repository skills use the documented `.agents/skills/<name>/SKILL.md` location. The cloud startup entry is `.agents/skills/vrdex-cloud-start/SKILL.md`, backed by [the startup guide](../engineering/cloud-task-start.md). Existing `.codex/skills` wrappers remain compatibility routes; filesystem reads do not establish cloud catalog discovery.
+
 Current wrappers:
 
 - `vrdex-feature-design`

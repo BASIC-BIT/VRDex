@@ -79,7 +79,8 @@ VRDex keeps four Convex execution targets separate:
 
 ## Targeting a deployment from the CLI
 
-Use `pnpm cx -- <local|dev|prod> <convex args>`. The target is a required
+Use `pnpm cx <local|dev|prod> <convex args>`. One optional package-manager
+delimiter is also accepted, as in `pnpm cx -- dev env list`. The target is a required
 positional and is never inferred:
 
 ```bash

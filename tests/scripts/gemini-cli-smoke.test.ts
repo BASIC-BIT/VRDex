@@ -33,23 +33,30 @@ function fakeChild(pid: number) {
   return { child, signals };
 }
 
-function processIsAlive(pid: number) {
+async function processIsAlive(pid: number) {
   try {
     process.kill(pid, 0);
+    if (process.platform === "linux") {
+      // Cloud PID 1 may leave an exited fixture unreaped. Signal zero still
+      // succeeds for that zombie, even though it can no longer execute.
+      const stat = await readFile(`/proc/${pid}/stat`, "utf8");
+      const state = stat.slice(stat.lastIndexOf(")") + 2)[0];
+      return state !== "Z" && state !== "X";
+    }
     return true;
   } catch (error) {
-    return !(typeof error === "object" && error !== null && "code" in error && error.code === "ESRCH");
+    return !(typeof error === "object" && error !== null && "code" in error && (error.code === "ESRCH" || error.code === "ENOENT"));
   }
 }
 
 async function waitForProcessExit(pid: number) {
   const deadline = Date.now() + 2_000;
 
-  while (processIsAlive(pid) && Date.now() < deadline) {
+  while ((await processIsAlive(pid)) && Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
 
-  assert.equal(processIsAlive(pid), false, `Expected process ${pid} to terminate.`);
+  assert.equal(await processIsAlive(pid), false, `Expected process ${pid} to terminate.`);
 }
 
 describe("Gemini CLI MCP smoke harness", () => {
