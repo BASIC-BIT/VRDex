@@ -319,3 +319,51 @@ test("accepting imported doors expands the disclosure @fixture", async ({ page }
   await expect(page.getByLabel("Doors open", { exact: true })).toBeVisible();
   await expect(page.getByLabel("Doors open", { exact: true })).toHaveValue("2027-10-15T19:30");
 });
+
+test("saved world-only Details keeps its hydrated name when switching to editable manual location @fixture", async ({ page }, testInfo) => {
+  await page.addInitScript(() => sessionStorage.setItem("fixture-source-draft", JSON.stringify({ version: 1, fields: { title: "World-only night", worldSlug: "harbor-world" } })));
+  await page.goto("/playwright/event-intake?source=details");
+  await expect(page.getByTestId("selected-identity")).toContainText("Harbor World");
+  await page.getByRole("button", { name: "Use manual location", exact: true }).click();
+  const manual = page.getByRole("textbox", { name: "Where", exact: true });
+  await expect(manual).toBeVisible();
+  await expect(manual).toHaveValue("Harbor World");
+  await expect(manual).toBeFocused();
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({ path: testInfo.outputPath("world-only-manual.png"), fullPage: true });
+  await manual.fill("Harbor side room");
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => JSON.parse(sessionStorage.getItem("event-intake-revision-submission")!).patch)).toMatchObject({ worldSlug: null, venueLabel: "Harbor side room" });
+  await manual.fill("");
+  await expect(manual).toBeVisible();
+});
+
+test("saved world-only Details displays its title in preview and Review without authoring an override @fixture", async ({ page }, testInfo) => {
+  await page.addInitScript(() => sessionStorage.setItem("fixture-source-draft", JSON.stringify({ version: 1, fields: { title: "World-only night", worldSlug: "harbor-world" } })));
+  await page.goto("/playwright/event-intake?source=details");
+  await expect(page.getByTestId("selected-identity")).toContainText("Harbor World");
+  await expect(page.getByRole("complementary", { name: "Event preview" })).toContainText("Harbor World");
+  await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Review" }).click();
+  await expect(page.locator('[data-step="Review"]')).toContainText("Harbor World");
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({ path: testInfo.outputPath("world-only-review.png"), fullPage: true });
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => JSON.parse(sessionStorage.getItem("event-intake-revision-submission")!).patch.worldSlug)).toBe("harbor-world");
+  expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("event-intake-revision-submission")!).patch.venueLabel)).toBeUndefined();
+});
+
+
+test("late world hydration cannot replace a manual location or write a venue override @fixture", async ({ page }) => {
+  await page.addInitScript(() => sessionStorage.setItem("fixture-source-draft", JSON.stringify({ version: 1, fields: { title: "Pending world", worldSlug: "harbor-world" } })));
+  await page.goto("/playwright/event-intake?source=world-delay");
+  await page.getByRole("button", { name: "Use manual location", exact: true }).click();
+  const manual = page.getByRole("textbox", { name: "Where", exact: true });
+  await expect(manual).toBeVisible();
+  await manual.fill("New room");
+  await page.evaluate(async () => { window.dispatchEvent(new Event("release-world-presentation")); await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))); });
+  await expect(manual).toHaveValue("New room");
+  await expect(page.getByRole("complementary", { name: "Event preview" })).toContainText("New room");
+  await expect(page.getByRole("complementary", { name: "Event preview" })).not.toContainText("Harbor World");
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => JSON.parse(sessionStorage.getItem("event-intake-revision-submission")!).patch)).toMatchObject({ worldSlug: null, venueLabel: "New room" });
+});

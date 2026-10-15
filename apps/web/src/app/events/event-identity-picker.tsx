@@ -20,6 +20,8 @@ export type EventIdentityPickerProps = {
   shortcuts?: readonly EventIdentityOption[];
   disabled?: boolean;
   onSelect(option: EventIdentityOption): void;
+  /** Presentation hydration only; never treat this as an authored selection. */
+  onResolve?(option: EventIdentityOption): void;
   onClear(): void;
   manualAction?: { label: string; onChoose(text: string): void };
 };
@@ -37,6 +39,7 @@ export function EventIdentityPicker({
   shortcuts = [],
   disabled,
   onSelect,
+  onResolve,
   onClear,
   manualAction,
 }: EventIdentityPickerProps) {
@@ -48,6 +51,8 @@ export function EventIdentityPicker({
   const [fetched, setFetched] = useState<SearchState | null>(null);
   const [cachedSelection, setCachedSelection] =
     useState<EventIdentityOption | null>(null);
+  const onResolveRef = useRef(onResolve);
+  useEffect(() => { onResolveRef.current = onResolve; }, [onResolve]);
   const changeRef = useRef<HTMLButtonElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const listId = useId();
@@ -76,6 +81,10 @@ export function EventIdentityPicker({
     const slug = selectedSlug;
     if (!slug) return;
     let current = true;
+    function retainResolved(option: EventIdentityOption) {
+      setCachedSelection(option);
+      onResolveRef.current?.(option);
+    }
     async function hydrate(slug: string) {
       if (kind === "world") {
         const world = await client.query(api.worlds.getPublicBySlug, {
@@ -83,7 +92,7 @@ export function EventIdentityPicker({
           now: Date.now(),
         });
         if (current && world)
-          setCachedSelection({
+          retainResolved({
             kind,
             slug: world.slug,
             title: world.displayName,
@@ -102,7 +111,7 @@ export function EventIdentityPicker({
           includeTelemetry: false,
         });
         if (current && profile)
-          setCachedSelection({
+          retainResolved({
             kind,
             slug: profile.slug,
             title: profile.displayName,

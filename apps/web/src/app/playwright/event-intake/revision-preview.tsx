@@ -54,7 +54,10 @@ function revisionFixture(correction: boolean, sourceMode?: string, staff = false
         const community = publicCommunities.find(item => item.slug === args.slug);
         return community ? { slug: community.slug, displayName: community.title, avatarImageUrl: community.imageUrl, mediaKit: { primaryLogo: { imageUrl: community.imageUrl } } } : null;
       }
-      if (name === "worlds:getPublicBySlug") return args.slug === "harbor-world" ? { slug: args.slug, displayName: "Harbor World", tags: [], heroImageUrl: "/test-media/event-poster.png" } : null;
+      if (name === "worlds:getPublicBySlug") {
+        if (sourceMode === "world-delay") await new Promise<void>(resolve => window.addEventListener("release-world-presentation", () => resolve(), { once: true }));
+        return args.slug === "harbor-world" ? { slug: args.slug, displayName: "Harbor World", tags: [], heroImageUrl: "/test-media/event-poster.png" } : null;
+      }
       if (name === "search:searchUniversal") {
         if (searchLoading) await new Promise<void>(resolve => window.addEventListener("release-community-search", () => resolve(), { once: true }));
         if (args.entityType === "world") return [{ entityType: "world", slug: "harbor-world", title: "Harbor World", routePath: "/harbor-world", imageUrl: "/test-media/event-poster.png" }];

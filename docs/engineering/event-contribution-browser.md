@@ -51,7 +51,11 @@ keeps its existing community restriction.
 
 Where searches published worlds or accepts an explicit manual location. A saved
 world and custom venue label remain separate. The label appears in the selected
-world's Details. Switching to manual location clears only the represented world
+world's Details. World-only locations display their resolved title in preview and
+Review without storing a venue override. Hydration updates presentation only.
+Switching to manual retains the displayed name in an editable location field,
+including an empty field when public presentation is unavailable. Clearing its
+text keeps that manual field open. The switch clears only the represented world
 link. Unrelated published and protected world associations remain attached.
 
 The authorized staff readback adds `editableWorldAssociation` for the first

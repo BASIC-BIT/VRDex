@@ -509,7 +509,9 @@ function ConnectedEventEditorForm({
   const [worldEdited, setWorldEdited] = useState(false);
   const worldEditRevision = useRef(0);
   const [editableWorld, setEditableWorld] = useState(event?.editableWorldAssociation);
-  const selectedWorld: EventIdentityOption | undefined = initialWorld ? { kind: "world", slug: initialWorld.slug, title: initialWorld.displayName, href: `/${initialWorld.slug}`, imageUrl: initialWorld.heroImageUrl, imageKind: "profile" } : undefined;
+  const initialWorldOption: EventIdentityOption | undefined = initialWorld ? { kind: "world", slug: initialWorld.slug, title: initialWorld.displayName, href: `/${initialWorld.slug}`, imageUrl: initialWorld.heroImageUrl, imageKind: "profile" } : undefined;
+  const [selectedWorld, setSelectedWorld] = useState(initialWorldOption);
+  const world = selectedWorld?.slug === location.worldSlug ? selectedWorld : undefined;
   const [preview, setPreview] = useState({ title: event?.title ?? (demoMode ? "Afterglow Harbor Sessions" : ""), summary: event?.summary ?? "", venueLabel: event?.venueLabel ?? "", artwork: event?.posterImageUrl ?? "" });
   const [eventDate, setEventDate] = useState(event?.eventDate ?? formatZonedDateTimeInput(event?.startAt, event?.timezone).slice(0, 10));
   const [timeTba, setTimeTba] = useState(event?.scheduleKind === "date_only");
@@ -979,7 +981,7 @@ function ConnectedEventEditorForm({
     return { time: local.slice(11, 16), dayOffset: Math.round((Date.parse(`${local.slice(0, 10)}T00:00:00Z`) - Date.parse(`${eventDate}T00:00:00Z`)) / 86_400_000), ...(instantOccurrence ? { occurrence: instantOccurrence } : {}) };
   }
   const previewFields = {
-    ...preview, venueLabel: location.venueLabel, communitySlug, eventDate, timezone, timeTba,
+    ...preview, worldSlug: location.worldSlug, venueLabel: location.venueLabel, communitySlug, eventDate, timezone, timeTba,
     start: previewStart === undefined ? null : previewTime(previewStart),
     end: previewEndAt === undefined ? null : previewTime(previewEndAt),
     lineup: [
@@ -998,7 +1000,7 @@ function ConnectedEventEditorForm({
       const data = new FormData(change.currentTarget);
       setPreview({ title: stringField(data.get("title")), summary: stringField(data.get("summary")), venueLabel: stringField(data.get("venueLabel")), artwork: stringField(data.get("posterImageUrl")) });
     }}>
-      <EventEditorSteps heading={heading} steps={["Details", "Lineup", "Review"]} activeStep={activeStep} onSelect={setActiveStep} preview={<EventEditorPreview fields={previewFields} artwork={preview.artwork || undefined} community={community} />}>
+      <EventEditorSteps heading={heading} steps={["Details", "Lineup", "Review"]} activeStep={activeStep} onSelect={setActiveStep} preview={<EventEditorPreview fields={previewFields} artwork={preview.artwork || undefined} community={community} world={world} />}>
       <div hidden={activeStep !== "Details"} data-editor-step="Details" className="space-y-8">
       <EditorSection title="Details">
         <Field>
@@ -1016,7 +1018,7 @@ function ConnectedEventEditorForm({
           <Textarea aria-label="Description" className="min-h-24" defaultValue={event?.summary} name="summary" />
         </Field>
         <EventCommunitySummary community={community} />
-        <EventLocationField {...location} selectedWorld={selectedWorld} onChange={next => { if (next.worldSlug !== location.worldSlug) { worldEditRevision.current += 1; setWorldEdited(true); } setLocation(next); }} />
+        <EventLocationField {...location} selectedWorld={world} onWorldPresentation={setSelectedWorld} onChange={next => { if (next.worldSlug !== location.worldSlug) { worldEditRevision.current += 1; setWorldEdited(true); } setLocation(next); }} />
 
         <details className="group rounded-control border border-border bg-surface px-4 py-3">
           <summary className="flex cursor-pointer list-none items-center justify-between gap-4 font-medium marker:hidden">
@@ -1201,7 +1203,7 @@ function ConnectedEventEditorForm({
             <div><dt className="text-muted">{timeTba ? "Date" : "Starts"}</dt><dd>{timeTba ? eventDate : startLocal.replace("T", " ")}</dd></div>
             {!timeTba ? <div><dt className="text-muted">Time zone</dt><dd>{timezone}</dd></div> : null}
             <div><dt className="text-muted">Community</dt><dd><EventCommunitySummary community={community} /></dd></div>
-            {location.venueLabel ? <div><dt className="text-muted">Where</dt><dd>{location.venueLabel}</dd></div> : null}
+            {location.venueLabel || world?.title ? <div><dt className="text-muted">Where</dt><dd>{location.venueLabel || world?.title}</dd></div> : null}
           </dl>
           <div className="flex flex-wrap gap-3">
             {(["Details", "Lineup"] as const).map(step => <Button key={step} type="button" variant="secondary" onClick={() => setActiveStep(step)}>Edit {step.toLowerCase()}</Button>)}

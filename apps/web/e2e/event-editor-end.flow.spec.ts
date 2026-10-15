@@ -182,3 +182,21 @@ for (const unavailable of [false, true]) test(`staff explicit manual location pr
     expect(payload.venueLabel).toBe("Custom pier");
   }
 });
+
+
+test("staff world-only presentation appears in preview and Review without saving a venue override @fixture", async ({ page }) => {
+  await page.addInitScript(({ startAt, endAt }) => localStorage.setItem("event-lineup-fixture-v1", JSON.stringify({
+    id: "staff-world-only", slug: "world-only", title: "World-only night", startAt, endAt, timezone: "UTC", status: "scheduled", communitySlug: "afterglow", publicationState: "published",
+    source: { sourceType: "community", label: "Afterglow" }, watchSurfaceEnabled: false, watchMode: "event_stream", mediaLinks: [], authoredMediaLinks: [], participants: [], slots: [], lineup: [],
+    worlds: [{ slug: "harbor-world", displayName: "Harbor World", tags: [], association: { sourceType: "community", confirmationState: "confirmed" } }],
+    editableWorldAssociation: { associationId: "editable-world", worldSlug: "harbor-world" }, preservedParticipantAssociationIds: [], preservedSlotAssociationIds: [], preservedWorldAssociationIds: ["editable-world"],
+  })), { startAt: storedStart, endAt: storedEnd });
+  await page.goto("/playwright/event-lineup?editor");
+  await expect(page.getByRole("complementary", { name: "Event preview" })).toContainText("Harbor World");
+  await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Review" }).click();
+  await expect(page.locator('[data-editor-step="Review"]')).toContainText("Harbor World");
+  const payload = await saveEdit(page);
+  expect(payload.venueLabel).toBe("");
+  expect(payload.worldSlug).toBeUndefined();
+  expect(payload.preservedWorldAssociationIds).toEqual(["editable-world"]);
+});
