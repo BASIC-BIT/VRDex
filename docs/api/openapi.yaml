@@ -7658,6 +7658,8 @@ components:
                     format: uri
                   downloadUrl:
                     $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                  detailsUrl:
+                    $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                   downloadByteSize:
                     type: integer
                     exclusiveMinimum: 0
@@ -7697,6 +7699,8 @@ components:
                     format: uri
                   downloadUrl:
                     $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                  detailsUrl:
+                    $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                   downloadByteSize:
                     type: integer
                     exclusiveMinimum: 0
@@ -7735,6 +7739,8 @@ components:
                     maxLength: 2048
                     format: uri
                   downloadUrl:
+                    $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                  detailsUrl:
                     $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                   downloadByteSize:
                     type: integer
@@ -7800,6 +7806,8 @@ components:
                   format: uri
                 downloadUrl:
                   $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                detailsUrl:
+                  $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                 downloadByteSize:
                   type: integer
                   exclusiveMinimum: 0
@@ -7836,6 +7844,8 @@ components:
                   maxLength: 2048
                   format: uri
                 downloadUrl:
+                  $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                detailsUrl:
                   $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                 downloadByteSize:
                   type: integer
@@ -7883,6 +7893,8 @@ components:
                     format: uri
                   downloadUrl:
                     $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                  detailsUrl:
+                    $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                   downloadByteSize:
                     type: integer
                     exclusiveMinimum: 0
@@ -7920,6 +7932,8 @@ components:
                   format: uri
                 downloadUrl:
                   $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                detailsUrl:
+                  $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                 downloadByteSize:
                   type: integer
                   exclusiveMinimum: 0
@@ -7956,6 +7970,8 @@ components:
                   maxLength: 2048
                   format: uri
                 downloadUrl:
+                  $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                detailsUrl:
                   $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                 downloadByteSize:
                   type: integer
@@ -8464,6 +8480,8 @@ components:
                 format: uri
               downloadUrl:
                 $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
+              detailsUrl:
+                $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
               downloadByteSize:
                 type: integer
                 exclusiveMinimum: 0
@@ -8509,6 +8527,8 @@ components:
                     format: uri
                   downloadUrl:
                     $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                  detailsUrl:
+                    $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                   downloadByteSize:
                     type: integer
                     exclusiveMinimum: 0
@@ -8548,6 +8568,8 @@ components:
                     format: uri
                   downloadUrl:
                     $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                  detailsUrl:
+                    $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                   downloadByteSize:
                     type: integer
                     exclusiveMinimum: 0
@@ -8586,6 +8608,8 @@ components:
                     maxLength: 2048
                     format: uri
                   downloadUrl:
+                    $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                  detailsUrl:
                     $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                   downloadByteSize:
                     type: integer
@@ -8651,6 +8675,8 @@ components:
                   format: uri
                 downloadUrl:
                   $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                detailsUrl:
+                  $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                 downloadByteSize:
                   type: integer
                   exclusiveMinimum: 0
@@ -8687,6 +8713,8 @@ components:
                   maxLength: 2048
                   format: uri
                 downloadUrl:
+                  $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                detailsUrl:
                   $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                 downloadByteSize:
                   type: integer
@@ -8734,6 +8762,8 @@ components:
                     format: uri
                   downloadUrl:
                     $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                  detailsUrl:
+                    $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                   downloadByteSize:
                     type: integer
                     exclusiveMinimum: 0
@@ -8771,6 +8801,8 @@ components:
                   format: uri
                 downloadUrl:
                   $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                detailsUrl:
+                  $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                 downloadByteSize:
                   type: integer
                   exclusiveMinimum: 0
@@ -8807,6 +8839,8 @@ components:
                   maxLength: 2048
                   format: uri
                 downloadUrl:
+                  $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                detailsUrl:
                   $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                 downloadByteSize:
                   type: integer
@@ -8933,6 +8967,8 @@ components:
                 format: uri
               downloadUrl:
                 $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
+              detailsUrl:
+                $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
               downloadByteSize:
                 type: integer
                 exclusiveMinimum: 0
@@ -8977,6 +9013,8 @@ components:
                 format: uri
               downloadUrl:
                 $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
+              detailsUrl:
+                $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
               downloadByteSize:
                 type: integer
                 exclusiveMinimum: 0
@@ -9013,6 +9051,8 @@ components:
               maxLength: 2048
               format: uri
             downloadUrl:
+              $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
+            detailsUrl:
               $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
             downloadByteSize:
               type: integer

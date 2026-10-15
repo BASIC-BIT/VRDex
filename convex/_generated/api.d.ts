@@ -101,6 +101,7 @@ import type * as _profileSurfacing from "../_profileSurfacing.js";
 import type * as _profileUpdates from "../_profileUpdates.js";
 import type * as _profileWorldCredits from "../_profileWorldCredits.js";
 import type * as _publicFields from "../_publicFields.js";
+import type * as _publicMediaDetails from "../_publicMediaDetails.js";
 import type * as _publicSearch from "../_publicSearch.js";
 import type * as _reviewCursor from "../_reviewCursor.js";
 import type * as _searchDocuments from "../_searchDocuments.js";
@@ -293,6 +294,7 @@ declare const fullApi: ApiFromModules<{
   _profileUpdates: typeof _profileUpdates;
   _profileWorldCredits: typeof _profileWorldCredits;
   _publicFields: typeof _publicFields;
+  _publicMediaDetails: typeof _publicMediaDetails;
   _publicSearch: typeof _publicSearch;
   _reviewCursor: typeof _reviewCursor;
   _searchDocuments: typeof _searchDocuments;

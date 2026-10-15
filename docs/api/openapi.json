@@ -13405,6 +13405,9 @@
                     "downloadUrl": {
                       "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
                     },
+                    "detailsUrl": {
+                      "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                    },
                     "downloadByteSize": {
                       "type": "integer",
                       "exclusiveMinimum": 0,
@@ -13460,6 +13463,9 @@
                     "downloadUrl": {
                       "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
                     },
+                    "detailsUrl": {
+                      "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                    },
                     "downloadByteSize": {
                       "type": "integer",
                       "exclusiveMinimum": 0,
@@ -13513,6 +13519,9 @@
                       "format": "uri"
                     },
                     "downloadUrl": {
+                      "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                    },
+                    "detailsUrl": {
                       "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
                     },
                     "downloadByteSize": {
@@ -13603,6 +13612,9 @@
                   "downloadUrl": {
                     "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
                   },
+                  "detailsUrl": {
+                    "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                  },
                   "downloadByteSize": {
                     "type": "integer",
                     "exclusiveMinimum": 0,
@@ -13653,6 +13665,9 @@
                     "format": "uri"
                   },
                   "downloadUrl": {
+                    "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                  },
+                  "detailsUrl": {
                     "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
                   },
                   "downloadByteSize": {
@@ -13719,6 +13734,9 @@
                     "downloadUrl": {
                       "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
                     },
+                    "detailsUrl": {
+                      "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                    },
                     "downloadByteSize": {
                       "type": "integer",
                       "exclusiveMinimum": 0,
@@ -13772,6 +13790,9 @@
                   "downloadUrl": {
                     "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
                   },
+                  "detailsUrl": {
+                    "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                  },
                   "downloadByteSize": {
                     "type": "integer",
                     "exclusiveMinimum": 0,
@@ -13822,6 +13843,9 @@
                     "format": "uri"
                   },
                   "downloadUrl": {
+                    "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                  },
+                  "detailsUrl": {
                     "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
                   },
                   "downloadByteSize": {
@@ -14498,6 +14522,9 @@
                 "downloadUrl": {
                   "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
                 },
+                "detailsUrl": {
+                  "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                },
                 "downloadByteSize": {
                   "type": "integer",
                   "exclusiveMinimum": 0,
@@ -14560,6 +14587,9 @@
                     "downloadUrl": {
                       "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
                     },
+                    "detailsUrl": {
+                      "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                    },
                     "downloadByteSize": {
                       "type": "integer",
                       "exclusiveMinimum": 0,
@@ -14615,6 +14645,9 @@
                     "downloadUrl": {
                       "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
                     },
+                    "detailsUrl": {
+                      "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                    },
                     "downloadByteSize": {
                       "type": "integer",
                       "exclusiveMinimum": 0,
@@ -14668,6 +14701,9 @@
                       "format": "uri"
                     },
                     "downloadUrl": {
+                      "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                    },
+                    "detailsUrl": {
                       "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
                     },
                     "downloadByteSize": {
@@ -14758,6 +14794,9 @@
                   "downloadUrl": {
                     "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
                   },
+                  "detailsUrl": {
+                    "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                  },
                   "downloadByteSize": {
                     "type": "integer",
                     "exclusiveMinimum": 0,
@@ -14808,6 +14847,9 @@
                     "format": "uri"
                   },
                   "downloadUrl": {
+                    "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                  },
+                  "detailsUrl": {
                     "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
                   },
                   "downloadByteSize": {
@@ -14874,6 +14916,9 @@
                     "downloadUrl": {
                       "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
                     },
+                    "detailsUrl": {
+                      "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                    },
                     "downloadByteSize": {
                       "type": "integer",
                       "exclusiveMinimum": 0,
@@ -14927,6 +14972,9 @@
                   "downloadUrl": {
                     "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
                   },
+                  "detailsUrl": {
+                    "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                  },
                   "downloadByteSize": {
                     "type": "integer",
                     "exclusiveMinimum": 0,
@@ -14977,6 +15025,9 @@
                     "format": "uri"
                   },
                   "downloadUrl": {
+                    "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                  },
+                  "detailsUrl": {
                     "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
                   },
                   "downloadByteSize": {
@@ -15146,6 +15197,9 @@
                 "downloadUrl": {
                   "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
                 },
+                "detailsUrl": {
+                  "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                },
                 "downloadByteSize": {
                   "type": "integer",
                   "exclusiveMinimum": 0,
@@ -15208,6 +15262,9 @@
                 "downloadUrl": {
                   "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
                 },
+                "detailsUrl": {
+                  "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                },
                 "downloadByteSize": {
                   "type": "integer",
                   "exclusiveMinimum": 0,
@@ -15259,6 +15316,9 @@
                 "format": "uri"
               },
               "downloadUrl": {
+                "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+              },
+              "detailsUrl": {
                 "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
               },
               "downloadByteSize": {

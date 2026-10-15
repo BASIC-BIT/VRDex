@@ -55,6 +55,7 @@ export type PublicProfileAsset = {
   sourcePreserved: boolean;
   imageUrl: string;
   downloadUrl: string;
+  detailsUrl?: string;
 };
 
 export type PublicProfileAvatarAppearance = {
@@ -645,6 +646,7 @@ function toPublicAsset(profile: Doc<"profiles">, asset: Doc<"profileAssets">): P
     sourcePreserved: asset.sourceStorageKey !== undefined,
     imageUrl: publicProfileAssetImageUrl(profile.slug, asset._id),
     downloadUrl: publicProfileAssetDownloadUrl(profile.slug, asset._id),
+    detailsUrl: `/${profile.slug}#media-${asset._id}`,
   };
 }
 
