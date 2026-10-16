@@ -1684,6 +1684,11 @@ export default defineSchema({
     state:v.union(v.literal("active"),v.literal("deleted")),createdAt:v.number(),updatedAt:v.number(),
   }).index("by_communityProfileId_state",["communityProfileId","state"]),
   communityDataVisibility:defineTable({communityProfileId:v.id("profiles"),categories:clubVisibility,updatedAt:v.number()}).index("by_communityProfileId",["communityProfileId"]),
+  staffInvitationRateLimits: defineTable({
+    key: v.string(),
+    attempts: v.number(),
+    expiresAt: v.number(),
+  }).index("by_key", ["key"]).index("by_expiresAt", ["expiresAt"]),
   communityStaffInvitations:defineTable({
     communityProfileId:v.id("profiles"),tokenHash:v.string(),roleIds:v.array(v.id("communityRoles")),createdBySubject:clubSubject,
     createdAt:v.number(),expiresAt:v.number(),state:v.union(v.literal("pending"),v.literal("accepted"),v.literal("revoked"),v.literal("expired")),

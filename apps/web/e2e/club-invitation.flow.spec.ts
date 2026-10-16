@@ -195,6 +195,7 @@ test("@flow @club-invitations real invitation sign-in, acceptance and denials", 
   expect(new URL(recipientPage.url()).searchParams.get("returnTo")).toBe(root);
 
   const invitationPath = `${root}/invite/${invite.token}`;
+  expect(invite.token).toMatch(/^[A-Za-z0-9_-]{10}$/);
   await recipientPage.goto(invitationPath);
   await expect(
     recipientPage.getByRole("link", { name: "Sign in to accept" }),
@@ -242,7 +243,7 @@ test("@flow @club-invitations real invitation sign-in, acceptance and denials", 
       recipientPage.getByRole("button", { name: "Accept invitation" }),
     ).toHaveCount(0);
     await expect(
-      acceptedClient.mutation(mutation("acceptStaffInvitation"), {
+      acceptedClient.action(makeFunctionReference<"action">("clubStaff:acceptStaffInvitation"), {
         ...club,
         token: invalid.token,
       }),

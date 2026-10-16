@@ -8,6 +8,12 @@ import {
   invitationSignInHref,
 } from "../../apps/web/src/app/account/communities/[slug]/club-workspace-model";
 
+test("invitation throttling uses approved retry copy without exposing backend details", () => {
+  assert.deepEqual(invitationAcceptanceError(new ConvexError({
+    code: "STAFF_INVITATION_RATE_LIMITED", retryAfterMs: 60_000,
+  })), { message: "Try again.", recoveryHref: null });
+});
+
 test("profile editing is not offered as a new staff permission", () => {
   assert.equal(availablePermissions.includes("edit_community_profile"), false);
 });

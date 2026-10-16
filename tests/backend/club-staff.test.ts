@@ -99,7 +99,7 @@ describe("club staff and visibility", () => {
       api.clubStaff.createStaffInvitation,
       { communitySlug: "test-club", roleIds: [event._id] },
     );
-    await client.mutation(api.clubStaff.acceptStaffInvitation, {
+    await client.action(api.clubStaff.acceptStaffInvitation, {
       communitySlug: "test-club",
       token: invite.token,
     });
@@ -309,7 +309,7 @@ describe("club staff and visibility", () => {
     const stored = await t.run((ctx) => ctx.db.get(invite.invitationId));
     assert.notEqual(stored!.tokenHash, invite.token);
     const client = t.withIdentity(verifiedIdentity(recipient));
-    await client.mutation(api.clubStaff.acceptStaffInvitation, {
+    await client.action(api.clubStaff.acceptStaffInvitation, {
       communitySlug: "test-club",
       token: invite.token,
     });
@@ -320,7 +320,7 @@ describe("club staff and visibility", () => {
     assert.equal(workspace!.actor.roleIds.length, 2);
     assert.ok(workspace!.actor.permissions.includes("manage_events"));
     await assert.rejects(
-      client.mutation(api.clubStaff.acceptStaffInvitation, {
+      client.action(api.clubStaff.acceptStaffInvitation, {
         communitySlug: "test-club",
         token: invite.token,
       }),
@@ -352,7 +352,7 @@ describe("club staff and visibility", () => {
       ctx.db.patch(user!._id, { emailVerificationTime: Date.now() }),
     );
     await assert.rejects(
-      t.withIdentity(recipient).mutation(api.clubStaff.acceptStaffInvitation, {
+      t.withIdentity(recipient).action(api.clubStaff.acceptStaffInvitation, {
         communitySlug: "test-club",
         token: invite.token,
       }),
@@ -363,7 +363,7 @@ describe("club staff and visibility", () => {
       (await t.withIdentity(recipient).query(api.clubStaff.listStaffWorkspaces, {})).workspaces,
       [],
     );
-    await t.withIdentity(verifiedIdentity(recipient)).mutation(
+    await t.withIdentity(verifiedIdentity(recipient)).action(
       api.clubStaff.acceptStaffInvitation,
       { communitySlug: "test-club", token: invite.token },
     );
@@ -385,7 +385,7 @@ describe("club staff and visibility", () => {
     );
     await t
       .withIdentity(verifiedIdentity(delegate))
-      .mutation(api.clubStaff.acceptStaffInvitation, {
+      .action(api.clubStaff.acceptStaffInvitation, {
         communitySlug: "test-club",
         token: bootstrap.token,
       });
@@ -396,7 +396,7 @@ describe("club staff and visibility", () => {
         roleIds: [event._id],
       });
     await assert.rejects(
-      t.withIdentity(verifiedIdentity(delegate)).mutation(api.clubStaff.acceptStaffInvitation, {
+      t.withIdentity(verifiedIdentity(delegate)).action(api.clubStaff.acceptStaffInvitation, {
         communitySlug: "test-club",
         token: invitation.token,
       }),
@@ -411,7 +411,7 @@ describe("club staff and visibility", () => {
       assignableRoleIds: [],
     });
     await assert.rejects(
-      t.withIdentity(verifiedIdentity(recipient)).mutation(api.clubStaff.acceptStaffInvitation, {
+      t.withIdentity(verifiedIdentity(recipient)).action(api.clubStaff.acceptStaffInvitation, {
         communitySlug: "test-club",
         token: invitation.token,
       }),
@@ -504,7 +504,7 @@ describe("club staff and visibility", () => {
     );
     await t
       .withIdentity(verifiedIdentity(recipient))
-      .mutation(api.clubStaff.acceptStaffInvitation, {
+      .action(api.clubStaff.acceptStaffInvitation, {
         communitySlug: "test-club",
         token: invite.token,
       });
@@ -566,7 +566,7 @@ describe("club staff and visibility", () => {
     const invite = await ownerClient.mutation(api.clubStaff.createStaffInvitation, {
       communitySlug: "test-club", roleIds: [event._id],
     });
-    await t.withIdentity(verifiedIdentity(recipient)).mutation(api.clubStaff.acceptStaffInvitation, {
+    await t.withIdentity(verifiedIdentity(recipient)).action(api.clubStaff.acceptStaffInvitation, {
       communitySlug: "test-club", token: invite.token,
     });
     await ownerClient.mutation(api.clubStaff.setCategoryVisibility, {
@@ -602,7 +602,7 @@ describe("club staff and visibility", () => {
     );
     await t
       .withIdentity(verifiedIdentity(recipient))
-      .mutation(api.clubStaff.acceptStaffInvitation, {
+      .action(api.clubStaff.acceptStaffInvitation, {
         communitySlug: "test-club",
         token: invite.token,
       });

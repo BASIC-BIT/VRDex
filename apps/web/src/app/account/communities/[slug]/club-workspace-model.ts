@@ -1,4 +1,5 @@
 import { claimErrorCode } from "../../../../lib/claim-errors";
+import { ConvexError } from "convex/values";
 
 export function clubNavigation(
   slug: string,
@@ -93,6 +94,11 @@ export function invitationSignInHref(slug: string, token: string) {
 }
 
 export function invitationAcceptanceError(error: unknown) {
+  if (
+    error instanceof ConvexError && error.data !== null &&
+    typeof error.data === "object" && "code" in error.data &&
+    error.data.code === "STAFF_INVITATION_RATE_LIMITED"
+  ) return { message: "Try again.", recoveryHref: null };
   if (claimErrorCode(error) === "EMAIL_NOT_VERIFIED")
     return { message: "Verify your email first", recoveryHref: "/account" };
 

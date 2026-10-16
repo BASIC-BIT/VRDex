@@ -1,8 +1,9 @@
 "use client";
-import { useConvexAuth, useMutation, useQuery } from "convex/react";
+import { useAction, useConvexAuth } from "convex/react";
+import type { FunctionReturnType } from "convex/server";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "@convex-generated-api";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, SectionTitle } from "@/components/ui/card";
@@ -17,17 +18,46 @@ export function ClubInvitation({
   token: string;
 }) {
   const { isAuthenticated, isLoading } = useConvexAuth();
-  // This token-scoped query is the only read before acceptance. Never load getWorkspace here.
-  const invitation = useQuery(api.clubStaff.getInvitation, {
-    communitySlug,
-    token,
-  });
-  const accept = useMutation(api.clubStaff.acceptStaffInvitation);
+  const getInvitation = useAction(api.clubStaff.getInvitation);
+  const accept = useAction(api.clubStaff.acceptStaffInvitation);
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<ReturnType<typeof invitationAcceptanceError> | null>(null);
-  if (invitation === undefined || isLoading)
+  const [retry, setRetry] = useState(0);
+  const requestKey = JSON.stringify([communitySlug, token, isAuthenticated, retry]);
+  const [preview, setPreview] = useState<{
+    requestKey: string;
+    outcome: { kind: "loaded"; value: FunctionReturnType<typeof api.clubStaff.getInvitation> }
+      | { kind: "failed" };
+  } | null>(null);
+  useEffect(() => {
+    if (isLoading) return;
+    let cancelled = false;
+    // Recheck after sign-in. Never load the protected workspace before acceptance.
+    void getInvitation({ communitySlug, token }).then(
+      (value) => {
+        if (!cancelled) setPreview({ requestKey, outcome: { kind: "loaded", value } });
+      },
+      () => {
+        if (!cancelled) setPreview({ requestKey, outcome: { kind: "failed" } });
+      },
+    );
+    return () => { cancelled = true; };
+  }, [communitySlug, token, isLoading, requestKey, getInvitation]);
+  if (isLoading || preview?.requestKey !== requestKey)
     return <Notice role="status">Loading invitation…</Notice>;
+  if (preview.outcome.kind === "failed") return (
+    <Notice className="flex flex-wrap items-center gap-3" variant="error" role="alert">
+      Unable to load this page.
+      <Button size="sm" variant="secondary" onClick={() => setRetry((value) => value + 1)}>
+        Retry
+      </Button>
+      {!isAuthenticated ? <Link className="whitespace-nowrap underline" href={invitationSignInHref(communitySlug, token)}>
+        Sign in to accept
+      </Link> : null}
+    </Notice>
+  );
+  const invitation = preview.outcome.value;
   if (!invitation)
     return (
       <Notice variant="warning">This invitation is no longer valid.</Notice>
