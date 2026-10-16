@@ -4,7 +4,7 @@ import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ConvexProviderWithAuth, type ConvexReactClient } from "convex/react";
 import { getFunctionName, type FunctionReference } from "convex/server";
-import { localCommunityFixture } from "../../../../../../convex/_localFixtures";
+import { localCommunityFixture, localPersonFixtures } from "../../../../../../convex/_localFixtures";
 import type { Id } from "../../../../../../convex/_generated/dataModel";
 import { EventIntakeFieldsForm } from "../../events/event-intake-form";
 import type { EventIntakeFields } from "../../../../../../packages/api-contracts/src/event-intake";
@@ -18,13 +18,23 @@ const useFixtureAuth = () => ({ isLoading: false, isAuthenticated: false, fetchA
 const fixtureClient = {
   setAuth() {},
   clearAuth() {},
-  async query(query: FunctionReference<"query">, args: { slug?: string; profileType?: string }) {
+  async query(query: FunctionReference<"query">, args: { slug?: string; profileType?: string; query?: string; limit?: number }) {
     switch (getFunctionName(query)) {
-      case "profiles:getPublicBySlug":
-        return args.slug === localCommunityFixture.slug && args.profileType === "community"
-          ? { ...localCommunityFixture, trustLabel: "unclaimed", mediaKit: {} }
-          : null;
-      case "profiles:lookupPeople":
+      case "profiles:getPublicBySlug": {
+        const profile = [localCommunityFixture, ...localPersonFixtures].find(profile =>
+          profile.slug === args.slug && (!args.profileType || profile.profileType === args.profileType));
+        return profile ? { ...profile, trustLabel: "unclaimed", mediaKit: {} } : null;
+      }
+      case "profiles:lookupPeople": {
+        const query = args.query?.trim().toLowerCase();
+        return query ? localPersonFixtures.filter(person =>
+          [person.displayName, person.slug, ...person.aliases, ...(person.searchAliases ?? [])]
+            .some(name => name.toLowerCase().includes(query)))
+          .slice(0, args.limit ?? 8)
+          .map(person => ({ slug: person.slug, displayName: person.displayName,
+            profilePath: `/${person.slug}`, roleTags: person.person.roleTags, tags: person.tags,
+            trustLabel: "unclaimed" })) : [];
+      }
       case "search:searchUniversal":
         return [];
       case "worlds:getPublicBySlug":

@@ -444,3 +444,15 @@ Logs and browser outputs use `pr374-hydration-red`, `pr374-hydration-green` and
 `pr374-hydration-scheduling` in the same delivery and test-result directories.
 The earlier fourteen timezone regression passes remain evidence for their
 original source revision; this fixture correction does not rerun them.
+
+The controller's subsequent direct-consumer run at `5ab52bc15` passed 172 cases
+and failed six. The new fixture transport had incorrectly returned no people
+for every search, breaking three existing manual-to-linked performer cases on
+each viewport. This was a fixture regression introduced by the hydration fix.
+The correction searches the canonical finite person fixtures and resolves their
+exact slugs. Existing identity tests are unchanged. The backend-blocked regression
+now also checks manual-to-linked billing, persisted person slug, reload hydration
+and an unmatched search. It failed twice before this correction, then passed with
+the eight nearest identity cases, ten of ten across both viewports. Logs use
+`pr374-person-fixture-red` and `pr374-person-fixture-green`. The controller owns
+the repeated Linux direct-consumer and hard screenshot checks for the new commit.

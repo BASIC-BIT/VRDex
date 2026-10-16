@@ -467,6 +467,33 @@ test("plain intake fixture hydrates known community without backend and retains 
   const preview = page.getByRole("complementary", { name: "Event preview" }).getByLabel("Community", { exact: true });
   await expect(community.getByText("Afterglow Social", { exact: true })).toBeVisible();
   await expect(preview).toContainText("Afterglow Social");
+  await page.getByLabel("Event title", { exact: true }).fill("Known fixture identity");
+  await page.getByLabel("Time TBA", { exact: true }).check();
+  await page.getByLabel("Starts", { exact: true }).fill("2027-10-15");
+  const lineup = () => page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Lineup", exact: true }).click();
+  await lineup();
+  await page.getByRole("button", { name: "Add performer", exact: true }).click();
+  const row = page.locator("[data-lineup-row]").first();
+  await manualPerformer(row.locator("[data-performer-field]"), "Guest A");
+  await row.getByRole("button", { name: "Link profile", exact: true }).click();
+  const performerSearch = row.getByRole("combobox", { name: "Performer", exact: true });
+  await performerSearch.fill("Aurora");
+  const aurora = row.getByRole("option").filter({ hasText: "DJ Aurora" });
+  await expect(aurora).toBeVisible();
+  await aurora.click();
+  await expect(row.getByLabel("Display name as", { exact: true })).toHaveValue("Guest A");
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  expect((await page.evaluate(() => JSON.parse(sessionStorage.getItem("event-intake-fixture")!))).lineup[0]).toMatchObject({ personSlug: "playwright-dj-aurora", performerLabel: "Guest A" });
+  await page.reload();
+  await lineup();
+  await expect(row.getByTestId("selected-identity")).toContainText("DJ Aurora");
+  await expect(row.getByLabel("Display name as", { exact: true })).toHaveValue("Guest A");
+  await row.getByRole("button", { name: "Change", exact: true }).click();
+  await performerSearch.fill("No matching fixture person");
+  await performerSearch.press("ArrowDown");
+  await expect(row.getByRole("option")).toHaveCount(0);
+  await performerSearch.press("Escape");
+  await expect(row.getByTestId("selected-identity")).toContainText("DJ Aurora");
   await page.evaluate(() => sessionStorage.setItem("event-intake-fixture", JSON.stringify({
     communitySlug: "unavailable-community", title: "Retained draft", timeTba: true, eventDate: "2027-10-15",
   })));
