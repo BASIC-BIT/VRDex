@@ -420,3 +420,27 @@ intermediate assertion corrections and `pr374-timezone-fix-report.md`.
 HTML reports use its `reports/` subdirectory. Earlier UNKNOWN failures and
 hosted-auth limits remain unchanged. The seven generated/OpenAPI entries still
 have empty normalized diffs and are excluded from this correction.
+
+### Plain intake fixture hydration correction
+
+The later CI run `38825944820` exposed a fixture dependency missed by the earlier
+local runs. The plain intake fixture queried the local Convex database for its
+community, while CI starts an unseeded backend. Public fixture pages obtain their
+profiles separately from static server fixtures. The existing local database
+contained Afterglow Social, which explained the local passes. Forwarding the
+community query result as `null` reproduced the empty Details selection and
+preview. CI traces did not record the WebSocket response itself.
+
+The plain intake fixture now supplies its known community through a local query
+transport, using the existing local fixture data. Unknown identities still
+resolve to `null` and their saved slugs remain unchanged. Production resolution
+and the other fixture modes are unchanged. A backend-blocked browser regression
+failed on both viewports before the fix and passed after it. The regression,
+resume/publish and DST cases passed six of six. Scheduling assertions passed
+four of four on Windows with pixel comparison disabled. Linux hard comparison
+remains a separate controller check. No golden, tolerance or timeout changed.
+
+Logs and browser outputs use `pr374-hydration-red`, `pr374-hydration-green` and
+`pr374-hydration-scheduling` in the same delivery and test-result directories.
+The earlier fourteen timezone regression passes remain evidence for their
+original source revision; this fixture correction does not rerun them.

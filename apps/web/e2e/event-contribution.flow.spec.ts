@@ -456,3 +456,26 @@ test("combined controls preserve dates, reversible TBA and overnight times @flow
   await expect(page.getByLabel("Ends (optional)", { exact: true })).toHaveValue("2026-10-11T02:00");
   expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("fixture-source-draft")!).fields.eventDate)).toBe("2026-10-10");
 });
+
+test("plain intake fixture hydrates known community without backend and retains unknown identity @flow @fixture", async ({ page }) => {
+  const backendMessages: string[] = [];
+  await page.routeWebSocket("**/api/**/sync", socket => {
+    socket.onMessage(message => backendMessages.push(String(message)));
+  });
+  await page.goto("/playwright/event-intake");
+  const community = page.locator('[data-step="Details"]').getByTestId("selected-identity");
+  const preview = page.getByRole("complementary", { name: "Event preview" }).getByLabel("Community", { exact: true });
+  await expect(community.getByText("Afterglow Social", { exact: true })).toBeVisible();
+  await expect(preview).toContainText("Afterglow Social");
+  await page.evaluate(() => sessionStorage.setItem("event-intake-fixture", JSON.stringify({
+    communitySlug: "unavailable-community", title: "Retained draft", timeTba: true, eventDate: "2027-10-15",
+  })));
+  await page.reload();
+  await expect(community).toBeVisible();
+  await expect(community).not.toContainText("Afterglow Social");
+  await expect(preview).not.toContainText("Afterglow Social");
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Draft saved" })).toBeVisible();
+  expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("event-intake-fixture")!).communitySlug)).toBe("unavailable-community");
+  expect(backendMessages).toEqual([]);
+});

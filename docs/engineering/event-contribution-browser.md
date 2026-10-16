@@ -309,7 +309,9 @@ source evidence remains separate from the public derivative. See
 `EVENT_DATE_ONLY_ENABLED` gate.
 
 Browser fixtures test form behavior and navigation without a live Convex backend.
-The intake fixture uses session storage. The owner fixture exercises the real
+The plain intake fixture uses session storage and a local query transport for its
+known community. Unknown profile slugs stay unresolved and survive draft saves.
+It requires no previously seeded database. The owner fixture exercises the real
 editor serialization through a local Convex transport. Neither proves a live
 authenticated backend journey. Backend tests independently cover authorization,
 publication, corrections, reports, and takeover.
