@@ -4,6 +4,13 @@ import { internal } from "./_generated/api";
 
 const crons = cronJobs();
 
+crons.interval(
+  "delete expired staff invitation rate limits",
+  { minutes: 10 },
+  internal.clubStaff.expireInvitationRateLimits,
+  {},
+);
+
 crons.hourly("expire abandoned event intake drafts", { minuteUTC: 45 }, internal.eventIntake.expireDrafts, {});
 crons.hourly("expire removed event fingerprints", { minuteUTC: 50 }, internal.eventCorrections.expireEventSuppressions, {});
 

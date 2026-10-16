@@ -1,8 +1,9 @@
 import schema from "./schema";
 import { categoryVisibility, clubVisibility, clubSubject } from "./_clubModel";
-import { v } from "convex/values";
+import { ConvexError, v, type Infer } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
-import { mutation, query } from "./_generated/server";
+import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import { internal } from "./_generated/api";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { activeBrowserSessionSubjectOrNull } from "./_browserSessionAuthority";
@@ -237,13 +238,31 @@ async function hash(token: string) {
     (b) => b.toString(16).padStart(2, "0"),
   ).join("");
 }
+const invitationTokenAlphabet =
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-";
+async function newInvitationToken(ctx: MutationCtx) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    // Each byte supplies six unbiased bits, for 60 bits across ten characters.
+    const token = Array.from(crypto.getRandomValues(new Uint8Array(10)), (byte) =>
+      invitationTokenAlphabet.charAt(byte & 63),
+    ).join("");
+    const tokenHash = await hash(token);
+    const prior = await ctx.db
+      .query("communityStaffInvitations")
+      .withIndex("by_tokenHash", (q) => q.eq("tokenHash", tokenHash))
+      .first();
+    // Read and insertion share the mutation's transaction, including OCC retries.
+    if (!prior) return { token, tokenHash };
+  }
+  throw new Error("Unable to create a unique staff invitation.");
+}
 const invalid = () => new Error("This invitation is no longer valid.");
 async function invitation(
   ctx: QueryCtx | MutationCtx,
   slug: string,
   token: string,
 ) {
-  if (!/^[a-f0-9]{64}$/.test(token)) return null;
+  if (!/^(?:[A-Za-z0-9_-]{10}|[a-f0-9]{64})$/.test(token)) return null;
   const tokenHash = await hash(token);
   const invite = await ctx.db
     .query("communityStaffInvitations")
@@ -595,16 +614,15 @@ export const createStaffInvitation = mutation({
       !actor.subject
     )
       throw new Error("You cannot invite these roles.");
-    const token = Array.from(crypto.getRandomValues(new Uint8Array(32)), (b) =>
-      b.toString(16).padStart(2, "0"),
-    ).join("");
-    const expiresAt = Date.now() + 7 * 86400_000;
+    const { token, tokenHash } = await newInvitationToken(ctx);
+    const createdAt = Date.now();
+    const expiresAt = createdAt + 7 * 86400_000;
     const invitationId = await ctx.db.insert("communityStaffInvitations", {
       communityProfileId: community._id,
-      tokenHash: await hash(token),
+      tokenHash,
       roleIds: args.roleIds,
       createdBySubject: actor.subject,
-      createdAt: Date.now(),
+      createdAt,
       expiresAt,
       state: "pending",
     });
@@ -727,18 +745,72 @@ export const setCategoryVisibility = mutation({
     return null;
   },
 });
-export const getInvitation = query({
-  args: { ...base, token: v.string() },
-  returns: v.union(
-    v.null(),
-    v.object({
-      community: v.object({ displayName: v.string(), slug: v.string() }),
-      roles: v.array(
-        v.object({ _id: v.id("communityRoles"), label: v.string() }),
-      ),
-      expiresAt: v.number(),
-    }),
-  ),
+const invitationArgs = { ...base, token: v.string() };
+const invitationPreview = v.union(
+  v.null(),
+  v.object({
+    community: v.object({ displayName: v.string(), slug: v.string() }),
+    roles: v.array(
+      v.object({ _id: v.id("communityRoles"), label: v.string() }),
+    ),
+    expiresAt: v.number(),
+  }),
+);
+
+// Public actions reserve quota in a separate committed transaction. If the
+// lookup or acceptance throws, malformed and unauthorized attempts still count.
+export const reserveInvitationAttempt = internalMutation({
+  args: {},
+  returns: v.null(),
+  handler: async (ctx) => {
+    const session = await activeBrowserSessionSubjectOrNull(ctx);
+    const key = session ? `user:${session.userId}` : "anonymous";
+    const limit = session ? 30 : 60;
+    const now = Date.now();
+    const prior = await ctx.db.query("staffInvitationRateLimits")
+      .withIndex("by_key", (q) => q.eq("key", key)).unique();
+    if (prior && prior.expiresAt > now && prior.attempts >= limit) {
+      throw new ConvexError({
+        code: "STAFF_INVITATION_RATE_LIMITED",
+        retryAfterMs: prior.expiresAt - now,
+      });
+    }
+    const next = prior && prior.expiresAt > now
+      ? { attempts: prior.attempts + 1, expiresAt: prior.expiresAt }
+      : { attempts: 1, expiresAt: now + 60_000 };
+    if (prior) await ctx.db.patch(prior._id, next);
+    else await ctx.db.insert("staffInvitationRateLimits", { key, ...next });
+    return null;
+  },
+});
+
+export const expireInvitationRateLimits = internalMutation({
+  args: {},
+  returns: v.null(),
+  handler: async (ctx) => {
+    const rows = await ctx.db.query("staffInvitationRateLimits")
+      .withIndex("by_expiresAt", (q) => q.lte("expiresAt", Date.now()))
+      .take(200);
+    for (const row of rows) await ctx.db.delete(row._id);
+    if (rows.length === 200) await ctx.scheduler.runAfter(
+      0, internal.clubStaff.expireInvitationRateLimits, {},
+    );
+    return null;
+  },
+});
+
+export const getInvitation = action({
+  args: invitationArgs,
+  returns: invitationPreview,
+  handler: async (ctx, args): Promise<Infer<typeof invitationPreview>> => {
+    await ctx.runMutation(internal.clubStaff.reserveInvitationAttempt, {});
+    return ctx.runQuery(internal.clubStaff.previewInvitation, args);
+  },
+});
+
+export const previewInvitation = internalQuery({
+  args: invitationArgs,
+  returns: invitationPreview,
   handler: async (ctx, args) => {
     const found = await invitation(ctx, args.communitySlug, args.token);
     if (!found) return null;
@@ -754,8 +826,17 @@ export const getInvitation = query({
     };
   },
 });
-export const acceptStaffInvitation = mutation({
-  args: { ...base, token: v.string() },
+export const acceptStaffInvitation = action({
+  args: invitationArgs,
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    await ctx.runMutation(internal.clubStaff.reserveInvitationAttempt, {});
+    return ctx.runMutation(internal.clubStaff.acceptInvitation, args);
+  },
+});
+
+export const acceptInvitation = internalMutation({
+  args: invitationArgs,
   returns: v.null(),
   handler: async (ctx, args) => {
     const session = await requireVerifiedActiveBrowserSession(ctx);

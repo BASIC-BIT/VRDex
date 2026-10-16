@@ -86,6 +86,16 @@ describe("browser auth-session authorization boundary", () => {
   it("guards every browser-authenticated Convex action before external work", () => {
     const actionInventory = new Map<string, string[]>([
       [
+        "convex/clubStaff.ts",
+        [
+          "internal.clubStaff.reserveInvitationAttempt",
+          "internal.clubStaff.previewInvitation",
+          "internal.clubStaff.acceptInvitation",
+          "activeBrowserSessionSubjectOrNull(ctx)",
+          "requireVerifiedActiveBrowserSession(ctx)",
+        ],
+      ],
+      [
         "convex/eventIntake.ts",
         ["internal.eventIntake.currentIntakeActor", "requireUser(ctx)"],
       ],
