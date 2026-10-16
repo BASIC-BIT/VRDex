@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { ConvexProvider, type ConvexReactClient, useQuery } from "convex/react";
+import { ConvexProvider, ConvexProviderWithAuth, type ConvexReactClient, useQuery } from "convex/react";
 import { getFunctionName, type FunctionReference } from "convex/server";
 import { api } from "@convex-generated-api";
 import { EventPublicPage, type PublicEvent } from "../../_components/event-public-page";
@@ -9,6 +9,9 @@ import { previewEvent } from "../event-editor/preview";
 import { publicProfileOutboundLinks } from "../../../../../../convex/_profilePublic";
 import type { Doc } from "../../../../../../convex/_generated/dataModel";
 import { parseVrcdnStreamLinks } from "../../../../../../convex/_vrcdnLinks";
+
+const fetchAccessToken = async () => "fixture-token";
+const useFixtureAuth = () => ({ isLoading: false, isAuthenticated: true, fetchAccessToken });
 
 const storageKey = "event-lineup-fixture-v1";
 const stream = (id: string) => {
@@ -61,8 +64,18 @@ function fixtureClient() {
   const publicEvent = JSON.parse(localStorage.getItem("event-lineup-fixture-public") ?? "null") as PublicEvent | null;
   const listeners = new Set<() => void>();
   const empty: unknown[] = [];
+  const outputAccounts = ["first", "second"].map(key => ({ key, label: key, playbackLinks: [
+    { platform: "browser", label: key + " output", url: "https://example.com/" + key + ".m3u8" },
+    { platform: "standalone", url: "https://example.com/" + key + ".ts" },
+    { platform: "pc", url: "rtspt://example.com/" + key },
+  ] }));
+  let accountsPending = localStorage.getItem("fixture-output-defer-accounts") === "true";
+  window.addEventListener("fixture-output-release-accounts", () => { accountsPending = false; listeners.forEach(listener => listener()); }, { once: true });
+  const viewer = { user: { defaultEventTimezone: "UTC" } };
   const mediaStatus = { program: null, outputs: [], sessions: [], queuedCommandCount: 0 };
   const read = (name: string, args: Record<string, unknown>) => {
+    if (name === "accounts:viewer") return viewer;
+    if (name === "events:listVrcdnOutputAccounts") return accountsPending ? undefined : outputAccounts;
     if (name === "profiles:lookupPeople") return Object.values(people).filter(person => `${person.displayName} ${person.slug}`.toLowerCase().includes(String(args.query).toLowerCase())).map(person => ({ ...person, profilePath: `/${person.slug}`, aliases: [], tags: [], genres: [], roleTags: ["DJ"], avatarImageUrl: "imageUrl" in person ? person.imageUrl : undefined }));
     if (name === "profiles:getPublicBySlug" && args.profileType === "person") {
       const person = people[args.slug as keyof typeof people];
@@ -72,12 +85,15 @@ function fixtureClient() {
     if (name === "worlds:getPublicBySlug") return event.worlds.find(world => world.slug === args.slug) ?? null;
     if (name === "events:getEditableBySlug") return event;
     if (name === "events:getPublicBySlug") return publicEvent ?? event;
+    if (name === "events:getPersonStreamChoices" && args.slug === localStorage.getItem("fixture-stream-defer-person")) return undefined;
     if (name === "events:getPersonStreamChoices") return event.slots.find(slot => slot.performer?.slug === args.slug)?.streamChoices ?? choices[args.slug as keyof typeof choices] ?? [];
     if (name === "search:searchUniversal") return Object.values(people).filter(person => person.slug.includes(String(args.query))).map(person => ({ slug: person.slug, title: person.displayName, routePath: `/${person.slug}`, imageUrl: "imageUrl" in person ? person.imageUrl : undefined }));
     if (name === "events:getEventMediaControlStatus") return mediaStatus;
     return empty;
   };
   return {
+    setAuth(_fetch: unknown, onChange: (authenticated: boolean) => void) { onChange(true); },
+    clearAuth() {},
     async query(query: FunctionReference<"query">, args: Record<string, unknown>) { return read(getFunctionName(query), args); },
     watchQuery(query: FunctionReference<"query">, args: Record<string, unknown>) {
       return { localQueryResult: () => read(getFunctionName(query), args),
@@ -86,6 +102,13 @@ function fixtureClient() {
     },
     async mutation(mutation: FunctionReference<"mutation">, args: Record<string, unknown>) {
       const command = getFunctionName(mutation);
+      if (command === "events:configureVrcdnOutput") {
+        localStorage.setItem("fixture-output-submission", JSON.stringify(args));
+        if (localStorage.getItem("fixture-output-defer-save") === "true") await new Promise<void>(resolve => window.addEventListener("fixture-output-release-save", () => resolve(), { once: true }));
+        if (localStorage.getItem("fixture-output-save-error")) throw new Error("Fixture output failure");
+        localStorage.setItem("fixture-output-persisted", JSON.stringify(args));
+        return {};
+      }
       if (!["events:updateCommunityEvent", "events:createCommunityEvent"].includes(command)) throw new Error("Unsupported fixture mutation");
       localStorage.setItem("event-lineup-fixture-command", command);
       localStorage.setItem("event-lineup-fixture-command-count", String(Number(localStorage.getItem("event-lineup-fixture-command-count") ?? "0") + 1));
@@ -118,10 +141,11 @@ function fixtureClient() {
 function Editor() {
   const [bootstrap] = useState(() => JSON.parse(localStorage.getItem(storageKey) ?? JSON.stringify(fixtureEvent)) as EditableEvent);
   const event = useQuery(api.events.getEditableBySlug, { slug: bootstrap.slug });
-  return event ? <main className="mx-auto max-w-6xl p-5"><EventEditorForm savedTimezonePreference={null} communitySlug={bootstrap.communitySlug ?? "afterglow"} communityName={bootstrap.communityName ?? "Afterglow"} demoMode event={new URLSearchParams(window.location.search).get("mode") === "create" ? undefined : event} /></main> : null;
+  return event ? <main className="mx-auto max-w-6xl p-5"><EventEditorForm savedTimezonePreference={null} communitySlug={bootstrap.communitySlug ?? "afterglow"} communityName={bootstrap.communityName ?? "Afterglow"} demoMode={!new URLSearchParams(window.location.search).has("output")} event={new URLSearchParams(window.location.search).get("mode") === "create" ? undefined : event} /></main> : null;
 }
 export default function EventLineupFixture() {
   const [client] = useState(fixtureClient);
   const [publicEvent] = useState(() => JSON.parse(localStorage.getItem("event-lineup-fixture-public") ?? JSON.stringify(fixtureEvent)) as PublicEvent);
+  if (new URLSearchParams(window.location.search).has("output")) return <ConvexProviderWithAuth client={client} useAuth={useFixtureAuth}><Editor /></ConvexProviderWithAuth>;
   return <ConvexProvider client={client}>{new URLSearchParams(window.location.search).has("editor") ? <Editor /> : <EventPublicPage event={publicEvent} />}</ConvexProvider>;
 }

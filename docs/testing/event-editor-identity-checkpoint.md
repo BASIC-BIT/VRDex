@@ -221,7 +221,7 @@ separate from deployed HTTP or hosted signed-in acceptance.
 
 ## Execution decisions retained from the controller ledger
 
-These eight rulings preserve the approved implementation refinements in their
+These nine rulings preserve the approved implementation refinements in their
 original order. They do not add product scope. The direct human approval below
 supersedes the earlier requirement to restore history wrappers on editor unmount.
 
@@ -274,6 +274,16 @@ supersedes the earlier requirement to restore history wrappers on editor unmount
    in the [history indexing decision](./event-editor-history-indexing-proposal.md).
    Repeated Back/Forward, multi-step and unknown-entry coverage proves the current
    contract; browser-controlled escape remains a limit.
+
+9. **Keep streams attached to their performer identity.** The stream-preservation
+   requirement applies while the person remains unchanged. Deliberate replacement,
+   clear or manual entry invalidates the performer-owned selected stream and cache
+   because the backend rejects another person's stream. Same-person billing edits
+   retain both. This narrows the broad preservation wording and its obsolete test
+   expectations to the existing domain contract. It changes no authority policy.
+   The cost is that a creator must reselect a stream after changing the identity,
+   even if they intended to reuse it. Protected IDs, provenance, confirmation and
+   exact timing still remain intact.
 
 ## Integration evidence reference
 
@@ -456,3 +466,62 @@ and an unmatched search. It failed twice before this correction, then passed wit
 the eight nearest identity cases, ten of ten across both viewports. Logs use
 `pr374-person-fixture-red` and `pr374-person-fixture-green`. The controller owns
 the repeated Linux direct-consumer and hard screenshot checks for the new commit.
+
+## PR 374 stream identity and independent output saves
+
+The staff editor now clears the selected stream and cached choices when a timed
+row changes to another person, clears its person, or becomes a manual entry.
+Billing edits and reselecting the same person retain the choice. Canonical saves
+keep the row key, exact subminute timestamps, role, confirmation intent,
+provenance and retained protected associations. Ruling 9 above records why the
+broad stream-preservation wording applies only to an unchanged person. The
+contributor intake contract carries no selected stream and needed no change.
+
+VRCDN output fields now participate in the leave guard with an independent saved
+snapshot. Main-event saves cannot mark output edits clean. Output saves advance
+only the submitted output snapshot and cannot clear unrelated event edits or
+newer output edits. Validation and backend failures retain dirty state. Delayed
+account defaults initialize untouched fields without a warning or replacement
+of an authored field, including a deliberate clear.
+
+The final focused browser run passed 34 cases, 17 per viewport, with zero failures,
+skips or flakies. Fifteen new regression cases carry `@flow @fixture` tags so the
+existing browser CI lane selects them. The run also retains both existing timed
+and untimed staff identity cases. Coverage includes each output field, native
+reload cancellation, in-app leave cancellation, independent save directions,
+pending-request edits, validation, failed output saves and clean automatic
+initialization. The full web unit suite passed 732 tests with zero skips.
+
+The final RED run failed 13 cases for the expected stale stream, missing dirty
+state and overwritten delayed-default behavior. Same-person billing and untouched
+delayed defaults passed as controls. Earlier setup attempts exposed a missing
+local fixture auth callback and an account locator that omitted helper text. The
+first GREEN attempt was stopped after new-test errors: manual person slugs are
+omitted rather than null, and canceled reloads need the suite's existing bounded
+navigation wait. The next run passed 32 cases and failed the two output-error
+assertions because the editor sanitizes unknown backend messages. Correcting the
+assertion to the existing message produced the final 34 passes. No production
+error copy, timeout, golden or visual threshold changed.
+
+The guarded fixture substitutes output account/query/mutation transport locally.
+It exercises the real authenticated form branch and handlers, but does not prove
+hosted authentication, deployed output configuration or production behavior.
+Source starts at `8213c2c6322451c06c023dfcebe542f8bbb855df`; Windows web port 3186
+and backend port 3290 supplied the local runtime. Earlier UNKNOWN failures and
+hosted-auth limits remain unchanged. The controller owns source review, broader
+covering tests, Linux hard snapshots, PR dispositions, CI and the reset review
+window. No merge-ready claim is made here.
+
+Browser JSON/output names are `pr374-safety-red`, `pr374-safety-output-red`,
+`pr374-safety-red-final`, `pr374-safety-green1`, `pr374-safety-green2` and
+`pr374-safety-green-final` under `apps/web/test-results/`. The stopped GREEN run
+may have only partial output. Logs, reports and the exact-command handoff
+`pr374-safety-fix-report.md` are under the ignored
+`.tmp-gh-artifacts/event-editor-identity-local/` delivery directory. The final
+run captures `performer-stream-cleared.png` and `output-newer-edit.png` on both
+viewports. Inspection confirmed retained billing and precise times, no old
+stream in the replacement row, and the newer output field still visible after
+completion. Page images do not capture native browser confirmation dialogs.
+
+Web lint, web types, Markdown lint and the Docusaurus build also passed for this
+correction. Type generation ran after the focused browser run completed.

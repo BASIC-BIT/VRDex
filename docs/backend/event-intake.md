@@ -227,7 +227,11 @@ canonical timed and untimed rows using stable `clientKey` values, names, optiona
 public person matches, roles and absolute set timestamps. Use it instead of the
 legacy paired `slotLinks`/`participantLinks` arrays. An unchanged person's stored
 stream choice survives replacement; new choices must belong to their public
-streams, and changing/removing the person clears the old choice.
+streams, and changing/removing the person clears the old choice. The staff editor
+also clears cached stream choices when the person changes or becomes a manual
+entry. Editing billing or reselecting the same person retains the stream choice,
+row key, exact timing, provenance and protected associations. The contributor
+intake lineup contract does not carry a selected stream.
 
 An explicit `scheduleKind: "date_only"` update clears inherited event and set
 times, retaining omitted lineup rows as untimed performers. Supplying event times

@@ -532,6 +532,15 @@ Current recommendation: VRCDN output setup starts with operator-owned accounts o
 - `compliance.providerRules`
 - `compliance.rightsClearedMedia`
 
+The staff editor saves VRCDN output configuration independently from event content.
+Its account, label, playback URLs and authorization acknowledgement have their own
+saved snapshot for the leave guard. Event saves do not clear output edits, and
+output saves do not clear event edits. A successful output save advances only the
+snapshot submitted by that request. Failed saves, validation failures and edits
+made while a request is pending stay dirty. Automatic account defaults initialize
+untouched fields and their baseline together, preserving any authored value or
+explicit clear made before the accounts arrive.
+
 The `events.configureVrcdnOutput` mutation treats the output as `ready` only when a configured output account resolves to a credential reference and all required compliance gates are accepted. Missing gates remain `pending`; explicitly rejected gates are `blocked`. A blocked or incomplete output stays a draft and is not projected into public event pages. Editor UI should collapse these gates into one human authorization acknowledgement and keep credential references behind an `Output account` selector.
 
 Secret references must not be URLs, ingest URLs, passwords, tokens, stream keys, or provider credential values. Those values must stay in the configured secret store and be read only by the runtime that needs to push the stream.

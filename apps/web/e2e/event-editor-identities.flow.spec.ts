@@ -416,7 +416,7 @@ for (const timed of [true, false]) test(`staff performer actions preserve billin
     await expect(row).toHaveAttribute("data-lineup-row", "identity-row");
     if (timed) {
       await expect(row).toContainText("20:00:10.123 - 21:00:30.456");
-      await expect(row.getByLabel("Stream", { exact: true })).toHaveValue("vrcdn:aurora");
+      await expect(row.getByLabel("Stream", { exact: true })).toHaveValue("");
     }
   };
   await select("Lumen"); await expect(bill).toHaveValue("Guest A");
@@ -431,7 +431,7 @@ for (const timed of [true, false]) test(`staff performer actions preserve billin
   await row.getByRole("combobox", { name: "Performer", exact: true }).fill("Guest A");
   await row.getByRole("button", { name: "Add manual entry", exact: true }).click();
   await expect(row.getByText("Unlinked", { exact: true })).toBeVisible();
-  if (timed) await expect(row.getByLabel("Stream", { exact: true })).toHaveValue("vrcdn:aurora");
+  if (timed) await expect(row.getByLabel("Stream", { exact: true })).toHaveCount(0);
   await row.getByRole("button", { name: "Link profile", exact: true }).click();
   await row.getByRole("combobox", { name: "Performer", exact: true }).fill("Aurora");
   await row.getByRole("option").first().click();
@@ -441,7 +441,7 @@ for (const timed of [true, false]) test(`staff performer actions preserve billin
   expect(payload.lineup[0]).toMatchObject({ clientKey: "identity-row", personSlug: "aurora", performerLabel: "Guest A", roleLabel: "DJ" });
   expect(payload.lineup[0].startAt).toBe(timed ? startAt : undefined);
   expect(payload.lineup[0].endAt).toBe(timed ? endAt : undefined);
-  if (timed) expect(payload.lineup[0].selectedStreamId).toBe("vrcdn:aurora");
+  if (timed) expect(payload.lineup[0].selectedStreamId).toBeNull();
   expect(payload.preserveLineupConfirmation).toBe(true);
   expect(payload.retainedLineupAssociations).toEqual({ participantIds: ["hidden-person"], slotIds: ["hidden-slot"] });
 });
@@ -482,4 +482,51 @@ test("saved unavailable intake performer remains linked through billing edits @f
   await page.getByRole("button", { name: "Save draft", exact: true }).click();
   const saved = (await page.evaluate(() => JSON.parse(sessionStorage.getItem("event-intake-fixture")!))).lineup[0];
   expect(saved).toMatchObject({ clientKey: "unavailable", personSlug: "not-a-public-person", performerLabel: "Updated billing", roleLabel: "DJ" });
+});
+
+for (const action of ['replace', 'clear', 'manual', 'billing']) test(`staff stream selection follows performer identity: ${action} @flow @fixture`, async ({ page }, testInfo) => {
+  const startAt = Date.UTC(2027, 9, 15, 20, 0, 10, 123);
+  const endAt = Date.UTC(2027, 9, 15, 21, 0, 30, 456);
+  await page.addInitScript(({ startAt, endAt }) => {
+    const source = { sourceType: 'contributor', label: 'Stored source' };
+    const performer = { slug: 'lumen', displayName: 'Lumen', trustLabel: 'claimed_verified' };
+    const row = { key: 'stream-row', clientKey: 'stream-row', playbackKey: 'stored-slot', position: 0, startAt, endAt, displayLabel: 'Guest billing', roleLabel: 'DJ', performer, selectedStreamId: 'lumen-main', streamChoices: [{ streamId: 'lumen-main', pcUrl: 'rtspt://example.com/main', questUrl: 'https://example.com/main.ts' }], source };
+    localStorage.setItem('event-lineup-fixture-v1', JSON.stringify({ id: 'streams', slug: 'streams', title: 'Stream night', usesCanonicalLineup: true, startAt, endAt, timezone: 'UTC', scheduleKind: 'timed', status: 'scheduled', publicationState: 'draft_private', source, watchSurfaceEnabled: true, watchMode: 'performer_sequence', mediaLinks: [], worlds: [], participants: [], slots: [row], lineup: [row], preservedParticipantAssociationIds: ['protected-person'], preservedSlotAssociationIds: ['stored-slot', 'hidden-slot'], preservedWorldAssociationIds: [], retainedLineupAssociations: { participantIds: ['protected-person'], slotIds: ['hidden-slot'] } }));
+  }, { startAt, endAt });
+  await page.goto('/playwright/event-lineup?editor');
+  const nav = (step: string) => page.getByRole('navigation', { name: 'Event editor' }).getByRole('button', { name: step, exact: true }).click();
+  await nav('Lineup');
+  const row = page.locator('[data-lineup-row="stream-row"]');
+  await expect(row.getByLabel('Stream', { exact: true })).toHaveValue('lumen-main');
+  if (action === 'replace') await page.evaluate(() => localStorage.setItem('fixture-stream-defer-person', 'aurora'));
+  if (action === 'billing') {
+    await row.getByLabel('Display name as', { exact: true }).fill('New billing');
+    await row.getByRole('button', { name: 'Change', exact: true }).click();
+    await row.getByRole('combobox', { name: 'Performer', exact: true }).fill('Lumen');
+    await row.getByRole('option').first().click();
+    await expect(row.getByLabel('Stream', { exact: true })).toHaveValue('lumen-main');
+  } else if (action === 'clear') {
+    await row.getByRole('button', { name: 'Clear', exact: true }).click();
+  } else {
+    await row.getByRole('button', { name: 'Change', exact: true }).click();
+    await row.getByRole('combobox', { name: 'Performer', exact: true }).fill(action === 'replace' ? 'Aurora' : 'Manual guest');
+    if (action === 'replace') await row.getByRole('option').first().click();
+    else await row.getByRole('button', { name: 'Add manual entry', exact: true }).click();
+  }
+  await expect(row).toContainText('20:00:10.123 - 21:00:30.456');
+  if (action === 'replace') {
+    await expect(row.getByLabel('Stream', { exact: true })).toHaveValue('');
+    await expect(row.getByLabel('Stream', { exact: true }).locator('option')).toHaveText(['Unavailable']);
+    await page.screenshot({ path: testInfo.outputPath('performer-stream-cleared.png'), fullPage: true });
+  }
+  if (action === 'clear' || action === 'manual') await expect(row.getByLabel('Stream', { exact: true })).toHaveCount(0);
+  await nav('Review');
+  await page.getByRole('button', { name: 'Save draft', exact: true }).click();
+  await expect(page.locator('form[data-event-dirty]')).toHaveAttribute('data-event-dirty', 'false');
+  const payload = await page.evaluate(() => JSON.parse(localStorage.getItem('event-lineup-fixture-v1-submission')!));
+  expect(payload.lineup[0]).toMatchObject({ clientKey: 'stream-row', startAt, endAt, roleLabel: 'DJ', selectedStreamId: action === 'billing' ? 'lumen-main' : null, performerLabel: action === 'billing' ? 'New billing' : action === 'manual' ? 'Manual guest' : 'Guest billing' });
+  expect(payload.lineup[0].personSlug).toBe(action === 'billing' ? 'lumen' : action === 'replace' ? 'aurora' : undefined);
+  expect(payload.preserveLineupConfirmation).toBe(true);
+  expect(payload.retainedLineupAssociations).toEqual({ participantIds: ['protected-person'], slotIds: ['hidden-slot'] });
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('event-lineup-fixture-v1')!).source)).toEqual({ sourceType: 'contributor', label: 'Stored source' });
 });

@@ -419,3 +419,130 @@ test('retained contributor publication rejects forbidden newer fields without re
   await page.getByRole('button', { name: 'Import poster or text' }).click();
   await expect(page.getByRole('textbox', { name: 'Source text', exact: true })).toHaveValue('New forbidden source');
 });
+
+async function openOutput(page: import('@playwright/test').Page, delayedAccounts = false) {
+  await page.addInitScript(delayed => {
+    const startAt = Date.UTC(2027, 9, 15, 20);
+    localStorage.setItem('event-lineup-fixture-v1', JSON.stringify({ id: 'output', slug: 'output', title: 'Output night', startAt, endAt: startAt + 3600000, timezone: 'UTC', scheduleKind: 'timed', status: 'scheduled', publicationState: 'draft_private', source: { sourceType: 'contributor' }, watchSurfaceEnabled: true, watchMode: 'event_stream', mediaLinks: [], worlds: [], participants: [], slots: [], preservedParticipantAssociationIds: [], preservedSlotAssociationIds: [], preservedWorldAssociationIds: [] }));
+    if (delayed) localStorage.setItem('fixture-output-defer-accounts', 'true');
+  }, delayedAccounts);
+  await page.goto('/playwright/event-lineup?editor&output');
+  await expect(page.getByLabel('Event title', { exact: true })).toHaveValue('Output night');
+  await nav(page, 'Review');
+  await page.locator('summary').filter({ hasText: /^Advanced/ }).click();
+  await expect(page.getByRole('heading', { name: 'VRCDN output', exact: true })).toBeVisible();
+}
+const outputDirty = (page: import('@playwright/test').Page) => page.locator('form[data-event-dirty]');
+const outputConsent = (page: import('@playwright/test').Page) => page.getByRole('checkbox', { name: 'I confirm I am authorized to publish this event through the selected output account.' });
+const saveOutput = (page: import('@playwright/test').Page) => page.getByRole('button', { name: 'Save output account', exact: true }).click();
+
+for (const field of ['Output account', 'Output label', 'Watch preview URL', 'Quest stream URL', 'PC stream URL', 'authorization']) test(`staff independent output dirty guard covers ${field} @flow @fixture`, async ({ page }) => {
+  await openOutput(page);
+  await expect(page.getByRole('combobox', { name: /^Output account/ })).toHaveValue('first');
+  await expect(outputDirty(page)).toHaveAttribute('data-event-dirty', 'false');
+  if (field === 'Output account') await page.getByRole('combobox', { name: /^Output account/ }).selectOption('second');
+  else if (field === 'authorization') await outputConsent(page).check();
+  else await page.getByLabel(field, { exact: true }).fill(field.includes('URL') ? 'https://example.com/authored' : 'Authored output');
+  await expect(outputDirty(page)).toHaveAttribute('data-event-dirty', 'true');
+  await dismissLeave(page);
+  const dialog = page.waitForEvent('dialog');
+  const reload = page.reload({ timeout: 1500 }).catch(() => {});
+  expect((await dialog).type()).toBe('beforeunload');
+  await (await dialog).dismiss();
+  await reload.catch(() => {});
+  await expect(outputDirty(page)).toHaveAttribute('data-event-dirty', 'true');
+});
+
+test('staff output defaults preserve earlier authored fields and untouched opening stays clean @flow @fixture', async ({ page }) => {
+  await openOutput(page, true);
+  await expect(outputDirty(page)).toHaveAttribute('data-event-dirty', 'false');
+  await page.getByLabel('Output label', { exact: true }).fill('Before accounts');
+  await page.getByLabel('Quest stream URL', { exact: true }).fill('temporary');
+  await page.getByLabel('Quest stream URL', { exact: true }).fill('');
+  await page.evaluate(() => window.dispatchEvent(new Event('fixture-output-release-accounts')));
+  await expect(page.getByRole('combobox', { name: /^Output account/ })).toHaveValue('first');
+  await expect(page.getByLabel('Output label', { exact: true })).toHaveValue('Before accounts');
+  await expect(page.getByLabel('Quest stream URL', { exact: true })).toHaveValue('');
+  await expect(page.getByLabel('Watch preview URL', { exact: true })).toHaveValue('https://example.com/first.m3u8');
+  await expect(outputDirty(page)).toHaveAttribute('data-event-dirty', 'true');
+});
+
+test('staff output saves only its submitted snapshot and event save leaves output edits dirty @flow @fixture', async ({ page }, testInfo) => {
+  await openOutput(page);
+  await page.getByLabel('Output label', { exact: true }).fill('First output');
+  await outputConsent(page).check();
+  await page.getByRole('button', { name: 'Save draft', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('event-lineup-fixture-command-count'))).toBe('1');
+  await expect(outputDirty(page)).toHaveAttribute('data-event-dirty', 'true');
+  await saveOutput(page);
+  await expect(page.getByText('Output saved.', { exact: true })).toBeVisible();
+  await expect(outputDirty(page)).toHaveAttribute('data-event-dirty', 'false');
+  await nav(page, 'Details');
+  await page.getByLabel('Event title', { exact: true }).fill('Event edit');
+  await nav(page, 'Review');
+  await page.getByLabel('Output label', { exact: true }).fill('Second output');
+  await saveOutput(page);
+  await expect(page.getByText('Output saved.', { exact: true })).toBeVisible();
+  await expect(outputDirty(page)).toHaveAttribute('data-event-dirty', 'true');
+  await dismissLeave(page);
+  await page.getByRole('button', { name: 'Save draft', exact: true }).click();
+  await expect(outputDirty(page)).toHaveAttribute('data-event-dirty', 'false');
+  await page.evaluate(() => localStorage.setItem('fixture-output-defer-save', 'true'));
+  await page.getByLabel('Output label', { exact: true }).fill('Submitted output');
+  await saveOutput(page);
+  await expect(page.getByRole('button', { name: 'Saving output...', exact: true })).toBeVisible();
+  await page.getByLabel('Output label', { exact: true }).fill('Newer output');
+  await page.evaluate(() => window.dispatchEvent(new Event('fixture-output-release-save')));
+  await expect(page.getByText('Output saved.', { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('fixture-output-persisted')!))).toMatchObject({ label: 'Submitted output', outputAccountKey: 'first', sourceConsentAccepted: true, destinationAuthorityAccepted: true, providerRulesAccepted: true, rightsClearedMediaAccepted: true });
+  await expect(page.getByLabel('Output label', { exact: true })).toHaveValue('Newer output');
+  await expect(outputDirty(page)).toHaveAttribute('data-event-dirty', 'true');
+  await page.screenshot({ path: testInfo.outputPath('output-newer-edit.png'), fullPage: true });
+  await dismissLeave(page);
+  await page.getByLabel('Output label', { exact: true }).fill('Submitted output');
+  await expect(outputDirty(page)).toHaveAttribute('data-event-dirty', 'false');
+});
+
+test('staff output failure and validation retain dirty edits @flow @fixture', async ({ page }) => {
+  await openOutput(page);
+  await page.getByLabel('Output label', { exact: true }).fill('Unsaved output');
+  await saveOutput(page);
+  await expect(page.getByText('Confirm you are authorized to publish this output.', { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem('fixture-output-submission'))).toBeNull();
+  await expect(outputDirty(page)).toHaveAttribute('data-event-dirty', 'true');
+  await outputConsent(page).check();
+  await page.evaluate(() => localStorage.setItem('fixture-output-save-error', 'true'));
+  await saveOutput(page);
+  await expect(page.getByText('Backend error - please try again later', { exact: true })).toBeVisible();
+  await expect(outputDirty(page)).toHaveAttribute('data-event-dirty', 'true');
+  await dismissLeave(page);
+  await page.evaluate(() => localStorage.removeItem('fixture-output-save-error'));
+  await saveOutput(page);
+  await expect(page.getByText('Output saved.', { exact: true })).toBeVisible();
+  await expect(outputDirty(page)).toHaveAttribute('data-event-dirty', 'false');
+});
+
+test('staff output delayed untouched defaults stay clean @flow @fixture', async ({ page }) => {
+  await openOutput(page, true);
+  await expect(outputDirty(page)).toHaveAttribute('data-event-dirty', 'false');
+  await page.evaluate(() => window.dispatchEvent(new Event('fixture-output-release-accounts')));
+  await expect(page.getByRole('combobox', { name: /^Output account/ })).toHaveValue('first');
+  await expect(page.getByLabel('Output label', { exact: true })).toHaveValue('first output');
+  await expect(outputDirty(page)).toHaveAttribute('data-event-dirty', 'false');
+});
+
+test('staff output edited during event save remains dirty after event completion @flow @fixture', async ({ page }) => {
+  await openOutput(page);
+  await nav(page, 'Details');
+  await page.getByLabel('Event title', { exact: true }).fill('Submitted event');
+  await page.evaluate(() => localStorage.setItem('event-lineup-fixture-defer-save', 'true'));
+  await page.getByRole('button', { name: 'Save draft', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('event-lineup-fixture-command-count'))).toBe('1');
+  await nav(page, 'Review');
+  await page.getByLabel('Output label', { exact: true }).fill('Newer output');
+  await page.evaluate(() => window.dispatchEvent(new Event('event-lineup-fixture-release-save')));
+  await expect(page.getByRole('button', { name: 'Save draft', exact: true })).toBeEnabled();
+  await expect(page.getByLabel('Output label', { exact: true })).toHaveValue('Newer output');
+  await expect(outputDirty(page)).toHaveAttribute('data-event-dirty', 'true');
+  await dismissLeave(page);
+});

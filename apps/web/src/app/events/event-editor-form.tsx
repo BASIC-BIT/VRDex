@@ -509,6 +509,8 @@ function ConnectedEventEditorForm({
   const [watchMode, setWatchMode] = useState<"event_stream" | "performer_sequence">(event?.watchMode ?? "event_stream");
   const [mediaLinksText, setMediaLinksText] = useState(() => serializeMediaLinks(event));
   const [vrcdnOutput, setVrcdnOutput] = useState<VrcdnOutputFormState>(() => createInitialVrcdnOutputForm(event));
+  const [persistedVrcdnOutput, setPersistedVrcdnOutput] = useState(vrcdnOutput);
+  const authoredVrcdnOutputFields = useRef(new Set<keyof VrcdnOutputFormState>());
   const [slotRows, setSlotRows] = useState(() => initialSlotRows(event));
   const [lineupEdited, setLineupEdited] = useState(false);
   const [scheduleChanged, setScheduleChanged] = useState(false);
@@ -529,7 +531,8 @@ function ConnectedEventEditorForm({
   const snapshot = authoredSnapshot({ ...authored, location, timeTba, eventDate, startLocal, occurrence, endLocal, endOccurrence, startInstantOverride, endAtOverride, doorsAtOverride, doorsOpenMinutes, timezone, watchSurfaceEnabled, watchMode, mediaLinksText,
     slots: slotRows.map(row => ({ position: row.position, offsetMinutes: row.offsetMinutes, durationMinutes: row.durationMinutes, startAtOverride: row.startAtOverride, endAtOverride: row.endAtOverride, durationMsOverride: row.durationMsOverride, personSlug: row.personSlug, displayLabel: row.displayLabel, roleLabel: row.roleLabel, selectedStreamId: row.selectedStreamId })), untimed: untimedRows.map(row => ({ position: row.position, performerLabel: row.performerLabel, personSlug: row.personSlug, roleLabel: row.roleLabel })) });
   const [persisted, setPersisted] = useState(snapshot);
-  const dirty = hasUnsavedEventChanges({ current: snapshot, persisted, pendingInput: pendingInputs.pending });
+  const dirty = hasUnsavedEventChanges({ current: snapshot, persisted, pendingInput: pendingInputs.pending })
+    || authoredSnapshot(vrcdnOutput) !== authoredSnapshot(persistedVrcdnOutput);
   const { requestLeave } = useEventEditorLeaveGuard({ dirty });
   const [returnPath, setReturnPath] = useState<string>();
   useEffect(() => { if (returnPath) { setReturnPath(undefined); requestLeave(() => router.replace(returnPath)); } }, [returnPath, requestLeave, router]);
@@ -540,14 +543,21 @@ function ConnectedEventEditorForm({
       return;
     }
 
-    setVrcdnOutput((current) => {
-      if (current.outputAccount !== "") {
-        return current;
-      }
-
-      return applyVrcdnOutputAccountDefaults(current, vrcdnOutputAccounts[0]!);
+    if (vrcdnOutput.outputAccount !== "" || authoredVrcdnOutputFields.current.has("outputAccount")) return;
+    // Account discovery is initialization, but cannot replace an authored field,
+    // including a deliberate clear made before the accounts arrived.
+    const withUntouchedDefaults = (current: VrcdnOutputFormState) => ({
+      ...applyVrcdnOutputAccountDefaults(current, vrcdnOutputAccounts[0]!),
+      ...Object.fromEntries([...authoredVrcdnOutputFields.current].map(key => [key, current[key]])),
     });
-  }, [vrcdnOutputAccounts]);
+    setVrcdnOutput(withUntouchedDefaults(vrcdnOutput));
+    setPersistedVrcdnOutput(withUntouchedDefaults);
+  }, [vrcdnOutputAccounts, vrcdnOutput]);
+
+  function updateVrcdnOutputField<Key extends keyof VrcdnOutputFormState>(key: Key, value: VrcdnOutputFormState[Key]) {
+    authoredVrcdnOutputFields.current.add(key);
+    setVrcdnOutput(current => ({ ...current, [key]: value }));
+  }
 
   function updateSlotRows(updater: (rows: SlotFormRow[]) => SlotFormRow[]) {
     timezoneAuthored.current = true;
@@ -606,6 +616,9 @@ function ConnectedEventEditorForm({
         rightsClearedMediaAccepted: true,
       });
 
+      // This command persists only output configuration, using the values captured
+      // by this request. Newer output and event edits keep their own dirty state.
+      setPersistedVrcdnOutput(vrcdnOutput);
       startTransition(() => setVrcdnOutputStatus({ kind: "success" }));
     } catch (error) {
       startTransition(() => setVrcdnOutputStatus({ kind: "error", message: eventEditorErrorMessage(error) }));
@@ -871,6 +884,7 @@ function ConnectedEventEditorForm({
   const visibleWorkerOutput = eventMediaControlStatus?.outputs.find((output) => output.outputId === visibleWorkerSession?.outputId);
   function onVrcdnOutputAccountChange(changeEvent: ChangeEvent<HTMLSelectElement>) {
     const value = eventTargetValue(changeEvent);
+    authoredVrcdnOutputFields.current.add("outputAccount");
     const account = vrcdnOutputAccountOptions.find((option) => option.key === value);
 
     if (account === undefined) {
@@ -1133,7 +1147,7 @@ function ConnectedEventEditorForm({
                 </div>
                 <EventPerformerField value={performers.value({ key: slot.id, label: slot.displayLabel, personSlug: slot.personSlug })} selectedPerson={performers.person(slot.personSlug)} onResolve={performers.resolve} onChange={value => {
                   const next = performers.change({ key: slot.id, label: slot.displayLabel, personSlug: slot.personSlug }, value);
-                  updateSlotRows(rows => rows.map(row => row.id === slot.id ? { ...row, displayLabel: next.label, personSlug: next.personSlug } : row));
+                  updateSlotRows(rows => rows.map(row => row.id === slot.id ? { ...row, displayLabel: next.label, personSlug: next.personSlug, ...(row.personSlug === next.personSlug ? {} : { selectedStreamId: undefined, streamChoices: undefined }) } : row));
                 }} />
                 {!timeTba ? <EventSlotDuration value={duration} onCommit={minutes => applyTimingEdit(changeLineupDuration(timings, slot.id, minutes))} /> : null}
               </div>
@@ -1247,7 +1261,7 @@ function ConnectedEventEditorForm({
               <Input
                 onChange={(changeEvent) => {
                   const value = eventTargetValue(changeEvent);
-                  setVrcdnOutput((current) => ({ ...current, label: value }));
+                  updateVrcdnOutputField("label", value);
                 }}
                 placeholder="Event stream"
                 value={vrcdnOutput.label}
@@ -1260,7 +1274,7 @@ function ConnectedEventEditorForm({
             <Input
               onChange={(changeEvent) => {
                 const value = eventTargetValue(changeEvent);
-                setVrcdnOutput((current) => ({ ...current, browserUrl: value }));
+                updateVrcdnOutputField("browserUrl", value);
               }}
               placeholder="https://panel.vrcdn.live/preview/name"
               value={vrcdnOutput.browserUrl}
@@ -1273,7 +1287,7 @@ function ConnectedEventEditorForm({
               <Input
                 onChange={(changeEvent) => {
                   const value = eventTargetValue(changeEvent);
-                  setVrcdnOutput((current) => ({ ...current, standaloneUrl: value }));
+                  updateVrcdnOutputField("standaloneUrl", value);
                 }}
                 placeholder="https://stream.vrcdn.live/live/name.live.ts"
                 value={vrcdnOutput.standaloneUrl}
@@ -1284,7 +1298,7 @@ function ConnectedEventEditorForm({
               <Input
                 onChange={(changeEvent) => {
                   const value = eventTargetValue(changeEvent);
-                  setVrcdnOutput((current) => ({ ...current, pcUrl: value }));
+                  updateVrcdnOutputField("pcUrl", value);
                 }}
                 placeholder="rtspt://stream.vrcdn.live/live/name"
                 value={vrcdnOutput.pcUrl}
@@ -1298,7 +1312,7 @@ function ConnectedEventEditorForm({
               className="mt-1 h-4 w-4 flex-none accent-accent"
               onChange={(changeEvent) => {
                 const checked = eventTargetChecked(changeEvent);
-                setVrcdnOutput((current) => ({ ...current, authorized: checked }));
+                updateVrcdnOutputField("authorized", checked);
               }}
               type="checkbox"
             />
