@@ -75,6 +75,7 @@ for (const invalidEnd of ["2026-11-01T01:45", "2026-03-08T02:30"]) {
     })));
     await page.goto("/playwright/event-lineup?editor");
     await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Details" }).click();
+    await page.getByText("Add start time", { exact: true }).click();
     await page.getByLabel("Starts", { exact: true }).fill("2026-11-01T00:15");
     await page.getByText("Add end time", { exact: true }).click();
     await page.getByLabel("Ends (optional)", { exact: true }).fill(invalidEnd);

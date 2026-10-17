@@ -26,7 +26,7 @@ import { EventLocationField } from "./event-location-field";
 import type { EventIdentityOption } from "@/lib/event-editor-identity";
 import { EventEditorPreview, EventCommunitySummary, useEventCommunity } from "./event-editor-preview";
 import { eventLocalDate, formatIntakeDateTimeInput, parseIntakeDateTimeInput } from "@/lib/calendar/event-intake-date-time";
-import { acceptIntakeSuggestion, rebaseIntakeTime as rebaseTime, rebaseIntakeSuggestions, type IntakeSuggestionAcceptance } from "@/lib/calendar/event-intake-suggestions";
+import { acceptIntakeSuggestion, rebaseIntakeTime as rebaseTime, rebaseIntakeTimes, rebaseIntakeSuggestions, type IntakeSuggestionAcceptance } from "@/lib/calendar/event-intake-suggestions";
 import { EventPerformerField, useEventPerformerEditor } from "./event-performer-field";
 import { applyIntakeLineupTimings, intakeLocalFromInstant, readIntakeInstant, readIntakeLineupTimings } from "@/lib/calendar/event-lineup-adapters";
 import { changeLineupDuration, generateLineupTimings, getLineupEndAt, getLineupEndConflict, insertLineupSlot, removeLineupSlot, shiftLineupStart, type LineupEditResult, type LineupTimingRow } from "@/lib/calendar/event-lineup-timing";
@@ -94,7 +94,7 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
   const form = useRef<HTMLFormElement>(null);
   const performers = useEventPerformerEditor();
   const [fields, setFields] = useState(() => initialFields.timeTba ? untimed(initialFields) : initialFields);
-  const requiresStart = !correction || fields.timeTba !== true;
+  const requiresStart = !correction || fields.timeTba !== true || Boolean(fields.lineup?.some(row => row.relativeTiming));
   const pendingInputs = useEventEditorPending();
   const [persisted, setPersisted] = useState(() => authoredSnapshot(initialFields.timeTba ? untimed(initialFields) : initialFields));
   const pendingRef = useRef(pendingInputs.pending);
@@ -172,7 +172,7 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
         lineup: next.lineup?.map(row => { const previous = current.lineup?.find(item => item.clientKey === row.clientKey); return { ...row, start: row.start === previous?.start ? rebaseTime(row.start, current.eventDate, next.eventDate) : row.start, end: row.end === previous?.end ? rebaseTime(row.end, current.eventDate, next.eventDate) : row.end }; }),
       } : next;
 
-      startAnchor.current = readIntakeInstant(updated, updated.start);
+      startAnchor.current = readIntakeInstant(updated, updated.start) ?? startAnchor.current;
       return updated.timeTba ? untimed(updated) : updated;
     });
   }
@@ -181,7 +181,7 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
     if (!updated) return;
     if (["timezone", "eventDate", "start", "end", "doors", "lineup"].includes(acceptance.key)) timezoneAuthored.current = true;
     const next = { ...updated, timeTba: updated.start ? false : updated.timeTba };
-    startAnchor.current = readIntakeInstant(next, next.start);
+    startAnchor.current = readIntakeInstant(next, next.start) ?? startAnchor.current;
     setFields(next);
   }
   function changeStart(change: { eventDate: string | null; local: EventIntakeLocalTime | null }) {
@@ -193,8 +193,12 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
     }, fields.eventDate);
     const nextStart = readIntakeInstant(next, next.start);
     try {
-      let updated = nextStart !== undefined && startAnchor.current !== undefined
-        ? applyIntakeLineupTimings(next, shiftLineupStart(readIntakeLineupTimings(fields), nextStart - startAnchor.current)) : next;
+      let updated = next;
+      if (nextStart !== undefined && startAnchor.current !== undefined) {
+        const resolved = readIntakeLineupTimings(next);
+        const shifted = shiftLineupStart(readIntakeLineupTimings(fields), nextStart - startAnchor.current);
+        updated = applyIntakeLineupTimings(next, shifted.map((timing, index) => next.lineup?.[index]?.relativeTiming ? resolved[index]! : timing));
+      }
       const previousStart = readIntakeInstant(fields, fields.start);
       if (!change.local && previousStart !== undefined) {
         const previousTimings = readIntakeLineupTimings(fields);
@@ -206,7 +210,7 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
       }
       if (!EventIntakePatchSchema.safeParse(updated).success) throw new RangeError("Event date must be valid.");
       setFields(updated);
-      startAnchor.current = nextStart;
+      if (nextStart !== undefined) startAnchor.current = nextStart;
       return true;
     } catch { reveal("Details", '[name="Starts"]'); return false; }
   }
@@ -265,8 +269,8 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
       }
       if (publish) {
         if (!fields.communitySlug || !fields.title || !fields.eventDate) { reveal("Details", !fields.communitySlug ? '[role="combobox"][aria-label="Community"]' : `[name="${!fields.title ? "title" : "Starts"}"]`); throw new Error("Add a community, title and date."); }
-        if (requiresStart && !fields.timezone) { reveal("Details", '[aria-label="Time zone"]'); throw new Error("Choose a time zone."); }
         if (requiresStart && (fields.timeTba || !fields.start)) { reveal("Details", '[name="Starts"]'); return; }
+        if (requiresStart && !fields.timezone) { reveal("Details", '[aria-label="Time zone"]'); throw new Error("Choose a time zone."); }
         const times: Array<{ local?: EventIntakeLocalTime | null; label: string; step: EventEditorStep }> = [
           { local: fields.start, label: "Starts", step: "Details" satisfies EventEditorStep },
           { local: fields.end, label: "Ends (optional)", step: "Details" satisfies EventEditorStep },
@@ -312,6 +316,7 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
   }
   let timezoneInstant: number | undefined;
   try { if (!fields.timeTba && fields.eventDate && fields.start && fields.timezone) timezoneInstant = selectEventLocalTime(fields.eventDate, fields.start, fields.timezone); } catch { /* Ambiguous or incomplete time has no offset yet. */ }
+  const startControl = <div className="grid gap-2"><IntakeTime label="Starts" required={requiresStart} eventStart value={fields.start} date={fields.eventDate} timezone={fields.timezone} displayTimezone={editingTimezone} onChange={changeStart} /><EventTimezonePicker name="editingTimezone" value={editingTimezone} date={fields.eventDate ?? null} instant={timezoneInstant} preferredValue={savedTimezonePreference} onChange={changeTimezone} /></div>;
   return <EventEditorPendingContext.Provider value={pendingInputs.register}><form ref={form} data-event-dirty={dirty} className="grid gap-6" onChangeCapture={event => {
     const target = event.target;
     if (target instanceof HTMLElement && target.closest("[data-intake-time]")) timezoneAuthored.current = true;
@@ -328,13 +333,13 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
     {!correction ? <div className="grid gap-2"><span className="text-sm font-medium">Community</span><EventIdentityPicker kind="community" selectedSlug={fields.communitySlug} selectedOption={community} shortcuts={shortcuts} onSelect={option => { setSelectedCommunity(option); set("communitySlug", option.slug); }} onClear={() => { setSelectedCommunity(undefined); set("communitySlug", null); }} /></div> : null}
     <Field>Event title<Input name="title" value={fields.title ?? ""} maxLength={120} onChange={event => set("title", event.target.value)} /></Field>
     <input type="hidden" name="timezone" value={fields.timezone ?? ""} />
-    {!fields.timezone && [fields.start, fields.end, fields.doors, ...(fields.lineup ?? []).flatMap(row => [row.start, row.end])].some(Boolean) ? <section className="grid gap-2"><h3>Unresolved time</h3><EventTimezonePicker name="sourceTimezone" value={null} date={fields.eventDate ?? null} onChange={zone => { if (revealPendingTime()) return false; timezoneAuthored.current = true; const next = { ...fields, timezone: zone }; startAnchor.current = readIntakeInstant(next, next.start); setFields(next); }} /></section> : null}
+    {!fields.timezone && [fields.start, fields.end, fields.doors, ...(fields.lineup ?? []).flatMap(row => [row.start, row.end])].some(Boolean) ? <section className="grid gap-2"><h3>Unresolved time</h3><EventTimezonePicker name="sourceTimezone" value={null} date={fields.eventDate ?? null} onChange={zone => { if (revealPendingTime()) return false; timezoneAuthored.current = true; const next = { ...fields, timezone: zone }; startAnchor.current = readIntakeInstant(next, next.start) ?? startAnchor.current; setFields(next); }} /></section> : null}
     <div className="grid items-start gap-3 sm:grid-cols-2">
-      <div className="grid gap-2"><IntakeTime label="Starts" required={requiresStart} eventStart value={fields.start} date={fields.eventDate} timezone={fields.timezone} displayTimezone={editingTimezone} onChange={changeStart} /><EventTimezonePicker name="editingTimezone" value={editingTimezone} date={fields.eventDate ?? null} instant={timezoneInstant} preferredValue={savedTimezonePreference} onChange={changeTimezone} /></div>
-      <div className={`flex flex-wrap items-start gap-x-5 gap-y-3 ${endOpen || doorsOpen ? "" : "pt-1 sm:pt-7"}`}>
+      {fields.timeTba ? <div className="grid gap-3"><Field>Date<Input type="date" required value={fields.eventDate ?? ""} onChange={event => { timezoneAuthored.current = true; const date = event.target.value || null; setFields(current => rebaseIntakeSuggestions(rebaseIntakeTimes(current, current.eventDate, date), current.eventDate)); }} /></Field><details open={fields.lineup?.some(row => row.relativeTiming) || undefined}><summary className="cursor-pointer text-sm font-medium">Add start time</summary><div className="mt-3">{startControl}</div></details></div> : startControl}
+      {!fields.timeTba ? <div className={`flex flex-wrap items-start gap-x-5 gap-y-3 ${endOpen || doorsOpen ? "" : "pt-1 sm:pt-7"}`}>
         <details className={`relative min-w-0 ${endOpen ? "w-full" : "w-fit"}`} open={endOpen} onToggle={event => setEndOpen(event.currentTarget.open)}><summary className={`cursor-pointer font-medium ${endOpen ? "absolute right-0 top-0 text-xs" : "text-sm"}`}>Add end time</summary><IntakeTime label="Ends (optional)" value={fields.end} date={fields.eventDate} timezone={fields.timezone} displayTimezone={editingTimezone} onChange={change => set("end", change.local)} /></details>
         <details className={`relative min-w-0 ${doorsOpen ? "w-full" : "w-fit"}`} open={doorsOpen} onToggle={event => setDoorsOpen(event.currentTarget.open)}><summary className={`cursor-pointer font-medium ${doorsOpen ? "absolute right-0 top-0 text-xs" : "text-sm"}`}>Add doors-open time</summary><IntakeTime label="Doors open" value={fields.doors} date={fields.eventDate} timezone={fields.timezone} displayTimezone={editingTimezone} onChange={change => set("doors", change.local)} /></details>
-      </div>
+      </div> : null}
     </div>
     <EventLocationField selectedWorld={world} onWorldPresentation={setSelectedWorld} worldSlug={fields.worldSlug ?? ""} venueLabel={fields.venueLabel ?? ""} onChange={next => setFields(current => ({ ...current, worldSlug: next.worldSlug || null, venueLabel: next.venueLabel || null }))} />
     <Field>Description<Textarea rows={5} className="min-h-36" value={fields.summary ?? ""} maxLength={240} onChange={event => set("summary", event.target.value)} /></Field>

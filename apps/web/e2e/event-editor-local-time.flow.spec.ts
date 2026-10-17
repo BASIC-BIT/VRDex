@@ -34,6 +34,7 @@ test("contributor legacy date-only draft remains unchanged until a start is auth
   await expect(page.getByLabel("Time TBA", { exact: true })).toHaveCount(0);
   await expect(page.getByLabel("Starts", { exact: true })).toHaveValue("");
   expect(await saveIntake(page)).toEqual(legacy);
+  await page.getByText("Add start time", { exact: true }).click();
   await page.getByLabel("Starts", { exact: true }).fill("2026-10-16T02:00");
   expect(await saveIntake(page)).toEqual({ ...legacy, timeTba: false, start: { time: "23:00", dayOffset: 0 } });
 });
@@ -210,6 +211,7 @@ test("connected correction form uses the saved display preference and preserves 
   await page.getByRole("button", { name: "Correct event", exact: true }).click();
   await expect(page.locator('[name="editingTimezone"]')).toHaveValue("Asia/Tokyo");
   await expect(page.getByLabel("Starts", { exact: true })).toHaveValue("");
+  await page.getByText("Add start time", { exact: true }).click();
   await zone(page, "London");
   await expect(page.locator('[name="editingTimezone"]')).toHaveValue("Europe/London");
   await expect(page.getByLabel("Starts", { exact: true })).toHaveValue("");

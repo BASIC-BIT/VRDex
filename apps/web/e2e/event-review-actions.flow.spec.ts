@@ -39,6 +39,10 @@ for (const correction of [false, true]) {
     await page.goto(`/playwright/event-intake?revision=${correction ? "correction" : "draft"}`);
     if (correction) await page.getByRole("button", { name: "Correct event", exact: true }).click();
     if (correction) { await nav(page, "Details"); await page.getByLabel("Event title", { exact: true }).fill("Corrected title"); }
+    else {
+      await page.getByText("Add start time", { exact: true }).click();
+      await page.getByLabel("Starts", { exact: true }).fill("2027-07-15T20:00");
+    }
     await nav(page, "Review");
     const label = correction ? "Save changes" : "Publish event";
     const primary = page.locator('[data-step="Review"]').getByRole("button", { name: label, exact: true });

@@ -1,6 +1,7 @@
 import { manualPerformer, linkedPerformer } from "./event-performer-helpers";
 import { expect, test, type Page } from "@playwright/test";
 import { selectEventLocalTime } from "../../../packages/api-contracts/src/event-intake";
+import { readIntakeLineupTimings } from "../src/lib/calendar/event-lineup-adapters";
 
 const step = async (page: Page, name: string) => {
   if (await page.getByRole("dialog").isVisible()) await page.getByRole("button", { name: "Close", exact: true }).click();
@@ -234,6 +235,10 @@ test("review routes missing fields back to details and repeated times require oc
   await step(page, "Review");
   await page.getByRole("button", { name: "Publish event", exact: true }).click();
   await expect(page.getByLabel("Event title", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Starts", { exact: true })).toBeFocused();
+  await page.getByLabel("Starts", { exact: true }).fill("2027-10-15T20:00");
+  await step(page, "Review");
+  await page.getByRole("button", { name: "Publish event", exact: true }).click();
   await expect(page.getByRole("combobox", { name: "Community", exact: true })).toBeFocused();
   await page.getByLabel("Event title", { exact: true }).fill("Repeated hour");
   await selectCommunity(page, "afterglow");
@@ -248,10 +253,13 @@ test("review routes missing fields back to details and repeated times require oc
   await expect(page.getByRole("status")).toContainText("Ambiguous local time");
   await expect(page.getByLabel("Starts occurrence")).toBeFocused();
   await page.getByLabel("Starts occurrence").selectOption("later");
+  await expect(page.getByLabel("Starts occurrence")).toHaveValue("later");
   if (await page.getByRole("dialog").isVisible()) await page.getByRole("button", { name: "Close", exact: true }).click();
   await page.getByRole("button", { name: "Save draft", exact: true }).click();
   await expect(page.getByRole("status")).toHaveText("Draft saved");
-  expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("fixture-source-draft")!).fields.start.occurrence)).toBe("later");
+  const saved = await page.evaluate(() => JSON.parse(sessionStorage.getItem("fixture-source-draft")!).fields);
+  expect(saved.timezone).toBe("UTC");
+  expect(selectEventLocalTime(saved.eventDate, saved.start, saved.timezone)).toBe(Date.UTC(2027, 10, 7, 6, 30));
 });
 
 test("similar events appear only when publish preflight returns a match @flow @fixture", async ({ page }) => {
@@ -517,7 +525,7 @@ test("partial combined input saves its base date and date-only extraction stays 
 
 test("lineup removal survives resume and later Starts edits without restoring deleted keys @flow @fixture", async ({ page }) => {
   await page.goto("/playwright/event-intake?source=text");
-  await page.evaluate(() => sessionStorage.setItem("fixture-source-draft", JSON.stringify({ version: 1, fields: { eventDate: "2026-10-10", start: { time: "23:00" }, end: { time: "02:00", dayOffset: 1 }, lineup: [{ clientKey: "first", position: 0, performerLabel: "First", start: { time: "23:30" } }, { clientKey: "second", position: 1, performerLabel: "Second", start: { time: "01:00", dayOffset: 1 } }] } })));
+  await page.evaluate(() => sessionStorage.setItem("fixture-source-draft", JSON.stringify({ version: 1, fields: { eventDate: "2026-10-10", timezone: "UTC", start: { time: "23:00" }, end: { time: "02:00", dayOffset: 1 }, lineup: [{ clientKey: "first", position: 0, performerLabel: "First", start: { time: "23:30" } }, { clientKey: "second", position: 1, performerLabel: "Second", start: { time: "01:00", dayOffset: 1 } }] } })));
   await page.goto("/playwright/event-intake?source=text");
   await expect(page.getByLabel("Ends (optional)", { exact: true })).toBeVisible();
   await step(page, "Lineup");
@@ -623,6 +631,31 @@ const existingTiming = {
   start: { time: "20:00" }, end: { time: "21:00" }, doors: { time: "19:00" },
   lineup: [{ clientKey: "unrelated", position: 0, performerLabel: "Existing guest", start: { time: "20:15" }, end: { time: "20:45" } }],
 };
+
+test("cleared Starts retains mixed lineup timing through extraction and title acceptance @flow @fixture", async ({ page }) => {
+  await seedTimingDraft(page, { ...existingTiming, lineup: [
+    { clientKey: "complete", position: 0, performerLabel: "Complete", start: { time: "20:00" }, end: { time: "21:00" } },
+    { clientKey: "partial", position: 1, performerLabel: "Partial", start: { time: "20:30" } },
+  ] });
+  await page.getByLabel("Starts", { exact: true }).fill("");
+  await openImport(page);
+  await page.getByRole("textbox", { name: "Source text", exact: true }).fill("Updated title");
+  await page.getByRole("button", { name: "Extract details", exact: true }).click();
+  await page.getByRole("button", { name: "Accept Event title", exact: true }).click();
+  await expect(page.getByLabel("Starts", { exact: true })).toHaveValue("");
+  await page.getByLabel("Starts", { exact: true }).fill("2026-10-10T20:15");
+  await step(page, "Lineup");
+  await expect(page.locator('[data-lineup-row="complete"]')).toContainText("20:15 - 21:15");
+  await expect(page.getByLabel("Slot 2 start", { exact: true })).toHaveValue("2026-10-10T20:45");
+  await expect(page.getByLabel("Slot 2 end", { exact: true })).toHaveValue("");
+  await saveTimingDraft(page);
+  const saved = await savedTimingDraft(page);
+  expect(saved.lineup[0]).toMatchObject({ start: null, end: null, relativeTiming: { offsetMinutes: 0, durationMinutes: 60 } });
+  expect(readIntakeLineupTimings(saved)).toEqual([
+    { key: "complete", startAt: Date.UTC(2026, 9, 10, 20, 15), endAt: Date.UTC(2026, 9, 10, 21, 15) },
+    { key: "partial", startAt: Date.UTC(2026, 9, 10, 20, 45) },
+  ]);
+});
 
 for (const selection of ["Start time", "End time", "Lineup"] as const) {
   for (const order of ["timing first", "date first"] as const) {

@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { readIntakeLineupTimings } from "../src/lib/calendar/event-lineup-adapters";
 test.use({ timezoneId: "UTC" });
 async function choosePerformer(row: Locator, text: string, manual = false) {
   await row.getByRole("combobox", { name: "Performer", exact: true }).fill(text);
@@ -298,18 +299,18 @@ test("canonical scheduling requests surviving-match preservation on every save @
 
 for (const editor of ["staff", "intake"]) test(`${editor} retains the last start through a timezone change while Starts is empty @fixture`, async ({ page }) => {
   if (editor === "staff") await canonicalStaff(page);
-  else await intake(page, { end: { time: "21:00" }, lineup: [{ clientKey: "a", position: 0, performerLabel: "A", start: { time: "20:00" }, end: { time: "21:00" } }] });
+  else await intake(page, { end: { time: "21:00" }, lineup: [{ clientKey: "a", position: 0, performerLabel: "A", start: { time: "20:00" }, end: { time: "21:00" } }, { clientKey: "partial", position: 1, performerLabel: "Partial", start: { time: "20:30" } }] });
   await page.getByLabel("Starts", { exact: true }).fill("");
   await page.getByRole("button", { name: "Time zone", exact: true }).click();
   await page.getByRole("combobox", { name: "Time zone", exact: true }).fill("Tokyo");
   await page.getByRole("option").first().click();
   await page.getByLabel("Starts", { exact: true }).fill("2027-10-15T20:15");
   await nav(page, "Lineup");
-  await expect(page.locator('[data-lineup-row]')).toContainText("20:15");
+  await expect(page.locator('[data-lineup-row]').first()).toContainText("20:15");
   await nav(page, "Details");
   await page.getByLabel("Starts", { exact: true }).fill("2027-10-15T20:30");
   await nav(page, "Lineup");
-  await expect(page.locator('[data-lineup-row]')).toContainText("20:30");
+  await expect(page.locator('[data-lineup-row]').first()).toContainText("20:30");
   await nav(page, "Review");
   await page.getByRole("button", { name: editor === "staff" ? "Save changes" : "Save draft", exact: true }).click();
   if (editor === "staff") {
@@ -318,7 +319,8 @@ for (const editor of ["staff", "intake"]) test(`${editor} retains the last start
     expect(payload.lineup[0].endAt).toBe(Date.UTC(2027, 9, 15, 12, 30, 20, 333));
   } else {
     const payload = await page.evaluate(() => JSON.parse(sessionStorage.getItem("event-intake-fixture")!));
-    expect(payload.lineup[0].start).toEqual({ time: "11:30", dayOffset: 0 });
+    expect(payload.lineup[0]).toMatchObject({ start: null, end: null, relativeTiming: { offsetMinutes: 0, durationMinutes: 60 } });
+    expect(readIntakeLineupTimings(payload)).toEqual([{ key: "a", startAt: Date.UTC(2027, 9, 15, 11, 30), endAt: Date.UTC(2027, 9, 15, 12, 30) }, { key: "partial", startAt: Date.UTC(2027, 9, 15, 12) }]);
   }
 });
 

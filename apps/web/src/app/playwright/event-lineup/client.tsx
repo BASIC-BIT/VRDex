@@ -63,6 +63,10 @@ function fixtureClient() {
   let event = JSON.parse(localStorage.getItem(storageKey) ?? JSON.stringify(fixtureEvent)) as EditableEvent;
   const publicEvent = JSON.parse(localStorage.getItem("event-lineup-fixture-public") ?? "null") as PublicEvent | null;
   const listeners = new Set<() => void>();
+  window.addEventListener("event-lineup-fixture-refresh", () => {
+    event = JSON.parse(localStorage.getItem(storageKey)!) as EditableEvent;
+    listeners.forEach(listener => listener());
+  });
   const empty: unknown[] = [];
   const outputAccounts = ["first", "second"].map(key => ({ key, label: key, playbackLinks: [
     { platform: "browser", label: key + " output", url: "https://example.com/" + key + ".m3u8" },

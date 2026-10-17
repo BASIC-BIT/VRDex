@@ -89,6 +89,7 @@ test("staff editor preserves legacy date-only drafts and artwork while correctin
   await expect(page).toHaveURL(/playwright\/event-lineup\?/);
   await page.goto("/playwright/event-lineup?editor");
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Details" }).click();
+  await page.getByText("Add start time", { exact: true }).click();
   await page.getByRole("button", { name: "Time zone", exact: true }).click();
   await page.getByRole("combobox", { name: "Time zone", exact: true }).fill("UTC");
   await page.getByRole("option", { name: /^UTC(?: |$)/ }).click();
@@ -114,6 +115,7 @@ for (const authorThenClear of [false, true]) test(`staff published date-only cor
   await expect(starts).not.toHaveAttribute("required", "");
   await page.getByLabel("Event title", { exact: true }).fill("Corrected night");
   if (authorThenClear) {
+    await page.getByText("Add start time", { exact: true }).click();
     await starts.fill("2027-10-15T20:00");
     await starts.fill("");
   }
@@ -153,6 +155,7 @@ test("staff title edit does not confirm an untouched contributed lineup", async 
   await expect(page).toHaveURL(/playwright\/event-lineup\?/);
   await page.goto("/playwright/event-lineup?editor");
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Details" }).click();
+  await page.getByText("Add start time", { exact: true }).click();
   await page.getByRole("button", { name: "Time zone", exact: true }).click();
   await page.getByRole("combobox", { name: "Time zone", exact: true }).fill("UTC");
   await page.getByRole("option", { name: /^UTC(?: |$)/ }).click();
@@ -237,7 +240,7 @@ test("editor submits and reloads selected mode and source", async ({ page }) => 
   await expect(page.getByLabel("Stream", { exact: true }).nth(2)).toHaveValue("lumen-visuals");
 });
 
-test("unavailable choices survive unrelated saves and identity edits until explicitly cleared", async ({ page }) => {
+test("unavailable choices survive unrelated saves and clear on performer changes", async ({ page }) => {
   await page.goto("/playwright/event-lineup?editor");
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Details" }).click();
   await page.getByLabel("Event title", { exact: true }).fill("Afterglow updated");
@@ -263,8 +266,8 @@ test("unavailable choices survive unrelated saves and identity edits until expli
   await linkedPerformer(page.locator("[data-performer-field]").nth(2), "Nova");
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Lineup" }).click();
   await expect(page.getByLabel("Stream", { exact: true }).nth(2).getByRole("option", { name: "Automatic: nova" })).toHaveCount(1);
-  await expect(page.getByLabel("Stream", { exact: true }).nth(2)).toHaveValue("lumen-main");
-  await page.getByLabel("Stream", { exact: true }).nth(2).selectOption("");
+  await expect(page.getByLabel("Stream", { exact: true }).nth(2)).toHaveValue("");
+  await expect(page.getByLabel("Stream", { exact: true }).nth(2).locator('option[value="lumen-main"]')).toHaveCount(0);
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Review" }).click();
   await page.getByRole("button", { name: "Save changes", exact: true }).click();
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!).lineup[2].personSlug)).toBe("nova");

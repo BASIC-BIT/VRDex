@@ -8,6 +8,7 @@ for (const mode of ["draft", "correction"] as const) {
     const navigation = page.getByRole("navigation", { name: "Event editor" });
     await expect(navigation.getByRole("button")).toHaveText(["Details", "Lineup", "Review"]);
     if (mode === "correction") await expect(page.getByRole("button", { name: "Import poster or text", exact: true })).toHaveCount(0);
+    await page.getByText("Add start time", { exact: true }).click();
     await page.getByRole("button", { name: "Time zone", exact: true }).click();
     await page.getByRole("combobox", { name: "Time zone", exact: true }).fill("UTC");
     await page.getByRole("option", { name: /^UTC(?: |$)/ }).click();
@@ -54,6 +55,7 @@ for (const mode of ["draft", "correction"] as const) {
     if (mode === "correction") await page.getByRole("button", { name: "Correct event", exact: true }).click();
     const navigation = page.getByRole("navigation", { name: "Event editor" });
     await navigation.getByRole("button", { name: "Details", exact: true }).click();
+    await page.getByText("Add start time", { exact: true }).click();
     await page.getByRole("button", { name: "Time zone", exact: true }).click();
     await page.getByRole("combobox", { name: "Time zone", exact: true }).fill("America/New_York");
     await page.getByRole("option").first().click();
@@ -127,6 +129,7 @@ test("title-only correction omits an unchanged hidden-person lineup @flow @fixtu
 test("a date-only correction that authors Starts requires it after clearing @flow @fixture", async ({ page }) => {
   await page.goto("/playwright/event-intake?revision=correction");
   await page.getByRole("button", { name: "Correct event", exact: true }).click();
+  await page.getByText("Add start time", { exact: true }).click();
   const starts = page.getByLabel("Starts", { exact: true });
   await starts.fill("2027-07-15T20:00");
   await starts.fill("");
@@ -401,6 +404,7 @@ test("community X clears an incomplete draft and focuses missing community on pu
   await page.getByRole("button", { name: "Save draft", exact: true }).click();
   await expect(page.getByRole("status")).toHaveText("Draft saved");
   expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("event-intake-revision-submission")!).patch.communitySlug)).toBeNull();
+  await page.getByText("Add start time", { exact: true }).click();
   await page.getByLabel("Starts", { exact: true }).fill("2027-10-15T20:00");
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Review", exact: true }).click();
   await page.getByRole("button", { name: "Publish event", exact: true }).click();

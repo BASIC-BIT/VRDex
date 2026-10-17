@@ -586,3 +586,36 @@ Contributor regression coverage passed 12 desktop/mobile cases; staff coverage
 passed four more. Both retain start requirements after authoring a timed schedule.
 The aborted public-entry navigation passed an isolated no-retry repeat on both
 viewports, twice each. Its initial abort cause remains unconfirmed.
+
+### Review corrections for the preview release
+
+The next Codex review found four valid issues. Existing date-only events now keep
+an editable Date field, with Starts under `Add start time`. End and doors controls
+appear after the author enters Starts, so date-only saves cannot silently discard
+optional clocks. Generated timing requires Starts before a contributor correction
+or staff save. Contributor drafts may still save elapsed lineup timing.
+
+Staff saves now track the last successfully submitted lineup revision and Starts.
+A later details-only save omits an unchanged lineup, including after creating a
+draft. Edits made during a pending request remain dirty, and failed requests do
+not advance the saved baseline. This prevents unrelated saves from replacing a
+newer lineup written by another editor.
+
+Clearing and re-entering Starts also retains the previous anchor for incomplete
+imported rows. Complete relative rows resolve against the new Starts once;
+incomplete absolute clocks shift by the elapsed change without inventing a
+source timezone. Import and suggestion updates retain that anchor while Starts
+is absent.
+
+The new compatibility and repeated-save cases passed 26 desktop/mobile checks.
+Web lint and types passed, and a fresh scoped source review found no further
+issues. The earlier broad run passed 404 checks before these four review fixes;
+the final combined run remains pending here. Linux snapshot generation and a
+second comparison run each passed 36 cases. All 104 changed baselines received
+visual review, with unchanged CI captures confirming matching browser rendering.
+No screenshot thresholds or test configuration changed. Both temporary capture
+relays have stopped; the local preview remains available.
+
+The current-head CI data-flow failures match the two previously corrected local test
+setups. Claude review stopped at its 500,000-byte context cap before reviewing
+code; Copilot exhausted its quota. Neither result is an approval.
