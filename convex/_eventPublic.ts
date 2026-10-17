@@ -813,10 +813,25 @@ export async function getEventForEditor(
   // unchanged association from a replacement. Capturing every loaded row also
   // covers a profile or world becoming private after the editor rendered.
   const preservedWorldAssociationIds = worldAssociations.map((association) => association._id);
+  const representedSlug = projected?.worlds[0]?.slug;
+  const representedWorld = representedSlug === undefined ? undefined : record?.worlds.find(entry => entry.world.slug === representedSlug);
+  const editableWorldAssociation = representedWorld === undefined ? undefined : {
+    associationId: representedWorld.association._id,
+    worldSlug: representedWorld.world.slug,
+  };
   const preservedParticipantAssociationIds = participantAssociations.map(
     (association) => association._id,
   );
   const preservedSlotAssociationIds = slotAssociations.map((association) => association._id);
+  const representedPersonIds = new Set([
+    ...(record?.slots.flatMap(row => row.slot.personProfileId ? [row.slot.personProfileId] : []) ?? []),
+    ...(record?.lineupEntries?.flatMap(row => row.entry.personProfileId ? [row.entry.personProfileId] : []) ?? []),
+    ...(record?.participants.map(row => row.profile._id) ?? []),
+  ]);
+  const retainedLineupAssociations = {
+    participantIds: participantAssociations.filter(row => !representedPersonIds.has(row.personProfileId)).map(row => row._id),
+    slotIds: slotAssociations.filter(row => !projected?.slots.some(slot => slot.playbackKey === row._id)).map(row => row._id),
+  };
   return projected === null
     ? null
     : {
@@ -840,9 +855,11 @@ export async function getEventForEditor(
           : {}),
         authoredMediaLinks,
         ...optionalField("notes", event.notes),
+        retainedLineupAssociations,
         preservedParticipantAssociationIds,
         preservedSlotAssociationIds,
         preservedWorldAssociationIds,
+        ...(editableWorldAssociation === undefined ? {} : { editableWorldAssociation }),
         preservedCommunityProfileId: event.communityProfileId,
         publicationState: event.publicationState,
       };

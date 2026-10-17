@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyIntakeLineupTimings, applyStaffLineupTimings, changeStaffSlotOffset, readIntakeLineupTimings, readStaffLineupTimings, type SlotFormRow } from "../../apps/web/src/lib/calendar/event-lineup-adapters";
-import { shiftLineupStart } from "../../apps/web/src/lib/calendar/event-lineup-timing";
-import { restoreIntakeTiming } from "../../apps/web/src/lib/calendar/event-intake-suggestions";
+import { applyIntakeLineupTimings, applyStaffLineupTimings, changeStaffSlotOffset, readIntakeInstant, readIntakeLineupTimings, readStaffLineupTimings, type SlotFormRow } from "../../apps/web/src/lib/calendar/event-lineup-adapters";
+import { formatLineupTimeRange } from "../../apps/web/src/lib/calendar/event-lineup-display";
+import { changeLineupDuration, generateLineupTimings, insertLineupSlot, removeLineupSlot, shiftLineupStart } from "../../apps/web/src/lib/calendar/event-lineup-timing";
+import { EventIntakePatchSchema } from "../../packages/api-contracts/src/event-intake";
+import { acceptIntakeSuggestion, restoreIntakeTiming } from "../../apps/web/src/lib/calendar/event-intake-suggestions";
 import type { EventIntakePatch } from "../../packages/api-contracts/src/event-intake";
 
 test("staff timing retains exact instants and metadata after an unchanged roundtrip and a shift", () => {
@@ -72,4 +74,108 @@ for (const cascade of [false, true]) test(`offset-only edits retain exact durati
 test("offset-only edits do not invent an unknown end", () => {
   const row: SlotFormRow = { id: "partial", offsetMinutes: "0", durationMinutes: "", personSlug: "", displayLabel: "Guest", roleLabel: "DJ", startAtOverride: 1_000 };
   assert.deepEqual(readStaffLineupTimings([changeStaffSlotOffset(row, "15", 1_000)], 1_000), [{ key: "partial", startAt: 901_000 }]);
+});
+
+
+test("source-zone acceptance preserves local rollover and source evidence", () => {
+  const fields: EventIntakePatch = { eventDate: "2026-10-16", timezone: "America/Indiana/Indianapolis", tentative: { eventDate: "2026-10-15", timezone: "America/Los_Angeles", start: { time: "23:00", dayOffset: 0 }, end: { time: "02:00", dayOffset: 1 }, doors: { time: "22:30", dayOffset: 0 }, lineup: [{ clientKey: "import", position: 0, performerLabel: "Guest", start: { time: "23:00", dayOffset: 0 }, end: { time: "00:00", dayOffset: 1 } }] }, questions: ["lineup: identity remains unconfirmed"] };
+  let next = fields;
+  for (const key of ["start", "end", "doors", "lineup"] as const) {
+    const accepted = acceptIntakeSuggestion({ fields: next, acceptance: { key, proposalDate: next.tentative?.eventDate } });
+    assert.ok(accepted); next = accepted;
+  }
+  assert.deepEqual(next.start, { time: "02:00", dayOffset: 0 });
+  assert.deepEqual(next.end, { time: "05:00", dayOffset: 0 });
+  assert.deepEqual(next.doors, { time: "01:30", dayOffset: 0 });
+  assert.deepEqual(next.lineup?.[0]?.start, next.start);
+  assert.deepEqual(next.lineup?.[0]?.end, { time: "03:00", dayOffset: 0 });
+  assert.deepEqual(next.questions, fields.questions);
+});
+test("unresolved source clocks cannot be accepted as known local instants", () => {
+  for (const tentative of [
+    { eventDate: "2026-11-01", timezone: "America/New_York", start: { time: "01:30", dayOffset: 0 } },
+    { eventDate: "2026-03-08", timezone: "America/New_York", start: { time: "02:30", dayOffset: 0 } },
+    { eventDate: "2026-10-15", start: { time: "23:00", dayOffset: 0 } },
+  ]) {
+    const fields = { eventDate: tentative.eventDate, tentative };
+    assert.equal(acceptIntakeSuggestion({ fields, acceptance: { key: "start", proposalDate: tentative.eventDate } }), null);
+  }
+});
+
+test("lineup repeats display their own offset at each instant", () => {
+  assert.equal(formatLineupTimeRange({ startAt: Date.UTC(2026, 10, 1, 5, 30), endAt: Date.UTC(2026, 10, 1, 6, 30), timezone: "America/New_York" }), "01:30 GMT-4 - 01:30 GMT-5");
+});
+
+test("relative draft timing survives serialization, editing and DST elapsed anchoring", () => {
+  const generated = generateLineupTimings({ startAt: 0, count: 3, durationMinutes: 60, keys: ["a", "b", "c"] });
+  assert.ok(generated.ok);
+  let fields = EventIntakePatchSchema.parse(JSON.parse(JSON.stringify(applyIntakeLineupTimings({}, generated.rows))));
+  assert.deepEqual(fields.lineup?.map(row => row.relativeTiming?.offsetMinutes), [0, 60, 120]);
+  assert.ok(fields.lineup?.every(row => !row.start && !row.end));
+  const inserted = insertLineupSlot({ rows: readIntakeLineupTimings(fields), index: 1, row: { key: "inserted" }, durationMinutes: 15, eventStartAt: 0 });
+  assert.ok(inserted.ok);
+  fields = applyIntakeLineupTimings(fields, inserted.rows);
+  const resized = changeLineupDuration(readIntakeLineupTimings(fields), "a", 30);
+  assert.ok(resized.ok);
+  fields = applyIntakeLineupTimings(fields, resized.rows);
+  assert.deepEqual(fields.lineup?.map(row => row.relativeTiming?.offsetMinutes), [0, 30, 45, 105]);
+  fields = { ...fields, eventDate: "2026-11-01", timezone: "America/New_York", start: { time: "01:30", occurrence: "earlier" } };
+  const anchored = readIntakeLineupTimings(fields);
+  assert.equal(anchored[0]?.startAt, Date.UTC(2026, 10, 1, 5, 30));
+  assert.equal(anchored[2]?.startAt, Date.UTC(2026, 10, 1, 6, 15));
+  fields = { ...fields, start: null };
+  const removed = removeLineupSlot(readIntakeLineupTimings(fields), "inserted");
+  assert.ok(removed.ok);
+  fields = applyIntakeLineupTimings(fields, removed.rows);
+  assert.deepEqual(fields.lineup?.map(row => row.relativeTiming?.offsetMinutes), [0, 30, 90]);
+  const source: EventIntakePatch = { ...fields, lineup: [...fields.lineup!, { clientKey: "source", position: 3, start: { time: "01:30" } }] };
+  assert.deepEqual(applyIntakeLineupTimings(source, readIntakeLineupTimings(source)).lineup?.[3], source.lineup?.[3]);
+});
+
+test("staff arithmetic origin never becomes a stored instant", () => {
+  const generated = generateLineupTimings({ startAt: 0, count: 2, durationMinutes: 60, keys: ["a", "b"] });
+  assert.ok(generated.ok);
+  const rows = applyStaffLineupTimings([], generated.rows, NaN);
+  assert.ok(rows.every(row => row.startAtOverride === undefined && row.endAtOverride === undefined));
+  assert.deepEqual(rows.map(row => row.offsetMinutes), ["0", "60"]);
+  const startAt = Date.UTC(2026, 2, 8, 6, 30);
+  assert.deepEqual(readStaffLineupTimings(rows, startAt).map(row => row.startAt), [startAt, startAt + 3_600_000]);
+});
+
+test("staff unanchoring preserves subminute offsets and durations without absolute timestamps", () => {
+  const startAt = Date.UTC(2026, 10, 1, 5, 30);
+  const rows: SlotFormRow[] = [{ id: "precise", offsetMinutes: "0", durationMinutes: "60", personSlug: "guest", displayLabel: "Guest", roleLabel: "DJ", startAtOverride: startAt + 10_123, endAtOverride: startAt + 3_620_333 }];
+  const relative = applyStaffLineupTimings(rows, shiftLineupStart(readStaffLineupTimings(rows, startAt), -startAt), NaN);
+  assert.equal(relative[0]?.startAtOverride, undefined);
+  assert.equal(relative[0]?.endAtOverride, undefined);
+  assert.deepEqual(readStaffLineupTimings(relative, NaN), [{ key: "precise", startAt: 10_123, endAt: 3_620_333 }]);
+  assert.deepEqual(readStaffLineupTimings(relative, startAt), readStaffLineupTimings(rows, startAt));
+  assert.deepEqual(readStaffLineupTimings([changeStaffSlotOffset(relative[0]!, "bad", startAt)], startAt), [{ key: "precise" }]);
+});
+test("accepting source fields in either order preserves resolved instants", () => {
+  const source = { eventDate: "2026-10-15", timezone: "America/Los_Angeles", start: { time: "23:00", dayOffset: 0 }, end: { time: "01:00", dayOffset: 1 } };
+  for (const order of [["start", "end", "eventDate", "timezone"], ["timezone", "eventDate", "end", "start"], ["eventDate", "start", "timezone", "end"]] as const) {
+    let fields: EventIntakePatch = { eventDate: "2026-10-16", timezone: "America/Indiana/Indianapolis", tentative: source, questions: ["keep source"] };
+    for (const key of order) {
+      const next = acceptIntakeSuggestion({ fields, acceptance: { key, proposalDate: fields.tentative?.eventDate } });
+      assert.ok(next); fields = next;
+    }
+    assert.equal(fields.timezone, "America/Los_Angeles");
+    assert.deepEqual(fields.start, { time: "23:00", dayOffset: 0 });
+    assert.deepEqual(fields.end, { time: "01:00", dayOffset: 1 });
+    assert.deepEqual(fields.questions, ["keep source"]);
+  }
+});
+
+for (const order of [["eventDate", "timezone", "end"], ["eventDate", "end", "timezone"]] as const) test(`accepting ${order.join(" then ")} preserves pending source dates across a canonical date boundary`, () => {
+  let fields: EventIntakePatch = { eventDate: "2026-10-15", timezone: "America/Indiana/Indianapolis", start: { time: "02:00", dayOffset: 0 }, tentative: { eventDate: "2026-10-15", timezone: "America/Los_Angeles", end: { time: "01:00", dayOffset: 1 } }, questions: ["keep source question"] };
+  for (const key of order) {
+    const next = acceptIntakeSuggestion({ fields, acceptance: { key, proposalDate: fields.tentative?.eventDate } });
+    assert.ok(next); fields = next;
+  }
+  assert.equal(fields.eventDate, "2026-10-14");
+  assert.deepEqual(fields.start, { time: "23:00", dayOffset: 0 });
+  assert.deepEqual(fields.end, { time: "01:00", dayOffset: 2 });
+  assert.equal(readIntakeInstant(fields, fields.end), Date.UTC(2026, 9, 16, 8));
+  assert.deepEqual(fields.questions, ["keep source question"]);
 });

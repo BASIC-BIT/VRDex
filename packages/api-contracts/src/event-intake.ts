@@ -20,7 +20,8 @@ export const EventIntakeLineupSchema = z.strictObject({
   clientKey: text(120).min(1), position: z.number().int().min(0).max(79),
   performerLabel: nullable(text(120)), personSlug: nullable(text(64)), roleLabel: nullable(text(48)),
   start: nullable(EventIntakeLocalTimeSchema), end: nullable(EventIntakeLocalTimeSchema),
-});
+  relativeTiming: z.strictObject({ offsetMinutes: z.number().int().min(-1_440).max(115_200), durationMinutes: z.number().int().positive().max(1_440) }).optional(),
+}).refine(row => !row.relativeTiming || (!row.start && !row.end), "Relative lineup timing cannot include source clocks.");
 export const EventIntakeFieldsSchema = z.strictObject({
   communitySlug: nullable(text(64)), title: nullable(text(120)), eventDate: nullable(text(10)),
   timeTba: nullable(z.boolean()), timezone: nullable(text(64)),

@@ -44,7 +44,7 @@ it("keeps an extracted date without inventing a time", () => {
 
 describe("intake suggestion calendar provenance", () => {
   const accept = (fields: EventIntakePatch, key: keyof NonNullable<EventIntakePatch["tentative"]>) => {
-    const accepted = acceptIntakeSuggestion({ fields, acceptance: { key, proposalDate: fields.tentative?.eventDate } });
+    const accepted = acceptIntakeSuggestion({ fields: { timezone: "UTC", ...fields }, acceptance: { key, proposalDate: fields.tentative?.eventDate } });
     assert.ok(accepted);
     return accepted;
   };
@@ -56,14 +56,16 @@ describe("intake suggestion calendar provenance", () => {
     const resumed = EventIntakePatchSchema.parse(JSON.parse(JSON.stringify(moved)));
     assert.equal(formatIntakeDateTimeInput({ eventDate: resumed.eventDate, local: accept(resumed, "end").end }), "2026-10-12T02:00");
     assert.equal(formatIntakeDateTimeInput({ eventDate: resumed.eventDate, local: accept(resumed, "lineup").lineup?.[0].start }), "2026-10-12T01:00");
-    assert.equal(formatIntakeDateTimeInput({ eventDate: resumed.eventDate, local: accept(resumed, "start").start }), "2026-10-11T23:00");
+    const acceptedStart = accept(resumed, "start");
+    assert.equal(acceptedStart.eventDate, "2026-10-11");
+    assert.equal(formatIntakeDateTimeInput({ eventDate: acceptedStart.eventDate, local: acceptedStart.start }), "2026-10-11T23:00");
   });
   it("keeps a reference date when a manual base move would put pending offsets outside the schema", () => {
     for (const eventDate of ["2026-10-01", "2026-10-20"]) {
       const moved = rebaseIntakeSuggestions({ eventDate, tentative: { end: { time: "02:00", dayOffset: 1 } } }, "2026-10-11");
       assert.equal(moved.tentative?.eventDate, "2026-10-11");
       EventIntakePatchSchema.parse(moved);
-      assert.equal(acceptIntakeSuggestion({ fields: moved, acceptance: { key: "end", proposalDate: moved.tentative?.eventDate } }), null);
+      assert.equal(acceptIntakeSuggestion({ fields: { timezone: "UTC", ...moved }, acceptance: { key: "end", proposalDate: moved.tentative?.eventDate } }), null);
       const recovered = accept(accept(moved, "eventDate"), "end");
       assert.equal(formatIntakeDateTimeInput({ eventDate: recovered.eventDate, local: recovered.end }), "2026-10-12T02:00");
     }
@@ -99,7 +101,13 @@ it("retains a normalized suggestion's base while the accepted date is temporaril
   const cleared = rebaseIntakeSuggestions({ eventDate: null, tentative: { end: { time: "02:00", dayOffset: 1 } } }, "2026-10-11");
   assert.equal(cleared.tentative?.eventDate, "2026-10-11");
   const moved = rebaseIntakeSuggestions({ ...cleared, eventDate: "2026-10-12" }, null);
-  const accepted = acceptIntakeSuggestion({ fields: moved, acceptance: { key: "end", proposalDate: moved.tentative?.eventDate } });
+  const accepted = acceptIntakeSuggestion({ fields: { timezone: "UTC", ...moved }, acceptance: { key: "end", proposalDate: moved.tentative?.eventDate } });
   assert.ok(accepted);
   assert.equal(formatIntakeDateTimeInput({ eventDate: accepted.eventDate, local: accepted.end }), "2026-10-12T02:00");
+});
+
+it("restores omitted optional clocks without adding nulls to the serialized schedule", () => {
+  const backup: EventIntakePatch = { eventDate: "2026-10-15", timezone: "UTC", start: { time: "23:00", dayOffset: 0 }, lineup: [{ clientKey: "untimed", position: 0, performerLabel: "Guest" }] };
+  const restored = restoreIntakeTiming({ ...backup, start: null, end: null, doors: null, lineup: [{ ...backup.lineup![0], start: null, end: null }] }, backup);
+  assert.equal(JSON.stringify(restored), JSON.stringify(backup));
 });

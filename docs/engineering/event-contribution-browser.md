@@ -3,7 +3,8 @@
 The browser intake at `/events/new` uses `eventIntake.saveEventIntakeDraft`,
 `getEventIntakeDraft`, and `publishEventIntake`. The `community` query parameter
 preselects a community. Saving sets a resumable `draft` URL and stays on the form.
-Publishing replaces the route with the command's canonical `eventPath`.
+Publishing returns the command's canonical `eventPath`. The form records the successful
+submitted snapshot before deciding whether to leave.
 
 ```mermaid
 flowchart LR
@@ -40,6 +41,36 @@ flowchart LR
     Owner --> Event
 ```
 
+## Details identity and optional fields
+
+Generic Add event starts without a selected community. A community entry link
+preselects that community. The empty picker offers owner and staff communities
+under Your communities; public search remains available for other groups.
+Selection, preview and Review share the retained display name and image. Public
+presentation refreshes without replacing known names with slugs. Staff editing
+keeps its existing community restriction.
+
+Where searches published worlds or accepts an explicit manual location. A saved
+world and custom venue label remain separate. The label appears in the selected
+world's Details. World-only locations display their resolved title in preview and
+Review without storing a venue override. Hydration updates presentation only.
+Switching to manual retains the displayed name in an editable location field,
+including an empty field when public presentation is unavailable. Clearing its
+text keeps that manual field open. The switch clears only the represented world
+link. Unrelated published and protected world associations remain attached.
+
+The authorized staff readback adds `editableWorldAssociation` for the first
+projected public world. Its association ID stays in the parent command adapter.
+Explicit replacement or clearing excludes only that ID from the preserved
+snapshot. The mutation scopes preserved IDs to the current event and returns a
+new mapping for the explicitly selected world. Unrelated saves keep the live
+mapping. Public/API event projections contain no editor mapping or private slugs.
+
+Doors-open time starts collapsed when absent. Stored or accepted imported values
+expand it. Collapsing preserves the value; clearing the input removes it.
+Original event post is optional and starts in a collapsed disclosure, preserving
+the existing source URL and provenance rules.
+
 Timezones are selected from the runtime IANA list with city and regional aliases.
 Abbreviations are search terms, not stored fixed offsets. The compact selector
 opens a search popover. Opening, searching and cancelling leave the selected
@@ -49,13 +80,43 @@ incomplete or ambiguous starts show the region without guessing an offset.
 Repeated local hours require an occurrence choice and missing local hours cannot
 publish. Existing owner timestamps remain exact when unchanged.
 
-New drafts use the private Account default event time zone, then browser
-detection, then UTC. Authenticated editor wrappers query the self viewer;
-fixture and demo editors receive preferences explicitly. Persisted drafts and
-events keep their authored zone, including missing-zone validation. Manual
-schedule edits and accepted imports prevent a late preference from changing the
-zone. Selecting a zone for an event never changes the account preference.
-Account settings save or clear the preference only through explicit actions.
+Both editors display schedules in the private Account timezone preference,
+otherwise the browser zone, otherwise UTC. The correction wrapper uses the same
+viewer preference. Deliberate display-zone choices survive step navigation and
+late preference data. Once a new draft has timing context, late defaults cannot
+reinterpret it. Opening an editor or choosing its display zone never updates the
+account preference.
+
+The canonical event date, zone, occurrences and precise instants remain the
+persistence source. Display conversion does not edit that state or cascade the
+lineup. Deliberate clock edits resolve in the displayed zone and serialize through
+the canonical zone. Starts invokes the existing elapsed-time cascade once, with
+the explicit end fixed. An update outside the -1 through 7 day-offset bounds
+leaves all prior fields intact and reveals the timing correction controls.
+
+Staff records can have known absolute instants without a stored timezone.
+Opening those records, converting the display zone and saving unrelated edits
+preserve the missing source zone and exact start, end, doors and lineup timing.
+Their controls and preview project the known instants into the editing zone.
+A deliberate Starts, Ends or Doors clock edit establishes missing source context
+in that selected zone. It reprojects untouched controls without moving their
+instants. Only Starts reschedules the lineup. Date-only records and unresolved
+contributor source clocks keep their existing explicit-authoring rules.
+
+Accepted imports resolve in their supplied source date and zone before local
+projection. Questions and evidence remain. Unknown source dates, missing zones,
+DST gaps and unresolved repeated hours remain unresolved. Saved unresolved
+clocks show their source context under `Unresolved time`; an absent source zone
+has an explicit contextual picker. Correcting a clock makes its resolved instant
+available in the local display. Pending invalid input blocks a display-zone
+change or Time TBA toggle and receives focus. `Cancel` or Escape restores the
+previous value without editing the schedule.
+
+Selecting Time TBA uses the calendar date currently displayed in Starts.
+Date-only previews keep that authored date. Switching back restores the precise
+canonical schedule. A date edited while TBA is selected becomes one local start-date
+change on restoration, retaining the explicit end and its conflict rules.
+Only surviving lineup keys receive backed-up timing; removed rows never return.
 
 ```mermaid
 flowchart LR
@@ -81,16 +142,27 @@ positive whole-minute durations are limited to 1,440 and lineups to 80 rows.
 Unknown boundaries require the existing timing controls or an untimed addition.
 Insertion, removal and committed duration edits shift later timed rows by elapsed
 minutes, preserving durations, gaps, keys, performer matches and stream choices.
-Enter followed by blur commits a duration change once. Changing Starts shifts
-the timed lineup together. Compact row times use the authored timezone and retain
-crossing dates, seconds and milliseconds where present.
+Enter followed by blur commits a valid duration change once. Invalid duration
+text, including blank or whitespace in controls without a clear operation, stays
+pending until a valid commit or explicit Escape. Time TBA refuses that conversion
+while a duration is pending, opens Lineup and its containing Details disclosure,
+and focuses the input without changing its raw text or committed schedule.
+After correction or Escape, TBA can proceed and restore the surviving schedule.
+Intake has a compact duration control; staff supports compact and detailed controls.
+Detailed controls that support clearing still commit an empty value. Changing Starts shifts
+the timed lineup together. Compact row times use the editing timezone and retain
+crossing dates, seconds and milliseconds where present. Repeated-hour ranges show
+the offset for each instant. Details and Review show the friendly zone label;
+ordinary rows do not repeat raw IANA identifiers.
 
 `Reset lineup` requires confirmation and removes editable timed and untimed rows.
 Cancel keeps edits; confirmation keeps details, artwork, timezone and explicit end.
 Time TBA preserves timing only in the current editor backup; removed keys stay removed.
-Canonical staff and contributor lineups retain untimed row positions. Legacy staff
-`participantLinks` remains a separate untimed group because that command has no
-position field. Legacy creation still requires `startAt`.
+Staff and contributor lineups retain untimed row positions. The staff browser
+uses canonical `lineup` for new events and deliberately edited lineups. An
+unrelated save omits the lineup, including for legacy events. Existing external
+`participantLinks` and `slotLinks` commands retain their contracts. Staff creation
+still requires `startAt`.
 
 Entered and persisted event ends remain fixed through all lineup/start edits.
 Lineup and Review repeat an overrun with actual bounds. `Set event end to lineup end`
@@ -109,15 +181,47 @@ its existing event surface. New publication and staff publication/save return di
 to the command's event page. Validation reveals and focuses Details or Lineup,
 including missing timezone, DST gaps and unresolved repeated-hour choices.
 
+### Performer identity
+
+Timed and untimed rows share one `Performer` lookup. Typing or blurring a name
+does not link a profile. Selecting a person links it; `Add manual entry` keeps the
+entered text unlinked, even when search returns matches or fails. Manual rows
+show `Unlinked` and `Link profile`.
+
+`Display name as` holds optional billing text. Linking `Guest A` to Aurora keeps
+`Guest A` as an override. A manual name equal to the selected profile name uses
+default billing, so replacing that profile adopts the new person's name. An
+already-explicit override retains its intent even if its text equals a profile
+name. Changing the profile keeps that override. Clearing the
+override adopts the selected profile's name, and later profile changes follow
+the new name. A saved differing label opens the disclosure. Profile hydration
+only updates presentation, preserves unavailable links and does not author a save.
+The parent retains explicit override intent for the open editing session.
+Intake publication requires a selected profile or a nonblank manual name. Search
+text alone cannot satisfy that constraint; saving an incomplete draft remains allowed.
+
+Browser creation accepts canonical lineup and venue fields. Existing browser
+lineup edits reuse slot client keys or stored IDs and the editor's existing
+standalone participant keys. The canonical helper uses authorized, current-event
+participant IDs to preserve legacy source data and confirmation. Explicit new
+matches still confirm. The update-only `retainedLineupAssociations` list preserves
+associations the loaded editor did not represent. Every retained ID must belong
+to this event and its loaded snapshot. Removing a represented row still removes
+it. Public/API readback does not expose these editor-only lists or private slugs.
+
+Stream choices and exact stored times remain on the row during identity edits.
+An incompatible saved stream remains available to clear or replace explicitly;
+the existing server ownership validation still applies.
+
 ### Legacy stored-slot identity
 
-`events.updateCommunityEvent` accepts the optional update-only
+External legacy callers of `events.updateCommunityEvent` may still use the optional update-only
 `storedSlotAssociations: Array<{ position: number; slotId: Id<"eventSlots"> }>`.
 `position` is the submitted slot index before start-time sorting. Editor readback
 uses legacy `playbackKey` for the stored ID, separately from local row keys.
 Only surviving IDs in `preservedSlotAssociationIds` are mapped. New rows are unmapped.
-The response returns current IDs at submitted positions; the editor reconciles them
-to captured submitted keys so edits made while saving cannot take another row's ID.
+The response returns current IDs at submitted positions. The canonical browser
+adapter uses stable row keys instead.
 
 After existing actor/event permission checks and before writes, the backend checks
 integer in-range positions, unique IDs/positions, at most 80 mappings, protected
@@ -142,12 +246,12 @@ can make a dated suggestion available again. If a later base edit makes a pendin
 offset invalid, its prior reference date stays in the private tentative fields.
 
 Time TBA keeps newly accepted timing in a reversible editor backup. Unrelated
-remembered fields survive, and removed lineup keys cannot restore. Timezone
-changes clear remembered occurrence choices. Date-only saved and published
+remembered fields survive, and removed lineup keys cannot restore. Display-zone
+changes preserve remembered instants and occurrence choices. Date-only saved and published
 commands remain untimed. Reloading a date-only draft discards the backup and
 cannot restore stale stored clocks.
 
-Staff Details has Start and an optional Ends control using the selected event
+Staff Details has Starts and an optional Ends control using the selected editing
 timezone. An untouched stored end retains its instant, including the later
 occurrence of a repeated hour. Clearing Ends sends null on update; creation
 omits an unknown end. A final known lineup end remains valid when Ends is
@@ -187,7 +291,7 @@ source edits remain available through the existing explicit source-capable
 commands. Clearing optional editor fields sends explicit
 values so they do not silently retain old content. Contributor correction
 readback merges timed and untimed performers by authored position. Existing
-timed owner events keep the slot/participant editor.
+timed owner events keep their slot keys through the shared lineup editor.
 
 `getEventContributionAccess` returns capabilities only. Contributor identifiers
 stay out of the public event DTO. Correction mutations retain server authorization
@@ -205,7 +309,11 @@ source evidence remains separate from the public derivative. See
 `EVENT_DATE_ONLY_ENABLED` gate.
 
 Browser fixtures test form behavior and navigation without a live Convex backend.
-The intake fixture uses session storage. The owner fixture exercises the real
+The plain intake fixture uses session storage and a local query transport for its
+known community and finite person fixtures. Person search matches fixture names,
+aliases and slugs; reloads resolve exact known slugs. Unknown profile slugs stay
+unresolved and survive draft saves.
+It requires no previously seeded database. The owner fixture exercises the real
 editor serialization through a local Convex transport. Neither proves a live
 authenticated backend journey. Backend tests independently cover authorization,
 publication, corrections, reports, and takeover.
@@ -213,3 +321,64 @@ publication, corrections, reports, and takeover.
 The [integrated checkpoint](../testing/event-intake-checkpoint.md) records desktop/mobile
 fixture screenshots, exact copy awaiting approval and the connected hosted journey
 that remains unverified. Fixed public fixtures do not prove write persistence.
+
+## Unsaved edits and removal
+
+Both editors compare command-relevant authored fields with the last successful
+submitted snapshot. Profile images, search queries, disclosures and display-zone
+conversion do not change that baseline. Pending invalid clocks, durations and
+name overrides count as edits until committed or canceled. Default timezone
+initialization on an untouched new draft remains clean.
+
+A save records only what it submitted. Later local fields survive the response
+and remain dirty. Upload and extraction responses merge unchanged fields against
+the submitted source state. Newer source text does not regain stale suggestions.
+Pending clock context and lineup buffers survive source completion.
+
+`Remove slot` opens a native confirmation dialog for timed and untimed rows.
+Cancel preserves the row and schedule. Confirmation invokes the keyed removal
+and timing cascade once. Deleted keys cannot return from a Time TBA backup.
+
+Leaving a dirty editor asks `Leave without saving?`. Approval covers one
+navigation attempt. If a traversal or canceled action keeps the editor mounted,
+later exits ask again while authored changes remain dirty. Changing wizard stages and
+closing the retained import dialog keep the form mounted and do not ask.
+Correction-panel close is abandonment. Native refresh, close and document exit
+use `beforeunload` while dirty; browser activation and platform rules determine
+whether that dialog appears. It cannot protect against every browser or process
+termination.
+
+Cancelable same-document traversals use the public Navigation API. The public
+history fallback restores a known indexed entry before asking and replays an
+approved traversal once. Public pushState and replaceState indexing starts before
+hydration and remains installed for the page lifetime. Unknown history entries
+pass through without guessed direction or replay. They can trigger framework
+document navigation and native unload confirmation. The
+[approved history indexing decision](../testing/event-editor-history-indexing-proposal.md)
+records the implementation scope and verification.
+Browser noncancelable traversals must remain an escape route.
+
+The early capture dispatcher uses the public
+[instrumentation-client hook](https://nextjs.org/docs/app/api-reference/file-conventions/instrumentation-client)
+before router hydration. The disposable editor callback receives the previous
+public position as well as the destination event, so entries pushed while the
+editor stays mounted have the correct traversal distance. A later editor-only
+listener lost its mounted form when
+the earlier router listener handled traversal first. The inert dispatcher and
+state-preserving public history wrappers stay installed for the page lifetime.
+Editor delegates, dirty closures and editor-specific listeners detach on unmount. A mistake here can regress app-wide navigation or leave stale blocking.
+The [HTML navigation standard](https://html.spec.whatwg.org/multipage/nav-history-apis.html)
+describes the browser cancellation limits.
+
+If publication succeeds while newer edits exist, Stay retains the published
+identity. The next contributor submission uses the existing correction command
+and its revision and field restrictions. Forbidden changes fail visibly rather
+than being dropped. Staff creation retains its slug and reads the authorized
+association snapshot before its next update. Neither path creates a second event.
+A failed command leaves the saved baseline unchanged.
+
+The prior [Square discard journey](https://mobbin.com/flows/f142a720-3023-4b5f-9ccb-d6f5d5b04398)
+supports placing the discard decision at abandonment. Its three inspected
+screens show editor, confirmation and overview; they do not prove persistence.
+This editor uses native confirmation. Separate profile-editor progressive
+disclosure remains deferred.

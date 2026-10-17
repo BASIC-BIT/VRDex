@@ -74,6 +74,9 @@ import {
 } from "./_eventPublic";
 import { getEventBySlug, validateEventSlug } from "./_eventSlugs";
 import { canReadProfile } from "./_profilePermissions";
+import { getPublicProfileMediaKit } from "./_profileAssets";
+import { visibleProfileField } from "./_profileFieldVisibility";
+import { firstSafePublicImageUrl } from "./_publicFields";
 import { userOwnsProfile } from "./_profileOwnership";
 import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 import { reindexEventSearchDocument } from "./_searchDocuments";
@@ -550,18 +553,13 @@ export async function replaceEventWorldLink(
     .withIndex("by_eventId", (query) => query.eq("eventId", event._id))
     .take(20);
   const preserveAssociationIds = new Set(options.preserveAssociationIds);
-  const preserved = world !== undefined
-    ? []
-    : options.preserveAssociationIds !== undefined
-      ? existing
-          .filter((association) => preserveAssociationIds.has(association._id))
-          .map((association) => ({ association }))
-      : options.preserveNonPublic === true
-        ? (await Promise.all(existing.map(async (association) => ({
-            association,
-            world: await db.get(association.worldId),
-          })))).filter(({ world: linkedWorld }) => linkedWorld?.publicationState !== "published")
-        : [];
+  const preserved = (await Promise.all(existing.map(async association => ({
+    association,
+    world: await db.get(association.worldId),
+  })))).filter(({ association, world: linkedWorld }) =>
+    preserveAssociationIds.has(association._id) ||
+    (options.preserveNonPublic === true && linkedWorld?.publicationState !== "published"),
+  );
   const preservedIds = new Set(preserved.map(({ association }) => association._id));
 
   await Promise.all([
@@ -579,7 +577,7 @@ export async function replaceEventWorldLink(
     })),
   ]);
 
-  if (world === undefined) {
+  if (world === undefined || preserved.some(({ association }) => association.worldId === world._id)) {
     return;
   }
 
@@ -1189,7 +1187,7 @@ export const listCommunityManagedEventsForApiOwner = internalQuery({
 async function insertCommunityEventRecord(
   db: DatabaseWriter,
   options: {
-    input: SanitizedEventDraftInput;
+    input: SanitizedEventDraftInput & Pick<SanitizedEventOwnerDraftInput, "lineup" | "venueLabel">;
     community: Doc<"profiles">;
     world?: Doc<"worlds">;
     submitter: AuthSubject;
@@ -1209,6 +1207,7 @@ async function insertCommunityEventRecord(
     ...optionalValue("timezone", input.timezone),
     communityProfileId: community._id,
     communityName: community.displayName,
+    ...optionalValue("venueLabel", input.venueLabel),
     ...optionalValue("summary", input.summary),
     ...optionalValue("notes", input.notes),
     ...optionalValue("posterImageUrl", input.posterImageUrl),
@@ -1240,9 +1239,12 @@ async function insertCommunityEventRecord(
   }
 
   await replaceEventWorldLink(db, event, world, now);
-  await replaceEventSlots(db, eventId, input.startAt, input.slotLinks, now);
   const participantLinks = participantLinksWithSlotPerformers(input);
-  await replaceEventParticipants(db, event, participantLinks, now);
+  if (input.lineup !== undefined) await replaceEventLineup(db, event, input.lineup, now);
+  else {
+    await replaceEventSlots(db, eventId, input.startAt, input.slotLinks, now);
+    await replaceEventParticipants(db, event, participantLinks, now);
+  }
 
   await recordEventAuditEvent(db, {
     eventId,
@@ -1254,7 +1256,7 @@ async function insertCommunityEventRecord(
   });
 
   if (publicationState === "published") {
-    const roleLabels = participantLinks.map((participant) => participant.roleLabel);
+    const roleLabels = input.lineup?.flatMap(row => row.roleLabel ? [row.roleLabel] : []) ?? participantLinks.map((participant) => participant.roleLabel);
     await reindexEventSearchDocument(db, event, { community, world, roleLabels }, now);
   }
 
@@ -1282,6 +1284,7 @@ async function updateCommunityEventRecord(
     storedSlots?: ReadonlyMap<number, Doc<"eventSlots">>;
     preserveWorldAssociationIds?: Id<"eventWorlds">[];
     preserveLineupConfirmation?: boolean;
+    retainedLineupAssociations?: { participantIds: Id<"eventParticipants">[]; slotIds: Id<"eventSlots">[] };
     updateFields?: ReadonlySet<keyof EventOwnerDraftInput>;
   },
 ) {
@@ -1397,6 +1400,7 @@ async function updateCommunityEventRecord(
   if (replaceLineup) await replaceEventLineup(db, updatedEvent, input.lineup!, now, {
     preserveSlotAssociationIds, preserveParticipantAssociationIds,
     preservePersonConfirmation: options.preserveLineupConfirmation,
+    retainedAssociations: options.retainedLineupAssociations,
   });
   if (!replaceLineup && !replaceSlots && schedule.scheduleKind === "date_only") {
     const slots = await db.query("eventSlots").withIndex("by_eventId", q => q.eq("eventId", event._id)).collect();
@@ -2672,11 +2676,14 @@ export const createCommunityEvent = mutation({
   args: {
     published: v.optional(v.boolean()),
     ...eventDraftArgs,
+    lineup: eventDraftUpdateArgs.lineup,
+    venueLabel: eventDraftUpdateArgs.venueLabel,
   },
   handler: async (ctx, args) => {
     const subject = await requireAuthenticatedSubject(ctx);
     const { userId } = await requireUser(ctx);
-    const input = sanitizeEventDraftInput(args);
+    const ownerInput: EventOwnerDraftInput = args;
+    const input = { ...sanitizeEventDraftInput(ownerInput), startAt: args.startAt };
     const community = await requireBrowserManagedCommunity(
       ctx.db,
       input.communitySlug,
@@ -2765,13 +2772,52 @@ export async function managedCommunitiesForBrowser(
 
 export const listManagedCommunities = query({
   args: {},
+  returns: v.array(
+    v.object({
+      profileId: v.id("profiles"),
+      slug: v.string(),
+      displayName: v.string(),
+      roleLabel: v.string(),
+      imageUrl: v.optional(v.string()),
+    }),
+  ),
   handler: async (ctx) => {
-    return (await managedCommunitiesForBrowser(ctx)).map(({ profile, roleLabel }) => ({
-      profileId: profile._id,
-      slug: profile.slug,
-      displayName: profile.displayName,
-      roleLabel,
-    }));
+    return await Promise.all(
+      (await managedCommunitiesForBrowser(ctx)).map(
+        async ({ profile, roleLabel }) => {
+          const mediaKit = await getPublicProfileMediaKit(ctx.db, profile, {
+            surface: "discovery",
+          });
+          const profileImage = mediaKit.profileImage?.imageUrl;
+          const logo = mediaKit.primaryLogo?.imageUrl;
+          const imageUrl = firstSafePublicImageUrl(
+            mediaKit.compactDisplay === "logo"
+              ? (logo ?? profileImage)
+              : (profileImage ?? logo),
+            mediaKit.automaticAvatarImageUrl,
+            visibleProfileField(
+              profile,
+              "avatarImageUrl",
+              profile.avatarImageUrl,
+              "discovery",
+            ),
+            visibleProfileField(
+              profile,
+              "bannerImageUrl",
+              profile.bannerImageUrl,
+              "discovery",
+            ),
+          );
+          return {
+            profileId: profile._id,
+            slug: profile.slug,
+            displayName: profile.displayName,
+            roleLabel,
+            ...(imageUrl ? { imageUrl } : {}),
+          };
+        },
+      ),
+    );
   },
 });
 
@@ -3040,6 +3086,7 @@ export const updateCommunityEvent = mutation({
     preservedSlotAssociationIds: v.optional(v.array(v.id("eventSlots"))),
     preservedWorldAssociationIds: v.optional(v.array(v.id("eventWorlds"))),
     preserveLineupConfirmation: v.optional(v.boolean()),
+    retainedLineupAssociations: v.optional(v.object({ participantIds: v.array(v.id("eventParticipants")), slotIds: v.array(v.id("eventSlots")) })),
     storedSlotAssociations: v.optional(v.array(v.object({ position: v.number(), slotId: v.id("eventSlots") }))),
     ...eventDraftUpdateArgs,
   },
@@ -3060,6 +3107,16 @@ export const updateCommunityEvent = mutation({
 
     if (!(await canUpdateEvent(ctx.db, event, subject, userId))) {
       throw new Error("You do not have permission to update this event.");
+    }
+
+    if (args.retainedLineupAssociations !== undefined) {
+      if (args.lineup === undefined) throw new Error("Retained lineup associations require a lineup update.");
+      for (const [ids, snapshot] of [[args.retainedLineupAssociations.participantIds, args.preservedParticipantAssociationIds], [args.retainedLineupAssociations.slotIds, args.preservedSlotAssociationIds]] as const) {
+        for (const id of ids) {
+          const row = await ctx.db.get(id);
+          if (!snapshot?.some(loaded => loaded === id) || row === null || row.eventId !== event._id) throw new Error("Retained lineup association is invalid.");
+        }
+      }
     }
 
     // Browser update-only identities refer to the submitted (pre-sort) positions.
@@ -3138,12 +3195,11 @@ export const updateCommunityEvent = mutation({
           world: await ctx.db.get(association.worldId),
         })),
     );
-    const preservedWorldAssociations = input.worldSlug === undefined
-      ? loadedWorldAssociations
-      : loadedWorldAssociations.filter(
-          ({ world: loadedWorld }) => loadedWorld?.slug === input.worldSlug,
-        );
-    const world = input.worldSlug === undefined || preservedWorldAssociations.length > 0
+    // IDs stay scoped to this event. Only the chooser's represented association
+    // is omitted by an explicit client edit; other public and private rows stay.
+    const preservedWorldAssociations = loadedWorldAssociations;
+    const retainedSelection = input.worldSlug === undefined ? undefined : loadedWorldAssociations.find(({ world: linked }) => linked?.slug === input.worldSlug);
+    const world = args.worldSlug === undefined || args.worldSlug === null || retainedSelection
       ? undefined
       : await getPublishedWorldBySlug(ctx.db, input.worldSlug);
 
@@ -3169,6 +3225,7 @@ export const updateCommunityEvent = mutation({
         ({ association }) => association._id,
       ),
       preserveLineupConfirmation: args.preserveLineupConfirmation,
+      retainedLineupAssociations: args.retainedLineupAssociations,
       publicationState,
     });
     await recordEventAuditEvent(ctx.db, {
@@ -3203,8 +3260,20 @@ export const updateCommunityEvent = mutation({
         .withIndex("by_eventId", (query) => query.eq("eventId", event._id))
         .collect(),
     ]);
+    // Return a fresh mapping only for an explicit chooser edit. An unrelated
+    // update must not select a different first world for an already-open editor.
+    const selectedWorldAssociations = args.worldSlug == null ? [] : await Promise.all(
+      worldAssociations.map(async association => {
+        const linked = await ctx.db.get(association.worldId);
+        return linked?.publicationState === "published" && linked.slug === args.worldSlug
+          ? { associationId: association._id, worldSlug: linked.slug }
+          : null;
+      }),
+    );
+    const editableWorldAssociation = selectedWorldAssociations.find(association => association !== null) ?? null;
     return {
       ...result,
+      ...(args.worldSlug === undefined ? {} : { editableWorldAssociation }),
       preservedParticipantAssociationIds: participantAssociations.map(
         (association) => association._id,
       ),
