@@ -6,10 +6,10 @@ import { Field, Input } from "@/components/ui/field";
 import { formatZonedDateTimeInput } from "@/lib/calendar/zoned-date-time";
 
 const validDuration = (value: string) => Number.isInteger(Number(value)) && Number(value) > 0 && Number(value) <= 1440;
-export function EventLineupSetup({ disabled, onGenerate, onAddPerformer }: { disabled?: boolean; onGenerate: (count: number, durationMinutes: number) => void; onAddPerformer: () => void }) {
+export function EventLineupSetup({ onGenerate, onAddPerformer }: { onGenerate: (count: number, durationMinutes: number) => void; onAddPerformer: () => void }) {
   const [count, setCount] = useState("4");
   const [duration, setDuration] = useState("60");
-  return <div className="grid gap-3 sm:grid-cols-2"><Field>Slots<Input inputMode="numeric" value={count} onChange={event => setCount(event.target.value)} /></Field><Field>Minutes each<Input inputMode="numeric" value={duration} onChange={event => setDuration(event.target.value)} /></Field><div className="flex flex-wrap gap-3 sm:col-span-2"><Button type="button" disabled={disabled || !Number.isInteger(Number(count)) || Number(count) < 1 || Number(count) > 80 || !validDuration(duration)} onClick={() => onGenerate(Number(count), Number(duration))}>Generate</Button><Button type="button" variant="secondary" onClick={onAddPerformer}>Add performer</Button></div></div>;
+  return <div className="grid gap-3 sm:grid-cols-2"><Field>Slots<Input inputMode="numeric" value={count} onChange={event => setCount(event.target.value)} /></Field><Field>Minutes each<Input inputMode="numeric" value={duration} onChange={event => setDuration(event.target.value)} /></Field><div className="flex flex-wrap gap-3 sm:col-span-2"><Button type="button" variant="primary" disabled={!Number.isInteger(Number(count)) || Number(count) < 1 || Number(count) > 80 || !validDuration(duration)} onClick={() => onGenerate(Number(count), Number(duration))}>Generate</Button><Button type="button" variant="secondary" onClick={onAddPerformer}>Add performer</Button></div></div>;
 }
 export function EventLineupInsert({ index, disabled, onInsert, onAddUntimed, allowUntimed = true, atLimit = false }: { index: number; disabled?: boolean; onInsert: (index: number, durationMinutes: number) => void; onAddUntimed: (index: number) => void; allowUntimed?: boolean; atLimit?: boolean }) {
   const [open, setOpen] = useState(false);

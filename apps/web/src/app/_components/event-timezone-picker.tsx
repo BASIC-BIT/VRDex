@@ -34,7 +34,7 @@ export function EventTimezonePicker({ value, date, instant, preferredValue, name
           if (event.key === "Enter") { event.preventDefault(); const option = options[active]; if (option) select(option.value); }
         }} /></div>
       <ul id={id} role="listbox" aria-label="Time zones" className="max-h-64 overflow-auto">
-        {options.map((option, index) => <li id={`${id}-${index}`} key={option.value} role="option" aria-selected={value === option.value} className={`cursor-pointer px-3 py-2 text-sm ${active === index ? "bg-surface-strong" : ""}`} onMouseDown={event => event.preventDefault()} onClick={() => select(option.value)}>{option.label}</li>)}
+        {options.map((option, index) => <li id={`${id}-${index}`} key={option.value} role="option" aria-selected={value === option.value} className={`cursor-pointer px-3 py-2 text-sm hover:bg-accent-muted hover:text-accent-strong ${active === index ? "bg-accent-muted text-accent-strong" : ""}`} onMouseDown={event => event.preventDefault()} onClick={() => select(option.value)}>{option.label}</li>)}
         {!options.length ? <li className="px-3 py-2 text-sm text-muted">No matches</li> : null}
       </ul>
     </div> : null}

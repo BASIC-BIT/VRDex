@@ -1,6 +1,24 @@
 import { expect, test } from "@playwright/test";
 test.use({ timezoneId: "America/New_York" });
 
+test("timezone options highlight on hover and keyboard navigation", async ({ page }) => {
+  await page.goto("/playwright/event-intake?timezone=controls");
+  const picker = page.getByTestId("picker-probe");
+  await picker.getByRole("button", { name: "Time zone", exact: true }).click();
+  const option = picker.getByRole("option").first();
+  const idleBackground = await option.evaluate(element => getComputedStyle(element).backgroundColor);
+  let hoveredBackground: string | undefined;
+  if (await page.evaluate(() => matchMedia("(hover: hover)").matches)) {
+    await option.hover();
+    await expect.poll(() => option.evaluate(element => getComputedStyle(element).backgroundColor)).not.toBe(idleBackground);
+    hoveredBackground = await option.evaluate(element => getComputedStyle(element).backgroundColor);
+    await picker.getByRole("combobox").hover();
+  }
+  await picker.getByRole("combobox").press("ArrowDown");
+  await expect.poll(() => option.evaluate(element => getComputedStyle(element).backgroundColor)).not.toBe(idleBackground);
+  if (hoveredBackground) await expect.poll(() => option.evaluate(element => getComputedStyle(element).backgroundColor)).toBe(hoveredBackground);
+});
+
 test("search and cancellation preserve authored timezone and occurrences", async ({ page }, testInfo) => {
   await page.addInitScript(() => sessionStorage.setItem("event-intake-fixture", JSON.stringify({ communitySlug: "playwright-afterglow-social", eventDate: "2026-11-01", timezone: "America/New_York", start: { time: "01:30", occurrence: "later" }, end: { time: "01:45", occurrence: "later" }, timeTba: false })));
   await page.goto("/playwright/event-intake");

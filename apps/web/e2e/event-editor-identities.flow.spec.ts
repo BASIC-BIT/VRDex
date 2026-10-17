@@ -153,6 +153,16 @@ test.describe("@fixture event identity picker", () => {
     await expect(page.getByRole("option")).toContainText("Other Club");
     await page.getByRole("option").click();
     await expect(page.getByTestId("selected-slug")).toHaveText("other-club");
+    await expect(page.getByRole("button", { name: "Change", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Clear community", exact: true })).toBeFocused();
+    await page.getByRole("button", { name: "Clear community", exact: true }).click();
+    await expect(community).toBeFocused();
+    await expect(page.getByTestId("selected-slug")).toHaveText("");
+    await community.press("Escape");
+    await expect(page.getByTestId("selected-slug")).toHaveText("");
+    await community.press("ArrowDown");
+    await community.press("Enter");
+    await expect(page.getByTestId("selected-slug")).toHaveText("afterglow");
     await page.getByRole("button", { name: "world", exact: true }).click();
     await page
       .getByRole("combobox", { name: "Where", exact: true })
@@ -288,22 +298,77 @@ test("explicit community entry immediately displays its title without a slug @fi
   await expect(page.getByText("playwright-afterglow-social", { exact: true })).toHaveCount(0);
 });
 
+test("local intake searches canonical community names and aliases with fixture artwork @fixture", async ({ page }) => {
+  await page.goto("/playwright/event-intake");
+  await expect(page.getByRole("button", { name: "Change", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Clear community", exact: true }).click();
+  const community = page.getByRole("combobox", { name: "Community", exact: true });
+  await expect(community).toBeFocused();
+  for (const query of ["Afterglow", "AGS", "playwright-afterglow-social"]) {
+    await community.fill(query);
+    await expect(page.getByRole("option")).toHaveCount(1);
+    await expect(page.getByRole("option")).toContainText("Afterglow Social");
+    await expect(page.getByRole("option").locator("img")).toHaveAttribute("src", /fixture-afterglow-event-poster/);
+  }
+  await community.fill("Unknown community");
+  await expect(page.getByRole("option")).toHaveCount(0);
+  await community.fill("Aurora");
+  await expect(page.getByRole("option")).toHaveCount(0);
+  await community.fill("Afterglow");
+  await page.getByRole("option").click();
+  await expect(page.getByRole("button", { name: "Clear community", exact: true })).toBeFocused();
+  await expect(page.getByTestId("selected-identity").locator("img")).toHaveAttribute("src", /fixture-afterglow-event-poster/);
+});
+
+test("typed location is immediately dirty and saves without a manual-entry action @fixture", async ({ page }) => {
+  await page.addInitScript(() => { if (!sessionStorage.getItem("fixture-source-draft")) sessionStorage.setItem("fixture-source-draft", JSON.stringify({ version: 1, fields: { title: "Location night", timeTba: true } })); });
+  await page.goto("/playwright/event-intake?source=details");
+  const location = page.getByRole("combobox", { name: "Where", exact: true });
+  await expect(page.locator("form[data-event-dirty]")).toHaveAttribute("data-event-dirty", "false");
+  await location.fill("Westfield side room");
+  await expect(location).toBeFocused();
+  await expect(page.locator("form[data-event-dirty]")).toHaveAttribute("data-event-dirty", "true");
+  await expect(page.getByRole("complementary", { name: "Event preview" })).toContainText("Westfield side room");
+  await location.press("Escape");
+  await expect(location).toHaveValue("Westfield side room");
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => JSON.parse(sessionStorage.getItem("event-intake-revision-submission")!).patch)).toMatchObject({ venueLabel: "Westfield side room" });
+  await page.goto("/playwright/event-intake?source=details");
+  await expect(location).toHaveValue("Westfield side room");
+  await expect(page.getByRole("button", { name: "Use manual location", exact: true })).toHaveCount(0);
+});
+
+test("world search cancellation retains the saved world and venue label @fixture", async ({ page }) => {
+  await page.addInitScript(() => sessionStorage.setItem("fixture-source-draft", JSON.stringify({ version: 1, fields: { title: "World night", worldSlug: "harbor-world", venueLabel: "Custom pier" } })));
+  await page.goto("/playwright/event-intake?source=details");
+  const selected = page.getByTestId("selected-identity").filter({ hasText: "Harbor World" });
+  await selected.locator("..").getByRole("button", { name: "Change", exact: true }).click();
+  const location = page.getByRole("combobox", { name: "Where", exact: true });
+  await location.fill("Some other room");
+  await expect(page.locator("form[data-event-dirty]")).toHaveAttribute("data-event-dirty", "false");
+  await location.press("Escape");
+  await expect(location).toHaveCount(0);
+  await expect(selected).toContainText("Harbor World");
+  await expect(page.getByLabel("Where", { exact: true })).toHaveValue("Custom pier");
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => JSON.parse(sessionStorage.getItem("event-intake-revision-submission")!).patch)).toMatchObject({ worldSlug: "harbor-world", venueLabel: "Custom pier" });
+});
+
 test("stored Details retain doors world label and optional source through save @fixture", async ({ page }, testInfo) => {
   await page.addInitScript(() => sessionStorage.setItem("fixture-source-draft", JSON.stringify({ version: 1, fields: { communitySlug: "afterglow", title: "Harbor night", eventDate: "2027-10-15", timezone: "UTC", start: { time: "20:00" }, doors: { time: "19:45" }, worldSlug: "harbor-world", venueLabel: "Custom pier", sourceUrl: "https://example.com/original-post" } })));
   await page.goto("/playwright/event-intake?source=details");
   await expect(page.getByLabel("Doors open", { exact: true })).toBeVisible();
   await expect(page.getByLabel("Where", { exact: true })).toHaveValue("Custom pier");
-  await expect(page.getByLabel("Original event post", { exact: true })).toBeHidden();
+  await expect(page.getByLabel("Announcement link", { exact: true })).toBeHidden();
   await page.getByRole("button", { name: "Save draft", exact: true }).click();
   await expect.poll(() => page.evaluate(() => JSON.parse(sessionStorage.getItem("event-intake-revision-submission")!).patch)).toMatchObject({ worldSlug: "harbor-world", venueLabel: "Custom pier", sourceUrl: "https://example.com/original-post", doors: { time: "19:45" } });
-  await page.getByRole("button", { name: "Use manual location", exact: true }).click();
-  await expect(page.getByLabel("Where", { exact: true })).toHaveValue("Custom pier");
+  await page.getByRole("button", { name: "Clear", exact: true }).last().click();
+  await expect(page.getByRole("combobox", { name: "Where", exact: true })).toHaveValue("Custom pier");
   await page.getByRole("button", { name: "Save draft", exact: true }).click();
   await expect.poll(() => page.evaluate(() => JSON.parse(sessionStorage.getItem("event-intake-revision-submission")!).patch.worldSlug)).toBeNull();
   await page.setViewportSize({ width: 390, height: 844 });
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({ path: testInfo.outputPath("details-manual-mobile.png"), fullPage: true });
-  await page.getByRole("button", { name: "Change", exact: true }).last().click();
   await page.getByRole("combobox", { name: "Where", exact: true }).fill("Harbor");
   await page.getByRole("option").filter({ hasText: "Harbor World" }).click();
   await page.getByRole("button", { name: "Save draft", exact: true }).click();
@@ -324,8 +389,8 @@ test("saved world-only Details keeps its hydrated name when switching to editabl
   await page.addInitScript(() => sessionStorage.setItem("fixture-source-draft", JSON.stringify({ version: 1, fields: { title: "World-only night", worldSlug: "harbor-world" } })));
   await page.goto("/playwright/event-intake?source=details");
   await expect(page.getByTestId("selected-identity")).toContainText("Harbor World");
-  await page.getByRole("button", { name: "Use manual location", exact: true }).click();
-  const manual = page.getByRole("textbox", { name: "Where", exact: true });
+  await page.getByRole("button", { name: "Clear", exact: true }).last().click();
+  const manual = page.getByRole("combobox", { name: "Where", exact: true });
   await expect(manual).toBeVisible();
   await expect(manual).toHaveValue("Harbor World");
   await expect(manual).toBeFocused();
@@ -356,8 +421,8 @@ test("saved world-only Details displays its title in preview and Review without 
 test("late world hydration cannot replace a manual location or write a venue override @fixture", async ({ page }) => {
   await page.addInitScript(() => sessionStorage.setItem("fixture-source-draft", JSON.stringify({ version: 1, fields: { title: "Pending world", worldSlug: "harbor-world" } })));
   await page.goto("/playwright/event-intake?source=world-delay");
-  await page.getByRole("button", { name: "Use manual location", exact: true }).click();
-  const manual = page.getByRole("textbox", { name: "Where", exact: true });
+  await page.getByRole("button", { name: "Clear", exact: true }).last().click();
+  const manual = page.getByRole("combobox", { name: "Where", exact: true });
   await expect(manual).toBeVisible();
   await manual.fill("New room");
   await page.evaluate(async () => { window.dispatchEvent(new Event("release-world-presentation")); await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))); });

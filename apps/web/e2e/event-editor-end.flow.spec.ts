@@ -44,36 +44,56 @@ test("staff edit preserves subminute start and end instants in its displayed end
   expect(payload.endAt).toBe(endAt);
 });
 
+test("staff legacy date-only draft retains its date without inventing a start @fixture", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("event-lineup-fixture-v1", JSON.stringify({
+    id: "event-date-only-fixture", slug: "date-only-night", title: "Date-only night", eventDate: "2026-11-01",
+    timezone: "America/New_York", scheduleKind: "date_only", status: "scheduled", communitySlug: "afterglow", publicationState: "draft_private",
+    source: { sourceType: "community", label: "Afterglow" }, watchSurfaceEnabled: false, watchMode: "event_stream",
+    mediaLinks: [], authoredMediaLinks: [], worlds: [], participants: [], slots: [], lineup: [],
+    preservedParticipantAssociationIds: [], preservedSlotAssociationIds: [], preservedWorldAssociationIds: [],
+  })));
+  await page.goto("/playwright/event-lineup?editor");
+  await expect(page.getByLabel("Starts", { exact: true })).toHaveValue("");
+  await expect(page.getByLabel("Time TBA", { exact: true })).toHaveCount(0);
+  await page.getByLabel("Event title", { exact: true }).fill("Updated legacy night");
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("event-lineup-fixture-v1-submission"))).not.toBeNull();
+  const payload = await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!));
+  expect(payload.scheduleKind).toBe("date_only");
+  expect(payload.eventDate).toBe("2026-11-01");
+  expect(payload.startAt).toBeUndefined();
+});
+
 for (const invalidEnd of ["2026-11-01T01:45", "2026-03-08T02:30"]) {
-  test(`staff date-only save ignores hidden ${invalidEnd} end @fixture`, async ({ page }) => {
+  test(`staff legacy date-only migration rejects pending ${invalidEnd} end @fixture`, async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem("event-lineup-fixture-v1", JSON.stringify({
       id: "event-date-only-fixture", slug: "date-only-night", title: "Date-only night", eventDate: "2026-11-01",
-      timezone: "America/New_York", scheduleKind: "date_only", status: "scheduled", communitySlug: "afterglow", publicationState: "published",
+      timezone: "America/New_York", scheduleKind: "date_only", status: "scheduled", communitySlug: "afterglow", publicationState: "draft_private",
       source: { sourceType: "community", label: "Afterglow" }, watchSurfaceEnabled: false, watchMode: "event_stream",
       mediaLinks: [], authoredMediaLinks: [], worlds: [], participants: [], slots: [], lineup: [],
       preservedParticipantAssociationIds: [], preservedSlotAssociationIds: [], preservedWorldAssociationIds: [],
     })));
     await page.goto("/playwright/event-lineup?editor");
     await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Details" }).click();
-    await page.getByLabel("Time TBA", { exact: true }).uncheck();
     await page.getByLabel("Starts", { exact: true }).fill("2026-11-01T00:15");
     await page.getByText("Add end time", { exact: true }).click();
     await page.getByLabel("Ends (optional)", { exact: true }).fill(invalidEnd);
     await expect(page.getByLabel("Ends (optional)", { exact: true })).toHaveValue(invalidEnd);
     await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Review" }).click();
-    await page.getByRole("button", { name: "Save changes", exact: true }).click();
+    await page.getByRole("button", { name: "Save draft", exact: true }).click();
     await expect(page.getByText(invalidEnd.startsWith("2026-11")
       ? "Ambiguous local time requires an earlier or later occurrence."
       : "Local time does not exist in this timezone.", { exact: true })).toBeVisible();
-    await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Details" }).click();
-    await page.getByLabel("Time TBA", { exact: true }).click();
-    await expect(page.getByLabel("Time TBA", { exact: true })).not.toBeChecked();
-    await page.getByRole("button", { name: "Cancel", exact: true }).click();
-    await page.getByLabel("Time TBA", { exact: true }).check();
-    const payload = await saveEdit(page);
-    expect(payload.startAt).toBeUndefined();
-    expect(payload.endAt).toBeNull();
-    expect(payload.scheduleKind).toBe("date_only");
+    await expect(page.getByLabel("Ends (optional)", { exact: true })).toBeFocused();
+    expect(await page.evaluate(() => localStorage.getItem("event-lineup-fixture-v1-submission"))).toBeNull();
+    await page.getByLabel("Ends (optional)", { exact: true }).press("Escape");
+    await page.getByLabel("Ends (optional)", { exact: true }).fill("2026-11-01T02:00");
+    await page.getByRole("button", { name: "Save draft", exact: true }).click();
+    await expect.poll(() => page.evaluate(() => localStorage.getItem("event-lineup-fixture-v1-submission"))).not.toBeNull();
+    const payload = await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!));
+    expect(payload.startAt).toBe(Date.UTC(2026, 10, 1, 4, 15));
+    expect(payload.endAt).toBe(Date.UTC(2026, 10, 1, 7));
+    expect(payload.scheduleKind).toBe("timed");
   });
 }
 
@@ -179,7 +199,7 @@ for (const unavailable of [false, true]) test(`staff explicit manual location pr
     await page.waitForURL("**/playwright-afterglow-social/events/playwright-afterglow-harbor-sessions");
     await page.goto("/playwright/event-lineup?editor");
     await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Details" }).click();
-    await page.getByRole("button", { name: "Use manual location", exact: true }).click();
+    await page.getByRole("button", { name: "Clear", exact: true }).last().click();
     payload = await saveEdit(page);
     expect(payload.worldSlug).toBeNull();
     expect(payload.preservedWorldAssociationIds).toEqual(["extra-public", "private-world"]);

@@ -5,7 +5,7 @@ for (const mode of ["create", "edit"]) test(`staff ${mode} keeps mounted values 
   await page.goto(`/playwright/event-lineup?editor&mode=${mode}`);
   const navigation = page.getByRole("navigation", { name: "Event editor" });
   await page.locator("summary").filter({ hasText: /^Source/ }).click();
-  await page.getByLabel("Original event post", { exact: true }).fill("https://example.com/new-source");
+  await page.getByLabel("Announcement link", { exact: true }).fill("https://example.com/new-source");
   await navigation.getByRole("button", { name: "Details" }).click();
   await page.getByLabel("Event title", { exact: true }).fill("Retained staff event");
   await page.getByLabel("Starts", { exact: true }).fill("2027-10-15T23:00");
@@ -19,7 +19,7 @@ for (const mode of ["create", "edit"]) test(`staff ${mode} keeps mounted values 
   await page.screenshot({ path: testInfo.outputPath(`staff-${mode}-lineup.png`), fullPage: true });
   await expect(page.getByLabel("Event title", { exact: true })).toBeHidden();
   await navigation.getByRole("button", { name: "Details" }).click();
-  await expect(page.getByLabel("Original event post", { exact: true })).toHaveValue("https://example.com/new-source");
+  await expect(page.getByLabel("Announcement link", { exact: true })).toHaveValue("https://example.com/new-source");
   await navigation.getByRole("button", { name: "Review" }).click();
   await expect(page.getByRole("heading", { name: "Retained staff event" }).first()).toBeVisible();
   page.on("dialog", dialog => dialog.accept());
@@ -37,7 +37,7 @@ for (const mode of ["create", "edit"]) test(`staff ${mode} keeps mounted values 
   await expect(page).toHaveURL(/playwright-afterglow-social\/events\/playwright-afterglow-harbor-sessions$/);
 });
 
-test("staff editor preserves Time TBA and artwork while correcting or removing contributed names", async ({ page }, testInfo) => {
+test("staff editor preserves legacy date-only drafts and artwork while correcting or removing contributed names", async ({ page }, testInfo) => {
   // This synthetic owned URL has no backend asset in the local transport fixture.
   await page.route("**/api/v0/events/event-contributed/artwork/artwork-owned", route => route.fulfill({
     contentType: "image/svg+xml",
@@ -47,7 +47,7 @@ test("staff editor preserves Time TBA and artwork while correcting or removing c
     if (localStorage.getItem("event-lineup-fixture-v1")) return;
     localStorage.setItem("event-lineup-fixture-v1", JSON.stringify({
       id: "event-contributed", slug: "contributed", title: "Contributed night", scheduleKind: "date_only", eventDate: "2027-10-15",
-      venueLabel: "Harbor", status: "scheduled", communitySlug: "afterglow", publicationState: "published",
+      venueLabel: "Harbor", status: "scheduled", communitySlug: "afterglow", publicationState: "draft_private",
       source: { sourceType: "contributor", label: "Community-submitted" }, posterImageUrl: "/api/v0/events/event-contributed/artwork/artwork-owned",
       watchSurfaceEnabled: false, watchMode: "event_stream", mediaLinks: [], authoredMediaLinks: [], worlds: [], participants: [], slots: [],
       lineup: [{ key: "guest", position: 0, displayLabel: "Unmatched guest" }],
@@ -59,8 +59,8 @@ test("staff editor preserves Time TBA and artwork while correcting or removing c
   const artwork = page.getByRole("img", { name: "Event artwork", exact: true });
   await expect(artwork).toHaveAttribute("src", "/api/v0/events/event-contributed/artwork/artwork-owned");
   await expect.poll(() => artwork.evaluate(image => image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0)).toBe(true);
-  await expect(page.getByRole("checkbox", { name: "Time TBA", exact: true })).toBeChecked();
-  await expect(page.getByLabel("Date", { exact: true })).toHaveValue("2027-10-15");
+  await expect(page.getByRole("checkbox", { name: "Time TBA", exact: true })).toHaveCount(0);
+  await expect(page.getByLabel("Starts", { exact: true })).toHaveValue("");
   await page.getByLabel("Event title", { exact: true }).fill("Corrected night");
   await page.getByLabel("Where", { exact: true }).fill("New harbor");
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Lineup" }).click();
@@ -70,11 +70,8 @@ test("staff editor preserves Time TBA and artwork while correcting or removing c
   await page.screenshot({ path: testInfo.outputPath("staff-date-only-editor.png"), fullPage: true });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Review" }).click();
-  // Destination RSC compilation can exceed the default five-second assertion budget.
-  await Promise.all([
-    page.waitForURL(/playwright-afterglow-social\/events\/playwright-afterglow-harbor-sessions$/, { timeout: 15_000 }),
-    page.getByRole("button", { name: "Save changes", exact: true }).click(),
-  ]);
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("event-lineup-fixture-v1-submission"))).not.toBeNull();
   const payload = await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!));
   expect(payload.scheduleKind).toBe("date_only");
   expect(payload.startAt).toBeUndefined();
@@ -87,25 +84,59 @@ test("staff editor preserves Time TBA and artwork while correcting or removing c
   await page.getByRole("button", { name: "Remove slot", exact: true }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Remove slot", exact: true }).click();
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Review" }).click();
-  await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!).lineup)).toEqual([]);
-  await expect(page).toHaveURL(/playwright-afterglow-social\/events\/playwright-afterglow-harbor-sessions$/);
+  await expect(page).toHaveURL(/playwright\/event-lineup\?/);
   await page.goto("/playwright/event-lineup?editor");
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Details" }).click();
-  await page.getByRole("checkbox", { name: "Time TBA", exact: true }).uncheck();
   await page.getByRole("button", { name: "Time zone", exact: true }).click();
   await page.getByRole("combobox", { name: "Time zone", exact: true }).fill("UTC");
   await page.getByRole("option", { name: /^UTC(?: |$)/ }).click();
   await page.getByLabel("Starts", { exact: true }).fill("2027-10-15T19:00");
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Review" }).click();
-  await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  await page.getByRole("button", { name: "Save and publish", exact: true }).click();
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!).scheduleKind)).toBe("timed");
+});
+
+for (const authorThenClear of [false, true]) test(`staff published date-only correction ${authorThenClear ? "requires an authored start after clearing" : "preserves its schedule on a title edit"}`, async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("event-lineup-fixture-v1", JSON.stringify({
+    id: "event-contributed", slug: "contributed", title: "Contributed night", scheduleKind: "date_only", eventDate: "2027-10-15",
+    status: "scheduled", communitySlug: "afterglow", publicationState: "published",
+    source: { sourceType: "contributor", label: "Community-submitted" },
+    watchSurfaceEnabled: false, watchMode: "event_stream", mediaLinks: [], authoredMediaLinks: [], worlds: [], participants: [], slots: [],
+    lineup: [{ key: "guest", position: 0, displayLabel: "Unmatched guest" }],
+    preservedParticipantAssociationIds: [], preservedSlotAssociationIds: [], preservedWorldAssociationIds: [],
+  })));
+  await page.goto("/playwright/event-lineup?editor");
+  const navigation = page.getByRole("navigation", { name: "Event editor" });
+  await navigation.getByRole("button", { name: "Details", exact: true }).click();
+  const starts = page.getByLabel("Starts", { exact: true });
+  await expect(starts).not.toHaveAttribute("required", "");
+  await page.getByLabel("Event title", { exact: true }).fill("Corrected night");
+  if (authorThenClear) {
+    await starts.fill("2027-10-15T20:00");
+    await starts.fill("");
+  }
+  await navigation.getByRole("button", { name: "Review", exact: true }).click();
+  await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  if (authorThenClear) {
+    await expect(starts).toBeFocused();
+    expect(await page.evaluate(() => localStorage.getItem("event-lineup-fixture-v1-submission"))).toBeNull();
+    return;
+  }
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("event-lineup-fixture-v1-submission"))).not.toBeNull();
+  const payload = await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!));
+  expect(payload.title).toBe("Corrected night");
+  expect(payload.scheduleKind).toBe("date_only");
+  expect(payload.startAt).toBeUndefined();
+  expect(payload.lineup).toBeUndefined();
+  expect(payload.published).toBe(true);
 });
 
 test("staff title edit does not confirm an untouched contributed lineup", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("event-lineup-fixture-v1", JSON.stringify({
     id: "event-contributed", slug: "contributed", title: "Contributed night", scheduleKind: "date_only", eventDate: "2027-10-15",
-    status: "scheduled", communitySlug: "afterglow", publicationState: "published",
+    status: "scheduled", communitySlug: "afterglow", publicationState: "draft_private",
     source: { sourceType: "contributor", label: "Community-submitted" },
     watchSurfaceEnabled: false, watchMode: "event_stream", mediaLinks: [], authoredMediaLinks: [], worlds: [], participants: [], slots: [],
     lineup: [{ key: "guest", position: 0, displayLabel: "Guest", performer: { slug: "nova", displayName: "Nova" } }],
@@ -115,20 +146,19 @@ test("staff title edit does not confirm an untouched contributed lineup", async 
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Details" }).click();
   await page.getByLabel("Event title", { exact: true }).fill("Corrected night");
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Review" }).click();
-  await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
   await expect.poll(() => page.evaluate(() => localStorage.getItem("event-lineup-fixture-v1-submission"))).not.toBeNull();
   const payload = await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!));
   expect(payload.lineup).toBeUndefined();
-  await expect(page).toHaveURL(/playwright-afterglow-social\/events\/playwright-afterglow-harbor-sessions$/);
+  await expect(page).toHaveURL(/playwright\/event-lineup\?/);
   await page.goto("/playwright/event-lineup?editor");
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Details" }).click();
-  await page.getByRole("checkbox", { name: "Time TBA", exact: true }).uncheck();
   await page.getByRole("button", { name: "Time zone", exact: true }).click();
   await page.getByRole("combobox", { name: "Time zone", exact: true }).fill("UTC");
   await page.getByRole("option", { name: /^UTC(?: |$)/ }).click();
   await page.getByLabel("Starts", { exact: true }).fill("2027-10-15T19:00");
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Review" }).click();
-  await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  await page.getByRole("button", { name: "Save and publish", exact: true }).click();
   const rescheduled = await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!));
   expect(rescheduled.preserveLineupConfirmation).toBe(true);
   expect(rescheduled.lineup[0].personSlug).toBe("nova");
@@ -137,7 +167,7 @@ test("staff title edit does not confirm an untouched contributed lineup", async 
 test("staff editor sends explicit clears for optional event details", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("event-lineup-fixture-v1", JSON.stringify({
     id: "event-contributed", slug: "contributed", title: "Contributed night", scheduleKind: "date_only", eventDate: "2027-10-15",
-    status: "scheduled", communitySlug: "afterglow", publicationState: "published", venueLabel: "Harbor", summary: "Old summary", notes: "Old notes",
+    status: "scheduled", communitySlug: "afterglow", publicationState: "draft_private", venueLabel: "Harbor", summary: "Old summary", notes: "Old notes",
     source: { sourceType: "contributor", label: "Flyer", url: "https://example.com/source" },
     posterImageUrl: "https://example.com/poster.png", authoredBannerImageUrl: "https://example.com/banner.png", authoredThumbnailImageUrl: "https://example.com/thumb.png",
     watchSurfaceEnabled: false, watchMode: "event_stream", mediaLinks: [], authoredMediaLinks: [], worlds: [], participants: [], slots: [], lineup: [],
@@ -146,7 +176,7 @@ test("staff editor sends explicit clears for optional event details", async ({ p
   await page.goto("/playwright/event-lineup?editor");
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Details" }).click();
   await page.locator('[name="summary"]').fill("");
-  await page.getByRole("textbox", { name: "Where", exact: true }).fill("");
+  await page.getByRole("combobox", { name: "Where", exact: true }).fill("");
   await page.locator("summary").filter({ hasText: "Private notes" }).click();
   await page.getByLabel("Private notes", { exact: true }).fill("");
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Review" }).click();
@@ -157,7 +187,7 @@ test("staff editor sends explicit clears for optional event details", async ({ p
     await page.locator(`[name="${name}"]`).fill("");
   }
   await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Review" }).click();
-  await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
   const payload = await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!));
   for (const key of ["summary", "notes", "sourceUrl", "posterImageUrl", "bannerImageUrl", "thumbnailImageUrl"]) expect(payload[key]).toBe(null);
   expect(payload.sourceLabel).toBe("");

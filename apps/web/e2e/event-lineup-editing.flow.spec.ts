@@ -83,19 +83,19 @@ test("partial intake resumes, preserves overrun through draft save and resolves 
   expect(fields.lineup[0].clientKey).toBe("partial");
 });
 
-test("Time TBA removal and reset never restore deleted intake rows @fixture", async ({ page }) => {
+test("Starts edits after removal and reset never restore deleted intake rows @fixture", async ({ page }) => {
   await intake(page, { lineup: [{ clientKey: "original", position: 0, performerLabel: "Original", start: { time: "20:00" }, end: { time: "21:00" } }] });
-  await page.getByLabel("Time TBA", { exact: true }).check(); await nav(page, "Lineup");
+  await nav(page, "Lineup");
   await page.getByRole("button", { name: "Add slot at position 2", exact: true }).click();
   await page.getByRole("button", { name: "Add performer", exact: true }).click();
   await page.locator('[data-lineup-row]').first().getByRole("button", { name: "Remove slot", exact: true }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Remove slot", exact: true }).click();
-  await nav(page, "Details"); await page.getByLabel("Time TBA", { exact: true }).uncheck(); await nav(page, "Lineup");
+  await nav(page, "Details"); await page.getByLabel("Starts", { exact: true }).fill("2027-10-15T21:00"); await nav(page, "Lineup");
   await expect(page.locator('[data-lineup-row]')).toHaveCount(1);
   await expect(page.locator('[data-lineup-row]').getByRole("combobox", { name: "Performer", exact: true })).toHaveValue("");
   await page.getByRole("button", { name: "Reset lineup", exact: true }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Clear lineup", exact: true }).click();
-  await nav(page, "Details"); await page.getByLabel("Time TBA", { exact: true }).check(); await page.getByLabel("Time TBA", { exact: true }).uncheck(); await nav(page, "Lineup");
+  await nav(page, "Details"); await page.getByLabel("Starts", { exact: true }).fill("2027-10-15T22:00"); await nav(page, "Lineup");
   await expect(page.locator('[data-lineup-row]')).toHaveCount(0);
 });
 
@@ -159,21 +159,21 @@ test("intake start changes shift the lineup once and day-offset overflow retains
   await expect(page.getByLabel("Slot 1 start", { exact: true })).toBeFocused();
 });
 
-test("canonical Time TBA rows can be removed without returning on toggle and reset keeps explicit end @fixture", async ({ page }) => {
+test("canonical removed rows stay removed after Starts edits and reset keeps explicit end @fixture", async ({ page }) => {
   await canonicalStaff(page);
-  await page.getByLabel("Time TBA", { exact: true }).check(); await nav(page, "Lineup");
+  await nav(page, "Lineup");
   await page.getByRole("button", { name: "Add slot at position 2", exact: true }).click();
   await page.getByRole("button", { name: "Add performer", exact: true }).click();
   await page.locator('[data-lineup-row]').first().getByRole("button", { name: "Remove slot", exact: true }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Remove slot", exact: true }).click();
-  await nav(page, "Details"); await page.getByLabel("Time TBA", { exact: true }).uncheck(); await nav(page, "Lineup");
+  await nav(page, "Details"); await page.getByLabel("Starts", { exact: true }).fill("2027-10-15T20:15"); await nav(page, "Lineup");
   await expect(page.locator('[data-lineup-row]')).toHaveCount(1);
   await page.getByRole("button", { name: "Reset lineup", exact: true }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Clear lineup", exact: true }).click();
   await nav(page, "Details");
   await expect(page.getByLabel("Ends (optional)", { exact: true })).toHaveValue("2027-10-15T21:00");
   await expect(page.getByLabel("Event title", { exact: true })).toHaveValue("Precise night");
-  await page.getByLabel("Time TBA", { exact: true }).check(); await page.getByLabel("Time TBA", { exact: true }).uncheck(); await nav(page, "Lineup");
+  await page.getByLabel("Starts", { exact: true }).fill("2027-10-15T20:30"); await nav(page, "Lineup");
   await expect(page.locator('[data-lineup-row]')).toHaveCount(0);
 });
 
@@ -488,8 +488,6 @@ test("clearing an end drops its precise duration backup and leaves automatic eve
   await expect(row.getByLabel("Duration", { exact: true })).toBeDisabled();
   await expect(duration).toHaveValue("");
   await nav(page, "Details");
-  await page.getByLabel("Time TBA", { exact: true }).check();
-  await page.getByLabel("Time TBA", { exact: true }).uncheck();
   await page.getByLabel("Ends (optional)", { exact: true }).fill("");
   await nav(page, "Lineup");
   await expect(page.getByLabel("Duration", { exact: true })).toBeDisabled();
@@ -502,7 +500,7 @@ test("clearing an end drops its precise duration backup and leaves automatic eve
 });
 
 for (const editor of ["staff", "intake"]) for (const detailed of editor === "staff" ? [false, true] : [false]) for (const recovery of ["Escape", "commit"]) {
-  test(`${editor} TBA protects pending duration, detailed=${detailed}, recovery=${recovery} @fixture`, async ({ page }, testInfo) => {
+  test(`${editor} display timezone preserves pending duration and save waits for recovery, detailed=${detailed}, recovery=${recovery} @fixture`, async ({ page }, testInfo) => {
     page.on("dialog", dialog => dialog.accept());
     if (editor === "staff") {
       await canonicalStaff(page);
@@ -520,6 +518,8 @@ for (const editor of ["staff", "intake"]) for (const detailed of editor === "sta
     }, editor);
     await save();
     const baseline = await storedSchedule();
+    const start = await page.getByLabel("Starts", { exact: true }).inputValue();
+    const end = await page.getByLabel("Ends (optional)", { exact: true }).inputValue();
     await nav(page, "Lineup");
     const row = page.locator('[data-lineup-row]').first();
     const rowKey = await row.getAttribute("data-lineup-row");
@@ -531,15 +531,21 @@ for (const editor of ["staff", "intake"]) for (const detailed of editor === "sta
     await nav(page, "Details");
     // Closing the disclosure while hidden must still reveal the actual pending control.
     if (detailed) await details.evaluate(summary => { const disclosure = summary.closest("details"); if (disclosure) disclosure.open = false; });
-    await page.getByLabel("Time TBA", { exact: true }).click();
-    await expect(page.getByLabel("Time TBA", { exact: true })).not.toBeChecked();
-    await expect(duration).toBeVisible();
-    await expect(duration).toBeFocused();
+    await page.getByRole("button", { name: "Time zone", exact: true }).click();
+    await page.getByRole("combobox", { name: "Time zone", exact: true }).fill("Tokyo");
+    await page.getByRole("option").first().click();
+    await expect(page.locator('[name="editingTimezone"]')).toHaveValue("Asia/Tokyo");
     await expect(duration).toHaveValue("45.5");
     await expect(page.locator('[data-pending-event-input="true"]')).toHaveCount(1);
     await expect(page.locator("form[data-event-dirty]")).toHaveAttribute("data-event-dirty", "true");
     expect(await storedSchedule()).toEqual(baseline);
-    await page.screenshot({ path: testInfo.outputPath(`${editor}-${detailed ? "detailed" : "compact"}-pending-tba.png`), fullPage: true });
+    await nav(page, "Review");
+    await page.getByRole("button", { name: "Save draft", exact: true }).click();
+    await expect(duration).toBeVisible();
+    await expect(duration).toBeFocused();
+    await expect(duration).toHaveValue("45.5");
+    expect(await storedSchedule()).toEqual(baseline);
+    await page.screenshot({ path: testInfo.outputPath(`${editor}-${detailed ? "detailed" : "compact"}-pending-duration.png`), fullPage: true });
     if (recovery === "Escape") {
       await duration.press("Escape");
       await expect(duration).toHaveValue(committed);
@@ -551,10 +557,9 @@ for (const editor of ["staff", "intake"]) for (const detailed of editor === "sta
     }
     const restoredBaseline = await storedSchedule();
     await nav(page, "Details");
-    const start = await page.getByLabel("Starts", { exact: true }).inputValue();
-    const end = await page.getByLabel("Ends (optional)", { exact: true }).inputValue();
-    await page.getByLabel("Time TBA", { exact: true }).check();
-    await page.getByLabel("Time TBA", { exact: true }).uncheck();
+    await page.getByRole("button", { name: "Time zone", exact: true }).click();
+    await page.getByRole("combobox", { name: "Time zone", exact: true }).fill("UTC");
+    await page.getByRole("option", { name: /^UTC(?: |$)/ }).click();
     await expect(page.getByLabel("Starts", { exact: true })).toHaveValue(start);
     await expect(page.getByLabel("Ends (optional)", { exact: true })).toHaveValue(end);
     await nav(page, "Lineup");

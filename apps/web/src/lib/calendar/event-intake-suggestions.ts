@@ -86,6 +86,14 @@ export function rebaseIntakeSuggestions(fields: EventIntakePatch, previousDate: 
   return { ...fields, tentative };
 }
 
+function normalizeAcceptedStart(fields: EventIntakePatch): EventIntakePatch {
+  if (readIntakeInstant(fields, fields.start) === undefined) return fields;
+  const date = eventLocalDate(fields.eventDate, fields.start);
+  return date && date !== fields.eventDate
+    ? rebaseIntakeSuggestions(rebaseIntakeTimes(fields, fields.eventDate, date), fields.eventDate)
+    : fields;
+}
+
 /** Resolve source clocks before serializing into the accepted canonical context. */
 function acceptSourceClock(fields: EventIntakePatch, local: EventIntakeLocalTime | null | undefined, proposalDate: EventIntakeFields["eventDate"], path: string) {
   if (!local) return local;
@@ -112,7 +120,10 @@ export function acceptIntakeSuggestion({ fields, acceptance }: { fields: EventIn
     return { ...rebaseIntakeTimes(fields, fields.eventDate, date), tentative: normalized };
   }
   try {
-    if (key === "start" || key === "end" || key === "doors") return { ...fields, [key]: acceptSourceClock(fields, fields.tentative?.[key], proposalDate, `event.${key}`), tentative };
+    if (key === "start" || key === "end" || key === "doors") {
+      const updated = { ...fields, ...(key === "start" ? { timeTba: false } : {}), [key]: acceptSourceClock(fields, fields.tentative?.[key], proposalDate, `event.${key}`), tentative };
+      return key === "start" ? normalizeAcceptedStart(updated) : updated;
+    }
     if (key === "lineup") {
       const lineup = fields.tentative?.lineup?.map((row, index) => ({ ...row, personSlug: undefined, start: acceptSourceClock(fields, row.start, proposalDate, `lineup.${index}.start`), end: acceptSourceClock(fields, row.end, proposalDate, `lineup.${index}.end`) }));
       return { ...fields, lineup, tentative };

@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import { useConvex } from "convex/react";
-import { Search, ExternalLink } from "lucide-react";
+import { Search, ExternalLink, X } from "lucide-react";
 import { api } from "@convex-generated-api";
 import { Input } from "@/components/ui/field";
 import { cn } from "@/lib/cn";
@@ -25,6 +25,7 @@ export type EventIdentityPickerProps = {
   onResolve?(option: EventIdentityOption): void;
   onClear(): void;
   manualAction?: { label: string; onChoose(text: string): void };
+  freeform?: { value: string; onChange(value: string): void };
 };
 
 type SearchState = {
@@ -44,6 +45,7 @@ export function EventIdentityPicker({
   onResolve,
   onClear,
   manualAction,
+  freeform,
 }: EventIdentityPickerProps) {
   const client = useConvex();
   const [query, setQuery] = useState("");
@@ -58,7 +60,8 @@ export function EventIdentityPicker({
   const changeRef = useRef<HTMLButtonElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const listId = useId();
-  const text = query.trim();
+  const inputValue = freeform && !selectedSlug ? freeform.value : query;
+  const text = inputValue.trim();
   const label =
     kind === "person"
       ? "Performer"
@@ -218,7 +221,13 @@ export function EventIdentityPicker({
       ref={rootRef}
       className="relative grid gap-2"
       onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
+        if (!event.currentTarget.contains(event.relatedTarget)) {
+          setOpen(false);
+          if (freeform && selectedSlug) {
+            setEditing(false);
+            setQuery("");
+          }
+        }
       }}
     >
       {selectedSlug ? (
@@ -240,7 +249,7 @@ export function EventIdentityPicker({
               </>
             )}
           </div>
-          <button
+          {kind !== "community" ? <button
             ref={changeRef}
             type="button"
             className="text-sm text-muted hover:text-foreground"
@@ -254,10 +263,12 @@ export function EventIdentityPicker({
             }}
           >
             Change
-          </button>
+          </button> : null}
           <button
+            ref={kind === "community" ? changeRef : undefined}
             type="button"
-            className="text-sm text-muted hover:text-foreground"
+            aria-label={kind === "community" ? "Clear community" : undefined}
+            className={kind === "community" ? "flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-control text-muted transition hover:bg-surface-strong hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus" : "text-sm text-muted hover:text-foreground"}
             disabled={disabled}
             onClick={() => {
               setQuery("");
@@ -270,7 +281,7 @@ export function EventIdentityPicker({
               );
             }}
           >
-            Clear
+            {kind === "community" ? <X aria-hidden="true" className="size-4" /> : "Clear"}
           </button>
         </div>
       ) : null}
@@ -278,12 +289,13 @@ export function EventIdentityPicker({
         <div className="relative">
           <Search
             aria-hidden
-            className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted"
+            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted"
           />
           <Input
-            // A search query is not an accepted identity or manual value.
             required={required && !selectedSlug}
-            pattern={required && !selectedSlug ? "(?!)" : undefined}
+            // Identity-only search text must be explicitly selected.
+            pattern={required && !selectedSlug && !freeform ? "(?!)" : undefined}
+            maxLength={freeform ? 120 : undefined}
             role="combobox"
             aria-label={label}
             aria-autocomplete="list"
@@ -297,7 +309,7 @@ export function EventIdentityPicker({
                 : undefined
             }
             placeholder={
-              kind === "person"
+              freeform ? "" : kind === "person"
                 ? "Search performers"
                 : kind === "world"
                   ? "Search worlds"
@@ -305,10 +317,11 @@ export function EventIdentityPicker({
             }
             className="w-full pl-9"
             disabled={disabled}
-            value={query}
+            value={inputValue}
             onFocus={() => setOpen(true)}
             onChange={(event) => {
-              setQuery(event.currentTarget.value);
+              if (freeform && !selectedSlug) freeform.onChange(event.currentTarget.value);
+              else setQuery(event.currentTarget.value);
               setActiveIndex(-1);
               setOpen(true);
             }}

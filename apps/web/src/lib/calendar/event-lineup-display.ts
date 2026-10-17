@@ -2,9 +2,10 @@ import { resolveEditorTime } from "./event-editor-time";
 import { formatCalendarDate, formatZonedDateTimeInput } from "./zoned-date-time";
 
 /** Compact authoring times retain dates at day changes and exact stored precision. */
-export function formatLineupTimeRange({ startAt, endAt, timezone, eventDate }: { startAt?: number; endAt?: number; timezone: string; eventDate?: string | null }): string {
+export function formatLineupTimeRange({ startAt, endAt, timezone, eventDate, relative = false }: { startAt?: number; endAt?: number; timezone: string; eventDate?: string | null; relative?: boolean }): string {
   const instants = [startAt, endAt].filter((at): at is number => at !== undefined);
   if (!instants.length) return "";
+  if (relative) return instants.map(at => `${at < 0 ? "" : "+"}${at / 60_000} min`).join(" - ");
   const values = instants.map(at => ({ at, local: formatZonedDateTimeInput(at, timezone) }));
   const showDates = values.some(({ local }) => local.slice(0, 10) !== (eventDate ?? values[0].local.slice(0, 10)));
   const range = values.map(({ at, local }) => {

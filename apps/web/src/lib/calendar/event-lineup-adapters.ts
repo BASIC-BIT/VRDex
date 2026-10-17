@@ -15,13 +15,15 @@ export type SlotFormRow = {
   displayLabel: string;
   roleLabel: string;
   startAtOverride?: number;
+  offsetMsOverride?: number;
   endAtOverride?: number;
   durationMsOverride?: number;
 };
 
 export function readStaffLineupTimings(rows: readonly SlotFormRow[], eventStartAt: number): LineupTimingRow[] {
   return rows.map(row => {
-    const startAt = row.startAtOverride ?? (row.offsetMinutes.trim() && Number.isInteger(Number(row.offsetMinutes)) && Number.isFinite(eventStartAt) ? eventStartAt + Number(row.offsetMinutes) * 60_000 : undefined);
+    const offsetMs = row.offsetMsOverride ?? (row.offsetMinutes.trim() && Number.isInteger(Number(row.offsetMinutes)) ? Number(row.offsetMinutes) * 60_000 : undefined);
+    const startAt = row.startAtOverride ?? (offsetMs === undefined ? undefined : (Number.isFinite(eventStartAt) ? eventStartAt : 0) + offsetMs);
     const endAt = row.endAtOverride ?? (startAt !== undefined && row.durationMsOverride !== undefined ? startAt + row.durationMsOverride : undefined) ?? (startAt !== undefined && row.durationMinutes.trim() && Number.isInteger(Number(row.durationMinutes)) && Number(row.durationMinutes) > 0 ? startAt + Number(row.durationMinutes) * 60_000 : undefined);
     return { key: row.id, ...(startAt === undefined ? {} : { startAt }), ...(endAt === undefined ? {} : { endAt }) };
   });
@@ -32,7 +34,7 @@ export function changeStaffSlotOffset(row: SlotFormRow, offsetMinutes: string, e
   const timing = readStaffLineupTimings([row], eventStartAt)[0]!;
   const durationMsOverride = timing.startAt !== undefined && timing.endAt !== undefined
     ? timing.endAt - timing.startAt : row.durationMsOverride;
-  return { ...row, offsetMinutes, startAtOverride: undefined, endAtOverride: undefined, durationMsOverride };
+  return { ...row, offsetMinutes, offsetMsOverride: undefined, startAtOverride: undefined, endAtOverride: undefined, durationMsOverride };
 }
 
 export function applyStaffLineupTimings(rows: readonly SlotFormRow[], timings: readonly LineupTimingRow[], eventStartAt: number): SlotFormRow[] {
@@ -42,8 +44,10 @@ export function applyStaffLineupTimings(rows: readonly SlotFormRow[], timings: r
     const row = originals.get(timing.key) ?? { id: timing.key, offsetMinutes: "", durationMinutes: "", personSlug: "", displayLabel: "", roleLabel: "Participant" };
     const old = previous.get(timing.key);
     if (old?.startAt === timing.startAt && old?.endAt === timing.endAt) return { ...row, position };
-    return { ...row, position, startAtOverride: timing.startAt, endAtOverride: timing.endAt, durationMsOverride: undefined,
-      offsetMinutes: timing.startAt === undefined ? "" : String((timing.startAt - eventStartAt) / 60_000),
+    return { ...row, position, startAtOverride: Number.isFinite(eventStartAt) ? timing.startAt : undefined, endAtOverride: Number.isFinite(eventStartAt) ? timing.endAt : undefined,
+      offsetMsOverride: Number.isFinite(eventStartAt) ? undefined : timing.startAt,
+      durationMsOverride: !Number.isFinite(eventStartAt) && timing.startAt !== undefined && timing.endAt !== undefined ? timing.endAt - timing.startAt : undefined,
+      offsetMinutes: timing.startAt === undefined ? "" : String((timing.startAt - (Number.isFinite(eventStartAt) ? eventStartAt : 0)) / 60_000),
       durationMinutes: timing.startAt === undefined || timing.endAt === undefined ? "" : String((timing.endAt - timing.startAt) / 60_000),
     };
   });
@@ -56,6 +60,10 @@ export function readIntakeInstant(fields: EventIntakePatch, local: EventIntakeLo
 
 export function readIntakeLineupTimings(fields: EventIntakePatch): LineupTimingRow[] {
   return (fields.lineup ?? []).map(row => {
+    if (row.relativeTiming) {
+      const startAt = (readIntakeInstant(fields, fields.start) ?? 0) + row.relativeTiming.offsetMinutes * 60_000;
+      return { key: row.clientKey, startAt, endAt: startAt + row.relativeTiming.durationMinutes * 60_000 };
+    }
     const startAt = readIntakeInstant(fields, row.start);
     const endAt = readIntakeInstant(fields, row.end);
     return { key: row.clientKey, ...(startAt === undefined ? {} : { startAt }), ...(endAt === undefined ? {} : { endAt }) };
@@ -80,6 +88,9 @@ export function applyIntakeLineupTimings(fields: EventIntakePatch, timings: read
   const lineup = timings.map((timing, position) => {
     const row = originals.get(timing.key) ?? { clientKey: timing.key, position };
     const old = previous.get(timing.key);
+    if ((row.relativeTiming || (readIntakeInstant(fields, fields.start) === undefined && !row.start && !row.end)) && timing.startAt !== undefined && timing.endAt !== undefined) {
+      return { ...row, position, start: null, end: null, relativeTiming: { offsetMinutes: (timing.startAt - (readIntakeInstant(fields, fields.start) ?? 0)) / 60_000, durationMinutes: (timing.endAt - timing.startAt) / 60_000 } };
+    }
     return { ...row, position,
       ...(old?.startAt === timing.startAt ? {} : { start: timing.startAt === undefined ? null : intakeLocalFromInstant(fields, timing.startAt) }),
       ...(old?.endAt === timing.endAt ? {} : { end: timing.endAt === undefined ? null : intakeLocalFromInstant(fields, timing.endAt) }),

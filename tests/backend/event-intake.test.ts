@@ -5,7 +5,9 @@ import { makeFunctionReference } from "convex/server";
 import schemaModule from "../../convex/schema";
 import { api } from "../../convex/_generated/api";
 import { getPublicCommunityHostedEvents, getPublicPersonUpcomingEvents } from "../../convex/_eventPublic";
-import { eventContributionFingerprint } from "../../convex/_eventContributionPreflight";
+import { eventContributionFingerprint, normalizeIntakePublication } from "../../convex/_eventContributionPreflight";
+import { acceptIntakeSuggestion } from "../../apps/web/src/lib/calendar/event-intake-suggestions";
+import type { EventIntakePatch } from "../../packages/api-contracts/src/event-intake";
 
 const schema = (schemaModule as unknown as { default?: typeof schemaModule }).default ?? schemaModule;
 const save = makeFunctionReference<"mutation">("eventIntake:saveEventIntakeDraft");
@@ -31,6 +33,41 @@ async function fixture() {
   return { t, actor, communityId };
 }
 const complete = { communitySlug: "public-club", title: "Night Flight", eventDate: "2027-10-15", timeTba: true };
+
+it("roundtrips relative drafts and resolves publication using elapsed time across DST", async () => {
+  const { actor, t } = await fixture();
+  const patch = { communitySlug: "public-club", title: "Relative draft", lineup: [{ clientKey: "guest", position: 0, performerLabel: "Guest", relativeTiming: { offsetMinutes: 60, durationMinutes: 60 } }] };
+  const draft = await actor.mutation(save, { patch });
+  const loaded = await actor.query(get, { draftId: draft.draftId });
+  assert.deepEqual(loaded.fields.lineup, patch.lineup);
+  await assert.rejects(actor.action(publish, { draftId: draft.draftId, expectedVersion: draft.version, idempotencyKey: "relative-incomplete" }));
+  const timed = { ...loaded.fields, eventDate: "2026-11-01", timezone: "America/New_York", timeTba: false, start: { time: "01:30", occurrence: "earlier" as const }, end: { time: "03:30" } };
+  const normalized = normalizeIntakePublication(timed);
+  assert.equal(normalized.lineup[0]?.startAt, Date.UTC(2026, 10, 1, 6, 30));
+  assert.equal(normalized.lineup[0]?.endAt, Date.UTC(2026, 10, 1, 7, 30));
+  assert.throws(() => normalizeIntakePublication({ ...timed, lineup: [{ ...patch.lineup[0]!, start: { time: "01:30" } }] }), /Relative lineup timing/);
+  assert.throws(() => normalizeIntakePublication({ ...timed, start: null, end: null, timeTba: true }), /Relative lineup timing requires/);
+  assert.throws(() => normalizeIntakePublication({ ...timed, lineup: [{ ...patch.lineup[0]!, relativeTiming: { offsetMinutes: 8 * 1440, durationMinutes: 60 } }] }), /Event date must be valid/);
+  const updated = await actor.mutation(save, { draftId: draft.draftId, expectedVersion: draft.version, patch: timed });
+  const published = await actor.action(publish, { draftId: draft.draftId, expectedVersion: updated.version, idempotencyKey: "relative-anchored" });
+  const slot = await t.run(ctx => ctx.db.query("eventSlots").withIndex("by_eventId", q => q.eq("eventId", published.eventId)).first());
+  assert.equal(slot?.startAt, normalized.lineup[0]?.startAt);
+  assert.equal(slot?.endAt, normalized.lineup[0]?.endAt);
+});
+
+for (const timeTba of [false, true]) it(`publishes accepted source starts on their canonical date while retaining overnight instants from timeTba=${timeTba}`, () => {
+  let fields: EventIntakePatch = { communitySlug: "public-club", title: "Source night", eventDate: "2026-10-10", timezone: "UTC", timeTba, tentative: { eventDate: "2026-10-11", start: { time: "23:00", dayOffset: 0 }, end: { time: "02:00", dayOffset: 1 } } };
+  for (const key of ["start", "end"] as const) {
+    const accepted = acceptIntakeSuggestion({ fields, acceptance: { key, proposalDate: fields.tentative?.eventDate } });
+    assert.ok(accepted); fields = accepted;
+  }
+  assert.equal(fields.eventDate, "2026-10-11");
+  assert.equal(fields.timeTba, false);
+  assert.equal(fields.start?.dayOffset, 0);
+  const normalized = normalizeIntakePublication(fields);
+  assert.equal(normalized.schedule.startAt, Date.UTC(2026, 9, 11, 23));
+  assert.equal(normalized.endAt, Date.UTC(2026, 9, 12, 2));
+});
 
 it("returns an unavailable draft for a malformed browser draft link", async () => {
   const { actor, t } = await fixture();

@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { applyIntakeLineupTimings, applyStaffLineupTimings, changeStaffSlotOffset, readIntakeInstant, readIntakeLineupTimings, readStaffLineupTimings, type SlotFormRow } from "../../apps/web/src/lib/calendar/event-lineup-adapters";
 import { formatLineupTimeRange } from "../../apps/web/src/lib/calendar/event-lineup-display";
-import { shiftLineupStart } from "../../apps/web/src/lib/calendar/event-lineup-timing";
+import { changeLineupDuration, generateLineupTimings, insertLineupSlot, removeLineupSlot, shiftLineupStart } from "../../apps/web/src/lib/calendar/event-lineup-timing";
+import { EventIntakePatchSchema } from "../../packages/api-contracts/src/event-intake";
 import { acceptIntakeSuggestion, restoreIntakeTiming } from "../../apps/web/src/lib/calendar/event-intake-suggestions";
 import type { EventIntakePatch } from "../../packages/api-contracts/src/event-intake";
 
@@ -103,6 +104,53 @@ test("unresolved source clocks cannot be accepted as known local instants", () =
 
 test("lineup repeats display their own offset at each instant", () => {
   assert.equal(formatLineupTimeRange({ startAt: Date.UTC(2026, 10, 1, 5, 30), endAt: Date.UTC(2026, 10, 1, 6, 30), timezone: "America/New_York" }), "01:30 GMT-4 - 01:30 GMT-5");
+});
+
+test("relative draft timing survives serialization, editing and DST elapsed anchoring", () => {
+  const generated = generateLineupTimings({ startAt: 0, count: 3, durationMinutes: 60, keys: ["a", "b", "c"] });
+  assert.ok(generated.ok);
+  let fields = EventIntakePatchSchema.parse(JSON.parse(JSON.stringify(applyIntakeLineupTimings({}, generated.rows))));
+  assert.deepEqual(fields.lineup?.map(row => row.relativeTiming?.offsetMinutes), [0, 60, 120]);
+  assert.ok(fields.lineup?.every(row => !row.start && !row.end));
+  const inserted = insertLineupSlot({ rows: readIntakeLineupTimings(fields), index: 1, row: { key: "inserted" }, durationMinutes: 15, eventStartAt: 0 });
+  assert.ok(inserted.ok);
+  fields = applyIntakeLineupTimings(fields, inserted.rows);
+  const resized = changeLineupDuration(readIntakeLineupTimings(fields), "a", 30);
+  assert.ok(resized.ok);
+  fields = applyIntakeLineupTimings(fields, resized.rows);
+  assert.deepEqual(fields.lineup?.map(row => row.relativeTiming?.offsetMinutes), [0, 30, 45, 105]);
+  fields = { ...fields, eventDate: "2026-11-01", timezone: "America/New_York", start: { time: "01:30", occurrence: "earlier" } };
+  const anchored = readIntakeLineupTimings(fields);
+  assert.equal(anchored[0]?.startAt, Date.UTC(2026, 10, 1, 5, 30));
+  assert.equal(anchored[2]?.startAt, Date.UTC(2026, 10, 1, 6, 15));
+  fields = { ...fields, start: null };
+  const removed = removeLineupSlot(readIntakeLineupTimings(fields), "inserted");
+  assert.ok(removed.ok);
+  fields = applyIntakeLineupTimings(fields, removed.rows);
+  assert.deepEqual(fields.lineup?.map(row => row.relativeTiming?.offsetMinutes), [0, 30, 90]);
+  const source: EventIntakePatch = { ...fields, lineup: [...fields.lineup!, { clientKey: "source", position: 3, start: { time: "01:30" } }] };
+  assert.deepEqual(applyIntakeLineupTimings(source, readIntakeLineupTimings(source)).lineup?.[3], source.lineup?.[3]);
+});
+
+test("staff arithmetic origin never becomes a stored instant", () => {
+  const generated = generateLineupTimings({ startAt: 0, count: 2, durationMinutes: 60, keys: ["a", "b"] });
+  assert.ok(generated.ok);
+  const rows = applyStaffLineupTimings([], generated.rows, NaN);
+  assert.ok(rows.every(row => row.startAtOverride === undefined && row.endAtOverride === undefined));
+  assert.deepEqual(rows.map(row => row.offsetMinutes), ["0", "60"]);
+  const startAt = Date.UTC(2026, 2, 8, 6, 30);
+  assert.deepEqual(readStaffLineupTimings(rows, startAt).map(row => row.startAt), [startAt, startAt + 3_600_000]);
+});
+
+test("staff unanchoring preserves subminute offsets and durations without absolute timestamps", () => {
+  const startAt = Date.UTC(2026, 10, 1, 5, 30);
+  const rows: SlotFormRow[] = [{ id: "precise", offsetMinutes: "0", durationMinutes: "60", personSlug: "guest", displayLabel: "Guest", roleLabel: "DJ", startAtOverride: startAt + 10_123, endAtOverride: startAt + 3_620_333 }];
+  const relative = applyStaffLineupTimings(rows, shiftLineupStart(readStaffLineupTimings(rows, startAt), -startAt), NaN);
+  assert.equal(relative[0]?.startAtOverride, undefined);
+  assert.equal(relative[0]?.endAtOverride, undefined);
+  assert.deepEqual(readStaffLineupTimings(relative, NaN), [{ key: "precise", startAt: 10_123, endAt: 3_620_333 }]);
+  assert.deepEqual(readStaffLineupTimings(relative, startAt), readStaffLineupTimings(rows, startAt));
+  assert.deepEqual(readStaffLineupTimings([changeStaffSlotOffset(relative[0]!, "bad", startAt)], startAt), [{ key: "precise" }]);
 });
 test("accepting source fields in either order preserves resolved instants", () => {
   const source = { eventDate: "2026-10-15", timezone: "America/Los_Angeles", start: { time: "23:00", dayOffset: 0 }, end: { time: "01:00", dayOffset: 1 } };

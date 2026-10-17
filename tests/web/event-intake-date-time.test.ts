@@ -56,7 +56,9 @@ describe("intake suggestion calendar provenance", () => {
     const resumed = EventIntakePatchSchema.parse(JSON.parse(JSON.stringify(moved)));
     assert.equal(formatIntakeDateTimeInput({ eventDate: resumed.eventDate, local: accept(resumed, "end").end }), "2026-10-12T02:00");
     assert.equal(formatIntakeDateTimeInput({ eventDate: resumed.eventDate, local: accept(resumed, "lineup").lineup?.[0].start }), "2026-10-12T01:00");
-    assert.equal(formatIntakeDateTimeInput({ eventDate: resumed.eventDate, local: accept(resumed, "start").start }), "2026-10-11T23:00");
+    const acceptedStart = accept(resumed, "start");
+    assert.equal(acceptedStart.eventDate, "2026-10-11");
+    assert.equal(formatIntakeDateTimeInput({ eventDate: acceptedStart.eventDate, local: acceptedStart.start }), "2026-10-11T23:00");
   });
   it("keeps a reference date when a manual base move would put pending offsets outside the schema", () => {
     for (const eventDate of ["2026-10-01", "2026-10-20"]) {

@@ -31,11 +31,13 @@ for (const color of ["light", "dark"] as const) test(`identity and removal evide
   await expect(page.locator('[data-step="Details"]').getByTestId("selected-identity")).toHaveCount(2);
   await capture(page, info.outputPath(`identity-${color}-details.png`));
   const community = page.locator('[data-step="Details"] [data-testid="selected-identity"]').first().locator("..");
-  await community.getByRole("button", { name: "Change", exact: true }).click();
+  await community.getByRole("button", { name: "Clear community", exact: true }).click();
   await page.getByRole("combobox", { name: "Community", exact: true }).fill("after");
   await expect(page.getByRole("option")).toHaveCount(2);
   await capture(page, info.outputPath(`identity-${color}-communities.png`));
   await page.getByRole("combobox", { name: "Community", exact: true }).press("Escape");
+  await page.getByRole("combobox", { name: "Community", exact: true }).fill("afterglow");
+  await page.getByRole("option").first().click();
   const world = page.locator('[data-step="Details"] [data-testid="selected-identity"]').nth(1).locator("..");
   await world.getByRole("button", { name: "Change", exact: true }).click();
   await page.getByRole("combobox", { name: "Where", exact: true }).fill("Harbor");
@@ -109,7 +111,6 @@ test("import dialog, failure, and DST states capture @fixture", async ({ page },
   await expect(dialog.getByRole("status")).toBeVisible();
   await capture(page, info.outputPath("import-error.png"));
   await dialog.getByRole("button", { name: "Close" }).click();
-  await page.getByLabel("Time TBA", { exact: true }).uncheck();
   await page.getByRole("button", { name: "Time zone", exact: true }).click();
   await page.getByRole("combobox", { name: "Time zone" }).fill("America/New_York");
   await page.getByRole("option").first().click();

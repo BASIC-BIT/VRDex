@@ -65,7 +65,9 @@ Private source-file retention is a separate source-service responsibility.
 ## Publication
 
 Publication requires a public community, an identifying title, a valid event
-date, and either a start time or explicit `timeTba: true`. A source URL is optional.
+date, and either a start time or explicit `timeTba: true` through API/MCP compatibility. The website requires Starts before publishing; drafts may remain incomplete. A source URL is optional.
+Draft lineup rows may use `relativeTiming: { offsetMinutes, durationMinutes }` before an event start is known. These elapsed minutes survive save and resume; setting Starts anchors them without changing their order or durations. A row cannot carry both relative timing and absolute source clocks. Publication and correction resolve relative timing from the event start in the shared preflight, and reject relative timing without a timed event. Imported unresolved clocks retain their original representation. Canonical lineup fields remain absolute instants.
+
 Public `worldSlug` and `lineup[].personSlug` matches are rechecked at publication.
 Unmatched lineup names are preserved. An incomplete lineup row remains valid in
 a draft but needs a performer label before publication.

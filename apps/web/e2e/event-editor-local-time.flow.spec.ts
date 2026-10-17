@@ -27,18 +27,19 @@ test("contributor display conversions and title-only save preserve canonical sch
   await page.getByLabel("Event title", { exact: true }).fill("Changed title");
   expect(await saveIntake(page)).toEqual({ ...intake, title: "Changed title" });
 });
-test("contributor TBA uses local date and restores canonical schedule", async ({ page }) => {
-  await openIntake(page);
-  await page.getByLabel("Time TBA", { exact: true }).check();
-  await expect(page.getByLabel("Starts", { exact: true })).toHaveValue("2026-10-16");
-  await page.getByLabel("Time TBA", { exact: true }).uncheck();
-  expect(await saveIntake(page)).toEqual(intake);
+test("contributor legacy date-only draft remains unchanged until a start is authored", async ({ page }) => {
+  const legacy = { communitySlug: intake.communitySlug, title: "Legacy night", eventDate: "2026-10-15", timezone: intake.timezone, timeTba: true };
+  await page.addInitScript(fields => sessionStorage.setItem("event-intake-fixture", JSON.stringify(fields)), legacy);
+  await page.goto("/playwright/event-intake");
+  await expect(page.getByLabel("Time TBA", { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel("Starts", { exact: true })).toHaveValue("");
+  expect(await saveIntake(page)).toEqual(legacy);
+  await page.getByLabel("Starts", { exact: true }).fill("2026-10-16T02:00");
+  expect(await saveIntake(page)).toEqual({ ...legacy, timeTba: false, start: { time: "23:00", dayOffset: 0 } });
 });
-test("contributor TBA date edit cascades once and keeps explicit end", async ({ page }) => {
+test("contributor Starts date edit cascades once and keeps explicit end", async ({ page }) => {
   await openIntake(page);
-  await page.getByLabel("Time TBA", { exact: true }).check();
-  await page.getByLabel("Starts", { exact: true }).fill("2026-10-17");
-  await page.getByLabel("Time TBA", { exact: true }).uncheck();
+  await page.getByLabel("Starts", { exact: true }).fill("2026-10-17T02:00");
   const saved = await saveIntake(page);
   expect(saved.eventDate).toBe("2026-10-16");
   expect(saved.start).toEqual({ time: "23:00", dayOffset: 0 });
@@ -51,9 +52,7 @@ test("staff local view preserves precise canonical instants on title save", asyn
   await page.goto("/playwright/event-lineup?editor");
   await expect(page.getByLabel("Starts", { exact: true })).toHaveValue("2026-10-16T02:00");
   await page.screenshot({ path: info.outputPath("staff-local-desktop.png"), fullPage: true });
-  await page.getByLabel("Time TBA", { exact: true }).check();
-  await expect(page.getByLabel("Date", { exact: true })).toHaveValue("2026-10-16");
-  await page.getByLabel("Time TBA", { exact: true }).uncheck();
+  await expect(page.getByLabel("Time TBA", { exact: true })).toHaveCount(0);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: info.outputPath("staff-local-mobile.png"), fullPage: true });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -75,12 +74,10 @@ test("display-zone changes refuse pending invalid buffers until cancelled", asyn
   await zone(page, "Tokyo");
   await expect(page.locator('[name="editingTimezone"]')).toHaveValue(/America\/(Indiana\/)?Indianapolis/);
   await expect(end).toHaveValue("2026-10-30T05:00"); await expect(end).toBeFocused();
-  await page.getByLabel("Time TBA", { exact: true }).click();
-  await expect(page.getByLabel("Time TBA", { exact: true })).not.toBeChecked();
-  await expect(end).toBeFocused();
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   await end.fill("2026-10-30T05:00"); await end.press("Escape");
-  await page.getByLabel("Time TBA", { exact: true }).check(); await page.getByLabel("Time TBA", { exact: true }).uncheck();
+  await zone(page, "Tokyo");
+  await expect(page.locator('[name="editingTimezone"]')).toHaveValue("Asia/Tokyo");
   expect(await saveIntake(page)).toEqual(intake);
 });
 test("missing-zone authored clocks survive display switch then resolve only by explicit source selection", async ({ page }) => {
@@ -132,11 +129,11 @@ test("unrepresentable Starts update keeps every canonical field intact", async (
   await page.getByLabel("Starts", { exact: true }).press("Escape");
   expect(await saveIntake(page)).toEqual(intake);
 });
-test("removed TBA rows never return on restoration", async ({ page }) => {
-  await openIntake(page); await page.getByLabel("Time TBA", { exact: true }).check();
+test("removed lineup rows never return after changing Starts", async ({ page }) => {
+  await openIntake(page);
   await nav(page, "Lineup"); await page.getByRole("button", { name: "Remove slot", exact: true }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Remove slot", exact: true }).click();
-  await nav(page, "Details"); await page.getByLabel("Time TBA", { exact: true }).uncheck();
+  await nav(page, "Details"); await page.getByLabel("Starts", { exact: true }).fill("2026-10-16T03:00");
   expect((await saveIntake(page)).lineup).toEqual([]);
 });
 test("accepted LA import resolves all clocks locally without matching people", async ({ page }) => {
@@ -164,7 +161,7 @@ test("local schedule and timezone search fit mobile", async ({ page }, info) => 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
-test("staff TBA date edit preserves precise slot duration and fixed-end conflict", async ({ page }, info) => {
+test("staff Starts date edit preserves precise slot duration and fixed-end conflict", async ({ page }, info) => {
   const startAt = Date.UTC(2026, 9, 16, 6, 0, 12, 123), slotEnd = startAt + 3_620_333;
   await page.addInitScript(({ startAt, slotEnd }) => localStorage.setItem("event-lineup-fixture-v1", JSON.stringify({
     id: "local-precise", slug: "local-precise", title: "Precise local night", startAt, endAt: startAt + 7200000, timezone: "America/Los_Angeles", scheduleKind: "timed", status: "scheduled", communitySlug: "afterglow", publicationState: "published", source: { sourceType: "community", label: "Afterglow" }, watchSurfaceEnabled: false, watchMode: "event_stream", mediaLinks: [], authoredMediaLinks: [], worlds: [], participants: [],
@@ -178,13 +175,11 @@ test("staff TBA date edit preserves precise slot duration and fixed-end conflict
   await expect(page.getByLabel("Ends (optional)", { exact: true })).toHaveValue("2026-03-08T02:30");
   await expect(page.getByLabel("Ends (optional)", { exact: true })).toBeFocused();
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
-  await page.getByLabel("Time TBA", { exact: true }).check();
-  await page.getByLabel("Date", { exact: true }).fill("2026-10-17");
-  await page.getByLabel("Time TBA", { exact: true }).uncheck();
+  await page.getByLabel("Starts", { exact: true }).fill("2026-10-17T02:00");
   await expect(page.getByLabel("Starts", { exact: true })).toHaveValue("2026-10-17T02:00");
   await expect(page.getByLabel("Ends (optional)", { exact: true })).toHaveValue("2026-10-16T04:00");
   await nav(page, "Lineup");
-  await expect(page.locator('[data-lineup-row="precise"]')).toContainText("02:00:12.123 - 03:00:32.456");
+  await expect(page.locator('[data-lineup-row="precise"]')).toContainText("02:00 - 03:00:20.333");
   await expect(page.locator('[data-lineup-conflict]').first()).toContainText("2026-10-16 04:00:12.123");
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({ path: info.outputPath("precise-duration-local.png"), fullPage: true });
@@ -192,7 +187,8 @@ test("staff TBA date edit preserves precise slot duration and fixed-end conflict
   await nav(page, "Review"); await page.getByRole("button", { name: "Save changes", exact: true }).click();
   await expect.poll(() => page.evaluate(() => localStorage.getItem("event-lineup-fixture-v1-submission"))).not.toBeNull();
   const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!));
-  expect(saved.startAt).toBe(startAt + 86400000); expect(saved.lineup[0].startAt).toBe(startAt + 86400000); expect(saved.lineup[0].endAt).toBe(slotEnd + 86400000);
+  const nextStart = Date.UTC(2026, 9, 17, 6);
+  expect(saved.startAt).toBe(nextStart); expect(saved.lineup[0].startAt).toBe(nextStart); expect(saved.lineup[0].endAt).toBe(nextStart + slotEnd - startAt);
 });
 for (const source of [
   { eventDate: "2026-03-08", timezone: "America/New_York", start: { time: "02:30", dayOffset: 0 } },
@@ -213,10 +209,11 @@ test("connected correction form uses the saved display preference and preserves 
   await page.goto("/playwright/event-intake?revision=correction");
   await page.getByRole("button", { name: "Correct event", exact: true }).click();
   await expect(page.locator('[name="editingTimezone"]')).toHaveValue("Asia/Tokyo");
-  await expect(page.getByLabel("Starts", { exact: true })).toHaveValue("2027-07-15");
+  await expect(page.getByLabel("Starts", { exact: true })).toHaveValue("");
   await zone(page, "London");
   await expect(page.locator('[name="editingTimezone"]')).toHaveValue("Europe/London");
-  await expect(page.getByLabel("Starts", { exact: true })).toHaveValue("2027-07-15");
+  await expect(page.getByLabel("Starts", { exact: true })).toHaveValue("");
+  await expect(page.getByRole("complementary", { name: "Event preview" })).toContainText("2027-07-15");
 });
 
 test("missing-zone partial clocks remain unresolved when an absent Starts is authored", async ({ page }) => {
@@ -302,7 +299,7 @@ test("staff timezone-less timed event accepts an unrelated save with exact insta
   expect(stored.eventDate).toBe(timezoneLessEvent.eventDate);
 });
 
-test("staff timezone-less resolved clocks convert cleanly and restore exactly after TBA", async ({ page }, info) => {
+test("staff timezone-less resolved clocks convert cleanly without authoring a schedule", async ({ page }, info) => {
   await openTimezoneLessStaff(page);
   await expect(page.getByLabel("Starts", { exact: true })).toHaveValue("2026-10-16T02:00");
   await expect(page.getByLabel("Doors open", { exact: true })).toHaveValue("2026-10-16T01:30");
@@ -318,9 +315,6 @@ test("staff timezone-less resolved clocks convert cleanly and restore exactly af
   await expect(page.locator('[name="timezone"]')).toHaveValue("");
   await expect(page.getByRole("complementary", { name: "Event preview" })).toContainText("3:00 PM");
   await page.screenshot({ path: info.outputPath("timezone-less-converted.png"), fullPage: true });
-  await page.getByLabel("Time TBA", { exact: true }).check();
-  await expect(page.getByLabel("Date", { exact: true })).toHaveValue("2026-10-16");
-  await page.getByLabel("Time TBA", { exact: true }).uncheck();
   await expect(page.locator('form[data-event-dirty]')).toHaveAttribute("data-event-dirty", "false");
   await nav(page, "Lineup");
   await expect(page.locator('[data-lineup-row="precise"]')).toContainText("15:00:12.123 - 16:00:32.456");
@@ -347,9 +341,6 @@ for (const [label, value, field, instant, query, canonicalZone] of [
   if (query === "Los Angeles") {
     await expect(page.getByLabel("Starts", { exact: true })).toHaveValue("2026-10-15T23:00");
     if (field === "doorsOpenAt") await expect(page.getByLabel("Ends (optional)", { exact: true })).toHaveValue("2026-10-16T01:00");
-    await page.getByLabel("Time TBA", { exact: true }).check();
-    await expect(page.getByLabel("Date", { exact: true })).toHaveValue("2026-10-15");
-    await page.getByLabel("Time TBA", { exact: true }).uncheck();
     await expect(page.getByLabel(label, { exact: true })).toHaveValue(value);
   }
   await zone(page, "London");

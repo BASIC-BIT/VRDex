@@ -525,3 +525,64 @@ completion. Page images do not capture native browser confirmation dialogs.
 
 Web lint, web types, Markdown lint and the Docusaurus build also passed for this
 correction. Type generation ran after the focused browser run completed.
+
+## Local preview refinement, October 16
+
+BASIC approved these refinements in the local UI Jam after the earlier reviewed head, then requested release preparation in the same PR. The local preview remains at `http://127.0.0.1:3187/playwright/event-intake`.
+
+BASIC explicitly chose a required start date and time for editor publication,
+while drafts may stay incomplete. The Time TBA switch and its reversible editing
+mode are removed. Older date-only data remains readable and can be saved as a
+draft. Existing published date-only listings also retain their correction path. Entering Starts deliberately converts them to timed data. API/MCP date-only
+compatibility and existing public date-only rendering are unchanged by this
+editor refinement. The earlier TBA-specific implementation rulings above describe
+the previously reviewed revision, not a remaining editor control.
+
+End and doors disclosures share a compact group. Description starts at five
+lines. `Announcement link` replaces `Original event post`; it remains an optional
+link to the external announcement. Review has a larger primary Publish action.
+Lineup generation works before Starts is set. Slots show elapsed minutes from the beginning. Insertion, duration changes and removal retain the same cascade behavior. Contributor drafts retain relative timing across save and resume. Entering Starts anchors the lineup; clearing it returns to elapsed timing. Publication still requires Starts. Existing staff create/save requirements remain. Imported source clocks keep their source dates until resolved.
+
+Timezone options highlight on hover. Where accepts free text directly, while
+retaining world selection and safe cancellation of linked-world searches. The
+local fixture now searches its finite community/world data and shows fixture
+artwork. It does not query live communities. Focused browser and visual results
+are retained in the task's ignored delivery receipt.
+
+Selected communities use one X control, with balanced card padding. Search icons
+are vertically centered. Release checks and current-head review are recorded below.
+
+The lineup authoring path is now:
+
+```mermaid
+flowchart LR
+  A[Lineup without Starts] --> B[Generate elapsed slots]
+  B --> C[Edit or save contributor draft]
+  C --> D[Set Starts in Details]
+  D --> E[Lineup shows clock times]
+  E -->|Clear Starts| B
+  E --> F[Review and publish]
+```
+
+### Release verification for preview refinements
+
+The release pass regenerated both OpenAPI artifacts for relative draft timing.
+Fresh native checks passed 736 web units, 1,493 backend units and 68 API contract
+tests, plus API schema consistency, web lint, backend/web types, MCP verification,
+Markdown lint and the documentation build. The broad editor browser run exposed
+a required-Starts regression in existing date-only corrections and one ambiguous
+Where test locator. The contributor fix and regression checks passed 12 cases on
+desktop/mobile. Broader browser and Linux screenshot verification are still
+pending in this checkpoint revision. Earlier failures remain in the delivery
+receipt; these counts do not erase them.
+
+Docker startup failed on an inaccessible local inference socket, so the current
+preview uses an isolated native Windows backend and web server. Linux CI remains
+required for committed image baselines. No production acceptance or deployment
+is claimed.
+
+The legacy date-only correction guard now covers contributor and staff editors.
+Contributor regression coverage passed 12 desktop/mobile cases; staff coverage
+passed four more. Both retain start requirements after authoring a timed schedule.
+The aborted public-entry navigation passed an isolated no-retry repeat on both
+viewports, twice each. Its initial abort cause remains unconfirmed.
