@@ -25,7 +25,7 @@ const cases = [
   ["wrong source evidence", { evidence: { ...failed, sourceId: "old-link" } }, { kind: "stay" }],
   ["revoked successor", { evidence: failed, next: { ...next, available: false } }, { kind: "hold", reason: "media-failure" }],
   ["revoked current", { current: { ...current, available: false } }, { kind: "switch", slotKey: "set-b", reason: "source-unavailable" }],
-  ["stale next readiness", { evidence: failed, nextReadiness: { slotKey: "set-b", sourceId: "dj", ready: true, observedAt: 2_999 } }, { kind: "hold", reason: "media-failure" }],
+  ["stale next readiness", { evidence: failed, nextReadiness: { slotKey: "set-b", sourceId: "dj", ready: true, observedAt: 2_999 } }, { kind: "hold", reason: "media-failure", prepare: { slotKey: "set-b" } }],
   ["manual hold", { mode: "hold", evidence: failed }, { kind: "hold", reason: "manual-hold" }],
   ["manual selection suspends following", { mode: "manual", evidence: failed }, { kind: "hold", reason: "media-failure" }],
   ["manual healthy selection", { mode: "manual" }, { kind: "stay" }],
@@ -34,8 +34,8 @@ const cases = [
   ["explicit deadline", { scheduleNow: 999_000, mode: "hold" }, { kind: "stop", reason: "session-deadline" }],
   ["cutoff missing next", { policy: { maxOverrunMs: 0 }, next: undefined }, { kind: "hold", reason: "maximum-overrun" }],
   ["cutoff ready next", { policy: { maxOverrunMs: 0 } }, { kind: "switch", slotKey: "set-b", reason: "maximum-overrun" }],
-  ["prepare two minutes", { scheduleNow: -20_000 }, { kind: "prepare", slotKey: "set-b" }],
-  ["do not prepare earlier", { scheduleNow: -20_001 }, { kind: "stay" }],
+  ["prepare two minutes", { scheduleNow: -20_000, nextReadiness: undefined }, { kind: "prepare", slotKey: "set-b" }],
+  ["do not prepare earlier", { scheduleNow: -20_001, nextReadiness: undefined }, { kind: "stay" }],
   ["silence disabled", { evidence: { ...failed, progressing: true, failureSince: undefined, silenceSince: 0, analysisActive: true, audioLevelDb: -70 } }, { kind: "stay" }],
   ["missing analyzer", { policy: { silence: { thresholdDb: -60, durationMs: 1_000 } }, evidence: { ...failed, progressing: true, failureSince: undefined, silenceSince: 0, audioLevelDb: -70 } }, { kind: "stay" }],
   ["calibrated silence", { policy: { silence: { thresholdDb: -60, durationMs: 1_000 } }, evidence: { ...failed, progressing: true, failureSince: undefined, silenceSince: 0, analysisActive: true, audioLevelDb: -70 } }, { kind: "switch", slotKey: "set-b", reason: "silence" }],
@@ -50,4 +50,24 @@ test("policy validation defaults and bounds", () => {
   for (const value of [{ maxOverrunMs: -1 }, { maxOverrunMs: Infinity }, { silence: { thresholdDb: -60, durationMs: 999 } }, { silence: { thresholdDb: 1, durationMs: 1_000 } }]) {
     assert.throws(() => validateBroadcastPolicy(value));
   }
+});
+
+for (const scenario of [
+  { name: "missing", current: undefined, evidence: undefined, reason: "no-current-source" },
+  { name: "failed", current, evidence: failed, reason: "media-failure" },
+  { name: "revoked", current: { ...current, available: false }, evidence: undefined, reason: "source-unavailable" },
+]) {
+  test(`${scenario.name} current holds while preparing successor through boundary`, () => {
+    const base = { current: scenario.current, evidence: scenario.evidence, nextReadiness: undefined };
+    assert.deepEqual(decideHandoff(input({ ...base, scheduleNow: -20_001 })), { kind: "hold", reason: scenario.reason });
+    for (const scheduleNow of [-20_000, 99_999, 100_000]) {
+      assert.deepEqual(decideHandoff(input({ ...base, scheduleNow })), { kind: "hold", reason: scenario.reason, prepare: { slotKey: "set-b" } });
+    }
+    const nextReadiness = { slotKey: "set-b", sourceId: "dj", observedAt: 5_000, ready: true };
+    assert.deepEqual(decideHandoff(input({ ...base, scheduleNow: 99_999, nextReadiness })), { kind: "hold", reason: scenario.reason });
+    assert.deepEqual(decideHandoff(input({ ...base, scheduleNow: 100_000, nextReadiness })), { kind: "switch", slotKey: "set-b", reason: scenario.name === "failed" ? "media-failure" : "source-unavailable" });
+  });
+}
+test("manual hold never prepares a missing current's successor", () => {
+  assert.deepEqual(decideHandoff(input({ mode: "hold", current: undefined, nextReadiness: undefined })), { kind: "hold", reason: "manual-hold" });
 });
