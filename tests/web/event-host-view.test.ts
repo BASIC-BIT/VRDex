@@ -51,3 +51,19 @@ it('deduplicates pending probes beyond the cache window',async()=>{
  const first=read(source);now=31_000;const second=read(source);
  release();await Promise.all([first,second]);assert.equal(calls,1);
 });
+it('the host public query rejects an unpublished event',async()=>{
+ const {convexTest}=await import('convex-test');
+ const {api}=await import('../../convex/_generated/api');
+ const {default:schemaModule}=await import('../../convex/schema');
+ const schema=(schemaModule as unknown as {default?:typeof schemaModule}).default ?? schemaModule;
+ const t=convexTest({schema,modules:{
+  '../../convex/_generated/api.ts':()=>import('../../convex/_generated/api'),
+  '../../convex/events.ts':()=>import('../../convex/events'),
+ }});
+ await t.run(({db})=>db.insert('events',{
+  slug:'private-host-roster',title:'Private event',sortTitle:'private event',
+  startAt:100,endAt:200,timezone:'UTC',sourceType:'community',sourceLabel:'Private fixture',
+  eventStatus:'scheduled',publicationState:'draft_private',createdAt:100,updatedAt:100,
+ }));
+ assert.equal(await t.query(api.events.getPublicBySlug,{slug:'private-host-roster'}),null);
+});
