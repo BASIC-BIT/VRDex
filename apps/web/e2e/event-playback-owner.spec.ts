@@ -17,7 +17,7 @@ test("retains the actual playing media node across route navigation and replaces
   await expect(page.getByRole("button", { name: "Play Event b", exact: true })).toBeVisible();
   expect(await video.evaluate((node, old) => node === old, original)).toBe(true);
   await expect.poll(() => video.evaluate(node => (node as HTMLVideoElement).currentTime)).toBeGreaterThan(time);
-  await page.goBack(); await expect(page.getByRole("button", { name: "Play Event a", exact: true })).toBeVisible();
+  await page.goBack(); await expect(page.locator('[data-event-playback-inline="a"]')).toBeVisible();
   expect(await video.evaluate((node, old) => node === old, original)).toBe(true);
   await page.goForward(); await page.getByRole("button", { name: "Play Event b", exact: true }).click();
   await expect(page.locator('[data-event-id="b"] video')).toHaveCount(1);
@@ -74,12 +74,12 @@ test("explicit legacy/profile playback hands off both directions while browsing 
   await page.getByRole("button", { name: "Play YouTube player for Legacy", exact: true }).click();
   await expect.poll(() => retained.evaluate(node => (node as HTMLVideoElement).paused)).toBe(true);
   const frame = page.locator('iframe[title="YouTube player for Legacy"]'); await expect(frame).toHaveCount(1);
-  await page.getByRole("button", { name: "Play Event a", exact: true }).click(); await expect(frame).toHaveCount(0);
+  await page.getByRole("group", { name: "Event a controls" }).getByRole("button", { name: "Play", exact: true }).click(); await expect(frame).toHaveCount(0);
   await expect.poll(() => retained.evaluate(node => (node as HTMLVideoElement).paused)).toBe(false);
   await page.getByRole("button", { name: "Play Twitch player for Clip", exact: true }).click();
   await expect.poll(() => retained.evaluate(node => (node as HTMLVideoElement).paused)).toBe(true);
   await expect(page.locator('iframe[title="Twitch player for Clip"]')).toHaveCount(1);
-  await page.getByRole("button", { name: "Play Event a", exact: true }).click();
+  await page.getByRole("group", { name: "Event a controls" }).getByRole("button", { name: "Play", exact: true }).click();
   await expect(page.locator('iframe[title="Twitch player for Clip"]')).toHaveCount(0);
   await page.getByRole("button", { name: "Play Preview", exact: true }).click();
   await expect(page.locator('video[aria-label="Preview"]')).toHaveCount(1);
@@ -88,7 +88,7 @@ test("explicit legacy/profile playback hands off both directions while browsing 
   await page.getByRole("button", { name: "Play Profile", exact: true }).click();
   await expect(page.locator('video[aria-label="Profile"]')).toHaveCount(1);
   await expect.poll(() => retained.evaluate(node => (node as HTMLVideoElement).paused)).toBe(true);
-  await page.getByRole("button", { name: "Play Event a", exact: true }).click();
+  await page.getByRole("group", { name: "Event a controls" }).getByRole("button", { name: "Play", exact: true }).click();
   await expect(page.locator('video[aria-label="Profile"]')).toHaveCount(0);
   await page.getByRole("button", { name: "Close event playback" }).click();
 });

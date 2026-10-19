@@ -72,6 +72,13 @@ export class EventPlaybackOwner {
   pause() { foregroundPlayback.release(this); this.attempt++; this.adapter?.pause(); if (this.state.request) this.emit({ status: "paused" }); }
   setVolume(value: number) { if (!Number.isFinite(value)) return; const volume = Math.max(0, Math.min(1, value)); this.adapter?.setVolume(volume); this.emit({ volume }); }
   setMuted(muted: boolean) { this.adapter?.setMuted(muted); this.emit({ muted }); }
+  /** Release an embed that can no longer be presented, retaining its explicit retry/link. */
+  suspend() {
+    foregroundPlayback.release(this);
+    const started = this.started;
+    this.release(); this.started = started;
+    this.emit({ status: "paused", lineup: undefined });
+  }
   close() { foregroundPlayback.release(this); this.release(); this.emit({ request: undefined, status: "idle", lineup: undefined }); }
   update(request: PlaybackRequest) {
     if (request.eventId !== this.state.request?.eventId) return;

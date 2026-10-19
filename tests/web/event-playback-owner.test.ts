@@ -60,3 +60,16 @@ test("volume and mute control only viewer output; pause delegates prepared-input
   assert.equal(owner.getSnapshot().volume, 0.2); assert.equal(owner.getSnapshot().muted, true);
   assert.equal(adapters[0].pauses, 1); owner.close();
 });
+test("suspend disposes transport while retaining a retryable request and fences pending Play", async () => {
+  const { owner, adapters } = fixture();
+  const pending = owner.play(request());
+  owner.suspend();
+  assert.equal(adapters[0].disposed, 1);
+  adapters[0].resolve(true); await pending;
+  assert.equal(owner.getSnapshot().status, "paused");
+  assert.equal(owner.getSnapshot().request?.eventId, "a");
+  const retry = owner.play(request());
+  assert.equal(adapters.length, 2);
+  adapters[1].resolve(true); await retry;
+  assert.equal(owner.getSnapshot().status, "playing"); owner.close();
+});
