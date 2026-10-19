@@ -77,8 +77,10 @@ export function createInputSupervisor({ source, quality = { width: 1280, height:
                 return;
             const pts = Number(match[1]);
             if (Number.isFinite(pts) && pts > mediaPts) {
+                // The first timestamp establishes a baseline, not proof of movement.
+                if (Number.isFinite(mediaPts))
+                    mediaProgressAt = clock();
                 mediaPts = pts;
-                mediaProgressAt = clock();
             }
         });
         child.stdio[3].on('data', chunk => {

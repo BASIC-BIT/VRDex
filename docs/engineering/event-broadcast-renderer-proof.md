@@ -28,9 +28,11 @@ chunks are consumed continuously, including while the source is prepared but not
 selected. Old media is discarded; source loss cannot stop the program clock.
 
 Readiness requires at least two decoded frames, fresh video and audio (under one
-second old), and advancing decoded video PTS from FFmpeg `showinfo`. Repeated PTS
-cannot establish readiness. Observations bind `slotKey` and `sourceId` and use the
-provided monotonic clock. Missing/stale media produces a persistent `failureSince`.
+second old), and an increase between two distinct decoded video PTS from FFmpeg
+`showinfo` in the current connection epoch. The first PTS only establishes a
+baseline. Repeated initial PTS cannot establish readiness, including after
+reconnect. Observations bind `slotKey` and `sourceId` and use the provided
+monotonic clock. Missing/stale media produces a persistent `failureSince`.
 Recovery clears failure evidence. Reconnect starts a new failure-evidence epoch
 and clears buffered media, PTS, level and silence evidence. Silence accumulation requires an explicitly supplied calibrated
 threshold and fresh decoded A/V; the default does not enable silence handoff.
@@ -154,3 +156,9 @@ All packet DTS checks passed; decoded source/hold colors matched, hold PCM RMS w
 stall, recovery, repeated selection, and obsolete-input release. Final focused
 suite: **11 passed, zero failed**. No high-quality or provider acceptance claim
 is inferred from this result.
+
+Review regression verification: startup and reconnect with repeated initial PTS
+are rejected until a distinct increasing PTS arrives. Focused suite: 13 passed.
+A subsequent 60-second real-source death/recovery rehearsal passed with 240
+progress samples, maximum delay 127.548 ms, one-second keyframes, valid packet
+DTS, visible hold, and recovered audio RMS 0.054497.

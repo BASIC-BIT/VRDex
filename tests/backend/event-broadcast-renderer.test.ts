@@ -123,3 +123,44 @@ test('reconnect starts a new evidence epoch without retaining stale failure dura
     assert.equal(input.getObservation().failureSince, 4000);
     await input.stop();
 });
+
+for (const reconnect of [false, true]) {
+    test(`duplicate initial PTS cannot establish readiness ${reconnect ? 'after reconnect' : 'at startup'}`, async (t) => {
+        const { EventEmitter } = await import('node:events');
+        const { PassThrough } = await import('node:stream');
+        t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+        let now = 0;
+        const children: any[] = [];
+        const spawnProcess = () => {
+            const child = new EventEmitter() as any;
+            child.stdio = [null, null, new PassThrough(), new PassThrough(), new PassThrough()];
+            child.kill = () => { queueMicrotask(() => child.emit('close', null)); return true; };
+            children.push(child);
+            return child;
+        };
+        const input = createInputSupervisor({ source: { slotKey: 'next', sourceId: 'dj', url: 'test' }, quality: { width: 2, height: 2, frameRate: 30 }, clock: () => now, spawnProcess });
+        t.after(() => input.stop());
+        const decode = (pts: number) => {
+            const child = children.at(-1);
+            child.stdio[2].write(`showinfo pts_time:${pts}\n`);
+            child.stdio[3].write(Buffer.alloc(6));
+            child.stdio[4].write(Buffer.alloc(6400));
+        };
+        input.start();
+        if (reconnect) {
+            decode(0); now = 100; decode(0.1);
+            assert.equal(input.getObservation().ready, true, 'advancing original connection is ready');
+            children[0].emit('close', null);
+            now = 1100;
+            t.mock.timers.tick(1000);
+            assert.equal(children.length, 2);
+        }
+        decode(0); now += 100; decode(0);
+        assert.equal(input.getObservation().ready, false, 'two identical initial PTS do not prove advancement');
+        assert.equal(input.getObservation().progressing, false);
+        assert.equal(input.getObservation().analysisActive, false);
+        now += 100; decode(0.1);
+        assert.equal(input.getObservation().ready, true, 'second distinct increasing PTS establishes progress');
+        assert.equal(input.getObservation().progressing, true);
+    });
+}
