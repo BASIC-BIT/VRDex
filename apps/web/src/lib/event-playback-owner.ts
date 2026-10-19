@@ -1,3 +1,4 @@
+import { foregroundPlayback } from "./foreground-playback";
 import type { LineupEvent, LineupSnapshot } from "./event-lineup-runtime";
 import { isInScheduledWatchWindow } from "../../../../convex/_eventRuntime";
 
@@ -28,36 +29,50 @@ export class EventPlaybackOwner {
   private adapter?: PlaybackAdapter;
   private attempt = 0;
   private started = false;
+  private unavailable = false;
   generation = 0;
   constructor(private create: (request: PlaybackRequest, notify: AdapterNotify) => PlaybackAdapter) {}
   getSnapshot = () => this.state;
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
   private emit(patch: Partial<PlaybackSnapshot>) { this.state = { ...this.state, ...patch }; this.listeners.forEach(listener => listener()); }
-  private release() { this.generation++; this.attempt++; this.started = false; this.adapter?.dispose(); this.adapter = undefined; }
+  private release() { this.generation++; this.attempt++; this.started = false; this.unavailable = false; this.adapter?.dispose(); this.adapter = undefined; }
   async play(request: PlaybackRequest) {
     const same = this.state.request && playbackSourceKey(this.state.request) === playbackSourceKey(request);
     if ((!same || !this.started) && !isInScheduledWatchWindow({ ...request, now: Date.now() })) return;
+    foregroundPlayback.acquire(this, () => this.pause());
     if (same && this.adapter && ["playing", "loading"].includes(this.state.status)) return;
-    if (!same || !this.adapter) {
+    if (!same || !this.adapter || this.unavailable) {
+      const continuing = same && this.started;
       this.release();
+      this.started = Boolean(continuing);
       const generation = this.generation;
       this.emit({ request, status: "loading", lineup: undefined });
       try {
-        this.adapter = this.create(request, patch => { if (generation === this.generation) { if (patch.status === "playing") this.started = true; this.emit(patch); } });
+        this.adapter = this.create(request, patch => {
+          if (generation !== this.generation) return;
+          if (patch.status === "unavailable") this.unavailable = true;
+          if (patch.status === "playing") {
+            this.unavailable = false;
+            // Browser/native controls can resume without calling owner.play().
+            foregroundPlayback.acquire(this, () => this.pause());
+            this.started = true;
+          }
+          this.emit(patch);
+        });
         this.adapter.setVolume(this.state.volume); this.adapter.setMuted(this.state.muted);
-      } catch { this.emit({ status: "unavailable" }); return; }
+      } catch { this.unavailable = true; this.emit({ status: "unavailable" }); return; }
     }
     const attempt = ++this.attempt;
     this.emit({ status: "loading" });
     try {
       const accepted = await this.adapter!.play();
-      if (attempt === this.attempt && this.state.status !== "unavailable") { if (accepted) this.started = true; this.emit({ status: accepted ? "playing" : "blocked" }); }
-    } catch { if (attempt === this.attempt) this.emit({ status: "unavailable" }); }
+      if (attempt === this.attempt && this.state.status === "loading") { if (accepted) this.started = true; this.emit({ status: accepted ? "playing" : "blocked" }); }
+    } catch { if (attempt === this.attempt && this.state.status === "loading") { this.unavailable = true; this.emit({ status: "unavailable" }); } }
   }
-  pause() { this.attempt++; this.adapter?.pause(); if (this.state.request) this.emit({ status: "paused" }); }
+  pause() { foregroundPlayback.release(this); this.attempt++; this.adapter?.pause(); if (this.state.request) this.emit({ status: "paused" }); }
   setVolume(value: number) { if (!Number.isFinite(value)) return; const volume = Math.max(0, Math.min(1, value)); this.adapter?.setVolume(volume); this.emit({ volume }); }
   setMuted(muted: boolean) { this.adapter?.setMuted(muted); this.emit({ muted }); }
-  close() { this.release(); this.emit({ request: undefined, status: "idle", lineup: undefined }); }
+  close() { foregroundPlayback.release(this); this.release(); this.emit({ request: undefined, status: "idle", lineup: undefined }); }
   update(request: PlaybackRequest) {
     if (request.eventId !== this.state.request?.eventId) return;
     if (playbackSourceKey(request) !== playbackSourceKey(this.state.request)) {

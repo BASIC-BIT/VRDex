@@ -59,3 +59,36 @@ test("visible Twitch SDK player handles blocked playback, real controls and ifra
   expect(await page.evaluate(() => (window as unknown as { sdkCalls: string[] }).sdkCalls)).toContain("pause");
   await page.getByRole("button", { name: "Close event playback" }).click(); await expect(frame).toHaveCount(0);
 });
+
+test("explicit legacy/profile playback hands off both directions while browsing stays passive @fixture", async ({ page }) => {
+  await page.route("**/retained-test.wav?*", route => route.fulfill({ contentType: "audio/wav", body: wave() }));
+  await page.route("**/profile.live.ts", () => {});
+  await page.route("**/preview.live.ts", () => {});
+  await page.route("https://clips.twitch.tv/**", route => route.fulfill({ contentType: "text/html", body: "<button>Play</button>" }));
+  await page.route("https://www.youtube-nocookie.com/**", route => route.fulfill({ contentType: "text/html", body: "<button>Play</button>" }));
+  await page.goto("/playwright/event-playback");
+  await page.getByRole("button", { name: "Play Event a", exact: true }).click();
+  const retained = page.locator("[data-event-playback-mount] video");
+  await expect.poll(() => retained.evaluate(node => (node as HTMLVideoElement).paused)).toBe(false);
+  await expect(page.locator('iframe[title="YouTube player for Legacy"]')).toHaveCount(0);
+  await page.getByRole("button", { name: "Play YouTube player for Legacy", exact: true }).click();
+  await expect.poll(() => retained.evaluate(node => (node as HTMLVideoElement).paused)).toBe(true);
+  const frame = page.locator('iframe[title="YouTube player for Legacy"]'); await expect(frame).toHaveCount(1);
+  await page.getByRole("button", { name: "Play Event a", exact: true }).click(); await expect(frame).toHaveCount(0);
+  await expect.poll(() => retained.evaluate(node => (node as HTMLVideoElement).paused)).toBe(false);
+  await page.getByRole("button", { name: "Play Twitch player for Clip", exact: true }).click();
+  await expect.poll(() => retained.evaluate(node => (node as HTMLVideoElement).paused)).toBe(true);
+  await expect(page.locator('iframe[title="Twitch player for Clip"]')).toHaveCount(1);
+  await page.getByRole("button", { name: "Play Event a", exact: true }).click();
+  await expect(page.locator('iframe[title="Twitch player for Clip"]')).toHaveCount(0);
+  await page.getByRole("button", { name: "Play Preview", exact: true }).click();
+  await expect(page.locator('video[aria-label="Preview"]')).toHaveCount(1);
+  expect(await page.locator('video[aria-label="Preview"]').evaluate(node => (node as HTMLVideoElement).muted)).toBe(true);
+  await expect.poll(() => retained.evaluate(node => (node as HTMLVideoElement).paused)).toBe(false);
+  await page.getByRole("button", { name: "Play Profile", exact: true }).click();
+  await expect(page.locator('video[aria-label="Profile"]')).toHaveCount(1);
+  await expect.poll(() => retained.evaluate(node => (node as HTMLVideoElement).paused)).toBe(true);
+  await page.getByRole("button", { name: "Play Event a", exact: true }).click();
+  await expect(page.locator('video[aria-label="Profile"]')).toHaveCount(0);
+  await page.getByRole("button", { name: "Close event playback" }).click();
+});

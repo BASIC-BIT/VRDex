@@ -1,5 +1,6 @@
 "use client";
 
+import { ForegroundWatchEmbed, ForegroundWatchVideo } from "./foreground-watch-embed";
 import type { PlaybackRequest } from "@/lib/event-playback-owner";
 import { useEventPlayback } from "./event-playback-provider";
 import { EventPlaybackInline } from "./event-playback-inline";
@@ -325,30 +326,8 @@ function WatchEmbedFrame({ embed }: { embed: WatchEmbed }) {
     return <VrcdnStreamPlayer src={embed.src} title={embed.title} />;
   }
 
-  if (embed.kind === "video") {
-    return (
-      <video
-        className="aspect-video w-full bg-media"
-        controls
-        preload="metadata"
-        src={embed.src}
-        title={embed.title}
-      />
-    );
-  }
-
-  return (
-    <iframe
-      allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
-      allowFullScreen
-      className="aspect-video w-full bg-media"
-      loading="lazy"
-      referrerPolicy="strict-origin-when-cross-origin"
-      sandbox="allow-same-origin allow-scripts allow-popups allow-presentation"
-      src={embed.src}
-      title={embed.title}
-    />
-  );
+  if (embed.kind === "video") return <ForegroundWatchVideo src={embed.src} title={embed.title} />;
+  return <ForegroundWatchEmbed key={embed.src} src={embed.src} title={embed.title} />;
 }
 
 export function EventWatchSurface(props: Parameters<typeof StandaloneEventWatchSurface>[0] & { playbackRequest?: PlaybackRequest }) {

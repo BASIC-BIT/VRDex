@@ -148,3 +148,13 @@ to create Twitch players below 400 CSS pixels of viewport width; responsive
 presentation must provide the external watch link and handle viewport shrinkage
 without hiding or clipping a playing embed. Full integrated desktop/mobile
 presentation and provider rehearsals remain separate acceptance work.
+
+Explicit Play also crosses a shared synchronous foreground boundary. Legacy
+YouTube/Twitch-clip iframes mount only after application Play acquires that
+boundary, and are discarded when another player acquires it. Profile VRCDN
+players participate on audible Play/unmute; muted previews remain independent.
+Browsing alone does not acquire playback. Unavailable retained sources receive a
+fresh adapter on retry, with volume/mute preserved; autoplay-blocked sources retry
+the existing adapter. Native video pause, ended, error and playing events update
+owner state, and adapter disposal removes their listeners. Local media EOF is a
+paused connection, not authoritative event completion.

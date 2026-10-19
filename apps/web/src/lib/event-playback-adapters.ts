@@ -3,7 +3,7 @@ import type { AdapterNotify, PlaybackAdapter, PlaybackRequest } from "./event-pl
 import { createTwitchAdapter } from "./twitch-player-adapter";
 import { attachVrcdnTransport, releaseVrcdnTransport, type VrcdnTransport } from "./vrcdn-transport";
 
-export function createEventPlaybackAdapter(request: PlaybackRequest, mount: HTMLElement, notify: AdapterNotify): PlaybackAdapter {
+export function createEventPlaybackAdapter(request: PlaybackRequest, mount: HTMLElement, notify: AdapterNotify, loadMpegts = () => import("mpegts.js")): PlaybackAdapter {
   if (request.kind === "twitch") return createTwitchAdapter(request, mount, notify);
   if (request.kind === "performer_sequence") {
     let previousEvent = JSON.stringify(request.event);
@@ -19,10 +19,18 @@ export function createEventPlaybackAdapter(request: PlaybackRequest, mount: HTML
   const video = document.createElement("video"); video.playsInline = true; video.className = "aspect-video w-full object-contain"; video.title = request.title;
   mount.append(video);
   let player: VrcdnTransport | undefined, disposed = false, attempt = 0;
-  const ready = request.transport === "video" ? Promise.resolve().then(() => { if (!disposed) video.src = request.src; }) : import("mpegts.js").then(({ default: mpegts }) => {
+  let failed = false;
+  const listeners: Array<[string, () => void]> = [
+    ["playing", () => { if (!disposed && !video.paused) { failed = false; notify({ status: "playing" }); } }],
+    ["pause", () => { if (!disposed && !failed) notify({ status: "paused" }); }],
+    ["ended", () => { if (!disposed && !failed) notify({ status: "paused" }); }],
+    ["error", () => { if (!disposed) { failed = true; notify({ status: "unavailable" }); } }],
+  ];
+  for (const [event, listener] of listeners) video.addEventListener(event, listener);
+  const ready = request.transport === "video" ? Promise.resolve().then(() => { if (!disposed) video.src = request.src; }) : loadMpegts().then(({ default: mpegts }) => {
     if (disposed) return;
     if (!mpegts.isSupported()) throw new Error("Unsupported media transport");
-    player = attachVrcdnTransport(mpegts, video, request.src, { onError: () => { if (!disposed) notify({ status: "unavailable" }); } });
+    player = attachVrcdnTransport(mpegts, video, request.src, { onError: () => { if (!disposed) { failed = true; notify({ status: "unavailable" }); } } });
   });
   // The owner may close before Play awaits the transport import.
   void ready.catch(() => {});
@@ -31,6 +39,6 @@ export function createEventPlaybackAdapter(request: PlaybackRequest, mount: HTML
       try { await video.play(); return !disposed && current === attempt; } catch { return false; } },
     pause() { attempt++; video.pause(); }, setVolume(value) { video.volume = value; }, setMuted(value) { video.muted = value; },
     update(value) { video.title = value.title; },
-    dispose() { if (disposed) return; disposed = true; attempt++; video.pause(); if (player) releaseVrcdnTransport(player); video.removeAttribute("src"); video.load(); video.remove(); },
+    dispose() { if (disposed) return; disposed = true; attempt++; for (const [event, listener] of listeners) video.removeEventListener(event, listener); video.pause(); if (player) releaseVrcdnTransport(player); video.removeAttribute("src"); video.load(); video.remove(); },
   };
 }

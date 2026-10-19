@@ -1,4 +1,6 @@
 "use client";
+import { EventWatchSurface } from "@/app/_components/event-watch-surface";
+import { VrcdnStreamPlayer } from "@/app/_components/vrcdn-stream-player";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useEventPlayback } from "@/app/_components/event-playback-provider";
@@ -13,6 +15,10 @@ export function PlaybackFixture({ eventId, twitch }: { eventId: string; twitch: 
   return <main className="mx-auto w-full max-w-3xl p-6">
     <Link href={`/playwright/event-playback?event=${eventId === "a" ? "b" : "a"}`}>Other event</Link>
     <Link href="/playwright/event-lineup">Browse</Link>
+    <EventWatchSurface enabled startAt={startAt} mediaLinks={[{ type: "watch", label: "Legacy", url: "https://youtube.com/watch?v=fixture123", presentation: "open" }]} />
+    <EventWatchSurface enabled startAt={startAt} mediaLinks={[{ type: "watch", label: "Clip", url: "https://clips.twitch.tv/Fixture", presentation: "open" }]} />
+    <VrcdnStreamPlayer initialMuted src="/preview.live.ts" title="Preview" />
+    <VrcdnStreamPlayer src="/profile.live.ts" title="Profile" />
     {owner && <EventPlaybackInline owner={owner} request={request} />}
   </main>;
 }

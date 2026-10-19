@@ -1,5 +1,6 @@
 "use client";
 
+import { useForegroundPlayback } from "@/lib/use-foreground-playback";
 import { useEffect, useRef, useState } from "react";
 
 import { VrcdnPlayerControls } from "@/components/media/vrcdn-player-controls";
@@ -94,6 +95,14 @@ export function VrcdnStreamPlayer({
   onHealthSignalRef.current = onHealthSignal;
   onPlaybackActiveChangeRef.current = onPlaybackActiveChange;
   const [started, setStarted] = useState(initialStarted);
+  const foregroundLost = useRef(false);
+  const acquireForeground = useForegroundPlayback(() => {
+    foregroundLost.current = true;
+    videoRef.current?.pause();
+    onPlaybackActiveChangeRef.current?.(false);
+    setStarted(false);
+  });
+  const requestForeground = () => { foregroundLost.current = false; acquireForeground(); };
   const [failed, setFailed] = useState(false);
   const [ended, setEnded] = useState(false);
   // Mirrored from the element rather than driven from here, so the controls
@@ -225,7 +234,7 @@ export function VrcdnStreamPlayer({
 
     void import("mpegts.js")
       .then(({ default: mpegts }) => {
-        if (cancelled || !videoRef.current) {
+        if (cancelled || foregroundLost.current || !videoRef.current) {
           return;
         }
 
@@ -324,7 +333,7 @@ export function VrcdnStreamPlayer({
       <button
         aria-label={`Play ${title}`}
         className="block w-full cursor-pointer"
-        onClick={() => setStarted(true)}
+        onClick={() => { foregroundLost.current = false; if (!muted) requestForeground(); setStarted(true); }}
         type="button"
       >
         <WatchPlayPoster />
@@ -356,6 +365,7 @@ export function VrcdnStreamPlayer({
       <video
         aria-label={title}
         autoPlay
+        onPlay={() => { if (foregroundLost.current) videoRef.current?.pause(); else if (!videoRef.current?.muted) acquireForeground(); }}
         muted={muted}
         className={cn("w-full", fullscreen ? "h-full max-h-full object-contain" : "aspect-video")}
         playsInline
@@ -401,6 +411,7 @@ export function VrcdnStreamPlayer({
             video.volume = lastAudibleVolumeRef.current;
           }
 
+          if (video.muted) requestForeground();
           video.muted = !video.muted;
         }}
         onTogglePlay={() => {
@@ -425,6 +436,7 @@ export function VrcdnStreamPlayer({
             video.currentTime = buffered.end(buffered.length - 1);
           }
 
+          if (!video.muted) requestForeground();
           void video.play().catch(() => {});
         }}
         onVolumeChange={(next) => {
@@ -434,6 +446,7 @@ export function VrcdnStreamPlayer({
             return;
           }
 
+          if (next > 0 && !video.paused) requestForeground();
           video.volume = next;
           video.muted = next === 0;
         }}
