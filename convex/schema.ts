@@ -1,3 +1,4 @@
+import { observedBroadcastStateValidator } from "./_eventMediaControl";
 import { clubPermission, clubVisibility, clubSubject } from "./_clubModel";
 import { providerReadParams, providerReadPage } from "./_clubProviderReads";
 import { integrationFeature, storedAuthority } from "./_clubConnection";
@@ -1573,6 +1574,13 @@ export default defineSchema({
     note: v.optional(v.string()),
     idempotencyKey: v.optional(v.string()),
     availableAt: v.optional(v.number()),
+    sequence: v.optional(v.number()),
+    claimedEpoch: v.optional(v.number()),
+    acknowledgedEpoch: v.optional(v.number()),
+    observedSourceId: v.optional(v.union(v.id("eventMediaSources"), v.null())),
+    observedSceneId: v.optional(v.union(v.id("eventMediaScenes"), v.null())),
+    observedOutputId: v.optional(v.union(v.id("eventMediaOutputs"), v.null())),
+    observedState: v.optional(observedBroadcastStateValidator),
     claimedByWorkerId: v.optional(v.string()),
     errorSummary: v.optional(v.string()),
     createdAt: v.number(),
@@ -1585,13 +1593,18 @@ export default defineSchema({
     .index("by_programId_status_createdAt", ["programId", "status", "createdAt"])
     .index("by_sessionId_status_createdAt", ["sessionId", "status", "createdAt"])
     .index("by_eventId_createdAt", ["eventId", "createdAt"])
-    .index("by_idempotencyKey", ["idempotencyKey"]),
+    .index("by_idempotencyKey", ["idempotencyKey"])
+    .index("by_sessionId_sequence", ["sessionId", "sequence"]),
   eventMediaSessions: defineTable({
     programId: v.id("eventMediaPrograms"),
     eventId: v.id("events"),
     outputId: v.optional(v.id("eventMediaOutputs")),
     status: eventMediaSessionStatusValidator,
     workerId: v.optional(v.string()),
+    epoch: v.optional(v.number()),
+    acquiredAt: v.optional(v.number()),
+    nextCommandSequence: v.optional(v.number()),
+    lastAcknowledgedSequence: v.optional(v.number()),
     workerRuntime: v.optional(v.string()),
     workerProvider: v.optional(eventMediaWorkerProviderValidator),
     workerTaskDefinitionArn: v.optional(v.string()),

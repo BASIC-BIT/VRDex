@@ -227,6 +227,10 @@ export type EventMediaPublicProgramState = {
   directFallbackLinks: EventMediaPublicLink[];
 };
 
+export const observedBroadcastStateValidator = v.union(
+  v.literal("live"), v.literal("hold"), v.literal("fallback"), v.literal("ended"), v.literal("error"),
+);
+
 export const eventMediaProgramStateValidator = v.union(
   v.literal("draft"),
   v.literal("ready"),

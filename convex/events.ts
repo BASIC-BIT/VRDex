@@ -1,3 +1,4 @@
+import { allocateSessionCommandSequence, requireEventMediaBridgeToken } from "./_eventBroadcastInputs";
 import { dateOnlyEventsEnabled, eventDateForInstant, eventSortAt, eventSortEndAt, normalizeEventSchedule, publicEventSchedule, requireDateOnlyEventsEnabled } from "./_eventSchedule";
 import { eventProfileStreamChoices } from "./_eventPlayback";
 import { ConvexError, v } from "convex/values";
@@ -314,25 +315,6 @@ function optionalPositiveTimestamp(input: number | undefined, fieldName: string)
   }
 
   return input;
-}
-
-function requireEventMediaBridgeToken(input: string) {
-  const expected = process.env.VRDEX_EVENT_MEDIA_BRIDGE_TOKEN?.trim();
-
-  if (expected === undefined || expected.length === 0) {
-    throw new Error("Event media bridge token is not configured.");
-  }
-
-  let mismatch = input.length === expected.length ? 0 : 1;
-  const length = Math.max(input.length, expected.length);
-
-  for (let index = 0; index < length; index += 1) {
-    mismatch |= (input.charCodeAt(index) || 0) ^ (expected.charCodeAt(index) || 0);
-  }
-
-  if (mismatch !== 0) {
-    throw new Error("Event media bridge token is invalid.");
-  }
 }
 
 function requireBridgeWorkerId(input: string): string {
@@ -1757,6 +1739,7 @@ async function insertEventMediaCommand(
     programId: input.program._id,
     eventId: input.program.eventId,
     sessionId: input.sessionId,
+    sequence: await allocateSessionCommandSequence(db, input.sessionId),
     commandType: input.commandType,
     status: "queued",
     ...(input.actor === undefined ? {} : { actor: input.actor }),
@@ -2064,6 +2047,9 @@ async function applyEventMediaWorkerTaskStatus(
     now: number;
   },
 ) {
+  if (input.session.epoch !== undefined) {
+    throw new Error("Fenced event media sessions require eventMediaWorker mutations.");
+  }
   const requestedStatus = input.status ?? input.session.status;
   const cancellationPending =
     input.session.stopRequestedAt !== undefined && !["ended", "error"].includes(requestedStatus);
@@ -2480,9 +2466,12 @@ export const queueEventMediaCommand = mutation({
 
     const targets = await resolveEventMediaCommandTargets(ctx.db, program, command);
     const now = Date.now();
+    const session = await getOpenEventMediaSession(ctx.db, program);
+    const sequence = session === null ? undefined : await allocateSessionCommandSequence(ctx.db, session._id);
     const commandId = await ctx.db.insert("eventMediaCommands", {
       programId: program._id,
       eventId: event._id,
+      ...(session === null ? {} : { sessionId: session._id, sequence }),
       commandType: command.type,
       status: "queued",
       actor: subject,
@@ -2553,6 +2542,9 @@ export const claimEventMediaWorkerCommand = mutation({
       if (!isWorkerCommandType(command.commandType) || command.sessionId === undefined) {
         continue;
       }
+
+      const session = await ctx.db.get(command.sessionId);
+      if (session?.epoch !== undefined) continue;
 
       const payload = await createWorkerBridgeCommandPayload(ctx.db, command);
 
