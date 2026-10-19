@@ -95,10 +95,11 @@ export function EventHostContent({ event }: { event: PublicEvent }) {
 
   useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
     const refresh = async () => {
       setNow(Date.now());
       try {
-        const response = await fetch(`${path}/host/status`, { signal: AbortSignal.timeout(10_000) });
+        const response = await fetch(`${path}/host/status`, { signal: controller.signal });
         if (response.ok) {
           const data = parseSourceObservations(await response.json());
           if (!cancelled) setObservations(data);
@@ -110,6 +111,7 @@ export function EventHostContent({ event }: { event: PublicEvent }) {
     const clock = setInterval(() => setNow(Date.now()), 1000);
     return () => {
       cancelled = true;
+      controller.abort();
       clearInterval(timer);
       clearInterval(clock);
     };

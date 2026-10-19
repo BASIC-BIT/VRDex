@@ -19,7 +19,12 @@ export function createSourceStatusReader(probe: (source: PublicStatusSource)=>Pr
   const unique=new Map(sources.map(source=>[source.key,source]));
   const entries=await Promise.all([...unique.values()].map(async source=>{
    let entry=cache.get(source.key);
-   if(!entry || entry.expiresAt<=now()) { entry={expiresAt:now()+30_000,value:check(source)}; cache.set(source.key,entry); }
+   if(!entry || entry.expiresAt<=now()) {
+    const fresh={expiresAt:Infinity,value:check(source)};
+    fresh.value=fresh.value.then(value=>{fresh.expiresAt=now()+30_000;return value});
+    cache.set(source.key,fresh);
+    entry=fresh;
+   }
    const value=await entry.value;
    return [source.key,{...value,state:reportedSourceState(value,now())}] as const;
   }));

@@ -43,3 +43,11 @@ it('keeps simultaneous live sources separate and refreshes expired cache entries
  assert.equal(states['vrcdn:a'].state,'live');assert.equal(states['twitch:a'].state,'live');
  now=30_101;await read(sources);assert.equal(calls,4);
 });
+it('deduplicates pending probes beyond the cache window',async()=>{
+ let now=0;let calls=0;let release:()=>void=()=>{};
+ const held=new Promise<void>(resolve=>{release=resolve});
+ const read=createSourceStatusReader(async()=>{calls++;await held;return {state:'live',observedAt:now}},()=>now);
+ const source=[{key:'vrcdn:held',url:'vrcdn:held'}];
+ const first=read(source);now=31_000;const second=read(source);
+ release();await Promise.all([first,second]);assert.equal(calls,1);
+});
