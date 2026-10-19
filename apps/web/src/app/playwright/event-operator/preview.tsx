@@ -85,6 +85,7 @@ const initial = {
       leaseExpiresAt: fixtureNow + 30000,
       runtimeDeadlineAt: fixtureNow + 3600000,
       artifactLinks: [],
+      programObservedAt: fixtureNow,
       outputHealthObservedAt: fixtureNow,
       outputHealth: [
         {
@@ -145,6 +146,7 @@ export function EventOperatorFixture() {
       () =>
         setStatus((value) => ({
           ...value,
+          serverNow: value.serverNow + 1000,
           commands: [{ ...row, status: "succeeded" }],
           sessions: value.sessions.map((session) => ({
             ...session,
@@ -158,6 +160,9 @@ export function EventOperatorFixture() {
                   : "manual",
             status: type === "switch_hold" ? "hold" : "live",
             lastAcknowledgedSequence: 4,
+            programObservedAt: value.serverNow + 1000,
+            outputHealthObservedAt: value.serverNow + 1000,
+            leaseExpiresAt: value.serverNow + 31000,
           })),
         })),
       800,
@@ -187,6 +192,7 @@ export function EventOperatorFixture() {
             sessions: value.sessions.map((session) => ({
               ...session,
               status: "starting",
+              programObservedAt: undefined,
               currentSourceId: undefined,
               outputHealth: [],
             })),
@@ -211,6 +217,51 @@ export function EventOperatorFixture() {
         }}
       />
       <aside className="px-8">
+        <button
+          onClick={() =>
+            setStatus((value) => ({
+              ...value,
+              sessions: value.sessions.map((session) => ({
+                ...session,
+                status: "live",
+                broadcastMode: "automatic",
+                currentSourceId: value.sources[0].sourceId,
+                programObservedAt: fixtureNow,
+              })),
+            }))
+          }
+        >
+          Observe live
+        </button>
+        <button
+          onClick={() =>
+            setStatus((value) => ({
+              ...value,
+              sessions: value.sessions.map((session) => ({
+                ...session,
+                leaseExpiresAt: fixtureNow - 1,
+              })),
+            }))
+          }
+        >
+          Expire lease
+        </button>
+        <button
+          onClick={() =>
+            setStatus((value) => ({
+              ...value,
+              serverNow: fixtureNow + 1,
+              sessions: value.sessions.map((session) => ({
+                ...session,
+                programObservedAt: fixtureNow - 16000,
+                updatedAt: fixtureNow + 1,
+              })),
+            }))
+          }
+        >
+          Stale observation
+        </button>
+
         <button onClick={() => setHoldRequest(true)}>Hold request</button>
         <button
           onClick={() =>

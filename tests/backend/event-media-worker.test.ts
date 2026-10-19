@@ -259,6 +259,8 @@ it("cancelled session renewal cannot extend publication past its stop grace peri
 
 it('Twitch output setup is private, explicitly enabled, and preserves selected VRCDN', async()=>{
  const {t,owner,event,output,args}=await fixture();
+ const communityId=(await t.run(({db})=>db.get(event.eventId)))?.communityProfileId;
+ process.env.VRDEX_TWITCH_OUTPUT_ACCOUNTS_JSON=JSON.stringify([{key:"owned",channel:"example",credentialRef:"event-media/twitch/owned",ownerCommunityProfileId:communityId}]);
  const setup={currentSlug:event.slug,key:'twitch',label:'Twitch',channel:'example',credentialRef:'event-media/twitch/owned',sourceConsentAccepted:true,destinationAuthorityAccepted:true,providerRulesAccepted:true,rightsClearedMediaAccepted:true};
  const ref=makeFunctionReference<'mutation'>('events:configureTwitchOutput');
  await assert.rejects(()=>t.mutation(ref,setup));
@@ -288,6 +290,8 @@ it('destination health is fenced and rejects outputs belonging to another event'
 });
 it('destination keys cannot be converted by the legacy VRCDN writer or malformed Twitch discriminator',async()=>{
  const {t,owner,event}=await fixture();const ref=makeFunctionReference<'mutation'>('events:configureTwitchOutput');
+ const communityId=(await t.run(({db})=>db.get(event.eventId)))?.communityProfileId;
+ process.env.VRDEX_TWITCH_OUTPUT_ACCOUNTS_JSON=JSON.stringify([{key:"owned",channel:"example",credentialRef:"event-media/twitch/owned",ownerCommunityProfileId:communityId}]);
  const setup={currentSlug:event.slug,key:'twitch-main',label:'Twitch',channel:'example',credentialRef:'event-media/twitch/owned',simulcastEnabled:true,sourceConsentAccepted:true,destinationAuthorityAccepted:true,providerRulesAccepted:true,rightsClearedMediaAccepted:true};
  const added=await owner.mutation(ref,setup);const before=await t.run(ctx=>ctx.db.get(added.outputId));
  await assert.rejects(()=>owner.mutation(api.events.configureVrcdnOutput,{currentSlug:event.slug,key:setup.key,label:'VRCDN',credentialRef:'event-media/vrcdn/main',sourceConsentAccepted:true,destinationAuthorityAccepted:true,providerRulesAccepted:true,rightsClearedMediaAccepted:true}),/another destination/);
@@ -372,7 +376,9 @@ it("operator_account_choices_never_expose_credential_references", async () => {
   const previous = process.env.VRDEX_TWITCH_OUTPUT_ACCOUNTS_JSON;
   process.env.VRDEX_TWITCH_OUTPUT_ACCOUNTS_JSON = JSON.stringify([{ key:"organizer", channel:"afterglow", credentialRef:"event-media/twitch/private" }]);
   try {
-    const { owner, event } = await fixture();
+    const { t, owner, event } = await fixture();
+    const communityId=(await t.run(({db})=>db.get(event.eventId)))?.communityProfileId;
+    process.env.VRDEX_TWITCH_OUTPUT_ACCOUNTS_JSON=JSON.stringify([{key:"organizer",channel:"afterglow",credentialRef:"event-media/twitch/private",ownerCommunityProfileId:communityId}]);
     const status = await owner.query(api.events.getEventMediaControlStatus, { currentSlug:event.slug });
     assert.deepEqual(status.twitchAccounts, [{ key:"organizer", channel:"afterglow" }]);
     assert.equal(JSON.stringify(status).includes("event-media/twitch/private"), false);
@@ -395,4 +401,169 @@ it("invalid_optional_account_registry_does_not_hide_worker_controls", async () =
     if (previous === undefined) delete process.env.VRDEX_TWITCH_OUTPUT_ACCOUNTS_JSON;
     else process.env.VRDEX_TWITCH_OUTPUT_ACCOUNTS_JSON = previous;
   }
+});
+
+const twitchConsent = { sourceConsentAccepted:true, destinationAuthorityAccepted:true, providerRulesAccepted:true, rightsClearedMediaAccepted:true };
+async function twitchCommunity(f: Awaited<ReturnType<typeof fixture>>) {
+  const record = await f.t.run(({db}) => db.get(f.event.eventId));
+  assert.ok(record?.communityProfileId);
+  return record.communityProfileId;
+}
+it("Twitch registry isolates two destination owners and rechecks explicit community grants", async () => {
+  const f = await fixture();
+  const ownerAId = await twitchCommunity(f);
+  const subjectB = newClerkUserId();
+  const ownerBId = await f.t.run(async ({db}) => {
+    const now=Date.now();
+    const userId=await db.insert("users",{clerkUserId:subjectB,name:"B",email:"b@example.test",emailVerificationTime:now});
+    const profileId=await db.insert("profiles",{slug:"club-b",displayName:"B",sortName:"b",aliases:[],tags:[],claimState:"claimed_verified",publicationState:"published",publicSurfacingState:"public",creationSource:"self",updatedAt:now,profileType:"community",community:{categoryTags:[]}});
+    await db.insert("profileOwners",{profileId,userId,roleKey:"owner",state:"active",grantedAt:now,updatedAt:now});
+    return profileId;
+  });
+  const ownerB=f.t.withIdentity({subject:subjectB,emailVerified:true,issuer:"test",tokenIdentifier:`test|${subjectB}`});
+  const eventB=await ownerB.mutation(api.events.createCommunityEvent,{title:"B event",communitySlug:"club-b",startAt:Date.now()+600000,timezone:"UTC"});
+  const a={key:"a",channel:"channel_a",credentialRef:"event-media/twitch/a",ownerCommunityProfileId:ownerAId};
+  const b={key:"b",channel:"channel_b",credentialRef:"event-media/twitch/b",ownerCommunityProfileId:ownerBId};
+  process.env.VRDEX_TWITCH_OUTPUT_ACCOUNTS_JSON=JSON.stringify([a,b]);
+  assert.deepEqual((await f.owner.query(api.events.getEventMediaControlStatus,{currentSlug:f.event.slug})).twitchAccounts,[{key:"a",channel:"channel_a"}]);
+  assert.deepEqual((await ownerB.query(api.events.getEventMediaControlStatus,{currentSlug:eventB.slug})).twitchAccounts,[{key:"b",channel:"channel_b"}]);
+  const setup={currentSlug:f.event.slug,key:"twitch",label:"Twitch",channel:b.channel,...twitchConsent};
+  await assert.rejects(f.owner.mutation(api.events.configureTwitchOutput,{...setup,outputAccountKey:"b"}));
+  await assert.rejects(f.owner.mutation(api.events.configureTwitchOutput,{...setup,credentialRef:b.credentialRef}));
+  await assert.rejects(ownerB.mutation(api.events.configureTwitchOutput,{...setup,currentSlug:eventB.slug,outputAccountKey:"a"}));
+  await assert.rejects(ownerB.mutation(api.events.configureTwitchOutput,{...setup,currentSlug:eventB.slug,channel:a.channel,credentialRef:a.credentialRef}));
+  await assert.rejects(f.owner.mutation(api.events.configureTwitchOutput,{...setup,outputAccountKey:"a",credentialRef:b.credentialRef}));
+  await ownerB.mutation(api.events.configureTwitchOutput,{...setup,currentSlug:eventB.slug,outputAccountKey:"b"});
+  await f.owner.mutation(api.events.configureTwitchOutput,{...setup,channel:a.channel,outputAccountKey:"a"});
+  process.env.VRDEX_TWITCH_OUTPUT_ACCOUNTS_JSON=JSON.stringify([a,{...b,authorizedCommunityProfileIds:[ownerAId]}]);
+  assert.equal((await f.owner.query(api.events.getEventMediaControlStatus,{currentSlug:f.event.slug})).twitchAccounts.length,2);
+  await f.owner.mutation(api.events.configureTwitchOutput,{...setup,outputAccountKey:"b"});
+  process.env.VRDEX_TWITCH_OUTPUT_ACCOUNTS_JSON=JSON.stringify([a,b]);
+  await assert.rejects(f.owner.mutation(api.events.configureTwitchOutput,{...setup,outputAccountKey:"b"}));
+  process.env.VRDEX_TWITCH_OUTPUT_ACCOUNTS_JSON=JSON.stringify([{key:a.key,channel:a.channel,credentialRef:a.credentialRef}]);
+  assert.deepEqual((await f.owner.query(api.events.getEventMediaControlStatus,{currentSlug:f.event.slug})).twitchAccounts,[]);
+  await assert.rejects(f.owner.mutation(api.events.configureTwitchOutput,{...setup,channel:a.channel,credentialRef:a.credentialRef}));
+});
+
+it("revoked optional Twitch binding disappears from existing ready output dispatch and refresh", async () => {
+  const f=await fixture(), communityId=await twitchCommunity(f);
+  const destinationOwner=await f.t.run(async({db})=>{
+    const profile=await db.get(communityId); assert.ok(profile);
+    const {_id,_creationTime,...fields}=profile;
+    return db.insert("profiles",{...fields,slug:"destination-owner",displayName:"Destination owner"});
+  });
+  const account={key:"owned",channel:"example",credentialRef:"event-media/twitch/owned",ownerCommunityProfileId:destinationOwner};
+  process.env.VRDEX_TWITCH_OUTPUT_ACCOUNTS_JSON=JSON.stringify([{...account,authorizedCommunityProfileIds:[communityId]}]);
+  const added=await f.owner.mutation(api.events.configureTwitchOutput,{currentSlug:f.event.slug,key:"twitch",label:"Twitch",channel:"example",outputAccountKey:"owned",simulcastEnabled:true,...twitchConsent});
+  process.env.VRDEX_TWITCH_OUTPUT_ACCOUNTS_JSON=JSON.stringify([account]);
+  const dispatch=await f.t.mutation(api.events.claimEventMediaWorkerCommand,{bridgeToken,workerId:"binding-bridge"});
+  assert.ok(dispatch);
+  assert.deepEqual(dispatch.optionalOutputs,[]);
+  process.env.VRDEX_TWITCH_OUTPUT_ACCOUNTS_JSON=JSON.stringify([{...account,authorizedCommunityProfileIds:[communityId]}]);
+  const lease=await f.t.mutation(worker("acquireSession"),f.args);
+  assert.ok(lease.configuration.outputs.some((o:{id:string})=>o.id===added.outputId));
+  process.env.VRDEX_TWITCH_OUTPUT_ACCOUNTS_JSON=JSON.stringify([account]);
+  const fresh=await f.t.mutation(worker("refreshConfiguration"),{...f.args,epoch:lease.epoch});
+  assert.equal(fresh.granted,true);
+  assert.equal(fresh.configuration.outputs.some((o:{id:string})=>o.id===added.outputId),false);
+  assert.equal((await f.t.run(({db})=>db.get(added.outputId)))?.state,"ready");
+
+  assert.equal((await f.t.mutation(worker("observeOutputs"),{...f.args,epoch:lease.epoch,destinations:[{outputId:added.outputId,destination:"twitch",status:"publishing",publishing:true,queueBytes:0,outputMs:1000,restarts:0}]})).accepted,false);
+});
+
+it("revoked selected Twitch binding denies dispatch acquisition renewal and refresh", async () => {
+  const f=await fixture(), communityId=await twitchCommunity(f);
+  const registry=[{key:"owned",channel:"example",credentialRef:"event-media/twitch/owned",ownerCommunityProfileId:communityId}];
+  process.env.VRDEX_TWITCH_OUTPUT_ACCOUNTS_JSON=JSON.stringify(registry);
+  const added=await f.owner.mutation(api.events.configureTwitchOutput,{currentSlug:f.event.slug,key:"twitch",label:"Twitch",channel:"example",credentialRef:registry[0].credentialRef,...twitchConsent});
+  await f.t.run(async({db})=>{await db.patch(f.args.sessionId,{outputId:added.outputId});await db.patch(f.output.programId,{currentOutputId:added.outputId});});
+  const lease=await f.t.mutation(worker("acquireSession"),f.args);
+  assert.equal(lease.granted,true);
+  const claimed=await f.t.mutation(worker("claimCommands"),{...f.args,epoch:lease.epoch});
+  process.env.VRDEX_TWITCH_OUTPUT_ACCOUNTS_JSON="[]";
+  const command=claimed.commands[0];
+  assert.ok(command);
+  assert.equal((await f.t.mutation(worker("acknowledgeCommand"),{...f.args,epoch:lease.epoch,commandId:command._id,sequence:command.sequence,outcome:"succeeded",observedState:"hold"})).accepted,false);
+  assert.equal((await f.t.mutation(worker("admitDispatch"),{bridgeToken,eventId:f.event.eventId,sessionId:f.args.sessionId,dispatchId:"revoked-destination"})).granted,false);
+  assert.equal((await f.t.mutation(worker("acquireSession"),{...f.args,epoch:lease.epoch})).granted,false);
+  assert.equal((await f.t.mutation(worker("renewSession"),{...f.args,epoch:lease.epoch})).granted,false);
+  assert.equal((await f.t.mutation(worker("refreshConfiguration"),{...f.args,epoch:lease.epoch})).granted,false);
+  assert.equal(await f.t.mutation(api.events.claimEventMediaWorkerCommand,{bridgeToken,workerId:"revoked-bridge"}),null);
+});
+
+it("revoked selected ready destination cannot enter the bridge before acquisition but Stop still works", async () => {
+  const f=await fixture(), communityId=await twitchCommunity(f);
+  process.env.VRDEX_TWITCH_OUTPUT_ACCOUNTS_JSON=JSON.stringify([{key:"owned",channel:"example",credentialRef:"event-media/twitch/owned",ownerCommunityProfileId:communityId}]);
+  const added=await f.owner.mutation(api.events.configureTwitchOutput,{currentSlug:f.event.slug,key:"twitch",label:"Twitch",channel:"example",outputAccountKey:"owned",...twitchConsent});
+  await f.t.run(async({db})=>{await db.patch(f.args.sessionId,{outputId:added.outputId});await db.patch(f.output.programId,{currentOutputId:added.outputId});});
+  process.env.VRDEX_TWITCH_OUTPUT_ACCOUNTS_JSON="[]";
+  assert.equal((await f.t.mutation(worker("admitDispatch"),{bridgeToken,eventId:f.event.eventId,sessionId:f.args.sessionId,dispatchId:"pre-acquire-revoked"})).granted,false);
+  assert.equal(await f.t.mutation(api.events.claimEventMediaWorkerCommand,{bridgeToken,workerId:"pre-acquire-bridge"}),null);
+  assert.equal((await f.t.mutation(worker("acquireSession"),f.args)).granted,false);
+  await f.owner.mutation(api.events.stopEventMediaWorker,{currentSlug:f.event.slug,sessionId:f.args.sessionId});
+  const stop=await f.t.mutation(api.events.claimEventMediaWorkerCommand,{bridgeToken,workerId:"cleanup-bridge"});
+  assert.equal(stop?.commandType,"stop_program");
+});
+
+it("actual program observations have a distinct timestamp that renewal cannot refresh or replacement inherit", async () => {
+  const f=await fixture();
+  const lease=await f.t.mutation(worker("acquireSession"),f.args), request={...f.args,epoch:lease.epoch};
+  assert.equal((await f.owner.query(api.events.getEventMediaControlStatus,{currentSlug:f.event.slug})).sessions[0].programObservedAt,undefined);
+  const before=Date.now();
+  await f.t.mutation(worker("observeProgram"),{...request,state:"hold",mode:"hold",outputMs:500,publishing:true,outputId:f.output.outputId});
+  const first=await f.owner.query(api.events.getEventMediaControlStatus,{currentSlug:f.event.slug});
+  const observedAt=first.sessions[0].programObservedAt;
+  assert.ok(observedAt!==undefined && observedAt>=before && observedAt<=first.serverNow);
+  await f.t.mutation(worker("renewSession"),request);
+  await f.t.mutation(worker("observeOutputs"),{...request,destinations:[{outputId:f.output.outputId,destination:"vrcdn",status:"publishing",publishing:true,queueBytes:0,outputMs:1000,restarts:0}]});
+  assert.equal((await f.owner.query(api.events.getEventMediaControlStatus,{currentSlug:f.event.slug})).sessions[0].programObservedAt,observedAt);
+  await f.t.run(({db})=>db.patch(f.args.sessionId,{leaseExpiresAt:Date.now()-1}));
+  await f.t.mutation(worker("acquireSession"),{...f.args,workerId:"replacement",epoch:lease.epoch});
+  const replaced=(await f.owner.query(api.events.getEventMediaControlStatus,{currentSlug:f.event.slug})).sessions[0];
+  assert.equal(replaced.programObservedAt,undefined);
+  assert.equal(replaced.outputHealthObservedAt,undefined);
+});
+
+it("actual optional grant revocation fences the controller before more program publication", async () => {
+  const f=await fixture(), communityId=await twitchCommunity(f);
+  process.env.VRDEX_TWITCH_OUTPUT_ACCOUNTS_JSON=JSON.stringify([{key:"owned",channel:"example",credentialRef:"event-media/twitch/owned",ownerCommunityProfileId:communityId}]);
+  await f.owner.mutation(api.events.configureTwitchOutput,{currentSlug:f.event.slug,key:"twitch",label:"Twitch",channel:"example",outputAccountKey:"owned",simulcastEnabled:true,...twitchConsent});
+  const {createEventWorker}=await import("../../workers/restream/event-worker.mjs");
+  let fences=0;
+  const controller=createEventWorker({identity:f.args,control:(method:string,request:Record<string,unknown>)=>f.t.mutation(worker(method),request),
+    renderer:{start:async()=>{},stop:async()=>{},subscribe:()=>()=>{},reconcileSources:async()=>{},getInputs:()=>[],hold:()=>{},getState:()=>({running:true,outputMs:1000})},
+    outputs:{start:async()=>{},stop:async()=>{},stopNow:()=>{fences++;},enqueue:()=>{},getState:()=>({publishing:true})},
+    resolveSource:async()=>undefined,checkEnabled:async()=>true});
+  try {
+    await controller.start();
+    assert.equal(fences,0);
+    process.env.VRDEX_TWITCH_OUTPUT_ACCOUNTS_JSON="[]";
+    await controller.tick();
+    assert.equal(fences,1);
+    assert.equal(controller.getState().stopped,true);
+  } finally { await controller.stop(); }
+});
+
+it("only successful observed command acknowledgements stamp program media time", async () => {
+  const f=await fixture();
+  const lease=await f.t.mutation(worker("acquireSession"),f.args), request={...f.args,epoch:lease.epoch};
+  const initial=await f.t.mutation(worker("claimCommands"),request);
+  const first=initial.commands[0];
+  await f.t.mutation(worker("acknowledgeCommand"),{...request,commandId:first._id,sequence:first.sequence,outcome:"failed"});
+  assert.equal((await f.owner.query(api.events.getEventMediaControlStatus,{currentSlug:f.event.slug})).sessions[0].programObservedAt,undefined);
+  await f.owner.mutation(api.events.queueEventMediaCommand,{currentSlug:f.event.slug,type:"hold_current"});
+  const next=await f.t.mutation(worker("claimCommands"),request), command=next.commands[0], before=Date.now();
+  assert.equal((await f.t.mutation(worker("acknowledgeCommand"),{...request,commandId:command._id,sequence:command.sequence,outcome:"succeeded",observedState:"hold"})).accepted,true);
+  const status=await f.owner.query(api.events.getEventMediaControlStatus,{currentSlug:f.event.slug});
+  assert.ok(status.sessions[0].programObservedAt!==undefined && status.sessions[0].programObservedAt>=before && status.sessions[0].programObservedAt<=status.serverNow);
+});
+
+it("late terminal observation cannot clear a replacement session's active program", async () => {
+  const f=await fixture();
+  const lease=await f.t.mutation(worker("acquireSession"),f.args);
+  await f.t.run(({db})=>db.patch(f.args.sessionId,{status:"ended"}));
+  const replacement=await f.owner.mutation(api.events.scheduleEventMediaWorker,{currentSlug:f.event.slug});
+  const late=await f.t.mutation(worker("observeProgram"),{...f.args,epoch:lease.epoch,state:"error",outputMs:0,publishing:false});
+  assert.equal(late.accepted,false);
+  assert.equal((await f.t.run(({db})=>db.get(f.output.programId)))?.activeSessionId,replacement.sessionId);
 });

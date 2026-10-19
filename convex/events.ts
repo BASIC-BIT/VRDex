@@ -1,4 +1,4 @@
-import { sanitizeTwitchOutput, getTwitchOutputAccount, listTwitchOutputAccounts } from './_eventOutputSetup';
+import { sanitizeTwitchOutput, getTwitchOutputAccount, listTwitchOutputAccounts, eventOutputIsAuthorized } from './_eventOutputSetup';
 import { validateBroadcastPolicy, allocateSessionCommandSequence, attachPendingProgramCommands, requireEventMediaBridgeToken } from "./_eventBroadcastInputs";
 import { dateOnlyEventsEnabled, eventDateForInstant, eventSortAt, eventSortEndAt, normalizeEventSchedule, publicEventSchedule, requireDateOnlyEventsEnabled } from "./_eventSchedule";
 import { eventProfileStreamChoices, resolveEventStream } from "./_eventPlayback";
@@ -1572,6 +1572,8 @@ async function getReadyEventMediaOutput(
     throw new Error("A ready event media output is required before scheduling a worker.");
   }
 
+  const event = await db.get(program.eventId);
+  if (!event || !eventOutputIsAuthorized(event, output)) throw new Error("Output account is not authorized for this community.");
   return output;
 }
 
@@ -1957,6 +1959,7 @@ export async function reconcileEventMediaScheduleChange(
 function workerSessionStatus(session: Doc<"eventMediaSessions">) {
   return {
     currentSourceId: session.currentSourceId,
+    programObservedAt: session.programObservedAt,
     lastAcknowledgedSequence: session.lastAcknowledgedSequence,
     epoch:session.epoch,dispatchId:session.dispatchId,dispatchStopConfirmedAt:session.dispatchStopConfirmedAt,workerTaskCleanupPending:session.workerTaskCleanupPending,broadcastMode:session.broadcastMode,runtimeDeadlineAt:session.runtimeDeadlineAt,
     sessionId: session._id,
@@ -2026,6 +2029,9 @@ async function createWorkerBridgeCommandPayload(
     return null;
   }
 
+  const event = await db.get(command.eventId);
+  if (command.commandType === "start_program" && (!event || !output || !eventOutputIsAuthorized(event, output))) return null;
+
   return {
     commandId: command._id,
     commandType: command.commandType,
@@ -2038,7 +2044,7 @@ async function createWorkerBridgeCommandPayload(
       publicLinks: program.publicLinks,
     },
     session: workerSessionStatus(session),
-    optionalOutputs: (await db.query("eventMediaOutputs").withIndex("by_programId_key", q=>q.eq("programId",program._id)).take(9)).filter(o=>o._id!==session.outputId && o.eventId===command.eventId && o.simulcastEnabled===true && o.type==="external_rtmp" && o.twitchSetup && ["ready","active"].includes(o.state)).map(o=>workerCommandOutput(o)),
+    optionalOutputs: (await db.query("eventMediaOutputs").withIndex("by_programId_key", q=>q.eq("programId",program._id)).take(9)).filter(o=>o._id!==session.outputId && o.eventId===command.eventId && o.simulcastEnabled===true && event && eventOutputIsAuthorized(event, o) && o.type==="external_rtmp" && o.twitchSetup && ["ready","active"].includes(o.state)).map(o=>workerCommandOutput(o)),
     ...(workerCommandOutput(output) === undefined ? {} : { output: workerCommandOutput(output) }),
   };
 }
@@ -2351,7 +2357,7 @@ export const getEventMediaControlStatus = query({
 
     if (program === null) {
       return {
-        twitchAccounts: canControl ? listTwitchOutputAccounts() : [],
+        twitchAccounts: canControl ? listTwitchOutputAccounts(event.communityProfileId) : [],
         eventTitle: event.title,
         serverNow,
         canControl,
@@ -2406,7 +2412,7 @@ export const getEventMediaControlStatus = query({
     const programCommands = commands.filter((command) => command.programId === program._id);
 
     return {
-      twitchAccounts: canControl ? listTwitchOutputAccounts() : [],
+      twitchAccounts: canControl ? listTwitchOutputAccounts(event.communityProfileId) : [],
       eventTitle: event.title,
       serverNow,
       canControl,
@@ -2448,6 +2454,7 @@ export const getEventMediaControlStatus = query({
           state: output.state,
           label: output.label,
           hasCredential: output.credential !== undefined,
+          authorized: eventOutputIsAuthorized(event, output),
           simulcastEnabled: output.simulcastEnabled ?? false,
           twitchSetup: output.twitchSetup,
           playbackLinkCount: output.playbackLinks.length,
@@ -3619,8 +3626,9 @@ export const configureTwitchOutput = mutation({
     const subject=await requireAuthenticatedSubject(ctx);
     const {event}=await getMediaManageableEventBySlug(ctx,args.currentSlug,subject);
     if(event.eventStatus!=="scheduled") throw Error("A cancelled event cannot configure a media output.");
-    const account=args.outputAccountKey===undefined?undefined:getTwitchOutputAccount(args.outputAccountKey);
-    const output=sanitizeTwitchOutput({...args,...account});
+    const account=getTwitchOutputAccount({communityProfileId:event.communityProfileId,key:args.outputAccountKey,credentialRef:args.credentialRef,channel:args.channel});
+    const setup=sanitizeTwitchOutput({...args,...account,key:args.key});
+    const output={...setup,twitchSetup:{...setup.twitchSetup,accountKey:account.key}};
     const now=Date.now(), programId=await getOrCreateEventMediaProgram(ctx.db,event,now);
     const all=await ctx.db.query("eventMediaOutputs").withIndex("by_programId_key",q=>q.eq("programId",programId)).take(9);
     const existing=all.find(o=>o.key===output.key);

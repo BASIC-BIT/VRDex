@@ -206,6 +206,71 @@ test("stopped policy and start submit without claiming live output @flow @fixtur
   await expect(page.getByLabel("Command count")).toHaveText("2");
   await expect(
     page.getByText("Worker", { exact: true }).locator(".."),
-  ).toContainText("starting");
+  ).toContainText("Unknown");
   await expect(page.getByText("publishing", { exact: true })).toHaveCount(0);
 });
+
+for (const scenario of ["lease", "observation", "disconnected"] as const)
+  test(`headline observation expires for ${scenario} without disabling cleanup @flow @fixture`, async ({
+    page,
+  }, info) => {
+    await page.clock.install();
+    await page.goto("/playwright/event-operator");
+    await page
+      .getByRole("button", { name: "Observe live", exact: true })
+      .click();
+    await expect(
+      page.getByText("Worker", { exact: true }).locator(".."),
+    ).toContainText("live");
+    await expect(
+      page.getByText("Observed output", { exact: true }).locator(".."),
+    ).toContainText("Aurora");
+    if (scenario === "lease")
+      await page
+        .getByRole("button", { name: "Expire lease", exact: true })
+        .click();
+    if (scenario === "observation")
+      await page
+        .getByRole("button", { name: "Stale observation", exact: true })
+        .click();
+    if (scenario === "disconnected") await page.clock.fastForward(16000);
+    for (const label of ["Worker", "Observed output", "Observed mode"])
+      await expect(
+        page.getByText(label, { exact: true }).locator(".."),
+      ).toContainText("Unknown");
+    await expect(page.getByText("publishing", { exact: true })).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Stop", exact: true }),
+    ).toBeEnabled();
+    await page
+      .getByTestId("event-operator-controls")
+      .screenshot({ path: info.outputPath(`operator-${scenario}.png`) });
+    await page.getByRole("button", { name: "Stop", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Confirm stop", exact: true })
+      .click();
+    await expect(page.getByLabel("Command count")).toHaveText("1");
+  });
+
+for (const terminal of ["error", "ended"] as const)
+  test(`terminal ${terminal} retains worker status without reusing source or mode @flow @fixture`, async ({
+    page,
+  }) => {
+    await page.goto("/playwright/event-operator");
+    await page
+      .getByRole("button", { name: "Observe live", exact: true })
+      .click();
+    await page
+      .getByRole("button", {
+        name: terminal === "error" ? "Fail worker" : "End session",
+        exact: true,
+      })
+      .click();
+    await expect(
+      page.getByText("Worker", { exact: true }).locator(".."),
+    ).toContainText(terminal);
+    for (const label of ["Observed output", "Observed mode"])
+      await expect(
+        page.getByText(label, { exact: true }).locator(".."),
+      ).toContainText("Unknown");
+  });

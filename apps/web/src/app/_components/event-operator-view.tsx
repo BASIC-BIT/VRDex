@@ -5,6 +5,7 @@ import { useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { useEffect, useRef, useState } from "react";
 import { api } from "@convex-generated-api";
+import { eventBroadcastObservationFresh } from "@/lib/event-broadcast-observation";
 import { Button } from "@/components/ui/button";
 import { PageContainer, PageShell } from "@/components/ui/page-shell";
 import { ViewerLocalEventDateTime } from "./viewer-local-event-times";
@@ -123,6 +124,21 @@ export function EventOperatorControls({
       (row) => row.sessionId === status.program?.activeSessionId,
     ) ?? status.sessions[0];
   const active = session && !["ended", "error"].includes(session.status);
+  const observationFresh = eventBroadcastObservationFresh({
+    serverNow: status.serverNow,
+    elapsedMs: elapsed,
+    leaseExpiresAt: session?.leaseExpiresAt,
+    observedAt: session?.programObservedAt,
+    status: session?.status,
+  });
+  const workerStatus = !session
+    ? "Stopped"
+    : ["ended", "error"].includes(session.status)
+      ? session.status
+      : observationFresh
+        ? session.status
+        : "Unknown";
+
   const sessionCommands = status.commands.filter(
     (row) =>
       row.sessionId === undefined || row.sessionId === session?.sessionId,
@@ -211,20 +227,26 @@ export function EventOperatorControls({
             <div>
               <dt className="text-sm text-muted">Observed output</dt>
               <dd>
-                {session?.status === "hold"
-                  ? "Hold"
-                  : session?.currentSourceId
-                    ? sourceLabel(session.currentSourceId)
-                    : "Unknown"}
+                {!observationFresh
+                  ? "Unknown"
+                  : session?.status === "hold"
+                    ? "Hold"
+                    : session?.currentSourceId
+                      ? sourceLabel(session.currentSourceId)
+                      : "Unknown"}
               </dd>
             </div>
             <div>
               <dt className="text-sm text-muted">Worker</dt>
-              <dd className="capitalize">{session?.status ?? "Stopped"}</dd>
+              <dd className="capitalize">{workerStatus}</dd>
             </div>
             <div>
               <dt className="text-sm text-muted">Observed mode</dt>
-              <dd>{session?.broadcastMode ?? "Unknown"}</dd>
+              <dd>
+                {observationFresh
+                  ? (session?.broadcastMode ?? "Unknown")
+                  : "Unknown"}
+              </dd>
             </div>
             <div>
               <dt className="text-sm text-muted">Session deadline</dt>
@@ -337,12 +359,15 @@ export function EventOperatorControls({
                 (row) => row.outputId === output.outputId,
               );
               const fresh =
-                active &&
-                session.leaseExpiresAt !== undefined &&
-                session.leaseExpiresAt > status.serverNow + elapsed &&
-                session.outputHealthObservedAt !== undefined &&
-                status.serverNow + elapsed - session.outputHealthObservedAt <
-                  15000;
+                observationFresh &&
+                output.authorized !== false &&
+                eventBroadcastObservationFresh({
+                  serverNow: status.serverNow,
+                  elapsedMs: elapsed,
+                  leaseExpiresAt: session?.leaseExpiresAt,
+                  observedAt: session?.outputHealthObservedAt,
+                  status: session?.status,
+                });
               return (
                 <div
                   key={output.outputId}
@@ -374,7 +399,11 @@ export function EventOperatorControls({
               >
                 <option value="">Select output</option>
                 {status.outputs
-                  .filter((row) => ["ready", "active"].includes(row.state))
+                  .filter(
+                    (row) =>
+                      row.authorized !== false &&
+                      ["ready", "active"].includes(row.state),
+                  )
                   .map((row) => (
                     <option key={row.outputId} value={row.key}>
                       {row.label}

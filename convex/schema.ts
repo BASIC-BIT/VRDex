@@ -1613,6 +1613,7 @@ export default defineSchema({
     dispatchId: v.optional(v.string()),
     dispatchStopConfirmedAt: v.optional(v.number()),
     outputHealth: v.optional(v.array(outputHealthValidator)),
+    programObservedAt: v.optional(v.number()),
     outputHealthObservedAt: v.optional(v.number()),
     broadcastMode: v.optional(v.union(v.literal("automatic"), v.literal("manual"), v.literal("hold"))),
     nextCommandSequence: v.optional(v.number()),

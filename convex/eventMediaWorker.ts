@@ -1,4 +1,4 @@
-import { outputHealthValidator } from './_eventOutputSetup';
+import { outputHealthValidator, eventOutputIsAuthorized } from './_eventOutputSetup';
 import { eventProfileStreamChoices, resolveEventStream } from "./_eventPlayback";
 import { canReadProfile } from "./_profilePermissions";
 import { v } from "convex/values";
@@ -20,7 +20,7 @@ function authenticate(args: Request) {
     if (!Number.isSafeInteger(args.epoch) || args.epoch < 0)
         throw new Error("Worker epoch must be a nonnegative integer.");
 }
-async function records(ctx: MutationCtx, args: Request, allowTerminal = false) {
+async function records(ctx: MutationCtx, args: Request, allowTerminal = false, allowRevokedDestination = false) {
     const session = await ctx.db.get(args.sessionId);
     if (session === null || session.eventId !== args.eventId)
         return null;
@@ -31,6 +31,10 @@ async function records(ctx: MutationCtx, args: Request, allowTerminal = false) {
         return null;
     if (terminal && !allowTerminal)
         return null;
+    if (!allowRevokedDestination && session.outputId) {
+        const selectedOutput = await ctx.db.get(session.outputId);
+        if (!selectedOutput || !eventOutputIsAuthorized(event, selectedOutput)) return null;
+    }
     return { session, program, event };
 }
 async function reject(ctx: MutationCtx, args: Request, reason: string) {
@@ -80,7 +84,7 @@ export const acquireSession = mutation({
             if (siblings.some(s => s._id !== session._id && !["ended", "error"].includes(s.status) && (s.leaseExpiresAt ?? 0) > now)) {
                 return reject(ctx, args, "Another event session has an unexpired owner.");
             }
-            await ctx.db.patch(session._id, { workerId: args.workerId, epoch, acquiredAt, leaseExpiresAt: expiresAt, status: "starting", updatedAt: now });
+            await ctx.db.patch(session._id, { workerId: args.workerId, epoch, acquiredAt, leaseExpiresAt: expiresAt, status: "starting", programObservedAt:undefined, outputHealthObservedAt:undefined, outputHealth:[], updatedAt: now });
             await ctx.db.insert("eventMediaAuditEvents", { programId: program._id, eventId: args.eventId, sessionId: session._id, actorSurface: "worker", action: "worker_session_acquired", privateSummary: `Epoch ${epoch}.`, createdAt: now });
         }
         return { ...lease(session, epoch, acquiredAt, expiresAt), configuration: await configuration(ctx, found) };
@@ -136,11 +140,15 @@ export const acknowledgeCommand = mutation({
         const denied = async (reason: string) => ({ ...await reject(ctx, args, reason), accepted: false as const });
         if (!Number.isSafeInteger(args.sequence) || args.sequence < 1)
             return denied("Command sequence is invalid.");
-        const found = await records(ctx, args, true);
+        const found = await records(ctx, args, true, ["ended","error"].includes(args.observedState ?? ""));
         const now = Date.now();
         if (found === null || !owns(found.session, args, now))
             return denied("Session ownership is stale or expired.");
         const command = await ctx.db.get(args.commandId);
+        if (args.outcome === "succeeded" && !["ended","error"].includes(args.observedState ?? "") && found.session.outputId) {
+            const selectedOutput = await ctx.db.get(found.session.outputId);
+            if (!selectedOutput || !eventOutputIsAuthorized(found.event, selectedOutput)) return denied("Destination authority was revoked.");
+        }
         if (command === null || command.sessionId !== args.sessionId || command.eventId !== args.eventId || command.programId !== found.program._id || command.sequence !== args.sequence) {
             return denied("Command does not belong to this session and sequence.");
         }
@@ -174,7 +182,7 @@ export const acknowledgeCommand = mutation({
         } : {};
         const observedState = args.outcome === "succeeded" ? args.observedState : undefined;
         const mode = command.commandType === "set_automatic_mode" ? "automatic" : ["switch_hold", "show_hold_scene"].includes(command.commandType) ? "hold" : ["hold_current", "switch_source", "switch_next", "next_slot", "switch_previous", "previous_slot"].includes(command.commandType) ? "manual" : undefined;
-        await ctx.db.patch(args.sessionId, { ...(args.outcome === "succeeded" && mode ? { broadcastMode: mode } : {}), ...observed, ...(observedState === undefined ? {} : { status: observedState }), lastAcknowledgedSequence: args.sequence, updatedAt: now });
+        await ctx.db.patch(args.sessionId, { ...(args.outcome === "succeeded" && mode ? { broadcastMode: mode } : {}), ...observed, ...(args.outcome === "succeeded" && (mode || observedState || args.observedSourceId !== undefined) ? {programObservedAt:now} : {}), ...(observedState === undefined ? {} : { status: observedState }), lastAcknowledgedSequence: args.sequence, updatedAt: now });
         if (args.outcome === "succeeded")
             await ctx.db.patch(found.program._id, { ...observed, ...(args.observedOutputId === undefined ? {} : { currentOutputId: args.observedOutputId ?? undefined }), ...(observedState === undefined ? {} : { state: observedState }), ...(["ended", "error"].includes(observedState ?? "") ? { activeSessionId: undefined } : {}), updatedAt: now });
         await ctx.db.insert("eventMediaAuditEvents", { programId: found.program._id, eventId: args.eventId, sessionId: args.sessionId, commandId: command._id, actorSurface: "worker", action: "worker_command_acknowledged", privateSummary: `Sequence ${args.sequence}: ${args.outcome}.`, createdAt: now });
@@ -227,7 +235,7 @@ async function configuration(ctx: MutationCtx, { session, program, event }: NonN
         mode: session.broadcastMode ?? "automatic", policy: validateBroadcastPolicy({ ...program.broadcastPolicy, ...(process.env.VRDEX_EVENT_BROADCAST_SILENCE_CALIBRATED !== "true" ? { silence: undefined } : {}) }), slots,
         sources: sources.filter(s => s.eventId === event._id && s.state !== "disabled" && s.projectionAvailable !== false && (!s.eventSlotId || authored.some(slot => slot._id === s.eventSlotId))).map(s => ({ id: s._id, key: s.key, type: s.type, eventSlotId: s.eventSlotId, publicUrl: s.publicUrl, privateConfigRef: s.privateConfigRef })),
         scenes: scenes.filter(s => s.eventId === event._id).map(s => ({ id: s._id, key: s.key, type: s.type, sourceId: s.sourceId })),
-        outputs: outputs.filter(o => o.eventId === event._id && ["ready", "active"].includes(o.state)).map(o => ({ id: o._id, key: o.key, type: o.type, credential: o.credential, vrcdnSetup: o.vrcdnSetup, twitchSetup:o.twitchSetup, simulcastEnabled:o.simulcastEnabled ?? false, compliance: o.compliance })),
+        outputs: outputs.filter(o => o.eventId === event._id && eventOutputIsAuthorized(event, o) && ["ready", "active"].includes(o.state)).map(o => ({ id: o._id, key: o.key, type: o.type, credential: o.credential, vrcdnSetup: o.vrcdnSetup, twitchSetup:o.twitchSetup, simulcastEnabled:o.simulcastEnabled ?? false, compliance: o.compliance })),
     };
 }
 export const refreshConfiguration = mutation({ args: workerSessionArgs, handler: async (ctx, args) => {
@@ -239,7 +247,7 @@ export const refreshConfiguration = mutation({ args: workerSessionArgs, handler:
     } });
 export const observeProgram = mutation({ args: { ...workerSessionArgs, state: observedBroadcastStateValidator, outputMs: v.number(), publishing: v.boolean(), outputId: v.optional(v.id("eventMediaOutputs")), sourceId: v.optional(v.id("eventMediaSources")), mode: v.optional(v.union(v.literal("automatic"), v.literal("manual"), v.literal("hold"))) }, handler: async (ctx, args) => {
         authenticate(args);
-        const found = await records(ctx, args);
+        const found = await records(ctx, args, false, ["ended","error"].includes(args.state));
         if (!found || !owns(found.session, args, Date.now()))
             return { ...await reject(ctx, args, "Session ownership is stale or expired."), accepted: false };
         if (["live", "hold"].includes(args.state) && (!args.publishing || !Number.isFinite(args.outputMs) || args.outputMs <= 0))
@@ -257,7 +265,7 @@ export const observeProgram = mutation({ args: { ...workerSessionArgs, state: ob
         const terminal = ["ended", "error"].includes(args.state);
         if (found.session.status !== args.state || found.session.currentSourceId !== args.sourceId)
             await ctx.db.insert("eventMediaAuditEvents", { programId: found.program._id, eventId: args.eventId, sessionId: args.sessionId, actorSurface: "worker", action: "worker_program_observed", privateSummary: `${args.state}; encoded output ${args.outputMs}ms.`, createdAt: Date.now() });
-        await ctx.db.patch(args.sessionId, { status: args.state, currentSourceId: args.sourceId, broadcastMode: args.mode ?? found.session.broadcastMode, health: { lastHeartbeatAt: Date.now() }, updatedAt: Date.now() });
+        await ctx.db.patch(args.sessionId, { status: args.state, programObservedAt:Date.now(), currentSourceId: args.sourceId, broadcastMode: args.mode ?? found.session.broadcastMode, health: { lastHeartbeatAt: Date.now() }, updatedAt: Date.now() });
         await ctx.db.patch(found.program._id, { state: args.state, currentSourceId: args.sourceId, ...(terminal ? { activeSessionId: undefined } : {}), updatedAt: Date.now() });
         return { accepted: true };
     } });
@@ -269,6 +277,9 @@ export const admitDispatch = mutation({ args: { bridgeToken: v.string(), eventId
         const program = session ? await ctx.db.get(session.programId) : null;
         if (!session || session.eventId !== args.eventId || program?.activeSessionId !== session._id || session.stopRequestedAt !== undefined || ["ended", "error"].includes(session.status))
             return { granted: false };
+        const event = await ctx.db.get(args.eventId);
+        const selectedOutput = session.outputId ? await ctx.db.get(session.outputId) : null;
+        if (!event || (session.outputId !== undefined && (!selectedOutput || !eventOutputIsAuthorized(event, selectedOutput)))) return { granted:false };
         if (session.dispatchStopConfirmedAt !== undefined)
             return { granted: false };
         if (session.dispatchId)
@@ -340,7 +351,7 @@ export const observeOutputs = mutation({args:{...workerSessionArgs,destinations:
  for(const d of args.destinations){
   if(!Number.isFinite(d.outputMs)||d.outputMs<0||!Number.isSafeInteger(d.queueBytes)||d.queueBytes<0||d.queueBytes>524288||!Number.isSafeInteger(d.restarts)||d.restarts<0) throw Error('Invalid output health.');
   const o=await ctx.db.get(d.outputId);
-  if(!o||o.eventId!==args.eventId||o.programId!==found.program._id||!["ready","active"].includes(o.state)||(o._id!==found.session.outputId&&!o.simulcastEnabled)||(d.destination==='twitch'?(o.type!=='external_rtmp'||!o.twitchSetup):(o.type!=='vrcdn'||!!o.twitchSetup))) return {accepted:false};
+  if(!o||!eventOutputIsAuthorized(found.event,o)||o.eventId!==args.eventId||o.programId!==found.program._id||!["ready","active"].includes(o.state)||(o._id!==found.session.outputId&&!o.simulcastEnabled)||(d.destination==='twitch'?(o.type!=='external_rtmp'||!o.twitchSetup):(o.type!=='vrcdn'||!!o.twitchSetup))) return {accepted:false};
  }
  await ctx.db.patch(args.sessionId,{outputHealth:args.destinations,outputHealthObservedAt:Date.now()}); return {accepted:true};
 }});

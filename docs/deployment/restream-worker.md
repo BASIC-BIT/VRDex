@@ -462,8 +462,35 @@ The mutation uses existing media-management authorization and accepts
 destination-authority, provider-rules and rights-cleared acceptance booleans.
 It stores references only. Deployment owners may define
 `VRDEX_TWITCH_OUTPUT_ACCOUNTS_JSON` on Convex as an array of
-`{key, channel, credentialRef}`; the default is an empty registry. Do not put
-stream keys in that registry. Account owners rotate values in Secrets Manager;
+`{key, channel, credentialRef, ownerCommunityProfileId, authorizedCommunityProfileIds?}`.
+`ownerCommunityProfileId` is the destination-owning community's exact Convex
+profile ID in this deployment. The optional ID array grants that destination to
+specific additional event-owning communities. It defaults to no additional
+grants. These bindings are deployment-owned; event operators cannot grant their
+own community destination access through the setup form or its checkbox.
+
+The default registry is empty. Existing entries must acquire an explicit owner
+binding before use. Unbound/invalid rows grant no authority; malformed JSON or
+duplicate keys/credential references fail closed. Match the current event's
+community profile ID, including when it differs between local/staging/production;
+slugs and individual user identity are not binding substitutes. Both account-key
+and direct credential-reference setup require the same current binding. New
+outputs persist the registry account key in `twitchSetup.accountKey`; legacy rows
+without it require an authorized registry entry matching reference and channel.
+No legacy ready-state exemption exists. Do not put stream keys in this registry.
+
+Listing, setup, scheduling, bridge dispatch, dispatch admission and worker authority
+revalidate the binding. Removing an entry or a community grant revokes existing
+ready outputs too. Selected Twitch revocation denies acquisition, renewal,
+nonterminal acknowledgement and configuration refresh. Optional Twitch revocation
+removes that destination from dispatch/refresh configuration; the existing worker
+then fences the whole program on the destination-configuration change and needs
+a restart. This authorization/configuration fence can interrupt the primary.
+Optional Twitch network/credential failures still use the independent sender
+isolation documented above. Revocation takes effect on the next bounded worker
+control check, with existing lease/watchdog limits during network loss.
+
+Account owners rotate values in Secrets Manager;
 reference-to-ARN bindings remain in `VRDEX_EVENT_MEDIA_SECRET_REF_MAP_JSON` on the
 bridge. The execution role reads required startup secrets; the task role reads
 only explicitly granted optional destination Secrets Manager ARNs.
@@ -591,3 +618,30 @@ The local operator browser fixture exercises controls without provider or Clerk
 accounts. It does not verify a signed-in Clerk server-route journey. Real Convex
 identity tests cover command permission, revocation and read-only operations
 access; the anonymous browser test verifies the route redirects before rendering.
+
+### Observed-state freshness and terminal cleanup
+
+`eventMediaSessions.programObservedAt` is optional for migration. Only an accepted
+actual program observation or successful observed command acknowledgement stamps
+it. Lease renewal, process status, generic heartbeat and destination reports do
+not refresh it. New epoch acquisition clears it and destination-health observations
+so a replacement cannot inherit a previous publisher's fresh state.
+
+Operator headlines and destination rows use server time plus browser monotonic
+elapsed time, the current lease and an observation less than 15 seconds old.
+Unobserved/stale source and mode show Unknown. Terminal worker status remains
+ended/error while its old source/mode remain Unknown. A fresh lease by itself does
+not establish progressing media. Stop stays available for stale nonterminal
+sessions, including while another command request is unresolved.
+
+The existing Stop mutation rejects ended/error sessions; this interface does not
+provide terminal Stop. A terminal media record does not prove an ECS task stopped.
+For managed tasks the bridge's `refreshSessions` describes tasks, records confirmed
+STOPPED, and deregisters task definitions with retry. It does not call StopTask
+merely because a record is terminal. The worker's own publication fence is separate
+from ECS process termination. If a terminal record still has a running task, use
+the existing infrastructure operations path to inspect the exact task identity,
+request ECS StopTask, and confirm DescribeTasks reports STOPPED. Until that
+confirmation, retain its reservation. Ambiguous reservations without a task ARN
+require investigation; do not delete them or mark cleanup complete to free capacity.
+No provider termination was exercised by the local operator fixture tests.
