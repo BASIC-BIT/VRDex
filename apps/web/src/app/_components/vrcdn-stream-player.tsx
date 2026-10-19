@@ -55,6 +55,8 @@ function canSetMediaVolume(): boolean {
 type MpegTsPlayer = VrcdnTransport;
 
 type VrcdnStreamPlayerProps = {
+  initialMuted?: boolean;
+  initialStarted?: boolean;
   onHealthSignal?: (signal: VrcdnPlayerHealthSignal) => void;
   onPlaybackActiveChange?: (active: boolean) => void;
   /** The `.live.ts` transport stream. VRCDN serves no HLS. */
@@ -77,6 +79,8 @@ type VrcdnStreamPlayerProps = {
  * the world.
  */
 export function VrcdnStreamPlayer({
+  initialMuted = false,
+  initialStarted = false,
   onHealthSignal,
   onPlaybackActiveChange,
   src,
@@ -89,14 +93,14 @@ export function VrcdnStreamPlayer({
   const onPlaybackActiveChangeRef = useRef(onPlaybackActiveChange);
   onHealthSignalRef.current = onHealthSignal;
   onPlaybackActiveChangeRef.current = onPlaybackActiveChange;
-  const [started, setStarted] = useState(false);
+  const [started, setStarted] = useState(initialStarted);
   const [failed, setFailed] = useState(false);
   const [ended, setEnded] = useState(false);
   // Mirrored from the element rather than driven from here, so the controls
   // still track state the element changes on its own -- a rejected autoplay
   // leaving it paused, or the platform muting it.
   const [paused, setPaused] = useState(false);
-  const [muted, setMuted] = useState(false);
+  const [muted, setMuted] = useState(initialMuted);
   const [volume, setVolume] = useState(1);
   const [fullscreen, setFullscreen] = useState(false);
   // Sticky from the first `playing` event. `started` is only the click, so it
@@ -352,6 +356,7 @@ export function VrcdnStreamPlayer({
       <video
         aria-label={title}
         autoPlay
+        muted={muted}
         className={cn("w-full", fullscreen ? "h-full max-h-full object-contain" : "aspect-video")}
         playsInline
         ref={videoRef}

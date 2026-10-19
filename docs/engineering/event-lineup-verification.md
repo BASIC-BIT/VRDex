@@ -109,7 +109,10 @@ the host aggregator deduplicates for 30 seconds, limits active checks to four,
 and expires indicators after 60 seconds. Provider errors do not block rendering
 or copying links. Status is not decoded-media readiness or handoff evidence.
 The host roster subscribes to the public event query so revoked links disappear.
-No media player mounts when opening this view; Open is an explicit external link.
+The selected source and copy controls lead each compact slot. Other links and
+URLs expand on demand. Preview mounts one muted VRCDN player only after an
+explicit click; closing it, switching previews, or collapsing its alternative
+links releases the previous player. Twitch Open retains its external watch link.
 
 Local checks: `node --import tsx --test tests/web/event-host-view.test.ts` and
 `pnpm --filter web exec playwright test event-host-view.flow.spec.ts --project=desktop-chromium --project=mobile-chromium`.

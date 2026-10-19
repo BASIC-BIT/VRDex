@@ -17,6 +17,11 @@ test('host links remain usable during slow and unavailable status checks @flow @
  await expect(page.getByText('Unavailable',{exact:true}).first()).toBeVisible();
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
  await page.screenshot({path:info.outputPath('event-host-view.png'),fullPage:true});
+ await expect(page.getByText('Other links',{exact:true})).toHaveCount(2);
+ await page.getByText('Other links',{exact:true}).first().click();
+ await expect(page.getByRole('button',{name:'Copy Twitch',exact:true}).first()).toBeVisible();
+ await page.getByText('URLs',{exact:true}).first().click();
+ await expect(page.getByText('PC: rtspt://stream.vrcdn.live/live/dj-aurora',{exact:true}).first()).toBeVisible();
 });
 test('unpublished or mismatched event host and status are not public @flow @fixture',async({request})=>{
  for(const suffix of ['/host','/host/status']) {
@@ -44,4 +49,33 @@ test('source-live labels remain independent from scheduled and selected source @
  await expect(page.getByText(/Scheduled now/)).toHaveCount(1);
  expect(await page.locator('video,audio,iframe').count()).toBe(0);
  await page.screenshot({path:info.outputPath('event-host-live.png'),fullPage:true});
+});
+
+test('preview is explicit, muted, singular and disposed on close @flow @fixture', async({page},info)=>{
+ let mediaRequests=0;
+ await page.route('**/host/status',route=>route.fulfill({json:{}}));
+ await page.route('https://stream.vrcdn.live/**',async route=>{
+  mediaRequests++;
+  await new Promise(resolve=>setTimeout(resolve,500));
+  await route.fulfill({status:200,contentType:'video/mp2t',body:Buffer.alloc(188*10,0x47)}).catch(()=>{});
+ });
+ await page.goto(path);
+ expect(await page.locator('video,audio,iframe').count()).toBe(0);
+ expect(mediaRequests).toBe(0);
+ await page.getByRole('button',{name:'Preview',exact:true}).first().click();
+ await expect(page.locator('video')).toHaveCount(1);
+ expect(await page.locator('video').evaluate(video=>video instanceof HTMLVideoElement && video.muted)).toBe(true);
+ await expect.poll(()=>mediaRequests).toBeGreaterThan(0);
+ await page.screenshot({path:info.outputPath('event-host-preview.png'),fullPage:true});
+ await page.getByRole('button',{name:'Preview',exact:true}).first().click();
+ await expect(page.locator('video')).toHaveCount(1);
+ expect(await page.locator('video').evaluate(video=>video instanceof HTMLVideoElement && video.muted)).toBe(true);
+ await page.getByRole('button',{name:'Close preview',exact:true}).click();
+ await expect(page.locator('video')).toHaveCount(0);
+ const otherLinks=page.getByText('Other links',{exact:true}).first();
+ await otherLinks.click();
+ await otherLinks.locator('..').getByRole('button',{name:'Preview',exact:true}).click();
+ await expect(page.locator('video')).toHaveCount(1);
+ await otherLinks.click();
+ await expect(page.locator('video')).toHaveCount(0);
 });
