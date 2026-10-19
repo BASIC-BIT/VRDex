@@ -619,3 +619,21 @@ relays have stopped; the local preview remains available.
 The current-head CI data-flow failures match the two previously corrected local test
 setups. Claude review stopped at its 500,000-byte context cap before reviewing
 code; Copilot exhausted its quota. Neither result is an approval.
+
+### Repeated-save test follow-up, October 19
+
+CI and Codex review passed for `7641c20e3`. The interrupted local covering run
+reported 443 passes and 17 failures: eight assertions still expected an unchanged
+lineup in a second save, one import timeout, and eight browser-worker crashes.
+The four repeated-save cases now require omitted unchanged lineup payloads and
+check persisted identities, person bindings, exact timestamps, cleared ends and
+stream choices. Subsequent lineup edits still require a replacement payload.
+These cases now carry `@flow @fixture`, so the mutation CI lane selects them.
+
+The import case passed twice per viewport with retries disabled. The next
+86-case lineup/timezone run passed 85 checks, including all corrected assertions
+and the timezone cases affected by the earlier crashes. One mobile removal/reset
+case timed out after returning to Details. Its cause is unconfirmed; the focused
+repeat passed twice per viewport with retries disabled. Final covering results
+are recorded in the delivery receipt. No product
+behavior, screenshot threshold or timeout changed for this test follow-up.

@@ -247,7 +247,7 @@ for (const cascade of [false, true]) test(`advanced offset preserves exact durat
   expect(payload.lineup[0].selectedStreamId).toBe("vrcdn:aurora");
 });
 
-test("legacy fixture allocates unique identities across repeated inserted saves @fixture", async ({ page }) => {
+test("legacy fixture allocates unique identities across repeated inserted saves @flow @fixture", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("event-lineup-fixture-v1", JSON.stringify({
     id: "legacy", slug: "legacy", title: "Legacy night", startAt: Date.UTC(2027,9,15,20), endAt: Date.UTC(2027,9,16,0), timezone: "UTC", status: "scheduled", communitySlug: "afterglow", publicationState: "draft",
     source: { sourceType: "community", label: "Afterglow" }, mediaLinks: [], authoredMediaLinks: [], worlds: [], participants: [], slots: [], preservedParticipantAssociationIds: [], preservedSlotAssociationIds: [], preservedWorldAssociationIds: [],
@@ -262,39 +262,43 @@ test("legacy fixture allocates unique identities across repeated inserted saves 
   const nextIds: string[] = await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1")!).slots.map((slot: { playbackKey: string }) => slot.playbackKey));
   expect(new Set(nextIds).size).toBe(3);
   expect(nextIds[0]).toBe(firstIds[0]); expect(nextIds[2]).toBe(firstIds[1]);
-  await save();
-  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1")!).slots.map((slot: { playbackKey: string }) => slot.playbackKey))).toEqual(nextIds);
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!).lineup.map((row: { clientKey: string }) => row.clientKey))).toEqual(await page.locator("[data-lineup-row]").evaluateAll(rows => rows.map(row => row.getAttribute("data-lineup-row"))));
+  await save();
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!).lineup)).toBeUndefined();
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1")!).slots.map((slot: { playbackKey: string }) => slot.playbackKey))).toEqual(nextIds);
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1")!).lineup.map((row: { clientKey: string }) => row.clientKey))).toEqual(await page.locator("[data-lineup-row]").evaluateAll(rows => rows.map(row => row.getAttribute("data-lineup-row"))));
 });
 
 
-test("canonical scheduling requests surviving-match preservation on every save @fixture", async ({ page }) => {
+test("canonical scheduling requests surviving-match preservation on every save @flow @fixture", async ({ page }) => {
   await canonicalStaff(page);
   page.on("dialog", dialog => dialog.accept());
   await page.getByLabel("Ends (optional)", { exact: true }).fill("2027-10-16T00:00");
-  const save = async () => {
+  const save = async (lineupChanged: boolean) => {
     await page.evaluate(() => localStorage.removeItem("event-lineup-fixture-v1-submission"));
     await nav(page, "Review");
     await page.getByRole("button", { name: /^(Unpublish and save draft|Save draft)$/ }).click();
     await expect(page.getByRole("button", { name: "Save draft", exact: true })).toBeEnabled();
     const payload = await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!));
     expect(payload.preserveLineupConfirmation).toBe(true);
-    expect(payload.lineup.some((row: { clientKey: string; personSlug?: string }) => row.clientKey === "exact-row" && row.personSlug === "aurora")).toBe(true);
+    if (lineupChanged) expect(payload.lineup.some((row: { clientKey: string; personSlug?: string }) => row.clientKey === "exact-row" && row.personSlug === "aurora")).toBe(true);
+    else expect(payload.lineup).toBeUndefined();
+    expect(await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1")!).lineup.some((row: { clientKey: string; personSlug?: string }) => row.clientKey === "exact-row" && row.personSlug === "aurora"))).toBe(true);
   };
   await nav(page, "Lineup");
   const duration = page.locator('[data-lineup-row]').first().getByLabel("Duration", { exact: true });
   await duration.fill("45"); await duration.press("Enter");
-  await save(); await save();
+  await save(true); await save(false);
   await nav(page, "Lineup");
   await page.getByRole("button", { name: "Add slot at position 1", exact: true }).click();
   await page.getByRole("button", { name: "Insert slot", exact: true }).click();
-  await save();
+  await save(true);
   await nav(page, "Lineup");
   await page.locator('[data-lineup-row]').first().getByRole("button", { name: "Remove slot", exact: true }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Remove slot", exact: true }).click();
-  await save();
+  await save(true);
   await nav(page, "Details"); await page.getByLabel("Starts", { exact: true }).fill("2027-10-15T20:15");
-  await save(); await save();
+  await save(true); await save(false);
 });
 
 for (const editor of ["staff", "intake"]) test(`${editor} retains the last start through a timezone change while Starts is empty @fixture`, async ({ page }) => {
@@ -428,7 +432,7 @@ for (const minutes of [45, 60]) test(`unresolved offset accepts an explicit ${mi
   expect(payload.lineup[0].endAt).toBe(minutes === 45 ? Date.UTC(2027, 9, 15, 21, 0, 10, 123) : Date.UTC(2027, 9, 15, 21, 15, 10, 123));
 });
 
-for (const canonical of [true, false]) test(`${canonical ? "canonical" : "legacy"} staff clears only a slot end and preserves rows through two saves @fixture`, async ({ page }) => {
+for (const canonical of [true, false]) test(`${canonical ? "canonical" : "legacy"} staff clears only a slot end and preserves rows through two saves @flow @fixture`, async ({ page }) => {
   await page.addInitScript(canonical => localStorage.setItem("event-lineup-fixture-v1", JSON.stringify({
     id: "clear-end", slug: "clear-end", title: "Clear end night", usesCanonicalLineup: canonical,
     startAt: Date.UTC(2027, 9, 15, 20, 0, 10, 123), endAt: Date.UTC(2027, 9, 15, 21), timezone: "UTC", scheduleKind: "timed", status: "scheduled", communitySlug: "afterglow", publicationState: "draft_private",
@@ -464,7 +468,9 @@ for (const canonical of [true, false]) test(`${canonical ? "canonical" : "legacy
     await nav(page, "Review"); await page.getByRole("button", { name: "Save draft", exact: true }).click();
     await expect.poll(() => page.evaluate(() => Number(localStorage.getItem("event-lineup-fixture-command-count")))).toBe(count);
     const payload = await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!));
-    const saved = payload.lineup;
+    if (count === 1) expect(payload.lineup).toHaveLength(2);
+    else expect(payload.lineup).toBeUndefined();
+    const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1")!).lineup);
     expect(saved).toHaveLength(2);
     expect(saved[0].endAt).toBeUndefined();
     expect(saved[0].startAt).toBe(Date.UTC(2027, 9, 15, 20, 0, 10, 123));
