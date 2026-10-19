@@ -111,7 +111,7 @@ export function createProgramRenderer({ quality = '720p30', onProgress = () => {
             child = spawn(ffmpeg, ['-hide_banner', '-loglevel', 'error', '-nostdin', '-stats_period', '0.25', '-progress', 'pipe:5',
                 '-thread_queue_size', '4', '-f', 'rawvideo', '-pixel_format', 'yuv420p', '-video_size', `${profile.width}x${profile.height}`, '-framerate', String(profile.frameRate), '-i', 'pipe:3',
                 '-thread_queue_size', '4', '-probesize', '32', '-analyzeduration', '0', '-f', 's16le', '-ar', '48000', '-ac', '2', '-i', 'pipe:4',
-                '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'libx264', '-threads', '2', '-preset', 'veryfast', '-tune', 'zerolatency', '-g', String(profile.frameRate), '-keyint_min', String(profile.frameRate), '-sc_threshold', '0', '-b:v', `${profile.videoBitrateKbps}k`, '-maxrate', `${profile.videoBitrateKbps}k`, '-bufsize', `${profile.videoBitrateKbps * 2}k`,
+                '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'libx264', '-threads', '2', '-preset', 'veryfast', '-tune', 'zerolatency', '-g', String(profile.frameRate), '-keyint_min', String(profile.frameRate), '-sc_threshold', '0', '-bf', '0', '-x264-params', 'nal-hrd=cbr:force-cfr=1', '-b:v', `${profile.videoBitrateKbps}k`, '-minrate', `${profile.videoBitrateKbps}k`, '-maxrate', `${profile.videoBitrateKbps}k`, '-bufsize', `${profile.videoBitrateKbps * 2}k`,
                 '-c:a', 'aac', '-b:a', '160k', '-ar', '48000', '-ac', '2', '-mpegts_flags', '+resend_headers', '-muxdelay', '0', '-f', 'mpegts', 'pipe:1'], { stdio: ['ignore', 'pipe', 'ignore', 'pipe', 'pipe', 'pipe'] });
             child.on('error', () => fail('Program encoder failed to start'));
             child.on('close', code => {

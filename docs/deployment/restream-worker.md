@@ -334,8 +334,8 @@ No AWS CLI mutation, Terraform apply, image publish, or ECS task run is part of 
 selects it explicitly; the image default and Terraform default retain the synthetic
 benchmark. `event_worker_command = true` selects the event command in the static
 Terraform task definition, but does not enable its SSM kill switch. The runtime
-currently refuses startup without an output factory; destination sender integration
-and fresh provider rehearsal remain rollout gates.
+installs independent destination senders; fresh provider rehearsal and operational
+acceptance remain rollout gates.
 
 The controller acquires a fenced 30-second lease, renews after 10 seconds, and polls
 configuration and commands every second. An independent 50ms watchdog immediately
@@ -442,3 +442,103 @@ output identity. An optional sender's transient failure is separate from this
 configuration-change rule and must not interrupt a healthy required destination.
 For a source URL change under the same source ID, the worker restarts the decoder
 and waits for encoded hold before accepting the replacement input's acknowledgement.
+
+### Independent event destinations (default-off)
+
+The event CLI now installs `createEventOutputs`. Publication still requires the
+existing SSM enable switch, lease, source authorization and compliance gates;
+this change does not enable hosted output. The selected `session.outputId` is the
+required destination. `events.configureTwitchOutput` creates an operator-owned
+`external_rtmp` record with `twitchSetup` and an explicit `simulcastEnabled` flag
+(default false). It never changes the selected output or public VRCDN links.
+Only one optional Twitch output can be enabled. Setup changes fence the running
+session and require restart, including enabling/disabling optional publication.
+
+The mutation uses existing media-management authorization and accepts
+`currentSlug`, `key`, `label`, `channel`, optional `credentialRef` or
+`outputAccountKey`, optional `simulcastEnabled`, and the four existing consent,
+destination-authority, provider-rules and rights-cleared acceptance booleans.
+It stores references only. Deployment owners may define
+`VRDEX_TWITCH_OUTPUT_ACCOUNTS_JSON` on Convex as an array of
+`{key, channel, credentialRef}`; the default is an empty registry. Do not put
+stream keys in that registry. Account owners rotate values in Secrets Manager;
+reference-to-ARN bindings remain in `VRDEX_EVENT_MEDIA_SECRET_REF_MAP_JSON` on the
+bridge and the execution-role policy must permit each bound secret.
+
+The bridge preserves its legacy selected-output secret injection and adds
+numbered `VRDEX_EVENT_MEDIA_OUTPUT_SECRET_<n>` ECS secret variables for explicitly
+enabled optional outputs. `VRDEX_EVENT_MEDIA_OUTPUT_SECRET_BINDINGS_JSON` maps
+references to those variable names, never values. An absent optional ARN binding
+produces optional `invalid_setup` health without preventing primary startup.
+The secret JSON is `{rtmpUrl, streamKey}` or legacy `{ingestUrl}`. The worker accepts
+VRCDN regional `*.ingest.vrcdn.live/live` and Twitch `live.twitch.tv/app` endpoints
+(and subdomains of that Twitch hostname), RTMP/RTMPS, default ports or 1935/443.
+It rejects credentials embedded in authority, arbitrary/private hosts, URL queries,
+fragments and malformed keys. Provider diagnostics and FFmpeg stderr are discarded;
+only fixed status codes cross the worker boundary. Keys necessarily reach the
+isolated FFmpeg process arguments; do not expose process inspection to tenants.
+
+Each destination has its own FFmpeg process, pipe, reconnect timer, and queue.
+Pending data is capped at 512 KiB and two seconds, including Node's writable
+buffer. Slow/stalled destinations are killed, their backlog discarded, and they
+rejoin current program packets with 0.5–8 second reconnect backoff. Publishing
+requires advancing FFmpeg output timestamps within two seconds; process existence
+or queued bytes alone cannot mark an output live. VRCDN remuxes the program's
+H.264/AAC; Twitch independently transcodes for its distinct GOP. Primary progress
+alone determines worker `publishing`,so optional failure never changes VRCDN's process or blocks its writes.
+`stopNow()` is synchronous, terminal and idempotent.
+
+The event CLI's supported local profile is **720p30**, H.264/yuv420p, 1800 kbps
+CBR video, zero B-frames, AAC stereo 160 kbps at 48 kHz. VRCDN uses a one-second
+GOP; `twitch-conservative-720p30` uses a two-second GOP. The renderer uses CBR
+filler even on hold frames. Explicit VRCDN setup settings must match that profile
+or the worker reports `invalid_setup`; omitted settings use the profile. Existing
+renderer benchmark profiles remain available to proofs, but the event CLI does
+not advertise 1080p or 60 fps acceptance. This conservative Twitch profile is an
+engineering choice pending current numerical Twitch guidance and real ingest
+verification, not a claim of provider approval. VRCDN's combined bitrate limit is
+not precisely documented; this profile reserves substantial headroom. The existing
+low-latency x264 tune still requires actual AVPro playback verification.
+
+`eventMediaWorker.observeOutputs` persists only bounded numeric health and fixed
+statuses under the same session/epoch/lease fence. Authenticated
+`getEventMediaControlStatus` exposes `outputs[].twitchSetup`, `simulcastEnabled`,
+and `sessions[].outputHealth` with `outputHealthObservedAt`. Health entries have
+`outputId`, `destination`, `status`, `publishing`, `queueBytes`, `outputMs`, and
+`restarts`. Treat old timestamps as stale; health is not a public projection.
+This does not change legacy `output`, selected-output commands, PC/Quest links,
+Twitch embeds, or supported watch modes.
+
+Run the credential-free failure proof locally with:
+
+```bash
+node scripts/event-output-local-proof.mjs
+```
+
+It starts two loopback RTMP receivers, drives a real 720p30 test-pattern/audio
+program, kills the optional receiver one third into a 60-second run, restores it
+halfway through, and verifies primary progress, packet timestamps, GOP, memory,
+and optional recovery. Local destination rewriting exists only in the proof's
+injected process factory. The production credential parser has no local bypass.
+JSON and media are under `/tmp/event-output-proof/`.
+
+The final Node24 local run measured 0.44 CPU-seconds for primary remux and 13.43
+CPU-seconds for the additional Twitch sender processes over 60 wall seconds
+(including downtime/retries), with 14,830,604 primary and 11,944,610 optional FLV
+application bytes. The extra sender averaged 0.224 CPU cores over that failure
+scenario; this excludes the shared renderer/input decoding and is not a Fargate
+capacity guarantee. Measured optional application egress was 1.59 Mbps averaged
+across the run including downtime; active configured media is about 1.96 Mbps
+before container/network overhead (roughly 0.88 GB/hour per destination).
+FFmpeg progress counts FLV bytes, excluding TCP/TLS overhead and provider billing.
+The primary used one process, max packet gap was 34 ms and max GOP was 1 second.
+Synthetic evidence is not provider acceptance or a sustained capacity benchmark.
+Fresh two-source provider rehearsal, rights/account verification, Twitch numeric
+guidance, sustained quality/CPU/egress measurements, budget alerts and provider
+playback checks remain rollout gates. Do not enable hosted output from this proof.
+
+The final packaged Node 22.23.3/bookworm image also passed the 60-second proof in
+`--network none` with loopback receivers. It retained one primary process and the
+same 34 ms packet-gap/one-second-GOP bounds. Sender CPU was 0.66 seconds primary
+and 13.89 seconds optional; application egress was 14,770,299 and 11,954,114 bytes.
+The separate sender test suite passed all eight tests on Node 22 as well.

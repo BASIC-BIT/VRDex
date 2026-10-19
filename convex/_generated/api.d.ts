@@ -55,6 +55,7 @@ import type * as _eventIntake from "../_eventIntake.js";
 import type * as _eventLineup from "../_eventLineup.js";
 import type * as _eventMediaControl from "../_eventMediaControl.js";
 import type * as _eventOperations from "../_eventOperations.js";
+import type * as _eventOutputSetup from "../_eventOutputSetup.js";
 import type * as _eventPaths from "../_eventPaths.js";
 import type * as _eventPlayback from "../_eventPlayback.js";
 import type * as _eventPublic from "../_eventPublic.js";
@@ -250,6 +251,7 @@ declare const fullApi: ApiFromModules<{
   _eventLineup: typeof _eventLineup;
   _eventMediaControl: typeof _eventMediaControl;
   _eventOperations: typeof _eventOperations;
+  _eventOutputSetup: typeof _eventOutputSetup;
   _eventPaths: typeof _eventPaths;
   _eventPlayback: typeof _eventPlayback;
   _eventPublic: typeof _eventPublic;

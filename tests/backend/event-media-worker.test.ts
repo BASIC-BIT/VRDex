@@ -256,3 +256,33 @@ it("cancelled session renewal cannot extend publication past its stop grace peri
   await t.run(ctx => ctx.db.patch(args.sessionId, { stopRequestedAt: Date.now() - 30_001 }));
   assert.equal((await t.mutation(worker("renewSession"), { ...args, epoch: acquired.epoch })).granted, false);
 });
+
+it('Twitch output setup is private, explicitly enabled, and preserves selected VRCDN', async()=>{
+ const {t,owner,event,output,args}=await fixture();
+ const setup={currentSlug:event.slug,key:'twitch',label:'Twitch',channel:'example',credentialRef:'event-media/twitch/owned',sourceConsentAccepted:true,destinationAuthorityAccepted:true,providerRulesAccepted:true,rightsClearedMediaAccepted:true};
+ const ref=makeFunctionReference<'mutation'>('events:configureTwitchOutput');
+ await assert.rejects(()=>t.mutation(ref,setup));
+ const added=await owner.mutation(ref,setup);
+ assert.equal((await t.run(ctx=>ctx.db.get(output.programId)))?.currentOutputId,output.outputId);
+ const lease=await t.mutation(worker('acquireSession'),args);
+ let config=(await t.mutation(worker('refreshConfiguration'),{...args,epoch:lease.epoch})).configuration;
+ assert.equal(config.outputs.find((o:any)=>o.id===added.outputId).simulcastEnabled,false);
+ await owner.mutation(ref,{...setup,simulcastEnabled:true});
+ config=(await t.mutation(worker('refreshConfiguration'),{...args,epoch:lease.epoch})).configuration;
+ assert.equal(config.outputs.find((o:any)=>o.id===added.outputId).simulcastEnabled,true);
+ const privateStatus=await owner.query(api.events.getEventMediaControlStatus,{currentSlug:event.slug});
+ assert.equal(privateStatus.outputs.find((o:any)=>o.outputId===added.outputId)?.simulcastEnabled,true);
+ assert.equal(privateStatus.outputs.find((o:any)=>o.outputId===added.outputId)?.twitchSetup?.channel,'example');
+ assert.ok(!JSON.stringify(privateStatus).includes('event-media/twitch/owned'));
+ assert.equal(config.outputs.find((o:any)=>o.id===added.outputId).twitchSetup.profile,'twitch-conservative-720p30');
+ await assert.rejects(()=>owner.mutation(ref,{...setup,channel:'https://evil.test/key'}));
+});
+it('destination health is fenced and rejects outputs belonging to another event',async()=>{
+ const {t,args,output}=await fixture(); const lease=await t.mutation(worker('acquireSession'),args);
+ const destinations=[{outputId:output.outputId,destination:'vrcdn',status:'publishing',publishing:true,queueBytes:0,outputMs:1000,restarts:0}];
+ assert.equal((await t.mutation(worker('observeOutputs'),{...args,epoch:lease.epoch,destinations})).accepted,true);
+ assert.equal((await t.run(ctx=>ctx.db.get(args.sessionId)))?.outputHealth?.[0].status,'publishing');
+ assert.equal((await t.mutation(worker('observeOutputs'),{...args,epoch:0,destinations})).accepted,false);
+ const other=await t.run(async ctx=> {const o=await ctx.db.get(output.outputId); return ctx.db.insert('eventMediaOutputs',{...Object.fromEntries(Object.entries(o!).filter(([k])=>!['_id','_creationTime'].includes(k))),programId:output.programId,eventId:await ctx.db.insert('events',Object.fromEntries(Object.entries((await ctx.db.get(args.eventId))!).filter(([k])=>!['_id','_creationTime'].includes(k))) as any)} as any);});
+ assert.equal((await t.mutation(worker('observeOutputs'),{...args,epoch:lease.epoch,destinations:[{...destinations[0],outputId:other}]})).accepted,false);
+});

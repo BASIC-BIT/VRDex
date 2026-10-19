@@ -1,3 +1,4 @@
+import { createEventOutputs } from './output-sender.mjs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createSourceRelay } from './source-relay.mjs';
@@ -20,7 +21,7 @@ export async function bounded(operation, timeoutMs = 3000) {
 }
 /** Output contract: start, bounded synchronous enqueue, getState({publishing}),
  * synchronous stopNow (publication fence), asynchronous stop (cleanup).
- * No default sender: Task6 supplies the required selected-output implementation.
+ * The CLI installs independent primary and explicitly enabled optional senders.
  */
 export function createEventWorker({ identity, control, renderer, outputs, createRenderer, createOutputs, resolveSource, checkEnabled, clock = () => performance.now(), maxSessionMs = 43200000, requestTimeoutMs = 3000, metric = () => { } }) {
     let stopped = false, started = false, busy = false, config, current, mode = 'automatic';
@@ -95,6 +96,11 @@ export function createEventWorker({ identity, control, renderer, outputs, create
         return { ...state, publishing: outputs?.getState().publishing === true && state.running && state.outputMs > 0 && clock() - outputProgressAt <= 2000 };
     }
     async function report() {
+        const destinations = outputs?.getState().destinations;
+        if (destinations) {
+            const result = await request('observeOutputs', { destinations });
+            if (!result.accepted) throw Error('Output health rejected');
+        }
         const state = actual();
         if (state.error || !state.running)
             throw Error('Renderer failed');
@@ -359,8 +365,8 @@ export async function checkHostedEnabled({ parameter, region, run = promisify(ex
     const { stdout } = await run('aws', ['ssm', 'get-parameter', '--name', parameter, '--region', region, '--output', 'json', '--cli-connect-timeout', '2', '--cli-read-timeout', '2'], { timeout: 3000, maxBuffer: 16384 });
     return JSON.parse(stdout).Parameter?.Value === 'true';
 }
-/** Task6 supplies createOutputs; defaults deliberately refuse publication. */
-export async function runEventWorker({ createOutputs, env = process.env } = {}) {
+/** Real output factory; publication still requires hosted enablement and a lease. */
+export async function runEventWorker({ createOutputs = createEventOutputs, env = process.env } = {}) {
     if (!createOutputs)
         throw Error('Output sender is unavailable');
     const maxSessionMs = Number(env.VRDEX_RESTREAM_MAX_SESSION_SECONDS ?? 43200) * 1000;

@@ -166,7 +166,7 @@ function loadConfig() {
   const bridgeToken = requiredEnv("VRDEX_EVENT_MEDIA_BRIDGE_TOKEN");
   const secretRefMap = stringMapEnv("VRDEX_EVENT_MEDIA_SECRET_REF_MAP_JSON");
   const baseEnvironment = stringMapEnv("VRDEX_EVENT_MEDIA_ECS_BASE_ENV_JSON", {});
-  if (Object.keys(baseEnvironment).some(name => ["VRDEX_EVENT_MEDIA_BRIDGE_TOKEN", "VRDEX_EVENT_MEDIA_OUTPUT_INGEST_SECRET_JSON"].includes(name))) throw new Error("Worker credentials must use ECS secret references.");
+  if (Object.keys(baseEnvironment).some(name => (name === "VRDEX_EVENT_MEDIA_BRIDGE_TOKEN" || name === optionalEnv("VRDEX_EVENT_MEDIA_OUTPUT_SECRET_ENV") || name.startsWith("VRDEX_EVENT_MEDIA_OUTPUT_SECRET_") || name === "VRDEX_EVENT_MEDIA_OUTPUT_INGEST_SECRET_JSON"))) throw new Error("Worker credentials must use ECS secret references.");
   const workerId = optionalEnv("VRDEX_EVENT_MEDIA_BRIDGE_WORKER_ID") ?? `event-media-ecs-bridge-${process.pid}`;
 
   return {
@@ -226,7 +226,7 @@ function environmentEntries(command, config) {
   }).map(([name, value]) => ({ name, value: String(value) }));
 }
 
-function taskDefinitionFor(command, config) {
+export function taskDefinitionFor(command, config) {
   const credentialRef = command.output?.credentialRef;
   const secretArn = credentialRef === undefined ? undefined : config.secretRefMap[credentialRef];
 
@@ -234,6 +234,19 @@ function taskDefinitionFor(command, config) {
     throw new Error(`No AWS secret ARN is configured for credential reference ${credentialRef}.`);
   }
 
+  const optional = command.optionalOutputs ?? [];
+  if (optional.length > 1) throw new Error("At most one optional output is supported.");
+  const bindings = {}, additionalSecrets = [];
+  if (secretArn && config.outputSecretEnvName !== "VRDEX_EVENT_MEDIA_OUTPUT_INGEST_SECRET_JSON") additionalSecrets.push({name:"VRDEX_EVENT_MEDIA_OUTPUT_INGEST_SECRET_JSON", valueFrom:secretArn});
+  for (const [index, output] of optional.entries()) {
+    const ref = output?.credentialRef;
+    const arn = ref && config.secretRefMap[ref];
+    // Missing optional binding is a destination setup fault, not primary failure.
+    if (!arn) continue;
+    const name = `VRDEX_EVENT_MEDIA_OUTPUT_SECRET_${index}`;
+    bindings[ref] = name;
+    additionalSecrets.push({ name, valueFrom: arn });
+  }
   return {
     family: `${config.familyPrefix}-${ecsNamePart(command.session.sessionId)}`,
     requiresCompatibilities: ["FARGATE"],
@@ -252,8 +265,8 @@ function taskDefinitionFor(command, config) {
         memory: Number(config.memory),
         essential: true,
         ...(config.containerCommand === undefined ? {} : { command: config.containerCommand }),
-        environment: environmentEntries(command, config),
-        secrets: [{name:"VRDEX_EVENT_MEDIA_BRIDGE_TOKEN",valueFrom:config.workerTokenSecretArn}, ...(secretArn === undefined ? [] : [{ name: config.outputSecretEnvName, valueFrom: secretArn }])],
+        environment: [...environmentEntries(command, config), {name:"VRDEX_EVENT_MEDIA_OUTPUT_SECRET_BINDINGS_JSON",value:JSON.stringify(bindings)}],
+        secrets: [{name:"VRDEX_EVENT_MEDIA_BRIDGE_TOKEN",valueFrom:config.workerTokenSecretArn}, ...(secretArn === undefined ? [] : [{ name: config.outputSecretEnvName, valueFrom: secretArn }]), ...additionalSecrets],
         logConfiguration: {
           logDriver: "awslogs",
           options: {

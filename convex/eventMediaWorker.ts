@@ -1,3 +1,4 @@
+import { outputHealthValidator } from './_eventOutputSetup';
 import { eventProfileStreamChoices, resolveEventStream } from "./_eventPlayback";
 import { canReadProfile } from "./_profilePermissions";
 import { v } from "convex/values";
@@ -226,7 +227,7 @@ async function configuration(ctx: MutationCtx, { session, program, event }: NonN
         mode: session.broadcastMode ?? "automatic", policy: validateBroadcastPolicy({ ...program.broadcastPolicy, ...(process.env.VRDEX_EVENT_BROADCAST_SILENCE_CALIBRATED !== "true" ? { silence: undefined } : {}) }), slots,
         sources: sources.filter(s => s.eventId === event._id && s.state !== "disabled" && s.projectionAvailable !== false && (!s.eventSlotId || authored.some(slot => slot._id === s.eventSlotId))).map(s => ({ id: s._id, key: s.key, type: s.type, eventSlotId: s.eventSlotId, publicUrl: s.publicUrl, privateConfigRef: s.privateConfigRef })),
         scenes: scenes.filter(s => s.eventId === event._id).map(s => ({ id: s._id, key: s.key, type: s.type, sourceId: s.sourceId })),
-        outputs: outputs.filter(o => o.eventId === event._id && ["ready", "active"].includes(o.state)).map(o => ({ id: o._id, key: o.key, type: o.type, credential: o.credential, vrcdnSetup: o.vrcdnSetup, compliance: o.compliance })),
+        outputs: outputs.filter(o => o.eventId === event._id && ["ready", "active"].includes(o.state)).map(o => ({ id: o._id, key: o.key, type: o.type, credential: o.credential, vrcdnSetup: o.vrcdnSetup, twitchSetup:o.twitchSetup, simulcastEnabled:o.simulcastEnabled ?? false, compliance: o.compliance })),
     };
 }
 export const refreshConfiguration = mutation({ args: workerSessionArgs, handler: async (ctx, args) => {
@@ -331,3 +332,15 @@ export const completeTaskCleanup = mutation({ args: { bridgeToken: v.string(), s
         await ctx.db.patch(session._id, { workerTaskCleanupPending: false, updatedAt: Date.now() });
         return { accepted: true };
     } });
+
+export const observeOutputs = mutation({args:{...workerSessionArgs,destinations:v.array(outputHealthValidator)},handler:async(ctx,args)=>{
+ authenticate(args); const found=await records(ctx,args);
+ if(!found || !owns(found.session,args,Date.now())) return {accepted:false};
+ if(args.destinations.length>2 || new Set(args.destinations.map(d=>d.outputId)).size!==args.destinations.length) throw Error('Invalid output health.');
+ for(const d of args.destinations){
+  if(!Number.isFinite(d.outputMs)||d.outputMs<0||!Number.isSafeInteger(d.queueBytes)||d.queueBytes<0||d.queueBytes>524288||!Number.isSafeInteger(d.restarts)||d.restarts<0) throw Error('Invalid output health.');
+  const o=await ctx.db.get(d.outputId);
+  if(!o||o.eventId!==args.eventId||o.programId!==found.program._id||!["ready","active"].includes(o.state)||(o._id!==found.session.outputId&&!o.simulcastEnabled)||(d.destination==='twitch'?!o.twitchSetup:o.type!=='vrcdn')) return {accepted:false};
+ }
+ await ctx.db.patch(args.sessionId,{outputHealth:args.destinations,outputHealthObservedAt:Date.now()}); return {accepted:true};
+}});

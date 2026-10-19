@@ -1,3 +1,4 @@
+import { sanitizeTwitchOutput, getTwitchOutputAccount } from './_eventOutputSetup';
 import { validateBroadcastPolicy, allocateSessionCommandSequence, attachPendingProgramCommands, requireEventMediaBridgeToken } from "./_eventBroadcastInputs";
 import { dateOnlyEventsEnabled, eventDateForInstant, eventSortAt, eventSortEndAt, normalizeEventSchedule, publicEventSchedule, requireDateOnlyEventsEnabled } from "./_eventSchedule";
 import { eventProfileStreamChoices } from "./_eventPlayback";
@@ -1953,6 +1954,8 @@ function workerSessionStatus(session: Doc<"eventMediaSessions">) {
     ...(session.workerTaskStatus === undefined ? {} : { workerTaskStatus: session.workerTaskStatus }),
     ...(session.workerTaskStatusReason === undefined ? {} : { workerTaskStatusReason: session.workerTaskStatusReason }),
     artifactLinks: session.artifactLinks ?? [],
+    outputHealth: session.outputHealth ?? [],
+    outputHealthObservedAt: session.outputHealthObservedAt,
     ...(session.leaseExpiresAt === undefined ? {} : { leaseExpiresAt: session.leaseExpiresAt }),
     ...(session.readyDeadlineAt === undefined ? {} : { readyDeadlineAt: session.readyDeadlineAt }),
     ...(session.scheduledStartAt === undefined ? {} : { scheduledStartAt: session.scheduledStartAt }),
@@ -2019,6 +2022,7 @@ async function createWorkerBridgeCommandPayload(
       publicLinks: program.publicLinks,
     },
     session: workerSessionStatus(session),
+    optionalOutputs: (await db.query("eventMediaOutputs").withIndex("by_programId_key", q=>q.eq("programId",program._id)).take(9)).filter(o=>o._id!==session.outputId && o.eventId===command.eventId && o.simulcastEnabled===true && o.twitchSetup && ["ready","active"].includes(o.state)).map(o=>workerCommandOutput(o)),
     ...(workerCommandOutput(output) === undefined ? {} : { output: workerCommandOutput(output) }),
   };
 }
@@ -2411,6 +2415,8 @@ export const getEventMediaControlStatus = query({
           state: output.state,
           label: output.label,
           hasCredential: output.credential !== undefined,
+          simulcastEnabled: output.simulcastEnabled ?? false,
+          twitchSetup: output.twitchSetup,
           playbackLinkCount: output.playbackLinks.length,
           updatedAt: output.updatedAt,
         })),
@@ -3548,6 +3554,28 @@ export const configureVrcdnOutput = mutation({
       state: output.state,
       publicLinkCount: output.state === "ready" ? output.playbackLinks.length : 0,
     };
+  },
+});
+
+export const configureTwitchOutput = mutation({
+  args: { currentSlug:v.string(), key:v.string(), label:v.string(), channel:v.string(), credentialRef:v.optional(v.string()), outputAccountKey:v.optional(v.string()), simulcastEnabled:v.optional(v.boolean()), sourceConsentAccepted:v.optional(v.boolean()), destinationAuthorityAccepted:v.optional(v.boolean()), providerRulesAccepted:v.optional(v.boolean()), rightsClearedMediaAccepted:v.optional(v.boolean()) },
+  handler:async(ctx,args)=>{
+    const subject=await requireAuthenticatedSubject(ctx);
+    const {event}=await getMediaManageableEventBySlug(ctx,args.currentSlug,subject);
+    if(event.eventStatus!=="scheduled") throw Error("A cancelled event cannot configure a media output.");
+    const account=args.outputAccountKey===undefined?undefined:getTwitchOutputAccount(args.outputAccountKey);
+    const output=sanitizeTwitchOutput({...args,...account});
+    const now=Date.now(), programId=await getOrCreateEventMediaProgram(ctx.db,event,now);
+    const all=await ctx.db.query("eventMediaOutputs").withIndex("by_programId_key",q=>q.eq("programId",programId)).take(9);
+    const existing=all.find(o=>o.key===output.key);
+    if(existing && !existing.twitchSetup) throw Error("Output key belongs to another destination.");
+    if(!existing && all.length>=8) throw Error("Output limit reached.");
+    if(output.simulcastEnabled && all.some(o=>o.key!==output.key && o.simulcastEnabled)) throw Error("Only one optional Twitch output can be enabled.");
+    const record={...output,programId,eventId:event._id,credential:output.credential?{...output.credential,authorizedAt:now,authorizedBy:subject}:undefined,updatedAt:now};
+    const outputId=existing?existing._id:await ctx.db.insert("eventMediaOutputs",{...record,createdAt:now});
+    if(existing) await ctx.db.patch(existing._id,record);
+    await ctx.db.insert("eventMediaAuditEvents",{programId,eventId:event._id,actor:subject,actorSurface:"web",action:"twitch_output_configured",privateSummary:output.simulcastEnabled?"Optional output enabled.":"Optional output disabled.",createdAt:now});
+    return {eventId:event._id,programId,outputId,state:output.state,simulcastEnabled:output.simulcastEnabled};
   },
 });
 

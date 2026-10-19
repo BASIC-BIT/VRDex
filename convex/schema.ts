@@ -1,3 +1,4 @@
+import { twitchSetupValidator, outputHealthValidator } from './_eventOutputSetup';
 import { observedBroadcastStateValidator } from "./_eventMediaControl";
 import { clubPermission, clubVisibility, clubSubject } from "./_clubModel";
 import { providerReadParams, providerReadPage } from "./_clubProviderReads";
@@ -1551,6 +1552,8 @@ export default defineSchema({
     region: v.optional(v.string()),
     credential: v.optional(eventMediaOutputCredential),
     vrcdnSetup: v.optional(eventMediaVrcdnSetup),
+    twitchSetup: v.optional(twitchSetupValidator),
+    simulcastEnabled: v.optional(v.boolean()),
     compliance: v.optional(eventMediaOutputCompliance),
     playbackLinks: v.array(eventMediaPublicLinkValidator),
     createdAt: v.number(),
@@ -1609,6 +1612,8 @@ export default defineSchema({
     runtimeDeadlineAt: v.optional(v.number()),
     dispatchId: v.optional(v.string()),
     dispatchStopConfirmedAt: v.optional(v.number()),
+    outputHealth: v.optional(v.array(outputHealthValidator)),
+    outputHealthObservedAt: v.optional(v.number()),
     broadcastMode: v.optional(v.union(v.literal("automatic"), v.literal("manual"), v.literal("hold"))),
     nextCommandSequence: v.optional(v.number()),
     lastAcknowledgedSequence: v.optional(v.number()),

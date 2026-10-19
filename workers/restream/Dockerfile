@@ -13,6 +13,7 @@ COPY workers/restream/hosted-worker.mjs workers/restream/hosted-worker.mjs
 COPY workers/restream/live-control.mjs workers/restream/live-control.mjs
 COPY workers/restream/vrcdn-poc.mjs workers/restream/vrcdn-poc.mjs
 
+COPY workers/restream/output-sender.mjs workers/restream/output-sender.mjs
 COPY workers/restream/event-worker.mjs workers/restream/event-worker.mjs
 COPY workers/restream/source-relay.mjs workers/restream/source-relay.mjs
 COPY workers/restream/handoff-policy.mjs workers/restream/handoff-policy.mjs
