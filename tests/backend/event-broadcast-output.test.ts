@@ -93,10 +93,10 @@ test('disabled optional destinations are never started and bridge binds each ena
     const command = { commandId: 'c', eventId: 'e', program: { programId: 'p' }, session: { sessionId: 's' }, output: { outputId: 'main', credentialRef: 'ref-main', playbackLinks: [] }, optionalOutputs: [{ outputId: 't', credentialRef: 'ref-twitch' }] };
     const definition = taskDefinitionFor(command, { baseEnvironment: {}, secretRefMap: { 'ref-main': 'arn:main', 'ref-twitch': 'arn:twitch' }, outputSecretEnvName: 'VRDEX_EVENT_MEDIA_OUTPUT_INGEST_SECRET_JSON', workerTokenSecretArn: 'arn:token' });
     const container = definition.containerDefinitions[0];
-    assert.ok(container.secrets.some((s: any) => s.valueFrom === 'arn:twitch'));
-    const bindings = JSON.parse(container.environment.find((e: any) => e.name === 'VRDEX_EVENT_MEDIA_OUTPUT_SECRET_BINDINGS_JSON').value);
-    assert.equal(container.secrets.find((s: any) => s.name === bindings['ref-twitch']).valueFrom, 'arn:twitch');
-    assert.ok(!JSON.stringify(container.environment).includes('arn:twitch'));
+    assert.ok(!container.secrets.some((s: any) => s.valueFrom === 'arn:twitch'));
+    const bindings = JSON.parse(container.environment.find((e: any) => e.name === 'VRDEX_EVENT_MEDIA_OPTIONAL_SECRET_ARNS_JSON').value);
+    assert.equal(bindings['ref-twitch'], 'arn:twitch');
+    assert.ok(container.secrets.some((s: any) => s.valueFrom === 'arn:main'));
 });
 test('VRCDN hold program reserves its declared CBR envelope instead of collapsing on still frames', async (t) => {
     const { createProgramRenderer } = await import('../../workers/restream/program-renderer.mjs');
@@ -125,4 +125,67 @@ test('legacy selected-output secret environment alias also reaches the actual ev
     const secrets = definition.containerDefinitions[0].secrets;
     assert.ok(secrets.some((s: any) => s.name === 'LEGACY_OUTPUT_SECRET' && s.valueFrom === 'arn:main'));
     assert.ok(secrets.some((s: any) => s.name === 'VRDEX_EVENT_MEDIA_OUTPUT_INGEST_SECRET_JSON' && s.valueFrom === 'arn:main'));
+});
+const optionalArn = 'arn:aws:secretsmanager:us-east-1:123456789012:secret:twitch-ABC123';
+const secretEnv = { AWS_REGION: 'us-east-1', VRDEX_EVENT_MEDIA_OUTPUT_INGEST_SECRET_JSON: secrets('main-ref'), VRDEX_EVENT_MEDIA_OPTIONAL_SECRET_ARNS_JSON: JSON.stringify({ 'twitch-ref': optionalArn }) };
+test('denied and not-found optional secret retrieval never prevent primary publication', async (t) => {
+    const mod = await load();
+    for (const fault of ['AccessDeniedException', 'ResourceNotFoundException']) {
+        const p = processFactory(), optional = processFactory();
+        let reads = 0;
+        const outputs = mod.createEventOutputs({ configuration, env: secretEnv, readSecret: async () => { reads++; throw Error(`${fault} synthetic-private-key`); }, spawnForDestination: (d: string) => d === 'vrcdn' ? p.spawn : optional.spawn });
+        t.after(() => outputs.stop());
+        await outputs.start();
+        await new Promise(resolve => setImmediate(resolve));
+        p.children[0].stdio[3].write('out_time_us=1000000\n');
+        assert.equal(reads, 1);
+        assert.equal(outputs.getState().publishing, true);
+        assert.equal(outputs.getState().destinations[1].status, 'invalid_setup');
+        assert.equal(optional.children.length, 0);
+        assert.ok(!JSON.stringify(outputs.getState()).includes('synthetic-private-key'));
+        await outputs.stop();
+    }
+});
+test('hung optional retrieval is bounded and aborted while primary progresses', async (t) => {
+    const mod = await load();
+    const p = processFactory(), optional = processFactory();
+    let signal: AbortSignal | undefined;
+    const outputs = mod.createEventOutputs({ configuration, env: secretEnv, credentialTimeoutMs: 25, readSecret: ({ signal: s }: any) => { signal = s; return new Promise(() => { }); }, spawnForDestination: (d: string) => d === 'vrcdn' ? p.spawn : optional.spawn });
+    t.after(() => outputs.stop());
+    await outputs.start();
+    p.children[0].stdio[3].write('out_time_us=1000000\n');
+    assert.equal(outputs.getState().publishing, true);
+    assert.equal(outputs.getState().destinations[1].status, 'connecting');
+    await new Promise(resolve => setTimeout(resolve, 50));
+    assert.equal(outputs.getState().destinations[1].status, 'invalid_setup');
+    assert.equal(signal?.aborted, true);
+    assert.equal(optional.children.length, 0);
+    assert.equal(outputs.getState().publishing, true);
+});
+test('stopNow aborts pending secret resolution and late completion cannot spawn', async (t) => {
+    const mod = await load();
+    const p = processFactory();
+    let finish: any, signal: AbortSignal | undefined;
+    const outputs = mod.createEventOutputs({ configuration, env: secretEnv, readSecret: ({ signal: s }: any) => { signal = s; return new Promise(resolve => { finish = resolve; }); }, spawnForDestination: () => p.spawn });
+    t.after(() => outputs.stop());
+    await outputs.start();
+    outputs.stopNow();
+    assert.equal(signal?.aborted, true);
+    finish(secrets('twitch-ref'));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(p.children.length, 1);
+    assert.equal(outputs.getState().destinations[1].status, 'stopped');
+    await outputs.start();
+    assert.equal(p.children.length, 1);
+});
+test('AWS optional secret boundary scopes the request and suppresses errors', async () => {
+    const { resolveOptionalOutputSecret } = await load();
+    let call: any;
+    const value = await resolveOptionalOutputSecret({ arn: optionalArn, region: 'us-east-1', run: async (...args: any[]) => { call = args; return { stdout: JSON.stringify({ SecretString: secrets('twitch-ref') }) }; } });
+    assert.equal(value, secrets('twitch-ref'));
+    assert.deepEqual(call[1].slice(0, 4), ['secretsmanager', 'get-secret-value', '--secret-id', optionalArn]);
+    assert.ok(call[2].maxBuffer <= 16384);
+    assert.ok(call[2].timeout <= 2500);
+    await assert.rejects(() => resolveOptionalOutputSecret({ arn: optionalArn, region: 'us-east-1', run: async () => { throw Error('synthetic-private-key'); } }), /^Error: Optional credential unavailable$/);
+    await assert.rejects(() => resolveOptionalOutputSecret({ arn: '*', region: 'us-east-1' }), /Optional credential unavailable/);
 });

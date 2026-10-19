@@ -340,7 +340,7 @@ export const observeOutputs = mutation({args:{...workerSessionArgs,destinations:
  for(const d of args.destinations){
   if(!Number.isFinite(d.outputMs)||d.outputMs<0||!Number.isSafeInteger(d.queueBytes)||d.queueBytes<0||d.queueBytes>524288||!Number.isSafeInteger(d.restarts)||d.restarts<0) throw Error('Invalid output health.');
   const o=await ctx.db.get(d.outputId);
-  if(!o||o.eventId!==args.eventId||o.programId!==found.program._id||!["ready","active"].includes(o.state)||(o._id!==found.session.outputId&&!o.simulcastEnabled)||(d.destination==='twitch'?!o.twitchSetup:o.type!=='vrcdn')) return {accepted:false};
+  if(!o||o.eventId!==args.eventId||o.programId!==found.program._id||!["ready","active"].includes(o.state)||(o._id!==found.session.outputId&&!o.simulcastEnabled)||(d.destination==='twitch'?(o.type!=='external_rtmp'||!o.twitchSetup):(o.type!=='vrcdn'||!!o.twitchSetup))) return {accepted:false};
  }
  await ctx.db.patch(args.sessionId,{outputHealth:args.destinations,outputHealthObservedAt:Date.now()}); return {accepted:true};
 }});

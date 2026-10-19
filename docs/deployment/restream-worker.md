@@ -66,7 +66,7 @@ Required non-secret bridge configuration:
 - `VRDEX_EVENT_MEDIA_ECS_LOG_GROUP`
 - `VRDEX_EVENT_MEDIA_ECS_SUBNETS`, comma-separated subnet ids
 - `VRDEX_EVENT_MEDIA_ECS_SECURITY_GROUPS`, comma-separated security group ids
-- `VRDEX_EVENT_MEDIA_SECRET_REF_MAP_JSON`, a JSON object that maps Convex output-account credential references to AWS Secrets Manager or SSM parameter ARNs
+- `VRDEX_EVENT_MEDIA_SECRET_REF_MAP_JSON`, a JSON object that maps Convex output-account credential references to AWS Secrets Manager or SSM parameter ARNs for the selected output; optional destinations require exact Secrets Manager ARNs
 
 Optional bridge configuration includes `VRDEX_EVENT_MEDIA_BRIDGE_WORKER_ID`, `VRDEX_EVENT_MEDIA_ECS_CONTAINER`, `VRDEX_EVENT_MEDIA_ECS_COMMAND_JSON`, `VRDEX_EVENT_MEDIA_ECS_CPU`, `VRDEX_EVENT_MEDIA_ECS_MEMORY`, `VRDEX_EVENT_MEDIA_ECS_EPHEMERAL_STORAGE_GIB`, `VRDEX_EVENT_MEDIA_ECS_ASSIGN_PUBLIC_IP`, `VRDEX_EVENT_MEDIA_ECS_LOG_STREAM_PREFIX`, `VRDEX_EVENT_MEDIA_ECS_BASE_ENV_JSON`, `VRDEX_EVENT_MEDIA_OUTPUT_SECRET_ENV`, and `VRDEX_EVENT_MEDIA_BRIDGE_POLL_MS`. Use `VRDEX_EVENT_MEDIA_ECS_COMMAND_JSON` when the selected image needs a command override, for example `["node","workers/restream/vrcdn-poc.mjs"]` for the VRCDN POC entrypoint.
 
@@ -382,7 +382,8 @@ Required event runtime configuration:
 | `VRDEX_EVENT_BROADCAST_SILENCE_CALIBRATED` | Convex deployment-only gate; defaults off |
 
 Grant the execution role read access only to the referenced bridge-token/output
-secrets, and the task role read access only to the configured SSM switch. The
+secrets, and the task role read access to the configured SSM switch. Optional destination
+secret access is separately scoped through `optional_output_secret_arns`. The
 existing bridge token is a trusted service credential with global bridge authority;
 worker/session/epoch fencing supplies ownership, not per-session authentication.
 Rotate it through the secret store and backend binding together, then replace tasks.
@@ -451,7 +452,8 @@ this change does not enable hosted output. The selected `session.outputId` is th
 required destination. `events.configureTwitchOutput` creates an operator-owned
 `external_rtmp` record with `twitchSetup` and an explicit `simulcastEnabled` flag
 (default false). It never changes the selected output or public VRCDN links.
-Only one optional Twitch output can be enabled. Setup changes fence the running
+Only one optional Twitch output can be enabled. VRCDN and Twitch configuration
+reject cross-provider key reuse symmetrically; use a distinct output key. Setup changes fence the running
 session and require restart, including enabling/disabling optional publication.
 
 The mutation uses existing media-management authorization and accepts
@@ -463,13 +465,31 @@ It stores references only. Deployment owners may define
 `{key, channel, credentialRef}`; the default is an empty registry. Do not put
 stream keys in that registry. Account owners rotate values in Secrets Manager;
 reference-to-ARN bindings remain in `VRDEX_EVENT_MEDIA_SECRET_REF_MAP_JSON` on the
-bridge and the execution-role policy must permit each bound secret.
+bridge. The execution role reads required startup secrets; the task role reads
+only explicitly granted optional destination Secrets Manager ARNs.
 
-The bridge preserves its legacy selected-output secret injection and adds
-numbered `VRDEX_EVENT_MEDIA_OUTPUT_SECRET_<n>` ECS secret variables for explicitly
-enabled optional outputs. `VRDEX_EVENT_MEDIA_OUTPUT_SECRET_BINDINGS_JSON` maps
-references to those variable names, never values. An absent optional ARN binding
-produces optional `invalid_setup` health without preventing primary startup.
+The bridge preserves its legacy selected-output secret injection. Enabled optional
+credentials are **not** essential container `secrets`: the bridge passes only
+`VRDEX_EVENT_MEDIA_OPTIONAL_SECRET_ARNS_JSON`, a reference-to-ARN map, as ordinary
+configuration. Optional reads happen inside the already running worker with a
+two-second deadline, abort on stop, and fixed `invalid_setup` errors. Missing,
+deleted, denied or hung optional retrieval cannot delay required VRCDN startup.
+Late resolution after `stopNow()` cannot spawn an output. Successful credentials
+are cached only in worker memory for reconnects; restart to rotate credentials.
+
+Optional bindings require exact Secrets Manager secret ARNs in the worker's
+region and a string-valued complete secret; SSM and ECS JSON-key selector suffixes
+remain supported only by the legacy selected-output ECS injection. Configure
+Terraform `optional_output_secret_arns` with exact optional ARNs: it grants
+`secretsmanager:GetSecretValue` only on those resources to the **task role**, not
+the execution role. The default empty list grants nothing and creates no policy.
+For customer-managed encryption, `optional_output_kms_key_arns` adds `kms:Decrypt`
+only on exact keys, conditioned on Secrets Manager via-service and the configured
+secret ARN encryption contexts. Cross-account secrets also require matching
+operator-managed resource/key policies. Do not grant wildcard secret/key access or
+add optional credentials to the static `secret_arns` ECS startup map. These local
+IaC definitions do not apply permissions or change hosted enablement by themselves.
+
 The secret JSON is `{rtmpUrl, streamKey}` or legacy `{ingestUrl}`. The worker accepts
 VRCDN regional `*.ingest.vrcdn.live/live` and Twitch `live.twitch.tv/app` endpoints
 (and subdomains of that Twitch hostname), RTMP/RTMPS, default ports or 1935/443.

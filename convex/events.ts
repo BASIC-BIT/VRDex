@@ -2022,7 +2022,7 @@ async function createWorkerBridgeCommandPayload(
       publicLinks: program.publicLinks,
     },
     session: workerSessionStatus(session),
-    optionalOutputs: (await db.query("eventMediaOutputs").withIndex("by_programId_key", q=>q.eq("programId",program._id)).take(9)).filter(o=>o._id!==session.outputId && o.eventId===command.eventId && o.simulcastEnabled===true && o.twitchSetup && ["ready","active"].includes(o.state)).map(o=>workerCommandOutput(o)),
+    optionalOutputs: (await db.query("eventMediaOutputs").withIndex("by_programId_key", q=>q.eq("programId",program._id)).take(9)).filter(o=>o._id!==session.outputId && o.eventId===command.eventId && o.simulcastEnabled===true && o.type==="external_rtmp" && o.twitchSetup && ["ready","active"].includes(o.state)).map(o=>workerCommandOutput(o)),
     ...(workerCommandOutput(output) === undefined ? {} : { output: workerCommandOutput(output) }),
   };
 }
@@ -3508,6 +3508,7 @@ export const configureVrcdnOutput = mutation({
       .query("eventMediaOutputs")
       .withIndex("by_programId_key", (query) => query.eq("programId", programId).eq("key", output.key))
       .unique();
+    if (existingOutput && (existingOutput.type !== "vrcdn" || existingOutput.twitchSetup)) throw Error("Output key belongs to another destination.");
     const credential =
       output.credential === undefined
         ? undefined
@@ -3568,9 +3569,9 @@ export const configureTwitchOutput = mutation({
     const now=Date.now(), programId=await getOrCreateEventMediaProgram(ctx.db,event,now);
     const all=await ctx.db.query("eventMediaOutputs").withIndex("by_programId_key",q=>q.eq("programId",programId)).take(9);
     const existing=all.find(o=>o.key===output.key);
-    if(existing && !existing.twitchSetup) throw Error("Output key belongs to another destination.");
+    if(existing && (existing.type!=="external_rtmp" || !existing.twitchSetup)) throw Error("Output key belongs to another destination.");
     if(!existing && all.length>=8) throw Error("Output limit reached.");
-    if(output.simulcastEnabled && all.some(o=>o.key!==output.key && o.simulcastEnabled)) throw Error("Only one optional Twitch output can be enabled.");
+    if(output.simulcastEnabled && all.some(o=>o.key!==output.key && o.type==="external_rtmp" && o.twitchSetup && o.simulcastEnabled)) throw Error("Only one optional Twitch output can be enabled.");
     const record={...output,programId,eventId:event._id,credential:output.credential?{...output.credential,authorizedAt:now,authorizedBy:subject}:undefined,updatedAt:now};
     const outputId=existing?existing._id:await ctx.db.insert("eventMediaOutputs",{...record,createdAt:now});
     if(existing) await ctx.db.patch(existing._id,record);

@@ -286,3 +286,24 @@ it('destination health is fenced and rejects outputs belonging to another event'
  const other=await t.run(async ctx=> {const o=await ctx.db.get(output.outputId); return ctx.db.insert('eventMediaOutputs',{...Object.fromEntries(Object.entries(o!).filter(([k])=>!['_id','_creationTime'].includes(k))),programId:output.programId,eventId:await ctx.db.insert('events',Object.fromEntries(Object.entries((await ctx.db.get(args.eventId))!).filter(([k])=>!['_id','_creationTime'].includes(k))) as any)} as any);});
  assert.equal((await t.mutation(worker('observeOutputs'),{...args,epoch:lease.epoch,destinations:[{...destinations[0],outputId:other}]})).accepted,false);
 });
+it('destination keys cannot be converted by the legacy VRCDN writer or malformed Twitch discriminator',async()=>{
+ const {t,owner,event}=await fixture();const ref=makeFunctionReference<'mutation'>('events:configureTwitchOutput');
+ const setup={currentSlug:event.slug,key:'twitch-main',label:'Twitch',channel:'example',credentialRef:'event-media/twitch/owned',simulcastEnabled:true,sourceConsentAccepted:true,destinationAuthorityAccepted:true,providerRulesAccepted:true,rightsClearedMediaAccepted:true};
+ const added=await owner.mutation(ref,setup);const before=await t.run(ctx=>ctx.db.get(added.outputId));
+ await assert.rejects(()=>owner.mutation(api.events.configureVrcdnOutput,{currentSlug:event.slug,key:setup.key,label:'VRCDN',credentialRef:'event-media/vrcdn/main',sourceConsentAccepted:true,destinationAuthorityAccepted:true,providerRulesAccepted:true,rightsClearedMediaAccepted:true}),/another destination/);
+ assert.deepEqual(await t.run(ctx=>ctx.db.get(added.outputId)),before);
+ await owner.mutation(ref,{...setup,simulcastEnabled:false});await owner.mutation(ref,{...setup,key:'twitch-other'});
+ await t.run(ctx=>ctx.db.patch(added.outputId,{type:'vrcdn',simulcastEnabled:true}));
+ await assert.rejects(()=>owner.mutation(ref,{...setup,simulcastEnabled:false}),/another destination/);
+ // A legacy malformed row cannot reserve optional Twitch capacity or enter bridge dispatch.
+ const other=await owner.mutation(ref,{...setup,key:'twitch-other'});
+ const command=await t.mutation(api.events.claimEventMediaWorkerCommand,{bridgeToken,workerId:'bridge-fix1'});
+ assert.ok(command); assert.deepEqual(command.optionalOutputs.map((o:any)=>o?.outputId),[other.outputId]);
+ const {taskDefinitionFor}=await import('../../scripts/event-media-ecs-bridge.mjs');
+ const arn='arn:aws:secretsmanager:us-east-1:123456789012:secret:optional-ABC123';
+ const definition=taskDefinitionFor(command,{baseEnvironment:{},secretRefMap:{'event-media/vrcdn/main':'arn:main','event-media/twitch/owned':arn},outputSecretEnvName:'VRDEX_EVENT_MEDIA_OUTPUT_INGEST_SECRET_JSON',workerTokenSecretArn:'arn:token'});
+ assert.ok(!definition.containerDefinitions[0].secrets.some((entry:any)=>entry.valueFrom===arn));
+ const lease=await t.mutation(worker('acquireSession'),{bridgeToken,eventId:event.eventId,sessionId:command.session.sessionId,workerId:'output-worker',epoch:0});
+ const badHealth=await t.mutation(worker('observeOutputs'),{bridgeToken,eventId:event.eventId,sessionId:command.session.sessionId,workerId:'output-worker',epoch:lease.epoch,destinations:[{outputId:added.outputId,destination:'twitch',status:'publishing',publishing:true,queueBytes:0,outputMs:1000,restarts:0}]});
+ assert.equal(badHealth.accepted,false);
+});

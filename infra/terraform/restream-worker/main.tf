@@ -360,3 +360,41 @@ resource "aws_ecs_task_definition" "worker" {
     }
   ])
 }
+
+# Optional credentials must not become essential ECS initialization dependencies.
+# Grants are empty by default and apply only to the running worker task role.
+data "aws_partition" "current" {}
+
+data "aws_iam_policy_document" "optional_output_secrets" {
+  count = length(var.optional_output_secret_arns) > 0 ? 1 : 0
+  statement {
+    sid       = "ReadExplicitOptionalOutputSecrets"
+    actions   = ["secretsmanager:GetSecretValue"]
+    resources = var.optional_output_secret_arns
+  }
+  dynamic "statement" {
+    for_each = length(var.optional_output_kms_key_arns) > 0 ? [1] : []
+    content {
+      sid       = "DecryptExplicitOptionalOutputSecrets"
+      actions   = ["kms:Decrypt"]
+      resources = var.optional_output_kms_key_arns
+      condition {
+        test     = "StringEquals"
+        variable = "kms:ViaService"
+        values   = ["secretsmanager.${var.aws_region}.${data.aws_partition.current.dns_suffix}"]
+      }
+      condition {
+        test     = "StringEquals"
+        variable = "kms:EncryptionContext:SecretARN"
+        values   = var.optional_output_secret_arns
+      }
+    }
+  }
+}
+
+resource "aws_iam_role_policy" "optional_output_secrets" {
+  count  = length(var.optional_output_secret_arns) > 0 ? 1 : 0
+  name   = "read-explicit-optional-output-secrets"
+  role   = aws_iam_role.task.id
+  policy = data.aws_iam_policy_document.optional_output_secrets[0].json
+}
