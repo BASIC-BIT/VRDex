@@ -1,4 +1,4 @@
-import { allocateSessionCommandSequence, attachPendingProgramCommands, requireEventMediaBridgeToken } from "./_eventBroadcastInputs";
+import { validateBroadcastPolicy, allocateSessionCommandSequence, attachPendingProgramCommands, requireEventMediaBridgeToken } from "./_eventBroadcastInputs";
 import { dateOnlyEventsEnabled, eventDateForInstant, eventSortAt, eventSortEndAt, normalizeEventSchedule, publicEventSchedule, requireDateOnlyEventsEnabled } from "./_eventSchedule";
 import { eventProfileStreamChoices } from "./_eventPlayback";
 import { ConvexError, v } from "convex/values";
@@ -1941,6 +1941,7 @@ export async function reconcileEventMediaScheduleChange(
 
 function workerSessionStatus(session: Doc<"eventMediaSessions">) {
   return {
+    epoch:session.epoch,dispatchId:session.dispatchId,broadcastMode:session.broadcastMode,runtimeDeadlineAt:session.runtimeDeadlineAt,
     sessionId: session._id,
     status: session.status,
     ...(session.outputId === undefined ? {} : { outputId: session.outputId }),
@@ -3902,5 +3903,21 @@ export const getPersonStreamChoices = query({
     const profile = await ctx.db.query("profiles").withIndex("by_slug", (q) => q.eq("slug", args.slug)).unique();
     if (profile === null || profile.profileType !== "person" || !canReadProfile("public", profile)) return [];
     return eventProfileStreamChoices(profile);
+  },
+});
+
+/** Worker policy uses the same event-media capability as commands. */
+export const configureEventBroadcastPolicy = mutation({
+  args:{currentSlug:v.string(),policy:v.object({maxOverrunMs:v.optional(v.number()),silence:v.optional(v.object({thresholdDb:v.number(),durationMs:v.number()}))})},
+  handler:async(ctx,args)=>{
+    const subject=await requireAuthenticatedSubject(ctx);
+    const {event}=await getMediaManageableEventBySlug(ctx,args.currentSlug,subject);
+    const program=await getLatestEventMediaProgram(ctx.db,event._id);
+    if(!program)throw new Error("Event media program was not found.");
+    const policy=validateBroadcastPolicy(args.policy);
+    if(policy.silence && process.env.VRDEX_EVENT_BROADCAST_SILENCE_CALIBRATED!=="true")throw new Error("Automatic silence requires operator calibration.");
+    await ctx.db.patch(program._id,{broadcastPolicy:policy,updatedAt:Date.now()});
+    await recordEventMediaAuditEvent(ctx.db,{programId:program._id,eventId:event._id,actor:subject,action:"broadcast_policy_configured",createdAt:Date.now()});
+    return {programId:program._id,policy};
   },
 });

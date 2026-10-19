@@ -66,6 +66,7 @@ export type EventMediaVrcdnRegion = "europe" | "north_america" | "south_america"
 export type EventMediaComplianceGateState = "pending" | "accepted" | "blocked";
 
 export type EventMediaCommandType =
+  | "set_automatic_mode"
   | "start_program"
   | "stop_program"
   | "preview_source"
@@ -324,6 +325,7 @@ export const eventMediaComplianceGateStateValidator = v.union(
 );
 
 export const eventMediaCommandTypeValidator = v.union(
+  v.literal("set_automatic_mode"),
   v.literal("start_program"),
   v.literal("stop_program"),
   v.literal("preview_source"),

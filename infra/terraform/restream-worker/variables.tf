@@ -159,9 +159,9 @@ variable "ephemeral_storage_gib" {
 }
 
 variable "max_concurrent_workers" {
-  description = "Non-secret benchmark guardrail for maximum simultaneously running hosted restream workers."
+  description = "Bridge/backend admission limit; configure the same value in Convex VRDEX_EVENT_BROADCAST_MAX_CONCURRENT."
   type        = number
-  default     = 10
+  default     = 1
 }
 
 variable "max_session_seconds" {
@@ -216,4 +216,10 @@ variable "tags" {
   description = "Additional resource tags."
   type        = map(string)
   default     = {}
+}
+
+variable "event_worker_command" {
+  description = "Select the event control runtime rather than the synthetic benchmark. Keep disabled until sender/provider acceptance passes."
+  type        = bool
+  default     = false
 }

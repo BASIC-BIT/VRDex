@@ -327,3 +327,107 @@ pnpm proof:restream:worker:matrix
 ```
 
 No AWS CLI mutation, Terraform apply, image publish, or ECS task run is part of this validation.
+
+## Controlled event runtime (disabled pending acceptance)
+
+`workers/restream/event-worker.mjs` is the event-session entry point. The bridge
+selects it explicitly; the image default and Terraform default retain the synthetic
+benchmark. `event_worker_command = true` selects the event command in the static
+Terraform task definition, but does not enable its SSM kill switch. The runtime
+currently refuses startup without an output factory; destination sender integration
+and fresh provider rehearsal remain rollout gates.
+
+The controller acquires a fenced 30-second lease, renews after 10 seconds, and polls
+configuration and commands every second. An independent 50ms watchdog immediately
+unsubscribes output and calls the sender's synchronous `stopNow()` before waiting
+for decoder cleanup. Control calls time out after three seconds. Lease deadlines
+use monotonic request-start time plus the server's remaining lease, minus a 250ms
+margin; wall-clock skew cannot extend authority. Schedule time advances from the
+last server-time sample. Event calendar end does not stop a healthy set.
+
+Each session persists a 12-hour maximum deadline on first acquisition. A deployment
+can shorten it with `VRDEX_RESTREAM_MAX_SESSION_SECONDS` (1..86400); replacement
+workers retain the backend deadline. The private operations projection includes
+`runtimeDeadlineAt`, `broadcastMode`, and `epoch`. An expired or rejected lease,
+failed control refresh, renderer failure, cancellation, deadline, or kill-switch
+failure fences publication. Process status from ECS is separate from media status.
+
+The bridge reserves global capacity through `eventMediaWorker.admitDispatch`
+**before** registering/running a task. Set Convex
+`VRDEX_EVENT_BROADCAST_MAX_CONCURRENT` to the intended cap (default 1, maximum 100)
+and keep Terraform `max_concurrent_workers` consistent. ECS RunTask uses the
+reservation identity as its client token. An ambiguous failed launch keeps its
+reservation: inspect ECS and confirm termination before repairing/retrying it.
+Do not clear reservations based on time alone. A confirmed stopped task updates
+process state and frees capacity. Rehearsal must also verify that an old task has
+lost provider ingest ownership before authorizing replacement publication.
+
+Required event runtime configuration:
+
+| Variable | Owner and scope |
+| --- | --- |
+| `CONVEX_URL` | Deployment control endpoint; no deployment admin key |
+| `VRDEX_EVENT_MEDIA_EVENT_ID`, `VRDEX_EVENT_MEDIA_SESSION_ID` | Bridge-provided session identity |
+| `VRDEX_EVENT_MEDIA_WORKER_TOKEN_SECRET_ARN` | Bridge configuration: reference injected as `VRDEX_EVENT_MEDIA_BRIDGE_TOKEN` through ECS secrets |
+| `VRDEX_RESTREAM_KILL_SWITCH_SSM_PARAMETER`, `AWS_REGION` | Runtime reads SSM every 9 seconds with 10-second authority; exact `true` enables |
+| `VRDEX_RESTREAM_MAX_SESSION_SECONDS` | Maximum runtime, defaults to 43200 |
+| `VRDEX_EVENT_MEDIA_SOURCE_ENDPOINTS_JSON` | Optional exact deployment-owned HTTPS MPEGTS endpoint allowlist |
+| `VRDEX_EVENT_BROADCAST_SILENCE_CALIBRATED` | Convex deployment-only gate; defaults off |
+
+Grant the execution role read access only to the referenced bridge-token/output
+secrets, and the task role read access only to the configured SSM switch. The
+existing bridge token is a trusted service credential with global bridge authority;
+worker/session/epoch fencing supplies ownership, not per-session authentication.
+Rotate it through the secret store and backend binding together, then replace tasks.
+Never place token values in base environment JSON, Terraform values, logs, or event
+records. Output secrets remain event/output-owned references.
+
+Sources refresh from authoritative event slots and currently public performer
+stream choices. Each appearance retains its event-slot identity. Revoked/private
+links and disabled sources become unavailable. Production ingestion supports
+canonical VRCDN HTTPS MPEGTS and explicitly allowlisted operator HTTPS MPEGTS;
+Twitch playback extraction and arbitrary event URLs are refused. A local relay
+pins each upstream connection to validated public IPv4, refuses redirects, and
+feeds forced MPEGTS into the decoder. Loopback, private, link-local, multicast,
+IPv6 and unsupported transports are refused upstream. Synthetic test endpoints
+exist only through injected test dependencies.
+
+`events.configureEventBroadcastPolicy` uses the existing media capability and
+accepts bounded `maxOverrunMs` and optional calibrated `silence`. Silence is rejected
+unless the deployment gate is on, and refresh removes it when that gate turns off.
+Changing its threshold requires restarting a session to create matching decoder
+analysis; it remains disabled for a mismatched active decoder. Quiet-intro,
+breakdown, and actual-ending calibration evidence is still required.
+
+`hold_current` retains the selected healthy source in manual mode.
+`switch_hold` selects the neutral slate; `show_hold_scene` supports only an
+unconfigured neutral hold-slate scene. Unsupported custom scenes fail rather than
+claiming to render them. `set_automatic_mode` resumes automatic following. Source
+switches are acknowledged only when both encoded slot and source match, and the
+required output is publishing. Autonomous observations are fenced and audited
+separately from command acknowledgements.
+
+The worker emits JSON `event_worker_heartbeat` (encoded `outputMs`, remaining
+runtime), `event_worker_command` (sequence, latency, outcome), and
+`event_worker_stopped` (bounded reason) metrics without source or output URLs.
+Create CloudWatch metric filters/alarms for missing heartbeats, command latency,
+failed dispatch, and forced stops before rollout. Use ECS task duration for worker
+hours and provider/network byte accounting for egress; multiply measured hours by
+the chosen Fargate CPU/memory rates. Configure an AWS Budget and owner notification
+for the expected event spend, then rehearse its alarm path. No budget alarm or
+provider acceptance is implied by these configuration examples.
+
+Local control-loop proof: `node scripts/event-worker-local-proof.mjs`. It runs a
+real synthetic UDP publisher, waits for encoded selection, kills that publisher,
+checks progressing hold output, then verifies publication fencing at the deadline.
+Its output sink is local and is not provider acceptance. Also run
+`PROOF_SECONDS=60 node scripts/event-broadcast-failure-proof.mjs` for timestamp,
+GOP, color and audio checks. The tested quality is 720p30; 1080p60 has not passed
+the local processing-delay budget.
+
+Changing the selected destination configuration requires a stopped/restarted
+session; refresh fences the old sender before it can be reported under a new
+output identity. An optional sender's transient failure is separate from this
+configuration-change rule and must not interrupt a healthy required destination.
+For a source URL change under the same source ID, the worker restarts the decoder
+and waits for encoded hold before accepting the replacement input's acknowledgement.

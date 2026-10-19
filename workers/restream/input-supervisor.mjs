@@ -65,7 +65,7 @@ export function createInputSupervisor({ source, quality = { width: 1280, height:
         reset();
         startedAt = clock();
         failureSince = startedAt;
-        child = spawnProcess(ffmpeg, ['-hide_banner', '-loglevel', 'info', '-nostdin', '-threads', '2', '-analyzeduration', '1000000', '-probesize', '1000000', '-i', source.url,
+        child = spawnProcess(ffmpeg, ['-hide_banner', '-loglevel', 'info', '-nostdin', '-threads', '2', '-analyzeduration', '1000000', '-probesize', '1000000', ...(source.url.startsWith('http://127.0.0.1:') ? ['-f', 'mpegts', '-protocol_whitelist', 'http,tcp'] : []), '-i', source.url,
             '-map', '0:v:0', '-vf', `showinfo,scale=${quality.width}:${quality.height}:force_original_aspect_ratio=decrease,pad=${quality.width}:${quality.height}:(ow-iw)/2:(oh-ih)/2,format=yuv420p`,
             '-fps_mode', 'passthrough', '-threads', '2', '-f', 'rawvideo', 'pipe:3',
             '-map', '0:a:0', '-ac', '2', '-ar', '48000', '-f', 's16le', 'pipe:4'], { stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'] });

@@ -1485,6 +1485,7 @@ export default defineSchema({
     .index("by_candidateId_visibility", ["candidateId", "visibility"])
     .index("by_fieldKey_reviewState", ["fieldKey", "reviewState"]),
   eventMediaPrograms: defineTable({
+    broadcastPolicy: v.optional(v.object({maxOverrunMs:v.optional(v.number()),silence:v.optional(v.object({thresholdDb:v.number(),durationMs:v.number()}))})),
     eventId: v.id("events"),
     communityProfileId: v.optional(v.id("profiles")),
     state: eventMediaProgramStateValidator,
@@ -1603,6 +1604,9 @@ export default defineSchema({
     workerId: v.optional(v.string()),
     epoch: v.optional(v.number()),
     acquiredAt: v.optional(v.number()),
+    runtimeDeadlineAt: v.optional(v.number()),
+    dispatchId: v.optional(v.string()),
+    broadcastMode: v.optional(v.union(v.literal("automatic"), v.literal("manual"), v.literal("hold"))),
     nextCommandSequence: v.optional(v.number()),
     lastAcknowledgedSequence: v.optional(v.number()),
     workerRuntime: v.optional(v.string()),

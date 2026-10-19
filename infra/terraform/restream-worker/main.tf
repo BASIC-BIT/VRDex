@@ -273,7 +273,7 @@ resource "aws_ecs_task_definition" "worker" {
       essential = true
       cpu       = var.container_cpu
       memory    = var.container_memory
-      command   = ["node", "workers/restream/hosted-worker.mjs"]
+      command   = ["node", var.event_worker_command ? "workers/restream/event-worker.mjs" : "workers/restream/hosted-worker.mjs"]
       environment = [
         {
           name  = "CONVEX_URL"

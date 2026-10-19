@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { setTimeout as sleep } from "node:timers/promises";
 
@@ -6,6 +7,9 @@ import { makeFunctionReference } from "convex/server";
 
 const OPEN_SESSION_STATUSES = new Set(["scheduled", "starting", "live", "hold", "fallback", "stopping"]);
 const convexApi = {
+  recordProcessStatus: makeFunctionReference("eventMediaWorker:recordProcessStatus"),
+  admitDispatch: makeFunctionReference("eventMediaWorker:admitDispatch"),
+  recordDispatchedTask: makeFunctionReference("eventMediaWorker:recordDispatchedTask"),
   claimEventMediaWorkerCommand: makeFunctionReference("events:claimEventMediaWorkerCommand"),
   listEventMediaWorkerBridgeSessions: makeFunctionReference("events:listEventMediaWorkerBridgeSessions"),
   recordEventMediaWorkerBridgeTaskStatus: makeFunctionReference("events:recordEventMediaWorkerBridgeTaskStatus"),
@@ -160,6 +164,7 @@ function loadConfig() {
   const bridgeToken = requiredEnv("VRDEX_EVENT_MEDIA_BRIDGE_TOKEN");
   const secretRefMap = stringMapEnv("VRDEX_EVENT_MEDIA_SECRET_REF_MAP_JSON");
   const baseEnvironment = stringMapEnv("VRDEX_EVENT_MEDIA_ECS_BASE_ENV_JSON", {});
+  if (Object.keys(baseEnvironment).some(name => ["VRDEX_EVENT_MEDIA_BRIDGE_TOKEN", "VRDEX_EVENT_MEDIA_OUTPUT_INGEST_SECRET_JSON"].includes(name))) throw new Error("Worker credentials must use ECS secret references.");
   const workerId = optionalEnv("VRDEX_EVENT_MEDIA_BRIDGE_WORKER_ID") ?? `event-media-ecs-bridge-${process.pid}`;
 
   return {
@@ -174,7 +179,8 @@ function loadConfig() {
     executionRoleArn: requiredEnv("VRDEX_EVENT_MEDIA_ECS_EXECUTION_ROLE_ARN"),
     taskRoleArn: requiredEnv("VRDEX_EVENT_MEDIA_ECS_TASK_ROLE_ARN"),
     containerName: optionalEnv("VRDEX_EVENT_MEDIA_ECS_CONTAINER") ?? "hosted-worker",
-    containerCommand: stringListJsonEnv("VRDEX_EVENT_MEDIA_ECS_COMMAND_JSON"),
+    containerCommand: stringListJsonEnv("VRDEX_EVENT_MEDIA_ECS_COMMAND_JSON") ?? ["node", "workers/restream/event-worker.mjs"],
+    workerTokenSecretArn: requiredEnv("VRDEX_EVENT_MEDIA_WORKER_TOKEN_SECRET_ARN"),
     logGroupName: requiredEnv("VRDEX_EVENT_MEDIA_ECS_LOG_GROUP"),
     logStreamPrefix: optionalEnv("VRDEX_EVENT_MEDIA_ECS_LOG_STREAM_PREFIX") ?? "worker",
     cpu: String(integerEnv("VRDEX_EVENT_MEDIA_ECS_CPU", 1024, 256, 16384)),
@@ -245,7 +251,7 @@ function taskDefinitionFor(command, config) {
         essential: true,
         ...(config.containerCommand === undefined ? {} : { command: config.containerCommand }),
         environment: environmentEntries(command, config),
-        secrets: secretArn === undefined ? [] : [{ name: config.outputSecretEnvName, valueFrom: secretArn }],
+        secrets: [{name:"VRDEX_EVENT_MEDIA_BRIDGE_TOKEN",valueFrom:config.workerTokenSecretArn}, ...(secretArn === undefined ? [] : [{ name: config.outputSecretEnvName, valueFrom: secretArn }])],
         logConfiguration: {
           logDriver: "awslogs",
           options: {
@@ -282,6 +288,8 @@ async function runTask(command, taskDefinitionArn, config) {
     "LATEST",
     "--count",
     "1",
+    "--client-token",
+    command.dispatchId,
     "--started-by",
     `${config.workerId}-${command.session.sessionId}`,
     "--network-configuration",
@@ -302,6 +310,9 @@ async function runTask(command, taskDefinitionArn, config) {
 }
 
 async function startCommand(command, client, config) {
+  command.dispatchId = randomUUID();
+  const admission = await client.mutation(convexApi.admitDispatch, {bridgeToken:config.bridgeToken,eventId:command.eventId,sessionId:command.session.sessionId,dispatchId:command.dispatchId});
+  if(!admission.granted)throw new Error("Worker dispatch capacity or ownership denied.");
   const registered = await registerTaskDefinition(command, config);
   const taskDefinitionArn = registered.taskDefinition.taskDefinitionArn;
   const taskArn = await runTask(command, taskDefinitionArn, config);
@@ -310,18 +321,8 @@ async function startCommand(command, client, config) {
     throw new Error("ECS RunTask did not return a task ARN.");
   }
 
-  await client.mutation(convexApi.recordEventMediaWorkerBridgeTaskStatus, {
-    bridgeToken: config.bridgeToken,
-    workerId: config.workerId,
-    sessionId: command.session.sessionId,
-    commandId: command.commandId,
-    status: "starting",
-    workerRuntime: "ecs-fargate",
-    workerProvider: "aws_ecs",
-    workerTaskDefinitionArn: taskDefinitionArn,
-    workerTaskId: taskArn,
-    workerTaskStatus: "starting",
-  });
+  const recorded=await client.mutation(convexApi.recordDispatchedTask, {bridgeToken:config.bridgeToken,sessionId:command.session.sessionId,dispatchId:command.dispatchId,taskArn,taskDefinitionArn});
+  if(!recorded.accepted)throw new Error("Worker dispatch registration denied.");
 
   console.log(JSON.stringify({ event: "event_media_ecs_task_started", sessionId: command.session.sessionId, taskArn, taskDefinitionArn }));
 }
@@ -357,7 +358,8 @@ async function stopCommand(command, client, config) {
 }
 
 async function recordClaimedCommandError(command, error, client, config) {
-  const reason = workerStatusReason(error instanceof Error ? error.message : String(error));
+  const reason = "Worker dispatch failed; inspect reservation before retrying.";
+  if(command.dispatchId){console.error(JSON.stringify({event:"event_media_ecs_dispatch_failed",sessionId:command.session.sessionId}));return;}
 
   await client.mutation(convexApi.recordEventMediaWorkerBridgeTaskStatus, {
     bridgeToken: config.bridgeToken,
@@ -423,7 +425,7 @@ function ecsStatusToSessionStatus(task) {
   }
 
   if (task.lastStatus === "RUNNING") {
-    return { status: "live", workerTaskStatus: "running", reason: undefined };
+    return { status: "starting", workerTaskStatus: "running", reason: undefined };
   }
 
   return { status: "starting", workerTaskStatus: "starting", reason: workerStatusReason(task.lastStatus) };
@@ -465,6 +467,11 @@ async function refreshSessions(client, config) {
       continue;
     }
 
+    if(session.dispatchId || session.epoch !== undefined){
+      await client.mutation(convexApi.recordProcessStatus,{bridgeToken:config.bridgeToken,sessionId:session.sessionId,taskArn:session.workerTaskId,stopped:task.lastStatus==="STOPPED"});
+      if(task.lastStatus==="STOPPED")await deregisterTaskDefinition(session.workerTaskDefinitionArn,config);
+      continue;
+    }
     const next = ecsStatusToSessionStatus(task);
 
     if (session.status === next.status && session.workerTaskStatus === next.workerTaskStatus) {
