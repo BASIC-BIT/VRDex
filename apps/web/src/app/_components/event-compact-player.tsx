@@ -65,6 +65,13 @@ export function EventCompactPlayer({ owner, state, mount }: { owner: EventPlayba
     if (shell.current) resize.observe(shell.current);
     return () => { document.removeEventListener("fullscreenchange", sync); resize.disconnect(); };
   }, []);
+  useEffect(() => {
+    // Request clearing covers Close and revocation. Observed fullscreen changes
+    // also cover an entry promise completing after the request was cleared.
+    if (!request && document.fullscreenElement === shell.current) {
+      void document.exitFullscreen().catch(() => {});
+    }
+  }, [request, fullscreen]);
   const compact = !placement;
   const fallback = twitch && limited;
   const visibleWidth = viewport ? `${viewport.width}px` : "100vw";

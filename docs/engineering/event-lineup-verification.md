@@ -146,7 +146,9 @@ slot stops showing its Play poster once active. Return links use client navigati
 Pause, volume/mute, fullscreen, close and performer selection control the same
 owner. Compact clearance is retained while the session exists so moving inline
 near the bottom of a page does not clamp scroll or oscillate. Close releases both
-transport and clearance. VisualViewport bounds/offsets and safe-area insets protect
+transport and clearance. Clearing playback through Close or revocation exits
+fullscreen only when the retained shell owns it, including a pending fullscreen
+entry that completes after playback was cleared. VisualViewport bounds/offsets and safe-area insets protect
 compact positioning when the visual viewport differs from the layout viewport.
 The shared Play poster explicitly fills its parent width, avoiding aspect-ratio
 min-height expansion on narrow event/profile/watch surfaces.

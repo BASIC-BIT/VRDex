@@ -195,3 +195,63 @@ test("returning inline near the document end preserves scroll and media @fixture
   expect(await video.evaluate((node, old) => node === old, original)).toBe(true);
   await expect(shell).toHaveAttribute("data-presentation", "inline");
 });
+
+for (const clear of ["close", "revocation"] as const) test(`clearing playback through ${clear} exits owned fullscreen @fixture`, async ({ page }, testInfo) => {
+  await page.goto("/playwright/event-persistent");
+  await page.getByRole("button", { name: "Play Harbor Sessions", exact: true }).click();
+  const shell = page.getByRole("region", { name: "Event playback" });
+  const video = shell.locator("video");
+  await expect.poll(() => video.evaluate(node => (node as HTMLVideoElement).currentTime)).toBeGreaterThan(0.1);
+  await shell.getByRole("button", { name: "Full screen", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement?.getAttribute("aria-label"))).toBe("Event playback");
+  if (clear === "close") await shell.getByRole("button", { name: "Close event playback" }).click();
+  else await page.route("**/playwright-projection.json", route => route.fulfill({ json: { revoked: true } }));
+  await expect(page.locator("[data-event-playback-mount] video")).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement === null)).toBe(true);
+  await expect(shell).toBeHidden();
+  await page.getByRole("link", { name: "Profile", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "DJ Aurora" })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath(`fullscreen-${clear}-released.png`) });
+});
+
+test("revocation leaves an unrelated element fullscreen @fixture", async ({ page }) => {
+  await page.goto("/playwright/event-persistent");
+  await page.getByRole("button", { name: "Play Harbor Sessions", exact: true }).click();
+  const video = page.locator("[data-event-playback-mount] video");
+  await expect.poll(() => video.evaluate(node => (node as HTMLVideoElement).currentTime)).toBeGreaterThan(0.1);
+  await page.locator("main").evaluate(node => node.requestFullscreen());
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement?.tagName)).toBe("MAIN");
+  await page.route("**/playwright-projection.json", route => route.fulfill({ json: { revoked: true } }));
+  await expect(video).toHaveCount(0);
+  expect(await page.evaluate(() => document.fullscreenElement?.tagName)).toBe("MAIN");
+  await page.evaluate(() => document.exitFullscreen());
+});
+
+test("cleared playback exits a fullscreen entry that completes later @fixture", async ({ page }) => {
+  await page.goto("/playwright/event-persistent");
+  await page.getByRole("button", { name: "Play Harbor Sessions", exact: true }).click();
+  const shell = page.getByRole("region", { name: "Event playback" });
+  await expect.poll(() => shell.locator("video").evaluate(node => (node as HTMLVideoElement).currentTime)).toBeGreaterThan(0.1);
+  await page.evaluate(() => {
+    const fixture = window as unknown as { releaseFullscreen: () => Promise<void>; entered: boolean };
+    const enter = Element.prototype.requestFullscreen;
+    // Hold only invocation timing; the eventual entry and change events are native.
+    Element.prototype.requestFullscreen = function () {
+      return new Promise<void>((resolve, reject) => {
+        fixture.releaseFullscreen = () => enter.call(this).then(resolve, reject);
+      });
+    };
+    document.addEventListener("fullscreenchange", () => {
+      if (document.fullscreenElement?.getAttribute("aria-label") === "Event playback") fixture.entered = true;
+    });
+  });
+  await shell.getByRole("button", { name: "Full screen", exact: true }).click();
+  await shell.getByRole("button", { name: "Close event playback" }).click();
+  await page.evaluate(() => (window as unknown as { releaseFullscreen: () => Promise<void> }).releaseFullscreen());
+  await expect.poll(() => page.evaluate(() => Boolean((window as unknown as { entered: boolean }).entered))).toBe(true);
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement === null)).toBe(true);
+  await expect(page.locator("[data-event-playback-mount] video")).toHaveCount(0);
+  await expect(shell).toBeHidden();
+  await page.getByRole("link", { name: "Profile", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "DJ Aurora" })).toBeVisible();
+});
