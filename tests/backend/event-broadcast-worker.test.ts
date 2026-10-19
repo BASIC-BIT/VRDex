@@ -69,11 +69,11 @@ it("autonomous observations are fenced and cannot claim live without actual enco
 import { createEventWorker } from "../../workers/restream/event-worker.mjs";
 function runtimeFixture(options: Record<string, unknown> = {}) {
     let now = 0, encoded = 0, renderedSlotKey: string | undefined, renderedSourceId: string | undefined;
-    let fenced = 0, selections = 0, ackCount = 0, holds = 0;
+    let fenced = 0, selections = 0, ackCount = 0, holds = 0, prepared = 0;
     let commands: any[] = [];
     const config: any = { sessionDeadline: 1000000, mode: "automatic", policy: {}, sources: [{ id: "a", eventSlotId: "slot-a", publicUrl: "https://stream.vrcdn.live/live/a.live.ts", type: "vrcdn_link" }], slots: [{ slotKey: "slot-a", sourceId: "a", startAt: 0, available: true }], outputs: [{ id: "out" }], outputId: "out" };
     const observations = new Map<string, any>();
-    const renderer = { start: async () => { }, stop: async () => { }, subscribe: () => () => { }, reconcileSources: async () => { }, getInputs: () => [...observations.values()].map(o => ({ source: o, getObservation: () => ({ ...o, observedAt: typeof options.observationClock === "function" ? options.observationClock() : o.observedAt }) })), selectSource: (slot: string) => { selections++; return true; }, hold: () => { holds++; }, getState: () => ({ running: true, outputMs: encoded, renderedSlotKey, renderedSourceId }) };
+    const renderer = { start: async () => { }, stop: async () => { }, subscribe: () => () => { }, reconcileSources: async (sources: any[]) => { prepared += sources.length; }, getInputs: () => [...observations.values()].map(o => ({ source: o, getObservation: () => ({ ...o, observedAt: typeof options.observationClock === "function" ? options.observationClock() : o.observedAt }) })), selectSource: (slot: string) => { selections++; return true; }, hold: () => { holds++; }, getState: () => ({ running: true, outputMs: encoded, renderedSlotKey, renderedSourceId }) };
     const control = async (name: string, args: any) => {
         if (name === "acquireSession" || name === "renewSession")
             return { granted: true, epoch: 1, serverNow: 0, expiresAt: 30000, renewAfterMs: 10000, configuration: config };
@@ -89,7 +89,7 @@ function runtimeFixture(options: Record<string, unknown> = {}) {
         return { accepted: true };
     };
     const worker = createEventWorker({ identity: { eventId: "e", sessionId: "s", workerId: "unique", epoch: 0 }, control: (name: string, args: any) => typeof options.controlFilter === "function" ? options.controlFilter(name, args, control) : control(name, args), clock: () => now, renderer, resolveSource: async (s: any) => s.publicUrl, checkEnabled: async () => true, outputs: { start: async () => { }, enqueue: () => { }, getState: () => ({ publishing: true }), stopNow: () => { fenced++; }, stop: async () => { } }, ...options });
-    return { worker, config, observations, advance: (n: number) => { now = n; }, encoded: () => { encoded = 100; renderedSlotKey = "slot-a"; renderedSourceId = "a"; }, command: (type = "switch_source", sequence = 1) => { commands = [{ _id: `c${sequence}`, sequence, commandType: type, targetSourceId: "a" }]; }, counts: () => ({ fenced, selections, ackCount, holds }) };
+    return { worker, config, observations, advance: (n: number) => { now = n; }, encoded: () => { encoded = 100; renderedSlotKey = "slot-a"; renderedSourceId = "a"; }, command: (type = "switch_source", sequence = 1) => { commands = [{ _id: `c${sequence}`, sequence, commandType: type, targetSourceId: "a" }]; }, counts: () => ({ fenced, selections, ackCount, holds, prepared }) };
 }
 it("worker only acknowledges encoded slot and source, then ignores command replay", async () => {
     const f = runtimeFixture();
@@ -295,4 +295,140 @@ it("replacement runtime restores acknowledged manual source without a schedule s
     await f.worker.start();
     assert.equal(f.worker.getState().current?.sourceId, 'a');
     assert.equal(f.worker.getState().mode, 'manual');
+});
+it('I1 response latency cannot advance preparation or promotion before server boundaries', async () => {
+    let f: ReturnType<typeof runtimeFixture>;
+    let backendNow = 900, receipt = 950;
+    f = runtimeFixture({ controlFilter: async (name: string, args: any, base: any) => {
+            if (name === 'refreshConfiguration') {
+                f.advance(receipt);
+                return { granted: true, serverNow: backendNow, configuration: f.config };
+            }
+            return base(name, args);
+        } });
+    f.config.slots[0].startAt = 1000;
+    await f.worker.start();
+    f.advance(800);
+    f.observations.set('slot-a', { slotKey: 'slot-a', sourceId: 'a', ready: true, progressing: true, observedAt: 950 });
+    await f.worker.tick();
+    assert.equal(f.counts().selections, 0);
+    backendNow = 1000;
+    receipt = 1050;
+    await f.worker.tick();
+    assert.equal(f.counts().selections, 1);
+});
+async function projectedSourceFixture() {
+    const f = await fixture();
+    const ids = await f.t.run(async ({ db }) => {
+        const person = await db.insert('profiles', { slug: 'projected', displayName: 'DJ', sortName: 'dj', aliases: [], tags: [], claimState: 'unclaimed', publicationState: 'published', publicSurfacingState: 'public', creationSource: 'community', updatedAt: Date.now(), profileType: 'person', person: { roleTags: [] }, outboundLinks: [{ type: 'other', label: 'Stream', source: 'owner_authored', url: 'vrcdn:alpha' }] });
+        const slot = await db.insert('eventSlots', { eventId: f.event.eventId, position: 0, startAt: Date.now(), personProfileId: person, displayLabel: 'DJ', roleLabel: 'DJ', sourceType: 'manual', sourceLabel: 'Owner', confidence: 1, reviewState: 'confirmed', updatedAt: Date.now() });
+        return { person, slot };
+    });
+    const lease = await f.t.mutation(worker('acquireSession'), f.args);
+    return { ...f, ...ids, request: { ...f.args, epoch: lease.epoch }, sourceId: lease.configuration.slots[0].sourceId };
+}
+it('I2 detaching performer invalidates projected source even when the old profile changes later', async () => {
+    const f = await projectedSourceFixture();
+    await f.t.run(({ db }) => db.patch(f.slot, { personProfileId: undefined }));
+    let refreshed = await f.t.mutation(worker('refreshConfiguration'), f.request);
+    assert.equal(refreshed.configuration.slots[0].available, false);
+    assert.equal(refreshed.configuration.sources.length, 0);
+    await f.t.run(({ db }) => db.patch(f.person, { outboundLinks: [], fieldVisibility: { outboundLinks: 'private' } }));
+    refreshed = await f.t.mutation(worker('refreshConfiguration'), f.request);
+    assert.equal(refreshed.configuration.slots[0].available, false);
+    assert.equal(refreshed.configuration.sources.length, 0);
+});
+it('I3 profile refresh preserves explicit disable independently of transient availability', async () => {
+    const f = await projectedSourceFixture();
+    await f.t.run(({ db }) => db.patch(f.sourceId, { state: 'disabled' }));
+    const refreshed = await f.t.mutation(worker('refreshConfiguration'), f.request);
+    assert.equal(refreshed.configuration.slots[0].available, false);
+    assert.equal((await f.t.run(({ db }) => db.get(f.sourceId)))?.state, 'disabled');
+});
+it('I4 terminal media retains capacity and bridge reconciliation until process stop is confirmed', async () => {
+    const f = await fixture();
+    await f.t.mutation(worker('admitDispatch'), { bridgeToken, eventId: f.event.eventId, sessionId: f.args.sessionId, dispatchId: 'first' });
+    await f.t.mutation(worker('recordDispatchedTask'), { bridgeToken, sessionId: f.args.sessionId, dispatchId: 'first', taskArn: 'task-first', taskDefinitionArn: 'definition-first' });
+    const lease = await f.t.mutation(worker('acquireSession'), f.args);
+    await f.t.mutation(worker('observeProgram'), { ...f.args, epoch: lease.epoch, state: 'error', outputMs: 10, publishing: false });
+    const second = await f.t.run(async ({ db }) => { const old = (await db.get(f.args.sessionId))!; const { _id, _creationTime, ...row } = old; const id = await db.insert('eventMediaSessions', { ...row, status: 'scheduled', dispatchId: undefined, workerTaskId: undefined, workerTaskDefinitionArn: undefined, workerTaskStatus: undefined, epoch: undefined }); await db.patch(old.programId, { activeSessionId: id }); return id; });
+    const admission = { bridgeToken, eventId: f.event.eventId, sessionId: second, dispatchId: 'second' };
+    assert.equal((await f.t.mutation(worker('admitDispatch'), admission)).granted, false);
+    let sessions = await f.t.query(api.events.listEventMediaWorkerBridgeSessions, { bridgeToken, workerId: 'bridge' });
+    assert.ok(sessions.some((s: any) => s.sessionId === f.args.sessionId));
+    await f.t.mutation(worker('recordProcessStatus'), { bridgeToken, sessionId: f.args.sessionId, taskArn: 'task-first', stopped: true });
+    assert.equal((await f.t.mutation(worker('admitDispatch'), admission)).granted, true);
+});
+it('I1 network latency cannot prepare earlier than the two-minute window', async () => {
+    let f: ReturnType<typeof runtimeFixture>;
+    f = runtimeFixture({ controlFilter: async (name: string, args: any, base: any) => { if (name === 'refreshConfiguration') {
+            f.advance(950);
+            return { granted: true, serverNow: 900, configuration: f.config };
+        } return base(name, args); } });
+    f.config.slots[0].startAt = 121000;
+    await f.worker.start();
+    f.advance(800);
+    await f.worker.tick();
+    assert.equal(f.counts().prepared, 0);
+});
+it('I3 transient link loss restores availability without clearing an explicit disable', async () => {
+    const f = await projectedSourceFixture();
+    await f.t.run(({ db }) => db.patch(f.person, { outboundLinks: [] }));
+    let refreshed = await f.t.mutation(worker('refreshConfiguration'), f.request);
+    assert.equal(refreshed.configuration.slots[0].available, false);
+    await f.t.run(({ db }) => db.patch(f.person, { outboundLinks: [{ type: 'other', label: 'Stream', source: 'owner_authored', url: 'vrcdn:alpha' }] }));
+    refreshed = await f.t.mutation(worker('refreshConfiguration'), f.request);
+    assert.equal(refreshed.configuration.slots[0].available, true);
+    await f.t.run(({ db }) => db.patch(f.sourceId, { state: 'disabled' }));
+    refreshed = await f.t.mutation(worker('refreshConfiguration'), f.request);
+    assert.equal(refreshed.configuration.slots[0].available, false);
+});
+import { refreshSessions } from '../../scripts/event-media-ecs-bridge.mjs';
+it('I4 bridge reconciles terminal tasks and retries task-definition cleanup after failure', async () => {
+    const f = await fixture();
+    await f.t.mutation(worker('admitDispatch'), { bridgeToken, eventId: f.event.eventId, sessionId: f.args.sessionId, dispatchId: 'cleanup' });
+    await f.t.mutation(worker('recordDispatchedTask'), { bridgeToken, sessionId: f.args.sessionId, dispatchId: 'cleanup', taskArn: 'task-cleanup', taskDefinitionArn: 'definition-cleanup' });
+    await f.t.run(({ db }) => db.patch(f.args.sessionId, { status: 'error' }));
+    const client = { query: (ref: any, args: any) => f.t.query(ref, args), mutation: (ref: any, args: any) => f.t.mutation(ref, args) };
+    const config = { bridgeToken, workerId: 'bridge', cluster: 'local-test' };
+    let attempts = 0;
+    const runAws = async (_config: any, args: string[]) => {
+        if (args[1] === 'describe-tasks')
+            return { tasks: [{ taskArn: 'task-cleanup', lastStatus: 'STOPPED' }] };
+        assert.equal(args[1], 'deregister-task-definition');
+        if (++attempts === 1)
+            throw Error('transient cleanup failure');
+        return {};
+    };
+    await assert.rejects(refreshSessions(client, config, runAws), /cleanup failure/);
+    let sessions = await f.t.query(api.events.listEventMediaWorkerBridgeSessions, { bridgeToken, workerId: 'bridge' });
+    assert.ok(sessions.some((s: any) => s.sessionId === f.args.sessionId));
+    await refreshSessions(client, config, runAws);
+    assert.equal(attempts, 2);
+    sessions = await f.t.query(api.events.listEventMediaWorkerBridgeSessions, { bridgeToken, workerId: 'bridge' });
+    assert.equal(sessions.length, 0);
+    assert.equal((await f.t.mutation(worker('recordProcessStatus'), { bridgeToken, sessionId: f.args.sessionId, taskArn: 'task-cleanup', stopped: false })).accepted, false);
+});
+it('I4 ambiguous terminal launch remains visible and reserved without a task ARN', async () => {
+    const f = await fixture();
+    await f.t.mutation(worker('admitDispatch'), { bridgeToken, eventId: f.event.eventId, sessionId: f.args.sessionId, dispatchId: 'ambiguous' });
+    await f.t.run(({ db }) => db.patch(f.args.sessionId, { status: 'error' }));
+    const sessions = await f.t.query(api.events.listEventMediaWorkerBridgeSessions, { bridgeToken, workerId: 'bridge' });
+    assert.equal(sessions[0].dispatchId, 'ambiguous');
+    assert.equal(sessions[0].workerTaskId, undefined);
+    assert.equal(sessions[0].workerTaskStatus, 'starting');
+});
+it('I2 detached projection does not replace a separately authored manual input', async () => {
+    const f = await projectedSourceFixture();
+    const manual = await f.t.run(async ({ db }) => { await db.patch(f.slot, { personProfileId: undefined }); return db.insert('eventMediaSources', { programId: f.output.programId, eventId: f.event.eventId, key: 'operator-input', position: 2, type: 'vrcdn_link', purpose: 'program', state: 'ready', label: 'Manual', eventSlotId: f.slot, sourceProfileId: f.person, publicUrl: 'https://stream.vrcdn.live/live/manual.live.ts', createdAt: Date.now(), updatedAt: Date.now() }); });
+    const refreshed = await f.t.mutation(worker('refreshConfiguration'), f.request);
+    assert.equal(refreshed.configuration.slots[0].sourceId, manual);
+    assert.equal(refreshed.configuration.slots[0].available, true);
+    assert.equal((await f.t.mutation(worker('observeProgram'), { ...f.request, state: 'live', outputMs: 10, publishing: true, sourceId: f.sourceId })).accepted, false);
+});
+it('I4 legacy task reservations without process status stay discoverable', async () => {
+    const f = await fixture();
+    await f.t.run(({ db }) => db.patch(f.args.sessionId, { status: 'error', dispatchId: 'legacy-ambiguous', workerTaskId: 'legacy-task', workerProvider: 'aws_ecs', workerTaskStatus: undefined }));
+    const sessions = await f.t.query(api.events.listEventMediaWorkerBridgeSessions, { bridgeToken, workerId: 'bridge' });
+    assert.equal(sessions[0]?.workerTaskId, 'legacy-task');
 });

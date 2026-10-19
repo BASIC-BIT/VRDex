@@ -343,7 +343,8 @@ unsubscribes output and calls the sender's synchronous `stopNow()` before waitin
 for decoder cleanup. Control calls time out after three seconds. Lease deadlines
 use monotonic request-start time plus the server's remaining lease, minus a 250ms
 margin; wall-clock skew cannot extend authority. Schedule time advances from the
-last server-time sample. Event calendar end does not stop a healthy set.
+last server-time sample anchored at response receipt, a conservative lower bound.
+Request-start anchoring is used only for lease authority, never schedule eligibility. Event calendar end does not stop a healthy set.
 
 Each session persists a 12-hour maximum deadline on first acquisition. A deployment
 can shorten it with `VRDEX_RESTREAM_MAX_SESSION_SECONDS` (1..86400); replacement
@@ -359,7 +360,10 @@ and keep Terraform `max_concurrent_workers` consistent. ECS RunTask uses the
 reservation identity as its client token. An ambiguous failed launch keeps its
 reservation: inspect ECS and confirm termination before repairing/retrying it.
 Do not clear reservations based on time alone. A confirmed stopped task updates
-process state and frees capacity. Rehearsal must also verify that an old task has
+process state and frees capacity. Terminal media status alone never releases a
+reservation. Outstanding tasks remain in bridge reconciliation after media ends;
+confirmed stopped tasks remain queryable until task-definition cleanup succeeds.
+Ambiguous launches without task ARNs stay visible and reserved for investigation. Rehearsal must also verify that an old task has
 lost provider ingest ownership before authorizing replacement publication.
 
 Required event runtime configuration:
@@ -384,7 +388,11 @@ records. Output secrets remain event/output-owned references.
 
 Sources refresh from authoritative event slots and currently public performer
 stream choices. Each appearance retains its event-slot identity. Revoked/private
-links and disabled sources become unavailable. Production ingestion supports
+links and disabled sources become unavailable. Profile-derived sources retain
+explicit provenance; detaching a performer invalidates its old projection.
+Transient link availability is stored separately from source state, so profile
+refresh never clears an explicit disable. Separately authored manual sources
+retain their own authorization. Production ingestion supports
 canonical VRCDN HTTPS MPEGTS and explicitly allowlisted operator HTTPS MPEGTS;
 Twitch playback extraction and arbitrary event URLs are refused. A local relay
 pins each upstream connection to validated public IPv4, refuses redirects, and

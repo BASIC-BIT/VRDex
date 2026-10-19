@@ -57,7 +57,7 @@ export function createEventWorker({ identity, control, renderer, outputs, create
         identity.epoch = lease.epoch;
         renewAt = sentAt + Math.min(lease.renewAfterMs, 10000);
         serverTime = lease.serverNow;
-        sampledAt = sentAt;
+        sampledAt = clock();
     }
     const scheduleNow = () => serverTime + clock() - sampledAt;
     function observation(slot) {
@@ -242,7 +242,6 @@ export function createEventWorker({ identity, control, renderer, outputs, create
                     const sent = clock();
                     acceptLease(await request('renewSession'), sent);
                 }
-                const sent = clock();
                 const fresh = await request('refreshConfiguration');
                 if (!fresh.granted)
                     throw Error('Configuration authority denied');
@@ -265,7 +264,7 @@ export function createEventWorker({ identity, control, renderer, outputs, create
                         revisionBarriers.delete(slotKey);
                 }
                 serverTime = fresh.serverNow;
-                sampledAt = sent;
+                sampledAt = clock();
                 if (current)
                     current = { ...current, ...config.slots.find(s => s.slotKey === current.slotKey), available: current.slotKey.startsWith('manual-') ? config.sources.some(s => s.id === current.sourceId) : config.slots.some(s => s.slotKey === current.slotKey && s.sourceId === current.sourceId && s.available) };
                 watchdog();

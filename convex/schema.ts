@@ -1513,6 +1513,8 @@ export default defineSchema({
     label: v.string(),
     eventSlotId: v.optional(v.id("eventSlots")),
     sourceProfileId: v.optional(v.id("profiles")),
+    profileProjection: v.optional(v.boolean()),
+    projectionAvailable: v.optional(v.boolean()),
     ownerProfileId: v.optional(v.id("profiles")),
     publicUrl: v.optional(v.string()),
     privateConfigRef: v.optional(v.string()),
@@ -1615,6 +1617,7 @@ export default defineSchema({
     workerTaskId: v.optional(v.string()),
     workerTaskStatus: v.optional(eventMediaWorkerTaskStatusValidator),
     workerTaskStatusReason: v.optional(v.string()),
+    workerTaskCleanupPending: v.optional(v.boolean()),
     leaseExpiresAt: v.optional(v.number()),
     currentSourceId: v.optional(v.id("eventMediaSources")),
     currentSceneId: v.optional(v.id("eventMediaScenes")),
@@ -1639,6 +1642,8 @@ export default defineSchema({
     .index("by_programId_status", ["programId", "status"])
     .index("by_eventId_status", ["eventId", "status"])
     .index("by_status_updatedAt", ["status", "updatedAt"])
+    .index("by_workerTaskStatus", ["workerTaskStatus"])
+    .index("by_workerTaskCleanupPending", ["workerTaskCleanupPending"])
     .index("by_workerId_status", ["workerId", "status"])
     .index("by_leaseExpiresAt", ["leaseExpiresAt"]),
   eventMediaAuditEvents: defineTable({

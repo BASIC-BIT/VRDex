@@ -159,7 +159,7 @@ export const acknowledgeCommand = mutation({
             if (id === undefined || id === null)
                 continue;
             const record = await ctx.db.get(id);
-            if (record === null || record.programId !== found.program._id || record.eventId !== args.eventId || ("state" in record && record.state === "disabled")) {
+            if (record === null || record.programId !== found.program._id || record.eventId !== args.eventId || ("state" in record && record.state === "disabled") || ("projectionAvailable" in record && record.projectionAvailable === false)) {
                 return denied(`Observed ${table} does not belong to this event program.`);
             }
         }
@@ -191,17 +191,21 @@ async function configuration(ctx: MutationCtx, { session, program, event }: NonN
             const profile = await ctx.db.get(slot.personProfileId);
             const stream = profile && canReadProfile("public", profile) ? resolveEventStream(eventProfileStreamChoices(profile), slot.selectedStreamId) : undefined;
             if (stream && !source) {
-                const id = await ctx.db.insert("eventMediaSources", { programId: program._id, eventId: event._id, key: `slot-${slot._id}`, position: slot.position, type: "vrcdn_link", purpose: "program", state: "ready", label: slot.displayLabel, eventSlotId: slot._id, sourceProfileId: slot.personProfileId, publicUrl: stream.questUrl, createdAt: Date.now(), updatedAt: Date.now() });
+                const id = await ctx.db.insert("eventMediaSources", { programId: program._id, eventId: event._id, key: `slot-${slot._id}`, position: slot.position, type: "vrcdn_link", purpose: "program", state: "ready", label: slot.displayLabel, eventSlotId: slot._id, sourceProfileId: slot.personProfileId, profileProjection: true, projectionAvailable: true, publicUrl: stream.questUrl, createdAt: Date.now(), updatedAt: Date.now() });
                 source = await ctx.db.get(id);
             }
             else if (source) {
-                await ctx.db.patch(source._id, { publicUrl: stream?.questUrl, state: stream ? "ready" : "disabled", updatedAt: Date.now() });
+                await ctx.db.patch(source._id, { publicUrl: stream?.questUrl, profileProjection: true, projectionAvailable: !!stream, sourceProfileId: slot.personProfileId, updatedAt: Date.now() });
                 source = await ctx.db.get(source._id);
             }
         }
+        else if (source && (source.profileProjection || source.sourceProfileId)) {
+            await ctx.db.patch(source._id, { profileProjection: true, projectionAvailable: false, publicUrl: undefined, updatedAt: Date.now() });
+            source = null;
+        }
         if (!source && !slot.personProfileId)
-            source = (await ctx.db.query("eventMediaSources").withIndex("by_programId_position", q => q.eq("programId", program._id)).take(65)).find(s => s.eventSlotId === slot._id) ?? null;
-        slots.push({ slotKey: slot._id, sourceId: source?._id, startAt: slot.startAt, endAt: slot.endAt, available: source !== null && source.state !== "disabled" && !!source.publicUrl });
+            source = (await ctx.db.query("eventMediaSources").withIndex("by_programId_position", q => q.eq("programId", program._id)).take(65)).find(s => s.eventSlotId === slot._id && !s.profileProjection && !(s.sourceProfileId && s.key === `slot-${slot._id}`)) ?? null;
+        slots.push({ slotKey: slot._id, sourceId: source?._id, startAt: slot.startAt, endAt: slot.endAt, available: source !== null && source.state !== "disabled" && source.projectionAvailable !== false && !!source.publicUrl });
     }
     const [sources, scenes, outputs] = await Promise.all([
         ctx.db.query("eventMediaSources").withIndex("by_programId_position", q => q.eq("programId", program._id)).take(EVENT_BROADCAST_MAX_SOURCES + 1),
@@ -220,7 +224,7 @@ async function configuration(ctx: MutationCtx, { session, program, event }: NonN
         currentSceneId: session.currentSceneId ?? program.currentSceneId,
         sessionDeadline: deadline, stopped: event.eventStatus !== "scheduled" || session.stopRequestedAt !== undefined,
         mode: session.broadcastMode ?? "automatic", policy: validateBroadcastPolicy({ ...program.broadcastPolicy, ...(process.env.VRDEX_EVENT_BROADCAST_SILENCE_CALIBRATED !== "true" ? { silence: undefined } : {}) }), slots,
-        sources: sources.filter(s => s.eventId === event._id && s.state !== "disabled" && (!s.eventSlotId || authored.some(slot => slot._id === s.eventSlotId))).map(s => ({ id: s._id, key: s.key, type: s.type, eventSlotId: s.eventSlotId, publicUrl: s.publicUrl, privateConfigRef: s.privateConfigRef })),
+        sources: sources.filter(s => s.eventId === event._id && s.state !== "disabled" && s.projectionAvailable !== false && (!s.eventSlotId || authored.some(slot => slot._id === s.eventSlotId))).map(s => ({ id: s._id, key: s.key, type: s.type, eventSlotId: s.eventSlotId, publicUrl: s.publicUrl, privateConfigRef: s.privateConfigRef })),
         scenes: scenes.filter(s => s.eventId === event._id).map(s => ({ id: s._id, key: s.key, type: s.type, sourceId: s.sourceId })),
         outputs: outputs.filter(o => o.eventId === event._id && ["ready", "active"].includes(o.state)).map(o => ({ id: o._id, key: o.key, type: o.type, credential: o.credential, vrcdnSetup: o.vrcdnSetup, compliance: o.compliance })),
     };
@@ -241,7 +245,7 @@ export const observeProgram = mutation({ args: { ...workerSessionArgs, state: ob
             throw new Error("Publishing progress is required.");
         if (args.sourceId) {
             const source = await ctx.db.get(args.sourceId);
-            if (!source || source.eventId !== args.eventId || source.programId !== found.program._id || source.state === "disabled")
+            if (!source || source.eventId !== args.eventId || source.programId !== found.program._id || source.state === "disabled" || source.projectionAvailable === false)
                 return { ...await reject(ctx, args, "Observed source is unavailable."), accepted: false };
         }
         if (args.outputId) {
@@ -271,16 +275,19 @@ export const admitDispatch = mutation({ args: { bridgeToken: v.string(), eventId
         const cap = Number(process.env.VRDEX_EVENT_BROADCAST_MAX_CONCURRENT ?? 1);
         if (!Number.isSafeInteger(cap) || cap < 1 || cap > 100)
             throw new Error("Invalid broadcast concurrency limit.");
-        let count = 0;
-        for (const status of ["scheduled", "starting", "live", "hold", "fallback", "stopping"] as const) {
-            const sessions = await ctx.db.query("eventMediaSessions").withIndex("by_status_updatedAt", q => q.eq("status", status)).take(101);
+        const legacy = await ctx.db.query("eventMediaSessions").withIndex("by_workerTaskStatus", q => q.eq("workerTaskStatus", undefined)).filter(q => q.or(q.neq(q.field("workerTaskId"), undefined), q.neq(q.field("dispatchId"), undefined))).take(101);
+        if (legacy.length > 100)
+            return { granted: false };
+        let count = legacy.length;
+        for (const status of ["starting", "running", "stopping"] as const) {
+            const sessions = await ctx.db.query("eventMediaSessions").withIndex("by_workerTaskStatus", q => q.eq("workerTaskStatus", status)).take(101);
             if (sessions.length > 100)
                 return { granted: false };
             count += sessions.filter(s => s.dispatchId !== undefined || s.workerTaskId !== undefined || s.epoch !== undefined).length;
         }
         if (count >= cap)
             return { granted: false };
-        await ctx.db.patch(session._id, { dispatchId: args.dispatchId, updatedAt: Date.now() });
+        await ctx.db.patch(session._id, { dispatchId: args.dispatchId, workerTaskStatus: "starting", updatedAt: Date.now() });
         return { granted: true };
     } });
 export const recordDispatchedTask = mutation({ args: { bridgeToken: v.string(), sessionId: v.id("eventMediaSessions"), dispatchId: v.string(), taskArn: v.string(), taskDefinitionArn: v.string() }, handler: async (ctx, args) => {
@@ -290,6 +297,8 @@ export const recordDispatchedTask = mutation({ args: { bridgeToken: v.string(), 
             return { accepted: false };
         if (session.workerTaskId && session.workerTaskId !== args.taskArn)
             return { accepted: false };
+        if (session.workerTaskStatus === "stopped")
+            return { accepted: true };
         await ctx.db.patch(session._id, { workerProvider: "aws_ecs", workerRuntime: "ecs-fargate", workerTaskId: args.taskArn, workerTaskDefinitionArn: args.taskDefinitionArn, workerTaskStatus: "starting", updatedAt: Date.now() });
         return { accepted: true };
     } });
@@ -298,11 +307,22 @@ export const recordProcessStatus = mutation({ args: { bridgeToken: v.string(), s
         const session = await ctx.db.get(args.sessionId);
         if (!session || session.workerTaskId !== args.taskArn)
             return { accepted: false };
-        await ctx.db.patch(session._id, { workerTaskStatus: args.stopped ? "stopped" : "running", ...(args.stopped && !['ended', 'error'].includes(session.status) ? { status: "error" as const, leaseExpiresAt: Date.now() } : {}), updatedAt: Date.now() });
+        if (session.workerTaskStatus === "stopped")
+            return { accepted: args.stopped };
+        await ctx.db.patch(session._id, { ...(args.stopped ? { workerTaskCleanupPending: true } : {}), workerTaskStatus: args.stopped ? "stopped" : "running", ...(args.stopped && !['ended', 'error'].includes(session.status) ? { status: "error" as const, leaseExpiresAt: Date.now() } : {}), updatedAt: Date.now() });
         if (args.stopped) {
             const program = await ctx.db.get(session.programId);
             if (program?.activeSessionId === session._id)
                 await ctx.db.patch(program._id, { activeSessionId: undefined, state: session.status === 'ended' ? 'ended' : 'error', updatedAt: Date.now() });
         }
+        return { accepted: true };
+    } });
+/** Cleanup acknowledgement is separate from capacity release at confirmed STOPPED. */
+export const completeTaskCleanup = mutation({ args: { bridgeToken: v.string(), sessionId: v.id("eventMediaSessions"), taskArn: v.string() }, handler: async (ctx, args) => {
+        requireEventMediaBridgeToken(args.bridgeToken);
+        const session = await ctx.db.get(args.sessionId);
+        if (!session || session.workerTaskId !== args.taskArn || session.workerTaskStatus !== "stopped")
+            return { accepted: false };
+        await ctx.db.patch(session._id, { workerTaskCleanupPending: false, updatedAt: Date.now() });
         return { accepted: true };
     } });

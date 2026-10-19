@@ -1941,7 +1941,7 @@ export async function reconcileEventMediaScheduleChange(
 
 function workerSessionStatus(session: Doc<"eventMediaSessions">) {
   return {
-    epoch:session.epoch,dispatchId:session.dispatchId,broadcastMode:session.broadcastMode,runtimeDeadlineAt:session.runtimeDeadlineAt,
+    epoch:session.epoch,dispatchId:session.dispatchId,workerTaskCleanupPending:session.workerTaskCleanupPending,broadcastMode:session.broadcastMode,runtimeDeadlineAt:session.runtimeDeadlineAt,
     sessionId: session._id,
     status: session.status,
     ...(session.outputId === undefined ? {} : { outputId: session.outputId }),
@@ -2579,28 +2579,14 @@ export const listEventMediaWorkerBridgeSessions = query({
   handler: async (ctx, args) => {
     requireEventMediaBridgeToken(args.bridgeToken);
     requireBridgeWorkerId(args.workerId);
-    const statuses: Array<"scheduled" | "starting" | "live" | "hold" | "fallback" | "stopping"> = [
-      "scheduled",
-      "starting",
-      "live",
-      "hold",
-      "fallback",
-      "stopping",
-    ];
-    const sessionGroups = await Promise.all(
-      statuses.map((status) =>
-        ctx.db
-          .query("eventMediaSessions")
-          .withIndex("by_status_updatedAt", (query) => query.eq("status", status))
-          .take(50),
-      ),
-    );
-
-    return sessionGroups
-      .flat()
-      .filter((session) => session.workerProvider === "aws_ecs" && session.workerTaskId !== undefined)
-      .sort((first, second) => second.updatedAt - first.updatedAt)
-      .map(workerSessionStatus);
+    const taskGroups=await Promise.all(["starting","running","stopping"].map(status=>ctx.db.query("eventMediaSessions").withIndex("by_workerTaskStatus",q=>q.eq("workerTaskStatus",status as "starting"|"running"|"stopping")).take(101)));
+    const legacy=await ctx.db.query("eventMediaSessions").withIndex("by_workerTaskStatus",q=>q.eq("workerTaskStatus",undefined)).filter(q=>q.or(q.neq(q.field("workerTaskId"),undefined),q.neq(q.field("dispatchId"),undefined))).take(101);
+    const cleanup=await ctx.db.query("eventMediaSessions").withIndex("by_workerTaskCleanupPending",q=>q.eq("workerTaskCleanupPending",true)).take(101);
+    // Include ambiguous dispatches without an ARN: they retain capacity and must
+    // remain visible for operator investigation, even after media termination.
+    return [...new Map([...taskGroups.flat(),...cleanup,...legacy].map(session=>[session._id,session])).values()]
+      .filter(session=>session.dispatchId!==undefined || session.workerProvider==="aws_ecs"&&session.workerTaskId!==undefined)
+      .sort((a,b)=>b.updatedAt-a.updatedAt).map(workerSessionStatus);
   },
 });
 

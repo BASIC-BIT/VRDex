@@ -1,3 +1,4 @@
+import { pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -7,6 +8,7 @@ import { makeFunctionReference } from "convex/server";
 
 const OPEN_SESSION_STATUSES = new Set(["scheduled", "starting", "live", "hold", "fallback", "stopping"]);
 const convexApi = {
+  completeTaskCleanup: makeFunctionReference("eventMediaWorker:completeTaskCleanup"),
   recordProcessStatus: makeFunctionReference("eventMediaWorker:recordProcessStatus"),
   admitDispatch: makeFunctionReference("eventMediaWorker:admitDispatch"),
   recordDispatchedTask: makeFunctionReference("eventMediaWorker:recordDispatchedTask"),
@@ -439,26 +441,23 @@ async function deregisterTaskDefinition(taskDefinitionArn, config) {
   await aws(config, ["ecs", "deregister-task-definition", "--task-definition", taskDefinitionArn]);
 }
 
-async function refreshSessions(client, config) {
+export async function refreshSessions(client, config, runAws = aws) {
   const sessions = await client.query(convexApi.listEventMediaWorkerBridgeSessions, {
     bridgeToken: config.bridgeToken,
     workerId: config.workerId,
   });
-  const taskSessions = sessions.filter((session) => session.workerTaskId && OPEN_SESSION_STATUSES.has(session.status));
+  const taskSessions = sessions.filter((session) => session.workerTaskId && (OPEN_SESSION_STATUSES.has(session.status) || session.dispatchId || session.epoch !== undefined || session.workerTaskCleanupPending));
 
   if (taskSessions.length === 0) {
     return;
   }
 
-  const response = await aws(config, [
-    "ecs",
-    "describe-tasks",
-    "--cluster",
-    config.cluster,
-    "--tasks",
-    ...taskSessions.map((session) => taskId(session.workerTaskId)),
-  ]);
-  const tasksByArn = new Map((response.tasks ?? []).flatMap((task) => [[task.taskArn, task], [taskId(task.taskArn), task]]));
+  const tasks=[];
+  for(let offset=0;offset<taskSessions.length;offset+=100){
+    const response=await runAws(config,["ecs","describe-tasks","--cluster",config.cluster,"--tasks",...taskSessions.slice(offset,offset+100).map(session=>taskId(session.workerTaskId))]);
+    tasks.push(...(response.tasks??[]));
+  }
+  const tasksByArn=new Map(tasks.flatMap(task=>[[task.taskArn,task],[taskId(task.taskArn),task]]));
 
   for (const session of taskSessions) {
     const task = tasksByArn.get(session.workerTaskId);
@@ -469,7 +468,10 @@ async function refreshSessions(client, config) {
 
     if(session.dispatchId || session.epoch !== undefined){
       await client.mutation(convexApi.recordProcessStatus,{bridgeToken:config.bridgeToken,sessionId:session.sessionId,taskArn:session.workerTaskId,stopped:task.lastStatus==="STOPPED"});
-      if(task.lastStatus==="STOPPED")await deregisterTaskDefinition(session.workerTaskDefinitionArn,config);
+      if(task.lastStatus==="STOPPED"){
+        if(session.workerTaskDefinitionArn)await runAws(config,["ecs","deregister-task-definition","--task-definition",session.workerTaskDefinitionArn]);
+        await client.mutation(convexApi.completeTaskCleanup,{bridgeToken:config.bridgeToken,sessionId:session.sessionId,taskArn:session.workerTaskId});
+      }
       continue;
     }
     const next = ecsStatusToSessionStatus(task);
@@ -525,7 +527,7 @@ async function main() {
   } while (!config.once);
 }
 
-main().catch((error) => {
+if(process.argv[1] && import.meta.url===pathToFileURL(process.argv[1]).href)main().catch((error) => {
   console.error(error instanceof Error ? sanitizeLog(error.message, [process.env.VRDEX_EVENT_MEDIA_BRIDGE_TOKEN]) : String(error));
   process.exitCode = 1;
 });
