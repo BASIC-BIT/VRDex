@@ -329,7 +329,7 @@ async function startCommand(command, client, config) {
   console.log(JSON.stringify({ event: "event_media_ecs_task_started", sessionId: command.session.sessionId, taskArn, taskDefinitionArn }));
 }
 
-async function stopCommand(command, client, config) {
+async function stopCommand(command, client, config, runAws = aws) {
   const taskArn = command.session.workerTaskId;
 
   if (!taskArn) {
@@ -345,7 +345,7 @@ async function stopCommand(command, client, config) {
     return;
   }
 
-  await aws(config, ["ecs", "stop-task", "--cluster", config.cluster, "--task", taskArn, "--reason", "VRDex event media stop command."]);
+  await runAws(config, ["ecs", "stop-task", "--cluster", config.cluster, "--task", taskArn, "--reason", "VRDex event media stop command."]);
   await client.mutation(convexApi.recordEventMediaWorkerBridgeTaskStatus, {
     bridgeToken: config.bridgeToken,
     workerId: config.workerId,
@@ -361,7 +361,7 @@ async function stopCommand(command, client, config) {
 
 async function recordClaimedCommandError(command, error, client, config) {
   const reason = "Worker dispatch failed; inspect reservation before retrying.";
-  if(command.dispatchId){console.error(JSON.stringify({event:"event_media_ecs_dispatch_failed",sessionId:command.session.sessionId}));return;}
+  if(command.dispatchId || command.session.dispatchId){console.error(JSON.stringify({event:"event_media_ecs_dispatch_failed",sessionId:command.session.sessionId}));return;}
 
   await client.mutation(convexApi.recordEventMediaWorkerBridgeTaskStatus, {
     bridgeToken: config.bridgeToken,
@@ -387,7 +387,7 @@ async function recordClaimedCommandError(command, error, client, config) {
   );
 }
 
-async function claimAndProcess(client, config) {
+export async function claimAndProcess(client, config, runAws = aws) {
   const command = await client.mutation(convexApi.claimEventMediaWorkerCommand, {
     bridgeToken: config.bridgeToken,
     workerId: config.workerId,
@@ -404,7 +404,7 @@ async function claimAndProcess(client, config) {
     }
 
     if (command.commandType === "stop_program") {
-      await stopCommand(command, client, config);
+      await stopCommand(command, client, config, runAws);
       return true;
     }
   } catch (error) {

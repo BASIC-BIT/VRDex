@@ -361,10 +361,13 @@ it('I4 terminal media retains capacity and bridge reconciliation until process s
 });
 it('I1 network latency cannot prepare earlier than the two-minute window', async () => {
     let f: ReturnType<typeof runtimeFixture>;
-    f = runtimeFixture({ controlFilter: async (name: string, args: any, base: any) => { if (name === 'refreshConfiguration') {
-            f.advance(950);
-            return { granted: true, serverNow: 900, configuration: f.config };
-        } return base(name, args); } });
+    f = runtimeFixture({ controlFilter: async (name: string, args: any, base: any) => {
+            if (name === 'refreshConfiguration') {
+                f.advance(950);
+                return { granted: true, serverNow: 900, configuration: f.config };
+            }
+            return base(name, args);
+        } });
     f.config.slots[0].startAt = 121000;
     await f.worker.start();
     f.advance(800);
@@ -431,4 +434,56 @@ it('I4 legacy task reservations without process status stay discoverable', async
     await f.t.run(({ db }) => db.patch(f.args.sessionId, { status: 'error', dispatchId: 'legacy-ambiguous', workerTaskId: 'legacy-task', workerProvider: 'aws_ecs', workerTaskStatus: undefined }));
     const sessions = await f.t.query(api.events.listEventMediaWorkerBridgeSessions, { bridgeToken, workerId: 'bridge' });
     assert.equal(sessions[0]?.workerTaskId, 'legacy-task');
+});
+import { claimAndProcess } from '../../scripts/event-media-ecs-bridge.mjs';
+async function admittedBeforeAcquisition() {
+    const f = await fixture();
+    await f.t.mutation(worker('admitDispatch'), { bridgeToken, eventId: f.event.eventId, sessionId: f.args.sessionId, dispatchId: 'managed' });
+    await f.t.mutation(worker('recordDispatchedTask'), { bridgeToken, sessionId: f.args.sessionId, dispatchId: 'managed', taskArn: 'managed-task', taskDefinitionArn: 'managed-definition' });
+    await f.t.run(async ({ db }) => { if (f.scheduled.startCommandId)
+        await db.patch(f.scheduled.startCommandId, { status: 'succeeded' }); });
+    const client = { query: (ref: any, args: any) => f.t.query(ref, args), mutation: (ref: any, args: any) => f.t.mutation(ref, args) };
+    return { ...f, client, config: { bridgeToken, workerId: 'bridge', cluster: 'local-test', redactValues: [] } };
+}
+async function assertReservedUntilConfirmed(f: Awaited<ReturnType<typeof admittedBeforeAcquisition>>) {
+    assert.equal((await f.t.mutation(worker('completeTaskCleanup'), { bridgeToken, sessionId: f.args.sessionId, taskArn: 'managed-task' })).accepted, false);
+    assert.equal((await f.t.run(({ db }) => db.get(f.args.sessionId)))?.dispatchStopConfirmedAt, undefined);
+    const second = await f.t.run(async ({ db }) => { const id = await db.insert('eventMediaSessions', { programId: f.output.programId, eventId: f.event.eventId, status: 'scheduled', createdAt: Date.now(), updatedAt: Date.now() }); await db.patch(f.output.programId, { activeSessionId: id }); return id; });
+    const admission = { bridgeToken, eventId: f.event.eventId, sessionId: second, dispatchId: 'replacement' };
+    assert.equal((await f.t.mutation(worker('admitDispatch'), admission)).granted, false);
+    const sessions = await f.t.query(api.events.listEventMediaWorkerBridgeSessions, { bridgeToken, workerId: 'bridge' });
+    assert.ok(sessions.some((s: any) => s.sessionId === f.args.sessionId));
+    await refreshSessions(f.client, f.config, async (_config: any, args: string[]) => args[1] === 'describe-tasks' ? { tasks: [{ taskArn: 'managed-task', lastStatus: 'STOPPED' }] } : {});
+    assert.equal(typeof (await f.t.run(({ db }) => db.get(f.args.sessionId)))?.dispatchStopConfirmedAt, 'number');
+    assert.equal((await f.t.mutation(worker('admitDispatch'), admission)).granted, true);
+}
+it('I4 pre-epoch StopTask failure retains reservation and discovery until DescribeTasks confirms stop', async () => {
+    const f = await admittedBeforeAcquisition();
+    await f.owner.mutation(api.events.stopEventMediaWorker, { currentSlug: f.event.slug, sessionId: f.args.sessionId });
+    let attempted = false;
+    await claimAndProcess(f.client, f.config, async (_config: any, args: string[]) => { assert.equal(args[1], 'stop-task'); attempted = true; throw Error('simulated AWS timeout'); });
+    assert.ok(attempted);
+    assert.equal((await f.t.run(({ db }) => db.get(f.args.sessionId)))?.epoch, undefined);
+    await assertReservedUntilConfirmed(f);
+});
+it('I4 manual media closure cannot release a running admitted task', async () => {
+    const f = await admittedBeforeAcquisition();
+    await f.owner.mutation(api.events.markEventMediaWorkerEnded, { currentSlug: f.event.slug, sessionId: f.args.sessionId, status: 'ended' });
+    assert.equal((await f.t.run(({ db }) => db.get(f.args.sessionId)))?.status, 'ended');
+    await assertReservedUntilConfirmed(f);
+});
+it('I4 legacy failure status cannot authorize managed reservation release or cleanup', async () => {
+    const f = await admittedBeforeAcquisition();
+    await f.t.mutation(api.events.recordEventMediaWorkerBridgeTaskStatus, { bridgeToken, workerId: 'bridge', sessionId: f.args.sessionId, status: 'error', workerTaskStatus: 'failed' });
+    assert.equal((await f.t.run(({ db }) => db.get(f.args.sessionId)))?.workerTaskStatus, 'failed');
+    await assertReservedUntilConfirmed(f);
+});
+it('I4 late task registration survives manual closure before the ARN was recorded', async () => {
+    const f = await fixture();
+    await f.t.mutation(worker('admitDispatch'), { bridgeToken, eventId: f.event.eventId, sessionId: f.args.sessionId, dispatchId: 'late-registration' });
+    await f.owner.mutation(api.events.markEventMediaWorkerEnded, { currentSlug: f.event.slug, sessionId: f.args.sessionId });
+    assert.equal((await f.t.mutation(worker('recordDispatchedTask'), { bridgeToken, sessionId: f.args.sessionId, dispatchId: 'late-registration', taskArn: 'late-task', taskDefinitionArn: 'late-definition' })).accepted, true);
+    const sessions = await f.t.query(api.events.listEventMediaWorkerBridgeSessions, { bridgeToken, workerId: 'bridge' });
+    assert.equal(sessions[0].workerTaskId, 'late-task');
+    assert.equal(sessions[0].dispatchStopConfirmedAt, undefined);
 });

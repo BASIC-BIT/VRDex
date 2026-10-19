@@ -268,6 +268,8 @@ export const admitDispatch = mutation({ args: { bridgeToken: v.string(), eventId
         const program = session ? await ctx.db.get(session.programId) : null;
         if (!session || session.eventId !== args.eventId || program?.activeSessionId !== session._id || session.stopRequestedAt !== undefined || ["ended", "error"].includes(session.status))
             return { granted: false };
+        if (session.dispatchStopConfirmedAt !== undefined)
+            return { granted: false };
         if (session.dispatchId)
             return { granted: session.dispatchId === args.dispatchId };
         if (!args.dispatchId || args.dispatchId.length > 128)
@@ -275,15 +277,18 @@ export const admitDispatch = mutation({ args: { bridgeToken: v.string(), eventId
         const cap = Number(process.env.VRDEX_EVENT_BROADCAST_MAX_CONCURRENT ?? 1);
         if (!Number.isSafeInteger(cap) || cap < 1 || cap > 100)
             throw new Error("Invalid broadcast concurrency limit.");
+        const managed = await ctx.db.query("eventMediaSessions").withIndex("by_dispatchStopConfirmedAt_dispatchId", q => q.eq("dispatchStopConfirmedAt", undefined).gt("dispatchId", undefined)).take(101);
+        if (managed.length > 100)
+            return { granted: false };
         const legacy = await ctx.db.query("eventMediaSessions").withIndex("by_workerTaskStatus", q => q.eq("workerTaskStatus", undefined)).filter(q => q.or(q.neq(q.field("workerTaskId"), undefined), q.neq(q.field("dispatchId"), undefined))).take(101);
         if (legacy.length > 100)
             return { granted: false };
-        let count = legacy.length;
+        let count = managed.length + legacy.filter(s => s.dispatchId === undefined).length;
         for (const status of ["starting", "running", "stopping"] as const) {
             const sessions = await ctx.db.query("eventMediaSessions").withIndex("by_workerTaskStatus", q => q.eq("workerTaskStatus", status)).take(101);
             if (sessions.length > 100)
                 return { granted: false };
-            count += sessions.filter(s => s.dispatchId !== undefined || s.workerTaskId !== undefined || s.epoch !== undefined).length;
+            count += sessions.filter(s => s.dispatchId === undefined && (s.workerTaskId !== undefined || s.epoch !== undefined)).length;
         }
         if (count >= cap)
             return { granted: false };
@@ -297,7 +302,7 @@ export const recordDispatchedTask = mutation({ args: { bridgeToken: v.string(), 
             return { accepted: false };
         if (session.workerTaskId && session.workerTaskId !== args.taskArn)
             return { accepted: false };
-        if (session.workerTaskStatus === "stopped")
+        if (session.dispatchStopConfirmedAt !== undefined)
             return { accepted: true };
         await ctx.db.patch(session._id, { workerProvider: "aws_ecs", workerRuntime: "ecs-fargate", workerTaskId: args.taskArn, workerTaskDefinitionArn: args.taskDefinitionArn, workerTaskStatus: "starting", updatedAt: Date.now() });
         return { accepted: true };
@@ -307,9 +312,9 @@ export const recordProcessStatus = mutation({ args: { bridgeToken: v.string(), s
         const session = await ctx.db.get(args.sessionId);
         if (!session || session.workerTaskId !== args.taskArn)
             return { accepted: false };
-        if (session.workerTaskStatus === "stopped")
+        if (session.dispatchStopConfirmedAt !== undefined || (!session.dispatchId && session.workerTaskStatus === "stopped"))
             return { accepted: args.stopped };
-        await ctx.db.patch(session._id, { ...(args.stopped ? { workerTaskCleanupPending: true } : {}), workerTaskStatus: args.stopped ? "stopped" : "running", ...(args.stopped && !['ended', 'error'].includes(session.status) ? { status: "error" as const, leaseExpiresAt: Date.now() } : {}), updatedAt: Date.now() });
+        await ctx.db.patch(session._id, { ...(args.stopped ? { workerTaskCleanupPending: true, ...(session.dispatchId ? { dispatchStopConfirmedAt: Date.now() } : {}) } : {}), workerTaskStatus: args.stopped ? "stopped" : "running", ...(args.stopped && !['ended', 'error'].includes(session.status) ? { status: "error" as const, leaseExpiresAt: Date.now() } : {}), updatedAt: Date.now() });
         if (args.stopped) {
             const program = await ctx.db.get(session.programId);
             if (program?.activeSessionId === session._id)
@@ -321,7 +326,7 @@ export const recordProcessStatus = mutation({ args: { bridgeToken: v.string(), s
 export const completeTaskCleanup = mutation({ args: { bridgeToken: v.string(), sessionId: v.id("eventMediaSessions"), taskArn: v.string() }, handler: async (ctx, args) => {
         requireEventMediaBridgeToken(args.bridgeToken);
         const session = await ctx.db.get(args.sessionId);
-        if (!session || session.workerTaskId !== args.taskArn || session.workerTaskStatus !== "stopped")
+        if (!session || session.workerTaskId !== args.taskArn || (session.dispatchId ? session.dispatchStopConfirmedAt === undefined : session.workerTaskStatus !== "stopped"))
             return { accepted: false };
         await ctx.db.patch(session._id, { workerTaskCleanupPending: false, updatedAt: Date.now() });
         return { accepted: true };

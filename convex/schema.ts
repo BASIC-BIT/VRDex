@@ -1608,6 +1608,7 @@ export default defineSchema({
     acquiredAt: v.optional(v.number()),
     runtimeDeadlineAt: v.optional(v.number()),
     dispatchId: v.optional(v.string()),
+    dispatchStopConfirmedAt: v.optional(v.number()),
     broadcastMode: v.optional(v.union(v.literal("automatic"), v.literal("manual"), v.literal("hold"))),
     nextCommandSequence: v.optional(v.number()),
     lastAcknowledgedSequence: v.optional(v.number()),
@@ -1642,6 +1643,7 @@ export default defineSchema({
     .index("by_programId_status", ["programId", "status"])
     .index("by_eventId_status", ["eventId", "status"])
     .index("by_status_updatedAt", ["status", "updatedAt"])
+    .index("by_dispatchStopConfirmedAt_dispatchId", ["dispatchStopConfirmedAt", "dispatchId"])
     .index("by_workerTaskStatus", ["workerTaskStatus"])
     .index("by_workerTaskCleanupPending", ["workerTaskCleanupPending"])
     .index("by_workerId_status", ["workerId", "status"])

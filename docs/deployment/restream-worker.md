@@ -361,7 +361,10 @@ reservation identity as its client token. An ambiguous failed launch keeps its
 reservation: inspect ECS and confirm termination before repairing/retrying it.
 Do not clear reservations based on time alone. A confirmed stopped task updates
 process state and frees capacity. Terminal media status alone never releases a
-reservation. Outstanding tasks remain in bridge reconciliation after media ends;
+reservation. Managed reservations use `dispatchStopConfirmedAt`, which only the
+verified process-status path can set after ECS reports STOPPED. Legacy failure
+status and manual media closure cannot set it or release capacity, even before
+worker acquisition. Outstanding tasks remain in bridge reconciliation after media ends;
 confirmed stopped tasks remain queryable until task-definition cleanup succeeds.
 Ambiguous launches without task ARNs stay visible and reserved for investigation. Rehearsal must also verify that an old task has
 lost provider ingest ownership before authorizing replacement publication.
