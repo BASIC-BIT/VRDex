@@ -62,3 +62,33 @@ export async function attachPendingProgramCommands(db: DatabaseWriter, sessionId
     }
   }
 }
+
+export type BroadcastPolicy = {
+  silence?: { thresholdDb: number; durationMs: number };
+  maxOverrunMs?: number;
+};
+
+/** Optional controls remain disabled unless explicitly configured after calibration. */
+export function validateBroadcastPolicy(input: unknown): BroadcastPolicy {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) {
+    throw new Error("Invalid broadcast policy.");
+  }
+  const result: BroadcastPolicy = {};
+  if ("maxOverrunMs" in input && input.maxOverrunMs !== undefined) {
+    const value = input.maxOverrunMs;
+    if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0 || value > 86_400_000) {
+      throw new Error("Invalid maximum overrun.");
+    }
+    result.maxOverrunMs = value;
+  }
+  if ("silence" in input && input.silence !== undefined) {
+    const value = input.silence;
+    if (typeof value !== "object" || value === null || !("thresholdDb" in value) || !("durationMs" in value) ||
+      typeof value.thresholdDb !== "number" || !Number.isFinite(value.thresholdDb) || value.thresholdDb < -120 || value.thresholdDb > 0 ||
+      typeof value.durationMs !== "number" || !Number.isSafeInteger(value.durationMs) || value.durationMs < 1_000 || value.durationMs > 600_000) {
+      throw new Error("Invalid calibrated silence policy.");
+    }
+    result.silence = { thresholdDb: value.thresholdDb, durationMs: value.durationMs };
+  }
+  return result;
+}
