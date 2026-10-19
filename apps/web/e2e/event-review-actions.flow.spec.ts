@@ -1,3 +1,4 @@
+import { manualPerformer } from "./event-performer-helpers";
 import { expect, test, type Page } from "@playwright/test";
 
 test.use({ timezoneId: "UTC" });
@@ -38,6 +39,10 @@ for (const correction of [false, true]) {
     await page.goto(`/playwright/event-intake?revision=${correction ? "correction" : "draft"}`);
     if (correction) await page.getByRole("button", { name: "Correct event", exact: true }).click();
     if (correction) { await nav(page, "Details"); await page.getByLabel("Event title", { exact: true }).fill("Corrected title"); }
+    else {
+      await page.getByText("Add start time", { exact: true }).click();
+      await page.getByLabel("Starts", { exact: true }).fill("2027-07-15T20:00");
+    }
     await nav(page, "Review");
     const label = correction ? "Save changes" : "Publish event";
     const primary = page.locator('[data-step="Review"]').getByRole("button", { name: label, exact: true });
@@ -99,7 +104,7 @@ for (const editor of ["staff", "contributor"]) test(`${editor} extends a Review 
     await page.goto("/playwright/event-intake");
   }
   await nav(page, "Lineup"); await page.getByRole("button", { name: "Generate", exact: true }).click();
-  if (editor === "contributor") for (const [index, row] of (await page.locator("[data-lineup-row]").all()).entries()) await row.getByRole("textbox", { name: "Performer", exact: true }).fill(`Guest ${index + 1}`);
+  if (editor === "contributor") for (const [index, row] of (await page.locator("[data-lineup-row]").all()).entries()) await manualPerformer(row.locator("[data-performer-field]"), `Guest ${index + 1}`);
   await nav(page, "Review");
   const panel = page.locator(editor === "staff" ? '[data-editor-step="Review"]' : '[data-step="Review"]');
   await expect(panel.getByText("The lineup ends after the event.", { exact: true })).toBeVisible();

@@ -789,3 +789,18 @@ it("fails closed when removed rows fill the bounded same-day duplicate scan", as
   });
   await assert.rejects(contributor.mutation(command("updateOwnContributedEvent"), { eventId: event._id, expectedUpdatedAt: event.updatedAt, patch: { title: "New title" } }), /TARGET_QUOTA/);
 });
+
+it("a retained published contribution uses successive correction revisions and preserves its one event", async () => {
+  const { t, contributor, staff, event } = await fixture();
+  const original = await contributor.query(api.eventCorrections.getOwnContributedEvent, { eventId: event._id });
+  const first = await contributor.mutation(api.eventCorrections.updateOwnContributedEvent, { eventId: event._id, expectedUpdatedAt: original.updatedAt, patch: { title: "After publication" } });
+  const second = await contributor.mutation(api.eventCorrections.updateOwnContributedEvent, { eventId: event._id, expectedUpdatedAt: first.updatedAt, patch: { summary: "A later edit" } });
+  assert.equal(first.eventId, event._id);
+  assert.equal(second.eventId, event._id);
+  assert.equal((await t.run(ctx => ctx.db.query("events").collect())).length, 1);
+  await assert.rejects(contributor.mutation(api.eventCorrections.updateOwnContributedEvent, { eventId: event._id, expectedUpdatedAt: first.updatedAt, patch: { title: "Stale" } }), /VERSION_CONFLICT/);
+  await assert.rejects(contributor.mutation(api.eventCorrections.updateOwnContributedEvent, { eventId: event._id, expectedUpdatedAt: second.updatedAt, patch: { sourceText: "Forbidden later edit" } }), /PATCH_FIELD/);
+  await staff.mutation(api.eventCorrections.takeOverContributedEvent, { eventId: event._id });
+  await assert.rejects(contributor.mutation(api.eventCorrections.updateOwnContributedEvent, { eventId: event._id, expectedUpdatedAt: second.updatedAt, patch: { title: "Takeover race" } }), /CONTRIBUTOR_EDIT_CLOSED/);
+  assert.equal((await t.run(ctx => ctx.db.query("events").collect())).length, 1);
+});

@@ -986,3 +986,165 @@ describe("public event projection", () => {
     assert.equal(queriedTables.includes("profileAssetDisplayPreferences"), false);
   });
 });
+
+
+describe("managed community identity images", () => {
+  it("retains owner and staff scope while using only public discovery images", async () => {
+    const { convexTest } = await import("convex-test");
+    const { api } = await import("../../convex/_generated/api");
+    const { default: schemaModule } = await import("../../convex/schema");
+    const { clerkTestIdentity } = await import("./_clerkTestIdentity");
+    const schema =
+      (schemaModule as unknown as { default?: typeof schemaModule }).default ??
+      schemaModule;
+    const t = convexTest({
+      schema,
+      modules: {
+        "../../convex/_generated/api.ts": () =>
+          import("../../convex/_generated/api"),
+        "../../convex/events.ts": () => import("../../convex/events"),
+      },
+    });
+    const owner = clerkTestIdentity("identity-owner");
+    const staff = clerkTestIdentity("identity-staff");
+    const outsider = clerkTestIdentity("identity-outsider");
+    await t.run(async (ctx) => {
+      const ownerId = await ctx.db.insert("users", {
+        clerkUserId: owner.subject,
+        name: "Owner",
+      });
+      await ctx.db.insert("users", {
+        clerkUserId: staff.subject,
+        name: "Staff",
+      });
+      await ctx.db.insert("users", {
+        clerkUserId: outsider.subject,
+        name: "Outsider",
+      });
+      for (const [slug, visibility] of [
+        ["visible-club", "public"],
+        ["hidden-image-club", "private"],
+        ["unlisted-image-club", "unlisted"],
+        ["visible-logo-club", "public"],
+      ] as const) {
+        const profileId = await ctx.db.insert("profiles", {
+          profileType: "community",
+          slug,
+          displayName: slug,
+          sortName: slug,
+          aliases: [],
+          tags: [],
+          claimState: "claimed_verified",
+          publicationState: "published",
+          publicSurfacingState: "public",
+          creationSource: "self",
+          updatedAt: 1,
+          community: { categoryTags: [] },
+          avatarImageUrl: `https://example.test/${slug}.png`,
+          fieldVisibility: {
+            avatarImageUrl: visibility,
+            bannerImageUrl: visibility,
+            mediaKit: visibility,
+          },
+        });
+        if (slug !== "visible-club") {
+          const assetId = await ctx.db.insert("profileAssets", {
+            profileId,
+            storageKey: `${slug}/logo.png`,
+            mimeType: "image/png",
+            byteSize: 100,
+            visibility: "public",
+            source: "owner_authored",
+            uploadedBy: {
+              issuer: owner.issuer,
+              subject: owner.subject,
+              tokenIdentifier: owner.tokenIdentifier,
+            },
+            uploadedAt: 1,
+            state: "active",
+            updatedAt: 1,
+          });
+          await ctx.db.insert("profileAssetPlacements", {
+            profileId,
+            assetId,
+            placement: "primary_logo",
+            position: 0,
+            state: "active",
+            updatedAt: 1,
+          });
+        }
+        await ctx.db.insert("profileOwners", {
+          profileId,
+          userId: ownerId,
+          roleKey: "owner",
+          state: "active",
+          grantedAt: 1,
+          updatedAt: 1,
+        });
+        await ctx.db.insert("communityAuthorities", {
+          communityProfileId: profileId,
+          subjectTokenIdentifier: staff.tokenIdentifier,
+          subject: {
+            issuer: staff.issuer,
+            subject: staff.subject,
+            tokenIdentifier: staff.tokenIdentifier,
+          },
+          capabilities: ["manage_events"],
+          roleLabel: "Event staff",
+          state: "active",
+          grantedAt: 1,
+          updatedAt: 1,
+        });
+      }
+    });
+    const owned = await t
+      .withIdentity(owner)
+      .query(api.events.listManagedCommunities, {});
+    const staffed = await t
+      .withIdentity(staff)
+      .query(api.events.listManagedCommunities, {});
+    assert.deepEqual(
+      owned.map((row) => row.slug),
+      [
+        "hidden-image-club",
+        "unlisted-image-club",
+        "visible-club",
+        "visible-logo-club",
+      ],
+    );
+    assert.deepEqual(
+      staffed.map((row) => row.slug),
+      owned.map((row) => row.slug),
+    );
+    assert.equal(
+      owned.find((row) => row.slug === "visible-club")?.imageUrl,
+      "https://example.test/visible-club.png",
+    );
+    assert.equal(
+      staffed.find((row) => row.slug === "visible-club")?.imageUrl,
+      "https://example.test/visible-club.png",
+    );
+    const logoUrl = owned.find(
+      (row) => row.slug === "visible-logo-club",
+    )?.imageUrl;
+    assert.match(
+      logoUrl ?? "",
+      /^\/api\/v0\/profiles\/visible-logo-club\/assets\/[^/]+\/file$/,
+    );
+    assert.equal(
+      staffed.find((row) => row.slug === "visible-logo-club")?.imageUrl,
+      logoUrl,
+    );
+    for (const row of [...owned, ...staffed].filter(
+      (row) =>
+        row.slug === "hidden-image-club" || row.slug === "unlisted-image-club",
+    ))
+      assert.equal(row.imageUrl, undefined);
+    assert.deepEqual(
+      await t
+        .withIdentity(outsider)
+        .query(api.events.listManagedCommunities, {}),
+      [],
+    );
+  });
+});

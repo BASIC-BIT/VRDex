@@ -1,3 +1,4 @@
+import { manualPerformer } from "./event-performer-helpers";
 import { expect, test, type Page } from "@playwright/test";
 
 import { prepareVisualPage, waitForVisualReady } from "./public-routes";
@@ -36,6 +37,7 @@ for (const editor of [
     }
     for (const step of ["Details", "Lineup", "Review"]) {
       await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: step }).click();
+      await expect(page.locator(`[data-editor-step="${step}"]`)).toBeVisible();
       await waitForVisualReady(page);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
       await expect(page).toHaveScreenshot(`${editor.name}-${step.toLowerCase()}.png`, {
@@ -61,14 +63,16 @@ for (const mode of ["create", "resumed", "correction", "staff-create", "staff-ed
       await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Details" }).click();
       await setTheme(page, color);
       if (mode === "resumed") {
-        await expect(page.getByRole("group", { name: "Selected community" })).toBeVisible();
+        await expect(page.locator('[data-step="Details"] [data-testid="selected-identity"]').first()).toBeVisible();
         await expect(page.getByLabel("Ends (optional)", { exact: true })).toBeVisible();
       }
       if (mode === "correction") await expect(page.getByRole("button", { name: "Import poster or text" })).toHaveCount(0);
       if (mode === "staff-edit") await expect(page.getByLabel("Ends (optional)", { exact: true })).toBeVisible();
+      await expect(page.locator('[data-step="Details"], [data-editor-step="Details"]')).toBeVisible();
       await capture(page, info.outputPath(`${mode}-${color}-details.png`));
       for (const step of ["Lineup", "Review"]) {
         await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: step }).click();
+        await expect(page.locator(`[data-step="${step}"], [data-editor-step="${step}"]`)).toBeVisible();
         await capture(page, info.outputPath(`${mode}-${color}-${step.toLowerCase()}.png`));
       }
     });
@@ -88,7 +92,6 @@ test("import dialog, failure, and DST states @snapshot @fixture", async ({ page 
   await expect(dialog.getByRole("status")).toBeVisible();
   await capture(page, info.outputPath("import-error.png"));
   await dialog.getByRole("button", { name: "Close" }).click();
-  await page.getByLabel("Time TBA", { exact: true }).uncheck();
   await page.getByRole("button", { name: "Time zone", exact: true }).click();
   await page.getByRole("combobox", { name: "Time zone" }).fill("America/New_York");
   await page.getByRole("option").first().click();
@@ -106,6 +109,11 @@ test("import dialog, failure, and DST states @snapshot @fixture", async ({ page 
 for (const color of ["light", "dark"] as const) test(`scheduling states ${color} @snapshot @fixture`, async ({ page }, info) => {
   await page.addInitScript(() => sessionStorage.setItem("event-intake-fixture", JSON.stringify({ communitySlug: "playwright-afterglow-social", title: "Harbor night", eventDate: "2027-10-15", timezone: "UTC", start: { time: "20:00" }, end: { time: "21:00" } })));
   await page.goto("/playwright/event-intake"); await setTheme(page, color);
+  const selectedCommunity = page.locator('[data-step="Details"]').getByTestId("selected-identity");
+  const previewCommunity = page.getByRole("complementary", { name: "Event preview" }).getByLabel("Community", { exact: true });
+  for (const community of [selectedCommunity, previewCommunity]) {
+    await expect(community).toContainText("Afterglow Social");
+  }
   await expect(page.getByRole("button", { name: "Time zone", exact: true })).toHaveText(/^UTC\s*▾$/);
   await page.getByRole("button", { name: "Time zone", exact: true }).click();
   await expect(page.getByRole("option").first()).not.toContainText(" · UTC");
@@ -118,7 +126,7 @@ for (const color of ["light", "dark"] as const) test(`scheduling states ${color}
   await nav.getByRole("button", { name: "Lineup", exact: true }).click();
   await capture(page, info.outputPath(`schedule-${color}-setup.png`));
   await page.getByRole("button", { name: "Generate", exact: true }).click();
-  for (const [index, row] of (await page.locator('[data-lineup-row]').all()).entries()) await row.getByRole("textbox", { name: "Performer", exact: true }).fill(["Aurora", "Neon Harbor", "Lumen", "Closing session"][index]);
+  for (const [index, row] of (await page.locator('[data-lineup-row]').all()).entries()) await manualPerformer(row.locator("[data-performer-field]"), ["Aurora", "Neon Harbor", "Lumen", "Closing session"][index]);
   await capture(page, info.outputPath(`schedule-${color}-lineup-conflict.png`));
   await page.getByRole("button", { name: "Add slot at position 2", exact: true }).click();
   await page.getByLabel("Slot duration", { exact: true }).fill("15");

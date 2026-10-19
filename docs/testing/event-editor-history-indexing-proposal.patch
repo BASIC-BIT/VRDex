@@ -1,0 +1,87 @@
+--- a/apps/web/src/lib/event-editor-history.ts
++++ b/apps/web/src/lib/event-editor-history.ts
+@@ -1,13 +1,31 @@
+-/** Installed before router hydration. No editor closure survives its unmount. */
++/** Public history indexing starts before hydration; editor delegates remain disposable. */
+ type EditorPopListener = (event: PopStateEvent) => void;
++const positionKey = "vrdexEventEditorPosition";
++export function eventEditorHistoryPosition(state: unknown): number | undefined {
++  return state && typeof state === "object" && positionKey in state && typeof state[positionKey] === "number" ? state[positionKey] : undefined;
++}
+ declare global {
+-  var __vrdexEventEditorHistory: { listener?: EditorPopListener } | undefined;
++  var __vrdexEventEditorHistory: { listener?: EditorPopListener; position: number | undefined } | undefined;
+ }
+ export function installEventEditorHistoryCapture(): void {
+   if (globalThis.__vrdexEventEditorHistory) return;
+-  const state: { listener?: EditorPopListener } = {};
++  const state: NonNullable<typeof globalThis.__vrdexEventEditorHistory> = { position: eventEditorHistoryPosition(history.state) ?? 0 };
+   globalThis.__vrdexEventEditorHistory = state;
+-  window.addEventListener("popstate", event => state.listener?.(event), true);
++  const originalPush = history.pushState;
++  const originalReplace = history.replaceState;
++  originalReplace.call(history, { ...history.state, [positionKey]: state.position }, "");
++  history.pushState = function (value, unused, url) {
++    const next = (state.position ?? 0) + 1;
++    originalPush.call(history, { ...value, [positionKey]: next }, unused, url);
++    state.position = next;
++  };
++  history.replaceState = function (value, unused, url) {
++    originalReplace.call(history, { ...value, ...(state.position === undefined ? {} : { [positionKey]: state.position }) }, unused, url);
++  };
++  window.addEventListener("popstate", event => {
++    state.position = eventEditorHistoryPosition(event.state);
++    state.listener?.(event);
++  }, true);
+ }
+ export function registerEventEditorHistoryCapture(listener: EditorPopListener): () => void {
+   installEventEditorHistoryCapture();
+--- a/apps/web/src/app/events/use-event-editor-leave-guard.ts
++++ b/apps/web/src/app/events/use-event-editor-leave-guard.ts
+@@ -1,5 +1,5 @@
+ "use client";
+-import { registerEventEditorHistoryCapture } from "@/lib/event-editor-history";
++import { eventEditorHistoryPosition as position, registerEventEditorHistoryCapture } from "@/lib/event-editor-history";
+ import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+ 
+ export const EventEditorPendingContext = createContext<(key: string, pending: boolean) => void>(() => {});
+@@ -14,10 +14,6 @@
+   useEffect(() => { register(key, pending); return () => register(key, false); }, [key, pending, register]);
+ }
+ 
+-const positionKey = "vrdexEventEditorPosition";
+-function position(state: unknown): number | undefined {
+-  return state && typeof state === "object" && positionKey in state && typeof state[positionKey] === "number" ? state[positionKey] : undefined;
+-}
+ export function useEventEditorLeaveGuard({ dirty }: { dirty: boolean }): { requestLeave: (navigate: () => void) => boolean } {
+   const currentDirty = useRef(dirty);
+   useLayoutEffect(() => { currentDirty.current = dirty; }, [dirty]);
+@@ -36,19 +32,6 @@
+   }, [dirty]);
+   useEffect(() => {
+     let index = position(history.state) ?? 0;
+-    const originalPush = history.pushState;
+-    const originalReplace = history.replaceState;
+-    originalReplace.call(history, { ...history.state, [positionKey]: index }, "");
+-    const push: History["pushState"] = function (state, unused, url) {
+-      index += 1;
+-      originalPush.call(history, { ...state, [positionKey]: index }, unused, url);
+-      approved.current = false;
+-    };
+-    const replace: History["replaceState"] = function (state, unused, url) {
+-      originalReplace.call(history, { ...state, [positionKey]: index }, unused, url);
+-    };
+-    history.pushState = push;
+-    history.replaceState = replace;
+     let restoring: { delta: number } | undefined;
+     let replaying = false;
+     const pop = (event: PopStateEvent) => {
+@@ -97,8 +80,6 @@
+       navigation?.removeEventListener("navigate", traverse);
+       unregisterHistory();
+       document.removeEventListener("click", click, true);
+-      if (history.pushState === push) history.pushState = originalPush;
+-      if (history.replaceState === replace) history.replaceState = originalReplace;
+     };
+   }, []);
+   return { requestLeave };

@@ -65,7 +65,9 @@ Private source-file retention is a separate source-service responsibility.
 ## Publication
 
 Publication requires a public community, an identifying title, a valid event
-date, and either a start time or explicit `timeTba: true`. A source URL is optional.
+date, and either a start time or explicit `timeTba: true` through API/MCP compatibility. The website requires Starts before publishing; drafts may remain incomplete. A source URL is optional.
+Draft lineup rows may use `relativeTiming: { offsetMinutes, durationMinutes }` before an event start is known. These elapsed minutes survive save and resume; setting Starts anchors them without changing their order or durations. A row cannot carry both relative timing and absolute source clocks. Publication and correction resolve relative timing from the event start in the shared preflight, and reject relative timing without a timed event. Imported unresolved clocks retain their original representation. Canonical lineup fields remain absolute instants.
+
 Public `worldSlug` and `lineup[].personSlug` matches are rechecked at publication.
 Unmatched lineup names are preserved. An incomplete lineup row remains valid in
 a draft but needs a performer label before publication.
@@ -143,7 +145,8 @@ poster or text opens an optional dialog beside the heading from any stage.
 Closing retains the source and current stage, including an upload in progress.
 Successful extraction returns to Details with tentative suggestions. One
 versioned draft retains values across stages and resume. Review applies the
-existing preflight and duplicate checks, and publishes directly to the event page.
+existing preflight and duplicate checks. A clean successful publication returns to
+the event page. Newer pending edits require an abandonment decision first.
 The staff editor uses the same three stages with canonical commands and staff-only
 advanced controls. Existing source URLs and media controls stay mounted in a
 Details disclosure. Scoped corrections and staff edits have no import action.
@@ -226,7 +229,11 @@ canonical timed and untimed rows using stable `clientKey` values, names, optiona
 public person matches, roles and absolute set timestamps. Use it instead of the
 legacy paired `slotLinks`/`participantLinks` arrays. An unchanged person's stored
 stream choice survives replacement; new choices must belong to their public
-streams, and changing/removing the person clears the old choice.
+streams, and changing/removing the person clears the old choice. The staff editor
+also clears cached stream choices when the person changes or becomes a manual
+entry. Editing billing or reselecting the same person retains the stream choice,
+row key, exact timing, provenance and protected associations. The contributor
+intake lineup contract does not carry a selected stream.
 
 An explicit `scheduleKind: "date_only"` update clears inherited event and set
 times, retaining omitted lineup rows as untimed performers. Supplying event times
@@ -301,3 +308,23 @@ The [Task 9 checkpoint](../testing/event-intake-checkpoint.md) separates local
 transaction, transport and browser fixtures from hosted/storage/provider proof.
 Exact public copy was approved by BASIC on 2026-09-28. The connected production
 journey, hosted verification and deployment remain open.
+
+## Browser completion and retained edits
+
+Save and publish transports return completion data. The form advances its dirty
+baseline only to the successful submitted fields. Intermediate source saves
+follow the same rule, while later local fields and pending buffers remain intact.
+Failed commands never advance that baseline.
+
+After publication plus Stay, the connected intake wrapper retains `eventId` and
+`eventPath`, reads the contributor correction revision, and uses
+`updateOwnContributedEvent` for later edits. It preserves the revision returned
+by each successful correction. It does not publish the draft again. Changed
+forbidden fields reach the correction boundary and fail; the wrapper does not
+silently filter them. Staff takeover and stale revisions retain their existing
+errors and authority checks.
+
+Retained staff creation uses `updateCommunityEvent` with the same slug. It reads
+`getEditableBySlug` before that update to obtain the authorized association IDs
+without replacing newer form fields. Staff creation still requires `startAt`;
+contributor drafts still allow partial timing.

@@ -120,8 +120,11 @@ Private actor IDs and poster evidence never enter the public event DTO. See
 
 The browser editor obtains its community choices from
 `events:listManagedCommunities`, which combines active ownership and active
-`manage_events` grants and returns public community display data only. Revoking
-a grant removes the choice and blocks subsequent writes immediately.
+`manage_events` grants and returns public community display data only. Its optional
+`imageUrl` uses the existing discovery media-kit resolver, including the chosen
+logo or avatar and automatic fallback. Private and unlisted image fields remain
+excluded, even for owners and staff. Revoking a grant removes the choice and
+blocks subsequent writes immediately.
 
 `events:listManagedEvents` applies the same live authority and backs the private
 account event list. It returns bounded editor links and schedule/publication
@@ -528,6 +531,15 @@ Current recommendation: VRCDN output setup starts with operator-owned accounts o
 - `compliance.destinationAuthority`
 - `compliance.providerRules`
 - `compliance.rightsClearedMedia`
+
+The staff editor saves VRCDN output configuration independently from event content.
+Its account, label, playback URLs and authorization acknowledgement have their own
+saved snapshot for the leave guard. Event saves do not clear output edits, and
+output saves do not clear event edits. A successful output save advances only the
+snapshot submitted by that request. Failed saves, validation failures and edits
+made while a request is pending stay dirty. Automatic account defaults initialize
+untouched fields and their baseline together, preserving any authored value or
+explicit clear made before the accounts arrive.
 
 The `events.configureVrcdnOutput` mutation treats the output as `ready` only when a configured output account resolves to a credential reference and all required compliance gates are accepted. Missing gates remain `pending`; explicitly rejected gates are `blocked`. A blocked or incomplete output stays a draft and is not projected into public event pages. Editor UI should collapse these gates into one human authorization acknowledgement and keep credential references behind an `Output account` selector.
 

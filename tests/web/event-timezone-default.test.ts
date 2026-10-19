@@ -22,3 +22,10 @@ test("named IANA zones remain valid preferences even with constant offsets", () 
   assert.equal(resolveEventTimezoneDefault({ browserTimezone: "Etc/GMT+5" }), "Etc/GMT+5");
   assert.equal(resolveEventTimezoneDefault({ savedPreference: "UTC" }), "UTC");
 });
+
+test("Indianapolis defaults preserve either valid regional identity", () => {
+  for (const zone of ["America/Indianapolis", "America/Indiana/Indianapolis"]) {
+    assert.equal(resolveEventTimezoneDefault({ savedPreference: zone, browserTimezone: "America/New_York" }), zone);
+    assert.equal(resolveEventTimezoneDefault({ browserTimezone: zone }), zone);
+  }
+});

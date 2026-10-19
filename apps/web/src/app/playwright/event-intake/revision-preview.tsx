@@ -27,11 +27,12 @@ function revisionFixture(correction: boolean, sourceMode?: string, staff = false
   let access = { canCorrect: !staff, canSuggest: false, canTakeOver: staff, canRemove: staff };
   const empty: unknown[] = [];
   const communities = [{ slug: "afterglow", title: "Afterglow", imageUrl: "/test-media/event-poster.png" }, { slug: "playwright-afterglow-social", title: "Afterglow Social", imageUrl: "/test-media/event-poster.png" }];
+  const publicCommunities = [...communities, { slug: "night-market", title: "Night Market", imageUrl: "/test-media/event-poster.png" }];
   const scrollCommunities = Array.from({ length: 8 }, (_, index) => ({ slug: `scroll-community-${index + 1}`, title: `Scroll Community ${index + 1}` }));
   let searchLoading = sourceMode === "search-loading";
   if (searchLoading && typeof window !== "undefined") window.addEventListener("release-community-search", () => { searchLoading = false; listeners.forEach(listener => listener()); }, { once: true });
   const people = [{ slug: "aurora", title: "Aurora", imageUrl: "/test-media/event-poster.png" }];
-  const viewer = { user: { name: "Fixture contributor" } };
+  const viewer = { user: { name: "Fixture contributor", defaultEventTimezone: typeof sessionStorage !== "undefined" ? sessionStorage.getItem("fixture-correction-timezone") ?? undefined : undefined } };
   const refresh = (patch: EventIntakePatch) => {
     fields = { ...fields, ...patch };
     if (draft?.artworkSourceId && "posterSourceId" in patch && fields.posterSourceId !== draft.artworkSourceId) {
@@ -47,12 +48,37 @@ function revisionFixture(correction: boolean, sourceMode?: string, staff = false
   const client = {
     setAuth(_fetch: unknown, onChange: (authenticated: boolean) => void) { onChange(true); },
     clearAuth() {},
+    async query(query: FunctionReference<"query">, args: { query?: string; profileType?: string; entityType?: string; slug?: string }) {
+      const name = getFunctionName(query);
+      if (name === "eventCorrections:getOwnContributedEvent") return event;
+      if (name === "profiles:lookupPeople") return people.filter(person => person.title.toLowerCase().includes(args.query?.toLowerCase() ?? "")).map(person => ({ slug: person.slug, displayName: person.title, avatarImageUrl: person.imageUrl, profilePath: `/${person.slug}`, roleTags: [], tags: [] }));
+      if (name === "profiles:getPublicBySlug") {
+        if (args.profileType === "person") {
+          const person = people.find(item => item.slug === args.slug);
+          return person ? { slug: person.slug, displayName: person.title, avatarImageUrl: person.imageUrl, profileType: "person", person: { roleTags: [] }, tags: [], mediaKit: {} } : null;
+        }
+        const community = publicCommunities.find(item => item.slug === args.slug);
+        return community ? { slug: community.slug, displayName: community.title, avatarImageUrl: community.imageUrl, mediaKit: { primaryLogo: { imageUrl: community.imageUrl } } } : null;
+      }
+      if (name === "worlds:getPublicBySlug") {
+        if (sourceMode === "world-delay") await new Promise<void>(resolve => window.addEventListener("release-world-presentation", () => resolve(), { once: true }));
+        return args.slug === "harbor-world" ? { slug: args.slug, displayName: "Harbor World", tags: [], heroImageUrl: "/test-media/event-poster.png" } : null;
+      }
+      if (name === "search:searchUniversal") {
+        if (searchLoading) await new Promise<void>(resolve => window.addEventListener("release-community-search", () => resolve(), { once: true }));
+        if (args.entityType === "world") return [{ entityType: "world", slug: "harbor-world", title: "Harbor World", routePath: "/harbor-world", imageUrl: "/test-media/event-poster.png" }];
+        const query = args.query?.toLowerCase() ?? "";
+        return (query.startsWith("scroll") ? scrollCommunities : publicCommunities).filter(item => `${item.title} ${item.slug}`.toLowerCase().includes(query)).map(item => ({ ...item, entityType: "profile", profileType: "community", routePath: `/${item.slug}`, logoImageUrl: "imageUrl" in item ? item.imageUrl : undefined }));
+      }
+      return null;
+    },
     watchQuery(query: FunctionReference<"query">, args?: { query?: string; profileType?: string }) {
       return {
         localQueryResult: () => {
           switch (getFunctionName(query)) {
             case "eventIntake:getEventIntakeDraft": return draft;
             case "accounts:viewer": return viewer;
+            case "events:listManagedCommunities": return communities.map((community, index) => ({ profileId: `community-${index}`, slug: community.slug, displayName: community.title, imageUrl: community.imageUrl, roleLabel: index === 0 ? "Owner" : "Staff" }));
             case "search:searchUniversal": {
               if (args?.profileType === "community") {
                 if (searchLoading) return undefined;
@@ -75,8 +101,10 @@ function revisionFixture(correction: boolean, sourceMode?: string, staff = false
       sessionStorage.setItem("event-intake-review-command", getFunctionName(action));
       if (args.expectedVersion !== version) throw new ConvexError({ code: "VERSION_CONFLICT" });
       if (sourceMode === "duplicates" && !fields.duplicateAcknowledgements?.includes("similar-event")) throw new ConvexError({ code: "NEAR_DUPLICATE", choices: [{ eventId: "similar-event", title: "Another Afterglow Night", eventPath: "/playwright-afterglow-social/events/playwright-afterglow-harbor-sessions" }] });
+      sessionStorage.setItem("fixture-publication-count", String(Number(sessionStorage.getItem("fixture-publication-count") ?? "0") + 1));
+      if (sessionStorage.getItem("fixture-publication-defer") === "true") await new Promise<void>(resolve => window.addEventListener("release-publication", () => resolve(), { once: true }));
       sessionStorage.setItem("fixture-published", JSON.stringify(fields));
-      return { eventPath: "/playwright-afterglow-social/events/playwright-afterglow-harbor-sessions" };
+      return { eventId: "fixture-event", eventPath: "/playwright-afterglow-social/events/playwright-afterglow-harbor-sessions" };
     },
     async mutation(mutation: FunctionReference<"mutation">, args: Record<string, unknown>) {
       const name = getFunctionName(mutation);
@@ -92,7 +120,9 @@ function revisionFixture(correction: boolean, sourceMode?: string, staff = false
       if (name === "eventCorrections:removeContributedEvent") return true;
       const expected = name === "eventIntake:saveEventIntakeDraft" ? args.expectedVersion : args.expectedUpdatedAt;
       if (expected !== version) throw new ConvexError({ code: "VERSION_CONFLICT" });
+      if (sessionStorage.getItem("fixture-save-fail") === "true") throw new Error("Fixture save failed");
       const patch = args.patch as EventIntakePatch;
+      if (name === "eventCorrections:updateOwnContributedEvent" && Object.keys(patch).some(key => !["title", "eventDate", "timeTba", "timezone", "start", "end", "doors", "venueLabel", "worldSlug", "sourceUrl", "summary", "lineup"].includes(key))) throw new ConvexError({ code: "PATCH_FIELD" });
       refresh(patch);
       return name === "eventIntake:saveEventIntakeDraft" ? { draftId: draft._id, version } : { eventId: event.eventId, updatedAt: version };
     },

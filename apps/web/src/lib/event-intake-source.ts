@@ -12,16 +12,17 @@ export function candidatePatch(candidate: EventIntakeCandidate): EventIntakePatc
   const local = (time: string | null, date: string | null, path: string) => {
     const parsed = EventIntakeLocalTimeSchema.safeParse({ time });
     if (!parsed.success) return undefined;
-    if (!date) return parsed.data;
+    if (!date) { ask(path, "date_timezone_required"); return parsed.data; }
     const base = Date.parse(`${candidate.event.eventDate}T00:00:00Z`);
     const target = Date.parse(`${date}T00:00:00Z`);
     const offset = (target - base) / 86_400_000;
-    if (!candidate.event.eventDate || !Number.isInteger(offset) || offset < -1 || offset > 7 || !candidate.event.timezone) {
-      ask(path, "date_timezone_required"); return undefined;
+    if (!candidate.event.eventDate || !Number.isInteger(offset) || offset < -1 || offset > 7) {
+      ask(path, `date_timezone_required (${date})`); return parsed.data;
     }
+    if (!candidate.event.timezone) { ask(path, "date_timezone_required"); return { ...parsed.data, dayOffset: offset }; }
     try {
       const choices = resolveEventLocalTime(candidate.event.eventDate, { time: parsed.data.time, dayOffset: offset }, candidate.event.timezone);
-      if (choices.length !== 1) { ask(path, choices.length ? "ambiguous_local_time" : "nonexistent_local_time"); return undefined; }
+      if (choices.length !== 1) { ask(path, choices.length ? "ambiguous_local_time" : "nonexistent_local_time"); return { ...parsed.data, dayOffset: offset }; }
     } catch { ask(path, "invalid_local_time"); return undefined; }
     return { ...parsed.data, dayOffset: offset };
   };
@@ -31,6 +32,7 @@ export function candidatePatch(candidate: EventIntakeCandidate): EventIntakePatc
       : key === "end" ? local(candidate.event.end, candidate.event.endDate, "event.end") : value;
     return field ? [[key, field]] : [];
   }));
+  if (!candidate.event.timezone && (candidate.event.start || candidate.event.end || candidate.lineup.some(row => row.start || row.end))) tentative.timezone = null;
   if (candidate.lineup.length) tentative.lineup = candidate.lineup.map((row, index) => {
     if (row.start && !row.startDate && tentative.start?.time && row.start < tentative.start.time)
       ask(`lineup.${index}.start`, "start_date_required");

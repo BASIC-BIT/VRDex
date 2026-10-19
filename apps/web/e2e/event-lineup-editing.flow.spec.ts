@@ -1,5 +1,10 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
+import { readIntakeLineupTimings } from "../src/lib/calendar/event-lineup-adapters";
 test.use({ timezoneId: "UTC" });
+async function choosePerformer(row: Locator, text: string, manual = false) {
+  await row.getByRole("combobox", { name: "Performer", exact: true }).fill(text);
+  await (manual ? row.getByRole("button", { name: "Add manual entry", exact: true }) : row.getByRole("option").first()).click();
+}
 const nav = (page: Page, step: string) => page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: step, exact: true }).click();
 async function intake(page: Page, extra = {}) {
   await page.addInitScript(extra => sessionStorage.setItem("event-intake-fixture", JSON.stringify({ communitySlug: "playwright-afterglow-social", title: "Slot night", eventDate: "2027-10-15", timezone: "UTC", start: { time: "20:00" }, end: { time: "00:00", dayOffset: 1 }, ...extra })), extra);
@@ -19,14 +24,14 @@ for (const editor of ["staff", "intake"]) {
     await expect(page.locator('[data-lineup-row]')).toHaveCount(4);
     await expect(page.getByLabel("Slots", { exact: true })).toHaveCount(0);
     for (const [index, row] of (await page.locator('[data-lineup-row]').all()).entries()) {
-      await row.getByRole(editor === "staff" ? "combobox" : "textbox", { name: editor === "staff" ? "Person" : "Performer", exact: true }).fill(editor === "staff" ? "aurora" : `Guest ${index + 1}`);
+      await choosePerformer(row, editor === "staff" ? "Aurora" : `Guest ${index + 1}`, editor !== "staff");
     }
     await page.getByRole("button", { name: "Add slot at position 2", exact: true }).click();
     await page.getByLabel("Slot duration", { exact: true }).fill("15");
     await page.getByRole("button", { name: "Insert slot", exact: true }).click();
     const rows = page.locator('[data-lineup-row]');
     await expect(rows).toHaveCount(5);
-    await rows.nth(1).getByRole(editor === "staff" ? "combobox" : "textbox", { name: editor === "staff" ? "Person" : "Performer", exact: true }).fill(editor === "staff" ? "lumen" : "Inserted");
+    await choosePerformer(rows.nth(1), editor === "staff" ? "Lumen" : "Inserted", editor !== "staff");
     await expect(rows.nth(2)).toContainText("21:15");
     const duration = rows.first().getByLabel("Duration", { exact: true });
     await duration.fill("45"); await duration.press("Enter"); await duration.press("Tab");
@@ -39,11 +44,12 @@ for (const editor of ["staff", "intake"]) {
     await nav(page, "Review"); await page.getByRole("button", { name: "Save draft", exact: true }).click();
     const payload = editor === "staff" ? await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!)) : await page.evaluate(() => JSON.parse(sessionStorage.getItem("event-intake-fixture")!));
     if (editor === "staff") {
-      expect(payload.slotLinks[2].startAt).toBe(Date.UTC(2027,9,15,21));
-      expect(payload.slotLinks[1].personSlug).toBe("lumen");
+      expect(payload.lineup[2].startAt).toBe(Date.UTC(2027,9,15,21));
+      expect(payload.lineup[1].personSlug).toBe("lumen");
     } else { expect(payload.lineup[2].start.time).toBe("21:00"); expect(payload.lineup[1].performerLabel).toBe("Inserted"); }
     await nav(page, "Lineup");
     await rows.nth(1).getByRole("button", { name: "Remove slot", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Remove slot", exact: true }).click();
     await expect(rows.nth(1)).toContainText("20:45");
     await page.getByRole("button", { name: "Add slot at position 1", exact: true }).click();
     await page.getByRole("button", { name: "Cancel", exact: true }).click();
@@ -78,18 +84,19 @@ test("partial intake resumes, preserves overrun through draft save and resolves 
   expect(fields.lineup[0].clientKey).toBe("partial");
 });
 
-test("Time TBA removal and reset never restore deleted intake rows @fixture", async ({ page }) => {
+test("Starts edits after removal and reset never restore deleted intake rows @fixture", async ({ page }) => {
   await intake(page, { lineup: [{ clientKey: "original", position: 0, performerLabel: "Original", start: { time: "20:00" }, end: { time: "21:00" } }] });
-  await page.getByLabel("Time TBA", { exact: true }).check(); await nav(page, "Lineup");
+  await nav(page, "Lineup");
   await page.getByRole("button", { name: "Add slot at position 2", exact: true }).click();
   await page.getByRole("button", { name: "Add performer", exact: true }).click();
   await page.locator('[data-lineup-row]').first().getByRole("button", { name: "Remove slot", exact: true }).click();
-  await nav(page, "Details"); await page.getByLabel("Time TBA", { exact: true }).uncheck(); await nav(page, "Lineup");
+  await page.getByRole("dialog").getByRole("button", { name: "Remove slot", exact: true }).click();
+  await nav(page, "Details"); await page.getByLabel("Starts", { exact: true }).fill("2027-10-15T21:00"); await nav(page, "Lineup");
   await expect(page.locator('[data-lineup-row]')).toHaveCount(1);
-  await expect(page.locator('[data-lineup-row]').getByRole("textbox", { name: "Performer", exact: true })).toHaveValue("");
+  await expect(page.locator('[data-lineup-row]').getByRole("combobox", { name: "Performer", exact: true })).toHaveValue("");
   await page.getByRole("button", { name: "Reset lineup", exact: true }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Clear lineup", exact: true }).click();
-  await nav(page, "Details"); await page.getByLabel("Time TBA", { exact: true }).check(); await page.getByLabel("Time TBA", { exact: true }).uncheck(); await nav(page, "Lineup");
+  await nav(page, "Details"); await page.getByLabel("Starts", { exact: true }).fill("2027-10-15T22:00"); await nav(page, "Lineup");
   await expect(page.locator('[data-lineup-row]')).toHaveCount(0);
 });
 
@@ -153,20 +160,21 @@ test("intake start changes shift the lineup once and day-offset overflow retains
   await expect(page.getByLabel("Slot 1 start", { exact: true })).toBeFocused();
 });
 
-test("canonical Time TBA rows can be removed without returning on toggle and reset keeps explicit end @fixture", async ({ page }) => {
+test("canonical removed rows stay removed after Starts edits and reset keeps explicit end @fixture", async ({ page }) => {
   await canonicalStaff(page);
-  await page.getByLabel("Time TBA", { exact: true }).check(); await nav(page, "Lineup");
+  await nav(page, "Lineup");
   await page.getByRole("button", { name: "Add slot at position 2", exact: true }).click();
   await page.getByRole("button", { name: "Add performer", exact: true }).click();
   await page.locator('[data-lineup-row]').first().getByRole("button", { name: "Remove slot", exact: true }).click();
-  await nav(page, "Details"); await page.getByLabel("Time TBA", { exact: true }).uncheck(); await nav(page, "Lineup");
+  await page.getByRole("dialog").getByRole("button", { name: "Remove slot", exact: true }).click();
+  await nav(page, "Details"); await page.getByLabel("Starts", { exact: true }).fill("2027-10-15T20:15"); await nav(page, "Lineup");
   await expect(page.locator('[data-lineup-row]')).toHaveCount(1);
   await page.getByRole("button", { name: "Reset lineup", exact: true }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Clear lineup", exact: true }).click();
   await nav(page, "Details");
   await expect(page.getByLabel("Ends (optional)", { exact: true })).toHaveValue("2027-10-15T21:00");
   await expect(page.getByLabel("Event title", { exact: true })).toHaveValue("Precise night");
-  await page.getByLabel("Time TBA", { exact: true }).check(); await page.getByLabel("Time TBA", { exact: true }).uncheck(); await nav(page, "Lineup");
+  await page.getByLabel("Starts", { exact: true }).fill("2027-10-15T20:30"); await nav(page, "Lineup");
   await expect(page.locator('[data-lineup-row]')).toHaveCount(0);
 });
 
@@ -176,7 +184,7 @@ test("canonical untimed insertion retains order in preview and submitted lineup 
   await page.getByRole("button", { name: "Set event end to lineup end", exact: true }).first().click();
   await page.getByRole("button", { name: "Add slot at position 1", exact: true }).click();
   await page.getByRole("button", { name: "Add performer", exact: true }).click();
-  await page.locator('[data-lineup-row]').first().getByRole("textbox", { name: "Performer", exact: true }).fill("First guest");
+  await choosePerformer(page.locator('[data-lineup-row]').first(), "First guest", true);
   const names = page.locator('aside').locator('div.border-t > div > p:first-child');
   await expect(names).toHaveText(["First guest", "Aurora"]);
   await nav(page, "Review"); await page.getByRole("button", { name: "Save changes", exact: true }).click();
@@ -202,6 +210,7 @@ for (const insert of [false, true]) test(`legacy deferred save retains surviving
   await expect.poll(() => page.evaluate(() => localStorage.getItem("event-lineup-fixture-v1-submission"))).not.toBeNull();
   await nav(page, "Lineup");
   await page.locator('[data-lineup-row]').first().getByRole("button", { name: "Remove slot", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Remove slot", exact: true }).click();
   if (insert) {
     await page.getByRole("button", { name: "Add slot at position 1", exact: true }).click();
     await page.getByRole("button", { name: "Insert slot", exact: true }).click();
@@ -210,16 +219,16 @@ for (const insert of [false, true]) test(`legacy deferred save retains surviving
   await nav(page, "Review"); await expect(page.getByRole("button", { name: "Save draft", exact: true })).toBeEnabled();
   await page.getByRole("button", { name: "Save draft", exact: true }).click();
   const payload = await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!));
-  expect(payload.storedSlotAssociations).toEqual([{ position: insert ? 1 : 0, slotId: "slot-b" }]);
-  expect(payload.slotLinks[insert ? 1 : 0].displayLabel).toBe("B");
-  expect(payload.slotLinks[insert ? 1 : 0].selectedStreamId).toBe("private-b");
+  expect(payload.lineup[insert ? 1 : 0].clientKey).toBe("slot-b");
+  expect(payload.lineup[insert ? 1 : 0].performerLabel).toBe("B");
+  expect(payload.lineup[insert ? 1 : 0].selectedStreamId).toBe("private-b");
 });
 
 for (const cascade of [false, true]) test(`advanced offset preserves exact duration after cascade=${cascade} and rejects invalid offset @fixture`, async ({ page }) => {
   await canonicalStaff(page);
   if (cascade) await page.getByLabel("Starts", { exact: true }).fill("2027-10-15T20:15");
   await nav(page, "Lineup");
-  await page.locator('[data-lineup-row] summary').click();
+  await page.locator('[data-lineup-row] summary').filter({ hasText: "Details" }).click();
   const offset = page.getByLabel("Slot offset minutes", { exact: true });
   await offset.fill("15");
   await expect(page.getByLabel("Duration", { exact: true })).toHaveValue(String(3_620_333 / 60_000));
@@ -238,7 +247,7 @@ for (const cascade of [false, true]) test(`advanced offset preserves exact durat
   expect(payload.lineup[0].selectedStreamId).toBe("vrcdn:aurora");
 });
 
-test("legacy fixture allocates unique identities across repeated inserted saves @fixture", async ({ page }) => {
+test("legacy fixture allocates unique identities across repeated inserted saves @flow @fixture", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("event-lineup-fixture-v1", JSON.stringify({
     id: "legacy", slug: "legacy", title: "Legacy night", startAt: Date.UTC(2027,9,15,20), endAt: Date.UTC(2027,9,16,0), timezone: "UTC", status: "scheduled", communitySlug: "afterglow", publicationState: "draft",
     source: { sourceType: "community", label: "Afterglow" }, mediaLinks: [], authoredMediaLinks: [], worlds: [], participants: [], slots: [], preservedParticipantAssociationIds: [], preservedSlotAssociationIds: [], preservedWorldAssociationIds: [],
@@ -253,54 +262,59 @@ test("legacy fixture allocates unique identities across repeated inserted saves 
   const nextIds: string[] = await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1")!).slots.map((slot: { playbackKey: string }) => slot.playbackKey));
   expect(new Set(nextIds).size).toBe(3);
   expect(nextIds[0]).toBe(firstIds[0]); expect(nextIds[2]).toBe(firstIds[1]);
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!).lineup.map((row: { clientKey: string }) => row.clientKey))).toEqual(await page.locator("[data-lineup-row]").evaluateAll(rows => rows.map(row => row.getAttribute("data-lineup-row"))));
   await save();
-  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!).storedSlotAssociations)).toEqual(nextIds.map((slotId, position) => ({ slotId, position })));
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!).lineup)).toBeUndefined();
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1")!).slots.map((slot: { playbackKey: string }) => slot.playbackKey))).toEqual(nextIds);
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1")!).lineup.map((row: { clientKey: string }) => row.clientKey))).toEqual(await page.locator("[data-lineup-row]").evaluateAll(rows => rows.map(row => row.getAttribute("data-lineup-row"))));
 });
 
 
-test("canonical scheduling requests surviving-match preservation on every save @fixture", async ({ page }) => {
+test("canonical scheduling requests surviving-match preservation on every save @flow @fixture", async ({ page }) => {
   await canonicalStaff(page);
   page.on("dialog", dialog => dialog.accept());
   await page.getByLabel("Ends (optional)", { exact: true }).fill("2027-10-16T00:00");
-  const save = async () => {
+  const save = async (lineupChanged: boolean) => {
     await page.evaluate(() => localStorage.removeItem("event-lineup-fixture-v1-submission"));
     await nav(page, "Review");
     await page.getByRole("button", { name: /^(Unpublish and save draft|Save draft)$/ }).click();
     await expect(page.getByRole("button", { name: "Save draft", exact: true })).toBeEnabled();
     const payload = await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!));
     expect(payload.preserveLineupConfirmation).toBe(true);
-    expect(payload.lineup.some((row: { clientKey: string; personSlug?: string }) => row.clientKey === "exact-row" && row.personSlug === "aurora")).toBe(true);
+    if (lineupChanged) expect(payload.lineup.some((row: { clientKey: string; personSlug?: string }) => row.clientKey === "exact-row" && row.personSlug === "aurora")).toBe(true);
+    else expect(payload.lineup).toBeUndefined();
+    expect(await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1")!).lineup.some((row: { clientKey: string; personSlug?: string }) => row.clientKey === "exact-row" && row.personSlug === "aurora"))).toBe(true);
   };
   await nav(page, "Lineup");
   const duration = page.locator('[data-lineup-row]').first().getByLabel("Duration", { exact: true });
   await duration.fill("45"); await duration.press("Enter");
-  await save(); await save();
+  await save(true); await save(false);
   await nav(page, "Lineup");
   await page.getByRole("button", { name: "Add slot at position 1", exact: true }).click();
   await page.getByRole("button", { name: "Insert slot", exact: true }).click();
-  await save();
+  await save(true);
   await nav(page, "Lineup");
   await page.locator('[data-lineup-row]').first().getByRole("button", { name: "Remove slot", exact: true }).click();
-  await save();
+  await page.getByRole("dialog").getByRole("button", { name: "Remove slot", exact: true }).click();
+  await save(true);
   await nav(page, "Details"); await page.getByLabel("Starts", { exact: true }).fill("2027-10-15T20:15");
-  await save(); await save();
+  await save(true); await save(false);
 });
 
 for (const editor of ["staff", "intake"]) test(`${editor} retains the last start through a timezone change while Starts is empty @fixture`, async ({ page }) => {
   if (editor === "staff") await canonicalStaff(page);
-  else await intake(page, { end: { time: "21:00" }, lineup: [{ clientKey: "a", position: 0, performerLabel: "A", start: { time: "20:00" }, end: { time: "21:00" } }] });
+  else await intake(page, { end: { time: "21:00" }, lineup: [{ clientKey: "a", position: 0, performerLabel: "A", start: { time: "20:00" }, end: { time: "21:00" } }, { clientKey: "partial", position: 1, performerLabel: "Partial", start: { time: "20:30" } }] });
   await page.getByLabel("Starts", { exact: true }).fill("");
   await page.getByRole("button", { name: "Time zone", exact: true }).click();
   await page.getByRole("combobox", { name: "Time zone", exact: true }).fill("Tokyo");
   await page.getByRole("option").first().click();
   await page.getByLabel("Starts", { exact: true }).fill("2027-10-15T20:15");
   await nav(page, "Lineup");
-  await expect(page.locator('[data-lineup-row]')).toContainText("20:15");
+  await expect(page.locator('[data-lineup-row]').first()).toContainText("20:15");
   await nav(page, "Details");
   await page.getByLabel("Starts", { exact: true }).fill("2027-10-15T20:30");
   await nav(page, "Lineup");
-  await expect(page.locator('[data-lineup-row]')).toContainText("20:30");
-  await page.getByRole("button", { name: "Set event end to lineup end", exact: true }).first().click();
+  await expect(page.locator('[data-lineup-row]').first()).toContainText("20:30");
   await nav(page, "Review");
   await page.getByRole("button", { name: editor === "staff" ? "Save changes" : "Save draft", exact: true }).click();
   if (editor === "staff") {
@@ -309,21 +323,26 @@ for (const editor of ["staff", "intake"]) test(`${editor} retains the last start
     expect(payload.lineup[0].endAt).toBe(Date.UTC(2027, 9, 15, 12, 30, 20, 333));
   } else {
     const payload = await page.evaluate(() => JSON.parse(sessionStorage.getItem("event-intake-fixture")!));
-    expect(payload.lineup[0].start).toEqual({ time: "20:30", dayOffset: 0 });
+    expect(payload.lineup[0]).toMatchObject({ start: null, end: null, relativeTiming: { offsetMinutes: 0, durationMinutes: 60 } });
+    expect(readIntakeLineupTimings(payload)).toEqual([{ key: "a", startAt: Date.UTC(2027, 9, 15, 11, 30), endAt: Date.UTC(2027, 9, 15, 12, 30) }, { key: "partial", startAt: Date.UTC(2027, 9, 15, 12) }]);
   }
 });
 
-for (const editor of ["staff", "intake"]) test(`${editor} rejected and cancelled durations restore committed timing @fixture`, async ({ page }, testInfo) => {
+for (const editor of ["staff", "intake"]) test(`${editor} rejected durations remain pending until cancellation restores committed timing @fixture`, async ({ page }, testInfo) => {
   if (editor === "staff") await canonicalStaff(page);
   else await intake(page, { lineup: [{ clientKey: "a", position: 0, performerLabel: "A", start: { time: "20:00" }, end: { time: "21:00" } }] });
   await nav(page, "Lineup");
   const duration = page.locator('[data-lineup-row]').first().getByLabel("Duration", { exact: true });
   const committed = editor === "staff" ? String(3_620_333 / 60_000) : "60";
-  for (const invalid of ["45.5", "0", "abc"]) {
+  for (const invalid of ["", "   ", "45.5", "0", "abc"]) {
     await duration.fill(invalid); await duration.press("Enter");
+    await expect(duration).toHaveValue(invalid);
+    await duration.press("Tab");
+    await expect(duration).toHaveValue(invalid);
+    await expect(page.locator("form[data-event-dirty]")).toHaveAttribute("data-event-dirty", "true");
+    await duration.press("Escape");
     await expect(duration).toHaveValue(committed);
-    await duration.fill(invalid); await duration.press("Tab");
-    await expect(duration).toHaveValue(committed);
+    await expect(page.locator("form[data-event-dirty]")).toHaveAttribute("data-event-dirty", "false");
   }
   await duration.fill("45"); await duration.press("Escape"); await duration.press("Tab");
   await expect(duration).toHaveValue(committed);
@@ -338,8 +357,8 @@ test("advanced known duration commits one cascade and preserves precise clocks u
   await page.getByRole("button", { name: "Add slot at position 2", exact: true }).click();
   await page.getByRole("button", { name: "Insert slot", exact: true }).click();
   const rows = page.locator('[data-lineup-row]');
-  await rows.nth(1).getByRole("combobox", { name: "Person", exact: true }).fill("lumen");
-  await rows.first().locator("summary").click();
+  await choosePerformer(rows.nth(1), "Lumen");
+  await rows.first().locator("summary").filter({ hasText: "Details" }).click();
   const duration = rows.first().getByLabel("Slot duration minutes", { exact: true });
   await duration.focus(); await duration.press("Tab");
   await expect(rows.first().getByLabel("Duration", { exact: true })).toHaveValue(String(3_620_333 / 60_000));
@@ -361,7 +380,7 @@ test("advanced partial duration establishes an end only on explicit commit @fixt
   await canonicalStaff(page, true); await nav(page, "Lineup");
   const row = page.locator('[data-lineup-row]').first();
   await expect(row.getByLabel("Duration", { exact: true })).toBeDisabled();
-  await row.locator("summary").click();
+  await row.locator("summary").filter({ hasText: "Details" }).click();
   const duration = row.getByLabel("Slot duration minutes", { exact: true });
   await duration.fill("45");
   await expect(row.getByLabel("Duration", { exact: true })).toBeDisabled();
@@ -375,7 +394,7 @@ test("advanced partial duration establishes an end only on explicit commit @fixt
 
 test("unresolved offset recovery preserves exact duration through untouched, rejected and cancelled commits @fixture", async ({ page }) => {
   await canonicalStaff(page); await nav(page, "Lineup");
-  await page.locator('[data-lineup-row] summary').click();
+  await page.locator('[data-lineup-row] summary').filter({ hasText: "Details" }).click();
   const offset = page.getByLabel("Slot offset minutes", { exact: true });
   const duration = page.getByLabel("Slot duration minutes", { exact: true });
   for (const action of ["untouched blur", "untouched Enter", "invalid", "cancelled"]) {
@@ -398,7 +417,7 @@ test("unresolved offset recovery preserves exact duration through untouched, rej
 
 for (const minutes of [45, 60]) test(`unresolved offset accepts an explicit ${minutes}-minute duration before recovery @fixture`, async ({ page }) => {
   await canonicalStaff(page); await nav(page, "Lineup");
-  await page.locator('[data-lineup-row] summary').click();
+  await page.locator('[data-lineup-row] summary').filter({ hasText: "Details" }).click();
   const offset = page.getByLabel("Slot offset minutes", { exact: true });
   const duration = page.getByLabel("Slot duration minutes", { exact: true });
   await offset.fill("bad");
@@ -413,7 +432,7 @@ for (const minutes of [45, 60]) test(`unresolved offset accepts an explicit ${mi
   expect(payload.lineup[0].endAt).toBe(minutes === 45 ? Date.UTC(2027, 9, 15, 21, 0, 10, 123) : Date.UTC(2027, 9, 15, 21, 15, 10, 123));
 });
 
-for (const canonical of [true, false]) test(`${canonical ? "canonical" : "legacy"} staff clears only a slot end and preserves rows through two saves @fixture`, async ({ page }) => {
+for (const canonical of [true, false]) test(`${canonical ? "canonical" : "legacy"} staff clears only a slot end and preserves rows through two saves @flow @fixture`, async ({ page }) => {
   await page.addInitScript(canonical => localStorage.setItem("event-lineup-fixture-v1", JSON.stringify({
     id: "clear-end", slug: "clear-end", title: "Clear end night", usesCanonicalLineup: canonical,
     startAt: Date.UTC(2027, 9, 15, 20, 0, 10, 123), endAt: Date.UTC(2027, 9, 15, 21), timezone: "UTC", scheduleKind: "timed", status: "scheduled", communitySlug: "afterglow", publicationState: "draft_private",
@@ -427,7 +446,7 @@ for (const canonical of [true, false]) test(`${canonical ? "canonical" : "legacy
   await page.goto("/playwright/event-lineup?editor"); await nav(page, "Lineup");
   const rows = page.locator('[data-lineup-row]');
   const firstKey = await rows.first().getAttribute("data-lineup-row");
-  await rows.first().locator("summary").click();
+  await rows.first().locator("summary").filter({ hasText: "Details" }).click();
   const duration = rows.first().getByLabel("Slot duration minutes", { exact: true });
   await duration.fill(""); await duration.press("Escape"); await duration.press("Tab");
   await expect(duration).toHaveValue(String(3_620_333 / 60_000));
@@ -449,7 +468,9 @@ for (const canonical of [true, false]) test(`${canonical ? "canonical" : "legacy
     await nav(page, "Review"); await page.getByRole("button", { name: "Save draft", exact: true }).click();
     await expect.poll(() => page.evaluate(() => Number(localStorage.getItem("event-lineup-fixture-command-count")))).toBe(count);
     const payload = await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1-submission")!));
-    const saved = canonical ? payload.lineup : payload.slotLinks;
+    if (count === 1) expect(payload.lineup).toHaveLength(2);
+    else expect(payload.lineup).toBeUndefined();
+    const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("event-lineup-fixture-v1")!).lineup);
     expect(saved).toHaveLength(2);
     expect(saved[0].endAt).toBeUndefined();
     expect(saved[0].startAt).toBe(Date.UTC(2027, 9, 15, 20, 0, 10, 123));
@@ -459,14 +480,14 @@ for (const canonical of [true, false]) test(`${canonical ? "canonical" : "legacy
     expect(saved[1].endAt).toBe(Date.UTC(2027, 9, 15, 22, 15, 30, 456));
     expect(payload.endAt).toBe(Date.UTC(2027, 9, 15, 22, 30));
     if (canonical) expect(saved[0].clientKey).toBe("exact-row");
-    else expect(payload.storedSlotAssociations[0]).toEqual({ position: 0, slotId: "stored-exact" });
+    else expect(saved[0].clientKey).toBe("stored-exact");
   }
 });
 
 test("clearing an end drops its precise duration backup and leaves automatic event end unknown @fixture", async ({ page }) => {
   await canonicalStaff(page); await nav(page, "Lineup");
   const row = page.locator('[data-lineup-row]');
-  await row.locator("summary").click();
+  await row.locator("summary").filter({ hasText: "Details" }).click();
   const offset = page.getByLabel("Slot offset minutes", { exact: true });
   const duration = page.getByLabel("Slot duration minutes", { exact: true });
   await offset.fill("bad");
@@ -475,8 +496,6 @@ test("clearing an end drops its precise duration backup and leaves automatic eve
   await expect(row.getByLabel("Duration", { exact: true })).toBeDisabled();
   await expect(duration).toHaveValue("");
   await nav(page, "Details");
-  await page.getByLabel("Time TBA", { exact: true }).check();
-  await page.getByLabel("Time TBA", { exact: true }).uncheck();
   await page.getByLabel("Ends (optional)", { exact: true }).fill("");
   await nav(page, "Lineup");
   await expect(page.getByLabel("Duration", { exact: true })).toBeDisabled();
@@ -487,3 +506,76 @@ test("clearing an end drops its precise duration backup and leaves automatic eve
   expect(payload.lineup[0].endAt).toBeUndefined();
   expect(payload.endAt).toBeNull();
 });
+
+for (const editor of ["staff", "intake"]) for (const detailed of editor === "staff" ? [false, true] : [false]) for (const recovery of ["Escape", "commit"]) {
+  test(`${editor} display timezone preserves pending duration and save waits for recovery, detailed=${detailed}, recovery=${recovery} @fixture`, async ({ page }, testInfo) => {
+    page.on("dialog", dialog => dialog.accept());
+    if (editor === "staff") {
+      await canonicalStaff(page);
+      await page.getByLabel("Ends (optional)", { exact: true }).fill("2027-10-16T00:00");
+    } else await intake(page, { lineup: [{ clientKey: "a", position: 0, performerLabel: "A", start: { time: "20:00" }, end: { time: "21:00" } }] });
+    const save = async () => {
+      await nav(page, "Review");
+      await page.getByRole("button", { name: /^(Unpublish and save draft|Save draft)$/ }).click();
+      await expect(page.getByRole("button", { name: "Save draft", exact: true })).toBeEnabled();
+      await expect(page.locator("form[data-event-dirty]")).toHaveAttribute("data-event-dirty", "false");
+    };
+    const storedSchedule = () => page.evaluate(editor => {
+      const value = JSON.parse(editor === "staff" ? localStorage.getItem("event-lineup-fixture-v1")! : sessionStorage.getItem("event-intake-fixture")!);
+      return editor === "staff" ? { startAt: value.startAt, endAt: value.endAt, timezone: value.timezone, slots: value.slots.map((slot: { clientKey: string; startAt: number; endAt: number }) => ({ clientKey: slot.clientKey, startAt: slot.startAt, endAt: slot.endAt })) } : { start: value.start, end: value.end, eventDate: value.eventDate, timezone: value.timezone, lineup: value.lineup };
+    }, editor);
+    await save();
+    const baseline = await storedSchedule();
+    const start = await page.getByLabel("Starts", { exact: true }).inputValue();
+    const end = await page.getByLabel("Ends (optional)", { exact: true }).inputValue();
+    await nav(page, "Lineup");
+    const row = page.locator('[data-lineup-row]').first();
+    const rowKey = await row.getAttribute("data-lineup-row");
+    const details = row.locator("summary").filter({ hasText: "Details" });
+    if (detailed) await details.click();
+    const duration = row.getByLabel(detailed ? "Slot duration minutes" : "Duration", { exact: true });
+    const committed = await duration.inputValue();
+    await duration.fill("45.5");
+    await nav(page, "Details");
+    // Closing the disclosure while hidden must still reveal the actual pending control.
+    if (detailed) await details.evaluate(summary => { const disclosure = summary.closest("details"); if (disclosure) disclosure.open = false; });
+    await page.getByRole("button", { name: "Time zone", exact: true }).click();
+    await page.getByRole("combobox", { name: "Time zone", exact: true }).fill("Tokyo");
+    await page.getByRole("option").first().click();
+    await expect(page.locator('[name="editingTimezone"]')).toHaveValue("Asia/Tokyo");
+    await expect(duration).toHaveValue("45.5");
+    await expect(page.locator('[data-pending-event-input="true"]')).toHaveCount(1);
+    await expect(page.locator("form[data-event-dirty]")).toHaveAttribute("data-event-dirty", "true");
+    expect(await storedSchedule()).toEqual(baseline);
+    await nav(page, "Review");
+    await page.getByRole("button", { name: "Save draft", exact: true }).click();
+    await expect(duration).toBeVisible();
+    await expect(duration).toBeFocused();
+    await expect(duration).toHaveValue("45.5");
+    expect(await storedSchedule()).toEqual(baseline);
+    await page.screenshot({ path: testInfo.outputPath(`${editor}-${detailed ? "detailed" : "compact"}-pending-duration.png`), fullPage: true });
+    if (recovery === "Escape") {
+      await duration.press("Escape");
+      await expect(duration).toHaveValue(committed);
+      await expect(page.locator("form[data-event-dirty]")).toHaveAttribute("data-event-dirty", "false");
+    } else {
+      await duration.fill("45"); await duration.press("Enter");
+      await expect(duration).toHaveValue("45");
+      await save();
+    }
+    const restoredBaseline = await storedSchedule();
+    await nav(page, "Details");
+    await page.getByRole("button", { name: "Time zone", exact: true }).click();
+    await page.getByRole("combobox", { name: "Time zone", exact: true }).fill("UTC");
+    await page.getByRole("option", { name: /^UTC(?: |$)/ }).click();
+    await expect(page.getByLabel("Starts", { exact: true })).toHaveValue(start);
+    await expect(page.getByLabel("Ends (optional)", { exact: true })).toHaveValue(end);
+    await nav(page, "Lineup");
+    await expect(row).toHaveAttribute("data-lineup-row", rowKey!);
+    if (detailed && !(await duration.isVisible())) await details.click();
+    await expect(duration).toHaveValue(recovery === "Escape" ? committed : "45");
+    await expect(page.locator('[data-pending-event-input="true"]')).toHaveCount(0);
+    await save();
+    expect(await storedSchedule()).toEqual(restoredBaseline);
+  });
+}

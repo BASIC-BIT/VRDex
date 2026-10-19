@@ -39,9 +39,18 @@ export function normalizeIntakePublication(raw: EventIntakePatch) {
   if (doorsOpenAt !== undefined && doorsOpenAt > schedule.startAt!) throw new Error("Doors must open before the start.");
   const lineup: EventLineupInput = (fields.lineup ?? []).map(entry => {
     if (!entry.performerLabel) throw new Error("Every published lineup entry needs a performer name.");
+    if (entry.relativeTiming && schedule.startAt === undefined) throw new Error("Relative lineup timing requires an event start.");
+    const relativeStart = entry.relativeTiming ? schedule.startAt! + entry.relativeTiming.offsetMinutes * 60_000 : undefined;
+    if (relativeStart !== undefined && entry.relativeTiming) {
+      for (const instant of [relativeStart, relativeStart + entry.relativeTiming.durationMinutes * 60_000]) {
+        const date = eventDateForInstant(instant, fields.timezone!);
+        const dayOffset = (Date.parse(`${date}T00:00:00Z`) - Date.parse(`${fields.eventDate}T00:00:00Z`)) / 86_400_000;
+        if (dayOffset < -1 || dayOffset > 7) throw new Error("Event date must be valid.");
+      }
+    }
     return { clientKey: entry.clientKey, position: entry.position, performerLabel: entry.performerLabel,
       ...(entry.personSlug ? { personSlug: entry.personSlug } : {}), ...(entry.roleLabel ? { roleLabel: entry.roleLabel } : {}),
-      ...(entry.start ? { startAt: at(entry.start) } : {}), ...(entry.end ? { endAt: at(entry.end) } : {}) };
+      ...(relativeStart !== undefined && entry.relativeTiming ? { startAt: relativeStart, endAt: relativeStart + entry.relativeTiming.durationMinutes * 60_000 } : { ...(entry.start ? { startAt: at(entry.start) } : {}), ...(entry.end ? { endAt: at(entry.end) } : {}) }) };
   });
   return { fields, schedule, endAt, doorsOpenAt, lineup };
 }

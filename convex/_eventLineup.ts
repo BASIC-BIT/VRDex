@@ -15,6 +15,7 @@ export async function replaceEventLineup(
     preserveParticipantAssociationIds?: Id<"eventParticipants">[];
     confirmPersonLinks?: boolean;
     preservePersonConfirmation?: boolean;
+    retainedAssociations?: { participantIds: Id<"eventParticipants">[]; slotIds: Id<"eventSlots">[] };
   } = {},
 ): Promise<void> {
   const normalized = sanitizeEventLineupInput(entries);
@@ -23,6 +24,9 @@ export async function replaceEventLineup(
     db.query("eventLineupEntries").withIndex("by_eventId_position", q => q.eq("eventId", event._id)).collect(),
     db.query("eventParticipants").withIndex("by_eventId", q => q.eq("eventId", event._id)).collect(),
   ]);
+  // Stable participant keys are editor-only identities, authorized by the loaded
+  // snapshot and scoped again to the event rows fetched above.
+  const previousParticipant = (key: string) => participants.find(row => row._id === key && options.preserveParticipantAssociationIds?.includes(row._id));
   const resolved = await Promise.all(normalized.map(async entry => {
     if (entry.startAt !== undefined) {
       if (event.scheduleKind === "date_only" || event.startAt === undefined) throw new Error("Timed sets require a timed event.");
@@ -38,7 +42,7 @@ export async function replaceEventLineup(
       ? previousSlot.personProfileId
       : previousUntimed?.personProfileId !== undefined && participants.some(row =>
         row.personProfileId === previousUntimed.personProfileId && options.preserveParticipantAssociationIds?.includes(row._id))
-        ? previousUntimed.personProfileId : undefined;
+        ? previousUntimed.personProfileId : previousParticipant(entry.clientKey)?.personProfileId;
     if (preservedPersonId !== undefined) {
       const previousProfile = await db.get(preservedPersonId);
       if ((previousProfile === null || !canReadProfile("public", previousProfile)) &&
@@ -59,7 +63,8 @@ export async function replaceEventLineup(
   for (const { entry, personProfileId } of resolved) {
     if (personProfileId === undefined || entry.personSlug === undefined) continue;
     const previous = slots.find(row => (row.clientKey ?? row._id) === entry.clientKey)
-      ?? untimed.find(row => row.clientKey === entry.clientKey);
+      ?? untimed.find(row => row.clientKey === entry.clientKey)
+      ?? previousParticipant(entry.clientKey);
     if (previous?.personProfileId !== personProfileId) authoredMatches.add(personProfileId);
   }
   const personConfirmations = new Map(resolved.flatMap(({ personProfileId }) => {
@@ -72,8 +77,8 @@ export async function replaceEventLineup(
       confirmedAt: confirmationState === "confirmed" ? previous?.confirmedAt ?? now : undefined,
     }] as const];
   }));
-  const keptParticipants = new Set<Id<"eventParticipants">>();
-  const keptSlots = new Set<Id<"eventSlots">>();
+  const keptParticipants = new Set(participants.filter(row => options.retainedAssociations?.participantIds.includes(row._id)).map(row => row._id));
+  const keptSlots = new Set(slots.filter(row => options.retainedAssociations?.slotIds.includes(row._id)).map(row => row._id));
   const matchedPeople = new Set<Id<"profiles">>();
   for (const { entry, profile, personProfileId } of resolved) {
     if (entry.startAt !== undefined) {
@@ -88,7 +93,7 @@ export async function replaceEventLineup(
           (profile === undefined || !canReadProfile("public", profile) || !eventProfileStreamChoices(profile).some(choice => choice.streamId === selectedStreamId))) {
         throw new Error("Selected stream must belong to the performer's public streams.");
       }
-      const source = existing ?? untimed.find(row => row.clientKey === entry.clientKey);
+      const source = existing ?? untimed.find(row => row.clientKey === entry.clientKey) ?? previousParticipant(entry.clientKey);
       const fields = {
         selectedStreamId,
         eventId: event._id, clientKey: entry.clientKey, position: entry.position,
@@ -97,7 +102,7 @@ export async function replaceEventLineup(
         displayLabel: entry.performerLabel, roleLabel: entry.roleLabel ?? "",
         sourceType: source?.sourceType ?? event.sourceType, sourceLabel: source?.sourceLabel ?? event.sourceLabel,
         sourceUrl: source?.sourceUrl, notes: source?.notes,
-        confidence: 1, reviewState: "confirmed" as const, updatedAt: now,
+        confidence: existing !== undefined && existing.personProfileId === personProfileId ? existing.confidence : 1, reviewState: existing !== undefined && existing.personProfileId === personProfileId ? existing.reviewState : "confirmed" as const, updatedAt: now,
       };
       if (existing !== undefined) {
         keptSlots.add(existing._id);
@@ -105,7 +110,8 @@ export async function replaceEventLineup(
       } else await db.insert("eventSlots", { ...fields, createdAt: now });
     } else {
       const source = untimed.find(row => row.clientKey === entry.clientKey)
-        ?? slots.find(row => (row.clientKey ?? row._id) === entry.clientKey);
+        ?? slots.find(row => (row.clientKey ?? row._id) === entry.clientKey)
+        ?? previousParticipant(entry.clientKey);
       await db.insert("eventLineupEntries", {
         eventId: event._id, clientKey: entry.clientKey, position: entry.position,
         performerLabel: entry.performerLabel, personProfileId,

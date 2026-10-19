@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { manualPerformer } from "./event-performer-helpers";
 
 import {
   capturedRoutes,
@@ -55,8 +56,8 @@ test("event editor @visual", async ({ page }, testInfo) => {
   await steps.getByRole("button", { name: "Details", exact: true }).click();
   await expect(page.getByLabel("Starts", { exact: true })).toBeVisible();
   await page.getByLabel("Starts", { exact: true }).fill("2026-09-12T22:00");
-  await expect(page.getByLabel("Community", { exact: true })).toHaveCount(0);
-  await expect(page.getByLabel("World", { exact: true })).toHaveCount(0);
+  await expect(page.locator('[data-editor-step="Details"]').getByLabel("Community", { exact: true })).toContainText("Afterglow");
+  await expect(page.getByRole("combobox", { name: "Where", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Timing", exact: true })).toBeVisible();
   await expect(page.getByLabel("Break between")).toHaveCount(0);
   await expect(page.getByLabel("Description")).toBeVisible();
@@ -66,9 +67,10 @@ test("event editor @visual", async ({ page }, testInfo) => {
   await expect(page.getByRole("button", { name: "Customize" })).toHaveCount(0);
   await expect(page.getByLabel("Slug", { exact: true })).toHaveCount(0);
 
-  await page.getByLabel("Do doors open before?").check();
-  await expect(page.getByLabel("Minutes before start")).toHaveAttribute("required", "");
-  await page.getByLabel("Minutes before start").fill("15");
+  await expect(page.getByLabel("Doors open", { exact: true })).toBeHidden();
+  await page.locator("summary", { hasText: "Add doors-open time" }).click();
+  await page.getByLabel("Doors open", { exact: true }).fill("2026-09-12T21:45");
+  await expect(page.getByLabel("Doors open", { exact: true })).toHaveValue("2026-09-12T21:45");
 
   await captureRouteScreenshot(page, testInfo, "event-editor-details");
   await steps.getByRole("button", { name: "Lineup", exact: true }).click();
@@ -81,11 +83,11 @@ test("event editor @visual", async ({ page }, testInfo) => {
   await page.getByLabel("Minutes each", { exact: true }).fill("60");
   await page.getByRole("button", { name: "Generate", exact: true }).click();
   await expect(page.getByRole("heading", { name: /^Slot [1-4]$/ })).toHaveCount(4);
-  await page.locator('[data-editor-step="Lineup"] details').first().locator("summary").click();
-  await page.getByLabel("Display name").first().fill("Aurora");
+  const firstPerformer = page.locator('[data-lineup-row]').first().locator("[data-performer-field]");
+  await manualPerformer(firstPerformer, "Aurora");
   await page.getByRole("button", { name: "Reset lineup", exact: true }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Cancel", exact: true }).click();
-  await expect(page.getByLabel("Display name").first()).toHaveValue("Aurora");
+  await expect(firstPerformer.getByRole("textbox", { name: "Performer", exact: true })).toHaveValue("Aurora");
   await captureRouteScreenshot(page, testInfo, "event-editor-lineup");
   await steps.getByRole("button", { name: "Review", exact: true }).click();
   await expect(page.getByRole("button", { name: "Publish event" })).toBeEnabled();

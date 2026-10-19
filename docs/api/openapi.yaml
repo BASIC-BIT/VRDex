@@ -270,6 +270,21 @@ paths:
                                       - time
                                     additionalProperties: false
                                   - type: "null"
+                              relativeTiming:
+                                type: object
+                                properties:
+                                  offsetMinutes:
+                                    type: integer
+                                    minimum: -1440
+                                    maximum: 115200
+                                  durationMinutes:
+                                    type: integer
+                                    exclusiveMinimum: 0
+                                    maximum: 1440
+                                required:
+                                  - offsetMinutes
+                                  - durationMinutes
+                                additionalProperties: false
                             required:
                               - clientKey
                               - position
@@ -487,6 +502,21 @@ paths:
                                               - time
                                             additionalProperties: false
                                           - type: "null"
+                                      relativeTiming:
+                                        type: object
+                                        properties:
+                                          offsetMinutes:
+                                            type: integer
+                                            minimum: -1440
+                                            maximum: 115200
+                                          durationMinutes:
+                                            type: integer
+                                            exclusiveMinimum: 0
+                                            maximum: 1440
+                                        required:
+                                          - offsetMinutes
+                                          - durationMinutes
+                                        additionalProperties: false
                                     required:
                                       - clientKey
                                       - position
@@ -862,6 +892,21 @@ paths:
                                         - time
                                       additionalProperties: false
                                     - type: "null"
+                                relativeTiming:
+                                  type: object
+                                  properties:
+                                    offsetMinutes:
+                                      type: integer
+                                      minimum: -1440
+                                      maximum: 115200
+                                    durationMinutes:
+                                      type: integer
+                                      exclusiveMinimum: 0
+                                      maximum: 1440
+                                  required:
+                                    - offsetMinutes
+                                    - durationMinutes
+                                  additionalProperties: false
                               required:
                                 - clientKey
                                 - position
@@ -1079,6 +1124,21 @@ paths:
                                                 - time
                                               additionalProperties: false
                                             - type: "null"
+                                        relativeTiming:
+                                          type: object
+                                          properties:
+                                            offsetMinutes:
+                                              type: integer
+                                              minimum: -1440
+                                              maximum: 115200
+                                            durationMinutes:
+                                              type: integer
+                                              exclusiveMinimum: 0
+                                              maximum: 1440
+                                          required:
+                                            - offsetMinutes
+                                            - durationMinutes
+                                          additionalProperties: false
                                       required:
                                         - clientKey
                                         - position
@@ -1417,6 +1477,21 @@ paths:
                                       - time
                                     additionalProperties: false
                                   - type: "null"
+                              relativeTiming:
+                                type: object
+                                properties:
+                                  offsetMinutes:
+                                    type: integer
+                                    minimum: -1440
+                                    maximum: 115200
+                                  durationMinutes:
+                                    type: integer
+                                    exclusiveMinimum: 0
+                                    maximum: 1440
+                                required:
+                                  - offsetMinutes
+                                  - durationMinutes
+                                additionalProperties: false
                             required:
                               - clientKey
                               - position
@@ -1634,6 +1709,21 @@ paths:
                                               - time
                                             additionalProperties: false
                                           - type: "null"
+                                      relativeTiming:
+                                        type: object
+                                        properties:
+                                          offsetMinutes:
+                                            type: integer
+                                            minimum: -1440
+                                            maximum: 115200
+                                          durationMinutes:
+                                            type: integer
+                                            exclusiveMinimum: 0
+                                            maximum: 1440
+                                        required:
+                                          - offsetMinutes
+                                          - durationMinutes
+                                        additionalProperties: false
                                     required:
                                       - clientKey
                                       - position
@@ -2574,6 +2664,21 @@ paths:
                                         - time
                                       additionalProperties: false
                                     - type: "null"
+                                relativeTiming:
+                                  type: object
+                                  properties:
+                                    offsetMinutes:
+                                      type: integer
+                                      minimum: -1440
+                                      maximum: 115200
+                                    durationMinutes:
+                                      type: integer
+                                      exclusiveMinimum: 0
+                                      maximum: 1440
+                                  required:
+                                    - offsetMinutes
+                                    - durationMinutes
+                                  additionalProperties: false
                               required:
                                 - clientKey
                                 - position
@@ -2809,6 +2914,21 @@ paths:
                                       - time
                                     additionalProperties: false
                                   - type: "null"
+                              relativeTiming:
+                                type: object
+                                properties:
+                                  offsetMinutes:
+                                    type: integer
+                                    minimum: -1440
+                                    maximum: 115200
+                                  durationMinutes:
+                                    type: integer
+                                    exclusiveMinimum: 0
+                                    maximum: 1440
+                                required:
+                                  - offsetMinutes
+                                  - durationMinutes
+                                additionalProperties: false
                             required:
                               - clientKey
                               - position

@@ -10,6 +10,7 @@ const aliases: Record<string, string[]> = {
   "Australia/Sydney": ["aest", "aedt"],
 };
 const regionNames: Record<string, string> = {
+  "America/Indianapolis": "Eastern (Indianapolis)", "America/Indiana/Indianapolis": "Eastern (Indianapolis)",
   "America/New_York": "Eastern", "America/Chicago": "Central", "America/Denver": "Mountain",
   "America/Los_Angeles": "Pacific", "Europe/London": "United Kingdom", "Europe/Berlin": "Central Europe",
   "Asia/Tokyo": "Japan", "Australia/Sydney": "Sydney", "Asia/Shanghai": "China", "UTC": "UTC",
@@ -17,12 +18,23 @@ const regionNames: Record<string, string> = {
 aliases["Asia/Shanghai"] = ["china", "cst"];
 export const commonEventTimezones = ["UTC", ...Object.keys(aliases)];
 
+function timezoneName(value: string, instant: number, timeZoneName: "short" | "longOffset"): string | undefined {
+  return new Intl.DateTimeFormat("en-US", { timeZone: value, timeZoneName }).formatToParts(instant).find(part => part.type === "timeZoneName")?.value;
+}
+
 export function eventTimezoneLabel(value: string, instant?: number): string {
   const region = regionNames[value] ?? value.replaceAll("_", " ").replaceAll("/", " / ");
-  if (instant === undefined || !Number.isFinite(instant)) return region;
   try {
-    const abbreviation = new Intl.DateTimeFormat("en-US", { timeZone: value, timeZoneName: "short" }).formatToParts(instant).find(part => part.type === "timeZoneName")?.value;
-    return abbreviation && abbreviation !== region ? `${region} · ${abbreviation}` : region;
+    // Etc/GMT values have a permanent offset. Their IANA sign is reversed.
+    if (/^Etc\/GMT[+-]\d{1,2}$/.test(value)) {
+      const offset = timezoneName(value, 0, "longOffset")?.replace("GMT", "UTC");
+      return offset ? `Fixed offset (${offset})` : region;
+    }
+    if (value === "UTC" || instant === undefined || !Number.isFinite(instant)) return region;
+    const abbreviation = timezoneName(value, instant, "short");
+    const offset = timezoneName(value, instant, "longOffset")?.replace("GMT", "UTC");
+    const name = abbreviation && abbreviation !== region ? `${region} · ${abbreviation}` : region;
+    return offset && offset !== name ? `${name} (${offset})` : name;
   } catch { return region; }
 }
 
@@ -36,10 +48,8 @@ export function searchEventTimezones(query: string, _date: string | null, instan
   return [...zones].filter(zone => zone.toLowerCase().replaceAll("_", " ").includes(search) || regionNames[zone]?.toLowerCase().includes(search) || aliases[zone]?.some(alias => alias.includes(search)))
     .sort((a, b) => Number(aliases[b]?.includes(search) || b.toLowerCase() === search) - Number(aliases[a]?.includes(search) || a.toLowerCase() === search) || a.localeCompare(b))
     .map(value => {
-      const offset = instant === undefined || !Number.isFinite(instant) ? undefined : new Intl.DateTimeFormat("en-US", { timeZone: value, timeZoneName: "longOffset" }).formatToParts(instant).find(part => part.type === "timeZoneName")?.value.replace("GMT", "UTC");
       const name = eventTimezoneLabel(value, instant);
       const identifier = value.replaceAll("_", " ");
-      const label = `${name}${offset && offset !== name ? ` (${offset})` : ""}`;
-      return { value, label: name.split(" \u00b7 ").includes(identifier) ? label : `${label} \u00b7 ${identifier}` };
+      return { value, label: name.split(" \u00b7 ").includes(identifier) ? name : `${name} \u00b7 ${identifier}` };
     });
 }
