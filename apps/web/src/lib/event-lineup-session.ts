@@ -1,8 +1,11 @@
 import type { PlaybackSlot } from "./event-playback";
 export type LineupSlot = PlaybackSlot & { performerId?: string; label?: string };
+export function sameLineupSource(a: LineupSlot, b: LineupSlot): boolean {
+  return !!a.stream && !!b.stream && a.stream.streamId === b.stream.streamId && a.stream.questUrl === b.stream.questUrl;
+}
 export function reconcileSlot(previous: LineupSlot, slots: readonly LineupSlot[]): LineupSlot | undefined {
   if (!previous.stream) return undefined;
-  const sameSource = (slot: LineupSlot) => slot.stream?.streamId === previous.stream?.streamId;
+  const sameSource = (slot: LineupSlot) => sameLineupSource(slot, previous);
   const exact = slots.filter(slot => slot.key === previous.key);
   if (exact.length) return exact.length === 1 && sameSource(exact[0]) ? exact[0] : undefined;
   if (!previous.performerId) return undefined;

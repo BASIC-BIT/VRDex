@@ -1,5 +1,8 @@
 "use client";
 
+import type { PlaybackRequest } from "@/lib/event-playback-owner";
+import { useEventPlayback } from "./event-playback-provider";
+import { EventPlaybackInline } from "./event-playback-inline";
 import { useSyncExternalStore } from "react";
 
 import { buttonVariants } from "@/components/ui/button";
@@ -348,7 +351,13 @@ function WatchEmbedFrame({ embed }: { embed: WatchEmbed }) {
   );
 }
 
-export function EventWatchSurface({
+export function EventWatchSurface(props: Parameters<typeof StandaloneEventWatchSurface>[0] & { playbackRequest?: PlaybackRequest }) {
+  const owner = useEventPlayback();
+  if (owner && props.playbackRequest) return <EventPlaybackInline owner={owner} request={props.playbackRequest} />;
+  return <StandaloneEventWatchSurface {...props} />;
+}
+
+function StandaloneEventWatchSurface({
   doorsOpenAt,
   endAt,
   enabled,

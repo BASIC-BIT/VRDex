@@ -1,11 +1,20 @@
 "use client";
+import type { PlaybackRequest } from "@/lib/event-playback-owner";
+import { useEventPlayback } from "./event-playback-provider";
+import { EventPlaybackInline } from "./event-playback-inline";
 import { useEffect, useRef, useState } from "react";
 import { VrcdnPlayerControls } from "@/components/media/vrcdn-player-controls";
 import { EventLineupSession, type LineupEvent, type LineupSnapshot } from "@/lib/event-lineup-runtime";
 import { isInScheduledWatchWindow, useCurrentTimestamp } from "./event-watch-surface";
 import { WatchPlayPoster } from "./vrcdn-stream-player";
 
-export function EventLineupPlayer({ event }: { event: LineupEvent }) {
+export function EventLineupPlayer({ event, playbackRequest }: { event: LineupEvent; playbackRequest?: PlaybackRequest }) {
+  const owner = useEventPlayback();
+  if (owner && playbackRequest) return <EventPlaybackInline owner={owner} request={playbackRequest} />;
+  return <StandaloneEventLineupPlayer event={event} />;
+}
+
+function StandaloneEventLineupPlayer({ event }: { event: LineupEvent }) {
   const mount = useRef<HTMLDivElement>(null);
   const wrapper = useRef<HTMLDivElement>(null);
   const session = useRef<EventLineupSession>(null);

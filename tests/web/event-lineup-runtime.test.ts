@@ -266,3 +266,14 @@ test("established-session gap handoff retains the approved early eligibility", a
     assert.equal(session.state.current, "b");
   });
 });
+
+test("retained viewer volume/mute do not change input silence evidence or hand off healthy audio", async () => {
+  await runtimeFixture(repeated, async ({ session, sources, step }) => {
+    session.setVolume(0); session.setMuted(true);
+    assert.equal(session.state.volume, 0); assert.equal(session.state.muted, true);
+    await step(at(21, 1), 25000);
+    assert.equal(session.state.current, "b");
+    assert.equal(sources.find(source => source.id === "shared")?.released, false);
+    session.setMuted(false); assert.equal(session.state.volume, 0);
+  });
+});

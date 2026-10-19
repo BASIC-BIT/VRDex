@@ -120,3 +120,31 @@ The deterministic browser check holds/fails status while exercising PC and Quest
 copy actions and checks for unsolicited media elements. Live VRCDN connection
 impact and real Twitch API acceptance require separately authorized provider
 validation; the deterministic tests do not establish provider readiness.
+
+## Retained event playback
+
+The root `EventPlaybackProvider` sits outside Convex's authenticated provisioning
+gate. Its media mount owns native/MPEG-TS video, `EventLineupSession`, or the
+supported visible Twitch SDK player. Event routes provide Play intent and metadata;
+they never receive or move the media node. Repeated Play for the active source
+retains it; explicit Play for another event disposes the previous adapter first.
+
+The provider revalidates the active event's public `events.getPublicBySlug`
+projection anonymously, immediately and every 15 seconds after a successful
+response, independently of the viewed route. Errors or a 10-second response
+timeout dispose playback. Browser timer suspension can delay these checks.
+Missing/private, disabled, cancelled, or removed sources revoke playback. Calendar
+end only blocks new starts. Same-ID playback URL changes release the previous
+transport and require Play; identical sequence projections leave source evidence
+and prepared inputs intact. No Convex URL means no revalidation client is created,
+which supports configuration-free fixtures but provides no remote revocation feed.
+
+`event-playback-owner.spec.ts` uses a local WAV response in a real browser media
+element to check node identity, advancing playback time across client navigation
+and history, deliberate replacement, and close. Its intercepted Twitch SDK checks
+visible sizing, parent hostname, blocked playback, controls, and disposal. It is
+not evidence of live Twitch playback or provider acceptance. The adapter refuses
+to create Twitch players below 400 CSS pixels of viewport width; responsive
+presentation must provide the external watch link and handle viewport shrinkage
+without hiding or clipping a playing embed. Full integrated desktop/mobile
+presentation and provider rehearsals remain separate acceptance work.

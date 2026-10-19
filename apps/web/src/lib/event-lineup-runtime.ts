@@ -1,7 +1,7 @@
 import { createObservedVrcdnSource, type ObservedVrcdnSource } from "./vrcdn-observed-source";
 import { clearPlaybackEvidence, observeAudio, AUDIO_SILENCE_DURATION_MS } from "./event-audio-observation";
 import { joinSlot, handoffEligibleAt, shouldHandoff } from "./event-playback";
-import { followingSlot, nextSlot, reconcileSlot, type LineupSlot } from "./event-lineup-session";
+import { followingSlot, nextSlot, reconcileSlot, sameLineupSource, type LineupSlot } from "./event-lineup-session";
 
 export type LineupEvent = { title: string; startAt: number; doorsOpenAt?: number; endAt?: number; slots: LineupSlot[] };
 export type LineupSnapshot = { started: boolean; following: boolean; paused: boolean; muted: boolean; volume: number; current?: string; connected: boolean; unavailable: boolean; nextPlaybackBlocked?: boolean };
@@ -82,7 +82,7 @@ export class EventLineupSession {
   }
   private select(slot: LineupSlot | undefined) {
     this.releaseNext();
-    if (slot?.stream && this.current?.slot.stream?.streamId === slot.stream.streamId) {
+    if (slot?.stream && this.current && sameLineupSource(this.current.slot, slot)) {
       this.current.slot = slot; this.selected = slot; this.state.current = slot.key; this.resetEvidence();
       return;
     }
@@ -94,7 +94,7 @@ export class EventLineupSession {
     const request = ++this.playRequest;
     if (!this.state.started && this.event.endAt !== undefined && Date.now() >= this.event.endAt) return;
     if (!this.context) {
-      this.context = new AudioContext(); this.viewer = this.context.createGain(); this.viewer.connect(this.context.destination);
+      this.context = new AudioContext(); this.viewer = this.context.createGain(); this.viewer.connect(this.context.destination); this.setGain();
       this.context.addEventListener("statechange", this.resetEvidence);
     }
     try { await this.context.resume(); } catch {
@@ -150,6 +150,8 @@ export class EventLineupSession {
     this.emit();
   }
   live() { this.state.following = true; this.select(this.scheduleSlot()); if (this.state.started) void this.play(); this.emit(); }
+  setVolume(value: number) { this.state.volume = value; this.setGain(); }
+  setMuted(value: boolean) { this.state.muted = value; this.setGain(); }
   volume(value: number) { this.state.volume = value; this.state.muted = value === 0; this.setGain(); }
   mute() { if (this.state.muted && this.state.volume === 0) this.state.volume = 1; this.state.muted = !this.state.muted; this.setGain(); }
   private setGain() { if (this.viewer) this.viewer.gain.value = this.state.muted ? 0 : this.state.volume; this.emit(); }
@@ -195,7 +197,7 @@ export class EventLineupSession {
       // Identity can advance without stopping or duplicating an unchanged stream.
       // Inspect expired rows too, but never traverse a different or missing source.
       let successor = this.selected && followingSlot(this.selected, this.event.slots);
-      while (successor?.stream && successor.stream.streamId === this.current.slot.stream?.streamId &&
+      while (successor?.stream && sameLineupSource(successor, this.current.slot) &&
         scheduleNow >= Math.max(this.selected!.endAt ?? successor.startAt, successor.startAt)) {
         this.select(successor);
         successor = followingSlot(successor, this.event.slots);
@@ -204,7 +206,7 @@ export class EventLineupSession {
     const active = this.current;
     const candidate = this.selected && this.state.following ? nextSlot(this.selected, this.event.slots, scheduleNow) : undefined;
     const eligibleAt = this.selected && candidate ? handoffEligibleAt(this.selected, candidate) : Infinity;
-    const eligible = visible && scheduleNow >= eligibleAt && !!candidate?.stream && candidate.stream.streamId !== this.selected?.stream?.streamId;
+    const eligible = visible && scheduleNow >= eligibleAt && !!candidate?.stream && (!this.selected || !sameLineupSource(candidate, this.selected));
     if (!eligible && (this.next || this.nextPending)) this.releaseNext();
     for (const connection of [active, this.next]) {
       if (!connection) continue;
