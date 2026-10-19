@@ -1,7 +1,7 @@
-import { sanitizeTwitchOutput, getTwitchOutputAccount } from './_eventOutputSetup';
+import { sanitizeTwitchOutput, getTwitchOutputAccount, listTwitchOutputAccounts } from './_eventOutputSetup';
 import { validateBroadcastPolicy, allocateSessionCommandSequence, attachPendingProgramCommands, requireEventMediaBridgeToken } from "./_eventBroadcastInputs";
 import { dateOnlyEventsEnabled, eventDateForInstant, eventSortAt, eventSortEndAt, normalizeEventSchedule, publicEventSchedule, requireDateOnlyEventsEnabled } from "./_eventSchedule";
-import { eventProfileStreamChoices } from "./_eventPlayback";
+import { eventProfileStreamChoices, resolveEventStream } from "./_eventPlayback";
 import { ConvexError, v } from "convex/values";
 import {syncClubEventOperations} from "./_clubOperationEvents";
 import { internal } from "./_generated/api";
@@ -1674,6 +1674,20 @@ function commandStatusSummary(commands: Doc<"eventMediaCommands">[]) {
   );
 }
 
+async function eventMediaSourceProjectionAvailable(
+  db: DatabaseReader,
+  source: Doc<"eventMediaSources">,
+) {
+  const projected = source.profileProjection || (source.eventSlotId !== undefined && source.sourceProfileId !== undefined && source.key === `slot-${source.eventSlotId}`);
+  if (!projected) return true;
+  const slot = source.eventSlotId === undefined ? null : await db.get(source.eventSlotId);
+  if (!slot?.personProfileId || slot.eventId !== source.eventId) return false;
+  const profile = await db.get(slot.personProfileId);
+  if (!profile || !canReadProfile("public", profile)) return false;
+  const stream = resolveEventStream(eventProfileStreamChoices(profile), slot.selectedStreamId);
+  return stream !== undefined && stream.questUrl === source.publicUrl && source.projectionAvailable !== false;
+}
+
 async function resolveEventMediaCommandTargets(
   db: DatabaseReader,
   program: Doc<"eventMediaPrograms">,
@@ -1942,6 +1956,8 @@ export async function reconcileEventMediaScheduleChange(
 
 function workerSessionStatus(session: Doc<"eventMediaSessions">) {
   return {
+    currentSourceId: session.currentSourceId,
+    lastAcknowledgedSequence: session.lastAcknowledgedSequence,
     epoch:session.epoch,dispatchId:session.dispatchId,dispatchStopConfirmedAt:session.dispatchStopConfirmedAt,workerTaskCleanupPending:session.workerTaskCleanupPending,broadcastMode:session.broadcastMode,runtimeDeadlineAt:session.runtimeDeadlineAt,
     sessionId: session._id,
     status: session.status,
@@ -2324,6 +2340,8 @@ export const getEventMediaControlStatus = query({
   handler: async (ctx, args) => {
     const subject = await requireAuthenticatedSubject(ctx);
     const { event, slug } = await getOperationsReadableEventBySlug(ctx, args.currentSlug, subject);
+    const canControl = await canManageEventMedia(ctx.db, event, subject, (await requireUser(ctx)).userId);
+    const serverNow = Date.now();
     const program = await getLatestEventMediaProgram(ctx.db, event._id);
     const slots = await ctx.db
       .query("eventSlots")
@@ -2333,6 +2351,10 @@ export const getEventMediaControlStatus = query({
 
     if (program === null) {
       return {
+        twitchAccounts: canControl ? listTwitchOutputAccounts() : [],
+        eventTitle: event.title,
+        serverNow,
+        canControl,
         eventId: event._id,
         eventPath: await eventPathForRecord(ctx.db, event, slug),
         program: null,
@@ -2376,12 +2398,23 @@ export const getEventMediaControlStatus = query({
         .withIndex("by_programId_status_createdAt", (query) => query.eq("programId", program._id).eq("status", "queued"))
         .take(100),
     ]);
+    const availableSources = new Set(
+      (await Promise.all(sources.map(async source =>
+        await eventMediaSourceProjectionAvailable(ctx.db, source) ? source._id : undefined,
+      ))).filter(id => id !== undefined),
+    );
     const programCommands = commands.filter((command) => command.programId === program._id);
 
     return {
+      twitchAccounts: canControl ? listTwitchOutputAccounts() : [],
+      eventTitle: event.title,
+      serverNow,
+      canControl,
       eventId: event._id,
       eventPath: await eventPathForRecord(ctx.db, event, slug),
       program: {
+        broadcastPolicy: program.broadcastPolicy,
+        currentSourceId: program.currentSourceId,
         programId: program._id,
         state: program.state,
         ...(program.currentOutputId === undefined ? {} : { currentOutputId: program.currentOutputId }),
@@ -2402,7 +2435,7 @@ export const getEventMediaControlStatus = query({
           label: source.label,
           ...(source.eventSlotId === undefined ? {} : { eventSlotId: source.eventSlotId }),
           ...(source.sourceProfileId === undefined ? {} : { sourceProfileId: source.sourceProfileId }),
-          hasPublicUrl: source.publicUrl !== undefined,
+          hasPublicUrl: source.publicUrl !== undefined && source.projectionAvailable !== false && availableSources.has(source._id),
           hasPrivateConfig: source.privateConfigRef !== undefined,
           updatedAt: source.updatedAt,
         })),
@@ -2422,6 +2455,9 @@ export const getEventMediaControlStatus = query({
         })),
       sessions: sessions.sort((first, second) => second.updatedAt - first.updatedAt).map(workerSessionStatus),
       commands: programCommands.map((command) => ({
+        sessionId: command.sessionId,
+        sequence: command.sequence,
+        acknowledgedEpoch: command.acknowledgedEpoch,
         commandId: command._id,
         commandType: command.commandType,
         status: command.status,
@@ -2471,9 +2507,28 @@ export const queueEventMediaCommand = mutation({
       throw new Error("Use the worker lifecycle mutations for start_program and stop_program commands.");
     }
 
-    const targets = await resolveEventMediaCommandTargets(ctx.db, program, command);
-    const now = Date.now();
     const session = await getOpenEventMediaSession(ctx.db, program);
+    if (command.type === "switch_next") {
+      const pending = (await Promise.all((["queued", "claimed"] as const).map(status =>
+        ctx.db.query("eventMediaCommands")
+          .withIndex("by_programId_status_createdAt", q => q.eq("programId", program._id).eq("status", status))
+          .take(100),
+      ))).flat();
+      const duplicate = pending.find(row =>
+        row.commandType === "switch_next" && row.sessionId === session?._id,
+      );
+      if (duplicate) return {
+        eventId: event._id,
+        eventPath: await eventPathForRecord(ctx.db, event, slug),
+        programId: program._id,
+        commandId: duplicate._id,
+        status: duplicate.status,
+        commandType: duplicate.commandType,
+      };
+    }
+    const targets = await resolveEventMediaCommandTargets(ctx.db, program, command);
+    if (command.type === "switch_source" && targets.source !== null && !(await eventMediaSourceProjectionAvailable(ctx.db, targets.source))) throw new Error("Event media source is unavailable.");
+    const now = Date.now();
     if (session !== null) await attachPendingProgramCommands(ctx.db, session._id);
     const sequence = session === null ? undefined : await allocateSessionCommandSequence(ctx.db, session._id);
     const commandId = await ctx.db.insert("eventMediaCommands", {

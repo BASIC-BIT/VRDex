@@ -562,3 +562,32 @@ The final packaged Node 22.23.3/bookworm image also passed the 60-second proof i
 same 34 ms packet-gap/one-second-GOP bounds. Sender CPU was 0.66 seconds primary
 and 13.89 seconds optional; application egress was 14,770,299 and 11,954,114 bytes.
 The separate sender test suite passed all eight tests on Node 22 as well.
+
+### Event operator controls
+
+Event editors link to `/<community>/events/<event>/operate`. The server checks
+an authenticated operations query and the existing `manage_event_media`
+capability before rendering private status. Read-only hosts use the public
+`host` route; they do not gain command authority. Mutations recheck capabilities.
+
+Controls submit sequenced commands. Requested source and queued/claimed command
+states remain separate from worker-observed source, mode, lease and destination
+health. Pending Next commands are coalesced by the backend; Stop requires an
+explicit confirmation and remains available during a pending switch. An expired
+lease or destination observation older than 15 seconds displays unknown health.
+The explicit session runtime deadline is displayed independently of calendar end.
+
+Configure outputs through existing account setup while stopped, then select the
+primary output and start. The stopped-only Twitch setup disclosure selects a
+deployment-configured account and explicitly opts into simulcast through
+`configureTwitchOutput`. Only account key/channel reach the selector, and malformed
+optional account configuration does not hide primary status or Stop. The view
+displays independent destination health. The
+runtime supports the conservative 720p30 profile documented above. The policy
+control sets or removes maximum overrun while stopped. Silence handoff stays
+behind the deployment calibration gate; this interface does not enable it.
+
+The local operator browser fixture exercises controls without provider or Clerk
+accounts. It does not verify a signed-in Clerk server-route journey. Real Convex
+identity tests cover command permission, revocation and read-only operations
+access; the anonymous browser test verifies the route redirects before rendering.

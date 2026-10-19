@@ -29,3 +29,20 @@ export function getTwitchOutputAccount(key: string) {
         throw Error('Output account is not configured.');
     return { credentialRef: item.credentialRef as string, channel: item.channel as string };
 }
+
+// Safe account selector for authorized operators. Credential references stay server-side.
+export function listTwitchOutputAccounts(): { key: string; channel: string }[] {
+    try {
+        const entries: unknown = JSON.parse(process.env.VRDEX_TWITCH_OUTPUT_ACCOUNTS_JSON ?? '[]');
+        if (!Array.isArray(entries) || entries.length > 32) return [];
+        return entries.map((entry: unknown) => {
+            if (!entry || typeof entry !== 'object' || !('key' in entry) || typeof entry.key !== 'string' || entry.key.length > 64) throw Error('Invalid Twitch account configuration.');
+            const account = getTwitchOutputAccount(entry.key);
+            if (!/^[a-z0-9_]{1,25}$/i.test(account.channel)) throw Error('Invalid Twitch account configuration.');
+            return { key: entry.key, channel: account.channel };
+        });
+    } catch {
+        // Optional setup cannot make primary output status or Stop unavailable.
+        return [];
+    }
+}

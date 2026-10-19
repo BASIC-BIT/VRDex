@@ -307,3 +307,92 @@ it('destination keys cannot be converted by the legacy VRCDN writer or malformed
  const badHealth=await t.mutation(worker('observeOutputs'),{bridgeToken,eventId:event.eventId,sessionId:command.session.sessionId,workerId:'output-worker',epoch:lease.epoch,destinations:[{outputId:added.outputId,destination:'twitch',status:'publishing',publishing:true,queueBytes:0,outputMs:1000,restarts:0}]});
  assert.equal(badHealth.accepted,false);
 });
+
+it("operator_status_projects_observed_execution_and_capability", async () => {
+  const { owner, event, t, args } = await fixture();
+  await t.run(ctx => ctx.db.patch(args.sessionId, { lastAcknowledgedSequence: 7, broadcastMode: "hold" }));
+  const status = await owner.query(api.events.getEventMediaControlStatus, { currentSlug: event.slug });
+  assert.equal(status.canControl, true);
+  assert.equal(status.sessions[0].lastAcknowledgedSequence, 7);
+  assert.ok(status.serverNow > 0);
+  await assert.rejects(t.query(api.events.getEventMediaControlStatus, { currentSlug: event.slug }));
+});
+
+it("double_next_keeps_one_pending_command_and_revocation_denies_commands", async () => {
+  const { owner, event, t } = await fixture();
+  const first = await owner.mutation(api.events.queueEventMediaCommand, { currentSlug: event.slug, type: "switch_next" });
+  const second = await owner.mutation(api.events.queueEventMediaCommand, { currentSlug: event.slug, type: "switch_next" });
+  assert.equal(first.commandId, second.commandId);
+  await t.run(async ctx => { for (const row of await ctx.db.query("profileOwners").collect()) await ctx.db.delete(row._id); });
+  await assert.rejects(owner.mutation(api.events.queueEventMediaCommand, { currentSlug: event.slug, type: "switch_hold" }));
+  await assert.rejects(t.mutation(api.events.queueEventMediaCommand, { currentSlug: event.slug, type: "switch_hold" }));
+});
+
+it("read_only_host_can_read_status_but_cannot_control", async () => {
+  const { t, event } = await fixture();
+  const subject = newClerkUserId();
+  await t.run(async ctx => {
+    await ctx.db.insert("users", { clerkUserId: subject, name: "Host", email: "host@example.test", emailVerificationTime: Date.now() });
+    const community = (await ctx.db.query("profiles").collect())[0];
+    await ctx.db.insert("communityAuthorities", { communityProfileId: community._id, subjectTokenIdentifier: `test|${subject}`, subject: { subject, issuer: "test", tokenIdentifier: `test|${subject}` }, capabilities: ["view_event_operations"], state: "active", grantedAt: Date.now(), updatedAt: Date.now() });
+  });
+  const host = t.withIdentity({ subject, emailVerified: true, issuer: "test", tokenIdentifier: `test|${subject}` });
+  const status = await host.query(api.events.getEventMediaControlStatus, { currentSlug: event.slug });
+  assert.equal(status.canControl, false);
+  await assert.rejects(host.mutation(api.events.queueEventMediaCommand, { currentSlug: event.slug, type: "switch_hold" }));
+  await assert.rejects(host.mutation(api.events.scheduleEventMediaWorker, { currentSlug: event.slug }));
+});
+
+it("operator_stops_offering_revoked_profile_source_before_worker_refresh", async () => {
+  const { t, owner, event, args } = await fixture();
+  const person = await t.run(async ({db}) => {
+    const id = await db.insert("profiles", { slug: "operator-dj", displayName: "DJ", sortName: "dj", aliases: [], tags: [], claimState: "unclaimed", publicationState: "published", publicSurfacingState: "public", creationSource: "community", updatedAt: Date.now(), profileType: "person", person: { roleTags: [] }, outboundLinks: [{ type: "other", label: "Stream", source: "owner_authored", url: "vrcdn:alpha" }] });
+    await db.insert("eventSlots", { eventId: event.eventId, position: 0, startAt: Date.now(), personProfileId: id, selectedStreamId: "alpha", displayLabel: "DJ", roleLabel: "DJ", sourceType: "manual", sourceLabel: "Owner", confidence: 1, reviewState: "confirmed", updatedAt: Date.now() });
+    return id;
+  });
+  await t.mutation(worker("acquireSession"), args);
+  const before = await owner.query(api.events.getEventMediaControlStatus, { currentSlug: event.slug });
+  assert.equal(before.sources[0].hasPublicUrl, true);
+  await t.run(({db}) => db.patch(person, { outboundLinks: [] }));
+  const after = await owner.query(api.events.getEventMediaControlStatus, { currentSlug: event.slug });
+  assert.equal(after.sources[0].hasPublicUrl, false);
+  await assert.rejects(owner.mutation(api.events.queueEventMediaCommand, { currentSlug: event.slug, type: "switch_source", targetSourceKey: after.sources[0].key }));
+});
+
+it("pending_next_from_an_ended_session_does_not_block_a_new_session", async () => {
+  const { t, owner, event, args } = await fixture();
+  const old = await owner.mutation(api.events.queueEventMediaCommand, { currentSlug:event.slug, type:"switch_next" });
+  await t.run(({db}) => db.patch(args.sessionId, { status:"ended" }));
+  await owner.mutation(api.events.scheduleEventMediaWorker, { currentSlug:event.slug });
+  const current = await owner.mutation(api.events.queueEventMediaCommand, { currentSlug:event.slug, type:"switch_next" });
+  assert.notEqual(current.commandId, old.commandId);
+});
+
+it("operator_account_choices_never_expose_credential_references", async () => {
+  const previous = process.env.VRDEX_TWITCH_OUTPUT_ACCOUNTS_JSON;
+  process.env.VRDEX_TWITCH_OUTPUT_ACCOUNTS_JSON = JSON.stringify([{ key:"organizer", channel:"afterglow", credentialRef:"event-media/twitch/private" }]);
+  try {
+    const { owner, event } = await fixture();
+    const status = await owner.query(api.events.getEventMediaControlStatus, { currentSlug:event.slug });
+    assert.deepEqual(status.twitchAccounts, [{ key:"organizer", channel:"afterglow" }]);
+    assert.equal(JSON.stringify(status).includes("event-media/twitch/private"), false);
+  } finally {
+    if (previous === undefined) delete process.env.VRDEX_TWITCH_OUTPUT_ACCOUNTS_JSON;
+    else process.env.VRDEX_TWITCH_OUTPUT_ACCOUNTS_JSON = previous;
+  }
+});
+
+it("invalid_optional_account_registry_does_not_hide_worker_controls", async () => {
+  const previous = process.env.VRDEX_TWITCH_OUTPUT_ACCOUNTS_JSON;
+  process.env.VRDEX_TWITCH_OUTPUT_ACCOUNTS_JSON = "invalid-json";
+  try {
+    const { owner, event } = await fixture();
+    const status = await owner.query(api.events.getEventMediaControlStatus, { currentSlug:event.slug });
+    assert.equal(status.canControl, true);
+    assert.deepEqual(status.twitchAccounts, []);
+    assert.equal(status.outputs[0].label, "Main");
+  } finally {
+    if (previous === undefined) delete process.env.VRDEX_TWITCH_OUTPUT_ACCOUNTS_JSON;
+    else process.env.VRDEX_TWITCH_OUTPUT_ACCOUNTS_JSON = previous;
+  }
+});
