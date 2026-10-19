@@ -637,3 +637,10 @@ case timed out after returning to Details. Its cause is unconfirmed; the focused
 repeat passed twice per viewport with retries disabled. Final covering results
 are recorded in the delivery receipt. No product
 behavior, screenshot threshold or timeout changed for this test follow-up.
+
+The next combined run passed 459 checks. Its sole failure was the recurring
+`ERR_ABORTED` on the second navigation in the combined Events/community entry
+test. Those independent link checks now use separate browser contexts, retaining
+the exact expected destination for each page. Twelve checks passed across three
+repetitions per entry and viewport, with retries disabled. The source of the
+original navigation cancellation remains unconfirmed.

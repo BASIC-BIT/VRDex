@@ -198,11 +198,12 @@ test("direct intake auth preserves community and draft @flow @fixture", async ({
   expect(new URL(page.url()).searchParams.get("returnTo")).toBe("/events/new?community=afterglow&draft=saved-draft");
 });
 
-test("community and Events expose intake entry @flow @fixture", async ({ page }) => {
-  await page.goto("/search?type=event");
-  await expect(page.getByRole("link", { name: "Add event", exact: true })).toHaveAttribute("href", "/events/new");
-  await page.goto("/playwright-afterglow-social");
-  await expect(page.getByRole("link", { name: "Add event", exact: true })).toHaveAttribute("href", "/events/new?community=playwright-afterglow-social");
+for (const [entry, path, href] of [
+  ["Events", "/search?type=event", "/events/new"],
+  ["community", "/playwright-afterglow-social", "/events/new?community=playwright-afterglow-social"],
+] as const) test(`${entry} exposes intake entry @flow @fixture`, async ({ page }) => {
+  await page.goto(path);
+  await expect(page.getByRole("link", { name: "Add event", exact: true })).toHaveAttribute("href", href);
 });
 
 test("intake draft resumes, publishes a timed event, and has no mobile overflow @flow @fixture", async ({ page }, testInfo) => {
