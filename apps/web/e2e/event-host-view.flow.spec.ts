@@ -1,0 +1,47 @@
+import { expect, test } from '@playwright/test';
+const path='/playwright-afterglow-social/events/playwright-event-host-view/host';
+test('host links remain usable during slow and unavailable status checks @flow @fixture',async({page},info)=>{
+ await page.addInitScript(()=>{Object.defineProperty(navigator,'clipboard',{value:{writeText:async(value:string)=>{sessionStorage.setItem('copied',value)}}});});
+ let release:()=>void=()=>{};
+ const held=new Promise<void>(resolve=>{release=resolve});
+ await page.route('**/host/status',async route=>{await held;await route.fulfill({json:{'vrcdn:aurora':{state:'unavailable',observedAt:Date.now()}}});});
+ await page.goto(path);
+ await expect(page.getByRole('heading',{name:'Host view'})).toBeVisible();
+ await expect(page.getByRole('button',{name:'Copy PC',exact:true}).first()).toBeVisible();
+ await page.getByRole('button',{name:'Copy PC',exact:true}).first().click();
+ await expect.poll(()=>page.evaluate(()=>sessionStorage.getItem('copied'))).toContain('vrcdn');
+ await page.getByRole('button',{name:'Copy Quest',exact:true}).first().click();
+ await expect.poll(()=>page.evaluate(()=>sessionStorage.getItem('copied'))).toContain('.live.ts');
+ expect(await page.locator('video,audio,iframe').count()).toBe(0);
+ release();
+ await expect(page.getByText('Unavailable',{exact:true}).first()).toBeVisible();
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+ await page.screenshot({path:info.outputPath('event-host-view.png'),fullPage:true});
+});
+test('unpublished or mismatched event host and status are not public @flow @fixture',async({request})=>{
+ for(const suffix of ['/host','/host/status']) {
+  const result=await request.get(`/wrong-community/events/playwright-event-host-view${suffix}`);
+  expect(result.status()).toBe(404);
+  if(suffix.endsWith('/status')) expect(await result.json()).toEqual({});
+ }
+});
+
+test('status endpoint returns only public observations for an event with no public sources @flow @fixture', async({request})=>{
+ const result=await request.get('/playwright-afterglow-social/events/playwright-date-only-event/host/status?url=https://example.invalid/private');
+ expect(result.status()).toBe(200);
+ expect(await result.json()).toEqual({});
+});
+test('source-live labels remain independent from scheduled and selected source @flow @fixture',async({page},info)=>{
+ await page.route('**/host/status',route=>route.fulfill({json:{
+  'vrcdn:dj-aurora':{state:'live',observedAt:Date.now()},
+  'vrcdn:suggested-aurora':{state:'live',observedAt:Date.now()},
+  'twitch:dj_aurora':{state:'offline',observedAt:Date.now()},
+ }}));
+ await page.goto(path);
+ await expect(page.getByText('Live now',{exact:true})).toHaveCount(4);
+ await expect(page.getByText('Offline',{exact:true})).toHaveCount(2);
+ await expect(page.getByText(/Selected source/)).toHaveCount(1);
+ await expect(page.getByText(/Scheduled now/)).toHaveCount(1);
+ expect(await page.locator('video,audio,iframe').count()).toBe(0);
+ await page.screenshot({path:info.outputPath('event-host-live.png'),fullPage:true});
+});

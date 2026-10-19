@@ -476,6 +476,7 @@ function EventPublicPageContent({ event }: { event: PublicEvent }) {
               ))}
           </div>
         </Card>
+        {eventPath ? <Link className="text-sm text-accent hover:underline" href={`${eventPath}/host`}>Host view</Link> : null}
         <EventDjLinks lineup={lineup} eventLinks={event.mediaLinks} eventTitle={event.title} />
       </PageContainer>
     </PageShell>

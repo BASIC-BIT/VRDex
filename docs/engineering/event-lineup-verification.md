@@ -93,3 +93,27 @@ exact-head review window belong to the controller. Production auth smoke still
 needs `VRDEX_PRODUCTION_AUTH_SMOKE_STORAGE_STATE_B64` from a safe dedicated
 production test account before that lane can be enabled. Merge, deployment and
 production event mutation require their separate authorization.
+
+## Public host roster
+
+Published community events expose a read-only `/[community]/events/[event]/host`
+roster. The event page links to it. Authored slot keys preserve repeated sets,
+freeform entries, and entries without stream links. The selected slot source is
+separate from the other public stream choices and the scheduled-current label.
+No broadcast-selected indicator is inferred from schedule or provider liveness.
+
+The event-scoped `/host/status` GET resolves the published public projection on
+its server; it accepts no client probe URLs. It returns only normalized source
+keys, `state`, and `observedAt`. Shared provider caches retain fetch timestamps;
+the host aggregator deduplicates for 30 seconds, limits active checks to four,
+and expires indicators after 60 seconds. Provider errors do not block rendering
+or copying links. Status is not decoded-media readiness or handoff evidence.
+The host roster subscribes to the public event query so revoked links disappear.
+No media player mounts when opening this view; Open is an explicit external link.
+
+Local checks: `node --import tsx --test tests/web/event-host-view.test.ts` and
+`pnpm --filter web exec playwright test event-host-view.flow.spec.ts --project=desktop-chromium --project=mobile-chromium`.
+The deterministic browser check holds/fails status while exercising PC and Quest
+copy actions and checks for unsolicited media elements. Live VRCDN connection
+impact and real Twitch API acceptance require separately authorized provider
+validation; the deterministic tests do not establish provider readiness.

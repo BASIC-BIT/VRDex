@@ -5,8 +5,10 @@ import { ConvexProvider, type ConvexReactClient } from "convex/react";
 import { getFunctionName, type FunctionReference } from "convex/server";
 import { EventPublicPage, type PublicEvent } from "../../_components/event-public-page";
 
+import { EventHostView } from "../../_components/event-host-view";
+
 /** Static public-route fixture. The server selects this only under its fixture gate. */
-export function PublicEventFixture({ event }: { event: PublicEvent }) {
+export function PublicEventFixture({ event, host = false }: { event: PublicEvent; host?: boolean }) {
   const client = useMemo(() => ({
     watchQuery(query: FunctionReference<"query">, args: { slug: string }) {
       if (getFunctionName(query) !== "events:getPublicBySlug" || args.slug !== event.slug) {
@@ -20,5 +22,5 @@ export function PublicEventFixture({ event }: { event: PublicEvent }) {
     },
   }) as unknown as ConvexReactClient, [event]);
 
-  return <ConvexProvider client={client}><EventPublicPage event={event} /></ConvexProvider>;
+  return <ConvexProvider client={client}>{host ? <EventHostView event={event} /> : <EventPublicPage event={event} />}</ConvexProvider>;
 }
