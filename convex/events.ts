@@ -1,4 +1,4 @@
-import { allocateSessionCommandSequence, requireEventMediaBridgeToken } from "./_eventBroadcastInputs";
+import { allocateSessionCommandSequence, attachPendingProgramCommands, requireEventMediaBridgeToken } from "./_eventBroadcastInputs";
 import { dateOnlyEventsEnabled, eventDateForInstant, eventSortAt, eventSortEndAt, normalizeEventSchedule, publicEventSchedule, requireDateOnlyEventsEnabled } from "./_eventSchedule";
 import { eventProfileStreamChoices } from "./_eventPlayback";
 import { ConvexError, v } from "convex/values";
@@ -1882,7 +1882,7 @@ export async function settleEventMediaForCancellation(
         updatedAt: now,
       }),
     ]);
-    if (claimedStarts.length > 0 && session.workerTaskId === undefined) {
+    if (claimedStarts.length > 0 && session.workerTaskId === undefined && session.epoch === undefined) {
       return;
     }
 
@@ -2467,6 +2467,7 @@ export const queueEventMediaCommand = mutation({
     const targets = await resolveEventMediaCommandTargets(ctx.db, program, command);
     const now = Date.now();
     const session = await getOpenEventMediaSession(ctx.db, program);
+    if (session !== null) await attachPendingProgramCommands(ctx.db, session._id);
     const sequence = session === null ? undefined : await allocateSessionCommandSequence(ctx.db, session._id);
     const commandId = await ctx.db.insert("eventMediaCommands", {
       programId: program._id,

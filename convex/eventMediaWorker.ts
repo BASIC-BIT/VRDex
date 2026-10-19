@@ -3,6 +3,8 @@ import { mutation, type MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
   allocateSessionCommandSequence,
+  attachPendingProgramCommands,
+  EVENT_BROADCAST_STOP_GRACE_MS,
   EVENT_BROADCAST_COMMAND_BATCH,
   EVENT_BROADCAST_LEASE_MS,
   EVENT_BROADCAST_MAX_SOURCES,
@@ -114,7 +116,9 @@ export const renewSession = mutation({
     const found = await records(ctx, args);
     const now = Date.now();
     if (found === null || !owns(found.session, args, now)) return reject(ctx, args, "Session ownership is stale or expired.");
-    const expiresAt = now + EVENT_BROADCAST_LEASE_MS;
+    const stopDeadline = found.session.stopRequestedAt === undefined ? Infinity : found.session.stopRequestedAt + EVENT_BROADCAST_STOP_GRACE_MS;
+    if (stopDeadline <= now) return reject(ctx, args, "Session stop grace period has expired.");
+    const expiresAt = Math.min(now + EVENT_BROADCAST_LEASE_MS, stopDeadline);
     await ctx.db.patch(args.sessionId, { leaseExpiresAt: expiresAt, updatedAt: now });
     return lease(found.session, args.epoch, found.session.acquiredAt ?? now, expiresAt);
   },
@@ -127,14 +131,7 @@ export const claimCommands = mutation({
     const found = await records(ctx, args);
     const now = Date.now();
     if (found === null || !owns(found.session, args, now)) return reject(ctx, args, "Session ownership is stale or expired.");
-    // Older operator commands were program scoped. Attach only pending unbound commands.
-    for (const status of ["queued", "claimed"] as const) {
-      const pending = await ctx.db.query("eventMediaCommands")
-        .withIndex("by_programId_status_createdAt", q => q.eq("programId", found.program._id).eq("status", status)).collect();
-      for (const command of pending) {
-        if (command.sessionId === undefined && command.eventId === args.eventId) await ctx.db.patch(command._id, { sessionId: args.sessionId });
-      }
-    }
+    await attachPendingProgramCommands(ctx.db, args.sessionId);
     // Number any legacy commands without consuming an unused sequence.
     await allocateSessionCommandSequence(ctx.db, args.sessionId, false);
     const pending = await ctx.db.query("eventMediaCommands").withIndex("by_sessionId_sequence", q => q.eq("sessionId", args.sessionId)).collect();

@@ -205,3 +205,54 @@ it("acknowledgement records observed hold state and explicitly clears the old so
   assert.equal(state.program?.state, "hold");
   assert.equal(state.program?.currentSourceId, undefined);
 });
+
+it("cancellation during fenced startup delivers stop before task registration", async () => {
+  const { t, owner, event, args } = await fixture();
+  const acquired = await t.mutation(worker("acquireSession"), args);
+  const owned = { ...args, epoch: acquired.epoch };
+  await t.mutation(worker("claimCommands"), owned);
+  assert.equal((await t.run(ctx => ctx.db.get(args.sessionId)))?.workerTaskId, undefined);
+  await owner.mutation(api.events.setCommunityEventCancelled, { currentSlug: event.slug, cancelled: true, reason: "Host cancelled" });
+  const renewed = await t.mutation(worker("renewSession"), owned);
+  const claimed = await t.mutation(worker("claimCommands"), owned);
+  assert.ok(!renewed.granted || claimed.commands.some((c: { commandType: string }) => c.commandType === "stop_program"));
+  const stop = claimed.commands.find((c: { commandType: string }) => c.commandType === "stop_program");
+  assert.ok(stop);
+  const outcome = { ...owned, commandId: stop._id, sequence: stop.sequence, outcome: "succeeded", observedState: "ended", observedSourceId: null, observedOutputId: null };
+  assert.equal((await t.mutation(worker("acknowledgeCommand"), outcome)).accepted, true);
+  assert.equal((await t.mutation(worker("acknowledgeCommand"), outcome)).duplicate, true);
+  assert.equal((await t.mutation(worker("renewSession"), owned)).granted, false);
+});
+
+it("older unbound source intent precedes newer session-bound intent", async () => {
+  const { t, owner, event, output, args } = await fixture();
+  const [sourceA, sourceB] = await t.run(async ({ db }) => Promise.all(["source_a", "source_b"].map(key => db.insert("eventMediaSources", { programId: output.programId, eventId: event.eventId, key, position: 0, type: "vrcdn_link", purpose: "program", state: "ready", label: key, createdAt: Date.now(), updatedAt: Date.now() }))));
+  const olderId = await t.run(({ db }) => db.insert("eventMediaCommands", { programId: output.programId, eventId: event.eventId, commandType: "switch_source", status: "queued", actorSurface: "web", targetSourceId: sourceA, targetSourceKey: "source_a", publicFallbackLinks: [], createdAt: Date.now() - 1000, updatedAt: Date.now() - 1000 }));
+  const newer = await owner.mutation(api.events.queueEventMediaCommand, { currentSlug: event.slug, type: "switch_source", targetSourceKey: "source_b" });
+  const acquired = await t.mutation(worker("acquireSession"), args);
+  const owned = { ...args, epoch: acquired.epoch };
+  const claimed = await t.mutation(worker("claimCommands"), owned);
+  const older = claimed.commands.find((c: { _id: string }) => c._id === olderId);
+  const latest = claimed.commands.find((c: { _id: string }) => c._id === newer.commandId);
+  assert.ok(older.sequence < latest.sequence);
+  for (const command of claimed.commands) {
+    assert.equal((await t.mutation(worker("acknowledgeCommand"), { ...owned, commandId: command._id, sequence: command.sequence, outcome: "succeeded", ...(command.targetSourceId === undefined ? {} : { observedSourceId: command.targetSourceId }) })).accepted, true);
+  }
+  assert.equal((await t.run(ctx => ctx.db.get(output.programId)))?.currentSourceId, sourceB);
+  assert.equal((await t.mutation(worker("acknowledgeCommand"), { ...owned, commandId: older._id, sequence: older.sequence, outcome: "succeeded", observedSourceId: sourceA })).duplicate, true);
+  assert.equal((await t.run(ctx => ctx.db.get(output.programId)))?.currentSourceId, sourceB);
+});
+
+it("cancelled session renewal cannot extend publication past its stop grace period", async () => {
+  const { t, owner, event, args } = await fixture();
+  const acquired = await t.mutation(worker("acquireSession"), args);
+  await t.mutation(worker("claimCommands"), { ...args, epoch: acquired.epoch });
+  await owner.mutation(api.events.setCommunityEventCancelled, { currentSlug: event.slug, cancelled: true, reason: "Host cancelled" });
+  const stopRequestedAt = Date.now() - 15_000;
+  await t.run(ctx => ctx.db.patch(args.sessionId, { stopRequestedAt }));
+  const renewed = await t.mutation(worker("renewSession"), { ...args, epoch: acquired.epoch });
+  assert.equal(renewed.granted, true);
+  assert.equal(renewed.expiresAt, stopRequestedAt + 30_000);
+  await t.run(ctx => ctx.db.patch(args.sessionId, { stopRequestedAt: Date.now() - 30_001 }));
+  assert.equal((await t.mutation(worker("renewSession"), { ...args, epoch: acquired.epoch })).granted, false);
+});

@@ -3,6 +3,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseWriter } from "./_generated/server";
 
 export const EVENT_BROADCAST_LEASE_MS = 30_000;
+export const EVENT_BROADCAST_STOP_GRACE_MS = 30_000;
 export const EVENT_BROADCAST_RENEW_AFTER_MS = 10_000;
 export const EVENT_BROADCAST_COMMAND_BATCH = 20;
 export const EVENT_BROADCAST_MAX_SOURCES = 64;
@@ -45,4 +46,19 @@ export async function allocateSessionCommandSequence(db: DatabaseWriter, session
   }
   await db.patch(sessionId, { nextCommandSequence: next + (reserve ? 1 : 0) });
   return next;
+}
+
+/** Attach older pending intent before allocating a later operator sequence. */
+export async function attachPendingProgramCommands(db: DatabaseWriter, sessionId: Id<"eventMediaSessions">) {
+  const session = await db.get(sessionId);
+  if (session === null) throw new Error("Event media worker session was not found.");
+  for (const status of ["queued", "claimed"] as const) {
+    const pending = await db.query("eventMediaCommands")
+      .withIndex("by_programId_status_createdAt", q => q.eq("programId", session.programId).eq("status", status)).collect();
+    for (const command of pending) {
+      if (command.sessionId === undefined && command.eventId === session.eventId) {
+        await db.patch(command._id, { sessionId });
+      }
+    }
+  }
 }
