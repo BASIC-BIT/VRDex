@@ -130,9 +130,9 @@ export function createEventWorker({ identity, control, renderer, outputs, create
             throw Error('Renderer failed');
         if (!state.publishing)
             return;
-        if (revisionBarriers.size)
+        if (revisionBarriers.size || pending)
             return;
-        if (state.renderedSourceId && !(current?.sourceId === state.renderedSourceId && current.available) && !config.slots.some(s => s.sourceId === state.renderedSourceId && s.available))
+        if (state.renderedSourceId && !(current?.sourceId === state.renderedSourceId && current.available))
             return;
         const result = await request('observeProgram', { state: state.renderedSourceId ? 'live' : 'hold', sourceId: state.renderedSourceId, outputId: config.outputId, outputMs: state.outputMs, publishing: true, mode });
         if (!result.accepted)
@@ -144,7 +144,7 @@ export function createEventWorker({ identity, control, renderer, outputs, create
         if (command.sequence <= lastSequence)
             return;
         if (!pending) {
-            pending = { command, beganAt: clock(), outcome: 'succeeded' };
+            pending = { command, beganAt: clock(), outcome: 'succeeded', nextMode: mode };
             const type = command.commandType;
             if (type === 'stop_program') {
                 outputs.stopNow();
@@ -152,21 +152,30 @@ export function createEventWorker({ identity, control, renderer, outputs, create
                 pending.terminal = true;
             }
             else if (type === 'hold_current') {
-                mode = 'manual';
+                pending.nextMode = 'manual';
             }
             else if (['switch_hold', 'show_hold_scene'].includes(type)) {
                 const scene = type === 'show_hold_scene' ? config.scenes?.find(s => s.id === command.targetSceneId) : undefined;
                 if (type === 'show_hold_scene' && (!scene || scene.type !== 'hold_slate' || scene.sourceId))
                     pending.outcome = 'failed';
                 else {
-                    mode = 'hold';
+                    pending.nextMode = 'hold';
+                    pending.slate = true;
                     renderer.hold();
                 }
             }
             else if (type === 'set_automatic_mode') {
-                mode = 'automatic';
-                if (current?.slotKey.startsWith('manual-'))
-                    current = undefined;
+                pending.nextMode = 'automatic';
+                if (mode !== 'automatic') {
+                    const target = initialAutomaticSlot(config.slots, scheduleNow());
+                    if (target && target.startAt <= scheduleNow()) {
+                        pending.target = { ...target };
+                        await reconcile(pending.target);
+                    } else {
+                        pending.slate = true;
+                        renderer.hold();
+                    }
+                }
             }
             else if (['switch_source', 'switch_next', 'next_slot', 'switch_previous', 'previous_slot'].includes(type)) {
                 const index = config.slots.findIndex(s => s.slotKey === current?.slotKey);
@@ -175,10 +184,9 @@ export function createEventWorker({ identity, control, renderer, outputs, create
                 if (!target?.available)
                     pending.outcome = 'failed';
                 else {
-                    mode = 'manual';
-                    current = { ...target };
-                    pending.target = current;
-                    await reconcile();
+                    pending.nextMode = 'manual';
+                    pending.target = { ...target };
+                    await reconcile(pending.target);
                 }
             }
             else if (type !== 'start_program')
@@ -186,14 +194,26 @@ export function createEventWorker({ identity, control, renderer, outputs, create
         }
         if (stopped)
             return;
-        const state = actual();
-        if (pending.target && !revisionBarriers.has(pending.target.slotKey) && !pending.selected && renderer.selectSource(pending.target.slotKey))
-            pending.selected = true;
-        const rendered = pending.target ? !revisionBarriers.has(pending.target.slotKey) && state.renderedSlotKey === pending.target.slotKey && state.renderedSourceId === pending.target.sourceId : mode !== 'hold' || state.renderedSourceId === undefined;
         if (clock() - pending.beganAt > 15000)
             pending.outcome = 'failed';
+        const state = actual();
+        if (pending.outcome === 'succeeded' && pending.target && !revisionBarriers.has(pending.target.slotKey) && !pending.selected && renderer.selectSource(pending.target.slotKey))
+            pending.selected = true;
+        const rendered = pending.target ? !revisionBarriers.has(pending.target.slotKey) && state.renderedSlotKey === pending.target.slotKey && state.renderedSourceId === pending.target.sourceId : !pending.slate || state.renderedSourceId === undefined;
         if (!pending.terminal && pending.outcome === 'succeeded' && (!state.publishing || !rendered))
             return;
+        if (pending.outcome === 'failed') {
+            // Current and mode remain authoritative until actual publication.
+            // Remove the failed candidate before acknowledging; never resurrect
+            // a source whose access was revoked during preparation.
+            await reconcile();
+            if (mode === 'hold' || !current?.available || revisionBarriers.has(current.slotKey) || !renderer.selectSource(current.slotKey))
+                renderer.hold();
+        } else {
+            mode = pending.nextMode;
+            if (pending.target) current = { ...pending.target };
+            else if (pending.slate) current = undefined;
+        }
         const ack = { commandId: command._id, sequence: command.sequence, outcome: pending.outcome,
             ...(pending.outcome === 'succeeded' ? { observedState: pending.terminal ? 'ended' : state.renderedSourceId ? 'live' : 'hold', observedSourceId: pending.terminal ? null : state.renderedSourceId ?? null, observedOutputId: config.outputId, observedSceneId: null } : {}) };
         const result = await request('acknowledgeCommand', ack);
@@ -282,12 +302,13 @@ export function createEventWorker({ identity, control, renderer, outputs, create
                 if (JSON.stringify({ outputId: config.outputId, outputs: config.outputs }) !== outputConfiguration)
                     throw Error('Destination configuration changed');
                 for (const source of config.sources) {
-                    if (sourceURLs.has(source.id) && sourceURLs.get(source.id) !== source.publicUrl && current?.sourceId === source.id) {
-                        revisionBarriers.set(current.slotKey, renderer.getState().outputMs);
+                    const changedSlot = [current, pending?.target].find(slot => slot?.sourceId === source.id);
+                    if (sourceURLs.has(source.id) && sourceURLs.get(source.id) !== source.publicUrl && changedSlot) {
+                        revisionBarriers.set(changedSlot.slotKey, renderer.getState().outputMs);
                         renderer.hold();
                         if (pending)
                             pending.selected = false;
-                        await reconcile();
+                        await reconcile(pending?.target);
                     }
                     sourceURLs.set(source.id, source.publicUrl);
                 }
@@ -303,11 +324,14 @@ export function createEventWorker({ identity, control, renderer, outputs, create
                 watchdog();
                 if (stopped)
                     return;
+                if (pending?.target) {
+                    const target = pending.target;
+                    const available = config.sources.some(source => source.id === target.sourceId) && (target.slotKey.startsWith('manual-') || config.slots.some(slot => slot.slotKey === target.slotKey && slot.sourceId === target.sourceId && slot.available));
+                    if (!available) pending.outcome = 'failed';
+                }
                 if (current && !current.available) {
                     renderer.hold();
-                    await reconcile();
-                    if (pending?.target)
-                        pending.outcome = 'failed';
+                    await reconcile(pending?.outcome === 'succeeded' ? pending.target : undefined);
                 }
                 const claims = await request('claimCommands');
                 if (!claims.granted)

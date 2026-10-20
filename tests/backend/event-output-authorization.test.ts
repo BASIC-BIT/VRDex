@@ -115,8 +115,8 @@ it('legacy ready VRCDN output cannot acquire or dispatch after registry removal 
   assert.equal((await f.t.mutation(worker('admitDispatch'), { bridgeToken, eventId: f.a.event.eventId, sessionId: session.sessionId, dispatchId: 'legacy' })).granted, false);
   assert.equal((await f.t.mutation(worker('acquireSession'), session.args)).granted, false);
   assert.equal(await f.t.mutation(api.events.claimEventMediaWorkerCommand, { bridgeToken, workerId: 'legacy-bridge' }), null);
-  await f.a.actor.mutation(api.events.stopEventMediaWorker, { currentSlug: f.a.event.slug, sessionId: session.sessionId });
-  assert.equal((await f.t.mutation(api.events.claimEventMediaWorkerCommand, { bridgeToken, workerId: 'legacy-cleanup' }))?.commandType, 'stop_program');
+  assert.equal((await f.t.run(({db})=>db.get(session.sessionId)))?.status,'error');
+  assert.equal(await f.t.mutation(api.events.claimEventMediaWorkerCommand, { bridgeToken, workerId: 'legacy-cleanup' }),null);
 });
 
 it('revoked managed VRCDN and Twitch links disappear from public metadata without removing authored fallback', async () => {

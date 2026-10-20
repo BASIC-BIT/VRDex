@@ -1,5 +1,5 @@
 import { sanitizeTwitchOutput, getTwitchOutputAccount, listTwitchOutputAccounts, eventOutputIsAuthorized } from './_eventOutputSetup';
-import { EVENT_BROADCAST_MAX_OUTPUTS, validateBroadcastPolicy, allocateSessionCommandSequence, attachPendingProgramCommands, requireEventMediaBridgeToken } from "./_eventBroadcastInputs";
+import { EVENT_BROADCAST_MAX_OUTPUTS, validateBroadcastPolicy, allocateSessionCommandSequence, attachPendingProgramCommands, settleTerminalSessionCommands, requireEventMediaBridgeToken } from "./_eventBroadcastInputs";
 import { dateOnlyEventsEnabled, eventDateForInstant, eventSortAt, eventSortEndAt, normalizeEventSchedule, publicEventSchedule, requireDateOnlyEventsEnabled } from "./_eventSchedule";
 import { eventProfileStreamChoices, resolveEventStream } from "./_eventPlayback";
 import { ConvexError, v } from "convex/values";
@@ -26,7 +26,7 @@ import { requireUser } from "./_identity";
 import { contributorStaffLock } from "./_eventContributorLock";
 import { replaceEventLineup } from "./_eventLineup";
 import { eventContributionFingerprint } from "./_eventContributionPreflight";
-import { requireActiveBrowserSessionSubject } from "./_browserSessionAuthority";
+import { activeBrowserSessionSubjectOrNull, requireActiveBrowserSessionSubject } from "./_browserSessionAuthority";
 import {
   apiWriteAuditActorKindValidator,
   recordApiWriteAuditEvent,
@@ -72,6 +72,7 @@ import { eventPathForRecord, eventPathForSlugs } from "./_eventPaths";
 import { toPublicEventShareCard } from "./_eventShareCard";
 import {
   getEventForEditor,
+  getEventForHost,
   getPublicCommunityHostedEvents,
   getPublicEventBySlug,
   getPublicEventPreviews,
@@ -2371,6 +2372,23 @@ export const listVrcdnOutputAccounts = query({
   },
 });
 
+export const getHostBySlug = query({
+  args: { slug: v.string(), communitySlug: v.string() },
+  handler: async (ctx, args) => {
+    const validation = validateEventSlug(args.slug);
+    if (!validation.ok) return null;
+    const event = await getEventBySlug(ctx.db, validation.slug);
+    if (!event?.communityProfileId) return null;
+    const community = await ctx.db.get(event.communityProfileId);
+    if (community?.slug !== args.communitySlug) return null;
+    const viewer = await activeBrowserSessionSubjectOrNull(ctx);
+    if (!viewer || !await canViewEventOperations(ctx.db, event, viewer.subject, viewer.userId))
+      return getPublicEventBySlug(ctx.db, event);
+    const projection = await getEventForHost(ctx.db, event);
+    return projection ? { ...projection, communitySlug: community.slug } : null;
+  },
+});
+
 export const getEventMediaControlStatus = query({
   args: {
     currentSlug: v.string(),
@@ -2648,8 +2666,9 @@ export const claimEventMediaWorkerCommand = mutation({
         continue;
       }
 
+      if ((await ctx.db.get(command._id))?.status !== "queued") continue;
       const session = await ctx.db.get(command.sessionId);
-      if (session?.epoch !== undefined) continue;
+      if (command.commandType === "start_program" && session?.epoch !== undefined) continue;
 
       const payload = await createWorkerBridgeCommandPayload(ctx.db, command);
 
@@ -2660,6 +2679,14 @@ export const claimEventMediaWorkerCommand = mutation({
           completedAt: now,
           updatedAt: now,
         });
+        if (command.commandType === "start_program" && session) {
+          await settleTerminalSessionCommands(ctx.db, session._id, "error", now);
+          await ctx.db.patch(session._id, { status: "error", leaseExpiresAt: now, ...((session.dispatchId || session.workerTaskId) && session.dispatchStopConfirmedAt === undefined ? { stopRequestedAt: session.stopRequestedAt ?? now } : {}), updatedAt: now });
+          const program = await ctx.db.get(session.programId);
+          if (program?.activeSessionId === session._id)
+            await ctx.db.patch(program._id, { activeSessionId: undefined, state: "error", updatedAt: now });
+          // Dispatch ownership is retained until exact-task STOPPED reconciliation.
+        }
         continue;
       }
 

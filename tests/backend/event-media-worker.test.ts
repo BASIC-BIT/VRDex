@@ -515,9 +515,8 @@ it("revoked selected ready destination cannot enter the bridge before acquisitio
   assert.equal((await f.t.mutation(worker("admitDispatch"),{bridgeToken,eventId:f.event.eventId,sessionId:args.sessionId,dispatchId:"pre-acquire-revoked"})).granted,false);
   assert.equal(await f.t.mutation(api.events.claimEventMediaWorkerCommand,{bridgeToken,workerId:"pre-acquire-bridge"}),null);
   assert.equal((await f.t.mutation(worker("acquireSession"),args)).granted,false);
-  await f.owner.mutation(api.events.stopEventMediaWorker,{currentSlug:f.event.slug,sessionId:args.sessionId});
-  const stop=await f.t.mutation(api.events.claimEventMediaWorkerCommand,{bridgeToken,workerId:"cleanup-bridge"});
-  assert.equal(stop?.commandType,"stop_program");
+  assert.equal((await f.t.run(({db})=>db.get(args.sessionId)))?.status,"error");
+  assert.equal((await f.t.run(({db})=>db.get(f.output.programId)))?.activeSessionId,undefined);
 });
 
 it("actual program observations have a distinct timestamp that renewal cannot refresh or replacement inherit", async () => {

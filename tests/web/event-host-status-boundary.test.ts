@@ -23,7 +23,7 @@ it('R3F4 large roster probes current and upcoming sources in one bounded wave an
  const event=roster(),calls:string[]=[];
  const read=createSourceStatusReader(async source=>{calls.push(source.key);throw Error('provider unavailable');});
  const route=load('app/[slug]/events/[eventSlug]/host/status/route.ts',{
-  '@/convex/server':{fetchPublicEventBySlug:async()=>({kind:'live',event})},
+  '@/convex/server':{fetchHostEventBySlug:async()=>({kind:'live',event})},
   '@/lib/event-dj-target':{eventDjTarget},
   '@/lib/server/event-source-status':{getEventSourceStatuses:read},
  },{Date:class extends Date {static now(){return 40_500;}}});
@@ -66,4 +66,81 @@ it('R3F4 actual host effect does not overlap requests and aborts on cleanup',asy
  resolveFetch({ok:true,json:async()=>({})});await new Promise(resolve=>setImmediate(resolve));
  assert.equal(timeouts.filter(timer=>timer.ms===30000).length,1);
  cleanup();assert.equal(signal?.aborted,true);
+});
+
+it('R4F3 actual host page and status route use viewer-scoped host projection before rendering or probing',async()=>{
+ const event=roster();let probes=0;const calls:any[]=[];
+ for(const allowed of [true,false]) {
+  const dependencies={
+   '@/convex/server':{fetchPublicEventBySlug:async()=>({kind:'live',event:null}),fetchHostEventBySlug:async(...args:any[])=>{calls.push(args);return {kind:'live',event:allowed?event:null};}},
+   '@/lib/server/event-source-status':{getEventSourceStatuses:async()=>{probes++;return {}; }},
+   'next/navigation':{notFound:()=>{throw Error('NOT_FOUND');}},
+   '../../../../_components/event-host-view':{EventHostView:()=>null},
+   '../../../../_components/event-public-page':{EventBackendNotice:()=>null},
+   '@/convex/playwright-fixtures':{getPlaywrightPublicEventFixture:()=>null},
+   '../../../../playwright/public-event/client':{PublicEventFixture:()=>null},
+  };
+  const route=load('app/[slug]/events/[eventSlug]/host/status/route.ts',dependencies);
+  const page=load('app/[slug]/events/[eventSlug]/host/page.tsx',dependencies);
+  const params=Promise.resolve({slug:'club',eventSlug:'show'});
+  const response=await route.GET(new Request('https://example.test/club/events/show/host/status'),{params});
+  assert.equal(response.status,allowed?200:404);
+  assert.match(response.headers.get('Cache-Control')??'',/private.*no-store/);
+  if(allowed)assert.ok(await page.default({params}));else await assert.rejects(page.default({params}),/NOT_FOUND/);
+ }
+ assert.equal(probes,1);assert.equal(calls.length,4);for(const call of calls)assert.deepEqual(call,['show','club']);
+});
+
+it('R4F3 server auth and actual routes enforce owner, operations, anonymous, nonstaff and community boundaries',async()=>{
+ const {convexTest}=await import('convex-test');const {api}=await import('../../convex/_generated/api');
+ const {default:schemaModule}=await import('../../convex/schema');const schema=(schemaModule as any).default??schemaModule;
+ const t=convexTest({schema,modules:{'../../convex/_generated/api.ts':()=>import('../../convex/_generated/api'),'../../convex/events.ts':()=>import('../../convex/events')}});
+ await t.run(async({db})=>{
+  const now=Date.now();const community=await db.insert('profiles',{slug:'club',displayName:'Club',sortName:'club',aliases:[],tags:[],claimState:'claimed_verified',publicationState:'published',publicSurfacingState:'public',creationSource:'self',updatedAt:now,profileType:'community',community:{categoryTags:[]}});
+  for(const subject of ['owner','reader','nonstaff']) {
+   const userId=await db.insert('users',{clerkUserId:subject,name:subject});
+   if(subject==='owner')await db.insert('profileOwners',{profileId:community,userId,roleKey:'owner',state:'active',grantedAt:now,updatedAt:now});
+   if(subject==='reader')await db.insert('communityAuthorities',{communityProfileId:community,subjectTokenIdentifier:`test|${subject}`,subject:{subject,issuer:'test',tokenIdentifier:`test|${subject}`},capabilities:['view_event_operations'],state:'active',grantedAt:now,updatedAt:now});
+  }
+  await db.insert('events',{slug:'private-show',title:'Private rehearsal',sortTitle:'private rehearsal',communityProfileId:community,startAt:now,timezone:'UTC',sourceType:'community',sourceLabel:'Fixture',eventStatus:'scheduled',publicationState:'draft_private',createdAt:now,updatedAt:now});
+ });
+ let subject:string|undefined, probes=0, privateQueries=0;
+ const server=load('convex/server.ts',{
+  'convex/nextjs':{fetchQuery:async(ref:any,args:any,options?:{token:string})=>{if(options?.token)privateQueries++;return (options?.token?t.withIdentity({subject:options.token,issuer:'test',tokenIdentifier:`test|${options.token}`}):t).query(ref,args);}},
+  '@convex-generated-api':{api},'@/lib/server/auth':{convexAuthToken:async()=>subject},
+  '@/lib/server/twitch-live':{},'@/lib/server/vrcdn-live':{},
+  './playwright-fixtures':{getPlaywrightPublicEventFixture:()=>null},
+ },{process:{env:{NEXT_PUBLIC_CONVEX_URL:'http://127.0.0.1:3210'}},console});
+ const dependencies={
+  '@/convex/server':server,'@/lib/server/event-source-status':{getEventSourceStatuses:async()=>{probes++;return {};}},
+  'next/navigation':{notFound:()=>{throw Error('NOT_FOUND');}},
+  '../../../../_components/event-host-view':{EventHostView:()=>null},'../../../../_components/event-public-page':{EventBackendNotice:()=>null},
+  '@/convex/playwright-fixtures':{getPlaywrightPublicEventFixture:()=>null},'../../../../playwright/public-event/client':{PublicEventFixture:()=>null},
+ };
+ const page=load('app/[slug]/events/[eventSlug]/host/page.tsx',dependencies),route=load('app/[slug]/events/[eventSlug]/host/status/route.ts',dependencies);
+ for(const viewer of ['owner','reader',undefined,'nonstaff'])for(const slug of ['club','wrong-community']) {
+  subject=viewer;const allowed=(viewer==='owner'||viewer==='reader')&&slug==='club';const params=Promise.resolve({slug,eventSlug:'private-show'});
+  const response=await route.GET(new Request('https://example.test/host/status'),{params});
+  assert.equal(response.status,allowed?200:404,`${viewer}:${slug}`);assert.match(response.headers.get('Cache-Control')!,/private.*no-store/);
+  if(allowed){const rendered=await page.default({params});assert.equal(rendered.props.event.title,'Private rehearsal');}else await assert.rejects(page.default({params}),/NOT_FOUND/);
+ }
+ assert.equal(probes,2);assert.equal(privateQueries,12);
+ await t.run(async({db})=>{const event=(await db.query('events').collect())[0];await db.patch(event._id,{publicationState:'published'});});
+ subject=undefined;
+ const params=Promise.resolve({slug:'club',eventSlug:'private-show'});
+ assert.equal((await route.GET(new Request('https://example.test/host/status'),{params})).status,200);
+ assert.equal((await page.default({params})).props.event.title,'Private rehearsal');
+});
+
+it('R4F3 live host subscription retains authorized draft projection and withdraws it on revocation',()=>{
+ const event=roster();let allowed=true;const hostRef={},publicRef={};const queries:any[]=[];
+ const component=load('app/_components/event-host-view.tsx',{
+  'next/link':{default:()=>null},'convex/react':{useQuery:(ref:any,args:any)=>{queries.push(args);return ref===hostRef&&allowed?event:null;}},'@convex-generated-api':{api:{events:{getHostBySlug:hostRef,getPublicBySlug:publicRef}}},
+  '@/components/ui/button':{},'@/components/ui/copy-value-row':{},'@/components/ui/page-shell':{},
+  '@/lib/event-dj-target':{eventDjTarget},'@/lib/event-path':{publicEventPath:()=>'/club/events/show'},
+  './event-public-page':{eventLineupForDisplay:()=>[]},'./viewer-local-event-times':{},'./vrcdn-stream-player':{},
+ });
+ assert.equal(component.EventHostView({event})?.props.event,event);
+ assert.equal(JSON.stringify(queries[0]),JSON.stringify({slug:'show',communitySlug:'club'}));
+ allowed=false;assert.equal(component.EventHostView({event}),null);
 });

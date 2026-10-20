@@ -799,6 +799,12 @@ export async function getPublicEventBySlug(
   return record === null ? null : toPublicEvent(record);
 }
 
+/** Caller must authorize event operations before requesting unpublished content. */
+export async function getEventForHost(db: DatabaseReader, event: Doc<"events">): Promise<PublicEvent | null> {
+  const record = await getPublicEventRecord(db, event, { includeUnpublished: true });
+  return record === null ? null : toPublicEvent(record);
+}
+
 export async function getEventForEditor(
   db: DatabaseReader,
   event: Doc<"events">,

@@ -754,9 +754,9 @@ Managed public-watch links, including cached program links, are withdrawn on
 revocation for either provider. Separately authored direct event/DJ links remain.
 This means malformed registry configuration can interrupt managed browser
 playback through its normal public revalidation. A selected-output revocation
-fences streaming publication on the next bounded worker authority refresh. The
-existing terminal-running ECS cleanup limitation still applies: inspect/stop the
-exact task and confirm STOPPED; do not erase admission records to bypass capacity.
+fences streaming publication on the next bounded worker authority refresh. Cleanup retains exact-task ownership until ECS confirms STOPPED; do not erase
+admission records to bypass capacity. Durable Stop intent is retried by the
+bridge as described below.
 
 See [integration verification](../engineering/event-broadcast-verification.md)
 for tested behavior, resource methods, historical/current evidence and rollout gates.
@@ -795,3 +795,30 @@ The third review image
 The join proof covers actual media through gap, boundary, healthy overrun and
 replacement after explicit end. Prior sustained media evidence remains scoped to
 its original image; see the verification page for current hashes and limits.
+
+### Review follow-up: failed commands and authorized rehearsals
+
+A source switch commits only after encoded publication; failure restores the
+previous authorized source or slate. Return to auto from manual/hold reconciles
+the current authored interval, including slate in a schedule gap. Ordinary
+healthy automatic overrun remains allowed. Unchanged profile stream projections
+no longer create per-second writes.
+
+Unusable pre-dispatch starts now terminate their sessions and clear active intent.
+Held dispatch reservations remain held until actual ECS STOPPED. The bridge can
+claim Stop after worker acquisition and repeats durable Stop intent for the exact
+task during reconciliation, including after request failure or late ARN arrival.
+A failed start with a held task also retains cleanup intent. Destination
+revocation cannot prevent this process cleanup; it grants no new publication
+permission. No Stop claim or request fabricates a STOPPED observation.
+
+Host page, live updates and bounded status probes permit authorized operations
+readers to access draft rehearsals. Public events retain anonymous access.
+Private status responses are never shared between viewers. This grants no
+additional command capability.
+
+Fourth-review Node 22 image `952affdbf9ee` and controller `44694eb903d2` passed
+fresh real-media command failure/recovery and Return-to-auto proof. Its 24.5-second
+scope, full hashes and prior-snapshot attribution are recorded in
+[integration verification](../engineering/event-broadcast-verification.md).
+The prior two-hour result is historical; rollout gates remain unchanged.

@@ -205,13 +205,14 @@ async function configuration(ctx: MutationCtx, { session, program, event }: NonN
                 const id = await ctx.db.insert("eventMediaSources", { programId: program._id, eventId: event._id, key: `slot-${slot._id}`, position: slot.position, type: "vrcdn_link", purpose: "program", state: "ready", label: slot.displayLabel, eventSlotId: slot._id, sourceProfileId: slot.personProfileId, profileProjection: true, projectionAvailable: true, publicUrl: stream.questUrl, createdAt: Date.now(), updatedAt: Date.now() });
                 source = await ctx.db.get(id);
             }
-            else if (source) {
+            else if (source && (source.publicUrl !== stream?.questUrl || source.profileProjection !== true || source.projectionAvailable !== !!stream || source.sourceProfileId !== slot.personProfileId)) {
                 await ctx.db.patch(source._id, { publicUrl: stream?.questUrl, profileProjection: true, projectionAvailable: !!stream, sourceProfileId: slot.personProfileId, updatedAt: Date.now() });
                 source = await ctx.db.get(source._id);
             }
         }
         else if (source && (source.profileProjection || source.sourceProfileId)) {
-            await ctx.db.patch(source._id, { profileProjection: true, projectionAvailable: false, publicUrl: undefined, updatedAt: Date.now() });
+            if (source.profileProjection !== true || source.projectionAvailable !== false || source.publicUrl !== undefined)
+                await ctx.db.patch(source._id, { profileProjection: true, projectionAvailable: false, publicUrl: undefined, updatedAt: Date.now() });
             source = null;
         }
         if (!source && !slot.personProfileId)
@@ -343,7 +344,7 @@ export const recordProcessStatus = mutation({ args: { bridgeToken: v.string(), s
             await settleTerminalSessionCommands(ctx.db, session._id, session.status === "ended" ? "ended" : "error", Date.now());
         if (session.dispatchStopConfirmedAt !== undefined || (!session.dispatchId && session.workerTaskStatus === "stopped"))
             return { accepted: args.stopped };
-        await ctx.db.patch(session._id, { ...(args.stopped ? { workerTaskCleanupPending: true, ...(session.dispatchId ? { dispatchStopConfirmedAt: Date.now() } : {}) } : {}), workerTaskStatus: args.stopped ? "stopped" : "running", ...(args.stopped && !['ended', 'error'].includes(session.status) ? { status: "error" as const, leaseExpiresAt: Date.now() } : {}), updatedAt: Date.now() });
+        await ctx.db.patch(session._id, { ...(args.stopped ? { workerTaskCleanupPending: true, ...(session.dispatchId ? { dispatchStopConfirmedAt: Date.now() } : {}) } : {}), workerTaskStatus: args.stopped ? "stopped" : session.stopRequestedAt === undefined ? "running" : "stopping", ...(args.stopped && !['ended', 'error'].includes(session.status) ? { status: "error" as const, leaseExpiresAt: Date.now() } : {}), updatedAt: Date.now() });
         if (args.stopped) {
             const program = await ctx.db.get(session.programId);
             if (program?.activeSessionId === session._id)
@@ -372,3 +373,13 @@ export const observeOutputs = mutation({args:{...workerSessionArgs,destinations:
  }
  await ctx.db.patch(args.sessionId,{outputHealth:args.destinations,outputHealthObservedAt:Date.now()}); return {accepted:true};
 }});
+
+/** ECS Stop request is process intent, never an observation or capacity release. */
+export const recordTaskStopRequested = mutation({ args: { bridgeToken: v.string(), sessionId: v.id("eventMediaSessions"), taskArn: v.string() }, handler: async (ctx, args) => {
+    requireEventMediaBridgeToken(args.bridgeToken);
+    const session = await ctx.db.get(args.sessionId);
+    if (!session || session.workerTaskId !== args.taskArn || session.stopRequestedAt === undefined) return { accepted: false };
+    if (session.dispatchStopConfirmedAt === undefined && session.workerTaskStatus !== "stopped")
+        await ctx.db.patch(session._id, { workerTaskStatus: "stopping", updatedAt: Date.now() });
+    return { accepted: true };
+} });

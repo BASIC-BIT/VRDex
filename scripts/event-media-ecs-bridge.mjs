@@ -350,6 +350,7 @@ async function stopCommand(command, client, config, runAws = aws) {
   const taskArn = command.session.workerTaskId;
 
   if (!taskArn) {
+    if (command.session.epoch !== undefined || command.session.dispatchId) return;
     await client.mutation(convexApi.recordEventMediaWorkerBridgeTaskStatus, {
       bridgeToken: config.bridgeToken,
       workerId: config.workerId,
@@ -363,7 +364,11 @@ async function stopCommand(command, client, config, runAws = aws) {
   }
 
   await runAws(config, ["ecs", "stop-task", "--cluster", config.cluster, "--task", taskArn, "--reason", "VRDex event media stop command."]);
-  await client.mutation(convexApi.recordEventMediaWorkerBridgeTaskStatus, {
+  if (command.session.epoch !== undefined || command.session.dispatchId) {
+    await client.mutation(makeFunctionReference("eventMediaWorker:recordTaskStopRequested"), {
+      bridgeToken: config.bridgeToken, sessionId: command.session.sessionId, taskArn,
+    });
+  } else await client.mutation(convexApi.recordEventMediaWorkerBridgeTaskStatus, {
     bridgeToken: config.bridgeToken,
     workerId: config.workerId,
     sessionId: command.session.sessionId,
@@ -378,7 +383,7 @@ async function stopCommand(command, client, config, runAws = aws) {
 
 async function recordClaimedCommandError(command, error, client, config) {
   const reason = "Worker dispatch failed; inspect reservation before retrying.";
-  if(command.dispatchId || command.session.dispatchId){console.error(JSON.stringify({event:"event_media_ecs_dispatch_failed",sessionId:command.session.sessionId}));return;}
+  if(command.dispatchId || command.session.dispatchId || command.session.epoch !== undefined){console.error(JSON.stringify({event:"event_media_ecs_dispatch_failed",sessionId:command.session.sessionId}));return;}
 
   await client.mutation(convexApi.recordEventMediaWorkerBridgeTaskStatus, {
     bridgeToken: config.bridgeToken,
@@ -484,6 +489,15 @@ export async function refreshSessions(client, config, runAws = aws) {
     }
 
     if(session.dispatchId || session.epoch !== undefined){
+      // Stop intent survives a failed/ambiguous request, late ARN registration,
+      // and a racing worker acknowledgement. ECS StopTask is idempotent for this
+      // exact session task; only DescribeTasks STOPPED can release admission.
+      if (session.stopRequestedAt !== undefined && task.lastStatus !== "STOPPED") {
+        await runAws(config, ["ecs", "stop-task", "--cluster", config.cluster, "--task", session.workerTaskId, "--reason", "VRDex event media stop reconciliation."]);
+        await client.mutation(makeFunctionReference("eventMediaWorker:recordTaskStopRequested"), {
+          bridgeToken: config.bridgeToken, sessionId: session.sessionId, taskArn: session.workerTaskId,
+        });
+      }
       await client.mutation(convexApi.recordProcessStatus,{bridgeToken:config.bridgeToken,sessionId:session.sessionId,taskArn:session.workerTaskId,stopped:task.lastStatus==="STOPPED"});
       if(task.lastStatus==="STOPPED"){
         if(session.workerTaskDefinitionArn)await runAws(config,["ecs","deregister-task-definition","--task-definition",session.workerTaskDefinitionArn]);

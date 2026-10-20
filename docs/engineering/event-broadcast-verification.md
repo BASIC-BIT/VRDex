@@ -341,3 +341,50 @@ were unavailable. Synthetic silence verifies disabled-silence behavior only;
 there is no selected production silence threshold/duration or measured musical
 false-positive rate. Keep `VRDEX_EVENT_BROADCAST_SILENCE_CALIBRATED` unset/false,
 automatic silence disabled, maximum overrun unset and hosted output disabled.
+
+## Fourth review: command transactions and host authorization
+
+Manual source switches prepare the candidate alongside the current decoder and
+commit mode/source only after actual encoded publication. A failed or timed-out
+switch removes the candidate before acknowledgement and retains the previous
+source when still authorized and ready, otherwise slate. Late candidate recovery
+cannot commit failed intent. Return to auto from manual or hold reevaluates the
+current authored half-open interval; a gap returns to slate. An already automatic
+healthy overrun remains allowed. Stable profile stream projections no longer
+write or advance `updatedAt` on each refresh; stream, identity, access and removal
+changes still update availability.
+
+An unusable start payload terminates its session and settles outstanding intent,
+clearing its active pointer. Existing task reservations remain held. When a task
+was admitted, durable cleanup intent survives that failure and destination
+revocation. The bridge may claim Stop after worker acquisition and retries stored
+Stop intent against the same task during reconciliation, including after a failed
+request or late task registration. Only actual ECS STOPPED releases capacity.
+
+Host server rendering, bounded status probes and reactive updates now share an
+event/community-scoped operations-read projection. Owners and authorized read-only
+operations staff can view drafts without control permission. Anonymous public
+access remains available; unauthorized draft requests are concealed, and status
+responses use `private, no-store`. Real Convex authorization tests traverse the
+server token helper and actual page/status routes for owner, read-only staff,
+anonymous, nonstaff and wrong-community requests. Token delivery is injected;
+this is not genuine Clerk acceptance. The live subscription withdraws content
+on authorization loss. Desktop/mobile fixtures supplement those boundary tests.
+
+The current fourth-review image is
+`sha256:952affdbf9eed3d2b6bd2910e8bb651b89d40df065691b8a36cbc491da7a4b0e`,
+using Node 22.23.3. Its controller SHA-256 is
+`44694eb903d2beb331bb64a1ef0a7e5dd4dd834710e91de1f3a6d9c625bda87f`.
+`event-command-local-proof.mjs` passed 24.5 seconds of real packaged decoder,
+renderer, encoder and required sender output: failed candidate preparation while
+current playback continues, late recovery without switching, successful retry,
+Return to auto and gap slate. Local synthetic control and UDP/RTMP endpoints are
+injected. The recording has H.264 1280×720 at 30 fps, AAC 48 kHz, maximum packet
+gap 34 ms and one-second GOP. Recording SHA-256:
+`ec723772dd2a037d8d7a1a2c8cff1c0f9d6b6c15e24996de48df4c0082a6e1c0`.
+
+The image's other eight runtime modules match the previous snapshots. Earlier
+startup, gap/boundary/overrun, dual-output and two-hour recordings retain their
+original image/controller attribution. This short command proof does not create
+a new two-hour claim or provider acceptance. Hosted output, automatic silence
+and optional maximum overrun retain their existing disabled defaults.

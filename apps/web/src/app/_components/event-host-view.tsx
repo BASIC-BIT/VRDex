@@ -20,7 +20,7 @@ import { ViewerLocalEventTimeRange } from "./viewer-local-event-times";
 import { VrcdnStreamPlayer } from "./vrcdn-stream-player";
 
 export function EventHostView({ event: initialEvent }: { event: PublicEvent }) {
-  const projection = useQuery(api.events.getPublicBySlug, { slug: initialEvent.slug });
+  const projection = useQuery(api.events.getHostBySlug, { slug: initialEvent.slug, communitySlug: initialEvent.communitySlug ?? '' });
   const event = projection === undefined ? initialEvent : projection;
   return event ? <EventHostContent event={event} /> : null;
 }
