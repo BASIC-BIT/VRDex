@@ -221,7 +221,8 @@ export class EventLineupSession {
     }
     if (active) {
       this.state.connected = active.evidence.progressing;
-      this.state.unavailable = !active.evidence.progressing && failedConnection(active, at);
+      if (active.evidence.progressing) this.state.unavailable = false;
+      else if (failedConnection(active, at)) this.state.unavailable = true;
       // Silence handoff stays disabled until representative musical calibration.
       if (this.next && (active.progressed || at >= active.startupDeadline) && !this.state.nextPlaybackBlocked && !this.nextPlayPending && shouldHandoff({ scheduleNow, observationNow: at,
         eligibleAt: handoffBoundaryAt(active.slot, this.next.slot),

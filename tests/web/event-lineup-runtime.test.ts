@@ -356,3 +356,14 @@ test("post-boundary failure cannot promote a successor without decoded readiness
     assert.equal(sources.find(source => source.id === "different")?.gain.gain.value, 0);
   });
 });
+test("confirmed outage status remains visible through a cold reconnect until decoded recovery", async () => {
+  await runtimeFixture([repeated[0]], async ({ session, sources, step, progress }) => {
+    await step(at(20), 400); progress(false); await step(at(20), 1200);
+    assert.equal(sources.length, 2);
+    assert.equal(session.state.unavailable, true);
+    await step(at(20), 400);
+    assert.equal(session.state.unavailable, true, "retry initialization is not recovered media");
+    progress(true); await step(at(20), 400);
+    assert.equal(session.state.unavailable, false);
+  });
+});
