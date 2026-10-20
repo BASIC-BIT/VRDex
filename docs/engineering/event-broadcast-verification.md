@@ -84,6 +84,20 @@ scenario decoded a healthy current input but left the renderer on hold while an
 unready successor prepared. Current-source recovery now runs for both `stay`
 and `prepare`, without promoting that successor early.
 
+Final browser review found that the retained sequence reused September's early
+promotion and synthetic silence rule. The October policy now applies to the
+shared browser session as well: prepare up to two minutes early, promote only at
+or after both authored boundaries on confirmed failure with a decoded-ready next
+source, and leave automatic silence disabled. Deliberate manual early selection
+remains available. Quiet progressing media continues after the boundary.
+
+Browser transport tracing also reproduced cold-start churn: the first request
+was aborted after approximately 1.12 seconds before media time advanced, creating
+a second connection before pause/revocation. New connections now have a bounded
+five-second decoded-start allowance; established playback retains the one-second
+failure rule. Connection-count regressions remain exact. Gain assertions inspect
+the connected audio graph rather than retaining disconnected zero-gain history.
+
 ## Local proof methods
 
 - `scripts/event-broadcast-failure-proof.mjs`: actual 180-second decoder/render

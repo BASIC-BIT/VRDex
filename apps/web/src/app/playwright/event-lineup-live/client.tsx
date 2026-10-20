@@ -53,7 +53,7 @@ function StandaloneProjection({ initial }: { initial: PublicEvent }) {
  const event = projection === undefined ? initial : projection;
  const request = eventPlaybackRequest(event);
  if (!event || !request) return null;
- return <><h2>{event.title}</h2><span>Aurora</span>{request.kind === "performer_sequence"
+ return <><h2>{event.title}</h2><span>{event.slots[0]?.displayLabel}</span>{request.kind === "performer_sequence"
   ? <EventLineupPlayer event={request.event} />
   : <EventWatchSurface enabled startAt={event.startAt!} doorsOpenAt={event.doorsOpenAt} endAt={event.endAt} mediaLinks={event.mediaLinks} />}</>;
 }
@@ -75,7 +75,7 @@ export default function Fixture() {
  const [mounted,setMounted]=useState(true);
  const [baseline,setBaseline]=useState(false);
  return <main className="mx-auto max-w-3xl space-y-5 p-5"><h1>Lineup playback fixture</h1>
-  <div className="flex flex-wrap gap-3">{[["Before event",800_000],["Before window",1_000_000],["Just before eligible",1_119_999],["Exactly eligible",1_120_000],["Eligible",1_121_000],["Next slot",1_250_000],["Later eligible",1_381_000],["After end",1_600_000]].map(([label,at])=><button key={label} onClick={()=>fixture.setTime(Number(at))}>{label}</button>)}
+  <div className="flex flex-wrap gap-3">{[["Before event",800_000],["Before window",1_000_000],["Just before eligible",1_119_999],["Exactly eligible",1_120_000],["Eligible",1_121_000],["Boundary",1_240_000],["Next slot",1_250_000],["Later eligible",1_381_000],["After end",1_600_000]].map(([label,at])=><button key={label} onClick={()=>fixture.setTime(Number(at))}>{label}</button>)}
   {["third","swap-source","hide","cancel","unpublish","replace","duplicate","missing","overlap","event-stream"].map(action=><button key={action} onClick={()=>fixture.change(action)}>{action}</button>)}
   <button onClick={()=>{setMounted(false);setBaseline(false);}}>Unmount</button><button onClick={()=>{setMounted(false);setBaseline(true);}}>Profile player</button>
   </div>

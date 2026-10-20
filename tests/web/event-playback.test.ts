@@ -150,6 +150,7 @@ describe("handoff policy", () => {
       analysisActive: true,
     };
     assert.equal(shouldHandoff(handoffInput({ evidence: silence })), true);
+    assert.equal(shouldHandoff(handoffInput({ evidence: silence, silenceDurationMs: undefined })), false, "silence is disabled unless explicitly calibrated");
     assert.equal(
       shouldHandoff(handoffInput({ evidence: { ...silence, progressing: false } })),
       false,

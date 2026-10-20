@@ -1,7 +1,6 @@
 import type { PlaybackEvidence } from "./event-playback";
 
 export const AUDIO_SILENCE_THRESHOLD_DBFS = -90;
-export const AUDIO_SILENCE_DURATION_MS = 1_000;
 export const AUDIO_OBSERVATION_INTERVAL_MS = 100;
 export const AUDIO_OBSERVATION_FRESHNESS_MS = 500;
 

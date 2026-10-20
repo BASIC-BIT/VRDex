@@ -81,6 +81,7 @@ async function runtimeFixture(slots: ConstructorParameters<typeof EventLineupSes
   allowNext: () => void;
   deferNext: () => (accepted: boolean) => void;
   silence: () => void;
+  progress: (value: boolean, id?: string) => void;
   visibility: (value: string) => void;
 }) => Promise<void>) {
   const previousDocument = globalThis.document;
@@ -97,6 +98,7 @@ async function runtimeFixture(slots: ConstructorParameters<typeof EventLineupSes
     async resume() {}
     async close() {}
   }
+  const progress = new Map<string, boolean>();
   const sources: Array<{ id: string; released: boolean; plays: number; gain: ReturnType<typeof gain> }> = [];
   let tick = () => {};
   let session: EventLineupSession | undefined;
@@ -109,8 +111,8 @@ async function runtimeFixture(slots: ConstructorParameters<typeof EventLineupSes
     mock.method(performance, "now", () => clock);
     session = new EventLineupSession({ title: "Event", startAt: at(20), slots }, { append() {} } as unknown as HTMLElement, () => {}, async (_context, _destination, id) => {
       const source = { id, released: false, plays: 0, gain: gain(), video: { hidden: false },
-        sample(observedAt: number) { return { observedAt, dbfs: quiet && id === "shared" ? -120 : 0, progressing: source.plays > 0 && !(rejected && id !== "shared"), analysisActive: true, paused: rejected && id !== "shared", disconnected: false }; },
-        ready() { return source.plays > 0 && !(rejected && id !== "shared"); },
+        sample(observedAt: number) { return { observedAt, dbfs: quiet && id === "shared" ? -120 : 0, progressing: progress.get(id) !== false && source.plays > 0 && !(rejected && id !== "shared"), analysisActive: true, paused: rejected && id !== "shared", disconnected: false }; },
+        ready() { return progress.get(id) !== false && source.plays > 0 && !(rejected && id !== "shared"); },
         async play() { source.plays++; if (nextResult && id !== "shared") return nextResult; if (rejected && id !== "shared") return false; return true; },
         pause() {}, release() { source.released = true; },
       };
@@ -120,6 +122,7 @@ async function runtimeFixture(slots: ConstructorParameters<typeof EventLineupSes
     await session.play(); await settle();
     await run({ session, sources,
       async step(time, duration = 100) { wall = time; for (let elapsed = 0; elapsed < duration; elapsed += 100) { clock += 100; tick(); await settle(); } },
+      progress(value, id = "shared") { progress.set(id, value); },
       allowNext() { rejected = false; nextResult = undefined; },
       deferNext() { let finish!: (accepted: boolean) => void; nextResult = new Promise(resolve => { finish = resolve; }); return finish; },
       rejectNext() { rejected = true; }, silence() { quiet = true; }, visibility(value) { document.visibilityState = value; },
@@ -137,7 +140,7 @@ const repeated = [
   { key: "d", startAt: at(23), endAt: at(24), stream: stream("different") },
 ];
 test("consecutive same-source slots advance identity without a duplicate and then hand off normally", async () => {
-  await runtimeFixture(repeated, async ({ session, sources, step, silence }) => {
+  await runtimeFixture(repeated, async ({ session, sources, step, progress }) => {
     await step(at(20, 58));
     assert.equal(sources.length, 1);
     assert.equal(session.state.current, "a");
@@ -146,7 +149,7 @@ test("consecutive same-source slots advance identity without a duplicate and the
     assert.equal(sources.length, 1); assert.equal(sources[0].released, false);
     await step(at(22, 58)); assert.equal(sources.length, 2);
     assert.equal(session.state.current, "c");
-    silence(); await step(at(22, 58), 1400);
+    progress(false); await step(at(23), 1400);
     assert.equal(session.state.current, "d");
     assert.equal(sources[0].released, true); assert.equal(sources[1].gain.gain.value, 1);
   });
@@ -193,19 +196,19 @@ test("rejected next playback retains healthy current audio and exposes one gestu
 });
 
 test("viewer retry plays the retained next source, preserves current identity, then permits handoff", async () => {
-  await runtimeFixture([repeated[0], { ...repeated[1], stream: stream("different") }], async ({ session, sources, step, rejectNext, allowNext, silence }) => {
+  await runtimeFixture([repeated[0], { ...repeated[1], stream: stream("different") }], async ({ session, sources, step, rejectNext, allowNext, progress }) => {
     rejectNext(); await step(at(20, 58));
     assert.equal(session.state.nextPlaybackBlocked, true);
     allowNext(); session.retryNextPlayback(); await settle();
     assert.equal(session.state.nextPlaybackBlocked, false);
     assert.equal(session.state.current, "a"); assert.equal(sources.length, 2);
     assert.equal(sources[1].plays, 2); assert.equal(sources[1].gain.gain.value, 0);
-    silence(); await step(at(20, 58), 1400);
+    progress(false); await step(at(21), 1400);
     assert.equal(session.state.current, "b"); assert.equal(sources[1].gain.gain.value, 1);
   });
 });
 for (const oldAccepted of [true, false]) test(`a second gesture supersedes pending playback despite an older ${oldAccepted ? "acceptance" : "rejection"}`, async () => {
-  await runtimeFixture([repeated[0], { ...repeated[1], stream: stream("different") }], async ({ session, sources, step, rejectNext, deferNext, allowNext, silence }) => {
+  await runtimeFixture([repeated[0], { ...repeated[1], stream: stream("different") }], async ({ session, sources, step, rejectNext, deferNext, allowNext, progress }) => {
     rejectNext(); await step(at(20, 58));
     const finishOld = deferNext(); session.retryNextPlayback();
     allowNext(); session.retryNextPlayback(); await settle();
@@ -214,12 +217,12 @@ for (const oldAccepted of [true, false]) test(`a second gesture supersedes pendi
     assert.equal(sources[0].gain.gain.value, 1); assert.equal(sources[1].gain.gain.value, 0);
     finishOld(oldAccepted); await settle();
     assert.equal(session.state.nextPlaybackBlocked, false);
-    silence(); await step(at(20, 58), 1400);
+    progress(false); await step(at(21), 1400);
     assert.equal(session.state.current, "b"); assert.equal(sources[1].gain.gain.value, 1);
   });
 });
 test("an obsolete acceptance cannot clear the newer gesture's pending or blocked state", async () => {
-  await runtimeFixture([repeated[0], { ...repeated[1], stream: stream("different") }], async ({ session, sources, step, rejectNext, deferNext, allowNext, silence }) => {
+  await runtimeFixture([repeated[0], { ...repeated[1], stream: stream("different") }], async ({ session, sources, step, rejectNext, deferNext, allowNext, silence, progress }) => {
     rejectNext(); await step(at(20, 58));
     const finishOld = deferNext(); session.retryNextPlayback();
     allowNext(); const finishLatest = deferNext(); session.retryNextPlayback();
@@ -227,7 +230,7 @@ test("an obsolete acceptance cannot clear the newer gesture's pending or blocked
     assert.equal(session.state.nextPlaybackBlocked, true);
     assert.equal(session.state.current, "a"); assert.equal(sources.length, 2);
     assert.equal(sources[1].gain.gain.value, 0);
-    finishLatest(true); await settle(); await step(at(20, 58), 1400);
+    finishLatest(true); await settle(); progress(false); await step(at(21), 1400);
     assert.equal(session.state.current, "b"); assert.equal(sources[1].gain.gain.value, 1);
   });
 });
@@ -260,9 +263,12 @@ test("a repeated viewer rejection keeps the retained source and retry available"
     assert.equal(sources[1].plays, 2); assert.equal(session.state.current, "a");
   });
 });
-test("established-session gap handoff retains the approved early eligibility", async () => {
-  await runtimeFixture([repeated[0], { ...repeated[1], startAt: at(21, 30), stream: stream("different") }], async ({ session, step, silence }) => {
+test("established-session gap prepares early but waits for successor start and failure", async () => {
+  await runtimeFixture([repeated[0], { ...repeated[1], startAt: at(21, 30), stream: stream("different") }], async ({ session, step, silence, progress }) => {
     silence(); await step(at(21, 28), 1400);
+    assert.equal(session.state.current, "a");
+    await step(at(21, 30), 1400); assert.equal(session.state.current, "a");
+    progress(false); await step(at(21, 30), 1400);
     assert.equal(session.state.current, "b");
   });
 });
@@ -275,5 +281,78 @@ test("retained viewer volume/mute do not change input silence evidence or hand o
     assert.equal(session.state.current, "b");
     assert.equal(sources.find(source => source.id === "shared")?.released, false);
     session.setMuted(false); assert.equal(session.state.volume, 0);
+  });
+});
+
+
+test("cold initial playback may initialize for longer than the established failure interval", async () => {
+  await runtimeFixture([repeated[0]], async ({ sources, step, progress }) => {
+    progress(false); await step(at(20), 1800);
+    assert.equal(sources.length, 1, "do not destroy initializing MSE playback after one second");
+    assert.equal(sources[0].released, false);
+    progress(true); await step(at(20), 400);
+    assert.equal(sources.length, 1);
+    progress(false); await step(at(20), 1200);
+    assert.equal(sources.length, 2, "established playback still retries after one second of failure");
+    assert.equal(sources[0].released, true);
+  });
+});
+test("a cold source that never progresses has a bounded five-second startup allowance", async () => {
+  await runtimeFixture([repeated[0]], async ({ sources, step, progress }) => {
+    progress(false); await step(at(20), 4900);
+    assert.equal(sources.length, 1);
+    await step(at(20), 200);
+    assert.equal(sources.length, 2);
+    assert.equal(sources[0].released, true);
+  });
+});
+test("prepared playback also receives bounded startup time without becoming ready early", async () => {
+  await runtimeFixture([repeated[0], { ...repeated[1], stream: stream("different") }], async ({ session, sources, step, progress }) => {
+    progress(false, "different"); await step(at(20, 58), 1900);
+    assert.equal(sources.length, 2);
+    assert.equal(session.state.current, "a");
+    assert.equal(sources[1].gain.gain.value, 0);
+    await step(at(20, 58), 3300);
+    assert.equal(sources.length, 3);
+    assert.equal(sources[1].released, true);
+    assert.equal(session.state.current, "a");
+  });
+});
+
+for (const mode of ["failure", "silence"] as const) test(`prepared next source never promotes before its boundary on current ${mode}`, async () => {
+  await runtimeFixture([repeated[0], { ...repeated[1], stream: stream("different") }], async ({ session, sources, step, progress, silence }) => {
+    await step(at(20, 58), 400);
+    if (mode === "failure") progress(false); else silence();
+    await step(at(20, 58), 1800);
+    assert.equal(session.state.current, "a");
+    assert.equal(sources.find(source => source.id === "different")?.gain.gain.value, 0);
+  });
+});
+test("uncalibrated progressing silence retains current playback after the boundary", async () => {
+  await runtimeFixture([repeated[0], { ...repeated[1], stream: stream("different") }], async ({ session, step, silence }) => {
+    await step(at(20, 58), 400); silence(); await step(at(21), 10000);
+    assert.equal(session.state.current, "a");
+  });
+});
+test("confirmed established failure promotes a decoded next source only at the boundary", async () => {
+  await runtimeFixture([repeated[0], { ...repeated[1], stream: stream("different") }], async ({ session, step, progress }) => {
+    await step(at(20, 58), 400); progress(false);
+    await step(at(21), 900); assert.equal(session.state.current, "a");
+    await step(at(21), 300); assert.equal(session.state.current, "b");
+  });
+});
+test("manual early selection remains deliberate and suspends automatic following", async () => {
+  await runtimeFixture([repeated[0], { ...repeated[1], stream: stream("different") }], async ({ session, step }) => {
+    session.manual("b"); await step(at(20), 400);
+    assert.equal(session.state.current, "b"); assert.equal(session.state.following, false);
+  });
+});
+
+test("post-boundary failure cannot promote a successor without decoded readiness", async () => {
+  await runtimeFixture([repeated[0], { ...repeated[1], stream: stream("different") }], async ({ session, sources, step, progress }) => {
+    progress(false, "different"); await step(at(20, 58), 400);
+    progress(false); await step(at(21), 1800);
+    assert.equal(session.state.current, "a");
+    assert.equal(sources.find(source => source.id === "different")?.gain.gain.value, 0);
   });
 });

@@ -278,9 +278,9 @@ Minimum CloudWatch or custom metric dimensions for the first benchmark:
 
 Convex remains the authoritative control plane for event media session state, command outcomes, heartbeats, task status, private artifact links, and audit events. The current backend schedule defaults start workers at `T-5 minutes` and requires readiness by `T-2 minutes`; artifact links stored in Convex must be private `s3://` URIs or HTTPS URLs without embedded credentials or query strings. The authenticated event editor shows the private worker status and artifact links for operators; public event pages only see ready or active playback links.
 
-## Budget And Kill Switch
+## Historical Benchmark Budget And Kill Switch
 
-Current recommendation: require all three controls before hosted benchmarking beyond a single manually observed task:
+The June 2026 standalone benchmark scaffold recommended: require all three controls before hosted benchmarking beyond a single manually observed task:
 
 - max concurrent workers, default `10`
 - max session duration, default `12` hours
@@ -288,7 +288,11 @@ Current recommendation: require all three controls before hosted benchmarking be
 
 Before production testing, add provider-backed budget alerts for expected worker-hour and egress spend. The current Terraform foundation records the resource tags and guardrails needed for that follow-up, but it intentionally does not auto-apply budget resources from CI.
 
-The checked-in entrypoint validates the kill-switch parameter name but does not call AWS SSM yet. Synthetic benchmark runs are allowed through this scaffold; before any non-synthetic media work runs from this container, add the SSM read, control-plane lease, and max-duration enforcement that turn these hooks into runtime gates.
+The standalone synthetic benchmark entrypoint validates the kill-switch parameter
+name but does not itself read SSM. This historical scaffold is separate from the
+current event-worker mode below: event admission defaults to one worker, and the
+real controller reads SSM, renews its lease and enforces maximum session duration.
+Its ten-second enable authority expires closed; refresh begins after five seconds.
 
 ## GPU Fallback Decision
 
@@ -376,7 +380,7 @@ Required event runtime configuration:
 | `CONVEX_URL` | Deployment control endpoint; no deployment admin key |
 | `VRDEX_EVENT_MEDIA_EVENT_ID`, `VRDEX_EVENT_MEDIA_SESSION_ID` | Bridge-provided session identity |
 | `VRDEX_EVENT_MEDIA_WORKER_TOKEN_SECRET_ARN` | Bridge configuration: reference injected as `VRDEX_EVENT_MEDIA_BRIDGE_TOKEN` through ECS secrets |
-| `VRDEX_RESTREAM_KILL_SWITCH_SSM_PARAMETER`, `AWS_REGION` | Runtime reads SSM every 9 seconds with 10-second authority; exact `true` enables |
+| `VRDEX_RESTREAM_KILL_SWITCH_SSM_PARAMETER`, `AWS_REGION` | Runtime reads SSM every 5 seconds with 10-second authority; exact `true` enables |
 | `VRDEX_RESTREAM_MAX_SESSION_SECONDS` | Maximum runtime, defaults to 43200 |
 | `VRDEX_EVENT_MEDIA_SOURCE_ENDPOINTS_JSON` | Optional exact deployment-owned HTTPS MPEGTS endpoint allowlist |
 | `VRDEX_EVENT_BROADCAST_SILENCE_CALIBRATED` | Convex deployment-only gate; defaults off |
@@ -570,7 +574,10 @@ program, kills the optional receiver one third into a 60-second run, restores it
 halfway through, and verifies primary progress, packet timestamps, GOP, memory,
 and optional recovery. Local destination rewriting exists only in the proof's
 injected process factory. The production credential parser has no local bypass.
-JSON and media are under `/tmp/event-output-proof/`.
+Each run writes JSON, streaming resource samples and media to its own
+`/tmp/event-output-<unique>/` directory (or `PROOF_DIRECTORY_PREFIX`). The final
+JSON prints that directory. `PROOF_SECONDS=7200` requests two real wall-clock
+hours; the default remains sixty seconds.
 
 The final Node24 local run measured 0.44 CPU-seconds for primary remux and 13.43
 CPU-seconds for the additional Twitch sender processes over 60 wall seconds

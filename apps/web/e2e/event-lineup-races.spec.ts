@@ -140,11 +140,13 @@ for (const kind of ["silent", "audible"]) test(`@fixture ordered overlap ${kind}
   expect((await(await fetch(`${transport.url}/stats`)).json()).active).toBe(1);
   await page.getByRole("button",{name:"Exactly eligible",exact:true}).click();
   await expect.poll(async()=>(await(await fetch(`${transport.url}/stats`)).json()).opened).toBe(2);
-  if(kind==="audible") {
-   await page.waitForTimeout(1500);
-   await expect(page.locator("[data-current]")).toHaveAttribute("data-current","a");
-   await fetch(`${transport.url}/control?id=current&state=eof`,{method:"POST"});
-  }
+  await expect.poll(()=>page.locator("video[hidden]").evaluate(v=>(v as HTMLVideoElement).currentTime)).toBeGreaterThan(1);
+  await page.waitForTimeout(1500);
+  await expect(page.locator("[data-current]")).toHaveAttribute("data-current","a");
+  await page.getByRole("button",{name:"Boundary",exact:true}).click();
+  await page.waitForTimeout(1500);
+  await expect(page.locator("[data-current]")).toHaveAttribute("data-current","a");
+  await fetch(`${transport.url}/control?id=current&state=offline`,{method:"POST"});
   await expect(page.locator("[data-current]")).toHaveAttribute("data-current","b",{timeout:20000});
   await page.getByRole("button",{name:"Unmount",exact:true}).click();
   await expect.poll(async()=>(await(await fetch(`${transport.url}/stats`)).json()).active).toBe(0);
