@@ -687,3 +687,72 @@ it('R2F1 confirmed task STOPPED unlocks configuration even after a late failure 
   assert.equal((await status()).outputConfigurationLocked,false);
   await f.owner.mutation(api.events.configureVrcdnOutput,{currentSlug:f.event.slug,key:'main',label:'Main',credentialRef:'event-media/vrcdn/main',sourceConsentAccepted:true,destinationAuthorityAccepted:true,providerRulesAccepted:true,rightsClearedMediaAccepted:true,playbackLinks:[{platform:'browser',url:'https://example.test/watch'}]});
 });
+
+for (const finish of ['observation','process','stop-ack'] as const) it(`R3F1 ${finish} settles session intent without releasing live task capacity`,async()=>{
+  const f=await admittedBeforeAcquisition();
+  await f.t.run(({db})=>db.patch(f.scheduled.startCommandId!,{status:'queued'}));
+  const lease=await f.t.mutation(worker('acquireSession'),f.args), request={...f.args,epoch:lease.epoch};
+  if(finish==='stop-ack') {
+    await f.t.mutation(worker('claimCommands'),request);
+    await f.t.mutation(worker('acknowledgeCommand'),{...request,commandId:f.scheduled.startCommandId!,sequence:1,outcome:'succeeded',observedState:'hold'});
+    await f.owner.mutation(api.events.stopEventMediaWorker,{currentSlug:f.event.slug,sessionId:f.args.sessionId});
+  }
+  await f.owner.mutation(api.events.queueEventMediaCommand,{currentSlug:f.event.slug,type:'hold_current'});
+  await f.t.mutation(worker('claimCommands'),request);
+  await f.owner.mutation(api.events.queueEventMediaCommand,{currentSlug:f.event.slug,type:'switch_hold'});
+  const pendingBefore=(await f.owner.query(api.events.getEventMediaControlStatus,{currentSlug:f.event.slug})).commands;
+  assert(pendingBefore.some(c=>c.status==='claimed'));assert(pendingBefore.some(c=>c.status==='queued'));
+  if(finish==='observation') {
+    assert.equal((await f.t.mutation(worker('observeProgram'),{...request,epoch:lease.epoch-1,state:'error',outputMs:0,publishing:false})).accepted,false);
+    assert((await f.owner.query(api.events.getEventMediaControlStatus,{currentSlug:f.event.slug})).commands.some(c=>c.status==='claimed'));
+    await f.t.mutation(worker('observeProgram'),{...request,state:'error',outputMs:0,publishing:false});
+  } else if(finish==='stop-ack') {
+    const stop=pendingBefore.find(c=>c.commandType==='stop_program')!;
+    await f.t.mutation(worker('acknowledgeCommand'),{...request,commandId:stop.commandId,sequence:2,outcome:'succeeded',observedState:'ended'});
+  } else {
+    await refreshSessions(f.client,f.config,async(_config:any,args:string[])=>args[1]==='describe-tasks'?{tasks:[{taskArn:'managed-task',lastStatus:'STOPPED',containers:[{exitCode:1}]}]}:{});
+  }
+  const status=await f.owner.query(api.events.getEventMediaControlStatus,{currentSlug:f.event.slug});
+  assert.equal(status.commands.some(c=>['queued','claimed'].includes(c.status)),false);
+  const rows=await f.t.run(({db})=>db.query('eventMediaCommands').withIndex('by_sessionId_sequence',q=>q.eq('sessionId',f.args.sessionId)).collect());
+  assert(rows.every(row=>row.completedAt!==undefined));
+  if(finish!=='process') {
+    assert.equal((await f.t.run(({db})=>db.get(f.args.sessionId)))?.dispatchStopConfirmedAt,undefined);
+    const retry=await f.owner.mutation(api.events.scheduleEventMediaWorker,{currentSlug:f.event.slug,startImmediately:true});
+    const admission={bridgeToken,eventId:f.event.eventId,sessionId:retry.sessionId,dispatchId:'retry'};
+    assert.equal((await f.t.mutation(worker('admitDispatch'),admission)).granted,false);
+    await refreshSessions(f.client,f.config,async(_config:any,args:string[])=>args[1]==='describe-tasks'?{tasks:[{taskArn:'managed-task',lastStatus:'STOPPED',containers:[{exitCode:1}]}]}:{});
+    assert.equal((await f.t.mutation(worker('admitDispatch'),admission)).granted,true);
+  }
+  const settled=await f.t.run(({db})=>db.query('eventMediaCommands').withIndex('by_sessionId_sequence',q=>q.eq('sessionId',f.args.sessionId)).collect());
+  await f.t.mutation(worker('recordProcessStatus'),{bridgeToken,sessionId:f.args.sessionId,taskArn:'managed-task',stopped:true});
+  assert.deepEqual(await f.t.run(({db})=>db.query('eventMediaCommands').withIndex('by_sessionId_sequence',q=>q.eq('sessionId',f.args.sessionId)).collect()),settled);
+});
+
+for(const scenario of [
+  {name:'gap',at:150,end:100,next:200,expected:undefined},
+  {name:'exact explicit end',at:100,end:100,next:200,expected:undefined},
+  {name:'after final end',at:250,end:100,expected:undefined},
+  {name:'later current slot',at:200,end:100,next:200,expected:'slot-b'},
+  {name:'implicit end at next boundary',at:200,next:200,expected:'slot-b'},
+  {name:'unbounded final slot',at:250,expected:'slot-a'},
+] as const) it(`R3F3 fresh and replacement automatic startup uses interval: ${scenario.name}`,async()=>{
+  for(const remembered of [false,true]) {
+    const f=runtimeFixture();
+    f.config.slots=[{slotKey:'slot-a',sourceId:'a',startAt:0,endAt:'end' in scenario?scenario.end:undefined,available:true},...('next' in scenario?[{slotKey:'slot-b',sourceId:'b',startAt:scenario.next,available:true}]:[])];
+    f.config.sources.push({id:'b',publicUrl:'https://stream.vrcdn.live/live/b.live.ts'});
+    if(remembered)f.config.currentSourceId='a';
+    await f.worker.start();f.encoded();f.advance(scenario.at);
+    for(const slot of f.config.slots) f.observations.set(slot.slotKey,{...slot,observedAt:scenario.at,ready:true,progressing:true});
+    await f.worker.tick();
+    assert.equal(f.worker.getState().current?.slotKey,scenario.expected);
+    if(!scenario.expected)assert.equal(f.counts().selections,0);
+    await f.worker.stop();
+  }
+});
+it('R3F3 an already selected healthy set can overrun its explicit end',async()=>{
+  const f=runtimeFixture();f.config.slots[0].endAt=100;
+  await f.worker.start();f.encoded();f.observations.set('slot-a',{slotKey:'slot-a',sourceId:'a',observedAt:0,ready:true,progressing:true});await f.worker.tick();
+  assert.equal(f.worker.getState().current?.slotKey,'slot-a');f.advance(200);f.observations.get('slot-a').observedAt=200;await f.worker.tick();
+  assert.equal(f.worker.getState().current?.slotKey,'slot-a');await f.worker.stop();
+});

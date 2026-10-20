@@ -760,3 +760,38 @@ exact task and confirm STOPPED; do not erase admission records to bypass capacit
 
 See [integration verification](../engineering/event-broadcast-verification.md)
 for tested behavior, resource methods, historical/current evidence and rollout gates.
+
+### Review follow-up: terminal recovery, initial selection and host status
+
+Terminal worker observations and actual task STOPPED reconciliation settle all
+queued and claimed commands for that session. Error outcomes fail outstanding
+commands; normal completion cancels remaining work. Retries converge without
+releasing admission early. The operator's Start control also waits for confirmed
+task stop; command settlement alone does not free a held output or reservation.
+
+Public managed output links include the selected required VRCDN destination and
+enabled, entitled optional Twitch destinations. Other configured VRCDN accounts
+remain private configuration choices. Direct performer fallback links remain
+available.
+
+Initial automatic selection uses authored half-open slot intervals. Missing
+ends extend to the next authored start, or indefinitely for the last slot.
+Fresh/replacement startup stays on slate in gaps or after an explicit final end,
+even when configuration remembers an old source. Future sources may prepare
+within the existing two-minute window and cannot promote before their boundary.
+A healthy source already selected by this worker may continue its set; calendar
+end is not a media cutoff. Explicit operator selection remains separate.
+
+Host status spends at most four probes on current/upcoming performers, sharing a
+four-probe process-wide concurrency bound and cache. It waits at most ten seconds
+for observations and returns partial results without queuing background work.
+Unprobed links stay unknown; all authored roster links remain accessible. The
+client gives requests twelve seconds and schedules its next refresh thirty
+seconds after completion, avoiding overlapping refreshes.
+
+The third review image
+`sha256:1810e5e35e2707af0d735370c0ff1ae817b07fd9cffe32fa7c8a9646c288c1c3`
+(Node 22.23.3) passed `event-join-local-proof.mjs` and the existing startup proof.
+The join proof covers actual media through gap, boundary, healthy overrun and
+replacement after explicit end. Prior sustained media evidence remains scoped to
+its original image; see the verification page for current hashes and limits.

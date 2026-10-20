@@ -3,33 +3,39 @@ export type PublicStatusSource = { key: string; url: string };
 export function reportedSourceState(value: SourceObservation | undefined, now: number): SourceObservation['state'] {
  return value && now-value.observedAt<=60_000 && value.observedAt<=now ? value.state : 'unavailable';
 }
-/** Shared queue bounds probes across simultaneous event requests. */
-export function createSourceStatusReader(probe: (source: PublicStatusSource)=>Promise<SourceObservation>, now=Date.now) {
+/** Four actual probes globally, with no queued work after a partial response.
+ * Provider probes have their own abort deadlines; this also bounds waiting for
+ * shared pending cache entries. Omitted sources remain unknown to the caller.
+ */
+export function createSourceStatusReader(probe: (source: PublicStatusSource)=>Promise<SourceObservation>, now=Date.now, requestTimeoutMs=10_000) {
  const cache=new Map<string,{expiresAt:number; value:Promise<SourceObservation>}>();
  let active=0;
- const queue:Array<()=>void>=[];
- async function check(source:PublicStatusSource):Promise<SourceObservation> {
-  if(active>=4) await new Promise<void>(resolve=>queue.push(resolve));
-  else active++;
-  try { return await probe(source); }
-  catch { return {state:'unavailable',observedAt:now()}; }
-  finally { const next=queue.shift(); if(next) next(); else active--; }
- }
  return async (sources:readonly PublicStatusSource[]):Promise<Record<string,SourceObservation>> => {
   const unique=new Map(sources.map(source=>[source.key,source]));
-  const entries=await Promise.all([...unique.values()].map(async source=>{
+  const observations:Record<string,SourceObservation>={};
+  const pending:Promise<void>[]=[];
+  for(const source of unique.values()) {
    let entry=cache.get(source.key);
    if(!entry || entry.expiresAt<=now()) {
-    const fresh={expiresAt:Infinity,value:check(source)};
-    fresh.value=fresh.value.then(value=>{fresh.expiresAt=now()+30_000;return value});
+    if(active>=4) continue;
+    active++;
+    const fresh={expiresAt:Infinity,value:Promise.resolve().then(()=>probe(source))};
+    fresh.value=fresh.value.catch(():SourceObservation=>({state:'unavailable',observedAt:now()})).then(value=>{
+     fresh.expiresAt=now()+30_000;
+     return value;
+    }).finally(()=>{active--;});
     cache.set(source.key,fresh);
     entry=fresh;
    }
-   const value=await entry.value;
-   return [source.key,{...value,state:reportedSourceState(value,now())}] as const;
-  }));
+   pending.push(entry.value.then(value=>{observations[source.key]={...value,state:reportedSourceState(value,now())};}));
+  }
+  let timer:ReturnType<typeof setTimeout>|undefined;
+  try {
+   await Promise.race([Promise.all(pending),new Promise<void>(resolve=>{timer=setTimeout(resolve,requestTimeoutMs);})]);
+  } finally { clearTimeout(timer); }
   for(const [key,entry] of cache) if(entry.expiresAt<=now()) cache.delete(key);
-  return Object.fromEntries(entries);
+  // Late completion may populate the shared cache, but cannot mutate this reply.
+  return {...observations};
  };
 }
 

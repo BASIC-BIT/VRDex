@@ -96,23 +96,24 @@ export function EventHostContent({ event }: { event: PublicEvent }) {
   useEffect(() => {
     let cancelled = false;
     const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const refresh = async () => {
       setNow(Date.now());
       try {
-        const response = await fetch(`${path}/host/status`, { signal: controller.signal });
+        const response = await fetch(`${path}/host/status`, { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(12_000)]) });
         if (response.ok) {
           const data = parseSourceObservations(await response.json());
           if (!cancelled) setObservations(data);
         }
       } catch { /* Links remain usable during provider failures. */ }
+      finally { if (!cancelled) timer = setTimeout(() => void refresh(), 30_000); }
     };
     void refresh();
-    const timer = setInterval(() => void refresh(), 30_000);
     const clock = setInterval(() => setNow(Date.now()), 1000);
     return () => {
       cancelled = true;
       controller.abort();
-      clearInterval(timer);
+      clearTimeout(timer);
       clearInterval(clock);
     };
   }, [path]);

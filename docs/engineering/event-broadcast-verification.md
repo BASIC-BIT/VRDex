@@ -187,14 +187,14 @@ physical device playback or live-provider acceptance.
 
 ## Subsequent controller review follow-up (October 20)
 
-The later review wave changes `event-worker.mjs`; its current hash is
+The second review wave changed `event-worker.mjs`; its snapshot hash is
 `4fe138a5bd50502c04bb9391ed465031293b2bbaef282a31477b53f0ba2a8118`.
 The other eight packaged modules still match the retained two-hour manifest.
 Renderer, decoder and sender sustained-media evidence therefore keeps its
 original scope. The old image is not proof of this changed controller, and its
 manifest and failed-attempt evidence remain untouched.
 
-Fresh local image
+That wave's local image
 `sha256:143cbd55aa8b1f4a5c55706ff58fa42e2b6b8660ee24e89f5fadf0d78901c3dd`
 uses Node 22.23.3 and the changed controller. The actual startup proof passed:
 malformed primary setup caused natural CLI exit with zero renewals and an error
@@ -214,6 +214,43 @@ that destination saves cannot mutate active/reserved sessions, and that detached
 projections do not consume the bounded eligible-source configuration. None of
 these local results implies live-provider or hosted acceptance. No additional
 two-hour run was required for unchanged encoder/transport modules.
+
+## Third controller review follow-up (October 20)
+
+The third wave changes initial automatic selection to authored half-open slot
+intervals. Fresh and replacement workers stay on slate in schedule gaps and
+after the final explicit end; an already selected healthy source may overrun.
+Remembered source IDs do not establish playback. The current controller hash is
+`6e1c3ea329cb202b09b7331c500998278f0c2fa52e4b3be4979b7d358ce66e41`.
+The other eight packaged runtime modules still match the prior manifests.
+
+Local image
+`sha256:1810e5e35e2707af0d735370c0ff1ae817b07fd9cffe32fa7c8a9646c288c1c3`
+uses Node 22.23.3. `node scripts/event-join-local-proof.mjs` passed a real
+controller/decoder/renderer/encoder/required-sender run: slate before the next
+boundary, selection after the boundary, continued healthy playback after its
+end, and replacement startup remaining on slate after both slots ended. Each
+session renewed authority and reported progressing publication. Both captured
+streams were 720p30 H.264 with 48 kHz AAC, with maximum 34 ms packet gaps and
+one-second GOPs. The expired feed was never opened.
+
+The same image also passed the startup fencing proof. Exact image IDs, launch
+arguments, inspected mounts/read-only root/network/cgroup limits, exit state,
+packaged hashes, logs, raw media and media hashes are retained. Only harness
+scripts and evidence directories were mounted; runtime modules came from the
+image. Runs used no external network and two-CPU/four-GiB limits. This is bounded
+synthetic controller integration evidence, not a fresh two-hour soak or provider
+acceptance. The earlier two-hour and round-two proofs retain their original
+snapshot scope.
+
+Backend regressions separately verify terminal command settlement through actual
+observations and process reconciliation, capacity held until confirmed STOPPED,
+and selected-only required public output links. Host-status regressions cover an
+80-slot roster, bounded request duration and probe fanout, partial observations
+and refresh scheduling. Desktop/mobile fixture checks verify usable authored
+links and Start disabled while a terminal task is held, then available after
+command settlement and confirmed stop. Fixture UI state transitions do not
+substitute for the separate Convex/ECS boundary tests.
 
 ## Browser and authentication evidence boundaries
 

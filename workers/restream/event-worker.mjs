@@ -19,6 +19,19 @@ export async function bounded(operation, timeoutMs = 3000) {
         clearTimeout(timer);
     }
 }
+/** Join an authored half-open interval; remembered source IDs are not playback.
+ * Missing ends extend only to the following authored start (or indefinitely for
+ * the final slot). Future sources may prepare, but policy still gates promotion.
+ */
+function initialAutomaticSlot(slots, now) {
+    const active = slots.filter((slot, index) => {
+        const end = slot.endAt ?? slots[index + 1]?.startAt;
+        return slot.startAt <= now && (end === undefined || now < end);
+    });
+    if (active.length === 1 && active[0].available)
+        return active[0];
+    return slots.find(slot => slot.available && slot.startAt > now);
+}
 /** Output contract: start, bounded synchronous enqueue, getState({publishing}),
  * synchronous stopNow (publication fence), asynchronous stop (cleanup).
  * The CLI installs independent primary and explicitly enabled optional senders.
@@ -214,7 +227,7 @@ export function createEventWorker({ identity, control, renderer, outputs, create
                 for (const source of config.sources)
                     sourceURLs.set(source.id, source.publicUrl);
                 mode = config.mode;
-                current = config.slots.find(s => s.sourceId === config.currentSourceId);
+                current = mode === 'automatic' ? undefined : config.slots.find(s => s.sourceId === config.currentSourceId);
                 if (!current && mode === 'manual' && config.sources.some(s => s.id === config.currentSourceId))
                     current = { slotKey: `manual-${config.currentSourceId}`, sourceId: config.currentSourceId, startAt: lease.serverNow, available: true };
                 started = true;
@@ -312,7 +325,7 @@ export function createEventWorker({ identity, control, renderer, outputs, create
                 }
                 if (!pending) {
                     const ordered = config.slots;
-                    const next = current ? ordered.slice(ordered.findIndex(s => s.slotKey === current.slotKey) + 1).find(s => s.available) : [...ordered].reverse().find(s => s.available && s.startAt <= scheduleNow()) ?? ordered.find(s => s.available);
+                    const next = current ? ordered.slice(ordered.findIndex(s => s.slotKey === current.slotKey) + 1).find(s => s.available) : initialAutomaticSlot(ordered, scheduleNow());
                     const evidence = observation(current), nextReadiness = observation(next);
                     const decision = decideHandoff({ scheduleNow: scheduleNow(), observationNow: clock(), sessionDeadline: config.sessionDeadline, mode, current, next, evidence, nextReadiness, policy: { ...config.policy, ...(config.policy.silence?.thresholdDb !== silenceThresholdDb ? { silence: undefined } : {}) } });
                     if (decision.kind === 'stop') {

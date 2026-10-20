@@ -4,7 +4,7 @@ import { canReadProfile } from "./_profilePermissions";
 import { v } from "convex/values";
 import { mutation, type MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
-import { validateBroadcastPolicy, allocateSessionCommandSequence, attachPendingProgramCommands, EVENT_BROADCAST_STOP_GRACE_MS, EVENT_BROADCAST_COMMAND_BATCH, EVENT_BROADCAST_LEASE_MS, EVENT_BROADCAST_MAX_SOURCES, EVENT_BROADCAST_MAX_SCENES, EVENT_BROADCAST_MAX_OUTPUTS, EVENT_BROADCAST_RENEW_AFTER_MS, requireEventMediaBridgeToken, observedBroadcastStateValidator, workerSessionArgs, } from "./_eventBroadcastInputs";
+import { settleTerminalSessionCommands, validateBroadcastPolicy, allocateSessionCommandSequence, attachPendingProgramCommands, EVENT_BROADCAST_STOP_GRACE_MS, EVENT_BROADCAST_COMMAND_BATCH, EVENT_BROADCAST_LEASE_MS, EVENT_BROADCAST_MAX_SOURCES, EVENT_BROADCAST_MAX_SCENES, EVENT_BROADCAST_MAX_OUTPUTS, EVENT_BROADCAST_RENEW_AFTER_MS, requireEventMediaBridgeToken, observedBroadcastStateValidator, workerSessionArgs, } from "./_eventBroadcastInputs";
 type Request = {
     bridgeToken: string;
     eventId: Id<"events">;
@@ -185,6 +185,8 @@ export const acknowledgeCommand = mutation({
         await ctx.db.patch(args.sessionId, { ...(args.outcome === "succeeded" && mode ? { broadcastMode: mode } : {}), ...observed, ...(args.outcome === "succeeded" && (mode || observedState || args.observedSourceId !== undefined) ? {programObservedAt:now} : {}), ...(observedState === undefined ? {} : { status: observedState }), lastAcknowledgedSequence: args.sequence, updatedAt: now });
         if (args.outcome === "succeeded")
             await ctx.db.patch(found.program._id, { ...observed, ...(args.observedOutputId === undefined ? {} : { currentOutputId: args.observedOutputId ?? undefined }), ...(observedState === undefined ? {} : { state: observedState }), ...(["ended", "error"].includes(observedState ?? "") ? { activeSessionId: undefined } : {}), updatedAt: now });
+        if (observedState === "ended" || observedState === "error")
+            await settleTerminalSessionCommands(ctx.db, args.sessionId, observedState, now);
         await ctx.db.insert("eventMediaAuditEvents", { programId: found.program._id, eventId: args.eventId, sessionId: args.sessionId, commandId: command._id, actorSurface: "worker", action: "worker_command_acknowledged", privateSummary: `Sequence ${args.sequence}: ${args.outcome}.`, createdAt: now });
         return { accepted: true as const, duplicate: false };
     },
@@ -274,6 +276,8 @@ export const observeProgram = mutation({ args: { ...workerSessionArgs, state: ob
                 return { ...await reject(ctx, args, "Observed output is unavailable."), accepted: false };
         }
         const terminal = ["ended", "error"].includes(args.state);
+        if (args.state === "ended" || args.state === "error")
+            await settleTerminalSessionCommands(ctx.db, args.sessionId, args.state, Date.now());
         if (found.session.status !== args.state || found.session.currentSourceId !== args.sourceId)
             await ctx.db.insert("eventMediaAuditEvents", { programId: found.program._id, eventId: args.eventId, sessionId: args.sessionId, actorSurface: "worker", action: "worker_program_observed", privateSummary: `${args.state}; encoded output ${args.outputMs}ms.`, createdAt: Date.now() });
         await ctx.db.patch(args.sessionId, { status: args.state, programObservedAt:Date.now(), currentSourceId: args.sourceId, broadcastMode: args.mode ?? found.session.broadcastMode, health: { lastHeartbeatAt: Date.now() }, updatedAt: Date.now() });
@@ -335,6 +339,8 @@ export const recordProcessStatus = mutation({ args: { bridgeToken: v.string(), s
         const session = await ctx.db.get(args.sessionId);
         if (!session || session.workerTaskId !== args.taskArn)
             return { accepted: false };
+        if (args.stopped)
+            await settleTerminalSessionCommands(ctx.db, session._id, session.status === "ended" ? "ended" : "error", Date.now());
         if (session.dispatchStopConfirmedAt !== undefined || (!session.dispatchId && session.workerTaskStatus === "stopped"))
             return { accepted: args.stopped };
         await ctx.db.patch(session._id, { ...(args.stopped ? { workerTaskCleanupPending: true, ...(session.dispatchId ? { dispatchStopConfirmedAt: Date.now() } : {}) } : {}), workerTaskStatus: args.stopped ? "stopped" : "running", ...(args.stopped && !['ended', 'error'].includes(session.status) ? { status: "error" as const, leaseExpiresAt: Date.now() } : {}), updatedAt: Date.now() });

@@ -412,7 +412,7 @@ export function EventOperatorControls({
               </select>
             </label>
             <Button
-              disabled={disabled || Boolean(active) || !outputKey}
+              disabled={disabled || Boolean(active) || status.outputConfigurationLocked || !outputKey}
               onClick={() => submit(() => onStart(outputKey))}
             >
               Start

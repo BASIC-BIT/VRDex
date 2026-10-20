@@ -278,6 +278,17 @@ export function EventOperatorFixture() {
         >
           End session
         </button>
+        <button onClick={() => setStatus((value) => ({
+          ...value,
+          commands: [{ sessionId: "session", commandId: "startup", commandType: "start_program", status: "claimed", actorSurface: "worker", fallbackLinkCount: 0, createdAt: fixtureNow, updatedAt: fixtureNow } as unknown as OperatorStatus["commands"][number]],
+        }))}>Claim startup</button>
+        <button onClick={() => setStatus((value) => ({
+          ...value,
+          commands: value.commands.map((command) => ({ ...command, status: "failed" })),
+        }))}>Settle commands</button>
+        <button onClick={() => setStatus((value) => ({ ...value, outputConfigurationLocked: false }))}>
+          Confirm task stopped
+        </button>
         <output aria-label="Command count">{count}</output>
         <button onClick={() => setFail(true)}>Fail commands</button>
         <button

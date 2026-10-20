@@ -5,8 +5,8 @@ it('deduplicates sources, caps concurrent probes and preserves observation age',
  let active=0, maximum=0, calls=0;
  const read=createSourceStatusReader(async () => { calls++; active++; maximum=Math.max(active,maximum); await new Promise(resolve=>setTimeout(resolve,5)); active--; return {state:'live',observedAt:100}; },()=>200);
  const sources=Array.from({length:9},(_,i)=>({key:`vrcdn:${i}`,url:`vrcdn:${i}`}));
- const first=await read([...sources,...sources]); await read(sources);
- assert.equal(calls,9); assert.equal(maximum,4); assert.equal(first['vrcdn:0'].observedAt,100);
+ const first=await read([...sources,...sources]); await read(sources.slice(0,4));
+ assert.equal(calls,4); assert.equal(Object.keys(first).length,4); assert.equal(maximum,4); assert.equal(first['vrcdn:0'].observedAt,100);
  assert.equal(reportedSourceState(first['vrcdn:0'],60101),'unavailable');
 });
 it('isolates failed provider checks',async()=>{

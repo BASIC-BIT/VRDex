@@ -222,3 +222,23 @@ for (const status of ['scheduled', 'starting', 'live', 'hold', 'fallback', 'stop
     assert.equal((await f.a.actor.query(api.events.getEventMediaControlStatus, {currentSlug:f.a.event.slug})).outputConfigurationLocked, false);
   });
 }
+
+it('R3F2 only selected VRCDN and enabled optional Twitch are public while all accounts stay manageable',async()=>{
+  for(const enabled of [false,true]) {
+    const f=await fixture();
+    await f.t.run(({db})=>db.patch(f.a.event.eventId,{publicationState:'published',mediaLinks:[{label:'Direct',url:'https://example.test/direct',type:'stream',presentation:'open'}]}));
+    const first=await f.a.actor.mutation(api.events.configureVrcdnOutput,{...f.setup,currentSlug:f.a.event.slug,playbackLinks:[{platform:'browser',url:'https://example.test/first'}]});
+    await f.a.actor.mutation(api.events.configureVrcdnOutput,{...f.setup,currentSlug:f.a.event.slug,key:'alternate',playbackLinks:[{platform:'browser',url:'https://example.test/alternate'}]});
+    process.env.VRDEX_TWITCH_OUTPUT_ACCOUNTS_JSON=JSON.stringify([{key:'owned',channel:'channel',credentialRef:'event-media/twitch/owned',ownerCommunityProfileId:f.a.id}]);
+    await f.a.actor.mutation(api.events.configureTwitchOutput,{currentSlug:f.a.event.slug,key:'twitch',label:'Twitch',channel:'channel',outputAccountKey:'owned',simulcastEnabled:enabled,...consent});
+    const scheduled=await f.a.actor.mutation(api.events.scheduleEventMediaWorker,{currentSlug:f.a.event.slug,outputKey:'main',startImmediately:true});
+    const args={bridgeToken,eventId:f.a.event.eventId,sessionId:scheduled.sessionId,workerId:'selected',epoch:0};
+    const lease=await f.t.mutation(worker('acquireSession'),args);
+    await f.t.mutation(worker('observeProgram'),{...args,epoch:lease.epoch,state:'hold',publishing:true,outputMs:1000,outputId:first.outputId});
+    const urls=(await f.t.query(api.events.getPublicBySlug,{slug:f.a.event.slug}))!.mediaLinks.map(link=>link.url);
+    assert(urls.some(url=>url==='https://example.test/first'));assert(urls.some(url=>url==='https://example.test/direct'));
+    assert.equal(urls.some(url=>url==='https://example.test/alternate'),false);
+    assert.equal(urls.some(url=>url==='https://www.twitch.tv/channel'||url==='https://twitch.tv/channel'),enabled);
+    assert.equal((await f.a.actor.query(api.events.getEventMediaControlStatus,{currentSlug:f.a.event.slug})).outputs.length,3);
+  }
+});

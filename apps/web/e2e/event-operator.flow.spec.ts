@@ -274,3 +274,21 @@ for (const terminal of ["error", "ended"] as const)
         page.getByText(label, { exact: true }).locator(".."),
       ).toContainText("Unknown");
   });
+
+
+test("terminal failure permits Start only after command settlement and actual task stop @flow @fixture", async ({ page }, info) => {
+  await page.goto("/playwright/event-operator");
+  await page.getByLabel("Primary output", { exact: true }).selectOption("primary");
+  await page.getByRole("button", { name: "Claim startup", exact: true }).click();
+  await page.getByRole("button", { name: "Fail worker", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Start", exact: true })).toBeDisabled();
+  await page.getByRole("button", { name: "Settle commands", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Start", exact: true })).toBeDisabled();
+  await page.getByTestId("event-operator-controls").screenshot({ path: info.outputPath("terminal-held.png") });
+  await page.getByRole("button", { name: "Confirm task stopped", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Start", exact: true })).toBeEnabled();
+  await page.getByTestId("event-operator-controls").screenshot({ path: info.outputPath("terminal-recovered.png") });
+  await page.getByRole("button", { name: "Start", exact: true }).click();
+  await expect(page.getByLabel("Command count")).toHaveText("1");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});

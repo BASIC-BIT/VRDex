@@ -63,6 +63,17 @@ export async function attachPendingProgramCommands(db: DatabaseWriter, sessionId
   }
 }
 
+/** Terminal execution cannot leave intent pending for a session that cannot run. */
+export async function settleTerminalSessionCommands(db: DatabaseWriter, sessionId: Id<"eventMediaSessions">, state: "ended" | "error", now: number) {
+  for (const status of ["queued", "claimed"] as const) {
+    const pending = await db.query("eventMediaCommands")
+      .withIndex("by_sessionId_status_createdAt", q => q.eq("sessionId", sessionId).eq("status", status)).collect();
+    for (const command of pending) {
+      await db.patch(command._id, { status: state === "error" ? "failed" : "cancelled", completedAt: now, updatedAt: now });
+    }
+  }
+}
+
 export type BroadcastPolicy = {
   silence?: { thresholdDb: number; durationMs: number };
   maxOverrunMs?: number;
