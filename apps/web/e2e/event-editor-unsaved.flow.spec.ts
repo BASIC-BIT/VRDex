@@ -420,12 +420,12 @@ test('retained contributor publication rejects forbidden newer fields without re
   await expect(page.getByRole('textbox', { name: 'Source text', exact: true })).toHaveValue('New forbidden source');
 });
 
-async function openOutput(page: import('@playwright/test').Page, delayedAccounts = false) {
-  await page.addInitScript(delayed => {
+async function openOutput(page: import('@playwright/test').Page, delayedAccounts = false, existingStream = false) {
+  await page.addInitScript(({ delayed, existingStream }) => {
     const startAt = Date.UTC(2027, 9, 15, 20);
-    localStorage.setItem('event-lineup-fixture-v1', JSON.stringify({ id: 'output', slug: 'output', title: 'Output night', startAt, endAt: startAt + 3600000, timezone: 'UTC', scheduleKind: 'timed', status: 'scheduled', publicationState: 'draft_private', source: { sourceType: 'contributor' }, watchSurfaceEnabled: true, watchMode: 'event_stream', mediaLinks: [], worlds: [], participants: [], slots: [], preservedParticipantAssociationIds: [], preservedSlotAssociationIds: [], preservedWorldAssociationIds: [] }));
+    localStorage.setItem('event-lineup-fixture-v1', JSON.stringify({ id: 'output', slug: 'output', title: 'Output night', startAt, endAt: startAt + 3600000, timezone: 'UTC', scheduleKind: 'timed', status: 'scheduled', publicationState: 'draft_private', source: { sourceType: 'contributor' }, watchSurfaceEnabled: true, watchMode: 'event_stream', mediaLinks: existingStream ? [{ type: 'stream', label: 'Output', url: 'vrcdn:existing-output', presentation: 'open' }] : [], worlds: [], participants: [], slots: [], preservedParticipantAssociationIds: [], preservedSlotAssociationIds: [], preservedWorldAssociationIds: [] }));
     if (delayed) localStorage.setItem('fixture-output-defer-accounts', 'true');
-  }, delayedAccounts);
+  }, { delayed: delayedAccounts, existingStream });
   await page.goto('/playwright/event-lineup?editor&output');
   await expect(page.getByLabel('Event title', { exact: true })).toHaveValue('Output night');
   await nav(page, 'Review');
@@ -545,4 +545,11 @@ test('staff output edited during event save remains dirty after event completion
   await expect(page.getByLabel('Output label', { exact: true })).toHaveValue('Newer output');
   await expect(outputDirty(page)).toHaveAttribute('data-event-dirty', 'true');
   await dismissLeave(page);
+});
+
+test('output editing prefills the supported MPEG-TS browser transport @flow @fixture', async ({ page }) => {
+  await openOutput(page, true, true);
+  await expect(page.getByLabel('Watch preview URL', { exact: true })).toHaveValue('https://stream.vrcdn.live/live/existing-output.live.ts');
+  await expect(page.getByLabel('Quest stream URL', { exact: true })).toHaveValue('https://stream.vrcdn.live/live/existing-output.live.ts');
+  await expect(page.getByLabel('PC stream URL', { exact: true })).toHaveValue('rtspt://stream.vrcdn.live/live/existing-output');
 });

@@ -2334,8 +2334,14 @@ export const listHostedByCommunitySlug = query({
 });
 
 export const listVrcdnOutputAccounts = query({
-  args: {},
-  handler: () => listPublicVrcdnOutputAccounts(),
+  // Legacy callers may omit the slug, but no longer receive a global account pool.
+  args: { currentSlug: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    if (args.currentSlug === undefined) return [];
+    const subject = await requireAuthenticatedSubject(ctx);
+    const { event } = await getMediaManageableEventBySlug(ctx, args.currentSlug, subject);
+    return listPublicVrcdnOutputAccounts(event.communityProfileId);
+  },
 });
 
 export const getEventMediaControlStatus = query({
@@ -3553,15 +3559,15 @@ export const configureVrcdnOutput = mutation({
       throw new Error("A cancelled event cannot configure a media output.");
     }
 
-    const account = args.outputAccountKey === undefined ? undefined : getVrcdnOutputAccount(args.outputAccountKey);
-
-    if (args.outputAccountKey !== undefined && account === undefined) {
-      throw new Error("Output account is not configured.");
-    }
+    const account = args.outputAccountKey === undefined && args.credentialRef === undefined ? undefined : getVrcdnOutputAccount({
+      communityProfileId: event.communityProfileId,
+      key: args.outputAccountKey,
+      credentialRef: args.credentialRef,
+    });
 
     const output = sanitizeVrcdnOperatorOwnedOutputSetup({
       ...args,
-      credentialRef: account?.credentialRef ?? args.credentialRef,
+      credentialRef: account?.credentialRef,
       playbackLinks: args.playbackLinks ?? account?.playbackLinks,
     });
     const now = Date.now();

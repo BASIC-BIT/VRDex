@@ -149,6 +149,7 @@ describe("browser auth-session authorization boundary", () => {
 
   it("inventories every Next route or server page that forwards a browser JWT to Convex", () => {
     const inventory = new Map<string, string>([
+      ["apps/web/src/app/[slug]/events/[eventSlug]/operate/page.tsx", "api.events.getEventMediaControlStatus"],
       ["apps/web/src/app/api/account/media-contributions/submissions/[submissionId]/file/route.ts", "api.profileMediaSubmissions.publisherDetail"],
       [
         "apps/web/src/app/api/account/media-kit/[profileId]/accessibility-description/route.ts",
@@ -213,6 +214,13 @@ describe("browser auth-session authorization boundary", () => {
 
     for (const [file, guardedCall] of inventory) {
       assert.match(source(file), new RegExp(guardedCall.replaceAll(".", "\\.")));
+      if (guardedCall === "api.events.getEventMediaControlStatus") {
+        const page = source(file);
+        assert.match(page, /if \(!token\) redirect\(signInPath/);
+        assert.match(page, /\{ token \}/);
+        assert.match(page, /if \(!status\.canControl \|\| status\.eventPath !==/);
+        assert.ok(page.indexOf("if (!status.canControl") < page.indexOf("<EventOperatorView"));
+      }
       if (guardedCall === "viewerQuery" || guardedCall === "ensureViewer") {
         assert.match(source(file), /if \(viewer === null\)/);
       }

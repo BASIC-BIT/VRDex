@@ -32,7 +32,9 @@ export function createTwitchAdapter(request: Extract<PlaybackRequest, { kind: "t
     on(sdk.Player.READY, () => { if (disposed) return; ready = true; player!.setVolume(volume); player!.setMuted(muted); if (!paused) player!.play(); });
     on(sdk.Player.PLAYING, () => { if (disposed || paused) { player?.pause(); return; } finish(true); notify({ status: "playing" }); });
     on(sdk.Player.PAUSE, () => { if (!disposed) notify({ status: "paused" }); });
-    on(sdk.Player.PLAYBACK_BLOCKED, () => { if (disposed) return; paused = true; finish(false); notify({ status: "blocked" }); });
+    // Autoplay denial is not an explicit Pause. Keep the requested play intent
+    // so a gesture in the provider iframe can recover without another parent click.
+    on(sdk.Player.PLAYBACK_BLOCKED, () => { if (disposed || paused) return; finish(false); notify({ status: "blocked" }); });
     on(sdk.Player.OFFLINE, () => { if (disposed) return; finish(false); notify({ status: "unavailable" }); });
   });
   return {

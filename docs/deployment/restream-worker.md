@@ -177,7 +177,7 @@ Current recommendation: keep `8192` CPU / `16384` MiB as the `1080p60` CPU-Farga
 
 ## VRCDN Live-Output POC Harness
 
-Current recommendation: prepare a three-account VRCDN test harness before running non-synthetic output. Two accounts act as source feeds and one account acts as the watched output target.
+Historical June 2026 POC plan: prepare a three-account VRCDN test harness before running non-synthetic output. Two accounts act as source feeds and one account acts as the watched output target.
 
 Required operator-provided inputs for the first full POC:
 
@@ -188,7 +188,7 @@ Required operator-provided inputs for the first full POC:
 - secret reference for source B synthetic-pusher ingest credentials
 - secret reference for output ingest credentials
 
-Do not paste stream keys, ingest URLs with embedded keys, provider tokens, signed URLs, or account passwords into chat, docs, git, Terraform variables, Convex event records, or logs. Store secret values only in Secrets Manager or the approved secret store, then pass reference names through Terraform or the control plane. The POC should first push local synthetic audio/video into source A and source B, restream the public playback links through the worker, push to the output account, and watch the output account's public playback page or HLS URL for validation.
+Do not paste stream keys, ingest URLs with embedded keys, provider tokens, signed URLs, or account passwords into chat, docs, git, Terraform variables, Convex event records, or logs. Store secret values only in Secrets Manager or the approved secret store, then pass reference names through Terraform or the control plane. The POC should first push local synthetic audio/video into source A and source B, restream the public playback links through the worker, push to the output account, and validate the output using its public MPEG-TS URL and separate PC/Quest links. The originally proposed derived HLS URL returned 404 and is not supported; the browser uses the existing MPEG-TS transport.
 
 The checked-in POC entrypoint is `workers/restream/vrcdn-poc.mjs`. It has three modes:
 
@@ -260,7 +260,7 @@ Current provider account references:
 - 2026-06-10 two-account relay: source pusher streamed synthetic source A into `basicbit1`; output restream pulled `https://stream.vrcdn.live/live/basicbit1.live.ts`, inserted the hold slate, then pushed to `basicbit`. `output-restream`, `720p30`, `1024` CPU / `2048` MiB, 120 seconds. The task completed with exit `0`, `8` runtime commands, and `119978ms` final output progress. Private artifacts uploaded to `s3://vrdex-restream-worker-079358094174-artifacts/synthetic-benchmarks/2026-06-10T05-43-45-393Z/`, including `report.html`, `vrcdn-poc-report.json`, and the hold-slate frame. A manual overlapping retry failed with VRCDN `403 Stream is locked` because the output account was already occupied by the successful relay.
 - 2026-06-10 longer two-account relay: source pusher streamed synthetic source A into `basicbit1` for `1920.839` seconds; output restream pulled `https://stream.vrcdn.live/live/basicbit1.live.ts`, inserted the hold slate, then pushed to `basicbit`. `output-restream`, `720p30`, `1024` CPU / `2048` MiB, 1800 seconds. The output task completed with exit `0`, `8` runtime commands, `3575` progress samples, `1799.641` elapsed seconds, and `1799979ms` final output progress. Private artifacts uploaded to `s3://vrdex-restream-worker-079358094174-artifacts/synthetic-benchmarks/vrcdn-long-20260610T170000Z/2026-06-10T17-01-31-107Z/`, including `report.html`, `vrcdn-poc-report.json`, and the hold-slate frame.
 
-Next provider test should move to the full three-account source A/source B/output POC when another source account is available. Confirm the panel preview during the live task window and keep using stored secret references instead of pasting secret values into chat or docs.
+As of the June 2026 POC, the next provider test required a third account for source A/source B/output. For the current October event worker, fresh two-source acceptance remains required; the historical POC is not that acceptance. Confirm the panel preview during the live task window and keep using stored secret references instead of pasting secret values into chat or docs.
 
 ## Logs And Metrics
 
@@ -542,8 +542,11 @@ filler even on hold frames. Explicit VRCDN setup settings must match that profil
 or the worker reports `invalid_setup`; omitted settings use the profile. Existing
 renderer benchmark profiles remain available to proofs, but the event CLI does
 not advertise 1080p or 60 fps acceptance. This conservative Twitch profile is an
-engineering choice pending current numerical Twitch guidance and real ingest
-verification, not a claim of provider approval. VRCDN's combined bitrate limit is
+engineering choice below the current official 3000 kbps 720p30 example, not a
+claim of provider approval. The official Broadcasting Guidelines were verified
+in a real browser on October 20, 2026: 25/30 fps, two-second keyframes, AAC-LC
+96 kbps compatibility recommendation and 160 kbps maximum. Live ingest and
+playback acceptance remain unverified; see [integration evidence](../engineering/event-broadcast-verification.md). VRCDN's combined bitrate limit is
 not precisely documented; this profile reserves substantial headroom. The existing
 low-latency x264 tune still requires actual AVPro playback verification.
 
@@ -580,11 +583,11 @@ before container/network overhead (roughly 0.88 GB/hour per destination).
 FFmpeg progress counts FLV bytes, excluding TCP/TLS overhead and provider billing.
 The primary used one process, max packet gap was 34 ms and max GOP was 1 second.
 Synthetic evidence is not provider acceptance or a sustained capacity benchmark.
-Fresh two-source provider rehearsal, rights/account verification, Twitch numeric
-guidance, sustained quality/CPU/egress measurements, budget alerts and provider
+Fresh two-source provider rehearsal, rights/account verification, sustained
+quality/CPU/egress measurements, budget alerts and provider
 playback checks remain rollout gates. Do not enable hosted output from this proof.
 
-The final packaged Node 22.23.3/bookworm image also passed the 60-second proof in
+The Task 6 packaged Node 22.23.3/bookworm image also passed the 60-second proof in
 `--network none` with loopback receivers. It retained one primary process and the
 same 34 ms packet-gap/one-second-GOP bounds. Sender CPU was 0.66 seconds primary
 and 13.89 seconds optional; application egress was 14,770,299 and 11,954,114 bytes.
@@ -645,3 +648,66 @@ request ECS StopTask, and confirm DescribeTasks reports STOPPED. Until that
 confirmation, retain its reservation. Ambiguous reservations without a task ARN
 require investigation; do not delete them or mark cleanup complete to free capacity.
 No provider termination was exercised by the local operator fixture tests.
+
+## VRCDN destination registry migration
+
+The October event worker requires deployment-owned destination entitlement for
+VRCDN as well as Twitch. The old globally available hardcoded `basicbit` account
+has been removed. Configure `VRDEX_VRCDN_OUTPUT_ACCOUNTS_JSON` in the intended
+Convex deployment with an array of records:
+
+```json
+[
+  {
+    "key": "organizer-output",
+    "label": "Organizer output",
+    "credentialRef": "event-media/vrcdn/organizer-output",
+    "ownerCommunityProfileId": "EXACT_OWNER_PROFILE_ID_IN_THIS_DEPLOYMENT",
+    "authorizedCommunityProfileIds": [],
+    "playbackLinks": [
+      { "platform": "browser", "url": "https://stream.vrcdn.live/live/organizer.live.ts" },
+      { "platform": "standalone", "url": "https://stream.vrcdn.live/live/organizer.live.ts" },
+      { "platform": "pc", "url": "rtspt://stream.vrcdn.live/live/organizer" }
+    ]
+  }
+]
+```
+
+The deployment operator owns this non-secret environment configuration. Verify
+provider account ownership and the exact event-owning community profile ID
+before adding the binding; local/staging/production IDs differ. Optional grants
+name additional exact community IDs. A community operator's checkbox or generic
+event-management capability cannot add grants. Secret values remain in the
+existing approved store; the ECS bridge's reference-to-secret-ARN mapping must
+match. This adds no credential-issuance service or provider account pool.
+
+Migration order: keep hosted output disabled, inventory the intended existing
+output references without reading secret values, verify each owner/grant,
+configure these bindings in the intended deployment, and confirm authorized
+listing/setup/dispatch plus cross-community denial before enabling any run.
+An existing `basicbit` output can retain its reference only after its verified
+owner binding is explicitly installed; there is no inferred owner or fallback.
+Rotation keeps the reference binding and existing Secrets Manager rotation path;
+changing the reference requires updating both registry and bridge mapping and
+reconfiguring the output. Revocation removes the entry or specific grant.
+
+`events.listVrcdnOutputAccounts({currentSlug})` authenticates and requires the
+current event's media-management capability, then returns only entitled account
+keys, labels and public links. Legacy calls without a slug return an empty list.
+The editor queries after the event exists. `configureVrcdnOutput` accepts the
+existing key or direct-reference arguments, but both require the same entitlement.
+A setup with no credential/account remains a non-publishing draft. Unbound
+references, malformed configuration and duplicate keys/references fail closed.
+Existing ready rows are revalidated at scheduling, dispatch, admission and every
+worker authority boundary; ready state does not grandfather permission.
+
+Managed public-watch links, including cached program links, are withdrawn on
+revocation for either provider. Separately authored direct event/DJ links remain.
+This means malformed registry configuration can interrupt managed browser
+playback through its normal public revalidation. A selected-output revocation
+fences streaming publication on the next bounded worker authority refresh. The
+existing terminal-running ECS cleanup limitation still applies: inspect/stop the
+exact task and confirm STOPPED; do not erase admission records to bypass capacity.
+
+See [integration verification](../engineering/event-broadcast-verification.md)
+for tested behavior, resource methods, historical/current evidence and rollout gates.

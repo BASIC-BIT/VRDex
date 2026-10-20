@@ -47,8 +47,11 @@ export function createEventWorker({ identity, control, renderer, outputs, create
         if (!started || stopped)
             return;
         const now = clock();
-        if (now >= Math.min(authorityUntil, runtimeUntil, enabledUntil))
+        const deadline = Math.min(authorityUntil, runtimeUntil, enabledUntil);
+        if (now >= deadline) {
+            metric({ event: 'event_worker_authority_expired', authority: deadline === enabledUntil ? 'kill-switch' : deadline === runtimeUntil ? 'session-deadline' : 'lease', expiredByMs: now - deadline });
             fence('authority-expired');
+        }
     }
     function acceptLease(lease, sentAt) {
         if (!lease.granted || !Number.isFinite(lease.serverNow) || !Number.isFinite(lease.expiresAt))
@@ -239,7 +242,9 @@ export function createEventWorker({ identity, control, renderer, outputs, create
                 return;
             busy = true;
             try {
-                if (clock() >= enabledUntil - 1000) {
+                // Refresh halfway through the unchanged 10s authority window. A
+                // 1s poll plus bounded 3s request must fit before watchdog expiry.
+                if (clock() >= enabledUntil - 5000) {
                     if (!await bounded(checkEnabled, requestTimeoutMs))
                         throw Error('Worker disabled');
                     enabledUntil = clock() + 10000;
@@ -312,7 +317,7 @@ export function createEventWorker({ identity, control, renderer, outputs, create
                     if (decision.kind === 'switch' && renderer.selectSource(next.slotKey))
                         current = { ...next };
                     // Recover the current decoder after transient failure without moving slots.
-                    if (decision.kind === 'stay' && !revisionBarriers.has(current?.slotKey) && current?.available && mode !== 'hold' && renderer.getState().renderedSlotKey !== current.slotKey)
+                    if ((decision.kind === 'stay' || decision.kind === 'prepare') && !revisionBarriers.has(current?.slotKey) && current?.available && mode !== 'hold' && renderer.getState().renderedSlotKey !== current.slotKey)
                         renderer.selectSource(current.slotKey);
                 }
                 watchdog();

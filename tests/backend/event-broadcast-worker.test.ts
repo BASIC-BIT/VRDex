@@ -1,3 +1,4 @@
+import { bindVrcdnTestAccount } from "./_eventOutputAccountFixture";
 import assert from "node:assert/strict";
 import { it } from "node:test";
 import { convexTest } from "convex-test";
@@ -23,6 +24,7 @@ async function fixture() {
         const now = Date.now();
         const userId = await db.insert("users", { clerkUserId: subject, name: "Owner", email: "owner@example.test", emailVerificationTime: now });
         const profileId = await db.insert("profiles", { slug: "club", displayName: "Club", sortName: "club", aliases: [], tags: [], claimState: "claimed_verified", publicationState: "published", publicSurfacingState: "public", creationSource: "self", updatedAt: now, profileType: "community", community: { categoryTags: [] } });
+    bindVrcdnTestAccount(profileId, "event-media/vrcdn/main");
         await db.insert("profileOwners", { profileId, userId, roleKey: "owner", state: "active", grantedAt: now, updatedAt: now });
     });
     const owner = t.withIdentity({ subject, emailVerified: true, issuer: "test", tokenIdentifier: `test|${subject}` });
@@ -486,4 +488,33 @@ it('I4 late task registration survives manual closure before the ARN was recorde
     const sessions = await f.t.query(api.events.listEventMediaWorkerBridgeSessions, { bridgeToken, workerId: 'bridge' });
     assert.equal(sessions[0].workerTaskId, 'late-task');
     assert.equal(sessions[0].dispatchStopConfirmedAt, undefined);
+});
+it("kill-switch authority refresh tolerates a delayed poll without extending its ten-second hard deadline", async () => {
+    let reads = 0;
+    const f = runtimeFixture({ checkEnabled: async () => { reads++; return true; } });
+    await f.worker.start();
+    f.advance(8000); await f.worker.tick();
+    // The next poll is delayed beyond the original ten-second deadline. A fresh
+    // successful check before that deadline should have renewed kill-switch authority.
+    f.advance(10500); f.worker.watchdog();
+    assert.equal(f.worker.getState().stopped, false);
+    assert.equal(reads, 2);
+    // No more successful checks: the independent watchdog must still fence at 10s.
+    f.advance(18000); f.worker.watchdog();
+    assert.equal(f.worker.getState().stopped, true);
+    assert.equal(f.counts().fenced, 1);
+});
+it('current decoder recovers while its unready successor is being prepared', async () => {
+    const f = runtimeFixture();
+    f.config.currentSourceId = 'a';
+    f.config.slots[0].endAt = 10000;
+    f.config.sources.push({ id: 'b', eventSlotId: 'slot-b', publicUrl: 'https://stream.vrcdn.live/live/b.live.ts', type: 'vrcdn_link' });
+    f.config.slots.push({ slotKey: 'slot-b', sourceId: 'b', startAt: 10000, available: true });
+    f.observations.set('a', { sourceId: 'a', slotKey: 'slot-a', ready: true, progressing: true, observedAt: 0, audioLevelDb: -24 });
+    await f.worker.start();
+    await f.worker.tick();
+    assert.equal(f.counts().selections, 1, 'healthy current must be restored while next decoder prepares');
+    assert.equal(f.worker.getState().current?.sourceId, 'a');
+    assert.equal(f.counts().ackCount, 0, 'preparation does not acknowledge a new slot');
+    await f.worker.stop();
 });

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { spawnSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 const load = () => import('../../workers/restream/output-sender.mjs');
@@ -99,15 +100,26 @@ test('disabled optional destinations are never started and bridge binds each ena
     assert.ok(container.secrets.some((s: any) => s.valueFrom === 'arn:main'));
 });
 test('VRCDN hold program reserves its declared CBR envelope instead of collapsing on still frames', async (t) => {
+    const prerequisite = spawnSync('ffmpeg', ['-hide_banner', '-encoders'], { encoding: 'utf8', timeout: 5000 });
+    assert.equal(prerequisite.status, 0, `FFmpeg is required for the real CBR test: ${prerequisite.error?.message ?? prerequisite.stderr}. Install ffmpeg with libx264 and AAC.`);
+    assert.match(prerequisite.stdout, /libx264/);
+    assert.match(prerequisite.stdout, /\baac\b/);
     const { createProgramRenderer } = await import('../../workers/restream/program-renderer.mjs');
     const renderer = createProgramRenderer();
     t.after(() => renderer.stop());
     let bytes = 0;
     renderer.subscribe((chunk: Buffer) => bytes += chunk.length);
     await renderer.start();
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    const deadline = performance.now() + 15000;
+    while (renderer.getState().outputMs < 3500) {
+        assert.equal(renderer.getState().error, undefined, 'Real encoder must remain healthy');
+        assert.ok(performance.now() < deadline, `Encoder did not produce 3.5 seconds within 15 seconds: ${JSON.stringify(renderer.getState())}`);
+        await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    const outputSeconds = renderer.getState().outputMs / 1000;
+    const bitrateKbps = bytes * 8 / outputSeconds / 1000;
     await renderer.stop();
-    assert.ok(bytes > 500000, `Expected 1800kbps CBR filler during hold; got ${bytes} bytes`);
+    assert.ok(bitrateKbps > 1500 && bitrateKbps < 2600, `Expected the declared 1800kbps CBR video envelope plus TS/audio overhead; got ${bitrateKbps}kbps over ${outputSeconds}s (${bytes} bytes)`);
 });
 test('unsupported VRCDN profile settings are a setup fault rather than silently ignored', async (t) => {
     const mod = await load();

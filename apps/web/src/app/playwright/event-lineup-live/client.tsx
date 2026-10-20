@@ -1,8 +1,12 @@
 "use client";
-import { Profiler, useState } from "react";
-import { ConvexProvider, type ConvexReactClient } from "convex/react";
+import { Profiler, useEffect, useState } from "react";
+import { ConvexProviderWithAuth, useQuery, type ConvexReactClient } from "convex/react";
 import { getFunctionName, type FunctionReference } from "convex/server";
+import { api } from "@convex-generated-api";
+import { eventPlaybackRequest } from "@/lib/event-playback-request";
 import { EventPublicPage } from "../../_components/event-public-page";
+import { EventLineupPlayer } from "../../_components/event-lineup-player";
+import { EventWatchSurface } from "../../_components/event-watch-surface";
 import { VrcdnStreamPlayer } from "../../_components/vrcdn-stream-player";
 import { previewEvent } from "../event-editor/preview";
 import type { PublicEvent } from "../../_components/event-public-page";
@@ -26,7 +30,7 @@ function setup() {
    if (getFunctionName(query) !== "events:getPublicBySlug") throw new Error("Unexpected subscription");
    return {localQueryResult:()=>event,onUpdate:(callback:()=>void)=>{listeners.add(callback);return ()=>{listeners.delete(callback);};},journal:()=>undefined};
  }} as unknown as ConvexReactClient;
- return {client,initial,base,restore:()=>{Date.now=realNow;},setTime:(at:number)=>{scheduleNow=at;Date.now=()=>scheduleNow;document.dispatchEvent(new Event("visibilitychange"));},change:(kind:string)=>{
+ return {client,initial,base,readProjection:()=>event,composed:params.has("composed"),restore:()=>{Date.now=realNow;},setTime:(at:number)=>{scheduleNow=at;Date.now=()=>scheduleNow;document.dispatchEvent(new Event("visibilitychange"));},change:(kind:string)=>{
    if (kind==="unpublish") event=null;
    else if (event) {
      if (kind==="cancel") event={...event,status:"cancelled"};
@@ -42,8 +46,32 @@ function setup() {
    listeners.forEach(listener=>listener());
  },listeners};
 }
+// This older suite exercises standalone component lifetimes. The retained root
+// owner has its own production-transport navigation and revocation fixture.
+function StandaloneProjection({ initial }: { initial: PublicEvent }) {
+ const projection = useQuery(api.events.getPublicBySlug, { slug: initial.slug });
+ const event = projection === undefined ? initial : projection;
+ const request = eventPlaybackRequest(event);
+ if (!event || !request) return null;
+ return <><h2>{event.title}</h2><span>Aurora</span>{request.kind === "performer_sequence"
+  ? <EventLineupPlayer event={request.event} />
+  : <EventWatchSurface enabled startAt={event.startAt!} doorsOpenAt={event.doorsOpenAt} endAt={event.endAt} mediaLinks={event.mediaLinks} />}</>;
+}
+const useAnonymousFixtureAuth = () => ({ isLoading: false, isAuthenticated: false, fetchAccessToken: async () => null });
 export default function Fixture() {
  const [fixture]=useState(setup);
+ useEffect(() => {
+  if (!fixture.composed) return;
+  // Public HTTP projection is synthetic; the production root polling helper runs.
+  const original = window.fetch;
+  window.fetch = async (input, init) => {
+   if (typeof input === "string" && new URL(input, location.href).pathname === "/api/query" && typeof init?.body === "string" && JSON.parse(init.body).path === "events:getPublicBySlug") {
+    return new Response(JSON.stringify({ status: "success", value: fixture.readProjection() }), { headers: { "Content-Type": "application/json" } });
+   }
+   return original(input, init);
+  };
+  return () => { window.fetch = original; };
+ }, [fixture]);
  const [mounted,setMounted]=useState(true);
  const [baseline,setBaseline]=useState(false);
  return <main className="mx-auto max-w-3xl space-y-5 p-5"><h1>Lineup playback fixture</h1>
@@ -51,7 +79,7 @@ export default function Fixture() {
   {["third","swap-source","hide","cancel","unpublish","replace","duplicate","missing","overlap","event-stream"].map(action=><button key={action} onClick={()=>fixture.change(action)}>{action}</button>)}
   <button onClick={()=>{setMounted(false);setBaseline(false);}}>Unmount</button><button onClick={()=>{setMounted(false);setBaseline(true);}}>Profile player</button>
   </div>
-  <ConvexProvider client={fixture.client}>{mounted&&<Profiler id="lineup" onRender={()=>{const target=window as unknown as {lineupCommits?:number};target.lineupCommits=(target.lineupCommits??0)+1;}}><EventPublicPage event={fixture.initial}/></Profiler>}</ConvexProvider>
+  <ConvexProviderWithAuth client={fixture.client} useAuth={useAnonymousFixtureAuth}>{mounted&&<Profiler id="lineup" onRender={()=>{const target=window as unknown as {lineupCommits?:number};target.lineupCommits=(target.lineupCommits??0)+1;}}>{fixture.composed ? <EventPublicPage event={fixture.initial}/> : <StandaloneProjection initial={fixture.initial}/>}</Profiler>}</ConvexProviderWithAuth>
   {baseline&&<VrcdnStreamPlayer title="Profile stream" src={`${fixture.base}/audible.live.ts?id=profile`}/>}
  </main>;
 }

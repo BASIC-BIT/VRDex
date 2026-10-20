@@ -312,8 +312,10 @@ for (const engine of [chromium, firefox]) {
    expect(await page.locator("[data-current]").getAttribute("data-current")).toBe("a");
    expect(await page.evaluate(() => {
     const probe = (window as unknown as { preparedProbe: { attempts: number; gains: GainNode[] } }).preparedProbe;
-    return { attempts: probe.attempts, gains: probe.gains.map(gain => gain.gain.value) };
-   })).toEqual({ attempts: 1, gains: [1, 1, 0] });
+    // Released/replaced sources may leave disconnected zero-gain nodes in
+    // this diagnostic history. Only the viewer and current source may be audible.
+    return { attempts: probe.attempts, audibleGains: probe.gains.map(gain => gain.gain.value).filter(value => value !== 0), preparedGain: probe.gains.at(-1)?.gain.value };
+   })).toEqual({ attempts: 1, audibleGains: [1, 1], preparedGain: 0 });
    for (const [name, width, height] of [["desktop", 1280, 900], ["mobile", 390, 844]] as const) {
     await page.setViewportSize({ width, height });
     await expect(enable).toBeVisible();
@@ -334,7 +336,10 @@ for (const engine of [chromium, firefox]) {
    await expect(enable).toHaveCount(0);
    await expect.poll(() => page.locator("video[hidden]").evaluate(video => (video as HTMLVideoElement).currentTime), { timeout: 20000 }).toBeGreaterThan(1);
    expect(await page.locator("[data-current]").getAttribute("data-current")).toBe("a");
-   expect(await page.evaluate(() => (window as unknown as { preparedProbe: { gains: GainNode[] } }).preparedProbe.gains.map(gain => gain.gain.value))).toEqual([1, 1, 0]);
+   expect(await page.evaluate(() => {
+    const gains = (window as unknown as { preparedProbe: { gains: GainNode[] } }).preparedProbe.gains.map(gain => gain.gain.value);
+    return { audible: gains.filter(value => value !== 0), prepared: gains.at(-1) };
+   })).toEqual({ audible: [1, 1], prepared: 0 });
    await current.evaluate(video => (video as HTMLVideoElement).pause());
    await expect(page.locator("[data-current]")).toHaveAttribute("data-current", "b", { timeout: 15000 });
    expect(await page.evaluate(() => (window as unknown as { preparedProbe: { attempts: number; gains: GainNode[] } }).preparedProbe.attempts)).toBe(3);

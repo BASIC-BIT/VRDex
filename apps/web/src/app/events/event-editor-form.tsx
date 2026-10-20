@@ -194,7 +194,7 @@ function createInitialVrcdnOutputForm(event: PublicEvent | undefined): VrcdnOutp
   return {
     outputAccount: "",
     label: vrcdnLink?.label ?? "Event stream",
-    browserUrl: vrcdnLink?.stream?.hlsUrl ?? "",
+    browserUrl: vrcdnLink?.stream?.directVideoUrl ?? vrcdnLink?.stream?.questUrl ?? "",
     standaloneUrl: vrcdnLink?.stream?.questUrl ?? "",
     pcUrl: vrcdnLink?.stream?.pcUrl ?? "",
     authorized: false,
@@ -477,8 +477,8 @@ function ConnectedEventEditorForm({
   const updateEvent = useMutation(api.events.updateCommunityEvent);
   const setEventCancelled = useMutation(api.events.setCommunityEventCancelled);
   const configureVrcdnOutput = useMutation(api.events.configureVrcdnOutput);
-  const vrcdnOutputAccounts = useQuery(api.events.listVrcdnOutputAccounts, demoMode ? "skip" : {});
   const [currentSlug, setCurrentSlug] = useState(event?.slug);
+  const vrcdnOutputAccounts = useQuery(api.events.listVrcdnOutputAccounts, demoMode || currentSlug === undefined ? "skip" : { currentSlug });
   const eventMediaControlStatus = useQuery(api.events.getEventMediaControlStatus, currentSlug === undefined ? "skip" : { currentSlug });
   const eventAudit = useQuery(
     api.events.listEventAudit,

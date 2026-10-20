@@ -1,3 +1,4 @@
+import { getVrcdnOutputAccount } from "./_vrcdnOutputAccounts";
 import type { Doc } from "./_generated/dataModel";
 import { v } from "convex/values";
 import {
@@ -176,7 +177,15 @@ export function eventOutputIsAuthorized(
   event: Pick<Doc<"events">, "communityProfileId">,
   output: Doc<"eventMediaOutputs">,
 ) {
-  if (!output.twitchSetup) return true;
+  if (output.type === "vrcdn") {
+    if (output.twitchSetup || !output.credential) return false;
+    try {
+      getVrcdnOutputAccount({ communityProfileId: event.communityProfileId, credentialRef: output.credential.secretRef });
+      return true;
+    } catch { return false; }
+  }
+  // Only the two implemented destination types can authorize publication.
+  if (!output.twitchSetup) return false;
   if (output.type !== "external_rtmp" || !output.credential) return false;
   try {
     const account = getTwitchOutputAccount({

@@ -549,11 +549,8 @@ export function sanitizeEventMediaPublicLink(input: EventMediaPublicLinkInput): 
         ? vrcdnLinks.pcUrl
         : input.platform === "standalone"
           ? vrcdnLinks.questUrl
-          // Browser, and a browser plays the HLS playlist -- which is what the
-          // watch surface embeds for exactly this case. This fell back to a
-          // `vrcdn.live/<id>` page that does not exist, so the one platform that
-          // could have played something in place got a 404 instead.
-          : vrcdnLinks.directVideoUrl ?? vrcdnLinks.hlsUrl;
+          // Browser playback uses MPEG-TS. Derived VRCDN HLS is not available.
+          : vrcdnLinks.directVideoUrl ?? vrcdnLinks.questUrl;
 
     return { platform: input.platform, label, url };
   }

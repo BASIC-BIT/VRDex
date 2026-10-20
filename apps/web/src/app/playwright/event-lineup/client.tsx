@@ -12,6 +12,7 @@ import { parseVrcdnStreamLinks } from "../../../../../../convex/_vrcdnLinks";
 
 const fetchAccessToken = async () => "fixture-token";
 const useFixtureAuth = () => ({ isLoading: false, isAuthenticated: true, fetchAccessToken });
+const useAnonymousFixtureAuth = () => ({ isLoading: false, isAuthenticated: false, fetchAccessToken: async () => null });
 
 const storageKey = "event-lineup-fixture-v1";
 const stream = (id: string) => {
@@ -151,5 +152,6 @@ export default function EventLineupFixture() {
   const [client] = useState(fixtureClient);
   const [publicEvent] = useState(() => JSON.parse(localStorage.getItem("event-lineup-fixture-public") ?? JSON.stringify(fixtureEvent)) as PublicEvent);
   if (new URLSearchParams(window.location.search).has("output")) return <ConvexProviderWithAuth client={client} useAuth={useFixtureAuth}><Editor /></ConvexProviderWithAuth>;
-  return <ConvexProvider client={client}>{new URLSearchParams(window.location.search).has("editor") ? <Editor /> : <EventPublicPage event={publicEvent} />}</ConvexProvider>;
+  if (new URLSearchParams(window.location.search).has("editor")) return <ConvexProvider client={client}><Editor /></ConvexProvider>;
+  return <ConvexProviderWithAuth client={client} useAuth={useAnonymousFixtureAuth}><EventPublicPage event={publicEvent} /></ConvexProviderWithAuth>;
 }

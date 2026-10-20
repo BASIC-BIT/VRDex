@@ -78,3 +78,35 @@ test("blocked playback retries the existing usable adapter", async () => {
   try { await owner.play(request); assert.equal(owner.getSnapshot().status, "blocked"); await owner.play(request); assert.equal(created, 1); assert.equal(owner.getSnapshot().status, "playing"); }
   finally { owner.close(); fixture.restore(); }
 });
+
+test("Twitch provider Play can recover autoplay denial while explicit pause and disposal stay fenced", async () => {
+  const fixture = dom(); let player!: Player;
+  class Player {
+    static READY = "ready"; static PLAYING = "playing"; static PAUSE = "pause"; static OFFLINE = "offline"; static PLAYBACK_BLOCKED = "blocked";
+    callbacks = new Map<string, () => void>(); pauses = 0;
+    constructor() { player = this; }
+    addEventListener(key: string, callback: () => void) { this.callbacks.set(key, callback); if (key === "ready") queueMicrotask(callback); }
+    removeEventListener(key: string) { this.callbacks.delete(key); }
+    play() { this.callbacks.get("blocked")?.(); }
+    pause() { this.pauses++; }
+    setVolume() {} setMuted() {}
+  }
+  const twitch: PlaybackRequest = { ...request, kind: "twitch", channel: "fixture" };
+  const owner = new EventPlaybackOwner((value, notify) => createTwitchAdapter(value as Extract<PlaybackRequest, { kind: "twitch" }>, fixture.mount, notify, async () => ({ Player }) as TwitchSDK));
+  try {
+    await owner.play(twitch);
+    assert.equal(owner.getSnapshot().status, "blocked");
+    player.callbacks.get("playing")!(); // Provider iframe UI gesture; no parent Play call.
+    assert.equal(owner.getSnapshot().status, "playing");
+    assert.equal(player.pauses, 0);
+    owner.pause();
+    player.callbacks.get("blocked")!();
+    player.callbacks.get("playing")!();
+    assert.notEqual(owner.getSnapshot().status, "playing");
+    assert.equal(player.pauses, 2);
+    const latePlaying = player.callbacks.get("playing")!;
+    owner.close(); latePlaying();
+    assert.equal(owner.getSnapshot().status, "idle");
+    assert.equal(player.callbacks.size, 0);
+  } finally { owner.close(); fixture.restore(); }
+});

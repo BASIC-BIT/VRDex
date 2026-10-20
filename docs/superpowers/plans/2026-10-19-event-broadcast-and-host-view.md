@@ -1,6 +1,6 @@
 # Event broadcast and host view implementation plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Complete event host tools, continuous event broadcasts, and persistent
 browser playback in one PR with independently verified work rounds.
@@ -91,18 +91,18 @@ record types from Convex schema. Acquiring returns either a lease containing
 Renew every 10 seconds with a 30-second lease; expiry fences media publication.
 Acknowledgement carries command ID, sequence, and actual outcome, never credentials.
 
-- [ ] Write tests `duplicate_start_is_idempotent`, `expired_owner_cannot_ack`,
+- [x] Write tests `duplicate_start_is_idempotent`, `expired_owner_cannot_ack`,
   `replacement_increments_epoch`, and `queued_switch_does_not_change_observed_source`.
   Assert one open owned session, old epoch rejection, monotonic sequencing, and
   unchanged observed source until acknowledgement. Include unauthorized actor and
   cross-event IDs. Reuse existing backend test helpers for actual Convex mutations.
-- [ ] Run `node --conditions=import --import tsx --test tests/backend/event-media-worker.test.ts`;
+- [x] Run `node --conditions=import --import tsx --test tests/backend/event-media-worker.test.ts`;
   verify the new expectations fail before implementing them.
-- [ ] Implement the mutations, backend validators, additive schema fields, and
+- [x] Implement the mutations, backend validators, additive schema fields, and
   compatibility handling for legacy records without sequence/epoch fields.
   Preserve existing web/Discord command vocabulary and audit rejected commands.
-- [ ] Rerun that command and `pnpm typecheck:backend`; require all passing.
-- [ ] Commit as `feat: fence event media sessions and acknowledge worker commands`.
+- [x] Rerun that command and `pnpm typecheck:backend`; require all passing.
+- [x] Commit as `feat: fence event media sessions and acknowledge worker commands`.
 
 ### Task 2: Deterministic shared-program handoff policy
 
@@ -117,17 +117,17 @@ decision: `stay`, `prepare` with slot key, `switch` with slot key and reason,
 Policy contains optional silence threshold/duration and optional maximum overrun;
 unconfigured silence and overrun are disabled. Keep observations monotonic.
 
-- [ ] Write table tests asserting: healthy playback survives the boundary; failed
+- [x] Write table tests asserting: healthy playback survives the boundary; failed
   current source before next start produces hold; 999ms failure cannot switch;
   1000ms confirmed failure can switch only to ready eligible next; stale evidence
   cannot switch; configured cutoff uses hold if next is unavailable. Include
   manual hold, overlapping slots, gaps, duplicate performer appearances, source
   revocation, missing analyzer, final slot, and explicit session deadline.
-- [ ] Run `node --import tsx --test tests/backend/event-broadcast-policy.test.ts`;
+- [x] Run `node --import tsx --test tests/backend/event-broadcast-policy.test.ts`;
   confirm failure, then implement the pure reducer and configuration validation.
-- [ ] Rerun policy tests and existing `tests/web/event-playback.test.ts`; both
+- [x] Rerun policy tests and existing `tests/web/event-playback.test.ts`; both
   must pass. Do not change browser handoff semantics incidentally.
-- [ ] Commit as `feat: define evidence-based event broadcast handoffs`.
+- [x] Commit as `feat: define evidence-based event broadcast handoffs`.
 
 ### Task 3: Prove a continuous render clock through input death
 
@@ -142,20 +142,20 @@ unconfigured silence and overrun are disabled. Keep observations monotonic.
 the always-running hold/program clock. Use bounded frame/audio buffers; a stopped
 decoder cannot hold open the output clock. Keep at most current and next inputs.
 
-- [ ] Add a real FFmpeg harness with two labeled local audio/video feeds and a
+- [x] Add a real FFmpeg harness with two labeled local audio/video feeds and a
   hold slate. Kill current, stall next, recover next, and switch repeatedly.
   Assert program timestamps keep advancing, output remains decodable, stalled
   next is not ready, hold is visible, and recovered audio is present.
-- [ ] Run `node scripts/event-broadcast-failure-proof.mjs`; record the initial
+- [x] Run `node scripts/event-broadcast-failure-proof.mjs`; record the initial
   failure against the existing POC graph before selecting the input isolation.
-- [ ] Implement supervised input and renderer lifecycle; use hard switches first.
+- [x] Implement supervised input and renderer lifecycle; use hard switches first.
   Bound reconnect backoff at 1, 2, 4, 8, then 10 seconds and release obsolete inputs.
   If the current FFmpeg build cannot meet the renderer contract, stop and revise
   this implementation section with measured evidence before UI integration.
-- [ ] Require the proof to complete a 180-second scenario with no timestamp
+- [x] Require the proof to complete a 180-second scenario with no timestamp
   regression and max processing delay under 10 seconds. Run the focused renderer
   tests with `node --import tsx --test tests/backend/event-broadcast-renderer.test.ts`.
-- [ ] Commit code and an engineering evidence note with exact commands/results.
+- [x] Commit code and an engineering evidence note with exact commands/results.
 
 ## Round 2: Useful host view
 
@@ -172,17 +172,17 @@ normalized provider/source ID with `state: live | offline | unavailable` and
 Retain the existing helpers' actual observation timestamp; reading cached results
 does not make them fresh. Read-only host rows use authored slot identity.
 
-- [ ] Write tests for repeated performer slots, missing links/freeform performers,
+- [x] Write tests for repeated performer slots, missing links/freeform performers,
   multiple live sources, revoked links, provider timeout, expired observations,
   unpublished event access, and no output-account/secret/task data in responses.
-- [ ] Run `node --import tsx --test tests/web/event-host-view.test.ts` and confirm
+- [x] Run `node --import tsx --test tests/web/event-host-view.test.ts` and confirm
   failure before implementing aggregation and roster rendering.
-- [ ] Reuse existing DJ link parsing/copy primitives and provider status helpers.
+- [x] Reuse existing DJ link parsing/copy primitives and provider status helpers.
   Add a link from the event page. Do not mount preview media until explicit action.
-- [ ] Run unit tests and
+- [x] Run unit tests and
   `pnpm --filter web exec playwright test event-host-view.flow.spec.ts --project=desktop-chromium --project=mobile-chromium`.
   Verify PC/Quest copying, unavailable status, and zero unsolicited previews.
-- [ ] Capture and inspect desktop/mobile screenshots; show the usable host view
+- [x] Capture and inspect desktop/mobile screenshots; show the usable host view
   at the first UX checkpoint. Commit as `feat: add event host links and live status`.
 
 ## Round 3: Real event worker and destinations
@@ -200,21 +200,21 @@ decisions through Task 3, and acknowledges after observed execution. Stop publis
 on lease loss, kill switch, or explicit deadline. Poll the kill switch every
 10 seconds and fail closed on inability to establish enablement.
 
-- [ ] Write tests for retries, out-of-order/replayed commands, process restart,
+- [x] Write tests for retries, out-of-order/replayed commands, process restart,
   lease expiry, permission revocation, config/link changes, max duration, kill
   switch failure, and current-vs-next status. Assert stale owners stop and report
   actual media progress rather than just ECS running state.
-- [ ] Run `node --import tsx --test tests/backend/event-broadcast-worker.test.ts`;
+- [x] Run `node --import tsx --test tests/backend/event-broadcast-worker.test.ts`;
   observe failures, then implement control loop, secret-safe diagnostics, and
   scoped credential wiring. Persist no raw input/output secrets in event records.
-- [ ] Select the real worker command explicitly for event sessions; retain
+- [x] Select the real worker command explicitly for event sessions; retain
   benchmark/POC entry points. Enforce concurrency admission before creating tasks.
   Fence expired tasks before authorizing replacement output; provider ingest
   ownership must be checked during real rehearsal as well as local tests.
-- [ ] Run worker tests, existing media-control tests, the failure proof, and
+- [x] Run worker tests, existing media-control tests, the failure proof, and
   Terraform format/validation with no apply. Add runtime/heartbeat/command-latency
   metrics and document worker-hour/egress measurement and budget alarm setup.
-- [ ] Commit as `feat: run controlled event broadcasts with enforced session limits`.
+- [x] Commit as `feat: run controlled event broadcasts with enforced session limits`.
 
 ### Task 6: Independent VRCDN and Twitch output senders
 
@@ -227,19 +227,19 @@ returns `start()`, `stop()`, and observed health. Destination is `vrcdn` or
 `twitch`; secret resolution happens only in the worker boundary. Each sender has
 an independent bounded queue capped at two seconds and restart/reconnect loop.
 
-- [ ] Write tests for one blocked sender, Twitch disconnect, invalid credentials,
+- [x] Write tests for one blocked sender, Twitch disconnect, invalid credentials,
   missing destination setup, and error output containing a synthetic secret.
   Assert VRCDN progresses, queue memory stays bounded, and secrets are redacted.
-- [ ] Run `node --import tsx --test tests/backend/event-broadcast-output.test.ts`;
+- [x] Run `node --import tsx --test tests/backend/event-broadcast-output.test.ts`;
   confirm failure. Check current Twitch ingest/encoding and embed requirements,
   VRCDN guidance, and applicable existing provider gates before implementation.
-- [ ] Implement isolated senders from the composed program, destination-specific
+- [x] Implement isolated senders from the composed program, destination-specific
   credentials/status, and validated output setup. Reuse encoded packets where
   compatible, but never share a blocking destination write path.
-- [ ] Run output tests and extend the real failure proof with two local RTMP
+- [x] Run output tests and extend the real failure proof with two local RTMP
   destinations; disconnect one and assert the other continues for the entire run.
   Document the supported quality settings and measured additional CPU/egress.
-- [ ] Commit as `feat: publish isolated VRCDN and Twitch event outputs`.
+- [x] Commit as `feat: publish isolated VRCDN and Twitch event outputs`.
 
 ## Round 4: Operator control room
 
@@ -254,16 +254,16 @@ source, command acknowledgement, lease, and per-destination health. Submit comma
 through the authorized backend; no browser bridge credentials or secret values.
 Separate scheduled current, live input, commanded source, and observed output.
 
-- [ ] Write tests for anonymous/read-only host access, unauthorized command
+- [x] Write tests for anonymous/read-only host access, unauthorized command
   attempts, revoked capability, double-click next, stale acknowledgements, and
   worker failure while direct links remain accessible.
-- [ ] Run focused backend and browser tests to confirm failure, then implement
+- [x] Run focused backend and browser tests to confirm failure, then implement
   start/stop, source selection, next, manual hold, return-to-auto, policy setup,
   muted-by-default preview, and command pending/failed states. Confirm stop before
   execution; never report queued commands as completed switches.
-- [ ] Verify `event-operator.flow.spec.ts` on desktop/mobile, including failed
+- [x] Verify `event-operator.flow.spec.ts` on desktop/mobile, including failed
   Twitch output while VRCDN remains healthy and recovery from a held state.
-- [ ] Capture and inspect screenshots; review exact new public prose with BASIC.
+- [x] Capture and inspect screenshots; review exact new public prose with BASIC.
   Commit as `feat: add event broadcast operator controls`.
 
 ## Round 5: Persistent browser player
@@ -282,18 +282,18 @@ lineup, and watch-surface components.
 Provider owns the media mount for its entire lifetime; route UI never reparents or
 recreates the active element. Reuse `EventLineupSession` lifecycle behind an adapter.
 
-- [ ] Write tests for rapid Play replacement, repeated same-event Play, rejected
+- [x] Write tests for rapid Play replacement, repeated same-event Play, rejected
   autoplay, old async completion after replacement, close, revoked source, late
   metadata update, pause releasing prepared input, and volume independent of
   source-silence evidence. Assert one owner and disposal of superseded resources.
-- [ ] Run `node --import tsx --test tests/web/event-playback-owner.test.ts`;
+- [x] Run `node --import tsx --test tests/web/event-playback-owner.test.ts`;
   confirm failure, then implement generation-guarded lifecycle and React binding.
-- [ ] Use the supported Twitch player API and a visible compliant player size;
+- [x] Use the supported Twitch player API and a visible compliant player size;
   load the SDK once. Browser controls map to real player operations, including
   unavailable/autoplay-blocked states. No hidden Twitch audio extraction.
-- [ ] Rerun owner tests plus existing lineup lifecycle/player tests; ensure
+- [x] Rerun owner tests plus existing lineup lifecycle/player tests; ensure
   provider mounting works with and without Clerk/Convex configuration.
-- [ ] Commit as `feat: retain event playback across client navigation`.
+- [x] Commit as `feat: retain event playback across client navigation`.
 
 ### Task 9: Compact presentation and route continuity proof
 
@@ -306,21 +306,24 @@ no second media instance. Show compact presentation away from the active event,
 with return link, pause, mute/volume, close, and active event/source identity.
 Use a larger visible presentation when Twitch's minimum player size requires it.
 
-- [ ] Write browser assertions for event-to-profile-to-event navigation,
+- [x] Write browser assertions for event-to-profile-to-event navigation,
   back/forward, rapid alternate Play clicks, client auth/layout changes, and
   mobile navigation. Compare media identity and progressing timestamps before
   and after navigation; assert one audible source and close releasing transport.
-- [ ] Confirm the new browser tests fail, then connect compact/inline controls,
+- [x] Confirm the new browser tests fail, then connect compact/inline controls,
   source title changes, keyboard focus, mobile safe-area spacing, and explicit
   replacement. Existing scheduled watch-window rules govern new starts.
-- [ ] Run
+- [x] Run
   `pnpm --filter web exec playwright test event-persistent-playback.flow.spec.ts --project=desktop-chromium --project=mobile-chromium`.
   Include managed/direct VRCDN and performer-sequence cases; use the supported
   Twitch SDK stub for deterministic controls and a separate live embed check.
-- [ ] Capture and inspect screenshots on all existing themes and mobile sizes.
+- [x] Capture and inspect screenshots on all existing themes and mobile sizes.
   Commit as `feat: add persistent event player presentation`.
 
 ## Round 6: Integrated verification and one-PR delivery
+
+Tasks 1–9 completed their independent implementation and review rounds; the
+controller state and per-task reports retain commit and verification evidence.
 
 ### Task 10: Calibration, rehearsal, documentation, and review
 
