@@ -281,7 +281,11 @@ test("@fixture each handoff resets the next candidate retry delay", async ({base
   await page.goto(`${baseURL}/playwright/event-lineup-live?transport=${encodeURIComponent(transport.url)}&kind=silent`);
   await page.getByRole("button",{name:"third",exact:true}).click();
   await page.getByRole("button",{name:"Play Lineup live"}).click();
+  await expect.poll(()=>page.locator("video:not([hidden])").evaluate(v=>(v as HTMLVideoElement).currentTime)).toBeGreaterThan(1);
   await page.getByRole("button",{name:"Eligible",exact:true}).click();
+  await expect.poll(()=>page.locator("video[hidden]").evaluate(v=>(v as HTMLVideoElement).currentTime)).toBeGreaterThan(1);
+  await page.getByRole("button",{name:"Boundary",exact:true}).click();
+  await page.locator("video:not([hidden])").evaluate(v=>(v as HTMLVideoElement).pause());
   await expect(page.locator("[data-current]")).toHaveAttribute("data-current","b",{timeout:15000});
   await page.evaluate(()=>Object.assign(window,{rejectCandidate:true}));
   await page.getByRole("button",{name:"Later eligible",exact:true}).click();
