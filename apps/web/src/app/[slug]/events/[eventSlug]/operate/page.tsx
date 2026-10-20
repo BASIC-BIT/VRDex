@@ -25,7 +25,7 @@ export default async function EventOperatePage({
   } catch {
     notFound();
   }
-  if (!status.canControl || status.eventPath !== `/${slug}/events/${eventSlug}`)
+  if (status.eventPath !== `/${slug}/events/${eventSlug}`)
     notFound();
   const result = await fetchPublicEventBySlug(eventSlug);
   return (

@@ -334,19 +334,20 @@ it("double_next_keeps_one_pending_command_and_revocation_denies_commands", async
   await assert.rejects(t.mutation(api.events.queueEventMediaCommand, { currentSlug: event.slug, type: "switch_hold" }));
 });
 
-it("read_only_host_can_read_status_but_cannot_control", async () => {
+for (const capability of ["view_event_operations", "manage_events"] as const) it(`read_only_${capability}_can_read_status_but_cannot_control`, async () => {
   const { t, event } = await fixture();
   const subject = newClerkUserId();
   await t.run(async ctx => {
     await ctx.db.insert("users", { clerkUserId: subject, name: "Host", email: "host@example.test", emailVerificationTime: Date.now() });
     const community = (await ctx.db.query("profiles").collect())[0];
-    await ctx.db.insert("communityAuthorities", { communityProfileId: community._id, subjectTokenIdentifier: `test|${subject}`, subject: { subject, issuer: "test", tokenIdentifier: `test|${subject}` }, capabilities: ["view_event_operations"], state: "active", grantedAt: Date.now(), updatedAt: Date.now() });
+    await ctx.db.insert("communityAuthorities", { communityProfileId: community._id, subjectTokenIdentifier: `test|${subject}`, subject: { subject, issuer: "test", tokenIdentifier: `test|${subject}` }, capabilities: [capability], state: "active", grantedAt: Date.now(), updatedAt: Date.now() });
   });
   const host = t.withIdentity({ subject, emailVerified: true, issuer: "test", tokenIdentifier: `test|${subject}` });
   const status = await host.query(api.events.getEventMediaControlStatus, { currentSlug: event.slug });
   assert.equal(status.canControl, false);
   await assert.rejects(host.mutation(api.events.queueEventMediaCommand, { currentSlug: event.slug, type: "switch_hold" }));
   await assert.rejects(host.mutation(api.events.scheduleEventMediaWorker, { currentSlug: event.slug }));
+  await assert.rejects(host.mutation(api.events.scheduleEventMediaWorker, { currentSlug: event.slug, startImmediately: true }));
 });
 
 it("operator_stops_offering_revoked_profile_source_before_worker_refresh", async () => {

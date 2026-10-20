@@ -325,7 +325,13 @@ async function runTask(command, taskDefinitionArn, config) {
 async function startCommand(command, client, config) {
   command.dispatchId = randomUUID();
   const admission = await client.mutation(convexApi.admitDispatch, {bridgeToken:config.bridgeToken,eventId:command.eventId,sessionId:command.session.sessionId,dispatchId:command.dispatchId});
-  if(!admission.granted)throw new Error("Worker dispatch capacity or ownership denied.");
+  if (admission?.granted === false) {
+    // An explicit denial created no reservation for this attempt. Unknown
+    // responses must retain the identity so they cannot turn into duplicate starts.
+    delete command.dispatchId;
+    throw new Error("Worker dispatch capacity or ownership denied.");
+  }
+  if (admission?.granted !== true) throw new Error("Worker dispatch admission response is unknown.");
   const registered = await registerTaskDefinition(command, config);
   const taskDefinitionArn = registered.taskDefinition.taskDefinitionArn;
   const taskArn = await runTask(command, taskDefinitionArn, config);

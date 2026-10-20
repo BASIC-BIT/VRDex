@@ -218,8 +218,10 @@ describe("browser auth-session authorization boundary", () => {
         const page = source(file);
         assert.match(page, /if \(!token\) redirect\(signInPath/);
         assert.match(page, /\{ token \}/);
-        assert.match(page, /if \(!status\.canControl \|\| status\.eventPath !==/);
-        assert.ok(page.indexOf("if (!status.canControl") < page.indexOf("<EventOperatorView"));
+        assert.match(page, /if \(status\.eventPath !==/);
+        assert.ok(page.indexOf("api.events.getEventMediaControlStatus") < page.indexOf("if (status.eventPath"));
+        assert.ok(page.indexOf("if (status.eventPath") < page.indexOf("const result = await fetchPublicEventBySlug"));
+        assert.ok(page.indexOf("if (status.eventPath") < page.indexOf("<EventOperatorView"));
       }
       if (guardedCall === "viewerQuery" || guardedCall === "ensureViewer") {
         assert.match(source(file), /if \(viewer === null\)/);

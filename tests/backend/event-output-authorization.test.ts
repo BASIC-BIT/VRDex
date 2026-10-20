@@ -139,3 +139,66 @@ it('revoked managed VRCDN and Twitch links disappear from public metadata withou
     assert.deepEqual(staleCache?.mediaLinks.map(link => link.url), ['https://example.test/direct']);
   }
 });
+
+it('F4 public projection hides disabled optional Twitch but preserves enabled and selected legacy output', async () => {
+  const f = await fixture();
+  await f.t.run(({db}) => db.patch(f.a.event.eventId, { publicationState: 'published', mediaLinks: [{ label: 'Direct', url: 'https://example.test/direct', type: 'stream', presentation: 'open' }] }));
+  await f.a.actor.mutation(api.events.configureVrcdnOutput, { ...f.setup, currentSlug: f.a.event.slug, playbackLinks: [{ platform: 'pc', url: 'vrcdn:basicbit' }, { platform: 'standalone', url: 'vrcdn:basicbit' }] });
+  const baseline = (await f.t.query(api.events.getPublicBySlug, { slug: f.a.event.slug }))!.mediaLinks;
+  const primary = await f.t.run(({db}) => db.query('eventMediaOutputs').first());
+  assert.ok(primary!.playbackLinks.some(link => link.platform === 'pc' && link.url === 'rtspt://stream.vrcdn.live/live/basicbit'));
+  assert.ok(primary!.playbackLinks.some(link => link.platform === 'standalone' && link.url === 'https://stream.vrcdn.live/live/basicbit.live.ts'));
+  process.env.VRDEX_TWITCH_OUTPUT_ACCOUNTS_JSON = JSON.stringify([{ key: 'twitch-owned', channel: 'owned_channel', credentialRef: 'event-media/twitch/owned', ownerCommunityProfileId: f.a.id }]);
+  const args = { currentSlug: f.a.event.slug, key: 'twitch', label: 'Twitch', channel: 'owned_channel', outputAccountKey: 'twitch-owned', ...consent };
+  const output = await f.a.actor.mutation(api.events.configureTwitchOutput, args);
+  const urls = async () => (await f.t.query(api.events.getPublicBySlug, { slug: f.a.event.slug }))!.mediaLinks.map(link => link.url);
+  const disabled = await urls();
+  assert.equal(disabled.some(url => url.includes('twitch.tv')), false);
+  assert.ok(disabled.includes('https://example.test/direct'));
+  assert.deepEqual((await f.t.query(api.events.getPublicBySlug, { slug: f.a.event.slug }))!.mediaLinks, baseline);
+  assert.ok(disabled.some(url => url.includes('vrcdn.live')));
+  await f.a.actor.mutation(api.events.configureTwitchOutput, { ...args, simulcastEnabled: true });
+  assert.ok((await urls()).some(url => url.includes('twitch.tv')));
+  await f.a.actor.mutation(api.events.configureTwitchOutput, { ...args, simulcastEnabled: false });
+  await f.t.run(async ({db}) => { const row = await db.get(output.outputId); await db.patch(output.programId, { currentOutputId: output.outputId, publicLinks: row!.playbackLinks }); });
+  assert.ok((await urls()).some(url => url.includes('twitch.tv')));
+});
+it('F5 VRCDN rejects ninth output without poisoning configuration and permits updates at the limit', async () => {
+  const f = await fixture();
+  const args = { ...f.setup, currentSlug: f.a.event.slug };
+  for (let i = 0; i < 8; i++) await f.a.actor.mutation(api.events.configureVrcdnOutput, { ...args, key: `out-${i}` });
+  await assert.rejects(f.a.actor.mutation(api.events.configureVrcdnOutput, { ...args, key: 'overflow' }), /Output limit/);
+  await f.a.actor.mutation(api.events.configureVrcdnOutput, { ...args, key: 'out-0', label: 'Updated' });
+  const rows = await f.t.run(({db}) => db.query('eventMediaOutputs').collect());
+  assert.equal(rows.length, 8);
+  assert.equal(rows.find(row => row.key === 'out-0')?.label, 'Updated');
+  const session = await f.schedule();
+  assert.equal((await f.t.mutation(worker('acquireSession'), session.args)).granted, true);
+});
+for (const offset of [60000, 0, -3600000]) it(`F2 immediate start uses server time at event offset ${offset} and can replace failed live sessions`, async () => {
+  const f = await fixture();
+  await f.a.actor.mutation(api.events.configureVrcdnOutput, { ...f.setup, currentSlug: f.a.event.slug });
+  await f.t.run(({db}) => db.patch(f.a.event.eventId, { startAt: Date.now() + offset, endAt: offset < 0 ? Date.now() - 1000 : Date.now() + offset + 3600000 }));
+  await assert.rejects(f.a.actor.mutation(api.events.scheduleEventMediaWorker, { currentSlug: f.a.event.slug, scheduledStartAt: Date.now() }), /before the event starts|at or after the scheduled start/);
+  const before = Date.now();
+  const session = await f.a.actor.mutation(api.events.scheduleEventMediaWorker, { currentSlug: f.a.event.slug, startImmediately: true });
+  assert.ok(session.scheduledStartAt >= before && session.scheduledStartAt <= Date.now());
+  assert.equal(session.readyDeadlineAt - session.scheduledStartAt, 180000);
+  const claimed = await f.t.mutation(api.events.claimEventMediaWorkerCommand, { bridgeToken, workerId: 'bridge' });
+  assert.equal(claimed?.session.sessionId, session.sessionId);
+  const request = { bridgeToken, eventId: f.a.event.eventId, sessionId: session.sessionId, workerId: 'worker', epoch: 0 };
+  const lease = await f.t.mutation(worker('acquireSession'), request);
+  assert.equal(lease.granted, true);
+  assert.ok(lease.configuration.sessionDeadline >= before + 43200000);
+  assert.ok(lease.configuration.sessionDeadline <= Date.now() + 43200000);
+  await f.a.actor.mutation(api.events.markEventMediaWorkerEnded, { currentSlug: f.a.event.slug, sessionId: session.sessionId, status: 'error' });
+  const replacement = await f.a.actor.mutation(api.events.scheduleEventMediaWorker, { currentSlug: f.a.event.slug, startImmediately: true });
+  assert.notEqual(replacement.sessionId, session.sessionId);
+});
+it('F2 scheduled starts retain pre-event validation and immediate starts reject conflicting schedule fields', async () => {
+  const f = await fixture();
+  await f.a.actor.mutation(api.events.configureVrcdnOutput, { ...f.setup, currentSlug: f.a.event.slug });
+  await f.t.run(({db}) => db.patch(f.a.event.eventId, { startAt: Date.now() - 1000 }));
+  await assert.rejects(f.a.actor.mutation(api.events.scheduleEventMediaWorker, { currentSlug: f.a.event.slug, scheduledStartAt: Date.now() }), /before the event starts/);
+  await assert.rejects(f.a.actor.mutation(api.events.scheduleEventMediaWorker, { currentSlug: f.a.event.slug, startImmediately: true, scheduledStartAt: 1 }), /Immediate start/);
+});

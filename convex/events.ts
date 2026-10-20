@@ -1,5 +1,5 @@
 import { sanitizeTwitchOutput, getTwitchOutputAccount, listTwitchOutputAccounts, eventOutputIsAuthorized } from './_eventOutputSetup';
-import { validateBroadcastPolicy, allocateSessionCommandSequence, attachPendingProgramCommands, requireEventMediaBridgeToken } from "./_eventBroadcastInputs";
+import { EVENT_BROADCAST_MAX_OUTPUTS, validateBroadcastPolicy, allocateSessionCommandSequence, attachPendingProgramCommands, requireEventMediaBridgeToken } from "./_eventBroadcastInputs";
 import { dateOnlyEventsEnabled, eventDateForInstant, eventSortAt, eventSortEndAt, normalizeEventSchedule, publicEventSchedule, requireDateOnlyEventsEnabled } from "./_eventSchedule";
 import { eventProfileStreamChoices, resolveEventStream } from "./_eventPlayback";
 import { ConvexError, v } from "convex/values";
@@ -52,6 +52,8 @@ import {
   sanitizeEventMediaCommandInput,
   sanitizeEventMediaWorkerArtifactLinks,
   sanitizeEventMediaWorkerSchedule,
+  EVENT_MEDIA_WORKER_START_LEAD_MS,
+  EVENT_MEDIA_WORKER_READY_LEAD_MS,
   sanitizeVrcdnOperatorOwnedOutputSetup,
 } from "./_eventMediaControl";
 import {
@@ -217,6 +219,7 @@ const vrcdnOutputSetupArgs = {
 
 const eventMediaWorkerScheduleArgs = {
   currentSlug: v.string(),
+  startImmediately: v.optional(v.boolean()),
   outputKey: v.optional(v.string()),
   scheduledStartAt: v.optional(v.number()),
   readyDeadlineAt: v.optional(v.number()),
@@ -3577,6 +3580,12 @@ export const configureVrcdnOutput = mutation({
       .withIndex("by_programId_key", (query) => query.eq("programId", programId).eq("key", output.key))
       .unique();
     if (existingOutput && (existingOutput.type !== "vrcdn" || existingOutput.twitchSetup)) throw Error("Output key belongs to another destination.");
+    if (existingOutput === null) {
+      const outputs = await ctx.db.query("eventMediaOutputs")
+        .withIndex("by_programId_key", (query) => query.eq("programId", programId))
+        .take(EVENT_BROADCAST_MAX_OUTPUTS);
+      if (outputs.length >= EVENT_BROADCAST_MAX_OUTPUTS) throw new Error("Output limit reached.");
+    }
     const credential =
       output.credential === undefined
         ? undefined
@@ -3636,10 +3645,10 @@ export const configureTwitchOutput = mutation({
     const setup=sanitizeTwitchOutput({...args,...account,key:args.key});
     const output={...setup,twitchSetup:{...setup.twitchSetup,accountKey:account.key}};
     const now=Date.now(), programId=await getOrCreateEventMediaProgram(ctx.db,event,now);
-    const all=await ctx.db.query("eventMediaOutputs").withIndex("by_programId_key",q=>q.eq("programId",programId)).take(9);
+    const all=await ctx.db.query("eventMediaOutputs").withIndex("by_programId_key",q=>q.eq("programId",programId)).take(EVENT_BROADCAST_MAX_OUTPUTS + 1);
     const existing=all.find(o=>o.key===output.key);
     if(existing && (existing.type!=="external_rtmp" || !existing.twitchSetup)) throw Error("Output key belongs to another destination.");
-    if(!existing && all.length>=8) throw Error("Output limit reached.");
+    if(!existing && all.length>=EVENT_BROADCAST_MAX_OUTPUTS) throw Error("Output limit reached.");
     if(output.simulcastEnabled && all.some(o=>o.key!==output.key && o.type==="external_rtmp" && o.twitchSetup && o.simulcastEnabled)) throw Error("Only one optional Twitch output can be enabled.");
     const record={...output,programId,eventId:event._id,credential:output.credential?{...output.credential,authorizedAt:now,authorizedBy:subject}:undefined,updatedAt:now};
     const outputId=existing?existing._id:await ctx.db.insert("eventMediaOutputs",{...record,createdAt:now});
@@ -3666,12 +3675,19 @@ export const scheduleEventMediaWorker = mutation({
     const outputKey = optionalTrimmedText(args.outputKey, "Output key", 64)?.toLowerCase();
     const output = await getReadyEventMediaOutput(ctx.db, program, outputKey);
     if (event.startAt === undefined || event.scheduleKind === "date_only") throw new Error("Set an event time before scheduling a media worker.");
-    const schedule = sanitizeEventMediaWorkerSchedule({
-      eventStartAt: event.startAt,
-      scheduledStartAt: args.scheduledStartAt,
-      readyDeadlineAt: args.readyDeadlineAt,
-    });
     const now = Date.now();
+    if (args.startImmediately && (args.scheduledStartAt !== undefined || args.readyDeadlineAt !== undefined)) {
+      throw new Error("Immediate start cannot include scheduled start or ready deadline fields.");
+    }
+    // Operator starts/recovery use server time and the same three-minute startup
+    // allowance as T-5 -> T-2 scheduling, independent of the event calendar end.
+    const schedule = args.startImmediately
+      ? { scheduledStartAt: now, readyDeadlineAt: now + EVENT_MEDIA_WORKER_START_LEAD_MS - EVENT_MEDIA_WORKER_READY_LEAD_MS }
+      : sanitizeEventMediaWorkerSchedule({
+          eventStartAt: event.startAt,
+          scheduledStartAt: args.scheduledStartAt,
+          readyDeadlineAt: args.readyDeadlineAt,
+        });
     const workerRuntime = optionalTrimmedText(args.workerRuntime, "Worker runtime", 80);
     const workerTaskDefinitionArn = optionalTrimmedText(args.workerTaskDefinitionArn, "Worker task definition ARN", 512);
     const workerTaskId = optionalTrimmedText(args.workerTaskId, "Worker task id", 512);

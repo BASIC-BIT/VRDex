@@ -276,7 +276,7 @@ Minimum CloudWatch or custom metric dimensions for the first benchmark:
 - dropped or retried segment counts
 - command latency and command outcome
 
-Convex remains the authoritative control plane for event media session state, command outcomes, heartbeats, task status, private artifact links, and audit events. The current backend schedule defaults start workers at `T-5 minutes` and requires readiness by `T-2 minutes`; artifact links stored in Convex must be private `s3://` URIs or HTTPS URLs without embedded credentials or query strings. The authenticated event editor shows the private worker status and artifact links for operators; public event pages only see ready or active playback links.
+Convex remains the authoritative control plane for event media session state, command outcomes, heartbeats, task status, private artifact links, and audit events. The backend schedule defaults start workers at `T-5 minutes` and requires readiness by `T-2 minutes`. Operator Start uses `scheduleEventMediaWorker` with `startImmediately: true`: server time becomes the start time and readiness is due three minutes later. This supports late starts and replacement after failure, including after the event calendar end. Immediate requests cannot also specify `scheduledStartAt` or `readyDeadlineAt`; ordinary scheduled requests retain pre-event validation. The worker still enforces its twelve-hour session maximum. Artifact links stored in Convex must be private `s3://` URIs or HTTPS URLs without embedded credentials or query strings. The authenticated event editor shows the private worker status and artifact links for operators; public event pages only see ready or active playback links.
 
 ## Historical Benchmark Budget And Kill Switch
 
@@ -448,6 +448,13 @@ configuration-change rule and must not interrupt a healthy required destination.
 For a source URL change under the same source ID, the worker restarts the decoder
 and waits for encoded hold before accepting the replacement input's acknowledgement.
 
+An explicit dispatch admission denial creates no reservation for that attempt.
+The bridge records a failed command/session, allowing an operator to Start again
+after capacity becomes available. There is no automatic requeue. A thrown,
+malformed or lost admission response, or a failure after admission, retains the
+claimed start and any reservation until reconciled. Only actual ECS STOPPED
+confirmation releases admitted capacity; retrying cannot bypass this safeguard.
+
 ### Independent event destinations (default-off)
 
 The event CLI now installs `createEventOutputs`. Publication still requires the
@@ -456,6 +463,10 @@ this change does not enable hosted output. The selected `session.outputId` is th
 required destination. `events.configureTwitchOutput` creates an operator-owned
 `external_rtmp` record with `twitchSetup` and an explicit `simulcastEnabled` flag
 (default false). It never changes the selected output or public VRCDN links.
+Disabled optional Twitch destinations are omitted from public event links; an
+explicitly selected primary Twitch output retains its existing watch behavior.
+Both VRCDN and Twitch setup enforce eight total output records per program before
+insertion. Existing records remain editable at that limit.
 Only one optional Twitch output can be enabled. VRCDN and Twitch configuration
 reject cross-provider key reuse symmetrically; use a distinct output key. Setup changes fence the running
 session and require restart, including enabling/disabling optional publication.
@@ -603,9 +614,10 @@ The separate sender test suite passed all eight tests on Node 22 as well.
 ### Event operator controls
 
 Event editors link to `/<community>/events/<event>/operate`. The server checks
-an authenticated operations query and the existing `manage_event_media`
-capability before rendering private status. Read-only hosts use the public
-`host` route; they do not gain command authority. Mutations recheck capabilities.
+an authenticated operations query and the exact event path before rendering
+private status. Staff with `view_event_operations` or `manage_events` can read
+the panel with mutation controls disabled; `manage_event_media` grants control.
+Public hosts use the `host` route. Mutations recheck capabilities.
 
 Controls submit sequenced commands. Requested source and queued/claimed command
 states remain separate from worker-observed source, mode, lease and destination

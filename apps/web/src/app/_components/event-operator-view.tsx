@@ -49,7 +49,7 @@ export function EventOperatorView({
           queue({ currentSlug, type, targetSourceKey })
         }
         onStart={(outputKey) =>
-          start({ currentSlug, outputKey, scheduledStartAt: Date.now() })
+          start({ currentSlug, outputKey, startImmediately: true })
         }
         onStop={(sessionId) => stop({ currentSlug, sessionId })}
         onPolicy={(maxOverrunMs) =>

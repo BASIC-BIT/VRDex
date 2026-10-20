@@ -518,3 +518,81 @@ it('current decoder recovers while its unready successor is being prepared', asy
     assert.equal(f.counts().ackCount, 0, 'preparation does not acknowledge a new slot');
     await f.worker.stop();
 });
+
+
+it('F1 explicit capacity denial terminates the claimed start and permits a fresh operator retry', async () => {
+    const f = await fixture();
+    const occupied = await f.t.run(({ db }) => db.insert('eventMediaSessions', { programId: f.output.programId, eventId: f.event.eventId, status: 'starting', dispatchId: 'occupied', workerTaskId: 'occupied-task', workerTaskStatus: 'running', createdAt: Date.now(), updatedAt: Date.now() }));
+    const client = { mutation: (ref: any, args: any) => f.t.mutation(ref, args) };
+    const config = { bridgeToken, workerId: 'bridge', redactValues: [] };
+    await claimAndProcess(client, config);
+    assert.equal((await f.t.run(({db}) => db.get(f.args.sessionId)))?.status, 'error');
+    assert.equal((await f.t.run(({db}) => db.get(f.scheduled.startCommandId!)))?.status, 'failed');
+    assert.equal((await f.t.run(({db}) => db.get(occupied)))?.dispatchStopConfirmedAt, undefined);
+    await f.t.mutation(worker('recordProcessStatus'), { bridgeToken, sessionId: occupied, taskArn: 'occupied-task', stopped: true });
+    const retry = await f.owner.mutation(api.events.scheduleEventMediaWorker, { currentSlug: f.event.slug });
+    assert.notEqual(retry.sessionId, f.args.sessionId);
+    assert.equal((await f.t.mutation(worker('admitDispatch'), { bridgeToken, eventId: f.event.eventId, sessionId: retry.sessionId, dispatchId: 'retry' })).granted, true);
+});
+for (const admitted of [false, true]) it(`F1 unknown admission response retains the claimed start (reserved=${admitted})`, async () => {
+    const f = await fixture();
+    const { getFunctionName } = await import('convex/server');
+    const client = { mutation: async (ref: any, args: any) => {
+        if (getFunctionName(ref) === 'eventMediaWorker:admitDispatch') {
+            if (admitted) await f.t.mutation(ref, args);
+            throw Error('response lost');
+        }
+        return f.t.mutation(ref, args);
+    } };
+    await claimAndProcess(client, { bridgeToken, workerId: 'bridge', redactValues: [] });
+    assert.equal((await f.t.run(({db}) => db.get(f.scheduled.startCommandId!)))?.status, 'claimed');
+    await assert.rejects(f.owner.mutation(api.events.scheduleEventMediaWorker, { currentSlug: f.event.slug }), /in progress/);
+    assert.equal(await claimAndProcess(client, { bridgeToken, workerId: 'bridge', redactValues: [] }), false);
+    const session = await f.t.run(({db}) => db.get(f.args.sessionId));
+    assert.equal(Boolean(session?.dispatchId), admitted);
+    assert.equal(session?.dispatchStopConfirmedAt, undefined);
+});
+
+for (const failure of ['run-task', 'registration-response']) it(`F1 admitted ${failure} failure retains reservation and cannot start twice`, async () => {
+    const f = await fixture();
+    const { mkdtemp, writeFile, chmod, rm } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const { getFunctionName } = await import('convex/server');
+    const dir = await mkdtemp(join(tmpdir(), 'pr377-aws-fixture-'));
+    const cli = join(dir, 'aws');
+    await writeFile(cli, `#!${process.execPath}
+const command = process.argv[3];
+if (command === 'register-task-definition') console.log(JSON.stringify({taskDefinition:{taskDefinitionArn:'definition'}}));
+else if (command === 'run-task') {
+  if (${JSON.stringify(failure)} === 'run-task') process.exit(1);
+  console.log(JSON.stringify({tasks:[{taskArn:'task'}]}));
+} else process.exit(2);
+`);
+    await chmod(cli, 0o700);
+    const client = { mutation: async (ref: any, args: any) => {
+        const result = await f.t.mutation(ref, args);
+        if (getFunctionName(ref) === 'eventMediaWorker:recordDispatchedTask') throw Error('registration response lost');
+        return result;
+    } };
+    const config = { bridgeToken, workerId: 'bridge', redactValues: [], awsCommand: cli, secretRefMap: {'event-media/vrcdn/main':'test-secret'}, baseEnvironment: {}, subnets: [], securityGroups: [] };
+    try {
+        await claimAndProcess(client, config);
+        const session = await f.t.run(({db}) => db.get(f.args.sessionId));
+        assert.ok(session?.dispatchId);
+        assert.equal(session.dispatchStopConfirmedAt, undefined);
+        assert.equal(session.workerTaskId, failure === 'registration-response' ? 'task' : undefined);
+        assert.equal((await f.t.run(({db}) => db.get(f.scheduled.startCommandId!)))?.status, 'claimed');
+        await assert.rejects(f.owner.mutation(api.events.scheduleEventMediaWorker, { currentSlug: f.event.slug }), /in progress/);
+        assert.equal(await claimAndProcess(client, config), false);
+    } finally { await rm(dir, {recursive:true, force:true}); }
+});
+for (const response of [{}, {granted: undefined}, {granted: 'yes'}, null]) it(`F1 malformed admission ${JSON.stringify(response)} retains claimed start`, async () => {
+    const f = await fixture();
+    const { getFunctionName } = await import('convex/server');
+    const client = { mutation: async (ref: any, args: any) => getFunctionName(ref) === 'eventMediaWorker:admitDispatch' ? response : f.t.mutation(ref, args) };
+    await claimAndProcess(client, { bridgeToken, workerId: 'bridge', redactValues: [] });
+    assert.equal((await f.t.run(({db}) => db.get(f.scheduled.startCommandId!)))?.status, 'claimed');
+    await assert.rejects(f.owner.mutation(api.events.scheduleEventMediaWorker, { currentSlug: f.event.slug }), /in progress/);
+    assert.equal(await claimAndProcess(client, { bridgeToken, workerId: 'bridge', redactValues: [] }), false);
+});

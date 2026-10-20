@@ -693,6 +693,7 @@ async function getPublicEventMediaRecord(db: DatabaseReader, event: Doc<"events"
   // including the program's cached links. Authored event/DJ links are independent.
   const canProjectOutput = (output: Doc<"eventMediaOutputs">) =>
     output.eventId === event._id && output.programId === mediaProgram._id &&
+    (!output.twitchSetup || output._id === mediaProgram.currentOutputId || output.simulcastEnabled === true) &&
     (!["vrcdn", "external_rtmp"].includes(output.type) || eventOutputIsAuthorized(event, output));
   const mediaOutputs = [
     ...(currentOutput === null || currentOutput === undefined ? [] : [currentOutput]),
