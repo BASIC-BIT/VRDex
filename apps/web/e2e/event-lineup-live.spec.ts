@@ -15,7 +15,10 @@ for (const engine of [chromium, firefox]) {
    browser=await engine.launch();
    const page=await browser.newPage();page.setDefaultTimeout(10000);
    const messages:string[]=[]; const pageErrors:string[]=[];
-   page.on("console",message=>{if (["error","warning"].includes(message.type())) messages.push(message.text());});
+   page.on("console",message=>{if (["error","warning"].includes(message.type())) messages.push(message.text());
+    if (/Fast Refresh|reload/i.test(message.text())) diagnostics.push({type:"dev-navigation",at:performance.now(),message:message.text()});
+   });
+   page.on("framenavigated",frame=>{if(frame===page.mainFrame()) diagnostics.push({type:"navigation",at:performance.now(),url:frame.url()});});
    page.on("pageerror",error=>pageErrors.push(error.stack ?? error.message));
    await page.exposeBinding("recordLineupDiagnostic",(_source,entry)=>{diagnostics.push(entry);});
    await page.addInitScript(()=>{
