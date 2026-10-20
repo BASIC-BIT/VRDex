@@ -15,6 +15,7 @@ const initial = {
   eventTitle: "Afterglow Harbor Sessions",
   serverNow: fixtureNow,
   canControl: true,
+  outputConfigurationLocked: true,
   eventId: "event",
   eventPath: "/playwright-afterglow-social/events/playwright-event-host-view",
   program: {
@@ -267,6 +268,7 @@ export function EventOperatorFixture() {
           onClick={() =>
             setStatus((value) => ({
               ...value,
+              outputConfigurationLocked: false,
               sessions: value.sessions.map((session) => ({
                 ...session,
                 status: "ended",

@@ -77,7 +77,7 @@ function fixtureClient() {
   let accountsPending = localStorage.getItem("fixture-output-defer-accounts") === "true";
   window.addEventListener("fixture-output-release-accounts", () => { accountsPending = false; listeners.forEach(listener => listener()); }, { once: true });
   const viewer = { user: { defaultEventTimezone: "UTC" } };
-  const mediaStatus = { program: null, outputs: [], sessions: [], queuedCommandCount: 0 };
+  const mediaStatus = { outputConfigurationLocked: localStorage.getItem("fixture-output-locked") === "true", program: null, outputs: [], sessions: [], queuedCommandCount: 0 };
   const read = (name: string, args: Record<string, unknown>) => {
     if (name === "accounts:viewer") return viewer;
     if (name === "events:listVrcdnOutputAccounts") return accountsPending ? undefined : outputAccounts;

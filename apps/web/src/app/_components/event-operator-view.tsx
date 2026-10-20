@@ -421,7 +421,7 @@ export function EventOperatorControls({
           <details className="space-y-4">
             <summary className="cursor-pointer text-sm">Twitch setup</summary>
             <fieldset
-              disabled={disabled || Boolean(active)}
+              disabled={disabled || status.outputConfigurationLocked}
               className="grid gap-4 sm:max-w-md"
             >
               <label className="grid gap-2 text-sm">
@@ -487,6 +487,7 @@ export function EventOperatorControls({
               <Button
                 variant="secondary"
                 disabled={
+                  status.outputConfigurationLocked ||
                   !consent ||
                   !twitchAccount.trim() ||
                   !twitchLabel.trim() ||

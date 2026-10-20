@@ -17,7 +17,7 @@ const modules = {
 const bridgeToken = "worker-test-only-credential";
 process.env.VRDEX_EVENT_MEDIA_BRIDGE_TOKEN = bridgeToken;
 
-async function fixture() {
+async function setupFixture() {
   const t = convexTest({ schema, modules });
   const subject = newClerkUserId();
   await t.run(async ({ db }) => {
@@ -30,14 +30,21 @@ async function fixture() {
   const owner = t.withIdentity({ subject, emailVerified: true, issuer: "test", tokenIdentifier: `test|${subject}` });
   const event = await owner.mutation(api.events.createCommunityEvent, { title: "Worker event", communitySlug: "club", startAt: Date.now() + 600_000, timezone: "UTC" });
   const output = await owner.mutation(api.events.configureVrcdnOutput, { currentSlug: event.slug, key: "main", label: "Main", credentialRef: "event-media/vrcdn/main", sourceConsentAccepted: true, destinationAuthorityAccepted: true, providerRulesAccepted: true, rightsClearedMediaAccepted: true, playbackLinks: [{ platform: "browser", url: "https://example.test/watch" }] });
-  const scheduled = await owner.mutation(api.events.scheduleEventMediaWorker, { currentSlug: event.slug });
-  // Make the scheduled start eligible without replacing Convex's clock.
-  await t.run(async ctx => {
-    await ctx.db.patch(scheduled.sessionId, { scheduledStartAt: Date.now() - 1000 });
-    if (scheduled.startCommandId) await ctx.db.patch(scheduled.startCommandId, { availableAt: Date.now() - 1000 });
-  });
-  const args = { bridgeToken, eventId: event.eventId, sessionId: scheduled.sessionId, workerId: "worker-a", epoch: 0 };
-  return { t, owner, event, output, scheduled, args };
+  async function schedule() {
+    const scheduled = await owner.mutation(api.events.scheduleEventMediaWorker, { currentSlug: event.slug });
+    // Make the scheduled start eligible without replacing Convex's clock.
+    await t.run(async ctx => {
+      await ctx.db.patch(scheduled.sessionId, { scheduledStartAt: Date.now() - 1000 });
+      if (scheduled.startCommandId) await ctx.db.patch(scheduled.startCommandId, { availableAt: Date.now() - 1000 });
+    });
+    const args = { bridgeToken, eventId: event.eventId, sessionId: scheduled.sessionId, workerId: "worker-a", epoch: 0 };
+    return { scheduled, args };
+  }
+  return {t, owner, event, output, schedule};
+}
+async function fixture() {
+  const f=await setupFixture();
+  return {...f,...await f.schedule()};
 }
 
 it("duplicate_start_is_idempotent", async () => {
@@ -260,7 +267,7 @@ it("cancelled session renewal cannot extend publication past its stop grace peri
 });
 
 it('Twitch output setup is private, explicitly enabled, and preserves selected VRCDN', async()=>{
- const {t,owner,event,output,args}=await fixture();
+ const {t,owner,event,output,schedule}=await setupFixture();
  const communityId=(await t.run(({db})=>db.get(event.eventId)))?.communityProfileId;
  process.env.VRDEX_TWITCH_OUTPUT_ACCOUNTS_JSON=JSON.stringify([{key:"owned",channel:"example",credentialRef:"event-media/twitch/owned",ownerCommunityProfileId:communityId}]);
  const setup={currentSlug:event.slug,key:'twitch',label:'Twitch',channel:'example',credentialRef:'event-media/twitch/owned',sourceConsentAccepted:true,destinationAuthorityAccepted:true,providerRulesAccepted:true,rightsClearedMediaAccepted:true};
@@ -268,12 +275,13 @@ it('Twitch output setup is private, explicitly enabled, and preserves selected V
  await assert.rejects(()=>t.mutation(ref,setup));
  const added=await owner.mutation(ref,setup);
  assert.equal((await t.run(ctx=>ctx.db.get(output.programId)))?.currentOutputId,output.outputId);
- const lease=await t.mutation(worker('acquireSession'),args);
- let config=(await t.mutation(worker('refreshConfiguration'),{...args,epoch:lease.epoch})).configuration;
- assert.equal(config.outputs.find((o:any)=>o.id===added.outputId).simulcastEnabled,false);
+ assert.equal((await t.run(ctx=>ctx.db.get(added.outputId)))?.simulcastEnabled,false);
  await owner.mutation(ref,{...setup,simulcastEnabled:true});
- config=(await t.mutation(worker('refreshConfiguration'),{...args,epoch:lease.epoch})).configuration;
+ const {args}=await schedule();
+ const lease=await t.mutation(worker('acquireSession'),args);
+ const config=(await t.mutation(worker('refreshConfiguration'),{...args,epoch:lease.epoch})).configuration;
  assert.equal(config.outputs.find((o:any)=>o.id===added.outputId).simulcastEnabled,true);
+ await assert.rejects(owner.mutation(ref,{...setup,simulcastEnabled:false}),/session/);
  const privateStatus=await owner.query(api.events.getEventMediaControlStatus,{currentSlug:event.slug});
  assert.equal(privateStatus.outputs.find((o:any)=>o.outputId===added.outputId)?.simulcastEnabled,true);
  assert.equal(privateStatus.outputs.find((o:any)=>o.outputId===added.outputId)?.twitchSetup?.channel,'example');
@@ -291,7 +299,7 @@ it('destination health is fenced and rejects outputs belonging to another event'
  assert.equal((await t.mutation(worker('observeOutputs'),{...args,epoch:lease.epoch,destinations:[{...destinations[0],outputId:other}]})).accepted,false);
 });
 it('destination keys cannot be converted by the legacy VRCDN writer or malformed Twitch discriminator',async()=>{
- const {t,owner,event}=await fixture();const ref=makeFunctionReference<'mutation'>('events:configureTwitchOutput');
+ const {t,owner,event,schedule}=await setupFixture();const ref=makeFunctionReference<'mutation'>('events:configureTwitchOutput');
  const communityId=(await t.run(({db})=>db.get(event.eventId)))?.communityProfileId;
  process.env.VRDEX_TWITCH_OUTPUT_ACCOUNTS_JSON=JSON.stringify([{key:"owned",channel:"example",credentialRef:"event-media/twitch/owned",ownerCommunityProfileId:communityId}]);
  const setup={currentSlug:event.slug,key:'twitch-main',label:'Twitch',channel:'example',credentialRef:'event-media/twitch/owned',simulcastEnabled:true,sourceConsentAccepted:true,destinationAuthorityAccepted:true,providerRulesAccepted:true,rightsClearedMediaAccepted:true};
@@ -303,6 +311,7 @@ it('destination keys cannot be converted by the legacy VRCDN writer or malformed
  await assert.rejects(()=>owner.mutation(ref,{...setup,simulcastEnabled:false}),/another destination/);
  // A legacy malformed row cannot reserve optional Twitch capacity or enter bridge dispatch.
  const other=await owner.mutation(ref,{...setup,key:'twitch-other'});
+ await schedule();
  const command=await t.mutation(api.events.claimEventMediaWorkerCommand,{bridgeToken,workerId:'bridge-fix1'});
  assert.ok(command); assert.deepEqual(command.optionalOutputs.map((o:any)=>o?.outputId),[other.outputId]);
  const {taskDefinitionFor}=await import('../../scripts/event-media-ecs-bridge.mjs');
@@ -407,13 +416,13 @@ it("invalid_optional_account_registry_does_not_hide_worker_controls", async () =
 });
 
 const twitchConsent = { sourceConsentAccepted:true, destinationAuthorityAccepted:true, providerRulesAccepted:true, rightsClearedMediaAccepted:true };
-async function twitchCommunity(f: Awaited<ReturnType<typeof fixture>>) {
+async function twitchCommunity(f: Awaited<ReturnType<typeof setupFixture>>) {
   const record = await f.t.run(({db}) => db.get(f.event.eventId));
   assert.ok(record?.communityProfileId);
   return record.communityProfileId;
 }
 it("Twitch registry isolates two destination owners and rechecks explicit community grants", async () => {
-  const f = await fixture();
+  const f = await setupFixture();
   const ownerAId = await twitchCommunity(f);
   const subjectB = newClerkUserId();
   const ownerBId = await f.t.run(async ({db}) => {
@@ -449,7 +458,7 @@ it("Twitch registry isolates two destination owners and rechecks explicit commun
 });
 
 it("revoked optional Twitch binding disappears from existing ready output dispatch and refresh", async () => {
-  const f=await fixture(), communityId=await twitchCommunity(f);
+  const f=await setupFixture(), communityId=await twitchCommunity(f);
   const destinationOwner=await f.t.run(async({db})=>{
     const profile=await db.get(communityId); assert.ok(profile);
     const {_id,_creationTime,...fields}=profile;
@@ -458,52 +467,55 @@ it("revoked optional Twitch binding disappears from existing ready output dispat
   const account={key:"owned",channel:"example",credentialRef:"event-media/twitch/owned",ownerCommunityProfileId:destinationOwner};
   process.env.VRDEX_TWITCH_OUTPUT_ACCOUNTS_JSON=JSON.stringify([{...account,authorizedCommunityProfileIds:[communityId]}]);
   const added=await f.owner.mutation(api.events.configureTwitchOutput,{currentSlug:f.event.slug,key:"twitch",label:"Twitch",channel:"example",outputAccountKey:"owned",simulcastEnabled:true,...twitchConsent});
+  const {args}=await f.schedule();
   process.env.VRDEX_TWITCH_OUTPUT_ACCOUNTS_JSON=JSON.stringify([account]);
   const dispatch=await f.t.mutation(api.events.claimEventMediaWorkerCommand,{bridgeToken,workerId:"binding-bridge"});
   assert.ok(dispatch);
   assert.deepEqual(dispatch.optionalOutputs,[]);
   process.env.VRDEX_TWITCH_OUTPUT_ACCOUNTS_JSON=JSON.stringify([{...account,authorizedCommunityProfileIds:[communityId]}]);
-  const lease=await f.t.mutation(worker("acquireSession"),f.args);
+  const lease=await f.t.mutation(worker("acquireSession"),args);
   assert.ok(lease.configuration.outputs.some((o:{id:string})=>o.id===added.outputId));
   process.env.VRDEX_TWITCH_OUTPUT_ACCOUNTS_JSON=JSON.stringify([account]);
-  const fresh=await f.t.mutation(worker("refreshConfiguration"),{...f.args,epoch:lease.epoch});
+  const fresh=await f.t.mutation(worker("refreshConfiguration"),{...args,epoch:lease.epoch});
   assert.equal(fresh.granted,true);
   assert.equal(fresh.configuration.outputs.some((o:{id:string})=>o.id===added.outputId),false);
   assert.equal((await f.t.run(({db})=>db.get(added.outputId)))?.state,"ready");
 
-  assert.equal((await f.t.mutation(worker("observeOutputs"),{...f.args,epoch:lease.epoch,destinations:[{outputId:added.outputId,destination:"twitch",status:"publishing",publishing:true,queueBytes:0,outputMs:1000,restarts:0}]})).accepted,false);
+  assert.equal((await f.t.mutation(worker("observeOutputs"),{...args,epoch:lease.epoch,destinations:[{outputId:added.outputId,destination:"twitch",status:"publishing",publishing:true,queueBytes:0,outputMs:1000,restarts:0}]})).accepted,false);
 });
 
 it("revoked selected Twitch binding denies dispatch acquisition renewal and refresh", async () => {
-  const f=await fixture(), communityId=await twitchCommunity(f);
+  const f=await setupFixture(), communityId=await twitchCommunity(f);
   const registry=[{key:"owned",channel:"example",credentialRef:"event-media/twitch/owned",ownerCommunityProfileId:communityId}];
   process.env.VRDEX_TWITCH_OUTPUT_ACCOUNTS_JSON=JSON.stringify(registry);
   const added=await f.owner.mutation(api.events.configureTwitchOutput,{currentSlug:f.event.slug,key:"twitch",label:"Twitch",channel:"example",credentialRef:registry[0].credentialRef,...twitchConsent});
-  await f.t.run(async({db})=>{await db.patch(f.args.sessionId,{outputId:added.outputId});await db.patch(f.output.programId,{currentOutputId:added.outputId});});
-  const lease=await f.t.mutation(worker("acquireSession"),f.args);
+  const {args}=await f.schedule();
+  await f.t.run(async({db})=>{await db.patch(args.sessionId,{outputId:added.outputId});await db.patch(f.output.programId,{currentOutputId:added.outputId});});
+  const lease=await f.t.mutation(worker("acquireSession"),args);
   assert.equal(lease.granted,true);
-  const claimed=await f.t.mutation(worker("claimCommands"),{...f.args,epoch:lease.epoch});
+  const claimed=await f.t.mutation(worker("claimCommands"),{...args,epoch:lease.epoch});
   process.env.VRDEX_TWITCH_OUTPUT_ACCOUNTS_JSON="[]";
   const command=claimed.commands[0];
   assert.ok(command);
-  assert.equal((await f.t.mutation(worker("acknowledgeCommand"),{...f.args,epoch:lease.epoch,commandId:command._id,sequence:command.sequence,outcome:"succeeded",observedState:"hold"})).accepted,false);
-  assert.equal((await f.t.mutation(worker("admitDispatch"),{bridgeToken,eventId:f.event.eventId,sessionId:f.args.sessionId,dispatchId:"revoked-destination"})).granted,false);
-  assert.equal((await f.t.mutation(worker("acquireSession"),{...f.args,epoch:lease.epoch})).granted,false);
-  assert.equal((await f.t.mutation(worker("renewSession"),{...f.args,epoch:lease.epoch})).granted,false);
-  assert.equal((await f.t.mutation(worker("refreshConfiguration"),{...f.args,epoch:lease.epoch})).granted,false);
+  assert.equal((await f.t.mutation(worker("acknowledgeCommand"),{...args,epoch:lease.epoch,commandId:command._id,sequence:command.sequence,outcome:"succeeded",observedState:"hold"})).accepted,false);
+  assert.equal((await f.t.mutation(worker("admitDispatch"),{bridgeToken,eventId:f.event.eventId,sessionId:args.sessionId,dispatchId:"revoked-destination"})).granted,false);
+  assert.equal((await f.t.mutation(worker("acquireSession"),{...args,epoch:lease.epoch})).granted,false);
+  assert.equal((await f.t.mutation(worker("renewSession"),{...args,epoch:lease.epoch})).granted,false);
+  assert.equal((await f.t.mutation(worker("refreshConfiguration"),{...args,epoch:lease.epoch})).granted,false);
   assert.equal(await f.t.mutation(api.events.claimEventMediaWorkerCommand,{bridgeToken,workerId:"revoked-bridge"}),null);
 });
 
 it("revoked selected ready destination cannot enter the bridge before acquisition but Stop still works", async () => {
-  const f=await fixture(), communityId=await twitchCommunity(f);
+  const f=await setupFixture(), communityId=await twitchCommunity(f);
   process.env.VRDEX_TWITCH_OUTPUT_ACCOUNTS_JSON=JSON.stringify([{key:"owned",channel:"example",credentialRef:"event-media/twitch/owned",ownerCommunityProfileId:communityId}]);
   const added=await f.owner.mutation(api.events.configureTwitchOutput,{currentSlug:f.event.slug,key:"twitch",label:"Twitch",channel:"example",outputAccountKey:"owned",...twitchConsent});
-  await f.t.run(async({db})=>{await db.patch(f.args.sessionId,{outputId:added.outputId});await db.patch(f.output.programId,{currentOutputId:added.outputId});});
+  const {args}=await f.schedule();
+  await f.t.run(async({db})=>{await db.patch(args.sessionId,{outputId:added.outputId});await db.patch(f.output.programId,{currentOutputId:added.outputId});});
   process.env.VRDEX_TWITCH_OUTPUT_ACCOUNTS_JSON="[]";
-  assert.equal((await f.t.mutation(worker("admitDispatch"),{bridgeToken,eventId:f.event.eventId,sessionId:f.args.sessionId,dispatchId:"pre-acquire-revoked"})).granted,false);
+  assert.equal((await f.t.mutation(worker("admitDispatch"),{bridgeToken,eventId:f.event.eventId,sessionId:args.sessionId,dispatchId:"pre-acquire-revoked"})).granted,false);
   assert.equal(await f.t.mutation(api.events.claimEventMediaWorkerCommand,{bridgeToken,workerId:"pre-acquire-bridge"}),null);
-  assert.equal((await f.t.mutation(worker("acquireSession"),f.args)).granted,false);
-  await f.owner.mutation(api.events.stopEventMediaWorker,{currentSlug:f.event.slug,sessionId:f.args.sessionId});
+  assert.equal((await f.t.mutation(worker("acquireSession"),args)).granted,false);
+  await f.owner.mutation(api.events.stopEventMediaWorker,{currentSlug:f.event.slug,sessionId:args.sessionId});
   const stop=await f.t.mutation(api.events.claimEventMediaWorkerCommand,{bridgeToken,workerId:"cleanup-bridge"});
   assert.equal(stop?.commandType,"stop_program");
 });
@@ -528,12 +540,13 @@ it("actual program observations have a distinct timestamp that renewal cannot re
 });
 
 it("actual optional grant revocation fences the controller before more program publication", async () => {
-  const f=await fixture(), communityId=await twitchCommunity(f);
+  const f=await setupFixture(), communityId=await twitchCommunity(f);
   process.env.VRDEX_TWITCH_OUTPUT_ACCOUNTS_JSON=JSON.stringify([{key:"owned",channel:"example",credentialRef:"event-media/twitch/owned",ownerCommunityProfileId:communityId}]);
   await f.owner.mutation(api.events.configureTwitchOutput,{currentSlug:f.event.slug,key:"twitch",label:"Twitch",channel:"example",outputAccountKey:"owned",simulcastEnabled:true,...twitchConsent});
+  const {args}=await f.schedule();
   const {createEventWorker}=await import("../../workers/restream/event-worker.mjs");
   let fences=0;
-  const controller=createEventWorker({identity:f.args,control:(method:string,request:Record<string,unknown>)=>f.t.mutation(worker(method),request),
+  const controller=createEventWorker({identity:args,control:(method:string,request:Record<string,unknown>)=>f.t.mutation(worker(method),request),
     renderer:{start:async()=>{},stop:async()=>{},subscribe:()=>()=>{},reconcileSources:async()=>{},getInputs:()=>[],hold:()=>{},getState:()=>({running:true,outputMs:1000})},
     outputs:{start:async()=>{},stop:async()=>{},stopNow:()=>{fences++;},enqueue:()=>{},getState:()=>({publishing:true})},
     resolveSource:async()=>undefined,checkEnabled:async()=>true});

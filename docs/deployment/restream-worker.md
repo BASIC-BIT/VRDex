@@ -423,6 +423,19 @@ switches are acknowledged only when both encoded slot and source match, and the
 required output is publishing. Autonomous observations are fenced and audited
 separately from command acknowledgements.
 
+The required output must begin actual encoded publication within 15 seconds of
+worker startup. Permanent `invalid_setup` immediately fences publication; failure
+to publish by the deadline also stops the renderer and senders. The CLI then
+releases its local resources and exits, with no further lease renewal. Optional
+setup/network failures remain isolated. A worker error does not release dispatch
+admission: the bridge must confirm the actual ECS task is STOPPED first.
+
+Worker configuration reads current slot sources and unbound manual sources
+through a program/slot index. Detached projections are retained but excluded from
+the source limit; they cannot hide later eligible sources. The 64-source bound
+still rejects eligible overflow, alongside the existing slot, scene and output
+bounds. Disabling or revoking a source still removes it from configuration.
+
 The worker emits JSON `event_worker_heartbeat` (encoded `outputMs`, remaining
 runtime), `event_worker_command` (sequence, latency, outcome), and
 `event_worker_stopped` (bounded reason) metrics without source or output URLs.
@@ -441,9 +454,13 @@ Its output sink is local and is not provider acceptance. Also run
 GOP, color and audio checks. The tested quality is 720p30; 1080p60 has not passed
 the local processing-delay budget.
 
-Changing the selected destination configuration requires a stopped/restarted
-session; refresh fences the old sender before it can be reported under a new
-output identity. An optional sender's transient failure is separate from this
+Both output setup mutations reject writes, including unchanged saves, while a
+session is scheduled, starting, live, holding, in fallback, or stopping. Terminal
+sessions with an unconfirmed dispatch or a still-running task also block writes.
+The editor and operator panel use the same backend configuration lock. Configure
+accounts after the session and its reservation have stopped, then start again.
+Refresh still fences changed destination configuration or revoked authorization
+before the old sender can be reported under a new output identity. An optional sender's transient failure is separate from this
 configuration-change rule and must not interrupt a healthy required destination.
 For a source URL change under the same source ID, the worker restarts the decoder
 and waits for encoded hold before accepting the replacement input's acknowledgement.
@@ -466,10 +483,10 @@ required destination. `events.configureTwitchOutput` creates an operator-owned
 Disabled optional Twitch destinations are omitted from public event links; an
 explicitly selected primary Twitch output retains its existing watch behavior.
 Both VRCDN and Twitch setup enforce eight total output records per program before
-insertion. Existing records remain editable at that limit.
+insertion. Existing records remain editable at that limit while sessions are stopped.
 Only one optional Twitch output can be enabled. VRCDN and Twitch configuration
-reject cross-provider key reuse symmetrically; use a distinct output key. Setup changes fence the running
-session and require restart, including enabling/disabling optional publication.
+reject cross-provider key reuse symmetrically; use a distinct output key. Setup writes require stopped sessions, including enabling/disabling optional
+publication. Registry revocation still fences an existing session on refresh.
 
 The mutation uses existing media-management authorization and accepts
 `currentSlug`, `key`, `label`, `channel`, optional `credentialRef` or
@@ -610,6 +627,19 @@ The Task 6 packaged Node 22.23.3/bookworm image also passed the 60-second proof 
 same 34 ms packet-gap/one-second-GOP bounds. Sender CPU was 0.66 seconds primary
 and 13.89 seconds optional; application egress was 14,770,299 and 11,954,114 bytes.
 The separate sender test suite passed all eight tests on Node 22 as well.
+
+The October 20 review follow-up changed only `event-worker.mjs` among the nine
+packaged runtime modules. Local image
+`sha256:143cbd55aa8b1f4a5c55706ff58fa42e2b6b8660ee24e89f5fadf0d78901c3dd`
+(Node 22.23.3) passed `node scripts/event-startup-local-proof.mjs`: actual CLI
+primary-invalid termination, healthy primary with invalid optional setup, and
+primary-unreachable startup deadline. The same image passed the 40-second
+`event-output-local-proof.mjs` dual-output outage/recovery proof. Both ran with
+no external network, read-only root and two-CPU/four-GiB limits. Their exact image,
+launch configuration, packaged hashes, logs and media hashes are retained.
+These bounded controller checks complement the prior sustained media evidence;
+they do not claim a new two-hour run of the changed controller. See
+[event broadcast verification](../engineering/event-broadcast-verification.md).
 
 ### Event operator controls
 

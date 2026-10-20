@@ -154,7 +154,7 @@ it('F4 public projection hides disabled optional Twitch but preserves enabled an
   const urls = async () => (await f.t.query(api.events.getPublicBySlug, { slug: f.a.event.slug }))!.mediaLinks.map(link => link.url);
   const disabled = await urls();
   assert.equal(disabled.some(url => url.includes('twitch.tv')), false);
-  assert.ok(disabled.includes('https://example.test/direct'));
+  assert.ok(disabled.some(url => url === 'https://example.test/direct'));
   assert.deepEqual((await f.t.query(api.events.getPublicBySlug, { slug: f.a.event.slug }))!.mediaLinks, baseline);
   assert.ok(disabled.some(url => url.includes('vrcdn.live')));
   await f.a.actor.mutation(api.events.configureTwitchOutput, { ...args, simulcastEnabled: true });
@@ -202,3 +202,23 @@ it('F2 scheduled starts retain pre-event validation and immediate starts reject 
   await assert.rejects(f.a.actor.mutation(api.events.scheduleEventMediaWorker, { currentSlug: f.a.event.slug, scheduledStartAt: Date.now() }), /before the event starts/);
   await assert.rejects(f.a.actor.mutation(api.events.scheduleEventMediaWorker, { currentSlug: f.a.event.slug, startImmediately: true, scheduledStartAt: 1 }), /Immediate start/);
 });
+
+for (const status of ['scheduled', 'starting', 'live', 'hold', 'fallback', 'stopping', 'error', 'ended'] as const) {
+  it(`R2F1 destination saves reject ${status} sessions with reserved capacity`, async () => {
+    const f = await fixture();
+    const setup = { ...f.setup, currentSlug: f.a.event.slug };
+    const output = await f.a.actor.mutation(api.events.configureVrcdnOutput, setup);
+    const session = await f.schedule();
+    await f.t.run(({db}) => db.patch(session.sessionId, {status, dispatchId:'reserved', workerTaskStatus:'running'}));
+    const before = await f.t.run(({db}) => db.get(output.outputId));
+    await assert.rejects(f.a.actor.mutation(api.events.configureVrcdnOutput, setup), /session|stopped/i);
+    assert.deepEqual(await f.t.run(({db}) => db.get(output.outputId)), before);
+    assert.equal((await f.a.actor.query(api.events.getEventMediaControlStatus, {currentSlug:f.a.event.slug})).outputConfigurationLocked, true);
+    process.env.VRDEX_TWITCH_OUTPUT_ACCOUNTS_JSON = JSON.stringify([{key:'owned',channel:'example',credentialRef:'event-media/twitch/owned',ownerCommunityProfileId:f.a.id}]);
+    await assert.rejects(f.a.actor.mutation(api.events.configureTwitchOutput, {currentSlug:f.a.event.slug,key:'twitch',label:'Twitch',channel:'example',outputAccountKey:'owned',...consent}), /session|stopped/i);
+    await f.t.run(({db}) => db.patch(session.sessionId, {status:'ended',workerTaskStatus:'stopped',dispatchStopConfirmedAt:Date.now()}));
+    await f.a.actor.mutation(api.events.configureVrcdnOutput, setup);
+    await f.a.actor.mutation(api.events.configureTwitchOutput, {currentSlug:f.a.event.slug,key:'twitch',label:'Twitch',channel:'example',outputAccountKey:'owned',...consent});
+    assert.equal((await f.a.actor.query(api.events.getEventMediaControlStatus, {currentSlug:f.a.event.slug})).outputConfigurationLocked, false);
+  });
+}

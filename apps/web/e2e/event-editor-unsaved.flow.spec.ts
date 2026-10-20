@@ -553,3 +553,12 @@ test('output editing prefills the supported MPEG-TS browser transport @flow @fix
   await expect(page.getByLabel('Quest stream URL', { exact: true })).toHaveValue('https://stream.vrcdn.live/live/existing-output.live.ts');
   await expect(page.getByLabel('PC stream URL', { exact: true })).toHaveValue('rtspt://stream.vrcdn.live/live/existing-output');
 });
+
+
+test('R2F1 reserved worker disables output saves in the event editor @flow @fixture', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('fixture-output-locked', 'true'));
+  await openOutput(page);
+  await expect(page.getByRole('button', {name:'Save output account',exact:true})).toBeDisabled();
+  expect(await page.evaluate(() => localStorage.getItem('fixture-output-submission'))).toBeNull();
+  await page.screenshot({path:test.info().outputPath('output-locked.png'),fullPage:true});
+});

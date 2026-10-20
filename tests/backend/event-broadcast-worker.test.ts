@@ -596,3 +596,94 @@ for (const response of [{}, {granted: undefined}, {granted: 'yes'}, null]) it(`F
     await assert.rejects(f.owner.mutation(api.events.scheduleEventMediaWorker, { currentSlug: f.event.slug }), /in progress/);
     assert.equal(await claimAndProcess(client, { bridgeToken, workerId: 'bridge', redactValues: [] }), false);
 });
+
+it('R2F2 detached projections do not hide authored and manual sources on acquisition or refresh', async () => {
+  const {t,args,event,output} = await fixture();
+  const ids = await t.run(async ({db}) => {
+    const now=Date.now();
+    const slotData={eventId:event.eventId,position:0,startAt:now-1000,displayLabel:'DJ',roleLabel:'DJ',sourceType:'manual' as const,sourceLabel:'Owner',confidence:1,reviewState:'confirmed' as const,updatedAt:now};
+    const stale=await db.insert('eventSlots',slotData);
+    for(let i=0;i<100;i++) await db.insert('eventMediaSources',{programId:output.programId,eventId:event.eventId,key:`stale-${i}`,position:i,type:'vrcdn_link',purpose:'program',state:'ready',label:'Detached',eventSlotId:stale,profileProjection:true,projectionAvailable:true,publicUrl:'https://stream.vrcdn.live/live/stale.live.ts',createdAt:now,updatedAt:now});
+    await db.delete(stale);
+    const slot=await db.insert('eventSlots',slotData);
+    const source=await db.insert('eventMediaSources',{programId:output.programId,eventId:event.eventId,key:'authored',position:101,type:'vrcdn_link',purpose:'program',state:'ready',label:'DJ',eventSlotId:slot,publicUrl:'https://stream.vrcdn.live/live/dj.live.ts',createdAt:now,updatedAt:now});
+    const manual=await db.insert('eventMediaSources',{programId:output.programId,eventId:event.eventId,key:'manual',position:102,type:'vrcdn_link',purpose:'program',state:'ready',label:'Manual',publicUrl:'https://stream.vrcdn.live/live/manual.live.ts',createdAt:now,updatedAt:now});
+    return {slot,source,manual};
+  });
+  const lease=await t.mutation(worker('acquireSession'),args);
+  const request={...args,epoch:lease.epoch};
+  for(const config of [lease.configuration,(await t.mutation(worker('refreshConfiguration'),request)).configuration]) {
+    assert.deepEqual(new Set(config.sources.map((s:any)=>s.id)),new Set([ids.source,ids.manual]));
+    assert.equal(config.slots[0].sourceId,ids.source);
+    assert.equal(config.slots[0].available,true);
+  }
+  await t.run(({db})=>db.patch(ids.source,{state:'disabled'}));
+  const revoked=await t.mutation(worker('refreshConfiguration'),request);
+  assert.equal(revoked.configuration.slots[0].available,false);
+  assert.deepEqual(revoked.configuration.sources.map((s:any)=>s.id),[ids.manual]);
+  await t.run(async ({db})=>{
+    const source=await db.get(ids.manual); assert(source);
+    const {_id,_creationTime,...record}=source;
+    for(let i=0;i<64;i++) await db.insert('eventMediaSources',{...record,key:`manual-${i}`,position:200+i});
+  });
+  await assert.rejects(t.mutation(worker('refreshConfiguration'),request),/worker limits/);
+});
+
+it('R2F3 primary invalid setup fences without further renewal, optional invalid setup stays isolated', async () => {
+  for(const primaryInvalid of [true,false]) {
+    let renewals=0,stops=0;
+    const f=runtimeFixture({outputs:{start:async()=>{},stopNow:()=>{stops++;},stop:async()=>{},enqueue:()=>{},getState:()=>({publishing:!primaryInvalid,destinations:[{outputId:'out',status:primaryInvalid?'invalid_setup':'publishing'},{outputId:'optional',status:'invalid_setup'}]})},controlFilter:(name:string,args:any,next:any)=>{if(name==='renewSession')renewals++;return next(name,args);}});
+    await f.worker.start().catch(()=>{});
+    f.encoded(); await f.worker.tick();
+    assert.equal(f.worker.getState().stopped,primaryInvalid);
+    f.advance(6000);await f.worker.tick();f.advance(11000);await f.worker.tick();
+    assert.equal(renewals,primaryInvalid?0:1);
+    assert.equal(stops,primaryInvalid?1:0);
+    await f.worker.stop();
+  }
+});
+it('R2F3 primary startup deadline fences even without a claimed start command, transient startup recovers',async()=>{
+  for(const recover of [false,true]) {
+    let publishing=false,stops=0;
+    const f=runtimeFixture({outputs:{start:async()=>{},stopNow:()=>{stops++;},stop:async()=>{},enqueue:()=>{},getState:()=>({publishing})}});
+    await f.worker.start();
+    for(const now of [5000,10000,14000,16000]) {f.advance(now);if(recover&&now===14000){publishing=true;f.encoded();}await f.worker.tick();}
+    assert.equal(f.worker.getState().stopped,!recover);assert.equal(stops,recover?0:1);await f.worker.stop();
+  }
+});
+
+it('R2F1 rejected ordinary output save preserves the active worker configuration and publication', async () => {
+  const f=await fixture();
+  const save=()=>f.owner.mutation(api.events.configureVrcdnOutput,{currentSlug:f.event.slug,key:'main',label:'Main',credentialRef:'event-media/vrcdn/main',sourceConsentAccepted:true,destinationAuthorityAccepted:true,providerRulesAccepted:true,rightsClearedMediaAccepted:true,playbackLinks:[{platform:'browser',url:'https://example.test/watch'}]});
+  await assert.rejects(save(),/session/); // Pending, before any dispatch reservation.
+  const controller=createEventWorker({identity:f.args,control:(method:string,request:Record<string,unknown>)=>f.t.mutation(worker(method),request),
+    renderer:{start:async()=>{},stop:async()=>{},subscribe:()=>()=>{},reconcileSources:async()=>{},getInputs:()=>[],hold:()=>{},getState:()=>({running:true,outputMs:1000})},
+    outputs:{start:async()=>{},stop:async()=>{},stopNow:()=>{},enqueue:()=>{},getState:()=>({publishing:true})},resolveSource:async()=>undefined,checkEnabled:async()=>true});
+  try {
+    await controller.start();await controller.tick();
+    const before=await f.t.run(({db})=>db.get(f.output.outputId));
+    await assert.rejects(save(),/session/);
+    await controller.tick();
+    assert.equal(controller.getState().stopped,false);
+    assert.equal((await f.t.run(({db})=>db.get(f.args.sessionId)))?.status,'hold');
+    assert.deepEqual(await f.t.run(({db})=>db.get(f.output.outputId)),before);
+  } finally {await controller.stop();}
+});
+
+it('R2F1 confirmed task STOPPED unlocks configuration even after a late failure diagnostic', async()=>{
+  const f=await admittedBeforeAcquisition();
+  const status=()=>f.owner.query(api.events.getEventMediaControlStatus,{currentSlug:f.event.slug});
+  const diagnoseFailure=()=>f.t.mutation(api.events.recordEventMediaWorkerBridgeTaskStatus,{bridgeToken,workerId:'bridge',sessionId:f.args.sessionId,status:'error',workerTaskStatus:'failed'});
+  await diagnoseFailure();
+  assert.equal((await status()).outputConfigurationLocked,true);
+  await refreshSessions(f.client,f.config,async(_config:any,args:string[])=>args[1]==='describe-tasks'?{tasks:[{taskArn:'managed-task',lastStatus:'STOPPED',containers:[{exitCode:1}]}]}:{});
+  const stopped=await f.t.run(({db})=>db.get(f.args.sessionId));
+  assert.equal(typeof stopped?.dispatchStopConfirmedAt,'number');
+  assert.equal((await status()).outputConfigurationLocked,false);
+  // A delayed legacy diagnostic may retain the nonzero-exit label after the
+  // authoritative process-stop observation; it must not revive the reservation.
+  await diagnoseFailure();
+  assert.equal((await f.t.run(({db})=>db.get(f.args.sessionId)))?.workerTaskStatus,'failed');
+  assert.equal((await status()).outputConfigurationLocked,false);
+  await f.owner.mutation(api.events.configureVrcdnOutput,{currentSlug:f.event.slug,key:'main',label:'Main',credentialRef:'event-media/vrcdn/main',sourceConsentAccepted:true,destinationAuthorityAccepted:true,providerRulesAccepted:true,rightsClearedMediaAccepted:true,playbackLinks:[{platform:'browser',url:'https://example.test/watch'}]});
+});

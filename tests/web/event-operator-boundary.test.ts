@@ -50,7 +50,7 @@ it('F3 actual route denies anonymous, nonstaff and mismatched paths before fetch
 function operatorFixture() {
   const requests: Array<{ ref: string; args: any }> = [];
   const React = webRequire('react');
-  const status = { eventTitle: 'Show', eventPath: '/club/events/show', canControl: false, serverNow: Date.now(), program: undefined, sessions: [], sources: [], outputs: [], commands: [], twitchAccounts: [] };
+  const status = { eventTitle: 'Show', eventPath: '/club/events/show', canControl: false, outputConfigurationLocked: false, serverNow: Date.now(), program: undefined, sessions: [], sources: [], outputs: [], commands: [], twitchAccounts: [] };
   const component = load('app/_components/event-operator-view.tsx', {
     'next/link': { default: (props: any) => React.createElement('a', props) },
     'convex/react': { useQuery: () => status, useMutation: (ref: string) => async (args: any) => { requests.push({ ref, args }); } },
@@ -77,5 +77,14 @@ it('F3 rendered read-only controls disable every broadcast mutation', () => {
   for (const label of ['Next', 'Hold current', 'Show slate', 'Return to auto', 'Stop', 'Start', 'Save policy']) {
     assert.match(html, new RegExp(`<button[^>]*disabled=""[^>]*>${label}</button>`));
   }
+  assert.match(html, /<fieldset[^>]*disabled=""/);
+});
+
+it('R2F1 terminal reserved output configuration stays disabled independently of the visible session', () => {
+  const f = operatorFixture();
+  f.status.canControl = true;
+  f.status.outputConfigurationLocked = true;
+  const { renderToStaticMarkup } = webRequire('react-dom/server');
+  const html: string = renderToStaticMarkup(f.React.createElement(f.component.EventOperatorControls, { status: f.status }));
   assert.match(html, /<fieldset[^>]*disabled=""/);
 });

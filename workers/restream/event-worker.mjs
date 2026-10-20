@@ -27,6 +27,7 @@ export function createEventWorker({ identity, control, renderer, outputs, create
     let stopped = false, started = false, busy = false, config, current, mode = 'automatic';
     let authorityUntil = -Infinity, runtimeUntil = Infinity, renewAt = Infinity, enabledUntil = -Infinity;
     let serverTime = 0, sampledAt = 0, pending, lastSequence = 0, unsubscribe;
+    let startupUntil = Infinity, published = false;
     let lastOutput = 0, outputProgressAt = 0, silenceThresholdDb, outputConfiguration;
     const completed = new Map(), sourceURLs = new Map(), revisionBarriers = new Map();
     const request = (name, args = {}) => bounded(signal => control(name, { ...identity, ...args }, signal), requestTimeoutMs);
@@ -47,6 +48,11 @@ export function createEventWorker({ identity, control, renderer, outputs, create
         if (!started || stopped)
             return;
         const now = clock();
+        const primary = outputs?.getState().destinations?.find(output => output.outputId === config?.outputId);
+        if (primary?.status === 'invalid_setup' || (!published && now > startupUntil)) {
+            fence('primary-startup-failed');
+            return;
+        }
         const deadline = Math.min(authorityUntil, runtimeUntil, enabledUntil);
         if (now >= deadline) {
             metric({ event: 'event_worker_authority_expired', authority: deadline === enabledUntil ? 'kill-switch' : deadline === runtimeUntil ? 'session-deadline' : 'lease', expiredByMs: now - deadline });
@@ -96,7 +102,9 @@ export function createEventWorker({ identity, control, renderer, outputs, create
             lastOutput = state.outputMs;
             outputProgressAt = clock();
         }
-        return { ...state, publishing: outputs?.getState().publishing === true && state.running && state.outputMs > 0 && clock() - outputProgressAt <= 2000 };
+        const publishing = outputs?.getState().publishing === true && state.running && state.outputMs > 0 && clock() - outputProgressAt <= 2000;
+        published ||= publishing;
+        return { ...state, publishing };
     }
     async function report() {
         const destinations = outputs?.getState().destinations;
@@ -210,6 +218,7 @@ export function createEventWorker({ identity, control, renderer, outputs, create
                 if (!current && mode === 'manual' && config.sources.some(s => s.id === config.currentSourceId))
                     current = { slotKey: `manual-${config.currentSourceId}`, sourceId: config.currentSourceId, startAt: lease.serverNow, available: true };
                 started = true;
+                startupUntil = clock() + 15000;
                 runtimeUntil = Math.min(sent + maxSessionMs, sent + config.sessionDeadline - lease.serverNow);
                 if (!config.outputs.some(output => output.id === config.outputId))
                     throw Error('Selected output unavailable');

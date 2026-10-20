@@ -213,11 +213,22 @@ async function configuration(ctx: MutationCtx, { session, program, event }: NonN
             source = null;
         }
         if (!source && !slot.personProfileId)
-            source = (await ctx.db.query("eventMediaSources").withIndex("by_programId_position", q => q.eq("programId", program._id)).take(65)).find(s => s.eventSlotId === slot._id && !s.profileProjection && !(s.sourceProfileId && s.key === `slot-${slot._id}`)) ?? null;
+            source = (await ctx.db.query("eventMediaSources").withIndex("by_programId_eventSlotId", q => q.eq("programId", program._id).eq("eventSlotId", slot._id)).take(EVENT_BROADCAST_MAX_SOURCES + 1)).find(s => s.eventSlotId === slot._id && !s.profileProjection && !(s.sourceProfileId && s.key === `slot-${slot._id}`)) ?? null;
         slots.push({ slotKey: slot._id, sourceId: source?._id, startAt: slot.startAt, endAt: slot.endAt, available: source !== null && source.state !== "disabled" && source.projectionAvailable !== false && !!source.publicUrl });
     }
-    const [sources, scenes, outputs] = await Promise.all([
-        ctx.db.query("eventMediaSources").withIndex("by_programId_position", q => q.eq("programId", program._id)).take(EVENT_BROADCAST_MAX_SOURCES + 1),
+    // Index each current slot plus unbound manual sources. Detached projections
+    // cannot consume the bound or hide later authored/manual sources.
+    const sources = [];
+    for (const slotId of [undefined, ...authored.map(slot => slot._id)]) {
+        const eligible = await ctx.db.query("eventMediaSources")
+            .withIndex("by_programId_eventSlotId", q => q.eq("programId", program._id).eq("eventSlotId", slotId))
+            .filter(q => q.and(q.eq(q.field("eventId"), event._id), q.neq(q.field("state"), "disabled"), q.neq(q.field("projectionAvailable"), false)))
+            .take(EVENT_BROADCAST_MAX_SOURCES + 1 - sources.length);
+        sources.push(...eligible);
+        if (sources.length > EVENT_BROADCAST_MAX_SOURCES)
+            throw new Error("Event broadcast configuration exceeds worker limits.");
+    }
+    const [scenes, outputs] = await Promise.all([
         ctx.db.query("eventMediaScenes").withIndex("by_programId_position", q => q.eq("programId", program._id)).take(EVENT_BROADCAST_MAX_SCENES + 1),
         ctx.db.query("eventMediaOutputs").withIndex("by_programId_key", q => q.eq("programId", program._id)).take(EVENT_BROADCAST_MAX_OUTPUTS + 1),
     ]);

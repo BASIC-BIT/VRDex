@@ -887,7 +887,7 @@ function ConnectedEventEditorForm({
   const vrcdnOutputAccountOptions = vrcdnOutputAccounts ?? [];
   const vrcdnOutputAccountsLoading = vrcdnOutputAccounts === undefined;
   const canSaveVrcdnOutput =
-    vrcdnOutputStatus.kind !== "submitting" && !vrcdnOutputAccountsLoading && vrcdnOutputAccountOptions.length > 0;
+    eventMediaControlStatus?.outputConfigurationLocked === false && vrcdnOutputStatus.kind !== "submitting" && !vrcdnOutputAccountsLoading && vrcdnOutputAccountOptions.length > 0;
   const visibleWorkerSession = chooseVisibleWorkerSession(eventMediaControlStatus?.sessions ?? []);
   const visibleWorkerOutput = eventMediaControlStatus?.outputs.find((output) => output.outputId === visibleWorkerSession?.outputId);
   function onVrcdnOutputAccountChange(changeEvent: ChangeEvent<HTMLSelectElement>) {

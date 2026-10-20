@@ -1626,6 +1626,30 @@ async function getOpenEventMediaSession(
     .sort((first, second) => second.updatedAt - first.updatedAt)[0] ?? null;
 }
 
+/** Configuration is immutable until every session has stopped or released admission. */
+async function eventOutputConfigurationLocked(db: DatabaseReader, program: Doc<"eventMediaPrograms">) {
+  if (await getOpenEventMediaSession(db, program)) return true;
+  for (const status of ["ended", "error"] as const) {
+    const held = await db.query("eventMediaSessions")
+      .withIndex("by_programId_status", q => q.eq("programId", program._id).eq("status", status))
+      .filter(q => q.and(q.eq(q.field("dispatchStopConfirmedAt"), undefined), q.or(
+        q.neq(q.field("dispatchId"), undefined),
+        q.and(q.neq(q.field("workerTaskStatus"), "stopped"), q.or(
+          q.neq(q.field("workerTaskId"), undefined), q.neq(q.field("epoch"), undefined),
+        )),
+      ))).first();
+    if (held) return true;
+  }
+  return false;
+}
+
+async function requireStoppedOutputSessions(db: DatabaseReader, programId: Id<"eventMediaPrograms">) {
+  const program = await db.get(programId);
+  if (program && await eventOutputConfigurationLocked(db, program)) {
+    throw new Error("An event media worker session is already active for this event.");
+  }
+}
+
 async function recordEventMediaAuditEvent(
   db: DatabaseWriter,
   input: {
@@ -2373,6 +2397,7 @@ export const getEventMediaControlStatus = query({
         eventId: event._id,
         eventPath: await eventPathForRecord(ctx.db, event, slug),
         program: null,
+        outputConfigurationLocked: false,
         sources: [],
         outputs: [],
         sessions: [],
@@ -2427,6 +2452,7 @@ export const getEventMediaControlStatus = query({
       canControl,
       eventId: event._id,
       eventPath: await eventPathForRecord(ctx.db, event, slug),
+      outputConfigurationLocked: await eventOutputConfigurationLocked(ctx.db, program),
       program: {
         broadcastPolicy: program.broadcastPolicy,
         currentSourceId: program.currentSourceId,
@@ -3575,6 +3601,7 @@ export const configureVrcdnOutput = mutation({
     });
     const now = Date.now();
     const programId = await getOrCreateEventMediaProgram(ctx.db, event, now);
+    await requireStoppedOutputSessions(ctx.db, programId);
     const existingOutput = await ctx.db
       .query("eventMediaOutputs")
       .withIndex("by_programId_key", (query) => query.eq("programId", programId).eq("key", output.key))
@@ -3645,6 +3672,7 @@ export const configureTwitchOutput = mutation({
     const setup=sanitizeTwitchOutput({...args,...account,key:args.key});
     const output={...setup,twitchSetup:{...setup.twitchSetup,accountKey:account.key}};
     const now=Date.now(), programId=await getOrCreateEventMediaProgram(ctx.db,event,now);
+    await requireStoppedOutputSessions(ctx.db, programId);
     const all=await ctx.db.query("eventMediaOutputs").withIndex("by_programId_key",q=>q.eq("programId",programId)).take(EVENT_BROADCAST_MAX_OUTPUTS + 1);
     const existing=all.find(o=>o.key===output.key);
     if(existing && (existing.type!=="external_rtmp" || !existing.twitchSetup)) throw Error("Output key belongs to another destination.");

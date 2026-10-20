@@ -136,7 +136,7 @@ passed the real scenario proof in 59.4 seconds, including confirmed session-dead
 expiration, 33.334ms maximum packet gap, one-second GOP and zero silent PCM RMS.
 The two-hour run in that same image passed on October 20, from 00:03:13 UTC
 through final verification at 02:03:20 UTC. Its packaged worker checksums match
-the final source; only proof scripts and evidence storage were mounted. The
+the preserved Task 10 snapshot (unchanged through `aa61f59`); only proof scripts and evidence storage were mounted. The
 container used a read-only root, no external network, and a local two-CPU/four-GiB
 cgroup limit. The primary recording contains 7,200.754 seconds of media:
 1280×720 at 30fps, H.264 and 48kHz AAC. The harness measured 7,207.314 wall-clock
@@ -185,6 +185,36 @@ and eight GiB-hours before provider-specific pricing. This synthetic local
 workload does not establish Fargate capacity, a price quote, musical quality,
 physical device playback or live-provider acceptance.
 
+## Subsequent controller review follow-up (October 20)
+
+The later review wave changes `event-worker.mjs`; its current hash is
+`4fe138a5bd50502c04bb9391ed465031293b2bbaef282a31477b53f0ba2a8118`.
+The other eight packaged modules still match the retained two-hour manifest.
+Renderer, decoder and sender sustained-media evidence therefore keeps its
+original scope. The old image is not proof of this changed controller, and its
+manifest and failed-attempt evidence remain untouched.
+
+Fresh local image
+`sha256:143cbd55aa8b1f4a5c55706ff58fa42e2b6b8660ee24e89f5fadf0d78901c3dd`
+uses Node 22.23.3 and the changed controller. The actual startup proof passed:
+malformed primary setup caused natural CLI exit with zero renewals and an error
+observation; invalid optional setup left primary publication healthy with zero
+primary restarts; unreachable primary publication stopped at the 15-second
+startup deadline and never renewed after fencing. A separate 40-second real
+dual-output run passed outage/recovery and packet/GOP checks. Exact launch
+arguments and inspected image, mounts, read-only root, network isolation and
+resource limits were captured before starting each container; exit state and
+packaged source hashes were retained afterward. No runtime source was mounted.
+
+`node scripts/event-startup-local-proof.mjs` is the repeatable local scenario.
+It uses test-owned control/enablement responses and loopback receiver transport,
+with real worker CLI, renderer and senders. Backend regressions separately prove
+that terminal media errors retain admission until bridge-confirmed task STOPPED,
+that destination saves cannot mutate active/reserved sessions, and that detached
+projections do not consume the bounded eligible-source configuration. None of
+these local results implies live-provider or hosted acceptance. No additional
+two-hour run was required for unchanged encoder/transport modules.
+
 ## Browser and authentication evidence boundaries
 
 Task 9's checked-in synthetic MPEG-TS fixture traverses the production fetch
@@ -207,7 +237,7 @@ including blocked-play recovery; they do not establish live Twitch audio.
 
 ## Integration checks and visual evidence
 
-At the final production snapshot, the backend suite passed 1,641 tests and the
+At the Task 10 production snapshot, the backend suite passed 1,641 tests and the
 web suite passed 775, both with zero skips. Required type/lint checks, API
 contracts/OpenAPI, MCP and Discord compatibility checks, and production web,
 Storybook and documentation builds passed. The final retained-player browser
