@@ -134,10 +134,56 @@ delay, one-second GOP, zero hold RMS and recovered-audio RMS 0.05524. The final
 Node 22.23.3 image `sha256:40a6151723fe7c03cd6789302e91bd4a3c3fba93bde8050d9679b6eb01deda39`
 passed the real scenario proof in 59.4 seconds, including confirmed session-deadline
 expiration, 33.334ms maximum packet gap, one-second GOP and zero silent PCM RMS.
-The two-hour run in that same image began October 20 at 00:03:13 UTC with a
-local two-CPU/four-GB cgroup limit. Its source checksums match the packaged worker;
-only proof scripts are mounted. Final sustained results remain pending. A running
-rehearsal is not a pass.
+The two-hour run in that same image passed on October 20, from 00:03:13 UTC
+through final verification at 02:03:20 UTC. Its packaged worker checksums match
+the final source; only proof scripts and evidence storage were mounted. The
+container used a read-only root, no external network, and a local two-CPU/four-GiB
+cgroup limit. The primary recording contains 7,200.754 seconds of media:
+1280×720 at 30fps, H.264 and 48kHz AAC. The harness measured 7,207.314 wall-clock
+seconds including shutdown/packet verification, with 714 real-time lease renewals.
+
+One primary sender survived the full run with zero restarts, zero measured queue
+backlog, monotonic timestamps, a maximum packet gap of 34ms and maximum GOP of
+one second. The optional receiver was deliberately killed after 2,400 seconds
+and restarted after 3,600. Sampled optional publication stopped at 2,401.130 and
+resumed at 3,608.455 seconds; it made 136 retries during the outage and stayed
+healthy afterward. Its before/after recordings contain 2,398.421 and 3,593.187
+seconds of the same video/audio format. The primary remained publishing through
+the outage. The proof and resource sampler exited successfully; the container
+was removed and owned browser/backend/audio services were stopped.
+
+| Measured scope | CPU seconds | Peak sampled summed RSS |
+| --- | ---: | ---: |
+| Full worker, including Node harness/controller, encoder, decoder and both senders | 4,904.35 | 571.51 MiB |
+| Synthetic source generator, excluded from worker | 949.87 | 90.46 MiB |
+| Local receivers, excluded from worker | 73.04 | 126.61 MiB |
+
+Continuous dual-publication windows averaged 0.731 CPU cores before the outage
+(30.135–2,377.961 seconds) and 0.723 afterward (3,671.588–7,189.824 seconds).
+The outage window averaged 0.456 cores; the whole run averaged 0.680. The latter
+includes twenty minutes without the optional transcode and must not be used as
+the continuous dual-output cost. Sender-only CPU was 52.08 seconds for VRCDN and
+1,616.11 for Twitch; these are components of the full worker total, not extra
+cost. CPU is a sampled lower bound at process exit; summed RSS can count shared
+pages and is not cgroup memory. The 145 sampled process IDs are cumulative over
+retries, not simultaneous processes.
+
+The last whole-container cgroup sample was at 02:02:56.347927 UTC, before final
+shutdown/verification. It recorded 5,921.270 CPU seconds and a kernel memory peak
+through that sample of 3.566 GiB, with zero observed OOM events. Current anonymous
+memory was 407.89 MiB; 3.150 GiB was tmpfs/shared-memory proof recordings charged
+to the container. That storage, synthetic generator/receivers and the short-lived
+counter reader are included in cgroup totals. These are last-sampled values,
+not exact end-of-run counters or a production worker memory requirement.
+
+Application FLV progress measured 1,760,729,852 bytes to the primary and
+1,464,150,434 to the optional destination (1.640 and 1.364 GiB). Received MPEG-TS
+files total 1,849,720,908 and 1,539,463,828 bytes respectively. Container overhead
+explains the different measures; TCP/TLS overhead and provider billing are
+excluded. A two-hour allocation at the tested cap represents four vCPU-hours
+and eight GiB-hours before provider-specific pricing. This synthetic local
+workload does not establish Fargate capacity, a price quote, musical quality,
+physical device playback or live-provider acceptance.
 
 ## Browser and authentication evidence boundaries
 
@@ -158,6 +204,40 @@ The separate unmocked Twitch SDK and iframe request returned HTTP 200 on
 October 19, but the probed channel was offline. This proves supported embed load
 and offline presentation only. SDK fixtures prove application control behavior,
 including blocked-play recovery; they do not establish live Twitch audio.
+
+## Integration checks and visual evidence
+
+At the final production snapshot, the backend suite passed 1,641 tests and the
+web suite passed 775, both with zero skips. Required type/lint checks, API
+contracts/OpenAPI, MCP and Discord compatibility checks, and production web,
+Storybook and documentation builds passed. The final retained-player browser
+run passed all 30 desktop/mobile cases. Six composed public-page cases include
+four checked-in MPEG-TS ownership journeys and two opt-in generated-media policy
+journeys. The latter prove pre-boundary failure cannot promote a successor and
+post-boundary decoded silence retains the current performer until confirmed
+failure. They use production transport/decoding and synthetic projection/clock
+controls, not a decoder or policy bypass.
+
+All 28 distinct standalone transport cases have passing results across the
+preserved batch and correction runs; this was not one uninterrupted 28/28 green
+batch. Earlier failures exposed cold-start connection churn and outage-status
+flicker, both corrected with deterministic and real-browser evidence. One
+subsequent Firefox development-navigation reset remains unclassified; its final
+focused lifecycle run passed with additional navigation diagnostics. The initial
+browser batch's 56 opt-in skips remain recorded as skips rather than passes.
+Configuration-free retained fixtures use invented event IDs and synthetic public
+projection polling. Configuring their root against a real local backend instead
+correctly withdraws those nonexistent events; the composed suite separately
+covers root polling with a controlled public HTTP projection.
+
+Canonical CI images were inspected before narrow baseline changes: mobile editor
+Details, Lineup and Review each gain 47px from the Broadcast controls header
+wrapping. Controls remain legible within the viewport. Four other inspected
+feature images had text-raster/metric differences with stable content and
+geometry. No unrelated baselines or pixel tolerances changed. Editor screenshot
+comparisons now collect subsequent steps after a mismatch while still failing
+the test; readiness and overflow assertions remain hard. The PR retains the
+canonical artifacts and final check status.
 
 ## Provider rollout gates
 

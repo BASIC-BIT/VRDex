@@ -335,11 +335,11 @@ Extend local proof scenarios and existing compatibility tests.
   and true end-of-set examples. Record selected threshold/duration and false
   positives. Enable automatic silence only after those criteria pass; leave it
   explicitly disabled and report the gap if representative evidence is missing.
-- [ ] Run `pnpm lint:web`, `pnpm typecheck:web`, `pnpm typecheck:backend`,
+- [x] Run `pnpm lint:web`, `pnpm typecheck:web`, `pnpm typecheck:backend`,
   `pnpm test:web`, `pnpm test:backend`, API/MCP/Discord compatibility checks for
   changed surfaces, `pnpm lint:markdown`, and affected builds. Run browser suites
   from Tasks 4, 7, 9 plus existing event-lineup/watch-mode regressions.
-- [ ] Run the 180-second local failure proof and a sustained event-duration
+- [x] Run the 180-second local failure proof and a sustained event-duration
   rehearsal at the claimed quality. Include healthy overrun, silence, source
   death, late next DJ, operator override, replacement worker, Twitch failure,
   maximum session stop, and direct-link fallback. Record resource cost.
@@ -348,13 +348,21 @@ Extend local proof scenarios and existing compatibility tests.
   billable task runs require the repository's explicit operator authorization;
   prepare exact run configuration/results for review first. Lack of access is
   a recorded blocked live check, never a successful verification.
-- [ ] Perform a whole-branch review, including public/private projection,
+- [x] Perform a whole-branch review, including public/private projection,
   credential/log redaction, worker fencing, output isolation, browser lifecycle,
   and exact public copy. Address findings and rerun only affected checks.
-- [ ] Open or update one PR with `ci:browsers` and `ci:visuals`, attach its URL
+- [x] Open or update one PR with `ci:browsers` and `ci:visuals`, attach its URL
   to this chat, and keep every round on that PR. Summarize actual behavior,
   evidence, disabled capabilities, and any unresolved live-provider checks.
   Do not claim production readiness from synthetic tests alone.
+
+Local integration checks, the actual 180-second failure proof, the packaged
+Node 22 two-hour rehearsal and independent implementation review are complete.
+The two unchecked items remain rollout gates: representative musical calibration
+was unavailable, so automatic silence stays disabled; fresh live-provider
+account/rights and two-source acceptance remain unverified, so hosted output
+stays disabled. Current results and resource limits are recorded in
+[the verification record](../../engineering/event-broadcast-verification.md).
 
 ## Plan self-review and execution readiness
 
@@ -375,5 +383,8 @@ pnpm bootstrap failure: prepend `/workspace/.vrdex-tools/bin` to `PATH` and set
 pnpm `10.15.1`; the normal commit hook then passed without bypassing checks.
 Follow the cloud startup guide and default to anonymous local development.
 
-Next gate: BASIC reviews this written plan and selects subagent-driven or native
-execution. The approved design does not substitute for that plan review.
+Execution: BASIC approved this plan and subagent-driven implementation in one
+PR. Tasks 1–9 passed independent review; Task 10 records integration findings,
+corrections and acceptance evidence in [the verification record](../../engineering/event-broadcast-verification.md).
+Delivery remains on [PR #377](https://github.com/BASIC-BIT/VRDex/pull/377);
+provider acceptance and representative silence calibration remain rollout gates.
