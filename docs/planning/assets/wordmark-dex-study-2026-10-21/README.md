@@ -15,7 +15,7 @@ These are reviewable studies, with no production branding change.
 | 3 | E top arm and X diagonal form a single connected outline | [SVG](./vrdex-joined-ex.svg) | [PNG](./vrdex-joined-ex.png) |
 | 4 | Titlecase Dex, using lowercase e and x | [SVG](./vrdex-titlecase-dex.svg) | [PNG](./vrdex-titlecase-dex.png) |
 
-Current recommendation: compare 2 and 4 against the control. The split X adds
+Initial recommendation: compare 2 and 4 against the control. The split X adds
 a clear detail while preserving uppercase DEX. Titlecase Dex makes the name
 reference easier to read without adding more cuts. The open D adds a second
 opening to the wordmark, but can suggest a Q at a glance. The EX join is more
@@ -26,6 +26,14 @@ The rejected open-lower R, open E and shared VR designs are not reused. V and
 R contours, placement and spacing are identical across all five source SVGs.
 The E stem stays intact in every version. The EX connection is a single
 continuous contour, with no antialiasing seam between separate shapes.
+
+## Follow-up direction
+
+BASIC requested a combination of 1 (open D) and 2 (split X), with slight
+variants of both cuts, on 2026-10-21. The
+[combined D/X study](../wordmark-dx-study-2026-10-21/README.md) keeps A's V/R,
+the original E, color and spacing fixed while comparing independent cut widths.
+No final D/X width has been selected.
 
 ## Exports
 
