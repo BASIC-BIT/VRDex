@@ -1,7 +1,7 @@
 export type SourceObservation = { state: 'live' | 'offline' | 'unavailable'; observedAt: number };
 export type PublicStatusSource = { key: string; url: string };
-export function reportedSourceState(value: SourceObservation | undefined, now: number): SourceObservation['state'] {
- return value && now-value.observedAt<=60_000 && value.observedAt<=now ? value.state : 'unavailable';
+export function reportedSourceState(value: SourceObservation | undefined, now: number): SourceObservation['state'] | 'unknown' {
+ return value && now-value.observedAt<=60_000 && value.observedAt<=now ? value.state : 'unknown';
 }
 /** Four actual probes globally, with no queued work after a partial response.
  * Provider probes have their own abort deadlines; this also bounds waiting for
@@ -27,7 +27,7 @@ export function createSourceStatusReader(probe: (source: PublicStatusSource)=>Pr
     cache.set(source.key,fresh);
     entry=fresh;
    }
-   pending.push(entry.value.then(value=>{observations[source.key]={...value,state:reportedSourceState(value,now())};}));
+   pending.push(entry.value.then(value=>{observations[source.key]={...value};}));
   }
   let timer:ReturnType<typeof setTimeout>|undefined;
   try {

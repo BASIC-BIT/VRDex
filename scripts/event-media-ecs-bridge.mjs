@@ -282,12 +282,12 @@ export function taskDefinitionFor(command, config) {
   };
 }
 
-async function registerTaskDefinition(command, config) {
-  return aws(config, ["ecs", "register-task-definition", "--cli-input-json", JSON.stringify(taskDefinitionFor(command, config))]);
+async function registerTaskDefinition(command, config, runAws) {
+  return runAws(config, ["ecs", "register-task-definition", "--cli-input-json", JSON.stringify(taskDefinitionFor(command, config))]);
 }
 
-async function runTask(command, taskDefinitionArn, config) {
-  const response = await aws(config, [
+async function runTask(command, taskDefinitionArn, config, runAws) {
+  const response = await runAws(config, [
     "ecs",
     "run-task",
     "--cluster",
@@ -321,27 +321,57 @@ async function runTask(command, taskDefinitionArn, config) {
   return response.tasks?.[0]?.taskArn;
 }
 
-async function startCommand(command, client, config) {
-  command.dispatchId = randomUUID();
-  const admission = await client.mutation(convexApi.admitDispatch, {bridgeToken:config.bridgeToken,eventId:command.eventId,sessionId:command.session.sessionId,dispatchId:command.dispatchId});
+async function cleanupUnlaunched(client, config, session, runAws) {
+  try {
+    await runAws(config, ["ecs", "deregister-task-definition", "--task-definition", session.workerTaskDefinitionArn]);
+  } catch {
+    console.warn(JSON.stringify({ event: "event_media_unlaunched_cleanup_retry", sessionId: session.sessionId }));
+    return;
+  }
+  await client.mutation(makeFunctionReference("eventMediaWorker:completeUnlaunchedCleanup"), { bridgeToken: config.bridgeToken, sessionId: session.sessionId, taskDefinitionArn: session.workerTaskDefinitionArn });
+}
+async function cleanupLosingDefinition(client, config, command, taskDefinitionArn, runAws) {
+  try {
+    await runAws(config, ["ecs", "deregister-task-definition", "--task-definition", taskDefinitionArn]);
+  } catch {
+    await client.mutation(makeFunctionReference("eventMediaWorker:recordUnusedDefinitionCleanup"), { bridgeToken: config.bridgeToken, sessionId: command.session.sessionId, taskDefinitionArn });
+    console.warn(JSON.stringify({ event: "event_media_unused_definition_manual_cleanup", sessionId: command.session.sessionId, taskDefinitionArn }));
+  }
+}
+async function startCommand(command, client, config, runAws) {
+  command.dispatchId = command.session.dispatchId ?? randomUUID();
+  const identity = { bridgeToken: config.bridgeToken, eventId: command.eventId, sessionId: command.session.sessionId, dispatchId: command.dispatchId, commandId: command.commandId, workerId: config.workerId };
+  const admission = await client.mutation(convexApi.admitDispatch, {bridgeToken:config.bridgeToken,eventId:command.eventId,sessionId:command.session.sessionId,dispatchId:command.dispatchId,launchProtocol:"fenced-v1"});
   if (admission?.granted === false) {
-    // An explicit denial created no reservation for this attempt. Unknown
-    // responses must retain the identity so they cannot turn into duplicate starts.
     delete command.dispatchId;
     throw new Error("Worker dispatch capacity or ownership denied.");
   }
   if (admission?.granted !== true) throw new Error("Worker dispatch admission response is unknown.");
-  const registered = await registerTaskDefinition(command, config);
-  const taskDefinitionArn = registered.taskDefinition.taskDefinitionArn;
-  const taskArn = await runTask(command, taskDefinitionArn, config);
-
-  if (!taskArn) {
-    throw new Error("ECS RunTask did not return a task ARN.");
+  let taskDefinitionArn;
+  try {
+    const registered = await registerTaskDefinition(command, config, runAws);
+    taskDefinitionArn = registered.taskDefinition?.taskDefinitionArn;
+    if (typeof taskDefinitionArn !== "string" || !taskDefinitionArn || taskDefinitionArn.length > 512) throw Error("Task definition registration is unknown.");
+  } catch {
+    // No RunTask is possible until the backend marker. A competing bridge's
+    // marker atomically defeats this release, even after claim reclamation.
+    await client.mutation(makeFunctionReference("eventMediaWorker:releaseUnlaunchedDispatch"), identity);
+    throw Error("Worker prelaunch configuration or registration failed.");
   }
-
+  // A throw or malformed marker response is ambiguous. Never release or launch.
+  const marker = await client.mutation(makeFunctionReference("eventMediaWorker:markLaunchAttempt"), { ...identity, taskDefinitionArn });
+  if (marker?.accepted !== true) {
+    if (marker?.accepted === false) {
+      const released = await client.mutation(makeFunctionReference("eventMediaWorker:releaseUnlaunchedDispatch"), { ...identity, taskDefinitionArn });
+      if (released?.accepted === true) await cleanupUnlaunched(client, config, { sessionId: identity.sessionId, workerTaskDefinitionArn: taskDefinitionArn }, runAws);
+      else if (marker.cleanupUnused === true) await cleanupLosingDefinition(client, config, command, taskDefinitionArn, runAws);
+    }
+    throw Error("Worker launch fence was not granted.");
+  }
+  const taskArn = await runTask(command, taskDefinitionArn, config, runAws);
+  if (!taskArn) throw new Error("ECS RunTask did not return a task ARN.");
   const recorded=await client.mutation(convexApi.recordDispatchedTask, {bridgeToken:config.bridgeToken,sessionId:command.session.sessionId,dispatchId:command.dispatchId,taskArn,taskDefinitionArn});
-  if(!recorded.accepted)throw new Error("Worker dispatch registration denied.");
-
+  if(recorded?.accepted!==true)throw new Error("Worker dispatch registration denied.");
   console.log(JSON.stringify({ event: "event_media_ecs_task_started", sessionId: command.session.sessionId, taskArn, taskDefinitionArn }));
 }
 
@@ -420,7 +450,7 @@ export async function claimAndProcess(client, config, runAws = aws) {
 
   try {
     if (command.commandType === "start_program") {
-      await startCommand(command, client, config);
+      await startCommand(command, client, config, runAws);
       return true;
     }
 
@@ -472,6 +502,8 @@ export async function refreshSessions(client, config, runAws = aws) {
     bridgeToken: config.bridgeToken,
     workerId: config.workerId,
   });
+  for (const session of sessions.filter(session => !session.workerTaskId && !session.dispatchId && session.epoch === undefined && session.launchAttemptedAt === undefined && session.workerTaskDefinitionArn && session.workerTaskCleanupPending === true))
+    await cleanupUnlaunched(client, config, session, runAws);
   const taskSessions = sessions.filter((session) => session.workerTaskId);
 
   if (taskSessions.length === 0) {

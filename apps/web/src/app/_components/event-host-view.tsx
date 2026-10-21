@@ -36,7 +36,7 @@ type HostSourceProps = {
 
 function HostSource({ target, observation, now, selected, previewing, onPreview }: HostSourceProps) {
   const state = reportedSourceState(observation, now);
-  const status = state === "live" ? "Live now" : state === "offline" ? "Offline" : "Unavailable";
+  const status = state === "live" ? "Live now" : state === "offline" ? "Offline" : state === "unavailable" ? "Unavailable" : "Unknown";
   const previewUrl = target.questUrl;
 
   return (

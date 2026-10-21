@@ -308,7 +308,7 @@ export const observeProgram = mutation({ args: { ...workerSessionArgs, state: ob
     } });
 /** Reserve capacity transactionally before any ECS call. Ambiguous dispatches retain
  * capacity until an operator confirms the task stopped; never expire into duplicates. */
-export const admitDispatch = mutation({ args: { bridgeToken: v.string(), eventId: v.id("events"), sessionId: v.id("eventMediaSessions"), dispatchId: v.string() }, handler: async (ctx, args) => {
+export const admitDispatch = mutation({ args: { bridgeToken: v.string(), eventId: v.id("events"), sessionId: v.id("eventMediaSessions"), dispatchId: v.string(), launchProtocol: v.optional(v.literal("fenced-v1")) }, handler: async (ctx, args) => {
         requireEventMediaBridgeToken(args.bridgeToken);
         const session = await ctx.db.get(args.sessionId);
         const program = session ? await ctx.db.get(session.programId) : null;
@@ -341,13 +341,59 @@ export const admitDispatch = mutation({ args: { bridgeToken: v.string(), eventId
         }
         if (count >= cap)
             return { granted: false };
-        await ctx.db.patch(session._id, { dispatchId: args.dispatchId, workerTaskStatus: "starting", updatedAt: Date.now() });
+        await ctx.db.patch(session._id, { dispatchId: args.dispatchId, launchProtocol: args.launchProtocol, workerTaskStatus: "starting", updatedAt: Date.now() });
         return { granted: true };
     } });
+const prelaunchArgs = { bridgeToken: v.string(), eventId: v.id("events"), sessionId: v.id("eventMediaSessions"), dispatchId: v.string(), commandId: v.id("eventMediaCommands"), workerId: v.string() };
+async function unlaunchedReservation(ctx: MutationCtx, args: { eventId: Id<"events">; sessionId: Id<"eventMediaSessions">; dispatchId: string; commandId: Id<"eventMediaCommands">; workerId: string }) {
+    const session = await ctx.db.get(args.sessionId);
+    if (!session || session.eventId !== args.eventId || session.dispatchId !== args.dispatchId || session.launchProtocol !== "fenced-v1" || session.launchAttemptedAt !== undefined || session.epoch !== undefined || session.workerTaskId !== undefined || session.dispatchStopConfirmedAt !== undefined || !["scheduled", "starting", "stopping"].includes(session.status)) return null;
+    const [program, command] = await Promise.all([ctx.db.get(session.programId), ctx.db.get(args.commandId)]);
+    if (program?.eventId !== args.eventId || program.activeSessionId !== session._id || command?.eventId !== args.eventId || command.programId !== session.programId || command.sessionId !== session._id || command.commandType !== "start_program" || command.status !== "claimed" || command.claimedByWorkerId !== args.workerId) return null;
+    return { session, program };
+}
+/** One durable winner before RunTask. Ambiguous marker responses retain capacity. */
+export const markLaunchAttempt = mutation({ args: { ...prelaunchArgs, taskDefinitionArn: v.string() }, handler: async (ctx, args) => {
+    requireEventMediaBridgeToken(args.bridgeToken);
+    const found = await unlaunchedReservation(ctx, args);
+    if (!found || found.session.stopRequestedAt !== undefined || !args.taskDefinitionArn || args.taskDefinitionArn.length > 512) {
+        const session = await ctx.db.get(args.sessionId);
+        return { accepted: false, cleanupUnused: !!session && session.workerTaskDefinitionArn !== args.taskDefinitionArn };
+    }
+    await ctx.db.patch(found.session._id, { launchAttemptedAt: Date.now(), workerTaskDefinitionArn: args.taskDefinitionArn, updatedAt: Date.now() });
+    return { accepted: true };
+} });
+/** Atomic proof of no launch. Never used for a RunTask attempt or legacy reservation. */
+export const releaseUnlaunchedDispatch = mutation({ args: { ...prelaunchArgs, taskDefinitionArn: v.optional(v.string()) }, handler: async (ctx, args) => {
+    requireEventMediaBridgeToken(args.bridgeToken);
+    const found = await unlaunchedReservation(ctx, args);
+    if (!found || (args.taskDefinitionArn !== undefined && (!args.taskDefinitionArn || args.taskDefinitionArn.length > 512))) return { accepted: false };
+    const now = Date.now();
+    await settleTerminalSessionCommands(ctx.db, found.session._id, "error", now);
+    await ctx.db.patch(found.session._id, { dispatchId: undefined, launchProtocol: undefined, status: "error", workerTaskStatus: "failed", leaseExpiresAt: now, ...(args.taskDefinitionArn ? { workerTaskDefinitionArn: args.taskDefinitionArn, workerTaskCleanupPending: true } : {}), updatedAt: now });
+    await ctx.db.patch(found.program._id, { activeSessionId: undefined, state: "error", updatedAt: now });
+    await ctx.db.insert("eventMediaAuditEvents", { eventId: args.eventId, programId: found.program._id, sessionId: args.sessionId, commandId: args.commandId, actorSurface: "worker", action: "worker_dispatch_unlaunched_released", createdAt: now });
+    return { accepted: true };
+} });
+/** A losing registration can only record bounded private cleanup evidence. */
+export const recordUnusedDefinitionCleanup = mutation({ args: { bridgeToken: v.string(), sessionId: v.id("eventMediaSessions"), taskDefinitionArn: v.string() }, handler: async (ctx, args) => {
+    requireEventMediaBridgeToken(args.bridgeToken);
+    const session = await ctx.db.get(args.sessionId);
+    if (!session || !args.taskDefinitionArn || args.taskDefinitionArn.length > 512 || session.workerTaskDefinitionArn === args.taskDefinitionArn) return { accepted: false };
+    await ctx.db.insert("eventMediaAuditEvents", { eventId: session.eventId, programId: session.programId, sessionId: session._id, actorSurface: "worker", action: "worker_unused_definition_manual_cleanup", privateSummary: args.taskDefinitionArn, createdAt: Date.now() });
+    return { accepted: true };
+} });
+export const completeUnlaunchedCleanup = mutation({ args: { bridgeToken: v.string(), sessionId: v.id("eventMediaSessions"), taskDefinitionArn: v.string() }, handler: async (ctx, args) => {
+    requireEventMediaBridgeToken(args.bridgeToken);
+    const session = await ctx.db.get(args.sessionId);
+    if (!session || session.dispatchId || session.epoch !== undefined || session.workerTaskId || session.launchAttemptedAt !== undefined || session.workerTaskDefinitionArn !== args.taskDefinitionArn || !["ended", "error"].includes(session.status)) return { accepted: false };
+    await ctx.db.patch(session._id, { workerTaskCleanupPending: false, updatedAt: Date.now() });
+    return { accepted: true };
+} });
 export const recordDispatchedTask = mutation({ args: { bridgeToken: v.string(), sessionId: v.id("eventMediaSessions"), dispatchId: v.string(), taskArn: v.string(), taskDefinitionArn: v.string() }, handler: async (ctx, args) => {
         requireEventMediaBridgeToken(args.bridgeToken);
         const session = await ctx.db.get(args.sessionId);
-        if (!session || session.dispatchId !== args.dispatchId)
+        if (!session || session.dispatchId !== args.dispatchId || (session.launchProtocol === "fenced-v1" && (session.launchAttemptedAt === undefined || session.workerTaskDefinitionArn !== args.taskDefinitionArn)))
             return { accepted: false };
         if (session.workerTaskId && session.workerTaskId !== args.taskArn)
             return { accepted: false };

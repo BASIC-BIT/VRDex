@@ -827,9 +827,9 @@ it('R4F6 acquired nonpolling worker Stop reaches exact ECS task and only STOPPED
 function transactionalRuntime(relay?: any) {
     let now=0, sequence=0, commands:any[]=[], rendered:string|undefined='a';
     let prepared:string[]=[];
-    const ready=new Set(['a']); const acks:any[]=[],reports:any[]=[];
+    const ready=new Set(['a']); const failures=new Map<string,number>(); const acks:any[]=[],reports:any[]=[];
     const config:any={mode:'manual',currentSourceId:'a',sessionDeadline:1000000,policy:{},outputId:'out',outputs:[{id:'out'}],sources:['a','b','c'].map(id=>({id,publicUrl:`https://example.test/${id}`})),slots:[{slotKey:'a',sourceId:'a',startAt:-1000,endAt:30000,available:true},{slotKey:'b',sourceId:'b',startAt:40000,endAt:50000,available:true}]};
-    const renderer={start:async()=>{},stop:async()=>{},subscribe:()=>()=>{},reconcileSources:async(sources:any[])=>{prepared=sources.map(s=>s.slotKey);},getInputs:()=>prepared.map(slotKey=>({source:{slotKey},getObservation:()=>({slotKey,sourceId:slotKey.replace('manual-',''),ready:ready.has(slotKey),progressing:ready.has(slotKey),observedAt:now})})),selectSource:(slotKey:string)=>{if(!ready.has(slotKey)||!prepared.includes(slotKey))return false; rendered=slotKey;return true;},hold:()=>{rendered=undefined;},getState:()=>({running:true,outputMs:now+1,renderedSlotKey:rendered,renderedSourceId:rendered?.replace('manual-','')})};
+    const renderer={start:async()=>{},stop:async()=>{},subscribe:()=>()=>{},reconcileSources:async(sources:any[])=>{prepared=sources.map(s=>s.slotKey);},getInputs:()=>prepared.map(slotKey=>({source:{slotKey},getObservation:()=>({slotKey,sourceId:config.slots.find((slot:any)=>slot.slotKey===slotKey)?.sourceId??slotKey.replace('manual-',''),ready:ready.has(slotKey),progressing:ready.has(slotKey),failureSince:failures.get(slotKey),observedAt:now})})),selectSource:(slotKey:string)=>{if(!ready.has(slotKey)||!prepared.includes(slotKey))return false; rendered=slotKey;return true;},hold:()=>{rendered=undefined;},getState:()=>({running:true,outputMs:now+1,renderedSlotKey:rendered,renderedSourceId:config.slots.find((slot:any)=>slot.slotKey===rendered)?.sourceId??rendered?.replace('manual-','')})};
     const worker=createEventWorker({identity:{},clock:()=>now,renderer,outputs:{start:async()=>{},stop:async()=>{},stopNow:()=>{},getState:()=>({publishing:true})},resolveSource:async(s:any)=>relay ? relay.resolveSource({...s,type:"vrcdn_link"}) : s.publicUrl,retainSources:(sources:any[])=>relay?.retainSources(sources.map(s=>({...s,type:"vrcdn_link"}))),checkEnabled:async()=>true,control:async(name:string,args:any)=>{
         if(name==='acquireSession'||name==='renewSession')return {granted:true,epoch:1,serverNow:now,expiresAt:now+30000,renewAfterMs:10000,configuration:structuredClone(config)};
         if(name==='refreshConfiguration')return {granted:true,serverNow:now,configuration:structuredClone(config)};
@@ -838,7 +838,7 @@ function transactionalRuntime(relay?: any) {
         if(name==='observeProgram')reports.push(args);
         return {accepted:true};
     }});
-    return {worker,config,ready,acks,reports,setTime:(time:number)=>{now=time;},prepared:()=>prepared,rendered:()=>rendered,command:(commandType:string,targetSourceId?:string)=>{commands=[{_id:`command-${++sequence}`,sequence,commandType,targetSourceId}];},tick:async(time=now+1000)=>{now=time;await worker.tick();}};
+    return {worker,config,ready,failures,acks,reports,setTime:(time:number)=>{now=time;},prepared:()=>prepared,rendered:()=>rendered,command:(commandType:string,targetSourceId?:string)=>{commands=[{_id:`command-${++sequence}`,sequence,commandType,targetSourceId}];},tick:async(time=now+1000)=>{now=time;await worker.tick();}};
 }
 it('R4F1 failed source switch retains healthy playback, removes target and permits observed retry',async()=>{
     const f=transactionalRuntime();await f.worker.start();await f.tick();
@@ -1588,3 +1588,106 @@ for (const status of [
     assert.equal(allowed.result.granted, true);
     assert(allowed.rows < 50);
   });
+
+for(const edit of ['remove','replace','reorder','gap','before-first','after-last','unavailable']) it(`R8 automatic established current handles ${edit} without replaying expired C`,async()=>{
+ const f=transactionalRuntime();f.config.mode='automatic';f.config.currentSourceId=undefined;
+ f.config.slots[0].endAt=90000;f.config.slots[1].startAt=95000;f.config.slots[1].endAt=100000;
+ f.ready.add('c');f.ready.add('b');
+ await f.worker.start();await f.tick(1000);await f.tick(2000);await f.tick(3000);
+ assert.equal(f.worker.getState().current?.sourceId,'a');assert.equal(f.rendered(),'a');
+ const expired={slotKey:'c',sourceId:'c',startAt:-30000,endAt:-10000,available:true};
+ const b={...f.config.slots[1],startAt:0,endAt:80000};
+ f.config.slots=[expired,b];
+ if(edit==='replace')f.config.slots[1]={...b,slotKey:'replacement'};
+ if(edit==='reorder')f.config.slots=[b,expired];
+ if(edit==='gap'||edit==='before-first'){f.config.slots[1].startAt=10000;if(edit==='before-first')f.config.slots.shift();}
+ if(edit==='after-last')f.config.slots=[expired];
+ if(edit==='unavailable')f.config.slots[1].available=false;
+ // Replacement has the same source ID but a distinct real slot key.
+ if(edit==='replace')f.ready.add('replacement');
+ await f.tick(4000);await f.tick(5000);await f.tick(6000);
+ if(['gap','before-first','after-last','unavailable'].includes(edit))assert.equal(f.rendered(),undefined);
+ else assert.equal(f.worker.getState().current?.sourceId,'b');
+ assert.notEqual(f.rendered(),'c');
+ if(edit==='gap'||edit==='before-first'){await f.tick(9999);assert.equal(f.rendered(),undefined);await f.tick(10000);await f.tick(11000);assert.equal(f.worker.getState().current?.sourceId,'b');}
+ await f.worker.stop();
+});
+
+async function prelaunchFixture(){
+ const f=await fixture();
+ const claimed=await f.t.mutation(api.events.claimEventMediaWorkerCommand,{bridgeToken,workerId:'bridge'});assert.ok(claimed);
+ const identity={bridgeToken,eventId:f.event.eventId,sessionId:f.args.sessionId,dispatchId:'prelaunch',commandId:claimed.commandId,workerId:'bridge'};
+ await f.t.mutation(worker('admitDispatch'),{bridgeToken,eventId:f.event.eventId,sessionId:f.args.sessionId,dispatchId:identity.dispatchId,launchProtocol:'fenced-v1'});
+ return {...f,identity};
+}
+for(const first of ['marker','release','concurrent'])it(`R8 prelaunch ${first} has exactly one winner and real capacity follows`,async()=>{
+ const f=await prelaunchFixture();
+ const marker=()=>f.t.mutation(worker('markLaunchAttempt'),{...f.identity,taskDefinitionArn:'definition'});
+ const release=()=>f.t.mutation(worker('releaseUnlaunchedDispatch'),f.identity);
+ const results=first==='concurrent'?await Promise.all([marker(),release()]):first==='marker'?[await marker(),await release()]:[await release(),await marker()];
+ assert.equal(results.filter(r=>r.accepted).length,1);
+ const session=await f.t.run(({db})=>db.get(f.args.sessionId));
+ if(session?.dispatchId){assert.ok(session.launchAttemptedAt);assert.equal((await marker()).accepted,false);assert.equal((await release()).accepted,false);}
+ else{assert.equal(session?.status,'error');assert.equal(session?.dispatchStopConfirmedAt,undefined);const next=await f.owner.mutation(api.events.scheduleEventMediaWorker,{currentSlug:f.event.slug});assert.equal((await f.t.mutation(worker('admitDispatch'),{bridgeToken,eventId:f.event.eventId,sessionId:next.sessionId,dispatchId:'replacement'})).granted,true);}
+});
+for(const failure of ['config','register'])it(`R8 actual bridge ${failure} failure releases provably unlaunched admission`,async()=>{
+ const f=await fixture();const calls:string[]=[];
+ await claimAndProcess({mutation:(ref:any,args:any)=>f.t.mutation(ref,args)},{bridgeToken,workerId:'bridge',redactValues:[],secretRefMap:failure==='config'?{}:{'event-media/vrcdn/main':'test-secret'},baseEnvironment:{}},async(_config:any,args:string[])=>{calls.push(args[1]);throw Error('synthetic registration failure');});
+ const session=await f.t.run(({db})=>db.get(f.args.sessionId));assert.equal(session?.dispatchId,undefined);assert.equal(session?.status,'error');assert.equal(session?.dispatchStopConfirmedAt,undefined);assert(!calls.includes('run-task'));assert.equal(calls.includes('register-task-definition'),failure==='register');
+ const next=await f.owner.mutation(api.events.scheduleEventMediaWorker,{currentSlug:f.event.slug});assert.equal((await f.t.mutation(worker('admitDispatch'),{bridgeToken,eventId:f.event.eventId,sessionId:next.sessionId,dispatchId:'replacement'})).granted,true);
+});
+
+it('R8 healthy automatic current overruns with decoded ready successor until confirmed media death',async()=>{
+ const f=transactionalRuntime();f.config.mode='automatic';f.config.currentSourceId=undefined;f.ready.add('b');
+ await f.worker.start();await f.tick(1000);await f.tick(2000);assert.equal(f.rendered(),'a');
+ for(let time=5000;time<=40000;time+=5000)await f.tick(time);await f.tick(41000);await f.tick(42000);assert.equal(f.worker.getState().current?.sourceId,'a');assert.equal(f.rendered(),'a');assert(f.prepared().includes('b'));
+ f.ready.delete('a');f.failures.set('a',43000);await f.tick(43000);await f.tick(43999);assert.equal(f.worker.getState().current?.sourceId,'a');
+ await f.tick(44000);assert.equal(f.worker.getState().current?.sourceId,'b');assert.equal(f.rendered(),'b');await f.worker.stop();
+});
+for(const mismatch of ['event','session','dispatch','owner','command','epoch','arn','old','replacement'])it(`R8 prelaunch denies ${mismatch} identity or authority`,async()=>{
+ const f=await prelaunchFixture();const identity={...f.identity};
+ if(mismatch==='event')identity.eventId=(await f.owner.mutation(api.events.createCommunityEvent,{title:'Other',communitySlug:'club',startAt:Date.now()+600000,timezone:'UTC'})).eventId;
+ if(mismatch==='session')identity.sessionId=await f.t.run(async({db})=>{const {_id,_creationTime,...row}=(await db.get(f.args.sessionId))!;return db.insert('eventMediaSessions',row);});
+ if(mismatch==='dispatch')identity.dispatchId='other';if(mismatch==='owner')identity.workerId='replacement';
+ if(mismatch==='command')identity.commandId=(await f.owner.mutation(api.events.queueEventMediaCommand,{currentSlug:f.event.slug,type:'hold_current'})).commandId;
+ if(mismatch==='epoch')await f.t.run(({db})=>db.patch(f.args.sessionId,{epoch:1}));
+ if(mismatch==='arn')await f.t.run(({db})=>db.patch(f.args.sessionId,{workerTaskId:'already-task'}));
+ if(mismatch==='old')await f.t.run(({db})=>db.patch(f.args.sessionId,{launchProtocol:undefined}));
+ if(mismatch==='replacement')await f.t.run(({db})=>db.patch(f.output.programId,{activeSessionId:undefined}));
+ assert.equal((await f.t.mutation(worker('markLaunchAttempt'),{...identity,taskDefinitionArn:'definition'})).accepted,false);
+ assert.equal((await f.t.mutation(worker('releaseUnlaunchedDispatch'),identity)).accepted,false);
+ assert.equal((await f.t.run(({db})=>db.get(f.args.sessionId)))?.dispatchId,'prelaunch');
+});
+for(const loss of ['before','after','malformed','unknown','run','record'])it(`R8 actual bridge ambiguous ${loss} retains reservation and never releases`,async()=>{
+ const f=await fixture();let runs=0,releases=0;
+ const client={mutation:async(ref:any,args:any)=>{
+  const name=getFunctionName(ref);
+  if(name==='eventMediaWorker:releaseUnlaunchedDispatch')releases++;
+  if(name==='eventMediaWorker:markLaunchAttempt'){
+   if(loss==='before')throw Error('not sent');
+   if(loss==='unknown')return {};
+   const result=await f.t.mutation(ref,args);
+   if(loss==='after')throw Error('committed response lost');
+   if(loss==='malformed')return {accepted:'true'};
+   return result;
+  }
+  if(name==='eventMediaWorker:recordDispatchedTask'&&loss==='record'){await f.t.mutation(ref,args);throw Error('record response lost');}
+  return f.t.mutation(ref,args);
+ }};
+ await claimAndProcess(client,{bridgeToken,workerId:'bridge',redactValues:[],secretRefMap:{'event-media/vrcdn/main':'test-secret'},baseEnvironment:{}},async(_config:any,args:string[])=>{
+  if(args[1]==='register-task-definition')return {taskDefinition:{taskDefinitionArn:'definition'}};
+  assert.equal(args[1],'run-task');runs++;if(loss==='run')throw Error('RunTask response unknown');return {tasks:[{taskArn:'task'}]};
+ });
+ const session=await f.t.run(({db})=>db.get(f.args.sessionId));assert.ok(session?.dispatchId);assert.equal(releases,0);assert.equal(runs,['run','record'].includes(loss)?1:0);assert.equal(session?.workerTaskId,loss==='record'?'task':undefined);
+});
+it('R8 Stop before marker releases and durable cleanup retries without capacity leak',async()=>{
+ const f=await fixture();let cleanup=0;
+ const client={mutation:(ref:any,args:any)=>f.t.mutation(ref,args),query:(ref:any,args:any)=>f.t.query(ref,args)};
+ await claimAndProcess(client,{bridgeToken,workerId:'bridge',redactValues:[],secretRefMap:{'event-media/vrcdn/main':'test-secret'},baseEnvironment:{}},async(_config:any,args:string[])=>{
+  if(args[1]==='register-task-definition'){await f.owner.mutation(api.events.stopEventMediaWorker,{currentSlug:f.event.slug,sessionId:f.args.sessionId});return {taskDefinition:{taskDefinitionArn:'unused-definition'}};}
+  assert.equal(args[1],'deregister-task-definition');cleanup++;throw Error('cleanup unavailable');
+ });
+ const session=await f.t.run(({db})=>db.get(f.args.sessionId));assert.equal(session?.dispatchId,undefined);assert.equal(session?.workerTaskCleanupPending,true);assert.equal(cleanup,1);
+ await refreshSessions(client,{bridgeToken,workerId:'bridge'},async(_config:any,args:string[])=>{assert.equal(args[1],'deregister-task-definition');cleanup++;return {};});
+ assert.equal(cleanup,2);assert.equal((await f.t.run(({db})=>db.get(f.args.sessionId)))?.workerTaskCleanupPending,false);
+});

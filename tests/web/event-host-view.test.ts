@@ -7,7 +7,7 @@ it('deduplicates sources, caps concurrent probes and preserves observation age',
  const sources=Array.from({length:9},(_,i)=>({key:`vrcdn:${i}`,url:`vrcdn:${i}`}));
  const first=await read([...sources,...sources]); await read(sources.slice(0,4));
  assert.equal(calls,4); assert.equal(Object.keys(first).length,4); assert.equal(maximum,4); assert.equal(first['vrcdn:0'].observedAt,100);
- assert.equal(reportedSourceState(first['vrcdn:0'],60101),'unavailable');
+ assert.equal(reportedSourceState(first['vrcdn:0'],60101),'unknown');
 });
 it('isolates failed provider checks',async()=>{
  const read=createSourceStatusReader(async()=>{throw Error('timeout')},()=>123);
@@ -66,4 +66,14 @@ it('the host public query rejects an unpublished event',async()=>{
   eventStatus:'scheduled',publicationState:'draft_private',createdAt:100,updatedAt:100,
  }));
  assert.equal(await t.query(api.events.getPublicBySlug,{slug:'private-host-roster'}),null);
+});
+
+it('R8 missing and stale observations remain unknown while fresh explicit failure stays unavailable',async()=>{
+ assert.equal(reportedSourceState(undefined,100000),'unknown');
+ assert.equal(reportedSourceState({state:'unavailable',observedAt:100},100000),'unknown');
+ assert.equal(reportedSourceState({state:'unavailable',observedAt:100000},100000),'unavailable');
+ const read=createSourceStatusReader(async()=>({state:'live',observedAt:1}),()=>100000);
+ const result=await read([{key:'vrcdn:old',url:'vrcdn:old'}]);
+ assert.deepEqual(result['vrcdn:old'],{state:'live',observedAt:1});
+ assert.equal(reportedSourceState(result['vrcdn:old'],100000),'unknown');
 });

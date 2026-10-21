@@ -1989,7 +1989,7 @@ function workerSessionStatus(session: Doc<"eventMediaSessions">) {
     currentSourceId: session.currentSourceId,
     programObservedAt: session.programObservedAt,
     lastAcknowledgedSequence: session.lastAcknowledgedSequence,
-    epoch:session.epoch,dispatchId:session.dispatchId,dispatchStopConfirmedAt:session.dispatchStopConfirmedAt,workerTaskCleanupPending:session.workerTaskCleanupPending,broadcastMode:session.broadcastMode,runtimeDeadlineAt:session.runtimeDeadlineAt,
+    epoch:session.epoch,launchProtocol:session.launchProtocol,launchAttemptedAt:session.launchAttemptedAt,dispatchId:session.dispatchId,dispatchStopConfirmedAt:session.dispatchStopConfirmedAt,workerTaskCleanupPending:session.workerTaskCleanupPending,broadcastMode:session.broadcastMode,runtimeDeadlineAt:session.runtimeDeadlineAt,
     sessionId: session._id,
     status: session.status,
     ...(session.outputId === undefined ? {} : { outputId: session.outputId }),
@@ -2718,7 +2718,7 @@ export const listEventMediaWorkerBridgeSessions = query({
     // Include ambiguous dispatches without an ARN: they retain capacity and must
     // remain visible for operator investigation, even after media termination.
     return [...new Map([...managed,...taskGroups.flat().filter(s=>s.dispatchId===undefined),...cleanup,...legacy.filter(s=>s.dispatchId===undefined)].map(session=>[session._id,session])).values()]
-      .filter(session=>session.dispatchId!==undefined || session.workerProvider==="aws_ecs"&&session.workerTaskId!==undefined)
+      .filter(session=>session.workerTaskCleanupPending===true || session.dispatchId!==undefined || session.workerProvider==="aws_ecs"&&session.workerTaskId!==undefined)
       .sort((a,b)=>b.updatedAt-a.updatedAt).map(workerSessionStatus);
   },
 });

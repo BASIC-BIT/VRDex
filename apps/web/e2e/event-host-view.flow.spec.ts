@@ -79,3 +79,23 @@ test('preview is explicit, muted, singular and disposed on close @flow @fixture'
  await otherLinks.click();
  await expect(page.locator('video')).toHaveCount(0);
 });
+
+for (const partial of [false,true]) test(`R8 ${partial?'partial':'unprobed'} statuses preserve controls @flow @fixture`,async({page},info)=>{
+ await page.addInitScript(()=>{Object.defineProperty(navigator,'clipboard',{value:{writeText:async(value:string)=>{sessionStorage.setItem('copied',value)}}});});
+ await page.route('**/host/status',route=>route.fulfill({json:partial?{
+  'vrcdn:dj-aurora':{state:'unavailable',observedAt:Date.now()},
+  'twitch:dj_aurora':{state:'offline',observedAt:Date.now()},
+  'vrcdn:suggested-aurora':{state:'live',observedAt:Date.now()-61000},
+ }: {}}));
+ await page.goto(path);
+ await page.getByText('Other links',{exact:true}).first().click();
+ await expect(page.getByText('Unknown',{exact:true})).toHaveCount(partial?2:6);
+ if(partial){await expect(page.getByText('Unavailable',{exact:true})).toHaveCount(2);await expect(page.getByText('Offline',{exact:true})).toHaveCount(2);}
+ await expect(page.getByText(/Selected source/)).toHaveCount(1);
+ await expect(page.getByText(/Scheduled now/)).toHaveCount(1);
+ for(const label of ['PC','Quest']){await page.getByRole('button',{name:`Copy ${label}`,exact:true}).first().click();await expect.poll(()=>page.evaluate(()=>sessionStorage.getItem('copied'))).toContain(label==='Quest'?'.live.ts':'rtspt://');}
+ await expect(page.getByRole('button',{name:'Preview',exact:true}).first()).toBeVisible();
+ expect(await page.locator('video,audio,iframe').count()).toBe(0);
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+ await page.screenshot({path:info.outputPath(`r8-host-${partial?'partial':'unprobed'}.png`),fullPage:true});
+});

@@ -345,7 +345,8 @@ export function createEventWorker({ identity, control, renderer, outputs, create
                     // its encoded result can be acknowledged on the next tick.
                     if (!pending?.selected || pending.outcome !== 'succeeded')
                         renderer.hold();
-                    await reconcile(pending?.outcome === 'succeeded' ? pending.target : undefined);
+                    if (pending)
+                        await reconcile(pending.outcome === 'succeeded' ? pending.target : undefined);
                 }
                 const claims = await request('claimCommands');
                 if (!claims.granted)
@@ -363,16 +364,20 @@ export function createEventWorker({ identity, control, renderer, outputs, create
                 }
                 if (!pending) {
                     const ordered = config.slots;
-                    const next = current ? ordered.slice(ordered.findIndex(s => s.slotKey === current.slotKey) + 1).find(s => s.available) : initialAutomaticSlot(ordered, scheduleNow());
+                    const currentIndex = current ? ordered.findIndex(s => s.slotKey === current.slotKey && s.sourceId === current.sourceId) : -1;
+                    const next = currentIndex >= 0 ? ordered.slice(currentIndex + 1).find(s => s.available) : initialAutomaticSlot(ordered, scheduleNow());
+                    // A removed slot's former end cannot delay its replacement.
+                    // Keep authored adjacency and healthy-current overrun unchanged.
+                    const policyCurrent = current && currentIndex < 0 ? { ...current, endAt: undefined } : current;
                     const evidence = observation(current), nextReadiness = observation(next);
-                    const decision = decideHandoff({ scheduleNow: scheduleNow(), observationNow: clock(), sessionDeadline: config.sessionDeadline, mode, current, next, evidence, nextReadiness, policy: { ...config.policy, ...(config.policy.silence?.thresholdDb !== silenceThresholdDb ? { silence: undefined } : {}) } });
+                    const decision = decideHandoff({ scheduleNow: scheduleNow(), observationNow: clock(), sessionDeadline: config.sessionDeadline, mode, current: policyCurrent, next, evidence, nextReadiness, policy: { ...config.policy, ...(config.policy.silence?.thresholdDb !== silenceThresholdDb ? { silence: undefined } : {}) } });
                     if (decision.kind === 'stop') {
                         fence('session-deadline');
                         return;
                     }
                     if (decision.kind === 'hold')
                         renderer.hold();
-                    const prepare = decision.kind === 'prepare' || decision.kind === 'switch' || decision.prepare || mode === 'automatic' && next && scheduleNow() >= Math.max(next.startAt, current?.endAt ?? next.startAt) - 120000;
+                    const prepare = decision.kind === 'prepare' || decision.kind === 'switch' || decision.prepare || mode === 'automatic' && next && scheduleNow() >= Math.max(next.startAt, policyCurrent?.endAt ?? next.startAt) - 120000;
                     await reconcile(prepare ? next : undefined);
                     if (decision.kind === 'switch' && renderer.selectSource(next.slotKey))
                         current = { ...next };

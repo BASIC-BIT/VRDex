@@ -1614,6 +1614,8 @@ export default defineSchema({
     acquiredAt: v.optional(v.number()),
     runtimeDeadlineAt: v.optional(v.number()),
     dispatchId: v.optional(v.string()),
+    launchProtocol: v.optional(v.literal("fenced-v1")),
+    launchAttemptedAt: v.optional(v.number()),
     dispatchStopConfirmedAt: v.optional(v.number()),
     outputHealth: v.optional(v.array(outputHealthValidator)),
     programObservedAt: v.optional(v.number()),
