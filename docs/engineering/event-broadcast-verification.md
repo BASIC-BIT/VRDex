@@ -741,3 +741,11 @@ exact `e97b6de` blob survives as `/workspace/r8-media/r8-e97-proof-harness.mjs`
 The correction uses `/workspace/r8-media/r8-fix1-proof-harness.mjs`
 (SHA-256 `6be4316011db04cba9cf3b7734e43cb4913ebd304f5bce4f6e51780f0ce33bc9`).
 No claim is made that historical manifest paths still identify current sources.
+
+## Bounded one-source provider rehearsal
+
+The [isolated rehearsal procedure](event-broadcast-rehearsal.md) packages the current
+worker proof commands, manual image publication, additive opt-in IAM resources and
+private failure artifacts. Its in-memory authority and one real source leave Convex,
+distinct-source handoff, Twitch and physical device acceptance gates open. Ordinary
+hosted output remains disabled.

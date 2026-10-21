@@ -20,6 +20,11 @@ COPY workers/restream/handoff-policy.mjs workers/restream/handoff-policy.mjs
 COPY workers/restream/input-supervisor.mjs workers/restream/input-supervisor.mjs
 COPY workers/restream/program-renderer.mjs workers/restream/program-renderer.mjs
 
+COPY scripts/event-output-local-proof.mjs scripts/event-output-local-proof.mjs
+COPY scripts/event-proof-metrics.mjs scripts/event-proof-metrics.mjs
+COPY scripts/event-vrcdn-rehearsal.mjs scripts/event-vrcdn-rehearsal.mjs
+COPY scripts/event-proof-runner.mjs scripts/event-proof-runner.mjs
+
 ENV NODE_ENV=production
 
 CMD ["node", "workers/restream/hosted-worker.mjs"]

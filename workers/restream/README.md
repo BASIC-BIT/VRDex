@@ -103,3 +103,10 @@ ECS on EC2 with GPU/NVENC stays a measured fallback. Do not promote GPU-backed h
 ## Artifact Uploads
 
 If `VRDEX_RESTREAM_ARTIFACT_S3_URI` is set, the worker runs `aws s3 sync` after local artifact generation. Terraform sets this to the private benchmark artifact bucket prefix for ECS tasks. Do not make this bucket public; inspect artifacts through authenticated S3 access or short-lived presigned URLs only.
+
+## Explicit isolated proof commands
+
+The image also packages `scripts/event-proof-runner.mjs synthetic` and
+`scripts/event-vrcdn-rehearsal.mjs`. These require explicit commands; the default
+entrypoint remains the benchmark. See [the bounded rehearsal procedure](../../docs/engineering/event-broadcast-rehearsal.md)
+for fixed endpoints, operator attestations, dedicated switch, artifacts and limits.

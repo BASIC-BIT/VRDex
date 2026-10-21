@@ -53,3 +53,11 @@ references `oidc.vercel.com/basic-bit`.
 ## State Boundary
 
 Do not commit local state, plans, or `terraform.tfvars`. The root `.gitignore` excludes them.
+
+## Restream proof image permission
+
+`enable_restream_proof_image_permissions` defaults false. Opting in adds the standalone
+`vrdex-restream-proof-image` inline policy to the existing OIDC role, scoped to registry
+authentication and pushes/DescribeImages on the exact restream repository. Existing
+trust and policies stay in place. See [the rehearsal procedure](../../../docs/engineering/event-broadcast-rehearsal.md)
+for approved bootstrap import and rollback.

@@ -1,0 +1,213 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
+import { mkdtemp, readFile, writeFile, symlink } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { validateRehearsal, createRehearsalControl, runRehearsal, createReadinessEvidence, REHEARSAL_PARAMETER } from '../../scripts/event-vrcdn-rehearsal.mjs';
+import { runBounded, finalizeArtifacts, numericDiagnostics, syntheticEnvironment } from '../../scripts/event-proof-runner.mjs';
+import { createEventWorker, checkHostedEnabled } from '../../workers/restream/event-worker.mjs';
+const attestations = { sourceConsent: 'accepted', destinationAuthority: 'accepted', providerRules: 'accepted', rightsClearedMedia: 'accepted' };
+const environment = () => ({ VRDEX_PROVIDER_REHEARSAL_CONFIRMED: 'true', VRDEX_PROVIDER_REHEARSAL_ATTESTATIONS_JSON: JSON.stringify(attestations), VRDEX_EVENT_MEDIA_OUTPUT_INGEST_SECRET_JSON: '{"rtmpUrl":"rtmp://uk.ingest.vrcdn.live/live","streamKey":"private-canary"}', AWS_REGION: 'us-east-1', VRDEX_RESTREAM_KILL_SWITCH_SSM_PARAMETER: REHEARSAL_PARAMETER });
+test('guards reject missing attestations, altered endpoints, production switch and Convex before any side effects', () => {
+ assert.equal(validateRehearsal(environment()).seconds, 120);
+ for (const patch of [{ VRDEX_PROVIDER_REHEARSAL_CONFIRMED: '' }, { VRDEX_PROVIDER_REHEARSAL_ATTESTATIONS_JSON: '{}' }, { VRDEX_PROVIDER_REHEARSAL_ATTESTATIONS_JSON: JSON.stringify({ ...attestations, providerRules: true }) }, { VRDEX_RESTREAM_KILL_SWITCH_SSM_PARAMETER: '/vrdex/restream/hosted-worker/enabled' }, { AWS_REGION: 'us-west-2' }, { CONVEX_URL: 'https://example.convex.cloud' }, { VRDEX_EVENT_MEDIA_BRIDGE_TOKEN: 'private-canary' }, { VRDEX_PROVIDER_REHEARSAL_SOURCE_URL: 'https://other.example/test' }, { PROOF_SECONDS: '180' }, { VRDEX_EVENT_MEDIA_OUTPUT_INGEST_SECRET_JSON: '{bad private-canary' }]) {
+  assert.throws(() => validateRehearsal({ ...environment(), ...patch }), error => !error.message.includes('private-canary'));
+ }
+});
+test('in-memory control uses explicit rights and expires leases at fixed deadline', async () => {
+ let now = 1000;
+ const evidence = { commands: [], observations: [] };
+ const control = createRehearsalControl({ compliance: attestations, beganAt: now, now: () => now, evidence });
+ let lease = await control('acquireSession');
+ assert.deepEqual(lease.configuration.outputs[0].compliance, attestations);
+ assert.equal(lease.configuration.sources[0].publicUrl, 'https://stream.vrcdn.live/live/basicbit1.live.ts');
+ now += 20000;
+ assert.equal((await control('claimCommands')).commands[0].commandType, 'switch_hold');
+ await control('acknowledgeCommand', { sequence: 1, outcome: 'succeeded', observedState: 'hold', private: 'private-canary' });
+ now += 10000;
+ assert.equal((await control('claimCommands')).commands[0].commandType, 'switch_source');
+ now = 181001;
+ assert.equal((await control('renewSession')).granted, false);
+ assert.ok(!JSON.stringify(evidence).includes('private-canary'));
+});
+test('readiness records death and recovery only after actual ready/lost/ready observations', () => {
+ const state = createReadinessEvidence();
+ state.observe({ ready: false }, 0); assert.equal(state.result().sourceLossObserved, false);
+ state.observe({ ready: true }, 1); state.observe({ ready: false }, 2);
+ assert.equal(state.result().sourceLossObserved, true); assert.equal(state.result().sourceRecoveryObserved, false);
+ state.observe({ ready: true }, 3); assert.equal(state.result().sourceRecoveryObserved, true);
+});
+function fakeChild() {
+ const child = new EventEmitter(); child.pid = 123; child.stdout = new PassThrough(); child.stderr = new PassThrough(); child.exitCode = null; child.signalCode = null; child.kills = [];
+ child.kill = signal => { child.kills.push(signal); queueMicrotask(() => child.emit('close', null, signal)); return true; };
+ return child;
+}
+test('bounded runner preserves child failure and keeps only numeric bounded diagnostics', async () => {
+ const child = fakeChild();
+ const resultPromise = runBounded({ command: 'test', args: [], env: {}, spawnProcess: () => child, killGroup: () => {}, timeoutMs: 1000 });
+ child.stdout.write('private-canary\n'); child.stderr.write('private-canary'.repeat(10000)); child.emit('close', 7, null);
+ const result = await resultPromise;
+ assert.equal(result.exitCode, 7); assert.ok(result.stderrBytes > 1000); assert.ok(!JSON.stringify(result).includes('private-canary'));
+});
+test('bounded runner kills the entire process group on timeout and signal, preserving failure', async () => {
+ for (const signal of [false, true]) {
+  const child = fakeChild(), abort = new AbortController(), killed = [];
+  const pending = runBounded({ command: 'test', args: [], env: {}, spawnProcess: () => child, timeoutMs: signal ? 1000 : 5, signal: abort.signal, killGroup: (pid, value) => { killed.push([pid, value]); child.kill(value); } });
+  if (signal) abort.abort();
+  const result = await pending;
+  assert.equal(result.exitCode, signal ? 130 : 124); assert.deepEqual(killed[0], [-123, 'SIGTERM']);
+ }
+});
+test('artifact finalizer excludes raw logs, unknown files, symlinks and secret strings; preserves prior failure', async () => {
+ const directory = await mkdtemp(join(tmpdir(), 'rehearsal-test-'));
+ await writeFile(join(directory, 'primary.ts'), Buffer.from([0x47, 1, 2]));
+ await writeFile(join(directory, 'result.json'), JSON.stringify({ passed: false, samples: 2, error: 'private-canary', resources: { cpu: 3 } }));
+ await writeFile(join(directory, 'raw.log'), 'private-canary');
+ await symlink(join(directory, 'raw.log'), join(directory, 'optional-after.ts'));
+ const uploads = [];
+ const result = await finalizeArtifacts({ directory, exitCode: 7, runId: 'unit-1', artifactRoot: 's3://vrdex-restream-worker-079358094174-artifacts/synthetic-benchmarks', upload: async (file, target) => { uploads.push({ file, target, contents: await readFile(file) }); } });
+ assert.equal(result.exitCode, 7); assert.equal(result.uploadFailures, 0);
+ assert.ok(uploads.some(value => value.target.endsWith('/primary.ts')));
+ assert.ok(!uploads.some(value => value.target.endsWith('/raw.log') || value.target.endsWith('/optional-after.ts')));
+ assert.ok(!uploads.some(value => value.contents.includes('private-canary')));
+ const failure = await finalizeArtifacts({ directory, exitCode: 0, runId: 'unit-2', artifactRoot: 's3://vrdex-restream-worker-079358094174-artifacts/synthetic-benchmarks', upload: async () => { throw Error('private-canary'); } });
+ assert.equal(failure.exitCode, 1); assert.ok(failure.uploadFailures > 0);
+ assert.ok(!JSON.stringify(failure).includes('private-canary'));
+});
+test('numeric projection and synthetic subprocess environment cannot carry injected credentials', () => {
+ assert.deepEqual(numericDiagnostics({ a: 1, b: true, secret: 'private-canary', nested: { cpu: 2, url: 'private-canary' } }), { a: 1, b: true, nested: { cpu: 2 } });
+ const env = syntheticEnvironment({ ...environment(), PATH: '/bin', AWS_CONTAINER_CREDENTIALS_RELATIVE_URI: '/credentials', EVIL: 'private-canary', PROOF_SECONDS: '3600' }, '/tmp/proof-');
+ assert.equal(env.PROOF_SECONDS, '120'); assert.equal(env.PATH, '/bin'); assert.ok(!JSON.stringify(env).includes('private-canary')); assert.equal(env.AWS_CONTAINER_CREDENTIALS_RELATIVE_URI, undefined);
+});
+function fakeRuntime({ now, enabled = true, leaseMs = 1000 }) {
+ let stopped = false;
+ const renderer = { start: async () => {}, stop: async () => {}, subscribe: () => () => {}, getState: () => ({ running: true, outputMs: 1 }), getInputs: () => [], reconcileSources: async () => {}, hold() {}, selectSource: () => false };
+ const outputs = { start: async () => {}, stopNow: () => { stopped = true; }, stop: async () => {}, enqueue() {}, getState: () => ({ publishing: true, destinations: [] }) };
+ const config = { outputId: 'basicbit', outputs: [{ id: 'basicbit' }], sources: [], slots: [], mode: 'hold', policy: {}, sessionDeadline: 180000 };
+ const worker = createEventWorker({ identity: {}, clock: now, renderer, outputs, checkEnabled: async () => enabled, control: async name => name === 'acquireSession' ? { granted: true, epoch: 1, serverNow: 0, expiresAt: leaseMs, renewAfterMs: 10000, configuration: config } : { granted: false } });
+ return { worker, fenced: () => stopped };
+}
+test('unchanged worker fences on expired authority and dedicated switch failure', async () => {
+ let clock = 0;
+ const runtime = fakeRuntime({ now: () => clock });
+ await runtime.worker.start(); clock = 751; runtime.worker.watchdog();
+ assert.equal(runtime.fenced(), true); assert.equal(runtime.worker.getState().stopped, true);
+ let invoked;
+ assert.equal(await checkHostedEnabled({ parameter: REHEARSAL_PARAMETER, region: 'us-east-1', run: async (_command, args) => { invoked = args; return { stdout: '{"Parameter":{"Value":"false"}}' }; } }), false);
+ assert.ok(invoked.includes(REHEARSAL_PARAMETER));
+ const disabled = fakeRuntime({ now: () => 0, enabled: false });
+ await assert.rejects(disabled.worker.start()); assert.equal(disabled.fenced(), true);
+});
+test('rehearsal cleanup runs after startup failure without serializing provider errors', async () => {
+ const calls = [];
+ const result = await runRehearsal({ env: environment(), directory: await mkdtemp(join(tmpdir(), 'rehearsal-test-')), dependencies: {
+  createSourceRelay: async () => ({ stop: () => calls.push('relay-stop'), resolveSource() {}, retainSources() {} }),
+  createProgramRenderer: () => ({ subscribe: () => () => {}, stop: async () => calls.push('renderer-stop') }),
+  createEventOutputs: () => ({ stopNow: () => calls.push('fence'), stop: async () => calls.push('outputs-stop') }),
+  createEventWorker: () => ({ start: async () => { throw Error('private-canary'); }, stop: async () => calls.push('worker-stop') }),
+  processMetrics: () => ({ sample: async () => {}, result: () => ({}) })
+ } });
+ assert.equal(result.exitCode, 1); assert.ok(calls.indexOf('fence') < calls.indexOf('renderer-stop')); assert.ok(calls.includes('relay-stop')); assert.ok(!JSON.stringify(result).includes('private-canary'));
+});
+test('switch loss after publication fences synchronously on refresh or ten-second expiry', async () => {
+ for (const failure of ['false', 'unavailable', 'hung']) {
+  let now = 0, checks = 0, fenced = false;
+  const renderer = { start: async () => {}, stop: async () => {}, subscribe: () => () => {}, getState: () => ({ running: true, outputMs: 1 }), getInputs: () => [], reconcileSources: async () => {}, hold() {}, selectSource: () => false };
+  const outputs = { start: async () => {}, stopNow: () => { fenced = true; }, stop: async () => {}, enqueue() {}, getState: () => ({ publishing: true, destinations: [] }) };
+  const configuration = { outputId: 'basicbit', outputs: [{ id: 'basicbit' }], sources: [], slots: [], mode: 'hold', policy: {}, sessionDeadline: 180000 };
+  const worker = createEventWorker({ identity: {}, clock: () => now, renderer, outputs, checkEnabled: async () => { if (++checks === 1) return true; if (failure === 'false') return false; if (failure === 'unavailable') throw Error('private-canary'); return new Promise(() => {}); }, requestTimeoutMs: 20, control: async name => name === 'acquireSession' ? { granted: true, epoch: 1, serverNow: 0, expiresAt: 30000, renewAfterMs: 10000, configuration } : { granted: true, accepted: true, serverNow: 0, configuration, commands: [] } });
+  await worker.start(); now = 5001;
+  const tick = worker.tick();
+  if (failure === 'hung') { now = 10001; worker.watchdog(); assert.equal(fenced, true); }
+  await tick; assert.equal(fenced, true); assert.equal(worker.getState().stopped, true); await worker.stop();
+ }
+});
+test('runner skips spawn if already aborted', async () => {
+ const abort = new AbortController(); abort.abort(); let spawns = 0;
+ const result = await runBounded({ command: 'test', args: [], env: {}, signal: abort.signal, spawnProcess: () => { spawns++; return fakeChild(); } });
+ assert.equal(spawns, 0); assert.equal(result.exitCode, 130);
+});
+function simulatedRehearsal({ disabledAt = Infinity, abortAt = Infinity, publishes = true, failVerification = false } = {}) {
+ let elapsed = 0, running = false, selected = 'basicbit1', publishing = true, outputMs = 0;
+ const abort = new AbortController(), subscribers = new Set(), calls = [];
+ const dependencies = {
+  now: () => 1000000 + elapsed,
+  sleep: async () => { elapsed += 1000; if (elapsed >= abortAt) abort.abort(); },
+  createSourceRelay: async () => ({ stop: () => calls.push('relay-stop'), resolveSource: () => 'fake-source', retainSources() {} }),
+  createProgramRenderer: () => ({ subscribe: fn => { subscribers.add(fn); return () => subscribers.delete(fn); }, start: async () => { running = true; for (const fn of subscribers) fn(Buffer.alloc(188)); }, stop: async () => { running = false; }, getInputs: () => [{ source: { slotKey: 'source-a' }, getObservation: () => ({ ready: true }) }], reconcileSources: async () => {}, selectSource: () => { selected = 'basicbit1'; return true; }, hold: () => { selected = undefined; }, getState: () => ({ running, outputMs: outputMs += 100, renderedSlotKey: selected ? 'source-a' : undefined, renderedSourceId: selected }) }),
+  createEventOutputs: () => ({ start: async () => {}, enqueue() {}, stopNow: () => { publishing = false; }, stop: async () => {}, getState: () => ({ publishing: publishes && publishing, destinations: [] }) }),
+  createEventWorker: options => createEventWorker({ ...options, clock: () => elapsed }),
+  checkHostedEnabled: async () => elapsed < disabledAt,
+  processMetrics: () => ({ sample: async () => {}, result: () => ({ cpuSeconds: { worker: 1 } }) }),
+  verifyProgramPackets: async () => { if (failVerification) throw Error('private-canary'); return { streams: [{ codec_name: 'h264', width: 1280, height: 720, r_frame_rate: '30/1' }, { codec_name: 'aac', sample_rate: '48000' }], maxGap: 0.03, maxGop: 1 }; },
+ };
+ return { dependencies, signal: abort.signal, calls };
+}
+test('early real worker switch fence remains nonzero with exact observed stop reason', async () => {
+ const simulated = simulatedRehearsal({ disabledAt: 5000 });
+ const result = await runRehearsal({ env: environment(), directory: await mkdtemp(join(tmpdir(), 'rehearsal-test-')), ...simulated });
+ assert.equal(result.exitCode, 1); assert.equal(result.switchFalseObserved, true); assert.equal(result.fenced, true); assert.equal(result.stopReasons.control_failed, true); assert.equal(result.publishingAfterCleanup, false);
+});
+test('rehearsal signal preserves interrupted status and always fences publication', async () => {
+ const simulated = simulatedRehearsal({ abortAt: 2000 });
+ const result = await runRehearsal({ env: environment(), directory: await mkdtemp(join(tmpdir(), 'rehearsal-test-')), ...simulated });
+ assert.equal(result.exitCode, 130); assert.equal(result.aborted, true); assert.equal(result.publishingAfterCleanup, false); assert.ok(simulated.calls.includes('relay-stop'));
+});
+test('no-publication never succeeds; failed verification preserves media and failure', async () => {
+ for (const options of [{ publishes: false }, { failVerification: true }]) {
+  const simulated = simulatedRehearsal(options);
+  const result = await runRehearsal({ env: environment(), directory: await mkdtemp(join(tmpdir(), 'rehearsal-test-')), ...simulated });
+  assert.equal(result.exitCode, 1); assert.equal(result.passed, false); assert.ok((await readFile(join(result.directory, 'program.ts'))).length > 0);
+ }
+});
+test('synthetic failure classifies fixed diagnostic markers without retaining payloads', async () => {
+ const child = fakeChild();
+ const pending = runBounded({ command: 'test', args: [], env: {}, spawnProcess: () => child, killGroup: () => {} });
+ child.stderr.write('private-canary Program render clock exceeded its pro');
+ child.stderr.write('cessing budget private-canary'); child.emit('close', 1, null);
+ const result = await pending;
+ assert.equal(result.renderClockBudgetExceeded, true); assert.ok(!JSON.stringify(result).includes('private-canary'));
+});
+test('full isolated timeline succeeds without inventing source loss or recovery', async () => {
+ const simulated = simulatedRehearsal();
+ const result = await runRehearsal({ env: environment(), directory: await mkdtemp(join(tmpdir(), 'rehearsal-test-')), ...simulated });
+ assert.equal(result.exitCode, 0); assert.equal(result.sourceLossObserved, false); assert.equal(result.sourceRecoveryObserved, false);
+ assert.equal(result.commands.find(command => command.sequence === 1).hold, true);
+ assert.equal(result.commands.find(command => command.sequence === 2).live, true);
+ assert.equal(result.realConvexAuthority, false); assert.equal(result.publishingAfterCleanup, false);
+});
+test('provider guard rejects accidental source credentials and unknown configuration', () => {
+ for (const key of ['VRDEX_VRCDN_POC_INGEST_SECRET_JSON', 'VRDEX_PROVIDER_REHEARSAL_OUTPUT_ACCOUNT', 'VRDEX_EVENT_MEDIA_SOURCE_SECRET_JSON']) assert.throws(() => validateRehearsal({ ...environment(), [key]: 'private-canary' }));
+});
+test('image workflow stays manual, main-bound, immutable and image-only', async () => {
+ const { parse } = await import('yaml');
+ const source = await readFile('.github/workflows/restream-image.yml', 'utf8'), workflow = parse(source);
+ assert.deepEqual(Object.keys(workflow.on), ['workflow_dispatch']);
+ assert.equal(workflow.jobs.image.if, "github.ref == 'refs/heads/main'");
+ assert.equal(workflow.jobs.image['timeout-minutes'], 20);
+ assert.ok(source.includes('git merge-base --is-ancestor "$REQUESTED_SHA" origin/main'));
+ assert.ok(source.includes('proof-$REQUESTED_SHA')); assert.ok(source.includes('expected-runtime.sha256'));
+ assert.ok(!/aws\s+(ecs|iam|ssm|secretsmanager|s3)\s/.test(source));
+ const dockerfile = await readFile('workers/restream/Dockerfile', 'utf8');
+ for (const command of ['event-output-local-proof', 'event-proof-metrics', 'event-vrcdn-rehearsal', 'event-proof-runner']) assert.ok(dockerfile.includes(`COPY scripts/${command}.mjs scripts/${command}.mjs`));
+ assert.ok(dockerfile.includes('CMD ["node", "workers/restream/hosted-worker.mjs"]'));
+});
+test('rehearsal IAM resources are opt-in, standalone, exact and additive', async () => {
+ const worker = await readFile('infra/terraform/restream-worker/rehearsal.tf', 'utf8');
+ const image = await readFile('infra/terraform/state-mgmt/restream-proof.tf', 'utf8');
+ assert.ok(worker.includes('default     = false')); assert.ok(image.includes('default     = false'));
+ assert.ok(worker.includes('value = "false"')); assert.ok(!worker.includes('hosted-worker/enabled'));
+ for (const name of ['vrdex-restream-rehearsal-source', 'vrdex-restream-rehearsal-switch']) assert.ok(worker.includes(name));
+ assert.ok(image.includes('vrdex-restream-proof-image'));
+ assert.ok(worker.includes('arn:aws:secretsmanager:us-east-1:079358094174:secret:event-media/vrcdn/basicbit1-smoke-GWQX7c'));
+ assert.ok(worker.includes('arn:aws:ssm:us-east-1:079358094174:parameter/vrdex/restream/rehearsal/enabled'));
+ assert.ok(!worker.includes('ssm:GetParameters')); assert.ok(!worker.includes('Resource = "*"'));
+ assert.ok(image.includes('arn:aws:ecr:us-east-1:079358094174:repository/vrdex-restream-worker'));
+ assert.ok(!image.includes('assume_role_policy'));
+});
+test('bounded runner terminates an actual isolated Node process without media', async () => {
+ const result = await runBounded({ command: process.execPath, args: ['-e', 'setInterval(() => {}, 1000)'], env: {}, timeoutMs: 30 });
+ assert.equal(result.exitCode, 124); assert.equal(result.timedOut, true);
+});

@@ -1,0 +1,103 @@
+name: Restream proof image
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact reviewed main commit to build
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: restream-proof-image
+  cancel-in-progress: false
+
+jobs:
+  image:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: us-east-1
+      ECR_REPOSITORY: vrdex-restream-worker
+      REPOSITORY_URI: 079358094174.dkr.ecr.us-east-1.amazonaws.com/vrdex-restream-worker
+      REQUESTED_SHA: ${{ inputs.source_sha }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Resolve reviewed main commit and runtime hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$REQUESTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git merge-base --is-ancestor "$REQUESTED_SHA" origin/main
+          git checkout --detach "$REQUESTED_SHA"
+          test "$(git rev-parse HEAD)" = "$REQUESTED_SHA"
+          echo "RELEASE_SHA=$REQUESTED_SHA" >> "$GITHUB_ENV"
+          echo "IMAGE_TAG=proof-$REQUESTED_SHA" >> "$GITHUB_ENV"
+          mkdir -p provenance
+          printf '%s\n' "$REQUESTED_SHA" > provenance/source-sha.txt
+          sha256sum workers/restream/{hosted-worker,live-control,vrcdn-poc,output-sender,event-worker,source-relay,handoff-policy,input-supervisor,program-renderer}.mjs > provenance/expected-runtime.sha256
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: arn:aws:iam::079358094174:role/vrdex-github-terraform
+          aws-region: us-east-1
+          role-session-name: restream-proof-image
+
+      - name: Build and publish immutable image
+        shell: bash
+        run: |
+          set -euo pipefail
+          aws ecr describe-images --region "$AWS_REGION" \
+            --repository-name "$ECR_REPOSITORY" \
+            --filter tagStatus=TAGGED \
+            --query 'imageDetails[].{tags:imageTags,digest:imageDigest}' \
+            --output json > provenance/existing-images.json
+          IMAGE_DIGEST="$(jq -r --arg tag "$IMAGE_TAG" '[.[] | select(.tags | index($tag)) | .digest] | if length == 0 then "" elif length == 1 then .[0] else error("Duplicate immutable image tag") end' provenance/existing-images.json)"
+          if [ -z "$IMAGE_DIGEST" ]; then
+            aws ecr get-login-password --region "$AWS_REGION" |
+              docker login --username AWS --password-stdin "${REPOSITORY_URI%%/*}"
+            docker build --platform linux/amd64 \
+              --label "org.opencontainers.image.revision=$RELEASE_SHA" \
+              --file workers/restream/Dockerfile \
+              --tag "$REPOSITORY_URI:$IMAGE_TAG" .
+            docker run --rm --entrypoint sh "$REPOSITORY_URI:$IMAGE_TAG" \
+              -c 'cd /app && for name in hosted-worker live-control vrcdn-poc output-sender event-worker source-relay handoff-policy input-supervisor program-renderer; do sha256sum "workers/restream/$name.mjs"; done' \
+              > provenance/actual-runtime.sha256
+            diff -u provenance/expected-runtime.sha256 provenance/actual-runtime.sha256
+            docker run --rm --entrypoint sh "$REPOSITORY_URI:$IMAGE_TAG" \
+              -c 'command -v timeout && node --check scripts/event-vrcdn-rehearsal.mjs && node --check scripts/event-proof-runner.mjs'
+            docker run --rm --entrypoint node "$REPOSITORY_URI:$IMAGE_TAG" \
+              --input-type=module -e 'await import("./scripts/event-vrcdn-rehearsal.mjs"); await import("./scripts/event-proof-runner.mjs")'
+            docker push "$REPOSITORY_URI:$IMAGE_TAG"
+            IMAGE_DIGEST="$(aws ecr describe-images --region "$AWS_REGION" \
+              --repository-name "$ECR_REPOSITORY" --image-ids "imageTag=$IMAGE_TAG" \
+              --query 'imageDetails[0].imageDigest' --output text)"
+          else
+            # This job cannot pull from ECR under its minimal push-only policy.
+            # Existing image reuse requires its prior matching provenance artifact.
+            echo '::error::Immutable tag exists; inspect and reuse its prior verified provenance without republishing.'
+            exit 1
+          fi
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          printf '%s@%s\n' "$REPOSITORY_URI" "$IMAGE_DIGEST" > provenance/image-uri.txt
+          docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' \
+            "$REPOSITORY_URI:$IMAGE_TAG" > provenance/image-source-label.txt
+          test "$(cat provenance/image-source-label.txt)" = "$RELEASE_SHA"
+          cat provenance/image-uri.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: restream-proof-image-${{ env.RELEASE_SHA }}
+          path: provenance/
+          retention-days: 7
