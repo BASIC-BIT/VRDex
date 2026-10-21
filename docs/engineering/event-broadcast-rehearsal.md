@@ -376,3 +376,9 @@ No second source or output retry is authorized within this attempt. Another prov
 window requires a new reviewed image and separate operator authorization. All prior
 capacity, strict-probe failure, source and image evidence remains intact. Provider
 output and the remaining live/device acceptance gates remain open.
+
+The required fixed image is now published from `4d701bb05bb242cfe5dab9bbdafcba00ddbffe2e` at ECR digest
+`sha256:2e121beb9ded4592c01c763c4c1cacc49cb9c522e3f661e41c7e8b10e35d88f6`.
+All 13 packaged hashes match reviewed source; only `output-sender.mjs` differs from the preserved `59388ac` image, with the same base RootFS and unchanged default CMD.
+Native readback at `22:40:14.127Z` confirmed ECR ACTIVE, both switches false and zero RUNNING tasks. No live task or capacity rerun used this image; provider acceptance remains open.
+Safe receipts in `/workspace/rehearsal-sdd/` are `published-image-canonical-host.json`, `packaged-image-canonical-host-verification.json` and `canonical-image-published-verification.json`.
