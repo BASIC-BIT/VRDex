@@ -176,3 +176,120 @@ sample, not sustained acceptance. One source cannot prove distinct-source handof
 There is no real Convex registry/admission/lease acceptance, Twitch account acceptance,
 musical silence calibration or physical PC/Quest playback acceptance in these reports.
 The local program recording verifies encoder output, not provider or device playback.
+
+## October 21, 2026 attempt record
+
+The approved attempt produced a passing bounded Fargate synthetic capacity sample
+and a short decodable public `basicbit1` source capture. It did not run the provider
+output adapter. Source/hold/return, source replacement and live dedicated-switch
+fencing through `basicbit` remain untested. Ordinary hosted output stays disabled.
+
+The first RunTask request began at `22:06:48.956Z`; the ten-minute attempt deadline
+was `22:16:48.956Z`. One capacity task and one source task were launched. There was
+no output task and no replacement source. Adapter review correction F3 and the source
+probe investigation consumed the remaining live window. A further bounded live
+window is needed to finish the provider rehearsal; the plan is not complete.
+
+### Image provenance
+
+Both images came from the normal Dockerfile and a standard private ECR registry push
+through the approved operator helper. The newly added workflow was not dispatched.
+Source labels, all nine runtime hashes and four proof/helper hashes were verified.
+
+| Use | Source commit | ECR image digest |
+| --- | --- | --- |
+| Capacity and source task | `16e46cbb4fcbe6bff2f36aaed88cf8d9814adf95` | `sha256:abf9bf6c6a68d44f0159386bb7d740da9df50ab0c337f536f108818014d0a6e4` |
+| Corrected provider adapter, packaged and reviewed but not launched | `dcf83fe092f1c2bf3b492633516ac05b97504e0b` | `sha256:59388ac42078ba3f7ca44ce560b3e51e306f7ed460325e4855320f00f76adb23` |
+
+The repository is
+`079358094174.dkr.ecr.us-east-1.amazonaws.com/vrdex-restream-worker`.
+The fresh images use Node `22.23.4`. Only the provider adapter changed among the
+13 packaged files between these images; the nine runtime modules, synthetic proof,
+metrics helper and wrapper retain their hashes. The capacity run belongs to the
+first image and was not repeated on the corrected image. It remains evidence about
+the unchanged synthetic workload, not a live acceptance result for the new adapter.
+
+### Capacity result
+
+Task `a6fd95e7753d41febad69f62f5e315de`, family
+`vrdex-restream-rehearsal-capacity:1`, ran at 2 CPU/4 GiB and reached ECS STOPPED with
+container exit 0 at `22:09:51.372Z`. Its 120-second synthetic workload passed:
+
+| Measurement | Observed value |
+| --- | ---: |
+| Total harness wall time including verification | 121.787 s |
+| Primary sender process count | 1 |
+| Optional sender process attempts across intentional receiver failure/recovery | 6 |
+| Maximum packet gap | 0.034 s |
+| Maximum GOP | 1.000 s |
+| Maximum measured sender queue | 0 bytes |
+| Full worker sampled CPU | 117.17 CPU seconds |
+| Full worker peak sampled summed RSS | 548,909,056 bytes |
+| Synthetic generator CPU, separate from worker | 22.12 CPU seconds |
+| Local receiver CPU, separate from worker | 2.34 CPU seconds |
+| Lease renewals / program reports / samples | 12 / 119 / 120 |
+
+The finalizer reported exit 0, six workload artifact uploads plus the status object,
+and zero upload failures under
+`synthetic-benchmarks/approved-20261021-rehearsal-capacity/` in the existing private
+bucket. Workspace copies are `capacity-result.json`, `capacity-status.json` and
+`capacity-rehearsal.json` under `/workspace/rehearsal-sdd/`. The three recordings and
+NDJSON samples were also preserved in `capacity-cloud-artifacts/`, whose manifest
+records byte counts and SHA-256 hashes. All seven cloud objects have local copies.
+CPU is a sampled lower bound at process exit; RSS is a peak sampled process sum, not Fargate cgroup memory.
+This generated-input/local-receiver workload excludes the production HTTPS relay,
+a warm successor and provider transport. Six optional attempts include retries;
+they do not represent six simultaneous outputs or six successful live publications.
+
+### Source playback result and preserved failures
+
+Source task `a6f0f7d3a2ad4459a5e08a8299d5ae84`, family
+`vrdex-restream-rehearsal-source:1`, started at `22:11:29.229Z` at 1 CPU/2 GiB and
+published only `basicbit1`. Its initial strict public decode probe, bounded to
+12 seconds with `-xerror`, timed out with exit 124 and non-existing PPS/decode errors.
+That probe remains failed. Its receipt and diagnostics are preserved in
+`source-public-decode.json` and matching files under `/workspace/rehearsal-sdd/`.
+
+A separate ten-second raw public MPEG-TS capture ended at its curl timeout with
+exit 28 after receiving 1,914,216 bytes. Offline decoding of that retained capture
+exited 0 and decoded 197 frames with 7.3 seconds of output progress. Probing identified
+H.264 1280x720 at 30 fps and AAC at 48 kHz. The capture and offline decode also retain
+their startup PPS warnings. This establishes a bounded decodable public source
+sample; it does not erase the strict probe failure or establish clean live startup,
+continuous provider output, musical quality or device playback.
+
+The raw capture is `/workspace/rehearsal-sdd/source-public-raw.ts`. Its request receipt,
+offline decode result and stream probe are `source-public-raw.json`,
+`source-public-offline.json` and `source-public-probe.json`. These are retained
+workspace artifacts, not public artifact URLs.
+
+### Cleanup and unfinished gates
+
+The operator requested source StopTask at `22:14:27.917Z`, before its external stop
+deadline of `22:14:56.062Z`. Source execution stopped at `22:14:40.062Z`; ECS task
+STOPPED followed at `22:15:04.466Z` with exit 143 from intentional operator termination.
+That is not successful completion of the pusher's planned 180-second duration. ECS
+deprovisioning reached terminal task state 8.404 seconds after its per-task deadline;
+StopTask and container execution termination preceded that deadline. Both tasks were
+STOPPED before the global attempt deadline.
+
+The native cleanup readback at `22:15:47.817Z` confirmed capacity STOPPED/exit 0,
+source STOPPED/exit 143, zero running tasks in the cluster, both task network interfaces
+DELETED, and all three proof-only task definitions at revision 1 INACTIVE, including
+the output definition that was never launched. Both
+`/vrdex/restream/hosted-worker/enabled` and `/vrdex/restream/rehearsal/enabled`
+remained false throughout; neither was set true. Readback versions were 1 and 2
+respectively. The cleanup receipt is
+`/workspace/rehearsal-sdd/final-cleanup-receipt.json`. Temporary Docker registry
+credential directories were absent after publication.
+
+The three approved standalone IAM policies remain as authorized durable tooling.
+No broader rollback or removal was authorized or performed. Both images, private
+capacity artifacts, failed probes and raw source evidence remain preserved.
+
+The remaining live gates are current-controller publication to `basicbit`, independent
+public output bytes/frames/audio observation, encoded source/hold/return, actual source
+loss and explicit recovery after non-overlapping source replacement, and actual fencing
+on the dedicated switch. This attempt also leaves distinct-source handoff, real Convex
+registry/admission/leases, Twitch account acceptance, sustained capacity, musical silence
+calibration and physical PC/Quest playback open. No provider-output acceptance is claimed.

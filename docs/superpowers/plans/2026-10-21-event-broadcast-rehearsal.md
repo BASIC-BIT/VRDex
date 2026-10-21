@@ -49,23 +49,23 @@
 - Artifact finalizer may use current task role `s3:PutObject` under existing private `synthetic-benchmarks/<run-id>/`. Upload only safe allowlisted artifacts after sender teardown; preserve media and diagnostic results on failure. Never serialize env/credentials. Existing proof records are local and not evidence of provider device playback.
 - Wrapper synthetic mode runs existing `event-output-local-proof.mjs` with120s, captures failure and exit accurately, then finalizes artifacts. No need to redesign its workload or claim relay/warm-successor coverage.
 
-- [ ] Write meaningful failing tests for guards, authority expiry/cleanup and failure evidence.
-- [ ] Implement minimal modules/configuration and package imports correctly.
-- [ ] Run focused tests, syntax/lint/Terraform checks appropriate to touched files. No media load test until root coordinates available Docker space.
-- [ ] Commit reviewed-scope changes and write full task report, commands and exact results to `/workspace/rehearsal-sdd/task-1-report.md`.
+- [x] Write meaningful failing tests for guards, authority expiry/cleanup and failure evidence.
+- [x] Implement minimal modules/configuration and package imports correctly.
+- [x] Run focused tests, syntax/lint/Terraform checks appropriate to touched files. No media load test until root coordinates available Docker space.
+- [x] Commit reviewed-scope changes and write full task report, commands and exact results to `/workspace/rehearsal-sdd/task-1-report.md`.
 
 ### Task 2: Approved operator execution and evidence
 
 Root coordinates AWS changes, image transport/publication and bounded tasks. New workflow cannot be dispatched until installed on default branch; prefer a supported credential-free image artifact import via native AWS APIs if feasible, without exporting machine-role credentials or merging code without authorization. Record this bootstrap route and provenance if used.
 
-- [ ] Verify caller account, current role policies, output/source references, private artifact bucket and immutable ECR repository.
-- [ ] Apply only three approved additive policies and create dedicated switchfalse. Preserve exact rollback documents and read back effective changes.
-- [ ] Build reviewed normal Dockerfile and verify nine unchanged packaged module hashes. Publish exact image using authorized existing tool paths; no credential extraction or security bypass.
-- [ ] Prepare exact task definition/run objects, network/roles/log settings and external stop identifiers. Review before launch.
-- [ ] Run one synthetic check; inspect actual result before any provider task. If capacity fails, preserve evidence and diagnose rather than proceed blind.
+- [x] Verify caller account, current role policies, output/source references, private artifact bucket and immutable ECR repository.
+- [x] Apply only three approved additive policies and create dedicated switchfalse. Preserve exact rollback documents and read back effective changes.
+- [x] Build reviewed normal Dockerfile and verify nine unchanged packaged module hashes. Publish exact image using authorized existing tool paths; no credential extraction or security bypass.
+- [x] Prepare exact task definition/run objects, network/roles/log settings and external stop identifiers. Review before launch.
+- [x] Run one synthetic check; inspect actual result before any provider task. If capacity fails, preserve evidence and diagnose rather than proceed blind.
 - [ ] Run source and output rehearsal only if prerequisite results permit; collect real provider playback bytes/frames/audio samples with bounded observers.
-- [ ] Restore rehearsal switchfalse; confirm exact tasks STOPPED, no overlapping source publishers and no production enablement. Retain private evidence and document remaining acceptance limits.
-- [ ] Update tracked verification docs and create/attach a reviewable PR for tooling/results. No merge without existing authorization.
+- [x] Restore rehearsal switchfalse; confirm exact tasks STOPPED, no overlapping source publishers and no production enablement. Retain private evidence and document remaining acceptance limits.
+- [x] Update tracked verification docs and create/attach a reviewable PR for tooling/results. No merge without existing authorization.
 
 ## Preflight consistency
 
@@ -79,3 +79,27 @@ Root coordinates AWS changes, image transport/publication and bounded tasks. New
 | Task2 itself | Bounded one-attempt tasks; status/evidence before any next launch | Ten-minute external run deadline; no success inference from control flags |
 
 Self-review: approved proposal requirements are covered by Tasks1–2. Existing startup failures, optional SPS warnings, unavailable Twitch/second source and lack of physical observers remain explicit limitations.
+
+## October 21 execution status
+
+Tooling and evidence review: [PR 378](https://github.com/BASIC-BIT/VRDex/pull/378).
+
+Task 1 implementation and both scoped correction reviews are complete through
+`dcf83fe`; 28 focused tests pass. Task 2 is partial. The 120-second 2 CPU/4 GiB
+Fargate synthetic run passed on image `sha256:abf9bf6c6a68d44f0159386bb7d740da9df50ab0c337f536f108818014d0a6e4`
+from `16e46cb`. A bounded public `basicbit1` capture decoded offline, while the
+initial strict live probe failed and remains preserved. The corrected provider image
+`sha256:59388ac42078ba3f7ca44ce560b3e51e306f7ed460325e4855320f00f76adb23`
+from `dcf83fe` was verified and published but not launched.
+
+The attempt window was `22:06:48.956Z` to `22:16:48.956Z`. Review correction and
+source diagnostics used the available window. No output task, second source, live
+source/hold/return, source loss/recovery or dedicated-switch fencing occurred. Both
+switches remained false. Source StopTask was requested at `22:14:27.917Z`; execution
+stopped at `22:14:40.062Z` and ECS STOPPED followed at `22:15:04.466Z`, exit 143 from
+operator termination. Native cleanup verification at `22:15:47.817Z` confirmed both
+tasks STOPPED, zero running tasks, both network interfaces DELETED and all three
+proof-only definitions INACTIVE. The three approved IAM policies remain as durable
+tooling. A further bounded live window is required. Do not mark the
+plan complete or infer output/provider/device acceptance from source or capacity evidence.
+See [the attempt record](../../engineering/event-broadcast-rehearsal.md#october-21-2026-attempt-record).

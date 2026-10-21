@@ -744,8 +744,45 @@ No claim is made that historical manifest paths still identify current sources.
 
 ## Bounded one-source provider rehearsal
 
-The [isolated rehearsal procedure](event-broadcast-rehearsal.md) packages the current
-worker proof commands, manual image publication, additive opt-in IAM resources and
-private failure artifacts. Its in-memory authority and one real source leave Convex,
-distinct-source handoff, Twitch and physical device acceptance gates open. Ordinary
-hosted output remains disabled.
+On October 21, the approved ten-minute Fargate attempt passed one 120-second
+synthetic run at 2 CPU/4 GiB. Task `a6fd95e7753d41febad69f62f5e315de` reached
+STOPPED with exit 0. It retained one primary sender, six optional process attempts
+through intentional receiver death/recovery, 34 ms maximum packet gap, one-second
+GOP and zero measured queue. Worker resources were 117.17 sampled CPU seconds over
+121.787 harness wall seconds and 548,909,056 bytes peak sampled summed RSS. Generated
+input and local receivers are separate resource groups; the workload excludes the
+production HTTPS relay, a warm successor and live provider output.
+
+That capacity run used source `16e46cb`, ECR digest
+`sha256:abf9bf6c6a68d44f0159386bb7d740da9df50ab0c337f536f108818014d0a6e4`.
+The final reviewed provider adapter is source `dcf83fe`, packaged as
+`sha256:59388ac42078ba3f7ca44ce560b3e51e306f7ed460325e4855320f00f76adb23`.
+All 13 packaged hashes were checked. Only the adapter changed between these images;
+the nine runtime modules and synthetic proof retain their hashes. Capacity was not
+rerun on the later image, and the later adapter was not launched.
+
+One 1 CPU/2 GiB `basicbit1` source task produced a public capture. Its initial
+12-second strict live decode probe failed with timeout 124 and PPS errors. A separate
+ten-second raw capture timed out with curl exit 28 after 1,914,216 bytes; offline decode
+of those bytes exited 0 with 197 frames and 7.3 seconds of output progress. The media
+was H.264 1280x720 at 30 fps with AAC at 48 kHz. Startup warnings remain in the preserved
+evidence. This is a bounded decodable source sample, not clean-start or provider-output
+acceptance.
+
+The run window began at `22:06:48.956Z` and ended at `22:16:48.956Z`. Review rework and
+source diagnostics consumed it, so no output task or second source was launched. Both
+switches remained false. Source StopTask was requested at `22:14:27.917Z`; its execution
+stopped at `22:14:40.062Z`, before the task deadline `22:14:56.062Z`. ECS deprovisioning
+finished at `22:15:04.466Z` with exit 143 from operator termination, not successful
+180-second completion. Cleanup readback at `22:15:47.817Z` confirmed both tasks STOPPED,
+zero running tasks, both network interfaces DELETED, and all three proof definitions
+INACTIVE. The approved IAM policies remain as durable tooling; both switches are false.
+All seven private capacity artifacts and the source/failed-probe evidence are preserved.
+A further bounded live window is required for actual
+output, source/hold/return, source replacement/recovery and dedicated-switch fencing.
+Real Convex authority, distinct-source handoff, Twitch, sustained reliability, musical
+silence calibration and physical device gates remain open. Ordinary hosted output
+remains disabled.
+
+The [isolated rehearsal procedure and attempt record](event-broadcast-rehearsal.md#october-21-2026-attempt-record)
+contains exact provenance, private evidence paths, cleanup status and limitations.
