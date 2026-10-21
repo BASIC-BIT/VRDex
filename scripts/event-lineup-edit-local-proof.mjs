@@ -148,21 +148,25 @@ try {
   assert(Date.now() < obsoleteEndAt, 'removed A future end must not delay replacement');
   await sample('current interval B green before obsolete A end', 'b');
   const boundary = Date.now() + 8000;
-  configuration.slots = [configuration.slots[0], { slotKey: 'a', sourceId: 'a', startAt: boundary, endAt: boundary + 5000, available: true }, { slotKey: 'b', sourceId: 'b', startAt: boundary + 5000, endAt: begun + 160000, available: true }];
-  // Remove B as the current identity while preserving a future B successor later.
-  configuration.slots[2].slotKey = 'b-later';
+  configuration.slots = [configuration.slots[0], { slotKey: 'b', sourceId: 'a', startAt: boundary, endAt: boundary + 5000, available: true }, { slotKey: 'b-later', sourceId: 'b', startAt: boundary + 5000, endAt: begun + 160000, available: true }];
+  // Replace current B with future A under the same authored key. Keep a
+  // separate later B appearance for healthy overrun and confirmed death.
   await until(() => renderer.getState().renderedSourceId === undefined);
-  await sample('future A gap slate', null);
-  while (Date.now() < boundary - 300) { await step(); assert.equal(renderer.getState().renderedSourceId, undefined, 'no early automatic promotion'); }
+  await sample('same-key future A gap slate', null);
+  assert.equal(worker.getState().current?.sourceId, 'b', 'replacement must not silently become current');
+  while (Date.now() < boundary - 300) { await step(); assert.equal(renderer.getState().renderedSourceId, undefined, 'no early automatic promotion'); assert.equal(worker.getState().current?.sourceId, 'b', 'retain revoked B identity until eligible replacement'); }
   await until(() => renderer.getState().renderedSourceId === 'a');
-  await sample('A red at future boundary', 'a');
+  assert.equal(worker.getState().current?.slotKey, 'b');
+  assert.equal(worker.getState().current?.sourceId, 'a');
+  assert(Date.now() >= boundary, 'same-key replacement may only publish at its boundary');
+  await sample('same-key A red at future boundary', 'a');
   await until(() => Date.now() >= boundary + 6500 && renderer.getInputs().some(input => input.source.slotKey === 'b-later' && input.getObservation().ready));
   await sample('healthy A overruns with decoded-ready eligible B', 'a');
   const killedAt = Date.now(); deadA = true;
   for (const child of sources) if (sourceIdentities.get(child) === 'a') child.kill('SIGKILL');
   const deathEvidence = [];
   await until(() => {
-    const input = renderer.getInputs().find(input => input.source.slotKey === 'a');
+    const input = renderer.getInputs().find(input => input.source.sourceId === 'a');
     if (input) deathEvidence.push({ at: Date.now(), monotonicNow: performance.now(), ...input.getObservation() });
     return renderer.getState().renderedSourceId === 'b';
   }, 20000);

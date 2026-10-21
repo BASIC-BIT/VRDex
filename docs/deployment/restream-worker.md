@@ -929,3 +929,12 @@ historical for its old controller and relay; its raw files were lost in the
 workspace reset. See [integration verification](../engineering/event-broadcast-verification.md)
 for current evidence and limits. Hosted output, silence and maximum overrun
 remain disabled.
+
+Same-key authored source replacement also preserves the previous source identity
+until the new source is eligible and decoded-ready. The replacement's decoder
+can warm under that key while publication stays on slate before its boundary.
+Expired replacements remain excluded. Manual Next uses the removed-current
+fallback instead of skipping the replacement; an operator may still select it
+early explicitly. The corrected controller and policy have fresh packaged proof
+attribution in the verification page. Previous snapshots retain their original
+scope, and hosted enablement still requires capacity and provider acceptance.

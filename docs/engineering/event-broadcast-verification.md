@@ -584,10 +584,10 @@ Fresh browser artifacts are under `/tmp/r8-host-screens-final`; exact paths and
 SHA-256 values, commands and full counts are recorded in the R8 task report.
 No image was pushed and no provider/infrastructure write was performed.
 
-Fresh normal Dockerfile image:
+Initial eighth-review normal Dockerfile image:
 `sha256:d8179e574a69a3c39a3c745d3ed54512626396493778a8532b7468a2b12303f6`.
-Packaged Node is 22.23.3. All nine packaged runtime hashes match current source;
-controller SHA-256:
+Packaged Node is 22.23.3. At commit `e97b6de`, all nine packaged runtime hashes
+matched that source snapshot. Its controller SHA-256:
 `b27fa260813cbd4c3be5e9e3a6ca5241c114456fc27c92c79533acaec0fc67a1`.
 This build used the managed proxy CA secret and the checked-in Dockerfile,
 without pushing an image. Each proof uses network none, read-only root, two CPUs,
@@ -658,3 +658,86 @@ OOM. These local paths describe this recovered workspace, not durable hosted
 artifact URLs. The task report also hashes raw test/build logs and the four
 visually reviewed screenshots. Preserve or export those artifacts before another
 workspace reset.
+
+### Same-key replacement correction
+
+Independent review of the initial eighth-review patch accepted the admission and
+host-status fixes but reproduced early automatic playback when a different
+source reused the current authored slot key. Refresh had overwritten the current
+source identity before policy evaluated the replacement's interval. The earlier
+same-key test used an already-current interval and missed that future boundary.
+
+The correction preserves current identity by matching both slot key and source
+ID. Decoder reconciliation filters unavailable identities before deduplicating
+renderer keys, so the available same-key replacement stays warm. Policy
+successor distinctness also uses the pair, and Next/Previous treat the old pair
+as removed rather than skipping the replacement. Manual Next can still select a
+future replacement deliberately; automatic mode waits for its boundary. An
+expired same-key replacement does not revive, including after the last interval.
+
+Seven new targeted RED cases failed on `e97b6de`. Complete worker/policy tests
+then passed 204/204, and the affected controller, policy, media-control,
+authorization and configuration batch passed 283/283. The independent
+reproduction now keeps slate and the old identity before the replacement's
+boundary. Pending command authority, ordinary healthy overrun and source URL
+revision checks remain covered by the existing regressions.
+
+The fresh normal Dockerfile image is
+`sha256:11df603af3b7c769193541864fcdfdd9677c5c0a3df65325f31d85670eaaa2a7`,
+with Node 22.23.3. All nine packaged runtime hashes match the corrected source.
+Exactly two runtime modules changed relative to `d8179e`:
+
+- Controller: `be059ef48f3e941677f7d110d8a62f932518605e9b0c0e85f113278831edafcf`.
+- Handoff policy: `1e805a20ddc9a5207ebdaf316b05e795f66094100d5c1507240019fa1478d79e`.
+
+The other seven modules retain their previous identity. Earlier media runs,
+including the historical two-hour result, do not verify this new controller or
+policy. Existing UI evidence remains applicable because this correction changes
+no UI. Hosted output, silence and optional maximum overrun remain disabled.
+
+The corrected image completed one isolated end-to-end run in
+`/workspace/r8-media/fix1-controlled-j3vM7u`. It recorded 36.521333 seconds of
+media; total harness time, including packet and frame verification, was 44.516
+seconds. The recording SHA-256 is
+`88c9eb3835361ab410922597a6fd0d0f0a4032f83d563292e9b3ea757ae0bcc7`.
+All nine decoded samples passed: established red A, manually selected expired
+blue C, automatic A, removed-current slate, green B, same-key future slate,
+same-key boundary red A, healthy A overrun with ready B, and green B after
+qualified A death. Both slate samples have average RGB `(30,27,31)`, dark corner
+`(19,19,19)` and brighter center `(75,75,75)`. The boundary A sample is
+`(254,0,0)`, establishing actual encoded replacement media after its boundary.
+Controller state retained old B and publication stayed on slate before then.
+Control observations agree with every sampled state.
+
+The run recorded 117 observations and three lease renewals, with qualified death
+evidence spanning 1184.08 ms. Packet DTS was monotonic; maximum packet gap was
+0.034 seconds and maximum GOP 1 second. Video was H.264 1280×720 at 30 fps and
+audio AAC at 48 kHz. The read-only, network-isolated container exited zero without
+OOM under the unchanged two-CPU/four-GiB limit. Only the proof script and evidence
+directory were mounted; runtime modules came from the image.
+
+Repeated correction attempts also hit the existing renderer processing-budget
+fence. Two reached the same-key boundary before failing later; another failed
+earlier while selecting C. A separate attempt could not start when VFS container
+copies exhausted disk. Their media, observations, counters and diagnostics are
+retained. Root revised the requested two fresh passes to this one complete pass
+plus the 204/283 focused regressions after the documented environment limits and
+experiment cap. This is F1 functional verification, not repeatability or hosted
+capacity acceptance. The two earlier passing recordings belong to `e97b6de`, not
+the corrected controller or policy.
+
+Task-owned stopped container objects were removed to recover space; both images
+and all raw evidence remain. Seven exports preceded deletion, but a validation
+command incorrectly required an optional diagnostic absent from an older harness
+schema, and the same shell continued to removal before hash sealing. Complete
+metadata and raw evidence were validated and hashed afterward; the report
+records this ordering gap explicitly. No global prune or host setting changed.
+
+`/workspace/r8-media/r8-fix1-evidence-manifest.json` hashes current correction
+sources, image provenance, logs, metadata and raw media. The original R8 manifest
+remains a historical snapshot. Its working harness path has since changed; its
+exact `e97b6de` blob survives as `/workspace/r8-media/r8-e97-proof-harness.mjs`
+(SHA-256 `1f6224513efd9404612d20c198563bf27aeeff71a708ded71829b64a5b385a5b`).
+The correction uses `/workspace/r8-media/r8-fix1-proof-harness.mjs`
+(SHA-256 `6be4316011db04cba9cf3b7734e43cb4913ebd304f5bce4f6e51780f0ce33bc9`).
+No claim is made that historical manifest paths still identify current sources.

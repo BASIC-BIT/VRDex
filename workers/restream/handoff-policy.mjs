@@ -35,7 +35,7 @@ export function decideHandoff(input) {
   if (mode === 'hold') return { kind: 'hold', reason: 'manual-hold' };
   const boundary = current?.endAt ?? next?.startAt;
   const eligibleAt = next && Math.max(next.startAt, boundary ?? next.startAt);
-  const distinctNext = next && next.slotKey !== current?.slotKey;
+  const distinctNext = next && (next.slotKey !== current?.slotKey || next.sourceId !== current?.sourceId);
   const eligible = mode === 'automatic' && distinctNext && next.available && eligibleAt !== undefined && scheduleNow >= eligibleAt;
   const decodedReady = next && nextReadiness?.ready && nextReadiness.slotKey === next.slotKey && nextReadiness.sourceId === next.sourceId && fresh(observationNow, nextReadiness.observedAt);
   const ready = eligible && decodedReady;

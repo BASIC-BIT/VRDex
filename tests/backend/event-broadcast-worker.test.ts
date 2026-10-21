@@ -1723,3 +1723,49 @@ it('R8 unused-definition audit refuses arbitrary provider text and winner ARN',a
  for(const taskDefinitionArn of ['secret-like-provider-exception','x'.repeat(513)])assert.equal((await f.t.mutation(worker('recordUnusedDefinitionCleanup'),{bridgeToken,sessionId:f.args.sessionId,taskDefinitionArn})).accepted,false);
  assert.equal((await f.t.run(({db})=>db.query('eventMediaAuditEvents').collect())).filter(a=>a.action==='worker_unused_definition_manual_cleanup').length,0);
 });
+
+for (const replacement of ['future', 'expired', 'expired-before-future'] as const)
+  it(`R8 correction keeps established identity through same-key ${replacement} replacement`, async () => {
+    const f = transactionalRuntime();
+    f.config.mode = 'automatic'; f.config.currentSourceId = undefined;
+    f.config.slots = [{ slotKey: 'a', sourceId: 'a', startAt: -1000, endAt: 90000, available: true }];
+    f.ready.add('b'); f.ready.add('c');
+    await f.worker.start();
+    for (const time of [1000, 2000, 3000]) await f.tick(time);
+    assert.equal(f.worker.getState().current?.sourceId, 'a');
+    assert.equal(f.reports.at(-1).sourceId, 'a');
+    const expiredC = { slotKey: 'c', sourceId: 'c', startAt: -30000, endAt: -10000, available: true };
+    const sameKey = { slotKey: 'a', sourceId: 'b', startAt: replacement === 'future' ? 10000 : -20000, endAt: replacement === 'future' ? 80000 : 3000, available: true };
+    const later = { slotKey: 'b', sourceId: 'c', startAt: 10000, endAt: 80000, available: true };
+    f.config.slots = [expiredC, sameKey, ...(replacement === 'expired-before-future' ? [later] : [])];
+    for (const time of [4000, 5000, 6000, 9999]) {
+      await f.tick(time);
+      assert.equal(f.worker.getState().current?.sourceId, 'a', `old identity at ${time}`);
+      assert.equal(f.worker.getState().current?.available, false);
+      assert.equal(f.rendered(), undefined, `slate before boundary at ${time}`);
+      assert.equal(f.reports.at(-1).sourceId, undefined);
+      if (replacement === 'future') assert.deepEqual(f.prepared(), ['a'], 'available same-key replacement stays warm');
+      if (replacement === 'expired') assert.deepEqual(f.prepared(), [], 'expired replacement never prepares');
+    }
+    await f.tick(10000); await f.tick(11000);
+    assert.equal(f.worker.getState().current?.sourceId, replacement === 'future' ? 'b' : replacement === 'expired-before-future' ? 'c' : 'a');
+    assert.equal(f.reports.at(-1).sourceId, replacement === 'future' ? 'b' : replacement === 'expired-before-future' ? 'c' : undefined);
+    await f.worker.stop();
+  });
+for (const commandType of ['next_slot', 'switch_next', 'previous_slot'] as const)
+  it(`R8 correction ${commandType} treats same-key replacement as missing current identity`, async () => {
+    const f = transactionalRuntime(); f.config.mode = 'automatic'; f.config.currentSourceId = undefined;
+    f.config.slots = [{ slotKey: 'a', sourceId: 'a', startAt: -1000, endAt: 90000, available: true }];
+    f.ready.add('b');
+    await f.worker.start(); for (const time of [1000, 2000, 3000]) await f.tick(time);
+    f.config.slots = [{ slotKey: 'a', sourceId: 'b', startAt: 10000, endAt: 30000, available: true }, { slotKey: 'b', sourceId: 'c', startAt: 40000, endAt: 80000, available: true }];
+    await f.tick(4000); f.command(commandType); await f.tick(5000); await f.tick(6000);
+    if (commandType === 'previous_slot') {
+      assert.equal(f.acks.at(-1)?.outcome, 'failed'); assert.equal(f.rendered(), undefined);
+    } else {
+      assert.equal(f.acks.at(-1)?.outcome, 'succeeded');
+      assert.equal(f.acks.at(-1)?.observedSourceId, 'b', 'explicit Next joins replacement rather than skipping it');
+      assert.equal(f.worker.getState().mode, 'manual'); assert.equal(f.reports.at(-1).sourceId, 'b');
+    }
+    await f.worker.stop();
+  });

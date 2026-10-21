@@ -71,3 +71,14 @@ for (const scenario of [
 test("manual hold never prepares a missing current's successor", () => {
   assert.deepEqual(decideHandoff(input({ mode: "hold", current: undefined, nextReadiness: undefined })), { kind: "hold", reason: "manual-hold" });
 });
+
+test('same-key source replacement is distinct but cannot promote before its boundary', () => {
+  const revoked = { slotKey: 'same', sourceId: 'old', startAt: 0, available: false };
+  const replacement = { slotKey: 'same', sourceId: 'new', startAt: 10000, endAt: 20000, available: true };
+  const candidate = { current: revoked, next: replacement, evidence: undefined, nextReadiness: { slotKey: 'same', sourceId: 'new', observedAt: 5000, ready: true } };
+  assert.deepEqual(decideHandoff(input({ ...candidate, scheduleNow: 9999 })), { kind: 'hold', reason: 'source-unavailable' });
+  assert.deepEqual(decideHandoff(input({ ...candidate, scheduleNow: 10000 })), { kind: 'switch', slotKey: 'same', reason: 'source-unavailable' });
+});
+test('same slot and source pair is not its own automatic successor', () => {
+  assert.deepEqual(decideHandoff(input({ next: current, evidence: failed, nextReadiness: { slotKey: current.slotKey, sourceId: current.sourceId, observedAt: 5000, ready: true } })), { kind: 'hold', reason: 'media-failure' });
+});

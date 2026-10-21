@@ -90,7 +90,9 @@ export function createEventWorker({ identity, control, renderer, outputs, create
         return input?.getObservation ? input.getObservation() : input;
     }
     async function reconcile(extra) {
-        const slots = [current, extra].filter((s, i, all) => s?.available && all.findIndex(a => a?.slotKey === s.slotKey) === i);
+        // Revoke the old identity before deduplicating renderer keys. An available
+        // replacement may reuse the unavailable current slot's key.
+        const slots = [current, extra].filter(s => s?.available).filter((s, i, all) => all.findIndex(a => a.slotKey === s.slotKey) === i);
         const sources = [];
         await bounded(() => retainSources(slots.map(slot => config.sources.find(source => source.id === slot.sourceId)).filter(Boolean)), requestTimeoutMs);
         for (const slot of slots) {
@@ -179,7 +181,7 @@ export function createEventWorker({ identity, control, renderer, outputs, create
                 }
             }
             else if (['switch_source', 'switch_next', 'next_slot', 'switch_previous', 'previous_slot'].includes(type)) {
-                const index = config.slots.findIndex(s => s.slotKey === current?.slotKey);
+                const index = config.slots.findIndex(s => s.slotKey === current?.slotKey && s.sourceId === current?.sourceId);
                 const manualSource = config.sources.find(s => s.id === command.targetSourceId);
                 // Authored current keeps adjacent navigation. From slate or a
                 // removed/manual slot, Next joins the current interval or the
@@ -330,7 +332,7 @@ export function createEventWorker({ identity, control, renderer, outputs, create
                 serverTime = fresh.serverNow;
                 sampledAt = clock();
                 if (current)
-                    current = { ...current, ...config.slots.find(s => s.slotKey === current.slotKey), available: current.slotKey.startsWith('manual-') ? config.sources.some(s => s.id === current.sourceId) : config.slots.some(s => s.slotKey === current.slotKey && s.sourceId === current.sourceId && s.available) };
+                    current = { ...current, ...config.slots.find(s => s.slotKey === current.slotKey && s.sourceId === current.sourceId), available: current.slotKey.startsWith('manual-') ? config.sources.some(s => s.id === current.sourceId) : config.slots.some(s => s.slotKey === current.slotKey && s.sourceId === current.sourceId && s.available) };
                 watchdog();
                 if (stopped)
                     return;
