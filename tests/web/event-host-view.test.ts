@@ -29,7 +29,7 @@ it('renders authored repeated/freeform/missing-link rows, selected source and al
  assert.equal(html.split('>Aurora</h2>').length-1,2);
  assert.match(html,/Freeform guest/);assert.match(html,/No links/);
  assert.equal(html.split('Selected source').length-1,1);
- assert.match(html,/alternate/);assert.match(html,/Twitch/);
+ assert.match(html,/alternate/);assert.match(html,/Twitch/);assert.equal(html.split('>Unknown</span>').length-1,6);
  assert.doesNotMatch(html,/<video|<audio|<iframe|Broadcast.selected|Scheduled now/);
  const revoked=renderToStaticMarkup(createElement(EventHostContent,{event:{...event,lineup:lineup.map(row=>({...row,performer:row.performer?{...person,outboundLinks:[]}:undefined}))}}));
  assert.doesNotMatch(revoked,/Copy PC|Copy Quest|Selected source/);
@@ -76,4 +76,14 @@ it('R8 missing and stale observations remain unknown while fresh explicit failur
  const result=await read([{key:'vrcdn:old',url:'vrcdn:old'}]);
  assert.deepEqual(result['vrcdn:old'],{state:'live',observedAt:1});
  assert.equal(reportedSourceState(result['vrcdn:old'],100000),'unknown');
+});
+it('R8 large partial reader preserves stale provider evidence beside fresh failures',async()=>{
+ const sources=Array.from({length:80},(_,i)=>({key:`vrcdn:roster${i}`,url:`vrcdn:roster${i}`}));
+ const read=createSourceStatusReader(async(source)=>source.key.endsWith('0')?{state:'live',observedAt:1}:{state:'unavailable',observedAt:100000},()=>100000);
+ const result=await read(sources);
+ assert.equal(Object.keys(result).length,4);
+ assert.deepEqual(result[sources[0].key],{state:'live',observedAt:1});
+ assert.equal(reportedSourceState(result[sources[0].key],100000),'unknown');
+ assert.equal(reportedSourceState(result[sources[1].key],100000),'unavailable');
+ assert.equal(reportedSourceState(result[sources[79].key],100000),'unknown');
 });

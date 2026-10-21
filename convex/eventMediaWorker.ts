@@ -379,7 +379,7 @@ export const releaseUnlaunchedDispatch = mutation({ args: { ...prelaunchArgs, ta
 export const recordUnusedDefinitionCleanup = mutation({ args: { bridgeToken: v.string(), sessionId: v.id("eventMediaSessions"), taskDefinitionArn: v.string() }, handler: async (ctx, args) => {
     requireEventMediaBridgeToken(args.bridgeToken);
     const session = await ctx.db.get(args.sessionId);
-    if (!session || !args.taskDefinitionArn || args.taskDefinitionArn.length > 512 || session.workerTaskDefinitionArn === args.taskDefinitionArn) return { accepted: false };
+    if (!session || args.taskDefinitionArn.length > 512 || !/^arn:(aws|aws-us-gov|aws-cn):ecs:[a-z0-9-]+:\d{12}:task-definition\/[A-Za-z0-9_-]+:\d+$/.test(args.taskDefinitionArn) || session.workerTaskDefinitionArn === args.taskDefinitionArn) return { accepted: false };
     await ctx.db.insert("eventMediaAuditEvents", { eventId: session.eventId, programId: session.programId, sessionId: session._id, actorSurface: "worker", action: "worker_unused_definition_manual_cleanup", privateSummary: args.taskDefinitionArn, createdAt: Date.now() });
     return { accepted: true };
 } });

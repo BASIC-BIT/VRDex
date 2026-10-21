@@ -334,8 +334,8 @@ async function cleanupLosingDefinition(client, config, command, taskDefinitionAr
   try {
     await runAws(config, ["ecs", "deregister-task-definition", "--task-definition", taskDefinitionArn]);
   } catch {
-    await client.mutation(makeFunctionReference("eventMediaWorker:recordUnusedDefinitionCleanup"), { bridgeToken: config.bridgeToken, sessionId: command.session.sessionId, taskDefinitionArn });
-    console.warn(JSON.stringify({ event: "event_media_unused_definition_manual_cleanup", sessionId: command.session.sessionId, taskDefinitionArn }));
+    const recorded = await client.mutation(makeFunctionReference("eventMediaWorker:recordUnusedDefinitionCleanup"), { bridgeToken: config.bridgeToken, sessionId: command.session.sessionId, taskDefinitionArn });
+    console.warn(JSON.stringify({ event: "event_media_unused_definition_manual_cleanup", sessionId: command.session.sessionId, ...(recorded?.accepted === true ? { taskDefinitionArn } : {}) }));
   }
 }
 async function startCommand(command, client, config, runAws) {

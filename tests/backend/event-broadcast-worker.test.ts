@@ -826,10 +826,10 @@ it('R4F6 acquired nonpolling worker Stop reaches exact ECS task and only STOPPED
 
 function transactionalRuntime(relay?: any) {
     let now=0, sequence=0, commands:any[]=[], rendered:string|undefined='a';
-    let prepared:string[]=[];
+    let prepared:string[]=[], preparedSources:any[]=[], renderedSource:string|undefined='a';
     const ready=new Set(['a']); const failures=new Map<string,number>(); const acks:any[]=[],reports:any[]=[];
     const config:any={mode:'manual',currentSourceId:'a',sessionDeadline:1000000,policy:{},outputId:'out',outputs:[{id:'out'}],sources:['a','b','c'].map(id=>({id,publicUrl:`https://example.test/${id}`})),slots:[{slotKey:'a',sourceId:'a',startAt:-1000,endAt:30000,available:true},{slotKey:'b',sourceId:'b',startAt:40000,endAt:50000,available:true}]};
-    const renderer={start:async()=>{},stop:async()=>{},subscribe:()=>()=>{},reconcileSources:async(sources:any[])=>{prepared=sources.map(s=>s.slotKey);},getInputs:()=>prepared.map(slotKey=>({source:{slotKey},getObservation:()=>({slotKey,sourceId:config.slots.find((slot:any)=>slot.slotKey===slotKey)?.sourceId??slotKey.replace('manual-',''),ready:ready.has(slotKey),progressing:ready.has(slotKey),failureSince:failures.get(slotKey),observedAt:now})})),selectSource:(slotKey:string)=>{if(!ready.has(slotKey)||!prepared.includes(slotKey))return false; rendered=slotKey;return true;},hold:()=>{rendered=undefined;},getState:()=>({running:true,outputMs:now+1,renderedSlotKey:rendered,renderedSourceId:config.slots.find((slot:any)=>slot.slotKey===rendered)?.sourceId??rendered?.replace('manual-','')})};
+    const renderer={start:async()=>{},stop:async()=>{},subscribe:()=>()=>{},reconcileSources:async(sources:any[])=>{preparedSources=sources.map(source=>({...source}));prepared=sources.map(s=>s.slotKey);},getInputs:()=>preparedSources.map(source=>({source,getObservation:()=>({...source,ready:ready.has(source.slotKey),progressing:ready.has(source.slotKey),failureSince:failures.get(source.slotKey),observedAt:now})})),selectSource:(slotKey:string)=>{if(!ready.has(slotKey)||!prepared.includes(slotKey))return false; rendered=slotKey;renderedSource=preparedSources.find(source=>source.slotKey===slotKey)?.sourceId;return true;},hold:()=>{rendered=undefined;renderedSource=undefined;},getState:()=>({running:true,outputMs:now+1,renderedSlotKey:rendered,renderedSourceId:renderedSource})};
     const worker=createEventWorker({identity:{},clock:()=>now,renderer,outputs:{start:async()=>{},stop:async()=>{},stopNow:()=>{},getState:()=>({publishing:true})},resolveSource:async(s:any)=>relay ? relay.resolveSource({...s,type:"vrcdn_link"}) : s.publicUrl,retainSources:(sources:any[])=>relay?.retainSources(sources.map(s=>({...s,type:"vrcdn_link"}))),checkEnabled:async()=>true,control:async(name:string,args:any)=>{
         if(name==='acquireSession'||name==='renewSession')return {granted:true,epoch:1,serverNow:now,expiresAt:now+30000,renewAfterMs:10000,configuration:structuredClone(config)};
         if(name==='refreshConfiguration')return {granted:true,serverNow:now,configuration:structuredClone(config)};
@@ -1589,7 +1589,7 @@ for (const status of [
     assert(allowed.rows < 50);
   });
 
-for(const edit of ['remove','replace','reorder','gap','before-first','after-last','unavailable']) it(`R8 automatic established current handles ${edit} without replaying expired C`,async()=>{
+for(const edit of ['remove','replace','replace-source','reorder','gap','before-first','after-last','unavailable']) it(`R8 automatic established current handles ${edit} without replaying expired C`,async()=>{
  const f=transactionalRuntime();f.config.mode='automatic';f.config.currentSourceId=undefined;
  f.config.slots[0].endAt=90000;f.config.slots[1].startAt=95000;f.config.slots[1].endAt=100000;
  f.ready.add('c');f.ready.add('b');
@@ -1599,6 +1599,7 @@ for(const edit of ['remove','replace','reorder','gap','before-first','after-last
  const b={...f.config.slots[1],startAt:0,endAt:80000};
  f.config.slots=[expired,b];
  if(edit==='replace')f.config.slots[1]={...b,slotKey:'replacement'};
+ if(edit==='replace-source')f.config.slots[1]={...b,slotKey:'a'};
  if(edit==='reorder')f.config.slots=[b,expired];
  if(edit==='gap'||edit==='before-first'){f.config.slots[1].startAt=10000;if(edit==='before-first')f.config.slots.shift();}
  if(edit==='after-last')f.config.slots=[expired];
@@ -1690,4 +1691,35 @@ it('R8 Stop before marker releases and durable cleanup retries without capacity 
  const session=await f.t.run(({db})=>db.get(f.args.sessionId));assert.equal(session?.dispatchId,undefined);assert.equal(session?.workerTaskCleanupPending,true);assert.equal(cleanup,1);
  await refreshSessions(client,{bridgeToken,workerId:'bridge'},async(_config:any,args:string[])=>{assert.equal(args[1],'deregister-task-definition');cleanup++;return {};});
  assert.equal(cleanup,2);assert.equal((await f.t.run(({db})=>db.get(f.args.sessionId)))?.workerTaskCleanupPending,false);
+});
+
+it('R8 reclaimed competing bridges issue exactly one RunTask and never overwrite winner definition',async()=>{
+ const f=await fixture();let calls=0,firstRelease:()=>void=()=>{};const firstHeld=new Promise<void>(resolve=>{firstRelease=resolve;});let firstRegistered:()=>void=()=>{};const registered=new Promise<void>(resolve=>{firstRegistered=resolve;});const deregistered:string[]=[];
+ const client={mutation:(ref:any,args:any)=>f.t.mutation(ref,args)};
+ const config={bridgeToken,workerId:'first',redactValues:[],secretRefMap:{'event-media/vrcdn/main':'test-secret'},baseEnvironment:{}};
+ const runAws=async(_config:any,args:string[])=>{
+  if(args[1]==='register-task-definition'){
+   if(_config.workerId==='first'){firstRegistered();await firstHeld;return {taskDefinition:{taskDefinitionArn:'arn:aws:ecs:us-east-1:123456789012:task-definition/unused:1'}};}
+   return {taskDefinition:{taskDefinitionArn:'winner-definition'}};
+  }
+  if(args[1]==='deregister-task-definition'){deregistered.push(args.at(-1)!);throw Error('unused cleanup failure');}
+  assert.equal(args[1],'run-task');calls++;return {tasks:[{taskArn:'winner-task'}]};
+ };
+ const first=claimAndProcess(client,config,runAws);await registered;
+ await f.t.run(({db})=>db.patch(f.scheduled.startCommandId!,{status:'queued'}));
+ await claimAndProcess(client,{...config,workerId:'second'},runAws);
+ firstRelease();await first;
+ const session=await f.t.run(({db})=>db.get(f.args.sessionId));assert.equal(calls,1);assert.equal(session?.workerTaskDefinitionArn,'winner-definition');assert.equal(session?.workerTaskId,'winner-task');assert.deepEqual(deregistered,['arn:aws:ecs:us-east-1:123456789012:task-definition/unused:1']);
+ const audits=await f.t.run(({db})=>db.query('eventMediaAuditEvents').collect());assert(audits.some(a=>a.action==='worker_unused_definition_manual_cleanup'&&a.privateSummary==='arn:aws:ecs:us-east-1:123456789012:task-definition/unused:1'));
+});
+it('R8 duplicate marker with same definition never deregisters winner',async()=>{
+ const f=await fixture();let releases=0,runs=0;
+ const client={mutation:async(ref:any,args:any)=>{if(getFunctionName(ref)==='eventMediaWorker:markLaunchAttempt'){await f.t.mutation(ref,args);return f.t.mutation(ref,args);}return f.t.mutation(ref,args);}};
+ await claimAndProcess(client,{bridgeToken,workerId:'bridge',redactValues:[],secretRefMap:{'event-media/vrcdn/main':'test-secret'},baseEnvironment:{}},async(_config:any,args:string[])=>{if(args[1]==='register-task-definition')return {taskDefinition:{taskDefinitionArn:'winner-definition'}};if(args[1]==='deregister-task-definition')releases++;else runs++;return {};});
+ assert.equal(releases,0);assert.equal(runs,0);assert.equal((await f.t.run(({db})=>db.get(f.args.sessionId)))?.workerTaskDefinitionArn,'winner-definition');
+});
+it('R8 unused-definition audit refuses arbitrary provider text and winner ARN',async()=>{
+ const f=await prelaunchFixture();
+ for(const taskDefinitionArn of ['secret-like-provider-exception','x'.repeat(513)])assert.equal((await f.t.mutation(worker('recordUnusedDefinitionCleanup'),{bridgeToken,sessionId:f.args.sessionId,taskDefinitionArn})).accepted,false);
+ assert.equal((await f.t.run(({db})=>db.query('eventMediaAuditEvents').collect())).filter(a=>a.action==='worker_unused_definition_manual_cleanup').length,0);
 });

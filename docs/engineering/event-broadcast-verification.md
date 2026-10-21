@@ -547,3 +547,114 @@ snapshot attribution. This short selection proof creates no new sustained-run,
 hosted, provider, physical-device or genuine Clerk acceptance. UI is unchanged;
 no browser/visual rerun was needed. Hosted output, silence and optional maximum
 overrun remain disabled.
+
+## Eighth-review recovery and focused regressions
+
+A fresh workspace reset restored base `339c4f5` without the prior uncommitted R8
+patch or raw evidence. This round recreated the three published findings. Older
+proof descriptions above remain historical reports for their named snapshots;
+raw historical files, including the two-hour recording, were lost in the reset.
+They are not counted as fresh checks of this controller or relay.
+
+Automatic missing-current policy now resolves the available current half-open
+interval, otherwise the first available future slot, with none after the last.
+Only the missing-current policy candidate discards an obsolete end. Authored
+adjacency, healthy overrun, two-minute preparation and one-second media-death
+confirmation remain intact. Automatic reconciliation owns successor decoder
+lifetime after current revocation; pending command fences remain authoritative.
+
+New admission protocol `fenced-v1` has backend-atomic launch marker and unlaunched
+release alternatives. Exact event/session/dispatch/active-program and claimed
+Start ownership, no epoch/ARN, and eligible lifecycle state fence both. One marker
+winner alone may call RunTask. Unknown marker replies never release or launch;
+RunTask ambiguity and lost task registration retain capacity. Old unmarked
+reservations fail closed. Unused-definition cleanup retries independently of
+released admission; competing loser cleanup cannot overwrite the winner's ARN.
+
+Host missing/stale source status is Unknown, fresh explicit failure Unavailable,
+and fresh Twitch Offline remains separate. Reader timestamps remain raw. Existing
+large-roster/shared-four-probe and actual server/route/component tests cover the
+partial-response boundary. Four new anonymous browser fixtures passed on desktop
+and mobile, with no font fallback. Root visual review passed all four for labels,
+PC/Quest copy controls, Preview, selected/scheduled context, other links, repeated
+performers, guest rows and no clipping/overflow. This is local Chromium evidence,
+not genuine Clerk, physical-device or provider acceptance.
+
+Fresh browser artifacts are under `/tmp/r8-host-screens-final`; exact paths and
+SHA-256 values, commands and full counts are recorded in the R8 task report.
+No image was pushed and no provider/infrastructure write was performed.
+
+Fresh normal Dockerfile image:
+`sha256:d8179e574a69a3c39a3c745d3ed54512626396493778a8532b7468a2b12303f6`.
+Packaged Node is 22.23.3. All nine packaged runtime hashes match current source;
+controller SHA-256:
+`b27fa260813cbd4c3be5e9e3a6ca5241c114456fc27c92c79533acaec0fc67a1`.
+This build used the managed proxy CA secret and the checked-in Dockerfile,
+without pushing an image. Each proof uses network none, read-only root, two CPUs,
+four GiB and a 256 MiB /tmp; only proof scripts read-only and evidence writable are
+mounted. Runtime code comes from the image.
+
+`scripts/event-lineup-edit-local-proof.mjs` exercises established red A, deliberate
+expired blue C and Return to auto A, removal to slate while B is unready, green
+current-interval B before obsolete A's future end, future-A gap slate without
+early promotion, red A at its boundary, healthy A overrun with decoded-ready
+eligible B, then real source death confirmed for at least one second before green
+B. Encoded acknowledgements, control observations and decoded media agree. Slate
+checks verify its authored dark background and brighter center as well as its
+mean RGB. Source samples remain red `[254,0,0]`, blue `[1,0,255]` and green
+`[1,128,1]`; both slates average `[30,27,31]`, with corner `[19,19,19]` and center
+`[75,75,75]`.
+
+The first attempt stopped during a readiness wait without recorded fence
+metrics. Its cause remains unestablished. A host-UID attempt then failed before
+runtime imports because packaged files use the normal image's root permissions.
+The first isolated default-user run completed the media timeline but failed a
+sampler tolerance of three against the neutral slate's four-value mean RGB
+spread. Inspection confirmed the authored slate. The corrected sampler also
+checks spatial contrast, and instrumented isolated repeats retain per-tick
+metrics and final state. These failed attempts remain separate from passing
+proofs. No runtime deadline or renderer budget was raised.
+
+Two sequential resource-instrumented runs passed at the same two-CPU/four-GiB
+limits, with total harness times 41.700 and 44.024 seconds. These include packet
+and frame verification after recording. Each retained nine source/slate samples,
+three lease renewals and 118 control observations. Both show H.264 1280x720 at
+30 fps, AAC 48 kHz, monotonic DTS, maximum packet gap 34 ms and one-second GOP.
+Real decoder failure evidence exceeded one second before the final handoff.
+These are bounded local proofs, not sustained capacity acceptance.
+
+An earlier instrumented repeat and the later GC/pressure diagnostic tripped the
+unchanged two-second renderer processing budget. The later diagnostic measured
+2.395 seconds of event-loop delay, maximum GC pause 144 ms, container memory about
+352 MB with no memory-limit events, and CPU quota throttling. The task host was
+near its 16 GiB memory limit with active reclaim: memory-limit events increased
+by 13,403 and page scans by 457,741 during collection. This correlates host
+pressure with the stall but does not establish a unique cause. Decoder and
+generator thread counts did not show host-sized pools. No runtime fix, processing
+budget increase or resource-cap increase was inferred from these observations.
+
+The passing recordings and the failed capacity attempts remain available with
+per-process CPU/RSS/thread counts, encoder queues/progress, cgroup metrics and
+final states under `/workspace/r8-media`. The evidence manifest records exact
+paths, SHA-256 values and ffprobe recording durations separately from total
+harness times. The first uninstrumented stop remains unexplained. Representative
+capacity and sustained reliability validation remain required before enabling
+hosted output; silence and optional maximum overrun remain disabled. No new
+hosted/provider acceptance or fresh two-hour soak is claimed.
+
+The two sequential passing recordings are:
+
+| Evidence directory | Recording duration | Recording SHA-256 |
+| --- | --- | --- |
+| `/workspace/r8-media/resource-n9yeND` | 35.221333 s | `68543ac5d68845eecae52c65eab3c57f58f7e402398655fb2d48600e0073f3b6` |
+| `/workspace/r8-media/resource-repeat-vxeaS7` | 36.121333 s | `aacd4f1654d6f4e71b201747bde9c6ef3cb7bc73f807d420f64b7de2e9fffea0` |
+
+Each directory contains `result.json`, `resource-samples.json`, `diagnostic.json`,
+`observations.json`, `acknowledgements.json`, `samples.json`, `media-samples.json`,
+`death-evidence.json` and `lineup-edit.ts`. `/workspace/r8-media/evidence-manifest.json`
+hashes all media evidence, including failed attempts; `container-inspects.json`
+records exits, resources and mounts. Both passing containers exited zero without
+OOM. These local paths describe this recovered workspace, not durable hosted
+artifact URLs. The task report also hashes raw test/build logs and the four
+visually reviewed screenshots. Preserve or export those artifacts before another
+workspace reset.

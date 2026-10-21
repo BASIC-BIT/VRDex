@@ -485,9 +485,11 @@ and waits for encoded hold before accepting the replacement input's acknowledgem
 An explicit dispatch admission denial creates no reservation for that attempt.
 The bridge records a failed command/session, allowing an operator to Start again
 after capacity becomes available. There is no automatic requeue. A thrown,
-malformed or lost admission response, or a failure after admission, retains the
-claimed start and any reservation until reconciled. Only actual ECS STOPPED
-confirmation releases admitted capacity; retrying cannot bypass this safeguard.
+malformed or lost admission response retains the claimed start and any reservation
+until reconciled. New fenced-v1 admissions can release only with backend-atomic
+proof that no launch marker won, including configuration/registration failure.
+After a launch marker or any RunTask attempt, only actual ECS STOPPED confirmation
+releases capacity; retrying cannot bypass this safeguard.
 
 ### Independent event destinations (default-off)
 
@@ -883,3 +885,47 @@ controller layer to that verified base, while a fresh normal Dockerfile build
 remains a remote CI gate. Full hashes, decoded recording evidence, isolated
 container limits and acceptance boundaries are recorded in
 [integration verification](../engineering/event-broadcast-verification.md).
+
+### Review follow-up: live lineup edits and unlaunched admission
+
+Automatic playback whose current slot identity disappears resolves the available
+current half-open interval, then the first available future slot. An expired
+first slot is never the fallback. The removed slot's old end does not delay its
+replacement, and a gap stays on slate until the future boundary. An authored
+current slot retains normal adjacency and healthy overrun. Revocation fences the
+current publication immediately while automatic reconciliation preserves a warm
+successor decoder across polls.
+
+New bridge admissions use `fenced-v1`. Before any ECS RunTask, the bridge must win
+a durable launch-attempt marker for the exact event, session, dispatch and claimed
+Start owner. The atomic alternative releases a provably unlaunched reservation,
+settles its failed session/commands and permits a fresh Start. Marker and release
+cannot both succeed. Configuration and task-definition registration failures can
+use this release. Legacy unmarked reservations, ambiguous marker responses,
+RunTask attempts and lost task-registration responses retain capacity. A launched
+task still releases capacity only after exact ECS STOPPED.
+
+Known unused task definitions from Stop before the marker retry deregistration
+through durable cleanup discovery. Cleanup failure does not prevent admission
+release or replacement Start. A competing bridge's unused definition never
+overwrites the winner's session definition. If best-effort loser deregistration
+fails, the private audit action `worker_unused_definition_manual_cleanup` and
+bridge diagnostic identify its bounded nonsecret ARN. Operators must deregister
+that exact unused definition manually after checking the winning session's ARN.
+Provider exception text and credentials are not recorded. A lost task-definition
+registration response can leave an unused definition with no known ARN. Admission
+release is still safe before a launch marker, but operators must inspect the
+session-specific task-definition family for that registration artifact. Automatic
+cleanup cannot identify it from a response that was never received.
+
+Host source labels preserve missing and stale observations as Unknown. A fresh
+explicit failed observation remains Unavailable; fresh Twitch Offline remains
+independent of scheduled-current and selected-source indicators. The bounded
+four-probe reader preserves original observation timestamps.
+
+The eighth-review verification adds a fresh normal checked-in Dockerfile build
+and a bounded local lineup-edit media proof. The previous two-hour run remains
+historical for its old controller and relay; its raw files were lost in the
+workspace reset. See [integration verification](../engineering/event-broadcast-verification.md)
+for current evidence and limits. Hosted output, silence and maximum overrun
+remain disabled.

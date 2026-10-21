@@ -4,7 +4,7 @@ test('host links remain usable during slow and unavailable status checks @flow @
  await page.addInitScript(()=>{Object.defineProperty(navigator,'clipboard',{value:{writeText:async(value:string)=>{sessionStorage.setItem('copied',value)}}});});
  let release:()=>void=()=>{};
  const held=new Promise<void>(resolve=>{release=resolve});
- await page.route('**/host/status',async route=>{await held;await route.fulfill({json:{'vrcdn:aurora':{state:'unavailable',observedAt:Date.now()}}});});
+ await page.route('**/host/status',async route=>{await held;await route.fulfill({json:{'vrcdn:dj-aurora':{state:'unavailable',observedAt:Date.now()}}});});
  await page.goto(path);
  await expect(page.getByRole('heading',{name:'Host view'})).toBeVisible();
  await expect(page.getByRole('button',{name:'Copy PC',exact:true}).first()).toBeVisible();
