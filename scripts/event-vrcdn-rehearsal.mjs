@@ -1,3 +1,6 @@
+import { lookup as dnsLookup } from 'node:dns/promises';
+import { request as httpsRequest } from 'node:https';
+import { spawn as spawnProcess } from 'node:child_process';
 import { createWriteStream } from 'node:fs';
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -7,9 +10,133 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { createEventWorker, checkHostedEnabled, bounded } from '../workers/restream/event-worker.mjs';
 import { createProgramRenderer } from '../workers/restream/program-renderer.mjs';
 import { createEventOutputs, parseOutputCredential } from '../workers/restream/output-sender.mjs';
-import { createSourceRelay } from '../workers/restream/source-relay.mjs';
+import { createSourceRelay, isPublicIPv4 } from '../workers/restream/source-relay.mjs';
 import { processMetrics } from './event-proof-metrics.mjs';
 import { ARTIFACT_ROOT, finalizeProof, numericDiagnostics, proofStart, verifyRecording } from './event-proof-runner.mjs';
+
+/** Proof-only listeners. No payload, endpoint, address or arbitrary string is retained.
+ * Caps: 32 DNS/HTTP attempts, 16 children, 64 input snapshots, 64 KiB scanned per
+ * child, 128-byte marker overlap, and saturated numeric counters. No new timers.
+ */
+export function createTransportEvidence({ lookup = dnsLookup, request = httpsRequest, spawn = spawnProcess, now = Date.now } = {}) {
+    const safe = action => { try { return action(); } catch { /* Observation must never affect transport. */ } };
+    const number = value => typeof value === 'number' && Number.isFinite(value) ? Math.min(1e9, Math.max(0, value)) : undefined;
+    // Preserve epoch precision for differences; only persisted durations are capped.
+    const beganAt = safe(now) ?? 0;
+    const elapsed = () => safe(() => number(now() - beganAt)) ?? 0;
+    const state = { teardownStarted: false, dns: [], requests: [], senders: [], inputs: [], dnsOmitted: 0, requestsOmitted: 0, sendersOmitted: 0, inputsOmitted: 0, progressObserved: false };
+    const increment = (record, key, amount = 1) => { record[key] = number((record[key] ?? 0) + amount); };
+    const add = (key, cap) => {
+        if (state[key].length >= cap) { increment(state, `${key}Omitted`); return; }
+        const record = { startMs: elapsed(), startedDuringTeardown: state.teardownStarted, failures: 0, beforeTeardownFailures: 0 };
+        state[key].push(record);
+        return record;
+    };
+    const failure = record => { increment(record, 'failures'); if (!state.teardownStarted) increment(record, 'beforeTeardownFailures'); };
+    const listen = (emitter, event, action) => safe(() => emitter.on(event, (...args) => safe(() => action(...args))));
+    const markers = {
+        timedOut: /connection timed out|operation timed out|connection timeout|handshake.*timed out/i,
+        refused: /connection refused/i,
+        unreachable: /network is unreachable|no route to host/i,
+        dnsFailed: /failed to resolve hostname|name or service not known|temporary failure in name resolution/i,
+        tlsFailed: /tls handshake failed|tls handshake error|ssl connect error|certificate verification failed/i,
+        handshakeFailed: /rtmp handshake failed|cannot read rtmp handshake response|handshaking failed/i,
+        rejectionIndicated: /netstream\.publish\.badname|netstream\.publish\.denied|server error:|authentication failed/i,
+        invalidInput: /invalid data found when processing input|could not find codec parameters/i,
+        invalidOption: /unrecognized option|option not found|error setting option/i,
+    };
+    return {
+        resolveAddresses: function (...args) {
+            const record = safe(() => add('dns', 32));
+            let promise;
+            try { promise = Reflect.apply(lookup, this, args); }
+            catch (cause) { safe(() => { if (record) { record.doneMs = elapsed(); record.doneDuringTeardown = state.teardownStarted; failure(record); } }); throw cause; }
+            if (record) safe(() => promise.then(answers => safe(() => {
+                record.doneMs = elapsed(); record.doneDuringTeardown = state.teardownStarted; record.completed = true;
+                record.addresses = number(answers.length);
+                record.addressesInspected = Math.min(answers.length, 256);
+                record.publicAddresses = 0;
+                for (let index = 0; index < record.addressesInspected; index++) if (isPublicIPv4(answers[index].address)) record.publicAddresses++;
+                record.addressesOmitted = number(answers.length - record.addressesInspected);
+            }), () => safe(() => { record.doneMs = elapsed(); record.doneDuringTeardown = state.teardownStarted; failure(record); })));
+            return promise;
+        },
+        requestSource: function (...args) {
+            const record = safe(() => add('requests', 32));
+            let upstream;
+            try { upstream = Reflect.apply(request, this, args); }
+            catch (cause) { safe(() => { if (record) failure(record); }); throw cause; }
+            if (!record) return upstream;
+            // Forward the original callback untouched. Observe the same response
+            // after its original listener; never add a response data listener.
+            const age = () => number(elapsed() - record.startMs);
+            let socket, readAt = 0, writtenAt = 0;
+            const bytes = () => {
+                const read = number(socket?.bytesRead), written = number(socket?.bytesWritten);
+                if (read !== undefined) record.readBytes = number(read - readAt);
+                if (written !== undefined) record.writtenBytes = number(written - writtenAt);
+            };
+            listen(upstream, 'socket', value => {
+                socket = value; record.socketMs = age();
+                readAt = number(socket.bytesRead) ?? 0; writtenAt = number(socket.bytesWritten) ?? 0;
+                listen(socket, 'connect', () => { record.tcpMs = age(); });
+                listen(socket, 'secureConnect', () => { record.tlsMs = age(); });
+                listen(socket, 'timeout', () => { increment(record, 'socketTimeoutCount'); if (!state.teardownStarted) increment(record, 'socketBeforeTeardownFailures'); });
+                listen(socket, 'error', () => { increment(record, 'socketFailures'); if (!state.teardownStarted) increment(record, 'socketBeforeTeardownFailures'); });
+                listen(socket, 'close', hadFailure => { bytes(); record.socketClosed = true; record.socketHadFailure = hadFailure === true; record.socketCloseMs = age(); record.socketClosedDuringTeardown = state.teardownStarted; });
+            });
+            listen(upstream, 'response', response => {
+                record.headersMs = age(); record.httpStatus = number(response.statusCode);
+                listen(response, 'end', () => { bytes(); record.ended = true; record.endMs = age(); });
+                listen(response, 'aborted', () => { bytes(); record.aborted = true; failure(record); });
+                listen(response, 'error', () => { bytes(); increment(record, 'responseFailures'); failure(record); });
+            });
+            listen(upstream, 'timeout', () => { increment(record, 'timeoutCount'); failure(record); });
+            listen(upstream, 'error', () => { bytes(); failure(record); });
+            listen(upstream, 'close', () => { bytes(); record.closed = true; record.closeMs = age(); record.closedDuringTeardown = state.teardownStarted; });
+            return upstream;
+        },
+        spawnForDestination: () => function (...args) {
+            const record = safe(() => add('senders', 16));
+            let child;
+            try { child = Reflect.apply(spawn, this, args); }
+            catch (cause) { safe(() => { if (record) failure(record); }); throw cause; }
+            if (!record) return child;
+            let tail = '', closed = false;
+            record.stderrBytes = 0; record.scannedBytes = 0; record.tailBytes = 0;
+            listen(child.stderr, 'data', chunk => {
+                if (closed) return;
+                increment(record, 'stderrBytes', chunk.length);
+                const remaining = Math.min(chunk.length, 65536 - record.scannedBytes);
+                for (let start = 0; start < remaining; start += 4096) {
+                    const text = tail + chunk.subarray(start, Math.min(start + 4096, remaining)).toString('latin1');
+                    for (const [key, pattern] of Object.entries(markers)) if (pattern.test(text)) record[key] = true;
+                    tail = text.slice(-128);
+                }
+                increment(record, 'scannedBytes', remaining); record.tailBytes = tail.length;
+            });
+            listen(child, 'error', () => failure(record));
+            listen(child, 'close', (code, signal) => {
+                closed = true; tail = ''; record.tailBytes = 0;
+                record.closeMs = number(elapsed() - record.startMs); record.closedDuringTeardown = state.teardownStarted;
+                if (typeof code === 'number' && Number.isInteger(code)) record.exitCode = Math.min(255, Math.max(0, code));
+                record.sigterm = signal === 'SIGTERM'; record.sigkill = signal === 'SIGKILL'; record.otherSignal = typeof signal === 'string' && !record.sigterm && !record.sigkill;
+                if (code !== 0 || signal) failure(record);
+            });
+            return child;
+        },
+        observeInput: (observation, buffer) => safe(() => {
+            const record = add('inputs', 64);
+            if (!record) return;
+            for (const key of ['ready', 'progressing', 'analysisActive']) if (typeof observation[key] === 'boolean') record[key] = observation[key];
+            for (const key of ['observedAt', 'failureSince', 'silenceSince']) { const value = number(observation[key]); if (value !== undefined) record[key] = value; }
+            if (buffer) { record.framePresent = Boolean(buffer.frame); record.pcmBytes = number(buffer.audioBytes); }
+        }),
+        observeProgress: value => safe(() => { state.progressObserved = true; state.outputMs = number(value.outputMs); }),
+        teardown: () => { state.teardownStarted = true; },
+        result: () => numericDiagnostics(state),
+    };
+}
 
 export const REHEARSAL_PARAMETER = '/vrdex/restream/rehearsal/enabled';
 export const SOURCE_URL = 'https://stream.vrcdn.live/live/basicbit1.live.ts';
@@ -84,19 +211,19 @@ export async function runRehearsal({ env = process.env, directory, signal, depen
     const deps = { createSourceRelay, createProgramRenderer, createEventOutputs, createEventWorker, checkHostedEnabled, processMetrics, verifyProgramPackets: verifyRecording, now: Date.now, sleep, ...dependencies };
     directory ??= await mkdtemp(join(tmpdir(), 'event-vrcdn-rehearsal-'));
     const beganAt = deps.now(), evidence = { commands: [], observations: [] }, readiness = createReadinessEvidence();
-    const samples = [], metricsEvents = [];
+    const samples = [], metricsEvents = [], transport = createTransportEvidence({ now: deps.now });
     const stopReasons = {}, expiredAuthorities = {};
     let relay, renderer, outputs, worker, metrics, timer, internalDeadline, unsubscribe, recording, recordingDone;
     let exitCode = 1, aborted = signal?.aborted === true, timedOut = false, rendererFailed = false, recordingFailed = false, recordedBytes = 0, published = false, switchFalseObserved = false, switchUnavailable = false, fenced = false;
     let lastRequiredOutputMs = 0, lastRequiredProgressAt, requiredOutputProgressFailed = false;
-    const fence = () => { outputs?.stopNow(); };
+    const fence = () => { transport.teardown(); outputs?.stopNow(); };
     const abort = () => { aborted = true; fence(); void worker?.stop(); };
     signal?.addEventListener('abort', abort, { once: true });
     try {
         if (aborted) throw Error('Interrupted');
-        relay = await bounded(() => deps.createSourceRelay(), 3000);
-        renderer = deps.createProgramRenderer({ quality: '720p30', onError: () => { rendererFailed = true; fence(); void worker?.stop(); } });
-        outputs = deps.createEventOutputs({ configuration: { outputId: 'basicbit', outputs: [{ id: 'basicbit', type: 'vrcdn', credential: { secretRef: 'basicbit-output' }, compliance }] }, env });
+        relay = await bounded(() => deps.createSourceRelay({ resolveAddresses: transport.resolveAddresses, requestSource: transport.requestSource }), 3000);
+        renderer = deps.createProgramRenderer({ quality: '720p30', onObservation: transport.observeInput, onProgress: transport.observeProgress, onError: () => { rendererFailed = true; fence(); void worker?.stop(); } });
+        outputs = deps.createEventOutputs({ configuration: { outputId: 'basicbit', outputs: [{ id: 'basicbit', type: 'vrcdn', credential: { secretRef: 'basicbit-output' }, compliance }] }, env, spawnForDestination: transport.spawnForDestination });
         metrics = deps.processMetrics(new Map(), new Map());
         recording = createWriteStream(join(directory, 'program.ts'), { mode: 0o600 });
         recording.on('error', () => { recordingFailed = true; fence(); });
@@ -141,7 +268,11 @@ export async function runRehearsal({ env = process.env, directory, signal, depen
             // the first explicit return is acknowledged as actual live output.
             const returned = evidence.commands.some(command => command.sequence === 2 && command.succeeded && command.live);
             if (deps.now() - beganAt < 20000 || returned) {
-                for (const input of renderer.getInputs()) readiness.observe(input.getObservation());
+                for (const input of renderer.getInputs()) {
+                    const observation = input.getObservation();
+                    readiness.observe(observation);
+                    try { transport.observeInput(observation, input.buffer); } catch { /* Snapshot getters are observation only. */ }
+                }
             }
             const primary = output.destinations?.find(destination => destination.outputId === 'basicbit');
             const primaryMs = primary?.outputMs;
@@ -192,7 +323,7 @@ export async function runRehearsal({ env = process.env, directory, signal, depen
         aborted ||= signal?.aborted === true;
         if (aborted) exitCode ||= 130;
         const switchDisabledFenceObserved = published && switchFalseObserved && fenced && !publishingAfterCleanup && stopReasons.control_failed === true;
-        const result = numericDiagnostics({ exitCode, passed: exitCode === 0, seconds: 120, wallMs: deps.now() - beganAt, syntheticAuthority: true, realConvexAuthority: false, independentSourceHandoff: false, twitchAcceptance: false, deviceAcceptance: false, attestations: Object.fromEntries(RIGHTS.map(key => [key, compliance[key] === 'accepted'])), ...readiness.result(), published, requiredOutputProgressFailed, switchFalseObserved, switchUnavailable, switchDisabledFenceObserved, fenced, stopReasons, expiredAuthorities, publishingAfterCleanup, aborted, timedOut, rendererFailed, recordingFailed, recordedBytes, commands: evidence.commands, observations: evidence.observations, resources: metrics?.result(), metricsEvents, packetVerification });
+        const result = numericDiagnostics({ exitCode, passed: exitCode === 0, seconds: 120, wallMs: deps.now() - beganAt, syntheticAuthority: true, realConvexAuthority: false, independentSourceHandoff: false, twitchAcceptance: false, deviceAcceptance: false, attestations: Object.fromEntries(RIGHTS.map(key => [key, compliance[key] === 'accepted'])), ...readiness.result(), published, requiredOutputProgressFailed, switchFalseObserved, switchUnavailable, switchDisabledFenceObserved, fenced, stopReasons, expiredAuthorities, publishingAfterCleanup, aborted, timedOut, rendererFailed, recordingFailed, recordedBytes, commands: evidence.commands, observations: evidence.observations, resources: metrics?.result(), metricsEvents, packetVerification, transport: transport.result() });
         await writeFile(join(directory, 'rehearsal.json'), JSON.stringify(result), { mode: 0o600 });
         await writeFile(join(directory, 'samples.ndjson'), samples.map(sample => JSON.stringify(sample)).join('\n'), { mode: 0o600 });
         if (signal?.aborted && !result.aborted) {

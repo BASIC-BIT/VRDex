@@ -16,8 +16,9 @@ The production output parser accepts exact `ingest.vrcdn.live` and one-label reg
 hosts such as `uk.ingest.vrcdn.live`, in split `rtmpUrl`/`streamKey` or combined
 `ingestUrl` form. RTMP/RTMPS, ports 1935/443, the `/live` application and stream-key
 checks still apply. Userinfo, query, fragment, lookalike suffixes and nested regional
-subdomains are rejected. The canonical-host correction below has local test evidence
-only and requires a new image before another provider attempt.
+subdomains are rejected. The canonical-host correction passed startup validation in the third attempt below.
+That attempt still failed before publication. New passive proof observations require
+a new reviewed image before another separately authorized provider attempt.
 
 ## Image and permissions
 
@@ -380,5 +381,92 @@ output and the remaining live/device acceptance gates remain open.
 The required fixed image is now published from `4d701bb05bb242cfe5dab9bbdafcba00ddbffe2e` at ECR digest
 `sha256:2e121beb9ded4592c01c763c4c1cacc49cb9c522e3f661e41c7e8b10e35d88f6`.
 All 13 packaged hashes match reviewed source; only `output-sender.mjs` differs from the preserved `59388ac` image, with the same base RootFS and unchanged default CMD.
-Native readback at `22:40:14.127Z` confirmed ECR ACTIVE, both switches false and zero RUNNING tasks. No live task or capacity rerun used this image; provider acceptance remains open.
+Native readback at `22:40:14.127Z` confirmed ECR ACTIVE, both switches false and zero RUNNING tasks. At that readback, no live task or capacity rerun had used this image; provider acceptance remained open.
 Safe receipts in `/workspace/rehearsal-sdd/` are `published-image-canonical-host.json`, `packaged-image-canonical-host-verification.json` and `canonical-image-published-verification.json`.
+
+## October 21, 2026 third bounded attempt
+
+The third approved window was `23:00:42.918Z` to `23:10:42.918Z`. One source and
+one output used the canonical-host image from
+`4d701bb05bb242cfe5dab9bbdafcba00ddbffe2e`, digest
+`sha256:2e121beb9ded4592c01c763c4c1cacc49cb9c522e3f661e41c7e8b10e35d88f6`.
+The output passed startup credential validation and then failed. This is not a
+provider success. There was no capacity rerun, replacement source or output retry.
+
+Source task `386351517cd84e30a1765df1aa75a83e` started at `23:01:19.130Z`.
+The independent public source capture received HTTP 200 after 7.547 seconds and
+retained 1,179,648 bytes. Offline decode produced 130 frames over 4.5 seconds with
+AAC at 48 kHz. That independent response timing does not measure the worker's
+source connection or establish which timeout governed its failure.
+
+Output task `46b8e2e455da43c6aefb908c35477648` started at `23:02:33.671Z`,
+emitted `proof-start` at `23:02:33.724Z`, execution stopped at `23:02:52.555Z`
+with exit 1, and reached ECS STOPPED at `23:03:16.020Z`. The adapter recorded
+15.8 seconds wall time, `published=false`, `sourceReadyObserved=false`, no hold
+or return commands, and `rendererFailed=false` and `recordingFailed=false`.
+Four sender attempts/restarts never advanced the destination beyond `outputMs=0`.
+The 3,552,636-byte local recording decoded cleanly into 442 frames over
+14.741333 seconds, with maximum gap 0.033334 seconds and one-second GOP. Visual
+review identified the expected neutral hold slate. Local encoder output does not
+establish source readiness or provider publication. The independent public
+`basicbit` observer received zero bytes, HTTP 401 on all three requests, and exit 1.
+Those responses do not establish an ingest rejection reason.
+
+Source StopTask at `23:03:41.391Z` was cleanup after output failure. It was not the
+planned controlled +40-second source loss test. Source execution stopped at
+`23:03:53.843Z` and ECS STOPPED followed at `23:04:18.290Z`, exit 143. Final native
+cleanup readback at `23:05:26.916Z` confirmed both tasks STOPPED, zero RUNNING tasks,
+both switches false at production version 1 and rehearsal version 6, and both
+revision-3 proof task definitions INACTIVE. Source/hold/return, controlled source
+loss/recovery, public output and dedicated-switch fencing acceptance remain open.
+
+Private evidence is retained in
+`/workspace/rehearsal-sdd/live-canonical-20261021T225904Z/`. Four downloaded output
+artifacts are hash-sealed by `downloaded-artifacts-manifest.json`; `manifest.json`
+seals the 46-file overall evidence set. Prior capacity success and both earlier
+attempt records remain preserved.
+
+### Unresolved cause and passive observation scope
+
+The live failure's root cause is unproven. Read-only local investigations are in
+`/workspace/rehearsal-sdd/source-readiness-diagnosis/report.md` and
+`/workspace/rehearsal-sdd/transport-diagnosis/report.md`. Immediate local source
+replay became ready in 1.268 seconds, including with output publication false.
+A 3.5-second upstream response delay reproduced the existing three-second relay
+timeout. The worker's real source response latency was not measured.
+
+The missing RTMP app hypothesis is refuted. The unchanged sender arguments send
+`app=live`, consistent with FFmpeg 5.1.9 source. Immediate local RTMP publication
+works. A delayed handshake can hit the existing two-second protocol timeout;
+with that timeout extended solely in the separate diagnostic experiment, the
+512 KiB queue cap fired before the six-second startup guard. That experiment did
+not establish an age-limit failure. These are reproduced mechanisms, not proven
+causes of the cloud failure. Local execution used host FFmpeg 7.1.5 rather than
+the image's 5.1.9.
+
+Task 5 clarifies the proof-only observation scope. The rehearsal now wraps the real
+DNS lookup, HTTPS request and destination spawn through existing dependencies,
+forwarding their arguments unchanged and returning the original promise, request,
+response and child objects. It preserves the original HTTP callback. It records
+only bounded numeric/boolean `transport` evidence, including renderer observations
+and safe buffer snapshots. No response data listener is added. It neither supplies
+DNS answers nor substitutes a transport, endpoint or trust configuration.
+
+Records cap at 32 DNS attempts, 32 HTTP attempts, 16 sender attempts and 64 input
+snapshots; omitted counts remain explicit. Each DNS result inspects at most 256
+answers. Each sender scans at most 64 KiB of stderr in 4 KiB pieces with at most
+128 bytes of transient overlap, cleared on close. Byte counts continue beyond the
+scan budget; numeric counters saturate at one billion. Markers become fixed
+booleans for timeout, refused/unreachable/DNS, TLS, RTMP handshake/rejection
+indicators and invalid input/options. A marker is an indicator, not proof of
+provider rejection. Raw stderr, arguments, environment, addresses, headers, URLs
+and arbitrary exception text never enter the result. Failure counts count events,
+so one underlying incident can produce several events. Teardown flags separate
+cleanup events from failures observed before adapter cleanup.
+
+The new observations pass offline fakes and finalizer sanitization checks. They do
+not reconstruct the failed third attempt's missing transport trace. The nine
+runtime modules remain unchanged from `4d701bb`, including its already committed
+parser correction. Endpoint/pinning rules, options, queues, deadlines, switching
+and media lifecycle remain unchanged. A new reviewed proof image is required
+before any separately authorized live attempt. Task 5 authorizes no live retry.

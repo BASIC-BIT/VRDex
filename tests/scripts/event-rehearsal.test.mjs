@@ -5,7 +5,7 @@ import { PassThrough } from 'node:stream';
 import { mkdtemp, readFile, writeFile, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { validateRehearsal, createRehearsalControl, runRehearsal, createReadinessEvidence, REHEARSAL_PARAMETER } from '../../scripts/event-vrcdn-rehearsal.mjs';
+import { validateRehearsal, createRehearsalControl, runRehearsal, createReadinessEvidence, createTransportEvidence, REHEARSAL_PARAMETER } from '../../scripts/event-vrcdn-rehearsal.mjs';
 import { runBounded, finalizeArtifacts, numericDiagnostics, syntheticEnvironment, runSynthetic, finalizeProof } from '../../scripts/event-proof-runner.mjs';
 import { createEventWorker, checkHostedEnabled } from '../../workers/restream/event-worker.mjs';
 const attestations = { sourceConsent: 'accepted', destinationAuthority: 'accepted', providerRules: 'accepted', rightsClearedMedia: 'accepted' };
@@ -310,4 +310,125 @@ test('a worker fenced during the last sleep cannot pass when the sample clock re
  const result = await runRehearsal({ env: environment(), directory: await mkdtemp(join(tmpdir(), 'rehearsal-test-')), ...simulated });
  assert.equal(result.wallMs, 120000); assert.equal(result.exitCode, 1); assert.equal(result.passed, false);
  assert.equal(result.publishingAfterCleanup, false); assert.equal(result.stopReasons.shutdown, true);
+});
+
+
+test('passive relay wrappers forward exact arguments, promises, requests and response callbacks', async () => {
+ let clock = 100, dnsCall, httpCall;
+ const answers = [{ address: '8.8.8.8', family: 4 }, { address: '127.0.0.1', family: 4 }];
+ const promise = Promise.resolve(answers), request = new EventEmitter(), response = new EventEmitter(), socket = new EventEmitter();
+ socket.bytesRead = 10; socket.bytesWritten = 20; response.statusCode = 200;
+ const observer = createTransportEvidence({ now: () => clock, lookup(...args) { dnsCall = args; return promise; }, request(...args) { httpCall = args; request.on('response', args[2]); return request; } });
+ const dnsOptions = { all: true, family: 4 }, url = new URL('https://example.test/private-canary'), options = { method: 'GET', lookup() {}, agent: false };
+ assert.equal(observer.resolveAddresses('private-canary', dnsOptions), promise);
+ assert.equal(await promise, answers); await Promise.resolve();
+ assert.deepEqual(dnsCall, ['private-canary', dnsOptions]); assert.equal(dnsCall[1], dnsOptions);
+ let callbackThis, callbackResponse, closes = 0;
+ function callback(value) { callbackThis = this; callbackResponse = value; }
+ assert.equal(observer.requestSource(url, options, callback), request);
+ assert.equal(httpCall[0], url); assert.equal(httpCall[1], options); assert.equal(httpCall[2], callback);
+ request.on('close', () => closes++);
+ clock = 110; request.emit('socket', socket); clock = 120; socket.emit('connect'); clock = 130; socket.emit('secureConnect');
+ clock = 140; request.emit('response', response);
+ assert.equal(callbackResponse, response); assert.equal(callbackThis, request); assert.equal(response.listenerCount('data'), 0);
+ socket.bytesRead = 110; socket.bytesWritten = 70;
+ clock = 160; response.emit('end'); request.emit('close'); socket.emit('close', false);
+ const transport = observer.result();
+ assert.equal(closes, 1); assert.equal(transport.dns[0].publicAddresses, 1); assert.equal(transport.dns[0].addresses, 2);
+ assert.equal(transport.requests[0].tcpMs, 20); assert.equal(transport.requests[0].tlsMs, 30); assert.equal(transport.requests[0].headersMs, 40);
+ assert.equal(transport.requests[0].httpStatus, 200); assert.equal(transport.requests[0].readBytes, 100); assert.equal(transport.requests[0].writtenBytes, 50);
+ assert.equal(transport.requests[0].ended, true); assert.equal(transport.requests[0].socketClosed, true);
+ assert.ok(!JSON.stringify(transport).includes('private-canary'));
+});
+test('passive source failures preserve original rejection and distinguish timeout from cleanup', async () => {
+ const failure = Error('private-canary https://private.invalid'); failure.code = 'PRIVATE_CANARY';
+ const requests = [];
+ const observer = createTransportEvidence({ lookup: () => Promise.reject(failure), request: () => { const request = new EventEmitter(); requests.push(request); return request; } });
+ await assert.rejects(observer.resolveAddresses('private-canary', {}), value => value === failure);
+ const first = observer.requestSource('private-canary', {});
+ first.emit('timeout'); first.emit('error', failure);
+ const response = new EventEmitter(); response.statusCode = 401; first.emit('response', response); response.emit('aborted'); response.emit('error', failure);
+ observer.teardown(); first.emit('close');
+ const second = observer.requestSource('private-canary', {}); second.emit('timeout'); second.emit('error', failure); second.emit('close');
+ const result = observer.result();
+ assert.equal(result.dns[0].failures, 1); assert.equal(result.requests[0].httpStatus, 401); assert.equal(result.requests[0].aborted, true);
+ assert.equal(result.requests[0].timeoutCount, 1); assert.equal(result.requests[0].beforeTeardownFailures, 4);
+ assert.equal(result.requests[0].closedDuringTeardown, true); assert.equal(result.requests[1].beforeTeardownFailures, 0);
+ assert.equal(result.teardownStarted, true); assert.ok(!JSON.stringify(result).includes('private'));
+});
+test('passive wrappers preserve synchronous throws and survive observer failures', () => {
+ const failure = Error('private-canary'), child = fakeChild(), request = new EventEmitter();
+ const brokenClock = () => { throw failure; };
+ const observer = createTransportEvidence({ now: brokenClock, request: () => request, spawn: () => child, lookup: () => { throw failure; } });
+ assert.throws(() => observer.resolveAddresses('private-canary', {}), value => value === failure);
+ assert.equal(observer.requestSource('private-canary', {}), request);
+ assert.equal(observer.spawnForDestination('vrcdn')('ffmpeg', [], {}), child);
+ const socket = new EventEmitter(); Object.defineProperty(socket, 'bytesRead', { get() { throw failure; } });
+ assert.doesNotThrow(() => { request.emit('socket', socket); socket.emit('connect'); request.emit('close'); child.stderr.write('Connection timed out'); child.emit('close', 1, null); observer.observeInput(new Proxy({}, { get() { throw failure; } })); });
+});
+test('sender observation preserves spawn arguments, draining, close callbacks and fixed split markers', () => {
+ const child = fakeChild(); let forwarded, drained = 0, closed = 0, clock = 0;
+ const observer = createTransportEvidence({ now: () => clock, spawn(...args) { forwarded = args; return child; } });
+ const args = ['-rtmp_playpath', 'private-canary'], options = { env: { PRIVATE: 'private-canary' }, stdio: ['pipe', 'ignore', 'pipe', 'pipe'] };
+ assert.equal(observer.spawnForDestination('vrcdn')('ffmpeg', args, options), child);
+ assert.equal(forwarded[1], args); assert.equal(forwarded[2], options);
+ child.stderr.on('data', chunk => { drained += chunk.length; }); child.on('close', () => closed++);
+ child.stderr.write('private-canary Connection timed o'); child.stderr.write('ut Connection refused Network is unreachable Failed to resolve hostname TLS handshake failed RTMP handshake failed Server error: NetStream.Publish.BadName Invalid data found when processing input Unrecognized option');
+ clock = 50; child.emit('close', 1, 'SIGKILL');
+ const attempt = observer.result().senders[0];
+ assert.equal(closed, 1); assert.equal(attempt.stderrBytes, drained); assert.equal(attempt.exitCode, 1); assert.equal(attempt.sigkill, true); assert.equal(attempt.closeMs, 50);
+ for (const field of ['timedOut', 'refused', 'unreachable', 'dnsFailed', 'tlsFailed', 'handshakeFailed', 'rejectionIndicated', 'invalidInput', 'invalidOption']) assert.equal(attempt[field], true, field);
+ assert.equal(attempt.tailBytes, 0); assert.ok(!JSON.stringify(observer.result()).includes('private-canary'));
+});
+test('transport attempts, counters, input observations and stderr scanning stay explicitly bounded', async () => {
+ const children = [];
+ const observer = createTransportEvidence({ lookup: () => Promise.resolve([]), request: () => new EventEmitter(), spawn: () => { const child = fakeChild(); children.push(child); return child; } });
+ for (let index = 0; index < 1000; index++) { await observer.resolveAddresses('private-canary'); observer.requestSource('private-canary'); observer.spawnForDestination('vrcdn')('ffmpeg', ['private-canary'], {}); observer.observeInput({ ready: true, progressing: true, observedAt: Infinity, sourceId: 'private-canary' }, { frame: Buffer.alloc(1), audioBytes: 1e100 }); }
+ children[0].stderr.write(Buffer.alloc(1024 * 1024, 120));
+ let result = observer.result();
+ assert.equal(result.dns.length, 32); assert.equal(result.requests.length, 32); assert.equal(result.senders.length, 16); assert.equal(result.inputs.length, 64);
+ assert.equal(result.dnsOmitted, 968); assert.equal(result.requestsOmitted, 968); assert.equal(result.sendersOmitted, 984);
+ assert.equal(result.inputs[0].pcmBytes, 1e9); assert.equal(result.inputs[0].framePresent, true); assert.equal(result.inputs[0].observedAt, undefined);
+ assert.equal(result.senders[0].stderrBytes, 1024 * 1024); assert.equal(result.senders[0].scannedBytes, 65536); assert.ok(result.senders[0].tailBytes <= 128);
+ children[0].emit('close', 1, null); result = observer.result(); assert.equal(result.senders[0].tailBytes, 0);
+ assert.ok(JSON.stringify(result).length < 40000); assert.ok(!JSON.stringify(result).includes('private-canary'));
+});
+test('rehearsal wires passive transport evidence and finalizer retains safe fields', async () => {
+ const simulated = simulatedRehearsal({ publishes: false }); let relayOptions, outputOptions;
+ simulated.dependencies.createSourceRelay = async options => { relayOptions = options; return { stop() {}, resolveSource() {}, retainSources() {} }; };
+ const rendererFactory = simulated.dependencies.createProgramRenderer;
+ simulated.dependencies.createProgramRenderer = options => { options.onObservation({ ready: true, progressing: true, observedAt: 123, sourceId: 'private-canary' }); options.onProgress({ outputMs: 10 }); return rendererFactory(options); };
+ const outputFactory = simulated.dependencies.createEventOutputs;
+ simulated.dependencies.createEventOutputs = options => { outputOptions = options; return outputFactory(options); };
+ const result = await runRehearsal({ env: environment(), directory: await mkdtemp(join(tmpdir(), 'rehearsal-test-')), ...simulated });
+ assert.equal(typeof relayOptions.resolveAddresses, 'function'); assert.equal(typeof relayOptions.requestSource, 'function'); assert.equal(typeof outputOptions.spawnForDestination, 'function');
+ assert.equal(result.exitCode, 1); assert.equal(result.transport.teardownStarted, true); assert.equal(result.transport.inputs[0].ready, true); assert.equal(result.transport.progressObserved, true);
+ const uploads = [];
+ await finalizeArtifacts({ directory: result.directory, exitCode: result.exitCode, runId: 'transport-unit', upload: async (file, target) => { if (target.endsWith('/rehearsal.json')) uploads.push(JSON.parse(await readFile(file, 'utf8'))); } });
+ assert.equal(uploads.length, 1); assert.deepEqual(uploads[0].transport, result.transport); assert.ok(!JSON.stringify(uploads).includes('private-canary'));
+});
+
+
+test('socket-only failures and sender exit 146 remain indicators before teardown, with late DNS completion', async () => {
+ let complete, clock = 0;
+ const child = fakeChild(), request = new EventEmitter(), socket = new EventEmitter();
+ const observer = createTransportEvidence({ now: () => clock, lookup: () => new Promise(resolve => { complete = resolve; }), request: () => request, spawn: () => child });
+ const pending = observer.resolveAddresses('private-canary'); observer.requestSource('private-canary'); request.emit('socket', socket);
+ socket.emit('timeout'); socket.emit('error', Error('private-canary')); observer.spawnForDestination('vrcdn')('ffmpeg', [], {});
+ child.stderr.write('Cannot read RTMP handshake response Connection timed out'); clock = 2100; child.emit('close', 146, null);
+ observer.teardown(); clock = 2500; complete(Array.from({ length: 1000 }, () => ({ address: '8.8.8.8', family: 4 }))); await pending;
+ socket.emit('timeout'); socket.emit('error', Error('private-canary'));
+ const result = observer.result();
+ assert.equal(result.requests[0].socketBeforeTeardownFailures, 2); assert.equal(result.requests[0].socketTimeoutCount, 2); assert.equal(result.requests[0].socketFailures, 2);
+ assert.equal(result.senders[0].exitCode, 146); assert.equal(result.senders[0].handshakeFailed, true); assert.equal(result.senders[0].timedOut, true); assert.equal(result.senders[0].beforeTeardownFailures, 1);
+ assert.equal(result.dns[0].doneMs, 2500); assert.equal(result.dns[0].doneDuringTeardown, true); assert.equal(result.dns[0].addressesInspected, 256); assert.equal(result.dns[0].addressesOmitted, 744);
+});
+test('a snapshot getter failure cannot change an otherwise successful rehearsal', async () => {
+ const simulated = simulatedRehearsal(), factory = simulated.dependencies.createProgramRenderer;
+ simulated.dependencies.createProgramRenderer = options => {
+  const renderer = factory(options), inputs = renderer.getInputs;
+  return { ...renderer, getInputs: () => inputs().map(input => Object.defineProperty(input, 'buffer', { get() { throw Error('private-canary'); } })) };
+ };
+ const result = await runRehearsal({ env: environment(), directory: await mkdtemp(join(tmpdir(), 'rehearsal-test-')), ...simulated });
+ assert.equal(result.exitCode, 0); assert.equal(result.passed, true);
 });

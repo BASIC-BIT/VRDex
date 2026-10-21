@@ -827,5 +827,48 @@ disabled.
 The required fixed image is now published from `4d701bb05bb242cfe5dab9bbdafcba00ddbffe2e` at ECR digest
 `sha256:2e121beb9ded4592c01c763c4c1cacc49cb9c522e3f661e41c7e8b10e35d88f6`.
 All 13 packaged hashes match reviewed source; only `output-sender.mjs` differs from the preserved `59388ac` image, with the same base RootFS and unchanged default CMD.
-Native readback at `22:40:14.127Z` confirmed ECR ACTIVE, both switches false and zero RUNNING tasks. No live task or capacity rerun used this image; provider acceptance remains open.
+Native readback at `22:40:14.127Z` confirmed ECR ACTIVE, both switches false and zero RUNNING tasks. At that readback, no live task or capacity rerun had used this image; provider acceptance remained open.
 Safe receipts in `/workspace/rehearsal-sdd/` are `published-image-canonical-host.json`, `packaged-image-canonical-host-verification.json` and `canonical-image-published-verification.json`.
+
+### Third bounded attempt and passive transport evidence
+
+The third window was `23:00:42.918Z` to `23:10:42.918Z`. One source and one output
+used canonical-host image `2e121beb` from `4d701bb`. Credential validation passed,
+but the output failed with exit 1 after 15.8 adapter seconds. Source readiness and
+publication were never observed; four sender attempts/restarts had zero output
+progress. No hold/return command ran. A clean local 442-frame, 14.741333-second
+recording showed the neutral hold slate. The independent output observer received
+zero bytes and three HTTP 401 responses. None of this establishes provider success
+or the cause of ingest failure.
+
+The independent source sample retained 1,179,648 bytes, received HTTP 200 after
+7.547 seconds, and decoded 130 frames over 4.5 seconds with AAC at 48 kHz. The
+source stop at `23:03:41.391Z` followed output failure and was cleanup, not the
+controlled +40-second loss test. No replacement source or output retry occurred.
+Final readback at `23:05:26.916Z` confirmed both tasks STOPPED, zero RUNNING,
+production/rehearsal switches false at versions 1/6 and both revision-3 definitions
+INACTIVE. Four downloaded artifacts and the 46-file evidence set are hash-sealed in
+`/workspace/rehearsal-sdd/live-canonical-20261021T225904Z/`.
+
+The live root cause remains unknown. Local immediate source replay works even when
+output publication is false; a 3.5-second delayed response hits the existing
+three-second relay timeout. The live worker's response latency was not measured.
+The missing RTMP app hypothesis is refuted, including by FFmpeg 5.1.9 source.
+Local delayed handshakes reproduce the two-second protocol timeout or, with a
+diagnostic-only extended timeout, the 512 KiB queue cap before startup expiry.
+The measured queue case does not prove the age guard fired. Host FFmpeg 7.1.5 was
+used for those local runs. These mechanisms do not establish the cloud cause.
+
+Task 5 adds proof-only passive wrappers through the existing real lookup/request/
+spawn dependencies and existing renderer callbacks. Bounded numeric/boolean
+`transport` fields survive finalization; callbacks, object identities, arguments,
+response stream flow and lifecycle gates retain their behavior. Offline tests cover
+forwarding, failures before teardown versus cleanup, split marker detection,
+secret canaries, oversized floods and finalizer retention. This clarifies observation
+scope without a DNS or transport bypass. The nine runtime modules remain unchanged
+from `4d701bb`; the parser correction is already part of that baseline. No deadline,
+queue, endpoint or transport option was relaxed. A new reviewed image and separate
+operator authorization are required for a future attempt. Provider publication and
+all remaining live/device gates remain open. See the
+[third-attempt record](event-broadcast-rehearsal.md#october-21-2026-third-bounded-attempt)
+for exact task timelines, limits and investigation references.

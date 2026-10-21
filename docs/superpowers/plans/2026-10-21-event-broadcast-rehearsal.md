@@ -149,3 +149,48 @@ so actual switch fencing remains unproven. Private evidence is under
 [second-attempt record](../../engineering/event-broadcast-rehearsal.md#october-21-2026-second-bounded-attempt).
 Task 2 provider-output acceptance remains incomplete. No further source or output
 retry is authorized within this attempt.
+
+## Third bounded attempt and Task 5 observation clarification
+
+The third separately approved window was `23:00:42.918Z` to `23:10:42.918Z`.
+One source and one output used `4d701bb` / `sha256:2e121beb9ded4592c01c763c4c1cacc49cb9c522e3f661e41c7e8b10e35d88f6`.
+The canonical parser passed validation; output failed after 15.8 adapter seconds,
+exit 1, with no publication or source readiness and no hold/return commands. Four
+sender attempts/restarts reported zero output progress. The local hold recording
+decoded 442 frames over 14.741333 seconds; the external output observer received
+zero bytes and HTTP 401 three times. Source capture decoded 130 frames over 4.5
+seconds with AAC at 48 kHz after a 7.547-second HTTP 200 response delay.
+
+Source StopTask at `23:03:41.391Z` was cleanup after output failure, not controlled
+source loss. No replacement or output retry occurred. At `23:05:26.916Z`, both
+tasks were STOPPED, zero were RUNNING, both switches were false at production /
+rehearsal versions 1/6 and both revision-3 definitions were INACTIVE. Evidence and
+hash manifests remain in `/workspace/rehearsal-sdd/live-canonical-20261021T225904Z/`.
+See the [third-attempt record](../../engineering/event-broadcast-rehearsal.md#october-21-2026-third-bounded-attempt).
+Task 2's live acceptance remains incomplete.
+
+The live cause remains unproven. Immediate local source replay, including with
+publication false, works; a 3.5-second delay hits the existing three-second relay
+timeout. Actual worker source response latency is unknown. The missing RTMP app
+theory is refuted, including by FFmpeg 5.1.9 source. Delayed local handshakes can
+hit the two-second protocol timeout or, with a diagnostic-only longer timeout,
+the 512 KiB queue cap before the six-second startup guard. The latter measurement
+did not establish an age-limit failure. Local tests used host FFmpeg 7.1.5.
+These are mechanisms, not a confirmed cause or an authorized runtime fix.
+
+Task 5 permits passive proof observation through existing dependencies. This
+clarifies the original no-bypass scope: wrappers call actual DNS lookup, HTTPS
+request and destination spawn with unchanged arguments and preserve the original
+promise/request/response/child objects and HTTP callback. Existing renderer callbacks
+and safe snapshots add readiness/progress metadata. No production module or new
+production seam is required. All nine runtime files retain their `4d701bb` content,
+including the prior canonical parser change. Timeouts, queues, pinning, endpoints,
+options, switching and media flow remain unchanged.
+
+- [x] Write failing offline tests for forwarding/object identity, fixed safe fields,
+  split stderr markers, bounded floods, cleanup classification and finalizer retention.
+- [x] Implement capped proof-only observation inline in the packaged rehearsal script.
+- [x] Verify the existing 29 lifecycle tests alongside the observation tests and
+  appropriate script/Markdown checks; retain prior attempt records and uncertainty.
+- [ ] Build and review a new proof image before a future separately authorized
+  provider attempt. Task 5 permits no publication or live retry.
