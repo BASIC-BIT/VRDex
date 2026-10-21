@@ -849,3 +849,10 @@ Legacy cleanup-only retries do not replay publication status. First delayed
 legacy status reports also check active-session ownership before changing shared
 program/output state, so retiring an old task cannot fence its live replacement.
 The old task's own process status and cleanup remain independently reconcilable.
+
+An abrupt exact-task ECS STOPPED observation also returns the owned selected
+output to ready if the worker could not report media completion. Replacement
+Start then works without re-saving the destination, independently of pending
+task-definition cleanup. The update preserves disabled/revoked records, other
+outputs and any different active replacement session; admission still requires
+actual STOPPED rather than a Stop request or media-terminal observation.

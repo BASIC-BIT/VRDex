@@ -458,3 +458,23 @@ lease renewal through repeated cleanup failures and eventual success. The
 follow-up affected backend/bridge batch passes 163 tests. No runtime/media or UI
 files changed in this follow-up; the packaged proof and browser evidence retain
 their exact source identity and original scope.
+
+## Sixth-review abrupt process termination
+
+Confirmed exact-task ECS STOPPED now restores an owned selected output to ready
+when the worker dies before sending a terminal media observation. The transition
+checks the output's event/program identity and current publication ownership;
+a terminal session with an already-cleared pointer is safe to reconcile, while
+a different replacement pointer prevents shared-output changes. Disabled and
+revoked destinations remain intact. Only actual STOPPED releases admission, and
+pending task-definition cleanup does not block replacement scheduling.
+
+Eight new real-backend cases cover abrupt publication loss, replacement start
+without destination reconfiguration, unrelated optional destinations, wrong task,
+nonterminal process reports, repeated confirmation, terminal-media-before-process
+ordering, disabled/revoked output, replacement ownership and mismatched output
+scope. The affected backend/bridge/authorization/control batch passes 171 tests.
+Backend types and documentation checks pass. No runtime, harness or UI source
+changed; existing image `f9f13a9c002b` media proof and browser evidence retain their
+source identity and bounded claims. No new media, browser or sustained run was
+needed for this backend-only transition.

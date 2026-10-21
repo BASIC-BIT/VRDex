@@ -1131,3 +1131,77 @@ for (const priorObservation of [false, true]) it(`R5_REVIEW legacy ${priorObserv
   await refreshSessions(client, f.config, runAws);
   assert.equal(attempts, cleanedAttempts); assert.deepEqual(await publication(), before);
 });
+
+for (const optionalActive of [false, true]) it(`R6F1 abrupt exact-task STOPPED permits replacement without resaving (optional active=${optionalActive})`, async () => {
+  const f = await admittedBeforeAcquisition();
+  const lease = await f.t.mutation(worker('acquireSession'), f.args);
+  const request = { ...f.args, epoch: lease.epoch };
+  const optional = await f.t.run(async ({ db }) => {
+    const { _id, _creationTime, ...output } = (await db.get(f.output.outputId))!;
+    return db.insert('eventMediaOutputs', { ...output, key: 'optional', state: optionalActive ? 'active' : 'ready' });
+  });
+  assert.equal((await f.t.mutation(worker('observeProgram'), { ...request, state: 'live', outputMs: 1000, publishing: true })).accepted, true);
+  const confirm = { bridgeToken, sessionId: f.args.sessionId, taskArn: 'managed-task', stopped: true };
+  assert.equal((await f.t.mutation(worker('recordProcessStatus'), { ...confirm, taskArn: 'wrong-task' })).accepted, false);
+  await f.t.mutation(worker('recordProcessStatus'), { ...confirm, stopped: false });
+  assert.equal((await f.t.run(({ db }) => db.get(f.output.outputId)))?.state, 'active');
+  assert.equal((await f.t.run(({ db }) => db.get(f.args.sessionId)))?.dispatchStopConfirmedAt, undefined);
+  await f.t.mutation(worker('recordProcessStatus'), confirm);
+  const output = await f.t.run(({ db }) => db.get(f.output.outputId));
+  assert.equal(output?.state, 'ready');
+  assert.equal((await f.t.run(({ db }) => db.get(optional)))?.state, optionalActive ? 'active' : 'ready');
+  assert.equal((await f.owner.query(api.events.getEventMediaControlStatus, { currentSlug: f.event.slug })).operationReadiness.activeOutputCount, optionalActive ? 1 : 0);
+  const session = await f.t.run(({ db }) => db.get(f.args.sessionId));
+  assert.equal(session?.status, 'error'); assert.equal(session?.workerTaskCleanupPending, true); assert.equal(typeof session?.dispatchStopConfirmedAt, 'number');
+  await f.t.mutation(worker('recordProcessStatus'), confirm);
+  assert.deepEqual(await f.t.run(({ db }) => db.get(f.output.outputId)), output);
+  const replacement = await f.owner.mutation(api.events.scheduleEventMediaWorker, { currentSlug: f.event.slug, outputKey: 'main', startImmediately: true });
+  assert.equal((await f.t.mutation(worker('admitDispatch'), { bridgeToken, eventId: f.event.eventId, sessionId: replacement.sessionId, dispatchId: 'replacement' })).granted, true);
+  const acquired = await f.t.mutation(worker('acquireSession'), { ...f.args, sessionId: replacement.sessionId, epoch: 0 });
+  assert.equal(acquired.granted, true);
+  assert.equal((await f.t.run(({ db }) => db.get(f.args.sessionId)))?.workerTaskCleanupPending, true, 'cleanup success is not required for replacement admission');
+});
+for (const change of ['terminal-first', 'disabled', 'revoked', 'replacement'] as const) it(`R6F1 STOPPED respects ${change} output authority`, async () => {
+  const f = await admittedBeforeAcquisition();
+  const lease = await f.t.mutation(worker('acquireSession'), f.args), request = { ...f.args, epoch: lease.epoch };
+  await f.t.mutation(worker('observeProgram'), { ...request, state: 'hold', outputMs: 1000, publishing: true });
+  if (change === 'disabled') await f.t.run(({ db }) => db.patch(f.output.outputId, { state: 'disabled' }));
+  if (change === 'revoked') process.env.VRDEX_VRCDN_OUTPUT_ACCOUNTS_JSON = '[]';
+  if (change === 'terminal-first' || change === 'replacement') {
+    await f.t.mutation(worker('observeProgram'), { ...request, state: 'ended', outputMs: 0, publishing: false });
+    assert.equal((await f.t.run(({ db }) => db.get(f.output.programId)))?.activeSessionId, undefined);
+  }
+  let replacementRequest: any;
+  if (change === 'replacement') {
+    const scheduled = await f.owner.mutation(api.events.scheduleEventMediaWorker, { currentSlug: f.event.slug, outputKey: 'main', startImmediately: true });
+    const acquired = await f.t.mutation(worker('acquireSession'), { ...f.args, sessionId: scheduled.sessionId, epoch: 0 });
+    assert.equal(acquired.granted, true); replacementRequest = { ...f.args, sessionId: scheduled.sessionId, epoch: acquired.epoch };
+    await f.t.mutation(worker('observeProgram'), { ...replacementRequest, state: 'live', outputMs: 2000, publishing: true });
+  }
+  const output = await f.t.run(({ db }) => db.get(f.output.outputId));
+  const program = await f.t.run(({ db }) => db.get(f.output.programId));
+  for (let i = 0; i < 2; i++) {
+    assert.equal((await f.t.mutation(worker('recordProcessStatus'), { bridgeToken, sessionId: f.args.sessionId, taskArn: 'managed-task', stopped: true })).accepted, true);
+    assert.deepEqual(await f.t.run(({ db }) => db.get(f.output.outputId)), output);
+  }
+  if (replacementRequest) {
+    assert.deepEqual(await f.t.run(({ db }) => db.get(f.output.programId)), program);
+    assert.equal((await f.t.mutation(worker('renewSession'), replacementRequest)).granted, true);
+  }
+});
+
+for (const mismatch of ['event', 'program'] as const) it(`R6F1 STOPPED cannot reset a selected output with mismatched ${mismatch}`, async () => {
+  const f = await admittedBeforeAcquisition();
+  const other = await f.owner.mutation(api.events.createCommunityEvent, { title: 'Other event', communitySlug: 'club', startAt: Date.now() + 600000, timezone: 'UTC' });
+  const foreign = await f.t.run(async ({ db }) => {
+    const { _id, _creationTime, ...program } = (await db.get(f.output.programId))!;
+    const otherProgram = await db.insert('eventMediaPrograms', { ...program, eventId: other.eventId, activeSessionId: undefined });
+    const { _id: outputId, _creationTime: outputTime, ...output } = (await db.get(f.output.outputId))!;
+    const id = await db.insert('eventMediaOutputs', { ...output, state: 'active', ...(mismatch === 'event' ? { eventId: other.eventId } : { programId: otherProgram }) });
+    await db.patch(f.args.sessionId, { outputId: id }); return id;
+  });
+  const before = await f.t.run(({ db }) => db.get(foreign));
+  await f.t.mutation(worker('recordProcessStatus'), { bridgeToken, sessionId: f.args.sessionId, taskArn: 'managed-task', stopped: true });
+  assert.deepEqual(await f.t.run(({ db }) => db.get(foreign)), before);
+  assert.equal((await f.t.run(({ db }) => db.get(f.args.sessionId)))?.workerTaskCleanupPending, true);
+});

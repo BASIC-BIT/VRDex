@@ -361,6 +361,16 @@ export const recordProcessStatus = mutation({ args: { bridgeToken: v.string(), s
         await ctx.db.patch(session._id, { ...(args.stopped ? { workerTaskCleanupPending: true, ...(session.dispatchId ? { dispatchStopConfirmedAt: Date.now() } : {}) } : {}), workerTaskStatus: args.stopped ? "stopped" : session.stopRequestedAt === undefined ? "running" : "stopping", ...(args.stopped && !['ended', 'error'].includes(session.status) ? { status: "error" as const, leaseExpiresAt: Date.now() } : {}), updatedAt: Date.now() });
         if (args.stopped) {
             const program = await ctx.db.get(session.programId);
+            // Terminal media reports may already have cleared this pointer. A
+            // different active session owns its destination even if this old
+            // process has only now reached STOPPED.
+            const ownsPublication = program?.activeSessionId === session._id ||
+                (program?.activeSessionId === undefined && ['ended', 'error'].includes(session.status));
+            if (program?.eventId === session.eventId && ownsPublication && session.outputId) {
+                const [event, output] = await Promise.all([ctx.db.get(session.eventId), ctx.db.get(session.outputId)]);
+                if (event && output?.programId === program._id && output.eventId === session.eventId)
+                    await updateObservedOutput(ctx, event, output, session.status === 'ended' ? 'ended' : 'error', Date.now());
+            }
             if (program?.activeSessionId === session._id)
                 await ctx.db.patch(program._id, { activeSessionId: undefined, state: session.status === 'ended' ? 'ended' : 'error', updatedAt: Date.now() });
         }
