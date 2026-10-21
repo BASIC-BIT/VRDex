@@ -1,0 +1,56 @@
+{
+  "font": "Open Sans Semibold 1.10",
+  "font_sha256": "aa3b0ef53db12e3d45094030cac0e69d384e44cc5978643dd4390041cad546e2",
+  "geometry_helper": "../wordmark-d-angle-study-2026-10-21/build_d_angle_studies.py",
+  "geometry_helper_sha256": "1f23a1b4fc88878daae8ad7cd76a26c0aeca0c86a1701694c93f23c24e80338f",
+  "vr_color": "#EDF3FA",
+  "dex_color": "#B4D5E5",
+  "angle_degrees_down_right": 45,
+  "width_multiplier": 1.08,
+  "previous_normal_width_font_units": 138.8832683187938,
+  "refined_normal_width_font_units": 149.9939297842973,
+  "anchor_font_coordinates": [
+    1136.7782915,
+    327.19523325
+  ],
+  "viewBox": [
+    0,
+    0,
+    480.002,
+    132
+  ],
+  "intersections": {
+    "angle_degrees_down_right": 45,
+    "normal_width_font_units": 149.9939297842973,
+    "outer_high": {
+      "curve": 2,
+      "t": 0.745853167753252,
+      "point": [
+        1270.1843134826404,
+        299.8509361546546
+      ]
+    },
+    "outer_low": {
+      "curve": 3,
+      "t": 0.018590077970423415,
+      "point": [
+        1173.4656190490764,
+        184.44618081362609
+      ]
+    },
+    "inner_high": {
+      "t": 0.7224055786709667,
+      "point": [
+        1089.3130260664154,
+        480.7222235708847
+      ]
+    },
+    "inner_low": {
+      "t": 0.5234092254962345,
+      "point": [
+        1010.0707313713717,
+        347.8410684913285
+      ]
+    }
+  }
+}

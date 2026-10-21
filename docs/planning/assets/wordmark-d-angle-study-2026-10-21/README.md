@@ -15,9 +15,16 @@ spacing stay fixed. No study is applied to the production app.
 | 45° down-right | [SVG](./vrdex-angle-45.svg) | [PNG](./vrdex-angle-45.png) | [Navbar](./vrdex-angle-45-navbar.png) |
 | 57° down-right | [SVG](./vrdex-angle-57.svg) | [PNG](./vrdex-angle-57.png) | [Navbar](./vrdex-angle-57-navbar.png) |
 
-Current recommendation: 57° echoes the roughly 57° R leg and continuous X
+Initial recommendation: 57° echoes the roughly 57° R leg and continuous X
 diagonal. The 45° version is a gentler change. Both give the D a more deliberate
 cut than the shallow control.
+
+## Selected direction
+
+BASIC selected 45° and requested a slightly wider opening on 2026-10-21.
+The [refined wordmark](../wordmark-refined-2026-10-21/README.md) keeps that angle,
+widens the perpendicular gap by 8%, and preserves the anchor and other letters.
+The 8% adjustment is the working interpretation of “just a smidge wider.”
 
 ## Geometry
 
