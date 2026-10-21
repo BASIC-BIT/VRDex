@@ -11,6 +11,11 @@ to enter their events. That supplies the initial content without making group
 self-service onboarding a launch dependency. How quickly groups join and how
 often they publish remain assumptions to test through that outreach.
 
+Observed workflow from BASIC's follow-up: link collection historically happened
+one DJ name at a time. BASIC wants to move users toward lineup collection as
+VRDex becomes more useful for event management. Preserve quick single-name
+access while making lineup lookup a first-class entry.
+
 Status: revised draft for BASIC's review. BASIC requested a Gantt-like timeline
 after reviewing concept B: event bars and nested DJ set intervals make
 concurrent events and favorite performers easier to scan. Search, timeline and
@@ -59,6 +64,16 @@ homepage studies. The homepage now has one search box and Paste lineup access.
 Entity-type filters belong to the results page. The illustrated genre filter
 is proposed behavior, not an existing exact-genre filtering capability.
 
+### Result disclosure interaction study
+
+![The same result list with links closed, one row open, and all rows open](../../planning/assets/homepage-search-schedule-2026-10-21/accordion-search-interaction-study.png)
+
+BASIC rejected the preceding study's operator-heavy presentation for ordinary
+search. This low-fidelity state study supersedes its result disclosure defaults;
+it does not replace the agreed charcoal visual direction. Closed results show
+identity and readable genres. Copy destinations appear only after a deliberate
+Links action or through the explicit lineup-collection entry.
+
 ## First version
 
 Below the existing brand/account header and an accessible Add event entry,
@@ -99,12 +114,50 @@ identity context. Preserve explicit selection and stale-response handling.
 Keep Paste lineup as a workflow entry using the existing parser, deduplication
 and lookup/copy behavior, not a permanent separate search mode.
 
-Person results combine recognizable identity, role, readable genres and quick
-public link actions. Put fuller copyable Discord/stream fields behind a Links
-disclosure; keep frequently useful external links directly accessible. The
-result name remains a profile link, independent of Copy and disclosure controls.
-Events, communities and worlds use their own relevant public metadata in the
-same results composition. Expand only the useful details for that entity.
+Person results default to recognizable identity, role, a readable genre line
+and one Links disclosure control. Keep provider-button clusters, raw URLs,
+Discord handles and Copy controls out of the closed row. The result name
+remains a profile link, independent of the disclosure. Events, communities and
+worlds use their own relevant public metadata in the same result composition;
+they do not acquire performer-only copy fields.
+
+### Result disclosure and lineup collection
+
+A single-name visitor can search, open Links and copy a needed value. Opening
+Links expands content immediately beneath that result without navigation or a
+modal. Keep several disclosures open simultaneously. The expanded panel has
+recognizable external links and aligned copy destinations, with explicit
+labels for Discord and different stream variants. Include only the public or
+otherwise explicitly authorized values available to that viewer. Copy reports
+success accessibly without closing the panel, jumping the list or changing
+the search.
+
+Place a quiet Show links action above results when eligible link-bearing person
+results exist. It opens those rows together; Hide links closes them. Query,
+matching, ordering, filters and result identities remain unchanged. This is a
+disclosure shortcut, not another search mode. If individual rows are mixed,
+Show links opens all eligible rows again.
+
+Retain an explicit Show links choice during the current search visit so someone
+collecting names serially does not reopen every result after each query. Reset
+the ordinary initial state on a fresh visit; do not create an account-wide
+operator preference. Opening a single row does not change the default for new
+queries. Hide links clears the expand-all choice. This rule must remain the
+same on desktop and mobile.
+
+Paste lineup is a first-class task entry using the same search/result machinery.
+It accepts the current multiline input and opens link panels for resolved
+matches automatically. Preserve the original input order, deduplicate repeated
+identities without losing their input mapping, and keep missing or ambiguous
+matches visible for correction/selection. Never silently choose a similarly
+named person as an authoritative match. A user can close individual panels or
+use Hide links without leaving the lineup task.
+
+Candidate follow-up for event management: enter this same collection flow from
+an existing event's lineup, with known linked identities preloaded. That is a
+later entry point, not a requirement to add event creation or booking behavior
+to search. The first implementation must make both single-name lookup and a
+pasted lineup usable without a separate DJ links search tab.
 
 Submit to `/search` with the existing query and entity-type contract. Normalize
 legacy `view=dj` URLs to the equivalent People results and retain query text.
@@ -290,6 +343,8 @@ Mockup text is not an additional copy specification.
 | Genre filter | Genre |
 | Clear genre selection | Clear filter |
 | Profile link disclosure | Links |
+| Expand or collapse person link panels | Show links; Hide links |
+| Copy destination action and success | Copy; Copied |
 | Schedule heading | Schedule |
 | Period controls | Today; Tomorrow; Upcoming |
 | Full schedule destination | Full schedule |
@@ -331,6 +386,12 @@ Before promoting the new composition to `/`:
   searches, multiline bulk lookup and result-copy actions still work. Verify
   all entity types share one search and that legacy DJ URLs reach People
   results without requiring a separate mode.
+- Verify closed ordinary results contain no raw copy fields or provider-button
+  clusters; one-row disclosure, multiple open rows and Show links/Hide links
+  work without changing the result set. Verify fresh-visit defaults, explicit
+  expand-all behavior across queries, mobile operation and non-disruptive Copy
+  feedback. Pasted lineups start with links open and retain unmatched/ambiguous
+  source entries and their order for deliberate resolution.
 - Verify custom genre labels, featured ordering, missing/long genre lists and
   +N expansion on mobile. Prove the explicit genre facet filters before limits,
   combines with keyword text, works without keyword text, clears on entity-type
