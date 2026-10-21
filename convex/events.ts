@@ -2144,7 +2144,10 @@ async function applyEventMediaWorkerTaskStatus(
     updatedAt: input.now,
   });
 
-  if (
+  // Process cleanup may outlive publication ownership. Only the currently
+  // selected session can update shared program/destination presentation.
+  const ownsPublication = input.program.activeSessionId === input.session._id;
+  if (ownsPublication && (
     status === "starting" ||
     status === "live" ||
     status === "hold" ||
@@ -2152,7 +2155,7 @@ async function applyEventMediaWorkerTaskStatus(
     status === "stopping" ||
     status === "ended" ||
     status === "error"
-  ) {
+  )) {
     await db.patch(input.program._id, {
       state: status,
       activeSessionId: ["ended", "error"].includes(status) ? undefined : input.session._id,
@@ -2197,7 +2200,7 @@ async function applyEventMediaWorkerTaskStatus(
     }
   }
 
-  if (status === "live" && input.session.outputId !== undefined) {
+  if (ownsPublication && status === "live" && input.session.outputId !== undefined) {
     const output = await db.get(input.session.outputId);
 
     if (output !== null) {
@@ -2214,7 +2217,7 @@ async function applyEventMediaWorkerTaskStatus(
     }
   }
 
-  if (["ended", "error"].includes(status) && input.session.outputId !== undefined) {
+  if (ownsPublication && ["ended", "error"].includes(status) && input.session.outputId !== undefined) {
     const output = await db.get(input.session.outputId);
 
     if (output !== null && output.state === "active") {

@@ -510,21 +510,21 @@ export async function refreshSessions(client, config, runAws = aws) {
       continue;
     }
     const next = ecsStatusToSessionStatus(task);
-
-    if (task.lastStatus !== "STOPPED" && session.status === next.status && session.workerTaskStatus === next.workerTaskStatus) {
-      continue;
+    const cleanupOnly = task.lastStatus === "STOPPED" && session.workerTaskCleanupPending !== undefined;
+    // Confirmed terminal tasks need only cleanup retries. Replaying their legacy
+    // publication status can race a replacement session using the destination.
+    if (!cleanupOnly && (session.status !== next.status || session.workerTaskStatus !== next.workerTaskStatus)) {
+      await client.mutation(convexApi.recordEventMediaWorkerBridgeTaskStatus, {
+        bridgeToken: config.bridgeToken,
+        workerId: config.workerId,
+        sessionId: session.sessionId,
+        status: next.status,
+        workerProvider: "aws_ecs",
+        workerTaskId: session.workerTaskId,
+        workerTaskStatus: next.workerTaskStatus,
+        ...(next.reason === undefined ? {} : { workerTaskStatusReason: next.reason }),
+      });
     }
-
-    await client.mutation(convexApi.recordEventMediaWorkerBridgeTaskStatus, {
-      bridgeToken: config.bridgeToken,
-      workerId: config.workerId,
-      sessionId: session.sessionId,
-      status: next.status,
-      workerProvider: "aws_ecs",
-      workerTaskId: session.workerTaskId,
-      workerTaskStatus: next.workerTaskStatus,
-      ...(next.reason === undefined ? {} : { workerTaskStatusReason: next.reason }),
-    });
 
     if (task.lastStatus === "STOPPED") {
       await client.mutation(convexApi.recordProcessStatus, { bridgeToken: config.bridgeToken, sessionId: session.sessionId, taskArn: session.workerTaskId, stopped: true });

@@ -447,3 +447,14 @@ claimed. The old two-hour recording remains evidence of its old controller and
 relay; this bounded lifecycle proof creates no new sustained-run claim. Encoder,
 decoder and output sender implementation is unchanged, and rollout gates remain
 disabled as previously documented.
+
+The scoped follow-up review found that legacy cleanup retries could replay a
+terminal publication update after a replacement session had started. Cleanup-only
+retries now skip that update. The shared legacy status mutation changes program
+and destination state only while its session owns the active program, covering
+the first delayed terminal observation as well as retries. Two real-backend
+regressions verify unchanged replacement program/output records and successful
+lease renewal through repeated cleanup failures and eventual success. The
+follow-up affected backend/bridge batch passes 163 tests. No runtime/media or UI
+files changed in this follow-up; the packaged proof and browser evidence retain
+their exact source identity and original scope.

@@ -2,7 +2,7 @@ import { bindVrcdnTestAccount } from "./_eventOutputAccountFixture";
 import assert from "node:assert/strict";
 import { it } from "node:test";
 import { convexTest } from "convex-test";
-import { makeFunctionReference } from "convex/server";
+import { makeFunctionReference, getFunctionName } from "convex/server";
 import { api } from "../../convex/_generated/api";
 import schemaModule from "../../convex/schema";
 import { newClerkUserId } from "./_clerkTestIdentity";
@@ -1090,4 +1090,44 @@ it('R5F4 successful command acknowledgements activate output and terminal omissi
  assert.equal((await f.t.mutation(worker('acknowledgeCommand'),ended)).accepted,true);assert.equal((await f.t.run(({db})=>db.get(f.output.outputId)))?.state,'ready');
  await f.t.run(async({db})=>{const id=await db.insert('eventMediaSessions',{programId:f.output.programId,eventId:f.event.eventId,outputId:f.output.outputId,status:'live',createdAt:Date.now(),updatedAt:Date.now()});await db.patch(f.output.programId,{activeSessionId:id});await db.patch(f.output.outputId,{state:'active'});});
  assert.equal((await f.t.mutation(worker('acknowledgeCommand'),ended)).duplicate,true);assert.equal((await f.t.run(({db})=>db.get(f.output.outputId)))?.state,'active');
+});
+
+for (const priorObservation of [false, true]) it(`R5_REVIEW legacy ${priorObservation ? 'cleanup retry' : 'first stopped observation'} preserves replacement publication`, async () => {
+  const f = await admittedBeforeAcquisition();
+  await f.t.run(({ db }) => db.patch(f.args.sessionId, { dispatchId: undefined, status: 'error' }));
+  let failCleanup = true, attempts = 0, publicationReports = 0;
+  const client = { ...f.client, mutation: async (ref: any, args: any) => {
+    if (getFunctionName(ref) === 'events:recordEventMediaWorkerBridgeTaskStatus') publicationReports++;
+    return f.client.mutation(ref, args);
+  } };
+  const runAws = async (_config: any, args: string[]) => {
+    if (args[1] === 'describe-tasks') return { tasks: [{ taskArn: 'managed-task', lastStatus: 'STOPPED', containers: [{ exitCode: 0 }] }] };
+    assert.equal(args[1], 'deregister-task-definition'); attempts++;
+    if (failCleanup) throw Error('cleanup throttled');
+    return {};
+  };
+  if (priorObservation) await refreshSessions(client, f.config, runAws);
+  const scheduled = await f.owner.mutation(api.events.scheduleEventMediaWorker, { currentSlug: f.event.slug, startImmediately: true });
+  const lease = await f.t.mutation(worker('acquireSession'), { ...f.args, sessionId: scheduled.sessionId, epoch: 0 });
+  assert.equal(lease.granted, true);
+  const request = { ...f.args, sessionId: scheduled.sessionId, epoch: lease.epoch };
+  assert.equal((await f.t.mutation(worker('observeProgram'), { ...request, state: 'live', outputMs: 1000, publishing: true })).accepted, true);
+  const publication = () => f.t.run(async ({ db }) => ({ program: await db.get(f.output.programId), output: await db.get(f.output.outputId) }));
+  const before = await publication();
+  assert.equal(before.program?.activeSessionId, scheduled.sessionId); assert.equal(before.program?.state, 'live'); assert.equal(before.output?.state, 'active');
+  for (let i = 0; i < 2; i++) {
+    await refreshSessions(client, f.config, runAws);
+    assert.deepEqual(await publication(), before);
+    assert.equal(publicationReports, 1, "cleanup retries must not replay publication status");
+    assert.equal((await f.t.run(({ db }) => db.get(f.args.sessionId)))?.workerTaskCleanupPending, true);
+    assert.equal((await f.t.mutation(worker('renewSession'), request)).granted, true);
+  }
+  failCleanup = false;
+  await refreshSessions(client, f.config, runAws);
+  assert.deepEqual(await publication(), before);
+  assert.equal((await f.t.run(({ db }) => db.get(f.args.sessionId)))?.workerTaskCleanupPending, false);
+  assert.equal((await f.t.run(({ db }) => db.get(f.args.sessionId)))?.workerTaskStatus, 'stopped');
+  const cleanedAttempts = attempts;
+  await refreshSessions(client, f.config, runAws);
+  assert.equal(attempts, cleanedAttempts); assert.deepEqual(await publication(), before);
 });

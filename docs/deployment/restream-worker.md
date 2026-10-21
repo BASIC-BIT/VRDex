@@ -844,3 +844,8 @@ changed; seven runtime modules retain their prior identity. Exact provenance,
 recording hash, browser fixture limits and historical two-hour attribution are
 in [integration verification](../engineering/event-broadcast-verification.md).
 Hosted output, automatic silence and optional maximum overrun remain disabled.
+
+Legacy cleanup-only retries do not replay publication status. First delayed
+legacy status reports also check active-session ownership before changing shared
+program/output state, so retiring an old task cannot fence its live replacement.
+The old task's own process status and cleanup remain independently reconcilable.
