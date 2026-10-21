@@ -82,7 +82,9 @@ secrets list must be empty. The parent still has its normal task-role S3 access.
 
 The provider task receives only the exact output secret as
 `VRDEX_EVENT_MEDIA_OUTPUT_INGEST_SECRET_JSON` through ECS secret injection. Never put
-that JSON, stream keys or ingest targets into process arguments. Required nonsecret
+that JSON, stream keys or ingest targets into proof-command arguments or diagnostics.
+The unchanged trusted FFmpeg sender uses `-rtmp_playpath` inside the isolated task;
+task-local process inspection can see the key. Required nonsecret
 configuration is:
 
 ```text
@@ -117,7 +119,10 @@ The account budget was already exceeded when this attempt was approved.
 
 The provider adapter has a 180-second internal media deadline, a 12-second startup
 operation bound, the worker's unchanged 15-second publication startup guard, and an
-independent 50 ms watchdog. A dedicated switch false/unavailable or expired lease
+independent 50 ms watchdog. After initial publication, the required sender must keep
+advancing its reported output timestamp. A three-second gap fences the sender and
+permanently fails the proof, even when the local recording remains valid or the sender
+later reconnects. A dedicated switch false/unavailable or expired lease
 fences through the real worker; no enable response is hardcoded. The normal workload
 ends at 120 seconds, including startup. It sends an explicit hold at +20 seconds and
 return at +30 seconds. Successful command acknowledgements reflect encoded output.
@@ -146,7 +151,12 @@ raw logs, unknown files and symlinks are excluded. The reports preserve nonzero 
 status, timeout/signal state, byte counts, numeric resource samples, acknowledgements,
 readiness flags and actual stop reasons. Failed packet verification keeps media and
 returns nonzero. Upload failure makes a successful workload nonzero; prior failure
-codes remain intact. S3 failure can leave only local evidence. Media files cap at
+codes remain intact. Interruption remains effective through cleanup, packet verification
+and artifact finalization. It cancels the verifier group and current media upload,
+skips remaining large uploads, and converts an otherwise successful invocation to 130.
+A small bounded status write still records the interruption; a signal during that
+write supersedes its earlier status snapshot once. Existing workload failures remain
+unchanged. S3 failure can leave only local evidence. Media files cap at
 100 MiB each; the adapter's local program recording caps at 64 MiB with a 1 MiB queue.
 
 Keep both switches false, stop and verify all exact task ARNs, deregister only run-created

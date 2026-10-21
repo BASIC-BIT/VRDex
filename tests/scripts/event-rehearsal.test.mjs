@@ -6,7 +6,7 @@ import { mkdtemp, readFile, writeFile, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { validateRehearsal, createRehearsalControl, runRehearsal, createReadinessEvidence, REHEARSAL_PARAMETER } from '../../scripts/event-vrcdn-rehearsal.mjs';
-import { runBounded, finalizeArtifacts, numericDiagnostics, syntheticEnvironment } from '../../scripts/event-proof-runner.mjs';
+import { runBounded, finalizeArtifacts, numericDiagnostics, syntheticEnvironment, runSynthetic, finalizeProof } from '../../scripts/event-proof-runner.mjs';
 import { createEventWorker, checkHostedEnabled } from '../../workers/restream/event-worker.mjs';
 const attestations = { sourceConsent: 'accepted', destinationAuthority: 'accepted', providerRules: 'accepted', rightsClearedMedia: 'accepted' };
 const environment = () => ({ VRDEX_PROVIDER_REHEARSAL_CONFIRMED: 'true', VRDEX_PROVIDER_REHEARSAL_ATTESTATIONS_JSON: JSON.stringify(attestations), VRDEX_EVENT_MEDIA_OUTPUT_INGEST_SECRET_JSON: '{"rtmpUrl":"rtmp://uk.ingest.vrcdn.live/live","streamKey":"private-canary"}', AWS_REGION: 'us-east-1', VRDEX_RESTREAM_KILL_SWITCH_SSM_PARAMETER: REHEARSAL_PARAMETER });
@@ -137,7 +137,7 @@ function simulatedRehearsal({ disabledAt = Infinity, abortAt = Infinity, publish
   sleep: async () => { elapsed += 1000; if (elapsed >= abortAt) abort.abort(); },
   createSourceRelay: async () => ({ stop: () => calls.push('relay-stop'), resolveSource: () => 'fake-source', retainSources() {} }),
   createProgramRenderer: () => ({ subscribe: fn => { subscribers.add(fn); return () => subscribers.delete(fn); }, start: async () => { running = true; for (const fn of subscribers) fn(Buffer.alloc(188)); }, stop: async () => { running = false; }, getInputs: () => [{ source: { slotKey: 'source-a' }, getObservation: () => ({ ready: true }) }], reconcileSources: async () => {}, selectSource: () => { selected = 'basicbit1'; return true; }, hold: () => { selected = undefined; }, getState: () => ({ running, outputMs: outputMs += 100, renderedSlotKey: selected ? 'source-a' : undefined, renderedSourceId: selected }) }),
-  createEventOutputs: () => ({ start: async () => {}, enqueue() {}, stopNow: () => { publishing = false; }, stop: async () => {}, getState: () => ({ publishing: publishes && publishing, destinations: [] }) }),
+  createEventOutputs: () => ({ start: async () => {}, enqueue() {}, stopNow: () => { publishing = false; }, stop: async () => {}, getState: () => ({ publishing: publishes && publishing, destinations: [{ outputId: 'basicbit', publishing: publishes && publishing, status: 'publishing', outputMs: elapsed, restarts: 0 }] }) }),
   createEventWorker: options => createEventWorker({ ...options, clock: () => elapsed }),
   checkHostedEnabled: async () => elapsed < disabledAt,
   processMetrics: () => ({ sample: async () => {}, result: () => ({ cpuSeconds: { worker: 1 } }) }),
@@ -191,7 +191,10 @@ test('image workflow stays manual, main-bound, immutable and image-only', async 
  assert.ok(source.includes('proof-$REQUESTED_SHA')); assert.ok(source.includes('expected-runtime.sha256'));
  assert.ok(!/aws\s+(ecs|iam|ssm|secretsmanager|s3)\s/.test(source));
  const dockerfile = await readFile('workers/restream/Dockerfile', 'utf8');
- for (const command of ['event-output-local-proof', 'event-proof-metrics', 'event-vrcdn-rehearsal', 'event-proof-runner']) assert.ok(dockerfile.includes(`COPY scripts/${command}.mjs scripts/${command}.mjs`));
+ const copies = dockerfile.replace(/\\\n/g, ' ').split('\n').filter(line => line.startsWith('COPY ')).map(line => line.trim().split(/\s+/).slice(1));
+ assert.equal(copies.length, 2);
+ assert.deepEqual(copies.find(parts => parts.at(-1) === 'scripts/'), ['event-output-local-proof', 'event-proof-metrics', 'event-vrcdn-rehearsal', 'event-proof-runner'].map(name => `scripts/${name}.mjs`).concat('scripts/'));
+ assert.deepEqual(copies.find(parts => parts.at(-1) === 'workers/restream/'), ['hosted-worker', 'live-control', 'vrcdn-poc', 'output-sender', 'event-worker', 'source-relay', 'handoff-policy', 'input-supervisor', 'program-renderer'].map(name => `workers/restream/${name}.mjs`).concat('workers/restream/'));
  assert.ok(dockerfile.includes('CMD ["node", "workers/restream/hosted-worker.mjs"]'));
 });
 test('rehearsal IAM resources are opt-in, standalone, exact and additive', async () => {
@@ -210,4 +213,58 @@ test('rehearsal IAM resources are opt-in, standalone, exact and additive', async
 test('bounded runner terminates an actual isolated Node process without media', async () => {
  const result = await runBounded({ command: process.execPath, args: ['-e', 'setInterval(() => {}, 1000)'], env: {}, timeoutMs: 30 });
  assert.equal(result.exitCode, 124); assert.equal(result.timedOut, true);
+});
+test('required output loss or stalled progress after startup fails and fences the real worker', async () => {
+ for (const failure of ['disconnected', 'stalled']) {
+  const simulated = simulatedRehearsal(), original = simulated.dependencies.createEventOutputs;
+  simulated.dependencies.createEventOutputs = options => {
+   const outputs = original(options), getState = outputs.getState;
+   return { ...outputs, getState: () => {
+    const state = getState();
+    if (simulated.dependencies.now() < 1040000 || !state.publishing) return state;
+    return { ...state, publishing: failure !== 'disconnected', destinations: [{ outputId: 'basicbit', publishing: failure !== 'disconnected', status: failure === 'disconnected' ? 'reconnecting' : 'publishing', outputMs: failure === 'disconnected' ? 0 : 39000, restarts: 0 }] };
+   } };
+  };
+  const result = await runRehearsal({ env: environment(), directory: await mkdtemp(join(tmpdir(), 'rehearsal-test-')), ...simulated });
+  assert.equal(result.exitCode, 1); assert.equal(result.passed, false); assert.equal(result.requiredOutputProgressFailed, true);
+  assert.ok(result.wallMs <= 44000); assert.equal(result.publishingAfterCleanup, false);
+ }
+});
+test('signal during provider packet verification is retained in failure evidence', async () => {
+ const simulated = simulatedRehearsal(), abort = new AbortController(), verify = simulated.dependencies.verifyProgramPackets;
+ let forwardedSignal;
+ simulated.dependencies.verifyProgramPackets = async (file, options) => { forwardedSignal = options?.signal; abort.abort(); return verify(file); };
+ const result = await runRehearsal({ env: environment(), directory: await mkdtemp(join(tmpdir(), 'rehearsal-test-')), ...simulated, signal: abort.signal });
+ assert.equal(result.exitCode, 130); assert.equal(result.passed, false); assert.equal(result.aborted, true); assert.equal(forwardedSignal, abort.signal);
+ const saved = JSON.parse(await readFile(join(result.directory, 'rehearsal.json'), 'utf8'));
+ assert.equal(saved.exitCode, 130); assert.equal(saved.aborted, true); assert.equal(result.publishingAfterCleanup, false);
+});
+test('late synthetic finalizer signal cannot return success or replace an earlier failure', async () => {
+ for (const prior of [0, 7]) {
+  const abort = new AbortController();
+  const result = await runSynthetic({ env: { ...environment(), VRDEX_PROOF_RUN_ID: `late-${prior}`, VRDEX_RESTREAM_ARTIFACT_S3_URI: 's3://vrdex-restream-worker-079358094174-artifacts/synthetic-benchmarks' }, signal: abort.signal, run: async () => ({ exitCode: prior }), finalize: async options => { assert.equal(options.signal, abort.signal); abort.abort(); return { exitCode: options.exitCode }; } });
+  assert.equal(result.exitCode, prior || 130); assert.equal(result.aborted, true);
+ }
+});
+test('finalizer cancellation stops large uploads and saves interrupted status, including a status-upload signal', async () => {
+ for (const phase of ['media', 'status']) {
+  const abort = new AbortController(), directory = await mkdtemp(join(tmpdir(), 'rehearsal-test-')), uploads = [];
+  await writeFile(join(directory, 'primary.ts'), Buffer.alloc(188));
+  await writeFile(join(directory, 'optional-before.ts'), Buffer.alloc(188));
+  const result = await finalizeArtifacts({ directory, exitCode: 0, runId: `abort-${phase}`, signal: abort.signal, upload: async (file, target, options = {}) => {
+   uploads.push({ target, value: target.endsWith('.json') ? JSON.parse(await readFile(file, 'utf8')) : undefined });
+   if (target.endsWith(phase === 'media' ? 'primary.ts' : 'status.json') && !abort.signal.aborted) { if (phase === 'media') assert.equal(options.signal, abort.signal); abort.abort(); }
+  } });
+  assert.equal(result.exitCode, 130); assert.equal(result.aborted, true);
+  assert.equal(uploads.at(-1).value.exitCode, 130); assert.equal(uploads.at(-1).value.aborted, true);
+  if (phase === 'media') assert.ok(!uploads.some(value => value.target.endsWith('/optional-before.ts')));
+ }
+});
+test('provider invocation uses the same late-finalization signal and prior-failure preservation', async () => {
+ for (const failVerification of [false, true]) {
+  const simulated = simulatedRehearsal({ failVerification }), abort = new AbortController();
+  const result = await runRehearsal({ env: environment(), directory: await mkdtemp(join(tmpdir(), 'rehearsal-test-')), ...simulated, signal: abort.signal });
+  const status = await finalizeProof({ directory: result.directory, exitCode: result.exitCode, env: {}, signal: abort.signal, finalize: async options => { assert.equal(options.signal, abort.signal); abort.abort(); return { exitCode: options.exitCode }; } });
+  assert.equal(status.exitCode, failVerification ? 1 : 130); assert.equal(status.aborted, true); assert.equal(result.publishingAfterCleanup, false);
+ }
 });

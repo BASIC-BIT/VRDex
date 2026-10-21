@@ -15,7 +15,7 @@
 - Production `/vrdex/restream/hosted-worker/enabled` remains false. Dedicated rehearsal switch `/vrdex/restream/rehearsal/enabled` defaults false and is the only switch toggled for provider proof.
 - Use only existing basicbit1 source and basicbit output. No Twitch account exists. Do not claim two-independent-source live acceptance, real Convex admission/registry/leases, musical silence calibration or physical device acceptance.
 - Current event profile only: 720p30 H.264/yuv420p, 1800kbps video, AAC stereo160kbps/48kHz, one-second VRCDN GOP. Keep normal runtime modules/thresholds unchanged.
-- No secret values in reports, process args, committed files or logs. Output credential uses ECS secret injection. Source pusher receives only source credential. Synthetic task receives neither.
+- No secret values in reports, committed files, logs or new proof/runner command-line arguments. Output credential uses ECS secret injection. Source pusher receives only source credential. Synthetic task receives neither. The unchanged production FFmpeg child receives its existing private ingest arguments; do not export process command lines or claim task-local process inspection cannot see them.
 - At most one 120-second synthetic task at2CPU/4GiB, one120-second output task at2CPU/4GiB, and two sequential source pushers at1CPU/2GiB per initial approved attempt. Each outer process deadline240s; run deadline ten minutes. No automatic retries or unreviewed resource escalation. Preserve failures.
 - Estimated compute approximately$0.02, excluding storage/egress/logs; incremental target$1 is not a hard billing cutoff. AWS account budget already exceeded, disclosed and user approved proceeding.
 - Preserve all prior evidence and images. No concurrent media runs/builds. Managed isolated checkout `/workspace/VRDex` is the documented lane; new branch `ops/event-broadcast-rehearsal` starts at merged326a38b.
@@ -34,7 +34,7 @@
 
 - Create `scripts/event-vrcdn-rehearsal.mjs`, a small independently testable provider proof adapter.
 - Create `scripts/event-proof-runner.mjs`, bounded subprocess runner and private artifact finalizer, if needed to avoid duplicated upload/cleanup logic.
-- Modify `workers/restream/Dockerfile` only to package proof/helper commands; default entrypoint and runtime modules unchanged.
+- Modify `workers/restream/Dockerfile` to package proof/helper commands and consolidate explicit file copies into one worker layer and one proof layer. Default entrypoint, paths and runtime module contents remain unchanged; consolidation prevents VFS from storing a full filesystem copy per tiny file during this build.
 - Create focused Node tests under `tests/scripts/` for proof guards, commands, kill-switch fencing/cleanup, failed status preservation and secret-safe reports using injected dependencies.
 - Add manual image-only workflow `.github/workflows/restream-image.yml` from reviewed prototype; no automatic triggers or ECS/IAM/SSM/Convex mutations.
 - Add opt-in exact IAM delta resources in existing Terraform owners, with default disabled and documented import/bootstrap path. Use standalone policy names `vrdex-restream-proof-image`, `vrdex-restream-rehearsal-source`, `vrdex-restream-rehearsal-switch` to avoid replacing any unrelated existing inline policy. Add dedicated SSM parameter definition only through opt-in rehearsal config, defaultfalse. Existing execution role output access remains intact.

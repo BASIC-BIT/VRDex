@@ -9,7 +9,7 @@ import { createProgramRenderer } from '../workers/restream/program-renderer.mjs'
 import { createEventOutputs, parseOutputCredential } from '../workers/restream/output-sender.mjs';
 import { createSourceRelay } from '../workers/restream/source-relay.mjs';
 import { processMetrics } from './event-proof-metrics.mjs';
-import { ARTIFACT_ROOT, finalizeArtifacts, numericDiagnostics, proofStart, verifyRecording } from './event-proof-runner.mjs';
+import { ARTIFACT_ROOT, finalizeProof, numericDiagnostics, proofStart, verifyRecording } from './event-proof-runner.mjs';
 
 export const REHEARSAL_PARAMETER = '/vrdex/restream/rehearsal/enabled';
 export const SOURCE_URL = 'https://stream.vrcdn.live/live/basicbit1.live.ts';
@@ -88,6 +88,7 @@ export async function runRehearsal({ env = process.env, directory, signal, depen
     const stopReasons = {}, expiredAuthorities = {};
     let relay, renderer, outputs, worker, metrics, timer, internalDeadline, unsubscribe, recording, recordingDone;
     let exitCode = 1, aborted = signal?.aborted === true, timedOut = false, rendererFailed = false, recordingFailed = false, recordedBytes = 0, published = false, switchFalseObserved = false, switchUnavailable = false, fenced = false;
+    let lastRequiredOutputMs = 0, lastRequiredProgressAt, requiredOutputProgressFailed = false;
     const fence = () => { outputs?.stopNow(); };
     const abort = () => { aborted = true; fence(); void worker?.stop(); };
     signal?.addEventListener('abort', abort, { once: true });
@@ -139,10 +140,21 @@ export async function runRehearsal({ env = process.env, directory, signal, depen
             if (deps.now() - beganAt < 20000 || returned) {
                 for (const input of renderer.getInputs()) readiness.observe(input.getObservation());
             }
-            published ||= output.publishing === true && state.running && state.outputMs > 0;
+            const primary = output.destinations?.find(destination => destination.outputId === 'basicbit');
+            const primaryMs = primary?.outputMs;
+            if (output.publishing === true && primary?.publishing === true && Number.isFinite(primaryMs) && primaryMs > lastRequiredOutputMs && state.running && state.outputMs > 0) {
+                published = true;
+                lastRequiredProgressAt = deps.now();
+            }
+            if (Number.isFinite(primaryMs)) lastRequiredOutputMs = primaryMs;
             samples.push(numericDiagnostics({ elapsedMs: deps.now() - beganAt, outputMs: state.outputMs, running: state.running, rendererFailed: Boolean(state.error), publishing: output.publishing, destinations: output.destinations, ...readiness.result() }));
             await metrics.sample();
             if (deps.now() - beganAt > 15000 && !published) throw Error('No advancing publication');
+            if (published && !worker.getState().stopped && deps.now() - lastRequiredProgressAt >= 3000) {
+                requiredOutputProgressFailed = true;
+                fence();
+                throw Error('Required output progress expired');
+            }
             if (state.error) throw Error('Renderer failed');
             await deps.sleep(1000, undefined, { signal }).catch(() => { aborted = true; });
         }
@@ -153,7 +165,7 @@ export async function runRehearsal({ env = process.env, directory, signal, depen
         exitCode = aborted ? 130 : fullDuration && published && readiness.result().sourceReadyObserved && commandsPassed && !timedOut && !rendererFailed && !recordingFailed && !switchUnavailable ? 0 : 1;
     } catch { exitCode = aborted ? 130 : 1; }
     finally {
-        clearInterval(timer); clearTimeout(internalDeadline); signal?.removeEventListener('abort', abort);
+        clearInterval(timer); clearTimeout(internalDeadline);
         // Synchronous sender fence always precedes awaited decoder cleanup.
         fence(); unsubscribe?.();
         for (const cleanup of [() => worker?.stop(), () => outputs?.stop(), () => renderer?.stop(), () => relay?.stop()]) {
@@ -161,22 +173,30 @@ export async function runRehearsal({ env = process.env, directory, signal, depen
         }
         if (recording) { recording.end(); await bounded(() => recordingDone, 3000).catch(() => { exitCode ||= 1; }); }
     }
-    let packetVerification;
-    if (recordedBytes > 0) {
-        try {
-            packetVerification = await deps.verifyProgramPackets(join(directory, 'program.ts'));
-            const video = packetVerification.streams.find(stream => stream.codec_name === 'h264');
-            const audio = packetVerification.streams.find(stream => stream.codec_name === 'aac');
-            if (!video || video.width !== 1280 || video.height !== 720 || video.r_frame_rate !== '30/1' || !audio || Number(audio.sample_rate) !== 48000 || packetVerification.maxGop > 1.05 || packetVerification.maxGap >= 0.2) exitCode ||= 1;
-        } catch { exitCode ||= 1; }
-    } else exitCode ||= 1;
-    const publishingAfterCleanup = outputs?.getState?.().publishing === true;
-    if (publishingAfterCleanup) exitCode ||= 1;
-    const switchDisabledFenceObserved = published && switchFalseObserved && fenced && !publishingAfterCleanup && stopReasons.control_failed === true;
-    const result = numericDiagnostics({ exitCode, passed: exitCode === 0, seconds: 120, wallMs: deps.now() - beganAt, syntheticAuthority: true, realConvexAuthority: false, independentSourceHandoff: false, twitchAcceptance: false, deviceAcceptance: false, attestations: Object.fromEntries(RIGHTS.map(key => [key, compliance[key] === 'accepted'])), ...readiness.result(), published, switchFalseObserved, switchUnavailable, switchDisabledFenceObserved, fenced, stopReasons, expiredAuthorities, publishingAfterCleanup, aborted, timedOut, rendererFailed, recordingFailed, recordedBytes, commands: evidence.commands, observations: evidence.observations, resources: metrics?.result(), metricsEvents, packetVerification });
-    await writeFile(join(directory, 'rehearsal.json'), JSON.stringify(result), { mode: 0o600 });
-    await writeFile(join(directory, 'samples.ndjson'), samples.map(sample => JSON.stringify(sample)).join('\n'), { mode: 0o600 });
-    return { ...result, directory };
+    try {
+        let packetVerification;
+        if (recordedBytes > 0) {
+            try {
+                packetVerification = await deps.verifyProgramPackets(join(directory, 'program.ts'), { signal });
+                const video = packetVerification.streams.find(stream => stream.codec_name === 'h264');
+                const audio = packetVerification.streams.find(stream => stream.codec_name === 'aac');
+                if (!video || video.width !== 1280 || video.height !== 720 || video.r_frame_rate !== '30/1' || !audio || Number(audio.sample_rate) !== 48000 || packetVerification.maxGop > 1.05 || packetVerification.maxGap >= 0.2) exitCode ||= 1;
+            } catch { exitCode ||= signal?.aborted ? 130 : 1; }
+        } else exitCode ||= 1;
+        const publishingAfterCleanup = outputs?.getState?.().publishing === true;
+        if (publishingAfterCleanup) exitCode ||= 1;
+        aborted ||= signal?.aborted === true;
+        if (aborted) exitCode ||= 130;
+        const switchDisabledFenceObserved = published && switchFalseObserved && fenced && !publishingAfterCleanup && stopReasons.control_failed === true;
+        const result = numericDiagnostics({ exitCode, passed: exitCode === 0, seconds: 120, wallMs: deps.now() - beganAt, syntheticAuthority: true, realConvexAuthority: false, independentSourceHandoff: false, twitchAcceptance: false, deviceAcceptance: false, attestations: Object.fromEntries(RIGHTS.map(key => [key, compliance[key] === 'accepted'])), ...readiness.result(), published, requiredOutputProgressFailed, switchFalseObserved, switchUnavailable, switchDisabledFenceObserved, fenced, stopReasons, expiredAuthorities, publishingAfterCleanup, aborted, timedOut, rendererFailed, recordingFailed, recordedBytes, commands: evidence.commands, observations: evidence.observations, resources: metrics?.result(), metricsEvents, packetVerification });
+        await writeFile(join(directory, 'rehearsal.json'), JSON.stringify(result), { mode: 0o600 });
+        await writeFile(join(directory, 'samples.ndjson'), samples.map(sample => JSON.stringify(sample)).join('\n'), { mode: 0o600 });
+        if (signal?.aborted && !result.aborted) {
+            result.aborted = true; result.exitCode ||= 130; result.passed = false;
+            await writeFile(join(directory, 'rehearsal.json'), JSON.stringify(result), { mode: 0o600 });
+        }
+        return { ...result, directory };
+    } finally { signal?.removeEventListener('abort', abort); }
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
     const abort = new AbortController(), shutdown = () => abort.abort();
@@ -187,7 +207,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
         if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,95}$/.test(process.env.VRDEX_PROOF_RUN_ID ?? '') || process.env.VRDEX_RESTREAM_ARTIFACT_S3_URI !== ARTIFACT_ROOT) throw Error('Invalid private artifact configuration');
         proofStart(process.env.VRDEX_PROOF_RUN_ID, 'vrcdn-rehearsal');
         const result = await runRehearsal({ signal: abort.signal });
-        const status = await finalizeArtifacts({ directory: result.directory, exitCode: result.exitCode, runId: process.env.VRDEX_PROOF_RUN_ID, artifactRoot: process.env.VRDEX_RESTREAM_ARTIFACT_S3_URI });
+        const status = await finalizeProof({ directory: result.directory, exitCode: result.exitCode, env: process.env, signal: abort.signal });
         console.log(JSON.stringify(status)); process.exitCode = status.exitCode;
     } catch { console.error('VRCDN rehearsal failed'); process.exitCode = 1; }
     finally { process.removeListener('SIGTERM', shutdown); process.removeListener('SIGINT', shutdown); }

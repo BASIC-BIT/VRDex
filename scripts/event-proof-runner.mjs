@@ -71,24 +71,25 @@ export function runBounded({ command, args, env, timeoutMs = 180000, signal, spa
         deadline = setTimeout(() => terminate(124), timeoutMs);
     });
 }
-async function uploadPrivate(file, target) {
-    await promisify(execFile)('aws', ['s3', 'cp', file, target, '--region', 'us-east-1', '--sse', 'AES256', '--only-show-errors', '--cli-connect-timeout', '2', '--cli-read-timeout', '5'], { timeout: 12000, maxBuffer: 16384 });
+async function uploadPrivate(file, target, { signal } = {}) {
+    await promisify(execFile)('aws', ['s3', 'cp', file, target, '--region', 'us-east-1', '--sse', 'AES256', '--only-show-errors', '--cli-connect-timeout', '2', '--cli-read-timeout', '5'], { timeout: 12000, maxBuffer: 16384, signal });
 }
 /** Packet parsing runs in its own process group so a stuck ffprobe is killable. */
-export async function verifyRecording(file) {
+export async function verifyRecording(file, { signal } = {}) {
     const resultFile = `${file}.packets.json`;
-    const result = await runBounded({ command: process.execPath, args: [new URL(import.meta.url).pathname, 'verify'], env: { PATH: process.env.PATH, PROOF_VERIFY_INPUT: file, PROOF_VERIFY_RESULT: resultFile }, timeoutMs: 8000 });
+    const result = await runBounded({ command: process.execPath, args: [new URL(import.meta.url).pathname, 'verify'], env: { PATH: process.env.PATH, PROOF_VERIFY_INPUT: file, PROOF_VERIFY_RESULT: resultFile }, timeoutMs: 8000, signal });
     if (result.exitCode !== 0) throw Error('Bounded packet verification failed');
     const info = await lstat(resultFile);
     if (!info.isFile() || info.size > 65536) throw Error('Invalid packet verification result');
     return JSON.parse(await readFile(resultFile, 'utf8'));
 }
 /** Called after media teardown. No recursive upload and no raw stdout/stderr. */
-export async function finalizeArtifacts({ directory, exitCode, runId, artifactRoot = ARTIFACT_ROOT, upload = uploadPrivate }) {
+export async function finalizeArtifacts({ directory, exitCode, runId, artifactRoot = ARTIFACT_ROOT, upload = uploadPrivate, signal }) {
     if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,95}$/.test(runId ?? '') || artifactRoot !== ARTIFACT_ROOT) throw Error('Invalid private artifact configuration');
     const safeDirectory = await mkdtemp(join(tmpdir(), 'event-proof-safe-'));
     let uploaded = 0, uploadFailures = 0;
     for (const name of ARTIFACTS) {
+        if (signal?.aborted) break;
         try {
             const file = join(directory, name), info = await lstat(file);
             if (!info.isFile() || info.isSymbolicLink() || info.size > (name.endsWith('.ts') ? 100 * 1024 * 1024 : 1024 * 1024)) continue;
@@ -99,14 +100,30 @@ export async function finalizeArtifacts({ directory, exitCode, runId, artifactRo
                 safeFile = join(safeDirectory, name);
                 await writeFile(safeFile, JSON.stringify(value), { mode: 0o600 });
             }
-            await upload(safeFile, `${artifactRoot}/${runId}/${name}`); uploaded++;
+            await upload(safeFile, `${artifactRoot}/${runId}/${name}`, { signal }); uploaded++;
         } catch (error) { if (error.code !== 'ENOENT') uploadFailures++; }
     }
-    const status = { exitCode: exitCode || (uploadFailures ? 1 : 0), uploaded, uploadFailures };
+    const status = { exitCode: exitCode || (signal?.aborted ? 130 : uploadFailures ? 1 : 0), aborted: signal?.aborted === true, uploaded, uploadFailures };
     const statusFile = join(safeDirectory, 'status.json');
     await writeFile(statusFile, JSON.stringify(status), { mode: 0o600 });
+    // Failure status is a small bounded cleanup write even after cancellation.
+    // If interruption arrives during that write, supersede its earlier snapshot.
     try { await upload(statusFile, `${artifactRoot}/${runId}/status.json`); } catch { status.uploadFailures++; status.exitCode ||= 1; }
+    const interruptedDuringStatus = signal?.aborted === true && !status.aborted;
+    status.aborted ||= signal?.aborted === true;
+    status.exitCode = exitCode || (status.aborted ? 130 : status.uploadFailures ? 1 : 0);
+    await writeFile(statusFile, JSON.stringify(status), { mode: 0o600 });
+    if (interruptedDuringStatus) {
+        try { await upload(statusFile, `${artifactRoot}/${runId}/status.json`); } catch { status.uploadFailures++; }
+    }
     return status;
+}
+/** Both CLIs preserve workload failure and observe interruption through upload. */
+export async function finalizeProof({ directory, exitCode, env, signal, finalize = finalizeArtifacts }) {
+    let status;
+    try { status = await finalize({ directory, exitCode, runId: env.VRDEX_PROOF_RUN_ID, artifactRoot: env.VRDEX_RESTREAM_ARTIFACT_S3_URI, signal }); }
+    catch { status = { exitCode: 1, uploadFailures: 1 }; }
+    return { ...status, aborted: status.aborted === true || signal?.aborted === true, exitCode: exitCode || (signal?.aborted ? 130 : status.exitCode) };
 }
 export async function runSynthetic({ env = process.env, signal, run = runBounded, finalize = finalizeArtifacts } = {}) {
     if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,95}$/.test(env.VRDEX_PROOF_RUN_ID ?? '') || env.VRDEX_RESTREAM_ARTIFACT_S3_URI !== ARTIFACT_ROOT) throw Error('Invalid private artifact configuration');
@@ -120,7 +137,7 @@ export async function runSynthetic({ env = process.env, signal, run = runBounded
     const entries = (await readdir(directory)).filter(name => name.startsWith('output-'));
     const proofDirectory = entries.length === 1 ? join(directory, entries[0]) : directory;
     await writeFile(join(proofDirectory, 'rehearsal.json'), JSON.stringify(result), { mode: 0o600 });
-    return finalize({ directory: proofDirectory, exitCode: result.exitCode, runId: env.VRDEX_PROOF_RUN_ID, artifactRoot: env.VRDEX_RESTREAM_ARTIFACT_S3_URI });
+    return finalizeProof({ directory: proofDirectory, exitCode: result.exitCode, env, signal, finalize });
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
     const abort = new AbortController();
