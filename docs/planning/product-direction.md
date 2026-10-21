@@ -59,8 +59,11 @@ composition and the links/assets it needs belong in the event workspace.
 Retain working legacy lookup tools during the transition rather than removing
 their utility before event management can replace it.
 
-Discord, VRCTL and VRCPop are intended distribution destinations, not verified
-automatic integrations. Research destination capabilities, authorization,
+Discord and VRCPop are intended distribution destinations, not verified
+automatic integrations. Locked decision: VRC.tl is excluded as an integration
+or publishing destination. Its supplied timetable screenshot is a visual
+reference only; its appearance in the current copying workflow does not make
+it a target for VRDex distribution. Research destination capabilities, authorization,
 field mapping, update/cancellation behavior and delivery status separately.
 VRDex event authoring and publication must remain useful independently of
 external delivery. Automatic or bidirectional sync is not established by this

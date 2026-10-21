@@ -13,9 +13,10 @@ often they publish remain assumptions to test through that outreach.
 
 Observed workflow from BASIC's follow-up: organizers plan events in Discord,
 then copy the details to VRCTL and VRCPop. BASIC wants VRDex to become the place
-events are planned and maintained, with the other places receiving mirrors.
-That is the product goal; automatic integrations with those destinations have
-not been established by this design.
+events are planned and maintained, with Discord and VRCPop as intended mirror
+destinations. BASIC explicitly excludes VRC.tl as a publishing/integration
+destination. Automatic integrations with the intended destinations have not
+been established by this design.
 
 Single-name link lookup remains useful. BASIC retained compact search and
 individual expanded results, but rejected the proposed third search scenario
@@ -126,10 +127,11 @@ an editable event draft with explicit identity resolution, not a detached list
 of URLs to carry between apps. Known linked performers can supply the eligible
 links and assets already held by their profiles.
 
-Discord, VRCTL and VRCPop are requested destinations. Each needs independent
+Discord and VRCPop are requested destinations. Locked decision: VRC.tl is
+excluded from planned publishing and integration destinations; the supplied
+timetable screenshot is a visual reference only. Each intended destination needs independent
 capability, permission, field-mapping, update/cancellation and delivery research.
-No automatic or bidirectional mirroring is promised here, and the supplied
-VRC.tl screenshot does not authorize access to that service. Saving and
+No automatic or bidirectional mirroring is promised here. Saving and
 publishing the VRDex event must remain useful when an external delivery is
 unavailable. Destination delivery state belongs with the event in the organizer
 workspace; it must not be confused with whether the canonical event was saved.
