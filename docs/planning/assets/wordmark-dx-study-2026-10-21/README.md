@@ -15,9 +15,17 @@ Rows change only the D opening. Columns change only the X clearance.
 | D2: original | [D2/X1](./vrdex-d2-x1.png) | [D2/X2](./vrdex-d2-x2.png) | [D2/X3](./vrdex-d2-x3.png) |
 | D3: wide | [D3/X1](./vrdex-d3-x1.png) | [D3/X2](./vrdex-d3-x2.png) | [D3/X3](./vrdex-d3-x3.png) |
 
-Current recommendation: D1/X2. The slightly tighter D opening retains more
+Initial recommendation: D1/X2. The slightly tighter D opening retains more
 of the bowl, while the original X gap stays clear at navbar size. D2/X2 is
 the direct combination requested by the user.
+
+## Follow-up direction
+
+BASIC requested a steeper downward angle for the D cut on 2026-10-21.
+The [D-angle study](../wordmark-d-angle-study-2026-10-21/README.md) uses D1/X2
+as its working starting point, keeps X and the other letters fixed, and compares
+steeper D slits at a consistent opening width. This is a new angle study,
+not a final selection of D1/X2 or its cut widths.
 
 ## Geometry and exports
 
