@@ -18,6 +18,13 @@ VR is `#EDF3FA`; DEX is `#B4D5E5`. Monochrome is `#EDF3FA`.
 All standalone exports have transparent backgrounds and outlined paths, with
 no linked fonts, masks, cover-up shapes or bitmap artwork inside the SVGs.
 
+## Gap matching follow-up
+
+BASIC then requested the same gap size in X. The
+[matched-gap wordmark](../wordmark-matched-gaps-2026-10-21/README.md) retains
+this selected D and matches both X separations to its measured perpendicular
+width, rather than reusing the old X clipping thresholds as a distance.
+
 ## Reproduce and verify
 
 From the repository root, with Python FontTools and the workspace's installed
