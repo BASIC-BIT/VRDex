@@ -268,3 +268,41 @@ test('provider invocation uses the same late-finalization signal and prior-failu
   assert.equal(status.exitCode, failVerification ? 1 : 130); assert.equal(status.aborted, true); assert.equal(result.publishingAfterCleanup, false);
  }
 });
+test('a real worker switch fence at 119 seconds cannot become a full-duration success', async () => {
+ const simulated = simulatedRehearsal({ disabledAt: 119000 }), originalSleep = simulated.dependencies.sleep;
+ // Shift the enable refresh from +110 to +114 without expiring its +115 authority.
+ simulated.dependencies.sleep = async (...args) => {
+  const count = simulated.dependencies.now() === 1109000 ? 5 : 1;
+  for (let index = 0; index < count; index++) await originalSleep(...args);
+ };
+ const result = await runRehearsal({ env: environment(), directory: await mkdtemp(join(tmpdir(), 'rehearsal-test-')), ...simulated });
+ assert.equal(result.exitCode, 1); assert.equal(result.passed, false);
+ assert.equal(result.switchFalseObserved, true); assert.equal(result.switchDisabledFenceObserved, true);
+ assert.equal(result.stopReasons.control_failed, true); assert.equal(result.publishingAfterCleanup, false);
+ assert.equal(result.wallMs, 119000);
+});
+test('a real worker control failure on the final tick cannot be hidden by a last sleep', async () => {
+ const simulated = simulatedRehearsal(), originalFactory = simulated.dependencies.createEventWorker;
+ simulated.dependencies.createEventWorker = options => {
+  const control = options.control;
+  return originalFactory({ ...options, control: async (name, ...args) => {
+   if (name === 'refreshConfiguration' && simulated.dependencies.now() >= 1119000) throw Error('private-canary');
+   return control(name, ...args);
+  } });
+ };
+ const result = await runRehearsal({ env: environment(), directory: await mkdtemp(join(tmpdir(), 'rehearsal-test-')), ...simulated });
+ assert.equal(result.exitCode, 1); assert.equal(result.passed, false); assert.equal(result.wallMs, 119000);
+ assert.equal(result.stopReasons.control_failed, true); assert.equal(result.publishingAfterCleanup, false);
+});
+test('a worker fenced during the last sleep cannot pass when the sample clock reaches 120 seconds', async () => {
+ const simulated = simulatedRehearsal(), originalFactory = simulated.dependencies.createEventWorker, originalSleep = simulated.dependencies.sleep;
+ let worker;
+ simulated.dependencies.createEventWorker = options => worker = originalFactory(options);
+ simulated.dependencies.sleep = async (...args) => {
+  if (simulated.dependencies.now() === 1119000) await worker.stop();
+  await originalSleep(...args);
+ };
+ const result = await runRehearsal({ env: environment(), directory: await mkdtemp(join(tmpdir(), 'rehearsal-test-')), ...simulated });
+ assert.equal(result.wallMs, 120000); assert.equal(result.exitCode, 1); assert.equal(result.passed, false);
+ assert.equal(result.publishingAfterCleanup, false); assert.equal(result.stopReasons.shutdown, true);
+});

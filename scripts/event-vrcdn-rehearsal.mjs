@@ -133,6 +133,9 @@ export async function runRehearsal({ env = process.env, directory, signal, depen
         await bounded(() => worker.start(), 12000);
         while (deps.now() - beganAt < 120000 && !worker.getState().stopped && !aborted && !timedOut && !rendererFailed && !recordingFailed) {
             await worker.tick();
+            // tick fences on its own failures without rejecting. Do not count a
+            // following sleep as workload time after publication has stopped.
+            if (worker.getState().stopped) break;
             const state = renderer.getState(), output = outputs.getState();
             // Hold/return deliberately recreate a decoder. Only evaluate loss after
             // the first explicit return is acknowledged as actual live output.
@@ -160,7 +163,8 @@ export async function runRehearsal({ env = process.env, directory, signal, depen
         }
         // Early switch fencing is useful evidence, but it does not turn a short
         // or failed workload into a successful 120-second rehearsal.
-        const fullDuration = deps.now() - beganAt >= 120000;
+        // The independent watchdog may also fence during the final sleep.
+        const fullDuration = deps.now() - beganAt >= 120000 && !worker.getState().stopped;
         const commandsPassed = [1, 2].every(sequence => evidence.commands.some(command => command.sequence === sequence && command.succeeded));
         exitCode = aborted ? 130 : fullDuration && published && readiness.result().sourceReadyObserved && commandsPassed && !timedOut && !rendererFailed && !recordingFailed && !switchUnavailable ? 0 : 1;
     } catch { exitCode = aborted ? 130 : 1; }
