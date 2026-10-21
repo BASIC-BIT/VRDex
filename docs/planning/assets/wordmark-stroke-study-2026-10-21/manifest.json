@@ -1,0 +1,63 @@
+{
+  "font": "Open Sans Semibold 1.10",
+  "font_sha256": "aa3b0ef53db12e3d45094030cac0e69d384e44cc5978643dd4390041cad546e2",
+  "vr_color": "#EDF3FA",
+  "dex_color": "#B4D5E5",
+  "studies": [
+    {
+      "key": "reference",
+      "label": "Control / Full strokes",
+      "note": "Current outlined letterforms",
+      "viewBox": [
+        0,
+        0,
+        480.002,
+        132
+      ]
+    },
+    {
+      "key": "open-upper-r",
+      "label": "A / Open upper R",
+      "note": "Upper-left stem opened; lower stem retained",
+      "viewBox": [
+        0,
+        0,
+        480.002,
+        132
+      ]
+    },
+    {
+      "key": "open-lower-r",
+      "label": "B / Open lower R",
+      "note": "Lower stem removed; bowl remains closed",
+      "viewBox": [
+        0,
+        0,
+        480.002,
+        132
+      ]
+    },
+    {
+      "key": "matched-r-e",
+      "label": "C / Matched R + E",
+      "note": "Matching upper-stem subtraction",
+      "viewBox": [
+        0,
+        0,
+        480.002,
+        132
+      ]
+    },
+    {
+      "key": "shared-vr",
+      "label": "D / Shared VR stroke",
+      "note": "V rising arm also forms the R stem",
+      "viewBox": [
+        0,
+        0,
+        449.106,
+        132
+      ]
+    }
+  ]
+}

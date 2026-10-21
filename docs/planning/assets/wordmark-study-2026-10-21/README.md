@@ -22,6 +22,15 @@ while staying close to the pale-cyan interface accent. Cool gray is a quieter
 alternative. This is a branding candidate, not a production change or evidence
 that the color alone explains the name's reference to a directory/index.
 
+## Letterform exploration
+
+BASIC preferred the missing upper-left R stem in the organizer concept and
+requested removal/shared-stroke studies on 2026-10-21. The follow-up
+[stroke comparison](../wordmark-stroke-study-2026-10-21/stroke-comparison.png)
+restores that open R and compares a lower opening, matching R/E cuts and a
+shared VR stroke. Color stays fixed so the letterforms can be judged directly;
+no final letterform has been selected.
+
 ## Reproduce
 
 From the repository root, with Python FontTools and the workspace's installed
