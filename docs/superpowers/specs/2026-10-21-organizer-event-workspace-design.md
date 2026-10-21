@@ -6,9 +6,11 @@ Make VRDex the organizer's working event application. The first concrete slice
 is a reliable My events inventory and return-to-edit journey: find an event or
 unfinished draft, continue its lineup, save, publish and later revise it.
 
-Status: draft recommendation for BASIC's review. BASIC requested event
-management as a core workflow and excluded VRC.tl as a distribution destination.
-This workspace layout and implementation scope have not been approved.
+Status: BASIC approved this first implementation slice and visual direction
+in chat on 2026-10-21. Implementation planning follows that approval. BASIC
+requested event management as a core workflow and excluded VRC.tl as a
+distribution destination. The separate wordmark/color study does not change
+production branding as part of this slice.
 
 The public [homepage and search design](./2026-10-21-homepage-search-schedule-design.md)
 continues to cover search, the compact event timeline and discovery. Organizer
