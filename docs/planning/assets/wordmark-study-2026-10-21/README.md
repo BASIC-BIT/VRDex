@@ -28,8 +28,10 @@ BASIC preferred the missing upper-left R stem in the organizer concept and
 requested removal/shared-stroke studies on 2026-10-21. The follow-up
 [stroke comparison](../wordmark-stroke-study-2026-10-21/stroke-comparison.png)
 restores that open R and compares a lower opening, matching R/E cuts and a
-shared VR stroke. Color stays fixed so the letterforms can be judged directly;
-no final letterform has been selected.
+shared VR stroke. Color stays fixed so the letterforms can be judged directly.
+BASIC selected the open upper R and rejected the other stroke variants.
+The [next study](../wordmark-dex-study-2026-10-21/README.md) explores only DEX
+while preserving that V/R construction.
 
 ## Reproduce
 

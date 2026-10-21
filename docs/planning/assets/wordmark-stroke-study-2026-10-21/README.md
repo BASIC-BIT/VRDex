@@ -22,8 +22,10 @@ alternative, extending the subtraction to E. B removes more of the familiar R
 structure. D is a genuine shared-stroke ligature and reads more like a compact
 VR emblem, so it takes longer to parse.
 
-Current recommendation: A first, with C as the stronger stylized alternative.
-No candidate is applied to the production app or declared approved branding.
+BASIC selected A's open upper R and rejected B, C and D in chat on
+2026-10-21. Keep A's V/R unchanged for the next
+[DEX letterform study](../wordmark-dex-study-2026-10-21/README.md).
+The DEX treatment remains under exploration; no production branding changed.
 
 ## Exports
 

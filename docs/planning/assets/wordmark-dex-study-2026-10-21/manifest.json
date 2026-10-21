@@ -1,0 +1,69 @@
+{
+  "font": "Open Sans Semibold 1.10",
+  "font_sha256": "aa3b0ef53db12e3d45094030cac0e69d384e44cc5978643dd4390041cad546e2",
+  "vr_color": "#EDF3FA",
+  "dex_color": "#B4D5E5",
+  "approved_base": "Open upper R, prior study A",
+  "studies": [
+    {
+      "key": "control",
+      "label": "Control / Approved A",
+      "note": "Open upper R; original DEX",
+      "suffix": "DEX",
+      "viewBox": [
+        0,
+        0,
+        480.002,
+        132
+      ]
+    },
+    {
+      "key": "open-d",
+      "label": "1 / Open D",
+      "note": "A lower-right opening in the bowl",
+      "suffix": "DEX",
+      "viewBox": [
+        0,
+        0,
+        480.002,
+        132
+      ]
+    },
+    {
+      "key": "split-x",
+      "label": "2 / Split X crossing",
+      "note": "One diagonal passes through the other",
+      "suffix": "DEX",
+      "viewBox": [
+        0,
+        0,
+        480.002,
+        132
+      ]
+    },
+    {
+      "key": "joined-ex",
+      "label": "3 / Joined EX",
+      "note": "The top E arm meets the X diagonal",
+      "suffix": "DEX",
+      "viewBox": [
+        0,
+        0,
+        476.26,
+        132
+      ]
+    },
+    {
+      "key": "titlecase-dex",
+      "label": "4 / Titlecase Dex",
+      "note": "A word-like suffix, without extra cuts",
+      "suffix": "Dex",
+      "viewBox": [
+        0,
+        0,
+        472.546,
+        132
+      ]
+    }
+  ]
+}
