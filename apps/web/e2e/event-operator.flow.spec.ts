@@ -292,3 +292,18 @@ test("terminal failure permits Start only after command settlement and actual ta
   await expect(page.getByLabel("Command count")).toHaveText("1");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
+
+
+test("pre-session intent permits Start with the selected output @flow @fixture", async ({ page }, info) => {
+  await page.goto("/playwright/event-operator");
+  await page.getByRole("button", { name: "Queue before session", exact: true }).click();
+  await page.getByLabel("Primary output", { exact: true }).selectOption("primary");
+  await expect(page.getByRole("button", { name: "Start", exact: true })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Next", exact: true })).toBeDisabled();
+  await page.getByTestId("event-operator-controls").screenshot({ path: info.outputPath("pre-session-start.png") });
+  await page.getByRole("button", { name: "Start", exact: true }).click();
+  await expect(page.getByLabel("Command count")).toHaveText("1");
+  await expect(page.getByLabel("Started output")).toHaveText("primary");
+  await expect(page.getByText("queued", { exact: true }).first()).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});

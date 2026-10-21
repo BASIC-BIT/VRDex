@@ -146,6 +146,10 @@ export function EventOperatorControls({
   const pending = sessionCommands.some((row) =>
     ["queued", "claimed"].includes(row.status),
   );
+  const sessionPending = sessionCommands.some((row) =>
+    row.sessionId !== undefined && row.sessionId === session?.sessionId &&
+    ["queued", "claimed"].includes(row.status),
+  );
   const disabled = busy || pending || !status.canControl;
   const sourceLabel = (id?: string) =>
     status.sources.find((row) => row.sourceId === id)?.label ?? "Hold";
@@ -412,7 +416,7 @@ export function EventOperatorControls({
               </select>
             </label>
             <Button
-              disabled={disabled || Boolean(active) || status.outputConfigurationLocked || !outputKey}
+              disabled={busy || sessionPending || !status.canControl || Boolean(active) || status.outputConfigurationLocked || !outputKey}
               onClick={() => submit(() => onStart(outputKey))}
             >
               Start

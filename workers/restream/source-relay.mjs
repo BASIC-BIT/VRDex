@@ -25,8 +25,10 @@ export function validateSourceEndpoint(value, operatorEndpoints = []) {
  * Resolve and pin public IPv4 per connection; no redirects, nested playlists,
  * credentials, or unsupported protocols. Backpressure is bounded by Node pipes.
  */
-export async function createSourceRelay({ operatorEndpoints = [] } = {}) {
-    const routes = new Map(), connections = new Set();
+export async function createSourceRelay({ operatorEndpoints = [], resolveAddresses = lookup, requestSource = request } = {}) {
+    const routes = new Map();
+    const sourceKey = source => JSON.stringify([source.id, source.type, source.publicUrl]);
+    const retire = route => { for (const close of route.connections) close(); };
     let stopped = false;
     const server = createServer(async (req, res) => {
         const route = routes.get(req.url);
@@ -35,13 +37,14 @@ export async function createSourceRelay({ operatorEndpoints = [] } = {}) {
             return;
         }
         let upstream;
-        const abort = () => upstream?.destroy();
+        const abort = () => { upstream?.destroy(); res.destroy(); route.connections.delete(abort); };
+        route.connections.add(abort);
         res.on('close', abort);
         try {
-            const addresses = await Promise.race([lookup(route.hostname, { all: true, family: 4 }), new Promise((_, reject) => { const timer = setTimeout(() => reject(Error('DNS timeout')), 2000); timer.unref(); })]);
-            if (stopped || !addresses.length || addresses.some(a => !isPublicIPv4(a.address)))
+            const addresses = await Promise.race([resolveAddresses(route.url.hostname, { all: true, family: 4 }), new Promise((_, reject) => { const timer = setTimeout(() => reject(Error('DNS timeout')), 2000); timer.unref(); })]);
+            if (stopped || routes.get(req.url) !== route || res.destroyed || !addresses.length || addresses.some(a => !isPublicIPv4(a.address)))
                 throw Error('Source address denied');
-            upstream = request(route, { method: 'GET', agent: false, lookup: (_host, _options, callback) => callback(null, addresses[0].address, 4) }, response => {
+            upstream = requestSource(route.url, { method: 'GET', agent: false, lookup: (_host, _options, callback) => callback(null, addresses[0].address, 4) }, response => {
                 if (response.statusCode !== 200) {
                     response.destroy();
                     res.writeHead(502).end();
@@ -51,8 +54,6 @@ export async function createSourceRelay({ operatorEndpoints = [] } = {}) {
                 response.on('error', () => res.destroy());
                 response.pipe(res);
             });
-            connections.add(upstream);
-            upstream.on('close', () => connections.delete(upstream));
             upstream.setTimeout(3000, () => upstream.destroy());
             upstream.on('error', () => res.destroy());
             upstream.end();
@@ -63,21 +64,28 @@ export async function createSourceRelay({ operatorEndpoints = [] } = {}) {
     });
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
     return {
+        // Reconciliation owns liveness. Invalid candidates are still rejected by
+        // resolveSource individually, so one bad warm target cannot fence current.
+        retainSources(sources) {
+            const retained = new Set(sources.map(sourceKey));
+            for (const [path, route] of routes) {
+                if (!retained.has(route.key)) { routes.delete(path); retire(route); }
+            }
+        },
         resolveSource(source) {
             if (source.type !== 'vrcdn_link' && source.type !== 'rtmp_source')
                 throw Error('Unsupported source kind');
             const url = validateSourceEndpoint(source.publicUrl, operatorEndpoints);
             // Current and next only; existing endpoint reuse avoids decoder churn.
-            let route = [...routes].find(([, value]) => value.href === url.href)?.[0];
+            let route = [...routes].find(([, value]) => value.key === sourceKey(source))?.[0];
             if (!route) {
                 if (routes.size >= 64)
                     throw Error('Source route bound exceeded');
                 route = `/${randomUUID()}`;
-                routes.set(route, url);
+                routes.set(route, { key: sourceKey(source), url, connections: new Set() });
             }
             return `http://127.0.0.1:${server.address().port}${route}`;
         },
-        stop() { stopped = true; for (const upstream of connections)
-            upstream.destroy(); server.closeAllConnections(); server.close(); routes.clear(); },
+        stop() { stopped = true; for (const route of routes.values()) retire(route); server.closeAllConnections(); server.close(); routes.clear(); },
     };
 }

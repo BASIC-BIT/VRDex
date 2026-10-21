@@ -36,7 +36,7 @@ function initialAutomaticSlot(slots, now) {
  * synchronous stopNow (publication fence), asynchronous stop (cleanup).
  * The CLI installs independent primary and explicitly enabled optional senders.
  */
-export function createEventWorker({ identity, control, renderer, outputs, createRenderer, createOutputs, resolveSource, checkEnabled, clock = () => performance.now(), maxSessionMs = 43200000, requestTimeoutMs = 3000, metric = () => { } }) {
+export function createEventWorker({ identity, control, renderer, outputs, createRenderer, createOutputs, resolveSource, retainSources = () => {}, checkEnabled, clock = () => performance.now(), maxSessionMs = 43200000, requestTimeoutMs = 3000, metric = () => { } }) {
     let stopped = false, started = false, busy = false, config, current, mode = 'automatic';
     let authorityUntil = -Infinity, runtimeUntil = Infinity, renewAt = Infinity, enabledUntil = -Infinity;
     let serverTime = 0, sampledAt = 0, pending, lastSequence = 0, unsubscribe;
@@ -92,6 +92,7 @@ export function createEventWorker({ identity, control, renderer, outputs, create
     async function reconcile(extra) {
         const slots = [current, extra].filter((s, i, all) => s?.available && all.findIndex(a => a?.slotKey === s.slotKey) === i);
         const sources = [];
+        await bounded(() => retainSources(slots.map(slot => config.sources.find(source => source.id === slot.sourceId)).filter(Boolean)), requestTimeoutMs);
         for (const slot of slots) {
             const source = config.sources.find(s => s.id === slot.sourceId);
             if (!source)
@@ -425,7 +426,7 @@ export async function runEventWorker({ createOutputs = createEventOutputs, env =
         throw Error('Invalid runtime bound');
     const relay = await createSourceRelay({ operatorEndpoints: JSON.parse(env.VRDEX_EVENT_MEDIA_SOURCE_ENDPOINTS_JSON ?? '[]') });
     let worker;
-    worker = createEventWorker({ identity: { eventId: env.VRDEX_EVENT_MEDIA_EVENT_ID, sessionId: env.VRDEX_EVENT_MEDIA_SESSION_ID, workerId: randomUUID(), epoch: Number(env.VRDEX_EVENT_MEDIA_EPOCH ?? 0) }, control: createHttpControl({ url: env.CONVEX_URL, token: env.VRDEX_EVENT_MEDIA_BRIDGE_TOKEN }), createRenderer: options => createProgramRenderer({ ...options, onError: () => void worker?.stop() }), createOutputs: options => createOutputs({ ...options, env }), maxSessionMs, checkEnabled: () => checkHostedEnabled({ parameter: env.VRDEX_RESTREAM_KILL_SWITCH_SSM_PARAMETER, region: env.AWS_REGION }), resolveSource: source => relay.resolveSource(source), metric: value => console.log(JSON.stringify(value)) });
+    worker = createEventWorker({ identity: { eventId: env.VRDEX_EVENT_MEDIA_EVENT_ID, sessionId: env.VRDEX_EVENT_MEDIA_SESSION_ID, workerId: randomUUID(), epoch: Number(env.VRDEX_EVENT_MEDIA_EPOCH ?? 0) }, control: createHttpControl({ url: env.CONVEX_URL, token: env.VRDEX_EVENT_MEDIA_BRIDGE_TOKEN }), createRenderer: options => createProgramRenderer({ ...options, onError: () => void worker?.stop() }), createOutputs: options => createOutputs({ ...options, env }), maxSessionMs, checkEnabled: () => checkHostedEnabled({ parameter: env.VRDEX_RESTREAM_KILL_SWITCH_SSM_PARAMETER, region: env.AWS_REGION }), resolveSource: source => relay.resolveSource(source), retainSources: sources => relay.retainSources(sources), metric: value => console.log(JSON.stringify(value)) });
     let timer, poll;
     const close = () => { clearInterval(timer); clearInterval(poll); relay.stop(); };
     timer = setInterval(() => {

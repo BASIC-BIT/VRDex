@@ -822,3 +822,25 @@ fresh real-media command failure/recovery and Return-to-auto proof. Its 24.5-sec
 scope, full hashes and prior-snapshot attribution are recorded in
 [integration verification](../engineering/event-broadcast-verification.md).
 The prior two-hour result is historical; rollout gates remain unchanged.
+
+### Review follow-up: relay lifetime and cleanup isolation
+
+Relay routes track current/prepared decoders, including pending manual switches
+and rollback. Stale routes and their connections are retired before allocating
+replacements; retained streams stay connected and the live route cap remains 64.
+Source URL rotations keep their revision barrier and exact HTTPS/DNS validation.
+Per-task definition cleanup failures remain pending and retry without stopping
+other task/command reconciliation. Confirmed ECS STOPPED still releases admission.
+
+Selected destinations now follow accepted fenced live/hold and terminal media
+observations and acknowledgements, without reviving disabled/revoked outputs or
+changing a replacement session's destination. Sessionless pending commands no
+longer block operator Start; backend scheduling attaches them in order.
+
+Local Node 22 image `f9f13a9c002b` passed the 26.8-second actual relay/media proof.
+Disk exhaustion required one local layer over retained image `952affdbf9ee`;
+this was not a completed production-Dockerfile rebuild. Controller and relay
+changed; seven runtime modules retain their prior identity. Exact provenance,
+recording hash, browser fixture limits and historical two-hour attribution are
+in [integration verification](../engineering/event-broadcast-verification.md).
+Hosted output, automatic silence and optional maximum overrun remain disabled.

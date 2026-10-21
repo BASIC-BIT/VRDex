@@ -371,7 +371,7 @@ anonymous, nonstaff and wrong-community requests. Token delivery is injected;
 this is not genuine Clerk acceptance. The live subscription withdraws content
 on authorization loss. Desktop/mobile fixtures supplement those boundary tests.
 
-The current fourth-review image is
+The retained fourth-review image is
 `sha256:952affdbf9eed3d2b6bd2910e8bb651b89d40df065691b8a36cbc491da7a4b0e`,
 using Node 22.23.3. Its controller SHA-256 is
 `44694eb903d2beb331bb64a1ef0a7e5dd4dd834710e91de1f3a6d9c625bda87f`.
@@ -388,3 +388,62 @@ startup, gap/boundary/overrun, dual-output and two-hour recordings retain their
 original image/controller attribution. This short command proof does not create
 a new two-hour claim or provider acceptance. Hosted output, automatic silence
 and optional maximum overrun retain their existing disabled defaults.
+
+## Fifth-review relay lifecycle and control proof
+
+Sessionless queued intent stays visible and attaches in sequence when Start
+schedules the next worker. It no longer blocks Start; current-session commands,
+capability, active-session and held-output locks still apply. Accepted fenced
+live/hold observations and command acknowledgements mark only the selected
+destination active. Terminal media completion restores ready without asserting
+ECS STOPPED. Disabled/revoked destinations and replacement sessions retain their
+own authority. Repeated observations do not churn the destination timestamp.
+
+Stopped-task definition cleanup failures remain pending for per-session retry.
+Managed and legacy reconciliation continues to later tasks and commands; backend
+control errors still propagate. Actual STOPPED remains the admission boundary.
+
+Relay mappings now follow current/prepared decoder reconciliation, including
+manual preparation and rollback. Retired routes reject requests and close stale
+streams; retained streams stay connected. Source identity and URL revision both
+participate in reuse. The live cap remains 64, and tests advance through 70
+historical sources before rotation. Exact HTTPS authorization, public IPv4 DNS
+pinning and MPEGTS-only decoder boundaries remain unchanged.
+
+The local fifth-review image is
+`sha256:f9f13a9c002bd728e0673e017e89a90e953679dbbb5ca722f6da0a6c94d9a172`.
+It derives from the retained fourth-review image `952affdbf9ee` with one layer
+copying the two changed modules. Its 16 base layers and Node 22.23.3 runtime match
+that verified image. The normal Dockerfile build exhausted local disk during
+COPY; this local proof used a temporary single-COPY Dockerfile, not a successful
+rebuild of the production Dockerfile. The production Dockerfile is unchanged.
+
+Current controller SHA-256:
+`a4de9d933ffe3ac7952f1416450379cf874235d66e1333a8c114eeac4f34510a`.
+Current relay SHA-256:
+`60f9e6c5d8ba6163db39acd39e66c31530e00d12e2cfc3e3e9160487f3975148`.
+The other **seven** runtime modules match the retained earlier image. Earlier
+eight-module identity statements describe their historical snapshots.
+
+`event-relay-local-proof.mjs` passed 26.8 seconds with actual packaged relay HTTP,
+decoder, renderer, encoder and sender. After 70 historical mappings, it rotates
+the current source URL, rejects its stale route, retains the current HTTP stream
+through failed candidate preparation, retries successfully, returns to automatic
+playback and publishes gap slate. Local provider DNS/transport and control are
+injected; production TLS/SSRF rules are unchanged. The container used no external
+network, a read-only root, two CPUs and four GiB; only harness scripts and evidence
+were mounted. It exited zero without OOM. H.264 720p30/AAC 48 kHz output has a
+34 ms maximum packet gap and one-second GOP. Recording SHA-256:
+`450e10c5a6834bed8261180243131b5815f11cc8cc8c72cfbf3ac19d27016660`.
+Decoded frame samples show the rotated blue source and later green source.
+
+The affected test batch passes 238 tests with no skips. Six desktop/mobile
+fixture checks cover pre-session Start, terminal locks and Stop while another
+command is pending. Screenshots passed visual review with fallback fonts after
+font download failures; this is not a canonical-font visual acceptance result.
+Actual backend attachment, authorization and route/component boundary tests are
+separate from those browser fixtures. No genuine Clerk or provider acceptance is
+claimed. The old two-hour recording remains evidence of its old controller and
+relay; this bounded lifecycle proof creates no new sustained-run claim. Encoder,
+decoder and output sender implementation is unchanged, and rollout gates remain
+disabled as previously documented.

@@ -6,7 +6,6 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { ConvexHttpClient } from "convex/browser";
 import { makeFunctionReference } from "convex/server";
 
-const OPEN_SESSION_STATUSES = new Set(["scheduled", "starting", "live", "hold", "fallback", "stopping"]);
 const convexApi = {
   completeTaskCleanup: makeFunctionReference("eventMediaWorker:completeTaskCleanup"),
   recordProcessStatus: makeFunctionReference("eventMediaWorker:recordProcessStatus"),
@@ -455,12 +454,17 @@ function ecsStatusToSessionStatus(task) {
   return { status: "starting", workerTaskStatus: "starting", reason: workerStatusReason(task.lastStatus) };
 }
 
-async function deregisterTaskDefinition(taskDefinitionArn, config) {
-  if (!taskDefinitionArn) {
+async function cleanupStoppedTask(client, config, session, runAws) {
+  try {
+    if (session.workerTaskDefinitionArn)
+      await runAws(config, ["ecs", "deregister-task-definition", "--task-definition", session.workerTaskDefinitionArn]);
+  } catch {
+    // Retry from durable cleanup-pending discovery. Never log provider exceptions
+    // (which can contain secrets), and never swallow control-plane failures.
+    console.warn(JSON.stringify({ event: "event_media_task_cleanup_retry", sessionId: session.sessionId }));
     return;
   }
-
-  await aws(config, ["ecs", "deregister-task-definition", "--task-definition", taskDefinitionArn]);
+  await client.mutation(convexApi.completeTaskCleanup, { bridgeToken: config.bridgeToken, sessionId: session.sessionId, taskArn: session.workerTaskId });
 }
 
 export async function refreshSessions(client, config, runAws = aws) {
@@ -468,7 +472,7 @@ export async function refreshSessions(client, config, runAws = aws) {
     bridgeToken: config.bridgeToken,
     workerId: config.workerId,
   });
-  const taskSessions = sessions.filter((session) => session.workerTaskId && (OPEN_SESSION_STATUSES.has(session.status) || session.dispatchId || session.epoch !== undefined || session.workerTaskCleanupPending));
+  const taskSessions = sessions.filter((session) => session.workerTaskId);
 
   if (taskSessions.length === 0) {
     return;
@@ -500,14 +504,14 @@ export async function refreshSessions(client, config, runAws = aws) {
       }
       await client.mutation(convexApi.recordProcessStatus,{bridgeToken:config.bridgeToken,sessionId:session.sessionId,taskArn:session.workerTaskId,stopped:task.lastStatus==="STOPPED"});
       if(task.lastStatus==="STOPPED"){
-        if(session.workerTaskDefinitionArn)await runAws(config,["ecs","deregister-task-definition","--task-definition",session.workerTaskDefinitionArn]);
-        await client.mutation(convexApi.completeTaskCleanup,{bridgeToken:config.bridgeToken,sessionId:session.sessionId,taskArn:session.workerTaskId});
+        if (session.workerTaskCleanupPending !== false)
+          await cleanupStoppedTask(client, config, session, runAws);
       }
       continue;
     }
     const next = ecsStatusToSessionStatus(task);
 
-    if (session.status === next.status && session.workerTaskStatus === next.workerTaskStatus) {
+    if (task.lastStatus !== "STOPPED" && session.status === next.status && session.workerTaskStatus === next.workerTaskStatus) {
       continue;
     }
 
@@ -522,8 +526,10 @@ export async function refreshSessions(client, config, runAws = aws) {
       ...(next.reason === undefined ? {} : { workerTaskStatusReason: next.reason }),
     });
 
-    if (next.status === "ended" || next.status === "error") {
-      await deregisterTaskDefinition(session.workerTaskDefinitionArn, config);
+    if (task.lastStatus === "STOPPED") {
+      await client.mutation(convexApi.recordProcessStatus, { bridgeToken: config.bridgeToken, sessionId: session.sessionId, taskArn: session.workerTaskId, stopped: true });
+      if (session.workerTaskCleanupPending !== false)
+        await cleanupStoppedTask(client, config, session, runAws);
     }
   }
 }

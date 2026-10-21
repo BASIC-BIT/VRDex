@@ -125,6 +125,7 @@ const initial = {
 export function EventOperatorFixture() {
   const [status, setStatus] = useState(initial);
   const [count, setCount] = useState(0);
+  const [startedOutput, setStartedOutput] = useState("");
   const [holdRequest, setHoldRequest] = useState(false);
   const [fail, setFail] = useState(false);
   async function command(type: string, key?: string) {
@@ -186,7 +187,8 @@ export function EventOperatorFixture() {
           }));
         }}
         onCommand={command}
-        onStart={async () => {
+        onStart={async (outputKey) => {
+          setStartedOutput(outputKey);
           setCount((value) => value + 1);
           setStatus((value) => ({
             ...value,
@@ -218,6 +220,8 @@ export function EventOperatorFixture() {
         }}
       />
       <aside className="px-8">
+        <button onClick={() => setStatus((value) => ({ ...value, sessions: [], outputConfigurationLocked: false, program: { ...value.program, activeSessionId: undefined }, commands: [{ commandId: "pre-session", commandType: "switch_hold", status: "queued", actorSurface: "api", fallbackLinkCount: 0, createdAt: fixtureNow, updatedAt: fixtureNow } as unknown as OperatorStatus["commands"][number]] }))}>Queue before session</button>
+        <output aria-label="Started output">{startedOutput}</output>
         <button
           onClick={() =>
             setStatus((value) => ({

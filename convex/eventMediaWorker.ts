@@ -37,6 +37,18 @@ async function records(ctx: MutationCtx, args: Request, allowTerminal = false, a
     }
     return { session, program, event };
 }
+async function selectedObservationOutput(ctx: MutationCtx, found: NonNullable<Awaited<ReturnType<typeof records>>>, observedId: Id<"eventMediaOutputs"> | null | undefined, state: string | undefined) {
+    if (observedId != null && observedId !== found.session.outputId) return false;
+    const output = found.session.outputId ? await ctx.db.get(found.session.outputId) : null;
+    if (found.session.outputId && (!output || output.programId !== found.program._id || output.eventId !== found.event._id)) return false;
+    if (output && ["live", "hold"].includes(state ?? "") && (!eventOutputIsAuthorized(found.event, output) || !["ready", "active"].includes(output.state))) return false;
+    return output;
+}
+async function updateObservedOutput(ctx: MutationCtx, event: Doc<"events">, output: Doc<"eventMediaOutputs"> | null, state: string | undefined, now: number) {
+    if (!output || !eventOutputIsAuthorized(event, output) || !["ready", "active"].includes(output.state)) return;
+    const next = state === "live" || state === "hold" ? "active" : state === "ended" || state === "error" ? "ready" : undefined;
+    if (next && output.state !== next) await ctx.db.patch(output._id, { state: next, updatedAt: now });
+}
 async function reject(ctx: MutationCtx, args: Request, reason: string) {
     // Persist rejection instead of throwing, which would roll back the audit write.
     const session = await ctx.db.get(args.sessionId);
@@ -164,7 +176,9 @@ export const acknowledgeCommand = mutation({
         const earlier = await ctx.db.query("eventMediaCommands").withIndex("by_sessionId_sequence", q => q.eq("sessionId", args.sessionId).lt("sequence", args.sequence)).collect();
         if (earlier.some(c => c.status === "claimed" || c.status === "queued"))
             return denied("An earlier command is still pending.");
-        for (const [id, table] of [[args.observedSourceId, "source"], [args.observedSceneId, "scene"], [args.observedOutputId, "output"]] as const) {
+        const selectedOutput = await selectedObservationOutput(ctx, found, args.observedOutputId, args.outcome === "succeeded" ? args.observedState : undefined);
+        if (selectedOutput === false) return denied("Observed output is unavailable.");
+        for (const [id, table] of [[args.observedSourceId, "source"], [args.observedSceneId, "scene"]] as const) {
             if (id === undefined || id === null)
                 continue;
             const record = await ctx.db.get(id);
@@ -185,6 +199,7 @@ export const acknowledgeCommand = mutation({
         await ctx.db.patch(args.sessionId, { ...(args.outcome === "succeeded" && mode ? { broadcastMode: mode } : {}), ...observed, ...(args.outcome === "succeeded" && (mode || observedState || args.observedSourceId !== undefined) ? {programObservedAt:now} : {}), ...(observedState === undefined ? {} : { status: observedState }), lastAcknowledgedSequence: args.sequence, updatedAt: now });
         if (args.outcome === "succeeded")
             await ctx.db.patch(found.program._id, { ...observed, ...(args.observedOutputId === undefined ? {} : { currentOutputId: args.observedOutputId ?? undefined }), ...(observedState === undefined ? {} : { state: observedState }), ...(["ended", "error"].includes(observedState ?? "") ? { activeSessionId: undefined } : {}), updatedAt: now });
+        await updateObservedOutput(ctx, found.event, selectedOutput, observedState, now);
         if (observedState === "ended" || observedState === "error")
             await settleTerminalSessionCommands(ctx.db, args.sessionId, observedState, now);
         await ctx.db.insert("eventMediaAuditEvents", { programId: found.program._id, eventId: args.eventId, sessionId: args.sessionId, commandId: command._id, actorSurface: "worker", action: "worker_command_acknowledged", privateSummary: `Sequence ${args.sequence}: ${args.outcome}.`, createdAt: now });
@@ -271,16 +286,15 @@ export const observeProgram = mutation({ args: { ...workerSessionArgs, state: ob
             if (!source || source.eventId !== args.eventId || source.programId !== found.program._id || source.state === "disabled" || source.projectionAvailable === false)
                 return { ...await reject(ctx, args, "Observed source is unavailable."), accepted: false };
         }
-        if (args.outputId) {
-            const output = await ctx.db.get(args.outputId);
-            if (!output || output._id !== found.session.outputId || output.eventId !== args.eventId || !["ready", "active"].includes(output.state))
-                return { ...await reject(ctx, args, "Observed output is unavailable."), accepted: false };
-        }
+        const selectedOutput = await selectedObservationOutput(ctx, found, args.outputId, args.state);
+        if (selectedOutput === false)
+            return { ...await reject(ctx, args, "Observed output is unavailable."), accepted: false };
         const terminal = ["ended", "error"].includes(args.state);
         if (args.state === "ended" || args.state === "error")
             await settleTerminalSessionCommands(ctx.db, args.sessionId, args.state, Date.now());
         if (found.session.status !== args.state || found.session.currentSourceId !== args.sourceId)
             await ctx.db.insert("eventMediaAuditEvents", { programId: found.program._id, eventId: args.eventId, sessionId: args.sessionId, actorSurface: "worker", action: "worker_program_observed", privateSummary: `${args.state}; encoded output ${args.outputMs}ms.`, createdAt: Date.now() });
+        await updateObservedOutput(ctx, found.event, selectedOutput, args.state, Date.now());
         await ctx.db.patch(args.sessionId, { status: args.state, programObservedAt:Date.now(), currentSourceId: args.sourceId, broadcastMode: args.mode ?? found.session.broadcastMode, health: { lastHeartbeatAt: Date.now() }, updatedAt: Date.now() });
         await ctx.db.patch(found.program._id, { state: args.state, currentSourceId: args.sourceId, ...(terminal ? { activeSessionId: undefined } : {}), updatedAt: Date.now() });
         return { accepted: true };
@@ -342,7 +356,7 @@ export const recordProcessStatus = mutation({ args: { bridgeToken: v.string(), s
             return { accepted: false };
         if (args.stopped)
             await settleTerminalSessionCommands(ctx.db, session._id, session.status === "ended" ? "ended" : "error", Date.now());
-        if (session.dispatchStopConfirmedAt !== undefined || (!session.dispatchId && session.workerTaskStatus === "stopped"))
+        if (session.dispatchStopConfirmedAt !== undefined || (!session.dispatchId && session.workerTaskStatus === "stopped" && session.workerTaskCleanupPending !== undefined))
             return { accepted: args.stopped };
         await ctx.db.patch(session._id, { ...(args.stopped ? { workerTaskCleanupPending: true, ...(session.dispatchId ? { dispatchStopConfirmedAt: Date.now() } : {}) } : {}), workerTaskStatus: args.stopped ? "stopped" : session.stopRequestedAt === undefined ? "running" : "stopping", ...(args.stopped && !['ended', 'error'].includes(session.status) ? { status: "error" as const, leaseExpiresAt: Date.now() } : {}), updatedAt: Date.now() });
         if (args.stopped) {
