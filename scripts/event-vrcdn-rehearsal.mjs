@@ -242,6 +242,7 @@ export async function runRehearsal({ env = process.env, directory, signal, depen
             },
             metric: value => {
                 if (value.event === 'event_worker_stopped') {
+                    transport.teardown();
                     fenced = true;
                     for (const reason of ['startup-failed', 'primary-startup-failed', 'authority-expired', 'control-failed', 'operator-stop', 'session-deadline', 'shutdown']) {
                         if (value.reason === reason) stopReasons[reason.replaceAll('-', '_')] = true;

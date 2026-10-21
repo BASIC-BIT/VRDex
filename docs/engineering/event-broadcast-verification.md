@@ -863,7 +863,7 @@ Task 5 adds proof-only passive wrappers through the existing real lookup/request
 spawn dependencies and existing renderer callbacks. Bounded numeric/boolean
 `transport` fields survive finalization; callbacks, object identities, arguments,
 response stream flow and lifecycle gates retain their behavior. Offline tests cover
-forwarding, failures before teardown versus cleanup, split marker detection,
+forwarding, failures before teardown versus adapter/worker cleanup, split marker detection,
 secret canaries, oversized floods and finalizer retention. This clarifies observation
 scope without a DNS or transport bypass. The nine runtime modules remain unchanged
 from `4d701bb`; the parser correction is already part of that baseline. No deadline,

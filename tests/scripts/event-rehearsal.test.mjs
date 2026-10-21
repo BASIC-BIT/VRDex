@@ -432,3 +432,48 @@ test('a snapshot getter failure cannot change an otherwise successful rehearsal'
  const result = await runRehearsal({ env: environment(), directory: await mkdtemp(join(tmpdir(), 'rehearsal-test-')), ...simulated });
  assert.equal(result.exitCode, 0); assert.equal(result.passed, true);
 });
+
+test('real worker fences mark queued sender cleanup during pending adapter startup or tick', async () => {
+ const childProcesses = (await import('node:child_process')).default;
+ const { syncBuiltinESMExports } = await import('node:module');
+ const originalSpawn = childProcesses.spawn;
+ try {
+  for (const phase of ['startup', 'tick']) {
+   const simulated = simulatedRehearsal({ disabledAt: phase === 'tick' ? 5000 : Infinity });
+   const child = fakeChild(); let launched = false, queued = false, worker;
+   childProcesses.spawn = () => child; syncBuiltinESMExports();
+   const outputFactory = simulated.dependencies.createEventOutputs;
+   simulated.dependencies.createEventOutputs = options => {
+    const outputs = outputFactory(options);
+    return { ...outputs, start: async () => { assert.equal(options.spawnForDestination('vrcdn')('ffmpeg', [], {}), child); launched = true; await outputs.start(); }, stopNow: () => {
+     outputs.stopNow();
+     if (launched && !queued) { queued = true; queueMicrotask(() => child.emit('close', null, 'SIGKILL')); }
+    } };
+   };
+   const workerFactory = simulated.dependencies.createEventWorker;
+   simulated.dependencies.createEventWorker = options => {
+    worker = workerFactory(options);
+    return { ...worker, tick: async () => { await worker.tick(); await new Promise(resolve => setImmediate(resolve)); } };
+   };
+   if (phase === 'startup') {
+    const rendererFactory = simulated.dependencies.createProgramRenderer;
+    simulated.dependencies.createProgramRenderer = options => {
+     const renderer = rendererFactory(options);
+     return { ...renderer, start: async () => {
+      await renderer.start();
+      for (let index = 0; index < 11; index++) await simulated.dependencies.sleep();
+      worker.watchdog();
+      await new Promise(resolve => setImmediate(resolve));
+     } };
+    };
+   }
+   const result = await runRehearsal({ env: environment(), directory: await mkdtemp(join(tmpdir(), 'rehearsal-test-')), ...simulated });
+   assert.equal(result.exitCode, 1, phase); assert.equal(result.fenced, true, phase); assert.equal(result.transport.teardownStarted, true, phase);
+   assert.equal(result.transport.senders.length, 1, phase);
+   assert.equal(result.transport.senders[0].closedDuringTeardown, true, phase);
+   assert.equal(result.transport.senders[0].beforeTeardownFailures, 0, phase);
+   assert.equal(result.transport.senders[0].sigkill, true, phase);
+   assert.equal(result.transport.senders[0].failures, 1, phase);
+  }
+ } finally { childProcesses.spawn = originalSpawn; syncBuiltinESMExports(); }
+});

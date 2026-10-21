@@ -462,7 +462,8 @@ indicators and invalid input/options. A marker is an indicator, not proof of
 provider rejection. Raw stderr, arguments, environment, addresses, headers, URLs
 and arbitrary exception text never enter the result. Failure counts count events,
 so one underlying incident can produce several events. Teardown flags separate
-cleanup events from failures observed before adapter cleanup.
+cleanup events, including worker fences during awaited operations, from failures
+observed before cleanup.
 
 The new observations pass offline fakes and finalizer sanitization checks. They do
 not reconstruct the failed third attempt's missing transport trace. The nine
