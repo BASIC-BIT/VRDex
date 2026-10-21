@@ -3,18 +3,22 @@
 ## Review brief
 
 Give VRDex a homepage where visitors can find a person or community and see
-what is happening today. Search stays prominent. A chronological event schedule,
-linked performers and owner artwork provide the main browsing content.
+what is happening today. Search, a compact event/set timeline and visual
+discovery have roughly equal weight on Home.
 
 BASIC supports this direction and plans to contact groups manually and offer
 to enter their events. That supplies the initial content without making group
 self-service onboarding a launch dependency. How quickly groups join and how
 often they publish remain assumptions to test through that outreach.
 
-Status: draft for BASIC's review. The schedule-first concept B is the current
-recommendation, with compact performer summaries from A and full lineups expanded
-on demand. The specific route changes, date behavior and copy below are proposed,
-not approved production behavior.
+Status: revised draft for BASIC's review. BASIC requested a Gantt-like timeline
+after reviewing concept B: event bars and nested DJ set intervals make
+concurrent events and favorite performers easier to scan. Search, timeline and
+discovery each occupy roughly one third of Home. The current mockup interprets
+those thirds as stacked, full-width sections so the timeline stays readable;
+that orientation is a design recommendation, not an explicit user constraint.
+Specific route changes, date behavior, favorites and copy below remain proposed
+production behavior.
 
 The current root-lookup decision in
 [Product direction](../../planning/product-direction.md#homepage-direction)
@@ -24,35 +28,50 @@ lookup at its existing search destination.
 
 ## Visual reference
 
-![Search-first and schedule-first desktop and mobile concepts](../../planning/assets/homepage-search-schedule-2026-10-21/desktop-mobile-concepts.png)
+![Search, compact event timeline and discovery desktop and mobile concept](../../planning/assets/homepage-search-schedule-2026-10-21/timeline-desktop-mobile-concept.png)
 
-These generated studies use invented events and artwork. They establish visual
-hierarchy, not exact product copy, completed responsive behavior or browser-test
-evidence. Reuse the existing charcoal theme, semantic tokens and shared
-primitives. Prefer quiet controls, subtle corners, readable type and aligned
-times. Event artwork supplies the stronger colors.
+This generated study uses invented events, artwork, set times and favorite
+highlights. It establishes visual hierarchy, not exact time geometry, product
+copy, completed responsive behavior or browser-test evidence. In particular,
+the mockup's Following toggle does not establish an existing follows feature.
+Its discovery category labels are exploratory; the mixed card collection should
+not imply an active event-only filter.
+
+BASIC supplied a VRC.tl screenshot showing a shared hourly axis, time-proportional
+event bars and nested performer segments. That supplied image is the functional
+reference. No VRC.tl service access or scraping is part of this work. Reuse
+VRDex's charcoal theme, semantic tokens and shared primitives. Prefer quiet
+controls, subtle corners, readable type and aligned times. Event artwork
+supplies the stronger colors.
+
+The earlier [A/B study](../../planning/assets/homepage-search-schedule-2026-10-21/desktop-mobile-concepts.png)
+records the preceding composition exploration; the timeline study now leads.
 
 ## First version
 
-The homepage has five parts, in this order:
+Below the existing brand/account header and an accessible Add event entry,
+Home has three full-width sections with approximately equal visual weight:
 
-1. Existing brand, account controls and an accessible Add event entry.
-2. Search across public entities, with an explicit DJ links scope and access to
-   the existing bulk lookup workflow.
-3. A date-selectable chronological event schedule.
-4. Details and intact artwork for one selected event, beside the schedule on
-   wide screens and within that event's disclosure on narrow screens.
-5. A compact collection of public communities hosting in the displayed range,
-   derived from loaded events and deduplicated. Omit it when empty.
+1. Search across public entities, an explicit DJ links scope, access to the
+   existing bulk lookup workflow and recent searches where already supported.
+2. A compact, date-selectable event timeline with a shared horizontal time axis
+   and performer set segments inside each event band.
+3. Artwork-led discovery of events and their connected communities and worlds,
+   with readable titles, times and relationship context outside the images.
 
-Keep event titles, times, host and location outside posters. Names link to their
-canonical public pages where available. Do not fill empty space with unrelated
-people, worlds or community recommendations.
+These are rough proportions, not fixed-height containers. Search can become
+compact once in use; the timeline can grow to fit a useful number of readable
+rows. Keep the homepage chart bounded, with access to the focused full schedule.
+No large selected-poster sidebar displaces timeline width. Event/performer
+details open on demand. Omit empty optional discovery collections rather than
+filling space with unrelated records or unsupported popularity claims.
 
 Group outreach and concierge event entry use the existing authorized event
 authoring and contribution paths. This homepage slice adds no new publication
-authority, automatic group sync, recurring-event system, social feed,
-personalization or mandatory onboarding.
+authority, automatic group sync, recurring-event system, social feed or
+mandatory onboarding. Favorite-DJ highlighting is a candidate interaction:
+public browsing must work without it, and a production follows/preferences
+contract must be reviewed before treating the mockup's highlights as real data.
 
 ## Search and routes
 
@@ -74,7 +93,7 @@ of the visual redesign.
 Use `/discovery` as the full schedule destination, sharing the same date-aware
 schedule composition. Build and review the new composition there before
 promoting it to `/`. A Full schedule link on Home reaches that focused view.
-The older unrelated directory rails are not part of the new composition.
+The homepage's discovery section remains distinct from that focused schedule.
 
 ## Dates and event ordering
 
@@ -90,43 +109,60 @@ is available, show a stable schedule loading layout rather than incorrect local
 date groups. Search and navigation remain usable. Re-evaluate Today at local
 midnight and refresh schedule state when the tab regains focus.
 
-Include ongoing timed events that overlap the selected interval, even when they
-started the previous day. For Today and Upcoming, put ongoing events first,
-then future events by start time with a stable identity tie-break. Use the
-existing public runtime rules for an unknown end; do not display the inferred
-runtime as an authored end or imply that a stream is live.
+Include timed events that overlap the visible interval, even when they started
+the previous day. Place each event on its own stable row; horizontal position
+and length convey the authored interval. Past portions in the selected window
+may remain visible with subdued styling for context. Current-time emphasis must
+not reorder rows while someone is reading. Sort rows by event start with a
+stable identity tie-break.
+
+Draw a solid event or performer bar only for an authored start/end interval.
+An absent end uses an open-ended or unresolved-time marker, not a solid
+invented duration. The existing six-hour runtime fallback may support its
+existing eligibility behavior, but cannot establish an authored bar endpoint.
+A current-time line shows time, not verified streaming or attendance.
 
 Date-only events retain their authored calendar date and Time TBA treatment.
 Place them in a separate untimed group for that date. Do not convert them to
 midnight instants or invent performer times. Exclude cancelled, ended and
-nonpublic events from normal upcoming browsing under existing public rules.
+nonpublic events from discovery. Earlier scheduled events in the selected
+timeline window remain distinguishable from upcoming discovery items.
 
 Changing dates clears an invalid selection and selects the first eligible
-event in the new result. If nothing remains, clear the poster and details too.
+event in the new result. If nothing remains, clear its disclosure/details too.
 An empty Today view stays on Today and offers Upcoming; it never silently
 relabels later events as today's.
 
 ## Event selection and mobile
 
-Rows show a small thumbnail, time, title, public host, location when known and
-a compact current/upcoming performer summary. Preserve manual venue labels
-when no linked world exists. Missing metadata removes that line without
-manufacturing placeholder facts.
+Use one shared horizontal time axis and one row per event. The upper part of
+each event band identifies the event; the nested lower part divides authored
+performer intervals proportionally. Preserve host and venue in a stable label
+area or accessible detail, including manual venue labels when no world is
+linked. Keep text readable at the chosen scale, with exact set times available
+on selection. Untimed or unresolved entries remain accessible in event details,
+outside the timed grid.
+
+Initially show a six-to-eight-hour desktop window and about three hours on
+mobile. Allow earlier/later navigation and horizontal panning at a readable
+scale. Show midnight as a day boundary on one continuous axis. Repeated DST
+hours need disambiguating offset context in exact-time detail. A focused
+schedule can offer a broader window; Home must not shrink a whole day into
+unreadable cells.
 
 Use an explicit keyboard-accessible control to select an event or expand its
 lineup. Event-title and performer links retain their independent navigation.
 Expose selected and expanded state accessibly. Selecting a row must not
 unexpectedly navigate or move focus to another part of the page.
 
-On wide screens, the selected event's poster and details occupy roughly one
-third of the schedule region. Fit the complete poster inside its frame; use
-separate cropped thumbnails for rows. Without artwork, use a compact identity
-and details presentation instead of reserving a large empty rectangle.
-
-On narrow screens, keep search, date selection and event rows first. Reveal
-lineup and artwork within the selected event on demand. Avoid appending a
-second large copy of every event after the list. Respect reduced motion, touch
-targets, contrast, text wrapping and visible keyboard focus.
+On wide screens, the chart spans the content width. On narrow screens, retain
+event identity while the time grid scrolls horizontally. Provide explicit
+earlier/later controls and an accessible agenda alternative; panning is not the
+only way to reach a set. Reveal full lineup and poster details on demand and
+keep discovery below the compact chart. Fit intact posters inside their detail
+frame and allow separately cropped discovery images. Missing images use the
+existing deliberate identity fallback. Respect reduced motion, touch targets,
+contrast, text wrapping and visible keyboard focus.
 
 ## Data and component boundaries
 
@@ -140,18 +176,23 @@ Two verified gaps need implementation:
 
 - `fetchDiscovery` requests only 12 events, and `listPublicUpcoming` accepts
   `now` and a bounded limit, not a selected interval. Add a bounded,
-  interval-aware public schedule query with pagination and explicit error
-  state. Apply range and public eligibility before forming each result page.
+  interval-aware public timeline query with pagination and explicit error
+  state, including relevant elapsed/ongoing intervals in the visible window.
+  Apply range and public eligibility before forming each result page.
   Do not filter the first 12 events to implement Tomorrow or Upcoming.
 - Preview `nextSlots` contains at most three current/future timed slots, not
-  the full lineup. Fetch canonical public event detail for the selected event
-  on demand. Its mixed timed/untimed lineup supplies expansion. Avoid one
-  detail request per visible event and discard stale selection responses.
+  the intervals needed to draw this chart. The bounded timeline projection
+  must include every publicly eligible authored timed set interval overlapping
+  the visible window for each returned event. Reuse canonical lineup and public
+  projection rules. Fetch full mixed timed/untimed detail only on demand;
+  avoid one full-detail request per visible event and discard stale responses.
 
 Let Home display a bounded first page and link to the full schedule. Let the
 focused schedule load further bounded pages without losing the selected range.
-Communities derived from a partial page are a contextual sample, not a claim to
-list every host in the interval.
+Discovery derived from a partial page is a contextual sample, not a claim to
+list every host in the interval. A partial timeline must expose that more events
+exist; its visible row count must not be presented as total concurrency. Any
+future count at a selected time requires complete, eligible interval coverage.
 
 Keep empty, loading and failed reads distinct. A schedule failure must not
 become No events. Retain working search and date controls, offer retry, and
@@ -176,12 +217,12 @@ Mockup text is not an additional copy specification.
 | Universal search placeholder | Search people, communities, worlds, events |
 | DJ search placeholder | Name or genre |
 | Bulk lookup entry | Paste lineup |
-| Schedule heading | Events |
+| Schedule heading | Schedule |
 | Period controls | Today; Tomorrow; Upcoming |
 | Full schedule destination | Full schedule |
 | Event detail link | Event details |
 | Lineup disclosure | Lineup |
-| Host collection | Hosting |
+| Discovery heading | Discover |
 | Empty selected day | No events today; No events tomorrow |
 | Empty upcoming interval | No upcoming events |
 | Failed schedule read | Events unavailable |
@@ -201,7 +242,8 @@ responsive composition, search-route preservation and verification. Before
 that work, produce a written implementation plan from this reviewed design.
 
 First review checkpoint: a running desktop/mobile preview with representative
-fixture content, initially at `/discovery`. Use a busy day with simultaneous
+fixture content, initially at `/discovery`. Verify the rough search/timeline/
+discovery balance on Home separately from the full schedule. Use a busy day with simultaneous
 events and more than 12 entries, one event, a quiet day with later events, no
 events, missing/failed artwork, long names and partial/untimed lineups. The
 generated concept board is not verification of that preview.
@@ -209,11 +251,15 @@ generated concept board is not verification of that preview.
 Before promoting the new composition to `/`:
 
 - Prove interval loading is not starved by earlier dates or hidden records;
-  pagination, overnight events, local midnight, DST and date-only values work.
+  pagination, interval geometry, overlap, overnight events, local midnight,
+  DST and date-only values work. Unknown endpoints must not gain fake durations.
 - Verify search scopes, legacy query URLs, keyboard/touch operation, recent
   searches, multiline bulk lookup and result-copy actions still work.
 - Verify rapid date/selection changes, failed reads, retry, cancellation and
   publication/surfacing changes never leave mismatched or stale event details.
+  Verify horizontal panning, earlier/later controls, stable labels and the
+  accessible agenda. Favorite highlighting remains sample-only until its
+  explicit preference contract is implemented and reviewed.
 - Inspect real desktop/mobile screenshots in supported themes for busy, sparse
   and error states. Include visual review, not only screenshot generation.
 - Run relevant backend tests, web checks and route/browser coverage. Update
