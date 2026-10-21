@@ -867,8 +867,28 @@ forwarding, failures before teardown versus adapter/worker cleanup, split marker
 secret canaries, oversized floods and finalizer retention. This clarifies observation
 scope without a DNS or transport bypass. The nine runtime modules remain unchanged
 from `4d701bb`; the parser correction is already part of that baseline. No deadline,
-queue, endpoint or transport option was relaxed. A new reviewed image and separate
-operator authorization are required for a future attempt. Provider publication and
+queue, endpoint or transport option was relaxed. The reviewed image is now published
+as recorded below; separate operator authorization is required for a future attempt. Provider publication and
 all remaining live/device gates remain open. See the
 [third-attempt record](event-broadcast-rehearsal.md#october-21-2026-third-bounded-attempt)
 for exact task timelines, limits and investigation references.
+
+### Published transport-observation image, no live validation
+
+The reviewed `689db1b6a9fe605c8207ddf246b3d26af8daa645` source is published as
+`079358094174.dkr.ecr.us-east-1.amazonaws.com/vrdex-restream-worker@sha256:f8f833097f68cdb147cda2ed8521ce7fa50b4177c0d5833e95d3acf678c5073e`,
+local image ID
+`sha256:85a07cd41a613182256620014edf0e3d76c4d12dd2bc18dbba74f652950bcc0e`.
+All 13 packaged source hashes match. Only the proof rehearsal script differs from
+the canonical-host image; the other 12 packaged files, base/runtime RootFS and
+default command match. Independent task re-review and whole-branch review passed,
+with all 38 offline tests passing and no material findings.
+
+Readback at `23:28:05.811956Z` confirmed ECR ACTIVE, zero RUNNING tasks and both
+switches false at production/rehearsal versions 1/6. Temporary registry directories
+were absent. The four publication, packaging, image-difference and readback
+receipts and `final-with-transport-review.md` remain in `/workspace/rehearsal-sdd/`;
+the [published-image record](event-broadcast-rehearsal.md#published-passive-observation-image)
+lists their exact names. No live validation or capacity rerun used this image.
+Provider-output acceptance and the unproven live root cause remain open; another
+live attempt requires separate operator authorization.

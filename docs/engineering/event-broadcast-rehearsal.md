@@ -17,8 +17,9 @@ hosts such as `uk.ingest.vrcdn.live`, in split `rtmpUrl`/`streamKey` or combined
 `ingestUrl` form. RTMP/RTMPS, ports 1935/443, the `/live` application and stream-key
 checks still apply. Userinfo, query, fragment, lookalike suffixes and nested regional
 subdomains are rejected. The canonical-host correction passed startup validation in the third attempt below.
-That attempt still failed before publication. New passive proof observations require
-a new reviewed image before another separately authorized provider attempt.
+That attempt still failed before publication. The passive-observation image is now
+published and verified below, with offline tests only. A future provider attempt
+still requires separate operator authorization.
 
 ## Image and permissions
 
@@ -469,5 +470,31 @@ The new observations pass offline fakes and finalizer sanitization checks. They 
 not reconstruct the failed third attempt's missing transport trace. The nine
 runtime modules remain unchanged from `4d701bb`, including its already committed
 parser correction. Endpoint/pinning rules, options, queues, deadlines, switching
-and media lifecycle remain unchanged. A new reviewed proof image is required
-before any separately authorized live attempt. Task 5 authorizes no live retry.
+and media lifecycle remain unchanged. The reviewed proof image is published below.
+Task 5 authorizes no live retry; provider validation of the new image remains open.
+
+### Published passive-observation image
+
+Reviewed source `689db1b6a9fe605c8207ddf246b3d26af8daa645` is published as
+`079358094174.dkr.ecr.us-east-1.amazonaws.com/vrdex-restream-worker@sha256:f8f833097f68cdb147cda2ed8521ce7fa50b4177c0d5833e95d3acf678c5073e`.
+Its local image ID is
+`sha256:85a07cd41a613182256620014edf0e3d76c4d12dd2bc18dbba74f652950bcc0e`.
+All 13 packaged hashes match reviewed source. Compared with canonical-host image
+`2e121beb`, only `scripts/event-vrcdn-rehearsal.mjs` changed; the other 12 packaged
+files, base/runtime RootFS and default command match. Independent task re-review
+and whole-branch review passed with no material findings and all 38 offline tests
+passing. Earlier image provenance remains preserved.
+
+Native readback at `23:28:05.811956Z` confirmed the new image ACTIVE, zero RUNNING
+tasks and both switches false, production version 1 and rehearsal version 6.
+Temporary registry credential directories were absent after publication. Safe
+receipts in `/workspace/rehearsal-sdd/` are `published-image-transport.json`,
+`packaged-image-transport-verification.json`,
+`transport-image-difference-verification.json` and
+`transport-image-published-verification.json`. The whole-branch review is
+`final-with-transport-review.md`.
+
+No live task or capacity rerun has used this image. Publication and packaging
+verification do not establish provider acceptance or fix the unproven cloud cause.
+The next live window, if any, requires separate operator authorization; all open
+provider, source/hold/return, source loss/recovery, switch and device gates remain.

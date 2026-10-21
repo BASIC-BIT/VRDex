@@ -137,8 +137,8 @@ credential rewrite, endpoint substitution or production enablement change is inc
   focused non-media output, worker, restream configuration/control and rehearsal suites.
 - [x] Preserve the initial attempt and append second-attempt evidence to engineering
   rehearsal and verification docs.
-- [ ] Build and review a new image before any future separately authorized provider
-  window. This is outside Task 4 and is not live acceptance of the parser fix.
+- [x] Build and review canonical-host image `2e121beb` from `4d701bb` before the
+  separately authorized third window. Credential validation passed there; output publication failed.
 
 Final native verification at `22:29:03.711Z` found source STOPPED at `22:27:44.091Z`,
 exit 143 from operator termination; output STOPPED at `22:26:47.643Z`, exit 1; zero
@@ -192,5 +192,32 @@ options, switching and media flow remain unchanged.
 - [x] Implement capped proof-only observation inline in the packaged rehearsal script.
 - [x] Verify the existing 29 lifecycle tests alongside the observation tests and
   appropriate script/Markdown checks; retain prior attempt records and uncertainty.
-- [ ] Build and review a new proof image before a future separately authorized
-  provider attempt. Task 5 permits no publication or live retry.
+- [x] Build, independently review, verify and publish the source-matched transport
+  proof image. Root completed this separate publication step as recorded below.
+- [ ] Complete provider acceptance in a separately authorized future window. No
+  further live task or retry is currently authorized.
+
+### Transport image publication status
+
+Root published reviewed source `689db1b6a9fe605c8207ddf246b3d26af8daa645` as
+`079358094174.dkr.ecr.us-east-1.amazonaws.com/vrdex-restream-worker@sha256:f8f833097f68cdb147cda2ed8521ce7fa50b4177c0d5833e95d3acf678c5073e`,
+local image ID
+`sha256:85a07cd41a613182256620014edf0e3d76c4d12dd2bc18dbba74f652950bcc0e`.
+All 13 packaged hashes match source. Only `scripts/event-vrcdn-rehearsal.mjs`
+changed from canonical-host image `2e121beb`; the other 12 packaged files,
+base/runtime RootFS and default command match. Task re-review and final whole-branch
+review passed with all 38 offline tests and no material findings.
+
+Native readback at `23:28:05.811956Z` confirmed ACTIVE, zero RUNNING tasks and both
+switches false, production version 1 and rehearsal version 6. Temporary registry
+directories were absent. Publication, packaging, image-difference and readback
+receipts are `published-image-transport.json`,
+`packaged-image-transport-verification.json`,
+`transport-image-difference-verification.json` and
+`transport-image-published-verification.json` in `/workspace/rehearsal-sdd/`;
+`final-with-transport-review.md` records whole-branch review.
+
+This completes the image gate only. The new image has no live task, capacity rerun
+or provider validation. Task 2 remains partial; the cloud cause remains unproven
+and all live acceptance gates remain open. A future attempt requires separate
+operator authorization. Historical capacity and image records remain preserved.
