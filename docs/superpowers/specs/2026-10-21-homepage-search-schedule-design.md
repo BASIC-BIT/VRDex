@@ -17,14 +17,16 @@ concurrent events and favorite performers easier to scan. Search, timeline and
 discovery each occupy roughly one third of Home. The current mockup interprets
 those thirds as stacked, full-width sections so the timeline stays readable;
 that orientation is a design recommendation, not an explicit user constraint.
-Specific route changes, date behavior, favorites and copy below remain proposed
-production behavior.
+BASIC also requested retiring the separate DJ links search mode while keeping
+its stronger search/result interactions and improving genre display. The
+unified search study below incorporates that request. Specific route changes,
+date behavior, favorites and copy below remain proposed production behavior.
 
 The current root-lookup decision in
 [Product direction](../../planning/product-direction.md#homepage-direction)
 remains in force until this design is approved and implemented. This proposal
-would replace it with search plus a public schedule while preserving focused DJ
-lookup at its existing search destination.
+would replace it with search plus a public schedule while preserving performer
+lookup, bulk input and link-copying inside the unified search experience.
 
 ## Visual reference
 
@@ -47,13 +49,23 @@ supplies the stronger colors.
 The earlier [A/B study](../../planning/assets/homepage-search-schedule-2026-10-21/desktop-mobile-concepts.png)
 records the preceding composition exploration; the timeline study now leads.
 
+### Unified search results
+
+![Unified search with richer person results and readable genres on desktop and mobile](../../planning/assets/homepage-search-schedule-2026-10-21/unified-search-genres-concept.png)
+
+This study uses sample profiles, genre assignments and copy targets. It replaces
+the separate All VRDex / DJ links mode choices still visible in earlier
+homepage studies. The homepage now has one search box and Paste lineup access.
+Entity-type filters belong to the results page. The illustrated genre filter
+is proposed behavior, not an existing exact-genre filtering capability.
+
 ## First version
 
 Below the existing brand/account header and an accessible Add event entry,
 Home has three full-width sections with approximately equal visual weight:
 
-1. Search across public entities, an explicit DJ links scope, access to the
-   existing bulk lookup workflow and recent searches where already supported.
+1. One search across public entities, access to the existing bulk lookup
+   workflow and the stronger autocomplete/recent-search interactions.
 2. A compact, date-selectable event timeline with a shared horizontal time axis
    and performer set segments inside each event band.
 3. Artwork-led discovery of events and their connected communities and worlds,
@@ -75,20 +87,73 @@ contract must be reviewed before treating the mockup's highlights as real data.
 
 ## Search and routes
 
-Default the new homepage search to All VRDex. Selecting DJ links visibly changes
-the search scope and uses the existing name/genre lookup behavior. Preserve
-autocomplete, recent DJ searches, multiline paste, bulk lookup and result-copy
-actions by reusing their existing implementation.
+Use one search experience on Home and `/search`. Remove the visible All VRDex /
+DJ links mode switch. Keep All, People, Communities, Events and Worlds as
+results filters. People includes DJs and other people; do not turn it into a
+DJ-only directory or force everyone into performer-specific result fields.
 
-Submit search to the existing `/search` route with its current query/view
-contract. Paste lineup enters the existing bulk-capable DJ lookup experience;
-do not invent a second bulk parser or expose private lookup data in homepage
-event or community modules.
+Reuse the lookup input's keyboard selection, clear action, autocomplete,
+recents and multiline-paste behavior against the canonical public universal
+search/suggestion source. Suggestions distinguish entity types with recognizable
+identity context. Preserve explicit selection and stale-response handling.
+Keep Paste lineup as a workflow entry using the existing parser, deduplication
+and lookup/copy behavior, not a permanent separate search mode.
 
-Preserve existing nonempty `/?q=...` DJ lookup links by redirecting them to the
-equivalent `/search?view=dj&q=...` destination. Keep the current `/lookup`
-redirect and legacy `/discover` redirect. Do not change their meaning as part
-of the visual redesign.
+Person results combine recognizable identity, role, readable genres and quick
+public link actions. Put fuller copyable Discord/stream fields behind a Links
+disclosure; keep frequently useful external links directly accessible. The
+result name remains a profile link, independent of Copy and disclosure controls.
+Events, communities and worlds use their own relevant public metadata in the
+same results composition. Expand only the useful details for that entity.
+
+Submit to `/search` with the existing query and entity-type contract. Normalize
+legacy `view=dj` URLs to the equivalent People results and retain query text.
+Normalize old nonempty `/?q=...` and `/lookup?q=...` lookup links to that same
+canonical destination. Preserve multiline lookup workflows, without leaving a
+second publicly exposed mode implementation behind. Keep the legacy `/discover`
+redirect. Preserve permission-scoped private seed lookup at a proposed
+`/account/lookup` operator entry, reusing the existing viewer-access checks,
+rollout eligibility and bulk behavior. Show that entry only to eligible viewers;
+sign-in alone must not grant access. Move this workflow before retiring its old
+public-mode entry. Do not mix its suggestions, caches or result payloads into
+public unified search.
+
+### Genre presentation and filtering
+
+Public person results already carry genre slug, display name, optional custom
+display label and a featured display flag. Render that existing metadata instead
+of dropping it in universal search. Prefer the custom label when supplied.
+Show up to three readable genre names beneath identity, with quiet separators
+and an explicit +N disclosure for the rest. Let labels wrap on mobile. Keep
+roles and freeform tags separate from genre names.
+
+Order explicitly featured entries first while preserving stable order within
+each group. Featured is display intent, not proof of a single primary genre,
+owner favorite or verified classification. Use restrained emphasis for featured
+entries and the matched genre; avoid assigning a different strong color to
+every label. Do not infer genre families from fragments of their names.
+
+Add one optional searchable Genre selector to People results. Choosing a genre
+sets a visible, removable filter using its stored slug, while leaving keyword
+text unchanged. Apply keyword and genre conditions together on the server before
+the result limit. Clicking a genre label may set this same filter; +N only
+expands labels. Clearing it retains the query and People selection. Switching
+away from People clears this person-only filter rather than pretending every
+other entity has equivalent genre metadata.
+
+The selector also works without keyword text: an empty query plus a selected
+genre returns eligible matching people in stable display-name/identity order,
+with bounded pagination. An empty query without a genre retains the initial
+search/recent state, not an unbounded directory dump.
+
+Derive each option's identity from a genre slug actually assigned on an eligible
+public profile, together with its public label. Vocabulary keys alone are not
+an authoritative genre-slug mapping. Keep option retrieval bounded and recheck
+public eligibility before showing options or matches. Recorded aliases may help
+find an option; do not promise a complete global genre graph, automatic parent
+expansion or inherited event/community genres. Exact genre filtering is new
+query work. Preserve it in the canonical search URL and in history navigation.
+Never silently turn keyword text into an exact genre filter.
 
 Use `/discovery` as the full schedule destination, sharing the same date-aware
 schedule composition. Build and review the new composition there before
@@ -172,7 +237,7 @@ publication/surfacing checks authoritative for events, hosts, performers and
 worlds. A hidden performer must not regain a profile link or private metadata
 through a new join.
 
-Two verified gaps need implementation:
+Three verified gaps need implementation:
 
 - `fetchDiscovery` requests only 12 events, and `listPublicUpcoming` accepts
   `now` and a bounded limit, not a selected interval. Add a bounded,
@@ -186,6 +251,11 @@ Two verified gaps need implementation:
   the visible window for each returned event. Reuse canonical lineup and public
   projection rules. Fetch full mixed timed/untimed detail only on demand;
   avoid one full-detail request per visible event and discard stale responses.
+- Universal person results already include genre/link metadata, but the current
+  result card does not render it, and public search exposes only entity-type
+  filtering. Integrate the richer person presentation and lookup interactions
+  into that results page and add the explicit public genre-filter contract.
+  Do not build a second matching implementation or infer private genre fields.
 
 Let Home display a bounded first page and link to the full schedule. Let the
 focused schedule load further bounded pages without losing the selected range.
@@ -215,8 +285,11 @@ Mockup text is not an additional copy specification.
 | Purpose | Proposed wording |
 | --- | --- |
 | Universal search placeholder | Search people, communities, worlds, events |
-| DJ search placeholder | Name or genre |
 | Bulk lookup entry | Paste lineup |
+| Result-type filters | All; People; Communities; Events; Worlds |
+| Genre filter | Genre |
+| Clear genre selection | Clear filter |
+| Profile link disclosure | Links |
 | Schedule heading | Schedule |
 | Period controls | Today; Tomorrow; Upcoming |
 | Full schedule destination | Full schedule |
@@ -238,7 +311,8 @@ verification.
 ## Delivery and acceptance
 
 Recommend one implementation PR with internal tasks for date-aware data,
-responsive composition, search-route preservation and verification. Before
+responsive composition, unified search/genre presentation, route preservation
+and verification. Before
 that work, produce a written implementation plan from this reviewed design.
 
 First review checkpoint: a running desktop/mobile preview with representative
@@ -254,7 +328,14 @@ Before promoting the new composition to `/`:
   pagination, interval geometry, overlap, overnight events, local midnight,
   DST and date-only values work. Unknown endpoints must not gain fake durations.
 - Verify search scopes, legacy query URLs, keyboard/touch operation, recent
-  searches, multiline bulk lookup and result-copy actions still work.
+  searches, multiline bulk lookup and result-copy actions still work. Verify
+  all entity types share one search and that legacy DJ URLs reach People
+  results without requiring a separate mode.
+- Verify custom genre labels, featured ordering, missing/long genre lists and
+  +N expansion on mobile. Prove the explicit genre facet filters before limits,
+  combines with keyword text, works without keyword text, clears on entity-type
+  change and survives search navigation. Confirm option identities correspond to
+  public stored assignments and missing genre data adds no fabricated labels.
 - Verify rapid date/selection changes, failed reads, retry, cancellation and
   publication/surfacing changes never leave mismatched or stale event details.
   Verify horizontal panning, earlier/later controls, stable labels and the
@@ -284,6 +365,9 @@ Source inspected at `0d7246b` on 2026-10-21:
   `apps/web/src/convex/server.ts`: current composition and bounded feed.
 - `convex/events.ts`, `convex/_eventPublic.ts` and `convex/_eventRuntime.ts`:
   public eligibility, previews, canonical lineup and runtime semantics.
+- `convex/_profileLookup.ts`, `convex/_publicSearch.ts`,
+  `docs/planning/genre-graph.md` and `docs/backend/vocabulary-model.md`:
+  current genre projection, person-result enrichment and taxonomy boundaries.
 - [Design system](../../engineering/design-system.md),
   [Search and discovery](../../backend/search-discovery.md) and
   [Feature design loop](../../agentic/feature-design-loop.md): shared UI,
