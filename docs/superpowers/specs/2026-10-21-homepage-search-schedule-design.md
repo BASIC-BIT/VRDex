@@ -11,10 +11,16 @@ to enter their events. That supplies the initial content without making group
 self-service onboarding a launch dependency. How quickly groups join and how
 often they publish remain assumptions to test through that outreach.
 
-Observed workflow from BASIC's follow-up: link collection historically happened
-one DJ name at a time. BASIC wants to move users toward lineup collection as
-VRDex becomes more useful for event management. Preserve quick single-name
-access while making lineup lookup a first-class entry.
+Observed workflow from BASIC's follow-up: organizers plan events in Discord,
+then copy the details to VRCTL and VRCPop. BASIC wants VRDex to become the place
+events are planned and maintained, with the other places receiving mirrors.
+That is the product goal; automatic integrations with those destinations have
+not been established by this design.
+
+Single-name link lookup remains useful. BASIC retained compact search and
+individual expanded results, but rejected the proposed third search scenario
+for collecting all lineup links. Event planning and lineup operations belong
+in the event workspace, where the canonical event is being managed.
 
 Status: revised draft for BASIC's review. BASIC requested a Gantt-like timeline
 after reviewing concept B: event bars and nested DJ set intervals make
@@ -30,8 +36,9 @@ date behavior, favorites and copy below remain proposed production behavior.
 The current root-lookup decision in
 [Product direction](../../planning/product-direction.md#homepage-direction)
 remains in force until this design is approved and implemented. This proposal
-would replace it with search plus a public schedule while preserving performer
-lookup, bulk input and link-copying inside the unified search experience.
+would replace it with search plus a public schedule and individual expanded
+link details. Existing bulk lookup remains a compatibility workflow until the
+event-management replacement is usable; it is not a new search product bet.
 
 ## Visual reference
 
@@ -60,9 +67,10 @@ records the preceding composition exploration; the timeline study now leads.
 
 This study uses sample profiles, genre assignments and copy targets. It replaces
 the separate All VRDex / DJ links mode choices still visible in earlier
-homepage studies. The homepage now has one search box and Paste lineup access.
-Entity-type filters belong to the results page. The illustrated genre filter
-is proposed behavior, not an existing exact-genre filtering capability.
+homepage studies. The homepage now has one search box; Paste lineup is no
+longer proposed as its primary search action. Entity-type filters belong to
+the results page. The illustrated genre filter is proposed behavior, not an
+existing exact-genre filtering capability.
 
 ### Result disclosure interaction study
 
@@ -72,15 +80,17 @@ BASIC rejected the preceding study's operator-heavy presentation for ordinary
 search. This low-fidelity state study supersedes its result disclosure defaults;
 it does not replace the agreed charcoal visual direction. Closed results show
 identity and readable genres. Copy destinations appear only after a deliberate
-Links action or through the explicit lineup-collection entry.
+Links action. BASIC retained states 1 and 2; state 3, its Show links/Hide links
+controls and a search-centered collection workflow are withdrawn. The retained
+image records the state comparison, not approval of all three panels.
 
 ## First version
 
 Below the existing brand/account header and an accessible Add event entry,
 Home has three full-width sections with approximately equal visual weight:
 
-1. One search across public entities, access to the existing bulk lookup
-   workflow and the stronger autocomplete/recent-search interactions.
+1. One search across public entities with the stronger autocomplete and
+   recent-search interactions and individual link disclosures in results.
 2. A compact, date-selectable event timeline with a shared horizontal time axis
    and performer set segments inside each event band.
 3. Artwork-led discovery of events and their connected communities and worlds,
@@ -100,6 +110,36 @@ mandatory onboarding. Favorite-DJ highlighting is a candidate interaction:
 public browsing must work without it, and a production follows/preferences
 contract must be reviewed before treating the mockup's highlights as real data.
 
+## Event-management product direction
+
+VRDex is intended to be the organizer's working event application. Planning,
+performer selection, lineup timing, approved profile links/assets, publication
+and later revisions should stay connected to one canonical event. The public
+homepage and search help people find that activity; the event workspace is
+where organizers manage it. Keep creation and management clearly reachable
+through working navigation rather than treating authoring as a secondary import
+task.
+
+The target flow is: plan in VRDex, publish the canonical event, then distribute
+it to supported destinations. A lineup pasted into the event editor becomes
+an editable event draft with explicit identity resolution, not a detached list
+of URLs to carry between apps. Known linked performers can supply the eligible
+links and assets already held by their profiles.
+
+Discord, VRCTL and VRCPop are requested destinations. Each needs independent
+capability, permission, field-mapping, update/cancellation and delivery research.
+No automatic or bidirectional mirroring is promised here, and the supplied
+VRC.tl screenshot does not authorize access to that service. Saving and
+publishing the VRDex event must remain useful when an external delivery is
+unavailable. Destination delivery state belongs with the event in the organizer
+workspace; it must not be confused with whether the canonical event was saved.
+
+Design that workspace as a separate product slice before expanding management
+scope into this homepage implementation. Its central role is the agreed product
+direction, not a follow-up link-collection utility. No new mirror integration,
+booking system or event-management permission model ships as part of this
+homepage/search redesign.
+
 ## Search and routes
 
 Use one search experience on Home and `/search`. Remove the visible All VRDex /
@@ -107,12 +147,14 @@ DJ links mode switch. Keep All, People, Communities, Events and Worlds as
 results filters. People includes DJs and other people; do not turn it into a
 DJ-only directory or force everyone into performer-specific result fields.
 
-Reuse the lookup input's keyboard selection, clear action, autocomplete,
-recents and multiline-paste behavior against the canonical public universal
+Reuse the lookup input's keyboard selection, clear action, autocomplete and
+recents against the canonical public universal
 search/suggestion source. Suggestions distinguish entity types with recognizable
 identity context. Preserve explicit selection and stale-response handling.
-Keep Paste lineup as a workflow entry using the existing parser, deduplication
-and lookup/copy behavior, not a permanent separate search mode.
+Lineup paste/import belongs to event authoring in the target product. Preserve
+existing bulk lookup as a compatibility path while that replacement is built;
+do not create a new search-centered collection flow or expose a DJ links mode
+in the primary search UI.
 
 Person results default to recognizable identity, role, a readable genre line
 and one Links disclosure control. Keep provider-button clusters, raw URLs,
@@ -121,7 +163,7 @@ remains a profile link, independent of the disclosure. Events, communities and
 worlds use their own relevant public metadata in the same result composition;
 they do not acquire performer-only copy fields.
 
-### Result disclosure and lineup collection
+### Individual result disclosure
 
 A single-name visitor can search, open Links and copy a needed value. Opening
 Links expands content immediately beneath that result without navigation or a
@@ -132,44 +174,25 @@ otherwise explicitly authorized values available to that viewer. Copy reports
 success accessibly without closing the panel, jumping the list or changing
 the search.
 
-Place a quiet Show links action above results when eligible link-bearing person
-results exist. It opens those rows together; Hide links closes them. Query,
-matching, ordering, filters and result identities remain unchanged. This is a
-disclosure shortcut, not another search mode. If individual rows are mixed,
-Show links opens all eligible rows again.
+Default new ordinary result sets to closed link disclosures. Several rows may
+remain open for inspection within the current results. There is no new
+search-wide collection action, expand-all preference or automatic opening of
+all performer links. Preserve the collapsed/expanded behavior on desktop and
+mobile, with independent profile navigation and accessible state.
 
-Retain an explicit Show links choice during the current search visit so someone
-collecting names serially does not reopen every result after each query. Reset
-the ordinary initial state on a fresh visit; do not create an account-wide
-operator preference. Opening a single row does not change the default for new
-queries. Hide links clears the expand-all choice. This rule must remain the
-same on desktop and mobile.
+Submit new public searches to `/search` with the existing query and entity-type
+contract. Preserve current `/search?view=dj` and `/lookup` behavior as legacy
+compatibility entry points for working bulk and permission-scoped lookup until
+their replacements are delivered. Preserve old nonempty `/?q=...` lookup
+bookmarks by forwarding their query to the existing legacy lookup destination.
+Keep those compatibility tools out of the primary search-mode switch, which is
+removed. Keep the legacy `/discover` redirect.
 
-Paste lineup is a first-class task entry using the same search/result machinery.
-It accepts the current multiline input and opens link panels for resolved
-matches automatically. Preserve the original input order, deduplicate repeated
-identities without losing their input mapping, and keep missing or ambiguous
-matches visible for correction/selection. Never silently choose a similarly
-named person as an authoritative match. A user can close individual panels or
-use Hide links without leaving the lineup task.
-
-Candidate follow-up for event management: enter this same collection flow from
-an existing event's lineup, with known linked identities preloaded. That is a
-later entry point, not a requirement to add event creation or booking behavior
-to search. The first implementation must make both single-name lookup and a
-pasted lineup usable without a separate DJ links search tab.
-
-Submit to `/search` with the existing query and entity-type contract. Normalize
-legacy `view=dj` URLs to the equivalent People results and retain query text.
-Normalize old nonempty `/?q=...` and `/lookup?q=...` lookup links to that same
-canonical destination. Preserve multiline lookup workflows, without leaving a
-second publicly exposed mode implementation behind. Keep the legacy `/discover`
-redirect. Preserve permission-scoped private seed lookup at a proposed
-`/account/lookup` operator entry, reusing the existing viewer-access checks,
-rollout eligibility and bulk behavior. Show that entry only to eligible viewers;
-sign-in alone must not grant access. Move this workflow before retiring its old
-public-mode entry. Do not mix its suggestions, caches or result payloads into
-public unified search.
+Retain existing viewer-access checks and rollout eligibility for private seed
+lookup. Sign-in alone must not grant access; do not mix private suggestions,
+caches or result payloads into public unified search. Retiring compatibility
+tools later requires a usable event-management replacement and explicit
+migration of their users, URLs and authorized private workflows.
 
 ### Genre presentation and filtering
 
@@ -338,12 +361,10 @@ Mockup text is not an additional copy specification.
 | Purpose | Proposed wording |
 | --- | --- |
 | Universal search placeholder | Search people, communities, worlds, events |
-| Bulk lookup entry | Paste lineup |
 | Result-type filters | All; People; Communities; Events; Worlds |
 | Genre filter | Genre |
 | Clear genre selection | Clear filter |
 | Profile link disclosure | Links |
-| Expand or collapse person link panels | Show links; Hide links |
 | Copy destination action and success | Copy; Copied |
 | Schedule heading | Schedule |
 | Period controls | Today; Tomorrow; Upcoming |
@@ -383,15 +404,14 @@ Before promoting the new composition to `/`:
   pagination, interval geometry, overlap, overnight events, local midnight,
   DST and date-only values work. Unknown endpoints must not gain fake durations.
 - Verify search scopes, legacy query URLs, keyboard/touch operation, recent
-  searches, multiline bulk lookup and result-copy actions still work. Verify
-  all entity types share one search and that legacy DJ URLs reach People
-  results without requiring a separate mode.
+  searches, existing multiline bulk lookup and result-copy actions still work.
+  Verify all entity types share the new public search, without a visible DJ
+  mode, while legacy URLs retain their compatibility behavior.
 - Verify closed ordinary results contain no raw copy fields or provider-button
-  clusters; one-row disclosure, multiple open rows and Show links/Hide links
-  work without changing the result set. Verify fresh-visit defaults, explicit
-  expand-all behavior across queries, mobile operation and non-disruptive Copy
-  feedback. Pasted lineups start with links open and retain unmatched/ambiguous
-  source entries and their order for deliberate resolution.
+  clusters; individual disclosure and several open rows work without changing
+  the result set. Verify closed defaults for new result sets, mobile operation
+  and non-disruptive Copy feedback. Do not add the withdrawn search collection
+  state or use it as a substitute for the event-management workspace.
 - Verify custom genre labels, featured ordering, missing/long genre lists and
   +N expansion on mobile. Prove the explicit genre facet filters before limits,
   combines with keyword text, works without keyword text, clears on entity-type

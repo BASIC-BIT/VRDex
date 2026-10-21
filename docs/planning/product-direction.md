@@ -43,14 +43,46 @@ broader data and workflow layer.
 
 ## Product Wedge
 
+### Event management direction
+
+Owner direction from the October 21, 2026 homepage and search discussion:
+VRDex should be where organizers plan and maintain events, with other platforms
+receiving published copies. BASIC described the current workflow as planning
+in Discord, then copying details into VRCTL and VRCPop. The goal is one working
+event application with a canonical event, reusable performer identities and
+assets, lineup timing and revisions that remain connected.
+
+This makes event management a core workflow. Search still supports finding
+people, communities, worlds and events, with individual expandable link details.
+The proposed search-wide link-collection scenario was rejected; lineup
+composition and the links/assets it needs belong in the event workspace.
+Retain working legacy lookup tools during the transition rather than removing
+their utility before event management can replace it.
+
+Discord, VRCTL and VRCPop are intended distribution destinations, not verified
+automatic integrations. Research destination capabilities, authorization,
+field mapping, update/cancellation behavior and delivery status separately.
+VRDex event authoring and publication must remain useful independently of
+external delivery. Automatic or bidirectional sync is not established by this
+design discussion.
+
+The [homepage and search design](../superpowers/specs/2026-10-21-homepage-search-schedule-design.md)
+records the retained search states and public homepage composition. Event
+management needs its own design slice; mirror controls do not belong in public
+search or the homepage timetable.
+
+### Current product entry points
+
 Current recommendation:
 
 - Start with the operator workflow because it has concrete pain and clear
   utility.
-- The strongest early job is helping an event operator or lineup wrangler get
-  approved performer links, logos, genres, stream links, set times, Discord
-  timestamp output, and event publishing artifacts without repeated manual
-  re-entry.
+- The strongest organizer workflow is planning and maintaining an event with
+  its performers, lineup and set times together, then publishing it without
+  repeated manual re-entry across destinations.
+- Approved performer links, logos, genres and stream links are reusable inputs
+  to that event workflow. Discord timestamp output and other publishing
+  artifacts are outputs of the event, not a separate planning database.
 - Public profiles matter because they make that workflow reusable: a performer
   can own one page and communities can reference it repeatedly.
 - Public event surfaces matter because they turn the identity graph into a
