@@ -20,6 +20,12 @@
 - Estimated compute approximately$0.02, excluding storage/egress/logs; incremental target$1 is not a hard billing cutoff. AWS account budget already exceeded, disclosed and user approved proceeding.
 - Preserve all prior evidence and images. No concurrent media runs/builds. Managed isolated checkout `/workspace/VRDex` is the documented lane; new branch `ops/event-broadcast-rehearsal` starts at merged326a38b.
 
+Approved amendment after the second attempt: the runtime-unchanged constraint above
+describes the original proof images. Correct the demonstrated canonical VRCDN host
+compatibility defect only in `parseOutputCredential`. Preserve all other runtime
+behavior and existing image provenance; rebuild and review a new image before any
+future authorized provider attempt.
+
 ## Review focus
 
 - Missing attestation, wrong source/output or switch name, arbitrary endpoint/credential settings: reject before provider side effects.
@@ -103,3 +109,43 @@ proof-only definitions INACTIVE. The three approved IAM policies remain as durab
 tooling. A further bounded live window is required. Do not mark the
 plan complete or infer output/provider/device acceptance from source or capacity evidence.
 See [the attempt record](../../engineering/event-broadcast-rehearsal.md#october-21-2026-attempt-record).
+
+## Second bounded attempt and Task 4 scope amendment
+
+The separately approved second window began at `22:24:44.718Z`, with a global
+deadline of `22:34:44.718Z`. One source and one output used the existing corrected
+image from `dcf83fe092f1c2bf3b492633516ac05b97504e0b`, digest
+`sha256:59388ac42078ba3f7ca44ce560b3e51e306f7ed460325e4855320f00f76adb23`.
+No capacity rerun, second source or output retry occurred. The public source sample
+decoded 228 frames over 8.266667 seconds with audio. Output exited 1 after 63 ms,
+before `proof-start`; its observer received zero bytes with `TimeoutError`, and no
+output S3 artifacts exist.
+
+The valid split output credential uses exact `ingest.vrcdn.live`. Boolean-only native
+inspection isolated the old regional-only parser restriction; the successful source
+uses the same canonical host. Root approved the narrow production parser correction
+because retaining this demonstrated incompatibility blocks real provider validation.
+The scope expands accepted destinations only to the exact known canonical host,
+with negative tests preventing suffix, nested-subdomain and URL bypasses. No IAM,
+credential rewrite, endpoint substitution or production enablement change is included.
+
+- [x] Reproduce the canonical split/combined rejection with synthetic credentials
+  before changing production code.
+- [x] Accept exact canonical and existing one-label regional hosts; retain provider,
+  protocol, port, application path, key and URL restrictions.
+- [x] Verify parser behavior and the actual rehearsal startup gate locally, then run
+  focused non-media output, worker, restream configuration/control and rehearsal suites.
+- [x] Preserve the initial attempt and append second-attempt evidence to engineering
+  rehearsal and verification docs.
+- [ ] Build and review a new image before any future separately authorized provider
+  window. This is outside Task 4 and is not live acceptance of the parser fix.
+
+Final native verification at `22:29:03.711Z` found source STOPPED at `22:27:44.091Z`,
+exit 143 from operator termination; output STOPPED at `22:26:47.643Z`, exit 1; zero
+RUNNING tasks; both revision-2 proof definitions INACTIVE; and both switches false,
+production version 1 and rehearsal version 4. Output exited before switch cleanup,
+so actual switch fencing remains unproven. Private evidence is under
+`/workspace/rehearsal-sdd/live-20261021T222402Z/`. See the
+[second-attempt record](../../engineering/event-broadcast-rehearsal.md#october-21-2026-second-bounded-attempt).
+Task 2 provider-output acceptance remains incomplete. No further source or output
+retry is authorized within this attempt.

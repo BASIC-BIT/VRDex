@@ -744,6 +744,8 @@ No claim is made that historical manifest paths still identify current sources.
 
 ## Bounded one-source provider rehearsal
 
+### Initial attempt
+
 On October 21, the approved ten-minute Fargate attempt passed one 120-second
 synthetic run at 2 CPU/4 GiB. Task `a6fd95e7753d41febad69f62f5e315de` reached
 STOPPED with exit 0. It retained one primary sender, six optional process attempts
@@ -786,3 +788,38 @@ remains disabled.
 
 The [isolated rehearsal procedure and attempt record](event-broadcast-rehearsal.md#october-21-2026-attempt-record)
 contains exact provenance, private evidence paths, cleanup status and limitations.
+
+### Second bounded attempt and canonical-host correction
+
+A separately approved second window began at `22:24:44.718Z` on October 21, with a
+`22:34:44.718Z` global deadline. One source and one output task used the preserved
+`dcf83fe092f1c2bf3b492633516ac05b97504e0b` image,
+`sha256:59388ac42078ba3f7ca44ce560b3e51e306f7ed460325e4855320f00f76adb23`.
+The public `basicbit1` sample decoded 228 frames over 8.266667 seconds with AAC audio.
+This source result does not prove output publication.
+
+Output task `a253c3007ee4447ea9295ac52a578302` exited 1 after 63 ms, before
+`proof-start`, with only the generic safe failure log and no S3 output artifacts.
+Its public observer received zero bytes and failed with `TimeoutError`. Boolean-only
+credential inspection showed a valid split credential using exact `ingest.vrcdn.live`;
+the parser required a one-label regional host. The working source used the same
+canonical host. Synthetic regression tests reproduce the rejection and verify the
+narrow production parser correction for split and combined forms, regional support,
+negative host/URL cases and the rehearsal startup gate.
+
+This parser change is locally tested only. It intentionally changes
+`output-sender.mjs`; the earlier nine-runtime-files-unchanged proof applies only to
+the two preserved images. Neither contains this fix. A new reviewed image is required
+before future provider testing. No successful provider output or switch-caused
+fencing is claimed, and no second source or output retry occurred.
+
+Final native cleanup at `22:29:03.711Z` confirmed source STOPPED at `22:27:44.091Z`
+with operator-stop exit 143, output STOPPED at `22:26:47.643Z` with exit 1, zero
+RUNNING tasks, both task network interfaces DELETED and both revision-2 proof task
+definitions INACTIVE. Both switches were false, production version 1 and rehearsal
+version 4. Evidence remains in `/workspace/rehearsal-sdd/live-20261021T222402Z/`.
+The [second-attempt record](event-broadcast-rehearsal.md#october-21-2026-second-bounded-attempt)
+lists the capture, contract-inspection and cleanup receipts. Provider-output,
+source/hold/return, source loss/recovery and dedicated-switch fencing gates remain
+open. Another attempt requires separate authorization; ordinary hosted output stays
+disabled.

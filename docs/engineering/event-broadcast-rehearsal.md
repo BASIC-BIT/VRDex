@@ -12,6 +12,13 @@ which the operator must verify belongs to `basicbit`. An opaque ingest key canno
 prove that account identity inside the adapter. Output playback is
 `https://stream.vrcdn.live/live/basicbit.live.ts`.
 
+The production output parser accepts exact `ingest.vrcdn.live` and one-label regional
+hosts such as `uk.ingest.vrcdn.live`, in split `rtmpUrl`/`streamKey` or combined
+`ingestUrl` form. RTMP/RTMPS, ports 1935/443, the `/live` application and stream-key
+checks still apply. Userinfo, query, fragment, lookalike suffixes and nested regional
+subdomains are rejected. The canonical-host correction below has local test evidence
+only and requires a new image before another provider attempt.
+
 ## Image and permissions
 
 The manual `Restream proof image` workflow builds an exact reviewed commit reachable
@@ -293,3 +300,79 @@ loss and explicit recovery after non-overlapping source replacement, and actual 
 on the dedicated switch. This attempt also leaves distinct-source handoff, real Convex
 registry/admission/leases, Twitch account acceptance, sustained capacity, musical silence
 calibration and physical PC/Quest playback open. No provider-output acceptance is claimed.
+
+## October 21, 2026 second bounded attempt
+
+The separately approved second window began at `22:24:44.718Z`, with a global
+deadline of `22:34:44.718Z`. One source and one output task launched on the corrected
+adapter image from `dcf83fe092f1c2bf3b492633516ac05b97504e0b`, digest
+`sha256:59388ac42078ba3f7ca44ce560b3e51e306f7ed460325e4855320f00f76adb23`.
+Capacity was not rerun. There was no second source and no output retry.
+
+Source task `60fb21f168d44aa690ad31712189959e`, definition
+`vrdex-restream-rehearsal-source:2` at 1 CPU/2 GiB, produced a public `basicbit1`
+capture of 2,228,224 bytes. Offline decode exited 0 with 228 frames and 8.266667 seconds
+of progress. The probe identified H.264 1280x720 at 30 fps and AAC at 48 kHz. Decode
+stderr was retained, so this bounded source sample does not establish clean startup
+or provider-output acceptance.
+
+Output task `a253c3007ee4447ea9295ac52a578302`, definition
+`vrdex-restream-rehearsal-output:2` at 2 CPU/4 GiB, started at `22:26:24.199Z` and
+execution stopped at `22:26:24.262Z`, exit 1 after 63 ms. Its only log was the safe
+generic `VRCDN rehearsal failed` message. It failed before `proof-start`; no output
+S3 artifacts exist. The independent public `basicbit` observer received zero bytes
+and ended with `TimeoutError`, exit 1. There is no successful output, source/hold/return,
+source loss/recovery or dedicated-switch fencing evidence from this attempt.
+
+### Canonical-host diagnosis and local correction
+
+Boolean-only native credential inspection found valid split `rtmpUrl`/`streamKey`
+JSON with accepted scheme, port, application path and key characters.
+`regionalProviderHost=false` and `bareProviderHost=true` isolated the incompatibility
+to exact `ingest.vrcdn.live`. The working source used that same bare provider host.
+The inspection returned contract booleans without exporting credential values.
+`validateRehearsal` invokes the production parser before `proof-start`, reproducing
+the observed early failure with synthetic data.
+
+The approved scope amendment corrects only `parseOutputCredential` in
+`workers/restream/output-sender.mjs` to accept the exact canonical host alongside
+the existing single-label regional hosts. Provider/destination, protocol, port,
+application path, key, userinfo, query and fragment restrictions remain in place.
+Behavioral tests cover canonical split and combined forms, regional support, negative
+host/URL cases and the actual rehearsal startup validation gate. This is local
+acceptance of the parser change, not live acceptance by VRCDN.
+
+The nine-runtime-files-unchanged claim applies to the original and corrected proof
+images recorded above. This parser fix intentionally changes one runtime file and
+is absent from both preserved images. A new reviewed image with new provenance is
+required before any future provider attempt. Credentials and regional endpoints
+were not rewritten. No IAM or production enablement change accompanies this fix.
+
+### Second-attempt cleanup and retained evidence
+
+The rehearsal switch was restored false, version 4; the production switch remained
+false, version 1. Source execution stopped at `22:27:20.431Z` after operator StopTask,
+with exit 143, and reached ECS STOPPED at `22:27:44.091Z`. Output reached ECS STOPPED
+at `22:26:47.643Z`. Native final verification at `22:29:03.711Z` confirmed both tasks
+STOPPED, zero RUNNING tasks, both task network interfaces DELETED and both revision-2
+proof task definitions INACTIVE. The output had already exited before switch cleanup;
+switch-caused fencing was not demonstrated.
+
+Private workspace evidence is retained under
+`/workspace/rehearsal-sdd/live-20261021T222402Z/`:
+
+- `authorization.json`, `source-run.json`, `output-run.json` and matching
+  `*-run-receipt.json` files record the bounded launch configuration and receipts.
+- `source-before.capture.json`, `source-before.decode.json`,
+  `source-before.probe.json` and `source-before.ts` preserve the public source sample.
+- `output-public.capture.json` preserves the zero-byte failed output observation.
+- `output-secret-contract.json` and `source-secret-contract.json` preserve the
+  boolean-only contract inspection.
+- `failure-cleanup.json` and `final-cleanup.json` preserve teardown and readback.
+- `manifest.json` seals the 30 retained second-attempt files with byte counts and
+  SHA-256 hashes.
+
+No second source or output retry is authorized within this attempt. Another provider
+window requires a new reviewed image and separate operator authorization. All prior
+capacity, strict-probe failure, source and image evidence remains intact. Provider
+output and the remaining live/device acceptance gates remain open.

@@ -10,6 +10,11 @@ import { runBounded, finalizeArtifacts, numericDiagnostics, syntheticEnvironment
 import { createEventWorker, checkHostedEnabled } from '../../workers/restream/event-worker.mjs';
 const attestations = { sourceConsent: 'accepted', destinationAuthority: 'accepted', providerRules: 'accepted', rightsClearedMedia: 'accepted' };
 const environment = () => ({ VRDEX_PROVIDER_REHEARSAL_CONFIRMED: 'true', VRDEX_PROVIDER_REHEARSAL_ATTESTATIONS_JSON: JSON.stringify(attestations), VRDEX_EVENT_MEDIA_OUTPUT_INGEST_SECRET_JSON: '{"rtmpUrl":"rtmp://uk.ingest.vrcdn.live/live","streamKey":"private-canary"}', AWS_REGION: 'us-east-1', VRDEX_RESTREAM_KILL_SWITCH_SSM_PARAMETER: REHEARSAL_PARAMETER });
+test('rehearsal startup gate accepts canonical-host synthetic split and combined credentials', () => {
+ for (const credential of [{ rtmpUrl: 'rtmp://ingest.vrcdn.live/live', streamKey: 'private-canary' }, { ingestUrl: 'rtmps://ingest.vrcdn.live:443/live/private-canary' }]) {
+  assert.deepEqual(validateRehearsal({ ...environment(), VRDEX_EVENT_MEDIA_OUTPUT_INGEST_SECRET_JSON: JSON.stringify(credential) }), { seconds: 120, compliance: attestations });
+ }
+});
 test('guards reject missing attestations, altered endpoints, production switch and Convex before any side effects', () => {
  assert.equal(validateRehearsal(environment()).seconds, 120);
  for (const patch of [{ VRDEX_PROVIDER_REHEARSAL_CONFIRMED: '' }, { VRDEX_PROVIDER_REHEARSAL_ATTESTATIONS_JSON: '{}' }, { VRDEX_PROVIDER_REHEARSAL_ATTESTATIONS_JSON: JSON.stringify({ ...attestations, providerRules: true }) }, { VRDEX_RESTREAM_KILL_SWITCH_SSM_PARAMETER: '/vrdex/restream/hosted-worker/enabled' }, { AWS_REGION: 'us-west-2' }, { CONVEX_URL: 'https://example.convex.cloud' }, { VRDEX_EVENT_MEDIA_BRIDGE_TOKEN: 'private-canary' }, { VRDEX_PROVIDER_REHEARSAL_SOURCE_URL: 'https://other.example/test' }, { PROOF_SECONDS: '180' }, { VRDEX_EVENT_MEDIA_OUTPUT_INGEST_SECRET_JSON: '{bad private-canary' }]) {
