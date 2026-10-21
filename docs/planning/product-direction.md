@@ -74,6 +74,10 @@ records the retained search states and public homepage composition. Event
 management needs its own design slice; mirror controls do not belong in public
 search or the homepage timetable.
 
+The draft [organizer workspace design](../superpowers/specs/2026-10-21-organizer-event-workspace-design.md)
+proposes the first concrete slice: complete My events inventory, including
+resumable intake drafts, and a reliable return to existing event authoring.
+
 ### Current product entry points
 
 Current recommendation:
