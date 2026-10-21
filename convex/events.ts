@@ -1,5 +1,5 @@
 import { sanitizeTwitchOutput, getTwitchOutputAccount, listTwitchOutputAccounts, eventOutputIsAuthorized } from './_eventOutputSetup';
-import { EVENT_BROADCAST_MAX_OUTPUTS, validateBroadcastPolicy, allocateSessionCommandSequence, attachPendingProgramCommands, settleTerminalSessionCommands, requireEventMediaBridgeToken } from "./_eventBroadcastInputs";
+import { EVENT_BROADCAST_MAX_OUTPUTS, validateBroadcastPolicy, allocateSessionCommandSequence, settleTerminalSessionCommands, requireEventMediaBridgeToken } from "./_eventBroadcastInputs";
 import { dateOnlyEventsEnabled, eventDateForInstant, eventSortAt, eventSortEndAt, normalizeEventSchedule, publicEventSchedule, requireDateOnlyEventsEnabled } from "./_eventSchedule";
 import { eventProfileStreamChoices, resolveEventStream } from "./_eventPlayback";
 import { ConvexError, v } from "convex/values";
@@ -2592,7 +2592,6 @@ export const queueEventMediaCommand = mutation({
     const targets = await resolveEventMediaCommandTargets(ctx.db, program, command);
     if (command.type === "switch_source" && targets.source !== null && !(await eventMediaSourceProjectionAvailable(ctx.db, targets.source))) throw new Error("Event media source is unavailable.");
     const now = Date.now();
-    if (session !== null) await attachPendingProgramCommands(ctx.db, session._id);
     const sequence = session === null ? undefined : await allocateSessionCommandSequence(ctx.db, session._id);
     const commandId = await ctx.db.insert("eventMediaCommands", {
       programId: program._id,

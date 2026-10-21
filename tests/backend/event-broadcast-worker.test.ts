@@ -1205,3 +1205,386 @@ for (const mismatch of ['event', 'program'] as const) it(`R6F1 STOPPED cannot re
   assert.deepEqual(await f.t.run(({ db }) => db.get(foreign)), before);
   assert.equal((await f.t.run(({ db }) => db.get(f.args.sessionId)))?.workerTaskCleanupPending, true);
 });
+
+for (const type of ["switch_next", "next_slot"])
+  for (const scenario of [
+    { name: "gap slate", now: 35000, current: undefined, expected: "b" },
+    {
+      name: "after last slate",
+      now: 60000,
+      current: undefined,
+      expected: undefined,
+    },
+    {
+      name: "before first slate",
+      now: 0,
+      current: undefined,
+      expected: "a",
+      beforeFirst: true,
+    },
+    {
+      name: "active interval slate",
+      now: 1000,
+      current: undefined,
+      expected: "a",
+    },
+    {
+      name: "synthetic manual in gap",
+      now: 35000,
+      current: "c",
+      expected: "b",
+    },
+  ])
+    it(`R7F2 ${type} from ${scenario.name} resolves current schedule`, async () => {
+      const f = transactionalRuntime();
+      f.config.currentSourceId = scenario.current;
+      f.config.mode = scenario.current ? "manual" : "hold";
+      f.ready.add("a");
+      f.ready.add("b");
+      f.ready.add("manual-c");
+      f.setTime(scenario.now);
+      if ("beforeFirst" in scenario) f.config.slots[0].startAt = 1000;
+      await f.worker.start();
+      await f.tick(scenario.now);
+      f.command(type);
+      await f.tick(scenario.now + 100);
+      await f.tick(scenario.now + 200);
+      assert.equal(
+        f.acks.at(-1)?.outcome,
+        scenario.expected ? "succeeded" : "failed",
+      );
+      assert.equal(f.acks.at(-1)?.observedSourceId, scenario.expected);
+      assert.equal(f.rendered(), scenario.expected);
+      await f.worker.stop();
+    });
+
+import * as workerFunctions from "../../convex/eventMediaWorker";
+async function measuredWorker(
+  f: Awaited<ReturnType<typeof fixture>>,
+  name: keyof typeof workerFunctions,
+  args: any,
+) {
+  let rows = 0;
+  const queries: any[] = [];
+  const result = await f.t.run(async (ctx) => {
+    function queryProxy(query: any, entry: any): any {
+      return new Proxy(query, {
+        get(target, key) {
+          if (["collect", "take", "first", "unique"].includes(String(key)))
+            return async (...args: any[]) => {
+              const value = await target[key](...args);
+              const count = Array.isArray(value) ? value.length : value ? 1 : 0;
+              rows += count;
+              entry.rows += count;
+              entry.operations.push(String(key));
+              return value;
+            };
+          if (["withIndex", "filter", "order"].includes(String(key)))
+            return (...args: any[]) => {
+              if (key === "withIndex") entry.index = args[0];
+              return queryProxy(target[key](...args), entry);
+            };
+          const value = Reflect.get(target, key);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      });
+    }
+    const db = new Proxy(ctx.db, {
+      get(target, key) {
+        if (key === "query")
+          return (table: string) => {
+            const entry = { table, rows: 0, index: undefined, operations: [] };
+            queries.push(entry);
+            return queryProxy(target.query(table as never), entry);
+          };
+        const value = Reflect.get(target, key);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    return (workerFunctions[name] as any)._handler({ ...ctx, db }, args);
+  });
+  return { result, rows, queries };
+}
+it("R7F3 completed command history does not increase polling or acknowledgement reads", async () => {
+  const f = await fixture();
+  const lease = await f.t.mutation(worker("acquireSession"), f.args),
+    request = { ...f.args, epoch: lease.epoch };
+  await f.t.run(async ({ db }) => {
+    await db.patch(f.scheduled.startCommandId!, { status: "succeeded" });
+    for (let i = 0; i < 2000; i++)
+      await db.insert("eventMediaCommands", {
+        programId: f.output.programId,
+        eventId: f.event.eventId,
+        sessionId: f.args.sessionId,
+        sequence: i + 2,
+        commandType: "hold_current",
+        status: "succeeded",
+        actorSurface: "worker",
+        publicFallbackLinks: [],
+        createdAt: i,
+        updatedAt: i,
+      });
+    await db.patch(f.args.sessionId, { nextCommandSequence: 2002 });
+  });
+  const queued = await f.owner.mutation(api.events.queueEventMediaCommand, {
+    currentSlug: f.event.slug,
+    type: "hold_current",
+  });
+  const claimed = await measuredWorker(f, "claimCommands", request);
+  assert.equal(claimed.result.commands.length, 1);
+  assert.equal(claimed.result.commands[0]._id, queued.commandId);
+  assert(claimed.rows < 100, `poll read ${claimed.rows} rows`);
+  const ack = await measuredWorker(f, "acknowledgeCommand", {
+    ...request,
+    commandId: queued.commandId,
+    sequence: claimed.result.commands[0].sequence,
+    outcome: "succeeded",
+  });
+  assert.equal(ack.result.accepted, true);
+  assert(ack.rows < 10, `ack read ${ack.rows} rows`);
+});
+it("R7F4 acquisition ignores large terminal and expired nonterminal histories", async () => {
+  const f = await fixture();
+  await f.t.run(async ({ db }) => {
+    for (let i = 0; i < 2000; i++)
+      await db.insert("eventMediaSessions", {
+        programId: f.output.programId,
+        eventId: f.event.eventId,
+        status: i % 3 === 0 ? "ended" : i % 3 === 1 ? "error" : "starting",
+        leaseExpiresAt: i % 3 === 2 ? Date.now() - 1000 : Date.now() + 60000,
+        createdAt: i,
+        updatedAt: i,
+      });
+  });
+  const measured = await measuredWorker(f, "acquireSession", f.args);
+  assert.equal(measured.result.granted, true);
+  assert(measured.rows < 50, `acquire read ${measured.rows} rows`);
+});
+
+for (const scenario of [
+  "ended-current",
+  "unavailable-current",
+  "removed-current",
+  "unavailable-active",
+  "empty",
+] as const)
+  it(`R7F2 Next handles ${scenario} without replaying expired first slot`, async () => {
+    const f = transactionalRuntime();
+    f.ready.add("b");
+    f.setTime(35000);
+    if (scenario === "unavailable-active") {
+      f.config.mode = "hold";
+      f.config.currentSourceId = undefined;
+      f.config.slots[0].endAt = 39000;
+      f.config.slots[0].available = false;
+    }
+    await f.worker.start();
+    if (scenario === "unavailable-current") f.config.slots[0].available = false;
+    if (scenario === "removed-current") f.config.slots.shift();
+    if (scenario === "empty") f.config.slots = [];
+    await f.tick(35000);
+    f.command("next_slot");
+    await f.tick(35100);
+    await f.tick(35200);
+    assert.equal(
+      f.acks.at(-1)?.outcome,
+      scenario === "empty" ? "failed" : "succeeded",
+    );
+    if (scenario !== "empty") {
+      assert.equal(f.acks.at(-1).observedSourceId, "b");
+      assert.equal(f.rendered(), "b");
+    }
+    await f.worker.stop();
+  });
+for (const type of ["previous_slot", "switch_previous"])
+  it(`R7F2 ${type} from slate fails without selecting a future or expired slot`, async () => {
+    const f = transactionalRuntime();
+    f.config.mode = "hold";
+    f.config.currentSourceId = undefined;
+    f.setTime(35000);
+    await f.worker.start();
+    await f.tick(35000);
+    f.command(type);
+    await f.tick(35100);
+    assert.equal(f.acks.at(-1)?.outcome, "failed");
+    assert.equal(f.rendered(), undefined);
+    await f.worker.stop();
+  });
+it("R7F2 failed Next from gap keeps slate until an explicit successful retry", async () => {
+  const f = transactionalRuntime();
+  f.config.mode = "hold";
+  f.config.currentSourceId = undefined;
+  f.setTime(35000);
+  await f.worker.start();
+  await f.tick(35000);
+  f.command("switch_next");
+  await f.tick(35100);
+  for (let time = 36100; time <= 51100; time += 1000) await f.tick(time);
+  assert.equal(f.acks.at(-1)?.outcome, "failed");
+  assert.equal(f.rendered(), undefined);
+  assert.equal(f.worker.getState().mode, "hold");
+  f.ready.add("b");
+  await f.tick(51200);
+  assert.equal(f.rendered(), undefined);
+  // Extend the authored future slot to exercise retry rather than after-last failure.
+  f.config.slots[1].startAt = 60000;
+  f.config.slots[1].endAt = 70000;
+  f.command("next_slot");
+  await f.tick(51300);
+  await f.tick(51400);
+  assert.equal(f.acks.at(-1)?.observedSourceId, "b");
+  assert.equal(f.rendered(), "b");
+  await f.worker.stop();
+});
+it("R7F3 bounded legacy and sessionless attachment drains oldest intent before new commands", async () => {
+  const f = await fixture();
+  const lease = await f.t.mutation(worker("acquireSession"), f.args),
+    request = { ...f.args, epoch: lease.epoch };
+  const ids = await f.t.run(async ({ db }) => {
+    await db.patch(f.scheduled.startCommandId!, { status: "succeeded" });
+    const result = [];
+    for (let i = 0; i < 95; i++)
+      result.push(
+        await db.insert("eventMediaCommands", {
+          programId: f.output.programId,
+          eventId: f.event.eventId,
+          sessionId: i % 2 ? f.args.sessionId : undefined,
+          commandType: "hold_current",
+          status: i % 3 ? "queued" : "claimed",
+          actorSurface: "worker",
+          publicFallbackLinks: [],
+          createdAt: i,
+          updatedAt: i,
+        }),
+      );
+    return result;
+  });
+  const newer = await f.owner.mutation(api.events.queueEventMediaCommand, {
+    currentSlug: f.event.slug,
+    type: "set_automatic_mode",
+  });
+  assert.equal(
+    (await f.t.run(({ db }) => db.get(newer.commandId)))?.sequence,
+    undefined,
+    "new intent waits behind migration backlog",
+  );
+  const seen: string[] = [];
+  let last = 0;
+  for (let poll = 0; poll < 8; poll++) {
+    const measured = await measuredWorker(f, "claimCommands", request);
+    assert(measured.rows <= 125, `poll read ${measured.rows} rows`);
+    assert(measured.result.commands.length <= 20);
+    for (const command of measured.result.commands) {
+      assert(command.sequence > last);
+      last = command.sequence;
+      seen.push(command._id);
+      const ack = await measuredWorker(f, "acknowledgeCommand", {
+        ...request,
+        commandId: command._id,
+        sequence: command.sequence,
+        outcome: "succeeded",
+      });
+      assert.equal(ack.result.accepted, true);
+      assert(ack.rows < 10);
+    }
+  }
+  assert.deepEqual(seen, [...ids, newer.commandId]);
+  assert.equal(
+    (await f.t.mutation(worker("claimCommands"), request)).commands.length,
+    0,
+  );
+});
+it("R7F3 future pending head blocks later claims and earlier pending rows block out-of-order acknowledgements", async () => {
+  const f = await fixture();
+  const lease = await f.t.mutation(worker("acquireSession"), f.args),
+    request = { ...f.args, epoch: lease.epoch };
+  const ids = await f.t.run(async ({ db }) => {
+    await db.patch(f.scheduled.startCommandId!, { status: "succeeded" });
+    const base = {
+      programId: f.output.programId,
+      eventId: f.event.eventId,
+      sessionId: f.args.sessionId,
+      commandType: "hold_current",
+      status: "queued" as const,
+      actorSurface: "worker" as const,
+      publicFallbackLinks: [],
+      createdAt: 0,
+      updatedAt: 0,
+    };
+    return [
+      await db.insert("eventMediaCommands", {
+        ...base,
+        sequence: 2,
+        availableAt: Date.now() + 60000,
+      }),
+      await db.insert("eventMediaCommands", { ...base, sequence: 3 }),
+    ];
+  });
+  assert.equal(
+    (await measuredWorker(f, "claimCommands", request)).result.commands.length,
+    0,
+  );
+  await f.t.run(({ db }) => db.patch(ids[0], { availableAt: 0 }));
+  const claimed = (await measuredWorker(f, "claimCommands", request)).result
+    .commands;
+  assert.deepEqual(
+    claimed.map((c: any) => c._id),
+    ids,
+  );
+  assert.deepEqual(
+    (await f.t.mutation(worker("claimCommands"), request)).commands.map(
+      (c: any) => c._id,
+    ),
+    ids,
+    "unacknowledged batch replays in order",
+  );
+  const ack = (index: number) =>
+    measuredWorker(f, "acknowledgeCommand", {
+      ...request,
+      commandId: ids[index],
+      sequence: index + 2,
+      outcome: "succeeded",
+    });
+  assert.equal((await ack(1)).result.accepted, false);
+  assert.equal((await ack(0)).result.accepted, true);
+  assert.equal((await ack(1)).result.accepted, true);
+});
+for (const status of [
+  "scheduled",
+  "starting",
+  "live",
+  "hold",
+  "fallback",
+  "stopping",
+] as const)
+  it(`R7F4 bounded ${status} siblings exclude an unexpired owner despite inconsistent pointer`, async () => {
+    const f = await fixture();
+    const siblings = await f.t.run(async ({ db }) => {
+      const ids = [];
+      for (let i = 0; i < 25; i++)
+        ids.push(
+          await db.insert("eventMediaSessions", {
+            programId: f.output.programId,
+            eventId: f.event.eventId,
+            status,
+            workerId: `sibling-${i}`,
+            epoch: 1,
+            leaseExpiresAt: Date.now() + 60000,
+            createdAt: i,
+            updatedAt: i,
+          }),
+        );
+      await db.patch(f.output.programId, { activeSessionId: f.args.sessionId });
+      return ids;
+    });
+    const denied = await measuredWorker(f, "acquireSession", f.args);
+    assert.equal(denied.result.granted, false);
+    assert(denied.rows < 20);
+    await f.t.run(async ({ db }) => {
+      for (const id of siblings)
+        await db.patch(id, { leaseExpiresAt: Date.now() - 1 });
+    });
+    const allowed = await measuredWorker(f, "acquireSession", f.args);
+    assert.equal(allowed.result.granted, true);
+    assert(allowed.rows < 50);
+  });

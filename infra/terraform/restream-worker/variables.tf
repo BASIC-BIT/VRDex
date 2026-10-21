@@ -218,12 +218,6 @@ variable "tags" {
   default     = {}
 }
 
-variable "event_worker_command" {
-  description = "Select the event control runtime rather than the synthetic benchmark. Keep disabled until sender/provider acceptance passes."
-  type        = bool
-  default     = false
-}
-
 variable "optional_output_secret_arns" {
   description = "Exact Secrets Manager ARNs the running worker may read for optional destinations. Empty grants no optional-secret access; never add these to ECS startup secrets."
   type        = list(string)

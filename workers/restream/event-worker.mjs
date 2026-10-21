@@ -181,7 +181,16 @@ export function createEventWorker({ identity, control, renderer, outputs, create
             else if (['switch_source', 'switch_next', 'next_slot', 'switch_previous', 'previous_slot'].includes(type)) {
                 const index = config.slots.findIndex(s => s.slotKey === current?.slotKey);
                 const manualSource = config.sources.find(s => s.id === command.targetSourceId);
-                const target = type === 'switch_source' ? config.slots.find(s => s.sourceId === command.targetSourceId) ?? (manualSource ? { slotKey: `manual-${manualSource.id}`, sourceId: manualSource.id, startAt: scheduleNow(), available: true } : undefined) : config.slots[index + (['switch_previous', 'previous_slot'].includes(type) ? -1 : 1)];
+                // Authored current keeps adjacent navigation. From slate or a
+                // removed/manual slot, Next joins the current interval or the
+                // first available future slot. Explicit Next may promote early.
+                let target;
+                if (type === 'switch_source')
+                    target = config.slots.find(s => s.sourceId === command.targetSourceId) ?? (manualSource ? { slotKey: `manual-${manualSource.id}`, sourceId: manualSource.id, startAt: scheduleNow(), available: true } : undefined);
+                else if (['switch_previous', 'previous_slot'].includes(type))
+                    target = config.slots[index - 1];
+                else
+                    target = index >= 0 ? config.slots[index + 1] : initialAutomaticSlot(config.slots, scheduleNow());
                 if (!target?.available)
                     pending.outcome = 'failed';
                 else {
@@ -331,7 +340,11 @@ export function createEventWorker({ identity, control, renderer, outputs, create
                     if (!available) pending.outcome = 'failed';
                 }
                 if (current && !current.available) {
-                    renderer.hold();
+                    // Fence the revoked current source, but do not erase an
+                    // already selected, still-authorized command target before
+                    // its encoded result can be acknowledged on the next tick.
+                    if (!pending?.selected || pending.outcome !== 'succeeded')
+                        renderer.hold();
                     await reconcile(pending?.outcome === 'succeeded' ? pending.target : undefined);
                 }
                 const claims = await request('claimCommands');

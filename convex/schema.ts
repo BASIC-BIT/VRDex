@@ -1601,7 +1601,9 @@ export default defineSchema({
     .index("by_sessionId_status_createdAt", ["sessionId", "status", "createdAt"])
     .index("by_eventId_createdAt", ["eventId", "createdAt"])
     .index("by_idempotencyKey", ["idempotencyKey"])
-    .index("by_sessionId_sequence", ["sessionId", "sequence"]),
+    .index("by_sessionId_sequence", ["sessionId", "sequence"])
+    .index("by_session_scope_status_sequence", ["sessionId", "eventId", "programId", "status", "sequence", "createdAt"])
+    .index("by_program_scope_session_status_createdAt", ["programId", "eventId", "sessionId", "status", "createdAt"]),
   eventMediaSessions: defineTable({
     programId: v.id("eventMediaPrograms"),
     eventId: v.id("events"),
@@ -1649,6 +1651,7 @@ export default defineSchema({
   })
     .index("by_programId_status", ["programId", "status"])
     .index("by_eventId_status", ["eventId", "status"])
+    .index("by_eventId_status_leaseExpiresAt", ["eventId", "status", "leaseExpiresAt"])
     .index("by_status_updatedAt", ["status", "updatedAt"])
     .index("by_dispatchStopConfirmedAt_dispatchId", ["dispatchStopConfirmedAt", "dispatchId"])
     .index("by_workerTaskStatus", ["workerTaskStatus"])

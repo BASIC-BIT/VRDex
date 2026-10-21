@@ -23,7 +23,6 @@ max_live_delay_ms          = 10000
 # False keeps hosted workers disabled until an approved benchmark enables the switch.
 kill_switch_enabled_default = false
 
-# Event runtime remains disabled until sender/provider acceptance.
-event_worker_command = false
+# Event definitions are created per session by the bridge, never this static task.
 # Bridge requires VRDEX_EVENT_MEDIA_WORKER_TOKEN_SECRET_ARN (reference only).
 # Add that ARN to execution_secret_arns; configure backend admission cap separately.

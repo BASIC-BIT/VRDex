@@ -335,9 +335,9 @@ No AWS CLI mutation, Terraform apply, image publish, or ECS task run is part of 
 ## Controlled event runtime (disabled pending acceptance)
 
 `workers/restream/event-worker.mjs` is the event-session entry point. The bridge
-selects it explicitly; the image default and Terraform default retain the synthetic
-benchmark. `event_worker_command = true` selects the event command in the static
-Terraform task definition, but does not enable its SSM kill switch. The runtime
+creates a per-session task definition with explicit event/session identity and
+selects it explicitly. The image default and static Terraform task retain the
+synthetic benchmark; no static event-command switch is supported. The runtime
 installs independent destination senders; fresh provider rehearsal and operational
 acceptance remain rollout gates.
 
@@ -349,6 +349,23 @@ use monotonic request-start time plus the server's remaining lease, minus a 250m
 margin; wall-clock skew cannot extend authority. Schedule time advances from the
 last server-time sample anchored at response receipt, a conservative lower bound.
 Request-start anchoring is used only for lease authority, never schedule eligibility. Event calendar end does not stop a healthy set.
+
+Explicit Next follows the adjacent authored slot when one is current. From slate,
+a synthetic manual source or a removed current slot, it selects the available
+current half-open interval, otherwise the first available future slot. It fails
+after the final interval. Previous still requires an authored current slot.
+An explicit operator command may select a future slot early; automatic promotion
+retains its boundary check. Source acknowledgements require encoded publication,
+including when an unavailable current source has been fenced to slate.
+
+Worker polls query queued/claimed commands through status-and-sequence indexes,
+claim at most 20 in order and stop at an earlier command's future availability.
+Acknowledgements query only earlier pending rows. Legacy and sessionless intent
+is attached/numbered in 20-row chunks before newer intent, with further polls
+draining the backlog. Completed history does not enter those scans. Lease
+acquisition queries at most two unexpired candidates for each of the six
+nonterminal session statuses; any other unexpired session denies acquisition,
+including when the program's active pointer is inconsistent.
 
 Each session persists a 12-hour maximum deadline on first acquisition. A deployment
 can shorten it with `VRDEX_RESTREAM_MAX_SESSION_SECONDS` (1..86400); replacement
@@ -856,3 +873,13 @@ Start then works without re-saving the destination, independently of pending
 task-definition cleanup. The update preserves disabled/revoked records, other
 outputs and any different active replacement session; admission still requires
 actual STOPPED rather than a Stop request or media-terminal observation.
+
+The seventh-review controller proof uses Node 22 image `cb3cd0cc174f` and the
+actual packaged media path. It covers schedule-aware Next from slate and from
+unavailable/removed current slots, failed selection rollback, retry and automatic
+gap slate. All eight other runtime modules match image `f9f13a9c002b`; its older
+recording remains historical for the controller. The new local image adds one
+controller layer to that verified base, while a fresh normal Dockerfile build
+remains a remote CI gate. Full hashes, decoded recording evidence, isolated
+container limits and acceptance boundaries are recorded in
+[integration verification](../engineering/event-broadcast-verification.md).

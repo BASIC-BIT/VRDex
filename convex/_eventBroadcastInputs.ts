@@ -31,36 +31,28 @@ export function requireEventMediaBridgeToken(input: string) {
   if (mismatch !== 0) throw new Error("Event media bridge token is invalid.");
 }
 
-/** Allocate within the same transaction as insertion; legacy records are numbered first. */
+/** Number oldest pending intent in bounded chunks. Completed history is never
+ * migrated. New intent can stay unnumbered while an older backlog drains; polls
+ * keep making progress instead of throwing a permanent migration-limit error.
+ */
 export async function allocateSessionCommandSequence(db: DatabaseWriter, sessionId: Id<"eventMediaSessions">, reserve = true) {
   const session = await db.get(sessionId);
   if (session === null) throw new Error("Event media worker session was not found.");
   const latest = await db.query("eventMediaCommands")
     .withIndex("by_sessionId_sequence", q => q.eq("sessionId", sessionId)).order("desc").first();
   let next = Math.max(session.nextCommandSequence ?? 1, (latest?.sequence ?? 0) + 1);
-  const legacy = await db.query("eventMediaCommands")
-    .withIndex("by_sessionId_sequence", q => q.eq("sessionId", sessionId).eq("sequence", undefined)).take(1001);
-  if (legacy.length > 1000) throw new Error("Legacy event media commands require migration.");
-  for (const command of legacy.sort((a, b) => a.createdAt - b.createdAt || a._creationTime - b._creationTime)) {
-    await db.patch(command._id, { sequence: next++ });
+  const candidates = (await Promise.all((["queued", "claimed"] as const).flatMap(status => [
+    db.query("eventMediaCommands").withIndex("by_session_scope_status_sequence", q =>
+      q.eq("sessionId", sessionId).eq("eventId", session.eventId).eq("programId", session.programId).eq("status", status).eq("sequence", undefined)).take(EVENT_BROADCAST_COMMAND_BATCH + 1),
+    db.query("eventMediaCommands").withIndex("by_program_scope_session_status_createdAt", q =>
+      q.eq("programId", session.programId).eq("eventId", session.eventId).eq("sessionId", undefined).eq("status", status)).take(EVENT_BROADCAST_COMMAND_BATCH + 1),
+  ]))).flat().sort((a, b) => a.createdAt - b.createdAt || a._creationTime - b._creationTime);
+  for (const command of candidates.slice(0, EVENT_BROADCAST_COMMAND_BATCH)) {
+    await db.patch(command._id, { sessionId, sequence: next++ });
   }
-  await db.patch(sessionId, { nextCommandSequence: next + (reserve ? 1 : 0) });
-  return next;
-}
-
-/** Attach older pending intent before allocating a later operator sequence. */
-export async function attachPendingProgramCommands(db: DatabaseWriter, sessionId: Id<"eventMediaSessions">) {
-  const session = await db.get(sessionId);
-  if (session === null) throw new Error("Event media worker session was not found.");
-  for (const status of ["queued", "claimed"] as const) {
-    const pending = await db.query("eventMediaCommands")
-      .withIndex("by_programId_status_createdAt", q => q.eq("programId", session.programId).eq("status", status)).collect();
-    for (const command of pending) {
-      if (command.sessionId === undefined && command.eventId === session.eventId) {
-        await db.patch(command._id, { sessionId });
-      }
-    }
-  }
+  const reserved = reserve && candidates.length <= EVENT_BROADCAST_COMMAND_BATCH;
+  await db.patch(sessionId, { nextCommandSequence: next + (reserved ? 1 : 0) });
+  return reserved || !reserve ? next : undefined;
 }
 
 /** Terminal execution cannot leave intent pending for a session that cannot run. */

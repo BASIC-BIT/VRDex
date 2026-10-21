@@ -4,7 +4,7 @@ import { canReadProfile } from "./_profilePermissions";
 import { v } from "convex/values";
 import { mutation, type MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
-import { settleTerminalSessionCommands, validateBroadcastPolicy, allocateSessionCommandSequence, attachPendingProgramCommands, EVENT_BROADCAST_STOP_GRACE_MS, EVENT_BROADCAST_COMMAND_BATCH, EVENT_BROADCAST_LEASE_MS, EVENT_BROADCAST_MAX_SOURCES, EVENT_BROADCAST_MAX_SCENES, EVENT_BROADCAST_MAX_OUTPUTS, EVENT_BROADCAST_RENEW_AFTER_MS, requireEventMediaBridgeToken, observedBroadcastStateValidator, workerSessionArgs, } from "./_eventBroadcastInputs";
+import { settleTerminalSessionCommands, validateBroadcastPolicy, allocateSessionCommandSequence, EVENT_BROADCAST_STOP_GRACE_MS, EVENT_BROADCAST_COMMAND_BATCH, EVENT_BROADCAST_LEASE_MS, EVENT_BROADCAST_MAX_SOURCES, EVENT_BROADCAST_MAX_SCENES, EVENT_BROADCAST_MAX_OUTPUTS, EVENT_BROADCAST_RENEW_AFTER_MS, requireEventMediaBridgeToken, observedBroadcastStateValidator, workerSessionArgs, } from "./_eventBroadcastInputs";
 type Request = {
     bridgeToken: string;
     eventId: Id<"events">;
@@ -92,8 +92,9 @@ export const acquireSession = mutation({
         const expiresAt = active ? session.leaseExpiresAt! : now + EVENT_BROADCAST_LEASE_MS;
         if (!active) {
             // Check even inconsistent legacy activeSessionId records before granting publication authority.
-            const siblings = await ctx.db.query("eventMediaSessions").withIndex("by_eventId_status", q => q.eq("eventId", args.eventId)).collect();
-            if (siblings.some(s => s._id !== session._id && !["ended", "error"].includes(s.status) && (s.leaseExpiresAt ?? 0) > now)) {
+            const siblings = (await Promise.all((["scheduled", "starting", "live", "hold", "fallback", "stopping"] as const).map(status =>
+                ctx.db.query("eventMediaSessions").withIndex("by_eventId_status_leaseExpiresAt", q => q.eq("eventId", args.eventId).eq("status", status).gt("leaseExpiresAt", now)).take(2)))).flat();
+            if (siblings.some(s => s._id !== session._id)) {
                 return reject(ctx, args, "Another event session has an unexpired owner.");
             }
             await ctx.db.patch(session._id, { workerId: args.workerId, epoch, acquiredAt, leaseExpiresAt: expiresAt, status: "starting", programObservedAt:undefined, outputHealthObservedAt:undefined, outputHealth:[], updatedAt: now });
@@ -126,12 +127,17 @@ export const claimCommands = mutation({
         const now = Date.now();
         if (found === null || !owns(found.session, args, now))
             return reject(ctx, args, "Session ownership is stale or expired.");
-        await attachPendingProgramCommands(ctx.db, args.sessionId);
         // Number any legacy commands without consuming an unused sequence.
         await allocateSessionCommandSequence(ctx.db, args.sessionId, false);
-        const pending = await ctx.db.query("eventMediaCommands").withIndex("by_sessionId_sequence", q => q.eq("sessionId", args.sessionId)).collect();
-        const commands = pending.filter(c => c.eventId === args.eventId && c.programId === found.program._id && ["queued", "claimed"].includes(c.status) && (c.availableAt ?? c.createdAt) <= now)
-            .slice(0, EVENT_BROADCAST_COMMAND_BATCH);
+        const pending = (await Promise.all((["queued", "claimed"] as const).map(status =>
+            ctx.db.query("eventMediaCommands").withIndex("by_session_scope_status_sequence", q => q.eq("sessionId", args.sessionId).eq("eventId", args.eventId).eq("programId", found.program._id).eq("status", status).gt("sequence", undefined)).take(EVENT_BROADCAST_COMMAND_BATCH)))).flat().sort((a, b) => a.sequence! - b.sequence!);
+        const commands = [];
+        for (const command of pending.slice(0, EVENT_BROADCAST_COMMAND_BATCH)) {
+            // An earlier future command must become eligible before later intent
+            // can execute; otherwise its acknowledgement would be out of order.
+            if ((command.availableAt ?? command.createdAt) > now) break;
+            commands.push(command);
+        }
         for (const command of commands) {
             await ctx.db.patch(command._id, { status: "claimed", claimedByWorkerId: args.workerId, claimedEpoch: args.epoch, claimedAt: now, updatedAt: now });
         }
@@ -173,8 +179,9 @@ export const acknowledgeCommand = mutation({
             return denied("Command was not claimed by this owner.");
         if (args.sequence <= (found.session.lastAcknowledgedSequence ?? 0))
             return denied("Command sequence has already been superseded.");
-        const earlier = await ctx.db.query("eventMediaCommands").withIndex("by_sessionId_sequence", q => q.eq("sessionId", args.sessionId).lt("sequence", args.sequence)).collect();
-        if (earlier.some(c => c.status === "claimed" || c.status === "queued"))
+        const earlier = await Promise.all((["queued", "claimed"] as const).map(status =>
+            ctx.db.query("eventMediaCommands").withIndex("by_session_scope_status_sequence", q => q.eq("sessionId", args.sessionId).eq("eventId", args.eventId).eq("programId", found.program._id).eq("status", status).gt("sequence", undefined).lt("sequence", args.sequence)).first()));
+        if (earlier.some(Boolean))
             return denied("An earlier command is still pending.");
         const selectedOutput = await selectedObservationOutput(ctx, found, args.observedOutputId, args.outcome === "succeeded" ? args.observedState : undefined);
         if (selectedOutput === false) return denied("Observed output is unavailable.");

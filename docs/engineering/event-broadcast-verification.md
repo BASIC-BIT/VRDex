@@ -418,9 +418,9 @@ that verified image. The normal Dockerfile build exhausted local disk during
 COPY; this local proof used a temporary single-COPY Dockerfile, not a successful
 rebuild of the production Dockerfile. The production Dockerfile is unchanged.
 
-Current controller SHA-256:
+Fifth-review controller SHA-256:
 `a4de9d933ffe3ac7952f1416450379cf874235d66e1333a8c114eeac4f34510a`.
-Current relay SHA-256:
+Fifth-review relay SHA-256:
 `60f9e6c5d8ba6163db39acd39e66c31530e00d12e2cfc3e3e9160487f3975148`.
 The other **seven** runtime modules match the retained earlier image. Earlier
 eight-module identity statements describe their historical snapshots.
@@ -478,3 +478,72 @@ Backend types and documentation checks pass. No runtime, harness or UI source
 changed; existing image `f9f13a9c002b` media proof and browser evidence retain their
 source identity and bounded claims. No new media, browser or sustained run was
 needed for this backend-only transition.
+
+## Seventh-review schedule navigation and bounded worker reads
+
+The static Terraform task now exposes only the synthetic benchmark. Event
+entrypoints continue through bridge-created task definitions carrying their
+event/session identity. No provider configuration or rollout gate was enabled.
+
+Next retains authored-adjacent navigation when an authored slot is current.
+Without one, it selects the available current half-open interval, then the first
+available future slot, and fails after the last interval. Previous still fails
+without an authored current slot. Manual Next may select early; automatic mode
+stays on slate in a gap until the future boundary. An unavailable or removed
+current source is fenced without repeatedly erasing a pending authorized
+selection before its encoded acknowledgement.
+
+Command polling and earlier-pending acknowledgement checks now use scoped
+status/sequence indexes. A poll claims at most 20 commands in sequence and stops
+at a future availability boundary. Legacy/sessionless numbering and attachment
+process at most 20 oldest pending rows per call, so repeated polls drain older
+intent before newly queued commands without scanning completed history or
+imposing a permanent backlog cap. Lease acquisition queries at most two
+unexpired rows per nonterminal status and denies any other unexpired sibling,
+even with an inconsistent active-session pointer. Expired and terminal histories
+do not consume these candidate ranges.
+
+The focused controller/backend batch passes 163 tests; the additional affected
+media/control/authorization/relay/policy/projection batch passes 142, and static
+worker configuration passes 10. All have zero failures/skips. Real Convex handler
+tests instrument returned indexed-query rows, with 2,000 completed commands and
+2,000 mixed terminal/expired sessions, plus 95 mixed legacy/sessionless pending
+commands. They verify bounded results, repeated ordered progress, future-head
+blocking, fenced acknowledgements and all six nonterminal sibling statuses.
+These are local query-result measurements, not production load benchmarks.
+
+Current local proof image:
+`sha256:cb3cd0cc174f55f200ae9731ce3e3c7386cfab0ed8083e961c0e03e01882c527`.
+Controller SHA-256:
+`a37b6b20a18fb734b6191c78a67867514e5f4a3db44f4098be7c55df4457eb11`.
+All nine packaged runtime hashes match source; eight modules, including relay,
+renderer, decoder and senders, match the fifth-review image `f9f13a9c002b`.
+The new image inherits that verified image's exact 17 layers and launch config,
+plus one local controller-COPY layer. This resource-constrained local packaging
+does not replace a fresh production-Dockerfile build in remote CI.
+
+`scripts/event-next-local-proof.mjs` passed in 47.736 seconds on Node 22.23.3
+with actual packaged relay HTTP, decoder, renderer, encoder and RTMP sender.
+Ten command outcomes cover failed Next/rollback to slate, late candidate recovery
+without promotion, explicit retry into future B, automatic gap slate,
+unavailable-current Next, removed-current Next, after-last failure and joining a
+current interval. Six decoded source samples agree with acknowledgements: green B
+for each successful Next and red A between the revocation/removal cases. Four
+real-time renewals and 66 observations occurred. H.264 720p30/AAC 48 kHz output
+has a 34 ms maximum packet gap and one-second GOP. Recording SHA-256:
+`806db1e4becdc5611fbe9f7bae1e8a6399c1c4ad7eb7d4299a6efd99e0b4dd36`.
+
+The container used network none, a read-only root, two CPUs, four GiB and a
+256 MiB /tmp; only scripts read-only and evidence writable were mounted.
+Client/container exited zero without OOM. Control, provider DNS/transport and
+the RTMP receiving boundary were local injections; production HTTPS/SSRF rules
+remain unchanged. The first run completed its command checks but failed final
+pixel sampling, so its failed log and recording remain separate. The corrected
+sampler selects frames 500 ms after each encoded source acknowledgement.
+
+The fifth-review recording now describes its historical controller with the
+unchanged relay. Earlier two-hour/controller recordings retain their original
+snapshot attribution. This short selection proof creates no new sustained-run,
+hosted, provider, physical-device or genuine Clerk acceptance. UI is unchanged;
+no browser/visual rerun was needed. Hosted output, silence and optional maximum
+overrun remain disabled.
