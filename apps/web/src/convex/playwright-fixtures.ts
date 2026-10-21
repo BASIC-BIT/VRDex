@@ -1555,6 +1555,19 @@ export function getPlaywrightPublicEventFixture(slug: string): PublicEvent | nul
     return null;
   }
 
+  if (slug === "playwright-event-host-view") {
+    const performer = { slug: personSlug, displayName: "DJ Aurora", trustLabel: "community_submitted" as const,
+      outboundLinks: personProfile.outboundLinks };
+    const now = Date.now();
+    return { ...publicEvent, slug, title: "Afterglow Host Room",
+      lineup: [
+        { key: "host-first", position: 0, displayLabel: "DJ Aurora", performer, startAt: now - 30_000, endAt: now + 30_000 },
+        { key: "host-repeat", position: 1, displayLabel: "DJ Aurora", performer, startAt: now + 30_000, endAt: now + 3_600_000 },
+        { key: "host-guest", position: 2, displayLabel: "Guest set" },
+      ], slots: [{ ...publicEvent.slots[0], playbackKey: "host-first", stream: { streamId: "dj-aurora", pcUrl: "rtspt://stream.vrcdn.live/live/dj-aurora", questUrl: "https://stream.vrcdn.live/live/dj-aurora.live.ts" } }],
+    };
+  }
+
   if (slug === "playwright-date-only-event") {
     return { ...publicEvent, slug, title: "July Fourth Sessions", scheduleKind: "date_only", eventDate: "2026-07-04",
       startAt: undefined, doorsOpenAt: undefined, endAt: undefined, slots: [], nextSlots: [], watchSurfaceEnabled: false };

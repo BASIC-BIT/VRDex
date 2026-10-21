@@ -1,3 +1,4 @@
+import { eventOutputIsAuthorized } from "./_eventOutputSetup";
 import { eventProfileStreamChoices, resolveEventStream, type PlaybackStream } from "./_eventPlayback";
 import { dateOnlyEventsEnabled, eventSortAt, eventSortEndAt, publicEventSchedule, type StoredEventSchedule } from "./_eventSchedule";
 import { UNKNOWN_EVENT_END_WINDOW_MS } from "./_eventRuntime";
@@ -688,11 +689,17 @@ async function getPublicEventMediaRecord(db: DatabaseReader, event: Doc<"events"
     .withIndex("by_programId_state", (query) => query.eq("programId", mediaProgram._id))
     .take(20);
   const currentOutput = mediaProgram.currentOutputId === undefined ? undefined : await db.get(mediaProgram.currentOutputId);
+  // Registry revocation removes managed destinations from public watch metadata,
+  // including the program's cached links. Authored event/DJ links are independent.
+  const canProjectOutput = (output: Doc<"eventMediaOutputs">) =>
+    output.eventId === event._id && output.programId === mediaProgram._id &&
+    (output._id === mediaProgram.currentOutputId || (output.type === "external_rtmp" && !!output.twitchSetup && output.simulcastEnabled === true)) &&
+    (!["vrcdn", "external_rtmp"].includes(output.type) || eventOutputIsAuthorized(event, output));
   const mediaOutputs = [
     ...(currentOutput === null || currentOutput === undefined ? [] : [currentOutput]),
     ...outputs,
   ]
-    .filter((output) => output.eventId === event._id && new Set(["ready", "active"]).has(output.state))
+    .filter((output) => canProjectOutput(output) && new Set(["ready", "active"]).has(output.state))
     .sort((first, second) => {
       if (first._id === mediaProgram.currentOutputId) {
         return -1;
@@ -707,7 +714,7 @@ async function getPublicEventMediaRecord(db: DatabaseReader, event: Doc<"events"
   const seen = new Set<Id<"eventMediaOutputs">>();
 
   return {
-    mediaProgram,
+    mediaProgram: currentOutput && canProjectOutput(currentOutput) && ["ready", "active"].includes(currentOutput.state) ? mediaProgram : { ...mediaProgram, publicLinks: [] },
     mediaOutputs: mediaOutputs.filter((output) => {
       if (seen.has(output._id)) {
         return false;
@@ -789,6 +796,12 @@ export async function getPublicEventBySlug(
 
   const record = await getPublicEventRecord(db, event);
 
+  return record === null ? null : toPublicEvent(record);
+}
+
+/** Caller must authorize event operations before requesting unpublished content. */
+export async function getEventForHost(db: DatabaseReader, event: Doc<"events">): Promise<PublicEvent | null> {
+  const record = await getPublicEventRecord(db, event, { includeUnpublished: true });
   return record === null ? null : toPublicEvent(record);
 }
 

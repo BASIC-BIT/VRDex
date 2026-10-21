@@ -1,5 +1,7 @@
+import { sanitizeTwitchOutput, getTwitchOutputAccount, listTwitchOutputAccounts, eventOutputIsAuthorized } from './_eventOutputSetup';
+import { EVENT_BROADCAST_MAX_OUTPUTS, validateBroadcastPolicy, allocateSessionCommandSequence, settleTerminalSessionCommands, requireEventMediaBridgeToken } from "./_eventBroadcastInputs";
 import { dateOnlyEventsEnabled, eventDateForInstant, eventSortAt, eventSortEndAt, normalizeEventSchedule, publicEventSchedule, requireDateOnlyEventsEnabled } from "./_eventSchedule";
-import { eventProfileStreamChoices } from "./_eventPlayback";
+import { eventProfileStreamChoices, resolveEventStream } from "./_eventPlayback";
 import { ConvexError, v } from "convex/values";
 import {syncClubEventOperations} from "./_clubOperationEvents";
 import { internal } from "./_generated/api";
@@ -24,7 +26,7 @@ import { requireUser } from "./_identity";
 import { contributorStaffLock } from "./_eventContributorLock";
 import { replaceEventLineup } from "./_eventLineup";
 import { eventContributionFingerprint } from "./_eventContributionPreflight";
-import { requireActiveBrowserSessionSubject } from "./_browserSessionAuthority";
+import { activeBrowserSessionSubjectOrNull, requireActiveBrowserSessionSubject } from "./_browserSessionAuthority";
 import {
   apiWriteAuditActorKindValidator,
   recordApiWriteAuditEvent,
@@ -50,6 +52,8 @@ import {
   sanitizeEventMediaCommandInput,
   sanitizeEventMediaWorkerArtifactLinks,
   sanitizeEventMediaWorkerSchedule,
+  EVENT_MEDIA_WORKER_START_LEAD_MS,
+  EVENT_MEDIA_WORKER_READY_LEAD_MS,
   sanitizeVrcdnOperatorOwnedOutputSetup,
 } from "./_eventMediaControl";
 import {
@@ -68,6 +72,7 @@ import { eventPathForRecord, eventPathForSlugs } from "./_eventPaths";
 import { toPublicEventShareCard } from "./_eventShareCard";
 import {
   getEventForEditor,
+  getEventForHost,
   getPublicCommunityHostedEvents,
   getPublicEventBySlug,
   getPublicEventPreviews,
@@ -215,6 +220,7 @@ const vrcdnOutputSetupArgs = {
 
 const eventMediaWorkerScheduleArgs = {
   currentSlug: v.string(),
+  startImmediately: v.optional(v.boolean()),
   outputKey: v.optional(v.string()),
   scheduledStartAt: v.optional(v.number()),
   readyDeadlineAt: v.optional(v.number()),
@@ -314,25 +320,6 @@ function optionalPositiveTimestamp(input: number | undefined, fieldName: string)
   }
 
   return input;
-}
-
-function requireEventMediaBridgeToken(input: string) {
-  const expected = process.env.VRDEX_EVENT_MEDIA_BRIDGE_TOKEN?.trim();
-
-  if (expected === undefined || expected.length === 0) {
-    throw new Error("Event media bridge token is not configured.");
-  }
-
-  let mismatch = input.length === expected.length ? 0 : 1;
-  const length = Math.max(input.length, expected.length);
-
-  for (let index = 0; index < length; index += 1) {
-    mismatch |= (input.charCodeAt(index) || 0) ^ (expected.charCodeAt(index) || 0);
-  }
-
-  if (mismatch !== 0) {
-    throw new Error("Event media bridge token is invalid.");
-  }
 }
 
 function requireBridgeWorkerId(input: string): string {
@@ -1589,6 +1576,8 @@ async function getReadyEventMediaOutput(
     throw new Error("A ready event media output is required before scheduling a worker.");
   }
 
+  const event = await db.get(program.eventId);
+  if (!event || !eventOutputIsAuthorized(event, output)) throw new Error("Output account is not authorized for this community.");
   return output;
 }
 
@@ -1636,6 +1625,30 @@ async function getOpenEventMediaSession(
   return sessions
     .filter((session): session is Doc<"eventMediaSessions"> => session !== null)
     .sort((first, second) => second.updatedAt - first.updatedAt)[0] ?? null;
+}
+
+/** Configuration is immutable until every session has stopped or released admission. */
+async function eventOutputConfigurationLocked(db: DatabaseReader, program: Doc<"eventMediaPrograms">) {
+  if (await getOpenEventMediaSession(db, program)) return true;
+  for (const status of ["ended", "error"] as const) {
+    const held = await db.query("eventMediaSessions")
+      .withIndex("by_programId_status", q => q.eq("programId", program._id).eq("status", status))
+      .filter(q => q.and(q.eq(q.field("dispatchStopConfirmedAt"), undefined), q.or(
+        q.neq(q.field("dispatchId"), undefined),
+        q.and(q.neq(q.field("workerTaskStatus"), "stopped"), q.or(
+          q.neq(q.field("workerTaskId"), undefined), q.neq(q.field("epoch"), undefined),
+        )),
+      ))).first();
+    if (held) return true;
+  }
+  return false;
+}
+
+async function requireStoppedOutputSessions(db: DatabaseReader, programId: Id<"eventMediaPrograms">) {
+  const program = await db.get(programId);
+  if (program && await eventOutputConfigurationLocked(db, program)) {
+    throw new Error("An event media worker session is already active for this event.");
+  }
 }
 
 async function recordEventMediaAuditEvent(
@@ -1689,6 +1702,20 @@ function commandStatusSummary(commands: Doc<"eventMediaCommands">[]) {
     }),
     {} as Partial<Record<Doc<"eventMediaCommands">["status"], number>>,
   );
+}
+
+async function eventMediaSourceProjectionAvailable(
+  db: DatabaseReader,
+  source: Doc<"eventMediaSources">,
+) {
+  const projected = source.profileProjection || (source.eventSlotId !== undefined && source.sourceProfileId !== undefined && source.key === `slot-${source.eventSlotId}`);
+  if (!projected) return true;
+  const slot = source.eventSlotId === undefined ? null : await db.get(source.eventSlotId);
+  if (!slot?.personProfileId || slot.eventId !== source.eventId) return false;
+  const profile = await db.get(slot.personProfileId);
+  if (!profile || !canReadProfile("public", profile)) return false;
+  const stream = resolveEventStream(eventProfileStreamChoices(profile), slot.selectedStreamId);
+  return stream !== undefined && stream.questUrl === source.publicUrl && source.projectionAvailable !== false;
 }
 
 async function resolveEventMediaCommandTargets(
@@ -1757,6 +1784,7 @@ async function insertEventMediaCommand(
     programId: input.program._id,
     eventId: input.program.eventId,
     sessionId: input.sessionId,
+    sequence: await allocateSessionCommandSequence(db, input.sessionId),
     commandType: input.commandType,
     status: "queued",
     ...(input.actor === undefined ? {} : { actor: input.actor }),
@@ -1899,7 +1927,7 @@ export async function settleEventMediaForCancellation(
         updatedAt: now,
       }),
     ]);
-    if (claimedStarts.length > 0 && session.workerTaskId === undefined) {
+    if (claimedStarts.length > 0 && session.workerTaskId === undefined && session.epoch === undefined) {
       return;
     }
 
@@ -1958,6 +1986,10 @@ export async function reconcileEventMediaScheduleChange(
 
 function workerSessionStatus(session: Doc<"eventMediaSessions">) {
   return {
+    currentSourceId: session.currentSourceId,
+    programObservedAt: session.programObservedAt,
+    lastAcknowledgedSequence: session.lastAcknowledgedSequence,
+    epoch:session.epoch,launchProtocol:session.launchProtocol,launchAttemptedAt:session.launchAttemptedAt,dispatchId:session.dispatchId,dispatchStopConfirmedAt:session.dispatchStopConfirmedAt,workerTaskCleanupPending:session.workerTaskCleanupPending,broadcastMode:session.broadcastMode,runtimeDeadlineAt:session.runtimeDeadlineAt,
     sessionId: session._id,
     status: session.status,
     ...(session.outputId === undefined ? {} : { outputId: session.outputId }),
@@ -1969,6 +2001,8 @@ function workerSessionStatus(session: Doc<"eventMediaSessions">) {
     ...(session.workerTaskStatus === undefined ? {} : { workerTaskStatus: session.workerTaskStatus }),
     ...(session.workerTaskStatusReason === undefined ? {} : { workerTaskStatusReason: session.workerTaskStatusReason }),
     artifactLinks: session.artifactLinks ?? [],
+    outputHealth: session.outputHealth ?? [],
+    outputHealthObservedAt: session.outputHealthObservedAt,
     ...(session.leaseExpiresAt === undefined ? {} : { leaseExpiresAt: session.leaseExpiresAt }),
     ...(session.readyDeadlineAt === undefined ? {} : { readyDeadlineAt: session.readyDeadlineAt }),
     ...(session.scheduledStartAt === undefined ? {} : { scheduledStartAt: session.scheduledStartAt }),
@@ -2023,6 +2057,9 @@ async function createWorkerBridgeCommandPayload(
     return null;
   }
 
+  const event = await db.get(command.eventId);
+  if (command.commandType === "start_program" && (!event || !output || !eventOutputIsAuthorized(event, output))) return null;
+
   return {
     commandId: command._id,
     commandType: command.commandType,
@@ -2035,6 +2072,7 @@ async function createWorkerBridgeCommandPayload(
       publicLinks: program.publicLinks,
     },
     session: workerSessionStatus(session),
+    optionalOutputs: (await db.query("eventMediaOutputs").withIndex("by_programId_key", q=>q.eq("programId",program._id)).take(9)).filter(o=>o._id!==session.outputId && o.eventId===command.eventId && o.simulcastEnabled===true && event && eventOutputIsAuthorized(event, o) && o.type==="external_rtmp" && o.twitchSetup && ["ready","active"].includes(o.state)).map(o=>workerCommandOutput(o)),
     ...(workerCommandOutput(output) === undefined ? {} : { output: workerCommandOutput(output) }),
   };
 }
@@ -2064,6 +2102,9 @@ async function applyEventMediaWorkerTaskStatus(
     now: number;
   },
 ) {
+  if (input.session.epoch !== undefined) {
+    throw new Error("Fenced event media sessions require eventMediaWorker mutations.");
+  }
   const requestedStatus = input.status ?? input.session.status;
   const cancellationPending =
     input.session.stopRequestedAt !== undefined && !["ended", "error"].includes(requestedStatus);
@@ -2103,7 +2144,10 @@ async function applyEventMediaWorkerTaskStatus(
     updatedAt: input.now,
   });
 
-  if (
+  // Process cleanup may outlive publication ownership. Only the currently
+  // selected session can update shared program/destination presentation.
+  const ownsPublication = input.program.activeSessionId === input.session._id;
+  if (ownsPublication && (
     status === "starting" ||
     status === "live" ||
     status === "hold" ||
@@ -2111,7 +2155,7 @@ async function applyEventMediaWorkerTaskStatus(
     status === "stopping" ||
     status === "ended" ||
     status === "error"
-  ) {
+  )) {
     await db.patch(input.program._id, {
       state: status,
       activeSessionId: ["ended", "error"].includes(status) ? undefined : input.session._id,
@@ -2156,7 +2200,7 @@ async function applyEventMediaWorkerTaskStatus(
     }
   }
 
-  if (status === "live" && input.session.outputId !== undefined) {
+  if (ownsPublication && status === "live" && input.session.outputId !== undefined) {
     const output = await db.get(input.session.outputId);
 
     if (output !== null) {
@@ -2173,7 +2217,7 @@ async function applyEventMediaWorkerTaskStatus(
     }
   }
 
-  if (["ended", "error"].includes(status) && input.session.outputId !== undefined) {
+  if (ownsPublication && ["ended", "error"].includes(status) && input.session.outputId !== undefined) {
     const output = await db.get(input.session.outputId);
 
     if (output !== null && output.state === "active") {
@@ -2321,8 +2365,31 @@ export const listHostedByCommunitySlug = query({
 });
 
 export const listVrcdnOutputAccounts = query({
-  args: {},
-  handler: () => listPublicVrcdnOutputAccounts(),
+  // Legacy callers may omit the slug, but no longer receive a global account pool.
+  args: { currentSlug: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    if (args.currentSlug === undefined) return [];
+    const subject = await requireAuthenticatedSubject(ctx);
+    const { event } = await getMediaManageableEventBySlug(ctx, args.currentSlug, subject);
+    return listPublicVrcdnOutputAccounts(event.communityProfileId);
+  },
+});
+
+export const getHostBySlug = query({
+  args: { slug: v.string(), communitySlug: v.string() },
+  handler: async (ctx, args) => {
+    const validation = validateEventSlug(args.slug);
+    if (!validation.ok) return null;
+    const event = await getEventBySlug(ctx.db, validation.slug);
+    if (!event?.communityProfileId) return null;
+    const community = await ctx.db.get(event.communityProfileId);
+    if (community?.slug !== args.communitySlug) return null;
+    const viewer = await activeBrowserSessionSubjectOrNull(ctx);
+    if (!viewer || !await canViewEventOperations(ctx.db, event, viewer.subject, viewer.userId))
+      return getPublicEventBySlug(ctx.db, event);
+    const projection = await getEventForHost(ctx.db, event);
+    return projection ? { ...projection, communitySlug: community.slug } : null;
+  },
 });
 
 export const getEventMediaControlStatus = query({
@@ -2333,6 +2400,8 @@ export const getEventMediaControlStatus = query({
   handler: async (ctx, args) => {
     const subject = await requireAuthenticatedSubject(ctx);
     const { event, slug } = await getOperationsReadableEventBySlug(ctx, args.currentSlug, subject);
+    const canControl = await canManageEventMedia(ctx.db, event, subject, (await requireUser(ctx)).userId);
+    const serverNow = Date.now();
     const program = await getLatestEventMediaProgram(ctx.db, event._id);
     const slots = await ctx.db
       .query("eventSlots")
@@ -2342,9 +2411,14 @@ export const getEventMediaControlStatus = query({
 
     if (program === null) {
       return {
+        twitchAccounts: canControl ? listTwitchOutputAccounts(event.communityProfileId) : [],
+        eventTitle: event.title,
+        serverNow,
+        canControl,
         eventId: event._id,
         eventPath: await eventPathForRecord(ctx.db, event, slug),
         program: null,
+        outputConfigurationLocked: false,
         sources: [],
         outputs: [],
         sessions: [],
@@ -2385,12 +2459,24 @@ export const getEventMediaControlStatus = query({
         .withIndex("by_programId_status_createdAt", (query) => query.eq("programId", program._id).eq("status", "queued"))
         .take(100),
     ]);
+    const availableSources = new Set(
+      (await Promise.all(sources.map(async source =>
+        await eventMediaSourceProjectionAvailable(ctx.db, source) ? source._id : undefined,
+      ))).filter(id => id !== undefined),
+    );
     const programCommands = commands.filter((command) => command.programId === program._id);
 
     return {
+      twitchAccounts: canControl ? listTwitchOutputAccounts(event.communityProfileId) : [],
+      eventTitle: event.title,
+      serverNow,
+      canControl,
       eventId: event._id,
       eventPath: await eventPathForRecord(ctx.db, event, slug),
+      outputConfigurationLocked: await eventOutputConfigurationLocked(ctx.db, program),
       program: {
+        broadcastPolicy: program.broadcastPolicy,
+        currentSourceId: program.currentSourceId,
         programId: program._id,
         state: program.state,
         ...(program.currentOutputId === undefined ? {} : { currentOutputId: program.currentOutputId }),
@@ -2411,7 +2497,7 @@ export const getEventMediaControlStatus = query({
           label: source.label,
           ...(source.eventSlotId === undefined ? {} : { eventSlotId: source.eventSlotId }),
           ...(source.sourceProfileId === undefined ? {} : { sourceProfileId: source.sourceProfileId }),
-          hasPublicUrl: source.publicUrl !== undefined,
+          hasPublicUrl: source.publicUrl !== undefined && source.projectionAvailable !== false && availableSources.has(source._id),
           hasPrivateConfig: source.privateConfigRef !== undefined,
           updatedAt: source.updatedAt,
         })),
@@ -2424,11 +2510,17 @@ export const getEventMediaControlStatus = query({
           state: output.state,
           label: output.label,
           hasCredential: output.credential !== undefined,
+          authorized: eventOutputIsAuthorized(event, output),
+          simulcastEnabled: output.simulcastEnabled ?? false,
+          twitchSetup: output.twitchSetup,
           playbackLinkCount: output.playbackLinks.length,
           updatedAt: output.updatedAt,
         })),
       sessions: sessions.sort((first, second) => second.updatedAt - first.updatedAt).map(workerSessionStatus),
       commands: programCommands.map((command) => ({
+        sessionId: command.sessionId,
+        sequence: command.sequence,
+        acknowledgedEpoch: command.acknowledgedEpoch,
         commandId: command._id,
         commandType: command.commandType,
         status: command.status,
@@ -2478,11 +2570,33 @@ export const queueEventMediaCommand = mutation({
       throw new Error("Use the worker lifecycle mutations for start_program and stop_program commands.");
     }
 
+    const session = await getOpenEventMediaSession(ctx.db, program);
+    if (command.type === "switch_next") {
+      const pending = (await Promise.all((["queued", "claimed"] as const).map(status =>
+        ctx.db.query("eventMediaCommands")
+          .withIndex("by_programId_status_createdAt", q => q.eq("programId", program._id).eq("status", status))
+          .take(100),
+      ))).flat();
+      const duplicate = pending.find(row =>
+        row.commandType === "switch_next" && row.sessionId === session?._id,
+      );
+      if (duplicate) return {
+        eventId: event._id,
+        eventPath: await eventPathForRecord(ctx.db, event, slug),
+        programId: program._id,
+        commandId: duplicate._id,
+        status: duplicate.status,
+        commandType: duplicate.commandType,
+      };
+    }
     const targets = await resolveEventMediaCommandTargets(ctx.db, program, command);
+    if (command.type === "switch_source" && targets.source !== null && !(await eventMediaSourceProjectionAvailable(ctx.db, targets.source))) throw new Error("Event media source is unavailable.");
     const now = Date.now();
+    const sequence = session === null ? undefined : await allocateSessionCommandSequence(ctx.db, session._id);
     const commandId = await ctx.db.insert("eventMediaCommands", {
       programId: program._id,
       eventId: event._id,
+      ...(session === null ? {} : { sessionId: session._id, sequence }),
       commandType: command.type,
       status: "queued",
       actor: subject,
@@ -2554,6 +2668,10 @@ export const claimEventMediaWorkerCommand = mutation({
         continue;
       }
 
+      if ((await ctx.db.get(command._id))?.status !== "queued") continue;
+      const session = await ctx.db.get(command.sessionId);
+      if (command.commandType === "start_program" && session?.epoch !== undefined) continue;
+
       const payload = await createWorkerBridgeCommandPayload(ctx.db, command);
 
       if (payload === null) {
@@ -2563,6 +2681,14 @@ export const claimEventMediaWorkerCommand = mutation({
           completedAt: now,
           updatedAt: now,
         });
+        if (command.commandType === "start_program" && session) {
+          await settleTerminalSessionCommands(ctx.db, session._id, "error", now);
+          await ctx.db.patch(session._id, { status: "error", leaseExpiresAt: now, ...((session.dispatchId || session.workerTaskId) && session.dispatchStopConfirmedAt === undefined ? { stopRequestedAt: session.stopRequestedAt ?? now } : {}), updatedAt: now });
+          const program = await ctx.db.get(session.programId);
+          if (program?.activeSessionId === session._id)
+            await ctx.db.patch(program._id, { activeSessionId: undefined, state: "error", updatedAt: now });
+          // Dispatch ownership is retained until exact-task STOPPED reconciliation.
+        }
         continue;
       }
 
@@ -2585,28 +2711,15 @@ export const listEventMediaWorkerBridgeSessions = query({
   handler: async (ctx, args) => {
     requireEventMediaBridgeToken(args.bridgeToken);
     requireBridgeWorkerId(args.workerId);
-    const statuses: Array<"scheduled" | "starting" | "live" | "hold" | "fallback" | "stopping"> = [
-      "scheduled",
-      "starting",
-      "live",
-      "hold",
-      "fallback",
-      "stopping",
-    ];
-    const sessionGroups = await Promise.all(
-      statuses.map((status) =>
-        ctx.db
-          .query("eventMediaSessions")
-          .withIndex("by_status_updatedAt", (query) => query.eq("status", status))
-          .take(50),
-      ),
-    );
-
-    return sessionGroups
-      .flat()
-      .filter((session) => session.workerProvider === "aws_ecs" && session.workerTaskId !== undefined)
-      .sort((first, second) => second.updatedAt - first.updatedAt)
-      .map(workerSessionStatus);
+    const managed=await ctx.db.query("eventMediaSessions").withIndex("by_dispatchStopConfirmedAt_dispatchId",q=>q.eq("dispatchStopConfirmedAt",undefined).gt("dispatchId",undefined)).take(101);
+    const taskGroups=await Promise.all(["starting","running","stopping"].map(status=>ctx.db.query("eventMediaSessions").withIndex("by_workerTaskStatus",q=>q.eq("workerTaskStatus",status as "starting"|"running"|"stopping")).take(101)));
+    const legacy=await ctx.db.query("eventMediaSessions").withIndex("by_workerTaskStatus",q=>q.eq("workerTaskStatus",undefined)).filter(q=>q.or(q.neq(q.field("workerTaskId"),undefined),q.neq(q.field("dispatchId"),undefined))).take(101);
+    const cleanup=await ctx.db.query("eventMediaSessions").withIndex("by_workerTaskCleanupPending",q=>q.eq("workerTaskCleanupPending",true)).take(101);
+    // Include ambiguous dispatches without an ARN: they retain capacity and must
+    // remain visible for operator investigation, even after media termination.
+    return [...new Map([...managed,...taskGroups.flat().filter(s=>s.dispatchId===undefined),...cleanup,...legacy.filter(s=>s.dispatchId===undefined)].map(session=>[session._id,session])).values()]
+      .filter(session=>session.workerTaskCleanupPending===true || session.dispatchId!==undefined || session.workerProvider==="aws_ecs"&&session.workerTaskId!==undefined)
+      .sort((a,b)=>b.updatedAt-a.updatedAt).map(workerSessionStatus);
   },
 });
 
@@ -3504,23 +3617,31 @@ export const configureVrcdnOutput = mutation({
       throw new Error("A cancelled event cannot configure a media output.");
     }
 
-    const account = args.outputAccountKey === undefined ? undefined : getVrcdnOutputAccount(args.outputAccountKey);
-
-    if (args.outputAccountKey !== undefined && account === undefined) {
-      throw new Error("Output account is not configured.");
-    }
+    const account = args.outputAccountKey === undefined && args.credentialRef === undefined ? undefined : getVrcdnOutputAccount({
+      communityProfileId: event.communityProfileId,
+      key: args.outputAccountKey,
+      credentialRef: args.credentialRef,
+    });
 
     const output = sanitizeVrcdnOperatorOwnedOutputSetup({
       ...args,
-      credentialRef: account?.credentialRef ?? args.credentialRef,
+      credentialRef: account?.credentialRef,
       playbackLinks: args.playbackLinks ?? account?.playbackLinks,
     });
     const now = Date.now();
     const programId = await getOrCreateEventMediaProgram(ctx.db, event, now);
+    await requireStoppedOutputSessions(ctx.db, programId);
     const existingOutput = await ctx.db
       .query("eventMediaOutputs")
       .withIndex("by_programId_key", (query) => query.eq("programId", programId).eq("key", output.key))
       .unique();
+    if (existingOutput && (existingOutput.type !== "vrcdn" || existingOutput.twitchSetup)) throw Error("Output key belongs to another destination.");
+    if (existingOutput === null) {
+      const outputs = await ctx.db.query("eventMediaOutputs")
+        .withIndex("by_programId_key", (query) => query.eq("programId", programId))
+        .take(EVENT_BROADCAST_MAX_OUTPUTS);
+      if (outputs.length >= EVENT_BROADCAST_MAX_OUTPUTS) throw new Error("Output limit reached.");
+    }
     const credential =
       output.credential === undefined
         ? undefined
@@ -3570,6 +3691,30 @@ export const configureVrcdnOutput = mutation({
   },
 });
 
+export const configureTwitchOutput = mutation({
+  args: { currentSlug:v.string(), key:v.string(), label:v.string(), channel:v.string(), credentialRef:v.optional(v.string()), outputAccountKey:v.optional(v.string()), simulcastEnabled:v.optional(v.boolean()), sourceConsentAccepted:v.optional(v.boolean()), destinationAuthorityAccepted:v.optional(v.boolean()), providerRulesAccepted:v.optional(v.boolean()), rightsClearedMediaAccepted:v.optional(v.boolean()) },
+  handler:async(ctx,args)=>{
+    const subject=await requireAuthenticatedSubject(ctx);
+    const {event}=await getMediaManageableEventBySlug(ctx,args.currentSlug,subject);
+    if(event.eventStatus!=="scheduled") throw Error("A cancelled event cannot configure a media output.");
+    const account=getTwitchOutputAccount({communityProfileId:event.communityProfileId,key:args.outputAccountKey,credentialRef:args.credentialRef,channel:args.channel});
+    const setup=sanitizeTwitchOutput({...args,...account,key:args.key});
+    const output={...setup,twitchSetup:{...setup.twitchSetup,accountKey:account.key}};
+    const now=Date.now(), programId=await getOrCreateEventMediaProgram(ctx.db,event,now);
+    await requireStoppedOutputSessions(ctx.db, programId);
+    const all=await ctx.db.query("eventMediaOutputs").withIndex("by_programId_key",q=>q.eq("programId",programId)).take(EVENT_BROADCAST_MAX_OUTPUTS + 1);
+    const existing=all.find(o=>o.key===output.key);
+    if(existing && (existing.type!=="external_rtmp" || !existing.twitchSetup)) throw Error("Output key belongs to another destination.");
+    if(!existing && all.length>=EVENT_BROADCAST_MAX_OUTPUTS) throw Error("Output limit reached.");
+    if(output.simulcastEnabled && all.some(o=>o.key!==output.key && o.type==="external_rtmp" && o.twitchSetup && o.simulcastEnabled)) throw Error("Only one optional Twitch output can be enabled.");
+    const record={...output,programId,eventId:event._id,credential:output.credential?{...output.credential,authorizedAt:now,authorizedBy:subject}:undefined,updatedAt:now};
+    const outputId=existing?existing._id:await ctx.db.insert("eventMediaOutputs",{...record,createdAt:now});
+    if(existing) await ctx.db.patch(existing._id,record);
+    await ctx.db.insert("eventMediaAuditEvents",{programId,eventId:event._id,actor:subject,actorSurface:"web",action:"twitch_output_configured",privateSummary:output.simulcastEnabled?"Optional output enabled.":"Optional output disabled.",createdAt:now});
+    return {eventId:event._id,programId,outputId,state:output.state,simulcastEnabled:output.simulcastEnabled};
+  },
+});
+
 export const scheduleEventMediaWorker = mutation({
   args: eventMediaWorkerScheduleArgs,
   handler: async (ctx, args) => {
@@ -3587,12 +3732,19 @@ export const scheduleEventMediaWorker = mutation({
     const outputKey = optionalTrimmedText(args.outputKey, "Output key", 64)?.toLowerCase();
     const output = await getReadyEventMediaOutput(ctx.db, program, outputKey);
     if (event.startAt === undefined || event.scheduleKind === "date_only") throw new Error("Set an event time before scheduling a media worker.");
-    const schedule = sanitizeEventMediaWorkerSchedule({
-      eventStartAt: event.startAt,
-      scheduledStartAt: args.scheduledStartAt,
-      readyDeadlineAt: args.readyDeadlineAt,
-    });
     const now = Date.now();
+    if (args.startImmediately && (args.scheduledStartAt !== undefined || args.readyDeadlineAt !== undefined)) {
+      throw new Error("Immediate start cannot include scheduled start or ready deadline fields.");
+    }
+    // Operator starts/recovery use server time and the same three-minute startup
+    // allowance as T-5 -> T-2 scheduling, independent of the event calendar end.
+    const schedule = args.startImmediately
+      ? { scheduledStartAt: now, readyDeadlineAt: now + EVENT_MEDIA_WORKER_START_LEAD_MS - EVENT_MEDIA_WORKER_READY_LEAD_MS }
+      : sanitizeEventMediaWorkerSchedule({
+          eventStartAt: event.startAt,
+          scheduledStartAt: args.scheduledStartAt,
+          readyDeadlineAt: args.readyDeadlineAt,
+        });
     const workerRuntime = optionalTrimmedText(args.workerRuntime, "Worker runtime", 80);
     const workerTaskDefinitionArn = optionalTrimmedText(args.workerTaskDefinitionArn, "Worker task definition ARN", 512);
     const workerTaskId = optionalTrimmedText(args.workerTaskId, "Worker task id", 512);
@@ -3909,5 +4061,21 @@ export const getPersonStreamChoices = query({
     const profile = await ctx.db.query("profiles").withIndex("by_slug", (q) => q.eq("slug", args.slug)).unique();
     if (profile === null || profile.profileType !== "person" || !canReadProfile("public", profile)) return [];
     return eventProfileStreamChoices(profile);
+  },
+});
+
+/** Worker policy uses the same event-media capability as commands. */
+export const configureEventBroadcastPolicy = mutation({
+  args:{currentSlug:v.string(),policy:v.object({maxOverrunMs:v.optional(v.number()),silence:v.optional(v.object({thresholdDb:v.number(),durationMs:v.number()}))})},
+  handler:async(ctx,args)=>{
+    const subject=await requireAuthenticatedSubject(ctx);
+    const {event}=await getMediaManageableEventBySlug(ctx,args.currentSlug,subject);
+    const program=await getLatestEventMediaProgram(ctx.db,event._id);
+    if(!program)throw new Error("Event media program was not found.");
+    const policy=validateBroadcastPolicy(args.policy);
+    if(policy.silence && process.env.VRDEX_EVENT_BROADCAST_SILENCE_CALIBRATED!=="true")throw new Error("Automatic silence requires operator calibration.");
+    await ctx.db.patch(program._id,{broadcastPolicy:policy,updatedAt:Date.now()});
+    await recordEventMediaAuditEvent(ctx.db,{programId:program._id,eventId:event._id,actor:subject,action:"broadcast_policy_configured",createdAt:Date.now()});
+    return {programId:program._id,policy};
   },
 });

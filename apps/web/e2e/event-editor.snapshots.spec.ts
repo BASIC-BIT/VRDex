@@ -18,7 +18,8 @@ async function capture(page: Page, path: string) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   await page.evaluate(() => scrollTo(0, 0));
   await page.screenshot({ path, animations: "disabled", caret: "hide", fullPage: true, scale: "css" });
-  await expect(page).toHaveScreenshot(path.split("/").pop()!.split("\\").pop()!, { animations: "disabled", caret: "hide", fullPage: true, scale: "css", maxDiffPixelRatio: 0.002, threshold: 0.2 });
+  // Keep collecting later states when a visual differs; the test still fails.
+  await expect.soft(page).toHaveScreenshot(path.split("/").pop()!.split("\\").pop()!, { animations: "disabled", caret: "hide", fullPage: true, scale: "css", maxDiffPixelRatio: 0.002, threshold: 0.2 });
 }
 
 for (const editor of [
@@ -40,7 +41,7 @@ for (const editor of [
       await expect(page.locator(`[data-editor-step="${step}"]`)).toBeVisible();
       await waitForVisualReady(page);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
-      await expect(page).toHaveScreenshot(`${editor.name}-${step.toLowerCase()}.png`, {
+      await expect.soft(page).toHaveScreenshot(`${editor.name}-${step.toLowerCase()}.png`, {
         animations: "disabled", caret: "hide", fullPage: true,
         maxDiffPixelRatio: 0.002, scale: "css", threshold: 0.2,
       });

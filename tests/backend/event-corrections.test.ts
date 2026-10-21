@@ -1,3 +1,4 @@
+import { bindVrcdnTestAccount } from "./_eventOutputAccountFixture";
 import assert from "node:assert/strict";
 import { it } from "node:test";
 import { convexTest } from "convex-test";
@@ -281,6 +282,7 @@ async function fixture() {
   const ids = await t.run(async ctx => {
     const users = await Promise.all(["contributor", "staff", "moderator", "other"].map(clerkUserId => ctx.db.insert("users", { clerkUserId })));
     const communityId = await ctx.db.insert("profiles", { slug: "club", displayName: "Club", sortName: "club", profileType: "community", community: { categoryTags: [] }, aliases: [], tags: [], claimState: "unclaimed", publicationState: "published", publicSurfacingState: "public", creationSource: "community", updatedAt: Date.now() });
+    bindVrcdnTestAccount(communityId, "vrcdn/main");
     await ctx.db.insert("profileOwners", { profileId: communityId, userId: users[1], roleKey: "owner", state: "active", grantedAt: Date.now(), updatedAt: Date.now() });
     await ctx.db.insert("accountFeatureGrants", { userId: users[2], feature: "super_admin", state: "active", grantedBy: { tokenIdentifier: "test|moderator", subject: "moderator", issuer: "test" }, grantedAt: Date.now(), updatedAt: Date.now() });
     return { communityId, users };

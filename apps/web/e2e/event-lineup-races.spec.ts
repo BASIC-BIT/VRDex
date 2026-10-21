@@ -140,11 +140,13 @@ for (const kind of ["silent", "audible"]) test(`@fixture ordered overlap ${kind}
   expect((await(await fetch(`${transport.url}/stats`)).json()).active).toBe(1);
   await page.getByRole("button",{name:"Exactly eligible",exact:true}).click();
   await expect.poll(async()=>(await(await fetch(`${transport.url}/stats`)).json()).opened).toBe(2);
-  if(kind==="audible") {
-   await page.waitForTimeout(1500);
-   await expect(page.locator("[data-current]")).toHaveAttribute("data-current","a");
-   await fetch(`${transport.url}/control?id=current&state=eof`,{method:"POST"});
-  }
+  await expect.poll(()=>page.locator("video[hidden]").evaluate(v=>(v as HTMLVideoElement).currentTime)).toBeGreaterThan(1);
+  await page.waitForTimeout(1500);
+  await expect(page.locator("[data-current]")).toHaveAttribute("data-current","a");
+  await page.getByRole("button",{name:"Boundary",exact:true}).click();
+  await page.waitForTimeout(1500);
+  await expect(page.locator("[data-current]")).toHaveAttribute("data-current","a");
+  await fetch(`${transport.url}/control?id=current&state=offline`,{method:"POST"});
   await expect(page.locator("[data-current]")).toHaveAttribute("data-current","b",{timeout:20000});
   await page.getByRole("button",{name:"Unmount",exact:true}).click();
   await expect.poll(async()=>(await(await fetch(`${transport.url}/stats`)).json()).active).toBe(0);
@@ -279,7 +281,11 @@ test("@fixture each handoff resets the next candidate retry delay", async ({base
   await page.goto(`${baseURL}/playwright/event-lineup-live?transport=${encodeURIComponent(transport.url)}&kind=silent`);
   await page.getByRole("button",{name:"third",exact:true}).click();
   await page.getByRole("button",{name:"Play Lineup live"}).click();
+  await expect.poll(()=>page.locator("video:not([hidden])").evaluate(v=>(v as HTMLVideoElement).currentTime)).toBeGreaterThan(1);
   await page.getByRole("button",{name:"Eligible",exact:true}).click();
+  await expect.poll(()=>page.locator("video[hidden]").evaluate(v=>(v as HTMLVideoElement).currentTime)).toBeGreaterThan(1);
+  await page.getByRole("button",{name:"Boundary",exact:true}).click();
+  await page.locator("video:not([hidden])").evaluate(v=>(v as HTMLVideoElement).pause());
   await expect(page.locator("[data-current]")).toHaveAttribute("data-current","b",{timeout:15000});
   await page.evaluate(()=>Object.assign(window,{rejectCandidate:true}));
   await page.getByRole("button",{name:"Later eligible",exact:true}).click();

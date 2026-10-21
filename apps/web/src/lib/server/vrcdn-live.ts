@@ -25,7 +25,7 @@ async function getFreshVrcdnLiveState(streamId: string): Promise<VrcdnLiveProbeR
   return probeVrcdnLiveState(streamId, { signal: AbortSignal.timeout(probeTimeoutMs) });
 }
 
-const getCachedVrcdnLiveState = unstable_cache(
+export const getVrcdnLiveObservation = unstable_cache(
   async (streamId: string): Promise<VrcdnLiveProbeResult> => {
     const result = await getFreshVrcdnLiveState(streamId);
 
@@ -38,7 +38,7 @@ const getCachedVrcdnLiveState = unstable_cache(
     return result;
   },
   ["vrcdn-live-state"],
-  { revalidate: 60 },
+  { revalidate: 30 },
 );
 
 /**
@@ -74,7 +74,7 @@ export async function getVrcdnLiveStates(
   return collectVrcdnLiveStates(streamIds, {
     freshnessMode: context.freshnessMode ?? "cached",
     log,
-    readCached: getCachedVrcdnLiveState,
+    readCached: getVrcdnLiveObservation,
     readFresh: getFreshVrcdnLiveState,
   });
 }
