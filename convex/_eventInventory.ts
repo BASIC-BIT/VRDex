@@ -168,7 +168,7 @@ export async function canonicalInventoryRow(args: {
   const summary: InventorySummary & EventIdentity = { id: event._id, eventId: event._id, title: event.title,
     community: visibleCommunity ? { slug: visibleCommunity.slug, displayName: visibleCommunity.displayName } : null,
     schedule: canonicalSchedule(event),
-    state: event.sourceType === "contributor" && event.publicationState !== "published" ? "retracted" : event.eventStatus === "cancelled" ? "cancelled" : event.publicationState === "published" ? "published" : "draft",
+    state: !managed && event.sourceType === "contributor" && event.publicationState !== "published" ? "retracted" : event.eventStatus === "cancelled" ? "cancelled" : event.publicationState === "published" ? "published" : "draft",
     thumbnailUrl: managed || publicRoute ? await inventoryThumbnail(db, event, publicRoute) : null };
   if (managed) return { ...summary, kind: "managed_event", continuation: event.slug && community
     ? { kind: "staff_editor", href: `${eventPathForSlugs(community.slug, event.slug)}/edit` }

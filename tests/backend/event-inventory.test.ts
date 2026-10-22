@@ -3,6 +3,7 @@ import { it } from "node:test";
 import { convexTest } from "convex-test";
 import { makeFunctionReference, type FunctionArgs, type PaginationOptions, type PaginationResult } from "convex/server";
 import schemaModule from "../../convex/schema";
+import { api } from "../../convex/_generated/api";
 import type { Doc } from "../../convex/_generated/dataModel";
 import type { InventoryRow } from "../../convex/_eventInventory";
 import { listPage } from "../../convex/eventInventory";
@@ -17,6 +18,7 @@ async function fixture() {
     "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
     "../../convex/eventInventory.ts": () => import("../../convex/eventInventory"),
     "../../convex/eventIntake.ts": () => import("../../convex/eventIntake"),
+    "../../convex/eventCorrections.ts": () => import("../../convex/eventCorrections"),
     "../../convex/events.ts": () => import("../../convex/events"),
   } });
   const ids = await t.run(async ({ db }) => {
@@ -389,4 +391,117 @@ it("checks each managed community separately while deduplicating one contributio
     assert.equal(query.mock.calls.filter(call => call.arguments[0] === "profileOwners").length, 3,
       "one source-discovery lookup plus one current ownership lookup for each community");
   });
+});
+
+async function publishedContributionFixture(who: "contributor" | "staff" = "contributor") {
+  const f = await fixture();
+  const creator = f.actor(who);
+  const draft = await creator.mutation(api.eventIntake.saveEventIntakeDraft, {
+    patch: { title: "Contributed night", communitySlug: "club", eventDate: "2027-10-15", timeTba: true },
+  });
+  const receipt = await creator.action(api.eventIntake.publishEventIntake, {
+    draftId: draft.draftId, expectedVersion: draft.version, idempotencyKey: "inventory-lifecycle",
+  });
+  const published = await f.t.run(({ db }) => db.get(receipt.eventId));
+  assert.ok(published?.slug);
+  assert.equal(published.sourceType, "contributor");
+  assert.equal(published.publicationState, "published");
+  return { ...f, creator, published, slug: published.slug };
+}
+
+async function assertRestrictedOwnContribution(creator: Actor, eventId: Doc<"events">["_id"]) {
+  const all = (await traverse(creator)).rows;
+  assert.equal(all.length, 1);
+  assert.equal(all[0].id, eventId);
+  assert.equal(all[0].kind, "own_contribution");
+  assert.equal(all[0].state, "retracted");
+  assert.deepEqual(all[0].continuation, { kind: "unavailable" });
+  for (const view of ["drafts", "upcoming", "past"] as const) {
+    assert.deepEqual((await traverse(creator, { view })).rows, []);
+  }
+  const access = await creator.query(api.eventCorrections.getEventContributionAccess, { eventId });
+  assert.equal(access.canCorrect, false);
+  assert.equal(access.canSuggest, false);
+}
+
+for (const command of ["save_draft", "unpublish"] as const) it(`shows a staff ${command} of a contribution in managed Drafts`, async () => {
+  const { t, actor, creator, published, slug } = await publishedContributionFixture();
+  const staff = actor("staff");
+  if (command === "save_draft") {
+    await staff.mutation(api.events.updateCommunityEvent, { currentSlug: slug,
+      title: published.title, communitySlug: "club", published: false });
+  } else await staff.mutation(api.events.setCommunityEventPublished, { currentSlug: slug, published: false });
+  const saved = await t.run(({ db }) => db.get(published._id));
+  assert.ok(saved);
+  assert.equal(saved.publicationState, "draft_private");
+  assert.equal(saved.sourceType, "contributor");
+  assert.equal(saved.contributorUserId, published.contributorUserId);
+  assert.ok(saved.contributorEditsClosedAt);
+  const drafts = (await traverse(staff, { view: "drafts" })).rows;
+  assert.equal(drafts.length, 1);
+  assert.equal(drafts[0].id, published._id);
+  assert.equal(drafts[0].kind, "managed_event");
+  assert.equal(drafts[0].state, "draft");
+  assert.deepEqual(drafts[0].continuation, { kind: "staff_editor", href: `/club/events/${slug}/edit` });
+  await assertRestrictedOwnContribution(creator, published._id);
+  await assert.rejects(creator.mutation(api.eventCorrections.updateOwnContributedEvent, {
+    eventId: published._id, expectedUpdatedAt: saved.updatedAt, patch: { title: "Unauthorized correction" },
+  }), /CONTRIBUTOR_EDIT_CLOSED/);
+});
+
+it("prefers the managed draft for its creator until management is revoked", async () => {
+  const { t, ids, creator, published, slug } = await publishedContributionFixture("staff");
+  await creator.mutation(api.events.updateCommunityEvent, { currentSlug: slug,
+    title: published.title, communitySlug: "club", published: false });
+  for (const view of ["all", "drafts"] as const) {
+    const rows = (await traverse(creator, { view })).rows;
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].id, published._id);
+    assert.equal(rows[0].kind, "managed_event");
+    assert.equal(rows[0].state, "draft");
+    assert.equal(rows[0].continuation.kind, "staff_editor");
+  }
+  await t.run(({ db }) => db.patch(ids.authority, { capabilities: [] }));
+  await assertRestrictedOwnContribution(creator, published._id);
+  await assert.rejects(creator.mutation(api.events.setCommunityEventPublished,
+    { currentSlug: slug, published: true }));
+});
+
+it("keeps actual contributor retraction restricted while staff retain their canonical draft", async () => {
+  const { t, actor, creator, published, slug } = await publishedContributionFixture();
+  await creator.mutation(api.eventCorrections.retractOwnContributedEvent, { eventId: published._id });
+  const retracted = await t.run(({ db }) => db.get(published._id));
+  assert.ok(retracted);
+  assert.equal(retracted.sourceType, "contributor");
+  assert.equal(retracted.contributorEditsClosedAt, undefined);
+  await assertRestrictedOwnContribution(creator, published._id);
+  await assert.rejects(creator.mutation(api.eventCorrections.updateOwnContributedEvent, {
+    eventId: published._id, expectedUpdatedAt: retracted.updatedAt, patch: { title: "Unauthorized correction" },
+  }), /CONTRIBUTOR_EDIT_CLOSED/);
+  const staff = actor("staff");
+  const drafts = (await traverse(staff, { view: "drafts" })).rows;
+  assert.equal(drafts.length, 1);
+  assert.equal(drafts[0].id, published._id);
+  assert.equal(drafts[0].kind, "managed_event");
+  assert.equal(drafts[0].state, "draft");
+  assert.equal(drafts[0].continuation.kind, "staff_editor");
+  await staff.mutation(api.events.setCommunityEventPublished, { currentSlug: slug, published: true });
+  assert.equal((await t.run(({ db }) => db.get(published._id)))?.publicationState, "published");
+});
+
+it("keeps Cancelled ahead of Draft for an unpublished managed contribution", async () => {
+  const { actor, creator, published, slug } = await publishedContributionFixture();
+  const staff = actor("staff");
+  await staff.mutation(api.events.setCommunityEventCancelled, {
+    currentSlug: slug, cancelled: true, reason: "Cancelled by host",
+  });
+  await staff.mutation(api.events.setCommunityEventPublished, { currentSlug: slug, published: false });
+  const rows = (await traverse(staff)).rows;
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].id, published._id);
+  assert.equal(rows[0].kind, "managed_event");
+  assert.equal(rows[0].state, "cancelled");
+  assert.equal(rows[0].continuation.kind, "staff_editor");
+  assert.deepEqual((await traverse(staff, { view: "drafts" })).rows, []);
+  await assertRestrictedOwnContribution(creator, published._id);
 });

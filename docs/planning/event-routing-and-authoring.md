@@ -23,7 +23,9 @@ creator-private intake drafts. All, Upcoming, Drafts and Past filter bounded
 server pages; Find an event matches titles and current community names.
 Continuation uses the source-specific route: canonical staff drafts retain their
 community editor, intake drafts resume at `/events/new?draft=<id>`, and
-contributions retain their public correction surface. Retractions stay in All.
+contributions retain their public correction surface. Own-contribution
+retractions stay in All; a currently authorized manager sees the canonical
+staff state, with Cancelled taking precedence over Draft or Published.
 
 Intake retention is 30 days from the last save; reading the inventory does not
 extend it. Publication receipts remove completed intake drafts. Source order is

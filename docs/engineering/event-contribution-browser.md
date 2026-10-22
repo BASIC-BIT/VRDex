@@ -392,7 +392,15 @@ turns contributor inventory visibility into staff authority. Intake Continue
 opens `/events/new?draft=<id>`; canonical drafts continue at
 `/<community>/events/<code>/edit`. Published staff work has Edit; contributions
 use their canonical public page and its existing correction/report controls.
-Retracted contributions remain in All and are not resumable intake drafts.
+An unpublished `own_contribution` remains Retracted in All, outside Drafts,
+with no staff or intake continuation. A currently authorized manager instead
+sees the canonical `managed_event`: Cancelled takes precedence, otherwise its
+publication state determines Published or Draft, regardless of contributor
+provenance. Staff Save draft and Unpublish preserve that provenance. An actor
+who is both creator and manager gets only the managed representation; revoking
+management restores the restricted own-contribution representation. This also
+applies after an actual contributor retraction and grants no new authority or
+intake draft access.
 
 Intake drafts expire 30 days after their last save. Inventory reads do not renew
 retention. Expired drafts and drafts with publication receipts are omitted.
