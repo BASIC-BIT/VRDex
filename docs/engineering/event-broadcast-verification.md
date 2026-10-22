@@ -1,9 +1,130 @@
 # Event broadcast integration verification
 
-Status: implementation, local acceptance and bounded Fargate diagnostics through
-October 22, 2026. Hosted output remains disabled. This record distinguishes the current event worker from the
-June 2026 provider POC and records outstanding rollout gates. The approved design
-is [event broadcast and host view](../superpowers/specs/2026-10-19-event-broadcast-and-host-view-design.md).
+Status: implementation and retained evidence through October 22, 2026. The
+persistent Lambda dispatcher is available in production, and the bounded
+decoded-silence proof passed. The backend policy deployed successfully and the
+obsolete calibration variable was read back absent. No event was started to
+observe production worker configuration or a production silence handoff.
+Earlier dated proofs retain their original scope and deployment state; their
+silence-off, hosted-output-off and ECS dispatcher statements do not describe the
+new target behavior. General provider/device acceptance remains separate.
+
+The approved designs are [event broadcast and host view](../superpowers/specs/2026-10-19-event-broadcast-and-host-view-design.md)
+and [persistent event streams](../superpowers/specs/2026-10-22-persistent-event-streams-design.md).
+
+## Persistent dispatch and automatic silence
+
+Normal dispatch now uses a minute-scheduled Node.js 22 Lambda, 256 MiB memory,
+180-second timeout and reserved concurrency one. Each invocation performs one
+ordinary bridge pass with a unique identity and fresh token fetched from the exact
+Secrets Manager ARN. Runtime SDK v3 imports are deferred, and SDK/secret/Convex
+calls have 15-second bounds. EventBridge and Lambda event age are capped at
+60 seconds with zero failed-event retries. A later invocation discovers and
+reconciles current work. Completion, timeout or replacement never triggers global
+media drain. Actual runtime SDK support, secret fetch and scheduled polls passed
+in the production cutover recorded below.
+
+Hosts use the existing authorized Start/Stop, automatic/manual, Next and Hold
+controls. There is no daily renewal or host enable toggle. Start dispatch can take
+up to one minute plus scheduler jitter, followed by ECS startup; running controls
+remain worker-driven. Production media retains the reviewed 720p30 image,
+4 CPU/8 GiB, admission cap one and 12-hour session bound. Internal emergency SSM
+publication control remains in place, with its value preserved during migration.
+Estimated idle dispatch costs are $0.19–$0.92/month outside free allowances for
+one-to-five-second Lambda passes, compared with about $12.66/month for idle ECS.
+Active media is approximately $0.1975/hour plus egress and ancillary charges.
+
+Launch fencing and actual ECS STOPPED remain authoritative. Pre-existing ambiguous
+starts without recorded task ARNs and stale claimed commands need operator
+recovery. Neither a failed invocation nor a terminal media row frees admission.
+Never delete reservations or blindly retry Start to bypass ambiguity. The CLI
+bridge remains an optional recovery tool.
+
+The effective missing/empty-policy default is below -90 dBFS continuously for
+15 seconds. Its bounded decoded-media proof passed and the backend policy is
+deployed. Production worker application has not been directly observed because
+no session was started. Optional maximum overrun remains unset, and changing it
+preserves custom silence. Handoff requires
+automatic mode, matching fresh progressing decoded current A/V, sustained analysis
+and a matching fresh decoded-ready successor whose authored interval is eligible.
+Manual selection and Hold remain authoritative. Reconnect/failure resets evidence;
+silence without a ready successor retains the current source, including the last
+slot. An accumulated qualifying interval may switch when eligibility arrives,
+without a new post-boundary grace. Threshold changes require a session restart.
+The obsolete calibration environment variable is no longer an activation control.
+
+### October 22 decoded-silence proof
+
+`scripts/event-silence-local-proof.mjs` completed an 85.561-second bounded run at
+320x180/15fps and 200 kbps H.264 with actual AAC/MPEGTS, AAC 160 kbps/48 kHz stereo,
+and the unchanged factory decoder. FFmpeg was 7.1.5. The historical -81 dBFS quiet
+tone decoded between -81.018 and -80.869 dBFS and stayed selected for 16.068 seconds
+after the successor boundary. Digital zero decoded at -120 dBFS and qualified the
+continuous 15-second rule. A short pause retained A, an audible burst reset the
+interval, and qualified silence retained A before eligibility, on the final slot,
+with a disabled/unready successor and under manual `hold_current`.
+
+After automatic mode resumed and B became eligible and decoded-ready, the worker
+made a `silence` switch and the recorded encoded frame was blue B, RGB `[0,0,255]`.
+Final manual slate remained selected, with decoded RGB `[31,27,32]`. The recording
+contains 4,707 packets with maximum gap 66.667 ms and maximum GOP one second.
+Its 3,648,328 bytes have SHA256
+`39f374b6cc81b9923660c8441aac1238d3482fc189a29ec0a8f1c20841efd423`.
+The receipt is `/workspace/rehearsal-sdd/persistent-silence-proof.json`; failed
+attempts remain in `/workspace/rehearsal-sdd/persistent-silence-failed-attempts.json`.
+
+The 720p and 640x360 attempts hit resource/processing bounds. One 320x180 attempt
+had an incorrect harness expectation for successor readiness under manual mode;
+only the harness expectation changed. Another reached actual slate but failed
+with a render-clock processing-budget error when Return-to-auto started a new A
+decoder. The final green sequence places slate last and avoids that restart. It
+does not prove the restart failure fixed. No media module changed. These synthetic
+measurements do not establish production-resolution capacity, hosted Convex
+authority, provider/device acceptance, a real-music false-positive rate,
+reconnect/frozen-PTS behavior or delayed-event-loop tolerance.
+
+### October 22 production dispatcher cutover
+
+Preflight at 15:53:46 UTC found zero active sessions. The old idle ECS dispatcher,
+task ID prefix `91e599`, reached STOPPED at 15:55:03.348 UTC, exit 0. The new
+`vrdex-restream-worker-event-bridge` Lambda then completed a manual ordinary poll
+at 15:56:20.866 UTC, proving actual runtime SDK imports and token retrieval. The
+first observed scheduled invocation completed at 15:58:07.905 UTC, warm duration
+1.408 seconds and maximum memory 116 MiB. Scheduled invocations at 15:59:06.701
+and 16:00:08.748 UTC also completed, establishing three consecutive scheduled
+passes. The minute schedule, 60-second event age
+and zero retry attempts were read back for both delivery controls. Master SSM
+remained `true`, version 2; ECS running tasks were zero. No event was selected or
+started. This verifies dispatcher availability without new event-publication
+acceptance. Backend deployment is recorded below; no production event session
+was created to observe the effective worker configuration.
+
+The esbuild 0.28.0 artifact records 63 hashed inputs; its 47,168-byte ZIP SHA256 is
+`d05875a95e5edd25a28bc51aa34085f17be627e2313a95f86fde82bd6a30cdb6`.
+S3 readback and deployed `CodeSha256` matched
+`0Fh1qV5e3SWii8Uao0CF8XvmJ+IxOpX4b96CvWowzbY=`. Independent spec reviews of the
+policy/proof, handler/SDK and infrastructure tasks found no outstanding issues.
+Nine evaluated IaC resources were bootstrapped, with Terraform state import still
+pending. See [deployment and recovery](../deployment/restream-worker.md#persistent-event-dispatcher-deployment)
+for the retained manifest, owner values and migration requirements.
+
+### October 22 backend deployment and verification
+
+The backend policy deployed to `https://superb-pig-954.convex.cloud` with Convex
+CLI exit 0. Schema validation passed and no indexes were deleted. At
+`2026-10-22T16:04:06.604Z`, production readback confirmed
+`VRDEX_EVENT_BROADCAST_SILENCE_CALIBRATED` absent, with concurrency one and session
+bound 43,200 seconds unchanged. The default-silence behavior is established by
+deployed source and tests. Zero sessions existed and no event was started, so this
+is not a direct readback of a running worker's effective policy or a production
+silence handoff.
+
+The scripts suite reported 353 passed, one skipped and zero failed across
+354 tests. The full backend run reported 1,844 passed and one failed across
+1,845 tests. The sole failure was an authored-event helper timeout. Rerunning that
+case with all workspace dependencies and no competing load passed one of one in
+7.98 seconds; this does not turn the original full-suite run into an all-pass
+result. Backend typecheck exited 0. CI will rerun from the complete checkout.
 
 ## Implemented behavior
 
@@ -40,7 +161,7 @@ and event links remain available independently of the managed program.
 | Anonymous public revalidation every 15 seconds, with a 10-second request timeout | Revocation must work after navigating away | A backend outage can interrupt otherwise healthy playback |
 | Keep the retained media DOM and its ancestry mounted | Navigation must not restart the decoder | Root-shell geometry and fullscreen ownership need browser coverage |
 | Dispose Twitch when visible width is below 400px or height below 472px | A supported visible player cannot fit | Narrow/short viewports use the external link; no hidden background-audio iframe |
-| Keep automatic silence and maximum overrun off by default | Quiet music is not necessarily the end of a set | Representative rights-cleared intros, breakdowns and endings remain a calibration gate |
+| Default automatic silence below -90 dBFS for 15 seconds after decoded-media proof; maximum overrun remains optional/unset | Qualifying digital silence can end a set only with an eligible decoded-ready successor | Synthetic quiet-tone retention does not establish a real-music false-positive rate; threshold changes require restart |
 | Infrastructure operator cleans up terminal-but-running ECS tasks | Existing bridge refresh records actual ECS STOPPED; it does not infer StopTask from a terminal media row | Inspect and stop the exact task, then confirm cleanup; never delete admission records to fake free capacity |
 
 ## Security and integration regressions
@@ -84,12 +205,14 @@ scenario decoded a healthy current input but left the renderer on hold while an
 unready successor prepared. Current-source recovery now runs for both `stay`
 and `prepare`, without promoting that successor early.
 
-Final browser review found that the retained sequence reused September's early
-promotion and synthetic silence rule. The October policy now applies to the
+Historical browser review found that the retained sequence reused September's early
+promotion and synthetic silence rule. The then-current October policy applied to the
 shared browser session as well: prepare up to two minutes early, promote only at
 or after both authored boundaries on confirmed failure with a decoded-ready next
-source, and leave automatic silence disabled. Deliberate manual early selection
-remains available. Quiet progressing media continues after the boundary.
+source, while leaving automatic silence disabled in that review. The persistent
+automatic-silence policy above supersedes that disabled default. Deliberate manual
+early selection remains available. Quiet progressing media continues after the
+boundary unless the effective silence policy qualifies a handoff.
 
 Browser transport tracing also reproduced cold-start churn: the first request
 was aborted after approximately 1.12 seconds before media time advanced, creating
@@ -99,6 +222,11 @@ failure rule. Connection-count regressions remain exact. Gain assertions inspect
 the connected audio graph rather than retaining disconnected zero-gain history.
 
 ## Local proof methods
+
+The following retained records describe their original snapshots. Prior disabled
+silence tests and deployment gates are historical; the persistent-dispatch and
+automatic-silence section above states the current implementation, passed proof,
+production dispatch cutover, backend deployment and direct-observation limits.
 
 - `scripts/event-broadcast-failure-proof.mjs`: actual 180-second decoder/render
   proof with source death, stalled successor, recovery, repeated switches,
@@ -336,11 +464,11 @@ and failed shell requests remain historical research evidence. The implemented
 verification does not establish live ingest, account rights or playback acceptance;
 no encoding profile was silently changed.
 
-Representative rights-cleared quiet intros, breakdowns and actual set endings
-were unavailable. Synthetic silence verifies disabled-silence behavior only;
-there is no selected production silence threshold/duration or measured musical
-false-positive rate. Keep `VRDEX_EVENT_BROADCAST_SILENCE_CALIBRATED` unset/false,
-automatic silence disabled, maximum overrun unset and hosted output disabled.
+At that earlier review, representative rights-cleared quiet intros, breakdowns
+and actual set endings were unavailable. Its synthetic silence checked the then
+disabled behavior only. The persistent-stream work above supersedes the old
+calibration gate and silence-off recommendation. It still does not establish a
+measured real-music false-positive rate; maximum overrun remains optional/unset.
 
 ## Fourth review: command transactions and host authorization
 

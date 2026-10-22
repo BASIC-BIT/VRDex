@@ -161,8 +161,13 @@ function aws(config, args) {
   return run(config.awsCommand, [...args, "--region", config.region], { redactValues: config.redactValues });
 }
 
-export function loadConfig() {
-  const bridgeToken = requiredEnv("VRDEX_EVENT_MEDIA_BRIDGE_TOKEN");
+export function loadConfig(options = {}) {
+  const bridgeToken = Object.hasOwn(options, "bridgeToken")
+    ? options.bridgeToken
+    : requiredEnv("VRDEX_EVENT_MEDIA_BRIDGE_TOKEN");
+  if (typeof bridgeToken !== "string" || !bridgeToken.trim()) {
+    throw new Error("Bridge token must be a non-empty string.");
+  }
   const secretRefMap = stringMapEnv("VRDEX_EVENT_MEDIA_SECRET_REF_MAP_JSON");
   const baseEnvironment = stringMapEnv("VRDEX_EVENT_MEDIA_ECS_BASE_ENV_JSON", {});
   if (Object.keys(baseEnvironment).some(name => (name === "VRDEX_EVENT_MEDIA_BRIDGE_TOKEN" || name === "VRDEX_EVENT_MEDIA_OPTIONAL_SECRET_ARNS_JSON" || name === optionalEnv("VRDEX_EVENT_MEDIA_OUTPUT_SECRET_ENV") || name.startsWith("VRDEX_EVENT_MEDIA_OUTPUT_SECRET_") || name === "VRDEX_EVENT_MEDIA_OUTPUT_INGEST_SECRET_JSON"))) throw new Error("Worker credentials must use ECS secret references.");

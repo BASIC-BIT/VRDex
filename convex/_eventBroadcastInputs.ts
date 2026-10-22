@@ -71,7 +71,7 @@ export type BroadcastPolicy = {
   maxOverrunMs?: number;
 };
 
-/** Optional controls remain disabled unless explicitly configured after calibration. */
+/** Validate explicit advanced overrides without supplying defaults. */
 export function validateBroadcastPolicy(input: unknown): BroadcastPolicy {
   if (typeof input !== "object" || input === null || Array.isArray(input)) {
     throw new Error("Invalid broadcast policy.");
@@ -94,4 +94,10 @@ export function validateBroadcastPolicy(input: unknown): BroadcastPolicy {
     result.silence = { thresholdDb: value.thresholdDb, durationMs: value.durationMs };
   }
   return result;
+}
+
+/** Conservative synthetic AAC/MPEGTS calibration; not a musical classifier. */
+export function effectiveBroadcastPolicy(input: BroadcastPolicy | undefined): BroadcastPolicy {
+  const policy = validateBroadcastPolicy(input ?? {});
+  return { ...policy, silence: policy.silence ?? { thresholdDb: -90, durationMs: 15_000 } };
 }
