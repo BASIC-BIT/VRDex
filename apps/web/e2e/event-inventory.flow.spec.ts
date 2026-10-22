@@ -143,3 +143,11 @@ test('metadata source failure clears the inventory and retries the whole travers
   await page.getByRole('button', { name: 'Retry', exact: true }).click();
   await expect(page.getByRole('listitem')).toHaveCount(6);
 });
+
+test('inventory mounts without React warnings @fixture', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+  await page.goto('/playwright/event-inventory');
+  await expect(page.getByRole('listitem')).toHaveCount(6);
+  expect(errors).toEqual([]);
+});

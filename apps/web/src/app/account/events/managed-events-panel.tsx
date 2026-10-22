@@ -19,7 +19,7 @@ class InventoryErrorBoundary extends Component<InventoryControls & { children: R
   state = { failed: false };
   static getDerivedStateFromError() { return { failed: true }; }
   render() {
-    return this.state.failed ? <EventInventoryList {...this.props} content={{ kind: "failed" }} onLoadMore={() => undefined} /> : <div className="grid min-w-0 gap-6">{this.props.children}</div>;
+    return this.state.failed ? <EventInventoryList {...this.props} content={{ kind: "failed" }} onLoadMore={() => undefined} /> : this.props.children;
   }
 }
 
@@ -93,8 +93,10 @@ function ConnectedInventory({ viewerId }: { viewerId: string }) {
   const traversalKey = JSON.stringify([viewerId, view, normalizedQuery, timeZone, refresh]);
   const controls = { view, query, onViewChange: setView, onQueryChange: setQuery, onRetry: () => setRefresh(value => value + 1) };
   return <InventoryErrorBoundary {...controls} key={traversalKey}>
-    <InventoryShortcuts />
-    <InventoryTraversal controls={controls} normalizedQuery={normalizedQuery} timeZone={timeZone} />
+    <div className="grid min-w-0 gap-6">
+      <InventoryShortcuts />
+      <InventoryTraversal controls={controls} normalizedQuery={normalizedQuery} timeZone={timeZone} />
+    </div>
   </InventoryErrorBoundary>;
 }
 
