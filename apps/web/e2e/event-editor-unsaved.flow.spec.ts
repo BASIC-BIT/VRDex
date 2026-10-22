@@ -95,6 +95,16 @@ for (const editor of ['intake', 'staff']) for (const fallback of [false, true]) 
 }
 
 const nav = (page: import('@playwright/test').Page, step: string) => page.getByRole('navigation', { name: 'Event editor' }).getByRole('button', { name: step, exact: true }).click();
+
+async function authorIntakePublicationSchedule(page: import('@playwright/test').Page) {
+  await page.locator('summary').filter({ hasText: /^Add start time$/ }).click();
+  await page.getByRole('button', { name: 'Time zone', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Time zone', exact: true }).fill('UTC');
+  await page.getByRole('option', { name: 'UTC', exact: true }).click();
+  await page.getByLabel('Starts', { exact: true }).fill('2027-07-15T20:00');
+  await expect(page.getByLabel('Starts', { exact: true })).toHaveValue('2027-07-15T20:00');
+}
+
 async function dismissLeave(page: import('@playwright/test').Page) {
   const confirmation = page.waitForEvent('dialog');
   const click = page.getByRole('link', { name: 'Contact', exact: true }).click();
@@ -140,6 +150,7 @@ for (const editor of ['intake', 'staff']) {
   });
   test(`${editor} publish then stay updates the same event once @fixture`, async ({ page }) => {
     await page.goto(editor === 'intake' ? '/playwright/event-intake?revision=draft' : '/playwright/event-lineup?editor&mode=create');
+    if (editor === 'intake') await authorIntakePublicationSchedule(page);
     if (editor === 'staff') await page.getByLabel('Starts', { exact: true }).fill('2027-10-15T20:00');
     await page.getByLabel('Event title', { exact: true }).fill('First title');
     await page.evaluate(editor => editor === 'intake' ? sessionStorage.setItem('fixture-publication-defer', 'true') : localStorage.setItem('event-lineup-fixture-defer-save', 'true'), editor);
@@ -389,6 +400,7 @@ test('stale contributor save keeps the authored baseline and values @fixture', a
 for (const editor of ['intake', 'staff']) {
   test(`${editor} clean publication reaches the event without a warning @fixture`, async ({ page }) => {
     await page.goto(editor === 'intake' ? '/playwright/event-intake?revision=draft' : '/playwright/event-lineup?editor&mode=create');
+    if (editor === 'intake') await authorIntakePublicationSchedule(page);
     if (editor === 'staff') await page.getByLabel('Starts', { exact: true }).fill('2027-10-15T20:00');
     await page.getByLabel('Event title', { exact: true }).fill('Clean publication');
     page.on('dialog', dialog => { throw new Error(`Unexpected ${dialog.type()}`); });
@@ -400,6 +412,7 @@ for (const editor of ['intake', 'staff']) {
 
 test('retained contributor publication rejects forbidden newer fields without republishing @fixture', async ({ page }) => {
   await page.goto('/playwright/event-intake?revision=draft');
+  await authorIntakePublicationSchedule(page);
   await page.evaluate(() => sessionStorage.setItem('fixture-publication-defer', 'true'));
   await nav(page, 'Review');
   await page.getByRole('button', { name: 'Publish event', exact: true }).click();
@@ -562,3 +575,19 @@ test('R2F1 reserved worker disables output saves in the event editor @flow @fixt
   expect(await page.evaluate(() => localStorage.getItem('fixture-output-submission'))).toBeNull();
   await page.screenshot({path:test.info().outputPath('output-locked.png'),fullPage:true});
 });
+
+for (const editor of ['intake', 'staff']) {
+  test(`${editor} My events return link preserves the existing dirty guard @fixture`, async ({ page }) => {
+    await page.goto(editor === 'intake' ? '/playwright/event-intake' : '/playwright/event-editor');
+    await page.getByLabel('Event title', { exact: true }).fill('Unsaved return');
+    const link = page.getByRole('link', { name: 'My events', exact: true }).first();
+    await expect(link).toHaveAttribute('href', '/account/events');
+    const confirmation = page.waitForEvent('dialog');
+    const click = link.click();
+    const dialog = await confirmation;
+    expect(dialog.message()).toBe('Leave without saving?');
+    await dialog.dismiss();
+    await click;
+    await expect(page.getByLabel('Event title', { exact: true })).toHaveValue('Unsaved return');
+  });
+}

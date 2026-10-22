@@ -205,13 +205,17 @@ function ConnectedAccountControl() {
   const label = viewer?.user.name ?? viewer?.user.email ?? "Account";
 
   return (
+    <>
+    <Link className={cn(buttonVariants({ variant: "ghost" }), NAV_CONTROL_HEIGHT)} href="/account/events">My events</Link>
     <Link
-      className={cn(buttonVariants({ variant: "secondary" }), NAV_CONTROL_HEIGHT, "gap-2 pr-3 pl-1.5")}
+      aria-label="Account"
+      className={cn(buttonVariants({ variant: "secondary" }), NAV_CONTROL_HEIGHT, "gap-2 px-1.5 sm:pr-3")}
       href="/account"
     >
       <EntityImage alt="" className="size-7 rounded-control" label={label} sizes="28px" src={viewer?.user.image} />
-      <span>Account</span>
+      <span className="hidden sm:inline">Account</span>
     </Link>
+    </>
   );
 }
 
