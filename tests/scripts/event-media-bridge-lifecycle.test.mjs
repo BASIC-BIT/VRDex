@@ -200,6 +200,69 @@ test('deadline is monotonic after startup even if wall clock moves backwards', a
   assert.equal(claims, 1);
 });
 
+test('drain observes a worker that stops after five seconds and acknowledges cleanup before a thirty-second forced shutdown', async () => {
+  const f = await fixture();
+  await f.admit();
+  await f.register();
+  let now = 0, stoppedAt, claims = 0, cleanupAcknowledged = false;
+  const describes = [], waits = [];
+  const advance = ms => {
+    now += ms;
+    assert.ok(now < 30000, 'forced shutdown would prevent STOPPED reconciliation and cleanup');
+  };
+  const client = {
+    query: async (ref, args) => { advance(100); return f.client.query(ref, args); },
+    mutation: async (ref, args) => {
+      const name = getFunctionName(ref);
+      if (name === 'events:claimEventMediaWorkerCommand') { claims++; return null; }
+      advance(100);
+      const result = await f.client.mutation(ref, args);
+      if (name === 'eventMediaWorker:completeTaskCleanup') cleanupAcknowledged = result.accepted;
+      return result;
+    },
+  };
+  await bridge.runBridge(client, { ...config, pollMs: 30000, drainAtMs: 0 }, async (_config, args) => {
+    if (args[1] === 'describe-tasks') {
+      advance(200);
+      const status = stoppedAt !== undefined && now >= stoppedAt ? 'STOPPED' : 'RUNNING';
+      describes.push({ at: now, status });
+      return { tasks: [{ taskArn: 'managed-task', lastStatus: status }] };
+    }
+    advance(100);
+    if (args[1] === 'stop-task') {
+      stoppedAt ??= now + 5000;
+      assert.equal((await f.session()).dispatchStopConfirmedAt, undefined);
+    } else assert.equal(args[1], 'deregister-task-definition');
+    return {};
+  }, { wallClock: () => 0, monotonicClock: () => now, signals: new EventEmitter(), wait: async ms => {
+    waits.push(ms);
+    advance(ms);
+  } });
+  assert.equal(claims, 0);
+  assert.ok(describes.length > 1, 'drain must describe again after requesting stop');
+  assert.equal(describes.at(-1).status, 'STOPPED');
+  assert.ok(describes.at(-1).at >= stoppedAt);
+  assert.ok(waits.length > 0 && waits.every(ms => ms === 1000));
+  assert.equal(cleanupAcknowledged, true);
+  assert.equal((await f.session()).workerTaskCleanupPending, false);
+  assert.ok(now < 30000);
+});
+
+test('ambiguous reservations retain a positive bounded drain retry cadence', async () => {
+  const f = await fixture();
+  await f.admit();
+  const waits = [];
+  await assert.rejects(bridge.runBridge(f.client, { ...config, pollMs: 30000, drainAtMs: 0 }, async () => { throw Error('no exact task ARN'); }, {
+    wallClock: () => 0, monotonicClock: () => 0, signals: new EventEmitter(), wait: async ms => {
+      waits.push(ms);
+      if (waits.length === 3) throw Error('test bounded pending drain');
+    },
+  }), /test bounded pending drain/);
+  assert.deepEqual(waits, [1000, 1000, 1000]);
+  assert.equal((await f.session()).dispatchStopConfirmedAt, undefined);
+  assert.equal((await f.session()).dispatchId, 'dispatch');
+});
+
 for (const trigger of ['SIGTERM', 'SIGINT', 'deadline', 'deadline-at-sleep']) test(`${trigger} during an in-flight ordinary refresh stops the task before any poll sleep`, async () => {
   const f = await fixture();
   await f.admit();
@@ -242,7 +305,7 @@ for (const trigger of ['SIGTERM', 'SIGINT', 'deadline', 'deadline-at-sleep']) te
     return now;
   }, wait: async ms => {
     assert.equal(stopped, true, 'drain must stop the task before the first poll sleep');
-    assert.equal(ms, 30000, 'steady-state drain keeps its polling interval');
+    assert.equal(ms, 1000, 'steady-state drain polls within the shutdown grace');
     assert.equal((await f.session()).dispatchStopConfirmedAt, undefined, 'StopTask alone cannot release capacity');
     waits++;
   } });
@@ -275,7 +338,7 @@ for (const signal of ['SIGTERM', 'SIGINT']) test(`${signal} wakes idle sleep and
     if (name === 'eventMediaWorker:completeTaskCleanup') cleanupAcknowledged = result.accepted;
     return result;
   } };
-  await bridge.runBridge(client, config, async (_config, args) => {
+  await bridge.runBridge(client, { ...config, pollMs: 30000 }, async (_config, args) => {
     calls.push(args[1]);
     if (args[1] === 'describe-tasks') return { tasks: [{ taskArn: 'managed-task', lastStatus: stopped ? 'STOPPED' : 'RUNNING' }] };
     if (args[1] === 'stop-task') {
@@ -283,8 +346,12 @@ for (const signal of ['SIGTERM', 'SIGINT']) test(`${signal} wakes idle sleep and
       stopped = true;
     }
     return {};
-  }, { signals, wait: async (_ms, signalController) => {
-    if (waits++ > 0) return;
+  }, { signals, wait: async (ms, signalController) => {
+    if (waits++ > 0) {
+      assert.equal(ms, 1000, 'drain uses the shorter reconciliation cadence');
+      return;
+    }
+    assert.equal(ms, 30000, 'ordinary polling keeps its configured interval');
     signals.emit(signal);
     assert.equal(signalController.aborted, true);
     const error = Error('sleep interrupted'); error.name = 'AbortError'; throw error;

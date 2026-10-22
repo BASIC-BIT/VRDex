@@ -145,6 +145,8 @@ STOPPED plus backend cleanup acknowledgement before exiting successfully. An
 already-accepted launch finishes registration before its task is drained. The
 first drain refresh runs immediately if a signal or deadline arrives during an
 ordinary status refresh or just before sleep, rather than waiting a full poll.
+While draining, status checks wait at most one second between passes so the
+ordinary 30-second interval cannot consume the forced-stop grace.
 The wrapper also latches external TERM/INT, waits for the active child, and prevents
 another runtime attempt after that signal. The hard timeout and ECS stop timeout
 retain a 30-second grace. A forced stop can exhaust that grace before AWS cleanup
@@ -190,21 +192,21 @@ subsequently assigned `basicbit1` exclusively to BITRATE. That destination
 binding was installed and read back at 06:30:17 UTC. The initial dispatcher was
 stopped for the reviewed ownership-tag and graceful-drain corrections.
 
-The current dispatcher uses bundle `3d5131ed…` and pinned AWS CLI 2.38.4 archive
+The current dispatcher uses bundle `24d9a1c1…` and pinned AWS CLI 2.38.4 archive
 `10ab32a9…`. A bounded live permission probe confirmed owned task launch,
 observation, stop and definition cleanup, plus denied observation/stop of an
 unrelated task. Both probe tasks are STOPPED and their interfaces are DELETED.
 The first corrected dispatcher successfully polled production before enablement.
-Its refresh-to-drain race was subsequently fixed and covered by four regression
-cases. That idle dispatcher stopped with exit 0 and its interface was deleted
-before replacement. Current task definition `vrdex-restream-worker-event-bridge:3`
-started at 07:22:06 UTC. The master
-parameter was enabled and read back as `true`, version 2, at 07:04:37 UTC on
+Subsequent shutdown fixes cover refresh transitions and polling within the
+forced-stop grace. Idle predecessors stopped with exit 0 and their interfaces
+were deleted before replacement. Current task definition
+`vrdex-restream-worker-event-bridge:4` started at 07:36:56 UTC. The master
+parameter was first enabled and read back as `true`, version 2, at 07:04:37 UTC on
 October 22. The concurrency cap remains one and automatic silence remains off.
 
 This enables operator-started broadcasts for BITRATE's configured `basicbit1`
 destination. No event was selected or started during enablement. The dispatcher
-drains before its hard deadline around 07:22 UTC on October 23; continuing service
+drains before its hard deadline around 07:37 UTC on October 23; continuing service
 requires another operator launch. Enablement and the permission probe do not
 establish a live event or complete provider acceptance for every media path.
 

@@ -623,7 +623,7 @@ export async function runBridge(client, config, runAws = aws, {
 
       sleepController = new AbortController();
       try {
-        const waitMs = refreshDraining ? config.pollMs : Math.min(config.pollMs, Math.max(0, drainDeadline - monotonicClock()));
+        const waitMs = refreshDraining ? Math.min(config.pollMs, 1000) : Math.min(config.pollMs, Math.max(0, drainDeadline - monotonicClock()));
         if (waitMs === 0) continue;
         await wait(waitMs, sleepController.signal);
       } catch (error) {
