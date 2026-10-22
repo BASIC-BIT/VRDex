@@ -14,6 +14,10 @@ VRDex is a VR-first identity, profile, events, and scene-operations platform.
 VRChat is the first ecosystem and implementation focus, not the limit of the
 public product category.
 
+Locked decision from October 21, 2026: the
+[VRDex wordmark](../brand/wordmark/README.md) is approved. Its canonical SVG/PNG
+exports preserve the selected letterforms, cut widths, spacing and colors.
+
 Current recommendation:
 
 - VRDex should become the trusted public identity and presence layer for the

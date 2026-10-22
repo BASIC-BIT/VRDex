@@ -113,9 +113,12 @@ Current recommendation:
 
 Interview later:
 
-- Workshop the durable VRDex descriptor and wordmark together. `VR directory`
-  is the clearest temporary product description; a paper Rolodex mark can be
-  explored without making `Rolodex` mandatory public copy.
+- Workshop the durable VRDex descriptor. `VR directory` is the clearest
+  temporary product description; the name's Rolodex reference does not make
+  `Rolodex` mandatory public copy.
+
+Locked decision (2026-10-21): the [VRDex wordmark](../brand/wordmark/README.md)
+is approved. Use the canonical assets for its final contours, colors and spacing.
 
 ## Product Principles
 

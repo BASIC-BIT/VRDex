@@ -1,10 +1,12 @@
 # VRDex closer D/E spacing
 
 The user selected the slightly tighter wordmark and asked to bring D and E
-closer. This single candidate reduces only D/E spacing by another 3 px at
+closer. This approved version reduces only D/E spacing by another 3 px at
 100 px cap height. E and X move left together; V/R/D positions, E/X spacing,
 all contours, cuts, colors and vertical placements remain exact.
-No app integration is included.
+Locked decision: BASIC approved this final wordmark in chat on 2026-10-21.
+The [canonical assets](../../../brand/wordmark/README.md) are the stable source
+for future use. App adoption is a separate implementation step.
 
 ![The selected spacing before and after reducing D/E](./spacing-refinement-proof.png)
 
