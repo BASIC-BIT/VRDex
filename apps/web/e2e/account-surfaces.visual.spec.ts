@@ -399,7 +399,7 @@ test.describe("account surfaces @visual @flow @account-visual", () => {
   test("managed events", async ({ page, request }, testInfo) => {
     await skipUntilHostedTargetRunsCurrentRevision(request);
     await page.goto("/account/events");
-    await expect(page.getByRole("heading", { name: "Events" })).toBeVisible(hostedExpectOptions);
+    await expect(page.getByRole("heading", { name: "My events" })).toBeVisible(hostedExpectOptions);
     await expect(page.getByText("No events")).toBeVisible(hostedExpectOptions);
     await waitForVisualReady(page);
     await captureRouteScreenshot(page, testInfo, "managed-events-empty", {

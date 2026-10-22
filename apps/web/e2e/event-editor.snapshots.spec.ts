@@ -14,10 +14,78 @@ async function setTheme(page: Page, value: "light" | "dark") {
   await waitForVisualReady(page);
 }
 
+async function captureEditorScreenshot(page: Page, screenshot: () => Promise<unknown>) {
+  await page.locator("img").evaluateAll(async images => {
+    await Promise.all(images.map(async image => {
+      if (image instanceof HTMLImageElement) {
+        image.loading = "eager";
+        await image.decode();
+      }
+    }));
+  });
+  await screenshot();
+}
+
+for (const outcome of ["load", "decode error"] as const) {
+  test(`editor capture waits for artwork ${outcome} @flow @fixture`, async ({ page }, info) => {
+    await page.addInitScript(() => {
+      sessionStorage.setItem("event-intake-fixture", JSON.stringify({ communitySlug: "playwright-afterglow-social", title: "Harbor night", eventDate: "2027-10-15", timezone: "UTC", start: { time: "20:00" }, end: { time: "21:00" } }));
+      const decode = HTMLImageElement.prototype.decode;
+      HTMLImageElement.prototype.decode = function () {
+        if (this.src.includes("fixture-afterglow-event-poster")) document.documentElement.dataset.editorArtworkDecode = "pending";
+        return decode.call(this);
+      };
+    });
+    let notifyRequest!: () => void;
+    const requested = new Promise<void>(resolve => { notifyRequest = resolve; });
+    let releaseImage!: () => void;
+    const released = new Promise<void>(resolve => { releaseImage = resolve; });
+    await page.route("**/api/e2e/fixture-assets/fixture-afterglow-event-poster", async route => {
+      notifyRequest();
+      await released;
+      if (outcome === "decode error") await route.fulfill({ contentType: "image/svg+xml", body: "invalid image" });
+      else await route.continue();
+    });
+    await page.goto("/playwright/event-intake", { waitUntil: "domcontentloaded" });
+    await requested;
+    let notifyCapture!: () => void;
+    const started = new Promise<void>(resolve => { notifyCapture = resolve; });
+    let captureStarted = false;
+    const capturing = captureEditorScreenshot(page, async () => {
+      captureStarted = true;
+      notifyCapture();
+      return page.screenshot({ path: info.outputPath("delayed-editor-artwork.png"), fullPage: true, scale: "css" });
+    });
+    // Retain the rejection until the route is released and asserted below.
+    const completed = capturing.then(() => null, (error: unknown) => error instanceof Error ? error : new Error(String(error)));
+    try {
+      const first = await Promise.race([
+        started.then(() => "capture"),
+        page.waitForFunction(() => document.documentElement.dataset.editorArtworkDecode === "pending").then(() => "decode"),
+      ]);
+      expect(first).toBe("decode");
+      expect(captureStarted).toBe(false);
+      releaseImage();
+      const error = await completed;
+      if (outcome === "decode error") {
+        expect(error?.message).toMatch(/(?:image|source).*decod/i);
+        expect(captureStarted).toBe(false);
+      } else {
+        expect(error).toBeNull();
+        expect(captureStarted).toBe(true);
+        expect(await page.locator('img[src*="fixture-afterglow-event-poster"]').first().evaluate(image => image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0)).toBe(true);
+      }
+    } finally {
+      releaseImage();
+      await completed;
+    }
+  });
+}
+
 async function capture(page: Page, path: string) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   await page.evaluate(() => scrollTo(0, 0));
-  await page.screenshot({ path, animations: "disabled", caret: "hide", fullPage: true, scale: "css" });
+  await captureEditorScreenshot(page, () => page.screenshot({ path, animations: "disabled", caret: "hide", fullPage: true, scale: "css" }));
   // Keep collecting later states when a visual differs; the test still fails.
   await expect.soft(page).toHaveScreenshot(path.split("/").pop()!.split("\\").pop()!, { animations: "disabled", caret: "hide", fullPage: true, scale: "css", maxDiffPixelRatio: 0.002, threshold: 0.2 });
 }
@@ -41,10 +109,10 @@ for (const editor of [
       await expect(page.locator(`[data-editor-step="${step}"]`)).toBeVisible();
       await waitForVisualReady(page);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
-      await expect.soft(page).toHaveScreenshot(`${editor.name}-${step.toLowerCase()}.png`, {
+      await captureEditorScreenshot(page, () => expect.soft(page).toHaveScreenshot(`${editor.name}-${step.toLowerCase()}.png`, {
         animations: "disabled", caret: "hide", fullPage: true,
         maxDiffPixelRatio: 0.002, scale: "css", threshold: 0.2,
-      });
+      }));
     }
   });
 }

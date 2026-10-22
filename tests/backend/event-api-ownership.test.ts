@@ -1202,8 +1202,10 @@ describe("API-created event ownership", () => {
       });
     });
 
-    const inventory = await t.withIdentity(identity).query(api.events.listManagedCommunities, {});
-    assert.equal(inventory.some((community) => community.slug === "managed-community-target"), false);
+    await assert.rejects(
+      t.withIdentity(identity).query(api.events.listManagedCommunities, {}),
+      /Managed community inventory requires pagination/,
+    );
     const target = await t.withIdentity(identity).query(api.events.getManagedCommunityBySlug, {
       slug: "managed-community-target",
     });

@@ -448,3 +448,102 @@ Task 9 groups event-only streams under the event's authored title. It adds no
 new public explanatory sentence. The profile-editor proposal has a separate
 [copy decision list](../planning/profile-editor-progressive-disclosure-2026-09-28.md)
 and is not implemented here.
+
+## Organizer workspace checkpoint (2026-10-22)
+
+The organizer slice adds `/account/events` inventory and source-specific
+continuation. Its [browser contract](../engineering/event-contribution-browser.md#my-events-inventory-and-continuation)
+covers sources, expiry, traversal order, filters, failure and navigation behavior.
+
+`event-inventory-checkpoint.flow.spec.ts` starts
+`tests/backend/helpers/event-inventory-browser-bridge.ts`. That child seeds
+canonical staff and intake drafts with real commands, supplies actual inventory
+pages and authorizes browser-generated query/mutation/action arguments through
+`convex-test`. The gated `/playwright/event-workspace` route composes the
+production inventory, staff editor, connected intake and public renderer. Only
+transport and browser authentication presentation are replaced. The production
+`usePaginatedQuery` hook owns accumulation and consumes actual opaque cursors.
+
+Both draft journeys follow their supplied continuation links, edit a manual
+performer and set time, Save draft, remount from saved projections, then publish
+through Review. A later staff Save changes remains published and its authorized
+Discord text contains the revised performer and saved timestamp. The checkpoint
+also checks creator privacy, expired-draft omission, anonymous write rejection,
+nonstaff export refusal and cancelled/unpublished export absence. Existing
+backend tests cover revoked authority and retention; existing authoring flows
+cover conflicts, pending edits, staff takeover/correction and local-time round
+trips without duplicating their scheduling implementation.
+
+Evidence boundaries:
+
+- Inventory state screenshots from `/playwright/event-inventory` use deterministic
+  reads for populated, empty, loading and failure presentation. They do not prove
+  backend authority, real cursors or persistence.
+- The command checkpoint runs actual Convex functions and saved projections in
+  `convex-test`, with browser-generated arguments and actual Review commands.
+  Its sign-in return targets prove continuation navigation intent. Publication
+  attempts the returned canonical URL; the exact saved public projection is
+  then rendered in the gated fixture. These child records do not exist in the
+  native Next backend, so this is not native canonical-server readback.
+- No live Clerk browser session or hosted provider delivery is claimed. Copy
+  exercises generated text and the clipboard control, not Discord delivery.
+
+Desktop/mobile light/dark screenshots are committed under
+[`assets/organizer-workspace-2026-10-22`](./assets/organizer-workspace-2026-10-22/README.md).
+The asset index records screenshot scope and visual review. Existing affected
+editor golden images remain in `apps/web/e2e/__screenshots__`.
+
+### Canonical CI visual follow-up (2026-10-22)
+
+[Baseline Checks #1807](https://github.com/BASIC-BIT/VRDex/actions/runs/39726810845)
+tested head `bda7c65` through merge checkout `268342f`. The initial local
+36-case editor/lineup comparison was 26 passed and 10 failed. All ten untouched
+failures reproduced on unchanged `main` with 18 byte-identical actual PNGs;
+those same ten cases passed on the canonical CI runner. Preserve the local
+result as qualified environment evidence, not a passing comparison run.
+
+The canonical [Playwright Image Diff job](https://github.com/BASIC-BIT/VRDex/actions/runs/39726810845/job/119654476148)
+reported **64 passed, 12 failed and 12 skipped**. Its
+[failure artifact](https://github.com/BASIC-BIT/VRDex/actions/runs/39726810845/artifacts/12403712871)
+contains 39 unique failing PNGs, all among the 84 updated baselines; initial and
+retry actuals are byte-identical, with unchanged image dimensions. Independent
+review approved the 38 mobile actuals as glyph-edge raster differences without
+material changes to content, geometry, controls or navigation. The downloaded
+Space Grotesk and IBM Plex Mono WOFF2 bodies match local files byte-for-byte.
+Local Debian 13.6 and CI Ubuntu 24.04.5 differ, but the precise raster-rendering
+cause remains unestablished. Only those reviewed mobile images are adopted;
+comparison tolerances are unchanged.
+
+The remaining desktop `schedule-light-timezone.png` actual was rejected because
+its community artwork had not loaded. The retry trace records the image request
+finishing after 3.55 seconds, while the first screenshot started 0.24 seconds
+after the request began. Font readiness alone did not establish image readiness.
+The editor snapshot spec now eagerly loads and decodes captured image elements
+before both its evidence capture helper and legacy screenshot loop. Decode
+failure rejects before capture. The artwork-containing desktop baseline is
+preserved. A scoped held-request browser check verifies capture waits for a real
+image response, and a corrupt-image case verifies failure before any screenshot.
+
+Both readiness cases passed in desktop and mobile Chromium (4/4). A final
+desktop-only run passed the two readiness cases and the normal light/dark
+scheduling comparisons (4/4), preserving all 14 existing scheduling images.
+The final timezone capture visibly retains the community artwork. The local
+fixture server used the documented Turbopack system-TLS setting to load the
+same font bytes as CI; a preceding fallback-font run failed and is not passing
+comparison evidence. With that fixture server already running, the final scope
+was:
+
+```sh
+PLAYWRIGHT_BASE_URL=http://127.0.0.1:3002 PLAYWRIGHT_SKIP_WEBSERVERS=true \
+  pnpm --filter web exec playwright test e2e/event-editor.snapshots.spec.ts \
+  --grep 'editor capture waits for artwork|scheduling states (light|dark)' \
+  --project=desktop-chromium --workers=1 --retries=0
+```
+
+Other selected jobs in that run passed: Storybook Image Diff (36 passed),
+Storybook Component Preview (354 passed) and Playwright Public Preview (72 passed,
+12 signed-in-account skips in the local lane). Hosted account captures were
+selected and reported 6 passed and 6 skipped; My events, media contributions and
+media review access skipped in both viewports because shared staging did not yet
+carry the branch revision. That run does not establish hosted My events coverage.
+The follow-up commit still requires its own selected CI comparison result.

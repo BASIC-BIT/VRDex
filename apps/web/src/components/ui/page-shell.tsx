@@ -51,10 +51,11 @@ export function PageContainer({ className, max = "6xl", ...props }: ComponentPro
 
 export function PageNav({
   accountMode = "auto",
+  showMyEvents = true,
   children,
   className,
   ...props
-}: ComponentPropsWithoutRef<"nav"> & { accountMode?: "auto" | "signed-out" }) {
+}: ComponentPropsWithoutRef<"nav"> & { accountMode?: "auto" | "signed-out"; showMyEvents?: boolean }) {
   return (
     <nav
       className={cn(
@@ -71,7 +72,7 @@ export function PageNav({
       {...props}
     >
       {children}
-      <NavUtilities accountMode={accountMode} />
+      <NavUtilities accountMode={accountMode} showMyEvents={showMyEvents} />
     </nav>
   );
 }
