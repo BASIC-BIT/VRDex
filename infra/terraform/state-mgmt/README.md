@@ -53,3 +53,32 @@ references `oidc.vercel.com/basic-bit`.
 ## State Boundary
 
 Do not commit local state, plans, or `terraform.tfvars`. The root `.gitignore` excludes them.
+
+## Restream proof image permission
+
+`enable_restream_proof_image_permissions` defaults false. Opting in creates the
+`vrdex-restream-proof-image` role and its standalone inline policy. The role reuses
+the existing GitHub OIDC provider and requires exact `StringEquals` matches for
+STS audience `sts.amazonaws.com` and subject
+`repo:${var.github_repository}:ref:refs/heads/main`. Its only permissions are registry
+authentication and push/DescribeImages on the exact restream repository, plus
+`ecr:BatchGetImage` and `ecr:GetDownloadUrlForLayer` on that same repository. These
+two read actions let retries pull the immutable digest, verify all 13 packaged
+sources and the source label on the runner, and regenerate missing provenance
+without pushing again or needing a prior artifact. Source mismatch fails closed
+before image code executes. It has no cross-repository, secret, ECS, IAM, Terraform
+state or Route 53 permissions. The Terraform role's trust and policies are unchanged.
+
+The main-only subject permits eligible jobs on that repository's main branch.
+AWS IAM cannot directly restrict GitHub's arbitrary `job_workflow_ref` claim with
+the default subject template. This configuration does not isolate one workflow;
+that would require a separately reviewed GitHub OIDC subject-template change.
+
+A reviewed owner plan/apply or bootstrap and import must establish the dedicated
+role before dispatching `Restream proof image`. This change does not establish that
+the role exists live. The historical ECR-only inline grant on `vrdex-github-terraform`
+can be retired by a reviewed owner migration after the dedicated role is verified.
+See [the rehearsal procedure](../../../docs/engineering/event-broadcast-rehearsal.md)
+for import, migration and rollback. Run `terraform test` after `terraform init` to
+check default-disabled and enabled plans, decoded trust and exact ECR permissions
+with a mock AWS provider, without AWS credentials or apply.

@@ -21,7 +21,7 @@ export function parseOutputCredential(destination, value) {
             url = new URL(secret.rtmpUrl);
             key = secret.streamKey;
         }
-        const domain = destination === 'vrcdn' ? /^[a-z0-9-]+\.ingest\.vrcdn\.live$/ : /^(?:[a-z0-9-]+\.)*live\.twitch\.tv$/;
+        const domain = destination === 'vrcdn' ? /^(?:[a-z0-9-]+\.)?ingest\.vrcdn\.live$/ : /^(?:[a-z0-9-]+\.)*live\.twitch\.tv$/;
         if (!['vrcdn', 'twitch'].includes(destination) || !['rtmp:', 'rtmps:'].includes(url.protocol) || !domain.test(url.hostname) || url.username || url.password || url.search || url.hash || (url.port && !['1935', '443'].includes(url.port)) || url.pathname.replace(/\/$/, '') !== (destination === 'vrcdn' ? '/live' : '/app') || typeof key !== 'string' || !/^[a-zA-Z0-9_-]{1,512}$/.test(key))
             throw Error();
         return { url: url.href.replace(/\/$/, ''), key };

@@ -1,7 +1,7 @@
 # Event broadcast integration verification
 
-Status: implementation and local acceptance, October 20, 2026. Hosted output
-remains disabled. This record distinguishes the current event worker from the
+Status: implementation, local acceptance and bounded Fargate diagnostics through
+October 22, 2026. Hosted output remains disabled. This record distinguishes the current event worker from the
 June 2026 provider POC and records outstanding rollout gates. The approved design
 is [event broadcast and host view](../superpowers/specs/2026-10-19-event-broadcast-and-host-view-design.md).
 
@@ -741,3 +741,205 @@ exact `e97b6de` blob survives as `/workspace/r8-media/r8-e97-proof-harness.mjs`
 The correction uses `/workspace/r8-media/r8-fix1-proof-harness.mjs`
 (SHA-256 `6be4316011db04cba9cf3b7734e43cb4913ebd304f5bce4f6e51780f0ce33bc9`).
 No claim is made that historical manifest paths still identify current sources.
+
+## Bounded one-source provider rehearsal
+
+### Initial attempt
+
+On October 21, the approved ten-minute Fargate attempt passed one 120-second
+synthetic run at 2 CPU/4 GiB. Task `a6fd95e7753d41febad69f62f5e315de` reached
+STOPPED with exit 0. It retained one primary sender, six optional process attempts
+through intentional receiver death/recovery, 34 ms maximum packet gap, one-second
+GOP and zero measured queue. Worker resources were 117.17 sampled CPU seconds over
+121.787 harness wall seconds and 548,909,056 bytes peak sampled summed RSS. Generated
+input and local receivers are separate resource groups; the workload excludes the
+production HTTPS relay, a warm successor and live provider output.
+
+That capacity run used source `16e46cb`, ECR digest
+`sha256:abf9bf6c6a68d44f0159386bb7d740da9df50ab0c337f536f108818014d0a6e4`.
+The final reviewed provider adapter is source `dcf83fe`, packaged as
+`sha256:59388ac42078ba3f7ca44ce560b3e51e306f7ed460325e4855320f00f76adb23`.
+All 13 packaged hashes were checked. Only the adapter changed between these images;
+the nine runtime modules and synthetic proof retain their hashes. Capacity was not
+rerun on the later image, and the later adapter was not launched.
+
+One 1 CPU/2 GiB `basicbit1` source task produced a public capture. Its initial
+12-second strict live decode probe failed with timeout 124 and PPS errors. A separate
+ten-second raw capture timed out with curl exit 28 after 1,914,216 bytes; offline decode
+of those bytes exited 0 with 197 frames and 7.3 seconds of output progress. The media
+was H.264 1280x720 at 30 fps with AAC at 48 kHz. Startup warnings remain in the preserved
+evidence. This is a bounded decodable source sample, not clean-start or provider-output
+acceptance.
+
+The run window began at `22:06:48.956Z` and ended at `22:16:48.956Z`. Review rework and
+source diagnostics consumed it, so no output task or second source was launched. Both
+switches remained false. Source StopTask was requested at `22:14:27.917Z`; its execution
+stopped at `22:14:40.062Z`, before the task deadline `22:14:56.062Z`. ECS deprovisioning
+finished at `22:15:04.466Z` with exit 143 from operator termination, not successful
+180-second completion. Cleanup readback at `22:15:47.817Z` confirmed both tasks STOPPED,
+zero running tasks, both network interfaces DELETED, and all three proof definitions
+INACTIVE. The approved IAM policies remain as durable tooling; both switches are false.
+All seven private capacity artifacts and the source/failed-probe evidence are preserved.
+A further bounded live window is required for actual
+output, source/hold/return, source replacement/recovery and dedicated-switch fencing.
+Real Convex authority, distinct-source handoff, Twitch, sustained reliability, musical
+silence calibration and physical device gates remain open. Ordinary hosted output
+remains disabled.
+
+The [isolated rehearsal procedure and attempt record](event-broadcast-rehearsal.md#october-21-2026-attempt-record)
+contains exact provenance, private evidence paths, cleanup status and limitations.
+
+### Second bounded attempt and canonical-host correction
+
+A separately approved second window began at `22:24:44.718Z` on October 21, with a
+`22:34:44.718Z` global deadline. One source and one output task used the preserved
+`dcf83fe092f1c2bf3b492633516ac05b97504e0b` image,
+`sha256:59388ac42078ba3f7ca44ce560b3e51e306f7ed460325e4855320f00f76adb23`.
+The public `basicbit1` sample decoded 228 frames over 8.266667 seconds with AAC audio.
+This source result does not prove output publication.
+
+Output task `a253c3007ee4447ea9295ac52a578302` exited 1 after 63 ms, before
+`proof-start`, with only the generic safe failure log and no S3 output artifacts.
+Its public observer received zero bytes and failed with `TimeoutError`. Boolean-only
+credential inspection showed a valid split credential using exact `ingest.vrcdn.live`;
+the parser required a one-label regional host. The working source used the same
+canonical host. Synthetic regression tests reproduce the rejection and verify the
+narrow production parser correction for split and combined forms, regional support,
+negative host/URL cases and the rehearsal startup gate.
+
+This parser change is locally tested only. It intentionally changes
+`output-sender.mjs`; the earlier nine-runtime-files-unchanged proof applies only to
+the two preserved images. Neither contains this fix. A new reviewed image is required
+before future provider testing. No successful provider output or switch-caused
+fencing is claimed, and no second source or output retry occurred.
+
+Final native cleanup at `22:29:03.711Z` confirmed source STOPPED at `22:27:44.091Z`
+with operator-stop exit 143, output STOPPED at `22:26:47.643Z` with exit 1, zero
+RUNNING tasks, both task network interfaces DELETED and both revision-2 proof task
+definitions INACTIVE. Both switches were false, production version 1 and rehearsal
+version 4. Evidence remains in `/workspace/rehearsal-sdd/live-20261021T222402Z/`.
+The [second-attempt record](event-broadcast-rehearsal.md#october-21-2026-second-bounded-attempt)
+lists the capture, contract-inspection and cleanup receipts. Provider-output,
+source/hold/return, source loss/recovery and dedicated-switch fencing gates remain
+open. Another attempt requires separate authorization; ordinary hosted output stays
+disabled.
+
+The required fixed image is now published from `4d701bb05bb242cfe5dab9bbdafcba00ddbffe2e` at ECR digest
+`sha256:2e121beb9ded4592c01c763c4c1cacc49cb9c522e3f661e41c7e8b10e35d88f6`.
+All 13 packaged hashes match reviewed source; only `output-sender.mjs` differs from the preserved `59388ac` image, with the same base RootFS and unchanged default CMD.
+Native readback at `22:40:14.127Z` confirmed ECR ACTIVE, both switches false and zero RUNNING tasks. At that readback, no live task or capacity rerun had used this image; provider acceptance remained open.
+Safe receipts in `/workspace/rehearsal-sdd/` are `published-image-canonical-host.json`, `packaged-image-canonical-host-verification.json` and `canonical-image-published-verification.json`.
+
+### Third bounded attempt and passive transport evidence
+
+The third window was `23:00:42.918Z` to `23:10:42.918Z`. One source and one output
+used canonical-host image `2e121beb` from `4d701bb`. Credential validation passed,
+but the output failed with exit 1 after 15.8 adapter seconds. Source readiness and
+publication were never observed; four sender attempts/restarts had zero output
+progress. No hold/return command ran. A clean local 442-frame, 14.741333-second
+recording showed the neutral hold slate. The independent output observer received
+zero bytes and three HTTP 401 responses. None of this establishes provider success
+or the cause of ingest failure.
+
+The independent source sample retained 1,179,648 bytes, received HTTP 200 after
+7.547 seconds, and decoded 130 frames over 4.5 seconds with AAC at 48 kHz. The
+source stop at `23:03:41.391Z` followed output failure and was cleanup, not the
+controlled +40-second loss test. No replacement source or output retry occurred.
+Final readback at `23:05:26.916Z` confirmed both tasks STOPPED, zero RUNNING,
+production/rehearsal switches false at versions 1/6 and both revision-3 definitions
+INACTIVE. Four downloaded artifacts and the 46-file evidence set are hash-sealed in
+`/workspace/rehearsal-sdd/live-canonical-20261021T225904Z/`.
+
+The live root cause remains unknown. Local immediate source replay works even when
+output publication is false; a 3.5-second delayed response hits the existing
+three-second relay timeout. The live worker's response latency was not measured.
+The missing RTMP app hypothesis is refuted, including by FFmpeg 5.1.9 source.
+Local delayed handshakes reproduce the two-second protocol timeout or, with a
+diagnostic-only extended timeout, the 512 KiB queue cap before startup expiry.
+The measured queue case does not prove the age guard fired. Host FFmpeg 7.1.5 was
+used for those local runs. These mechanisms do not establish the cloud cause.
+
+Task 5 adds proof-only passive wrappers through the existing real lookup/request/
+spawn dependencies and existing renderer callbacks. Bounded numeric/boolean
+`transport` fields survive finalization; callbacks, object identities, arguments,
+response stream flow and lifecycle gates retain their behavior. Offline tests cover
+forwarding, failures before teardown versus adapter/worker cleanup, split marker detection,
+secret canaries, oversized floods and finalizer retention. This clarifies observation
+scope without a DNS or transport bypass. The nine runtime modules remain unchanged
+from `4d701bb`; the parser correction is already part of that baseline. No deadline,
+queue, endpoint or transport option was relaxed. The reviewed image is now published
+as recorded below; separate operator authorization is required for a future attempt. Provider publication and
+all remaining live/device gates remain open. See the
+[third-attempt record](event-broadcast-rehearsal.md#october-21-2026-third-bounded-attempt)
+for exact task timelines, limits and investigation references.
+
+### Published transport-observation image, no live validation
+
+The reviewed `689db1b6a9fe605c8207ddf246b3d26af8daa645` source is published as
+`079358094174.dkr.ecr.us-east-1.amazonaws.com/vrdex-restream-worker@sha256:f8f833097f68cdb147cda2ed8521ce7fa50b4177c0d5833e95d3acf678c5073e`,
+local image ID
+`sha256:85a07cd41a613182256620014edf0e3d76c4d12dd2bc18dbba74f652950bcc0e`.
+All 13 packaged source hashes match. Only the proof rehearsal script differs from
+the canonical-host image; the other 12 packaged files, base/runtime RootFS and
+default command match. Independent task re-review and whole-branch review passed,
+with all 38 offline tests passing and no material findings.
+
+Readback at `23:28:05.811956Z` confirmed ECR ACTIVE, zero RUNNING tasks and both
+switches false at production/rehearsal versions 1/6. Temporary registry directories
+were absent. The four publication, packaging, image-difference and readback
+receipts and `final-with-transport-review.md` remain in `/workspace/rehearsal-sdd/`;
+the [published-image record](event-broadcast-rehearsal.md#published-passive-observation-image)
+lists their exact names. At that publication readback, no live validation or capacity rerun had used this
+image. The later authorization and measured October 22 outcomes follow below.
+
+### October 22 source correction, staged evidence and capacity
+
+BASIC authorized autonomous completion within $20, superseding the earlier
+per-window/count approval caps and $1 target. Ordinary hosted output remains off.
+Explicit task deadlines, sequential source publishers and exact cleanup remain.
+
+Passive observation isolated four 1 to 11 ms, zero-byte source failures before
+TCP/TLS. Node family selection required an `all: true` address-array callback;
+the relay returned a scalar. Real Node 24 and the exact extracted image Node
+22.23.4 reproduced `ERR_INVALID_IP_ADDRESS` before TCP. Commit
+`33770f7723f3bdbfa80a710eda3cfa6a5287aa0a` fixes only that shape while retaining
+the first prevalidated public IPv4. RED preceded the edit; 6 relay, 1 selected
+source-boundary and 38 rehearsal tests passed, followed by independent review.
+Image `sha256:fa5515d574355d6a647ce8390285f62edec1ad4f7e6e98956230c0b1391c2548`
+has all 13 matching source hashes; only the relay differs from `f8f833`.
+
+Corrected Fargate probes reached actual TCP/TLS, HTTP 200 and decoded source
+readiness. After two preserved partial runs, the fresh hybrid passed in 120.968
+seconds with readiness/loss/recovery and encoded commands 1/2/3. Sequential source
+replacement was verified. Its program recording passed packet verification with
+a 33.334 ms maximum gap and one-second GOP. This accepts the real provider source
+chain to a local receiver, not public `basicbit` output. The initial embedded CLI
+no-op is also preserved; Node 22/24 RED/GREEN entry-guard tests and rereview cover
+its correction.
+
+The stored `basicbit` output credential remains rejected by both the current
+sender and a legacy POC pusher. The latter failed naturally after 0.73 seconds
+with authentication/bad-name indicators. The output secret has no previous-version
+fallback. Browser retrieval and AWS replacement
+were authorized, but callable browser controls were unavailable. No key was updated.
+
+The five-minute 2 CPU/4 GiB synthetic run failed around 196 seconds with
+`renderClockBudgetExceeded`. The same workload on 4 CPU/8 GiB passed 300 seconds,
+301.479730396 wall seconds, exit 0, with one primary process, 34 ms maximum packet
+gap, one-second GOP, zero maximum queue bytes and 562,741,248 bytes peak worker RSS.
+Six artifacts uploaded successfully. This does not change production resources or
+establish long-duration capacity, a live Twitch account or provider-output acceptance.
+
+The separate `basicbit1` hold/fence probe passed, exit 0, with 55.998 seconds
+of advancing provider output. Dedicated-switch false was observed and the real
+worker fenced with `control_failed`; publication and tracked children were gone
+after cleanup. Public HTTP 200 capture retained 3,883,008 bytes, decoded to H.264
+720p30/AAC and visually matched the neutral hold frame. Startup PPS/header warnings
+are preserved. This accepts working-account hold publication and switch fencing,
+not the original two-account rehearsal. Final readback at `01:09:32.522792Z`
+confirmed zero RUNNING tasks, all five final tasks STOPPED, their interfaces
+DELETED, the latest proof definitions INACTIVE and both switches false at
+production/rehearsal versions 1/21. The rejected output secret is unchanged.
+`basicbit` output, two-account/independent-DJ, real Convex, live Twitch, musical
+silence, device and multi-hour capacity gates remain open. See the [October 22 record](event-broadcast-rehearsal.md#october-22-2026-diagnostic-session)
+for exact provenance, failed attempts, receipts and remaining gates.

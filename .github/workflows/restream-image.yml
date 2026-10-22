@@ -1,0 +1,163 @@
+name: Restream proof image
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact reviewed main commit to build
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: restream-proof-image
+  cancel-in-progress: false
+
+jobs:
+  image:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: us-east-1
+      ECR_REPOSITORY: vrdex-restream-worker
+      REPOSITORY_URI: 079358094174.dkr.ecr.us-east-1.amazonaws.com/vrdex-restream-worker
+      REQUESTED_SHA: ${{ inputs.source_sha }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Resolve reviewed main commit and runtime hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$REQUESTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git merge-base --is-ancestor "$REQUESTED_SHA" origin/main
+          git checkout --detach "$REQUESTED_SHA"
+          test "$(git rev-parse HEAD)" = "$REQUESTED_SHA"
+          echo "RELEASE_SHA=$REQUESTED_SHA" >> "$GITHUB_ENV"
+          echo "IMAGE_TAG=proof-$REQUESTED_SHA" >> "$GITHUB_ENV"
+          mkdir -p provenance
+          printf '%s\n' "$REQUESTED_SHA" > provenance/source-sha.txt
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: arn:aws:iam::079358094174:role/vrdex-restream-proof-image
+          aws-region: us-east-1
+          role-session-name: restream-proof-image
+
+      - name: Build and publish immutable image
+        shell: bash
+        run: |
+          set -euo pipefail
+          aws ecr describe-images --region "$AWS_REGION" \
+            --repository-name "$ECR_REPOSITORY" \
+            --filter tagStatus=TAGGED \
+            --query 'imageDetails[].{tags:imageTags,digest:imageDigest}' \
+            --output json > provenance/existing-images.json
+          IMAGE_DIGEST="$(jq -r --arg tag "$IMAGE_TAG" '[.[] | select(.tags | index($tag)) | .digest] | if length == 0 then "" elif length == 1 and (.[0] | test("^sha256:[0-9a-f]{64}$")) then .[0] else error("Invalid or duplicate immutable image digest") end' provenance/existing-images.json)"
+          IMAGE_REUSED=false
+          aws ecr get-login-password --region "$AWS_REGION" |
+            docker login --username AWS --password-stdin "${REPOSITORY_URI%%/*}"
+          if [ -z "$IMAGE_DIGEST" ]; then
+            IMAGE_REFERENCE="$REPOSITORY_URI:$IMAGE_TAG"
+            docker build --platform linux/amd64 \
+              --label "org.opencontainers.image.revision=$RELEASE_SHA" \
+              --file workers/restream/Dockerfile \
+              --tag "$IMAGE_REFERENCE" .
+          else
+            [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+            IMAGE_REUSED=true
+            IMAGE_REFERENCE="$REPOSITORY_URI@$IMAGE_DIGEST"
+            docker pull --platform linux/amd64 "$IMAGE_REFERENCE"
+          fi
+
+          # Hash only fixed packaged paths on the runner, never inside the image.
+          sources=(
+            workers/restream/{hosted-worker,live-control,vrcdn-poc,output-sender,event-worker,source-relay,handoff-policy,input-supervisor,program-renderer}.mjs
+            scripts/{event-output-local-proof,event-proof-metrics,event-vrcdn-rehearsal,event-proof-runner}.mjs
+          )
+          for source in "${sources[@]}"; do
+            test -f "$source" && test ! -L "$source"
+          done
+          sha256sum "${sources[@]}" > provenance/expected-runtime.sha256
+          docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' \
+            "$IMAGE_REFERENCE" > provenance/image-source-label.txt
+          printf '%s\n' "$RELEASE_SHA" | cmp -s - provenance/image-source-label.txt
+
+          extraction_directory="$(mktemp -d)"
+          container_id=''
+          cleanup() {
+            local original_status="$1" cleanup_status=0
+            trap - EXIT
+            if [ -n "$container_id" ]; then docker rm "$container_id" || cleanup_status=$?; fi
+            rm -rf -- "$extraction_directory" || cleanup_status=$?
+            if [ "$cleanup_status" -ne 0 ]; then
+              echo '::error::Proof image verification cleanup failed.' >&2
+            fi
+            if [ "$original_status" -ne 0 ]; then exit "$original_status"; fi
+            exit "$cleanup_status"
+          }
+          trap 'cleanup "$?"' EXIT
+          trap 'exit 130' INT
+          trap 'exit 143' TERM
+          container_id="$(docker create --platform linux/amd64 "$IMAGE_REFERENCE")"
+          for source in "${sources[@]}"; do
+            destination="$extraction_directory/$source"
+            mkdir -p "$(dirname "$destination")"
+            # Bound the whole tar stream before accepting any member. Never let
+            # docker cp recursively extract an image-controlled directory.
+            copy_archive="$extraction_directory/source.tar"
+            (ulimit -c 0; ulimit -f 10240; docker cp "$container_id:/app/$source" - | cat > "$copy_archive")
+            python3 - "$copy_archive" "$source" "$destination" <<'PYTHON'
+          import os
+          import pathlib
+          import sys
+          import tarfile
+
+          archive_path, source, destination = sys.argv[1:]
+          expected_size = os.path.getsize(source)
+          with tarfile.open(archive_path, mode="r:") as archive:
+              member = archive.next()
+              if (member is None or member.name != pathlib.Path(source).name
+                      or member.type not in (tarfile.REGTYPE, tarfile.AREGTYPE)
+                      or member.size != expected_size or archive.next() is not None):
+                  raise SystemExit("Expected exactly one regular source file with matching size")
+              with archive.extractfile(member) as stream:
+                  content = stream.read(expected_size + 1)
+              if len(content) != expected_size:
+                  raise SystemExit("Truncated source archive")
+          # The archive never chooses a host path. Write only after validation.
+          with open(destination, "xb") as output:
+              output.write(content)
+          PYTHON
+          done
+          (cd "$extraction_directory" && sha256sum "${sources[@]}") > provenance/actual-runtime.sha256
+          diff -u provenance/expected-runtime.sha256 provenance/actual-runtime.sha256
+          docker run --rm --platform linux/amd64 --entrypoint sh "$IMAGE_REFERENCE" \
+            -c 'command -v timeout && node --check scripts/event-vrcdn-rehearsal.mjs && node --check scripts/event-proof-runner.mjs'
+          docker run --rm --platform linux/amd64 --entrypoint node "$IMAGE_REFERENCE" \
+            --input-type=module -e 'await import("./scripts/event-vrcdn-rehearsal.mjs"); await import("./scripts/event-proof-runner.mjs")'
+          if [ "$IMAGE_REUSED" = false ]; then
+            docker push "$IMAGE_REFERENCE"
+            IMAGE_DIGEST="$(aws ecr describe-images --region "$AWS_REGION" \
+              --repository-name "$ECR_REPOSITORY" --image-ids "imageTag=$IMAGE_TAG" \
+              --query 'imageDetails[0].imageDigest' --output text)"
+          fi
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          printf '%s@%s\n' "$REPOSITORY_URI" "$IMAGE_DIGEST" > provenance/image-uri.txt
+          printf '%s\n' "$IMAGE_REUSED" > provenance/image-reused.txt
+          cat provenance/image-uri.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: restream-proof-image-${{ env.RELEASE_SHA }}
+          path: provenance/
+          retention-days: 7

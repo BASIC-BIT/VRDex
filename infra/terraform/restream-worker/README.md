@@ -52,3 +52,11 @@ Bridge-created task definitions can reference output credentials outside the bas
 The static task always runs the synthetic benchmark. Event workers use the bridge's per-session task definitions, which supply event and session IDs along with the event entrypoint. This stack does not offer a static event-worker command override.
 
 ECS on EC2 with GPU/NVENC remains a measured fallback if Fargate misses real-time encode, transition quality, bitrate stability, or cost headroom.
+
+## Isolated provider rehearsal
+
+The separately approved rehearsal uses default-disabled
+`enable_rehearsal_permissions` for exact additive source-secret and dedicated-switch
+policies. It does not change the ordinary hosted enable parameter or existing output
+access. See [the operator procedure](../../../docs/engineering/event-broadcast-rehearsal.md)
+for bootstrap import, bounds, commands and targeted rollback.

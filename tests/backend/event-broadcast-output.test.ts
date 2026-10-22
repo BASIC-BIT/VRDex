@@ -83,6 +83,64 @@ test('credential boundary rejects wrong providers, embedded private endpoints an
         assert.throws(() => mod.parseOutputCredential('twitch', JSON.stringify(value)));
     assert.ok(mod.parseOutputCredential('twitch', secrets('twitch-ref')));
 });
+for (const form of ['split', 'combined']) {
+    test(`VRCDN credential accepts canonical and regional hosts in ${form} form`, async () => {
+        const { parseOutputCredential } = await load();
+        for (const host of ['ingest.vrcdn.live', 'uk.ingest.vrcdn.live']) {
+            for (const protocol of ['rtmp', 'rtmps']) {
+                for (const port of ['', ':1935', ':443']) {
+                    const url = `${protocol}://${host}${port}/live`;
+                    const credential = form === 'split'
+                        ? { rtmpUrl: `${url}/`, streamKey: 'synthetic-private-key' }
+                        : { ingestUrl: `${url}/synthetic-private-key` };
+                    assert.deepEqual(parseOutputCredential('vrcdn', JSON.stringify(credential)), { url, key: 'synthetic-private-key' });
+                }
+            }
+        }
+    });
+    test(`VRCDN credential rejects unapproved destinations and URL bypasses in ${form} form`, async () => {
+        const { parseOutputCredential } = await load();
+        for (const rtmpUrl of [
+            'rtmp://ingest.vrcdn.live.evil.test/live',
+            'rtmp://uk.ingest.vrcdn.live.evil.test/live',
+            'rtmp://evil.ingest.vrcdn.live.evil.test/live',
+            'rtmp://nested.uk.ingest.vrcdn.live/live',
+            'rtmp://fakeingest.vrcdn.live/live',
+            'rtmp://ingest.vrcdn.live./live',
+            'rtmp://vrcdn.live/live',
+            'rtmp://stream.vrcdn.live/live',
+            'rtmp://live.twitch.tv/app',
+            'rtmp://127.0.0.1/live',
+            'https://ingest.vrcdn.live/live',
+            'rtmp://ingest.vrcdn.live:1936/live',
+            'rtmp://ingest.vrcdn.live/app',
+            'rtmp://ingest.vrcdn.live/live/extra',
+            'rtmp://user@ingest.vrcdn.live/live',
+            'rtmp://user:password@ingest.vrcdn.live/live',
+            'rtmp://ingest.vrcdn.live/live?token=private-canary',
+            'rtmp://ingest.vrcdn.live/live#private-canary',
+        ]) {
+            const combined = new URL(rtmpUrl);
+            combined.pathname += '/synthetic-private-key';
+            const credential = form === 'split'
+                ? { rtmpUrl, streamKey: 'synthetic-private-key' }
+                : { ingestUrl: combined.href };
+            assert.throws(() => parseOutputCredential('vrcdn', JSON.stringify(credential)), { message: 'Invalid output credential' }, rtmpUrl);
+        }
+        for (const key of ['', 'a/b', 'a%20b', 'a b', form === 'split' ? 'a\nb' : 'a%0Ab', 'a'.repeat(513)]) {
+            const credential = form === 'split'
+                ? { rtmpUrl: 'rtmp://ingest.vrcdn.live/live', streamKey: key }
+                : { ingestUrl: `rtmp://ingest.vrcdn.live/live/${key}` };
+            assert.throws(() => parseOutputCredential('vrcdn', JSON.stringify(credential)), { message: 'Invalid output credential' }, JSON.stringify(key));
+        }
+        for (const destination of ['twitch', 'unknown']) {
+            const credential = form === 'split'
+                ? { rtmpUrl: 'rtmp://ingest.vrcdn.live/live', streamKey: 'key' }
+                : { ingestUrl: 'rtmp://ingest.vrcdn.live/live/key' };
+            assert.throws(() => parseOutputCredential(destination, JSON.stringify(credential)), { message: 'Invalid output credential' });
+        }
+    });
+}
 test('disabled optional destinations are never started and bridge binds each enabled reference separately', async () => {
     const mod = await load();
     const p = processFactory();

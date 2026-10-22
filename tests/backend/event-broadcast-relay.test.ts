@@ -34,8 +34,36 @@ it('R5F3 historical routes cannot exhaust the live route bound', async () => {
   } finally { relay.stop(); }
 });
 
-import { createServer, request as httpRequest } from 'node:http';
+import { createServer, request as httpRequest, type IncomingMessage } from 'node:http';
 import { once } from 'node:events';
+it('pinned lookup honors all=true while exposing only the first validated public IPv4', async () => {
+  const provider = createServer((_req, res) => res.end('synthetic media'));
+  provider.listen(0, '127.0.0.1'); await once(provider, 'listening');
+  const answers = [{ address: '93.184.216.34', family: 4 }, { address: '8.8.8.8', family: 4 }];
+  let resolutions = 0;
+  const results: unknown[][] = [];
+  const relay = await createSourceRelay({
+    resolveAddresses: async () => { resolutions++; return answers; },
+    requestSource: (_url: URL, options: { lookup: (host: string, options: { all?: boolean }, callback: (...args: unknown[]) => void) => void }, callback: (response: IncomingMessage) => void) => {
+      for (const lookupOptions of [{ all: true }, { all: false }, {}]) {
+        options.lookup('synthetic.invalid', lookupOptions, (...args) => results.push(args));
+      }
+      const address = provider.address();
+      assert(address && typeof address !== 'string');
+      return httpRequest(`http://127.0.0.1:${address.port}`, callback);
+    },
+  });
+  try {
+    const response = await fetch(relay.resolveSource(source(1)));
+    assert.equal(await response.text(), 'synthetic media');
+    assert.deepEqual(results, [
+      [null, [{ address: answers[0].address, family: 4 }]],
+      [null, answers[0].address, 4],
+      [null, answers[0].address, 4],
+    ]);
+    assert.equal(resolutions, 1, 'lookup callbacks reuse the validated selection without another DNS lookup');
+  } finally { relay.stop(); provider.closeAllConnections(); provider.close(); }
+});
 it('R5F3 retained streams survive reconciliation; retired routes close sockets, stop closes all', async () => {
   const provider = createServer((_req, res) => { res.writeHead(200); res.write('media'); });
   provider.listen(0, '127.0.0.1'); await once(provider, 'listening');
