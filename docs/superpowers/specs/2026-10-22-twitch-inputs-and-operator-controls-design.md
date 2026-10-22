@@ -8,6 +8,8 @@ Locked direction from BASIC: deliver this work in one PR, with multiple implemen
 
 The research establishes a feasible Twitch acquisition path, not a shipped integration. Success means a host can select a lineup input or add a custom source, preview it, Take it safely, cut to slate during preparation, and return to automatic operation. Worker replacement must preserve the committed manual choice within the same session. Temporary media loss must not erase that choice.
 
+Locked decision: BASIC confirmed that this PR must include 1080p-only Twitch channels. Prefer a suitable 720p rendition when available; accept supported input up to 1080p60 and scale the program output to 720p30. The additional dual-1080p capacity proof is part of the merge criteria, not a reason to silently exclude these channels.
+
 Current recommendation: custom sources in this PR accept VRCDN stream links and Twitch channel URLs. Generic HLS, RTMP ingest, arbitrary HTTPS endpoints, authenticated/private Twitch playback, browser cookies, and browser automation are outside this increment. Existing deployment-authorized endpoint behavior remains supported internally.
 
 ## Approaches considered
@@ -110,7 +112,7 @@ Actor revocation blocks new actions and promotion still in preparation. It does 
 
 Introduce a worker input-lifecycle boundary shared by the existing guarded VRCDN relay and a Twitch acquisition adapter. Its handle owns source identity/revision, bounded preparation, a loopback MPEGTS endpoint, structured state changes, and idempotent cancellation/disposal. Network acquisition never blocks the control tick, lease renewal, program encoder, or emergency hold.
 
-For Twitch, resolve the canonical channel using packaged Streamlink. Current recommendation: accept supported H264/AAC input up to 1920x1080 at 60 fps, including channels with no 720p rendition. Prefer the highest available rendition at or below 1280x720 and 60 fps; otherwise select the smallest supported rendition above that bound and at or below 1080p60. Reject audio-only or unsupported renditions cleanly. Normalize supported MPEGTS and MP4-family input through paced copy-remux before handing media to the existing decoder. Output stays the existing H264/AAC 720p30 program. This proposed 1080p input scope requires the additional capacity proof below; the completed public research covered 720p inputs.
+For Twitch, resolve the canonical channel using packaged Streamlink. Accept supported H264/AAC input up to 1920x1080 at 60 fps, including channels with no 720p rendition. Prefer the highest available rendition at or below 1280x720 and 60 fps; otherwise select the smallest supported rendition above that bound and at or below 1080p60. Reject audio-only or unsupported renditions cleanly. Normalize supported MPEGTS and MP4-family input through paced copy-remux before handing media to the existing decoder. Output stays the existing H264/AAC 720p30 program. This approved input scope requires the additional capacity proof below; the completed public research covered 720p inputs.
 
 The initial reservoir targets two seconds of warmup with a hard four-MiB compressed buffer per Twitch input and ordinary backpressure. This is a bounded warmup target, not a guaranteed two seconds of source media. Make buffered-byte and elapsed-warmup facts observable internally. Validate sufficient reservoir behavior through the deployed-version jitter and long-run tests below; if it fails, revise the reservoir rather than relaxing readiness.
 
