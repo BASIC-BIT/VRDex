@@ -614,14 +614,17 @@ export async function runBridge(client, config, runAws = aws, {
   try {
     while (true) {
       if (!isDraining()) await claimAndProcess(client, config, runAws, isDraining);
-      const remaining = await refreshSessions(client, config, runAws, isDraining());
+      const refreshDraining = isDraining();
+      const remaining = await refreshSessions(client, config, runAws, refreshDraining);
       if (isDraining()) {
+        if (!refreshDraining) continue;
         if (remaining === 0) return;
       } else if (config.once) return;
 
       sleepController = new AbortController();
       try {
-        const waitMs = isDraining() ? config.pollMs : Math.min(config.pollMs, Math.max(0, drainDeadline - monotonicClock()));
+        const waitMs = refreshDraining ? config.pollMs : Math.min(config.pollMs, Math.max(0, drainDeadline - monotonicClock()));
+        if (waitMs === 0) continue;
         await wait(waitMs, sleepController.signal);
       } catch (error) {
         if (error?.name !== "AbortError" || !isDraining()) throw error;

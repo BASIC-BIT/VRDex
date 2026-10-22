@@ -200,6 +200,65 @@ test('deadline is monotonic after startup even if wall clock moves backwards', a
   assert.equal(claims, 1);
 });
 
+for (const trigger of ['SIGTERM', 'SIGINT', 'deadline', 'deadline-at-sleep']) test(`${trigger} during an in-flight ordinary refresh stops the task before any poll sleep`, async () => {
+  const f = await fixture();
+  await f.admit();
+  await f.register();
+  const signals = new EventEmitter();
+  const queryEntered = Promise.withResolvers();
+  const releaseQuery = Promise.withResolvers();
+  let firstQuery = true, now = 0, claims = 0, stopped = false, waits = 0;
+  let observeDeadline = false, postObservationClockReads = 0;
+  const calls = [];
+  const client = {
+    query: async (ref, args) => {
+      if (firstQuery) {
+        firstQuery = false;
+        queryEntered.resolve();
+        await releaseQuery.promise;
+      }
+      return f.client.query(ref, args);
+    },
+    mutation: async (ref, args) => {
+      if (getFunctionName(ref) === 'events:claimEventMediaWorkerCommand') { claims++; return null; }
+      const result = await f.client.mutation(ref, args);
+      if (trigger === 'deadline-at-sleep' && getFunctionName(ref) === 'eventMediaWorker:recordProcessStatus') observeDeadline = true;
+      return result;
+    },
+  };
+  const pending = bridge.runBridge(client, { ...config, pollMs: 30000, ...(trigger.startsWith('deadline') ? { drainAtMs: 100 } : {}) }, async (_config, args) => {
+    calls.push(args[1]);
+    if (args[1] === 'describe-tasks') return { tasks: [{ taskArn: 'managed-task', lastStatus: stopped ? 'STOPPED' : 'RUNNING' }] };
+    if (args[1] === 'stop-task') {
+      assert.equal(args[args.indexOf('--task') + 1], 'managed-task');
+      assert.equal((await f.session()).dispatchStopConfirmedAt, undefined);
+      stopped = true;
+    }
+    return {};
+  }, { signals, wallClock: () => 0, monotonicClock: () => {
+    // The first clock read after ordinary refresh still precedes the deadline.
+    // The next read, while selecting the sleep duration, reaches it.
+    if (observeDeadline && postObservationClockReads++ > 0) now = 100;
+    return now;
+  }, wait: async ms => {
+    assert.equal(stopped, true, 'drain must stop the task before the first poll sleep');
+    assert.equal(ms, 30000, 'steady-state drain keeps its polling interval');
+    assert.equal((await f.session()).dispatchStopConfirmedAt, undefined, 'StopTask alone cannot release capacity');
+    waits++;
+  } });
+  await queryEntered.promise;
+  if (trigger === 'deadline') now = 100;
+  else if (trigger !== 'deadline-at-sleep') signals.emit(trigger);
+  releaseQuery.resolve();
+  await pending;
+  assert.equal(claims, 1, 'drain must not claim again');
+  assert.equal(waits, 1, 'poll only between stop request and confirmed STOPPED');
+  assert.deepEqual(calls, ['describe-tasks', 'describe-tasks', 'stop-task', 'describe-tasks', 'deregister-task-definition']);
+  assert.equal((await f.session()).workerTaskCleanupPending, false);
+  assert.equal(signals.listenerCount('SIGTERM'), 0);
+  assert.equal(signals.listenerCount('SIGINT'), 0);
+});
+
 for (const signal of ['SIGTERM', 'SIGINT']) test(`${signal} wakes idle sleep and drains without aborting cleanup control calls`, async () => {
   assert.equal(typeof bridge.runBridge, 'function');
   const f = await fixture();
