@@ -245,7 +245,7 @@ copy of query results that could retain stale permissions.
   continuation and error behavior. Link actual screenshots and distinguish
   deterministic UI fixtures, real backend command proof and any live browser
   authentication evidence. Do not claim fixtures prove external delivery.
-- [ ] Self-review against the approved spec and this checklist. Commit the final
+- [x] Self-review against the approved spec and this checklist. Commit the final
   checkpoint; open one focused PR under normal repository delivery rules with
   `ci:browsers` and `ci:visuals`, useful validation evidence and any exact-copy
   approval. Report the PR URL and real remaining limitations.
@@ -254,7 +254,10 @@ copy of query results that could retain stale permissions.
 
 The approved inventory and continuation implementation is recorded in the
 [organizer checkpoint](../../testing/event-intake-checkpoint.md#organizer-workspace-checkpoint-2026-10-22).
-Controller review and PR delivery follow the task checks above. The
+Independent task and whole-branch reviews accepted the implementation.
+[PR #379](https://github.com/BASIC-BIT/VRDex/pull/379) includes the validation
+evidence and selects `ci:browsers` and `ci:visuals`; its checks record the
+current CI outcome. The
 [VRDex wordmark](../../brand/wordmark/README.md) is approved and its canonical
 assets are saved. Applying it to the frontend is separate from this inventory
 slice.
