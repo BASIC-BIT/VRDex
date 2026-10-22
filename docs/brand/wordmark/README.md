@@ -2,7 +2,7 @@
 
 Locked decision: BASIC approved this wordmark in chat on 2026-10-21.
 Use this directory as the canonical asset source. The files are exact copies
-of the selected exports from the [final spacing study](../../planning/assets/wordmark-spacing-refined-2026-10-21/README.md).
+of the selected exports from the [archived final spacing study](../../planning/assets/wordmark-studies-2026-10-21.md#approved-source).
 
 ![Approved VRDex wordmark on charcoal](./preview.png)
 
@@ -35,10 +35,12 @@ implementation step; this approval records the asset choice.
 
 ## Provenance and verification
 
-The [source script](../../planning/assets/wordmark-spacing-refined-2026-10-21/build_refined_spacing.py)
-reproduces the selected geometry and exports. Earlier studies preserve the
-design exploration. [manifest.json](./manifest.json) records approval, source
-and canonical-file checksums. Canonical exports were compared byte for byte
+The [archived source script](../../planning/assets/wordmark-studies-2026-10-21.md#approved-source)
+reproduces the selected geometry and exports. The archive preserves all earlier
+studies and their original paths; its index includes extraction and checksum
+instructions. [manifest.json](./manifest.json) records approval, source archive
+and the source study's path within that archive, along with canonical-file
+checksums. Canonical exports were compared byte for byte
 with the approved source, and the actual preview was rendered and inspected.
 
 The letterforms derive from Open Sans Semibold 1.10, digitized data copyright
