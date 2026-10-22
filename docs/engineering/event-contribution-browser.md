@@ -382,3 +382,37 @@ supports placing the discard decision at abandonment. Its three inspected
 screens show editor, confirmation and overview; they do not prove persistence.
 This editor uses native confirmation. Separate profile-editor progressive
 disclosure remains deferred.
+
+## My events inventory and continuation
+
+`/account/events` uses `eventInventory.listPage` for active creator-private intake
+work, authorized managed canonical events and the viewer's own contributions.
+The generated tagged projection supplies each continuation; the browser never
+turns contributor inventory visibility into staff authority. Intake Continue
+opens `/events/new?draft=<id>`; canonical drafts continue at
+`/<community>/events/<code>/edit`. Published staff work has Edit; contributions
+use their canonical public page and its existing correction/report controls.
+Retracted contributions remain in All and are not resumable intake drafts.
+
+Intake drafts expire 30 days after their last save. Inventory reads do not renew
+retention. Expired drafts and drafts with publication receipts are omitted.
+Private source posters are not inventory thumbnails. Managed work is deduplicated
+from own contributions by identity and live authority, never title.
+
+One native paginated query owns the traversal. Sources are visited in order:
+creator intake, managed communities ordered by ID, then own contributions. This
+is not a global chronological sort. Each bounded source page filters title and
+current community name before presentation. All, Upcoming, Drafts and Past use
+the viewer's timezone, retaining date-only values and unknown/ambiguous clocks.
+The browser requests 20 candidates, automatically crosses up to three empty
+pages, and keeps Load more available for remaining work. A failed source clears
+the inventory and uses the established error/Retry state; it cannot appear as
+No events. Criteria, identity and refresh reset traversal, while keyboard focus
+stays in the controls. Retry, focus, visibility and local-day/zone changes refresh
+the traversal; the classification clock stays fixed while paging.
+
+Authoring return links use the existing dirty guard. Explicit save, revision
+checks, edits during pending requests, Review publication and canonical return
+remain unchanged. Staff Save changes retains publication. Discord text is
+composed from the authorized saved staff projection only when published and
+noncancelled. Inventory visibility grants no additional export access.

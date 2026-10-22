@@ -26,7 +26,7 @@ export function EventEditorPage({
     <div className="ph-no-capture" data-ph-no-capture>
       <PageShell className="py-10">
         <PageContainer max="6xl">
-          <PageNav>
+          <PageNav showMyEvents={false}>
             <BrandLink />
             <Link className={buttonVariants({ variant: "secondary" })} href="/account/events">My events</Link>
             {routePath ? <Link className={buttonVariants({ variant: "secondary" })} href={`${routePath}/operate`}>Broadcast controls</Link> : null}

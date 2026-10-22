@@ -448,3 +448,47 @@ Task 9 groups event-only streams under the event's authored title. It adds no
 new public explanatory sentence. The profile-editor proposal has a separate
 [copy decision list](../planning/profile-editor-progressive-disclosure-2026-09-28.md)
 and is not implemented here.
+
+## Organizer workspace checkpoint (2026-10-22)
+
+The organizer slice adds `/account/events` inventory and source-specific
+continuation. Its [browser contract](../engineering/event-contribution-browser.md#my-events-inventory-and-continuation)
+covers sources, expiry, traversal order, filters, failure and navigation behavior.
+
+`event-inventory-checkpoint.flow.spec.ts` starts
+`tests/backend/helpers/event-inventory-browser-bridge.ts`. That child seeds
+canonical staff and intake drafts with real commands, supplies actual inventory
+pages and authorizes browser-generated query/mutation/action arguments through
+`convex-test`. The gated `/playwright/event-workspace` route composes the
+production inventory, staff editor, connected intake and public renderer. Only
+transport and browser authentication presentation are replaced. The production
+`usePaginatedQuery` hook owns accumulation and consumes actual opaque cursors.
+
+Both draft journeys follow their supplied continuation links, edit a manual
+performer and set time, Save draft, remount from saved projections, then publish
+through Review. A later staff Save changes remains published and its authorized
+Discord text contains the revised performer and saved timestamp. The checkpoint
+also checks creator privacy, expired-draft omission, anonymous write rejection,
+nonstaff export refusal and cancelled/unpublished export absence. Existing
+backend tests cover revoked authority and retention; existing authoring flows
+cover conflicts, pending edits, staff takeover/correction and local-time round
+trips without duplicating their scheduling implementation.
+
+Evidence boundaries:
+
+- Inventory state screenshots from `/playwright/event-inventory` use deterministic
+  reads for populated, empty, loading and failure presentation. They do not prove
+  backend authority, real cursors or persistence.
+- The command checkpoint runs actual Convex functions and saved projections in
+  `convex-test`, with browser-generated arguments and actual Review commands.
+  Its sign-in return targets prove continuation navigation intent. Publication
+  attempts the returned canonical URL; the exact saved public projection is
+  then rendered in the gated fixture. These child records do not exist in the
+  native Next backend, so this is not native canonical-server readback.
+- No live Clerk browser session or hosted provider delivery is claimed. Copy
+  exercises generated text and the clipboard control, not Discord delivery.
+
+Desktop/mobile light/dark screenshots are committed under
+[`assets/organizer-workspace-2026-10-22`](./assets/organizer-workspace-2026-10-22/README.md).
+The asset index records screenshot scope and visual review. Existing affected
+editor golden images remain in `apps/web/e2e/__screenshots__`.

@@ -190,7 +190,7 @@ function SignedOutControl() {
   );
 }
 
-function ConnectedAccountControl() {
+function ConnectedAccountControl({ showMyEvents }: { showMyEvents: boolean }) {
   const { isAuthenticated, isLoading } = useConvexAuth();
   const viewer = useQuery(api.accounts.viewer, isAuthenticated ? {} : "skip");
 
@@ -206,7 +206,7 @@ function ConnectedAccountControl() {
 
   return (
     <>
-    <Link className={cn(buttonVariants({ variant: "ghost" }), NAV_CONTROL_HEIGHT)} href="/account/events">My events</Link>
+    {showMyEvents ? <Link className={cn(buttonVariants({ variant: "ghost" }), NAV_CONTROL_HEIGHT)} href="/account/events">My events</Link> : null}
     <Link
       aria-label="Account"
       className={cn(buttonVariants({ variant: "secondary" }), NAV_CONTROL_HEIGHT, "gap-2 px-1.5 sm:pr-3")}
@@ -219,11 +219,11 @@ function ConnectedAccountControl() {
   );
 }
 
-function AccountControl({ mode }: { mode: "auto" | "signed-out" }) {
-  return mode === "auto" && convexEnabled ? <ConnectedAccountControl /> : <SignedOutControl />;
+function AccountControl({ mode, showMyEvents }: { mode: "auto" | "signed-out"; showMyEvents: boolean }) {
+  return mode === "auto" && convexEnabled ? <ConnectedAccountControl showMyEvents={showMyEvents} /> : <SignedOutControl />;
 }
 
-export function NavUtilities({ accountMode = "auto" }: { accountMode?: "auto" | "signed-out" }) {
+export function NavUtilities({ accountMode = "auto", showMyEvents = true }: { accountMode?: "auto" | "signed-out"; showMyEvents?: boolean }) {
   return (
     // `min-w-0` so an open search can shrink to fit a phone-width row; the fixed
     // controls are grouped `shrink-0` so the input is the only thing that gives.
@@ -231,7 +231,7 @@ export function NavUtilities({ accountMode = "auto" }: { accountMode?: "auto" | 
       <NavSearch />
       <div className="flex shrink-0 items-center gap-1">
         <ThemeToggle className="size-10 p-0" />
-        <AccountControl mode={accountMode} />
+        <AccountControl mode={accountMode} showMyEvents={showMyEvents} />
       </div>
     </div>
   );

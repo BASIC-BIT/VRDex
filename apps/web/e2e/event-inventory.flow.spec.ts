@@ -186,3 +186,28 @@ test('focus refresh retains the active search control @fixture', async ({ page }
   await expect(input).toHaveValue('harbor sessions');
   await expect(page.getByRole('listitem')).toHaveCount(2);
 });
+
+for (const theme of ['light', 'dark'] as const) test(`inventory ${theme} state evidence @fixture`, async ({ page }, info) => {
+  const { mkdir } = await import('node:fs/promises');
+  const path = await import('node:path');
+  const directory = path.resolve('../../docs/testing/assets/organizer-workspace-2026-10-22');
+  await mkdir(directory, { recursive: true });
+  await page.addInitScript(value => localStorage.setItem('vrdex-theme', value), theme);
+  await page.goto('/playwright/event-inventory');
+  await expect(page.getByRole('listitem')).toHaveCount(6);
+  const capture = async (state: string) => {
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: path.join(directory, `${info.project.name}-${theme}-${state}.png`), animations: 'disabled', fullPage: true, style: 'nextjs-portal { display: none !important; }' });
+  };
+  await page.getByLabel('Find an event', { exact: true }).focus();
+  await capture('populated-focus');
+  await page.getByLabel('Find an event', { exact: true }).fill('no matching event');
+  await expect(page.getByText('No events', { exact: true })).toBeVisible();
+  await capture('empty');
+  await page.getByLabel('Find an event', { exact: true }).fill('slow');
+  await expect(page.getByText('Loading events…', { exact: true })).toBeVisible();
+  await capture('loading');
+  await page.getByLabel('Find an event', { exact: true }).fill('failure');
+  await expect(page.getByRole('alert').filter({ hasText: 'Unable to load this page.' })).toBeVisible();
+  await capture('failure');
+});

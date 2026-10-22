@@ -41,10 +41,9 @@ and primitives, convex-test and Playwright. No new dependency.
 
 ## Execution boundary
 
-Planning was audited against product source at `0d7246b`. The current branch
-contains subsequent design documents and assets only. Before execution,
-inspect the current branch, status and instructions and use an isolated
-managed worktree if concurrent changes would overlap. Do not reset shared work.
+Planning was audited against product source at `0d7246b`. Execution uses the
+isolated `codex/organizer-event-workspace` branch. Inspect the current branch,
+status and instructions before continuing; do not reset shared work.
 
 Before starting local services, follow `.agents/skills/vrdex-cloud-start/SKILL.md`
 and `docs/engineering/cloud-task-start.md`. The published activation path
@@ -113,44 +112,44 @@ an `InvalidCursor` error recognized by the installed native hook. Always use
 server time for intake expiry rather than trusting the classification anchor.
 Validate timezone/anchor/query bounds using existing validators at the boundary.
 
-- [ ] Register the new module in the existing convex-test setup. Seed owner,
+- [x] Register the new module in the existing convex-test setup. Seed owner,
   staff, ordinary contributor and unrelated-user identities using existing
   ownership/correction/intake helpers. Add failing traversal and isolation
   assertions before writing queries.
-- [ ] Run `node --conditions=import --import tsx --test tests/backend/event-inventory.test.ts`.
+- [x] Run `node --conditions=import --import tsx --test tests/backend/event-inventory.test.ts`.
   Confirm failures identify the missing inventory behavior, not fixture setup.
-- [ ] Discover managed communities through existing live authorizers. Change
+- [x] Discover managed communities through existing live authorizers. Change
   the owner's silent `.take(100)` to detect overflow and report an incomplete
   authority inventory explicitly; preserve existing staff/role bounds. Never
   return a truncated discovery result as complete.
-- [ ] Page existing indexed sources with bounded reads and one native
+- [x] Page existing indexed sources with bounded reads and one native
   `.paginate()` per query execution. Use the current sortAt rollout policy for
   managed events, contributor index for own events and actor index for intake.
   Filter candidate pages before emitting authorized rows. Retain native
   continuation and split/end cursor semantics even when zero rows match.
   Test reactive replay/splitting across source boundaries, including exhausted
   sources, so an end cursor never becomes the next source's null start.
-- [ ] Prefer the managed representation of an event the actor also contributed
+- [x] Prefer the managed representation of an event the actor also contributed
   using live management eligibility. Exclude receipt-backed intake drafts.
   Preserve staff takeover, cancellation, retraction and existing correction
   eligibility without widening editable fields or export access.
-- [ ] Match title/community names case-insensitively, including empty query and
+- [x] Match title/community names case-insensitively, including empty query and
   current community renames. Keep undated drafts in All/Drafts; cancelled and
   retracted records remain in All. For dated noncancelled work, compare timed
   runtime using current `_eventRuntime` policy and date-only calendar values
   against the viewer-local date. Incomplete/unresolved clocks stay explicit;
   do not fabricate a successful timed projection to enter Upcoming/Past.
-- [ ] Cover full traversal beyond 100 managed events, a match after the first
+- [x] Cover full traversal beyond 100 managed events, a match after the first
   page, empty intermediate output, equal timestamps and no duplicate IDs.
   Cover cursor reuse across actor/source/filter, revoked owner/staff access,
   foreign community IDs, invalid timezone/anchor inputs, managed/contributed
   duplicates, cancelled/retracted
   records, private/missing artwork and unavailable public routes.
-- [ ] Cover two creators' private drafts, expired and published-receipt drafts,
+- [x] Cover two creators' private drafts, expired and published-receipt drafts,
   rolling expiry unchanged by reads, incomplete/date-only drafts, unknown ends,
   overnight and both DST transitions. Assert bounded scans and a clear failure
   when authority discovery cannot be complete.
-- [ ] Rerun the inventory test plus `tests/backend/event-api-ownership.test.ts`,
+- [x] Rerun the inventory test plus `tests/backend/event-api-ownership.test.ts`,
   `tests/backend/event-corrections.test.ts` and `tests/backend/event-intake.test.ts`
   with the same runner. Run `pnpm typecheck:backend`. Commit this backend slice.
 
@@ -178,33 +177,33 @@ it or manufacture completeness. Clear previous rows on failed authorization or
 session changes. Do not promise independent-source retries or keep a shadow
 copy of query results that could retain stale permissions.
 
-- [ ] Add failing fixture journeys for All/Upcoming/Drafts/Past, title/community
+- [x] Add failing fixture journeys for All/Upcoming/Drafts/Past, title/community
   search, keyboard selection, both Continue routes, expired/unavailable actions,
   duplicate identities and retracted contributions. Include an empty matching
   page with continuation, query changed while loading and one failed source.
-- [ ] Run `pnpm --filter web exec playwright test e2e/event-inventory.flow.spec.ts --project=desktop-chromium --project=mobile-chromium`.
+- [x] Run `pnpm --filter web exec playwright test e2e/event-inventory.flow.spec.ts --project=desktop-chromium --project=mobile-chromium`.
   Confirm the new behavior assertions fail before implementation.
-- [ ] Render My events with Add event, existing Event reports access and existing
+- [x] Render My events with Add event, existing Event reports access and existing
   community-specific authoring entry. Use shared controls and plain state
   labels. Show community, local schedule, eligible artwork/fallback and actual
   intake expiry; never label intake source artwork public merely for this list.
-- [ ] Implement the four filters and labelled Find an event input. Keep rows
+- [x] Implement the four filters and labelled Find an event input. Keep rows
   readable as a mobile list, with keyboard-accessible actions and visible focus.
   Use the stated source/index ordering, not a first-page-only chronological
   sort presented as a globally sorted result set.
-- [ ] Keep a visible continuation control while more candidates remain. Loading
+- [x] Keep a visible continuation control while more candidates remain. Loading
   or failure cannot display definitive No events. A failed traversal shows an
   explicit error and working Retry instead of an empty inventory. Reuse existing
   approved wording; submit any necessary new sentence for copy review.
-- [ ] Route canonical staff work to its current editor and intake drafts to
+- [x] Route canonical staff work to its current editor and intake drafts to
   `/events/new?draft=...`. Contributions keep their public/correction path and
   current eligibility. Do not offer Continue or Discord export based solely on
   contribution ownership. Do not claim unsaved-buffer/last-step restoration.
-- [ ] Add authenticated My events navigation beside the account control and
+- [x] Add authenticated My events navigation beside the account control and
   authoring return links. Preserve signed-out/loading account states, nav
   search keyboard/focus behavior, narrow-screen layout, unsaved-change guards
   and successful publication's canonical-page destination.
-- [ ] Rerun the focused browser journey and affected nav/authoring flows. Verify
+- [x] Rerun the focused browser journey and affected nav/authoring flows. Verify
   filters and pagination also work with empty query and no management authority.
   Commit the inventory/navigation slice.
 
@@ -218,31 +217,31 @@ copy of query results that could retain stale permissions.
 `docs/engineering/event-contribution-browser.md` and
 `docs/testing/event-intake-checkpoint.md`.
 
-- [ ] Extend the existing bridge pattern in
+- [x] Extend the existing bridge pattern in
   `tests/backend/helpers/event-lineup-browser-bridge.ts`: seed actual managed
   and intake drafts, read the inventory, feed browser-authored commands through
   real Convex mutations, reopen and verify the resulting saved projections.
   Add a failing checkpoint before changing fixture wiring. Do not replace
   authority checks with fixture booleans.
-- [ ] Exercise both draft continuations, performer/set-time edit, explicit save,
+- [x] Exercise both draft continuations, performer/set-time edit, explicit save,
   reopen, Review publication and the canonical event destination. Then edit a
   published lineup with Save changes and confirm it remains published and its
   current authorized Discord text reflects the saved lineup. Confirm cancelled,
   unpublished and unauthorized contribution cases cannot gain export access.
-- [ ] Retain meaningful existing coverage for save conflicts, edits made during
+- [x] Retain meaningful existing coverage for save conflicts, edits made during
   pending saves, staff takeover/correction, unsaved navigation and local-time
   round trips. Add tests only for new inventory/navigation regressions; avoid
   duplicating unchanged scheduling implementation tests.
-- [ ] Capture the real inventory and continuation views at desktop/mobile sizes
+- [x] Capture the real inventory and continuation views at desktop/mobile sizes
   in light/dark themes, including populated, empty, failure and loading
   states. Inspect screenshots with VLM review for hierarchy, wrapping, contrast,
   missing artwork, focus and horizontal overflow. Fix issues before acceptance.
-- [ ] Run targeted backend tests from Task 1 and the inventory/affected authoring
+- [x] Run targeted backend tests from Task 1 and the inventory/affected authoring
   browser flows. Run `pnpm lint:web`, `pnpm typecheck:web`, `pnpm test:web`,
   `pnpm typecheck:backend`, `pnpm check:backend:generated`,
   `pnpm lint:markdown` and `pnpm build:docs`. Broaden checks for actual failures
   or changed contracts, rather than repeating passed checks without new cause.
-- [ ] Update the docs with shipped inventory sources, routes, expiry, ordering,
+- [x] Update the docs with shipped inventory sources, routes, expiry, ordering,
   continuation and error behavior. Link actual screenshots and distinguish
   deterministic UI fixtures, real backend command proof and any live browser
   authentication evidence. Do not claim fixtures prove external delivery.
@@ -253,14 +252,9 @@ copy of query results that could retain stale permissions.
 
 ## Handoff
 
-This plan is ready for BASIC's review; application implementation has not
-started. The [VRDex wordmark](../../brand/wordmark/README.md) is approved and
-its canonical assets are saved. Applying it to the frontend is separate from
-this inventory slice.
-
-The return-to-work check confirmed that `apps/`, `convex/` and `packages/`
-have no changes since the audited product revision `0d7246b`. The managed
-inventory's 100-event cap and missing intake-draft listing remain the next
-implementation targets. Review this plan and choose Native execution
-(recommended for these coupled tasks) or Subagent-driven execution before
-changing application code.
+The approved inventory and continuation implementation is recorded in the
+[organizer checkpoint](../../testing/event-intake-checkpoint.md#organizer-workspace-checkpoint-2026-10-22).
+Controller review and PR delivery follow the task checks above. The
+[VRDex wordmark](../../brand/wordmark/README.md) is approved and its canonical
+assets are saved. Applying it to the frontend is separate from this inventory
+slice.

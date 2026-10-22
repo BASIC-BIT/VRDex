@@ -15,6 +15,28 @@ group. The authorized update-only stored-slot mapping preserves hidden associati
 through timing reflow without migrating records or widening actor authority. See the
 [command boundary](../engineering/event-contribution-browser.md#legacy-stored-slot-identity).
 
+## My events workspace
+
+Authenticated navigation and authoring return links open `/account/events`. The
+workspace combines authorized managed events, own contributions and unexpired
+creator-private intake drafts. All, Upcoming, Drafts and Past filter bounded
+server pages; Find an event matches titles and current community names.
+Continuation uses the source-specific route: canonical staff drafts retain their
+community editor, intake drafts resume at `/events/new?draft=<id>`, and
+contributions retain their public correction surface. Retractions stay in All.
+
+Intake retention is 30 days from the last save; reading the inventory does not
+extend it. Publication receipts remove completed intake drafts. Source order is
+intake, managed communities by ID, then own contributions, with Load more for
+remaining pages. Failed reads show Retry instead of an empty inventory. Dates
+are viewer-local; date-only and incomplete schedules preserve their meaning.
+
+Details, Lineup and Review retain explicit saves and dirty-state protection.
+Review returns to the canonical event route. Published staff Save changes keeps
+the event published, and eligible Discord copying reflects its saved lineup.
+See [the browser contract](../engineering/event-contribution-browser.md#my-events-inventory-and-continuation)
+and [checkpoint evidence](../testing/event-intake-checkpoint.md#organizer-workspace-checkpoint-2026-10-22).
+
 ## Status
 
 Current implementation incorporates the 2026-08-31 owner-editor decisions and the
