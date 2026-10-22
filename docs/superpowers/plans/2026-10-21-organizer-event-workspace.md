@@ -253,8 +253,14 @@ copy of query results that could retain stale permissions.
 
 ## Handoff
 
-This document is a plan, not implementation or verification evidence. The
-separate outlined wordmark study is ready for visual review; selecting a logo
-color is independent of this inventory slice. Review this plan and choose
-Native execution (recommended for these coupled tasks) or Subagent-driven
-execution before changing application code.
+This plan is ready for BASIC's review; application implementation has not
+started. The [VRDex wordmark](../../brand/wordmark/README.md) is approved and
+its canonical assets are saved. Applying it to the frontend is separate from
+this inventory slice.
+
+The return-to-work check confirmed that `apps/`, `convex/` and `packages/`
+have no changes since the audited product revision `0d7246b`. The managed
+inventory's 100-event cap and missing intake-draft listing remain the next
+implementation targets. Review this plan and choose Native execution
+(recommended for these coupled tasks) or Subagent-driven execution before
+changing application code.

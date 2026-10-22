@@ -9,8 +9,11 @@ unfinished draft, continue its lineup, save, publish and later revise it.
 Status: BASIC approved this first implementation slice and visual direction
 in chat on 2026-10-21. Implementation planning follows that approval. BASIC
 requested event management as a core workflow and excluded VRC.tl as a
-distribution destination. The separate wordmark/color study does not change
-production branding as part of this slice.
+distribution destination. The [wordmark](../../brand/wordmark/README.md) is
+now approved, with canonical assets saved. Applying it to production branding
+remains separate from this inventory slice. The
+[implementation plan](../plans/2026-10-21-organizer-event-workspace.md) is ready
+for review and an execution-method choice.
 
 The public [homepage and search design](./2026-10-21-homepage-search-schedule-design.md)
 continues to cover search, the compact event timeline and discovery. Organizer
