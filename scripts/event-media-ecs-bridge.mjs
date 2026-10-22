@@ -161,7 +161,7 @@ function aws(config, args) {
   return run(config.awsCommand, [...args, "--region", config.region], { redactValues: config.redactValues });
 }
 
-function loadConfig() {
+export function loadConfig() {
   const bridgeToken = requiredEnv("VRDEX_EVENT_MEDIA_BRIDGE_TOKEN");
   const secretRefMap = stringMapEnv("VRDEX_EVENT_MEDIA_SECRET_REF_MAP_JSON");
   const baseEnvironment = stringMapEnv("VRDEX_EVENT_MEDIA_ECS_BASE_ENV_JSON", {});
@@ -192,6 +192,9 @@ function loadConfig() {
     assignPublicIp: optionalEnv("VRDEX_EVENT_MEDIA_ECS_ASSIGN_PUBLIC_IP") ?? "ENABLED",
     outputSecretEnvName: optionalEnv("VRDEX_EVENT_MEDIA_OUTPUT_SECRET_ENV") ?? "VRDEX_EVENT_MEDIA_OUTPUT_INGEST_SECRET_JSON",
     pollMs: integerEnv("VRDEX_EVENT_MEDIA_BRIDGE_POLL_MS", 30_000, 1_000, 300_000),
+    drainAtMs: optionalEnv("VRDEX_EVENT_MEDIA_BRIDGE_DRAIN_AT_MS") === undefined
+      ? undefined
+      : integerEnv("VRDEX_EVENT_MEDIA_BRIDGE_DRAIN_AT_MS", 0, 0, Number.MAX_SAFE_INTEGER),
     once: process.argv.includes("--once"),
     configCheckOnly: process.env.VRDEX_EVENT_MEDIA_ECS_BRIDGE_CONFIG_CHECK_ONLY === "true",
     secretRefMap,
@@ -296,6 +299,8 @@ async function runTask(command, taskDefinitionArn, config, runAws) {
     taskDefinitionArn,
     "--launch-type",
     "FARGATE",
+    "--propagate-tags",
+    "TASK_DEFINITION",
     "--platform-version",
     "LATEST",
     "--count",
@@ -338,7 +343,7 @@ async function cleanupLosingDefinition(client, config, command, taskDefinitionAr
     console.warn(JSON.stringify({ event: "event_media_unused_definition_manual_cleanup", sessionId: command.session.sessionId, ...(recorded?.accepted === true ? { taskDefinitionArn } : {}) }));
   }
 }
-async function startCommand(command, client, config, runAws) {
+async function startCommand(command, client, config, runAws, isDraining) {
   command.dispatchId = command.session.dispatchId ?? randomUUID();
   const identity = { bridgeToken: config.bridgeToken, eventId: command.eventId, sessionId: command.session.sessionId, dispatchId: command.dispatchId, commandId: command.commandId, workerId: config.workerId };
   const admission = await client.mutation(convexApi.admitDispatch, {bridgeToken:config.bridgeToken,eventId:command.eventId,sessionId:command.session.sessionId,dispatchId:command.dispatchId,launchProtocol:"fenced-v1"});
@@ -349,6 +354,7 @@ async function startCommand(command, client, config, runAws) {
   if (admission?.granted !== true) throw new Error("Worker dispatch admission response is unknown.");
   let taskDefinitionArn;
   try {
+    if (isDraining()) throw Error("Bridge is draining before task registration.");
     const registered = await registerTaskDefinition(command, config, runAws);
     taskDefinitionArn = registered.taskDefinition?.taskDefinitionArn;
     if (typeof taskDefinitionArn !== "string" || !taskDefinitionArn || taskDefinitionArn.length > 512) throw Error("Task definition registration is unknown.");
@@ -357,6 +363,11 @@ async function startCommand(command, client, config, runAws) {
     // marker atomically defeats this release, even after claim reclamation.
     await client.mutation(makeFunctionReference("eventMediaWorker:releaseUnlaunchedDispatch"), identity);
     throw Error("Worker prelaunch configuration or registration failed.");
+  }
+  if (isDraining()) {
+    const released = await client.mutation(makeFunctionReference("eventMediaWorker:releaseUnlaunchedDispatch"), { ...identity, taskDefinitionArn });
+    if (released?.accepted === true) await cleanupUnlaunched(client, config, { sessionId: identity.sessionId, workerTaskDefinitionArn: taskDefinitionArn }, runAws);
+    throw Error("Bridge is draining before launch intent.");
   }
   // A throw or malformed marker response is ambiguous. Never release or launch.
   const marker = await client.mutation(makeFunctionReference("eventMediaWorker:markLaunchAttempt"), { ...identity, taskDefinitionArn });
@@ -368,6 +379,8 @@ async function startCommand(command, client, config, runAws) {
     }
     throw Error("Worker launch fence was not granted.");
   }
+  // Accepted intent completes the launch/registration handshake even if drain
+  // begins in flight. Reconciliation can then stop the exact recorded task.
   const taskArn = await runTask(command, taskDefinitionArn, config, runAws);
   if (!taskArn) throw new Error("ECS RunTask did not return a task ARN.");
   const recorded=await client.mutation(convexApi.recordDispatchedTask, {bridgeToken:config.bridgeToken,sessionId:command.session.sessionId,dispatchId:command.dispatchId,taskArn,taskDefinitionArn});
@@ -438,7 +451,8 @@ async function recordClaimedCommandError(command, error, client, config) {
   );
 }
 
-export async function claimAndProcess(client, config, runAws = aws) {
+export async function claimAndProcess(client, config, runAws = aws, isDraining = () => false) {
+  if (isDraining()) return false;
   const command = await client.mutation(convexApi.claimEventMediaWorkerCommand, {
     bridgeToken: config.bridgeToken,
     workerId: config.workerId,
@@ -450,7 +464,8 @@ export async function claimAndProcess(client, config, runAws = aws) {
 
   try {
     if (command.commandType === "start_program") {
-      await startCommand(command, client, config, runAws);
+      if (isDraining()) throw Error("Bridge is draining after command claim.");
+      await startCommand(command, client, config, runAws, isDraining);
       return true;
     }
 
@@ -497,17 +512,18 @@ async function cleanupStoppedTask(client, config, session, runAws) {
   await client.mutation(convexApi.completeTaskCleanup, { bridgeToken: config.bridgeToken, sessionId: session.sessionId, taskArn: session.workerTaskId });
 }
 
-export async function refreshSessions(client, config, runAws = aws) {
-  const sessions = await client.query(convexApi.listEventMediaWorkerBridgeSessions, {
+export async function refreshSessions(client, config, runAws = aws, draining = false) {
+  const queryArgs = {
     bridgeToken: config.bridgeToken,
     workerId: config.workerId,
-  });
+  };
+  const sessions = await client.query(convexApi.listEventMediaWorkerBridgeSessions, queryArgs);
   for (const session of sessions.filter(session => !session.workerTaskId && !session.dispatchId && session.epoch === undefined && session.launchAttemptedAt === undefined && session.workerTaskDefinitionArn && session.workerTaskCleanupPending === true))
     await cleanupUnlaunched(client, config, session, runAws);
   const taskSessions = sessions.filter((session) => session.workerTaskId);
 
   if (taskSessions.length === 0) {
-    return;
+    return draining ? (await client.query(convexApi.listEventMediaWorkerBridgeSessions, queryArgs)).length : undefined;
   }
 
   const tasks=[];
@@ -524,12 +540,15 @@ export async function refreshSessions(client, config, runAws = aws) {
       continue;
     }
 
+    if (draining && task.lastStatus !== "STOPPED") {
+      await runAws(config, ["ecs", "stop-task", "--cluster", config.cluster, "--task", session.workerTaskId, "--reason", "VRDex event media bridge drain."]);
+    }
     if(session.dispatchId || session.epoch !== undefined){
       // Stop intent survives a failed/ambiguous request, late ARN registration,
       // and a racing worker acknowledgement. ECS StopTask is idempotent for this
       // exact session task; only DescribeTasks STOPPED can release admission.
       if (session.stopRequestedAt !== undefined && task.lastStatus !== "STOPPED") {
-        await runAws(config, ["ecs", "stop-task", "--cluster", config.cluster, "--task", session.workerTaskId, "--reason", "VRDex event media stop reconciliation."]);
+        if (!draining) await runAws(config, ["ecs", "stop-task", "--cluster", config.cluster, "--task", session.workerTaskId, "--reason", "VRDex event media stop reconciliation."]);
         await client.mutation(makeFunctionReference("eventMediaWorker:recordTaskStopRequested"), {
           bridgeToken: config.bridgeToken, sessionId: session.sessionId, taskArn: session.workerTaskId,
         });
@@ -564,6 +583,59 @@ export async function refreshSessions(client, config, runAws = aws) {
         await cleanupStoppedTask(client, config, session, runAws);
     }
   }
+  // A fresh empty discovery result proves both process reconciliation and
+  // cleanup acknowledgement. Unknown task ARNs and failed cleanup stay visible.
+  return draining ? (await client.query(convexApi.listEventMediaWorkerBridgeSessions, queryArgs)).length : undefined;
+}
+
+export async function runBridge(client, config, runAws = aws, {
+  wallClock = Date.now,
+  monotonicClock = () => performance.now(),
+  signals = process,
+  wait = (ms, signal) => sleep(ms, undefined, { signal }),
+} = {}) {
+  // Anchor the absolute deadline once. Wall clock changes cannot extend this
+  // process, and a retry uses the same absolute environment deadline.
+  const drainDeadline = config.drainAtMs === undefined
+    ? Infinity
+    : monotonicClock() + Math.max(0, config.drainAtMs - wallClock());
+  let draining = false;
+  let sleepController;
+  const requestDrain = () => {
+    draining = true;
+    sleepController?.abort();
+  };
+  const isDraining = () => {
+    if (monotonicClock() >= drainDeadline) draining = true;
+    return draining;
+  };
+  signals.on("SIGTERM", requestDrain);
+  signals.on("SIGINT", requestDrain);
+  try {
+    while (true) {
+      if (!isDraining()) await claimAndProcess(client, config, runAws, isDraining);
+      const refreshDraining = isDraining();
+      const remaining = await refreshSessions(client, config, runAws, refreshDraining);
+      if (isDraining()) {
+        if (!refreshDraining) continue;
+        if (remaining === 0) return;
+      } else if (config.once) return;
+
+      sleepController = new AbortController();
+      try {
+        const waitMs = refreshDraining ? Math.min(config.pollMs, 1000) : Math.min(config.pollMs, Math.max(0, drainDeadline - monotonicClock()));
+        if (waitMs === 0) continue;
+        await wait(waitMs, sleepController.signal);
+      } catch (error) {
+        if (error?.name !== "AbortError" || !isDraining()) throw error;
+      } finally {
+        sleepController = undefined;
+      }
+    }
+  } finally {
+    signals.off("SIGTERM", requestDrain);
+    signals.off("SIGINT", requestDrain);
+  }
 }
 
 async function main() {
@@ -586,14 +658,7 @@ async function main() {
 
   const client = new ConvexHttpClient(config.convexUrl);
 
-  do {
-    await claimAndProcess(client, config);
-    await refreshSessions(client, config);
-
-    if (!config.once) {
-      await sleep(config.pollMs);
-    }
-  } while (!config.once);
+  await runBridge(client, config);
 }
 
 if(process.argv[1] && import.meta.url===pathToFileURL(process.argv[1]).href)main().catch((error) => {
