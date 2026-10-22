@@ -492,3 +492,58 @@ Desktop/mobile light/dark screenshots are committed under
 [`assets/organizer-workspace-2026-10-22`](./assets/organizer-workspace-2026-10-22/README.md).
 The asset index records screenshot scope and visual review. Existing affected
 editor golden images remain in `apps/web/e2e/__screenshots__`.
+
+### Canonical CI visual follow-up (2026-10-22)
+
+[Baseline Checks #1807](https://github.com/BASIC-BIT/VRDex/actions/runs/39726810845)
+tested head `bda7c65` through merge checkout `268342f`. The initial local
+36-case editor/lineup comparison was 26 passed and 10 failed. All ten untouched
+failures reproduced on unchanged `main` with 18 byte-identical actual PNGs;
+those same ten cases passed on the canonical CI runner. Preserve the local
+result as qualified environment evidence, not a passing comparison run.
+
+The canonical [Playwright Image Diff job](https://github.com/BASIC-BIT/VRDex/actions/runs/39726810845/job/119654476148)
+reported **64 passed, 12 failed and 12 skipped**. Its
+[failure artifact](https://github.com/BASIC-BIT/VRDex/actions/runs/39726810845/artifacts/12403712871)
+contains 39 unique failing PNGs, all among the 84 updated baselines; initial and
+retry actuals are byte-identical, with unchanged image dimensions. Independent
+review approved the 38 mobile actuals as glyph-edge raster differences without
+material changes to content, geometry, controls or navigation. The downloaded
+Space Grotesk and IBM Plex Mono WOFF2 bodies match local files byte-for-byte.
+Local Debian 13.6 and CI Ubuntu 24.04.5 differ, but the precise raster-rendering
+cause remains unestablished. Only those reviewed mobile images are adopted;
+comparison tolerances are unchanged.
+
+The remaining desktop `schedule-light-timezone.png` actual was rejected because
+its community artwork had not loaded. The retry trace records the image request
+finishing after 3.55 seconds, while the first screenshot started 0.24 seconds
+after the request began. Font readiness alone did not establish image readiness.
+The editor snapshot spec now eagerly loads and decodes captured image elements
+before both its evidence capture helper and legacy screenshot loop. Decode
+failure rejects before capture. The artwork-containing desktop baseline is
+preserved. A scoped held-request browser check verifies capture waits for a real
+image response, and a corrupt-image case verifies failure before any screenshot.
+
+Both readiness cases passed in desktop and mobile Chromium (4/4). A final
+desktop-only run passed the two readiness cases and the normal light/dark
+scheduling comparisons (4/4), preserving all 14 existing scheduling images.
+The final timezone capture visibly retains the community artwork. The local
+fixture server used the documented Turbopack system-TLS setting to load the
+same font bytes as CI; a preceding fallback-font run failed and is not passing
+comparison evidence. With that fixture server already running, the final scope
+was:
+
+```sh
+PLAYWRIGHT_BASE_URL=http://127.0.0.1:3002 PLAYWRIGHT_SKIP_WEBSERVERS=true \
+  pnpm --filter web exec playwright test e2e/event-editor.snapshots.spec.ts \
+  --grep 'editor capture waits for artwork|scheduling states (light|dark)' \
+  --project=desktop-chromium --workers=1 --retries=0
+```
+
+Other selected jobs in that run passed: Storybook Image Diff (36 passed),
+Storybook Component Preview (354 passed) and Playwright Public Preview (72 passed,
+12 signed-in-account skips in the local lane). Hosted account captures were
+selected and reported 6 passed and 6 skipped; My events, media contributions and
+media review access skipped in both viewports because shared staging did not yet
+carry the branch revision. That run does not establish hosted My events coverage.
+The follow-up commit still requires its own selected CI comparison result.
