@@ -8,22 +8,38 @@ import { api } from "@convex-generated-api";
 import { buttonVariants } from "@/components/ui/button";
 import { SectionTitle } from "@/components/ui/card";
 import { Notice } from "@/components/ui/notice";
-import { EventInventoryList, type EventInventoryCriteria, type EventInventoryListProps, type EventInventoryView } from "./event-inventory-list";
+import { EventInventoryControls, EventInventoryList, type EventInventoryCriteria, type EventInventoryView } from "./event-inventory-list";
 
 const candidatePageSize = 20;
 const maxAutomaticAdvances = 3;
 
-type InventoryControls = Pick<EventInventoryListProps, "view" | "query" | "onViewChange" | "onQueryChange" | "onRetry">;
+type InventoryBoundaryProps = {
+  children: ReactNode;
+  controls: ReactNode;
+  shortcuts: ReactNode;
+  resetKey: string;
+  onRetry: () => void;
+};
+type InventoryBoundaryState = { failed: boolean; resetKey: string };
 
-class InventoryErrorBoundary extends Component<InventoryControls & { children: ReactNode }, { failed: boolean }> {
-  state = { failed: false };
+class InventoryErrorBoundary extends Component<InventoryBoundaryProps, InventoryBoundaryState> {
+  state = { failed: false, resetKey: this.props.resetKey };
   static getDerivedStateFromError() { return { failed: true }; }
+  static getDerivedStateFromProps({ resetKey }: InventoryBoundaryProps, state: InventoryBoundaryState) {
+    return resetKey === state.resetKey ? null : { failed: false, resetKey };
+  }
   render() {
-    return this.state.failed ? <EventInventoryList {...this.props} content={{ kind: "failed" }} onLoadMore={() => undefined} /> : this.props.children;
+    return <div className="grid min-w-0 gap-6">
+      {this.state.failed ? null : this.props.shortcuts}
+      <div className="grid min-w-0 gap-4">
+        {this.props.controls}
+        {this.state.failed ? <EventInventoryList content={{ kind: "failed" }} onRetry={this.props.onRetry} onLoadMore={() => undefined} /> : this.props.children}
+      </div>
+    </div>;
   }
 }
 
-function InventoryPager({ criteria, controls }: { criteria: EventInventoryCriteria; controls: InventoryControls }) {
+function InventoryPager({ criteria, onRetry }: { criteria: EventInventoryCriteria; onRetry: () => void }) {
   const { results, status, loadMore } = usePaginatedQuery(api.eventInventory.listPage, criteria, { initialNumItems: candidatePageSize });
   // Only traversal progress lives here. Query results remain owned by Convex so
   // session/authority changes cannot leave a stale copied inventory behind.
@@ -39,16 +55,16 @@ function InventoryPager({ criteria, controls }: { criteria: EventInventoryCriter
     }
   }, [status, results.length, loadMore]);
 
-  return <EventInventoryList {...controls} content={{
+  return <EventInventoryList onRetry={onRetry} content={{
     kind: status === "LoadingFirstPage" || status === "LoadingMore" ? "loading" : "ready",
     rows: results,
     hasMore: status === "CanLoadMore" || status === "LoadingMore",
   }} onLoadMore={() => loadMore(candidatePageSize)} />;
 }
 
-function InventoryTraversal({ timeZone, normalizedQuery, controls }: { timeZone: string; normalizedQuery: string; controls: InventoryControls }) {
+function InventoryTraversal({ timeZone, normalizedQuery, view, onRetry }: { timeZone: string; normalizedQuery: string; view: EventInventoryView; onRetry: () => void }) {
   const [asOf] = useState(Date.now);
-  return <InventoryPager controls={controls} criteria={{ view: controls.view, query: normalizedQuery, timeZone, asOf }} />;
+  return <InventoryPager onRetry={onRetry} criteria={{ view, query: normalizedQuery, timeZone, asOf }} />;
 }
 
 function InventoryShortcuts() {
@@ -91,12 +107,14 @@ function ConnectedInventory({ viewerId }: { viewerId: string }) {
   }, []);
 
   const traversalKey = JSON.stringify([viewerId, view, normalizedQuery, timeZone, refresh]);
-  const controls = { view, query, onViewChange: setView, onQueryChange: setQuery, onRetry: () => setRefresh(value => value + 1) };
-  return <InventoryErrorBoundary {...controls} key={traversalKey}>
-    <div className="grid min-w-0 gap-6">
-      <InventoryShortcuts />
-      <InventoryTraversal controls={controls} normalizedQuery={normalizedQuery} timeZone={timeZone} />
-    </div>
+  const onRetry = () => setRefresh(value => value + 1);
+  return <InventoryErrorBoundary
+    controls={<EventInventoryControls view={view} query={query} onViewChange={setView} onQueryChange={setQuery} />}
+    onRetry={onRetry}
+    resetKey={traversalKey}
+    shortcuts={<InventoryShortcuts />}
+  >
+    <InventoryTraversal key={traversalKey} view={view} normalizedQuery={normalizedQuery} timeZone={timeZone} onRetry={onRetry} />
   </InventoryErrorBoundary>;
 }
 

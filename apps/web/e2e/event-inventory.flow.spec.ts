@@ -151,3 +151,38 @@ test('inventory mounts without React warnings @fixture', async ({ page }) => {
   await expect(page.getByRole('listitem')).toHaveCount(6);
   expect(errors).toEqual([]);
 });
+
+test('natural keyboard search retains focus through criteria resets @fixture', async ({ page }) => {
+  await page.goto('/playwright/event-inventory');
+  const input = page.getByLabel('Find an event', { exact: true });
+  await input.click();
+  await page.keyboard.type('Harbor sessions', { delay: 35 });
+  await expect(input).toHaveValue('Harbor sessions');
+  await expect(input).toBeFocused();
+  await expect(page.getByRole('listitem')).toHaveCount(2);
+});
+
+test('keyboard filtering retains focus and the next tab position @fixture', async ({ page }) => {
+  await page.goto('/playwright/event-inventory');
+  const drafts = page.getByRole('button', { name: 'Drafts', exact: true });
+  await drafts.focus();
+  await page.keyboard.press('Enter');
+  await expect(drafts).toBeFocused();
+  await expect(drafts).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('listitem')).toHaveCount(2);
+  await page.keyboard.press('Tab');
+  await expect(page.getByRole('button', { name: 'Past', exact: true })).toBeFocused();
+});
+
+test('focus refresh retains the active search control @fixture', async ({ page }) => {
+  await page.goto('/playwright/event-inventory');
+  const input = page.getByLabel('Find an event', { exact: true });
+  await input.fill('harbor');
+  await input.focus();
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(input).toBeFocused();
+  await expect(input).toHaveValue('harbor');
+  await page.keyboard.type(' sessions', { delay: 35 });
+  await expect(input).toHaveValue('harbor sessions');
+  await expect(page.getByRole('listitem')).toHaveCount(2);
+});

@@ -20,12 +20,15 @@ export type EventInventoryContent =
   | { kind: "failed" }
   | { kind: "loading" | "ready"; rows: EventInventoryRow[]; hasMore: boolean };
 
-export type EventInventoryListProps = {
-  content: EventInventoryContent;
+export type EventInventoryControlsProps = {
   view: EventInventoryView;
   query: string;
   onViewChange: (view: EventInventoryView) => void;
   onQueryChange: (query: string) => void;
+};
+
+export type EventInventoryListProps = {
+  content: EventInventoryContent;
   onLoadMore: () => void;
   onRetry: () => void;
 };
@@ -83,15 +86,18 @@ function InventoryRow({ row }: { row: EventInventoryRow }) {
   );
 }
 
-export function EventInventoryList({ content, view, query, onViewChange, onQueryChange, onLoadMore, onRetry }: EventInventoryListProps) {
+export function EventInventoryControls({ view, query, onViewChange, onQueryChange }: EventInventoryControlsProps) {
+  return <div className="flex flex-wrap items-end justify-between gap-4">
+    <div aria-label="Event filters" className="grid w-full grid-cols-4 gap-1 sm:w-auto" role="group">
+      {views.map(item => <Button aria-pressed={view === item.value} className={view === item.value ? "border-b-2 border-accent bg-surface-strong" : "border-b-2 border-transparent"} key={item.value} onClick={() => onViewChange(item.value)} variant="ghost">{item.label}</Button>)}
+    </div>
+    <Field className="w-full sm:max-w-xs">Find an event<Input maxLength={120} onChange={event => onQueryChange(event.currentTarget.value)} type="search" value={query} /></Field>
+  </div>;
+}
+
+export function EventInventoryList({ content, onLoadMore, onRetry }: EventInventoryListProps) {
   return (
     <div className="grid min-w-0 gap-4">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div aria-label="Event filters" className="grid w-full grid-cols-4 gap-1 sm:w-auto" role="group">
-          {views.map(item => <Button aria-pressed={view === item.value} className={view === item.value ? "border-b-2 border-accent bg-surface-strong" : "border-b-2 border-transparent"} key={item.value} onClick={() => onViewChange(item.value)} variant="ghost">{item.label}</Button>)}
-        </div>
-        <Field className="w-full sm:max-w-xs">Find an event<Input maxLength={120} onChange={event => onQueryChange(event.currentTarget.value)} type="search" value={query} /></Field>
-      </div>
       {content.kind === "failed" ? <Notice role="alert" variant="error">Unable to load this page.<Button className="ml-3" onClick={onRetry} size="sm">Retry</Button></Notice> : <>
         {content.rows.length > 0 ? <Card padding="none"><ul aria-busy={content.kind === "loading"} aria-label="My events" className="divide-y divide-border">{content.rows.map(row => <InventoryRow key={row.id} row={row} />)}</ul></Card> : null}
         <div aria-live="polite">
