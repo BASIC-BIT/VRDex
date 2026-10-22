@@ -74,6 +74,85 @@ Use `VRDEX_EVENT_MEDIA_ECS_BRIDGE_CONFIG_CHECK_ONLY=true` for a local configurat
 
 Do not put stream keys, combined ingest URLs, provider tokens, signed URLs, or secret JSON in the bridge environment except through ECS secret references. `VRDEX_EVENT_MEDIA_SECRET_REF_MAP_JSON` contains only references to secret store records, not secret values.
 
+## Bounded event dispatcher deployment
+
+`bridge.tf` provisions an optional dispatcher around the existing operator bridge.
+Set `enable_event_media_bridge=true` and supply `event_media_bridge` through an
+owner-managed variable file. The object contains `convex_url`, a digest-pinned
+`image` from this stack's repository, `bundle_key`, `bundle_sha256`,
+`token_secret_arn`, the exact `credential_refs` map, `subnet_ids`, and
+`security_group_ids`. `assign_public_ip` defaults to `ENABLED`; use networking
+with no inbound rules. Keep `max_concurrent_workers=1` and set the same cap in
+Convex. Configuration contains secret references only.
+
+The bundle is the existing `scripts/event-media-ecs-bridge.mjs` and its installed
+Convex dependencies, packaged as one Node 22 ESM file. From a pinned checkout
+with frozen dependencies, build it with the installed bundler:
+
+```bash
+node --input-type=module - <<'JS'
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const { build } = createRequire(require.resolve('tsx/package.json'))('esbuild');
+await build({ entryPoints: ['scripts/event-media-ecs-bridge.mjs'],
+  outfile: '/tmp/event-media-ecs-bridge.mjs', bundle: true,
+  platform: 'node', target: 'node22', format: 'esm' });
+JS
+sha256sum /tmp/event-media-ecs-bridge.mjs
+```
+
+Record the checkout, lockfile, bundler version, input hashes and bundle hash.
+Upload the file to the private artifacts bucket at
+`event-media-bridge/sha256/<hash>.mjs`; read it back and compare its hash before
+using that key. The dispatcher verifies the hash again before executing it.
+Do not put credentials in the bundle or artifact metadata.
+
+The task has dedicated execution/runtime roles. It can launch only the event
+worker family in this cluster, pass only the existing worker roles, and read
+only the configured bundle. The execution role injects the shared bridge token
+from Secrets Manager. An additive worker execution-role policy grants reads of
+that token and the exact configured primary output credentials.
+
+Provisioning starts no task and leaves the production SSM switch unchanged.
+Launch `event_media_bridge_task_definition_arn` once on the configured networking;
+there is no ECS service. The dispatcher exits after 24 hours plus a 30-second
+kill grace, including startup and bounded retries. Existing media workers retain
+their separate 12-hour session deadline. This bounds the initial deployment's
+compute window; it is not a dollar-denominated billing control. Workers use the
+measured 4 CPU/8 GiB shape and the existing 720p30 event profile.
+
+Before enabling publication, install the same service token in production
+Convex and Secrets Manager, verify the bridge API, configure destination owner
+bindings, and set `VRDEX_EVENT_BROADCAST_MAX_CONCURRENT=1`. Keep automatic silence
+disabled. Observe dispatcher startup and errors in
+`bridge/event-media-bridge/<task-id>` under the worker log group. Then enable the
+production SSM switch and start an authorized event through its operator view.
+Confirm actual publication and playback before treating that event as live.
+
+For rollback, set `/vrdex/restream/hosted-worker/enabled=false`, stop the
+dispatcher and any event tasks, and confirm each task is STOPPED before releasing
+admission or replacing publication. The dispatcher does not restart after its
+deadline. A later launch is a separate operator action.
+
+If bootstrapping these resources through the AWS API, use the evaluated Terraform
+role/policy/container JSON and then import the resources with the same owner
+variable file. Import both roles by name, inline policies as `role-name:policy-name`,
+and the dispatcher task definition by full ARN. The addresses are
+`aws_iam_role.bridge_execution[0]`, `aws_iam_role.bridge_task[0]`,
+`aws_iam_role_policy.bridge_execution[0]`, `aws_iam_role_policy.bridge_task[0]`,
+`aws_iam_role_policy.bridge_worker_token[0]`, and
+`aws_ecs_task_definition.bridge[0]`. Keep the opt-in and owner file selected for
+subsequent plans; a default-off apply after import would remove these resources.
+
+### October 22 preparation
+
+The initial deployment uses the reviewed `fa5515d5…` worker image and dispatcher
+bundle `9a13bee0…`, built from merged source `db7f2c6f…`. The production token
+binding, concurrency cap and 12-hour deadline were installed and read back.
+The first dispatcher started at 05:07:08 UTC on October 22, 2026. The destination
+community binding and publication switch remain pending; this preparation does
+not establish a live event or complete provider acceptance.
+
 ## Visible Benchmark Output
 
 The worker benchmark entrypoint generates a synthetic program at the selected quality gate with source, hold-slate, and source-switch transitions. The default duration is 12 seconds, and longer sustained probes use `VRDEX_RESTREAM_SYNTHETIC_DURATION_SECONDS`. The default `static-transition` variant generates the hold slate once as static artwork, then loops it through the timed fade section to keep the benchmark focused on the live encode path. The `live-control` variant starts FFmpeg once and drives the same source/hold/source sequence through runtime filter commands. It schedules commands against FFmpeg output progress by default, then gates on timed frame classification so source commands cannot silently drift earlier in the output timeline when encoding falls behind real time. Live-control reports near-real-time pace as diagnostics and records max, average, final, and growth-rate delay metrics against `VRDEX_RESTREAM_MAX_LIVE_DELAY_MS`; `static-transition` remains the throughput gate. The `wall-clock` schedule remains available only as a diagnostic comparison mode. The `hard-switch` control mode is the simple source-selection baseline; `overlay-alpha-volume-fade` is optional polish. A successful run writes:
