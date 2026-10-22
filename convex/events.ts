@@ -2713,7 +2713,8 @@ export async function managedCommunitiesForBrowser(
         .withIndex("by_userId_state", (query) =>
           query.eq("userId", user._id).eq("state", "active"),
         )
-        .take(100);
+        .take(101);
+  if (owners.length > 100) throw new Error("Managed community inventory requires pagination.");
   // Bound communities, not raw assignments: one club may have 100 roles.
   // Seek past each community key so duplicate assignments cannot crowd out
   // later clubs. Never silently return an incomplete inventory at the bound.
