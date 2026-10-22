@@ -5,6 +5,7 @@ import { makeFunctionReference, type FunctionArgs, type PaginationOptions, type 
 import schemaModule from "../../convex/schema";
 import type { Doc } from "../../convex/_generated/dataModel";
 import type { InventoryRow } from "../../convex/_eventInventory";
+import { listPage } from "../../convex/eventInventory";
 
 const schema = (schemaModule as unknown as { default?: typeof schemaModule }).default ?? schemaModule;
 const list = makeFunctionReference<"query", { view: "all" | "upcoming" | "drafts" | "past"; query: string; timeZone: string; asOf: number; paginationOpts: PaginationOptions }, PaginationResult<InventoryRow>>("eventInventory:listPage");
@@ -319,4 +320,73 @@ it("accepts normalized criteria and keeps intake community matching current afte
   assert.equal(first.page[0].community?.displayName, "Renamed Club");
   const next = await owner.query(list, { ...criteria, query: "renamed club", paginationOpts: { cursor: first.continueCursor, numItems: 5 } });
   assert.equal(next.page.length, 1);
+});
+
+for (const who of ["owner", "staff"] as const) it(`checks ${who} authority once per community per inventory invocation`, async context => {
+  const { actor, event, t, ids } = await fixture();
+  const viewer = actor(who);
+  const roleId = who === "staff" ? await t.run(async ({ db }) => {
+    const role = await db.insert("communityRoles", { communityProfileId: ids.community,
+      key: "event-staff", label: "Event staff", permissions: ["manage_events"],
+      assignableRoleIds: [], state: "active", createdAt: Date.now(), updatedAt: Date.now() });
+    await db.patch(ids.authority, { roleId: role, capabilities: undefined });
+    return role;
+  }) : null;
+  for (let n = 0; n < 6; n++) await event({ contributorUserId: ids[who] });
+  const first = await viewer.query(list, { ...criteria, paginationOpts: { cursor: null, numItems: 20 } });
+  const measuredPage = (cursor: string) => viewer.query(async ctx => {
+    // Spies forward every read to the real convex-test database and authorizers.
+    const query = context.mock.method(ctx.db, "query");
+    const get = context.mock.method(ctx.db, "get");
+    const result = await listPage._handler(ctx, { ...criteria, paginationOpts: { cursor, numItems: 20 } });
+    assert.equal(query.mock.calls.filter(call => call.arguments[0] === "profileOwners").length, 2,
+      "one source-discovery lookup plus one current ownership lookup, regardless of candidate count");
+    if (roleId) assert.equal(get.mock.calls.filter(call => call.arguments[0] === roleId).length, 2,
+      "one discovery role read plus one current authorizer role read");
+    return result;
+  });
+  const managed = await measuredPage(first.continueCursor);
+  assert.equal(managed.page.length, 6);
+  assert.ok(managed.page.every(row => row.continuation.kind === "staff_editor"));
+  assert.deepEqual((await measuredPage(first.continueCursor)).page, managed.page,
+    "another invocation must perform the same fresh authority reads");
+  assert.deepEqual((await measuredPage(managed.continueCursor)).page, [],
+    "own contributions are deduplicated after one current authority check");
+  if (roleId) await t.run(({ db }) => db.patch(roleId, { permissions: [] }));
+  else await t.run(({ db }) => db.delete(ids.ownership));
+  await assert.rejects(viewer.query(list, { ...criteria,
+    paginationOpts: { cursor: first.continueCursor, numItems: 20 } }), /InvalidCursor/);
+  const fresh = (await traverse(viewer)).rows;
+  assert.equal(fresh.length, 6);
+  assert.ok(fresh.every(row => row.kind === "own_contribution" && row.continuation.kind === "public_event"));
+});
+
+it("checks each managed community separately while deduplicating one contribution page", async context => {
+  const { actor, event, t, ids } = await fixture();
+  const second = await t.run(async ({ db }) => {
+    const profile = await db.get(ids.community);
+    assert.ok(profile);
+    const { _id, _creationTime, ...fields } = profile;
+    const community = await db.insert("profiles", { ...fields, slug: "second-club" });
+    await db.insert("profileOwners", { profileId: community, userId: ids.owner,
+      roleKey: "owner", state: "active", grantedAt: Date.now(), updatedAt: Date.now() });
+    return community;
+  });
+  for (const communityProfileId of [ids.community, second]) {
+    for (let n = 0; n < 4; n++) await event({ communityProfileId, contributorUserId: ids.owner });
+  }
+  const viewer = actor("owner");
+  let cursor: string | null = null;
+  for (let source = 0; source < 3; source++) {
+    const page = await viewer.query(list, { ...criteria, paginationOpts: { cursor, numItems: 20 } });
+    cursor = page.continueCursor;
+  }
+  await viewer.query(async ctx => {
+    const query = context.mock.method(ctx.db, "query");
+    const result = await listPage._handler(ctx, { ...criteria, paginationOpts: { cursor, numItems: 20 } });
+    assert.deepEqual(result.page, []);
+    assert.equal(result.isDone, true);
+    assert.equal(query.mock.calls.filter(call => call.arguments[0] === "profileOwners").length, 3,
+      "one source-discovery lookup plus one current ownership lookup for each community");
+  });
 });

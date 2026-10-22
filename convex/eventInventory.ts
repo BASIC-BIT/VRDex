@@ -1,6 +1,7 @@
 import { paginationOptsValidator, type PaginationResult } from "convex/server";
 import { v } from "convex/values";
 import { query } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 import { requireActiveBrowserSessionSubject } from "./_browserSessionAuthority";
 import { managedCommunitiesForBrowser, canUpdateEvent } from "./events";
 import { dateOnlyEventsEnabled } from "./_eventSchedule";
@@ -43,9 +44,15 @@ export const listPage = query({
         .withIndex(dateOnlyEventsEnabled() ? "by_communityProfileId_sortAt" : "by_communityProfileId_startAt", q => q.eq("communityProfileId", source.profile._id)).order("desc").paginate(native)
       : await ctx.db.query("events").withIndex("by_contributorUserId", q => q.eq("contributorUserId", user._id)).order("desc").paginate(native);
     const page: InventoryRow[] = [];
+    const managementByCommunity = new Map<Id<"profiles">, Promise<boolean>>();
     for (const event of candidates.page) {
-      const managed = communities.some(entry => entry.profile._id === event.communityProfileId) &&
-        await canUpdateEvent(ctx.db, event, subject, user._id);
+      const communityId = event.communityProfileId;
+      let managed = false;
+      if (communityId && communities.some(entry => entry.profile._id === communityId)) {
+        const permission = managementByCommunity.get(communityId) ?? canUpdateEvent(ctx.db, event, subject, user._id);
+        managementByCommunity.set(communityId, permission);
+        managed = await permission;
+      }
       if (source.kind === "community" ? !managed : managed) continue;
       const community = source.kind === "community" ? source.profile : event.communityProfileId ? await ctx.db.get(event.communityProfileId) : null;
       const row = await canonicalInventoryRow({ db: ctx.db, event, community, managed });
