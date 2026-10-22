@@ -2,7 +2,11 @@
 
 ## Status
 
-Current recommendation: use this as a checked-in benchmark foundation only. Hosted output stays disabled until the `1080p60` media proof and AWS capacity benchmark both pass.
+BITRATE has a bounded, operator-started hosted broadcast deployment using the
+720p30 event profile and one measured 4 CPU/8 GiB worker. See
+[October 22 BITRATE enablement](#october-22-bitrate-enablement) for its current
+window. General hosted rollout and the `1080p60` quality gate remain separate
+from this limited deployment.
 
 The implementation surface is split between:
 
@@ -80,7 +84,7 @@ Do not put stream keys, combined ingest URLs, provider tokens, signed URLs, or s
 Set `enable_event_media_bridge=true` and supply `event_media_bridge` through an
 owner-managed variable file. The object contains `convex_url`, a digest-pinned
 `image` from this stack's repository, `bundle_key`, `bundle_sha256`,
-`token_secret_arn`, the exact `credential_refs` map, `subnet_ids`, and
+`cli_archive_key`, `cli_archive_sha256`, `token_secret_arn`, the exact `credential_refs` map, `subnet_ids`, and
 `security_group_ids`. `assign_public_ip` defaults to `ENABLED`; use networking
 with no inbound rules. Keep `max_concurrent_workers=1` and set the same cap in
 Convex. Configuration contains secret references only.
@@ -107,18 +111,45 @@ Upload the file to the private artifacts bucket at
 using that key. The dispatcher verifies the hash again before executing it.
 Do not put credentials in the bundle or artifact metadata.
 
+The dispatcher also requires a current Linux x86-64 AWS CLI. The tested media
+image contains CLI 2.9.19, whose ECS RunTask model lacks the `clientToken` field
+used for retry-safe launches. Download the official AWS CLI archive, record its
+SHA256, and publish it to the same private bucket at
+`event-media-bridge/awscli/sha256/<hash>.zip`. Set `cli_archive_key` and
+`cli_archive_sha256` to that exact artifact. The bootstrap verifies both artifacts
+before execution, extracts the CLI into a private temporary directory with path
+and size checks, and checks for RunTask `clientToken` support before contacting
+Convex. This updates only the dispatcher CLI; media workers retain their tested
+image. Preserve source, size, hash and S3 readback evidence for the archive.
+
 The task has dedicated execution/runtime roles. It can launch only the event
-worker family in this cluster, pass only the existing worker roles, and read
-only the configured bundle. The execution role injects the shared bridge token
+worker family in this cluster, observe and stop only tasks carrying its ownership
+tag, pass only the existing worker roles, and read only the configured bundle
+and CLI archive.
+AWS requires an unconditional `Resource: "*"` grant for
+`ecs:DeregisterTaskDefinition`; that one cleanup action cannot use family or tag
+conditions. The verified dispatcher code limits its calls to recorded event
+worker definitions. Other task operations keep their resource and ownership
+conditions. The execution role injects the shared bridge token
 from Secrets Manager. An additive worker execution-role policy grants reads of
 that token and the exact configured primary output credentials.
 
 Provisioning starts no task and leaves the production SSM switch unchanged.
 Launch `event_media_bridge_task_definition_arn` once on the configured networking;
-there is no ECS service. The dispatcher exits after 24 hours plus a 30-second
-kill grace, including startup and bounded retries. Existing media workers retain
-their separate 12-hour session deadline. This bounds the initial deployment's
-compute window; it is not a dollar-denominated billing control. Workers use the
+there is no ECS service. The dispatcher computes
+`VRDEX_EVENT_MEDIA_BRIDGE_DRAIN_AT_MS` once at startup, 10 minutes before its
+24-hour hard timeout. Retries inherit that same absolute deadline; each process
+anchors it to a monotonic clock. At drain it stops accepting commands, stops its
+event workers, and waits for confirmed ECS
+STOPPED plus backend cleanup acknowledgement before exiting successfully. An
+already-accepted launch finishes registration before its task is drained. The
+wrapper also latches external TERM/INT, waits for the active child, and prevents
+another runtime attempt after that signal. The hard timeout and ECS stop timeout
+retain a 30-second grace. A forced stop can exhaust that grace before AWS cleanup
+finishes; unresolved or ambiguous tasks remain reserved for investigation and
+reconciliation by a replacement dispatcher rather than being reported cleaned up. Event workers
+also retain their separate 12-hour session deadline. These are runtime bounds,
+not a dollar-denominated billing control. Workers use the
 measured 4 CPU/8 GiB shape and the existing 720p30 event profile.
 
 Before enabling publication, install the same service token in production
@@ -143,15 +174,34 @@ and the dispatcher task definition by full ARN. The addresses are
 `aws_iam_role_policy.bridge_worker_token[0]`, and
 `aws_ecs_task_definition.bridge[0]`. Keep the opt-in and owner file selected for
 subsequent plans; a default-off apply after import would remove these resources.
+For an enabled deployment, also preserve `kill_switch_enabled_default=true` in
+the owner file; its module default is false and an apply would otherwise disable
+the master parameter again.
 
-### October 22 preparation
+### October 22 BITRATE enablement
 
 The initial deployment uses the reviewed `fa5515d5…` worker image and dispatcher
 bundle `9a13bee0…`, built from merged source `db7f2c6f…`. The production token
 binding, concurrency cap and 12-hour deadline were installed and read back.
-The first dispatcher started at 05:07:08 UTC on October 22, 2026. The destination
-community binding and publication switch remain pending; this preparation does
-not establish a live event or complete provider acceptance.
+The first dispatcher started at 05:07:08 UTC on October 22, 2026. BASIC
+subsequently assigned `basicbit1` exclusively to BITRATE. That destination
+binding was installed and read back at 06:30:17 UTC. The initial dispatcher was
+stopped for the reviewed ownership-tag and graceful-drain corrections.
+
+The corrected dispatcher uses bundle `6c48a4f1…` and pinned AWS CLI 2.38.4 archive
+`10ab32a9…`. A bounded live permission probe confirmed owned task launch,
+observation, stop and definition cleanup, plus denied observation/stop of an
+unrelated task. Both probe tasks are STOPPED and their interfaces are DELETED.
+Dispatcher task definition `vrdex-restream-worker-event-bridge:2` started at
+07:03:51 UTC and successfully polled the production bridge functions. The master
+parameter was enabled and read back as `true`, version 2, at 07:04:37 UTC on
+October 22. The concurrency cap remains one and automatic silence remains off.
+
+This enables operator-started broadcasts for BITRATE's configured `basicbit1`
+destination. No event was selected or started during enablement. The dispatcher
+drains before its hard deadline around 07:04 UTC on October 23; continuing service
+requires another operator launch. Enablement and the permission probe do not
+establish a live event or complete provider acceptance for every media path.
 
 ## Visible Benchmark Output
 
@@ -1042,7 +1092,8 @@ provisioning. See [permissions, import and rollback](../engineering/event-broadc
 
 ### October 22 isolated rehearsal findings
 
-Ordinary hosted output remains disabled. BASIC's autonomous $20 completion scope
+During the isolated rehearsal, ordinary hosted output remained disabled.
+BASIC's autonomous $20 completion scope
 supersedes the original attempt-count and ten-minute approval caps. Individual
 tasks still require explicit external deadlines and exact cleanup. Source pushers
 retain 240-second bounds; the 300-second synthetic measurement has a declared

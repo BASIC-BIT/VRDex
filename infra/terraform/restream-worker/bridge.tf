@@ -6,12 +6,14 @@ variable "enable_event_media_bridge" {
 }
 
 variable "event_media_bridge" {
-  description = "Owner-reviewed production configuration. Secret references only. Publish the standalone bridge JS bundle under its SHA256 key before launching."
+  description = "Owner-reviewed production configuration. Secret references only. Publish the standalone bridge JS bundle and AWS CLI archive under their SHA256 keys before launching."
   type = object({
     convex_url         = string
     image              = string
     bundle_key         = string
     bundle_sha256      = string
+    cli_archive_key    = string
+    cli_archive_sha256 = string
     token_secret_arn   = string
     credential_refs    = map(string)
     subnet_ids         = list(string)
@@ -23,7 +25,7 @@ variable "event_media_bridge" {
 
 locals {
   bridge = var.event_media_bridge != null ? var.event_media_bridge : {
-    convex_url      = "", image = "", bundle_key = "", bundle_sha256 = "", token_secret_arn = ""
+    convex_url      = "", image = "", bundle_key = "", bundle_sha256 = "", cli_archive_key = "", cli_archive_sha256 = "", token_secret_arn = ""
     credential_refs = {}, subnet_ids = [], security_group_ids = [], assign_public_ip = "ENABLED"
   }
   bridge_worker_family_arn = "arn:${data.aws_partition.current.partition}:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:task-definition/vrdex-event-media-worker-*:*"
@@ -62,21 +64,83 @@ locals {
     })
     VRDEX_EVENT_MEDIA_BRIDGE_BUNDLE_S3_URI = "s3://${aws_s3_bucket.artifacts.bucket}/${local.bridge.bundle_key}"
     VRDEX_EVENT_MEDIA_BRIDGE_BUNDLE_SHA256 = local.bridge.bundle_sha256
+    VRDEX_EVENT_MEDIA_BRIDGE_CLI_S3_URI    = "s3://${aws_s3_bucket.artifacts.bucket}/${local.bridge.cli_archive_key}"
+    VRDEX_EVENT_MEDIA_BRIDGE_CLI_SHA256    = local.bridge.cli_archive_sha256
+    VRDEX_EVENT_MEDIA_AWS_COMMAND          = "/tmp/vrdex-event-media-awscli/aws/dist/aws"
     AWS_REGION                             = var.aws_region
   }
   # timeout owns the complete process group, including retries and download.
   # Validate static config once. Retry a failed control-plane connection at most
-  # ten times; the outer deadline never renews when a child exits.
+  # ten times; the outer deadline never renews when a child exits. Compute one
+  # inherited drain deadline before bootstrap, leaving ten minutes for cleanup.
+  # Keep the shell alive while a signaled foreground child drains, then latch
+  # shutdown so no retry can claim work after TERM or INT.
   bridge_command = <<-SHELL
     exec timeout --signal=TERM --kill-after=30s 86400s /bin/sh -ec '
+      export VRDEX_EVENT_MEDIA_BRIDGE_DRAIN_AT_MS=$((($(date +%s) + 85800) * 1000))
+      stopping=0
+      trap "stopping=1; export VRDEX_EVENT_MEDIA_BRIDGE_DRAIN_AT_MS=0" TERM INT
+      umask 077
       aws s3 cp "$VRDEX_EVENT_MEDIA_BRIDGE_BUNDLE_S3_URI" /tmp/event-media-ecs-bridge.mjs --only-show-errors
+      aws s3 cp "$VRDEX_EVENT_MEDIA_BRIDGE_CLI_S3_URI" /tmp/vrdex-event-media-awscli.zip --only-show-errors
       printf "%s  %s\n" "$VRDEX_EVENT_MEDIA_BRIDGE_BUNDLE_SHA256" /tmp/event-media-ecs-bridge.mjs | sha256sum --check --status
+      printf "%s  %s\n" "$VRDEX_EVENT_MEDIA_BRIDGE_CLI_SHA256" /tmp/vrdex-event-media-awscli.zip | sha256sum --check --status
+      python3 - <<PYTHON
+    import os
+    from pathlib import Path, PurePosixPath
+    import stat
+    import zipfile
+
+    root = Path("/tmp/vrdex-event-media-awscli")
+    limit = 1024 * 1024 * 1024
+    with zipfile.ZipFile("/tmp/vrdex-event-media-awscli.zip") as archive:
+        members = archive.infolist()
+        if len(members) > 10000 or sum(entry.file_size for entry in members) > limit:
+            raise ValueError("AWS CLI archive exceeds extraction limits")
+        destinations = set()
+        for entry in members:
+            path = PurePosixPath(entry.filename)
+            if not path.parts or path.is_absolute() or ".." in path.parts or stat.S_ISLNK(entry.external_attr >> 16):
+                raise ValueError("Unsafe AWS CLI archive member")
+            destination = root.joinpath(*path.parts)
+            if root not in destination.parents or destination in destinations:
+                raise ValueError("Unsafe or duplicate AWS CLI archive destination")
+            destinations.add(destination)
+        root.mkdir(mode=0o700)
+        extracted = 0
+        for entry in members:
+            destination = root.joinpath(*PurePosixPath(entry.filename).parts)
+            if entry.is_dir():
+                destination.mkdir(mode=0o700, parents=True, exist_ok=True)
+                continue
+            destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            with archive.open(entry) as source, destination.open("xb") as output:
+                while True:
+                    chunk = source.read(65536)
+                    if not chunk:
+                        break
+                    extracted += len(chunk)
+                    if extracted > limit:
+                        raise ValueError("AWS CLI archive exceeds extraction limits")
+                    output.write(chunk)
+    os.chmod(root / "aws/dist/aws", 0o755)
+    PYTHON
+      export PATH="/tmp/vrdex-event-media-awscli/aws/dist:$PATH"
+      "$VRDEX_EVENT_MEDIA_AWS_COMMAND" --version
+      "$VRDEX_EVENT_MEDIA_AWS_COMMAND" ecs run-task --generate-cli-skeleton input > /tmp/vrdex-event-media-run-task-skeleton.json
+      python3 - <<PYTHON
+    import json
+    with open("/tmp/vrdex-event-media-run-task-skeleton.json") as source:
+        skeleton = json.load(source)
+    if not isinstance(skeleton, dict) or "clientToken" not in skeleton:
+        raise ValueError("Pinned AWS CLI must support ECS RunTask clientToken")
+    PYTHON
       VRDEX_EVENT_MEDIA_ECS_BRIDGE_CONFIG_CHECK_ONLY=true node /tmp/event-media-ecs-bridge.mjs
       attempt=0
-      while [ "$attempt" -lt 10 ]; do
+      while [ "$attempt" -lt 10 ] && [ "$stopping" -eq 0 ]; do
         node /tmp/event-media-ecs-bridge.mjs && exit 0
         attempt=$((attempt + 1))
-        if [ "$attempt" -lt 10 ]; then sleep 30; fi
+        if [ "$attempt" -lt 10 ] && [ "$stopping" -eq 0 ]; then sleep 30; fi
       done
       exit 1
     '
@@ -105,8 +169,11 @@ resource "aws_iam_role_policy" "bridge_task" {
     Version = "2012-10-17"
     Statement = [
       {
-        Sid      = "ReadVerifiedBridgeBundle", Effect = "Allow", Action = "s3:GetObject"
-        Resource = "${aws_s3_bucket.artifacts.arn}/${local.bridge.bundle_key}"
+        Sid = "ReadVerifiedBridgeBundle", Effect = "Allow", Action = "s3:GetObject"
+        Resource = [
+          "${aws_s3_bucket.artifacts.arn}/${local.bridge.bundle_key}",
+          "${aws_s3_bucket.artifacts.arn}/${local.bridge.cli_archive_key}",
+        ]
       },
       {
         Sid = "RegisterTaggedEventWorker", Effect = "Allow", Action = "ecs:RegisterTaskDefinition", Resource = "*"
@@ -125,14 +192,23 @@ resource "aws_iam_role_policy" "bridge_task" {
         Condition = { ArnEquals = { "ecs:cluster" = aws_ecs_cluster.worker.arn } }
       },
       {
-        Sid       = "ObserveAndStopWorkerClusterTasks", Effect = "Allow", Action = ["ecs:DescribeTasks", "ecs:StopTask"]
+        Sid       = "TagLaunchedEventWorker", Effect = "Allow", Action = "ecs:TagResource"
         Resource  = local.bridge_cluster_task_arn
-        Condition = { ArnEquals = { "ecs:cluster" = aws_ecs_cluster.worker.arn } }
+        Condition = { StringEquals = { "ecs:CreateAction" = "RunTask" } }
       },
       {
-        Sid       = "DeregisterOwnedEventWorker", Effect = "Allow", Action = "ecs:DeregisterTaskDefinition"
-        Resource  = local.bridge_worker_family_arn
-        Condition = { StringEquals = { "aws:ResourceTag/ManagedBy" = "event-media-ecs-bridge" } }
+        Sid      = "ObserveAndStopOwnedEventWorkerTasks", Effect = "Allow", Action = ["ecs:DescribeTasks", "ecs:StopTask"]
+        Resource = local.bridge_cluster_task_arn
+        Condition = {
+          ArnEquals    = { "ecs:cluster" = aws_ecs_cluster.worker.arn }
+          StringEquals = { "aws:ResourceTag/ManagedBy" = "event-media-ecs-bridge" }
+        }
+      },
+      # AWS exposes no resource or condition scope for DeregisterTaskDefinition.
+      # This account-wide permission trusts the owner-verified bridge bundle to
+      # deregister only definitions it registered for event workers.
+      {
+        Sid = "DeregisterEventWorkerDefinition", Effect = "Allow", Action = "ecs:DeregisterTaskDefinition", Resource = "*"
       },
       {
         Sid       = "PassExistingWorkerRoles", Effect = "Allow", Action = "iam:PassRole"
@@ -213,6 +289,8 @@ resource "aws_ecs_task_definition" "bridge" {
         can(regex("^${data.aws_caller_identity.current.account_id}\\.dkr\\.ecr\\.${var.aws_region}\\.amazonaws\\.com/${var.name_prefix}@sha256:[a-f0-9]{64}$", local.bridge.image)) &&
         can(regex("^[a-f0-9]{64}$", local.bridge.bundle_sha256)) &&
         local.bridge.bundle_key == "event-media-bridge/sha256/${local.bridge.bundle_sha256}.mjs" &&
+        can(regex("^[a-f0-9]{64}$", local.bridge.cli_archive_sha256)) &&
+        local.bridge.cli_archive_key == "event-media-bridge/awscli/sha256/${local.bridge.cli_archive_sha256}.zip" &&
         can(regex("^arn:${data.aws_partition.current.partition}:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:[A-Za-z0-9/_+=.@-]+$", local.bridge.token_secret_arn)) &&
         length(local.bridge.credential_refs) > 0 &&
         alltrue([for ref, arn in local.bridge.credential_refs : trimspace(ref) != "" && can(regex("^arn:${data.aws_partition.current.partition}:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:[A-Za-z0-9/_+=.@-]+$", arn))]) &&
@@ -221,7 +299,7 @@ resource "aws_ecs_task_definition" "bridge" {
         contains(["ENABLED", "DISABLED"], local.bridge.assign_public_ip) &&
         var.max_concurrent_workers == 1
       )
-      error_message = "Bridge enablement requires a production Convex URL, existing-repository digest image, SHA256-addressed standalone JS bundle, exact token and credential secret ARNs, networking, and concurrency cap 1."
+      error_message = "Bridge enablement requires a production Convex URL, existing-repository digest image, SHA256-addressed standalone JS bundle and AWS CLI archive, exact token and credential secret ARNs, networking, and concurrency cap 1."
     }
   }
 }

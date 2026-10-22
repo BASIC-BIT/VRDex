@@ -47,6 +47,8 @@ variables {
     image              = "079358094174.dkr.ecr.us-east-1.amazonaws.com/vrdex-restream-worker@sha256:fa5515d574355d6a647ce8390285f62edec1ad4f7e6e98956230c0b1391c2548"
     bundle_key         = "event-media-bridge/sha256/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.mjs"
     bundle_sha256      = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    cli_archive_key    = "event-media-bridge/awscli/sha256/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.zip"
+    cli_archive_sha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
     token_secret_arn   = "arn:aws:secretsmanager:us-east-1:079358094174:secret:event-media/bridge-token-AbCdEf"
     credential_refs    = { "vrcdn:authorized-account" = "arn:aws:secretsmanager:us-east-1:079358094174:secret:event-media/output-AbCdEf" }
     subnet_ids         = ["subnet-0123456789abcdef0"]
@@ -83,8 +85,11 @@ run "enabled_dispatcher_permissions" {
       Version = "2012-10-17"
       Statement = [
         {
-          Sid      = "ReadVerifiedBridgeBundle", Effect = "Allow", Action = "s3:GetObject"
-          Resource = "arn:aws:s3:::vrdex-restream-worker-079358094174-artifacts/event-media-bridge/sha256/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.mjs"
+          Sid = "ReadVerifiedBridgeBundle", Effect = "Allow", Action = "s3:GetObject"
+          Resource = [
+            "arn:aws:s3:::vrdex-restream-worker-079358094174-artifacts/event-media-bridge/sha256/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.mjs",
+            "arn:aws:s3:::vrdex-restream-worker-079358094174-artifacts/event-media-bridge/awscli/sha256/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.zip",
+          ]
         },
         {
           Sid = "RegisterTaggedEventWorker", Effect = "Allow", Action = "ecs:RegisterTaskDefinition", Resource = "*"
@@ -103,14 +108,20 @@ run "enabled_dispatcher_permissions" {
           Condition = { ArnEquals = { "ecs:cluster" = "arn:aws:ecs:us-east-1:079358094174:cluster/vrdex-restream-worker" } }
         },
         {
-          Sid       = "ObserveAndStopWorkerClusterTasks", Effect = "Allow", Action = ["ecs:DescribeTasks", "ecs:StopTask"]
+          Sid       = "TagLaunchedEventWorker", Effect = "Allow", Action = "ecs:TagResource"
           Resource  = "arn:aws:ecs:us-east-1:079358094174:task/vrdex-restream-worker/*"
-          Condition = { ArnEquals = { "ecs:cluster" = "arn:aws:ecs:us-east-1:079358094174:cluster/vrdex-restream-worker" } }
+          Condition = { StringEquals = { "ecs:CreateAction" = "RunTask" } }
         },
         {
-          Sid       = "DeregisterOwnedEventWorker", Effect = "Allow", Action = "ecs:DeregisterTaskDefinition"
-          Resource  = "arn:aws:ecs:us-east-1:079358094174:task-definition/vrdex-event-media-worker-*:*"
-          Condition = { StringEquals = { "aws:ResourceTag/ManagedBy" = "event-media-ecs-bridge" } }
+          Sid      = "ObserveAndStopOwnedEventWorkerTasks", Effect = "Allow", Action = ["ecs:DescribeTasks", "ecs:StopTask"]
+          Resource = "arn:aws:ecs:us-east-1:079358094174:task/vrdex-restream-worker/*"
+          Condition = {
+            ArnEquals    = { "ecs:cluster" = "arn:aws:ecs:us-east-1:079358094174:cluster/vrdex-restream-worker" }
+            StringEquals = { "aws:ResourceTag/ManagedBy" = "event-media-ecs-bridge" }
+          }
+        },
+        {
+          Sid = "DeregisterEventWorkerDefinition", Effect = "Allow", Action = "ecs:DeregisterTaskDefinition", Resource = "*"
         },
         {
           Sid       = "PassExistingWorkerRoles", Effect = "Allow", Action = "iam:PassRole"
@@ -119,7 +130,7 @@ run "enabled_dispatcher_permissions" {
         },
       ]
     }
-    error_message = "Dispatcher permissions must be limited to the exact bundle, worker family, worker cluster, owned definitions and existing worker roles."
+    error_message = "Dispatcher permissions must retain exact bundle, worker family, cluster, ownership tag and existing role scopes, with the AWS-required unconditioned deregistration wildcard."
   }
   assert {
     condition = alltrue([for role in [aws_iam_role.bridge_task[0], aws_iam_role.bridge_execution[0]] : jsondecode(role.assume_role_policy) == {
@@ -184,6 +195,9 @@ run "enabled_dispatcher_permissions" {
   }
   assert {
     condition = alltrue([for name, value in {
+      VRDEX_EVENT_MEDIA_BRIDGE_CLI_S3_URI      = "s3://vrdex-restream-worker-079358094174-artifacts/event-media-bridge/awscli/sha256/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.zip"
+      VRDEX_EVENT_MEDIA_BRIDGE_CLI_SHA256      = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      VRDEX_EVENT_MEDIA_AWS_COMMAND            = "/tmp/vrdex-event-media-awscli/aws/dist/aws"
       VRDEX_EVENT_MEDIA_ECS_CPU                = "4096"
       VRDEX_EVENT_MEDIA_ECS_MEMORY             = "8192"
       VRDEX_EVENT_MEDIA_ECS_TASK_FAMILY_PREFIX = "vrdex-event-media-worker"
@@ -196,8 +210,17 @@ run "enabled_dispatcher_permissions" {
         VRDEX_RESTREAM_MAX_SESSION_SECONDS       = "43200"
         VRDEX_RESTREAM_MAX_CONCURRENT_WORKERS    = "1"
       })
-    } : { for entry in jsondecode(aws_ecs_task_definition.bridge[0].container_definitions)[0].environment : entry.name => entry.value }[name] == value])
+    } : lookup({ for entry in jsondecode(aws_ecs_task_definition.bridge[0].container_definitions)[0].environment : entry.name => entry.value }, name, "") == value])
     error_message = "Dynamic workers must inherit explicit measured resources, production fencing, 12-hour session bound, cap one and exact owner networking/credential references."
+  }
+  assert {
+    condition = (
+      length(regexall("date \\+%s", local.bridge_command)) == 1 &&
+      strcontains(local.bridge_command, "export VRDEX_EVENT_MEDIA_BRIDGE_DRAIN_AT_MS=$((($(date +%s) + 85800) * 1000))") &&
+      can(regex("(?s)timeout[^\\n]+\\n[ ]+export VRDEX_EVENT_MEDIA_BRIDGE_DRAIN_AT_MS=.*aws s3 cp.*while ", local.bridge_command)) &&
+      !can(regex("(?s)while .*export VRDEX_EVENT_MEDIA_BRIDGE_DRAIN_AT_MS=", local.bridge_command))
+    )
+    error_message = "The outer dispatcher must export one 23-hour-50-minute drain deadline before download and retries so every child inherits the same ten-minute cleanup window."
   }
   assert {
     condition = (
@@ -210,6 +233,23 @@ run "enabled_dispatcher_permissions" {
     )
     error_message = "The whole bootstrap/retry process needs one 24-hour deadline, verified bundle and no container restart or automatic switch enablement."
   }
+  assert {
+    condition = (
+      strcontains(local.bridge_command, "trap \"stopping=1; export VRDEX_EVENT_MEDIA_BRIDGE_DRAIN_AT_MS=0\" TERM INT") &&
+      strcontains(local.bridge_command, "while [ \"$attempt\" -lt 10 ] && [ \"$stopping\" -eq 0 ]") &&
+      length(regexall("aws s3 cp", local.bridge_command)) == 2 &&
+      length(regexall("sha256sum --check --status", local.bridge_command)) == 2 &&
+      can(regex("(?s)BRIDGE_BUNDLE_SHA256.*sha256sum.*BRIDGE_CLI_SHA256.*sha256sum.*python3 -", local.bridge_command)) &&
+      strcontains(local.bridge_command, "len(members) > 10000") &&
+      strcontains(local.bridge_command, "limit = 1024 * 1024 * 1024") &&
+      strcontains(local.bridge_command, "stat.S_ISLNK") &&
+      strcontains(local.bridge_command, "source.read(65536)") &&
+      strcontains(local.bridge_command, "root.mkdir(mode=0o700)") &&
+      can(regex("(?s)AWS_COMMAND.*--version.*ecs run-task --generate-cli-skeleton input.*clientToken.*VRDEX_EVENT_MEDIA_ECS_BRIDGE_CONFIG_CHECK_ONLY", local.bridge_command))
+    )
+    error_message = "Bootstrap must verify both exact downloads before bounded private extraction and require RunTask clientToken support before executing the bridge."
+  }
+
 }
 
 run "enabled_requires_owner_configuration" {
@@ -253,6 +293,24 @@ run "rejects_increased_concurrency" {
   variables {
     enable_event_media_bridge = true
     max_concurrent_workers    = 2
+  }
+  expect_failures = [aws_ecs_task_definition.bridge]
+}
+
+run "rejects_unverified_cli_archive_key" {
+  command = plan
+  variables {
+    enable_event_media_bridge = true
+    event_media_bridge        = merge(var.event_media_bridge, { cli_archive_key = "event-media-bridge/awscli/latest.zip" })
+  }
+  expect_failures = [aws_ecs_task_definition.bridge]
+}
+
+run "rejects_invalid_cli_archive_sha256" {
+  command = plan
+  variables {
+    enable_event_media_bridge = true
+    event_media_bridge        = merge(var.event_media_bridge, { cli_archive_sha256 = "" })
   }
   expect_failures = [aws_ecs_task_definition.bridge]
 }
