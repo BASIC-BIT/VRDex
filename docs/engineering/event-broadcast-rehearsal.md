@@ -17,9 +17,16 @@ hosts such as `uk.ingest.vrcdn.live`, in split `rtmpUrl`/`streamKey` or combined
 `ingestUrl` form. RTMP/RTMPS, ports 1935/443, the `/live` application and stream-key
 checks still apply. Userinfo, query, fragment, lookalike suffixes and nested regional
 subdomains are rejected. The canonical-host correction passed startup validation in the third attempt below.
-That attempt still failed before publication. The passive-observation image is now
-published and verified below, with offline tests only. A future provider attempt
-still requires separate operator authorization.
+That attempt still failed before publication. The October 22 source-lookup correction
+and its published image subsequently reached actual Fargate TCP, TLS, HTTP 200 and
+decoder readiness. Publication to `basicbit` remains blocked by provider rejection
+of the existing output credential. See the [current evidence](#october-22-2026-diagnostic-session).
+
+The October 21 attempt records below retain their original approval and image
+boundaries. BASIC later authorized autonomous completion within a total $20 budget,
+superseding the earlier per-attempt counts, ten-minute windows and $1 target.
+Production enablement remains false; each diagnostic task still needs an explicit
+external deadline, exact cleanup and retained failure evidence.
 
 ## Image and permissions
 
@@ -118,13 +125,19 @@ and the production one-second VRCDN GOP through the existing renderer and sender
 
 ## Bounds and observation
 
-Run at most one 120-second synthetic task at 2 CPU/4 GiB, one 120-second output task
-at 2 CPU/4 GiB, and two sequential source pushers at 1 CPU/2 GiB. Use existing network,
+The initial October 21 approval allowed at most one 120-second synthetic task at
+2 CPU/4 GiB, one 120-second output task at 2 CPU/4 GiB, and two sequential source
+pushers at 1 CPU/2 GiB. Use existing network,
 roles, log group and 40 GiB ephemeral storage. No automatic retries, concurrent media
 runs or resource increases. Each task has a separate 240-second external stop deadline;
 the whole attempt has a ten-minute operator deadline. Compute estimate is about $0.02,
 excluding storage, logs and delivery. The $1 incremental target is not a billing cutoff.
-The account budget was already exceeded when this attempt was approved.
+The account budget was already exceeded when this attempt was approved. These
+original attempt limits are historical. The October 22 autonomous $20 scope below
+supersedes their count/window/target restrictions. Source pushers retain a
+240-second external deadline. The separately bounded 300-second synthetic capacity
+measurements use a 390-second inner bound and 480-second external deadline; their
+4 CPU/8 GiB task is a diagnostic measurement, not a production configuration change.
 
 The provider adapter has a 180-second internal media deadline, a 12-second startup
 operation bound, the worker's unchanged 15-second publication startup guard, and an
@@ -494,7 +507,205 @@ receipts in `/workspace/rehearsal-sdd/` are `published-image-transport.json`,
 `transport-image-published-verification.json`. The whole-branch review is
 `final-with-transport-review.md`.
 
-No live task or capacity rerun has used this image. Publication and packaging
-verification do not establish provider acceptance or fix the unproven cloud cause.
-The next live window, if any, requires separate operator authorization; all open
-provider, source/hold/return, source loss/recovery, switch and device gates remain.
+At the October 21 publication readback, this image had no live task or capacity
+rerun. Publication and packaging alone established no provider acceptance. The
+subsequent authorization and October 22 observations are recorded below.
+
+## October 22, 2026 diagnostic session
+
+BASIC explicitly superseded the earlier per-window and attempt-count approval caps
+with up to $20 for autonomous completion. This includes measured diagnostics and
+reviewed, evidence-based corrections. It does not enable ordinary hosted output,
+change IAM or waive runtime guards. Source publishers remain sequential. Before
+starting a replacement, the operator verifies `executionStoppedAt` and task status DEPROVISIONING or
+STOPPED. Network-only deprovisioning may finish afterward; stale container status
+does not override the recorded process exit. Exact
+task cleanup and switch readback remain required. The longer capacity-only task
+bounds above are explicit operator limits, not production timeout changes. An
+independent Fargate capacity task may overlap a staged provider test because CPU,
+memory, loopback receivers and test data are isolated and it carries no provider
+secrets; source publishers still never overlap.
+
+### Source lookup defect and published correction
+
+The passive-observation image `f8f833` was used in the first October 22 attempt.
+Four source requests resolved 12 public IPv4 answers each, then failed within
+1 to 11 ms before TCP or TLS, with zero bytes read or written. The adapter failed
+in 15.687 seconds. Its sender attempts also reported rejection indicators. This
+separated a pre-connect source defect from the output-account failure; it did not
+support relaxing the source response deadline. The independent source capture
+retained 4,161,536 bytes and decoded 38 frames with audio. An initial 80-frame
+threshold assertion failed and remains preserved. Final readback at
+`00:19:36.196Z` found zero RUNNING tasks, both switches false at production /
+rehearsal versions 1/8 and both revision-4 proof definitions INACTIVE. Evidence is
+in `/workspace/rehearsal-sdd/live-transport-20261022T001434Z/`.
+
+Task 6 confirmed the actual Node callback contract before modifying production.
+Node family selection requests `lookup` with `all: true`, requiring an address
+array. The relay had always returned a scalar address and family. On host Node
+24.19.0 this produced `ERR_INVALID_IP_ADDRESS` before TCP. The exact Node 22.23.4
+binary extracted from the new image archive reproduced the scalar failure in
+5.03 ms with zero bytes; a singleton array connected to the loopback server in
+2.95 ms. This was host execution of the extracted binary, not a full-container
+acceptance claim.
+
+Commit `33770f7723f3bdbfa80a710eda3cfa6a5287aa0a` returns a singleton array only
+for `all: true` and retains the scalar callback otherwise. Both forms use only
+the already validated first public IPv4. There is no new lookup, fallback address,
+endpoint change or deadline relaxation. The production callback-shape test failed
+before the fix; afterward 6 relay, 1 selected source-boundary and all 38 rehearsal
+tests passed. Scoped and whole-branch reviews passed.
+
+The normal image is published at
+`079358094174.dkr.ecr.us-east-1.amazonaws.com/vrdex-restream-worker@sha256:fa5515d574355d6a647ce8390285f62edec1ad4f7e6e98956230c0b1391c2548`,
+from source `33770f7`, local image ID
+`sha256:af03744bea3ada3c44afaed83407b6b47d8b11f3c43aac888ec9af732a545065`.
+All 13 packaged source hashes match. Only `source-relay.mjs` differs from the
+passive-observation image, with the same base/runtime and default command. Native
+readback at `00:34:43.182Z` confirmed ECR ACTIVE. Temporary registry authentication
+directories were subsequently verified absent. Receipts are
+`published-image-source-fix.json`, `packaged-image-source-fix-verification.json`,
+`source-fix-image-published-verification.json`, `source-fix-registry-cleanup.json`
+and `node22-image-extraction.json` in `/workspace/rehearsal-sdd/`.
+
+### Output credential rejection and unavailable browser access
+
+A reviewed one-off probe ran the legacy POC pusher with the existing `basicbit`
+output credential, requesting 60 seconds. Its child failed naturally in 0.73
+seconds with authentication, bad-name and server-rejection indicators, exit 1.
+The production sender and this independent legacy path both rejected that stored
+credential, while the `basicbit1` source credential worked. This is evidence of an
+output credential/account rejection, not evidence for changing the sender's app,
+queues or timeout guards. Cleanup at `00:27:45.648Z` confirmed the probe STOPPED,
+its definition INACTIVE, dedicated switch false at version 10 and zero RUNNING.
+The probe evidence is retained with the transport attempt above.
+
+The output secret has a June 10 AWSCURRENT version and no previous-version
+fallback. BASIC explicitly
+authorized retrieving the current key through the logged-in browser and updating
+the exact AWS output secret. The browser skill was available, but no callable
+browser, browser JavaScript, computer-control or tool-search capability was exposed.
+The operator could not access the dashboard or refresh the key through that surface.
+No output secret was updated, and no browser cookies or alternate browser-control
+route were extracted. `basicbit` provider-output acceptance remains open.
+
+### Staged source and local-output observations
+
+Reviewed operator-only probes outside the repository separate the real provider
+source chain from the rejected output account. The hybrid uses actual provider
+HTTPS and the real relay, decoder, renderer and controller, with an explicitly
+local RTMP receiver. Its `publishing=true` denotes that local receiver and does
+not establish public `basicbit` output.
+
+The initial embedded hybrid task exited zero with no `proof-start`, logs or
+artifacts. It executed no workload and supplied no acceptance evidence. Exact
+Node 22 reproduction found a CLI entry guard comparing raw `/[eval1]` with the
+URL-encoded `/%5Beval1%5D` spelling. Both hybrid and working-account hold wrappers
+were corrected to compare filesystem paths. RED/GREEN tests exercised embedded
+`node -e`, direct-file execution and inactive imports under Node 22.23.4 and
+24.19.0. The scoped rereview passed. These are operator wrappers; no packaged
+production module changed.
+
+The first corrected hybrid ran for 120.767 seconds. It observed actual TCP in
+19 to 25 ms, TLS in 53 to 69 ms and HTTP 200 headers in roughly 0.6 to 1.6 seconds,
+followed by decoded source readiness. Explicit hold command 1 and return command 2
+succeeded, local publication advanced, and actual readiness loss was observed.
+The original rehearsal exit was zero, but the stricter wrapper retained exit 1
+because recovery and command 3 were missing. Source StopTask was requested at
+`00:51:11.281Z`, about +71.589 seconds rather than the planned +35/+40 seconds;
+replacement was not launched before the sample ended. This operator timing failure
+is preserved in `/workspace/rehearsal-sdd/live-hybrid-20261022T004742Z/`.
+It does not reverse the successful source transport observation.
+
+A second corrected hybrid also observed readiness/loss and commands 1/2 but no
+recovery, so its strict wrapper retained exit 1. Its original rehearsal exit zero
+is not overall acceptance. This failed attempt remains in
+`/workspace/rehearsal-sdd/live-auto-hybrid-20261022T005539Z/`.
+
+The fresh recovery run then passed with `sourceChainAccepted=true`, original and
+wrapper exit 0, and 120.968 seconds wall time. It observed initial readiness,
+actual readiness loss and recovery, with successful encoded hold command 1,
+initial return command 2 and post-recovery return command 3. The first source's
+execution stopped at `01:04:53.764Z`; the replacement was requested only at
+`01:05:10.122433Z`, establishing sequential source publication. The local receiver
+retained 28,973,432 bytes, and the 29,820,560-byte program recording passed packet
+verification with a 33.334 ms maximum gap and one-second GOP. No receiver/cleanup
+failure or child remaining after cleanup was reported. The exact result is
+`/workspace/rehearsal-sdd/live-recovery-20261022T010253Z/result-and-initial-cleanup.json`.
+
+This accepts the real provider HTTPS source chain through the current relay,
+decoder, renderer, source-loss handling and explicit recovery to a local RTMP
+receiver. It does not accept public `basicbit` output or independent-DJ handoff.
+The separate working-account hold/fence probe also passed, as recorded below.
+Real Convex authority, live Twitch and physical PC/Quest playback remain open.
+
+### Working-account provider hold and actual switch fence
+
+The separate `basicbit1` hold probe passed with
+`holdPublishAndFenceAccepted=true`, exit 0 and 58.897 seconds wall time. It observed
+55.998 seconds of advancing provider publication and actual hold output, with no
+source selected. The operator set the dedicated switch false at
+`01:08:21.519856Z`, about +55.74 seconds after task startup. The real worker
+observed false and fenced with `stopReasons.control_failed=true`; publication and
+all tracked children were gone after cleanup. Execution stopped at
+`01:08:27.875Z`. Final ECS terminal state and switch inventory were verified below.
+
+The independent public `basicbit1` capture received HTTP 200 and 3,883,008 bytes
+over 20.03 wall seconds. It contains H.264 1280x720/30 fps and AAC/48 kHz with about
+16.1 seconds of media. Bounded offline decode reached 120 frames and ended with
+exit 0. Its 8,004 bytes of startup PPS/header warnings remain preserved; the
+capture is not warning-free. Visual inspection of the extracted public frame
+matched the renderer's neutral hold frame, a dark background and brighter center
+rectangle. This is public working-account hold publication and actual switch
+fencing, not the source-to-output two-account rehearsal or PC/Quest playback.
+Receipts and observations are under
+`/workspace/rehearsal-sdd/live-hold-20261022T010507Z/`, including
+`result-readback.json`, `public-hold.capture.json`, `public-hold-verification.json`
+and `public-hold-visual-review.md`.
+
+### Five-minute synthetic capacity measurements
+
+Both measurements use source `33770f7` / image `fa5515`, the existing synthetic
+720p30 workload and unchanged runtime guards, with no provider secrets. The
+2 CPU/4 GiB, 300-second attempt exited 1 with `renderClockBudgetExceeded` around
+196 seconds. Its failure and six S3 objects remain preserved. The earlier
+120-second 2 CPU success remains a shorter historical result; it does not establish
+five-minute capacity.
+
+A separately bounded 4 CPU/8 GiB measurement passed the requested 300 seconds with
+301.479730396 wall seconds, exit 0, one primary process, 34 ms maximum packet gap,
+one-second GOP and 562,741,248 bytes peak worker RSS. It recorded 29 renewals,
+299 samples and no queue growth. The task reached ECS STOPPED at
+`00:59:40.285Z`, exit 0. The six uploaded artifacts had no upload failures.
+The authoritative receipt is `/workspace/rehearsal-sdd/capacity4cpu-result-receipt.json`;
+the failed smaller task is in `capacity300-result-receipt.json`.
+
+This establishes a five-minute synthetic sample at 4 CPU/8 GiB, including synthetic
+optional-output behavior. It does not change the production task size, establish
+long-duration capacity, validate a live Twitch account or accept the rejected
+`basicbit` output credential.
+
+### Final cleanup and remaining gates
+
+Native readback at `01:09:32.522792Z` in
+`/workspace/rehearsal-sdd/final-diagnostic-session-cleanup.json` confirmed zero
+RUNNING tasks. The hold and recovery controllers were STOPPED/exit 0, both source
+pushers STOPPED/exit 143 after operator cleanup, and the 4 CPU capacity task
+STOPPED/exit 0. All five task network interfaces were DELETED. Working-hold
+revision 1, hybrid revision 4 and source revision 5 definitions were INACTIVE;
+the earlier capacity/hybrid definitions were already inactive. Production and
+rehearsal switches were false at versions 1/21. The output secret's AWSCURRENT
+version was unchanged.
+
+A bounded public observer after the fence received no fresh bytes or HTTP response
+and timed out after 8.195 seconds. This is not proof of an explicit provider close
+or rejection. Fence acceptance rests on the observed worker fence, stopped
+publication/children and exact ECS termination above.
+
+Accepted evidence is now the repaired real provider source chain through explicit
+loss/recovery to a local receiver, real working-account hold publication and switch
+fencing, and a five-minute synthetic 4 CPU/8 GiB sample. Public `basicbit` output
+with refreshed credentials, the complete two-account rehearsal, two independent
+DJ sources, real Convex authority, live Twitch, musical-silence calibration,
+physical PC/Quest playback and multi-hour capacity remain open. The plan is not
+fully accepted and ordinary hosted output remains disabled.

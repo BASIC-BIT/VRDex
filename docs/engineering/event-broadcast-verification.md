@@ -1,7 +1,7 @@
 # Event broadcast integration verification
 
-Status: implementation and local acceptance, October 20, 2026. Hosted output
-remains disabled. This record distinguishes the current event worker from the
+Status: implementation, local acceptance and bounded Fargate diagnostics through
+October 22, 2026. Hosted output remains disabled. This record distinguishes the current event worker from the
 June 2026 provider POC and records outstanding rollout gates. The approved design
 is [event broadcast and host view](../superpowers/specs/2026-10-19-event-broadcast-and-host-view-design.md).
 
@@ -889,6 +889,57 @@ switches false at production/rehearsal versions 1/6. Temporary registry director
 were absent. The four publication, packaging, image-difference and readback
 receipts and `final-with-transport-review.md` remain in `/workspace/rehearsal-sdd/`;
 the [published-image record](event-broadcast-rehearsal.md#published-passive-observation-image)
-lists their exact names. No live validation or capacity rerun used this image.
-Provider-output acceptance and the unproven live root cause remain open; another
-live attempt requires separate operator authorization.
+lists their exact names. At that publication readback, no live validation or capacity rerun had used this
+image. The later authorization and measured October 22 outcomes follow below.
+
+### October 22 source correction, staged evidence and capacity
+
+BASIC authorized autonomous completion within $20, superseding the earlier
+per-window/count approval caps and $1 target. Ordinary hosted output remains off.
+Explicit task deadlines, sequential source publishers and exact cleanup remain.
+
+Passive observation isolated four 1 to 11 ms, zero-byte source failures before
+TCP/TLS. Node family selection required an `all: true` address-array callback;
+the relay returned a scalar. Real Node 24 and the exact extracted image Node
+22.23.4 reproduced `ERR_INVALID_IP_ADDRESS` before TCP. Commit
+`33770f7723f3bdbfa80a710eda3cfa6a5287aa0a` fixes only that shape while retaining
+the first prevalidated public IPv4. RED preceded the edit; 6 relay, 1 selected
+source-boundary and 38 rehearsal tests passed, followed by independent review.
+Image `sha256:fa5515d574355d6a647ce8390285f62edec1ad4f7e6e98956230c0b1391c2548`
+has all 13 matching source hashes; only the relay differs from `f8f833`.
+
+Corrected Fargate probes reached actual TCP/TLS, HTTP 200 and decoded source
+readiness. After two preserved partial runs, the fresh hybrid passed in 120.968
+seconds with readiness/loss/recovery and encoded commands 1/2/3. Sequential source
+replacement was verified. Its program recording passed packet verification with
+a 33.334 ms maximum gap and one-second GOP. This accepts the real provider source
+chain to a local receiver, not public `basicbit` output. The initial embedded CLI
+no-op is also preserved; Node 22/24 RED/GREEN entry-guard tests and rereview cover
+its correction.
+
+The stored `basicbit` output credential remains rejected by both the current
+sender and a legacy POC pusher. The latter failed naturally after 0.73 seconds
+with authentication/bad-name indicators. The output secret has no previous-version
+fallback. Browser retrieval and AWS replacement
+were authorized, but callable browser controls were unavailable. No key was updated.
+
+The five-minute 2 CPU/4 GiB synthetic run failed around 196 seconds with
+`renderClockBudgetExceeded`. The same workload on 4 CPU/8 GiB passed 300 seconds,
+301.479730396 wall seconds, exit 0, with one primary process, 34 ms maximum packet
+gap, one-second GOP, zero maximum queue bytes and 562,741,248 bytes peak worker RSS.
+Six artifacts uploaded successfully. This does not change production resources or
+establish long-duration capacity, a live Twitch account or provider-output acceptance.
+
+The separate `basicbit1` hold/fence probe passed, exit 0, with 55.998 seconds
+of advancing provider output. Dedicated-switch false was observed and the real
+worker fenced with `control_failed`; publication and tracked children were gone
+after cleanup. Public HTTP 200 capture retained 3,883,008 bytes, decoded to H.264
+720p30/AAC and visually matched the neutral hold frame. Startup PPS/header warnings
+are preserved. This accepts working-account hold publication and switch fencing,
+not the original two-account rehearsal. Final readback at `01:09:32.522792Z`
+confirmed zero RUNNING tasks, all five final tasks STOPPED, their interfaces
+DELETED, the latest proof definitions INACTIVE and both switches false at
+production/rehearsal versions 1/21. The rejected output secret is unchanged.
+`basicbit` output, two-account/independent-DJ, real Convex, live Twitch, musical
+silence, device and multi-hour capacity gates remain open. See the [October 22 record](event-broadcast-rehearsal.md#october-22-2026-diagnostic-session)
+for exact provenance, failed attempts, receipts and remaining gates.

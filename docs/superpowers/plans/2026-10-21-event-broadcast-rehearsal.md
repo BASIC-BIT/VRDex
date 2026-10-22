@@ -12,6 +12,11 @@
 
 ## Global constraints
 
+The following count, window and cost limits describe the original October 21
+approval. BASIC later superseded those limits with autonomous completion within
+$20, as recorded in the October 22 amendment below. Production disablement, secret
+handling, measured evidence and exact cleanup remain binding.
+
 - Production `/vrdex/restream/hosted-worker/enabled` remains false. Dedicated rehearsal switch `/vrdex/restream/rehearsal/enabled` defaults false and is the only switch toggled for provider proof.
 - Use only existing basicbit1 source and basicbit output. No Twitch account exists. Do not claim two-independent-source live acceptance, real Convex admission/registry/leases, musical silence calibration or physical device acceptance.
 - Current event profile only: 720p30 H.264/yuv420p, 1800kbps video, AAC stereo160kbps/48kHz, one-second VRCDN GOP. Keep normal runtime modules/thresholds unchanged.
@@ -194,8 +199,8 @@ options, switching and media flow remain unchanged.
   appropriate script/Markdown checks; retain prior attempt records and uncertainty.
 - [x] Build, independently review, verify and publish the source-matched transport
   proof image. Root completed this separate publication step as recorded below.
-- [ ] Complete provider acceptance in a separately authorized future window. No
-  further live task or retry is currently authorized.
+- [ ] Complete provider acceptance. At Task 5 publication no further live task
+  was authorized; the later October 22 autonomous scope supersedes that limit.
 
 ### Transport image publication status
 
@@ -217,7 +222,68 @@ receipts are `published-image-transport.json`,
 `transport-image-published-verification.json` in `/workspace/rehearsal-sdd/`;
 `final-with-transport-review.md` records whole-branch review.
 
-This completes the image gate only. The new image has no live task, capacity rerun
-or provider validation. Task 2 remains partial; the cloud cause remains unproven
-and all live acceptance gates remain open. A future attempt requires separate
-operator authorization. Historical capacity and image records remain preserved.
+This completed the image gate only. At publication, the image had no live task,
+capacity rerun or provider validation. The October 22 amendment and subsequent
+evidence follow below. Historical capacity and image records remain preserved.
+
+## October 22 autonomous diagnostic scope and Tasks 6 to 8
+
+BASIC explicitly authorized autonomous completion within $20, superseding earlier
+per-attempt counts, ten-minute windows and the $1 target. Production disablement,
+rights/account checks, runtime guards, sequential source publishers, exact cleanup
+and failure preservation remain binding. Replacement requires `executionStoppedAt`
+and task status DEPROVISIONING or STOPPED, confirming process exit while network
+cleanup may continue. Source pushers retain 240-second bounds; the explicit
+300-second synthetic measurement uses a 390-second inner and 480-second external
+bound with no provider secrets or production resource configuration change. Its
+independent Fargate resources may overlap a staged provider test; source publishers
+remain sequential.
+
+### Task 6: Correct demonstrated source lookup callback contract
+
+- [x] Isolate the pre-TCP zero-byte failures and reproduce the `all: true` scalar
+  callback defect under Node 24 and the exact extracted image Node 22.23.4.
+- [x] Observe RED, fix only the callback shape while retaining the first validated
+  public IPv4, and pass 6 relay, 1 source-boundary and 38 rehearsal tests.
+- [x] Independently review, package, verify and publish source
+  `33770f7723f3bdbfa80a710eda3cfa6a5287aa0a` as image
+  `sha256:fa5515d574355d6a647ce8390285f62edec1ad4f7e6e98956230c0b1391c2548`.
+  All 13 packaged hashes match; only the relay differs from `f8f833`.
+- [x] Observe actual Fargate TCP/TLS, HTTP 200 and decoded readiness after the fix.
+
+### Task 7: Separate staged source and output-account diagnostics
+
+- [x] Preserve the independent legacy POC's natural 0.73-second authentication/
+  bad-name output rejection. Confirm no prior output-version fallback. Authorized browser retrieval lacks callable
+  controls; no output key was updated.
+- [x] Review operator-only hybrid/hold probes, preserve the initial embedded CLI
+  no-op, correct its entry guard with Node 22/24 RED/GREEN tests and rereview.
+- [x] Preserve both partial hybrids as failed despite original rehearsal exit zero.
+- [x] Pass actual source readiness/loss/recovery and encoded commands 1/2/3 in
+  the fresh 120.968-second hybrid, original/wrapper exit 0. Verify sequential source
+  replacement and local packet output. This is not public `basicbit` output.
+- [x] Verify real `basicbit1` provider hold advancement and dedicated-switch fence.
+  The probe passed exit 0, 55.998 seconds advancing, actual false observation and
+  `control_failed` fence, with publication/children gone after cleanup. Public
+  HTTP 200 media decoded and visually matched the neutral slate; warnings retained.
+- [ ] Complete public `basicbit` output acceptance after credential refresh.
+
+### Task 8: Measure five-minute capacity and reconcile evidence
+
+- [x] Preserve the 2 CPU/4 GiB 300-second attempt's clock-budget failure around
+  196 seconds; do not extend the earlier 120-second success claim.
+- [x] Pass the same synthetic workload at 4 CPU/8 GiB for 300 seconds, actual wall
+  301.479730396 seconds, exit 0, one primary process, 34 ms maximum packet gap,
+  one-second GOP and 562,741,248 bytes peak worker RSS. Six artifacts uploaded.
+- [x] Record final cleanup at `01:09:32.522792Z`: zero RUNNING, all five final tasks
+  STOPPED, five interfaces DELETED, latest proof definitions INACTIVE and both
+  switches false at production/rehearsal versions 1/21. Output secret unchanged.
+- [x] Incorporate final ECS/switch cleanup receipts and prepare the PR 378 evidence
+  update. Final review and publication remain tracked in the operator ledger.
+
+These bounded results do not change production task size or establish the original
+two-account output rehearsal, independent-DJ handoff, real Convex authority, live
+Twitch, musical-silence calibration, multi-hour capacity or physical-device
+acceptance. The plan remains partially accepted. See the
+[October 22 evidence record](../../engineering/event-broadcast-rehearsal.md#october-22-2026-diagnostic-session)
+and `/workspace/rehearsal-sdd/capacity4cpu-result-receipt.json`.

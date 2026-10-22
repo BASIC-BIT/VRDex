@@ -943,3 +943,32 @@ fallback instead of skipping the replacement; an operator may still select it
 early explicitly. The corrected controller and policy have fresh packaged proof
 attribution in the verification page. Previous snapshots retain their original
 scope, and hosted enablement still requires capacity and provider acceptance.
+
+### October 22 isolated rehearsal findings
+
+Ordinary hosted output remains disabled. BASIC's autonomous $20 completion scope
+supersedes the original attempt-count and ten-minute approval caps. Individual
+tasks still require explicit external deadlines and exact cleanup. Source pushers
+retain 240-second bounds; the 300-second synthetic measurement has a declared
+390-second inner and 480-second external bound. Source replacement requires
+`executionStoppedAt` and task status DEPROVISIONING or STOPPED, confirming process
+exit while allowing network-only cleanup to finish afterward.
+
+The reviewed proof image is
+`079358094174.dkr.ecr.us-east-1.amazonaws.com/vrdex-restream-worker@sha256:fa5515d574355d6a647ce8390285f62edec1ad4f7e6e98956230c0b1391c2548`,
+source `33770f7723f3bdbfa80a710eda3cfa6a5287aa0a`, with 13 matching packaged
+hashes. Its source callback correction was reproduced under Node 22.23.4; actual
+Fargate source TCP/TLS, HTTP 200 and readiness/loss/recovery to a local RTMP receiver
+subsequently passed. The rejected `basicbit` credential still blocks that account's
+public output. Authorized browser retrieval could not proceed because callable
+browser controls were unavailable; no secret was updated.
+
+A 2 CPU/4 GiB, 300-second synthetic run failed with `renderClockBudgetExceeded`.
+The same workload passed five minutes at 4 CPU/8 GiB. This is a bounded measurement,
+not a production resource change. A separate real `basicbit1` hold/fence probe
+passed with public decoded slate bytes, observed dedicated-switch false and actual
+worker fencing. Final readback at `01:09:32.522792Z` confirmed zero RUNNING,
+all five final tasks STOPPED, their interfaces DELETED, latest proof definitions
+INACTIVE and both switches false at production/rehearsal versions 1/21. The output
+secret remains unchanged; the full provider and rollout gates remain open. See the [rehearsal record](../engineering/event-broadcast-rehearsal.md#october-22-2026-diagnostic-session)
+for exact metrics, provenance, retained failures and remaining gates.
