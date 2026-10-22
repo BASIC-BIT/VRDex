@@ -37,7 +37,7 @@ resource "aws_iam_role_policy" "restream_proof_image" {
         Resource = "*"
       },
       {
-        Sid    = "PublishOnlyRestreamProofImages"
+        Sid    = "PublishAndVerifyRestreamProofImages"
         Effect = "Allow"
         Action = [
           "ecr:BatchCheckLayerAvailability",
@@ -46,6 +46,8 @@ resource "aws_iam_role_policy" "restream_proof_image" {
           "ecr:CompleteLayerUpload",
           "ecr:PutImage",
           "ecr:DescribeImages",
+          "ecr:BatchGetImage",
+          "ecr:GetDownloadUrlForLayer",
         ]
         Resource = "arn:aws:ecr:us-east-1:079358094174:repository/vrdex-restream-worker"
       },

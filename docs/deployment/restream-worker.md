@@ -950,8 +950,13 @@ The manual `Restream proof image` workflow requires the dedicated
 `vrdex-restream-proof-image` OIDC role before dispatch from main. The state-mgmt
 owner provisions it with `enable_restream_proof_image_permissions=true`, default
 false. Its exact repository-main subject and STS audience permit ECR authentication
-and push/DescribeImages only. Other eligible main-branch jobs share that trust
-boundary; it does not isolate one workflow. The Terraform role's broader permissions
+and exact-repository push/DescribeImages, plus `ecr:BatchGetImage` and
+`ecr:GetDownloadUrlForLayer` on the same repository. Retry recovery pulls the
+existing immutable digest for `linux/amd64` and verifies the source label and all
+13 packaged source files on the runner before executing syntax/import checks.
+It regenerates provenance without a prior artifact and never pushes or retags an
+existing image. Mismatches fail closed. Other eligible main-branch jobs share that
+trust boundary; it does not isolate one workflow. The Terraform role's broader permissions
 are separate. A reviewed owner migration can retire its historical ECR-only bootstrap
 grant after the dedicated role is verified. This change does not claim live IAM
 provisioning. See [permissions, import and rollback](../engineering/event-broadcast-rehearsal.md#image-and-permissions).

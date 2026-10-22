@@ -61,9 +61,13 @@ Do not commit local state, plans, or `terraform.tfvars`. The root `.gitignore` e
 the existing GitHub OIDC provider and requires exact `StringEquals` matches for
 STS audience `sts.amazonaws.com` and subject
 `repo:${var.github_repository}:ref:refs/heads/main`. Its only permissions are registry
-authentication and push/DescribeImages on the exact restream repository. It has no
-ECR pull, secret, ECS, IAM, Terraform state or Route 53 permissions. The Terraform
-role's trust and policies are unchanged.
+authentication and push/DescribeImages on the exact restream repository, plus
+`ecr:BatchGetImage` and `ecr:GetDownloadUrlForLayer` on that same repository. These
+two read actions let retries pull the immutable digest, verify all 13 packaged
+sources and the source label on the runner, and regenerate missing provenance
+without pushing again or needing a prior artifact. Source mismatch fails closed
+before image code executes. It has no cross-repository, secret, ECS, IAM, Terraform
+state or Route 53 permissions. The Terraform role's trust and policies are unchanged.
 
 The main-only subject permits eligible jobs on that repository's main branch.
 AWS IAM cannot directly restrict GitHub's arbitrary `job_workflow_ref` claim with

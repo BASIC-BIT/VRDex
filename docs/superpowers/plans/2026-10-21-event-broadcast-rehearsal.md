@@ -299,3 +299,31 @@ them without AWS credentials. Existing image provenance and attempt evidence kee
 their original scope. No live role apply is claimed. The state-mgmt owner must
 verify the new role and review retirement of the historical ECR grant before
 future publication. See [the permission procedure](../../engineering/event-broadcast-rehearsal.md#image-and-permissions).
+
+## Task 10 immutable publisher retry recovery
+
+A successful immutable push followed by cancellation or artifact-upload failure
+left retries unable to recover missing provenance. The workflow now reuses only
+an existing tag's single valid digest, pulled for `linux/amd64`. It compares the
+source label and all 13 packaged files against the checked-out reviewed main SHA.
+File hashes come from runner copies taken from a stopped container. Each Docker
+copy streams an uncompressed tar archive capped at 10 MiB before host parsing.
+The runner accepts exactly one regular entry with the expected basename and exact
+checked-out file size, writing only to a fixed destination. Directories, symlinks,
+multiple entries, unexpected paths and oversized archives fail without recursive
+extraction. Existing syntax/import checks run only after source verification.
+On exit both container and temporary-directory cleanup are attempted. Cleanup
+failure fails an otherwise successful job and preserves any earlier failure. New images
+pass the same checks before push. Both paths record the actual digest, requested
+SHA, source label, expected and actual hashes, and reuse status in provenance.
+Recovery does not require a prior artifact or execute a helper from the requested
+SHA. It never pushes, overwrites, deletes or retags an existing image.
+
+The default-false dedicated main-only role adds exactly `ecr:BatchGetImage` and
+`ecr:GetDownloadUrlForLayer` on the same `vrdex-restream-worker` repository.
+These read actions are required to recover evidence after a completed immutable
+push. No cross-repository, IAM, ECS, secret, state or Route 53 authority is added.
+Native mock-provider plans assert the full policy; fake Docker/AWS regression tests
+execute the real workflow with runner hashing, including missing-artifact recovery,
+all 13 source mismatches, label/digest failures, nonregular files, fresh publication
+and cleanup. Historical execution and published-image evidence above is unchanged.

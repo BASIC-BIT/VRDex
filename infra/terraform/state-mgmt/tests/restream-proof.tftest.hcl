@@ -74,7 +74,7 @@ run "enabled_publisher" {
           Resource = "*"
         },
         {
-          Sid    = "PublishOnlyRestreamProofImages"
+          Sid    = "PublishAndVerifyRestreamProofImages"
           Effect = "Allow"
           Action = [
             "ecr:BatchCheckLayerAvailability",
@@ -83,12 +83,14 @@ run "enabled_publisher" {
             "ecr:CompleteLayerUpload",
             "ecr:PutImage",
             "ecr:DescribeImages",
+            "ecr:BatchGetImage",
+            "ecr:GetDownloadUrlForLayer",
           ]
           Resource = "arn:aws:ecr:us-east-1:079358094174:repository/vrdex-restream-worker"
         },
       ]
     }
-    error_message = "The complete publisher policy must contain only registry auth and exact-repository push/DescribeImages rights."
+    error_message = "The complete publisher policy must contain only registry auth and exact-repository push/DescribeImages and digest-recovery pull rights."
   }
 }
 

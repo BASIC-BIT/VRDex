@@ -33,11 +33,28 @@ external deadline, exact cleanup and retained failure evidence.
 The manual `Restream proof image` workflow builds an exact reviewed commit reachable
 from main. Run it from main with a full 40-character `source_sha`. It has no automatic
 trigger, and performs no ECS, IAM, SSM or Convex changes. It publishes immutable
-`proof-<full-sha>` and records the digest, source label and nine runtime module hashes.
-An existing tag fails closed, requiring inspection of prior provenance. The push-only
-policy cannot pull an old image for verification. Workflow installation on the default
-branch is a prerequisite for dispatch; a separately reviewed native AWS image-import
-bootstrap must record its provenance if used before installation.
+`proof-<full-sha>` and records the requested source SHA, actual digest, source label,
+all 13 packaged source hashes and whether the image was reused. On retry, an existing
+tag must resolve to exactly one valid digest. The workflow pulls that digest for
+`linux/amd64`, checks its source label, and streams each of the 13 fixed paths from
+a stopped container as an uncompressed tar archive. Before parsing, it caps the
+entire archive at 10 MiB, including directory contents and extra entries. The
+runner accepts exactly one regular entry with the expected basename and the exact
+checked-out source file size, then writes its bytes only to the fixed temporary
+host destination. It rejects directories, symlinks, multiple entries, unexpected
+paths and oversized archives without recursive extraction. The runner hashes the
+13 validated copies against the checked-out source before syntax/import checks.
+A mismatch fails closed before image code executes. On exit it attempts both
+stopped-container and temporary-directory cleanup. Cleanup failure fails an
+otherwise successful job; an earlier failure retains its original exit status. It never overwrites, deletes, retags or
+pushes an existing image. This regenerates complete provenance without a prior
+artifact, including after cancellation or artifact-upload failure following a push.
+New images pass the same verification before push and record the digest returned by
+ECR afterward. The default hosted-worker command stays unchanged. Inline workflow
+verification remains available when the requested SHA predates this recovery change.
+Workflow installation on the default branch is a prerequisite for dispatch; a
+separately reviewed native AWS image-import bootstrap must record its provenance
+if used before installation.
 
 Both Terraform flags default false. Inspect a saved plan and apply only the reviewed
 publisher creation/migration and rehearsal resources. The state-mgmt owner manages
@@ -46,9 +63,12 @@ publisher creation/migration and rehearsal resources. The state-mgmt owner manag
 assumes `arn:aws:iam::079358094174:role/vrdex-restream-proof-image`. The role reuses
 the existing GitHub OIDC provider and requires exact `StringEquals` matches for
 `aud=sts.amazonaws.com` and `sub=repo:BASIC-BIT/VRDex:ref:refs/heads/main` with the
-default repository variable. It grants only registry authentication and the existing
-push/DescribeImages actions on `vrdex-restream-worker`, with no pull, secret, ECS,
-IAM, state or Route 53 rights. The existing Terraform role's trust and other policies
+default repository variable. It grants registry authentication and exact-repository
+push/DescribeImages rights, plus only `ecr:BatchGetImage` and
+`ecr:GetDownloadUrlForLayer` on `vrdex-restream-worker` for digest-pinned recovery.
+These two read actions allow the runner to verify the existing image and regenerate
+missing provenance after a successful immutable push. They add no cross-repository,
+secret, ECS, IAM, state or Route 53 rights. The existing Terraform role's trust and other policies
 remain unchanged. Main-branch jobs can assume this role; the default GitHub subject
 does not identify a single workflow. AWS IAM cannot directly constrain the arbitrary
 `job_workflow_ref` claim without a separately reviewed GitHub subject-template change.
