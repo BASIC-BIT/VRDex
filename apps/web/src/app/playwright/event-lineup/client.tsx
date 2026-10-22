@@ -12,6 +12,7 @@ import { parseVrcdnStreamLinks } from "../../../../../../convex/_vrcdnLinks";
 
 const fetchAccessToken = async () => "fixture-token";
 const useFixtureAuth = () => ({ isLoading: false, isAuthenticated: true, fetchAccessToken });
+const useAnonymousFixtureAuth = () => ({ isLoading: false, isAuthenticated: false, fetchAccessToken: async () => null });
 
 const storageKey = "event-lineup-fixture-v1";
 const stream = (id: string) => {
@@ -76,7 +77,7 @@ function fixtureClient() {
   let accountsPending = localStorage.getItem("fixture-output-defer-accounts") === "true";
   window.addEventListener("fixture-output-release-accounts", () => { accountsPending = false; listeners.forEach(listener => listener()); }, { once: true });
   const viewer = { user: { defaultEventTimezone: "UTC" } };
-  const mediaStatus = { program: null, outputs: [], sessions: [], queuedCommandCount: 0 };
+  const mediaStatus = { outputConfigurationLocked: localStorage.getItem("fixture-output-locked") === "true", program: null, outputs: [], sessions: [], queuedCommandCount: 0 };
   const read = (name: string, args: Record<string, unknown>) => {
     if (name === "accounts:viewer") return viewer;
     if (name === "events:listVrcdnOutputAccounts") return accountsPending ? undefined : outputAccounts;
@@ -151,5 +152,6 @@ export default function EventLineupFixture() {
   const [client] = useState(fixtureClient);
   const [publicEvent] = useState(() => JSON.parse(localStorage.getItem("event-lineup-fixture-public") ?? JSON.stringify(fixtureEvent)) as PublicEvent);
   if (new URLSearchParams(window.location.search).has("output")) return <ConvexProviderWithAuth client={client} useAuth={useFixtureAuth}><Editor /></ConvexProviderWithAuth>;
-  return <ConvexProvider client={client}>{new URLSearchParams(window.location.search).has("editor") ? <Editor /> : <EventPublicPage event={publicEvent} />}</ConvexProvider>;
+  if (new URLSearchParams(window.location.search).has("editor")) return <ConvexProvider client={client}><Editor /></ConvexProvider>;
+  return <ConvexProviderWithAuth client={client} useAuth={useAnonymousFixtureAuth}><EventPublicPage event={publicEvent} /></ConvexProviderWithAuth>;
 }

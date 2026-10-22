@@ -9,11 +9,13 @@ import { cn } from "@/lib/cn";
 export function CopyValueRow({
   className,
   compact = false,
+  actionOnly = false,
   label,
   value,
 }: {
   className?: string;
   compact?: boolean;
+  actionOnly?: boolean;
   label: string;
   value: string;
 }) {
@@ -27,6 +29,20 @@ export function CopyValueRow({
     } catch {
       setCopied(false);
     }
+  }
+
+  if (actionOnly) {
+    return (
+      <button
+        aria-label={copied ? `${label} copied` : `Copy ${label}`}
+        className={cn(buttonVariants({ size: "sm", variant: "secondary" }), "gap-2", className)}
+        type="button"
+        onClick={() => void copyValue()}
+      >
+        {copied ? <Check aria-hidden="true" className="size-4" /> : <Copy aria-hidden="true" className="size-4" />}
+        {copied ? `${label} copied` : `Copy ${label}`}
+      </button>
+    );
   }
 
   return (
@@ -51,7 +67,7 @@ export function CopyValueRow({
         <button
           aria-label={copied ? `${label} copied` : `Copy ${label}`}
           className={cn(buttonVariants({ size: "sm", variant: "ghost" }), "size-9 shrink-0 p-0")}
-          title={copied ? "Copied" : `Copy ${label}`}
+          title={copied ? `${label} copied` : `Copy ${label}`}
           type="button"
           onClick={() => void copyValue()}
         >

@@ -159,9 +159,9 @@ variable "ephemeral_storage_gib" {
 }
 
 variable "max_concurrent_workers" {
-  description = "Non-secret benchmark guardrail for maximum simultaneously running hosted restream workers."
+  description = "Bridge/backend admission limit; configure the same value in Convex VRDEX_EVENT_BROADCAST_MAX_CONCURRENT."
   type        = number
-  default     = 10
+  default     = 1
 }
 
 variable "max_session_seconds" {
@@ -216,4 +216,24 @@ variable "tags" {
   description = "Additional resource tags."
   type        = map(string)
   default     = {}
+}
+
+variable "optional_output_secret_arns" {
+  description = "Exact Secrets Manager ARNs the running worker may read for optional destinations. Empty grants no optional-secret access; never add these to ECS startup secrets."
+  type        = list(string)
+  default     = []
+  validation {
+    condition     = length(var.optional_output_secret_arns) <= 32 && alltrue([for arn in var.optional_output_secret_arns : can(regex("^arn:aws(-us-gov|-cn)?:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:[A-Za-z0-9/_+=.@-]+$", arn))])
+    error_message = "Use at most 32 exact Secrets Manager secret ARNs, without wildcard or JSON-key selectors."
+  }
+}
+
+variable "optional_output_kms_key_arns" {
+  description = "Exact customer-managed KMS key ARNs needed for optional destination secrets; empty for AWS-managed encryption. Decrypt is constrained to configured secret encryption contexts."
+  type        = list(string)
+  default     = []
+  validation {
+    condition     = length(var.optional_output_kms_key_arns) <= 32 && alltrue([for arn in var.optional_output_kms_key_arns : can(regex("^arn:aws(-us-gov|-cn)?:kms:[a-z0-9-]+:[0-9]{12}:key/[A-Za-z0-9-]+$", arn))])
+    error_message = "Use at most 32 exact KMS key ARNs without wildcard resources."
+  }
 }

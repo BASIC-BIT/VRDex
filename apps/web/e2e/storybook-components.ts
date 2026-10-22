@@ -19,11 +19,8 @@ export const componentStories = [
   { id: "features-temporal-parser--retention-unavailable", name: "temporal-parser-retention-unavailable" },
   { id: "profiles-media-contribution-editor--inline", name: "profile-media-contribution-editor-inline" },
   { id: "account-media-review-comparison--comparison", name: "media-review-comparison" },
-  // The live player's control strip. Captured here because it is unreachable
-  // anywhere else: it renders only once a VRCDN stream is actually connected,
-  // which the Playwright fixtures cannot do -- the fixture stream id resolves
-  // to nothing, and connecting to a real one spends a viewer slot on a capped
-  // plan.
+  // Isolated control states remain deterministic here. The opt-in event playback
+  // proof separately connects the production transport to generated local MPEG-TS.
   { id: "media-vrcdn-player-controls--playing", name: "vrcdn-player-controls-playing" },
   { id: "media-vrcdn-player-controls--paused", name: "vrcdn-player-controls-paused" },
   { id: "media-vrcdn-player-controls--fullscreen", name: "vrcdn-player-controls-fullscreen" },

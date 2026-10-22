@@ -1,11 +1,16 @@
+import { pathToFileURL } from "node:url";
+import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { setTimeout as sleep } from "node:timers/promises";
 
 import { ConvexHttpClient } from "convex/browser";
 import { makeFunctionReference } from "convex/server";
 
-const OPEN_SESSION_STATUSES = new Set(["scheduled", "starting", "live", "hold", "fallback", "stopping"]);
 const convexApi = {
+  completeTaskCleanup: makeFunctionReference("eventMediaWorker:completeTaskCleanup"),
+  recordProcessStatus: makeFunctionReference("eventMediaWorker:recordProcessStatus"),
+  admitDispatch: makeFunctionReference("eventMediaWorker:admitDispatch"),
+  recordDispatchedTask: makeFunctionReference("eventMediaWorker:recordDispatchedTask"),
   claimEventMediaWorkerCommand: makeFunctionReference("events:claimEventMediaWorkerCommand"),
   listEventMediaWorkerBridgeSessions: makeFunctionReference("events:listEventMediaWorkerBridgeSessions"),
   recordEventMediaWorkerBridgeTaskStatus: makeFunctionReference("events:recordEventMediaWorkerBridgeTaskStatus"),
@@ -160,6 +165,7 @@ function loadConfig() {
   const bridgeToken = requiredEnv("VRDEX_EVENT_MEDIA_BRIDGE_TOKEN");
   const secretRefMap = stringMapEnv("VRDEX_EVENT_MEDIA_SECRET_REF_MAP_JSON");
   const baseEnvironment = stringMapEnv("VRDEX_EVENT_MEDIA_ECS_BASE_ENV_JSON", {});
+  if (Object.keys(baseEnvironment).some(name => (name === "VRDEX_EVENT_MEDIA_BRIDGE_TOKEN" || name === "VRDEX_EVENT_MEDIA_OPTIONAL_SECRET_ARNS_JSON" || name === optionalEnv("VRDEX_EVENT_MEDIA_OUTPUT_SECRET_ENV") || name.startsWith("VRDEX_EVENT_MEDIA_OUTPUT_SECRET_") || name === "VRDEX_EVENT_MEDIA_OUTPUT_INGEST_SECRET_JSON"))) throw new Error("Worker credentials must use ECS secret references.");
   const workerId = optionalEnv("VRDEX_EVENT_MEDIA_BRIDGE_WORKER_ID") ?? `event-media-ecs-bridge-${process.pid}`;
 
   return {
@@ -174,7 +180,8 @@ function loadConfig() {
     executionRoleArn: requiredEnv("VRDEX_EVENT_MEDIA_ECS_EXECUTION_ROLE_ARN"),
     taskRoleArn: requiredEnv("VRDEX_EVENT_MEDIA_ECS_TASK_ROLE_ARN"),
     containerName: optionalEnv("VRDEX_EVENT_MEDIA_ECS_CONTAINER") ?? "hosted-worker",
-    containerCommand: stringListJsonEnv("VRDEX_EVENT_MEDIA_ECS_COMMAND_JSON"),
+    containerCommand: stringListJsonEnv("VRDEX_EVENT_MEDIA_ECS_COMMAND_JSON") ?? ["node", "workers/restream/event-worker.mjs"],
+    workerTokenSecretArn: requiredEnv("VRDEX_EVENT_MEDIA_WORKER_TOKEN_SECRET_ARN"),
     logGroupName: requiredEnv("VRDEX_EVENT_MEDIA_ECS_LOG_GROUP"),
     logStreamPrefix: optionalEnv("VRDEX_EVENT_MEDIA_ECS_LOG_STREAM_PREFIX") ?? "worker",
     cpu: String(integerEnv("VRDEX_EVENT_MEDIA_ECS_CPU", 1024, 256, 16384)),
@@ -218,7 +225,7 @@ function environmentEntries(command, config) {
   }).map(([name, value]) => ({ name, value: String(value) }));
 }
 
-function taskDefinitionFor(command, config) {
+export function taskDefinitionFor(command, config) {
   const credentialRef = command.output?.credentialRef;
   const secretArn = credentialRef === undefined ? undefined : config.secretRefMap[credentialRef];
 
@@ -226,6 +233,17 @@ function taskDefinitionFor(command, config) {
     throw new Error(`No AWS secret ARN is configured for credential reference ${credentialRef}.`);
   }
 
+  const optional = command.optionalOutputs ?? [];
+  if (optional.length > 1) throw new Error("At most one optional output is supported.");
+  const bindings = {}, additionalSecrets = [];
+  if (secretArn && config.outputSecretEnvName !== "VRDEX_EVENT_MEDIA_OUTPUT_INGEST_SECRET_JSON") additionalSecrets.push({name:"VRDEX_EVENT_MEDIA_OUTPUT_INGEST_SECRET_JSON", valueFrom:secretArn});
+  for (const output of optional) {
+    const ref = output?.credentialRef;
+    const arn = ref && config.secretRefMap[ref];
+    // Missing optional binding is a destination setup fault, not primary failure.
+    if (!arn) continue;
+    bindings[ref] = arn;
+  }
   return {
     family: `${config.familyPrefix}-${ecsNamePart(command.session.sessionId)}`,
     requiresCompatibilities: ["FARGATE"],
@@ -244,8 +262,8 @@ function taskDefinitionFor(command, config) {
         memory: Number(config.memory),
         essential: true,
         ...(config.containerCommand === undefined ? {} : { command: config.containerCommand }),
-        environment: environmentEntries(command, config),
-        secrets: secretArn === undefined ? [] : [{ name: config.outputSecretEnvName, valueFrom: secretArn }],
+        environment: [...environmentEntries(command, config), {name:"VRDEX_EVENT_MEDIA_OPTIONAL_SECRET_ARNS_JSON",value:JSON.stringify(bindings)}],
+        secrets: [{name:"VRDEX_EVENT_MEDIA_BRIDGE_TOKEN",valueFrom:config.workerTokenSecretArn}, ...(secretArn === undefined ? [] : [{ name: config.outputSecretEnvName, valueFrom: secretArn }]), ...additionalSecrets],
         logConfiguration: {
           logDriver: "awslogs",
           options: {
@@ -264,12 +282,12 @@ function taskDefinitionFor(command, config) {
   };
 }
 
-async function registerTaskDefinition(command, config) {
-  return aws(config, ["ecs", "register-task-definition", "--cli-input-json", JSON.stringify(taskDefinitionFor(command, config))]);
+async function registerTaskDefinition(command, config, runAws) {
+  return runAws(config, ["ecs", "register-task-definition", "--cli-input-json", JSON.stringify(taskDefinitionFor(command, config))]);
 }
 
-async function runTask(command, taskDefinitionArn, config) {
-  const response = await aws(config, [
+async function runTask(command, taskDefinitionArn, config, runAws) {
+  const response = await runAws(config, [
     "ecs",
     "run-task",
     "--cluster",
@@ -282,6 +300,8 @@ async function runTask(command, taskDefinitionArn, config) {
     "LATEST",
     "--count",
     "1",
+    "--client-token",
+    command.dispatchId,
     "--started-by",
     `${config.workerId}-${command.session.sessionId}`,
     "--network-configuration",
@@ -301,35 +321,65 @@ async function runTask(command, taskDefinitionArn, config) {
   return response.tasks?.[0]?.taskArn;
 }
 
-async function startCommand(command, client, config) {
-  const registered = await registerTaskDefinition(command, config);
-  const taskDefinitionArn = registered.taskDefinition.taskDefinitionArn;
-  const taskArn = await runTask(command, taskDefinitionArn, config);
-
-  if (!taskArn) {
-    throw new Error("ECS RunTask did not return a task ARN.");
+async function cleanupUnlaunched(client, config, session, runAws) {
+  try {
+    await runAws(config, ["ecs", "deregister-task-definition", "--task-definition", session.workerTaskDefinitionArn]);
+  } catch {
+    console.warn(JSON.stringify({ event: "event_media_unlaunched_cleanup_retry", sessionId: session.sessionId }));
+    return;
   }
-
-  await client.mutation(convexApi.recordEventMediaWorkerBridgeTaskStatus, {
-    bridgeToken: config.bridgeToken,
-    workerId: config.workerId,
-    sessionId: command.session.sessionId,
-    commandId: command.commandId,
-    status: "starting",
-    workerRuntime: "ecs-fargate",
-    workerProvider: "aws_ecs",
-    workerTaskDefinitionArn: taskDefinitionArn,
-    workerTaskId: taskArn,
-    workerTaskStatus: "starting",
-  });
-
+  await client.mutation(makeFunctionReference("eventMediaWorker:completeUnlaunchedCleanup"), { bridgeToken: config.bridgeToken, sessionId: session.sessionId, taskDefinitionArn: session.workerTaskDefinitionArn });
+}
+async function cleanupLosingDefinition(client, config, command, taskDefinitionArn, runAws) {
+  try {
+    await runAws(config, ["ecs", "deregister-task-definition", "--task-definition", taskDefinitionArn]);
+  } catch {
+    const recorded = await client.mutation(makeFunctionReference("eventMediaWorker:recordUnusedDefinitionCleanup"), { bridgeToken: config.bridgeToken, sessionId: command.session.sessionId, taskDefinitionArn });
+    console.warn(JSON.stringify({ event: "event_media_unused_definition_manual_cleanup", sessionId: command.session.sessionId, ...(recorded?.accepted === true ? { taskDefinitionArn } : {}) }));
+  }
+}
+async function startCommand(command, client, config, runAws) {
+  command.dispatchId = command.session.dispatchId ?? randomUUID();
+  const identity = { bridgeToken: config.bridgeToken, eventId: command.eventId, sessionId: command.session.sessionId, dispatchId: command.dispatchId, commandId: command.commandId, workerId: config.workerId };
+  const admission = await client.mutation(convexApi.admitDispatch, {bridgeToken:config.bridgeToken,eventId:command.eventId,sessionId:command.session.sessionId,dispatchId:command.dispatchId,launchProtocol:"fenced-v1"});
+  if (admission?.granted === false) {
+    delete command.dispatchId;
+    throw new Error("Worker dispatch capacity or ownership denied.");
+  }
+  if (admission?.granted !== true) throw new Error("Worker dispatch admission response is unknown.");
+  let taskDefinitionArn;
+  try {
+    const registered = await registerTaskDefinition(command, config, runAws);
+    taskDefinitionArn = registered.taskDefinition?.taskDefinitionArn;
+    if (typeof taskDefinitionArn !== "string" || !taskDefinitionArn || taskDefinitionArn.length > 512) throw Error("Task definition registration is unknown.");
+  } catch {
+    // No RunTask is possible until the backend marker. A competing bridge's
+    // marker atomically defeats this release, even after claim reclamation.
+    await client.mutation(makeFunctionReference("eventMediaWorker:releaseUnlaunchedDispatch"), identity);
+    throw Error("Worker prelaunch configuration or registration failed.");
+  }
+  // A throw or malformed marker response is ambiguous. Never release or launch.
+  const marker = await client.mutation(makeFunctionReference("eventMediaWorker:markLaunchAttempt"), { ...identity, taskDefinitionArn });
+  if (marker?.accepted !== true) {
+    if (marker?.accepted === false) {
+      const released = await client.mutation(makeFunctionReference("eventMediaWorker:releaseUnlaunchedDispatch"), { ...identity, taskDefinitionArn });
+      if (released?.accepted === true) await cleanupUnlaunched(client, config, { sessionId: identity.sessionId, workerTaskDefinitionArn: taskDefinitionArn }, runAws);
+      else if (marker.cleanupUnused === true) await cleanupLosingDefinition(client, config, command, taskDefinitionArn, runAws);
+    }
+    throw Error("Worker launch fence was not granted.");
+  }
+  const taskArn = await runTask(command, taskDefinitionArn, config, runAws);
+  if (!taskArn) throw new Error("ECS RunTask did not return a task ARN.");
+  const recorded=await client.mutation(convexApi.recordDispatchedTask, {bridgeToken:config.bridgeToken,sessionId:command.session.sessionId,dispatchId:command.dispatchId,taskArn,taskDefinitionArn});
+  if(recorded?.accepted!==true)throw new Error("Worker dispatch registration denied.");
   console.log(JSON.stringify({ event: "event_media_ecs_task_started", sessionId: command.session.sessionId, taskArn, taskDefinitionArn }));
 }
 
-async function stopCommand(command, client, config) {
+async function stopCommand(command, client, config, runAws = aws) {
   const taskArn = command.session.workerTaskId;
 
   if (!taskArn) {
+    if (command.session.epoch !== undefined || command.session.dispatchId) return;
     await client.mutation(convexApi.recordEventMediaWorkerBridgeTaskStatus, {
       bridgeToken: config.bridgeToken,
       workerId: config.workerId,
@@ -342,8 +392,12 @@ async function stopCommand(command, client, config) {
     return;
   }
 
-  await aws(config, ["ecs", "stop-task", "--cluster", config.cluster, "--task", taskArn, "--reason", "VRDex event media stop command."]);
-  await client.mutation(convexApi.recordEventMediaWorkerBridgeTaskStatus, {
+  await runAws(config, ["ecs", "stop-task", "--cluster", config.cluster, "--task", taskArn, "--reason", "VRDex event media stop command."]);
+  if (command.session.epoch !== undefined || command.session.dispatchId) {
+    await client.mutation(makeFunctionReference("eventMediaWorker:recordTaskStopRequested"), {
+      bridgeToken: config.bridgeToken, sessionId: command.session.sessionId, taskArn,
+    });
+  } else await client.mutation(convexApi.recordEventMediaWorkerBridgeTaskStatus, {
     bridgeToken: config.bridgeToken,
     workerId: config.workerId,
     sessionId: command.session.sessionId,
@@ -357,7 +411,8 @@ async function stopCommand(command, client, config) {
 }
 
 async function recordClaimedCommandError(command, error, client, config) {
-  const reason = workerStatusReason(error instanceof Error ? error.message : String(error));
+  const reason = "Worker dispatch failed; inspect reservation before retrying.";
+  if(command.dispatchId || command.session.dispatchId || command.session.epoch !== undefined){console.error(JSON.stringify({event:"event_media_ecs_dispatch_failed",sessionId:command.session.sessionId}));return;}
 
   await client.mutation(convexApi.recordEventMediaWorkerBridgeTaskStatus, {
     bridgeToken: config.bridgeToken,
@@ -383,7 +438,7 @@ async function recordClaimedCommandError(command, error, client, config) {
   );
 }
 
-async function claimAndProcess(client, config) {
+export async function claimAndProcess(client, config, runAws = aws) {
   const command = await client.mutation(convexApi.claimEventMediaWorkerCommand, {
     bridgeToken: config.bridgeToken,
     workerId: config.workerId,
@@ -395,12 +450,12 @@ async function claimAndProcess(client, config) {
 
   try {
     if (command.commandType === "start_program") {
-      await startCommand(command, client, config);
+      await startCommand(command, client, config, runAws);
       return true;
     }
 
     if (command.commandType === "stop_program") {
-      await stopCommand(command, client, config);
+      await stopCommand(command, client, config, runAws);
       return true;
     }
   } catch (error) {
@@ -423,40 +478,44 @@ function ecsStatusToSessionStatus(task) {
   }
 
   if (task.lastStatus === "RUNNING") {
-    return { status: "live", workerTaskStatus: "running", reason: undefined };
+    return { status: "starting", workerTaskStatus: "running", reason: undefined };
   }
 
   return { status: "starting", workerTaskStatus: "starting", reason: workerStatusReason(task.lastStatus) };
 }
 
-async function deregisterTaskDefinition(taskDefinitionArn, config) {
-  if (!taskDefinitionArn) {
+async function cleanupStoppedTask(client, config, session, runAws) {
+  try {
+    if (session.workerTaskDefinitionArn)
+      await runAws(config, ["ecs", "deregister-task-definition", "--task-definition", session.workerTaskDefinitionArn]);
+  } catch {
+    // Retry from durable cleanup-pending discovery. Never log provider exceptions
+    // (which can contain secrets), and never swallow control-plane failures.
+    console.warn(JSON.stringify({ event: "event_media_task_cleanup_retry", sessionId: session.sessionId }));
     return;
   }
-
-  await aws(config, ["ecs", "deregister-task-definition", "--task-definition", taskDefinitionArn]);
+  await client.mutation(convexApi.completeTaskCleanup, { bridgeToken: config.bridgeToken, sessionId: session.sessionId, taskArn: session.workerTaskId });
 }
 
-async function refreshSessions(client, config) {
+export async function refreshSessions(client, config, runAws = aws) {
   const sessions = await client.query(convexApi.listEventMediaWorkerBridgeSessions, {
     bridgeToken: config.bridgeToken,
     workerId: config.workerId,
   });
-  const taskSessions = sessions.filter((session) => session.workerTaskId && OPEN_SESSION_STATUSES.has(session.status));
+  for (const session of sessions.filter(session => !session.workerTaskId && !session.dispatchId && session.epoch === undefined && session.launchAttemptedAt === undefined && session.workerTaskDefinitionArn && session.workerTaskCleanupPending === true))
+    await cleanupUnlaunched(client, config, session, runAws);
+  const taskSessions = sessions.filter((session) => session.workerTaskId);
 
   if (taskSessions.length === 0) {
     return;
   }
 
-  const response = await aws(config, [
-    "ecs",
-    "describe-tasks",
-    "--cluster",
-    config.cluster,
-    "--tasks",
-    ...taskSessions.map((session) => taskId(session.workerTaskId)),
-  ]);
-  const tasksByArn = new Map((response.tasks ?? []).flatMap((task) => [[task.taskArn, task], [taskId(task.taskArn), task]]));
+  const tasks=[];
+  for(let offset=0;offset<taskSessions.length;offset+=100){
+    const response=await runAws(config,["ecs","describe-tasks","--cluster",config.cluster,"--tasks",...taskSessions.slice(offset,offset+100).map(session=>taskId(session.workerTaskId))]);
+    tasks.push(...(response.tasks??[]));
+  }
+  const tasksByArn=new Map(tasks.flatMap(task=>[[task.taskArn,task],[taskId(task.taskArn),task]]));
 
   for (const session of taskSessions) {
     const task = tasksByArn.get(session.workerTaskId);
@@ -465,25 +524,44 @@ async function refreshSessions(client, config) {
       continue;
     }
 
-    const next = ecsStatusToSessionStatus(task);
-
-    if (session.status === next.status && session.workerTaskStatus === next.workerTaskStatus) {
+    if(session.dispatchId || session.epoch !== undefined){
+      // Stop intent survives a failed/ambiguous request, late ARN registration,
+      // and a racing worker acknowledgement. ECS StopTask is idempotent for this
+      // exact session task; only DescribeTasks STOPPED can release admission.
+      if (session.stopRequestedAt !== undefined && task.lastStatus !== "STOPPED") {
+        await runAws(config, ["ecs", "stop-task", "--cluster", config.cluster, "--task", session.workerTaskId, "--reason", "VRDex event media stop reconciliation."]);
+        await client.mutation(makeFunctionReference("eventMediaWorker:recordTaskStopRequested"), {
+          bridgeToken: config.bridgeToken, sessionId: session.sessionId, taskArn: session.workerTaskId,
+        });
+      }
+      await client.mutation(convexApi.recordProcessStatus,{bridgeToken:config.bridgeToken,sessionId:session.sessionId,taskArn:session.workerTaskId,stopped:task.lastStatus==="STOPPED"});
+      if(task.lastStatus==="STOPPED"){
+        if (session.workerTaskCleanupPending !== false)
+          await cleanupStoppedTask(client, config, session, runAws);
+      }
       continue;
     }
+    const next = ecsStatusToSessionStatus(task);
+    const cleanupOnly = task.lastStatus === "STOPPED" && session.workerTaskCleanupPending !== undefined;
+    // Confirmed terminal tasks need only cleanup retries. Replaying their legacy
+    // publication status can race a replacement session using the destination.
+    if (!cleanupOnly && (session.status !== next.status || session.workerTaskStatus !== next.workerTaskStatus)) {
+      await client.mutation(convexApi.recordEventMediaWorkerBridgeTaskStatus, {
+        bridgeToken: config.bridgeToken,
+        workerId: config.workerId,
+        sessionId: session.sessionId,
+        status: next.status,
+        workerProvider: "aws_ecs",
+        workerTaskId: session.workerTaskId,
+        workerTaskStatus: next.workerTaskStatus,
+        ...(next.reason === undefined ? {} : { workerTaskStatusReason: next.reason }),
+      });
+    }
 
-    await client.mutation(convexApi.recordEventMediaWorkerBridgeTaskStatus, {
-      bridgeToken: config.bridgeToken,
-      workerId: config.workerId,
-      sessionId: session.sessionId,
-      status: next.status,
-      workerProvider: "aws_ecs",
-      workerTaskId: session.workerTaskId,
-      workerTaskStatus: next.workerTaskStatus,
-      ...(next.reason === undefined ? {} : { workerTaskStatusReason: next.reason }),
-    });
-
-    if (next.status === "ended" || next.status === "error") {
-      await deregisterTaskDefinition(session.workerTaskDefinitionArn, config);
+    if (task.lastStatus === "STOPPED") {
+      await client.mutation(convexApi.recordProcessStatus, { bridgeToken: config.bridgeToken, sessionId: session.sessionId, taskArn: session.workerTaskId, stopped: true });
+      if (session.workerTaskCleanupPending !== false)
+        await cleanupStoppedTask(client, config, session, runAws);
     }
   }
 }
@@ -518,7 +596,7 @@ async function main() {
   } while (!config.once);
 }
 
-main().catch((error) => {
+if(process.argv[1] && import.meta.url===pathToFileURL(process.argv[1]).href)main().catch((error) => {
   console.error(error instanceof Error ? sanitizeLog(error.message, [process.env.VRDEX_EVENT_MEDIA_BRIDGE_TOKEN]) : String(error));
   process.exitCode = 1;
 });

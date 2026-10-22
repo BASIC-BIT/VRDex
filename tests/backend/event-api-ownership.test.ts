@@ -1,3 +1,4 @@
+import { bindVrcdnTestAccount } from "./_eventOutputAccountFixture";
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
@@ -45,6 +46,7 @@ async function seedOwnedCommunity(t: ReturnType<typeof convexTest>) {
       profileType: "community",
       community: { categoryTags: [] },
     });
+    bindVrcdnTestAccount(profileId, "vrcdn/main");
     await ctx.db.insert("profileOwners", {
       profileId,
       userId,

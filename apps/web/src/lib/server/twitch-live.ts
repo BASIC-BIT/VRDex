@@ -16,6 +16,7 @@ export type TwitchLiveState =
   | { status: "offline" }
   | { status: "unavailable" };
 
+export type TwitchLiveObservation = { state: TwitchLiveState; observedAt: number };
 type PublicLink = LiveClaimLink;
 
 type TwitchTokenResponse = {
@@ -80,12 +81,13 @@ const getTwitchAppToken = unstable_cache(
 );
 
 const getCachedTwitchLiveState = unstable_cache(
-  async (login: string): Promise<TwitchLiveState> => {
+  async (login: string): Promise<TwitchLiveObservation> => {
+    const observe = (state: TwitchLiveState): TwitchLiveObservation => ({ state, observedAt: Date.now() });
     const clientId = process.env.TWITCH_CLIENT_ID?.trim();
     const token = await getTwitchAppToken();
 
     if (!clientId || !token) {
-      return { status: "unavailable" };
+      return observe({ status: "unavailable" });
     }
 
     const url = new URL("https://api.twitch.tv/helix/streams");
@@ -107,22 +109,22 @@ const getCachedTwitchLiveState = unstable_cache(
     const stream = payload.data?.[0];
 
     if (!stream) {
-      return { status: "offline" };
+      return observe({ status: "offline" });
     }
 
-    return {
+    return observe({
       status: "live",
       title: stream.title?.trim() || "Live on Twitch",
       viewerCount: stream.viewer_count ?? 0,
       startedAt: stream.started_at ?? new Date().toISOString(),
       ...(stream.game_name?.trim() ? { gameName: stream.game_name.trim() } : {}),
-    };
+    });
   },
-  ["twitch-live-state"],
-  { revalidate: 60 },
+  ["twitch-live-state-observation"],
+  { revalidate: 30 },
 );
 
-export async function getTwitchLiveState(links: readonly PublicLink[]): Promise<TwitchLiveState | undefined> {
+export async function getTwitchLiveObservation(links: readonly PublicLink[]): Promise<TwitchLiveObservation | undefined> {
   const login = twitchLoginForLiveClaim(links);
 
   if (!login) {
@@ -130,15 +132,23 @@ export async function getTwitchLiveState(links: readonly PublicLink[]): Promise<
   }
 
   try {
-    const state = await getCachedTwitchLiveState(login);
+    const observation = await getCachedTwitchLiveState(login);
+    const { state } = observation;
 
     if (state.status !== "unavailable") {
-      staleStates.set(login, { fetchedAt: Date.now(), state });
+      staleStates.set(login, { fetchedAt: observation.observedAt, state });
     }
 
-    return state.status === "unavailable" ? getFreshStaleState(login) ?? state : state;
+    const previous = staleStates.get(login);
+    return state.status === "unavailable" && previous && getFreshStaleState(login)
+      ? { state: previous.state, observedAt: previous.fetchedAt } : observation;
   } catch (error) {
     console.error(`Twitch live-state lookup failed for ${login}:`, error);
-    return getFreshStaleState(login) ?? { status: "unavailable" };
+    const entry = staleStates.get(login);
+    return entry && getFreshStaleState(login) ? {state:entry.state, observedAt:entry.fetchedAt} : {state:{status:"unavailable"},observedAt:Date.now()};
   }
+}
+
+export async function getTwitchLiveState(links: readonly PublicLink[]): Promise<TwitchLiveState | undefined> {
+ return (await getTwitchLiveObservation(links))?.state;
 }

@@ -1377,3 +1377,27 @@ body > .ph-no-capture {
     grid-template-columns: 1fr;
   }
 }
+
+/* The retained media never changes DOM parent when its route presentation changes. */
+.event-retained-player:fullscreen {
+  display: flex;
+  flex-direction: column;
+  border: 0;
+  border-radius: 0;
+}
+.event-retained-player:fullscreen .event-retained-media {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.event-retained-player:fullscreen video {
+  height: 100%;
+  max-height: 100%;
+  aspect-ratio: auto;
+}
+.event-retained-player :focus-visible {
+  outline: 2px solid white;
+  outline-offset: -3px;
+}

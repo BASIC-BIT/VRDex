@@ -1,3 +1,5 @@
+import { twitchSetupValidator, outputHealthValidator } from './_eventOutputSetup';
+import { observedBroadcastStateValidator } from "./_eventMediaControl";
 import { clubPermission, clubVisibility, clubSubject } from "./_clubModel";
 import { providerReadParams, providerReadPage } from "./_clubProviderReads";
 import { integrationFeature, storedAuthority } from "./_clubConnection";
@@ -1484,6 +1486,7 @@ export default defineSchema({
     .index("by_candidateId_visibility", ["candidateId", "visibility"])
     .index("by_fieldKey_reviewState", ["fieldKey", "reviewState"]),
   eventMediaPrograms: defineTable({
+    broadcastPolicy: v.optional(v.object({maxOverrunMs:v.optional(v.number()),silence:v.optional(v.object({thresholdDb:v.number(),durationMs:v.number()}))})),
     eventId: v.id("events"),
     communityProfileId: v.optional(v.id("profiles")),
     state: eventMediaProgramStateValidator,
@@ -1511,6 +1514,8 @@ export default defineSchema({
     label: v.string(),
     eventSlotId: v.optional(v.id("eventSlots")),
     sourceProfileId: v.optional(v.id("profiles")),
+    profileProjection: v.optional(v.boolean()),
+    projectionAvailable: v.optional(v.boolean()),
     ownerProfileId: v.optional(v.id("profiles")),
     publicUrl: v.optional(v.string()),
     privateConfigRef: v.optional(v.string()),
@@ -1519,6 +1524,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_programId_position", ["programId", "position"])
+    .index("by_programId_eventSlotId", ["programId", "eventSlotId"])
     .index("by_programId_key", ["programId", "key"])
     .index("by_eventId_state", ["eventId", "state"]),
   eventMediaScenes: defineTable({
@@ -1547,6 +1553,8 @@ export default defineSchema({
     region: v.optional(v.string()),
     credential: v.optional(eventMediaOutputCredential),
     vrcdnSetup: v.optional(eventMediaVrcdnSetup),
+    twitchSetup: v.optional(twitchSetupValidator),
+    simulcastEnabled: v.optional(v.boolean()),
     compliance: v.optional(eventMediaOutputCompliance),
     playbackLinks: v.array(eventMediaPublicLinkValidator),
     createdAt: v.number(),
@@ -1573,6 +1581,13 @@ export default defineSchema({
     note: v.optional(v.string()),
     idempotencyKey: v.optional(v.string()),
     availableAt: v.optional(v.number()),
+    sequence: v.optional(v.number()),
+    claimedEpoch: v.optional(v.number()),
+    acknowledgedEpoch: v.optional(v.number()),
+    observedSourceId: v.optional(v.union(v.id("eventMediaSources"), v.null())),
+    observedSceneId: v.optional(v.union(v.id("eventMediaScenes"), v.null())),
+    observedOutputId: v.optional(v.union(v.id("eventMediaOutputs"), v.null())),
+    observedState: v.optional(observedBroadcastStateValidator),
     claimedByWorkerId: v.optional(v.string()),
     errorSummary: v.optional(v.string()),
     createdAt: v.number(),
@@ -1585,19 +1600,36 @@ export default defineSchema({
     .index("by_programId_status_createdAt", ["programId", "status", "createdAt"])
     .index("by_sessionId_status_createdAt", ["sessionId", "status", "createdAt"])
     .index("by_eventId_createdAt", ["eventId", "createdAt"])
-    .index("by_idempotencyKey", ["idempotencyKey"]),
+    .index("by_idempotencyKey", ["idempotencyKey"])
+    .index("by_sessionId_sequence", ["sessionId", "sequence"])
+    .index("by_session_scope_status_sequence", ["sessionId", "eventId", "programId", "status", "sequence", "createdAt"])
+    .index("by_program_scope_session_status_createdAt", ["programId", "eventId", "sessionId", "status", "createdAt"]),
   eventMediaSessions: defineTable({
     programId: v.id("eventMediaPrograms"),
     eventId: v.id("events"),
     outputId: v.optional(v.id("eventMediaOutputs")),
     status: eventMediaSessionStatusValidator,
     workerId: v.optional(v.string()),
+    epoch: v.optional(v.number()),
+    acquiredAt: v.optional(v.number()),
+    runtimeDeadlineAt: v.optional(v.number()),
+    dispatchId: v.optional(v.string()),
+    launchProtocol: v.optional(v.literal("fenced-v1")),
+    launchAttemptedAt: v.optional(v.number()),
+    dispatchStopConfirmedAt: v.optional(v.number()),
+    outputHealth: v.optional(v.array(outputHealthValidator)),
+    programObservedAt: v.optional(v.number()),
+    outputHealthObservedAt: v.optional(v.number()),
+    broadcastMode: v.optional(v.union(v.literal("automatic"), v.literal("manual"), v.literal("hold"))),
+    nextCommandSequence: v.optional(v.number()),
+    lastAcknowledgedSequence: v.optional(v.number()),
     workerRuntime: v.optional(v.string()),
     workerProvider: v.optional(eventMediaWorkerProviderValidator),
     workerTaskDefinitionArn: v.optional(v.string()),
     workerTaskId: v.optional(v.string()),
     workerTaskStatus: v.optional(eventMediaWorkerTaskStatusValidator),
     workerTaskStatusReason: v.optional(v.string()),
+    workerTaskCleanupPending: v.optional(v.boolean()),
     leaseExpiresAt: v.optional(v.number()),
     currentSourceId: v.optional(v.id("eventMediaSources")),
     currentSceneId: v.optional(v.id("eventMediaScenes")),
@@ -1621,7 +1653,11 @@ export default defineSchema({
   })
     .index("by_programId_status", ["programId", "status"])
     .index("by_eventId_status", ["eventId", "status"])
+    .index("by_eventId_status_leaseExpiresAt", ["eventId", "status", "leaseExpiresAt"])
     .index("by_status_updatedAt", ["status", "updatedAt"])
+    .index("by_dispatchStopConfirmedAt_dispatchId", ["dispatchStopConfirmedAt", "dispatchId"])
+    .index("by_workerTaskStatus", ["workerTaskStatus"])
+    .index("by_workerTaskCleanupPending", ["workerTaskCleanupPending"])
     .index("by_workerId_status", ["workerId", "status"])
     .index("by_leaseExpiresAt", ["leaseExpiresAt"]),
   eventMediaAuditEvents: defineTable({

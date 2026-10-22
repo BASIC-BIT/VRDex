@@ -532,6 +532,15 @@ Current recommendation: VRCDN output setup starts with operator-owned accounts o
 - `compliance.providerRules`
 - `compliance.rightsClearedMedia`
 
+Destination entitlement is deployment-owned. `VRDEX_VRCDN_OUTPUT_ACCOUNTS_JSON`
+binds each key/reference to an owning community and optional explicit community
+grants, like the Twitch registry. `events.listVrcdnOutputAccounts({currentSlug})`
+requires media-management access and lists only entitled accounts; legacy
+no-argument calls return an empty list. Key and direct-reference setup, persisted
+ready outputs and worker publication all recheck the same binding. Revoking a
+managed destination also removes its public output/program links while preserving
+authored direct fallback links. See [migration and configuration](../deployment/restream-worker.md#vrcdn-destination-registry-migration).
+
 The staff editor saves VRCDN output configuration independently from event content.
 Its account, label, playback URLs and authorization acknowledgement have their own
 saved snapshot for the leave guard. Event saves do not clear output edits, and

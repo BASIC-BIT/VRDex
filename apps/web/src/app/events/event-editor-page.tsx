@@ -28,6 +28,7 @@ export function EventEditorPage({
         <PageContainer max="6xl">
           <PageNav>
             <BrandLink />
+            {routePath ? <Link className={buttonVariants({ variant: "secondary" })} href={`${routePath}/operate`}>Broadcast controls</Link> : null}
             {event?.publicationState === "published" && routePath !== undefined ? (
               <Link className={buttonVariants({ variant: "secondary" })} href={routePath}>
                 View event

@@ -259,6 +259,23 @@ export async function fetchPublicEventBySlug(slug: string) {
   }
 }
 
+/** Request-scoped auth; private host content must never enter a shared cache. */
+export async function fetchHostEventBySlug(slug: string, communitySlug: string) {
+  const token = await convexAuthToken();
+  if (token && process.env.NEXT_PUBLIC_CONVEX_URL) {
+    try {
+      const event = await fetchQuery(api.events.getHostBySlug, { slug, communitySlug }, { token });
+      if (event) return { kind: "live" as const, event };
+    } catch {
+      return { kind: "error" as const };
+    }
+  }
+  const result = await fetchPublicEventBySlug(slug);
+  if (result.kind === "live" && result.event?.communitySlug !== communitySlug)
+    return { kind: "live" as const, event: null };
+  return result;
+}
+
 function fixtureEventShareCard(
   communitySlug: string,
   eventSlug: string,
