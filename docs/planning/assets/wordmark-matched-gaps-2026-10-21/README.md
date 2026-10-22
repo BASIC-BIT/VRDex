@@ -18,6 +18,13 @@ Master PNGs are 900 by 248 px; navbar PNGs are 140 by 39 px. VR is `#EDF3FA`
 and DEX is `#B4D5E5`. Monochrome is `#EDF3FA`. Standalone assets are transparent
 outlined paths, with no masks, cover-up shapes, linked fonts or bitmap art.
 
+## Letter spacing follow-up
+
+BASIC liked this glyph/cut treatment and requested letter-spacing exploration
+on 2026-10-21. The [spacing study](../wordmark-spacing-study-2026-10-21/README.md)
+keeps all contours and cuts exact while comparing tighter, looser and
+individually adjusted spacing at common letter heights.
+
 ## Geometry and reproduction
 
 The X's earlier 80-unit values were projection thresholds. They were not

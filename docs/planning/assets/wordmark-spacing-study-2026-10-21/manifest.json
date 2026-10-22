@@ -1,0 +1,181 @@
+{
+  "font": "Open Sans Semibold 1.10",
+  "font_sha256": "aa3b0ef53db12e3d45094030cac0e69d384e44cc5978643dd4390041cad546e2",
+  "source_wordmark": "../wordmark-matched-gaps-2026-10-21/vrdex-wordmark.svg",
+  "source_wordmark_sha256": "193996e6798cb457589ba4dbf59036b807040540d0118c65ef35e105262c1f18",
+  "geometry_helper": "../wordmark-d-angle-study-2026-10-21/build_d_angle_studies.py",
+  "geometry_helper_sha256": "1f23a1b4fc88878daae8ad7cd76a26c0aeca0c86a1701694c93f23c24e80338f",
+  "pair_order": [
+    "V/R",
+    "R/D",
+    "D/E",
+    "E/X"
+  ],
+  "vr_color": "#EDF3FA",
+  "dex_color": "#B4D5E5",
+  "large_cap_height_px": 100,
+  "small_cap_height_px": 29,
+  "small_canvas_height_px": 39,
+  "studies": [
+    {
+      "key": "tight",
+      "title": "Tight",
+      "pair_delta_px_at_100_cap": [
+        -4,
+        -4,
+        -4,
+        -4
+      ],
+      "cumulative_x_delta_px_at_100_cap": [
+        0,
+        -4,
+        -8,
+        -12,
+        -16
+      ],
+      "ink_bbox_gaps_px_at_100_cap": [
+        10.001093817200003,
+        11.300683367200001,
+        18.277427267199972,
+        5.486730117200033
+      ],
+      "viewBox": [
+        0,
+        0,
+        464.002,
+        132.0
+      ],
+      "navbar_cap_height_px": 29,
+      "navbar_content_width_px": 134.56058,
+      "navbar_canvas_width_px": 135
+    },
+    {
+      "key": "slightly-tighter",
+      "title": "Slightly tighter",
+      "pair_delta_px_at_100_cap": [
+        -2,
+        -2,
+        -2,
+        -2
+      ],
+      "cumulative_x_delta_px_at_100_cap": [
+        0,
+        -2,
+        -4,
+        -6,
+        -8
+      ],
+      "ink_bbox_gaps_px_at_100_cap": [
+        12.001093817199997,
+        13.300683367199998,
+        20.277427267200014,
+        7.486730117200014
+      ],
+      "viewBox": [
+        0,
+        0,
+        472.002,
+        132.0
+      ],
+      "navbar_cap_height_px": 29,
+      "navbar_content_width_px": 136.88057999999998,
+      "navbar_canvas_width_px": 137
+    },
+    {
+      "key": "current",
+      "title": "Current",
+      "pair_delta_px_at_100_cap": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "cumulative_x_delta_px_at_100_cap": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "ink_bbox_gaps_px_at_100_cap": [
+        14.001093817199994,
+        15.300683367199994,
+        22.277427267199993,
+        9.486730117199993
+      ],
+      "viewBox": [
+        0,
+        0,
+        480.002,
+        132.0
+      ],
+      "navbar_cap_height_px": 29,
+      "navbar_content_width_px": 139.20058,
+      "navbar_canvas_width_px": 140
+    },
+    {
+      "key": "open",
+      "title": "Open",
+      "pair_delta_px_at_100_cap": [
+        3,
+        3,
+        3,
+        3
+      ],
+      "cumulative_x_delta_px_at_100_cap": [
+        0,
+        3,
+        6,
+        9,
+        12
+      ],
+      "ink_bbox_gaps_px_at_100_cap": [
+        17.001093817199997,
+        18.300683367199994,
+        25.27742726720001,
+        12.486730117199981
+      ],
+      "viewBox": [
+        0,
+        0,
+        492.002,
+        132.0
+      ],
+      "navbar_cap_height_px": 29,
+      "navbar_content_width_px": 142.68058,
+      "navbar_canvas_width_px": 143
+    },
+    {
+      "key": "optical",
+      "title": "Optical VR + DEX",
+      "pair_delta_px_at_100_cap": [
+        0,
+        4,
+        -5,
+        2
+      ],
+      "cumulative_x_delta_px_at_100_cap": [
+        0,
+        0,
+        4,
+        -1,
+        1
+      ],
+      "ink_bbox_gaps_px_at_100_cap": [
+        14.001093817199994,
+        19.300683367199987,
+        17.27742726720003,
+        11.486730117199944
+      ],
+      "viewBox": [
+        0,
+        0,
+        481.002,
+        132.0
+      ],
+      "navbar_cap_height_px": 29,
+      "navbar_content_width_px": 139.49058,
+      "navbar_canvas_width_px": 140
+    }
+  ]
+}
