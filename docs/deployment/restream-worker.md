@@ -425,6 +425,11 @@ feeds forced MPEGTS into the decoder. Loopback, private, link-local, multicast,
 IPv6 and unsupported transports are refused upstream. Synthetic test endpoints
 exist only through injected test dependencies.
 
+The pinned lookup returns only the first validated public IPv4. When Node requests
+`all: true` for family selection, the callback returns that single address in an
+array; other calls retain the scalar address and family callback. Neither form
+performs another DNS lookup or exposes additional addresses for fallback.
+
 `events.configureEventBroadcastPolicy` uses the existing media capability and
 accepts bounded `maxOverrunMs` and optional calibrated `silence`. Silence is rejected
 unless the deployment gate is on, and refresh removes it when that gate turns off.

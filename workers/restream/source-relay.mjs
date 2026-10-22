@@ -44,7 +44,12 @@ export async function createSourceRelay({ operatorEndpoints = [], resolveAddress
             const addresses = await Promise.race([resolveAddresses(route.url.hostname, { all: true, family: 4 }), new Promise((_, reject) => { const timer = setTimeout(() => reject(Error('DNS timeout')), 2000); timer.unref(); })]);
             if (stopped || routes.get(req.url) !== route || res.destroyed || !addresses.length || addresses.some(a => !isPublicIPv4(a.address)))
                 throw Error('Source address denied');
-            upstream = requestSource(route.url, { method: 'GET', agent: false, lookup: (_host, _options, callback) => callback(null, addresses[0].address, 4) }, response => {
+            upstream = requestSource(route.url, { method: 'GET', agent: false, lookup: (_host, options, callback) => {
+                if (options.all)
+                    callback(null, [{ address: addresses[0].address, family: 4 }]);
+                else
+                    callback(null, addresses[0].address, 4);
+            } }, response => {
                 if (response.statusCode !== 200) {
                     response.destroy();
                     res.writeHead(502).end();
