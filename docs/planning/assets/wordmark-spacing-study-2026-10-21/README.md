@@ -17,11 +17,19 @@ tracking, measured at 100 px cap height. They are not literal ink-edge gaps.
 | Open | +3, +3, +3, +3 px | [SVG](./vrdex-open.svg) | [PNG](./vrdex-open.png) | [Navbar](./vrdex-open-navbar.png) |
 | Optical VR + DEX | 0, +4, -5, +2 px | [SVG](./vrdex-optical.svg) | [PNG](./vrdex-optical.png) | [Navbar](./vrdex-optical-navbar.png) |
 
-Current recommendation: optical. The added R/D spacing makes VR read as a
+Initial recommendation: optical. The added R/D spacing makes VR read as a
 prefix. Bringing D/E closer and giving E/X more room balances DEX. Its total
 width is just 1 px above current at 100 px cap height. Slightly tighter is a
 useful compact alternative. Even the tightest setting retains positive
 ink-edge separation between every pair.
+
+## Selected direction
+
+BASIC selected Slightly tighter and requested less D/E spacing. The
+[refined spacing](../wordmark-spacing-refined-2026-10-21/README.md) reduces
+only that pair by another 3 px at 100 px cap height. E and X move left together,
+so the selected V/R, R/D and E/X gaps remain exact. All contours and cuts stay
+unchanged. The 3 px adjustment is a working interpretation of the request.
 
 ## Comparison scale
 

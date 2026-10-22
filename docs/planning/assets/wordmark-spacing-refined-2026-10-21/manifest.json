@@ -1,0 +1,47 @@
+{
+  "font": "Open Sans Semibold 1.10",
+  "font_sha256": "aa3b0ef53db12e3d45094030cac0e69d384e44cc5978643dd4390041cad546e2",
+  "source_wordmark": "../wordmark-spacing-study-2026-10-21/vrdex-slightly-tighter.svg",
+  "source_wordmark_sha256": "b5975395fda0da71a1c6d5d228739370704142c2baa55e7dac72921f89443873",
+  "geometry_helper": "../wordmark-d-angle-study-2026-10-21/build_d_angle_studies.py",
+  "geometry_helper_sha256": "1f23a1b4fc88878daae8ad7cd76a26c0aeca0c86a1701694c93f23c24e80338f",
+  "vr_color": "#EDF3FA",
+  "dex_color": "#B4D5E5",
+  "additional_pair_delta_px_at_100_cap": [
+    0,
+    0,
+    -3,
+    0
+  ],
+  "additional_glyph_x_delta_px_at_100_cap": [
+    0,
+    0,
+    0,
+    -3,
+    -3
+  ],
+  "before_ink_bbox_gaps_px_at_100_cap": [
+    12.001093817199997,
+    13.300683367199998,
+    20.277427267200014,
+    7.486730117200014
+  ],
+  "refined_ink_bbox_gaps_px_at_100_cap": [
+    12.001093817199997,
+    13.300683367199998,
+    17.277427267200014,
+    7.486730117200014
+  ],
+  "viewBox": [
+    0,
+    0,
+    469.002,
+    132.0
+  ],
+  "large_proof_cap_height_px": 90,
+  "small_cap_height_px": 29,
+  "before_small_content_width_px": 136.88057999999998,
+  "small_content_width_px": 136.01058,
+  "small_canvas_width_px": 137,
+  "small_canvas_height_px": 39
+}
