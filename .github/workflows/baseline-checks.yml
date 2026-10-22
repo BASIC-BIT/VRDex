@@ -164,7 +164,12 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Install backend media test prerequisites
+        timeout-minutes: 5
         run: |
+          # Keep the runner's official HTTPS fallbacks; Azure HTTP downloads can crawl.
+          if [[ -f /etc/apt/apt-mirrors.txt ]]; then
+            sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt
+          fi
           sudo apt-get update
           sudo apt-get install --no-install-recommends --yes ffmpeg
           ffmpeg -version
@@ -267,7 +272,12 @@ jobs:
 
       - name: Install FFmpeg
         if: steps.changes.outputs.enabled == 'true'
+        timeout-minutes: 5
         run: |
+          # Keep the runner's official HTTPS fallbacks; Azure HTTP downloads can crawl.
+          if [[ -f /etc/apt/apt-mirrors.txt ]]; then
+            sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt
+          fi
           sudo apt-get update
           sudo apt-get install -y ffmpeg
 
