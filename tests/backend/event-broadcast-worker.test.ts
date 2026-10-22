@@ -91,7 +91,7 @@ function runtimeFixture(options: Record<string, unknown> = {}) {
         return { accepted: true };
     };
     const worker = createEventWorker({ identity: { eventId: "e", sessionId: "s", workerId: "unique", epoch: 0 }, control: (name: string, args: any) => typeof options.controlFilter === "function" ? options.controlFilter(name, args, control) : control(name, args), clock: () => now, renderer, resolveSource: async (s: any) => s.publicUrl, checkEnabled: async () => true, outputs: { start: async () => { }, enqueue: () => { }, getState: () => ({ publishing: true }), stopNow: () => { fenced++; }, stop: async () => { } }, ...options });
-    return { worker, config, observations, advance: (n: number) => { now = n; }, encoded: (slot: string | undefined = "slot-a") => { encoded += 100; renderedSlotKey = slot; renderedSourceId = slot ? "a" : undefined; }, slate: () => { encoded += 100; renderedSlotKey = undefined; renderedSourceId = undefined; }, command: (type = "switch_source", sequence = 1) => { commands = [{ _id: `c${sequence}`, sequence, commandType: type, targetSourceId: "a" }]; }, counts: () => ({ fenced, selections, ackCount, holds, prepared }) };
+    return { worker, renderer, config, observations, advance: (n: number) => { now = n; }, encoded: (slot: string | undefined = "slot-a") => { encoded += 100; renderedSlotKey = slot; renderedSourceId = slot ? "a" : undefined; }, slate: () => { encoded += 100; renderedSlotKey = undefined; renderedSourceId = undefined; }, command: (type = "switch_source", sequence = 1) => { commands = [{ _id: `c${sequence}`, sequence, commandType: type, targetSourceId: "a" }]; }, counts: () => ({ fenced, selections, ackCount, holds, prepared }) };
 }
 it("worker only acknowledges encoded slot and source, then ignores command replay", async () => {
     const f = runtimeFixture();
@@ -141,16 +141,43 @@ it("source boundary refuses metadata, local networks, arbitrary hosts, credentia
         assert.equal(isPublicIPv4(ip), false);
     assert.equal(isPublicIPv4('8.8.8.8'), true);
 });
-it("policy requires media permission and silence calibration, and automatic command retains sequence", async () => {
+it("policy retains media permission, custom silence and automatic command sequencing without calibration env", async () => {
     const { t, owner, event, args } = await fixture();
-    const configure = makeFunctionReference<"mutation">('events:configureEventBroadcastPolicy');
-    await assert.rejects(t.mutation(configure, { currentSlug: event.slug, policy: { maxOverrunMs: 1000 } }), /authenticat|signed/i);
-    await assert.rejects(owner.mutation(configure, { currentSlug: event.slug, policy: { silence: { thresholdDb: -45, durationMs: 3000 } } }), /calibrat/i);
-    await owner.mutation(configure, { currentSlug: event.slug, policy: { maxOverrunMs: 1000 } });
-    const lease = await t.mutation(worker('acquireSession'), args);
-    assert.equal(lease.configuration.policy.maxOverrunMs, 1000);
-    const command = await owner.mutation(api.events.queueEventMediaCommand, { currentSlug: event.slug, type: 'set_automatic_mode' as never });
-    assert.equal(command.status, 'queued');
+    const previous = process.env.VRDEX_EVENT_BROADCAST_SILENCE_CALIBRATED;
+    process.env.VRDEX_EVENT_BROADCAST_SILENCE_CALIBRATED = "false";
+    try {
+        const configure = makeFunctionReference<"mutation">('events:configureEventBroadcastPolicy');
+        await assert.rejects(t.mutation(configure, { currentSlug: event.slug, policy: { maxOverrunMs: 1000 } }), /authenticat|signed/i);
+        const silence = { thresholdDb: -75, durationMs: 20_000 };
+        await owner.mutation(configure, { currentSlug: event.slug, policy: { silence } });
+        await owner.mutation(configure, { currentSlug: event.slug, policy: { maxOverrunMs: 1000 } });
+        const lease = await t.mutation(worker('acquireSession'), args);
+        assert.deepEqual(lease.configuration.policy, { silence, maxOverrunMs: 1000 });
+        await owner.mutation(configure, { currentSlug: event.slug, policy: {} });
+        const fresh = await t.mutation(worker('refreshConfiguration'), { ...args, epoch: lease.epoch });
+        assert.deepEqual(fresh.configuration.policy, { silence });
+        const command = await owner.mutation(api.events.queueEventMediaCommand, { currentSlug: event.slug, type: 'set_automatic_mode' as never });
+        assert.equal(command.status, 'queued');
+    } finally {
+        if (previous === undefined) delete process.env.VRDEX_EVENT_BROADCAST_SILENCE_CALIBRATED;
+        else process.env.VRDEX_EVENT_BROADCAST_SILENCE_CALIBRATED = previous;
+    }
+});
+it("acquire and refresh default missing and empty stored policy despite legacy false calibration env", async () => {
+    const { t, args, output } = await fixture();
+    const previous = process.env.VRDEX_EVENT_BROADCAST_SILENCE_CALIBRATED;
+    process.env.VRDEX_EVENT_BROADCAST_SILENCE_CALIBRATED = "false";
+    try {
+        await t.run(({ db }) => db.patch(output.programId, { broadcastPolicy: undefined }));
+        const lease = await t.mutation(worker('acquireSession'), args);
+        assert.deepEqual(lease.configuration.policy, { silence: { thresholdDb: -90, durationMs: 15_000 } });
+        await t.run(({ db }) => db.patch(output.programId, { broadcastPolicy: {} }));
+        const fresh = await t.mutation(worker('refreshConfiguration'), { ...args, epoch: lease.epoch });
+        assert.deepEqual(fresh.configuration.policy, lease.configuration.policy);
+    } finally {
+        if (previous === undefined) delete process.env.VRDEX_EVENT_BROADCAST_SILENCE_CALIBRATED;
+        else process.env.VRDEX_EVENT_BROADCAST_SILENCE_CALIBRATED = previous;
+    }
 });
 it("transactional dispatch admission is idempotent and enforces global cap", async () => {
     const { t, args } = await fixture();
@@ -1769,3 +1796,39 @@ for (const commandType of ['next_slot', 'switch_next', 'previous_slot'] as const
     }
     await f.worker.stop();
   });
+
+it("active silence analysis keeps its startup threshold while duration-only updates take effect", async () => {
+    let receivedThreshold: number | undefined;
+    const f = runtimeFixture({ renderer: undefined, createRenderer: ({ silenceThresholdDb }: { silenceThresholdDb: number }) => {
+        receivedThreshold = silenceThresholdDb;
+        return f.renderer;
+    } });
+    f.config.policy = { silence: { thresholdDb: -90, durationMs: 15_000 } };
+    f.config.slots[0].endAt = 1000;
+    f.config.sources.push({ id: 'b', eventSlotId: 'slot-b', publicUrl: 'https://stream.vrcdn.live/live/b.live.ts', type: 'vrcdn_link' });
+    f.config.slots.push({ slotKey: 'slot-b', sourceId: 'b', startAt: 1000, available: true });
+    f.observations.set('slot-a', { slotKey: 'slot-a', sourceId: 'a', observedAt: 0, ready: true, progressing: true, analysisActive: true, audioLevelDb: -120, silenceSince: 0 });
+    f.observations.set('slot-b', { slotKey: 'slot-b', sourceId: 'b', observedAt: 0, ready: true });
+    await f.worker.start();
+    assert.equal(receivedThreshold, -90);
+    await f.worker.tick();
+    f.config.policy.silence.thresholdDb = -80;
+    for (const now of [5000, 10_000, 15_000]) {
+        f.advance(now);
+        f.encoded();
+        for (const observation of f.observations.values()) observation.observedAt = now;
+        await f.worker.tick();
+        assert.equal(f.worker.getState().stopped, false);
+    }
+    assert.equal(f.worker.getState().current?.slotKey, 'slot-a');
+    assert.equal(f.counts().selections, 1);
+    f.config.policy.silence = { thresholdDb: -90, durationMs: 16_000 };
+    await f.worker.tick();
+    assert.equal(f.worker.getState().current?.slotKey, 'slot-a');
+    f.advance(16_000);
+    for (const observation of f.observations.values()) observation.observedAt = 16_000;
+    await f.worker.tick();
+    assert.equal(f.worker.getState().current?.slotKey, 'slot-b');
+    assert.equal(f.counts().selections, 2);
+    await f.worker.stop();
+});

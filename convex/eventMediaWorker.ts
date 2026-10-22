@@ -4,7 +4,7 @@ import { canReadProfile } from "./_profilePermissions";
 import { v } from "convex/values";
 import { mutation, type MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
-import { settleTerminalSessionCommands, validateBroadcastPolicy, allocateSessionCommandSequence, EVENT_BROADCAST_STOP_GRACE_MS, EVENT_BROADCAST_COMMAND_BATCH, EVENT_BROADCAST_LEASE_MS, EVENT_BROADCAST_MAX_SOURCES, EVENT_BROADCAST_MAX_SCENES, EVENT_BROADCAST_MAX_OUTPUTS, EVENT_BROADCAST_RENEW_AFTER_MS, requireEventMediaBridgeToken, observedBroadcastStateValidator, workerSessionArgs, } from "./_eventBroadcastInputs";
+import { settleTerminalSessionCommands, effectiveBroadcastPolicy, allocateSessionCommandSequence, EVENT_BROADCAST_STOP_GRACE_MS, EVENT_BROADCAST_COMMAND_BATCH, EVENT_BROADCAST_LEASE_MS, EVENT_BROADCAST_MAX_SOURCES, EVENT_BROADCAST_MAX_SCENES, EVENT_BROADCAST_MAX_OUTPUTS, EVENT_BROADCAST_RENEW_AFTER_MS, requireEventMediaBridgeToken, observedBroadcastStateValidator, workerSessionArgs, } from "./_eventBroadcastInputs";
 type Request = {
     bridgeToken: string;
     eventId: Id<"events">;
@@ -268,7 +268,7 @@ async function configuration(ctx: MutationCtx, { session, program, event }: NonN
         currentSourceId: session.currentSourceId ?? program.currentSourceId,
         currentSceneId: session.currentSceneId ?? program.currentSceneId,
         sessionDeadline: deadline, stopped: event.eventStatus !== "scheduled" || session.stopRequestedAt !== undefined,
-        mode: session.broadcastMode ?? "automatic", policy: validateBroadcastPolicy({ ...program.broadcastPolicy, ...(process.env.VRDEX_EVENT_BROADCAST_SILENCE_CALIBRATED !== "true" ? { silence: undefined } : {}) }), slots,
+        mode: session.broadcastMode ?? "automatic", policy: effectiveBroadcastPolicy(program.broadcastPolicy), slots,
         sources: sources.filter(s => s.eventId === event._id && s.state !== "disabled" && s.projectionAvailable !== false && (!s.eventSlotId || authored.some(slot => slot._id === s.eventSlotId))).map(s => ({ id: s._id, key: s.key, type: s.type, eventSlotId: s.eventSlotId, publicUrl: s.publicUrl, privateConfigRef: s.privateConfigRef })),
         scenes: scenes.filter(s => s.eventId === event._id).map(s => ({ id: s._id, key: s.key, type: s.type, sourceId: s.sourceId })),
         outputs: outputs.filter(o => o.eventId === event._id && eventOutputIsAuthorized(event, o) && ["ready", "active"].includes(o.state)).map(o => ({ id: o._id, key: o.key, type: o.type, credential: o.credential, vrcdnSetup: o.vrcdnSetup, twitchSetup:o.twitchSetup, simulcastEnabled:o.simulcastEnabled ?? false, compliance: o.compliance })),

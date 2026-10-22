@@ -4073,8 +4073,9 @@ export const configureEventBroadcastPolicy = mutation({
     const {event}=await getMediaManageableEventBySlug(ctx,args.currentSlug,subject);
     const program=await getLatestEventMediaProgram(ctx.db,event._id);
     if(!program)throw new Error("Event media program was not found.");
-    const policy=validateBroadcastPolicy(args.policy);
-    if(policy.silence && process.env.VRDEX_EVENT_BROADCAST_SILENCE_CALIBRATED!=="true")throw new Error("Automatic silence requires operator calibration.");
+    // Overrun authoring replaces that optional cutoff, while retaining any
+    // independently calibrated advanced silence override.
+    const policy=validateBroadcastPolicy({...args.policy,silence:args.policy.silence ?? program.broadcastPolicy?.silence});
     await ctx.db.patch(program._id,{broadcastPolicy:policy,updatedAt:Date.now()});
     await recordEventMediaAuditEvent(ctx.db,{programId:program._id,eventId:event._id,actor:subject,action:"broadcast_policy_configured",createdAt:Date.now()});
     return {programId:program._id,policy};

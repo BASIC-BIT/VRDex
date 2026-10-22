@@ -2,11 +2,15 @@
 
 ## Status
 
-BITRATE has a bounded, operator-started hosted broadcast deployment using the
-720p30 event profile and one measured 4 CPU/8 GiB worker. See
-[October 22 BITRATE enablement](#october-22-bitrate-enablement) for its current
-window. General hosted rollout and the `1080p60` quality gate remain separate
-from this limited deployment.
+The current implementation provides persistent event dispatch through a scheduled
+singleton Lambda. Hosts use the existing Start/Stop, automatic/manual, Next and
+Hold controls after configuring an authorized destination. No daily dispatcher
+renewal or host enable toggle is required. The production Lambda cutover and
+bounded silence proof passed on October 22. The backend policy is deployed and
+the obsolete calibration gate was removed. No event was started to observe a
+production worker applying that policy. The dated records below retain
+the earlier bounded ECS deployment evidence. General hosted rollout and the `1080p60` quality
+gate remain separate from BITRATE's limited deployment.
 
 The implementation surface is split between:
 
@@ -28,9 +32,13 @@ The Terraform stack defines:
 - task role for CloudWatch custom metrics, the SSM kill switch, and prefix-scoped benchmark artifact uploads
 - SSM parameter `/vrdex/restream/hosted-worker/enabled`, defaulting to `false`
 
-The stack does not define an ECS service. Scheduled or operator-triggered runs start one task per approved event media session through the operator bridge in `scripts/event-media-ecs-bridge.mjs`.
+The stack does not define an ECS service. The minute Lambda schedule starts one task per approved event media session through the existing bridge state machine. The CLI bridge remains available for operator recovery.
 
 ## Runtime Guardrails
+
+The base benchmark task defaults below include a ten-worker benchmark cap. The
+production event bridge overrides that cap to one and uses the 720p30 event
+profile; its 12-hour session bound remains the same.
 
 The task definition injects these non-secret values, and the current entrypoint refuses to start unless they are present and syntactically valid:
 
@@ -54,7 +62,7 @@ Secret values are not environment variables in git or Terraform. The `secret_arn
 
 ## Runtime Bridge
 
-Current recommendation: run `pnpm ops:event-media:ecs-bridge` from an operator-controlled environment with AWS credentials that can register task definitions, run tasks, describe tasks, stop tasks, and deregister the bridge-created task definitions. The bridge polls Convex for queued `start_program` and `stop_program` commands, starts or stops one Fargate task, then records task status back into Convex for the private event editor.
+Normal dispatch uses `scripts/event-media-lambda-bridge.mjs`. Each minute invocation runs one ordinary pass of the existing bridge, discovering queued `start_program` and `stop_program` commands and reconciling exact Fargate task status in Convex. The optional `pnpm ops:event-media:ecs-bridge` CLI uses the same state machine for operator recovery. Its operator environment needs AWS credentials to register task definitions, run tasks, describe tasks, stop tasks and deregister the bridge-created definitions. The configuration below describes that CLI environment; Lambda receives the non-secret values from Terraform and reads its token separately.
 
 The bridge and worker do not own event media-control policy. Convex remains the source of truth for manual commands, candidate automatic-rule output, source routing state, and audit records. A worker receives only the selected source/output/session payload required for the command it claimed; it must not infer broader event permissions or publish private source-health detail to public pages.
 
@@ -78,111 +86,192 @@ Use `VRDEX_EVENT_MEDIA_ECS_BRIDGE_CONFIG_CHECK_ONLY=true` for a local configurat
 
 Do not put stream keys, combined ingest URLs, provider tokens, signed URLs, or secret JSON in the bridge environment except through ECS secret references. `VRDEX_EVENT_MEDIA_SECRET_REF_MAP_JSON` contains only references to secret store records, not secret values.
 
-## Bounded event dispatcher deployment
+## Persistent event dispatcher deployment
 
-`bridge.tf` provisions an optional dispatcher around the existing operator bridge.
-Set `enable_event_media_bridge=true` and supply `event_media_bridge` through an
+`bridge.tf` provisions an opt-in Node.js 22 Lambda with 256 MiB memory, a
+180-second timeout and reserved concurrency one. Set
+`enable_event_media_bridge=true` and supply `event_media_bridge` through an
 owner-managed variable file. The object contains `convex_url`, a digest-pinned
-`image` from this stack's repository, `bundle_key`, `bundle_sha256`,
-`cli_archive_key`, `cli_archive_sha256`, `token_secret_arn`, the exact `credential_refs` map, `subnet_ids`, and
-`security_group_ids`. `assign_public_ip` defaults to `ENABLED`; use networking
-with no inbound rules. Keep `max_concurrent_workers=1` and set the same cap in
-Convex. Configuration contains secret references only.
+worker `image` from this stack's repository, `bundle_key`, `bundle_sha256`,
+`token_secret_arn`, the exact `credential_refs` map, `subnet_ids` and
+`security_group_ids`. `assign_public_ip` defaults to `ENABLED`; use worker
+networking with no inbound rules. Keep `max_concurrent_workers=1` and
+`VRDEX_EVENT_BROADCAST_MAX_CONCURRENT=1` in Convex. Values contain secret
+references only. There are no CLI archive fields or dispatcher bootstrap.
 
-The bundle is the existing `scripts/event-media-ecs-bridge.mjs` and its installed
-Convex dependencies, packaged as one Node 22 ESM file. From a pinned checkout
-with frozen dependencies, build it with the installed bundler:
+Provisioning the configured bridge enables its `rate(1 minute)` EventBridge rule.
+EventBridge delivery and Lambda asynchronous events both have a 60-second maximum
+age and zero retry attempts. A later tick discovers and reconciles current work
+rather than replaying a failed invocation. The schedule controls dispatcher
+availability; no additional runtime enable variable or host gate is required.
+Start dispatch can take up to one minute plus scheduler jitter, then ECS startup.
+Running Next, Hold, automatic/manual and source controls remain worker-driven.
+
+Each invocation uses a unique worker identity, `once: true` and no drain deadline.
+Completion, timeout or function replacement never triggers global media drain.
+Workers retain their own leases, authorization checks, internal SSM emergency
+publication control and 12-hour event-session limit. Production media stays on the
+unchanged reviewed 720p30 image with 4 CPU/8 GiB and admission cap one.
+The emergency switch is an internal operations control, not a host prerequisite.
+Preserve its current value during migration.
+
+### Lambda artifact and runtime grants
+
+Bundle `scripts/event-media-lambda-bridge.mjs` and Convex as Node 22 ESM,
+externalizing the SDK supplied by the Lambda runtime. Package `index.mjs`, which
+exports `handler`, in a deterministic ZIP. From a pinned checkout with frozen
+dependencies and the installed bundler:
 
 ```bash
 node --input-type=module - <<'JS'
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const { build } = createRequire(require.resolve('tsx/package.json'))('esbuild');
-await build({ entryPoints: ['scripts/event-media-ecs-bridge.mjs'],
-  outfile: '/tmp/event-media-ecs-bridge.mjs', bundle: true,
+await build({ entryPoints: ['scripts/event-media-lambda-bridge.mjs'],
+  outfile: '/tmp/index.mjs', bundle: true, external: ['@aws-sdk/*'],
   platform: 'node', target: 'node22', format: 'esm' });
 JS
-sha256sum /tmp/event-media-ecs-bridge.mjs
+python3 - <<'PYZIP'
+from pathlib import Path
+from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
+entry = ZipInfo('index.mjs', date_time=(1980, 1, 1, 0, 0, 0))
+entry.create_system = 3
+entry.external_attr = 0o100644 << 16
+entry.compress_type = ZIP_DEFLATED
+with ZipFile('/tmp/event-media-lambda-bridge.zip', 'w') as archive:
+    archive.writestr(entry, Path('/tmp/index.mjs').read_bytes())
+PYZIP
+sha256sum /tmp/event-media-lambda-bridge.zip
 ```
 
-Record the checkout, lockfile, bundler version, input hashes and bundle hash.
-Upload the file to the private artifacts bucket at
-`event-media-bridge/sha256/<hash>.mjs`; read it back and compare its hash before
-using that key. The dispatcher verifies the hash again before executing it.
-Do not put credentials in the bundle or artifact metadata.
+Record checkout, lockfile, bundler and ZIP-tool versions, input hashes and ZIP
+SHA256. Upload to the private artifact bucket at
+`event-media-bridge/sha256/<zip-sha256>.zip`, read it back and compare the hash.
+Use that exact key and hash in the owner values. Verify deployed Lambda
+`CodeSha256` against the base64 SHA256 of the local ZIP. Do not put credentials in
+the bundle or metadata. Lambda loads the ZIP through the service; its runtime
+role requires no S3 read access or AWS CLI installation. A deployed smoke check
+must verify the deferred runtime SDK v3 imports and an ordinary Convex poll.
 
-The dispatcher also requires a current Linux x86-64 AWS CLI. The tested media
-image contains CLI 2.9.19, whose ECS RunTask model lacks the `clientToken` field
-used for retry-safe launches. Download the official AWS CLI archive, record its
-SHA256, and publish it to the same private bucket at
-`event-media-bridge/awscli/sha256/<hash>.zip`. Set `cli_archive_key` and
-`cli_archive_sha256` to that exact artifact. The bootstrap verifies both artifacts
-before execution, extracts the CLI into a private temporary directory with path
-and size checks, and checks for RunTask `clientToken` support before contacting
-Convex. This updates only the dispatcher CLI; media workers retain their tested
-image. Preserve source, size, hash and S3 readback evidence for the archive.
+The dedicated Lambda runtime role reads only the exact configured bridge-token
+Secrets Manager ARN. The handler fetches that token on every invocation,
+including warm reuse; its value is never stored in Terraform or Lambda
+configuration. ECS SDK, secret and Convex HTTP operations have 15-second bounds.
+The SDK adapter preserves launch client tokens, ownership tags and all task ARNs.
+It can launch only the event-worker family in the existing cluster, observe and
+stop ownership-tagged tasks, and pass only the existing worker roles. AWS requires
+an unconditional `Resource: "*"` grant for `ecs:DeregisterTaskDefinition`; verified
+bridge code limits cleanup to recorded event-worker definitions. The additive
+worker execution-role grant reads only the token and exact configured output
+credential ARNs. Invocation logs are in `/aws/lambda/<name-prefix>-event-bridge`.
 
-The task has dedicated execution/runtime roles. It can launch only the event
-worker family in this cluster, observe and stop only tasks carrying its ownership
-tag, pass only the existing worker roles, and read only the configured bundle
-and CLI archive.
-AWS requires an unconditional `Resource: "*"` grant for
-`ecs:DeregisterTaskDefinition`; that one cleanup action cannot use family or tag
-conditions. The verified dispatcher code limits its calls to recorded event
-worker definitions. Other task operations keep their resource and ownership
-conditions. The execution role injects the shared bridge token
-from Secrets Manager. An additive worker execution-role policy grants reads of
-that token and the exact configured primary output credentials.
+### Migration, recovery and cost
 
-Provisioning starts no task and leaves the production SSM switch unchanged.
-Launch `event_media_bridge_task_definition_arn` once on the configured networking;
-there is no ECS service. The dispatcher computes
-`VRDEX_EVENT_MEDIA_BRIDGE_DRAIN_AT_MS` once at startup, 10 minutes before its
-24-hour hard timeout. Retries inherit that same absolute deadline; each process
-anchors it to a monotonic clock. At drain it stops accepting commands, stops its
-event workers, and waits for confirmed ECS
-STOPPED plus backend cleanup acknowledgement before exiting successfully. An
-already-accepted launch finishes registration before its task is drained. The
-first drain refresh runs immediately if a signal or deadline arrives during an
-ordinary status refresh or just before sleep, rather than waiting a full poll.
-While draining, status checks wait at most one second between passes so the
-ordinary 30-second interval cannot consume the forced-stop grace.
-The wrapper also latches external TERM/INT, waits for the active child, and prevents
-another runtime attempt after that signal. The hard timeout and ECS stop timeout
-retain a 30-second grace. A forced stop can exhaust that grace before AWS cleanup
-finishes; unresolved or ambiguous tasks remain reserved for investigation and
-reconciliation by a replacement dispatcher rather than being reported cleaned up. Event workers
-also retain their separate 12-hour session deadline. These are runtime bounds,
-not a dollar-denominated billing control. Workers use the
-measured 4 CPU/8 GiB shape and the existing 720p30 event profile.
+Before cutover, confirm no active sessions. Stop the old standalone ECS dispatcher
+and confirm actual STOPPED before enabling the new schedule. Preserve BITRATE's
+exclusive `basicbit1` ownership, primary credential, cap one, emergency-switch
+value and unchanged worker image. Verify scheduled invocations, runtime SDK
+support, secret access and ordinary polls. Do not start an event without an
+explicit selection. Preserve the owner opt-in and emergency-switch value in
+subsequent Terraform plans; default-off values would remove the dispatcher or
+reset the switch. Use the evaluated Lambda, IAM, log, schedule and permission
+resources from `bridge.tf` for any bootstrap/import, rather than the superseded
+ECS dispatcher addresses.
 
-Before enabling publication, install the same service token in production
-Convex and Secrets Manager, verify the bridge API, configure destination owner
-bindings, and set `VRDEX_EVENT_BROADCAST_MAX_CONCURRENT=1`. Keep automatic silence
-disabled. Observe dispatcher startup and errors in
-`bridge/event-media-bridge/<task-id>` under the worker log group. Then enable the
-production SSM switch and start an authorized event through its operator view.
-Confirm actual publication and playback before treating that event as live.
+A failed tick does not erase launch ambiguity. Pre-existing starts without a
+recorded task ARN and stale claimed commands require operator investigation and
+recovery. Inspect exact event/session/dispatch ownership and ECS task identities;
+never delete admission records, mark cleanup complete without actual STOPPED or
+blindly retry Start. The optional CLI is a recovery tool, not a daily service
+renewal step. Disabling the schedule stops new dispatcher passes without draining
+healthy workers. Emergency publication shutdown still uses the retained SSM
+control; inspect and stop exact tasks and confirm STOPPED before releasing
+admission or authorizing replacements.
 
-For rollback, set `/vrdex/restream/hosted-worker/enabled=false`, stop the
-dispatcher and any event tasks, and confirm each task is STOPPED before releasing
-admission or replacing publication. The dispatcher does not restart after its
-deadline. A later launch is a separate operator action.
+At one invocation per minute and 256 MiB, estimated idle Lambda cost is about
+$0.19/month for one-second passes or $0.92/month for five-second passes, outside
+free allowances and excluding ancillary charges. This replaces approximately
+$12.66/month for the always-running idle ECS dispatcher. Active 4 CPU/8 GiB media
+workers remain approximately $0.1975/hour plus egress and ancillary charges.
+These are estimates, not measured bills or dollar-denominated runtime limits.
 
-If bootstrapping these resources through the AWS API, use the evaluated Terraform
-role/policy/container JSON and then import the resources with the same owner
-variable file. Import both roles by name, inline policies as `role-name:policy-name`,
-and the dispatcher task definition by full ARN. The addresses are
-`aws_iam_role.bridge_execution[0]`, `aws_iam_role.bridge_task[0]`,
-`aws_iam_role_policy.bridge_execution[0]`, `aws_iam_role_policy.bridge_task[0]`,
-`aws_iam_role_policy.bridge_worker_token[0]`, and
-`aws_ecs_task_definition.bridge[0]`. Keep the opt-in and owner file selected for
-subsequent plans; a default-off apply after import would remove these resources.
-For an enabled deployment, also preserve `kill_switch_enabled_default=true` in
-the owner file; its module default is false and an apply would otherwise disable
-the master parameter again.
+### Automatic silence policy
+
+The implementation resolves missing or empty stored policies to silence below
+-90 dBFS continuously for 15 seconds. The bounded decoded-media proof passed;
+the backend policy is deployed and the obsolete calibration variable was read
+back absent. No calibration environment toggle or host activation step remains.
+Optional maximum overrun stays unset unless explicitly configured. Healthy media
+may continue beyond its authored end; a timetable boundary alone never switches.
+
+Silence handoff requires automatic mode, fresh matching progressing current A/V,
+sustained decoded analysis and an eligible fresh decoded-ready successor. Manual
+selection and Hold remain authoritative. Reconnect/failure clears silence
+evidence, silence without a ready successor retains the current source, and last
+slot silence cannot invent a successor. Qualifying silence can switch when
+eligibility arrives without a new post-boundary grace. A changed threshold still
+requires a session restart for matching decoder analysis. The 85.561-second local
+proof passed at 320x180/15fps with actual AAC/MPEGTS through the unchanged factory
+decoder and AAC 160 kbps/48 kHz stereo. The -81 dBFS quiet tone stayed selected for
+16.068 seconds after the boundary; digital zero qualified for the 15-second rule
+and produced encoded blue B, followed by final manual slate. Higher-resolution
+attempts and a slate-to-auto decoder restart hit resource bounds. The final proof
+placed slate last, so it does not establish recovery from that restart failure.
+No media module changed, and no real-music false-positive rate is measured. Full
+measurements, hashes and failed-attempt limits are in
+[integration verification](../engineering/event-broadcast-verification.md#october-22-decoded-silence-proof).
+
+### October 22 persistent dispatcher cutover
+
+Production preflight at 15:53:46 UTC confirmed zero active sessions. The old idle
+ECS dispatcher, task ID prefix `91e599`, reached actual STOPPED at
+15:55:03.348 UTC with exit 0 before the new schedule was enabled.
+`vrdex-restream-worker-event-bridge` now runs Node.js 22 with 256 MiB memory,
+180-second timeout and reserved concurrency one. The minute schedule is enabled;
+both EventBridge and Lambda asynchronous delivery were read back with maximum
+age 60 seconds and retries zero.
+
+The 47,168-byte deterministic ZIP has SHA256
+`d05875a95e5edd25a28bc51aa34085f17be627e2313a95f86fde82bd6a30cdb6`.
+The esbuild 0.28.0 manifest records 63 input hashes and the external runtime SDK
+imports. Its SHA-addressed S3 object readback and deployed `CodeSha256` matched
+`0Fh1qV5e3SWii8Uao0CF8XvmJ+IxOpX4b96CvWowzbY=`. A manual ordinary poll completed
+at 15:56:20.866 UTC, exercising the actual runtime SDK imports and secret fetch.
+The first observed scheduled poll completed at 15:58:07.905 UTC; the warm
+invocation took 1.408 seconds and used at most 116 MiB. The next scheduled polls
+at 15:59:06.701 and 16:00:08.748 UTC also completed, establishing three consecutive
+scheduled passes. No event was selected or
+started. ECS running tasks were zero, and the production emergency master remained
+`true`, version 2. BITRATE ownership, primary credential and media image remained
+unchanged.
+
+After nine completed scheduled polls, the superseded dispatcher definition
+was made inactive and its two unused IAM roles were removed. Worker roles and
+the new Lambda role remain in place.
+
+Nine resources were bootstrapped from evaluated IaC; Terraform state import is
+still required. The owner values at
+`/workspace/rehearsal-sdd/persistent-dispatcher-owner-config.tfvars.json` are outside
+git and retain the enabled SSM value. Keep that file selected for import and later
+plans. The bundle manifest is retained at
+`/workspace/rehearsal-sdd/persistent-dispatcher/manifest.json`.
+
+The backend policy deployed to `https://superb-pig-954.convex.cloud` with Convex
+CLI exit 0, schema validation and no index deletion. At
+`2026-10-22T16:04:06.604Z`, `VRDEX_EVENT_BROADCAST_SILENCE_CALIBRATED` was read back
+absent; concurrency one and session bound 43,200 seconds were unchanged. The
+silence default is supported by deployed source and tests. There were zero
+sessions and no event was started, so no direct worker-configuration observation
+or production silence handoff is claimed. See
+[integration verification](../engineering/event-broadcast-verification.md#october-22-backend-deployment-and-verification)
+for the retained full-suite failure and successful isolated rerun.
 
 ### October 22 BITRATE enablement
+
+Historical bounded ECS deployment receipt. The persistent dispatcher above
+supersedes its 24-hour lifecycle and daily renewal instructions. The timestamps,
+artifacts and silence-off state below describe that earlier deployment, not the
+new Lambda cutover.
 
 The initial deployment uses the reviewed `fa5515d5…` worker image and dispatcher
 bundle `9a13bee0…`, built from merged source `db7f2c6f…`. The production token
@@ -192,22 +281,23 @@ subsequently assigned `basicbit1` exclusively to BITRATE. That destination
 binding was installed and read back at 06:30:17 UTC. The initial dispatcher was
 stopped for the reviewed ownership-tag and graceful-drain corrections.
 
-The current dispatcher uses bundle `24d9a1c1…` and pinned AWS CLI 2.38.4 archive
+That deployment used dispatcher bundle `24d9a1c1…` and pinned AWS CLI 2.38.4 archive
 `10ab32a9…`. A bounded live permission probe confirmed owned task launch,
 observation, stop and definition cleanup, plus denied observation/stop of an
 unrelated task. Both probe tasks are STOPPED and their interfaces are DELETED.
 The first corrected dispatcher successfully polled production before enablement.
 Subsequent shutdown fixes cover refresh transitions and polling within the
 forced-stop grace. Idle predecessors stopped with exit 0 and their interfaces
-were deleted before replacement. Current task definition
+were deleted before replacement. The recorded task definition
 `vrdex-restream-worker-event-bridge:4` started at 07:36:56 UTC. The master
 parameter was first enabled and read back as `true`, version 2, at 07:04:37 UTC on
-October 22. The concurrency cap remains one and automatic silence remains off.
+October 22. That receipt recorded concurrency one and automatic silence off.
 
-This enables operator-started broadcasts for BITRATE's configured `basicbit1`
-destination. No event was selected or started during enablement. The dispatcher
-drains before its hard deadline around 07:37 UTC on October 23; continuing service
-requires another operator launch. Enablement and the permission probe do not
+This enabled operator-started broadcasts for BITRATE's configured `basicbit1`
+destination. No event was selected or started during enablement. That dispatcher
+had a hard deadline around 07:37 UTC on October 23 and required
+a separate operator launch to continue. The persistent schedule replaces that
+renewal requirement. Enablement and the permission probe do not
 establish a live event or complete provider acceptance for every media path.
 
 ## Visible Benchmark Output
@@ -468,7 +558,7 @@ pnpm proof:restream:worker:matrix
 
 No AWS CLI mutation, Terraform apply, image publish, or ECS task run is part of this validation.
 
-## Controlled event runtime (disabled pending acceptance)
+## Controlled event runtime
 
 `workers/restream/event-worker.mjs` is the event-session entry point. The bridge
 creates a per-session task definition with explicit event/session identity and
@@ -536,7 +626,6 @@ Required event runtime configuration:
 | `VRDEX_RESTREAM_KILL_SWITCH_SSM_PARAMETER`, `AWS_REGION` | Runtime reads SSM every 5 seconds with 10-second authority; exact `true` enables |
 | `VRDEX_RESTREAM_MAX_SESSION_SECONDS` | Maximum runtime, defaults to 43200 |
 | `VRDEX_EVENT_MEDIA_SOURCE_ENDPOINTS_JSON` | Optional exact deployment-owned HTTPS MPEGTS endpoint allowlist |
-| `VRDEX_EVENT_BROADCAST_SILENCE_CALIBRATED` | Convex deployment-only gate; defaults off |
 
 Grant the execution role read access only to the referenced bridge-token/output
 secrets, and the task role read access to the configured SSM switch. Optional destination
@@ -567,11 +656,12 @@ array; other calls retain the scalar address and family callback. Neither form
 performs another DNS lookup or exposes additional addresses for fallback.
 
 `events.configureEventBroadcastPolicy` uses the existing media capability and
-accepts bounded `maxOverrunMs` and optional calibrated `silence`. Silence is rejected
-unless the deployment gate is on, and refresh removes it when that gate turns off.
-Changing its threshold requires restarting a session to create matching decoder
-analysis; it remains disabled for a mismatched active decoder. Quiet-intro,
-breakdown, and actual-ending calibration evidence is still required.
+accepts bounded `maxOverrunMs` and validated explicit `silence`. Missing or empty
+stored policy resolves centrally to the -90 dBFS/15-second default described
+above. Updating maximum overrun preserves custom silence. Changing the silence
+threshold requires restarting a session to create matching decoder analysis; a
+mismatched active decoder cannot silently activate a different threshold. Synthetic
+proof does not measure real-music false positives.
 
 `hold_current` retains the selected healthy source in manual mode.
 `switch_hold` selects the neutral slate; `show_hold_scene` supports only an
@@ -797,6 +887,10 @@ primary-unreachable startup deadline. The same image passed the 40-second
 `event-output-local-proof.mjs` dual-output outage/recovery proof. Both ran with
 no external network, read-only root and two-CPU/four-GiB limits. Their exact image,
 launch configuration, packaged hashes, logs and media hashes are retained.
+The following review and rehearsal records retain their original deployment
+states. Statements that hosted output or automatic silence remained disabled are
+historical; current implementation, cutover and backend rollout status are above.
+
 These bounded controller checks complement the prior sustained media evidence;
 they do not claim a new two-hour run of the changed controller. See
 [event broadcast verification](../engineering/event-broadcast-verification.md).
@@ -823,8 +917,8 @@ deployment-configured account and explicitly opts into simulcast through
 optional account configuration does not hide primary status or Stop. The view
 displays independent destination health. The
 runtime supports the conservative 720p30 profile documented above. The policy
-control sets or removes maximum overrun while stopped. Silence handoff stays
-behind the deployment calibration gate; this interface does not enable it.
+control sets or removes maximum overrun while stopped. Ordinary automatic
+operation uses the effective silence policy without a host calibration toggle.
 
 The local operator browser fixture exercises controls without provider or Clerk
 accounts. It does not verify a signed-in Clerk server-route journey. Real Convex

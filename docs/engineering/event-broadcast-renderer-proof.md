@@ -1,7 +1,60 @@
 # Event broadcast render-clock proof
 
-Status: local architecture evidence, October 19, 2026. This does not enable hosted
-output or establish VRCDN/Twitch acceptance. The verified target is 720p30.
+Status: retained local architecture evidence from October 19, 2026, with the
+October 22 passing bounded silence-policy proof below. The historical 720p30
+render-clock results retain their original scope. Provider/device acceptance
+remains separate.
+
+## October 22 automatic-silence proof status
+
+The current implementation resolves missing/empty event policies to below -90 dBFS
+continuously for 15 seconds. The bounded decoded-media proof passed and the
+backend policy deployed successfully. No event session was started to observe a
+production worker applying the policy.
+There is no host calibration toggle. Maximum overrun remains optional/unset.
+Silence handoff requires automatic mode, matching fresh progressing decoded A/V,
+sustained analysis and an authored-eligible fresh decoded-ready successor. Manual
+selection and Hold prevail. Reconnect/failure clears evidence; no ready successor
+means the current source stays selected. Changing a threshold requires restarting
+the session for matching decoder analysis.
+
+The bounded `scripts/event-silence-local-proof.mjs` run passed in 85.561 seconds at
+320x180/15fps, using actual AAC/MPEGTS, AAC 160 kbps/48 kHz stereo and the unchanged
+factory decoder. The -81 dBFS quiet tone measured -81.018 to -80.869 dBFS and stayed
+selected for 16.068 seconds after the boundary. Digital zero measured -120 dBFS
+and qualified the 15-second rule. Short pauses, audible reset, pre-boundary
+silence, final slot, disabled/unready successor and manual `hold_current` retained
+the source. Automatic promotion then encoded blue B, and final manual Hold encoded
+slate. The 4,707 packets had maximum gap 66.667 ms and maximum GOP one second.
+Recording SHA256 is
+`39f374b6cc81b9923660c8441aac1238d3482fc189a29ec0a8f1c20841efd423`.
+
+The receipt at `/workspace/rehearsal-sdd/persistent-silence-proof.json` retains
+measurements. `/workspace/rehearsal-sdd/persistent-silence-failed-attempts.json`
+retains resource-bound 720p/640x360 attempts, a corrected harness expectation in
+manual mode and a failed slate-to-auto decoder restart at 320x180. The final
+passing sequence puts slate last and avoids that restart. Recovery from that
+restart failure remains unproven, with no media module changed. This synthetic local proof does
+not establish production-resolution capacity or a real-music false-positive rate.
+Production retains its reviewed 720p30 image and 4 CPU/8 GiB allocation.
+
+The minute Lambda dispatcher runs ordinary one-pass reconciliation without global
+drain on completion, timeout or replacement. Worker leases, emergency SSM
+publication control and the 12-hour session limit remain independent. Production
+cutover confirmed the old idle ECS dispatcher STOPPED at 15:55:03.348 UTC on
+October 22; a manual Lambda poll completed at 15:56:20.866 UTC and the first
+observed scheduled poll completed at 15:58:07.905 UTC. The next scheduled passes
+at 15:59:06.701 and 16:00:08.748 UTC also completed. Actual runtime SDK imports and
+secret fetch passed. The backend policy deployed with Convex CLI exit 0, and
+`VRDEX_EVENT_BROADCAST_SILENCE_CALIBRATED` was read back absent at
+`2026-10-22T16:04:06.604Z`; concurrency one and the 43,200-second bound remained.
+No event was selected or started, so production worker configuration and silence
+handoff were not directly observed. See
+[integration verification](event-broadcast-verification.md#persistent-dispatch-and-automatic-silence)
+and [deployment](../deployment/restream-worker.md#persistent-event-dispatcher-deployment)
+for current dispatch, recovery, artifact and cutover details. The sections below
+preserve the original architecture proof, including its then-disabled silence
+setup; that setup is superseded by the effective policy above.
 
 ## Why the POC graph was replaced
 
@@ -34,8 +87,10 @@ baseline. Repeated initial PTS cannot establish readiness, including after
 reconnect. Observations bind `slotKey` and `sourceId` and use the provided
 monotonic clock. Missing/stale media produces a persistent `failureSince`.
 Recovery clears failure evidence. Reconnect starts a new failure-evidence epoch
-and clears buffered media, PTS, level and silence evidence. Silence accumulation requires an explicitly supplied calibrated
-threshold and fresh decoded A/V; the default does not enable silence handoff.
+and clears buffered media, PTS, level and silence evidence. Silence accumulation
+requires a supplied threshold and fresh decoded A/V. The standalone decoder does
+not choose event policy; the worker supplies the effective Convex policy. The
+original proof below omitted that threshold and did not test automatic silence.
 
 A decoder with no progressing A/V for five seconds is killed. Reconnect delays are
 1, 2, 4, 8, then 10 seconds, reset after ten seconds of healthy connection.
@@ -64,7 +119,8 @@ const renderer = createProgramRenderer({
   onProgress: ({ outputMs, wallElapsedMs, delayMs }) => {},
   onObservation: observation => {},
   onError: error => {},
-  // silenceThresholdDb is omitted until calibration passes.
+  // Current workers supply the effective policy threshold.
+  // This historical render-clock example omits silence analysis.
 });
 renderer.subscribe(mpegTsChunk => sender.enqueue(mpegTsChunk));
 await renderer.reconcileSources([
