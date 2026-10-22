@@ -39,11 +39,34 @@ policy cannot pull an old image for verification. Workflow installation on the d
 branch is a prerequisite for dispatch; a separately reviewed native AWS image-import
 bootstrap must record its provenance if used before installation.
 
-Both Terraform flags default false. Inspect a saved plan and apply only the approved
-additive resources. The state-mgmt owner manages
-`enable_restream_proof_image_permissions=true` and standalone inline policy
-`vrdex-restream-proof-image` on the existing `vrdex-github-terraform` role. Its existing
-repository-wide OIDC trust remains unchanged. The restream-worker owner manages
+Both Terraform flags default false. Inspect a saved plan and apply only the reviewed
+publisher creation/migration and rehearsal resources. The state-mgmt owner manages
+`enable_restream_proof_image_permissions=true`, a dedicated role named
+`vrdex-restream-proof-image` and its standalone inline ECR policy. The workflow
+assumes `arn:aws:iam::079358094174:role/vrdex-restream-proof-image`. The role reuses
+the existing GitHub OIDC provider and requires exact `StringEquals` matches for
+`aud=sts.amazonaws.com` and `sub=repo:BASIC-BIT/VRDex:ref:refs/heads/main` with the
+default repository variable. It grants only registry authentication and the existing
+push/DescribeImages actions on `vrdex-restream-worker`, with no pull, secret, ECS,
+IAM, state or Route 53 rights. The existing Terraform role's trust and other policies
+remain unchanged. Main-branch jobs can assume this role; the default GitHub subject
+does not identify a single workflow. AWS IAM cannot directly constrain the arbitrary
+`job_workflow_ref` claim without a separately reviewed GitHub subject-template change.
+
+The dedicated role must be established and verified by a reviewed owner plan/apply
+or bootstrap/import before workflow dispatch. This code change does not claim a
+live role apply. The October 21 bootstrap instead added an ECR-only inline policy
+to `vrdex-github-terraform`; the attempt records retain that history. After dedicated
+role verification, the owner can retire that old grant through a reviewed migration.
+If the old grant is already tracked as `aws_iam_role_policy.restream_proof_image[0]`,
+the owner plan will replace that attachment. Coordinate staged bootstrap/import
+and state reconciliation so the dedicated role is verified before retiring the
+old grant; do not blindly apply the replacement plan. An import address must be
+unbound before importing the new attachment. Do not import the old Terraform-role
+policy into the new publisher attachment. Verify the final new attachment and
+the old attachment's removal.
+
+The restream-worker owner manages
 `enable_rehearsal_permissions=true`, a String SSM parameter initially false, standalone
 `vrdex-restream-rehearsal-source` on the execution role, and
 `vrdex-restream-rehearsal-switch` on the task role. Source permission is only
@@ -58,8 +81,11 @@ flag while importing. These commands contain references only:
 ```bash
 terraform -chdir=infra/terraform/state-mgmt import \
   -var='enable_restream_proof_image_permissions=true' \
+  'aws_iam_role.restream_proof_image[0]' 'vrdex-restream-proof-image'
+terraform -chdir=infra/terraform/state-mgmt import \
+  -var='enable_restream_proof_image_permissions=true' \
   'aws_iam_role_policy.restream_proof_image[0]' \
-  'vrdex-github-terraform:vrdex-restream-proof-image'
+  'vrdex-restream-proof-image:vrdex-restream-proof-image'
 terraform -chdir=infra/terraform/restream-worker import \
   -var='enable_rehearsal_permissions=true' \
   'aws_ssm_parameter.rehearsal_enabled[0]' '/vrdex/restream/rehearsal/enabled'
@@ -74,9 +100,13 @@ terraform -chdir=infra/terraform/restream-worker import \
 ```
 
 Terraform defines the rehearsal parameter false. Do not apply while the live rehearsal
-needs it true. Do not replace the existing runtime or execution policies, change trust,
-or grant the workflow secret access. Set both opt-in flags false for a reviewed targeted
-rollback only after tasks are STOPPED and the switch is restored false.
+needs it true. Do not replace the existing runtime or execution policies, change
+existing role trust, or grant the workflow secret access. Set both opt-in flags false for a reviewed targeted
+rollback only after tasks are STOPPED and the switch is restored false. Disabling
+the publisher flag removes its dedicated role and inline policy and prevents future
+image publication. It does not roll the workflow back to the Terraform role or
+remove an untracked historical bootstrap grant. Review that old grant separately;
+keep existing Terraform state, Route 53 and other policies intact.
 
 ## Commands and configuration
 

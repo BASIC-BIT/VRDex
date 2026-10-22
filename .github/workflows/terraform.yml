@@ -330,6 +330,11 @@ jobs:
         working-directory: ${{ matrix.stack.path }}
         run: terraform validate
 
+      - name: Test restream publisher permissions without AWS
+        if: steps.selection.outputs.run == 'true' && matrix.stack.name == 'state-mgmt'
+        working-directory: ${{ matrix.stack.path }}
+        run: terraform test -no-color
+
       - name: Check plan gate
         if: steps.selection.outputs.run == 'true'
         id: gate

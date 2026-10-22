@@ -192,6 +192,9 @@ test('image workflow stays manual, main-bound, immutable and image-only', async 
  assert.deepEqual(Object.keys(workflow.on), ['workflow_dispatch']);
  assert.equal(workflow.jobs.image.if, "github.ref == 'refs/heads/main'");
  assert.equal(workflow.jobs.image['timeout-minutes'], 20);
+ const credentials = workflow.jobs.image.steps.filter(step => step.uses?.startsWith('aws-actions/configure-aws-credentials@'));
+ assert.equal(credentials.length, 1);
+ assert.equal(credentials[0].with['role-to-assume'], 'arn:aws:iam::079358094174:role/vrdex-restream-proof-image');
  assert.ok(source.includes('git merge-base --is-ancestor "$REQUESTED_SHA" origin/main'));
  assert.ok(source.includes('proof-$REQUESTED_SHA')); assert.ok(source.includes('expected-runtime.sha256'));
  assert.ok(!/aws\s+(ecs|iam|ssm|secretsmanager|s3)\s/.test(source));
@@ -213,7 +216,6 @@ test('rehearsal IAM resources are opt-in, standalone, exact and additive', async
  assert.ok(worker.includes('arn:aws:ssm:us-east-1:079358094174:parameter/vrdex/restream/rehearsal/enabled'));
  assert.ok(!worker.includes('ssm:GetParameters')); assert.ok(!worker.includes('Resource = "*"'));
  assert.ok(image.includes('arn:aws:ecr:us-east-1:079358094174:repository/vrdex-restream-worker'));
- assert.ok(!image.includes('assume_role_policy'));
 });
 test('bounded runner terminates an actual isolated Node process without media', async () => {
  const result = await runBounded({ command: process.execPath, args: ['-e', 'setInterval(() => {}, 1000)'], env: {}, timeoutMs: 30 });

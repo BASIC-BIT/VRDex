@@ -50,7 +50,7 @@ jobs:
 
       - uses: aws-actions/configure-aws-credentials@v6
         with:
-          role-to-assume: arn:aws:iam::079358094174:role/vrdex-github-terraform
+          role-to-assume: arn:aws:iam::079358094174:role/vrdex-restream-proof-image
           aws-region: us-east-1
           role-session-name: restream-proof-image
 

@@ -48,7 +48,7 @@ future authorized provider attempt.
 - Modify `workers/restream/Dockerfile` to package proof/helper commands and consolidate explicit file copies into one worker layer and one proof layer. Default entrypoint, paths and runtime module contents remain unchanged; consolidation prevents VFS from storing a full filesystem copy per tiny file during this build.
 - Create focused Node tests under `tests/scripts/` for proof guards, commands, kill-switch fencing/cleanup, failed status preservation and secret-safe reports using injected dependencies.
 - Add manual image-only workflow `.github/workflows/restream-image.yml` from reviewed prototype; no automatic triggers or ECS/IAM/SSM/Convex mutations.
-- Add opt-in exact IAM delta resources in existing Terraform owners, with default disabled and documented import/bootstrap path. Use standalone policy names `vrdex-restream-proof-image`, `vrdex-restream-rehearsal-source`, `vrdex-restream-rehearsal-switch` to avoid replacing any unrelated existing inline policy. Add dedicated SSM parameter definition only through opt-in rehearsal config, defaultfalse. Existing execution role output access remains intact.
+- Add opt-in exact IAM delta resources in existing Terraform owners, with default disabled and documented import/bootstrap path. Create a dedicated main-only GitHub OIDC publisher role `vrdex-restream-proof-image` with its standalone ECR-only inline policy. Use standalone policy names `vrdex-restream-rehearsal-source` and `vrdex-restream-rehearsal-switch` on the existing worker roles. Preserve unrelated policies and the Terraform role trust; retire its historical ECR-only bootstrap grant through a reviewed owner migration after dedicated-role verification. Add dedicated SSM parameter definition only through opt-in rehearsal config, defaultfalse. Existing execution role output access remains intact.
 - Update deployment docs with exact invocation, bounds, evidence limitations, and cleanup commands. Include permission ownership and no default production enablement.
 
 **Interfaces:**
@@ -83,7 +83,7 @@ Root coordinates AWS changes, image transport/publication and bounded tasks. New
 | Tasks/files | Producer and consumer | Finding |
 | --- | --- | --- |
 | Task1 proof and runner | Runner invokes packaged proof; Dockerfile packages both plus shared helper | One writer; focused tests assert packaging/guard paths |
-| Task1 workflow and IAM | Workflow uses existing GitHub OIDC role; opt-in grant covers only exact ECR repository | No trust change; no task or secret authority in image job |
+| Task1 workflow and IAM | Workflow uses dedicated `vrdex-restream-proof-image` role; exact STS audience and repository main subject; ECR-only policy | Existing Terraform role trust unchanged; main-only boundary does not isolate a single workflow; owner provisioning required before dispatch |
 | Task1 runner and Task2 tasks | Runner produces safe artifacts to allowed prefix and preserves exit status | Root uses explicit command, immutable digest and240s outer deadline |
 | Task1 live adapter and Task2 switch | Adapter reads dedicated exact SSM parameter using existing worker enable authority | Production switch untouched; false/error fail closed |
 | Task1 itself | No fake live transport; tests inject dependencies outside direct CLI path | Meets fixed accounts/profile and one-source limitations |
@@ -287,3 +287,15 @@ Twitch, musical-silence calibration, multi-hour capacity or physical-device
 acceptance. The plan remains partially accepted. See the
 [October 22 evidence record](../../engineering/event-broadcast-rehearsal.md#october-22-2026-diagnostic-session)
 and `/workspace/rehearsal-sdd/capacity4cpu-result-receipt.json`.
+
+## Task 9 publisher role review correction
+
+The image workflow previously assumed the broad `vrdex-github-terraform` role.
+An ECR-only additional policy did not remove that role's existing IAM, state and
+Route 53 rights. The reviewed fix creates a dedicated opt-in main-only publisher
+role and points the workflow to it. Native mock-provider plan tests cover disabled
+and enabled resources, decoded trust and the complete ECR-only policy; CI runs
+them without AWS credentials. Existing image provenance and attempt evidence keep
+their original scope. No live role apply is claimed. The state-mgmt owner must
+verify the new role and review retirement of the historical ECR grant before
+future publication. See [the permission procedure](../../engineering/event-broadcast-rehearsal.md#image-and-permissions).

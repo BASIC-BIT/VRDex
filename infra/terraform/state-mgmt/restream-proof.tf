@@ -1,13 +1,32 @@
 variable "enable_restream_proof_image_permissions" {
-  description = "Opt in to the approved restream proof image push grant on the existing GitHub OIDC role. Does not change its trust policy."
+  description = "Opt in to a dedicated main-only GitHub OIDC role for restream proof image publication."
   type        = bool
   default     = false
+}
+
+resource "aws_iam_role" "restream_proof_image" {
+  count = var.enable_restream_proof_image_permissions ? 1 : 0
+  name  = "vrdex-restream-proof-image"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Action    = "sts:AssumeRoleWithWebIdentity"
+      Principal = { Federated = data.aws_iam_openid_connect_provider.github_actions.arn }
+      Condition = {
+        StringEquals = {
+          "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
+          "token.actions.githubusercontent.com:sub" = "repo:${var.github_repository}:ref:refs/heads/main"
+        }
+      }
+    }]
+  })
 }
 
 resource "aws_iam_role_policy" "restream_proof_image" {
   count = var.enable_restream_proof_image_permissions ? 1 : 0
   name  = "vrdex-restream-proof-image"
-  role  = aws_iam_role.github_actions_terraform.id
+  role  = aws_iam_role.restream_proof_image[0].name
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [

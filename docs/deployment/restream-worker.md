@@ -944,6 +944,18 @@ early explicitly. The corrected controller and policy have fresh packaged proof
 attribution in the verification page. Previous snapshots retain their original
 scope, and hosted enablement still requires capacity and provider acceptance.
 
+### Proof image publisher prerequisite
+
+The manual `Restream proof image` workflow requires the dedicated
+`vrdex-restream-proof-image` OIDC role before dispatch from main. The state-mgmt
+owner provisions it with `enable_restream_proof_image_permissions=true`, default
+false. Its exact repository-main subject and STS audience permit ECR authentication
+and push/DescribeImages only. Other eligible main-branch jobs share that trust
+boundary; it does not isolate one workflow. The Terraform role's broader permissions
+are separate. A reviewed owner migration can retire its historical ECR-only bootstrap
+grant after the dedicated role is verified. This change does not claim live IAM
+provisioning. See [permissions, import and rollback](../engineering/event-broadcast-rehearsal.md#image-and-permissions).
+
 ### October 22 isolated rehearsal findings
 
 Ordinary hosted output remains disabled. BASIC's autonomous $20 completion scope
