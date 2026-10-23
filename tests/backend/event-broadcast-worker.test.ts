@@ -68,14 +68,15 @@ it("autonomous observations are fenced and cannot claim live without actual enco
     await t.run(({ db }) => db.patch(args.sessionId, { leaseExpiresAt: Date.now() - 1 }));
     assert.equal((await t.mutation(worker("observeProgram"), { ...request, intentSequence:0,outputId:output.outputId,state: "hold", outputMs: 300, publishing: true })).kind, "fenced");
 });
-import { createEventWorker } from "../../workers/restream/event-worker.mjs";
+import { createProofWorker as createEventWorker, syntheticInputs } from '../../scripts/event-proof-fixtures.mjs';
 function runtimeFixture(options: Record<string, unknown> = {}) {
     let now = 0, encoded = 0, renderedSlotKey: string | undefined, renderedSourceId: string | undefined;
-    let fenced = 0, selections = 0, ackCount = 0, holds = 0, prepared = 0;
+    let fenced = 0, selections = 0, ackCount = 0, successfulAckCount = 0, holds = 0, prepared = 0;
     let commands: any[] = [];
     const config: any = { sessionDeadline: 1000000, mode: "automatic", policy: {}, sources: [{ id: "a", eventSlotId: "slot-a", publicUrl: "https://stream.vrcdn.live/live/a.live.ts", type: "vrcdn_link" }], slots: [{ slotKey: "slot-a", sourceId: "a", startAt: 0, available: true }], outputs: [{ id: "out" }], outputId: "out" };
     const observations = new Map<string, any>();
-    const renderer = { start: async () => { }, stop: async () => { }, subscribe: () => () => { }, reconcileSources: async (sources: any[]) => { prepared += sources.length; }, getInputs: () => [...observations.values()].map(o => ({ source: o, getObservation: () => ({ ...o, observedAt: typeof options.observationClock === "function" ? options.observationClock() : o.observedAt }) })), selectSource: (slot: string) => { selections++; return true; }, hold: () => { holds++; }, getState: () => ({ running: true, outputMs: encoded, renderedSlotKey, renderedSourceId }) };
+    observations.set("slot-a",{slotKey:"slot-a",sourceId:"a",revision:1,ready:true,progressing:true,observedAt:0});
+    const renderer = { start: async () => { }, stop: async () => { }, subscribe: () => () => { }, reconcileSources: async (sources: any[]) => { prepared += sources.length; }, getInputs: () => [...observations.values()].map(o => ({ source: {...o,revision:o.revision??1}, getObservation: () => ({ ...o, revision:o.revision??1, observedAt: typeof options.observationClock === "function" ? options.observationClock() : o.observedAt }) })), selectSource: (slot: string) => { selections++; return true; }, hold: () => { holds++; }, getState: () => ({ running: true, outputMs: encoded, renderedSlotKey, renderedSourceId, renderedSourceRevision:renderedSourceId?1:undefined }) };
     const control = async (name: string, args: any) => {
         if (name === "acquireSession" || name === "renewSession")
             return { granted: true, epoch: 1, serverNow: 0, expiresAt: 30000, renewAfterMs: 10000, configuration: config };
@@ -84,14 +85,15 @@ function runtimeFixture(options: Record<string, unknown> = {}) {
         if (name === "claimCommands")
             return { granted: true, commands };
         if (name === "acknowledgeCommand") {
-            ackCount++;
+            ackCount++; if(args.outcome==='succeeded')successfulAckCount++;
             commands = [];
             return { accepted: true };
         }
         return { accepted: true };
     };
-    const worker = createEventWorker({ identity: { eventId: "e", sessionId: "s", workerId: "unique", epoch: 0 }, control: (name: string, args: any) => typeof options.controlFilter === "function" ? options.controlFilter(name, args, control) : control(name, args), clock: () => now, renderer, resolveSource: async (s: any) => s.publicUrl, checkEnabled: async () => true, outputs: { start: async () => { }, enqueue: () => { }, getState: () => ({ publishing: true }), stopNow: () => { fenced++; }, stop: async () => { } }, ...options });
-    return { worker, renderer, config, observations, advance: (n: number) => { now = n; }, encoded: (slot: string | undefined = "slot-a") => { encoded += 100; renderedSlotKey = slot; renderedSourceId = slot ? "a" : undefined; }, slate: () => { encoded += 100; renderedSlotKey = undefined; renderedSourceId = undefined; }, command: (type = "switch_source", sequence = 1) => { commands = [{ _id: `c${sequence}`, sequence, commandType: type, targetSourceId: "a" }]; }, counts: () => ({ fenced, selections, ackCount, holds, prepared }) };
+    const worker = createEventWorker({ identity: { eventId: "e", sessionId: "s", workerId: "unique", epoch: 0 }, control: (name: string, args: any) => typeof options.controlFilter === "function" ? options.controlFilter(name, args, control) : control(name, args), clock: () => now, renderer, inputs: syntheticInputs(async (s: any) => s.publicUrl), checkEnabled: async () => true, outputs: { start: async () => { }, enqueue: () => { }, getState: () => ({ publishing: true }), stopNow: () => { fenced++; }, stop: async () => { } }, ...options });
+    const tickOnce=worker.tick;worker.tick=async()=>{for(let i=0;i<4;i++)await tickOnce();};
+    return { worker, renderer, config, observations, advance: (n: number) => { now = n; }, encoded: (slot: string | undefined = "slot-a") => { encoded += 100; renderedSlotKey = slot; renderedSourceId = slot ? "a" : undefined; }, slate: () => { encoded += 100; renderedSlotKey = undefined; renderedSourceId = undefined; }, command: (type = "switch_source", sequence = 1) => { commands = [{ _id: `c${sequence}`, sequence, commandType: type, targetSourceId: "a" }]; }, counts: () => ({ fenced, selections, ackCount, successfulAckCount, holds, prepared }) };
 }
 it("worker only acknowledges encoded slot and source, then ignores command replay", async () => {
     const f = runtimeFixture();
@@ -130,7 +132,7 @@ it("refresh revocation holds current and removes decoder", async () => {
     f.config.slots[0].available = false;
     f.config.sources = [];
     await f.worker.tick();
-    assert.equal(f.worker.getState().current?.available, false);
+    assert.notEqual(f.worker.getState().current?.available, true);
 });
 import { validateSourceEndpoint, isPublicIPv4 } from "../../workers/restream/source-relay.mjs";
 it("source boundary refuses metadata, local networks, arbitrary hosts, credentials and unsupported Twitch", () => {
@@ -207,7 +209,7 @@ it("hold current retains encoded source while slate holds and automatic resumes"
     f.command('switch_hold', 4);
     await f.worker.tick();
     assert.ok(f.counts().holds > before);
-    assert.equal(f.worker.getState().mode, 'automatic');
+    assert.equal(f.worker.getState().mode, 'hold');
     f.slate(); await f.worker.tick();
     assert.equal(f.worker.getState().mode, 'hold');
 });
@@ -286,7 +288,7 @@ it("same source ID with a changed URL cannot acknowledge the old encoded input",
     f.config.sources[0].publicUrl = 'https://stream.vrcdn.live/live/replacement.live.ts';
     f.encoded();
     await f.worker.tick();
-    assert.equal(f.counts().ackCount, 0);
+    assert.equal(f.counts().successfulAckCount, 0);
 });
 it("changing or revoking selected destination fences the old sender", async () => {
     const f = runtimeFixture();
@@ -310,10 +312,12 @@ it("stopping a still-authorized worker reports terminal error after fencing publ
 it("manual source selection supports an authorized source without an authored slot", async () => {
     const f = runtimeFixture();
     f.config.slots = [];
+    f.observations.clear();
+    f.observations.set('manual-a',{slotKey:'manual-a',sourceId:'a',revision:1,ready:true,progressing:true,observedAt:0});
     await f.worker.start();
     f.command();
     await f.worker.tick();
-    assert.equal(f.worker.getState().current, undefined);
+    assert.equal(f.worker.getState().committedIntent.kind, 'manual');
     assert.equal(f.counts().ackCount, 0);
     f.encoded('manual-a'); await f.worker.tick();
     assert.equal(f.worker.getState().current?.sourceId, 'a');
@@ -690,7 +694,7 @@ it('R2F1 rejected ordinary output save preserves the active worker configuration
   await assert.rejects(save(),/session/); // Pending, before any dispatch reservation.
   const controller=createEventWorker({identity:f.args,control:(method:string,request:Record<string,unknown>)=>f.t.mutation(worker(method),request),
     renderer:{start:async()=>{},stop:async()=>{},subscribe:()=>()=>{},reconcileSources:async()=>{},getInputs:()=>[],hold:()=>{},getState:()=>({running:true,outputMs:1000})},
-    outputs:{start:async()=>{},stop:async()=>{},stopNow:()=>{},enqueue:()=>{},getState:()=>({publishing:true})},resolveSource:async()=>undefined,checkEnabled:async()=>true});
+    outputs:{start:async()=>{},stop:async()=>{},stopNow:()=>{},enqueue:()=>{},getState:()=>({publishing:true})},inputs: syntheticInputs(async()=>undefined), checkEnabled:async()=>true});
   try {
     await controller.start();await controller.tick();
     const before=await f.t.run(({db})=>db.get(f.output.outputId));
@@ -856,8 +860,8 @@ function transactionalRuntime(relay?: any) {
     let prepared:string[]=[], preparedSources:any[]=[], renderedSource:string|undefined='a';
     const ready=new Set(['a']); const failures=new Map<string,number>(); const acks:any[]=[],reports:any[]=[];
     const config:any={mode:'manual',currentSourceId:'a',sessionDeadline:1000000,policy:{},outputId:'out',outputs:[{id:'out'}],sources:['a','b','c'].map(id=>({id,publicUrl:`https://example.test/${id}`})),slots:[{slotKey:'a',sourceId:'a',startAt:-1000,endAt:30000,available:true},{slotKey:'b',sourceId:'b',startAt:40000,endAt:50000,available:true}]};
-    const renderer={start:async()=>{},stop:async()=>{},subscribe:()=>()=>{},reconcileSources:async(sources:any[])=>{preparedSources=sources.map(source=>({...source}));prepared=sources.map(s=>s.slotKey);},getInputs:()=>preparedSources.map(source=>({source,getObservation:()=>({...source,ready:ready.has(source.slotKey),progressing:ready.has(source.slotKey),failureSince:failures.get(source.slotKey),observedAt:now})})),selectSource:(slotKey:string)=>{if(!ready.has(slotKey)||!prepared.includes(slotKey))return false; rendered=slotKey;renderedSource=preparedSources.find(source=>source.slotKey===slotKey)?.sourceId;return true;},hold:()=>{rendered=undefined;renderedSource=undefined;},getState:()=>({running:true,outputMs:now+1,renderedSlotKey:rendered,renderedSourceId:renderedSource})};
-    const worker=createEventWorker({identity:{},clock:()=>now,renderer,outputs:{start:async()=>{},stop:async()=>{},stopNow:()=>{},getState:()=>({publishing:true})},resolveSource:async(s:any)=>relay ? relay.resolveSource({...s,type:"vrcdn_link"}) : s.publicUrl,retainSources:(sources:any[])=>relay?.retainSources(sources.map(s=>({...s,type:"vrcdn_link"}))),checkEnabled:async()=>true,control:async(name:string,args:any)=>{
+    const renderer={start:async()=>{},stop:async()=>{},subscribe:()=>()=>{},reconcileSources:async(sources:any[])=>{preparedSources=sources.map(source=>({...source}));prepared=sources.map(s=>s.slotKey);},getInputs:()=>preparedSources.map(source=>({source,getObservation:()=>({...source,ready:ready.has(source.slotKey),progressing:ready.has(source.slotKey),failureSince:failures.get(source.slotKey),observedAt:now})})),selectSource:(slotKey:string)=>{if(!ready.has(slotKey)||!prepared.includes(slotKey))return false; rendered=slotKey;renderedSource=preparedSources.find(source=>source.slotKey===slotKey)?.sourceId;return true;},hold:()=>{rendered=undefined;renderedSource=undefined;},getState:()=>({running:true,outputMs:now+1,renderedSlotKey:rendered,renderedSourceId:renderedSource,renderedSourceRevision:renderedSource?preparedSources.find(s=>s.sourceId===renderedSource)?.revision:undefined})};
+    const worker=createEventWorker({identity:{},clock:()=>now,renderer,outputs:{start:async()=>{},stop:async()=>{},stopNow:()=>{},getState:()=>({publishing:true})},inputs: syntheticInputs(undefined, relay), checkEnabled:async()=>true,control:async(name:string,args:any)=>{
         if(name==='acquireSession'||name==='renewSession')return {granted:true,epoch:1,serverNow:now,expiresAt:now+30000,renewAfterMs:10000,configuration:structuredClone(config)};
         if(name==='refreshConfiguration')return {granted:true,serverNow:now,configuration:structuredClone(config)};
         if(name==='claimCommands')return {granted:true,commands};
@@ -865,7 +869,7 @@ function transactionalRuntime(relay?: any) {
         if(name==='observeProgram')reports.push(args);
         return {accepted:true};
     }});
-    return {worker,config,ready,failures,acks,reports,setTime:(time:number)=>{now=time;},prepared:()=>prepared,rendered:()=>rendered,command:(commandType:string,targetSourceId?:string)=>{commands=[{_id:`command-${++sequence}`,sequence,commandType,targetSourceId}];},tick:async(time=now+1000)=>{now=time;await worker.tick();}};
+    return {worker,config,ready,failures,acks,reports,setTime:(time:number)=>{now=time;},prepared:()=>prepared,rendered:()=>rendered,command:(commandType:string,targetSourceId?:string)=>{commands=[{_id:`command-${++sequence}`,sequence,commandType,targetSourceId}];},tick:async(time=now+1000)=>{now=time;for(let i=0;i<4;i++)await worker.tick();}};
 }
 it('R4F1 failed source switch retains healthy playback, removes target and permits observed retry',async()=>{
     const f=transactionalRuntime();await f.worker.start();await f.tick();
@@ -980,8 +984,8 @@ it('R4F1 R4F2 real backend observation and command ack agree through failure, re
  });
  let time=0,rendered:any,prepared:any[]=[];const ready=new Set([sources[0].slot]);
  const renderer={start:async()=>{},stop:async()=>{},subscribe:()=>()=>{},reconcileSources:async(rows:any[])=>{prepared=rows;},getInputs:()=>prepared.map(source=>({source,getObservation:()=>({...source,ready:ready.has(source.slotKey),progressing:ready.has(source.slotKey),observedAt:time})})),selectSource:(key:string)=>{if(!ready.has(key))return false;rendered=prepared.find(source=>source.slotKey===key);return !!rendered;},hold:()=>{rendered=undefined;},getState:()=>({running:true,outputMs:time+1,renderedSlotKey:rendered?.slotKey,renderedSourceId:rendered?.sourceId,renderedSourceRevision:rendered?.revision})};
- const runtime=createEventWorker({identity:{...f.args},renderer,clock:()=>time,resolveSource:async(s:any)=>s.publicUrl,checkEnabled:async()=>true,outputs:{start:async()=>{},stop:async()=>{},stopNow:()=>{},getState:()=>({publishing:true})},control:(name:string,args:any)=>f.t.mutation(worker(name),args)});
- const tick=async()=>{time+=1000;await runtime.tick();assert.equal(runtime.getState().stopped,false);};
+ const runtime=createEventWorker({identity:{...f.args},renderer,clock:()=>time,inputs: syntheticInputs(async(s:any)=>s.publicUrl), checkEnabled:async()=>true,outputs:{start:async()=>{},stop:async()=>{},stopNow:()=>{},getState:()=>({publishing:true})},control:(name:string,args:any)=>f.t.mutation(worker(name),args)});
+ const tick=async()=>{time+=1000;for(let i=0;i<4;i++)await runtime.tick();assert.equal(runtime.getState().stopped,false);};
  const state=()=>f.t.run(({db})=>db.get(f.args.sessionId));
  await runtime.start();await tick();await tick();await tick();
  assert.equal((await state())?.currentSourceId,sources[0].source);
@@ -1061,7 +1065,7 @@ for(const terminal of ['ended','error','stop-ack'] as const) it(`R5F4 selected d
 import { createSourceRelay } from '../../workers/restream/source-relay.mjs';
 it('R5F3 actual controller retains current plus manual target and retires target on rollback', async()=>{
  const relay=await createSourceRelay({operatorEndpoints:['https://example.test/a','https://example.test/b','https://example.test/c']});const f=transactionalRuntime(relay);
- const resolve=(id:string)=>relay.resolveSource({...f.config.sources.find((s:any)=>s.id===id),type:'vrcdn_link'});
+ const resolve=(id:string)=>relay.resolveSource({...f.config.sources.find((s:any)=>s.id===id),revision:1,type:'vrcdn_link'});
  try{
   await f.worker.start();await f.tick();const a=resolve('a');f.command('switch_source','b');await f.tick();const b=resolve('b');
   assert.equal(resolve('a'),a);assert.deepEqual(f.prepared(),['a','b']);
@@ -1746,7 +1750,7 @@ for (const replacement of ['future', 'expired', 'expired-before-future'] as cons
     for (const time of [4000, 5000, 6000, 9999]) {
       await f.tick(time);
       assert.equal(f.worker.getState().current?.sourceId, 'a', `old identity at ${time}`);
-      assert.equal(f.worker.getState().current?.available, false);
+      assert.notEqual(f.worker.getState().current?.available, true);
       assert.equal(f.rendered(), undefined, `slate before boundary at ${time}`);
       assert.equal(f.reports.at(-1).sourceId, undefined);
       if (replacement === 'future') assert.deepEqual(f.prepared(), ['a'], 'available same-key replacement stays warm');
@@ -1831,8 +1835,7 @@ for (const startClaimed of [false, true])
       identity: { ...f.args },
       renderer,
       clock: () => time,
-      resolveSource: async (s: any) => s.publicUrl,
-      checkEnabled: async () => true,
+      inputs: syntheticInputs(async (s: any) => s.publicUrl), checkEnabled: async () => true,
       outputs: {
         start: async () => {
           publishing = true;

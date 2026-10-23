@@ -5,6 +5,66 @@ October 22 passing bounded silence-policy proof below. The historical 720p30
 render-clock results retain their original scope. Provider/device acceptance
 remains separate.
 
+## October 23 nonblocking input and operator proof
+
+The worker now separates transport preparation, decoded readiness, durable
+promotion, and encoded confirmation. One input manager owns current/candidate
+acquisitions. The renderer owns corresponding decoders. Each counts retiring
+resources until physical closure, so replacing a slow candidate cannot create a
+third acquisition or decoder. A lazy VRCDN route admits one upstream connection,
+including pending DNS and closing sockets; Twitch retains its own reconnect loop.
+The immutable session media settings bind before any acquisition starts.
+
+The operator controller never waits for transport readiness, retirement, Begin,
+promotion, or acknowledgement from a worker tick. Backend protocol v2 owns the
+committed intent, pinned target and original preparation deadline. Local receipt
+adds a conservative 15-second cap without extending the backend deadline on
+refresh, retry, promotion or takeover. Fresh configuration can confirm a promotion
+before its RPC reply without losing the receipt. Obsolete callbacks cannot select
+media or clear newer operations. Encoded acknowledgement retries preserve the
+original source/revision/slot and output watermark.
+
+Cut changes local committed intent and holds the renderer immediately. Stop
+fences publication before cleanup. Cancel retires the candidate while keeping the
+committed source. Manual intent survives fallback and recovers its pinned source;
+Return to auto in a timetable gap commits automatic slate before future standby
+work. Decoded readiness still requires progressing audio/video within one second,
+and decoder startup/stall still has its five-second guard.
+
+Local host verification used Node 24.19.0 and FFmpeg 7.1.5, with synthetic control
+and local transports. The command recording proved failed B preparation preserves
+A, explicit retry selects B, Return to auto returns A or gap slate, and Cut during
+an unresolved third-source request stays slate after its late readiness callback.
+Independent decoded frames were blue `[1, 0, 255]`, red `[254, 0, 0]`, and final
+slate `[30, 27, 31]`. Sixteen post-Cut output watermarks advanced on slate; three
+lease renewals completed. The 720p30 recording had a 34-ms maximum packet gap and
+a one-second GOP, with AAC at 48 kHz.
+
+The silence proof uses the supported **480p30** preset, keeping its 180p15 source
+fixtures. It retains quiet AAC/PCM around -81 dBFS, measures digital zero at
+-120 dBFS, resets silence after an audible burst, and checks timetable eligibility,
+final/disabled/unready successor retention and manual hold. It independently
+decodes blue after the eligible silence handoff and neutral slate after Cut.
+Historical small-profile evidence below remains historical; production profile
+validation accepts exactly the six supported presets.
+
+Run the lifecycle tests and local proofs with:
+
+```bash
+node --conditions=import --import tsx --test tests/backend/event-broadcast-input-manager.test.ts tests/backend/event-broadcast-worker.test.ts tests/backend/event-broadcast-renderer.test.ts tests/backend/event-broadcast-relay.test.ts tests/backend/event-broadcast-policy.test.ts
+node scripts/event-command-local-proof.mjs
+node scripts/event-silence-local-proof.mjs
+```
+
+All worker constructor callers use an input manager. Local proofs share
+`scripts/event-proof-fixtures.mjs`, which supplies synthetic immediate handles and
+an in-memory v2 authority; production has no acquisition/interpreter fallback.
+The image installer explicitly packages that helper and both required proofs,
+and excludes server-owned allocation configuration from its runtime module glob.
+Actual Node 22/deployment-image execution, direct-provider acceptance, sustained
+six-preset capacity and device observations remain separate gates. These local
+recordings establish lifecycle correctness, not those acceptance claims.
+
 ## October 22 automatic-silence proof status
 
 The current implementation resolves missing/empty event policies to below -90 dBFS

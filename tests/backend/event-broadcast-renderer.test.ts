@@ -186,3 +186,15 @@ test('encoded snapshot retains revision when the same source and slot acquire a 
     assert.equal(state.renderedSourceRevision, undefined);
     assert.equal(state.renderedSourceId, undefined);
 });
+test('obsolete decoder pipes cannot supply replacement evidence, and stop is terminal until physical close',async(t)=>{
+ const {EventEmitter}=await import('node:events');const {PassThrough}=await import('node:stream');
+ t.mock.timers.enable({apis:['setTimeout','setInterval']});let now=0;const children:any[]=[];
+ const input=createInputSupervisor({source:{slotKey:'s',sourceId:'a',revision:1,url:'local'},quality:{width:2,height:2,frameRate:30},clock:()=>now,spawnProcess:()=>{const child:any=new EventEmitter();child.stdio=[null,null,new PassThrough(),new PassThrough(),new PassThrough()];child.kill=()=>true;children.push(child);return child;}});
+ const feed=(child:any,pts:number)=>{child.stdio[2].write(`showinfo pts_time:${pts}\n`);child.stdio[3].write(Buffer.alloc(6));child.stdio[4].write(Buffer.alloc(6400));};
+ input.start();feed(children[0],0);now=100;feed(children[0],0.1);assert.equal(input.getObservation().ready,true);
+ children[0].emit('close');now=1100;t.mock.timers.tick(1000);assert.equal(children.length,2);
+ feed(children[0],10);feed(children[0],11);assert.equal(input.getObservation().ready,false);assert.equal(input.buffer.frame,undefined);
+ feed(children[1],0);now=1200;feed(children[1],0.1);assert.equal(input.getObservation().ready,true);
+ const stop=input.stop();assert.equal(input.stop(),stop);input.start();feed(children[1],0.2);assert.equal(input.getObservation().ready,false);assert.equal(input.buffer.frame,undefined);
+ let closed=false;stop.then(()=>{closed=true;});await Promise.resolve();assert.equal(closed,false);children[1].emit('close');await stop;t.mock.timers.tick(30000);assert.equal(children.length,2);
+});

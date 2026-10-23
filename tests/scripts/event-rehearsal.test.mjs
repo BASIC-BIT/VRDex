@@ -7,7 +7,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { validateRehearsal, createRehearsalControl, runRehearsal, createReadinessEvidence, createTransportEvidence, REHEARSAL_PARAMETER } from '../../scripts/event-vrcdn-rehearsal.mjs';
 import { runBounded, finalizeArtifacts, numericDiagnostics, syntheticEnvironment, runSynthetic, finalizeProof } from '../../scripts/event-proof-runner.mjs';
-import { createEventWorker, checkHostedEnabled } from '../../workers/restream/event-worker.mjs';
+import { checkHostedEnabled } from '../../workers/restream/event-worker.mjs';
+import { createProofWorker as createEventWorker, syntheticInputs } from '../../scripts/event-proof-fixtures.mjs';
 const attestations = { sourceConsent: 'accepted', destinationAuthority: 'accepted', providerRules: 'accepted', rightsClearedMedia: 'accepted' };
 const environment = () => ({ VRDEX_PROVIDER_REHEARSAL_CONFIRMED: 'true', VRDEX_PROVIDER_REHEARSAL_ATTESTATIONS_JSON: JSON.stringify(attestations), VRDEX_EVENT_MEDIA_OUTPUT_INGEST_SECRET_JSON: '{"rtmpUrl":"rtmp://uk.ingest.vrcdn.live/live","streamKey":"private-canary"}', AWS_REGION: 'us-east-1', VRDEX_RESTREAM_KILL_SWITCH_SSM_PARAMETER: REHEARSAL_PARAMETER });
 test('rehearsal startup gate accepts canonical-host synthetic split and combined credentials', () => {
@@ -29,7 +30,7 @@ test('in-memory control uses explicit rights and expires leases at fixed deadlin
  assert.deepEqual(lease.configuration.outputs[0].compliance, attestations);
  assert.equal(lease.configuration.sources[0].publicUrl, 'https://stream.vrcdn.live/live/basicbit1.live.ts');
  now += 20000;
- assert.equal((await control('claimCommands')).commands[0].commandType, 'switch_hold');
+ assert.equal((await control('claimCommands')).commands[0].commandType, 'cut_to_slate');
  await control('acknowledgeCommand', { sequence: 1, outcome: 'succeeded', observedState: 'hold', private: 'private-canary' });
  now += 10000;
  assert.equal((await control('claimCommands')).commands[0].commandType, 'switch_source');
@@ -91,7 +92,7 @@ function fakeRuntime({ now, enabled = true, leaseMs = 1000 }) {
  const renderer = { start: async () => {}, stop: async () => {}, subscribe: () => () => {}, getState: () => ({ running: true, outputMs: 1 }), getInputs: () => [], reconcileSources: async () => {}, hold() {}, selectSource: () => false };
  const outputs = { start: async () => {}, stopNow: () => { stopped = true; }, stop: async () => {}, enqueue() {}, getState: () => ({ publishing: true, destinations: [] }) };
  const config = { outputId: 'basicbit', outputs: [{ id: 'basicbit' }], sources: [], slots: [], mode: 'hold', policy: {}, sessionDeadline: 180000 };
- const worker = createEventWorker({ identity: {}, clock: now, renderer, outputs, checkEnabled: async () => enabled, control: async name => name === 'acquireSession' ? { granted: true, epoch: 1, serverNow: 0, expiresAt: leaseMs, renewAfterMs: 10000, configuration: config } : { granted: false } });
+ const worker = createEventWorker({ inputs: syntheticInputs(), identity: {}, clock: now, renderer, outputs, checkEnabled: async () => enabled, control: async name => name === 'acquireSession' ? { granted: true, epoch: 1, serverNow: 0, expiresAt: leaseMs, renewAfterMs: 10000, configuration: config } : { granted: false } });
  return { worker, fenced: () => stopped };
 }
 test('unchanged worker fences on expired authority and dedicated switch failure', async () => {
@@ -122,7 +123,7 @@ test('switch loss after publication fences synchronously on refresh or ten-secon
   const renderer = { start: async () => {}, stop: async () => {}, subscribe: () => () => {}, getState: () => ({ running: true, outputMs: 1 }), getInputs: () => [], reconcileSources: async () => {}, hold() {}, selectSource: () => false };
   const outputs = { start: async () => {}, stopNow: () => { fenced = true; }, stop: async () => {}, enqueue() {}, getState: () => ({ publishing: true, destinations: [] }) };
   const configuration = { outputId: 'basicbit', outputs: [{ id: 'basicbit' }], sources: [], slots: [], mode: 'hold', policy: {}, sessionDeadline: 180000 };
-  const worker = createEventWorker({ identity: {}, clock: () => now, renderer, outputs, checkEnabled: async () => { if (++checks === 1) return true; if (failure === 'false') return false; if (failure === 'unavailable') throw Error('private-canary'); return new Promise(() => {}); }, requestTimeoutMs: 20, control: async name => name === 'acquireSession' ? { granted: true, epoch: 1, serverNow: 0, expiresAt: 30000, renewAfterMs: 10000, configuration } : { granted: true, accepted: true, serverNow: 0, configuration, commands: [] } });
+  const worker = createEventWorker({ inputs: syntheticInputs(), identity: {}, clock: () => now, renderer, outputs, checkEnabled: async () => { if (++checks === 1) return true; if (failure === 'false') return false; if (failure === 'unavailable') throw Error('private-canary'); return new Promise(() => {}); }, requestTimeoutMs: 20, control: async name => name === 'acquireSession' ? { granted: true, epoch: 1, serverNow: 0, expiresAt: 30000, renewAfterMs: 10000, configuration } : { granted: true, accepted: true, serverNow: 0, configuration, commands: [] } });
   await worker.start(); now = 5001;
   const tick = worker.tick();
   if (failure === 'hung') { now = 10001; worker.watchdog(); assert.equal(fenced, true); }
@@ -140,8 +141,8 @@ function simulatedRehearsal({ disabledAt = Infinity, abortAt = Infinity, publish
  const dependencies = {
   now: () => 1000000 + elapsed,
   sleep: async () => { elapsed += 1000; if (elapsed >= abortAt) abort.abort(); },
-  createSourceRelay: async () => ({ stop: () => calls.push('relay-stop'), resolveSource: () => 'fake-source', retainSources() {} }),
-  createProgramRenderer: () => ({ subscribe: fn => { subscribers.add(fn); return () => subscribers.delete(fn); }, start: async () => { running = true; for (const fn of subscribers) fn(Buffer.alloc(188)); }, stop: async () => { running = false; }, getInputs: () => [{ source: { slotKey: 'source-a' }, getObservation: () => ({ ready: true }) }], reconcileSources: async () => {}, selectSource: () => { selected = 'basicbit1'; return true; }, hold: () => { selected = undefined; }, getState: () => ({ running, outputMs: outputMs += 100, renderedSlotKey: selected ? 'source-a' : undefined, renderedSourceId: selected }) }),
+  createSourceRelay: async () => ({ stop: () => calls.push('relay-stop'), createInput: () => ({transportReady:Promise.resolve({url:'fake-source'}),dispose:async()=>{}}) }),
+  createProgramRenderer: () => ({ subscribe: fn => { subscribers.add(fn); return () => subscribers.delete(fn); }, start: async () => { running = true; for (const fn of subscribers) fn(Buffer.alloc(188)); }, stop: async () => { running = false; }, getInputs: () => [{ source: { slotKey: 'source-a', sourceId:'basicbit1',revision:1 }, getObservation: () => ({ ready: true, progressing:true,slotKey:'source-a',sourceId:'basicbit1',revision:1,observedAt:elapsed }) }], reconcileSources: async () => {}, selectSource: () => { selected = 'basicbit1'; return true; }, hold: () => { selected = undefined; }, getState: () => ({ running, outputMs: outputMs += 100, renderedSlotKey: selected ? 'source-a' : undefined, renderedSourceId: selected,renderedSourceRevision:selected?1:undefined }) }),
   createEventOutputs: () => ({ start: async () => {}, enqueue() {}, stopNow: () => { publishing = false; }, stop: async () => {}, getState: () => ({ publishing: publishes && publishing, destinations: [{ outputId: 'basicbit', publishing: publishes && publishing, status: 'publishing', outputMs: elapsed, restarts: 0 }] }) }),
   createEventWorker: options => createEventWorker({ ...options, clock: () => elapsed }),
   checkHostedEnabled: async () => elapsed < disabledAt,
@@ -199,10 +200,11 @@ test('image workflow stays manual, main-bound, immutable and image-only', async 
  assert.ok(source.includes('proof-$REQUESTED_SHA')); assert.ok(source.includes('expected-runtime.sha256'));
  assert.ok(!/aws\s+(ecs|iam|ssm|secretsmanager|s3)\s/.test(source));
  const dockerfile = await readFile('workers/restream/Dockerfile', 'utf8');
- const copies = dockerfile.replace(/\\\n/g, ' ').split('\n').filter(line => line.startsWith('COPY ')).map(line => line.trim().split(/\s+/).slice(1));
- assert.equal(copies.length, 2);
- assert.deepEqual(copies.find(parts => parts.at(-1) === 'scripts/'), ['event-output-local-proof', 'event-proof-metrics', 'event-vrcdn-rehearsal', 'event-proof-runner'].map(name => `scripts/${name}.mjs`).concat('scripts/'));
- assert.deepEqual(copies.find(parts => parts.at(-1) === 'workers/restream/'), ['hosted-worker', 'live-control', 'vrcdn-poc', 'output-sender', 'event-worker', 'source-relay', 'handoff-policy', 'input-supervisor', 'program-renderer'].map(name => `workers/restream/${name}.mjs`).concat('workers/restream/'));
+ const installer = await readFile('workers/restream/install_twitch.py','utf8');
+ assert.ok(dockerfile.includes('install_twitch.py'));
+ for(const name of ['event-output-local-proof.mjs','event-proof-metrics.mjs','event-vrcdn-rehearsal.mjs','event-proof-runner.mjs','event-proof-fixtures.mjs','event-command-local-proof.mjs','event-silence-local-proof.mjs'])assert.ok(installer.includes(`"${name}"`));
+ assert.ok(installer.includes('"*.mjs"'));
+ assert.ok(installer.includes('"broadcast-capacity.mjs"'));
  assert.ok(dockerfile.includes('CMD ["node", "workers/restream/hosted-worker.mjs"]'));
 });
 test('rehearsal IAM resources are opt-in, standalone, exact and additive', async () => {

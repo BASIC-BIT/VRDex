@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { createEventWorker } from '../workers/restream/event-worker.mjs';
+import { createProofWorker as createEventWorker, syntheticInputs } from './event-proof-fixtures.mjs';
 import { createProgramRenderer } from '../workers/restream/program-renderer.mjs';
 import { createEventOutputs } from '../workers/restream/output-sender.mjs';
 
@@ -69,7 +69,7 @@ for (const receive of [true, false]) {
     },
   });
   let renewals = 0, reports = 0, reason;
-  const worker = createEventWorker({ identity: { eventId: 'local', sessionId: 'local', workerId: 'local', epoch: 0 }, renderer, outputs, resolveSource: async () => { throw Error('No source expected'); }, checkEnabled: async () => true,
+  const worker = createEventWorker({ identity: { eventId: 'local', sessionId: 'local', workerId: 'local', epoch: 0 }, renderer, outputs, inputs: syntheticInputs(async () => { throw Error('No source expected'); }), checkEnabled: async () => true,
     control: async name => {
       if (name === 'acquireSession' || name === 'renewSession') { if (name === 'renewSession') renewals++; return { granted: true, epoch: 1, serverNow: Date.now(), expiresAt: Date.now() + 30000, renewAfterMs: 10000, configuration: config }; }
       if (name === 'refreshConfiguration') return { granted: true, configuration: config };

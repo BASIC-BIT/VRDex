@@ -108,7 +108,7 @@ def main():
         )
     files = []
     for pattern in ("*.mjs", "*.py", "*.json", "*.lock", "tests/*.py"):
-        files.extend(worker.glob(pattern))
+        files.extend(path for path in worker.glob(pattern) if path.name != "broadcast-capacity.mjs")
     files.extend(
         source / "scripts" / name
         for name in (
@@ -116,6 +116,9 @@ def main():
             "event-proof-metrics.mjs",
             "event-vrcdn-rehearsal.mjs",
             "event-proof-runner.mjs",
+            "event-proof-fixtures.mjs",
+            "event-command-local-proof.mjs",
+            "event-silence-local-proof.mjs",
         )
     )
     manifest = {}

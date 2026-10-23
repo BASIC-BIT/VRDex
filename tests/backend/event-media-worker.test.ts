@@ -1,3 +1,4 @@
+import { syntheticInputs } from '../../scripts/event-proof-fixtures.mjs';
 import { bindVrcdnTestAccount } from "./_eventOutputAccountFixture";
 import assert from "node:assert/strict";
 import { it } from "node:test";
@@ -514,7 +515,7 @@ it("actual optional grant revocation fences the controller before more program p
   const controller=createEventWorker({identity:args,control:(method:string,request:Record<string,unknown>)=>f.t.mutation(worker(method),request),
     renderer:{start:async()=>{},stop:async()=>{},subscribe:()=>()=>{},reconcileSources:async()=>{},getInputs:()=>[],hold:()=>{},getState:()=>({running:true,outputMs:1000})},
     outputs:{start:async()=>{},stop:async()=>{},stopNow:()=>{fences++;},enqueue:()=>{},getState:()=>({publishing:true})},
-    resolveSource:async()=>undefined,checkEnabled:async()=>true});
+    inputs: syntheticInputs(async()=>undefined), checkEnabled:async()=>true});
   try {
     await controller.start();
     assert.equal(fences,0);
