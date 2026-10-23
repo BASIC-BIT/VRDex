@@ -1,5 +1,6 @@
 import io
 import unittest
+from unittest.mock import patch
 from types import SimpleNamespace as NS
 from workers.restream import twitch_input as adapter
 
@@ -222,6 +223,39 @@ class SyntheticHLSContracts(unittest.TestCase):
         reader, actual, _ = self.read_hls("/fmp4/index.m3u8")
         self.assertIsNone(reader.failure)
         self.assertGreaterEqual(self.fixture.hits.count("/fmp4/init.mp4"), 2)
+
+    def test_redirect_final_url_bases_relative_encrypted_map_key_and_segment(self):
+        self.fixture.close()
+        self.fixture = TLSFixture(san="*.ttvnw.net")
+        key, iv = b"0123456789abcdef", bytes(16)
+        init = (self.root / "fmp4" / "init.mp4").read_bytes()
+        media = (self.root / "fmp4" / "index0.m4s").read_bytes()
+        self.fixture.routes["/old/index.m3u8"] = (
+            302,
+            {"Location": "https://other.ttvnw.net/new/index.m3u8"},
+            b"",
+        )
+        manifest = b'#EXTM3U\n#EXT-X-TARGETDURATION:1\n#EXT-X-KEY:METHOD=AES-128,URI="key",IV=0x00000000000000000000000000000000\n#EXT-X-MAP:URI="init.mp4"\n#EXTINF:1,\nsegment.m4s\n#EXT-X-ENDLIST\n'
+        self.fixture.routes["/new/index.m3u8"] = (200, {}, manifest)
+        self.fixture.routes["/new/key"] = (200, {}, key)
+        for name, data in (("init.mp4", init), ("segment.m4s", media)):
+            self.fixture.routes["/new/" + name] = (
+                200,
+                {},
+                AES.new(key, AES.MODE_CBC, iv).encrypt(pad(data, 16)),
+            )
+        reader, actual, events = self.read_hls("/old/index.m3u8")
+        self.assertIsNone(reader.failure)
+        self.assertEqual(actual, init + media)
+        self.assertIn("/new/key", self.fixture.hits)
+        self.assertIn("/new/init.mp4", self.fixture.hits)
+        self.assertIn("/new/segment.m4s", self.fixture.hits)
+        self.assertFalse(
+            any(
+                hit.startswith("/old/") and hit != "/old/index.m3u8"
+                for hit in self.fixture.hits
+            )
+        )
 
     def test_nested_file_key_init_segment_redirect_fail_closed(self):
         for tag in [
@@ -533,3 +567,194 @@ run_attempt('synthetic','720p30',resolver=resolve)
             if child.poll() is None:
                 os.killpg(child.pid, 9)
             child.wait()
+
+
+class AdvertisementTimelineContracts(unittest.TestCase):
+    HEADER = "#EXTM3U\n#EXT-X-TARGETDURATION:1\n"
+    AD = '#EXT-X-DATERANGE:ID="stitched-ad-1",CLASS="twitch-stitched-ad",START-DATE="2026-01-01T00:00:00Z",DURATION=3\n'
+    ANCHOR = "#EXT-X-PROGRAM-DATE-TIME:2026-01-01T00:00:00Z\n"
+
+    def run_playlists(self, bodies):
+        hits, events = [], []
+        bodies = iter(bodies)
+
+        class Response:
+            headers = {}
+            status_code = 200
+
+            def __init__(self, url, body):
+                self.url, self.body = url, body
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                pass
+
+            def raise_for_status(self):
+                pass
+
+            def iter_content(self, _):
+                yield self.body
+
+        class HTTP:
+            def get(self, url, **_):
+                hits.append((url.rsplit("/", 1)[-1], list(events)))
+                return Response(
+                    url,
+                    next(bodies).encode() if url.endswith("index.m3u8") else b"NORMAL",
+                )
+
+        reservoir = adapter.Reservoir()
+        reader = adapter.HLSReader(
+            HTTP(),
+            "https://video.ttvnw.net/index.m3u8",
+            reservoir,
+            lambda kind, **_: events.append(kind),
+        )
+        with patch.object(adapter.time, "sleep"):
+            reader.run()
+        data = b""
+        while chunk := reservoir.take():
+            data += chunk
+        return reader, data, events, hits
+
+    def test_one_anchor_covers_all_ad_segments_and_resumes_after_range(self):
+        body = (
+            self.HEADER
+            + self.AD
+            + self.ANCHOR
+            + "".join(f"#EXTINF:1,\nad{i}.ts\n" for i in range(3))
+            + "#EXTINF:1,\nnormal.ts\n#EXT-X-ENDLIST\n"
+        )
+        reader, data, events, hits = self.run_playlists([body])
+        self.assertIsNone(reader.failure)
+        self.assertEqual(data, b"NORMAL")
+        self.assertEqual(events, ["ad_wait", "acquiring"])
+        self.assertEqual([name for name, _ in hits], ["index.m3u8", "normal.ts"])
+
+    def test_sliding_reload_without_anchor_or_range_preserves_ad_timeline(self):
+        first = (
+            self.HEADER
+            + self.AD
+            + self.ANCHOR
+            + "#EXTINF:1,\nad0.ts\n#EXTINF:1,\nad1.ts\n"
+        )
+        second = (
+            self.HEADER
+            + "#EXT-X-MEDIA-SEQUENCE:1\n#EXTINF:1,\nad1.ts\n#EXTINF:1,\nad2.ts\n#EXTINF:1,\nnormal.ts\n#EXT-X-ENDLIST\n"
+        )
+        reader, data, events, hits = self.run_playlists([first, second])
+        self.assertIsNone(reader.failure)
+        self.assertEqual(data, b"NORMAL")
+        self.assertEqual(events, ["ad_wait", "acquiring"])
+        self.assertEqual(hits[1], ("index.m3u8", ["ad_wait"]))
+        self.assertEqual(
+            [name for name, _ in hits], ["index.m3u8", "index.m3u8", "normal.ts"]
+        )
+
+    def test_discontinuity_without_anchor_fails_closed(self):
+        body = (
+            self.HEADER
+            + self.AD
+            + self.ANCHOR
+            + "#EXTINF:1,\nad0.ts\n#EXT-X-DISCONTINUITY\n#EXTINF:1,\nunknown.ts\n#EXT-X-ENDLIST\n"
+        )
+        reader, data, events, hits = self.run_playlists([body])
+        self.assertEqual(reader.failure, "unsupported_media")
+        self.assertEqual(data, b"")
+        self.assertNotIn("acquiring", events)
+        self.assertEqual([name for name, _ in hits], ["index.m3u8"])
+
+    def test_discontinuity_with_new_anchor_can_resume(self):
+        body = (
+            self.HEADER
+            + self.AD
+            + self.ANCHOR
+            + "#EXTINF:1,\nad0.ts\n#EXT-X-DISCONTINUITY\n#EXT-X-PROGRAM-DATE-TIME:2026-01-01T00:00:03Z\n#EXTINF:1,\nnormal.ts\n#EXT-X-ENDLIST\n"
+        )
+        reader, data, events, hits = self.run_playlists([body])
+        self.assertIsNone(reader.failure)
+        self.assertEqual(data, b"NORMAL")
+        self.assertEqual(events, ["ad_wait", "acquiring"])
+        self.assertEqual([name for name, _ in hits], ["index.m3u8", "normal.ts"])
+
+    def test_later_anchor_extrapolates_backwards_inside_continuity(self):
+        body = (
+            self.HEADER
+            + self.AD
+            + "#EXTINF:1,\nad0.ts\n#EXT-X-PROGRAM-DATE-TIME:2026-01-01T00:00:01Z\n#EXTINF:1,\nad1.ts\n#EXT-X-ENDLIST\n"
+        )
+        reader, data, events, hits = self.run_playlists([body])
+        self.assertIsNone(reader.failure)
+        self.assertEqual(data, b"")
+        self.assertEqual(events, ["ad_wait"])
+        self.assertEqual([name for name, _ in hits], ["index.m3u8"])
+
+    def test_missing_reload_overlap_and_anchor_fails_closed(self):
+        first = self.HEADER + self.AD + self.ANCHOR + "#EXTINF:1,\nad0.ts\n"
+        second = (
+            self.HEADER
+            + "#EXT-X-MEDIA-SEQUENCE:2\n#EXTINF:1,\nunknown.ts\n#EXT-X-ENDLIST\n"
+        )
+        reader, data, events, hits = self.run_playlists([first, second])
+        self.assertEqual(reader.failure, "unsupported_media")
+        self.assertEqual(data, b"")
+        self.assertEqual(events, ["ad_wait"])
+        self.assertEqual([name for name, _ in hits], ["index.m3u8", "index.m3u8"])
+
+    def test_planned_duration_does_not_prove_ad_end(self):
+        body = (
+            self.HEADER
+            + self.AD.replace("DURATION=3", "PLANNED-DURATION=1")
+            + self.ANCHOR
+            + "".join(f"#EXTINF:1,\nad{i}.ts\n" for i in range(3))
+            + "#EXT-X-ENDLIST\n"
+        )
+        reader, data, events, hits = self.run_playlists([body])
+        self.assertIsNone(reader.failure)
+        self.assertEqual(data, b"")
+        self.assertEqual(events, ["ad_wait"])
+        self.assertEqual([name for name, _ in hits], ["index.m3u8"])
+
+    def test_timeline_is_replaced_and_ad_metadata_limit_fails_closed(self):
+        from datetime import datetime, timezone, timedelta
+
+        reader = adapter.HLSReader(
+            None, "https://video.ttvnw.net/index.m3u8", adapter.Reservoir()
+        )
+        start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        for index in range(3000):
+            reader._program_times(
+                [NS(num=index, duration=1, date=start, discontinuity=False)]
+            )
+            self.assertEqual(len(reader.timeline), 1)
+        for index in range(128):
+            reader._remember_ads(
+                NS(
+                    dateranges=[
+                        NS(
+                            id=str(index),
+                            classname="twitch-stitched-ad",
+                            start_date=start,
+                            end_date=None,
+                            duration=timedelta(seconds=1),
+                        )
+                    ]
+                )
+            )
+        with self.assertRaises(adapter.InputError):
+            reader._remember_ads(
+                NS(
+                    dateranges=[
+                        NS(
+                            id="overflow",
+                            classname="twitch-stitched-ad",
+                            start_date=start,
+                            end_date=None,
+                            duration=timedelta(seconds=1),
+                        )
+                    ]
+                )
+            )
+        self.assertLessEqual(len(reader.ad_ranges), 128)

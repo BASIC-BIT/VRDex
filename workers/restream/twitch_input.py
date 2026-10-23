@@ -7,6 +7,8 @@ Streamlink media reader/futures/ring is opened: sequential HLS reads bound memor
 import argparse
 import fcntl
 from collections import deque
+from datetime import timedelta
+import math
 import json
 import logging
 import os
@@ -201,13 +203,18 @@ class HLSReader:
         self.ad = False
         self.failure = None
         self.staging_high_water = 0
+        self.timeline = {}  # Only the latest playlist, at most 2048 timestamps.
+        self.ad_ranges = {}  # At most 128 compact id/start/end records per attempt.
 
-    def _bytes(self, url, limit=RESPONSE_LIMIT, headers=None):
+    def _bytes(self, url, limit=RESPONSE_LIMIT, headers=None, on_response=None):
         validate_url(url)
         with self.http.get(
             url, stream=True, headers=headers or {}, timeout=5, retries=0
         ) as response:
             response.raise_for_status()
+            validate_url(response.url)
+            if on_response:
+                on_response(response.url)
             if headers and "Range" in headers:
                 expected = "bytes " + headers["Range"][6:] + "/"
                 if response.status_code != 206 or not response.headers.get(
@@ -280,14 +287,97 @@ class HLSReader:
                 raise InputError("unsupported_media")
             self.reservoir.put(unpad(decryptor.decrypt(pending), 16))
 
+    def _playlist(self):
+        final_urls = []
+        body = b"".join(self._bytes(self.url, on_response=final_urls.append))
+        return parse_m3u8(
+            body.decode("utf-8"), base_uri=final_urls[0], parser=MediaPlaylistParser
+        )
+
+    def _program_times(self, segments):
+        dates = []
+        for index, segment in enumerate(segments):
+            if not math.isfinite(segment.duration) or segment.duration <= 0:
+                raise InputError("unsupported_media")
+            date = segment.date
+            cached = self.timeline.get(segment.num)
+            if date is None and cached and cached[1] == segment.duration:
+                date = cached[0]
+            if date is None and not segment.discontinuity:
+                if index and segments[index - 1].num + 1 == segment.num:
+                    previous = (dates[-1], segments[index - 1].duration)
+                else:
+                    previous = self.timeline.get(segment.num - 1)
+                if previous and previous[0] is not None:
+                    date = previous[0] + timedelta(seconds=previous[1])
+            dates.append(date)
+        # HLS allows an explicit anchor after the first segment. Extrapolate
+        # backwards only within the same continuous sequence, never across a
+        # discontinuity whose new timeline has no known anchor.
+        for index in range(len(segments) - 2, -1, -1):
+            if (
+                dates[index] is None
+                and dates[index + 1] is not None
+                and not segments[index + 1].discontinuity
+                and segments[index].num + 1 == segments[index + 1].num
+            ):
+                dates[index] = dates[index + 1] - timedelta(
+                    seconds=segments[index].duration
+                )
+        self.timeline = {
+            segment.num: (date, segment.duration)
+            for segment, date in zip(segments, dates)
+        }
+        return dates
+
+    def _remember_ads(self, playlist):
+        for item in playlist.dateranges:
+            if item.classname != "twitch-stitched-ad" and not str(
+                item.id or ""
+            ).startswith("stitched-ad-"):
+                continue
+            if not item.id or len(item.id) > 256 or item.start_date is None:
+                raise InputError("unsupported_media")
+            end = item.end_date
+            # PLANNED-DURATION is not proof the ad ended. Missing/END-ON-NEXT
+            # end evidence remains an open range until a later explicit update.
+            if end is None and item.duration is not None:
+                if item.duration.total_seconds() < 0:
+                    raise InputError("unsupported_media")
+                end = item.start_date + item.duration
+            if end is not None and end < item.start_date:
+                raise InputError("unsupported_media")
+            previous = self.ad_ranges.get(item.id)
+            if previous and (
+                previous[0] != item.start_date
+                or (previous[1] is not None and end is not None and previous[1] != end)
+            ):
+                raise InputError("unsupported_media")
+            if previous and end is None:
+                end = previous[1]
+            if item.id not in self.ad_ranges and len(self.ad_ranges) >= 128:
+                raise InputError("response_limit")
+            self.ad_ranges[item.id] = (item.start_date, end)
+
+    def _is_ad(self, segment, date):
+        if segment.title and "Amazon" in segment.title:
+            return True
+        if not self.ad_ranges:
+            return False
+        if date is None:
+            # A sliding reload can omit anchors/ranges. If bounded history
+            # cannot establish time, no bytes may escape as apparent content.
+            raise InputError("unsupported_media")
+        end = date + timedelta(seconds=segment.duration)
+        return any(
+            date < stop and end > start if stop is not None else end > start
+            for start, stop in self.ad_ranges.values()
+        )
+
     def run(self):
         try:
             while not self.reservoir.closed:
-                body = self._small(self.url, RESPONSE_LIMIT)
-                playlist = parse_m3u8(
-                    body.decode("utf-8"), base_uri=self.url, parser=MediaPlaylistParser
-                )
-                del body
+                playlist = self._playlist()
                 if playlist.is_master:
                     # Only the already selected rendition may be used. Nested
                     # masters are unsupported; nested media resources are bounded.
@@ -295,6 +385,8 @@ class HLSReader:
                 segments = playlist.segments
                 if len(segments) > 2048:
                     raise InputError("response_limit")
+                self._remember_ads(playlist)
+                dates = self._program_times(segments)
                 # Enter live close to its edge; VOD fixtures retain their beginning.
                 if (
                     self.last_sequence is None
@@ -302,7 +394,8 @@ class HLSReader:
                     and len(segments) > 3
                 ):
                     segments = segments[-3:]
-                for segment in segments:
+                    dates = dates[-3:]
+                for segment, date in zip(segments, dates):
                     if self.reservoir.closed:
                         return
                     if (
@@ -310,14 +403,7 @@ class HLSReader:
                         and segment.num <= self.last_sequence
                     ):
                         continue
-                    ad = bool(segment.title and "Amazon" in segment.title) or any(
-                        (
-                            d.classname == "twitch-stitched-ad"
-                            or str(d.id or "").startswith("stitched-ad-")
-                        )
-                        and playlist.is_date_in_daterange(segment.date, d)
-                        for d in playlist.dateranges
-                    )
+                    ad = self._is_ad(segment, date)
                     if ad:
                         if not self.ad:
                             self.on_state("ad_wait")

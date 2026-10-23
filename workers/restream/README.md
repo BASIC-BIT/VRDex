@@ -139,6 +139,15 @@ bitstream filters reject unsupported codecs. Supported renditions include
 1080p60-only channels for all six output presets. The renderer owns output
 scaling, frame rate and audio encoding.
 
+Relative segment, key and init-map references use the final validated playlist
+response URL after redirects. Ad ranges use inferred program timestamps within
+each continuous sequence and bounded reload overlap. The reader retains only the
+latest playlist's 2,048 timestamp/duration records and at most 128 compact ad
+range records with IDs capped at 256 characters. Ambiguous timing or exhausted
+metadata capacity ends the attempt without fetching unclassified media. Planned
+ad duration alone does not prove the ad ended. This metadata does not add a
+compressed-payload queue or change the buffer bound below.
+
 The boundary permits `gql.twitch.tv` and valid subdomains of `.ttvnw.net`, on
 HTTPS/443 only. Every new connection resolves all IPv4 answers within two
 seconds, rejects non-public answers, and connects to a validated numeric IP
