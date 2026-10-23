@@ -102,7 +102,13 @@ inner terminal file cannot attest to its own eventual upload or AWS cleanup.
 
 Source/proof packaging uses the explicit `workers/restream/packaging-manifest.json`.
 Build the committed candidate from a clean archive; preserve the main-only
-publishing workflow guard. Export the small `packaged-files` target, then run
+publishing workflow guard. A builder may augment that archive with an explicitly
+recorded `.twitch-wheelhouse/` containing every exact locked wheel filename.
+The installer requires regular non-symlink entries, exact byte sizes and SHA256
+hashes before the unchanged offline pip install and image smoke. A supplied
+missing/corrupt/symlink cache fails closed without network fallback. With no cache
+directory, verified HTTPS downloads retain their existing proxy/CA behavior.
+The cache and build-only installer never enter the explicit runtime manifest. Export the small `packaged-files` target, then run
 `python3 scripts/verify-restream-package.py EXPORT LOCKED_WHEELHOUSE OUTPUT_JSON`
 from that same clean source. It compares actual exported source and installed
 wheel bytes against independently hashed reviewed inputs, including native

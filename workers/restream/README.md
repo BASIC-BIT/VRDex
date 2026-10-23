@@ -260,3 +260,9 @@ excluded. The `packaged-files` Docker target exports actual `/app` files and
 `/opt/twitch` for independent comparison without a local inspection container.
 See [quality and capacity](../../docs/engineering/event-broadcast-quality-capacity.md)
 for benchmark commands, acceptance gates and candidate evidence status.
+
+The build-only installer optionally reads `.twitch-wheelhouse/` in the source
+context. Every locked wheel must be a regular non-symlink file with the exact
+size and SHA256 hash. A supplied invalid cache fails without downloading a
+replacement; absent cache uses verified HTTPS. The explicit package manifest
+excludes this cache and the installer. Record cache provenance with the build.
