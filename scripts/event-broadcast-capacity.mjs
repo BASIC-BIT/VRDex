@@ -22,6 +22,7 @@ import { createProcessOwner, processTable } from "./event-proof-processes.mjs";
 import {
   readCgroupCounters,
   resourceInterval,
+  sampleResourceWindow,
 } from "./event-capacity-resources.mjs";
 import {
   createFixture,
@@ -384,8 +385,8 @@ export async function runCapacityWorkload(
         throw Error("Dual input startup exceeded bound");
     }
     phase = "steady";
-    let previous = await readCounters();
-    const start = previous.at;
+    const first = await readCounters();
+    const start = first.at;
     let last = start;
     const intervals = [];
     receipt.steadyStartedAt = new Date().toISOString();
@@ -393,12 +394,8 @@ export async function runCapacityWorkload(
       identity: "a",
       atSeconds: renderer.getState().outputMs / 1000 + 2,
     });
-    while (performance.now() - start < request.durationSeconds * 1000) {
-      await sleep(
-        Math.max(0, start + (samples.length + 1) * 1000 - performance.now()),
-      );
-      const at = performance.now(),
-        state = renderer.getState(),
+    const checkHealthy = () => {
+      const state = renderer.getState(),
         decoderInputs = renderer.getInputs();
       maxDecoders = Math.max(maxDecoders, decoderInputs.length);
       if (worker.getState().stopped || outputFailure || state.error)
@@ -418,34 +415,45 @@ export async function runCapacityWorkload(
         outputs.getState().destinations.every((d) => d.publishing),
         "Destination lost progress",
       );
-      const next = await readCounters();
-      const resource = resourceInterval(previous, next, request.cpuUnits);
-      intervals.push(resource);
-      previous = next;
-      const row = {
-        elapsedMs: at - start,
-        gapMs: at - last,
-        outputMs: state.outputMs,
-        cpuPercent: resource.cpuPercent,
-        memoryBytes: resource.memoryBytes,
-        ready: decoderInputs.map((i) => ({
-          sourceId: i.source.sourceId,
-          ready: i.getObservation().ready,
-        })),
-      };
-      samples.push(row);
-      sampleFile.write(JSON.stringify(row) + "\n");
-      last = at;
-      if (readinessLosses) throw Error("Transient steady readiness loss");
-      if (samples.length % 30 === 0)
-        console.log(
-          JSON.stringify({
-            event: "capacity-progress",
-            elapsedSeconds: Math.round((at - start) / 1000),
-            samples: samples.length,
-          }),
-        );
-    }
+      return { state, decoderInputs };
+    };
+    await sampleResourceWindow({
+      first,
+      durationMs: request.durationSeconds * 1000,
+      clock: () => performance.now(),
+      wait: sleep,
+      readCounters,
+      checkHealthy,
+      onSample: (previous, next, { at, health: { state, decoderInputs } }) => {
+        const resource = resourceInterval(previous, next, request.cpuUnits);
+        intervals.push(resource);
+        const row = {
+          elapsedMs: at - start,
+          counterElapsedMs: next.at - start,
+          counterIntervalMs: resource.elapsedMs,
+          gapMs: at - last,
+          outputMs: state.outputMs,
+          cpuPercent: resource.cpuPercent,
+          memoryBytes: resource.memoryBytes,
+          ready: decoderInputs.map((i) => ({
+            sourceId: i.source.sourceId,
+            ready: i.getObservation().ready,
+          })),
+        };
+        samples.push(row);
+        sampleFile.write(JSON.stringify(row) + "\n");
+        last = at;
+        if (readinessLosses) throw Error("Transient steady readiness loss");
+        if (samples.length % 30 === 0)
+          console.log(
+            JSON.stringify({
+              event: "capacity-progress",
+              elapsedSeconds: Math.round((at - start) / 1000),
+              samples: samples.length,
+            }),
+          );
+      },
+    });
     phase = "handoff";
     receipt.steady = {
       durationMs: performance.now() - start,

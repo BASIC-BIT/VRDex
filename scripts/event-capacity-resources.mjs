@@ -42,3 +42,38 @@ export function resourceInterval(previous, next, cpuUnits) {
     memoryBytes: next.memoryBytes,
   };
 }
+
+/** Keep absolute cadence until real counter timestamps cover the requested window.
+ * Injected clock/wait/counter/health callbacks make endpoint races testable without
+ * media or child processes. Never manufacture a timestamp or a catch-up sample. */
+export async function sampleResourceWindow({
+  first,
+  durationMs,
+  clock,
+  wait,
+  readCounters,
+  checkHealthy,
+  onSample,
+}) {
+  if (
+    !Number.isFinite(first?.at) ||
+    !Number.isFinite(durationMs) ||
+    durationMs <= 0
+  )
+    throw Error("Invalid resource sample window");
+  let previous = first,
+    samples = 0;
+  while (previous.at - first.at < durationMs) {
+    await wait(Math.max(0, first.at + (samples + 1) * 1000 - clock()));
+    const at = clock();
+    checkHealthy();
+    const next = await readCounters();
+    const health = checkHealthy();
+    if (!Number.isFinite(next?.at) || next.at <= previous.at)
+      throw Error("Invalid cgroup sample timestamp");
+    await onSample(previous, next, { at, health });
+    previous = next;
+    samples++;
+  }
+  return { last: previous, samples };
+}

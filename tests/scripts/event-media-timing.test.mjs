@@ -1256,3 +1256,118 @@ test("encoded phase shifted A and B audio remain bound to the actual selection e
     "prior source would have caused the original ambiguity",
   );
 });
+
+test("resource cadence requires actual endpoint coverage and post-read health", async () => {
+  const { sampleResourceWindow } =
+    await import("../../scripts/event-capacity-resources.mjs");
+  const { validateCapacityReceipt } =
+    await import("../../scripts/event-capacity-contracts.mjs");
+  const start = 123456.789;
+  let wall = start,
+    reads = 0,
+    healthy = true;
+  const waits = [],
+    admitted = [];
+  const result = await sampleResourceWindow({
+    first: { at: start },
+    durationMs: 300000,
+    clock: () => wall,
+    wait: async (ms) => {
+      waits.push(ms);
+      wall += ms;
+    },
+    checkHealthy: () => {
+      assert(healthy);
+    },
+    readCounters: async () => {
+      reads++;
+      const next = {
+        at: start + (reads === 300 ? 299999.82046699995 : reads * 1000),
+      };
+      wall = reads === 300 ? start + 300000.24571000005 : next.at + 0.25;
+      return next;
+    },
+    onSample: (previous, next) =>
+      admitted.push({ start: previous.at, end: next.at }),
+  });
+  assert.equal(
+    reads,
+    301,
+    "wall deadline crossing cannot admit a short counter interval",
+  );
+  assert.equal(admitted[299].end, start + 299999.82046699995);
+  assert.equal(admitted[300].start, start + 299999.82046699995);
+  assert.equal(result.last.at, start + 301000);
+  assert.equal(result.samples, 301);
+  assert(
+    Math.abs(waits[300] - 999.7542899999535) < 1e-7,
+    "extra real sample retains absolute cadence",
+  );
+  const short = {
+    schemaVersion: 1,
+    terminal: true,
+    request: {
+      settings: { videoPreset: "480p30", audioBitrateKbps: 160 },
+      cpuUnits: 8192,
+      memoryMiB: 16384,
+      durationSeconds: 300,
+      simulcastEnabled: false,
+    },
+    steady: {
+      durationMs: 300000.24571000005,
+      dualDecodeMs: 300000.25728,
+      samples: 300,
+      maxSampleGapMs: 1002.1666910000204,
+      readinessLosses: 0,
+    },
+    resources: {
+      cpuP95Percent: 23.334635512324223,
+      memoryPeakBytes: 660754432,
+      sampleCoverageMs: 299999.82046699995,
+    },
+    cleanup: { closed: true, liveChildren: 0, liveGroups: 0 },
+  };
+  assert.throws(
+    () => validateCapacityReceipt(short),
+    /Capacity contract failed/,
+  );
+  let exactReads = 0;
+  const exact = await sampleResourceWindow({
+    first: { at: start },
+    durationMs: 1000,
+    clock: () => start + 1000,
+    wait: async () => {},
+    checkHealthy: () => {},
+    readCounters: async () => {
+      assert.equal(++exactReads, 1);
+      return { at: start + 1000 };
+    },
+    onSample: () => {},
+  });
+  assert.equal(
+    exact.samples,
+    1,
+    "an actual complete endpoint needs no extra sample",
+  );
+  let accepted = 0;
+  await assert.rejects(
+    sampleResourceWindow({
+      first: { at: 0 },
+      durationMs: 1000,
+      clock: () => 1000,
+      wait: async () => {},
+      checkHealthy: () => {
+        if (!healthy) throw Error("post-read health failed");
+      },
+      readCounters: async () => {
+        healthy = false;
+        return { at: 1000 };
+      },
+      onSample: () => {
+        accepted++;
+      },
+    }),
+    /post-read health failed/,
+  );
+  assert.equal(accepted, 0);
+});

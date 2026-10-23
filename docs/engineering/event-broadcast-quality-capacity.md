@@ -76,7 +76,7 @@ start, jitter, ads, fresh resolution after 403, deadlines and cancellation.
 Named outcomes must include no skipped or expected-failure required tests. The
 same nine Node acquisition-owner regressions run with built-in type stripping,
 including TERM-ignoring descendants, leader exit, retries and failed cleanup.
-The image also runs 22 renderer and 32 timestamp/PCM tests: 63 required Node
+The image also runs 22 renderer and 33 timestamp/PCM tests: 64 required Node
 outcomes in total. The timing tests include real FFmpeg conversion of 44.1-kHz
 mono input to timestamped stereo 48-kHz PCM and a prewarmed 30-fps source rendered
 as a 60-fps stereo program with measured markers. The buffered-start regression
@@ -323,3 +323,29 @@ candidate overlap. Missing B audio, two eligible candidates, next-cycle aliases,
 truncated media, watermark errors and out-of-gate offsets still fail. This is a
 proof correction, not a runtime synchronization change. The original canary also
 failed CPU capacity at 84.388% P95; the correction does not admit that allocation.
+
+## Complete measured resource endpoint
+
+A five-minute 8-CPU canary had 300 healthy samples and good media facts, but its
+last resource counter timestamp covered only 299999.820467 ms. Wall time crossed
+300000.245710 ms before the loop condition ran again. The strict coverage gate
+correctly rejected that run; its original numbers remain in
+[the endpoint evidence](./evidence/twitch-operator-task6/resource-sample-endpoint.json).
+
+The proof cadence now stops only when the last actual counter timestamp minus the
+same initial counter timestamp covers the full requested duration. If the 300th
+read is short, the next absolute one-second cadence interval is read and retained,
+including its real resource interval and sample row. Rows retain numeric counter
+elapsed/interval times separately from the observation clock. No timestamp is substituted,
+coverage rounded, interval discarded or receipt resource value normalized.
+Publication, dual readiness, source identity and destination progress are checked
+both before and after each counter read, before admitting that sample. Continuous
+readiness-loss tracking and every existing strict gate remain unchanged.
+
+The coordinator has a child-free regression that reproduces the wall-clock race,
+requires the 301st real read, checks a nonzero initial timestamp and preserves
+absolute cadence. A genuinely complete endpoint avoids an unnecessary extra
+sample. A health failure during the counter read rejects sample admission. The
+original short-coverage receipt still fails validation. This proof-only correction
+requires a new exact image and fresh functional/long-canary evidence; the earlier
+failed allocation is not admitted by changing its receipt.
