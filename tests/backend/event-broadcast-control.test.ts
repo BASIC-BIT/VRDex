@@ -1326,3 +1326,116 @@ it("Cut confirmation requires the persisted worker receipt budget", async () => 
   await f.begin(cut.commandId);
   assert.equal((await f.ack(cut.commandId, evidence)).kind, "ok");
 });
+for (const commandType of ["start_program", "mark_source_live"] as const)
+  it(`confirmed Cut supersedes older ${commandType} receipt without accepting its evidence`, async () => {
+    const f = await controlFixture();
+    const commandId =
+      commandType === "start_program"
+        ? f.scheduled.startCommandId!
+        : await f.t.run(({ db }) =>
+            db.insert("eventMediaCommands", {
+              programId: f.output.programId,
+              eventId: f.event.eventId,
+              sessionId: f.args.sessionId,
+              commandType,
+              sequence: 2,
+              status: "queued",
+              publicFallbackLinks: [],
+              actorSurface: "worker",
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+            }),
+          );
+    await f.t.mutation(worker("claimCommands"), f.args);
+    const cut = await f.owner.mutation(api.events.queueEventMediaCommand, {
+      currentSlug: f.event.slug,
+      type: "switch_hold",
+      idempotencyKey: "cut",
+    });
+    await f.begin(cut.commandId);
+    assert.equal(
+      (
+        await f.ack(cut.commandId, {
+          observedSourceId: null,
+          sourceRevision: undefined,
+          slotKey: undefined,
+          observedState: "hold",
+        })
+      ).kind,
+      "ok",
+    );
+    const before = await f.receipt(f.args.sessionId);
+    const command = await f.receipt(commandId);
+    const late = {
+      ...f.args,
+      commandId,
+      sequence: command.sequence,
+      outcome: "succeeded",
+      intentSequence: 0,
+      outputMs: 200,
+      observedSourceId: f.sourceId,
+      sourceRevision: 1,
+      slotKey: `manual-${f.sourceId}`,
+      observedOutputId: f.output.outputId,
+      observedState: "live",
+    };
+    assert.deepEqual(await f.t.mutation(worker("acknowledgeCommand"), late), {
+      kind: "superseded",
+    });
+    assert.deepEqual(await f.receipt(f.args.sessionId), before);
+    const settled = await f.receipt(commandId);
+    assert.equal(settled.status, "cancelled");
+    assert.equal(settled.controlOutcome, "superseded");
+    assert.equal(settled.observedSourceId, undefined);
+    assert.deepEqual(await f.t.mutation(worker("acknowledgeCommand"), late), {
+      kind: "superseded",
+    });
+    assert.deepEqual(await f.receipt(commandId), settled);
+    assert.equal(
+      (await f.t.mutation(worker("claimCommands"), f.args)).commands.some(
+        (c: any) => c._id === commandId,
+      ),
+      false,
+    );
+    assert.equal(
+      (
+        await f.t.mutation(worker("acknowledgeCommand"), {
+          ...late,
+          epoch: f.args.epoch - 1,
+        })
+      ).accepted,
+      false,
+    );
+    await f.t.run(({ db }) =>
+      db.patch(f.output.outputId, { state: "disabled" }),
+    );
+    assert.deepEqual(await f.t.mutation(worker("acknowledgeCommand"), late), {
+      kind: "fenced",
+      reason: "destination",
+    });
+    await f.t.run(({ db }) => db.patch(f.output.outputId, { state: "active" }));
+    await f.owner.mutation(api.events.stopEventMediaWorker, {
+      currentSlug: f.event.slug,
+      sessionId: f.args.sessionId,
+    });
+    assert.deepEqual(await f.t.mutation(worker("acknowledgeCommand"), late), {
+      kind: "fenced",
+      reason: "stopped",
+    });
+    const stop = (await f.t.mutation(worker("claimCommands"), f.args))
+      .commands[0];
+    assert.equal(stop.commandType, "stop_program");
+    assert.equal(
+      (
+        await f.t.mutation(worker("acknowledgeCommand"), {
+          ...f.args,
+          commandId: stop._id,
+          sequence: stop.sequence,
+          outcome: "succeeded",
+          observedState: "ended",
+          observedSourceId: null,
+        })
+      ).accepted,
+      true,
+    );
+  });

@@ -1810,3 +1810,88 @@ it("active silence analysis keeps its startup threshold while duration-only upda
     assert.equal(f.counts().selections, 2);
     await f.worker.stop();
 });
+for (const startClaimed of [false, true])
+  it(`confirmed Cut followed by older Start keeps current worker publishing (claimed=${startClaimed})`, async () => {
+    const f = await fixture();
+    let time = 0,
+      publishing = false,
+      stops = 0;
+    const acknowledgments: any[] = [];
+    const renderer = {
+      start: async () => {},
+      stop: async () => {},
+      subscribe: () => () => {},
+      reconcileSources: async () => {},
+      getInputs: () => [],
+      selectSource: () => false,
+      hold: () => {},
+      getState: () => ({ running: true, outputMs: time + 1 }),
+    };
+    const runtime = createEventWorker({
+      identity: { ...f.args },
+      renderer,
+      clock: () => time,
+      resolveSource: async (s: any) => s.publicUrl,
+      checkEnabled: async () => true,
+      outputs: {
+        start: async () => {
+          publishing = true;
+        },
+        stop: async () => {},
+        stopNow: () => {
+          stops++;
+          publishing = false;
+        },
+        getState: () => ({ publishing }),
+      },
+      control: async (name: string, args: any) => {
+        const result = await f.t.mutation(worker(name), args);
+        if (name === "acknowledgeCommand")
+          acknowledgments.push({ args, result });
+        return result;
+      },
+    });
+    try {
+      await runtime.start();
+      if (startClaimed) {
+        publishing = false;
+        time += 1000;
+        await runtime.tick();
+        assert.equal(
+          (await f.t.run(({ db }) => db.get(f.scheduled.startCommandId!)))
+            ?.status,
+          "claimed",
+        );
+        assert.equal(acknowledgments.length, 0);
+        publishing = true;
+      }
+      const cut = await f.owner.mutation(api.events.queueEventMediaCommand, {
+        currentSlug: f.event.slug,
+        type: "switch_hold",
+        idempotencyKey: "cut",
+      });
+      for (let i = 0; i < 3; i++) {
+        time += 1000;
+        await runtime.tick();
+        assert.equal(runtime.getState().stopped, false);
+        assert.equal(publishing, true);
+      }
+      assert.equal(stops, 0);
+      assert.equal(acknowledgments[0].args.commandId, cut.commandId);
+      assert.equal(acknowledgments[0].result.kind, "ok");
+      const start = acknowledgments.find(
+        (row) => row.args.commandId === f.scheduled.startCommandId,
+      );
+      assert.equal(start.result.kind, "superseded");
+      const session = await f.t.run(({ db }) => db.get(f.args.sessionId));
+      assert.equal(session?.committedIntent?.kind, "slate");
+      assert.equal(session?.status, "hold");
+      assert.equal(
+        (await f.t.run(({ db }) => db.get(f.scheduled.startCommandId!)))
+          ?.status,
+        "cancelled",
+      );
+    } finally {
+      await runtime.stop();
+    }
+  });

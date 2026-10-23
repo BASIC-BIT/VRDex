@@ -1,4 +1,4 @@
-import {assertWorkerProtocol,beginControlPreparation,promoteControlOperation,completeControlOperation,controlFence,coherentEvidence,writeControlObservation,isCut,isControl} from "./_eventBroadcastControl";
+import {assertWorkerProtocol,beginControlPreparation,promoteControlOperation,completeControlOperation,controlFence,coherentEvidence,writeControlObservation,isCut,isControl,settleControl} from "./_eventBroadcastControl";
 import {controlTargetValidator,controlResultValidator,controlFailureValidator} from "./_eventMediaControl";
 import { parseMediaSettings, resolveDestinationProfile } from "../workers/restream/broadcast-profiles.mjs";
 import { eventProfileBroadcastInputChoices, resolveBroadcastInput, broadcastInputPublicUrl, eventMediaSourceWorkerDescriptor } from "./_eventBroadcastSources";
@@ -299,10 +299,23 @@ export const acknowledgeCommand = mutation({
         }
         if (["ended", "error"].includes(found.session.status))
             return denied("Session has already ended.");
+        const obsoleteReceipt = found.session.controlProtocolVersion === 2 &&
+            command.commandType !== "stop_program" && args.sequence <= (found.session.lastAcknowledgedSequence ?? 0);
+        if (obsoleteReceipt) {
+            // A prioritized control can finish before an older Start/admin receipt.
+            // Retire that receipt without applying its evidence or fencing a healthy
+            // publisher. Authority loss still wins, including on duplicate retries.
+            const authority = await controlFence(ctx.db, args);
+            if ("result" in authority) return authority.result;
+            if (command.status === "cancelled" && command.controlOutcome === "superseded")
+                return { kind: "superseded" as const };
+        }
         if (command.status !== "claimed" || command.claimedByWorkerId !== args.workerId || command.claimedEpoch !== args.epoch)
             return denied("Command was not claimed by this owner.");
-        if (args.sequence <= (found.session.lastAcknowledgedSequence ?? 0))
+        if (args.sequence <= (found.session.lastAcknowledgedSequence ?? 0)) {
+            if (obsoleteReceipt) return settleControl(ctx.db, found.session, command, { kind: "superseded" });
             return denied("Command sequence has already been superseded.");
+        }
         const earlier = await Promise.all((["queued", "claimed"] as const).map(status =>
             ctx.db.query("eventMediaCommands").withIndex("by_session_scope_status_sequence", q => q.eq("sessionId", args.sessionId).eq("eventId", args.eventId).eq("programId", found.program._id).eq("status", status).gt("sequence", undefined).lt("sequence", args.sequence)).first()));
         if (command.commandType!=="stop_program" && earlier.some(c=>c && !(found.session.controlProtocolVersion===2 && isControl(c.commandType) && !c.controlTarget)))
