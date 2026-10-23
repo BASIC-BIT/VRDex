@@ -7,13 +7,14 @@ for await (const event of run({
     "tests/backend/event-twitch-input.test.ts",
     "tests/backend/event-broadcast-renderer.test.ts",
     "tests/scripts/event-media-timing.test.mjs",
+    "tests/scripts/event-capacity-output-contracts.test.mjs",
   ],
   execArgv: ["--experimental-strip-types"],
   timeout: 90000,
   concurrency: 1,
 })) {
   if (!["test:pass", "test:fail"].includes(event.type)) continue;
-  if (outcomes.length >= 64) {
+  if (outcomes.length >= 77) {
     overflow = true;
     continue;
   }
@@ -40,7 +41,7 @@ console.log(
     outcomes,
     passed:
       !overflow &&
-      outcomes.length === 64 &&
+      outcomes.length === 77 &&
       outcomes.every(
         (row) =>
           row.outcome === "passed" && row.test !== "invalid_test_identifier",

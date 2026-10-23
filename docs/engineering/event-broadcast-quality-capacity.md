@@ -76,8 +76,8 @@ start, jitter, ads, fresh resolution after 403, deadlines and cancellation.
 Named outcomes must include no skipped or expected-failure required tests. The
 same nine Node acquisition-owner regressions run with built-in type stripping,
 including TERM-ignoring descendants, leader exit, retries and failed cleanup.
-The image also runs 22 renderer and 33 timestamp/PCM tests: 64 required Node
-outcomes in total. The timing tests include real FFmpeg conversion of 44.1-kHz
+The image also runs 22 renderer, 33 timestamp/PCM and 13 encoder/output-contract
+tests: 77 required Node outcomes in total. The timing tests include real FFmpeg conversion of 44.1-kHz
 mono input to timestamped stereo 48-kHz PCM and a prewarmed 30-fps source rendered
 as a 60-fps stereo program with measured markers. The buffered-start regression
 uses production decoder pacing, and a separate 60-to-30 startup case checks every
@@ -112,7 +112,7 @@ Source/proof packaging uses the explicit `workers/restream/packaging-manifest.js
 Build the committed candidate from a clean archive; preserve the main-only
 publishing workflow guard. For the constrained managed Docker disk, collect an
 actual-image file inventory in an isolated Fargate task. Independently compare
-all 46 packaged source files and 1854 installed wheel payload files (including four relocated Streamlink data files) with the
+all 47 packaged source files and 1854 installed wheel payload files (including four relocated Streamlink data files) with the
 clean archive and verified locked wheelhouse, including native libraries.
 The controller records that comparison and the inventory artifact hash before
 accepting the image. The small `packaged-files` export and
@@ -349,3 +349,33 @@ sample. A health failure during the counter read rejects sample admission. The
 original short-coverage receipt still fails validation. This proof-only correction
 requires a new exact image and fresh functional/long-canary evidence; the earlier
 failed allocation is not admitted by changing its receipt.
+
+## 1080p60 encoder capacity candidate and strict output facts
+
+An actual 8-CPU/16-GiB diagnostic reproduced the program processing-budget error
+with five queued raw 1080p frames and encoded progress slower than wall time.
+[The sanitized diagnostic facts](./evidence/twitch-operator-task6/case21-processing-budget.json)
+preserve its partial measurements and exact trace hash. Four original cgroup
+reads are not steady CPU P95 or per-thread evidence. The trace identifies the
+failure branch and backpressure; it does not establish the codec's bottleneck.
+Both earlier 4-CPU and 8-CPU publication failures remain failed evidence.
+
+The candidate uses x264 `superfast` only for 1080p60 in the program encoder and
+optional Twitch encoder; other profiles retain `veryfast`. Two threads and all
+resolution, frame rate, CBR bitrate, GOP, B-frame and audio options are unchanged.
+The program keeps its explicit `zerolatency` tune; the Twitch encoder retains its
+existing options without adding a tune. VRCDN still copies the program stream.
+Reduced encoding effort may improve throughput, but at the fixed bitrate it can
+reduce quality, especially after Twitch's second encode. This candidate needs new
+exact-image media/capacity proof; argument tests cannot establish performance.
+The two-second processing bound, 100-ms A/V bound and PSNR minimum of 28 remain.
+
+Receipt validation requires finite positive numeric FPS before applying the
+unchanged 0.001-fps tolerance, finite numeric audio bitrate and GOP, finite
+nonnegative packet gap, an integer marker count, and a numeric compressed-buffer
+measurement. Numeric strings, unavailable/nonfinite measurements and negative
+gaps fail. Required destination evidence is exactly one VRCDN row, plus exactly
+one Twitch row when simulcast is enabled, independently of row order. Duplicated
+primary rows cannot substitute for the optional destination. Existing timing,
+quality, resource, cleanup and artifact gates still apply. The production
+capacity map remains empty until complete measured evidence and review.

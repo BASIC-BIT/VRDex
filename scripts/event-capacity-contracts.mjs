@@ -78,17 +78,28 @@ export function validateOutputFacts(facts, settings, destination) {
     facts.videoCodec !== "h264" ||
     facts.width !== p.width ||
     facts.height !== p.height ||
+    !Number.isFinite(facts.fps) ||
+    facts.fps <= 0 ||
     Math.abs(facts.fps - p.frameRate) > 0.001 ||
     facts.pixelFormat !== "yuv420p" ||
     facts.audioCodec !== "aac" ||
     facts.channels !== 2 ||
     facts.sampleRate !== 48000 ||
     !(
+      Number.isFinite(facts.audioKbps) &&
       facts.audioKbps >= p.audioBitrateKbps * 0.75 &&
       facts.audioKbps <= p.audioBitrateKbps * 1.25
     ) ||
-    !(facts.maxGop > 0 && facts.maxGop <= p.keyframeIntervalSeconds + 0.05) ||
-    !(facts.maxGap < 0.2) ||
+    !(
+      Number.isFinite(facts.maxGop) &&
+      facts.maxGop > 0 &&
+      facts.maxGop <= p.keyframeIntervalSeconds + 0.05
+    ) ||
+    !(
+      Number.isFinite(facts.maxGap) &&
+      facts.maxGap >= 0 &&
+      facts.maxGap < 0.2
+    ) ||
     facts.monotonic !== true
   )
     throw Error("Output format/packet contract failed");
@@ -127,7 +138,7 @@ export function validateOutputFacts(facts, settings, destination) {
       facts.avDriftMs <= 100
     ) ||
     !(Number.isFinite(facts.visualPsnrDb) && facts.visualPsnrDb >= 28) ||
-    !(facts.markerCount >= 3) ||
+    !(Number.isSafeInteger(facts.markerCount) && facts.markerCount >= 3) ||
     !(
       Number.isFinite(facts.internalDelayMs) &&
       facts.internalDelayMs >= 0 &&
@@ -190,14 +201,25 @@ export function validateCapacityReceipt(r) {
   )
     throw Error("Capacity contract failed");
   if (
-    !(r.maxCompressedBufferBytes > 0) ||
+    !positive(r.maxCompressedBufferBytes) ||
     r.maxCompressedBufferBytes > 4194304 ||
     r.maxDecoders !== 2 ||
     r.maxAcquisitions !== 2
   )
     throw Error("Input bounds failed");
-  if (r.outputs?.length !== (r.request.simulcastEnabled ? 2 : 1))
-    throw Error("Missing output");
+  const destinations = r.request.simulcastEnabled
+    ? ["vrcdn", "twitch"]
+    : ["vrcdn"];
+  if (
+    !Array.isArray(r.outputs) ||
+    r.outputs.length !== destinations.length ||
+    !destinations.every(
+      (destination) =>
+        r.outputs.filter((output) => output?.destination === destination)
+          .length === 1,
+    )
+  )
+    throw Error("Missing or duplicate output destination");
   for (const output of r.outputs)
     validateOutputFacts(output, r.request.settings, output.destination);
   if (

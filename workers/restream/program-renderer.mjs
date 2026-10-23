@@ -58,7 +58,7 @@ export function programEncoderArguments(settings) {
     "-threads",
     "2",
     "-preset",
-    "veryfast",
+    parsed.videoPreset === "1080p60" ? "superfast" : "veryfast",
     "-tune",
     "zerolatency",
     "-g",
