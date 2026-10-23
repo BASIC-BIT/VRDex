@@ -73,7 +73,7 @@ pnpm proof:restream:worker:matrix
 
 That command compares the richer fade mode against the simple `hard-switch` mode and selected x264 presets. The current hosted evidence says `hard-switch` is the right baseline for a reliable first restreamer: it reduces runtime commands from 194 to 8. A 180-second hosted `1080p60` live-control probe failed the 10-second delay SLA on `4096` CPU / `8192` MiB but passed on `8192` CPU / `16384` MiB with max observed delay under 300ms. Treat fade/slate polish as optional until the source-selection pipeline has live-delay headroom.
 
-The benchmark ladder should be evaluated in this order: `1080p60`, `1080p30`, `720p60`, then `720p30`. Prefer shipping a reliable lower-capability source-selection pipeline over keeping `1080p60` or fade polish if the hosted cost is not practical.
+The historical benchmark ladder evaluated `1080p60`, `1080p30`, `720p60`, then `720p30`. The current Twitch/operator design requires capacity proof for all six offered presets, including both 480p presets and dual 1080p60 inputs; an unsuccessful capacity proof blocks shipping that design rather than silently removing an offered preset.
 
 Runtime command proof:
 
@@ -110,3 +110,127 @@ The image also packages `scripts/event-proof-runner.mjs synthetic` and
 `scripts/event-vrcdn-rehearsal.mjs`. These require explicit commands; the default
 entrypoint remains the benchmark. See [the bounded rehearsal procedure](../../docs/engineering/event-broadcast-rehearsal.md)
 for fixed endpoints, operator attestations, dedicated switch, artifacts and limits.
+
+## Anonymous Twitch input
+
+`createTwitchInput` in `twitch-input.mjs` returns immediately with
+`transportReady` and idempotent asynchronous `dispose()`. Supply a canonical
+`{kind: "twitch", channel}` input, the session media settings, an AbortSignal,
+and `preparationExpiresAt` from the original persisted preparation receipt.
+The handle clamps its local preparation window to 15 seconds and never renews
+that original expiry on retry. `sessionExpiresAt` bounds ongoing recovery and
+is capped at 12 hours. The caller still owns the same preparation expiry during
+initial decoding and promotion. Transport readiness only means normalized
+bytes are retained on a random private loopback GET endpoint. Start the
+five-second decoder guard after that promise resolves; decoded A/V freshness
+and promotion remain the input manager's responsibility.
+
+Each fresh process runs:
+
+```sh
+python3 -m workers.restream.twitch_input --channel channel_login --video-preset 720p30
+```
+
+Streamlink resolves a fresh anonymous channel rendition; a sequential reader
+then fetches its HLS playlist, init data, AES-128 key and media through the
+installed HTTPS boundary. H264/AAC TS and MP4-family media are copied through a
+paced pipe-only FFmpeg remux. Both manifest selection and codec-specific
+bitstream filters reject unsupported codecs. Supported renditions include
+1080p60-only channels for all six output presets. The renderer owns output
+scaling, frame rate and audio encoding.
+
+The boundary permits `gql.twitch.tv` and valid subdomains of `.ttvnw.net`, on
+HTTPS/443 only. Every new connection resolves all IPv4 answers within two
+seconds, rejects non-public answers, and connects to a validated numeric IP
+with the original TLS hostname and certificate verification. HTTP requests
+have a five-second wall deadline, including streamed bodies. Redirects are
+bounded; nested unsupported schemes and arbitrary domains fail closed. The
+adapter uses private urllib3 pool classes. Streamlink itself modifies some
+urllib3 URL/socket helpers at import time; this adapter never changes the
+global pool mapping or address-family helper.
+
+No browser, cookies, authentication, cached client-integrity tokens or signed
+locator storage is supported. Dependency/library diagnostics and FFmpeg stderr
+are suppressed; only fixed structured reason codes and bounded local numeric
+facts cross stderr. Configured managed proxies are refused without changing
+the environment. Run direct public-provider verification in the isolated worker,
+not by removing a development executor's proxy or CA settings.
+
+An attempt ends after 15 seconds without normalized output, including blocked
+resolution and advertisement waits. The Node owner terminates the entire group,
+schedules SIGKILL after 500 ms, within the one-second grace bound, even if its
+leader already exited, then verifies no live group members and closed child pipes
+before retrying fresh resolution after 1/2/4/8/10 seconds, capped thereafter.
+Zombies awaiting init reaping do not own live resources. Disposal returns a
+promise immediately so control processing can continue during cleanup. Failed
+termination rejects with `process_failed`, stops retries and requires the caller
+to retain the occupied capacity slot; fulfillment alone proves release.
+Only one loopback consumer is accepted; backpressure stops upstream reads.
+
+### Compressed buffer accounting
+
+The source reservoir is capped at 2,097,152 bytes. Sequential fetching avoids
+Streamlink's media rings, executor futures, map cache and parallel prefetch.
+Two bounded response copies (524,288 bytes) plus twelve 16 KiB staging allowances
+(196,608 bytes) cover manifest/API materialization, HTTP read, AES pending/output,
+source-feed and normalized-output chunks. Node reserves 524,288 bytes: its
+262,144-byte backlog plus bounded readable/socket/writable chunks. Thus the
+conservative application compressed-payload bound is **3,342,336 bytes**, below
+4 MiB across both processes, including replay/backlog. No separate replay or
+per-reconnect fanout queue exists.
+
+Structured buffer events expose the measured reservoir and Node backlog high
+water marks, actual kernel capacities of both remux pipes, and the conservative
+combined upper bound. The upper bound sums
+component peaks and reserved staging; it is deliberately not described as a
+simultaneously sampled process heap measurement. Kernel socket/pipe buffers,
+TLS record buffers, FFmpeg's bounded 1,000,000-byte probe and demux/mux internals,
+Python objects and allocator overhead are outside that compressed application
+reservoir metric. They count in the task's cgroup memory and exact-image
+capacity measurements. A two-second warmup starts only after source bytes
+arrive; it is a target, not a guarantee of two seconds of media.
+
+### Packaging and reproducible checks
+
+The Dockerfile retains its existing APT prefix and uses one final read-only
+source-bind RUN. `install_twitch.py` downloads the exact public wheel URLs in
+`twitch-wheels.lock.json` with inherited proxy settings and verified system CA
+trust, optionally augmented by the BuildKit `proxy_ca` secret. It verifies size
+and SHA-256 before executing the locked pip 25.3 wheel, installs the complete
+CPython 3.11 Linux amd64 closure offline with `--require-hashes`, and runs
+`pip check`. The worker Python package activates these private wheels only in
+its own process; no global `PYTHONPATH` changes Debian awscli dependencies. The
+actual-image smoke also checks `aws --version`. No installer or runtime pip operation is retained. The lock pins
+Streamlink 8.6.2, Requests 2.34.2 and urllib3 2.8.0 and all transitives.
+
+The wheel set, including bootstrap, is 19,298,839 bytes compressed. Runtime
+wheels contain 45,859,107 uncompressed bytes, excluding pip. This measures the
+dependency payload, not Docker/VFS peak disk use. Normal builds require no
+session files or preexisting wheelhouse:
+
+```sh
+docker build --platform linux/amd64 -f workers/restream/Dockerfile -t restream-worker .
+```
+
+The build executes `twitch_image_smoke.py` on CPython 3.11, verifies every copied
+file against its source hash manifest, imports the pinned dependencies and Node
+wrapper, and checks actual FFmpeg/ffprobe normalization. Run it again against
+the immutable deployment image using that image's normal execution route.
+Do not infer image acceptance from host tests. The current implementation
+session defers the actual-image build and execution until Task 6 after manager
+integration, subject to measured VFS headroom. Provider tests, both 1080p60
+inputs across six presets, optional simulcast, 30-minute continuity and device
+playback remain separate exact-image acceptance gates.
+
+Host contracts (install dependencies from the target-appropriate lock first):
+
+```sh
+python -m unittest discover -s workers/restream/tests -p 'test_twitch_*.py'
+node --conditions=import --import tsx --test tests/backend/event-twitch-input.test.ts
+```
+
+The CPython 3.11 binary lock cannot be installed as a CPython 3.12 environment.
+The current host tests used a separately prepared pinned CPython 3.12 research
+environment; no production code depends on it. Fixtures generate their own
+verified CA/SAN and audible synthetic media. See
+[fixture recipes and preserved negative research](tests/fixtures/README.md).

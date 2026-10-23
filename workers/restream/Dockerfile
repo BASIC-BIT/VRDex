@@ -9,21 +9,12 @@ RUN --mount=type=secret,id=proxy_ca,target=/run/secrets/proxy_ca \
 
 WORKDIR /app
 
-COPY workers/restream/hosted-worker.mjs \
-     workers/restream/broadcast-profiles.mjs \
-     workers/restream/live-control.mjs \
-     workers/restream/vrcdn-poc.mjs \
-     workers/restream/output-sender.mjs \
-     workers/restream/event-worker.mjs \
-     workers/restream/source-relay.mjs \
-     workers/restream/handoff-policy.mjs \
-     workers/restream/input-supervisor.mjs \
-     workers/restream/program-renderer.mjs workers/restream/
-
-COPY scripts/event-output-local-proof.mjs \
-     scripts/event-proof-metrics.mjs \
-     scripts/event-vrcdn-rehearsal.mjs \
-     scripts/event-proof-runner.mjs scripts/
+# One final filesystem layer: the source bind is read-only and is not copied
+# wholesale. The installer verifies locked binary wheels, installs offline,
+# copies required sources, and executes the actual-image smoke before cleanup.
+RUN --mount=type=bind,source=.,target=/source,readonly \
+    --mount=type=secret,id=proxy_ca,target=/run/secrets/proxy_ca \
+    python3 /source/workers/restream/install_twitch.py /source /app
 
 ENV NODE_ENV=production
 
