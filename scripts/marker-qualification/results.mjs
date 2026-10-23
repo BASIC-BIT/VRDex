@@ -1,3 +1,4 @@
+import { deriveMassCases } from './media-facts.mjs';
 import { gzipSync,gunzipSync } from 'node:zlib';
 import { matchSceneContract } from './scene-policy.mjs';
 import { matchGlobalSceneContract } from './scene-faults.mjs';
@@ -64,7 +65,7 @@ export function observationName(invocation,index) {
 }
 export function observeVerdict(invocation,index,observed) {
  const row=invocation.rows[index];
- if(invocation.kind==='mass')return evaluateClassifierCase(row,prerequisiteStates('pass'),observed.cases[Math.floor(index/2)]);
+ if(invocation.kind==='mass')return evaluateClassifierCase(row,prerequisiteStates('pass'),deriveMassCases(invocation,observed)[Math.floor(index/2)]);
  if(invocation.kind==='association'){
   const paths=observed.observations.filter(o=>o.path===row.params.path);if(paths.length!==1)throw Error('qualification_result_observation');
   return row.contract.contexts.first_transition.status==='blocked'?matchGlobalSceneContract(row.contract,paths[0].observation):matchSceneContract(row.contract,paths[0].observation);

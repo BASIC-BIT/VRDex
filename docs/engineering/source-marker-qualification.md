@@ -119,6 +119,13 @@ full SHA-bound original observations. Union validation reloads those bounded
 lossless observations and re-evaluates the canonical classifier, whole-scene or
 bridge contract; it does not trust a saved PASS or its summary facts. Literal
 rows explicitly mark codec prerequisites as not applicable.
+Mass slot evidence is derived from the full original record, continuous audio and
+video metadata, and the independent detector's complete block/episode table.
+Metadata-aligned blocks reconstruct the original guarded ranges; sample, byte,
+frame and coverage totals must agree. The canonical train assigns each complete
+episode once and binds every visual to its original frame. Copied case tables,
+if supplied, must match that derivation exactly; new producers omit them.
+
  Every
 unrun/failed case remains in its exact result shard; duplicate, missing, changed
 or overlapping shards fail the union. Each shard has at most256 cases/256KiB,
