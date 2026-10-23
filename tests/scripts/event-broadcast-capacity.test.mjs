@@ -1,3 +1,4 @@
+import { sourceMarkerFixture } from "../fixtures/source-marker-literal.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
@@ -193,7 +194,7 @@ function receipt() {
     maxCompressedBufferBytes: 3000000,
     maxDecoders: 2,
     maxAcquisitions: 2,
-    artifacts: [{ sha256: "a".repeat(64), bytes: 1, complete: true }],
+    artifacts: ["vrcdn", "twitch"].map(destination => ({ name: `${destination}.ts`, sha256: "a".repeat(64), bytes: 1, complete: true })),
     outputs: ["vrcdn", "twitch"].map((destination) => ({
       destination,
       videoCodec: "h264",
@@ -209,22 +210,8 @@ function receipt() {
       maxGap: 0.03,
       monotonic: true,
       identities: ["a", "b", "slate"],
-      avDriftMs: 20,
       visualPsnrDb: 35,
-      markerCount: 5,
-      transitionMarkers: ["a", "b"].map((identity) => ({
-        identity,
-        complete: true,
-        programTick: 30,
-        sourcePts: 90000,
-        start: 1,
-        end: 5,
-        pairs: [1, 2, 3].map((v) => ({
-          videoPts: v,
-          audioPts: v + 0.02,
-          audioMinusVideoMs: 20,
-        })),
-      })),
+      ...sourceMarkerFixture(),
       internalDelayMs: 100,
     })),
   };

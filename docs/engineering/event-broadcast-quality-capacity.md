@@ -131,7 +131,7 @@ Source/proof packaging uses the explicit `workers/restream/packaging-manifest.js
 Build the committed candidate from a clean archive; preserve the main-only
 publishing workflow guard. For the constrained managed Docker disk, collect an
 actual-image file inventory in an isolated Fargate task. Independently compare
-all 47 packaged source files and 1854 installed wheel payload files (including four relocated Streamlink data files) with the
+all 47 baseline packaged source files and 1854 installed wheel payload files (including four relocated Streamlink data files) with the
 clean archive and verified locked wheelhouse, including native libraries.
 The controller records that comparison and the inventory artifact hash before
 accepting the image. The small `packaged-files` export and
@@ -398,3 +398,13 @@ one Twitch row when simulcast is enabled, independently of row order. Duplicated
 primary rows cannot substitute for the optional destination. Existing timing,
 quality, resource, cleanup and artifact gates still apply. The production
 capacity map remains empty until complete measured evidence and review.
+
+## Source-identified proof candidate
+
+The next proof schema uses independent700/1300-Hz source identity, original integer
+PTS, complete interval accounting and strict compact evidence. Its explicit image
+manifest now contains85 files; this source count has not yet been verified in an
+actual image. The existing131-case gate remains required. The separate79,996-case
+qualification and all affected capacity proofs remain open. See
+[source marker qualification](./source-marker-qualification.md) for contracts,
+preserved counterexamples, fixed execution bounds and root-owned acceptance.

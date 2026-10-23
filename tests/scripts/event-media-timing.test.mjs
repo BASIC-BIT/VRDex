@@ -558,7 +558,7 @@ for (const [caseId, offset, gapAt, expectedMs] of [
     const { join } = await import("node:path");
     const { createProcessOwner } =
       await import("../../scripts/event-proof-processes.mjs");
-    const { measureMediaMarkers, probe } =
+    const { decodeMediaMarkerRecord, probe } =
       await import("../../scripts/event-capacity-media.mjs");
     const directory = await mkdtemp(join(tmpdir(), "event-marker-contract-")),
       owner = createProcessOwner();
@@ -582,11 +582,11 @@ for (const [caseId, offset, gapAt, expectedMs] of [
         "-f",
         "lavfi",
         "-i",
-        "aevalsrc=if(lt(mod(t\\,1)\\,0.1)\\,0.65*sin(2*PI*1000*t)\\,0):s=48000",
+        "aevalsrc=if(lt(mod(t\\,1)\\,0.1)\\,0.65*sin(2*PI*700*t)\\,0):s=48000",
         "-t",
         "10",
         "-vf",
-        `drawbox=x=4:y=0:w=5:h=6:color=white:t=fill:enable='lt(mod(t,1),0.1)',setpts='PTS${gap}'`,
+        `drawbox=x=0:y=0:w=4:h=6:color=red:t=fill,drawbox=x=4:y=0:w=5:h=6:color=white:t=fill:enable='lt(mod(t,1),0.1)',setpts='PTS${gap}'`,
         "-af",
         `asetpts='PTS+${offset}/TB${gap}'`,
         "-fps_mode",
@@ -607,23 +607,22 @@ for (const [caseId, offset, gapAt, expectedMs] of [
     );
     const info = await probe(owner, file),
       start = Number(info.format.start_time) + 0.5;
-    const facts = await measureMediaMarkers(owner, file, {
-      width: 64,
-      height: 48,
-      windows: [{ identity: "a", start, end: start + 7 }],
-      maxSeconds: 12,
-    });
-    assert.equal(facts.markerDecode.complete, true);
-    assert(facts.markerCount >= 6);
-    assert(
-      Math.abs(facts.avDriftMs - expectedMs) < 25,
-      JSON.stringify({ expected: expectedMs, actual: facts.avDriftMs }),
-    );
-    assert.equal(
-      facts.avDriftMs <= 100,
-      offset === 0,
-      "known out-of-gate offsets remain rejected",
-    );
+    const decode = () => decodeMediaMarkerRecord(owner, file, { width: 64, height: 48, maxSeconds: 12 });
+    if (discontinuity) {
+      // Original +150/384ms negatives remain negative. New source evidence also
+      // requires every PCM metadata interval to be continuous; no gap is hidden.
+      await assert.rejects(decode, /marker_audio_continuity/);
+      return;
+    }
+    const record = await decode();
+    const { associateContext } = await import("../../scripts/event-marker-association.mjs");
+    const left = Math.round(start * 90000), right = left + 7 * 90000;
+    const full = record.visuals.filter(v => v.start > left + 18000 && v.start < right - 18000);
+    const result = associateContext(record, {kind:'steady',identity:'a',selection:record.identityEpochs[0][0],start:left,end:right,fullVisualIds:full.map(v=>v.id)});
+    assert(result.pairs.length >= 6);
+    const actual = Math.max(...result.pairs.map(p => Math.abs(p.offsetNumerator / 720)));
+    assert(Math.abs(actual - expectedMs) < 25, JSON.stringify({expected:expectedMs,actual}));
+    assert.equal(result.valid, offset === 0, 'known out-of-gate offsets remain rejected');
   });
 test("cursor beyond newly retained PCM reanchors only when the matched video is covered", () => {
   const b = new LatestMediaBuffer(6);
@@ -656,11 +655,11 @@ async function createMonoTimingFixture(
       "-f",
       "lavfi",
       "-i",
-      "aevalsrc=if(lt(mod(t\\,1)\\,0.1)\\,0.65*sin(2*PI*1000*t)\\,0):s=44100",
+      "aevalsrc=if(lt(mod(t\\,1)\\,0.1)\\,0.65*sin(2*PI*700*t)\\,0):s=44100",
       "-t",
       "16",
       "-vf",
-      (timing60 ? "drawbox=x=0:y=0:w=57:h=57:color=red:t=fill," : "") +
+      "drawbox=x=0:y=0:w=57:h=57:color=red:t=fill," +
         "drawbox=x=57:y=0:w=57:h=57:color=white:t=fill:enable='lt(mod(t,1),0.1)'",
       "-c:v",
       "libx264",
@@ -970,60 +969,20 @@ for (const [name, lag, missing, carryIn] of [
   ["missing full pulse cannot alias next cycle", 0, true, true],
 ])
   test(`transition marker proof ${name}`, async () => {
-    const { measureTransitionMarkers } =
-      await import("../../scripts/event-capacity-media.mjs");
-    const selection = {
-      identity: "a",
-      tick: 90,
-      fps: 30,
-      sourcePts: 9000,
-      carryIn,
-      pulses: [
-        { tick: 90, sourcePts: 9000 },
-        ...[1, 2, 3].map((n) => ({
-          tick: 90 + n * 30,
-          sourcePts: 9000 + n * 90000,
-        })),
-      ],
-      endTick: 210,
-    };
-    const data = {
-      selections: [selection],
-      identities: [
-        { identity: "slate", pts: 1 },
-        { identity: "a", pts: 4 },
-      ],
-      visual: [4, 5, 6, 7],
-      audible: [4, 5, 6, 7]
-        .filter((_, i) => !(missing && i === 1))
-        .map((v) => v + lag),
-      videoEnd: 9,
-      audioEnd: 9,
-    };
-    if (missing)
-      assert.throws(
-        () => measureTransitionMarkers(data),
-        /Missing same-cycle audio/,
-      );
+    const { buildMarkerContexts } = await import("../../scripts/event-marker-contexts.mjs");
+    const selection={identity:'a',revision:1,tick:90,fps:30,sourcePts:9000,carryIn,endTick:210,lastSourcePts:279000,sourcePulses:[],pulses:[0,1,2,3].map(n=>({tick:90+n*30,sourcePts:9000+n*90000}))};
+    const record={videoRange:[90000,810000],audioRange:[48000,432000],identityEpochs:[[90000,4],[360000,1]],watermarks:[],
+      visuals:[0,1,2,3].map(i=>({id:i,start:(4+i)*90000,end:(4+i)*90000+9000,identity:'a',watermark:-1})),
+      episodes:[0,1,2,3].filter(i=>!(missing&&i===1)).map((i,id)=>({id,onset:Math.round((4+i+lag)*48000),end:Math.round((4+i+lag)*48000)+5280,identity:'a'}))};
+    if(missing||lag)assert.throws(()=>buildMarkerContexts(record,{selections:[selection],windows:[]}),/marker_context_failure/);
     else {
-      const result = measureTransitionMarkers(data);
-      assert.equal(result[0].boundaryFragment !== null, carryIn);
-      assert.equal(result[0].pairs.length, carryIn ? 3 : 4);
-      const dropped = structuredClone(data);
-      dropped.selections[0].sourcePulses = [99000, 189000, 279000];
-      dropped.selections[0].lastSourcePts = 279000;
-      dropped.selections[0].pulses.splice(1, 1);
-      dropped.visual.splice(1, 1);
-      assert.throws(
-        () => measureTransitionMarkers(dropped),
-        /Selected source pulse was not submitted/,
-      );
-      assert.equal(
-        Math.max(
-          ...result[0].pairs.map((p) => Math.abs(p.audioMinusVideoMs)),
-        ) <= 100,
-        lag === 0,
-      );
+      const result=buildMarkerContexts(record,{selections:[selection],windows:[]});
+      assert.equal(result.transitions[0].boundaryFragment!==null,carryIn);
+      assert.equal(result.transitions[0].pairs.length,carryIn?3:4);
+      const dropped=structuredClone(record),s=structuredClone(selection);
+      dropped.watermarks=[];dropped.visuals.forEach(v=>v.watermark=-1);
+      s.sourcePulses=[99000,189000,279000];s.pulses.splice(1,1);dropped.visuals.splice(1,1);
+      assert.throws(()=>buildMarkerContexts(dropped,{selections:[s],windows:[]}),/marker_unsubmitted_source_pulse/);
     }
   });
 
@@ -1232,7 +1191,7 @@ for (const lag of [0, 0.130667])
         "-f",
         "lavfi",
         "-i",
-        "aevalsrc=if(lt(mod(t\\,1)\\,0.1)\\,0.65*sin(2*PI*1000*t)\\,0):s=48000",
+        "aevalsrc=if(lt(mod(t\\,1)\\,0.1)\\,0.65*sin(2*PI*if(lt(t\\,6)\\,700\\,1300)*t)\\,0):s=48000",
         "-t",
         "12",
         "-vf",
@@ -1263,18 +1222,18 @@ for (const lag of [0, 0.130667])
       sourcePts: 90000,
       carryIn: false,
       endTick: second * 30 + 120,
+      sourcePulses: [],
+      lastSourcePts: 360000,
       pulses: [0, 1, 2, 3].map((n) => ({
         tick: (second + n) * 30,
         sourcePts: (1 + n) * 90000,
       })),
     }));
-    const facts = await measureMediaMarkers(owner, file, {
-      width: 64,
-      height: 48,
-      windows: [],
-      selections,
-      maxSeconds: 14,
+    const measure = () => measureMediaMarkers(owner, file, {
+      width: 64, height: 48, windows: [], selections, maxSeconds: 14,
     });
+    if (lag > 0) { await assert.rejects(measure, /marker_context_failure/); return; }
+    const facts = await measure();
     assert.equal(facts.markerCount, 8);
     assert.equal(facts.transitionMarkers.length, 2);
     assert.equal(
@@ -1341,106 +1300,28 @@ function matrixEpochFixture(destinationOffset = 0) {
   };
 }
 for (const destination of ["program", "vrcdn"])
-  test(`selection epoch replays actual matrix01 ${destination} without prior source ambiguity`, async () => {
-    const { measureTransitionMarkers } =
-      await import("../../scripts/event-capacity-media.mjs");
-    const data = matrixEpochFixture(destination === "vrcdn" ? 1.4 : 0);
-    if (destination === "vrcdn") {
-      data.identities[1].pts = 5.655;
-      data.identities[2].pts = 310.221;
-      data.visual = [
-        5.655, 6.621, 7.588, 8.588, 9.588, 310.388, 311.388, 312.388, 313.388,
-      ];
-      data.audible = [
-        5.655333333333333, 6.584, 7.586666666666667, 8.588, 9.580666666666668,
-        309.91133333333335, 310.3806666666667, 311.3833333333333, 312.386,
-        313.38866666666667,
-      ];
-    }
-    const result = measureTransitionMarkers(data);
-    assert.equal(result[0].pairs.length, 4);
-    assert.equal(result[1].pairs.length, 4);
-    assert(
-      Math.abs(result[1].pairs[0].audioMinusVideoMs + 7.3333333333) < 0.001,
-    );
-    assert.deepEqual(result[1].preEpochExclusions, [
-      {
-        audioPts: data.audible[5],
-        reason: "before-selection-acceptance-bound",
-      },
-    ]);
-    assert(
-      Math.max(
-        ...result.flatMap((r) =>
-          r.pairs.map((p) => Math.abs(p.audioMinusVideoMs)),
-        ),
-      ) < 38,
-    );
+  test(`legacy matrix01 ${destination} cannot acquire source identity retrospectively`, async () => {
+    const { validateMarkerRecord } = await import("../../scripts/event-marker-evidence.mjs");
+    // Preserve original measured arrays. They contain 1000Hz source audio and
+    // cannot support the source-tones-v1 independent source identity contract.
+    const historical=matrixEpochFixture(destination==='vrcdn'?1.4:0);
+    assert.throws(()=>validateMarkerRecord(historical),/marker_schema/);
+    assert.equal(historical.audible.length,10);
   });
 
 test("selection epoch keeps missing ambiguous boundary and completeness failures strict", async () => {
-  const { measureTransitionMarkers } =
-    await import("../../scripts/event-capacity-media.mjs");
-  const missing = matrixEpochFixture();
-  missing.audible.splice(6, 1);
-  assert.throws(
-    () => measureTransitionMarkers(missing),
-    /Missing same-cycle audio/,
-  );
-  const duplicate = matrixEpochFixture();
-  duplicate.audible.push(308.99);
-  assert.throws(
-    () => measureTransitionMarkers(duplicate),
-    /Ambiguous same-cycle audio/,
-  );
-  const truncated = matrixEpochFixture();
-  truncated.audioEnd = 312;
-  assert.throws(
-    () => measureTransitionMarkers(truncated),
-    /Truncated transition/,
-  );
-  const watermark = matrixEpochFixture();
-  watermark.identities[2].pts += 0.2;
-  assert.throws(() => measureTransitionMarkers(watermark), /program watermark/);
-  for (const lag of [-0.05, -0.130667, 0.130667]) {
-    const d = {
-      selections: [
-        {
-          identity: "a",
-          tick: 30,
-          fps: 30,
-          sourcePts: 90000,
-          carryIn: false,
-          endTick: 150,
-          pulses: [1, 2, 3, 4].map((n) => ({
-            tick: n * 30,
-            sourcePts: n * 90000,
-          })),
-        },
-      ],
-      identities: [
-        { identity: "slate", pts: 0 },
-        { identity: "a", pts: 1 },
-      ],
-      visual: [1, 2, 3, 4],
-      audible: [1, 2, 3, 4].map((v) => v + lag),
-      videoEnd: 6,
-      audioEnd: 6,
-    };
-    if (lag < -0.1)
-      assert.throws(
-        () => measureTransitionMarkers(d),
-        /Missing same-cycle audio/,
-      );
-    else {
-      const result = measureTransitionMarkers(d);
-      assert.equal(
-        Math.max(
-          ...result[0].pairs.map((p) => Math.abs(p.audioMinusVideoMs)),
-        ) <= 100,
-        lag === -0.05,
-      );
-    }
+  const { buildMarkerContexts }=await import("../../scripts/event-marker-contexts.mjs");
+  const make=()=>({videoRange:[0,720000],audioRange:[0,384000],identityEpochs:[[0,4],[90000,1]],watermarks:[],
+    visuals:[0,1,2,3].map(id=>({id,start:117000+id*90000,end:126000+id*90000,identity:'a',watermark:-1})),
+    episodes:[0,1,2,3].map(id=>({id,onset:62400+id*48000,end:67680+id*48000,identity:'a'}))});
+  const selection=()=>({identity:'a',revision:1,tick:30,fps:30,sourcePts:0,carryIn:false,endTick:150,lastSourcePts:357000,sourcePulses:[],pulses:[0,1,2,3].map(i=>({tick:39+i*30,sourcePts:27000+i*90000}))});
+  for(const change of [r=>r.episodes.shift(),r=>r.episodes.push({...r.episodes[0],id:4,onset:62500,end:67000}),r=>r.audioRange[1]=200000,r=>r.identityEpochs[1][0]+=18000]) {
+    const r=make();change(r);assert.throws(()=>buildMarkerContexts(r,{selections:[selection()],windows:[]}),/marker_/);
+  }
+  for(const delta of [-2400,-6272,6272]) {
+    const r=make();r.episodes.forEach(e=>{e.onset+=delta;e.end+=delta;});
+    if(Math.abs(delta)>4800)assert.throws(()=>buildMarkerContexts(r,{selections:[selection()],windows:[]}),/marker_context_failure/);
+    else assert.equal(buildMarkerContexts(r,{selections:[selection()],windows:[]}).transitions[0].pairs.length,4);
   }
 });
 
@@ -1469,7 +1350,7 @@ test("encoded phase shifted A and B audio remain bound to the actual selection e
       "-f",
       "lavfi",
       "-i",
-      "aevalsrc=if(if(lt(t\\,6)\\,lt(mod(t+0.3\\,1)\\,0.1)\\,lt(mod(t-1/6\\,1)\\,0.1))\\,0.65*sin(2*PI*1000*t)\\,0):s=48000",
+      "aevalsrc=if(if(lt(t\\,6)\\,lt(mod(t+0.3\\,1)\\,0.1)\\,lt(mod(t-1/6\\,1)\\,0.1))\\,0.65*sin(2*PI*if(lt(t\\,6)\\,700\\,1300)*t)\\,0):s=48000",
       "-t",
       "12",
       "-vf",
@@ -1499,6 +1380,8 @@ test("encoded phase shifted A and B audio remain bound to the actual selection e
       sourcePts: 90000,
       carryIn: false,
       endTick: 150,
+      sourcePulses: [],
+      lastSourcePts: 423000,
       pulses: [51, 81, 111, 141].map((tick) => ({
         tick,
         sourcePts: tick * 3000,
@@ -1512,6 +1395,8 @@ test("encoded phase shifted A and B audio remain bound to the actual selection e
       sourcePts: 540000,
       carryIn: false,
       endTick: 300,
+      sourcePulses: [],
+      lastSourcePts: 825000,
       pulses: [185, 215, 245, 275].map((tick) => ({
         tick,
         sourcePts: tick * 3000,
@@ -1530,13 +1415,8 @@ test("encoded phase shifted A and B audio remain bound to the actual selection e
     facts.avDriftMs <= 100,
     JSON.stringify({ avDriftMs: facts.avDriftMs }),
   );
-  assert.equal(facts.transitionMarkers[1].preEpochExclusions.length, 1);
-  const excluded = facts.transitionMarkers[1].preEpochExclusions[0].audioPts;
-  assert(excluded < facts.transitionMarkers[1].start - 0.1);
-  assert(
-    Math.abs(excluded - facts.transitionMarkers[1].pairs[0].videoPts) < 0.5,
-    "prior source would have caused the original ambiguity",
-  );
+  const selected= facts.markerEvidence.contexts.filter(c=>c[0]===0)[1];
+  assert(selected[6].some(d=>d[1]===1), 'classified preceding-source tail is explicitly partitioned');
 });
 
 test("resource cadence requires actual endpoint coverage and post-read health", async () => {

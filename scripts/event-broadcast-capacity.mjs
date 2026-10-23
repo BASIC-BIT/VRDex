@@ -17,6 +17,7 @@ import {
   parseCapacityArguments,
   quantile,
   validateCapacityReceipt,
+  markerFailureDetails,
 } from "./event-capacity-contracts.mjs";
 import { createProcessOwner, processTable } from "./event-proof-processes.mjs";
 import {
@@ -552,7 +553,9 @@ export async function runCapacityWorkload(
     failure = error;
     receipt.passed = false;
     receipt.failurePhase = phase;
-    receipt.failureCode =
+    const markerFailure=markerFailureDetails(error);
+    if(markerFailure)receipt.markerFailureReasons=markerFailure.reasons;
+    receipt.failureCode = markerFailure?.code ??
       {
         "Missing identity frame": "missing_identity_frame",
         "Wrong encoded source identity": "wrong_identity",
@@ -605,9 +608,11 @@ export async function runCapacityWorkload(
     }
     receipt.terminal = true;
     receipt.finishedAt = new Date().toISOString();
+    const receiptBytes = JSON.stringify(receipt) + "\n";
+    if (Buffer.byteLength(receiptBytes) > 1048576) throw Error("marker_receipt_bound");
     await writeFile(
       `${directory}/receipt.json`,
-      JSON.stringify(receipt, null, 2) + "\n",
+      receiptBytes,
       { mode: 0o600 },
     );
   }

@@ -3,6 +3,8 @@ import {
   resolveDestinationProfile,
 } from "../workers/restream/broadcast-profiles.mjs";
 import { validateShape } from "../workers/restream/worker-allocation.mjs";
+import { MARKER_SCHEMA } from "./event-source-markers.mjs";
+import { validateMarkerRecord, assertMarkerEvidenceSize } from "./event-marker-evidence.mjs";
 export const BENCHMARK_SHAPES = Object.freeze([
   "4096:8192",
   "8192:16384",
@@ -103,6 +105,24 @@ export function validateOutputFacts(facts, settings, destination) {
     facts.monotonic !== true
   )
     throw Error("Output format/packet contract failed");
+  if (facts.markerSchema !== MARKER_SCHEMA) throw Error("marker_schema");
+  const proof = validateMarkerRecord(facts.markerEvidence);
+  const transitions = proof.contexts.filter(c => c.kind === 'transition');
+  const steady = proof.contexts.filter(c => c.kind === 'steady');
+  if (transitions.map(c => c.identity).join(',') !== 'a,b' ||
+      steady.map(c => c.identity).join(',') !== 'a,b') throw Error('marker_required_contexts');
+  const allPairs = proof.contexts.flatMap(c => c.pairs);
+  const maximum = Math.max(...allPairs.map(p => Math.abs(p.offsetNumerator / 720)));
+  if (facts.markerCount !== allPairs.length || facts.avDriftMs !== maximum) throw Error('marker_summary_binding');
+  if (!Array.isArray(facts.transitionMarkers) || facts.transitionMarkers.length !== transitions.length) throw Error('marker_transition_binding');
+  transitions.forEach((c, i) => {
+    const summary = facts.transitionMarkers[i];
+    const watermark = proof.watermarks.find(w => w.selectionVideoPts === c.selection && w.identity === c.identity);
+    if (!watermark || summary.identity !== c.identity || summary.programTick !== watermark.selectionTick ||
+        summary.sourcePts !== watermark.selectionSourcePts || summary.start !== c.start / 90000 || summary.end !== c.end / 90000 ||
+        !Array.isArray(summary.pairs) || summary.pairs.length !== c.pairs.length ||
+        summary.pairs.some((p, j) => p.videoPts !== c.pairs[j].videoPts / 90000 || p.audioPts !== c.pairs[j].audioSample / 48000 || p.audioMinusVideoMs !== c.pairs[j].offsetNumerator / 720)) throw Error('marker_transition_binding');
+  });
   const transitionValid =
     Array.isArray(facts.transitionMarkers) &&
     facts.transitionMarkers.map((r) => r.identity).join(",") === "a,b" &&
@@ -222,6 +242,8 @@ export function validateCapacityReceipt(r) {
     throw Error("Missing or duplicate output destination");
   for (const output of r.outputs)
     validateOutputFacts(output, r.request.settings, output.destination);
+  assertMarkerEvidenceSize(r.outputs.map(output => output.markerEvidence));
+  if (Buffer.byteLength(JSON.stringify(r)) > 1048576) throw Error('marker_receipt_bound');
   if (
     !r.artifacts?.length ||
     r.artifacts.some(
@@ -233,5 +255,21 @@ export function validateCapacityReceipt(r) {
     )
   )
     throw Error("Incomplete evidence artifacts");
+  for (const output of r.outputs) {
+    const artifacts = r.artifacts.filter(a => a.name === `${output.destination}.ts`);
+    if (artifacts.length !== 1 || artifacts[0].sha256 !== output.markerEvidence.recordingSha256) throw Error('marker_artifact_binding');
+  }
   return r;
+}
+
+const markerFailureCodes = new Set(["marker_arithmetic", "marker_audio_conservation", "marker_audio_continuity", "marker_audio_metadata", "marker_audio_range", "marker_candidate_bound", "marker_carry_reference", "marker_carry_watermark", "marker_context", "marker_context_bound", "marker_context_conservation", "marker_context_identity", "marker_context_partition", "marker_context_tuple", "marker_context_window", "marker_context_wire", "marker_count", "marker_encoded_flash_count", "marker_encoded_flash_watermark", "marker_episode_bound", "marker_episode_count_bound", "marker_episode_range", "marker_episode_reference", "marker_episode_tuple", "marker_evidence_bound", "marker_failed_fit", "marker_fit_range", "marker_fit_summary", "marker_fit_tuple", "marker_full_completeness", "marker_full_fragment_overlap", "marker_identity_bound", "marker_identity_extent", "marker_identity_missing", "marker_identity_predecessor", "marker_identity_selection", "marker_identity_sequence", "marker_identity_visual", "marker_identity_watermark", "marker_integer", "marker_local_bound", "marker_local_conservation", "marker_local_pair", "marker_local_tuple", "marker_metadata_integer", "marker_metadata_line_bound", "marker_metadata_protocol", "marker_missing_field", "marker_nonfinite", "marker_partition_conservation", "marker_pcm_length", "marker_pcm_type", "marker_preselection_coverage", "marker_record_conservation", "marker_recording_binding", "marker_reference_bound", "marker_rejected_classification", "marker_residual_bound", "marker_schema", "marker_scratch_bound", "marker_selection_alignment", "marker_selection_watermark", "marker_source_classification", "marker_steady_full_count", "marker_steady_identity", "marker_steady_window", "marker_transition_coverage", "marker_transition_full_count", "marker_unmatched_eof", "marker_unsubmitted_source_pulse", "marker_video_continuity", "marker_video_payload", "marker_visual_bound", "marker_visual_conservation", "marker_visual_reference", "marker_visual_unmatched_eof", "marker_watermark", "marker_window"]);
+const markerContextReasons = new Set(["av_out_of_bounds", "duplicate_episode_use", "duplicate_source_candidate", "foreign_interval", "fragment_multiple_episode", "fragment_multiple_visual", "incomplete_context_coverage", "missing_audio", "mixed_competitor", "unaccounted_episode", "unknown_competitor"]);
+/** Safe bounded failure facts, never arbitrary provider or exception text. */
+export function markerFailureDetails(error) {
+ const message=error?.message;
+ if(markerFailureCodes.has(message))return {code:message,reasons:[]};
+ if(typeof message!=='string'||!message.startsWith('marker_context_failure:')||message.length>512)return undefined;
+ const reasons=message.slice('marker_context_failure:'.length).split(',');
+ if(reasons.length<1||reasons.length>16||new Set(reasons).size!==reasons.length||reasons.some(r=>!markerContextReasons.has(r)))return undefined;
+ return {code:'marker_context_failure',reasons:reasons.sort()};
 }

@@ -1,0 +1,3622 @@
+{
+  "status": "historical literal failures preserved; new codec qualification unobserved",
+  "oldAuthority": {
+    "count": 79996,
+    "idsSha256": "c55078312b8e2b6d24c84f7caa82cd487b1a440da20c301ed0e69ab5f44a9f16",
+    "expectedContractsSha256": "4056a6148c9b0b5051dc6c2d99ef0f7f8a224bc3ec08c5acb4a1e69e7aeecff4"
+  },
+  "candidateAuthority": {
+    "count": 79996,
+    "idsSha256": "c55078312b8e2b6d24c84f7caa82cd487b1a440da20c301ed0e69ab5f44a9f16",
+    "expectedContractsSha256": "2af9fce4e907623fa75a6f4191d102d10745d47573884e4d5553e28675993873"
+  },
+  "changedExistingIds": 128,
+  "constructionChanges": [
+    {
+      "scene": "missing_watermark",
+      "before": [
+        {
+          "op": "use_carry_geometry"
+        },
+        {
+          "op": "add_tone",
+          "carrier": "selected",
+          "start": "S_audio",
+          "samples": 2880
+        },
+        {
+          "op": "post_decode_remove_carry_watermark"
+        }
+      ],
+      "after": [
+        {
+          "op": "use_carry_geometry"
+        },
+        {
+          "op": "no_carry_audio"
+        },
+        {
+          "op": "post_decode_remove_carry_watermark"
+        }
+      ]
+    },
+    {
+      "scene": "full_fragment_overlap",
+      "before": [
+        {
+          "op": "use_carry_geometry"
+        },
+        {
+          "op": "add_tone",
+          "carrier": "selected",
+          "start": "S_audio",
+          "samples": 2880
+        },
+        {
+          "op": "post_decode_add_fragment_disposition_referencing_first_full_visual"
+        }
+      ],
+      "after": [
+        {
+          "op": "use_carry_geometry"
+        },
+        {
+          "op": "no_carry_audio"
+        },
+        {
+          "op": "post_decode_add_fragment_disposition_referencing_first_full_visual"
+        }
+      ]
+    }
+  ],
+  "originalScenes": [
+    {
+      "scene": "case8_unknown_previous",
+      "sourcePcmSha256": "ddbe978871cdbfc19803bea3182b673a7e8cb07a61188dc82b76ad7888608020",
+      "returnedPcmSha256": "ddbe978871cdbfc19803bea3182b673a7e8cb07a61188dc82b76ad7888608020",
+      "actualContexts": {
+        "first_transition": {
+          "valid": false,
+          "reasons": [
+            "missing_audio",
+            "unknown_competitor",
+            "foreign_interval"
+          ],
+          "selection": 90000,
+          "start": 90000,
+          "end": 450000,
+          "fullVisualIds": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "pairs": [
+            {
+              "visualId": 0,
+              "episodeId": 0,
+              "videoPts": 177000,
+              "audioSample": 94688,
+              "offsetNumerator": 4320
+            },
+            {
+              "visualId": 1,
+              "episodeId": 1,
+              "videoPts": 267000,
+              "audioSample": 142336,
+              "offsetNumerator": -960
+            },
+            {
+              "visualId": 2,
+              "episodeId": 2,
+              "videoPts": 357000,
+              "audioSample": 190464,
+              "offsetNumerator": 960
+            }
+          ],
+          "dispositions": [
+            {
+              "episodeId": 0,
+              "code": "paired_full",
+              "visualId": 0
+            },
+            {
+              "episodeId": 1,
+              "code": "paired_full",
+              "visualId": 1
+            },
+            {
+              "episodeId": 2,
+              "code": "paired_full",
+              "visualId": 2
+            },
+            {
+              "episodeId": 3,
+              "code": "failure",
+              "visualId": -1
+            },
+            {
+              "episodeId": 4,
+              "code": "failure",
+              "visualId": -1
+            }
+          ],
+          "carryIn": null
+        },
+        "selected_transition": {
+          "valid": false,
+          "reasons": [
+            "unknown_competitor"
+          ],
+          "selection": 450000,
+          "start": 450000,
+          "end": 810000,
+          "fullVisualIds": [
+            4,
+            5,
+            6,
+            7
+          ],
+          "pairs": [
+            {
+              "visualId": 4,
+              "episodeId": 4,
+              "videoPts": 459000,
+              "audioSample": 246240,
+              "offsetNumerator": 21600
+            },
+            {
+              "visualId": 5,
+              "episodeId": 5,
+              "videoPts": 549000,
+              "audioSample": 294368,
+              "offsetNumerator": 23520
+            },
+            {
+              "visualId": 6,
+              "episodeId": 6,
+              "videoPts": 639000,
+              "audioSample": 342016,
+              "offsetNumerator": 18240
+            },
+            {
+              "visualId": 7,
+              "episodeId": 7,
+              "videoPts": 729000,
+              "audioSample": 390144,
+              "offsetNumerator": 20160
+            }
+          ],
+          "dispositions": [
+            {
+              "episodeId": 3,
+              "code": "failure",
+              "visualId": -1
+            },
+            {
+              "episodeId": 4,
+              "code": "paired_full",
+              "visualId": 4
+            },
+            {
+              "episodeId": 5,
+              "code": "paired_full",
+              "visualId": 5
+            },
+            {
+              "episodeId": 6,
+              "code": "paired_full",
+              "visualId": 6
+            },
+            {
+              "episodeId": 7,
+              "code": "paired_full",
+              "visualId": 7
+            }
+          ],
+          "carryIn": null
+        },
+        "selected_steady": {
+          "valid": false,
+          "reasons": [
+            "unknown_competitor"
+          ],
+          "selection": 450000,
+          "start": 450000,
+          "end": 990000,
+          "fullVisualIds": [
+            5,
+            6,
+            7,
+            8,
+            9
+          ],
+          "pairs": [
+            {
+              "visualId": 5,
+              "episodeId": 5,
+              "videoPts": 549000,
+              "audioSample": 294368,
+              "offsetNumerator": 23520
+            },
+            {
+              "visualId": 6,
+              "episodeId": 6,
+              "videoPts": 639000,
+              "audioSample": 342016,
+              "offsetNumerator": 18240
+            },
+            {
+              "visualId": 7,
+              "episodeId": 7,
+              "videoPts": 729000,
+              "audioSample": 390144,
+              "offsetNumerator": 20160
+            },
+            {
+              "visualId": 8,
+              "episodeId": 8,
+              "videoPts": 819000,
+              "audioSample": 438272,
+              "offsetNumerator": 22080
+            },
+            {
+              "visualId": 9,
+              "episodeId": 9,
+              "videoPts": 909000,
+              "audioSample": 486336,
+              "offsetNumerator": 23040
+            }
+          ],
+          "dispositions": [
+            {
+              "episodeId": 3,
+              "code": "failure",
+              "visualId": -1
+            },
+            {
+              "episodeId": 4,
+              "code": "existing_steady_edge_fragment",
+              "visualId": 4
+            },
+            {
+              "episodeId": 5,
+              "code": "paired_full",
+              "visualId": 5
+            },
+            {
+              "episodeId": 6,
+              "code": "paired_full",
+              "visualId": 6
+            },
+            {
+              "episodeId": 7,
+              "code": "paired_full",
+              "visualId": 7
+            },
+            {
+              "episodeId": 8,
+              "code": "paired_full",
+              "visualId": 8
+            },
+            {
+              "episodeId": 9,
+              "code": "paired_full",
+              "visualId": 9
+            }
+          ],
+          "carryIn": null
+        }
+      },
+      "originalExpected": {
+        "stage": "association",
+        "outcome": "unknown_competitor",
+        "allPrerequisitesRequired": true,
+        "contexts": {
+          "first_transition": {
+            "status": "fail",
+            "reason": "unknown_competitor",
+            "source": "a",
+            "windowVideoTicks": [
+              90000,
+              450000
+            ],
+            "requiredEvidence": [
+              {
+                "rule": "complete_context_coverage",
+                "fullVisualFrameOrdinals": [
+                  59,
+                  89,
+                  119,
+                  149
+                ],
+                "fullFenceVideoRadius": 45000,
+                "fullFenceOpen": true,
+                "decodeEntireSelectedInterval": true,
+                "allIntersectingEpisodesRequired": true
+              },
+              {
+                "rule": "reference_and_partition_conservation",
+                "uniqueOriginalVisualAndEpisodeIds": true,
+                "unchangedOnsets": true,
+                "noUnlistedFailure": true,
+                "actualEncodedIdentityAndWatermarkRequired": true
+              },
+              {
+                "rule": "observed_episode",
+                "sourceInputOnsetSample": 238640,
+                "classification": "unknown",
+                "originalObservedOnsetRequired": true,
+                "completeGuardedRangeRequired": true,
+                "notEligibleForTailOrFragment": true
+              },
+              {
+                "rule": "unaffected_full_candidates_pass",
+                "exceptVisualFrameOrdinal": 149
+              },
+              {
+                "rule": "observed_episode",
+                "sourceInputOnsetSample": 246352,
+                "classification": "b",
+                "originalObservedOnsetRequired": true,
+                "completeGuardedRangeRequired": true,
+                "visualFrameOrdinal": 149,
+                "openFenceVideoTicks": [
+                  402000,
+                  492000
+                ],
+                "onsetAfterSelectionFrame": 150,
+                "disposition": "failure",
+                "failureReason": "foreign_interval",
+                "notPreviousEpochTail": true
+              }
+            ]
+          },
+          "selected_transition": {
+            "status": "fail",
+            "reason": "unknown_competitor",
+            "source": "b",
+            "windowVideoTicks": [
+              450000,
+              810000
+            ],
+            "requiredEvidence": [
+              {
+                "rule": "complete_context_coverage",
+                "fullVisualFrameOrdinals": [
+                  153,
+                  183,
+                  213,
+                  243
+                ],
+                "fullFenceVideoRadius": 45000,
+                "fullFenceOpen": true,
+                "decodeEntireSelectedInterval": true,
+                "allIntersectingEpisodesRequired": true
+              },
+              {
+                "rule": "reference_and_partition_conservation",
+                "uniqueOriginalVisualAndEpisodeIds": true,
+                "unchangedOnsets": true,
+                "noUnlistedFailure": true,
+                "actualEncodedIdentityAndWatermarkRequired": true
+              },
+              {
+                "rule": "observed_episode",
+                "sourceInputOnsetSample": 238640,
+                "classification": "unknown",
+                "originalObservedOnsetRequired": true,
+                "completeGuardedRangeRequired": true,
+                "notEligibleForTailOrFragment": true
+              },
+              {
+                "rule": "unaffected_full_candidates_pass",
+                "exceptVisualFrameOrdinal": null
+              }
+            ]
+          },
+          "selected_steady": {
+            "status": "fail",
+            "reason": "unknown_competitor",
+            "source": "b",
+            "windowVideoTicks": [
+              450000,
+              990000
+            ],
+            "requiredEvidence": [
+              {
+                "rule": "complete_context_coverage",
+                "fullVisualFrameOrdinals": [
+                  183,
+                  213,
+                  243,
+                  273,
+                  303
+                ],
+                "fullFenceVideoRadius": 45000,
+                "fullFenceOpen": true,
+                "decodeEntireSelectedInterval": true,
+                "allIntersectingEpisodesRequired": true
+              },
+              {
+                "rule": "reference_and_partition_conservation",
+                "uniqueOriginalVisualAndEpisodeIds": true,
+                "unchangedOnsets": true,
+                "noUnlistedFailure": true,
+                "actualEncodedIdentityAndWatermarkRequired": true
+              },
+              {
+                "rule": "observed_episode",
+                "sourceInputOnsetSample": 238640,
+                "classification": "unknown",
+                "originalObservedOnsetRequired": true,
+                "completeGuardedRangeRequired": true,
+                "notEligibleForTailOrFragment": true
+              },
+              {
+                "rule": "unaffected_full_candidates_pass",
+                "exceptVisualFrameOrdinal": null
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "scene": "case8_mixed_previous",
+      "sourcePcmSha256": "f4bc8f9dcc5f5e476f664ad0c27571c2019c3b955425b63d353b2f34492626d4",
+      "returnedPcmSha256": "f4bc8f9dcc5f5e476f664ad0c27571c2019c3b955425b63d353b2f34492626d4",
+      "actualContexts": {
+        "first_transition": {
+          "valid": false,
+          "reasons": [
+            "missing_audio",
+            "mixed_competitor",
+            "foreign_interval"
+          ],
+          "selection": 90000,
+          "start": 90000,
+          "end": 450000,
+          "fullVisualIds": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "pairs": [
+            {
+              "visualId": 0,
+              "episodeId": 0,
+              "videoPts": 177000,
+              "audioSample": 94688,
+              "offsetNumerator": 4320
+            },
+            {
+              "visualId": 1,
+              "episodeId": 1,
+              "videoPts": 267000,
+              "audioSample": 142336,
+              "offsetNumerator": -960
+            },
+            {
+              "visualId": 2,
+              "episodeId": 2,
+              "videoPts": 357000,
+              "audioSample": 190464,
+              "offsetNumerator": 960
+            }
+          ],
+          "dispositions": [
+            {
+              "episodeId": 0,
+              "code": "paired_full",
+              "visualId": 0
+            },
+            {
+              "episodeId": 1,
+              "code": "paired_full",
+              "visualId": 1
+            },
+            {
+              "episodeId": 2,
+              "code": "paired_full",
+              "visualId": 2
+            },
+            {
+              "episodeId": 3,
+              "code": "failure",
+              "visualId": -1
+            },
+            {
+              "episodeId": 4,
+              "code": "failure",
+              "visualId": -1
+            }
+          ],
+          "carryIn": null
+        },
+        "selected_transition": {
+          "valid": false,
+          "reasons": [
+            "mixed_competitor"
+          ],
+          "selection": 450000,
+          "start": 450000,
+          "end": 810000,
+          "fullVisualIds": [
+            4,
+            5,
+            6,
+            7
+          ],
+          "pairs": [
+            {
+              "visualId": 4,
+              "episodeId": 4,
+              "videoPts": 459000,
+              "audioSample": 246240,
+              "offsetNumerator": 21600
+            },
+            {
+              "visualId": 5,
+              "episodeId": 5,
+              "videoPts": 549000,
+              "audioSample": 294368,
+              "offsetNumerator": 23520
+            },
+            {
+              "visualId": 6,
+              "episodeId": 6,
+              "videoPts": 639000,
+              "audioSample": 342016,
+              "offsetNumerator": 18240
+            },
+            {
+              "visualId": 7,
+              "episodeId": 7,
+              "videoPts": 729000,
+              "audioSample": 390144,
+              "offsetNumerator": 20160
+            }
+          ],
+          "dispositions": [
+            {
+              "episodeId": 3,
+              "code": "failure",
+              "visualId": -1
+            },
+            {
+              "episodeId": 4,
+              "code": "paired_full",
+              "visualId": 4
+            },
+            {
+              "episodeId": 5,
+              "code": "paired_full",
+              "visualId": 5
+            },
+            {
+              "episodeId": 6,
+              "code": "paired_full",
+              "visualId": 6
+            },
+            {
+              "episodeId": 7,
+              "code": "paired_full",
+              "visualId": 7
+            }
+          ],
+          "carryIn": null
+        },
+        "selected_steady": {
+          "valid": false,
+          "reasons": [
+            "mixed_competitor"
+          ],
+          "selection": 450000,
+          "start": 450000,
+          "end": 990000,
+          "fullVisualIds": [
+            5,
+            6,
+            7,
+            8,
+            9
+          ],
+          "pairs": [
+            {
+              "visualId": 5,
+              "episodeId": 5,
+              "videoPts": 549000,
+              "audioSample": 294368,
+              "offsetNumerator": 23520
+            },
+            {
+              "visualId": 6,
+              "episodeId": 6,
+              "videoPts": 639000,
+              "audioSample": 342016,
+              "offsetNumerator": 18240
+            },
+            {
+              "visualId": 7,
+              "episodeId": 7,
+              "videoPts": 729000,
+              "audioSample": 390144,
+              "offsetNumerator": 20160
+            },
+            {
+              "visualId": 8,
+              "episodeId": 8,
+              "videoPts": 819000,
+              "audioSample": 438272,
+              "offsetNumerator": 22080
+            },
+            {
+              "visualId": 9,
+              "episodeId": 9,
+              "videoPts": 909000,
+              "audioSample": 486336,
+              "offsetNumerator": 23040
+            }
+          ],
+          "dispositions": [
+            {
+              "episodeId": 3,
+              "code": "failure",
+              "visualId": -1
+            },
+            {
+              "episodeId": 4,
+              "code": "existing_steady_edge_fragment",
+              "visualId": 4
+            },
+            {
+              "episodeId": 5,
+              "code": "paired_full",
+              "visualId": 5
+            },
+            {
+              "episodeId": 6,
+              "code": "paired_full",
+              "visualId": 6
+            },
+            {
+              "episodeId": 7,
+              "code": "paired_full",
+              "visualId": 7
+            },
+            {
+              "episodeId": 8,
+              "code": "paired_full",
+              "visualId": 8
+            },
+            {
+              "episodeId": 9,
+              "code": "paired_full",
+              "visualId": 9
+            }
+          ],
+          "carryIn": null
+        }
+      },
+      "originalExpected": {
+        "stage": "association",
+        "outcome": "mixed_competitor",
+        "allPrerequisitesRequired": true,
+        "contexts": {
+          "first_transition": {
+            "status": "fail",
+            "reason": "mixed_competitor",
+            "source": "a",
+            "windowVideoTicks": [
+              90000,
+              450000
+            ],
+            "requiredEvidence": [
+              {
+                "rule": "complete_context_coverage",
+                "fullVisualFrameOrdinals": [
+                  59,
+                  89,
+                  119,
+                  149
+                ],
+                "fullFenceVideoRadius": 45000,
+                "fullFenceOpen": true,
+                "decodeEntireSelectedInterval": true,
+                "allIntersectingEpisodesRequired": true
+              },
+              {
+                "rule": "reference_and_partition_conservation",
+                "uniqueOriginalVisualAndEpisodeIds": true,
+                "unchangedOnsets": true,
+                "noUnlistedFailure": true,
+                "actualEncodedIdentityAndWatermarkRequired": true
+              },
+              {
+                "rule": "observed_episode",
+                "sourceInputOnsetSample": 238640,
+                "classification": "mixed",
+                "originalObservedOnsetRequired": true,
+                "completeGuardedRangeRequired": true,
+                "notEligibleForTailOrFragment": true
+              },
+              {
+                "rule": "unaffected_full_candidates_pass",
+                "exceptVisualFrameOrdinal": 149
+              },
+              {
+                "rule": "observed_episode",
+                "sourceInputOnsetSample": 246352,
+                "classification": "b",
+                "originalObservedOnsetRequired": true,
+                "completeGuardedRangeRequired": true,
+                "visualFrameOrdinal": 149,
+                "openFenceVideoTicks": [
+                  402000,
+                  492000
+                ],
+                "onsetAfterSelectionFrame": 150,
+                "disposition": "failure",
+                "failureReason": "foreign_interval",
+                "notPreviousEpochTail": true
+              }
+            ]
+          },
+          "selected_transition": {
+            "status": "fail",
+            "reason": "mixed_competitor",
+            "source": "b",
+            "windowVideoTicks": [
+              450000,
+              810000
+            ],
+            "requiredEvidence": [
+              {
+                "rule": "complete_context_coverage",
+                "fullVisualFrameOrdinals": [
+                  153,
+                  183,
+                  213,
+                  243
+                ],
+                "fullFenceVideoRadius": 45000,
+                "fullFenceOpen": true,
+                "decodeEntireSelectedInterval": true,
+                "allIntersectingEpisodesRequired": true
+              },
+              {
+                "rule": "reference_and_partition_conservation",
+                "uniqueOriginalVisualAndEpisodeIds": true,
+                "unchangedOnsets": true,
+                "noUnlistedFailure": true,
+                "actualEncodedIdentityAndWatermarkRequired": true
+              },
+              {
+                "rule": "observed_episode",
+                "sourceInputOnsetSample": 238640,
+                "classification": "mixed",
+                "originalObservedOnsetRequired": true,
+                "completeGuardedRangeRequired": true,
+                "notEligibleForTailOrFragment": true
+              },
+              {
+                "rule": "unaffected_full_candidates_pass",
+                "exceptVisualFrameOrdinal": null
+              }
+            ]
+          },
+          "selected_steady": {
+            "status": "fail",
+            "reason": "mixed_competitor",
+            "source": "b",
+            "windowVideoTicks": [
+              450000,
+              990000
+            ],
+            "requiredEvidence": [
+              {
+                "rule": "complete_context_coverage",
+                "fullVisualFrameOrdinals": [
+                  183,
+                  213,
+                  243,
+                  273,
+                  303
+                ],
+                "fullFenceVideoRadius": 45000,
+                "fullFenceOpen": true,
+                "decodeEntireSelectedInterval": true,
+                "allIntersectingEpisodesRequired": true
+              },
+              {
+                "rule": "reference_and_partition_conservation",
+                "uniqueOriginalVisualAndEpisodeIds": true,
+                "unchangedOnsets": true,
+                "noUnlistedFailure": true,
+                "actualEncodedIdentityAndWatermarkRequired": true
+              },
+              {
+                "rule": "observed_episode",
+                "sourceInputOnsetSample": 238640,
+                "classification": "mixed",
+                "originalObservedOnsetRequired": true,
+                "completeGuardedRangeRequired": true,
+                "notEligibleForTailOrFragment": true
+              },
+              {
+                "rule": "unaffected_full_candidates_pass",
+                "exceptVisualFrameOrdinal": null
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "scene": "carryin_present",
+      "sourcePcmSha256": "632708311da856e63369a04fd12296daefc0593121930730d22765fc175ce6fa",
+      "returnedPcmSha256": "632708311da856e63369a04fd12296daefc0593121930730d22765fc175ce6fa",
+      "actualContexts": {
+        "first_transition": {
+          "valid": false,
+          "reasons": [
+            "foreign_interval"
+          ],
+          "selection": 90000,
+          "start": 90000,
+          "end": 450000,
+          "fullVisualIds": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "pairs": [
+            {
+              "visualId": 0,
+              "episodeId": 0,
+              "videoPts": 117000,
+              "audioSample": 62400,
+              "offsetNumerator": 0
+            },
+            {
+              "visualId": 1,
+              "episodeId": 1,
+              "videoPts": 207000,
+              "audioSample": 110048,
+              "offsetNumerator": -5280
+            },
+            {
+              "visualId": 2,
+              "episodeId": 2,
+              "videoPts": 297000,
+              "audioSample": 158176,
+              "offsetNumerator": -3360
+            },
+            {
+              "visualId": 3,
+              "episodeId": 3,
+              "videoPts": 387000,
+              "audioSample": 206304,
+              "offsetNumerator": -1440
+            }
+          ],
+          "dispositions": [
+            {
+              "episodeId": 0,
+              "code": "paired_full",
+              "visualId": 0
+            },
+            {
+              "episodeId": 1,
+              "code": "paired_full",
+              "visualId": 1
+            },
+            {
+              "episodeId": 2,
+              "code": "paired_full",
+              "visualId": 2
+            },
+            {
+              "episodeId": 3,
+              "code": "paired_full",
+              "visualId": 3
+            },
+            {
+              "episodeId": 4,
+              "code": "failure",
+              "visualId": -1
+            }
+          ],
+          "carryIn": null
+        },
+        "selected_transition": {
+          "valid": true,
+          "reasons": [],
+          "selection": 450000,
+          "start": 450000,
+          "end": 810000,
+          "fullVisualIds": [
+            5,
+            6,
+            7,
+            8
+          ],
+          "pairs": [
+            {
+              "visualId": 5,
+              "episodeId": 5,
+              "videoPts": 537000,
+              "audioSample": 286176,
+              "offsetNumerator": -3360
+            },
+            {
+              "visualId": 6,
+              "episodeId": 6,
+              "videoPts": 627000,
+              "audioSample": 334304,
+              "offsetNumerator": -1440
+            },
+            {
+              "visualId": 7,
+              "episodeId": 7,
+              "videoPts": 717000,
+              "audioSample": 382432,
+              "offsetNumerator": 480
+            },
+            {
+              "visualId": 8,
+              "episodeId": 8,
+              "videoPts": 807000,
+              "audioSample": 430080,
+              "offsetNumerator": -4800
+            }
+          ],
+          "dispositions": [
+            {
+              "episodeId": 4,
+              "code": "existing_carry_in_fragment",
+              "visualId": 4
+            },
+            {
+              "episodeId": 5,
+              "code": "paired_full",
+              "visualId": 5
+            },
+            {
+              "episodeId": 6,
+              "code": "paired_full",
+              "visualId": 6
+            },
+            {
+              "episodeId": 7,
+              "code": "paired_full",
+              "visualId": 7
+            },
+            {
+              "episodeId": 8,
+              "code": "paired_full",
+              "visualId": 8
+            }
+          ],
+          "carryIn": {
+            "visualId": 4,
+            "episodeId": 4
+          }
+        },
+        "selected_steady": {
+          "valid": true,
+          "reasons": [],
+          "selection": 450000,
+          "start": 450000,
+          "end": 990000,
+          "fullVisualIds": [
+            5,
+            6,
+            7,
+            8,
+            9
+          ],
+          "pairs": [
+            {
+              "visualId": 5,
+              "episodeId": 5,
+              "videoPts": 537000,
+              "audioSample": 286176,
+              "offsetNumerator": -3360
+            },
+            {
+              "visualId": 6,
+              "episodeId": 6,
+              "videoPts": 627000,
+              "audioSample": 334304,
+              "offsetNumerator": -1440
+            },
+            {
+              "visualId": 7,
+              "episodeId": 7,
+              "videoPts": 717000,
+              "audioSample": 382432,
+              "offsetNumerator": 480
+            },
+            {
+              "visualId": 8,
+              "episodeId": 8,
+              "videoPts": 807000,
+              "audioSample": 430080,
+              "offsetNumerator": -4800
+            },
+            {
+              "visualId": 9,
+              "episodeId": 9,
+              "videoPts": 897000,
+              "audioSample": 478208,
+              "offsetNumerator": -2880
+            }
+          ],
+          "dispositions": [
+            {
+              "episodeId": 4,
+              "code": "existing_carry_in_fragment",
+              "visualId": 4
+            },
+            {
+              "episodeId": 5,
+              "code": "paired_full",
+              "visualId": 5
+            },
+            {
+              "episodeId": 6,
+              "code": "paired_full",
+              "visualId": 6
+            },
+            {
+              "episodeId": 7,
+              "code": "paired_full",
+              "visualId": 7
+            },
+            {
+              "episodeId": 8,
+              "code": "paired_full",
+              "visualId": 8
+            },
+            {
+              "episodeId": 9,
+              "code": "paired_full",
+              "visualId": 9
+            },
+            {
+              "episodeId": 10,
+              "code": "existing_steady_edge_fragment",
+              "visualId": 10
+            }
+          ],
+          "carryIn": {
+            "visualId": 4,
+            "episodeId": 4
+          }
+        }
+      },
+      "originalExpected": {
+        "stage": "association",
+        "outcome": "paired_source",
+        "allPrerequisitesRequired": true,
+        "source": "b",
+        "allExpectedFullPairsRequired": true,
+        "maxAbsOffsetNumerator": 72000,
+        "contexts": {
+          "first_transition": {
+            "status": "pass",
+            "reason": "none",
+            "source": "a",
+            "windowVideoTicks": [
+              90000,
+              450000
+            ],
+            "requiredEvidence": [
+              {
+                "rule": "complete_context_coverage",
+                "fullVisualFrameOrdinals": [
+                  39,
+                  69,
+                  99,
+                  129
+                ],
+                "fullFenceVideoRadius": 45000,
+                "fullFenceOpen": true,
+                "decodeEntireSelectedInterval": true,
+                "allIntersectingEpisodesRequired": true
+              },
+              {
+                "rule": "reference_and_partition_conservation",
+                "uniqueOriginalVisualAndEpisodeIds": true,
+                "unchangedOnsets": true,
+                "noUnlistedFailure": true,
+                "actualEncodedIdentityAndWatermarkRequired": true
+              },
+              {
+                "rule": "full_pairs",
+                "count": 4,
+                "classification": "a",
+                "maxAbsOffsetNumerator": 72000,
+                "sameSourceCandidatesPerFullFence": 1
+              }
+            ]
+          },
+          "selected_transition": {
+            "status": "pass",
+            "reason": "none",
+            "source": "b",
+            "windowVideoTicks": [
+              450000,
+              810000
+            ],
+            "requiredEvidence": [
+              {
+                "rule": "complete_context_coverage",
+                "fullVisualFrameOrdinals": [
+                  179,
+                  209,
+                  239,
+                  269
+                ],
+                "fullFenceVideoRadius": 45000,
+                "fullFenceOpen": true,
+                "decodeEntireSelectedInterval": true,
+                "allIntersectingEpisodesRequired": true
+              },
+              {
+                "rule": "reference_and_partition_conservation",
+                "uniqueOriginalVisualAndEpisodeIds": true,
+                "unchangedOnsets": true,
+                "noUnlistedFailure": true,
+                "actualEncodedIdentityAndWatermarkRequired": true
+              },
+              {
+                "rule": "full_pairs",
+                "count": 4,
+                "classification": "b",
+                "maxAbsOffsetNumerator": 72000,
+                "sameSourceCandidatesPerFullFence": 1
+              },
+              {
+                "rule": "actual_carry_in_reference",
+                "sourceOnsetFrameOrdinal": 149,
+                "selectionFrameOrdinal": 150,
+                "audioFragmentSourceOnsetSample": 240000,
+                "audioFragmentMustNotConsumeFullPulse": true,
+                "explicitNullOnlyForAbsentAudio": true
+              }
+            ]
+          },
+          "selected_steady": {
+            "status": "pass",
+            "reason": "none",
+            "source": "b",
+            "windowVideoTicks": [
+              450000,
+              990000
+            ],
+            "requiredEvidence": [
+              {
+                "rule": "complete_context_coverage",
+                "fullVisualFrameOrdinals": [
+                  179,
+                  209,
+                  239,
+                  269,
+                  299
+                ],
+                "fullFenceVideoRadius": 45000,
+                "fullFenceOpen": true,
+                "decodeEntireSelectedInterval": true,
+                "allIntersectingEpisodesRequired": true
+              },
+              {
+                "rule": "reference_and_partition_conservation",
+                "uniqueOriginalVisualAndEpisodeIds": true,
+                "unchangedOnsets": true,
+                "noUnlistedFailure": true,
+                "actualEncodedIdentityAndWatermarkRequired": true
+              },
+              {
+                "rule": "full_pairs",
+                "count": 5,
+                "classification": "b",
+                "maxAbsOffsetNumerator": 72000,
+                "sameSourceCandidatesPerFullFence": 1
+              },
+              {
+                "rule": "actual_carry_in_reference",
+                "sourceOnsetFrameOrdinal": 149,
+                "selectionFrameOrdinal": 150,
+                "audioFragmentSourceOnsetSample": 240000,
+                "audioFragmentMustNotConsumeFullPulse": true,
+                "explicitNullOnlyForAbsentAudio": true
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "scene": "carryin_short",
+      "sourcePcmSha256": "725c7ee61ebfe50f8c85250eb876adb2b2e32bd3a6657e573cb20a4ff75b879d",
+      "returnedPcmSha256": "725c7ee61ebfe50f8c85250eb876adb2b2e32bd3a6657e573cb20a4ff75b879d",
+      "actualContexts": {
+        "first_transition": {
+          "valid": false,
+          "reasons": [
+            "unknown_competitor"
+          ],
+          "selection": 90000,
+          "start": 90000,
+          "end": 450000,
+          "fullVisualIds": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "pairs": [
+            {
+              "visualId": 0,
+              "episodeId": 0,
+              "videoPts": 117000,
+              "audioSample": 62400,
+              "offsetNumerator": 0
+            },
+            {
+              "visualId": 1,
+              "episodeId": 1,
+              "videoPts": 207000,
+              "audioSample": 110048,
+              "offsetNumerator": -5280
+            },
+            {
+              "visualId": 2,
+              "episodeId": 2,
+              "videoPts": 297000,
+              "audioSample": 158176,
+              "offsetNumerator": -3360
+            },
+            {
+              "visualId": 3,
+              "episodeId": 3,
+              "videoPts": 387000,
+              "audioSample": 206304,
+              "offsetNumerator": -1440
+            }
+          ],
+          "dispositions": [
+            {
+              "episodeId": 0,
+              "code": "paired_full",
+              "visualId": 0
+            },
+            {
+              "episodeId": 1,
+              "code": "paired_full",
+              "visualId": 1
+            },
+            {
+              "episodeId": 2,
+              "code": "paired_full",
+              "visualId": 2
+            },
+            {
+              "episodeId": 3,
+              "code": "paired_full",
+              "visualId": 3
+            },
+            {
+              "episodeId": 4,
+              "code": "failure",
+              "visualId": -1
+            }
+          ],
+          "carryIn": null
+        },
+        "selected_transition": {
+          "valid": false,
+          "reasons": [
+            "unknown_competitor"
+          ],
+          "selection": 450000,
+          "start": 450000,
+          "end": 810000,
+          "fullVisualIds": [
+            5,
+            6,
+            7,
+            8
+          ],
+          "pairs": [
+            {
+              "visualId": 5,
+              "episodeId": 5,
+              "videoPts": 537000,
+              "audioSample": 286176,
+              "offsetNumerator": -3360
+            },
+            {
+              "visualId": 6,
+              "episodeId": 6,
+              "videoPts": 627000,
+              "audioSample": 334304,
+              "offsetNumerator": -1440
+            },
+            {
+              "visualId": 7,
+              "episodeId": 7,
+              "videoPts": 717000,
+              "audioSample": 382432,
+              "offsetNumerator": 480
+            },
+            {
+              "visualId": 8,
+              "episodeId": 8,
+              "videoPts": 807000,
+              "audioSample": 430080,
+              "offsetNumerator": -4800
+            }
+          ],
+          "dispositions": [
+            {
+              "episodeId": 4,
+              "code": "failure",
+              "visualId": -1
+            },
+            {
+              "episodeId": 5,
+              "code": "paired_full",
+              "visualId": 5
+            },
+            {
+              "episodeId": 6,
+              "code": "paired_full",
+              "visualId": 6
+            },
+            {
+              "episodeId": 7,
+              "code": "paired_full",
+              "visualId": 7
+            },
+            {
+              "episodeId": 8,
+              "code": "paired_full",
+              "visualId": 8
+            }
+          ],
+          "carryIn": {
+            "visualId": 4,
+            "episodeId": null
+          }
+        },
+        "selected_steady": {
+          "valid": false,
+          "reasons": [
+            "unknown_competitor"
+          ],
+          "selection": 450000,
+          "start": 450000,
+          "end": 990000,
+          "fullVisualIds": [
+            5,
+            6,
+            7,
+            8,
+            9
+          ],
+          "pairs": [
+            {
+              "visualId": 5,
+              "episodeId": 5,
+              "videoPts": 537000,
+              "audioSample": 286176,
+              "offsetNumerator": -3360
+            },
+            {
+              "visualId": 6,
+              "episodeId": 6,
+              "videoPts": 627000,
+              "audioSample": 334304,
+              "offsetNumerator": -1440
+            },
+            {
+              "visualId": 7,
+              "episodeId": 7,
+              "videoPts": 717000,
+              "audioSample": 382432,
+              "offsetNumerator": 480
+            },
+            {
+              "visualId": 8,
+              "episodeId": 8,
+              "videoPts": 807000,
+              "audioSample": 430080,
+              "offsetNumerator": -4800
+            },
+            {
+              "visualId": 9,
+              "episodeId": 9,
+              "videoPts": 897000,
+              "audioSample": 478208,
+              "offsetNumerator": -2880
+            }
+          ],
+          "dispositions": [
+            {
+              "episodeId": 4,
+              "code": "failure",
+              "visualId": -1
+            },
+            {
+              "episodeId": 5,
+              "code": "paired_full",
+              "visualId": 5
+            },
+            {
+              "episodeId": 6,
+              "code": "paired_full",
+              "visualId": 6
+            },
+            {
+              "episodeId": 7,
+              "code": "paired_full",
+              "visualId": 7
+            },
+            {
+              "episodeId": 8,
+              "code": "paired_full",
+              "visualId": 8
+            },
+            {
+              "episodeId": 9,
+              "code": "paired_full",
+              "visualId": 9
+            },
+            {
+              "episodeId": 10,
+              "code": "existing_steady_edge_fragment",
+              "visualId": 10
+            }
+          ],
+          "carryIn": {
+            "visualId": 4,
+            "episodeId": null
+          }
+        }
+      },
+      "originalExpected": {
+        "stage": "association",
+        "outcome": "insufficient_fragment_samples",
+        "allPrerequisitesRequired": true,
+        "contexts": {
+          "first_transition": {
+            "status": "pass",
+            "reason": "none",
+            "source": "a",
+            "windowVideoTicks": [
+              90000,
+              450000
+            ],
+            "requiredEvidence": [
+              {
+                "rule": "complete_context_coverage",
+                "fullVisualFrameOrdinals": [
+                  39,
+                  69,
+                  99,
+                  129
+                ],
+                "fullFenceVideoRadius": 45000,
+                "fullFenceOpen": true,
+                "decodeEntireSelectedInterval": true,
+                "allIntersectingEpisodesRequired": true
+              },
+              {
+                "rule": "reference_and_partition_conservation",
+                "uniqueOriginalVisualAndEpisodeIds": true,
+                "unchangedOnsets": true,
+                "noUnlistedFailure": true,
+                "actualEncodedIdentityAndWatermarkRequired": true
+              },
+              {
+                "rule": "full_pairs",
+                "count": 4,
+                "classification": "a",
+                "maxAbsOffsetNumerator": 72000,
+                "sameSourceCandidatesPerFullFence": 1
+              }
+            ]
+          },
+          "selected_transition": {
+            "status": "fail",
+            "reason": "insufficient_fragment_samples",
+            "source": "b",
+            "windowVideoTicks": [
+              450000,
+              810000
+            ],
+            "requiredEvidence": [
+              {
+                "rule": "complete_context_coverage",
+                "fullVisualFrameOrdinals": [
+                  179,
+                  209,
+                  239,
+                  269
+                ],
+                "fullFenceVideoRadius": 45000,
+                "fullFenceOpen": true,
+                "decodeEntireSelectedInterval": true,
+                "allIntersectingEpisodesRequired": true
+              },
+              {
+                "rule": "reference_and_partition_conservation",
+                "uniqueOriginalVisualAndEpisodeIds": true,
+                "unchangedOnsets": true,
+                "noUnlistedFailure": true,
+                "actualEncodedIdentityAndWatermarkRequired": true
+              },
+              {
+                "rule": "observed_episode",
+                "sourceInputOnsetSample": 240000,
+                "classification": "unknown",
+                "originalObservedOnsetRequired": true,
+                "completeGuardedRangeRequired": true,
+                "visualFrameOrdinal": 150,
+                "loudSamplesLessThan": 1440
+              },
+              {
+                "rule": "actual_carry_in_reference",
+                "sourceOnsetFrameOrdinal": 149,
+                "submittedFragmentFrames": [
+                  150,
+                  152
+                ],
+                "allFullPairsPass": true,
+                "noUnknownFragmentExemption": true
+              }
+            ]
+          },
+          "selected_steady": {
+            "status": "fail",
+            "reason": "insufficient_fragment_samples",
+            "source": "b",
+            "windowVideoTicks": [
+              450000,
+              990000
+            ],
+            "requiredEvidence": [
+              {
+                "rule": "complete_context_coverage",
+                "fullVisualFrameOrdinals": [
+                  179,
+                  209,
+                  239,
+                  269,
+                  299
+                ],
+                "fullFenceVideoRadius": 45000,
+                "fullFenceOpen": true,
+                "decodeEntireSelectedInterval": true,
+                "allIntersectingEpisodesRequired": true
+              },
+              {
+                "rule": "reference_and_partition_conservation",
+                "uniqueOriginalVisualAndEpisodeIds": true,
+                "unchangedOnsets": true,
+                "noUnlistedFailure": true,
+                "actualEncodedIdentityAndWatermarkRequired": true
+              },
+              {
+                "rule": "observed_episode",
+                "sourceInputOnsetSample": 240000,
+                "classification": "unknown",
+                "originalObservedOnsetRequired": true,
+                "completeGuardedRangeRequired": true,
+                "visualFrameOrdinal": 150,
+                "loudSamplesLessThan": 1440
+              },
+              {
+                "rule": "actual_carry_in_reference",
+                "sourceOnsetFrameOrdinal": 149,
+                "submittedFragmentFrames": [
+                  150,
+                  152
+                ],
+                "allFullPairsPass": true,
+                "noUnknownFragmentExemption": true
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "scene": "carryin_unknown",
+      "sourcePcmSha256": "8d88a19ebe5f18d67736e356508353facc2608562e715c1f87abd41e339acb8b",
+      "returnedPcmSha256": "8d88a19ebe5f18d67736e356508353facc2608562e715c1f87abd41e339acb8b",
+      "actualContexts": {
+        "first_transition": {
+          "valid": false,
+          "reasons": [
+            "unknown_competitor"
+          ],
+          "selection": 90000,
+          "start": 90000,
+          "end": 450000,
+          "fullVisualIds": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "pairs": [
+            {
+              "visualId": 0,
+              "episodeId": 0,
+              "videoPts": 117000,
+              "audioSample": 62400,
+              "offsetNumerator": 0
+            },
+            {
+              "visualId": 1,
+              "episodeId": 1,
+              "videoPts": 207000,
+              "audioSample": 110048,
+              "offsetNumerator": -5280
+            },
+            {
+              "visualId": 2,
+              "episodeId": 2,
+              "videoPts": 297000,
+              "audioSample": 158176,
+              "offsetNumerator": -3360
+            },
+            {
+              "visualId": 3,
+              "episodeId": 3,
+              "videoPts": 387000,
+              "audioSample": 206304,
+              "offsetNumerator": -1440
+            }
+          ],
+          "dispositions": [
+            {
+              "episodeId": 0,
+              "code": "paired_full",
+              "visualId": 0
+            },
+            {
+              "episodeId": 1,
+              "code": "paired_full",
+              "visualId": 1
+            },
+            {
+              "episodeId": 2,
+              "code": "paired_full",
+              "visualId": 2
+            },
+            {
+              "episodeId": 3,
+              "code": "paired_full",
+              "visualId": 3
+            },
+            {
+              "episodeId": 4,
+              "code": "failure",
+              "visualId": -1
+            }
+          ],
+          "carryIn": null
+        },
+        "selected_transition": {
+          "valid": false,
+          "reasons": [
+            "unknown_competitor"
+          ],
+          "selection": 450000,
+          "start": 450000,
+          "end": 810000,
+          "fullVisualIds": [
+            5,
+            6,
+            7,
+            8
+          ],
+          "pairs": [
+            {
+              "visualId": 5,
+              "episodeId": 5,
+              "videoPts": 537000,
+              "audioSample": 286176,
+              "offsetNumerator": -3360
+            },
+            {
+              "visualId": 6,
+              "episodeId": 6,
+              "videoPts": 627000,
+              "audioSample": 334304,
+              "offsetNumerator": -1440
+            },
+            {
+              "visualId": 7,
+              "episodeId": 7,
+              "videoPts": 717000,
+              "audioSample": 382432,
+              "offsetNumerator": 480
+            },
+            {
+              "visualId": 8,
+              "episodeId": 8,
+              "videoPts": 807000,
+              "audioSample": 430080,
+              "offsetNumerator": -4800
+            }
+          ],
+          "dispositions": [
+            {
+              "episodeId": 4,
+              "code": "failure",
+              "visualId": -1
+            },
+            {
+              "episodeId": 5,
+              "code": "paired_full",
+              "visualId": 5
+            },
+            {
+              "episodeId": 6,
+              "code": "paired_full",
+              "visualId": 6
+            },
+            {
+              "episodeId": 7,
+              "code": "paired_full",
+              "visualId": 7
+            },
+            {
+              "episodeId": 8,
+              "code": "paired_full",
+              "visualId": 8
+            }
+          ],
+          "carryIn": {
+            "visualId": 4,
+            "episodeId": null
+          }
+        },
+        "selected_steady": {
+          "valid": false,
+          "reasons": [
+            "unknown_competitor"
+          ],
+          "selection": 450000,
+          "start": 450000,
+          "end": 990000,
+          "fullVisualIds": [
+            5,
+            6,
+            7,
+            8,
+            9
+          ],
+          "pairs": [
+            {
+              "visualId": 5,
+              "episodeId": 5,
+              "videoPts": 537000,
+              "audioSample": 286176,
+              "offsetNumerator": -3360
+            },
+            {
+              "visualId": 6,
+              "episodeId": 6,
+              "videoPts": 627000,
+              "audioSample": 334304,
+              "offsetNumerator": -1440
+            },
+            {
+              "visualId": 7,
+              "episodeId": 7,
+              "videoPts": 717000,
+              "audioSample": 382432,
+              "offsetNumerator": 480
+            },
+            {
+              "visualId": 8,
+              "episodeId": 8,
+              "videoPts": 807000,
+              "audioSample": 430080,
+              "offsetNumerator": -4800
+            },
+            {
+              "visualId": 9,
+              "episodeId": 9,
+              "videoPts": 897000,
+              "audioSample": 478208,
+              "offsetNumerator": -2880
+            }
+          ],
+          "dispositions": [
+            {
+              "episodeId": 4,
+              "code": "failure",
+              "visualId": -1
+            },
+            {
+              "episodeId": 5,
+              "code": "paired_full",
+              "visualId": 5
+            },
+            {
+              "episodeId": 6,
+              "code": "paired_full",
+              "visualId": 6
+            },
+            {
+              "episodeId": 7,
+              "code": "paired_full",
+              "visualId": 7
+            },
+            {
+              "episodeId": 8,
+              "code": "paired_full",
+              "visualId": 8
+            },
+            {
+              "episodeId": 9,
+              "code": "paired_full",
+              "visualId": 9
+            },
+            {
+              "episodeId": 10,
+              "code": "existing_steady_edge_fragment",
+              "visualId": 10
+            }
+          ],
+          "carryIn": {
+            "visualId": 4,
+            "episodeId": null
+          }
+        }
+      },
+      "originalExpected": {
+        "stage": "association",
+        "outcome": "unknown_fragment",
+        "allPrerequisitesRequired": true,
+        "contexts": {
+          "first_transition": {
+            "status": "pass",
+            "reason": "none",
+            "source": "a",
+            "windowVideoTicks": [
+              90000,
+              450000
+            ],
+            "requiredEvidence": [
+              {
+                "rule": "complete_context_coverage",
+                "fullVisualFrameOrdinals": [
+                  39,
+                  69,
+                  99,
+                  129
+                ],
+                "fullFenceVideoRadius": 45000,
+                "fullFenceOpen": true,
+                "decodeEntireSelectedInterval": true,
+                "allIntersectingEpisodesRequired": true
+              },
+              {
+                "rule": "reference_and_partition_conservation",
+                "uniqueOriginalVisualAndEpisodeIds": true,
+                "unchangedOnsets": true,
+                "noUnlistedFailure": true,
+                "actualEncodedIdentityAndWatermarkRequired": true
+              },
+              {
+                "rule": "full_pairs",
+                "count": 4,
+                "classification": "a",
+                "maxAbsOffsetNumerator": 72000,
+                "sameSourceCandidatesPerFullFence": 1
+              }
+            ]
+          },
+          "selected_transition": {
+            "status": "fail",
+            "reason": "unknown_fragment",
+            "source": "b",
+            "windowVideoTicks": [
+              450000,
+              810000
+            ],
+            "requiredEvidence": [
+              {
+                "rule": "complete_context_coverage",
+                "fullVisualFrameOrdinals": [
+                  179,
+                  209,
+                  239,
+                  269
+                ],
+                "fullFenceVideoRadius": 45000,
+                "fullFenceOpen": true,
+                "decodeEntireSelectedInterval": true,
+                "allIntersectingEpisodesRequired": true
+              },
+              {
+                "rule": "reference_and_partition_conservation",
+                "uniqueOriginalVisualAndEpisodeIds": true,
+                "unchangedOnsets": true,
+                "noUnlistedFailure": true,
+                "actualEncodedIdentityAndWatermarkRequired": true
+              },
+              {
+                "rule": "observed_episode",
+                "sourceInputOnsetSample": 240000,
+                "classification": "unknown",
+                "originalObservedOnsetRequired": true,
+                "completeGuardedRangeRequired": true,
+                "visualFrameOrdinal": 150,
+                "carrierHz": 1000
+              },
+              {
+                "rule": "actual_carry_in_reference",
+                "sourceOnsetFrameOrdinal": 149,
+                "submittedFragmentFrames": [
+                  150,
+                  152
+                ],
+                "allFullPairsPass": true,
+                "noUnknownFragmentExemption": true
+              }
+            ]
+          },
+          "selected_steady": {
+            "status": "fail",
+            "reason": "unknown_fragment",
+            "source": "b",
+            "windowVideoTicks": [
+              450000,
+              990000
+            ],
+            "requiredEvidence": [
+              {
+                "rule": "complete_context_coverage",
+                "fullVisualFrameOrdinals": [
+                  179,
+                  209,
+                  239,
+                  269,
+                  299
+                ],
+                "fullFenceVideoRadius": 45000,
+                "fullFenceOpen": true,
+                "decodeEntireSelectedInterval": true,
+                "allIntersectingEpisodesRequired": true
+              },
+              {
+                "rule": "reference_and_partition_conservation",
+                "uniqueOriginalVisualAndEpisodeIds": true,
+                "unchangedOnsets": true,
+                "noUnlistedFailure": true,
+                "actualEncodedIdentityAndWatermarkRequired": true
+              },
+              {
+                "rule": "observed_episode",
+                "sourceInputOnsetSample": 240000,
+                "classification": "unknown",
+                "originalObservedOnsetRequired": true,
+                "completeGuardedRangeRequired": true,
+                "visualFrameOrdinal": 150,
+                "carrierHz": 1000
+              },
+              {
+                "rule": "actual_carry_in_reference",
+                "sourceOnsetFrameOrdinal": 149,
+                "submittedFragmentFrames": [
+                  150,
+                  152
+                ],
+                "allFullPairsPass": true,
+                "noUnknownFragmentExemption": true
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "scene": "carryin_missing_next",
+      "sourcePcmSha256": "b150faa9859b4af877ba2afb61fb3e9544108741cd1a9dc63009bd9e5fc26a7c",
+      "returnedPcmSha256": "b150faa9859b4af877ba2afb61fb3e9544108741cd1a9dc63009bd9e5fc26a7c",
+      "actualContexts": {
+        "first_transition": {
+          "valid": false,
+          "reasons": [
+            "foreign_interval"
+          ],
+          "selection": 90000,
+          "start": 90000,
+          "end": 450000,
+          "fullVisualIds": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "pairs": [
+            {
+              "visualId": 0,
+              "episodeId": 0,
+              "videoPts": 117000,
+              "audioSample": 62400,
+              "offsetNumerator": 0
+            },
+            {
+              "visualId": 1,
+              "episodeId": 1,
+              "videoPts": 207000,
+              "audioSample": 110048,
+              "offsetNumerator": -5280
+            },
+            {
+              "visualId": 2,
+              "episodeId": 2,
+              "videoPts": 297000,
+              "audioSample": 158176,
+              "offsetNumerator": -3360
+            },
+            {
+              "visualId": 3,
+              "episodeId": 3,
+              "videoPts": 387000,
+              "audioSample": 206304,
+              "offsetNumerator": -1440
+            }
+          ],
+          "dispositions": [
+            {
+              "episodeId": 0,
+              "code": "paired_full",
+              "visualId": 0
+            },
+            {
+              "episodeId": 1,
+              "code": "paired_full",
+              "visualId": 1
+            },
+            {
+              "episodeId": 2,
+              "code": "paired_full",
+              "visualId": 2
+            },
+            {
+              "episodeId": 3,
+              "code": "paired_full",
+              "visualId": 3
+            },
+            {
+              "episodeId": 4,
+              "code": "failure",
+              "visualId": -1
+            }
+          ],
+          "carryIn": null
+        },
+        "selected_transition": {
+          "valid": false,
+          "reasons": [
+            "missing_audio"
+          ],
+          "selection": 450000,
+          "start": 450000,
+          "end": 810000,
+          "fullVisualIds": [
+            5,
+            6,
+            7,
+            8
+          ],
+          "pairs": [
+            {
+              "visualId": 6,
+              "episodeId": 5,
+              "videoPts": 627000,
+              "audioSample": 334304,
+              "offsetNumerator": -1440
+            },
+            {
+              "visualId": 7,
+              "episodeId": 6,
+              "videoPts": 717000,
+              "audioSample": 382432,
+              "offsetNumerator": 480
+            },
+            {
+              "visualId": 8,
+              "episodeId": 7,
+              "videoPts": 807000,
+              "audioSample": 430080,
+              "offsetNumerator": -4800
+            }
+          ],
+          "dispositions": [
+            {
+              "episodeId": 4,
+              "code": "existing_carry_in_fragment",
+              "visualId": 4
+            },
+            {
+              "episodeId": 5,
+              "code": "paired_full",
+              "visualId": 6
+            },
+            {
+              "episodeId": 6,
+              "code": "paired_full",
+              "visualId": 7
+            },
+            {
+              "episodeId": 7,
+              "code": "paired_full",
+              "visualId": 8
+            }
+          ],
+          "carryIn": {
+            "visualId": 4,
+            "episodeId": 4
+          }
+        },
+        "selected_steady": {
+          "valid": false,
+          "reasons": [
+            "missing_audio"
+          ],
+          "selection": 450000,
+          "start": 450000,
+          "end": 990000,
+          "fullVisualIds": [
+            5,
+            6,
+            7,
+            8,
+            9
+          ],
+          "pairs": [
+            {
+              "visualId": 6,
+              "episodeId": 5,
+              "videoPts": 627000,
+              "audioSample": 334304,
+              "offsetNumerator": -1440
+            },
+            {
+              "visualId": 7,
+              "episodeId": 6,
+              "videoPts": 717000,
+              "audioSample": 382432,
+              "offsetNumerator": 480
+            },
+            {
+              "visualId": 8,
+              "episodeId": 7,
+              "videoPts": 807000,
+              "audioSample": 430080,
+              "offsetNumerator": -4800
+            },
+            {
+              "visualId": 9,
+              "episodeId": 8,
+              "videoPts": 897000,
+              "audioSample": 478208,
+              "offsetNumerator": -2880
+            }
+          ],
+          "dispositions": [
+            {
+              "episodeId": 4,
+              "code": "existing_carry_in_fragment",
+              "visualId": 4
+            },
+            {
+              "episodeId": 5,
+              "code": "paired_full",
+              "visualId": 6
+            },
+            {
+              "episodeId": 6,
+              "code": "paired_full",
+              "visualId": 7
+            },
+            {
+              "episodeId": 7,
+              "code": "paired_full",
+              "visualId": 8
+            },
+            {
+              "episodeId": 8,
+              "code": "paired_full",
+              "visualId": 9
+            },
+            {
+              "episodeId": 9,
+              "code": "existing_steady_edge_fragment",
+              "visualId": 10
+            }
+          ],
+          "carryIn": {
+            "visualId": 4,
+            "episodeId": 4
+          }
+        }
+      },
+      "originalExpected": {
+        "stage": "association",
+        "outcome": "missing_audio",
+        "allPrerequisitesRequired": true,
+        "contexts": {
+          "first_transition": {
+            "status": "pass",
+            "reason": "none",
+            "source": "a",
+            "windowVideoTicks": [
+              90000,
+              450000
+            ],
+            "requiredEvidence": [
+              {
+                "rule": "complete_context_coverage",
+                "fullVisualFrameOrdinals": [
+                  39,
+                  69,
+                  99,
+                  129
+                ],
+                "fullFenceVideoRadius": 45000,
+                "fullFenceOpen": true,
+                "decodeEntireSelectedInterval": true,
+                "allIntersectingEpisodesRequired": true
+              },
+              {
+                "rule": "reference_and_partition_conservation",
+                "uniqueOriginalVisualAndEpisodeIds": true,
+                "unchangedOnsets": true,
+                "noUnlistedFailure": true,
+                "actualEncodedIdentityAndWatermarkRequired": true
+              },
+              {
+                "rule": "full_pairs",
+                "count": 4,
+                "classification": "a",
+                "maxAbsOffsetNumerator": 72000,
+                "sameSourceCandidatesPerFullFence": 1
+              }
+            ]
+          },
+          "selected_transition": {
+            "status": "fail",
+            "reason": "missing_audio",
+            "source": "b",
+            "windowVideoTicks": [
+              450000,
+              810000
+            ],
+            "requiredEvidence": [
+              {
+                "rule": "complete_context_coverage",
+                "fullVisualFrameOrdinals": [
+                  179,
+                  209,
+                  239,
+                  269
+                ],
+                "fullFenceVideoRadius": 45000,
+                "fullFenceOpen": true,
+                "decodeEntireSelectedInterval": true,
+                "allIntersectingEpisodesRequired": true
+              },
+              {
+                "rule": "reference_and_partition_conservation",
+                "uniqueOriginalVisualAndEpisodeIds": true,
+                "unchangedOnsets": true,
+                "noUnlistedFailure": true,
+                "actualEncodedIdentityAndWatermarkRequired": true
+              },
+              {
+                "rule": "missing_full_candidate",
+                "visualFrameOrdinal": 179,
+                "selectedSourceCandidates": 0,
+                "completeFenceCovered": true,
+                "nextCycleCannotSubstitute": true,
+                "remainingFullPairsPass": true
+              },
+              {
+                "rule": "actual_carry_in_reference",
+                "sourceOnsetFrameOrdinal": 149,
+                "selectionFrameOrdinal": 150,
+                "audioFragmentSourceOnsetSample": 240000,
+                "audioFragmentMustNotConsumeFullPulse": true,
+                "explicitNullOnlyForAbsentAudio": true
+              }
+            ]
+          },
+          "selected_steady": {
+            "status": "fail",
+            "reason": "missing_audio",
+            "source": "b",
+            "windowVideoTicks": [
+              450000,
+              990000
+            ],
+            "requiredEvidence": [
+              {
+                "rule": "complete_context_coverage",
+                "fullVisualFrameOrdinals": [
+                  179,
+                  209,
+                  239,
+                  269,
+                  299
+                ],
+                "fullFenceVideoRadius": 45000,
+                "fullFenceOpen": true,
+                "decodeEntireSelectedInterval": true,
+                "allIntersectingEpisodesRequired": true
+              },
+              {
+                "rule": "reference_and_partition_conservation",
+                "uniqueOriginalVisualAndEpisodeIds": true,
+                "unchangedOnsets": true,
+                "noUnlistedFailure": true,
+                "actualEncodedIdentityAndWatermarkRequired": true
+              },
+              {
+                "rule": "missing_full_candidate",
+                "visualFrameOrdinal": 179,
+                "selectedSourceCandidates": 0,
+                "completeFenceCovered": true,
+                "nextCycleCannotSubstitute": true,
+                "remainingFullPairsPass": true
+              },
+              {
+                "rule": "actual_carry_in_reference",
+                "sourceOnsetFrameOrdinal": 149,
+                "selectionFrameOrdinal": 150,
+                "audioFragmentSourceOnsetSample": 240000,
+                "audioFragmentMustNotConsumeFullPulse": true,
+                "explicitNullOnlyForAbsentAudio": true
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "scene": "missing_watermark",
+      "sourcePcmSha256": "632708311da856e63369a04fd12296daefc0593121930730d22765fc175ce6fa",
+      "returnedPcmSha256": "632708311da856e63369a04fd12296daefc0593121930730d22765fc175ce6fa",
+      "actualContexts": {
+        "first_transition": {
+          "valid": false,
+          "reasons": [
+            "foreign_interval"
+          ],
+          "selection": 90000,
+          "start": 90000,
+          "end": 450000,
+          "fullVisualIds": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "pairs": [
+            {
+              "visualId": 0,
+              "episodeId": 0,
+              "videoPts": 117000,
+              "audioSample": 62400,
+              "offsetNumerator": 0
+            },
+            {
+              "visualId": 1,
+              "episodeId": 1,
+              "videoPts": 207000,
+              "audioSample": 110048,
+              "offsetNumerator": -5280
+            },
+            {
+              "visualId": 2,
+              "episodeId": 2,
+              "videoPts": 297000,
+              "audioSample": 158176,
+              "offsetNumerator": -3360
+            },
+            {
+              "visualId": 3,
+              "episodeId": 3,
+              "videoPts": 387000,
+              "audioSample": 206304,
+              "offsetNumerator": -1440
+            }
+          ],
+          "dispositions": [
+            {
+              "episodeId": 0,
+              "code": "paired_full",
+              "visualId": 0
+            },
+            {
+              "episodeId": 1,
+              "code": "paired_full",
+              "visualId": 1
+            },
+            {
+              "episodeId": 2,
+              "code": "paired_full",
+              "visualId": 2
+            },
+            {
+              "episodeId": 3,
+              "code": "paired_full",
+              "visualId": 3
+            },
+            {
+              "episodeId": 4,
+              "code": "failure",
+              "visualId": -1
+            }
+          ],
+          "carryIn": null
+        },
+        "selected_transition": {
+          "valid": true,
+          "reasons": [],
+          "selection": 450000,
+          "start": 450000,
+          "end": 810000,
+          "fullVisualIds": [
+            5,
+            6,
+            7,
+            8
+          ],
+          "pairs": [
+            {
+              "visualId": 5,
+              "episodeId": 5,
+              "videoPts": 537000,
+              "audioSample": 286176,
+              "offsetNumerator": -3360
+            },
+            {
+              "visualId": 6,
+              "episodeId": 6,
+              "videoPts": 627000,
+              "audioSample": 334304,
+              "offsetNumerator": -1440
+            },
+            {
+              "visualId": 7,
+              "episodeId": 7,
+              "videoPts": 717000,
+              "audioSample": 382432,
+              "offsetNumerator": 480
+            },
+            {
+              "visualId": 8,
+              "episodeId": 8,
+              "videoPts": 807000,
+              "audioSample": 430080,
+              "offsetNumerator": -4800
+            }
+          ],
+          "dispositions": [
+            {
+              "episodeId": 4,
+              "code": "existing_carry_in_fragment",
+              "visualId": 4
+            },
+            {
+              "episodeId": 5,
+              "code": "paired_full",
+              "visualId": 5
+            },
+            {
+              "episodeId": 6,
+              "code": "paired_full",
+              "visualId": 6
+            },
+            {
+              "episodeId": 7,
+              "code": "paired_full",
+              "visualId": 7
+            },
+            {
+              "episodeId": 8,
+              "code": "paired_full",
+              "visualId": 8
+            }
+          ],
+          "carryIn": {
+            "visualId": 4,
+            "episodeId": 4
+          }
+        },
+        "selected_steady": {
+          "valid": true,
+          "reasons": [],
+          "selection": 450000,
+          "start": 450000,
+          "end": 990000,
+          "fullVisualIds": [
+            5,
+            6,
+            7,
+            8,
+            9
+          ],
+          "pairs": [
+            {
+              "visualId": 5,
+              "episodeId": 5,
+              "videoPts": 537000,
+              "audioSample": 286176,
+              "offsetNumerator": -3360
+            },
+            {
+              "visualId": 6,
+              "episodeId": 6,
+              "videoPts": 627000,
+              "audioSample": 334304,
+              "offsetNumerator": -1440
+            },
+            {
+              "visualId": 7,
+              "episodeId": 7,
+              "videoPts": 717000,
+              "audioSample": 382432,
+              "offsetNumerator": 480
+            },
+            {
+              "visualId": 8,
+              "episodeId": 8,
+              "videoPts": 807000,
+              "audioSample": 430080,
+              "offsetNumerator": -4800
+            },
+            {
+              "visualId": 9,
+              "episodeId": 9,
+              "videoPts": 897000,
+              "audioSample": 478208,
+              "offsetNumerator": -2880
+            }
+          ],
+          "dispositions": [
+            {
+              "episodeId": 4,
+              "code": "existing_carry_in_fragment",
+              "visualId": 4
+            },
+            {
+              "episodeId": 5,
+              "code": "paired_full",
+              "visualId": 5
+            },
+            {
+              "episodeId": 6,
+              "code": "paired_full",
+              "visualId": 6
+            },
+            {
+              "episodeId": 7,
+              "code": "paired_full",
+              "visualId": 7
+            },
+            {
+              "episodeId": 8,
+              "code": "paired_full",
+              "visualId": 8
+            },
+            {
+              "episodeId": 9,
+              "code": "paired_full",
+              "visualId": 9
+            },
+            {
+              "episodeId": 10,
+              "code": "existing_steady_edge_fragment",
+              "visualId": 10
+            }
+          ],
+          "carryIn": {
+            "visualId": 4,
+            "episodeId": 4
+          }
+        }
+      },
+      "originalExpected": {
+        "stage": "post_decode_reference_validation",
+        "outcome": "watermark_missing",
+        "allPrerequisitesRequired": true,
+        "unmutatedBaselineContexts": {
+          "first_transition": {
+            "status": "pass",
+            "reason": "none",
+            "source": "a",
+            "windowVideoTicks": [
+              90000,
+              450000
+            ],
+            "requiredEvidence": [
+              {
+                "rule": "complete_context_coverage",
+                "fullVisualFrameOrdinals": [
+                  39,
+                  69,
+                  99,
+                  129
+                ],
+                "fullFenceVideoRadius": 45000,
+                "fullFenceOpen": true,
+                "decodeEntireSelectedInterval": true,
+                "allIntersectingEpisodesRequired": true
+              },
+              {
+                "rule": "reference_and_partition_conservation",
+                "uniqueOriginalVisualAndEpisodeIds": true,
+                "unchangedOnsets": true,
+                "noUnlistedFailure": true,
+                "actualEncodedIdentityAndWatermarkRequired": true
+              },
+              {
+                "rule": "full_pairs",
+                "count": 4,
+                "classification": "a",
+                "maxAbsOffsetNumerator": 72000,
+                "sameSourceCandidatesPerFullFence": 1
+              }
+            ]
+          },
+          "selected_transition": {
+            "status": "pass",
+            "reason": "none",
+            "source": "b",
+            "windowVideoTicks": [
+              450000,
+              810000
+            ],
+            "requiredEvidence": [
+              {
+                "rule": "complete_context_coverage",
+                "fullVisualFrameOrdinals": [
+                  179,
+                  209,
+                  239,
+                  269
+                ],
+                "fullFenceVideoRadius": 45000,
+                "fullFenceOpen": true,
+                "decodeEntireSelectedInterval": true,
+                "allIntersectingEpisodesRequired": true
+              },
+              {
+                "rule": "reference_and_partition_conservation",
+                "uniqueOriginalVisualAndEpisodeIds": true,
+                "unchangedOnsets": true,
+                "noUnlistedFailure": true,
+                "actualEncodedIdentityAndWatermarkRequired": true
+              },
+              {
+                "rule": "full_pairs",
+                "count": 4,
+                "classification": "b",
+                "maxAbsOffsetNumerator": 72000,
+                "sameSourceCandidatesPerFullFence": 1
+              },
+              {
+                "rule": "actual_carry_in_reference",
+                "sourceOnsetFrameOrdinal": 149,
+                "selectionFrameOrdinal": 150,
+                "audioFragmentSourceOnsetSample": 240000,
+                "audioFragmentMustNotConsumeFullPulse": true,
+                "explicitNullOnlyForAbsentAudio": true
+              }
+            ]
+          },
+          "selected_steady": {
+            "status": "pass",
+            "reason": "none",
+            "source": "b",
+            "windowVideoTicks": [
+              450000,
+              990000
+            ],
+            "requiredEvidence": [
+              {
+                "rule": "complete_context_coverage",
+                "fullVisualFrameOrdinals": [
+                  179,
+                  209,
+                  239,
+                  269,
+                  299
+                ],
+                "fullFenceVideoRadius": 45000,
+                "fullFenceOpen": true,
+                "decodeEntireSelectedInterval": true,
+                "allIntersectingEpisodesRequired": true
+              },
+              {
+                "rule": "reference_and_partition_conservation",
+                "uniqueOriginalVisualAndEpisodeIds": true,
+                "unchangedOnsets": true,
+                "noUnlistedFailure": true,
+                "actualEncodedIdentityAndWatermarkRequired": true
+              },
+              {
+                "rule": "full_pairs",
+                "count": 5,
+                "classification": "b",
+                "maxAbsOffsetNumerator": 72000,
+                "sameSourceCandidatesPerFullFence": 1
+              },
+              {
+                "rule": "actual_carry_in_reference",
+                "sourceOnsetFrameOrdinal": 149,
+                "selectionFrameOrdinal": 150,
+                "audioFragmentSourceOnsetSample": 240000,
+                "audioFragmentMustNotConsumeFullPulse": true,
+                "explicitNullOnlyForAbsentAudio": true
+              }
+            ]
+          }
+        },
+        "contexts": {
+          "first_transition": {
+            "status": "blocked",
+            "reason": "watermark_missing",
+            "source": "a",
+            "windowVideoTicks": [
+              90000,
+              450000
+            ],
+            "requiredEvidence": [
+              {
+                "rule": "declared_reference_fault",
+                "selectedCarryVisualFrameOrdinal": 150,
+                "mutation": "remove_its_original_watermark_reference",
+                "originalAndMutatedShaDeltaRequired": true,
+                "reason": "watermark_missing"
+              },
+              {
+                "rule": "global_failure_blocks_all_context_acceptance",
+                "noContextPassInvented": true
+              }
+            ]
+          },
+          "selected_transition": {
+            "status": "blocked",
+            "reason": "watermark_missing",
+            "source": "b",
+            "windowVideoTicks": [
+              450000,
+              810000
+            ],
+            "requiredEvidence": [
+              {
+                "rule": "declared_reference_fault",
+                "selectedCarryVisualFrameOrdinal": 150,
+                "mutation": "remove_its_original_watermark_reference",
+                "originalAndMutatedShaDeltaRequired": true,
+                "reason": "watermark_missing"
+              },
+              {
+                "rule": "global_failure_blocks_all_context_acceptance",
+                "noContextPassInvented": true
+              }
+            ]
+          },
+          "selected_steady": {
+            "status": "blocked",
+            "reason": "watermark_missing",
+            "source": "b",
+            "windowVideoTicks": [
+              450000,
+              990000
+            ],
+            "requiredEvidence": [
+              {
+                "rule": "declared_reference_fault",
+                "selectedCarryVisualFrameOrdinal": 150,
+                "mutation": "remove_its_original_watermark_reference",
+                "originalAndMutatedShaDeltaRequired": true,
+                "reason": "watermark_missing"
+              },
+              {
+                "rule": "global_failure_blocks_all_context_acceptance",
+                "noContextPassInvented": true
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "scene": "full_fragment_overlap",
+      "sourcePcmSha256": "632708311da856e63369a04fd12296daefc0593121930730d22765fc175ce6fa",
+      "returnedPcmSha256": "632708311da856e63369a04fd12296daefc0593121930730d22765fc175ce6fa",
+      "actualContexts": {
+        "first_transition": {
+          "valid": false,
+          "reasons": [
+            "foreign_interval"
+          ],
+          "selection": 90000,
+          "start": 90000,
+          "end": 450000,
+          "fullVisualIds": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "pairs": [
+            {
+              "visualId": 0,
+              "episodeId": 0,
+              "videoPts": 117000,
+              "audioSample": 62400,
+              "offsetNumerator": 0
+            },
+            {
+              "visualId": 1,
+              "episodeId": 1,
+              "videoPts": 207000,
+              "audioSample": 110048,
+              "offsetNumerator": -5280
+            },
+            {
+              "visualId": 2,
+              "episodeId": 2,
+              "videoPts": 297000,
+              "audioSample": 158176,
+              "offsetNumerator": -3360
+            },
+            {
+              "visualId": 3,
+              "episodeId": 3,
+              "videoPts": 387000,
+              "audioSample": 206304,
+              "offsetNumerator": -1440
+            }
+          ],
+          "dispositions": [
+            {
+              "episodeId": 0,
+              "code": "paired_full",
+              "visualId": 0
+            },
+            {
+              "episodeId": 1,
+              "code": "paired_full",
+              "visualId": 1
+            },
+            {
+              "episodeId": 2,
+              "code": "paired_full",
+              "visualId": 2
+            },
+            {
+              "episodeId": 3,
+              "code": "paired_full",
+              "visualId": 3
+            },
+            {
+              "episodeId": 4,
+              "code": "failure",
+              "visualId": -1
+            }
+          ],
+          "carryIn": null
+        },
+        "selected_transition": {
+          "valid": true,
+          "reasons": [],
+          "selection": 450000,
+          "start": 450000,
+          "end": 810000,
+          "fullVisualIds": [
+            5,
+            6,
+            7,
+            8
+          ],
+          "pairs": [
+            {
+              "visualId": 5,
+              "episodeId": 5,
+              "videoPts": 537000,
+              "audioSample": 286176,
+              "offsetNumerator": -3360
+            },
+            {
+              "visualId": 6,
+              "episodeId": 6,
+              "videoPts": 627000,
+              "audioSample": 334304,
+              "offsetNumerator": -1440
+            },
+            {
+              "visualId": 7,
+              "episodeId": 7,
+              "videoPts": 717000,
+              "audioSample": 382432,
+              "offsetNumerator": 480
+            },
+            {
+              "visualId": 8,
+              "episodeId": 8,
+              "videoPts": 807000,
+              "audioSample": 430080,
+              "offsetNumerator": -4800
+            }
+          ],
+          "dispositions": [
+            {
+              "episodeId": 4,
+              "code": "existing_carry_in_fragment",
+              "visualId": 4
+            },
+            {
+              "episodeId": 5,
+              "code": "paired_full",
+              "visualId": 5
+            },
+            {
+              "episodeId": 6,
+              "code": "paired_full",
+              "visualId": 6
+            },
+            {
+              "episodeId": 7,
+              "code": "paired_full",
+              "visualId": 7
+            },
+            {
+              "episodeId": 8,
+              "code": "paired_full",
+              "visualId": 8
+            }
+          ],
+          "carryIn": {
+            "visualId": 4,
+            "episodeId": 4
+          }
+        },
+        "selected_steady": {
+          "valid": true,
+          "reasons": [],
+          "selection": 450000,
+          "start": 450000,
+          "end": 990000,
+          "fullVisualIds": [
+            5,
+            6,
+            7,
+            8,
+            9
+          ],
+          "pairs": [
+            {
+              "visualId": 5,
+              "episodeId": 5,
+              "videoPts": 537000,
+              "audioSample": 286176,
+              "offsetNumerator": -3360
+            },
+            {
+              "visualId": 6,
+              "episodeId": 6,
+              "videoPts": 627000,
+              "audioSample": 334304,
+              "offsetNumerator": -1440
+            },
+            {
+              "visualId": 7,
+              "episodeId": 7,
+              "videoPts": 717000,
+              "audioSample": 382432,
+              "offsetNumerator": 480
+            },
+            {
+              "visualId": 8,
+              "episodeId": 8,
+              "videoPts": 807000,
+              "audioSample": 430080,
+              "offsetNumerator": -4800
+            },
+            {
+              "visualId": 9,
+              "episodeId": 9,
+              "videoPts": 897000,
+              "audioSample": 478208,
+              "offsetNumerator": -2880
+            }
+          ],
+          "dispositions": [
+            {
+              "episodeId": 4,
+              "code": "existing_carry_in_fragment",
+              "visualId": 4
+            },
+            {
+              "episodeId": 5,
+              "code": "paired_full",
+              "visualId": 5
+            },
+            {
+              "episodeId": 6,
+              "code": "paired_full",
+              "visualId": 6
+            },
+            {
+              "episodeId": 7,
+              "code": "paired_full",
+              "visualId": 7
+            },
+            {
+              "episodeId": 8,
+              "code": "paired_full",
+              "visualId": 8
+            },
+            {
+              "episodeId": 9,
+              "code": "paired_full",
+              "visualId": 9
+            },
+            {
+              "episodeId": 10,
+              "code": "existing_steady_edge_fragment",
+              "visualId": 10
+            }
+          ],
+          "carryIn": {
+            "visualId": 4,
+            "episodeId": 4
+          }
+        }
+      },
+      "originalExpected": {
+        "stage": "post_decode_reference_validation",
+        "outcome": "full_fragment_overlap",
+        "allPrerequisitesRequired": true,
+        "unmutatedBaselineContexts": {
+          "first_transition": {
+            "status": "pass",
+            "reason": "none",
+            "source": "a",
+            "windowVideoTicks": [
+              90000,
+              450000
+            ],
+            "requiredEvidence": [
+              {
+                "rule": "complete_context_coverage",
+                "fullVisualFrameOrdinals": [
+                  39,
+                  69,
+                  99,
+                  129
+                ],
+                "fullFenceVideoRadius": 45000,
+                "fullFenceOpen": true,
+                "decodeEntireSelectedInterval": true,
+                "allIntersectingEpisodesRequired": true
+              },
+              {
+                "rule": "reference_and_partition_conservation",
+                "uniqueOriginalVisualAndEpisodeIds": true,
+                "unchangedOnsets": true,
+                "noUnlistedFailure": true,
+                "actualEncodedIdentityAndWatermarkRequired": true
+              },
+              {
+                "rule": "full_pairs",
+                "count": 4,
+                "classification": "a",
+                "maxAbsOffsetNumerator": 72000,
+                "sameSourceCandidatesPerFullFence": 1
+              }
+            ]
+          },
+          "selected_transition": {
+            "status": "pass",
+            "reason": "none",
+            "source": "b",
+            "windowVideoTicks": [
+              450000,
+              810000
+            ],
+            "requiredEvidence": [
+              {
+                "rule": "complete_context_coverage",
+                "fullVisualFrameOrdinals": [
+                  179,
+                  209,
+                  239,
+                  269
+                ],
+                "fullFenceVideoRadius": 45000,
+                "fullFenceOpen": true,
+                "decodeEntireSelectedInterval": true,
+                "allIntersectingEpisodesRequired": true
+              },
+              {
+                "rule": "reference_and_partition_conservation",
+                "uniqueOriginalVisualAndEpisodeIds": true,
+                "unchangedOnsets": true,
+                "noUnlistedFailure": true,
+                "actualEncodedIdentityAndWatermarkRequired": true
+              },
+              {
+                "rule": "full_pairs",
+                "count": 4,
+                "classification": "b",
+                "maxAbsOffsetNumerator": 72000,
+                "sameSourceCandidatesPerFullFence": 1
+              },
+              {
+                "rule": "actual_carry_in_reference",
+                "sourceOnsetFrameOrdinal": 149,
+                "selectionFrameOrdinal": 150,
+                "audioFragmentSourceOnsetSample": 240000,
+                "audioFragmentMustNotConsumeFullPulse": true,
+                "explicitNullOnlyForAbsentAudio": true
+              }
+            ]
+          },
+          "selected_steady": {
+            "status": "pass",
+            "reason": "none",
+            "source": "b",
+            "windowVideoTicks": [
+              450000,
+              990000
+            ],
+            "requiredEvidence": [
+              {
+                "rule": "complete_context_coverage",
+                "fullVisualFrameOrdinals": [
+                  179,
+                  209,
+                  239,
+                  269,
+                  299
+                ],
+                "fullFenceVideoRadius": 45000,
+                "fullFenceOpen": true,
+                "decodeEntireSelectedInterval": true,
+                "allIntersectingEpisodesRequired": true
+              },
+              {
+                "rule": "reference_and_partition_conservation",
+                "uniqueOriginalVisualAndEpisodeIds": true,
+                "unchangedOnsets": true,
+                "noUnlistedFailure": true,
+                "actualEncodedIdentityAndWatermarkRequired": true
+              },
+              {
+                "rule": "full_pairs",
+                "count": 5,
+                "classification": "b",
+                "maxAbsOffsetNumerator": 72000,
+                "sameSourceCandidatesPerFullFence": 1
+              },
+              {
+                "rule": "actual_carry_in_reference",
+                "sourceOnsetFrameOrdinal": 149,
+                "selectionFrameOrdinal": 150,
+                "audioFragmentSourceOnsetSample": 240000,
+                "audioFragmentMustNotConsumeFullPulse": true,
+                "explicitNullOnlyForAbsentAudio": true
+              }
+            ]
+          }
+        },
+        "contexts": {
+          "first_transition": {
+            "status": "blocked",
+            "reason": "full_fragment_overlap",
+            "source": "a",
+            "windowVideoTicks": [
+              90000,
+              450000
+            ],
+            "requiredEvidence": [
+              {
+                "rule": "declared_reference_fault",
+                "selectedFullVisualFrameOrdinal": 179,
+                "mutation": "same_visual_id_used_as_full_and_fragment",
+                "originalAndMutatedShaDeltaRequired": true,
+                "reason": "full_fragment_overlap"
+              },
+              {
+                "rule": "global_failure_blocks_all_context_acceptance",
+                "noContextPassInvented": true
+              }
+            ]
+          },
+          "selected_transition": {
+            "status": "blocked",
+            "reason": "full_fragment_overlap",
+            "source": "b",
+            "windowVideoTicks": [
+              450000,
+              810000
+            ],
+            "requiredEvidence": [
+              {
+                "rule": "declared_reference_fault",
+                "selectedFullVisualFrameOrdinal": 179,
+                "mutation": "same_visual_id_used_as_full_and_fragment",
+                "originalAndMutatedShaDeltaRequired": true,
+                "reason": "full_fragment_overlap"
+              },
+              {
+                "rule": "global_failure_blocks_all_context_acceptance",
+                "noContextPassInvented": true
+              }
+            ]
+          },
+          "selected_steady": {
+            "status": "blocked",
+            "reason": "full_fragment_overlap",
+            "source": "b",
+            "windowVideoTicks": [
+              450000,
+              990000
+            ],
+            "requiredEvidence": [
+              {
+                "rule": "declared_reference_fault",
+                "selectedFullVisualFrameOrdinal": 179,
+                "mutation": "same_visual_id_used_as_full_and_fragment",
+                "originalAndMutatedShaDeltaRequired": true,
+                "reason": "full_fragment_overlap"
+              },
+              {
+                "rule": "global_failure_blocks_all_context_acceptance",
+                "noContextPassInvented": true
+              }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "r38": {
+    "originalExpectedContractSha256": "df56ab03335f6fc18ee4cf77bb1ee630684ee6a0f4f0a8e4d578bf07012a43f9",
+    "amendedExpectedContractSha256": "4056a6148c9b0b5051dc6c2d99ef0f7f8a224bc3ec08c5acb4a1e69e7aeecff4",
+    "caseVectors": {
+      "a,481": {
+        "construction": {
+          "rate": 48000,
+          "channels": 1,
+          "phase": 0,
+          "amplitude": 0.65,
+          "noise": "none",
+          "toneRange": [
+            960,
+            5760
+          ],
+          "trailingQuietSamples": 1440,
+          "quantizer": "round(x*32768), clip to [-32768,32767]"
+        },
+        "metadataRows": 15,
+        "detectorBlocks": 29,
+        "samples": 7200,
+        "bytes": 14400,
+        "episodes": [
+          [
+            962,
+            1442,
+            1443,
+            2,
+            1,
+            "unknown",
+            "insufficient_samples"
+          ],
+          [
+            1443,
+            5771,
+            5772,
+            3,
+            9,
+            "a",
+            "none"
+          ]
+        ]
+      },
+      "a,527": {
+        "construction": {
+          "rate": 48000,
+          "channels": 1,
+          "phase": 0,
+          "amplitude": 0.65,
+          "noise": "none",
+          "toneRange": [
+            960,
+            5760
+          ],
+          "trailingQuietSamples": 1440,
+          "quantizer": "round(x*32768), clip to [-32768,32767]"
+        },
+        "metadataRows": 14,
+        "detectorBlocks": 27,
+        "samples": 7200,
+        "bytes": 14400,
+        "episodes": [
+          [
+            1007,
+            5797,
+            6277,
+            1,
+            11,
+            "a",
+            "none"
+          ]
+        ]
+      },
+      "a,528": {
+        "construction": {
+          "rate": 48000,
+          "channels": 1,
+          "phase": 0,
+          "amplitude": 0.65,
+          "noise": "none",
+          "toneRange": [
+            960,
+            5760
+          ],
+          "trailingQuietSamples": 1440,
+          "quantizer": "round(x*32768), clip to [-32768,32767]"
+        },
+        "metadataRows": 14,
+        "detectorBlocks": 27,
+        "samples": 7200,
+        "bytes": 14400,
+        "episodes": [
+          [
+            1008,
+            5760,
+            5808,
+            1,
+            10,
+            "a",
+            "none"
+          ]
+        ]
+      },
+      "a,719": {
+        "construction": {
+          "rate": 48000,
+          "channels": 1,
+          "phase": 0,
+          "amplitude": 0.65,
+          "noise": "none",
+          "toneRange": [
+            960,
+            5760
+          ],
+          "trailingQuietSamples": 1440,
+          "quantizer": "round(x*32768), clip to [-32768,32767]"
+        },
+        "metadataRows": 11,
+        "detectorBlocks": 21,
+        "samples": 7200,
+        "bytes": 14400,
+        "episodes": [
+          [
+            719,
+            5752,
+            6232,
+            1,
+            8,
+            "a",
+            "none"
+          ]
+        ]
+      },
+      "a,959": {
+        "construction": {
+          "rate": 48000,
+          "channels": 1,
+          "phase": 0,
+          "amplitude": 0.65,
+          "noise": "none",
+          "toneRange": [
+            960,
+            5760
+          ],
+          "trailingQuietSamples": 1440,
+          "quantizer": "round(x*32768), clip to [-32768,32767]"
+        },
+        "metadataRows": 8,
+        "detectorBlocks": 16,
+        "samples": 7200,
+        "bytes": 14400,
+        "episodes": [
+          [
+            959,
+            5754,
+            6234,
+            1,
+            6,
+            "a",
+            "none"
+          ]
+        ]
+      },
+      "b,481": {
+        "construction": {
+          "rate": 48000,
+          "channels": 1,
+          "phase": 0,
+          "amplitude": 0.65,
+          "noise": "none",
+          "toneRange": [
+            960,
+            5760
+          ],
+          "trailingQuietSamples": 1440,
+          "quantizer": "round(x*32768), clip to [-32768,32767]"
+        },
+        "metadataRows": 15,
+        "detectorBlocks": 29,
+        "samples": 7200,
+        "bytes": 14400,
+        "episodes": [
+          [
+            962,
+            5771,
+            5772,
+            2,
+            10,
+            "b",
+            "none"
+          ]
+        ]
+      },
+      "b,527": {
+        "construction": {
+          "rate": 48000,
+          "channels": 1,
+          "phase": 0,
+          "amplitude": 0.65,
+          "noise": "none",
+          "toneRange": [
+            960,
+            5760
+          ],
+          "trailingQuietSamples": 1440,
+          "quantizer": "round(x*32768), clip to [-32768,32767]"
+        },
+        "metadataRows": 14,
+        "detectorBlocks": 27,
+        "samples": 7200,
+        "bytes": 14400,
+        "episodes": [
+          [
+            1007,
+            5797,
+            6277,
+            1,
+            11,
+            "b",
+            "none"
+          ]
+        ]
+      },
+      "b,528": {
+        "construction": {
+          "rate": 48000,
+          "channels": 1,
+          "phase": 0,
+          "amplitude": 0.65,
+          "noise": "none",
+          "toneRange": [
+            960,
+            5760
+          ],
+          "trailingQuietSamples": 1440,
+          "quantizer": "round(x*32768), clip to [-32768,32767]"
+        },
+        "metadataRows": 14,
+        "detectorBlocks": 27,
+        "samples": 7200,
+        "bytes": 14400,
+        "episodes": [
+          [
+            1008,
+            5760,
+            5808,
+            1,
+            10,
+            "b",
+            "none"
+          ]
+        ]
+      },
+      "b,719": {
+        "construction": {
+          "rate": 48000,
+          "channels": 1,
+          "phase": 0,
+          "amplitude": 0.65,
+          "noise": "none",
+          "toneRange": [
+            960,
+            5760
+          ],
+          "trailingQuietSamples": 1440,
+          "quantizer": "round(x*32768), clip to [-32768,32767]"
+        },
+        "metadataRows": 11,
+        "detectorBlocks": 21,
+        "samples": 7200,
+        "bytes": 14400,
+        "episodes": [
+          [
+            719,
+            5752,
+            6232,
+            1,
+            8,
+            "b",
+            "none"
+          ]
+        ]
+      },
+      "b,959": {
+        "construction": {
+          "rate": 48000,
+          "channels": 1,
+          "phase": 0,
+          "amplitude": 0.65,
+          "noise": "none",
+          "toneRange": [
+            960,
+            5760
+          ],
+          "trailingQuietSamples": 1440,
+          "quantizer": "round(x*32768), clip to [-32768,32767]"
+        },
+        "metadataRows": 8,
+        "detectorBlocks": 16,
+        "samples": 7200,
+        "bytes": 14400,
+        "episodes": [
+          [
+            959,
+            5754,
+            6234,
+            1,
+            6,
+            "b",
+            "none"
+          ]
+        ]
+      }
+    }
+  }
+}

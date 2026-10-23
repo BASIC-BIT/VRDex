@@ -1,3 +1,4 @@
+import { sourceMarkerFixture } from "../fixtures/source-marker-literal.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { programEncoderArguments } from "../../workers/restream/program-renderer.mjs";
@@ -44,7 +45,7 @@ function receipt() {
     maxCompressedBufferBytes: 3000000,
     maxDecoders: 2,
     maxAcquisitions: 2,
-    artifacts: [{ sha256: "a".repeat(64), bytes: 1, complete: true }],
+    artifacts: ["vrcdn", "twitch"].map(destination => ({ name: `${destination}.ts`, sha256: "a".repeat(64), bytes: 1, complete: true })),
     outputs: ["vrcdn", "twitch"].map((destination) => ({
       destination,
       videoCodec: "h264",
@@ -60,22 +61,8 @@ function receipt() {
       maxGap: 0.03,
       monotonic: true,
       identities: ["a", "b", "slate"],
-      avDriftMs: 20,
       visualPsnrDb: 35,
-      markerCount: 5,
-      transitionMarkers: ["a", "b"].map((identity) => ({
-        identity,
-        complete: true,
-        programTick: 30,
-        sourcePts: 90000,
-        start: 1,
-        end: 5,
-        pairs: [1, 2, 3].map((v) => ({
-          videoPts: v,
-          audioPts: v + 0.02,
-          audioMinusVideoMs: 20,
-        })),
-      })),
+      ...sourceMarkerFixture(),
       internalDelayMs: 100,
     })),
   };
@@ -218,8 +205,9 @@ test("receipt FPS tolerance and valid measured numeric boundaries remain unchang
   }
   const r = receipt();
   r.outputs[0].maxGap = 0;
-  r.outputs[0].markerCount = 3;
   assert.equal(validateCapacityReceipt(r), r);
+  r.outputs[0].markerCount = 3;
+  assert.throws(() => validateCapacityReceipt(r), /marker_summary_binding/);
 });
 test("receipt compressed buffer requires an actual positive numeric byte count", () => {
   for (const value of ["3000000", undefined, null, NaN, Infinity, -1, 0]) {
