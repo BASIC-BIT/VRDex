@@ -355,29 +355,7 @@ test("cursor beyond newly retained PCM reanchors only when the matched video is 
   assert.deepEqual(left(b.takeAudio(8)), [105, 106]);
   assert.equal(b.audioCursor, 10);
 });
-test("real prewarmed 30fps mono source stays synchronized in a 60fps stereo program", async (t) => {
-  const { mkdtemp, writeFile, rm } = await import("node:fs/promises");
-  const { tmpdir } = await import("node:os");
-  const { join } = await import("node:path");
-  const { setTimeout: sleep } = await import("node:timers/promises");
-  const { createProcessOwner } =
-    await import("../../scripts/event-proof-processes.mjs");
-  const { measureMediaMarkers, probe } =
-    await import("../../scripts/event-capacity-media.mjs");
-  const { createProgramRenderer } =
-    await import("../../workers/restream/program-renderer.mjs");
-  const { createInputSupervisor } =
-    await import("../../workers/restream/input-supervisor.mjs");
-  const directory = await mkdtemp(join(tmpdir(), "event-sync-contract-")),
-    owner = createProcessOwner();
-  let renderer;
-  t.after(async () => {
-    await renderer?.stop();
-    await owner.close();
-    await rm(directory, { recursive: true, force: true });
-  });
-  const source = join(directory, "source.ts"),
-    output = join(directory, "program.ts");
+async function createMonoTimingFixture(owner, source, normalized = true) {
   await owner.run(
     "ffmpeg",
     [
@@ -404,12 +382,159 @@ test("real prewarmed 30fps mono source stays synchronized in a 60fps stereo prog
       "aac",
       "-b:a",
       "160k",
+      ...(normalized ? ["-muxdelay", "0", "-flush_packets", "1"] : []),
       "-f",
       "mpegts",
       source,
     ],
     { timeoutMs: 15000 },
   );
+}
+test("late decoded PCM after an empty gap is skipped without replay or growing the tail", () => {
+  const b = new LatestMediaBuffer(6);
+  frame(b, 0, 0);
+  audio(b, 0, 0, 800, 1);
+  b.beginPlayback();
+  assert.deepEqual(
+    left(b.takeAudio(3200)),
+    Array.from({ length: 800 }, (_, i) => i + 1),
+  );
+  for (let i = 0; i < 10; i++)
+    assert.deepEqual(left(b.takeAudio(3200)), Array(800).fill(0));
+  assert.equal(b.audioCursor, 8800);
+  frame(b, 1, 8800 / 48000);
+  audio(b, 1, 800 / 48000, 16000, 1001);
+  assert.equal(b.audioBytes, 48000);
+  assert.equal(
+    b.audioStartIndex,
+    4800,
+    "oldest late PCM was capped before playback",
+  );
+  assert.deepEqual(
+    left(b.takeAudio(3200)),
+    Array.from({ length: 800 }, (_, i) => 9001 + i),
+  );
+  assert.equal(b.audioCursor, 9600);
+  assert.equal(
+    b.audioStartIndex,
+    9600,
+    "late retained PCM before the cursor is skipped",
+  );
+  assert(b.audioBytes <= 48000);
+});
+test("normalized timing fixture preserves AAC packets without delayed audio PES groups", async (t) => {
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { createProcessOwner } =
+    await import("../../scripts/event-proof-processes.mjs");
+  const { probe } = await import("../../scripts/event-capacity-media.mjs");
+  const directory = await mkdtemp(join(tmpdir(), "event-packet-contract-")),
+    owner = createProcessOwner();
+  t.after(async () => {
+    await owner.close();
+    await rm(directory, { recursive: true, force: true });
+  });
+  const results = [];
+  for (const normalized of [false, true]) {
+    const file = join(directory, normalized ? "normalized.ts" : "bursty.ts");
+    await createMonoTimingFixture(owner, file, normalized);
+    const info = await probe(owner, file),
+      video = info.streams.find((s) => s.codec_type === "video"),
+      audio = info.streams.find((s) => s.codec_type === "audio");
+    assert.equal(video.codec_name, "h264");
+    assert.equal(video.r_frame_rate, "30/1");
+    assert.equal(audio.codec_name, "aac");
+    assert.equal(audio.sample_rate, "44100");
+    assert.equal(audio.channels, 1);
+    const packets = JSON.parse(
+      (
+        await owner.run(
+          "ffprobe",
+          [
+            "-v",
+            "error",
+            "-show_packets",
+            "-show_entries",
+            "packet=stream_index,pts,dts,pos,data_hash",
+            "-show_data_hash",
+            "sha256",
+            "-of",
+            "json",
+            file,
+          ],
+          { timeoutMs: 15000, maxBytes: 2 * 1024 * 1024 },
+        )
+      ).toString(),
+    ).packets;
+    let videoDts;
+    const groups = [],
+      hashes = [[], []];
+    for (const packet of packets) {
+      hashes[packet.stream_index].push(packet.data_hash);
+      if (packet.stream_index === 0) videoDts = Number(packet.dts);
+      else if (packet.pos !== undefined)
+        groups.push({
+          frames: 1,
+          lateMs:
+            videoDts === undefined
+              ? undefined
+              : (videoDts - Number(packet.pts)) / 90,
+        });
+      else groups.at(-1).frames++;
+    }
+    assert.equal(hashes[0].length, 480);
+    assert.equal(hashes[1].length, 691);
+    assert(hashes.flat().every((hash) => /^SHA256:[a-f0-9]{64}$/.test(hash)));
+    if (normalized) {
+      assert(
+        groups.every((group) => group.frames === 1),
+        "each AAC frame must be independently available to the paced decoder",
+      );
+      assert(
+        groups.every(
+          (group) => group.lateMs === undefined || group.lateMs <= 0,
+        ),
+        "audio must not wait behind newer video DTS",
+      );
+    } else {
+      assert(
+        groups.some((group) => group.frames >= 10 && group.lateMs >= 200),
+        "preserve the original bursty delivery counterexample",
+      );
+    }
+    results.push(hashes);
+  }
+  assert.deepEqual(
+    results[1],
+    results[0],
+    "packetization must preserve all encoded media payloads",
+  );
+});
+test("real prewarmed 30fps mono source stays synchronized in a 60fps stereo program", async (t) => {
+  const { mkdtemp, writeFile, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { setTimeout: sleep } = await import("node:timers/promises");
+  const { createProcessOwner } =
+    await import("../../scripts/event-proof-processes.mjs");
+  const { measureMediaMarkers, probe } =
+    await import("../../scripts/event-capacity-media.mjs");
+  const { createProgramRenderer } =
+    await import("../../workers/restream/program-renderer.mjs");
+  const { createInputSupervisor } =
+    await import("../../workers/restream/input-supervisor.mjs");
+  const directory = await mkdtemp(join(tmpdir(), "event-sync-contract-")),
+    owner = createProcessOwner();
+  let renderer;
+  t.after(async () => {
+    await renderer?.stop();
+    await owner.close();
+    await rm(directory, { recursive: true, force: true });
+  });
+  const source = join(directory, "source.ts"),
+    output = join(directory, "program.ts");
+  await createMonoTimingFixture(owner, source);
   const chunks = [];
   let bytes = 0,
     overflow = false;

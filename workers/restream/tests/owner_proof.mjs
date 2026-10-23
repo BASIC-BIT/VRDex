@@ -40,7 +40,7 @@ console.log(
     outcomes,
     passed:
       !overflow &&
-      outcomes.length === 49 &&
+      outcomes.length === 51 &&
       outcomes.every(
         (row) =>
           row.outcome === "passed" && row.test !== "invalid_test_identifier",

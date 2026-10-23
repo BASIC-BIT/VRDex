@@ -76,7 +76,7 @@ start, jitter, ads, fresh resolution after 403, deadlines and cancellation.
 Named outcomes must include no skipped or expected-failure required tests. The
 same nine Node acquisition-owner regressions run with built-in type stripping,
 including TERM-ignoring descendants, leader exit, retries and failed cleanup.
-The image also runs 22 renderer and 18 timestamp/PCM tests: 49 required Node
+The image also runs 22 renderer and 20 timestamp/PCM tests: 51 required Node
 outcomes in total. The timing tests include real FFmpeg conversion of 44.1-kHz
 mono input to timestamped stereo 48-kHz PCM and a prewarmed 30-fps source rendered
 as a 60-fps stereo program with measured markers; all required cases must pass.
@@ -205,6 +205,39 @@ No production shape is admitted from these host results. Isolated exact-image ti
 
 Rebuilt-image transport and strict output/capacity gates remain required; the
 correction itself establishes no production allocation.
+
+## Preserved actual packetization failure
+
+The timestamped candidate image `sha256:870142421409fdcb1d7f58a7f078ef0f39f5249d4b41b1c689ea4983e472afc7`
+failed the required 30-fps mono to 60-fps stereo case at both four and eight CPUs.
+Three subsequent isolated traces preserved the same missing pulses. Their
+[typed failure receipts and copy accounting](./evidence/twitch-operator-task6/packetization-870142.json)
+show complete decoded PCM and metadata, with all children and cloud resources
+closed. Successful diagnostic collection is not successful playback.
+
+| Observation | Measured result | Consequence |
+| --- | --- | --- |
+| Default fixture AAC packetization | 42 PES groups of 16 frames, plus groups of 13 and 6 | Most audio groups span 371.5 ms |
+| Audio position behind preceding video DTS | 271.6–304.3 ms for full groups | Paced file decoding delivers old audio after newer video |
+| Raw PCM and metadata gaps | Both approximately 337 ms at P95 | Raw PCM output flushing is not the demonstrated cause |
+| Decoded pulses near source seconds 3 and 6 | 4,938 detected sampleframes each, zero copied in all three attempts | Tail limits and the advanced cursor discard expired audio |
+| Encoded output | Eight flashes, six beeps; exact silence around two interior flashes | The strict synchronization gate correctly remains failed |
+
+The default-muxed file bypassed the normalized packetization used by the Twitch
+remux command. An offline control with that exact command preserved all 480 video
+and 691 audio packet payload hashes and all sixteen marker pairs, while changing
+the output to 691 single-frame AAC PES groups. This control ran on host FFmpeg
+7.1.5, not the image's 5.1.9. It establishes a file-delivery distinction, not a
+claim that arbitrary bursty live inputs are lossless.
+
+The positive conversion fixture now uses the production remux output settings
+`-muxdelay 0 -flush_packets 1`. Its media, encoder settings, paced decoding,
+measurement window, marker requirements and 100-ms limit are unchanged. A packet
+regression compares both layouts and their encoded payloads; a separate regression
+preserves gap silence, expiration skipping and the 250-ms PCM bound. No runtime
+cursor, buffering, profile or readiness behavior changes for this correction.
+The original recordings and all three failures remain negative evidence.
+New exact-image transport, functional and capacity proof is still required.
 
 ## Measured allocation status
 

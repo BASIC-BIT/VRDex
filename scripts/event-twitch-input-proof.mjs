@@ -120,7 +120,7 @@ export async function runTransportWorkload(request) {
         ["workers/restream/tests/owner_proof.mjs"],
         { timeoutMs: 60000, maxBytes: 131072 },
       ),
-      49,
+      51,
     );
     const contractFailure = transportContractFailurePhase(tests);
     if (contractFailure) {
