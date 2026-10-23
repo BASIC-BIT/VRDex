@@ -1,3 +1,5 @@
+import { resolveWorkerAllocation, validateMeasuredSnapshot } from '../workers/restream/broadcast-capacity.mjs';
+import { validateAllocationSnapshot } from '../workers/restream/worker-allocation.mjs';
 import {admitControlOperation,cancelControlOperation,isControl,supersedePending,findControlRequest,recordControlRequest} from "./_eventBroadcastControl";
 import {canManageEventMedia,eventMediaSourceProjectionAvailable} from "./_eventBroadcastAuthority";
 import { NEW_PROGRAM_MEDIA_SETTINGS, parseMediaSettings, resolveDestinationProfile } from "../workers/restream/broadcast-profiles.mjs";
@@ -1973,6 +1975,7 @@ function workerSessionStatus(session: Doc<"eventMediaSessions">) {
     mediaSettings: parseMediaSettings(session.mediaSettings),
     controlProtocolVersion: session.controlProtocolVersion,
     destinationProfiles: session.destinationProfiles ?? [],
+    allocation: session.allocation,
     currentSourceId: session.currentSourceId,
     programObservedAt: session.programObservedAt,
     lastAcknowledgedSequence: session.lastAcknowledgedSequence,
@@ -3803,7 +3806,11 @@ export const scheduleEventMediaWorker = mutation({
       const destination = o.type === "vrcdn" ? "vrcdn" as const : "twitch" as const;
       return {outputId:o._id,destination,profile:resolveDestinationProfile({settings:mediaSettings,destination})};
     });
+    const frozenDestinations = openSession?.destinationProfiles ?? destinationProfiles;
+    const allocation = openSession ? openSession.allocation : resolveWorkerAllocation({videoPreset:mediaSettings.videoPreset,simulcastEnabled:frozenDestinations.some(d=>d.destination==='twitch')});
+    validateMeasuredSnapshot(validateAllocationSnapshot({mediaSettings,allocation,outputId:output._id,destinationProfiles:frozenDestinations}));
     const sessionRecord = {
+      allocation,
       programId: program._id,
       eventId: event._id,
       outputId: output._id,

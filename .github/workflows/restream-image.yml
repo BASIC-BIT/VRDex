@@ -80,10 +80,7 @@ jobs:
           fi
 
           # Hash only fixed packaged paths on the runner, never inside the image.
-          sources=(
-            workers/restream/{hosted-worker,live-control,vrcdn-poc,output-sender,event-worker,source-relay,handoff-policy,input-supervisor,program-renderer,broadcast-profiles}.mjs
-            scripts/{event-output-local-proof,event-proof-metrics,event-vrcdn-rehearsal,event-proof-runner}.mjs
-          )
+          mapfile -t sources < <(jq -r '.[]' workers/restream/packaging-manifest.json)
           for source in "${sources[@]}"; do
             test -f "$source" && test ! -L "$source"
           done

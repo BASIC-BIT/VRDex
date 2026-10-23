@@ -9,10 +9,7 @@ import { parse } from 'yaml';
 
 const sha = 'a'.repeat(40), digest = `sha256:${'b'.repeat(64)}`;
 const repository = '079358094174.dkr.ecr.us-east-1.amazonaws.com/vrdex-restream-worker';
-const files = [
-  ...['hosted-worker', 'live-control', 'vrcdn-poc', 'output-sender', 'event-worker', 'source-relay', 'handoff-policy', 'input-supervisor', 'program-renderer'].map(name => `workers/restream/${name}.mjs`),
-  ...['event-output-local-proof', 'event-proof-metrics', 'event-vrcdn-rehearsal', 'event-proof-runner'].map(name => `scripts/${name}.mjs`),
-];
+const files = JSON.parse(await readFile('workers/restream/packaging-manifest.json', 'utf8'));
 
 // Only Docker and AWS are faked. Bash, jq, file-type checks and sha256sum run on
 // the host, against real files copied from the requested-source fixture.
@@ -167,7 +164,7 @@ test('immutable tag recovery regenerates provenance without a previous artifact 
   const calls = dockerCalls(result);
   assert.deepEqual(calls.find(call => call[1] === 'pull'), ['docker', 'pull', '--platform', 'linux/amd64', `${repository}@${digest}`]);
   assert.ok(!calls.some(call => call[1] === 'build'));
-  assert.equal(calls.filter(call => call[1] === 'cp').length, 13);
+  assert.equal(calls.filter(call => call[1] === 'cp').length, files.length);
   assert.ok(calls.findIndex(call => call[1] === 'run') > calls.findLastIndex(call => call[1] === 'cp'));
   for (const call of calls.filter(call => ['create', 'run'].includes(call[1]))) assert.ok(call.includes(`${repository}@${digest}`));
   assert.equal(result.provenance['actual-runtime.sha256'], result.expected);
@@ -182,7 +179,7 @@ test('every packaged source mismatch blocks recovery before image execution', as
   for (const badFile of files) {
     const result = await publish({ badFile, badKind: 'hash' });
     assert.notEqual(result.status, 0, badFile);
-    assert.equal(dockerCalls(result).filter(call => call[1] === 'cp').length, 13, badFile);
+    assert.equal(dockerCalls(result).filter(call => call[1] === 'cp').length, files.length, badFile);
     assertNoPublication(result);
     assert.ok(!dockerCalls(result).some(call => call[1] === 'run'), badFile);
     assert.equal(result.provenance['image-uri.txt'], undefined);
@@ -216,7 +213,7 @@ test('fresh publication verifies all host sources and runtime before pushing and
   const calls = dockerCalls(result);
   assert.ok(calls.some(call => call[1] === 'build'));
   assert.ok(!calls.some(call => call[1] === 'pull'));
-  assert.equal(calls.filter(call => call[1] === 'cp').length, 13);
+  assert.equal(calls.filter(call => call[1] === 'cp').length, files.length);
   assert.ok(calls.findIndex(call => call[1] === 'run') > calls.findLastIndex(call => call[1] === 'cp'));
   assert.ok(calls.findIndex(call => call[1] === 'push') > calls.findLastIndex(call => call[1] === 'run'));
   assert.equal(calls.filter(call => call[1] === 'push').length, 1);

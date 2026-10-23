@@ -30,6 +30,7 @@ export const videoPresetValidator = v.union(
   v.literal("720p30"), v.literal("720p60"),
   v.literal("1080p30"), v.literal("1080p60"),
 );
+export const workerAllocationValidator = v.object({cpuUnits:v.number(),memoryMiB:v.number(),evidenceId:v.string()});
 export const mediaSettingsValidator = v.object({
   videoPreset: videoPresetValidator,
   audioBitrateKbps: v.union(v.literal(160), v.literal(320)),

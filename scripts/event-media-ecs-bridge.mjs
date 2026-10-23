@@ -1,3 +1,5 @@
+import { resolveWorkerAllocation, validateMeasuredSnapshot } from '../workers/restream/broadcast-capacity.mjs';
+import { validateAllocationSnapshot } from '../workers/restream/worker-allocation.mjs';
 import { pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
@@ -171,6 +173,8 @@ export function loadConfig(options = {}) {
   const secretRefMap = stringMapEnv("VRDEX_EVENT_MEDIA_SECRET_REF_MAP_JSON");
   const baseEnvironment = stringMapEnv("VRDEX_EVENT_MEDIA_ECS_BASE_ENV_JSON", {});
   if (Object.keys(baseEnvironment).some(name => (name === "VRDEX_EVENT_MEDIA_BRIDGE_TOKEN" || name === "VRDEX_EVENT_MEDIA_OPTIONAL_SECRET_ARNS_JSON" || name === optionalEnv("VRDEX_EVENT_MEDIA_OUTPUT_SECRET_ENV") || name.startsWith("VRDEX_EVENT_MEDIA_OUTPUT_SECRET_") || name === "VRDEX_EVENT_MEDIA_OUTPUT_INGEST_SECRET_JSON"))) throw new Error("Worker credentials must use ECS secret references.");
+  if (optionalEnv("VRDEX_EVENT_MEDIA_ECS_CPU") || optionalEnv("VRDEX_EVENT_MEDIA_ECS_MEMORY")) throw Error("Event worker resources must use the session allocation");
+  validateBaseEnvironment(baseEnvironment);
   const workerId = optionalEnv("VRDEX_EVENT_MEDIA_BRIDGE_WORKER_ID") ?? `event-media-ecs-bridge-${process.pid}`;
 
   return {
@@ -189,8 +193,6 @@ export function loadConfig(options = {}) {
     workerTokenSecretArn: requiredEnv("VRDEX_EVENT_MEDIA_WORKER_TOKEN_SECRET_ARN"),
     logGroupName: requiredEnv("VRDEX_EVENT_MEDIA_ECS_LOG_GROUP"),
     logStreamPrefix: optionalEnv("VRDEX_EVENT_MEDIA_ECS_LOG_STREAM_PREFIX") ?? "worker",
-    cpu: String(integerEnv("VRDEX_EVENT_MEDIA_ECS_CPU", 1024, 256, 16384)),
-    memory: String(integerEnv("VRDEX_EVENT_MEDIA_ECS_MEMORY", 2048, 512, 32768)),
     ephemeralStorageGiB: integerEnv("VRDEX_EVENT_MEDIA_ECS_EPHEMERAL_STORAGE_GIB", 40, 21, 200),
     subnets: listEnv("VRDEX_EVENT_MEDIA_ECS_SUBNETS"),
     securityGroups: listEnv("VRDEX_EVENT_MEDIA_ECS_SECURITY_GROUPS"),
@@ -208,11 +210,15 @@ export function loadConfig(options = {}) {
   };
 }
 
-function environmentEntries(command, config) {
+function validateBaseEnvironment(environment) {
+  if (Object.keys(environment ?? {}).some(key => /(?:ALLOCATION|MEDIA_SETTINGS|VIDEO_PRESET|AUDIO_BITRATE|QUALITY|ECS_CPU|ECS_MEMORY|ECS_CONTAINER_METADATA_URI)/.test(key))) throw Error("Conflicting worker snapshot environment");
+}
+function environmentEntries(command, config, snapshot) {
   const watchUrl = outputWatchUrl(command.output);
 
   return Object.entries({
     ...config.baseEnvironment,
+    VRDEX_EVENT_MEDIA_ALLOCATION_SNAPSHOT_JSON: JSON.stringify(snapshot),
     CONVEX_URL: config.convexUrl,
     VRDEX_EVENT_MEDIA_COMMAND_ID: command.commandId,
     VRDEX_EVENT_MEDIA_EVENT_ID: command.eventId,
@@ -233,7 +239,12 @@ function environmentEntries(command, config) {
   }).map(([name, value]) => ({ name, value: String(value) }));
 }
 
-export function taskDefinitionFor(command, config) {
+export function taskDefinitionFor(command, config, resolve = resolveWorkerAllocation) {
+  validateBaseEnvironment(config.baseEnvironment);
+  const snapshot = validateAllocationSnapshot(command.session);
+  const allocation = validateMeasuredSnapshot(snapshot, resolve);
+  if (command.output && command.output.outputId !== snapshot.outputId) throw Error('Mismatched primary destination');
+  if ((command.optionalOutputs ?? []).some(output => !snapshot.destinationProfiles.some(d => d.destination === 'twitch' && d.outputId === output.outputId))) throw Error('Mismatched optional destination');
   const credentialRef = command.output?.credentialRef;
   const secretArn = credentialRef === undefined ? undefined : config.secretRefMap[credentialRef];
 
@@ -256,8 +267,8 @@ export function taskDefinitionFor(command, config) {
     family: `${config.familyPrefix}-${ecsNamePart(command.session.sessionId)}`,
     requiresCompatibilities: ["FARGATE"],
     networkMode: "awsvpc",
-    cpu: config.cpu,
-    memory: config.memory,
+    cpu: String(allocation.cpuUnits),
+    memory: String(allocation.memoryMiB),
     executionRoleArn: config.executionRoleArn,
     taskRoleArn: config.taskRoleArn,
     runtimePlatform: { operatingSystemFamily: "LINUX", cpuArchitecture: "X86_64" },
@@ -266,11 +277,11 @@ export function taskDefinitionFor(command, config) {
       {
         name: config.containerName,
         image: config.image,
-        cpu: Number(config.cpu),
-        memory: Number(config.memory),
+        cpu: allocation.cpuUnits,
+        memory: allocation.memoryMiB,
         essential: true,
         ...(config.containerCommand === undefined ? {} : { command: config.containerCommand }),
-        environment: [...environmentEntries(command, config), {name:"VRDEX_EVENT_MEDIA_OPTIONAL_SECRET_ARNS_JSON",value:JSON.stringify(bindings)}],
+        environment: [...environmentEntries(command, config, snapshot), {name:"VRDEX_EVENT_MEDIA_OPTIONAL_SECRET_ARNS_JSON",value:JSON.stringify(bindings)}],
         secrets: [{name:"VRDEX_EVENT_MEDIA_BRIDGE_TOKEN",valueFrom:config.workerTokenSecretArn}, ...(secretArn === undefined ? [] : [{ name: config.outputSecretEnvName, valueFrom: secretArn }]), ...additionalSecrets],
         logConfiguration: {
           logDriver: "awslogs",

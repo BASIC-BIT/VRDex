@@ -194,6 +194,14 @@ class SyntheticHLSContracts(unittest.TestCase):
                     )
                     self.assertIn(b"h264", probe.stdout)
                     self.assertIn(b"aac", probe.stdout)
+                    decoded = subprocess.run(
+                        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", output.name,
+                         "-t", "1", "-vn", "-ac", "2", "-ar", "48000", "-f", "s16le", "pipe:1"],
+                        capture_output=True, timeout=12,
+                    )
+                    self.assertEqual(decoded.returncode, 0)
+                    self.assertGreater(len(decoded.stdout), 96000, "Normalized AAC must actually decode")
+                    self.assertEqual(decoded.stderr, b"", "No AAC corruption after normalization")
                 self.assertLessEqual(
                     reader.reservoir.high_water
                     + adapter.PYTHON_STAGING_BOUND

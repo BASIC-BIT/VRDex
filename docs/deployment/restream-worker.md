@@ -80,7 +80,9 @@ Required non-secret bridge configuration:
 - `VRDEX_EVENT_MEDIA_ECS_SECURITY_GROUPS`, comma-separated security group ids
 - `VRDEX_EVENT_MEDIA_SECRET_REF_MAP_JSON`, a JSON object that maps Convex output-account credential references to AWS Secrets Manager or SSM parameter ARNs for the selected output; optional destinations require exact Secrets Manager ARNs
 
-Optional bridge configuration includes `VRDEX_EVENT_MEDIA_BRIDGE_WORKER_ID`, `VRDEX_EVENT_MEDIA_ECS_CONTAINER`, `VRDEX_EVENT_MEDIA_ECS_COMMAND_JSON`, `VRDEX_EVENT_MEDIA_ECS_CPU`, `VRDEX_EVENT_MEDIA_ECS_MEMORY`, `VRDEX_EVENT_MEDIA_ECS_EPHEMERAL_STORAGE_GIB`, `VRDEX_EVENT_MEDIA_ECS_ASSIGN_PUBLIC_IP`, `VRDEX_EVENT_MEDIA_ECS_LOG_STREAM_PREFIX`, `VRDEX_EVENT_MEDIA_ECS_BASE_ENV_JSON`, `VRDEX_EVENT_MEDIA_OUTPUT_SECRET_ENV`, and `VRDEX_EVENT_MEDIA_BRIDGE_POLL_MS`. Use `VRDEX_EVENT_MEDIA_ECS_COMMAND_JSON` when the selected image needs a command override, for example `["node","workers/restream/vrcdn-poc.mjs"]` for the VRCDN POC entrypoint.
+Event-worker CPU and memory come exclusively from the immutable session allocation. Remove `VRDEX_EVENT_MEDIA_ECS_CPU` and `VRDEX_EVENT_MEDIA_ECS_MEMORY` from dispatcher configuration; either variable now rejects startup. The shared bridge validates settings, frozen destination membership and measured evidence before registration, then sets both task and container resources. See [quality and capacity](../engineering/event-broadcast-quality-capacity.md).
+
+Optional bridge configuration includes `VRDEX_EVENT_MEDIA_BRIDGE_WORKER_ID`, `VRDEX_EVENT_MEDIA_ECS_CONTAINER`, `VRDEX_EVENT_MEDIA_ECS_COMMAND_JSON`, `VRDEX_EVENT_MEDIA_ECS_EPHEMERAL_STORAGE_GIB`, `VRDEX_EVENT_MEDIA_ECS_ASSIGN_PUBLIC_IP`, `VRDEX_EVENT_MEDIA_ECS_LOG_STREAM_PREFIX`, `VRDEX_EVENT_MEDIA_ECS_BASE_ENV_JSON`, `VRDEX_EVENT_MEDIA_OUTPUT_SECRET_ENV`, and `VRDEX_EVENT_MEDIA_BRIDGE_POLL_MS`. Use `VRDEX_EVENT_MEDIA_ECS_COMMAND_JSON` when the selected image needs a command override, for example `["node","workers/restream/vrcdn-poc.mjs"]` for the VRCDN POC entrypoint.
 
 Use `VRDEX_EVENT_MEDIA_ECS_BRIDGE_CONFIG_CHECK_ONLY=true` for a local configuration parse check that does not call Convex or AWS. Use `--once` when running the bridge from a scheduler or smoke test; omit it for a long-running operator loop.
 
@@ -128,9 +130,10 @@ node --input-type=module - <<'JS'
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const { build } = createRequire(require.resolve('tsx/package.json'))('esbuild');
-await build({ entryPoints: ['scripts/event-media-lambda-bridge.mjs'],
+const result = await build({ metafile: true, entryPoints: ['scripts/event-media-lambda-bridge.mjs'],
   outfile: '/tmp/index.mjs', bundle: true, external: ['@aws-sdk/*'],
   platform: 'node', target: 'node22', format: 'esm' });
+await (await import('node:fs/promises')).writeFile('/tmp/event-media-lambda-inputs.json', JSON.stringify(result.metafile, null, 2));
 JS
 python3 - <<'PYZIP'
 from pathlib import Path

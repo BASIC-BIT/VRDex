@@ -1,7 +1,7 @@
 import {committedIntentValidator,controlTargetValidator,controlFailureValidator} from "./_eventMediaControl";
 import { broadcastInputValidator } from "./_eventBroadcastSources";
 import { twitchSetupValidator, outputHealthValidator } from './_eventOutputSetup';
-import { mediaSettingsValidator, sessionDestinationProfilesValidator, observedBroadcastStateValidator } from "./_eventMediaControl";
+import { workerAllocationValidator, mediaSettingsValidator, sessionDestinationProfilesValidator, observedBroadcastStateValidator } from "./_eventMediaControl";
 import { clubPermission, clubVisibility, clubSubject } from "./_clubModel";
 import { providerReadParams, providerReadPage } from "./_clubProviderReads";
 import { integrationFeature, storedAuthority } from "./_clubConnection";
@@ -1632,6 +1632,7 @@ export default defineSchema({
     mediaSettings: v.optional(mediaSettingsValidator),
     controlProtocolVersion: v.optional(v.literal(2)),
     destinationProfiles: v.optional(sessionDestinationProfilesValidator),
+    allocation: v.optional(workerAllocationValidator),
     programId: v.id("eventMediaPrograms"),
     eventId: v.id("events"),
     outputId: v.optional(v.id("eventMediaOutputs")),

@@ -43,8 +43,6 @@ locals {
     VRDEX_EVENT_MEDIA_ECS_TASK_ROLE_ARN       = aws_iam_role.task.arn
     VRDEX_EVENT_MEDIA_ECS_LOG_GROUP           = aws_cloudwatch_log_group.worker.name
     VRDEX_EVENT_MEDIA_ECS_TASK_FAMILY_PREFIX  = "vrdex-event-media-worker"
-    VRDEX_EVENT_MEDIA_ECS_CPU                 = "4096"
-    VRDEX_EVENT_MEDIA_ECS_MEMORY              = "8192"
     VRDEX_EVENT_MEDIA_ECS_SUBNETS             = join(",", local.bridge.subnet_ids)
     VRDEX_EVENT_MEDIA_ECS_SECURITY_GROUPS     = join(",", local.bridge.security_group_ids)
     VRDEX_EVENT_MEDIA_ECS_ASSIGN_PUBLIC_IP    = local.bridge.assign_public_ip

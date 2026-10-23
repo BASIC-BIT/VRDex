@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM node:22-bookworm-slim
+FROM node:22-bookworm-slim@sha256:de170b39439eb0e5a3444ad7d60b015614a381e10fecae2e30ec9e735122f38d AS worker
 
 RUN --mount=type=secret,id=proxy_ca,target=/run/secrets/proxy_ca \
   if [ -f /run/secrets/proxy_ca ]; then printf 'Acquire::https::CaInfo "/run/secrets/proxy_ca";\n' > /etc/apt/apt.conf.d/99build-ca; fi \
@@ -19,3 +19,11 @@ RUN --mount=type=bind,source=.,target=/source,readonly \
 ENV NODE_ENV=production
 
 CMD ["node", "workers/restream/hosted-worker.mjs"]
+
+# Export only actual packaged bytes and installed private wheels. This target
+# avoids a second full VFS container snapshot or Docker-save staging.
+FROM scratch AS packaged-files
+COPY --from=worker /app /app
+COPY --from=worker /opt/twitch /opt/twitch
+
+FROM worker AS runtime

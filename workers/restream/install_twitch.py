@@ -106,21 +106,14 @@ def main():
             command + ["check"],
             check=True,
         )
-    files = []
-    for pattern in ("*.mjs", "*.py", "*.json", "*.lock", "tests/*.py"):
-        files.extend(path for path in worker.glob(pattern) if path.name != "broadcast-capacity.mjs")
-    files.extend(
-        source / "scripts" / name
-        for name in (
-            "event-output-local-proof.mjs",
-            "event-proof-metrics.mjs",
-            "event-vrcdn-rehearsal.mjs",
-            "event-proof-runner.mjs",
-            "event-proof-fixtures.mjs",
-            "event-command-local-proof.mjs",
-            "event-silence-local-proof.mjs",
-        )
-    )
+    paths = json.loads((worker / "packaging-manifest.json").read_text())
+    if len(paths) != len(set(paths)) or any(
+        name.startswith("/") or ".." in Path(name).parts
+        or "broadcast-capacity.mjs" == Path(name).name and name.startswith("workers/")
+        for name in paths
+    ):
+        raise ValueError("Invalid explicit package manifest")
+    files = [source / name for name in paths]
     manifest = {}
     for path in sorted(set(files)):
         relative = path.relative_to(source)

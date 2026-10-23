@@ -75,12 +75,17 @@ test("settings require media authority, preserve active snapshots, and apply at 
   const lease = await t.mutation(worker("acquireSession"),workerArgs);
   const original = await t.run(ctx => ctx.db.get(scheduled.sessionId));
   assert.equal(original!.controlProtocolVersion,2);
+  const { resolveWorkerAllocation } = await import('../../workers/restream/broadcast-capacity.mjs');
+  assert.deepEqual(original!.allocation, resolveWorkerAllocation({videoPreset:'1080p60',simulcastEnabled:false}));
+  assert.deepEqual(lease.configuration.allocation, original!.allocation);
   assert.deepEqual(original!.mediaSettings,{videoPreset:"1080p60",audioBitrateKbps:320});
   assert.equal(original!.destinationProfiles![0]!.profile.frameRate,60);
   await owner.mutation(settingsMutation,{...args,videoPreset:"480p30",audioBitrateKbps:160});
   assert.deepEqual((await t.run(ctx => ctx.db.get(scheduled.sessionId)))!.mediaSettings,original!.mediaSettings);
   const refreshed = await t.mutation(worker("refreshConfiguration"),{...workerArgs,epoch:lease.epoch});
   assert.deepEqual(refreshed.configuration.mediaSettings,original!.mediaSettings);
+  assert.deepEqual(refreshed.configuration.allocation,original!.allocation);
+  assert.deepEqual(refreshed.configuration.destinationProfiles,original!.destinationProfiles);
   assert.deepEqual(refreshed.configuration.outputs[0].profile,original!.destinationProfiles![0]!.profile);
   const status = await owner.query(api.events.getEventMediaControlStatus,{currentSlug:event.slug});
   assert.deepEqual(status!.program!.mediaSettings,{videoPreset:"480p30",audioBitrateKbps:160});
@@ -114,6 +119,7 @@ test('destination snapshots keep simulcast membership and formats when next-star
   await t.run(ctx => ctx.db.patch(twitch.outputId,{simulcastEnabled:false}));
   const refreshed = await t.mutation(worker('refreshConfiguration'),{...args,epoch:lease.epoch});
   assert.equal(refreshed.configuration.outputs.find((o: {id:string})=>o.id===twitch.outputId).simulcastEnabled,true);
+  assert.deepEqual(refreshed.configuration.allocation,stored.allocation);
   const health = await t.mutation(worker('observeOutputs'),{...args,epoch:lease.epoch,destinations:stored.destinationProfiles!.map(d=>({outputId:d.outputId,destination:d.destination,status:'publishing',publishing:true,queueBytes:0,outputMs:1000,restarts:0}))});
   assert.equal(health.accepted,true);
 });

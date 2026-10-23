@@ -1,3 +1,4 @@
+import { readTaskMetadata, createManagedAllocationValidator } from './task-metadata.mjs';
 import { createEventOutputs } from "./output-sender.mjs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -39,6 +40,7 @@ export function createEventWorker({
   createOutputs,
   inputs,
   checkEnabled,
+  validateConfiguration = () => {},
   clock = () => performance.now(),
   maxSessionMs = 43200000,
   requestTimeoutMs = 3000,
@@ -195,6 +197,7 @@ export function createEventWorker({
         const lease = await request("acquireSession");
         acceptLease(lease, sent);
         config = lease.configuration;
+        validateConfiguration(config);
         outputConfiguration = JSON.stringify({
           outputId: config.outputId,
           outputs: config.outputs,
@@ -266,6 +269,7 @@ export function createEventWorker({
         const fresh = await request("refreshConfiguration");
         if (!fresh.granted) throw Error("Configuration authority denied");
         config = fresh.configuration;
+        validateConfiguration(config);
         serverTime = fresh.serverNow;
         sampledAt = clock();
         if (config.stopped) {
@@ -414,6 +418,10 @@ export async function runEventWorker({
     maxSessionMs > 86400000
   )
     throw Error("Invalid runtime bound");
+  const validateConfiguration = createManagedAllocationValidator({
+    expected: JSON.parse(env.VRDEX_EVENT_MEDIA_ALLOCATION_SNAPSHOT_JSON ?? 'null'),
+    metadata: await readTaskMetadata({uri:env.ECS_CONTAINER_METADATA_URI_V4}),
+  });
   const relay = await createSourceRelay({
     operatorEndpoints: JSON.parse(
       env.VRDEX_EVENT_MEDIA_SOURCE_ENDPOINTS_JSON ?? "[]",
@@ -435,6 +443,7 @@ export async function runEventWorker({
       createProgramRenderer({ ...options, onError: () => void worker?.stop() }),
     createOutputs: (options) => createOutputs({ ...options, env }),
     maxSessionMs,
+    validateConfiguration,
     checkEnabled: () =>
       checkHostedEnabled({
         parameter: env.VRDEX_RESTREAM_KILL_SWITCH_SSM_PARAMETER,

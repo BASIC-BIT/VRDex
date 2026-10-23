@@ -245,3 +245,19 @@ The current host tests used a separately prepared pinned CPython 3.12 research
 environment; no production code depends on it. Fixtures generate their own
 verified CA/SAN and audible synthetic media. See
 [fixture recipes and preserved negative research](tests/fixtures/README.md).
+
+
+## Immutable allocation and exact-image proofs
+
+Managed event workers require `VRDEX_EVENT_MEDIA_ALLOCATION_SNAPSHOT_JSON` from
+the dispatcher and ECS v4 metadata. Startup compares task vCPU and memory, container
+CPU units and memory, and the authenticated session's allocation, media settings
+and destination snapshot before publication. Every configuration refresh retains
+that same snapshot. Allocation changes apply only to a new session.
+
+`packaging-manifest.json` is the explicit source/proof list used by installation
+and image provenance checks. The server-only `broadcast-capacity.mjs` map is
+excluded. The `packaged-files` Docker target exports actual `/app` files and
+`/opt/twitch` for independent comparison without a local inspection container.
+See [quality and capacity](../../docs/engineering/event-broadcast-quality-capacity.md)
+for benchmark commands, acceptance gates and candidate evidence status.
