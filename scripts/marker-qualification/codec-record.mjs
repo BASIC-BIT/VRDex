@@ -1,15 +1,16 @@
 import { createHash } from 'node:crypto';
-import { probe,packetFacts,decodeMediaMarkerRecord } from '../event-capacity-media.mjs';
+import { probe,decodeMediaMarkerRecord } from '../event-capacity-media.mjs';
 import { decodeMarkerVisuals } from '../event-marker-record.mjs';
 import { referenceDetector } from './detector-reference.mjs';
-import { assertEncodedFormat,assertDecodedCoverage } from './media-facts.mjs';
+import { assertEncodedFormat,assertDecodedCoverage,strictPacketFacts } from './media-facts.mjs';
 import { VIDEO_PROFILES } from '../../workers/restream/broadcast-profiles.mjs';
 /** Decode exactly once; independent RMS detector sees the same original bytes
  * before classifier bounds can reject a fully captured long episode. */
-export async function readQualificationRecording(owner,file,{settings,path,frames,samples,activeBitrate=false,allowEpisodeBound=false},io={probe,packetFacts,decodeMediaMarkerRecord}) {
+export async function readQualificationRecording(owner,file,{settings,path,frames,samples,activeBitrate=false,allowEpisodeBound=false},io={}) {
+ io={probe,decodeMediaMarkerRecord,...io};
  const completed=[];let prerequisite='probe_complete';
  try {
- const info=await io.probe(owner,file),packets=await io.packetFacts(owner,file);completed.push(prerequisite);prerequisite='declared_format_valid';
+ const info=await io.probe(owner,file),packets=await strictPacketFacts(owner,file,info);completed.push(prerequisite);prerequisite='declared_format_valid';
  const format=assertEncodedFormat(info,packets,settings,path,activeBitrate),profile=VIDEO_PROFILES[settings.videoPreset];completed.push(prerequisite);prerequisite='decode_complete';
  let observation,record,classificationFailure,material;
  try {

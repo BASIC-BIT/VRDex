@@ -30,8 +30,8 @@ export async function executeAssociation(invocation,{owner,store,io=defaults,clo
    for(let at=0;at<scene.samples;at+=1024)sourceRows.push({index:sourceRows.length,pts:at,samples:Math.min(1024,scene.samples-at)});
    const reference=referenceDetector(stereoMono(pcm),sourceRows);
    await store.write(`${prefix}-source.pcm`,pcm,3145728);prerequisites.source_baseline_complete='pass';stage='encode_complete';
-   const programName=`${prefix}-program.ts`,program=await io.encodeProgram(owner,{settings,frames:submitted.replayFrames(),pcm:submitted.pcm,path:store.path(programName),maxBytes:3145728,timeoutMs:20000});await store.adopt(programName,3145728);
-   const twitchName=`${prefix}-twitch.flv`,twitch=await io.encodeTwitch(owner,{settings,program:program.bytes,path:store.path(twitchName),maxBytes:3145728,timeoutMs:20000});await store.adopt(twitchName,3145728);
+   const programName=`${prefix}-program.ts`,program=await io.encodeProgram(owner,{settings,frames:submitted.replayFrames(),pcm:submitted.pcm,path:store.path(programName),maxBytes:Math.min(3145728,store.remainingBytes??3145728),timeoutMs:20000});await store.adopt(programName,3145728);
+   const twitchName=`${prefix}-twitch.flv`,twitch=await io.encodeTwitch(owner,{settings,program:program.bytes,path:store.path(twitchName),maxBytes:Math.min(3145728,store.remainingBytes??3145728),timeoutMs:20000});await store.adopt(twitchName,3145728);
    prerequisites.encode_complete='pass';
    const observations=[];
    for(const [offset,path,file,builder] of [[0,'program',programName,program],[1,'program_twitch',twitchName,twitch]]) {
@@ -54,12 +54,12 @@ export async function executeAssociation(invocation,{owner,store,io=defaults,clo
    if(bytes.length>8388608)throw Error('byte_cap');
    const compressed=gzipSync(bytes,{level:6});numericBytes+=compressed.length;
    if(numericBytes>262144||store.total-startBytes+compressed.length>33554432)throw Error('byte_cap');
-   await store.write(`${prefix}-observation.json.gz`,compressed,262144);
+   const artifact=await store.write(`${prefix}-observation.json.gz`,compressed,262144);for(const result of pending)result.observation=artifact;
    if(expired||clock()-began>=20000)throw Error('timeout');
    results.push(...pending);
   }catch(error) {
    stage=applyDecodeStageFailure(prerequisites,error,stage);const timeout=expired||clock()-began>=20000;
-   const reason=timeout?'timeout':['byte_cap','sha_mismatch','source_failure','encode_failure','probe_failure','format_failure','decode_failure','coverage_failure'].includes(error.message)?error.message:stage==='source_constructed'||stage==='source_baseline_complete'?'source_failure':stage==='encode_complete'?'encode_failure':'decode_failure';
+   const reason=timeout?'timeout':error.message==='invocation_byte_cap'?'byte_cap':['byte_cap','sha_mismatch','source_failure','encode_failure','probe_failure','format_failure','decode_failure','coverage_failure'].includes(error.message)?error.message:stage==='source_constructed'||stage==='source_baseline_complete'?'source_failure':stage==='encode_complete'?'encode_failure':'decode_failure';
    results.push(...incomplete(rows,first,prerequisites,reason));stopped ||= timeout;
   }finally{clearTimeout(timer);}
  }

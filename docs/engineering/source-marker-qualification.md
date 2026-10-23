@@ -110,13 +110,27 @@ must satisfy their own gates; no source-baseline failure becomes a semantic pass
 Each result requires successful construction, complete source baseline, encoding,
 probing, exact format, complete decode/coverage, original artifact SHA binding and
 physical child closure. An expected semantic negative can pass only after all
-nine prerequisites. Timeout, missing bytes or wrong format is incomplete. Every
+nine prerequisites. Timeout, missing bytes or wrong format is incomplete.
+The qualification packet adapter accounts for every declared packet, original
+integer PTS/DTS, per-stream order and byte totals before marking the probe stage
+complete. It never drops a malformed packet through the legacy helper.
+Persisted codec rows retain all nine actual prerequisite states and point to
+full SHA-bound original observations. Union validation reloads those bounded
+lossless observations and re-evaluates the canonical classifier, whole-scene or
+bridge contract; it does not trust a saved PASS or its summary facts. Literal
+rows explicitly mark codec prerequisites as not applicable.
+ Every
 unrun/failed case remains in its exact result shard; duplicate, missing, changed
 or overlapping shards fail the union. Each shard has at most256 cases/256KiB,
 each case at most512 bytes of summarized facts. Complete scene observations are
 losslessly gzip-compressed alongside the original source PCM and encoded media;
-compressed observation bytes remain subject to the frozen262144-byte invocation
-numeric cap. Artifact/CPU/deadline feasibility is unproved until actual execution.
+compressed observation bytes and all final result shards together remain
+subject to the frozen262144-byte invocation numeric cap. A65536-byte failure
+reserve sits inside both numeric and aggregate invocation caps. Source, decode
+and result files are accounted together; an overrun makes every invocation ID
+incomplete. No episode or original media is removed to make a positive fit.
+Result shards use lossless gzip with the original256-KiB decompressed limit,
+and retrieval validates actual compressed bytes/SHA before bounded decoding. Artifact/CPU/deadline feasibility is unproved until actual execution.
 
 Root runs only `canary-000` first, with its four frozen representative trains.
 Bulk groups require the same image/source/plan/contract pins and a complete

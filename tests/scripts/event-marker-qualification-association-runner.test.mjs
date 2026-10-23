@@ -9,3 +9,9 @@ test('association source failure preserves all eight original IDs as incomplete 
  assert(results.every(r=>r.status==='incomplete'&&r.prerequisites.source_constructed==='fail'));
  assert.deepEqual(calls,['noise','noise','noise','noise']);
 });
+
+test('association budget failure retains every context ID as incomplete',async()=>{
+ const invocation=enumerateQualification().invocations.find(i=>i.kind==='association');
+ const results=await executeAssociation(invocation,{owner:{},store:{total:0},io:{generateNoise:async()=>{throw Error('invocation_byte_cap');}}});
+ assert.equal(results.length,8);assert(results.every(r=>r.status==='incomplete'&&r.reason==='byte_cap'&&r.prerequisites.source_constructed==='fail'));
+});
