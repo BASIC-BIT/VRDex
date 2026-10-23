@@ -16,6 +16,7 @@ export class LatestMediaBuffer {
     this.frameIndex = -1;
     this.frameCount = 0;
     this.partial = Buffer.alloc(0);
+    this.partialStorage = undefined;
     this.receivedFrames = 0;
     this.videoTimes = new Map();
     this.lastVideoMetadataIndex = -1;
@@ -34,6 +35,7 @@ export class LatestMediaBuffer {
     this.frame = undefined;
     this.framePts = undefined;
     this.partial = this.pcm = this.audioPartial = Buffer.alloc(0);
+    this.partialStorage = undefined;
     this.videoTimes.clear();
     this.audioTimes = [];
     this.audioCursor = undefined;
@@ -64,6 +66,7 @@ export class LatestMediaBuffer {
       this.audioCursor = undefined;
     this.frame = this.partial;
     this.partial = Buffer.alloc(0);
+    this.partialStorage = undefined;
     this.framePts = pts;
     this.frameIndex = index;
     this.frameCount++;
@@ -76,16 +79,16 @@ export class LatestMediaBuffer {
       frames = 0;
     while (offset < chunk.length) {
       // A superseded unmatched complete frame occupies the partial slot only.
-      if (this.partial.length === this.frameBytes)
+      if (this.partial.length === this.frameBytes) {
         this.partial = Buffer.alloc(0);
-      const bytes = Math.min(
-        this.frameBytes - this.partial.length,
-        chunk.length - offset,
-      );
-      this.partial = Buffer.concat([
-        this.partial,
-        chunk.subarray(offset, offset + bytes),
-      ]);
+        this.partialStorage = undefined;
+      }
+      // One fresh backing per pending frame; published views may still be queued.
+      this.partialStorage ??= Buffer.alloc(this.frameBytes);
+      const filled = this.partial.length;
+      const bytes = Math.min(this.frameBytes - filled, chunk.length - offset);
+      this.partialStorage.set(chunk.subarray(offset, offset + bytes), filled);
+      this.partial = this.partialStorage.subarray(0, filled + bytes);
       offset += bytes;
       if (this.partial.length === this.frameBytes) {
         this.receivedFrames++;

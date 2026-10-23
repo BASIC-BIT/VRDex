@@ -76,8 +76,8 @@ start, jitter, ads, fresh resolution after 403, deadlines and cancellation.
 Named outcomes must include no skipped or expected-failure required tests. The
 same nine Node acquisition-owner regressions run with built-in type stripping,
 including TERM-ignoring descendants, leader exit, retries and failed cleanup.
-The image also runs 22 renderer, 33 timestamp/PCM and 13 encoder/output-contract
-tests: 77 required Node outcomes in total. The timing tests include real FFmpeg conversion of 44.1-kHz
+The image also runs 22 renderer, 45 timestamp/PCM/assembler and 13 encoder/output-contract
+tests: 89 required Node outcomes in total. The timing tests include real FFmpeg conversion of 44.1-kHz
 mono input to timestamped stereo 48-kHz PCM and a prewarmed 30-fps source rendered
 as a 60-fps stereo program with measured markers. The buffered-start regression
 uses production decoder pacing, and a separate 60-to-30 startup case checks every
@@ -87,6 +87,25 @@ proof deadline; the transport envelope remains unchanged.
 Public receipts retain bounded typed acquisition reasons and separate decoder
 readiness. `realAdMarkersObserved` means an actual public HLS `ad_wait` state;
 `realAdPlaybackObserved` remains false unless decoded ad playback is verified.
+
+## Raw video assembly ownership
+
+Each pending decoded frame uses one fresh initialized frame-sized backing.
+Incoming slices copy once at the filled offset; `partial.length` exposes only
+received bytes. Publication transfers that backing to the matched frame and
+clears pending ownership. Supersession, reset and timing failure also clear the
+pending reference without modifying retained views. The buffer internally owns
+at most two nonempty frame backings: the matched frame and one pending frame.
+Asynchronous encoder writes can retain older published frames under the existing
+writer queue bounds, so published storage is never recycled.
+
+Twelve child-free assembler regressions cover split and multiple frames,
+Buffer/Uint8Array ownership, metadata ordering and its 128-entry cap, immutable
+retained views, reset/failure and nested publication errors. The repair removes
+repeated-prefix copying; it does not establish a runtime speedup or passing
+1080p60 allocation. The preserved Ruling 31 concat-byte inference describes the
+old pinned implementation and cannot measure this assembler unchanged. Exact-image
+media and capacity checks remain required under the existing gates.
 
 ## Evidence and cleanup
 

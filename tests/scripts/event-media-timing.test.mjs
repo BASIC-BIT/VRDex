@@ -20,6 +20,288 @@ function audio(b, index, time, samples, start) {
 function left(b) {
   return Array.from({ length: b.length / 4 }, (_, i) => b.readInt16LE(i * 4));
 }
+test("video assembler keeps one backing while one byte chunks grow the filled prefix", () => {
+  const b = new LatestMediaBuffer(8);
+  assert.equal(b.partialStorage, undefined);
+  assert.equal(b.video(Buffer.alloc(0)), 0);
+  assert.equal(b.partialStorage, undefined);
+  b.videoTimestamp(0, 9000);
+  assert.equal(b.video(Buffer.from([1])), 0);
+  const first = b.partial;
+  for (let value = 2; value <= 8; value++) {
+    assert.equal(b.video(Buffer.from([value])), value === 8 ? 1 : 0);
+    const current = value === 8 ? b.frame : b.partial;
+    assert.equal(current.buffer === first.buffer, true);
+    assert.equal(current.byteOffset, first.byteOffset);
+    assert.equal(current.length, value);
+    assert.deepEqual(
+      [...current],
+      Array.from({ length: value }, (_, i) => i + 1),
+    );
+    assert.deepEqual([...first], [1]);
+  }
+  assert.equal(b.partialStorage, undefined);
+  assert.equal(b.partial.length, 0);
+  assert.equal(b.frameIndex, 0);
+  assert.equal(b.framePts, 9000);
+  assert.equal(b.receivedFrames, 1);
+  assert.equal(b.frameCount, 1);
+});
+test("video assembler copies Buffer and Uint8Array source slices without retaining mutable input", () => {
+  const b = new LatestMediaBuffer(8);
+  const source = Uint8Array.from([99, 1, 2, 3, 4, 99]);
+  b.video(source.subarray(1, 5));
+  const first = b.partial;
+  source.fill(0);
+  assert.deepEqual([...first], [1, 2, 3, 4]);
+  const suffix = Buffer.from([5, 6, 7, 8]);
+  assert.equal(b.video(suffix), 1);
+  suffix.fill(0);
+  assert.equal(b.partial.buffer === first.buffer, true);
+  assert.equal(b.partial.byteOffset, first.byteOffset);
+  assert.deepEqual([...b.partial], [1, 2, 3, 4, 5, 6, 7, 8]);
+  assert.equal(b.frame, undefined);
+  b.videoTimestamp(0, 1500);
+  assert.deepEqual([...b.frame], [1, 2, 3, 4, 5, 6, 7, 8]);
+  assert.equal(b.partialStorage, undefined);
+});
+test("video assembler publishes every complete frame in a multi frame chunk and retains its tail", () => {
+  const b = new LatestMediaBuffer(4);
+  for (let i = 0; i < 4; i++) b.videoTimestamp(i, i * 1500);
+  const published = [];
+  const publish = b.publishFrame;
+  b.publishFrame = function () {
+    const previous = this.frameCount;
+    const result = Reflect.apply(publish, this, []);
+    if (this.frameCount > previous) published.push(this.frame);
+    return result;
+  };
+  const input = Buffer.from(Array.from({ length: 14 }, (_, i) => i + 1));
+  assert.equal(b.video(input), 3);
+  input.fill(0);
+  assert.deepEqual(
+    published.map((f) => [...f]),
+    [
+      [1, 2, 3, 4],
+      [5, 6, 7, 8],
+      [9, 10, 11, 12],
+    ],
+  );
+  assert.equal(new Set(published.map((f) => f.buffer)).size, 3);
+  assert.deepEqual([...b.partial], [13, 14]);
+  assert.equal(b.partialStorage.byteLength, 4);
+  assert.equal(b.partialStorage.buffer !== b.frame.buffer, true);
+  assert.equal(b.receivedFrames, 3);
+  assert.equal(b.frameCount, 3);
+  assert.equal(b.frameIndex, 2);
+  assert.deepEqual([...b.videoTimes.keys()], [3]);
+  assert.equal(b.video(Uint8Array.from([15, 16])), 1);
+  assert.deepEqual([...b.frame], [13, 14, 15, 16]);
+  assert.equal(b.partialStorage, undefined);
+  assert.equal(b.frameCount, 4);
+  assert.equal(b.videoTimes.size, 0);
+});
+test("video assembler retains an unmatched complete frame through empty input and late metadata", () => {
+  const b = new LatestMediaBuffer(4);
+  assert.equal(b.video(Buffer.from([1, 2, 3, 4])), 1);
+  const pending = b.partial;
+  assert.equal(b.partialStorage.buffer === pending.buffer, true);
+  assert.equal(b.video(Buffer.alloc(0)), 0);
+  assert.equal(b.partial, pending);
+  assert.equal(b.frameCount, 0);
+  b.videoTimestamp(0, 3000);
+  assert.equal(b.frame, pending);
+  assert.equal(b.partialStorage, undefined);
+  assert.equal(b.partial.length, 0);
+  assert.equal(b.frameCount, 1);
+  assert.equal(b.receivedFrames, 1);
+});
+test("video assembler supersedes unmatched storage without late promotion or mutating old views", () => {
+  const b = new LatestMediaBuffer(4);
+  b.videoTimestamp(0, 0);
+  b.video(Buffer.from([1, 2, 3, 4]));
+  const matched = b.frame;
+  b.video(Buffer.from([5, 6, 7, 8]));
+  const discarded = b.partial;
+  b.video(Buffer.from([9, 10]));
+  assert.equal(b.partial.buffer !== discarded.buffer, true);
+  assert.equal(b.partial.buffer !== matched.buffer, true);
+  b.video(Buffer.from([11, 12]));
+  assert.equal(b.receivedFrames, 3);
+  b.videoTimestamp(1, 1500);
+  assert.equal(b.frame, matched);
+  assert.equal(b.videoTimes.size, 0);
+  b.videoTimestamp(2, 3000);
+  assert.deepEqual([...b.frame], [9, 10, 11, 12]);
+  assert.deepEqual([...discarded], [5, 6, 7, 8]);
+  assert.deepEqual([...matched], [1, 2, 3, 4]);
+  assert.equal(b.frameCount, 2);
+  assert.equal(b.partialStorage, undefined);
+});
+test("video assembler reset releases matched and pending storage without modifying retained views", () => {
+  const b = new LatestMediaBuffer(4);
+  b.videoTimestamp(0, 0);
+  b.video(Buffer.from([1, 2, 3, 4]));
+  const matched = b.frame;
+  b.video(Buffer.from([5, 6]));
+  const partial = b.partial;
+  assert(b.partialStorage);
+  b.reset();
+  assert.equal(b.partialStorage, undefined);
+  assert.equal(b.partial.length, 0);
+  assert.equal(b.frame, undefined);
+  assert.equal(b.receivedFrames, 0);
+  assert.equal(b.frameCount, 0);
+  assert.equal(b.frameIndex, -1);
+  assert.equal(b.lastVideoMetadataIndex, -1);
+  b.videoTimestamp(0, 4500);
+  b.video(Buffer.from([7, 8, 9, 10]));
+  assert.deepEqual([...b.frame], [7, 8, 9, 10]);
+  assert.equal(b.frame.buffer !== partial.buffer, true);
+  assert.equal(b.frame.buffer !== matched.buffer, true);
+  assert.deepEqual([...partial], [5, 6]);
+  assert.deepEqual([...matched], [1, 2, 3, 4]);
+});
+test("video assembler timing failure clears backing but preserves its distinct counter semantics", () => {
+  const b = new LatestMediaBuffer(4);
+  b.videoTimestamp(0, 3000);
+  b.video(Buffer.from([1, 2, 3, 4]));
+  const matched = b.frame;
+  b.video(Buffer.from([5, 6]));
+  const partial = b.partial;
+  assert(b.partialStorage);
+  b.audioCursor = 800;
+  b.failTiming();
+  assert.equal(b.timingFailed, true);
+  assert.equal(b.partialStorage, undefined);
+  assert.equal(b.partial.length, 0);
+  assert.equal(b.frame, undefined);
+  assert.equal(b.framePts, undefined);
+  assert.equal(b.audioCursor, undefined);
+  assert.equal(b.receivedFrames, 1);
+  assert.equal(b.frameCount, 1);
+  assert.equal(b.frameIndex, 0);
+  assert.equal(b.lastVideoMetadataIndex, 0);
+  assert.equal(b.video(Buffer.alloc(8, 99)), 0);
+  assert.equal(b.partialStorage, undefined);
+  assert.deepEqual([...partial], [5, 6]);
+  assert.deepEqual([...matched], [1, 2, 3, 4]);
+  b.reset();
+  b.videoTimestamp(0, 0);
+  assert.equal(b.video(Buffer.from([7, 8, 9, 10])), 1);
+  assert.deepEqual([...b.frame], [7, 8, 9, 10]);
+});
+test("video assembler metadata cap stays at 128 and clears a pending backing on overflow", () => {
+  const b = new LatestMediaBuffer(4);
+  for (let i = 0; i < 128; i++) b.videoTimestamp(i, i * 1500);
+  assert.equal(b.videoTimes.size, 128);
+  assert.equal(b.timingFailed, false);
+  b.video(Buffer.from([1, 2]));
+  const partial = b.partial;
+  assert(b.partialStorage);
+  b.videoTimestamp(128, 128 * 1500);
+  assert.equal(b.timingFailed, true);
+  assert.equal(b.videoTimes.size, 0);
+  assert.equal(b.partialStorage, undefined);
+  assert.equal(b.partial.length, 0);
+  assert.equal(b.lastVideoMetadataIndex, 128);
+  assert.equal(b.receivedFrames, 0);
+  assert.equal(b.video(Buffer.from([3, 4])), 0);
+  assert.deepEqual([...partial], [1, 2]);
+});
+test("video assembler preserves audio cursor on forward PTS and invalidates only a regression", () => {
+  const b = new LatestMediaBuffer(6);
+  frame(b, 0, 0.1, 1);
+  const first = b.frame;
+  b.audioCursor = 4800;
+  frame(b, 1, 0.3, 2);
+  assert.equal(b.audioCursor, 4800);
+  const second = b.frame;
+  frame(b, 2, 0.2, 3);
+  assert.equal(b.audioCursor, undefined);
+  assert.equal(b.framePts, 18000);
+  assert.equal(b.frameIndex, 2);
+  assert.equal(b.frameCount, 3);
+  assert.equal(b.partialStorage, undefined);
+  assert.equal(new Set([first.buffer, second.buffer, b.frame.buffer]).size, 3);
+  assert.deepEqual([...first], Array(6).fill(1));
+  assert.deepEqual([...second], Array(6).fill(2));
+});
+test("video assembler propagates publication failure before transfer with a consistent pending frame", () => {
+  const b = new LatestMediaBuffer(4);
+  b.videoTimestamp(0, 1500);
+  const publish = b.publishFrame;
+  const failure = new Error("synthetic publication failure");
+  b.publishFrame = () => {
+    throw failure;
+  };
+  assert.throws(
+    () => b.video(Buffer.from([1, 2, 3, 4])),
+    (e) => e === failure,
+  );
+  const pending = b.partial;
+  assert.equal(b.partialStorage.buffer === pending.buffer, true);
+  assert.equal(b.receivedFrames, 1);
+  assert.equal(b.frameCount, 0);
+  assert.equal(b.videoTimes.get(0), 1500);
+  assert.equal(b.frame, undefined);
+  Reflect.apply(publish, b, []);
+  assert.equal(b.frame, pending);
+  assert.equal(b.partialStorage, undefined);
+  assert.equal(b.frameCount, 1);
+});
+test("video assembler propagates observer failure after transfer without reusing the published backing", () => {
+  const b = new LatestMediaBuffer(4);
+  b.videoTimestamp(0, 1500);
+  const publish = b.publishFrame;
+  const failure = new Error("synthetic observer failure");
+  b.publishFrame = function () {
+    Reflect.apply(publish, this, []);
+    throw failure;
+  };
+  assert.throws(
+    () => b.video(Buffer.from([1, 2, 3, 4])),
+    (e) => e === failure,
+  );
+  const published = b.frame;
+  assert.equal(b.partialStorage, undefined);
+  assert.equal(b.partial.length, 0);
+  assert.equal(b.frameCount, 1);
+  assert.equal(b.receivedFrames, 1);
+  b.publishFrame = publish;
+  b.videoTimestamp(1, 3000);
+  b.video(Buffer.from([5, 6, 7, 8]));
+  assert.equal(b.frame.buffer !== published.buffer, true);
+  assert.deepEqual([...published], [1, 2, 3, 4]);
+});
+test("video assembler keeps retained asynchronous writer frames immutable across later input and reset", async () => {
+  const b = new LatestMediaBuffer(4);
+  const writes = [];
+  const completion = [];
+  for (let index = 0; index < 4; index++) {
+    b.videoTimestamp(0, index * 1500);
+    b.video(Buffer.alloc(4, index + 1));
+    const published = b.frame;
+    writes.push(published);
+    completion.push(
+      Promise.resolve().then(() =>
+        assert.deepEqual([...published], Array(4).fill(index + 1)),
+      ),
+    );
+    b.video(Buffer.from([index + 10]));
+    assert.equal(b.partial.buffer !== published.buffer, true);
+    assert.equal(
+      new Set([b.frame.buffer, b.partial.buffer, b.partialStorage.buffer]).size,
+      2,
+    );
+    // Reset discards internal ownership; queued writes still retain their bytes.
+    b.reset();
+  }
+  await Promise.all(completion);
+  assert.equal(new Set(writes.map((f) => f.buffer)).size, 4);
+  writes.forEach((f, i) => assert.deepEqual([...f], Array(4).fill(i + 1)));
+  assert.equal(b.partialStorage, undefined);
+});
 test("measured prewarm backlog anchors audio to video rather than oldest retained PCM", () => {
   const b = new LatestMediaBuffer(6);
   frame(b, 0, 0.15);
