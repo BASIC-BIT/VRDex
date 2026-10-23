@@ -4,6 +4,29 @@ import { normalizeProfileInlineText } from "./_profileSubmissions";
 import { safeHttpsUrl } from "./_publicFields";
 import { parseVrcdnStreamLinks } from "./_vrcdnLinks";
 
+export const videoPresetValidator = v.union(
+  v.literal("480p30"), v.literal("480p60"),
+  v.literal("720p30"), v.literal("720p60"),
+  v.literal("1080p30"), v.literal("1080p60"),
+);
+export const mediaSettingsValidator = v.object({
+  videoPreset: videoPresetValidator,
+  audioBitrateKbps: v.union(v.literal(160), v.literal(320)),
+});
+export const destinationProfileValidator = v.object({
+  videoPreset: videoPresetValidator,
+  width: v.number(), height: v.number(), frameRate: v.number(),
+  videoBitrateKbps: v.number(),
+  audioBitrateKbps: v.union(v.literal(160), v.literal(320)),
+  audioChannels: v.number(), audioSampleRateHz: v.number(),
+  keyframeIntervalSeconds: v.number(),
+});
+export const sessionDestinationProfilesValidator = v.array(v.object({
+  outputId: v.id("eventMediaOutputs"),
+  destination: v.union(v.literal("vrcdn"), v.literal("twitch")),
+  profile: destinationProfileValidator,
+}));
+
 const CONTROL_KEY_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const CONTROL_NOTE_MAX_LENGTH = 500;
 const LINK_LABEL_MAX_LENGTH = 80;

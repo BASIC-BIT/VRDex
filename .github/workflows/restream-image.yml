@@ -81,7 +81,7 @@ jobs:
 
           # Hash only fixed packaged paths on the runner, never inside the image.
           sources=(
-            workers/restream/{hosted-worker,live-control,vrcdn-poc,output-sender,event-worker,source-relay,handoff-policy,input-supervisor,program-renderer}.mjs
+            workers/restream/{hosted-worker,live-control,vrcdn-poc,output-sender,event-worker,source-relay,handoff-policy,input-supervisor,program-renderer,broadcast-profiles}.mjs
             scripts/{event-output-local-proof,event-proof-metrics,event-vrcdn-rehearsal,event-proof-runner}.mjs
           )
           for source in "${sources[@]}"; do

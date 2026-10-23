@@ -2,19 +2,27 @@ import { spawn } from 'node:child_process';
 import { performance } from 'node:perf_hooks';
 import { createInterface } from 'node:readline';
 import { createInputSupervisor } from './input-supervisor.mjs';
-export const QUALITY_PROFILES = {
-    '1080p60': { width: 1920, height: 1080, frameRate: 60, videoBitrateKbps: 3500 },
-    '1080p30': { width: 1920, height: 1080, frameRate: 30, videoBitrateKbps: 3000 },
-    '720p60': { width: 1280, height: 720, frameRate: 60, videoBitrateKbps: 2500 },
-    '720p30': { width: 1280, height: 720, frameRate: 30, videoBitrateKbps: 1800 },
-};
+export { VIDEO_PROFILES as QUALITY_PROFILES } from './broadcast-profiles.mjs';
+import { VIDEO_PROFILES as QUALITY_PROFILES, parseMediaSettings } from './broadcast-profiles.mjs';
+/** Production encoder arguments, also usable by the offline format proof.
+ * Raw video and PCM enter descriptors 3/4; encoded MPEGTS leaves stdout.
+ * @param {import('./broadcast-profiles.mjs').MediaSettings} settings
+ */
+export function programEncoderArguments(settings) {
+    const parsed = parseMediaSettings(settings);
+    const profile = QUALITY_PROFILES[parsed.videoPreset];
+    return ['-hide_banner', '-loglevel', 'error', '-nostdin', '-stats_period', '0.25', '-progress', 'pipe:5',
+        '-thread_queue_size', '4', '-f', 'rawvideo', '-pixel_format', 'yuv420p', '-video_size', `${profile.width}x${profile.height}`, '-framerate', String(profile.frameRate), '-i', 'pipe:3',
+        '-thread_queue_size', '4', '-probesize', '32', '-analyzeduration', '0', '-f', 's16le', '-ar', '48000', '-ac', '2', '-i', 'pipe:4',
+        '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'libx264', '-threads', '2', '-preset', 'veryfast', '-tune', 'zerolatency', '-g', String(profile.frameRate), '-keyint_min', String(profile.frameRate), '-sc_threshold', '0', '-bf', '0', '-x264-params', 'nal-hrd=cbr:force-cfr=1', '-b:v', `${profile.videoBitrateKbps}k`, '-minrate', `${profile.videoBitrateKbps}k`, '-maxrate', `${profile.videoBitrateKbps}k`, '-bufsize', `${profile.videoBitrateKbps * 2}k`,
+        '-c:a', 'aac', '-b:a', `${parsed.audioBitrateKbps}k`, '-ar', '48000', '-ac', '2', '-mpegts_flags', '+resend_headers', '-muxdelay', '0', '-f', 'mpegts', 'pipe:1'];
+}
 /** Stable encoder; subscribe receives MPEG-TS chunks synchronously and MUST NOT block.
  * Destination senders own their bounded queues; this module never waits on them.
  */
-export function createProgramRenderer({ quality = '720p30', onProgress = () => { }, onObservation = () => { }, onError = () => { }, ffmpeg = 'ffmpeg', silenceThresholdDb, clock = () => performance.now() } = {}) {
-    const profile = QUALITY_PROFILES[quality];
-    if (!profile)
-        throw new Error('Unsupported quality');
+export function createProgramRenderer({ quality = '720p30', audioBitrateKbps = 160, onProgress = () => { }, onObservation = () => { }, onError = () => { }, ffmpeg = 'ffmpeg', silenceThresholdDb, clock = () => performance.now() } = {}) {
+    const settings = parseMediaSettings({videoPreset: quality, audioBitrateKbps});
+    const profile = QUALITY_PROFILES[settings.videoPreset];
     const inputs = new Map(), subscribers = new Set(), acknowledgements = new RenderAcknowledgements();
     let reconcileQueue = Promise.resolve(), stopped = false;
     let child, timer, running = false, selected, submittedSlotKey, submittedSourceId, renderedSlotKey, renderedSourceId, startedAt, ticks = 0, error, outputMs = 0;
@@ -108,11 +116,7 @@ export function createProgramRenderer({ quality = '720p30', onProgress = () => {
                 throw new Error('Renderer cannot restart after stop');
             running = true;
             startedAt = clock();
-            child = spawn(ffmpeg, ['-hide_banner', '-loglevel', 'error', '-nostdin', '-stats_period', '0.25', '-progress', 'pipe:5',
-                '-thread_queue_size', '4', '-f', 'rawvideo', '-pixel_format', 'yuv420p', '-video_size', `${profile.width}x${profile.height}`, '-framerate', String(profile.frameRate), '-i', 'pipe:3',
-                '-thread_queue_size', '4', '-probesize', '32', '-analyzeduration', '0', '-f', 's16le', '-ar', '48000', '-ac', '2', '-i', 'pipe:4',
-                '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'libx264', '-threads', '2', '-preset', 'veryfast', '-tune', 'zerolatency', '-g', String(profile.frameRate), '-keyint_min', String(profile.frameRate), '-sc_threshold', '0', '-bf', '0', '-x264-params', 'nal-hrd=cbr:force-cfr=1', '-b:v', `${profile.videoBitrateKbps}k`, '-minrate', `${profile.videoBitrateKbps}k`, '-maxrate', `${profile.videoBitrateKbps}k`, '-bufsize', `${profile.videoBitrateKbps * 2}k`,
-                '-c:a', 'aac', '-b:a', '160k', '-ar', '48000', '-ac', '2', '-mpegts_flags', '+resend_headers', '-muxdelay', '0', '-f', 'mpegts', 'pipe:1'], { stdio: ['ignore', 'pipe', 'ignore', 'pipe', 'pipe', 'pipe'] });
+            child = spawn(ffmpeg, programEncoderArguments(settings), { stdio: ['ignore', 'pipe', 'ignore', 'pipe', 'pipe', 'pipe'] });
             child.on('error', () => fail('Program encoder failed to start'));
             child.on('close', code => {
                 if (running)

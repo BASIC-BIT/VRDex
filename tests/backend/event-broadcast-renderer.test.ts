@@ -164,3 +164,10 @@ for (const reconnect of [false, true]) {
         assert.equal(input.getObservation().progressing, true);
     });
 }
+test('renderer accepts six video presets and rejects unsupported audio', async () => {
+    const renderer = createProgramRenderer({quality:'480p60',audioBitrateKbps:320});
+    assert.equal(renderer.profile.height,480);
+    assert.equal(renderer.profile.frameRate,60);
+    await renderer.stop();
+    assert.throws(() => createProgramRenderer({audioBitrateKbps:192}), /audio|settings/i);
+});

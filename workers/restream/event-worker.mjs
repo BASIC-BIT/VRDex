@@ -268,7 +268,7 @@ export function createEventWorker({ identity, control, renderer, outputs, create
                 if (!config.outputs.some(output => output.id === config.outputId))
                     throw Error('Selected output unavailable');
                 silenceThresholdDb = config.policy.silence?.thresholdDb;
-                renderer ??= createRenderer({ silenceThresholdDb });
+                renderer ??= createRenderer({ quality: config.mediaSettings?.videoPreset, audioBitrateKbps: config.mediaSettings?.audioBitrateKbps, silenceThresholdDb });
                 outputs ??= await bounded(() => createOutputs({ configuration: config, clock }), requestTimeoutMs);
                 if (stopped) {
                     outputs.stopNow();

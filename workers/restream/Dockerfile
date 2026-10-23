@@ -10,6 +10,7 @@ RUN --mount=type=secret,id=proxy_ca,target=/run/secrets/proxy_ca \
 WORKDIR /app
 
 COPY workers/restream/hosted-worker.mjs \
+     workers/restream/broadcast-profiles.mjs \
      workers/restream/live-control.mjs \
      workers/restream/vrcdn-poc.mjs \
      workers/restream/output-sender.mjs \

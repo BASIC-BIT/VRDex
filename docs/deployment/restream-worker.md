@@ -37,8 +37,8 @@ The stack does not define an ECS service. The minute Lambda schedule starts one 
 ## Runtime Guardrails
 
 The base benchmark task defaults below include a ten-worker benchmark cap. The
-production event bridge overrides that cap to one and uses the 720p30 event
-profile; its 12-hour session bound remains the same.
+production event bridge overrides that cap to one. New sessions snapshot their
+selected event profile; the 12-hour session bound remains the same.
 
 The task definition injects these non-secret values, and the current entrypoint refuses to start unless they are present and syntactically valid:
 
@@ -110,8 +110,9 @@ Running Next, Hold, automatic/manual and source controls remain worker-driven.
 Each invocation uses a unique worker identity, `once: true` and no drain deadline.
 Completion, timeout or function replacement never triggers global media drain.
 Workers retain their own leases, authorization checks, internal SSM emergency
-publication control and 12-hour event-session limit. Production media stays on the
-unchanged reviewed 720p30 image with 4 CPU/8 GiB and admission cap one.
+publication control and 12-hour event-session limit. The currently deployed
+reviewed image uses 720p30 with 4 CPU/8 GiB and admission cap one. Updating that
+image for additional presets requires the separate capacity proofs.
 The emergency switch is an internal operations control, not a host prerequisite.
 Preserve its current value during migration.
 
@@ -817,20 +818,50 @@ H.264/AAC; Twitch independently transcodes for its distinct GOP. Primary progres
 alone determines worker `publishing`,so optional failure never changes VRCDN's process or blocks its writes.
 `stopNow()` is synchronous, terminal and idempotent.
 
-The event CLI's supported local profile is **720p30**, H.264/yuv420p, 1800 kbps
-CBR video, zero B-frames, AAC stereo 160 kbps at 48 kHz. VRCDN uses a one-second
-GOP; `twitch-conservative-720p30` uses a two-second GOP. The renderer uses CBR
-filler even on hold frames. Explicit VRCDN setup settings must match that profile
-or the worker reports `invalid_setup`; omitted settings use the profile. Existing
-renderer benchmark profiles remain available to proofs, but the event CLI does
-not advertise 1080p or 60 fps acceptance. This conservative Twitch profile is an
-engineering choice below the current official 3000 kbps 720p30 example, not a
-claim of provider approval. The official Broadcasting Guidelines were verified
-in a real browser on October 20, 2026: 25/30 fps, two-second keyframes, AAC-LC
-96 kbps compatibility recommendation and 160 kbps maximum. Live ingest and
-playback acceptance remain unverified; see [integration evidence](../engineering/event-broadcast-verification.md). VRCDN's combined bitrate limit is
-not precisely documented; this profile reserves substantial headroom. The existing
-low-latency x264 tune still requires actual AVPro playback verification.
+Event sessions support six H.264/yuv420p presets with zero B-frames:
+
+| Preset | Dimensions | Frame rate | Video bitrate |
+| --- | --- | --- | --- |
+| `480p30` | 854x480 | 30 fps | 1000 kbps |
+| `480p60` | 854x480 | 60 fps | 1500 kbps |
+| `720p30` | 1280x720 | 30 fps | 1800 kbps |
+| `720p60` | 1280x720 | 60 fps | 2500 kbps |
+| `1080p30` | 1920x1080 | 30 fps | 3000 kbps |
+| `1080p60` | 1920x1080 | 60 fps | 3500 kbps |
+
+`broadcast-profiles.mjs` owns these formats. The renderer uses CBR filler even
+on hold frames. VRCDN remuxes the selected program with a one-second GOP and
+AAC stereo at 48 kHz, with either 160 or 320 kbps audio. Newly created media
+programs default to `720p30`/320; rows without stored settings retain
+`720p30`/160. Higher output audio bitrates cannot restore detail lost upstream.
+Explicit VRCDN setup values must match the selected profile or that sender
+reports `invalid_setup`.
+
+Twitch retains the selected video dimensions, frame rate and bitrate, encodes a
+two-second GOP, and uses 160-kbps AAC stereo at 48 kHz regardless of the VRCDN
+audio choice. New Twitch output records use `twitch-selected-video`; the legacy
+`twitch-conservative-720p30` marker remains readable and no longer constrains
+video selection. These are initial encodings. Short local format tests do not
+establish provider acceptance, visual quality, sustained capacity or AVPro
+playback acceptance. Those require the separate capacity/provider proofs before
+merge. VRCDN's combined bitrate limit remains imprecisely documented.
+
+Run `pnpm proof:event-broadcast:formats` serially for the short local format
+proof. It encodes audible independent stereo noise for both audio choices and
+all six presets using the production encoder arguments, runs each destination
+codec path, and uses `ffprobe` plus full decoding to verify dimensions, frame
+rate, channels, sample rate, audio bitrate tolerance and GOP intervals. It runs
+offline and establishes no real-time throughput or provider acceptance.
+
+`eventMediaSettings.configure` requires `manage_event_media`. Settings changes
+apply to the next session, including changes made while a broadcast is on air.
+Session creation stores immutable `mediaSettings`, `destinationProfiles` and
+`controlProtocolVersion: 2`. Worker acquisition and refresh use those snapshots;
+a next-start setting or simulcast checkbox change cannot resize, restart or
+reconfigure an on-air encoder or sender. Publication authority and credentials
+are still checked against current destination grants. Deploy the protocol
+migration only with no active sessions. The control status query exposes program
+settings alongside each session's active settings for the operator console.
 
 `eventMediaWorker.observeOutputs` persists only bounded numeric health and fixed
 statuses under the same session/epoch/lease fence. Authenticated
@@ -916,7 +947,7 @@ deployment-configured account and explicitly opts into simulcast through
 `configureTwitchOutput`. Only account key/channel reach the selector, and malformed
 optional account configuration does not hide primary status or Stop. The view
 displays independent destination health. The
-runtime supports the conservative 720p30 profile documented above. The policy
+runtime uses the session profiles documented above. The policy
 control sets or removes maximum overrun while stopped. Ordinary automatic
 operation uses the effective silence policy without a host calibration toggle.
 

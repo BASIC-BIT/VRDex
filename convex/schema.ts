@@ -1,6 +1,6 @@
 import { broadcastInputValidator } from "./_eventBroadcastSources";
 import { twitchSetupValidator, outputHealthValidator } from './_eventOutputSetup';
-import { observedBroadcastStateValidator } from "./_eventMediaControl";
+import { mediaSettingsValidator, sessionDestinationProfilesValidator, observedBroadcastStateValidator } from "./_eventMediaControl";
 import { clubPermission, clubVisibility, clubSubject } from "./_clubModel";
 import { providerReadParams, providerReadPage } from "./_clubProviderReads";
 import { integrationFeature, storedAuthority } from "./_clubConnection";
@@ -1489,6 +1489,7 @@ export default defineSchema({
     .index("by_candidateId_visibility", ["candidateId", "visibility"])
     .index("by_fieldKey_reviewState", ["fieldKey", "reviewState"]),
   eventMediaPrograms: defineTable({
+    mediaSettings: v.optional(mediaSettingsValidator),
     broadcastPolicy: v.optional(v.object({maxOverrunMs:v.optional(v.number()),silence:v.optional(v.object({thresholdDb:v.number(),durationMs:v.number()}))})),
     eventId: v.id("events"),
     communityProfileId: v.optional(v.id("profiles")),
@@ -1611,6 +1612,9 @@ export default defineSchema({
     .index("by_session_scope_status_sequence", ["sessionId", "eventId", "programId", "status", "sequence", "createdAt"])
     .index("by_program_scope_session_status_createdAt", ["programId", "eventId", "sessionId", "status", "createdAt"]),
   eventMediaSessions: defineTable({
+    mediaSettings: v.optional(mediaSettingsValidator),
+    controlProtocolVersion: v.optional(v.literal(2)),
+    destinationProfiles: v.optional(sessionDestinationProfilesValidator),
     programId: v.id("eventMediaPrograms"),
     eventId: v.id("events"),
     outputId: v.optional(v.id("eventMediaOutputs")),

@@ -259,3 +259,11 @@ test('AWS optional secret boundary scopes the request and suppresses errors', as
     await assert.rejects(() => resolveOptionalOutputSecret({ arn: optionalArn, region: 'us-east-1', run: async () => { throw Error('synthetic-private-key'); } }), /^Error: Optional credential unavailable$/);
     await assert.rejects(() => resolveOptionalOutputSecret({ arn: '*', region: 'us-east-1' }), /Optional credential unavailable/);
 });
+test('Twitch sender retains selected video and destination GOP/audio', async () => {
+    const { resolveDestinationProfile } = await import('../../workers/restream/broadcast-profiles.mjs');
+    const { outputArguments } = await load();
+    const args = outputArguments('twitch', {key:'test',url:'rtmp://live.twitch.tv/app'}, resolveDestinationProfile({settings:{videoPreset:'1080p60',audioBitrateKbps:320},destination:'twitch'}));
+    assert.equal(args[args.indexOf('-vf')+1], 'scale=1920:1080,fps=60');
+    assert.equal(args[args.indexOf('-g')+1], '120');
+    assert.equal(args[args.indexOf('-b:a')+1], '160k');
+});

@@ -42,6 +42,7 @@
     "prelint:markdown": "node scripts/guard-main-worktree.mjs",
     "lint:markdown": "markdownlint-cli2",
     "preproof:restream:ffmpeg": "node scripts/guard-main-worktree.mjs",
+    "proof:event-broadcast:formats": "node --import tsx scripts/event-broadcast-format-proof.ts",
     "proof:restream:ffmpeg": "node scripts/restream-ffmpeg-proof.mjs run",
     "precheck:restream:ffmpeg": "node scripts/guard-main-worktree.mjs",
     "check:restream:ffmpeg": "node scripts/restream-ffmpeg-proof.mjs check",

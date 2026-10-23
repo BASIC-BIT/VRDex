@@ -1,3 +1,4 @@
+import { parseMediaSettings, resolveDestinationProfile } from "../workers/restream/broadcast-profiles.mjs";
 import { eventProfileBroadcastInputChoices, resolveBroadcastInput, broadcastInputPublicUrl, eventMediaSourceWorkerDescriptor } from "./_eventBroadcastSources";
 import { outputHealthValidator, eventOutputIsAuthorized } from './_eventOutputSetup';
 import { canReadProfile } from "./_profilePermissions";
@@ -266,13 +267,14 @@ async function configuration(ctx: MutationCtx, { session, program, event }: NonN
         await ctx.db.patch(session._id, { runtimeDeadlineAt: deadline });
     return {
         programId: program._id, eventId: event._id, outputId: session.outputId,
+        mediaSettings: parseMediaSettings(session.mediaSettings), controlProtocolVersion: session.controlProtocolVersion,
         currentSourceId: session.currentSourceId ?? program.currentSourceId,
         currentSceneId: session.currentSceneId ?? program.currentSceneId,
         sessionDeadline: deadline, stopped: event.eventStatus !== "scheduled" || session.stopRequestedAt !== undefined,
         mode: session.broadcastMode ?? "automatic", policy: effectiveBroadcastPolicy(program.broadcastPolicy), slots,
         sources: sources.filter(s => s.eventId === event._id && s.state !== "disabled" && s.projectionAvailable !== false && (!s.eventSlotId || authored.some(slot => slot._id === s.eventSlotId))).flatMap(source => { const descriptor = eventMediaSourceWorkerDescriptor(source); return descriptor ? [descriptor] : []; }),
         scenes: scenes.filter(s => s.eventId === event._id).map(s => ({ id: s._id, key: s.key, type: s.type, sourceId: s.sourceId })),
-        outputs: outputs.filter(o => o.eventId === event._id && eventOutputIsAuthorized(event, o) && ["ready", "active"].includes(o.state)).map(o => ({ id: o._id, key: o.key, type: o.type, credential: o.credential, vrcdnSetup: o.vrcdnSetup, twitchSetup:o.twitchSetup, simulcastEnabled:o.simulcastEnabled ?? false, compliance: o.compliance })),
+        outputs: outputs.filter(o => o.eventId === event._id && eventOutputIsAuthorized(event, o) && ["ready", "active"].includes(o.state) && (!session.destinationProfiles || session.destinationProfiles.some(d => d.outputId === o._id))).map(o => ({ id: o._id, key: o.key, type: o.type, credential: o.credential, vrcdnSetup: o.vrcdnSetup, twitchSetup: o.twitchSetup, profile: session.destinationProfiles?.find(d => d.outputId === o._id)?.profile ?? resolveDestinationProfile({settings:session.mediaSettings,destination:o.type === "vrcdn" ? "vrcdn" : "twitch"}), simulcastEnabled: session.destinationProfiles ? o._id !== session.outputId : o.simulcastEnabled ?? false, compliance: o.compliance })),
     };
 }
 export const refreshConfiguration = mutation({ args: workerSessionArgs, handler: async (ctx, args) => {
@@ -447,7 +449,7 @@ export const observeOutputs = mutation({args:{...workerSessionArgs,destinations:
  for(const d of args.destinations){
   if(!Number.isFinite(d.outputMs)||d.outputMs<0||!Number.isSafeInteger(d.queueBytes)||d.queueBytes<0||d.queueBytes>524288||!Number.isSafeInteger(d.restarts)||d.restarts<0) throw Error('Invalid output health.');
   const o=await ctx.db.get(d.outputId);
-  if(!o||!eventOutputIsAuthorized(found.event,o)||o.eventId!==args.eventId||o.programId!==found.program._id||!["ready","active"].includes(o.state)||(o._id!==found.session.outputId&&!o.simulcastEnabled)||(d.destination==='twitch'?(o.type!=='external_rtmp'||!o.twitchSetup):(o.type!=='vrcdn'||!!o.twitchSetup))) return {accepted:false};
+  if(!o||!eventOutputIsAuthorized(found.event,o)||o.eventId!==args.eventId||o.programId!==found.program._id||!["ready","active"].includes(o.state)||(found.session.destinationProfiles ? !found.session.destinationProfiles.some(profile=>profile.outputId===o._id && profile.destination===d.destination) : (o._id!==found.session.outputId&&!o.simulcastEnabled))||(d.destination==='twitch'?(o.type!=='external_rtmp'||!o.twitchSetup):(o.type!=='vrcdn'||!!o.twitchSetup))) return {accepted:false};
  }
  await ctx.db.patch(args.sessionId,{outputHealth:args.destinations,outputHealthObservedAt:Date.now()}); return {accepted:true};
 }});

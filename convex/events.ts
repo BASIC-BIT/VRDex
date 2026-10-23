@@ -1,3 +1,4 @@
+import { NEW_PROGRAM_MEDIA_SETTINGS, parseMediaSettings, resolveDestinationProfile } from "../workers/restream/broadcast-profiles.mjs";
 import { broadcastInputValidator, authoredBroadcastInput, eventProfileBroadcastInputChoices, resolveBroadcastInput, broadcastInputPublicUrl, eventMediaSourceBroadcastInput, listUsableEventMediaSources } from "./_eventBroadcastSources";
 import { sanitizeTwitchOutput, getTwitchOutputAccount, listTwitchOutputAccounts, eventOutputIsAuthorized } from './_eventOutputSetup';
 import { EVENT_BROADCAST_MAX_OUTPUTS, validateBroadcastPolicy, allocateSessionCommandSequence, settleTerminalSessionCommands, requireEventMediaBridgeToken } from "./_eventBroadcastInputs";
@@ -1473,6 +1474,7 @@ export async function getOrCreateEventMediaProgram(
   }
 
   return db.insert("eventMediaPrograms", {
+    mediaSettings: NEW_PROGRAM_MEDIA_SETTINGS,
     eventId: event._id,
     ...optionalValue("communityProfileId", event.communityProfileId),
     state: "draft",
@@ -1995,6 +1997,9 @@ export async function reconcileEventMediaScheduleChange(
 
 function workerSessionStatus(session: Doc<"eventMediaSessions">) {
   return {
+    mediaSettings: parseMediaSettings(session.mediaSettings),
+    controlProtocolVersion: session.controlProtocolVersion,
+    destinationProfiles: session.destinationProfiles ?? [],
     currentSourceId: session.currentSourceId,
     programObservedAt: session.programObservedAt,
     lastAcknowledgedSequence: session.lastAcknowledgedSequence,
@@ -2081,7 +2086,7 @@ async function createWorkerBridgeCommandPayload(
       publicLinks: program.publicLinks,
     },
     session: workerSessionStatus(session),
-    optionalOutputs: (await db.query("eventMediaOutputs").withIndex("by_programId_key", q=>q.eq("programId",program._id)).take(9)).filter(o=>o._id!==session.outputId && o.eventId===command.eventId && o.simulcastEnabled===true && event && eventOutputIsAuthorized(event, o) && o.type==="external_rtmp" && o.twitchSetup && ["ready","active"].includes(o.state)).map(o=>workerCommandOutput(o)),
+    optionalOutputs: (await db.query("eventMediaOutputs").withIndex("by_programId_key", q=>q.eq("programId",program._id)).take(9)).filter(o=>o._id!==session.outputId && o.eventId===command.eventId && (session.destinationProfiles ? session.destinationProfiles.some(d=>d.outputId===o._id) : o.simulcastEnabled===true) && event && eventOutputIsAuthorized(event, o) && o.type==="external_rtmp" && o.twitchSetup && ["ready","active"].includes(o.state)).map(o=>workerCommandOutput(o)),
     ...(workerCommandOutput(output) === undefined ? {} : { output: workerCommandOutput(output) }),
   };
 }
@@ -2482,6 +2487,7 @@ export const getEventMediaControlStatus = query({
       outputConfigurationLocked: await eventOutputConfigurationLocked(ctx.db, program),
       program: {
         broadcastPolicy: program.broadcastPolicy,
+        mediaSettings: parseMediaSettings(program.mediaSettings),
         currentSourceId: program.currentSourceId,
         programId: program._id,
         state: program.state,
@@ -3782,10 +3788,22 @@ export const scheduleEventMediaWorker = mutation({
       }
     }
 
+    if (openSession && openSession.outputId !== output._id) {
+      throw new Error("An existing session cannot change its destination.");
+    }
+    const mediaSettings = parseMediaSettings(openSession ? openSession.mediaSettings : program.mediaSettings);
+    const configuredOutputs = await ctx.db.query("eventMediaOutputs").withIndex("by_programId_key", q => q.eq("programId", program._id)).take(9);
+    const destinationProfiles = configuredOutputs.filter(o => o.eventId === event._id && (o._id === output._id || (o.type === "external_rtmp" && o.twitchSetup && o.simulcastEnabled)) && ["ready", "active"].includes(o.state) && eventOutputIsAuthorized(event,o)).map(o => {
+      const destination = o.type === "vrcdn" ? "vrcdn" as const : "twitch" as const;
+      return {outputId:o._id,destination,profile:resolveDestinationProfile({settings:mediaSettings,destination})};
+    });
     const sessionRecord = {
       programId: program._id,
       eventId: event._id,
       outputId: output._id,
+      mediaSettings,
+      controlProtocolVersion: 2 as const,
+      destinationProfiles: openSession?.destinationProfiles ?? destinationProfiles,
       status: "scheduled" as const,
       ...(workerRuntime === undefined ? {} : { workerRuntime }),
       workerProvider: args.workerProvider ?? "aws_ecs",

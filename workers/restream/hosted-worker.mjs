@@ -13,12 +13,7 @@ import {
 } from "./live-control.mjs";
 
 const DEFAULT_QUALITY_GATE = "1080p60";
-const QUALITY_PROFILES = {
-  "1080p60": { width: 1920, height: 1080, frameRate: 60, videoBitrateKbps: 3500 },
-  "1080p30": { width: 1920, height: 1080, frameRate: 30, videoBitrateKbps: 3000 },
-  "720p60": { width: 1280, height: 720, frameRate: 60, videoBitrateKbps: 2500 },
-  "720p30": { width: 1280, height: 720, frameRate: 30, videoBitrateKbps: 1800 },
-};
+import { VIDEO_PROFILES as QUALITY_PROFILES } from './broadcast-profiles.mjs';
 const ALLOWED_BENCHMARK_MODES = new Set(["dry-run", "ecs-fargate"]);
 const ALLOWED_SYNTHETIC_VARIANTS = new Set(["static-transition", "live-control"]);
 const ALLOWED_LIVE_CONTROL_SCHEDULES = new Set(["output-timeline", "wall-clock"]);

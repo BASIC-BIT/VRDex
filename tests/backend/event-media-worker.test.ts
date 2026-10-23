@@ -286,7 +286,7 @@ it('Twitch output setup is private, explicitly enabled, and preserves selected V
  assert.equal(privateStatus.outputs.find((o:any)=>o.outputId===added.outputId)?.simulcastEnabled,true);
  assert.equal(privateStatus.outputs.find((o:any)=>o.outputId===added.outputId)?.twitchSetup?.channel,'example');
  assert.ok(!JSON.stringify(privateStatus).includes('event-media/twitch/owned'));
- assert.equal(config.outputs.find((o:any)=>o.id===added.outputId).twitchSetup.profile,'twitch-conservative-720p30');
+ assert.equal(config.outputs.find((o:any)=>o.id===added.outputId).twitchSetup.profile,'twitch-selected-video');
  await assert.rejects(()=>owner.mutation(ref,{...setup,channel:'https://evil.test/key'}));
 });
 it('destination health is fenced and rejects outputs belonging to another event',async()=>{
