@@ -1001,3 +1001,258 @@ for (const lag of [0, 0.130667])
       JSON.stringify({ lag, avDriftMs: facts.avDriftMs }),
     );
   });
+
+function matrixEpochFixture(destinationOffset = 0) {
+  const selections = [
+    {
+      identity: "a",
+      revision: 1,
+      tick: 127,
+      fps: 30,
+      sourcePts: 7921,
+      carryIn: true,
+      endTick: 247,
+      pulses: [
+        [127, 7921],
+        [156, 93421],
+        [185, 181921],
+        [215, 271921],
+        [245, 361921],
+      ].map(([tick, sourcePts]) => ({ tick, sourcePts })),
+    },
+    {
+      identity: "b",
+      revision: 1,
+      tick: 9264,
+      fps: 30,
+      sourcePts: 27010465,
+      carryIn: false,
+      endTick: 9384,
+      pulses: [
+        [9269, 27026965],
+        [9299, 27115465],
+        [9329, 27205465],
+        [9359, 27295465],
+      ].map(([tick, sourcePts]) => ({ tick, sourcePts })),
+    },
+  ];
+  const add = (t) => t + destinationOffset;
+  return {
+    selections,
+    identities: [
+      { identity: "slate", pts: add(0.021333333333333333) },
+      { identity: "a", pts: add(4.254666666666667) },
+      { identity: "b", pts: add(308.8213333333333) },
+      { identity: "slate", pts: add(319.1213333333333) },
+    ],
+    visual: [
+      4.254666666666667, 5.221333333333333, 6.188, 7.188, 8.188, 308.988,
+      309.988, 310.988, 311.988,
+    ].map(add),
+    audible: [
+      4.255333333333334, 5.184, 6.1866666666666665, 7.188, 8.180666666666667,
+      308.5113333333333, 308.98066666666665, 309.98333333333335, 310.986,
+      311.9886666666667,
+    ].map(add),
+    videoEnd: add(324),
+    audioEnd: add(324),
+  };
+}
+for (const destination of ["program", "vrcdn"])
+  test(`selection epoch replays actual matrix01 ${destination} without prior source ambiguity`, async () => {
+    const { measureTransitionMarkers } =
+      await import("../../scripts/event-capacity-media.mjs");
+    const data = matrixEpochFixture(destination === "vrcdn" ? 1.4 : 0);
+    if (destination === "vrcdn") {
+      data.identities[1].pts = 5.655;
+      data.identities[2].pts = 310.221;
+      data.visual = [
+        5.655, 6.621, 7.588, 8.588, 9.588, 310.388, 311.388, 312.388, 313.388,
+      ];
+      data.audible = [
+        5.655333333333333, 6.584, 7.586666666666667, 8.588, 9.580666666666668,
+        309.91133333333335, 310.3806666666667, 311.3833333333333, 312.386,
+        313.38866666666667,
+      ];
+    }
+    const result = measureTransitionMarkers(data);
+    assert.equal(result[0].pairs.length, 4);
+    assert.equal(result[1].pairs.length, 4);
+    assert(
+      Math.abs(result[1].pairs[0].audioMinusVideoMs + 7.3333333333) < 0.001,
+    );
+    assert.deepEqual(result[1].preEpochExclusions, [
+      {
+        audioPts: data.audible[5],
+        reason: "before-selection-acceptance-bound",
+      },
+    ]);
+    assert(
+      Math.max(
+        ...result.flatMap((r) =>
+          r.pairs.map((p) => Math.abs(p.audioMinusVideoMs)),
+        ),
+      ) < 38,
+    );
+  });
+
+test("selection epoch keeps missing ambiguous boundary and completeness failures strict", async () => {
+  const { measureTransitionMarkers } =
+    await import("../../scripts/event-capacity-media.mjs");
+  const missing = matrixEpochFixture();
+  missing.audible.splice(6, 1);
+  assert.throws(
+    () => measureTransitionMarkers(missing),
+    /Missing same-cycle audio/,
+  );
+  const duplicate = matrixEpochFixture();
+  duplicate.audible.push(308.99);
+  assert.throws(
+    () => measureTransitionMarkers(duplicate),
+    /Ambiguous same-cycle audio/,
+  );
+  const truncated = matrixEpochFixture();
+  truncated.audioEnd = 312;
+  assert.throws(
+    () => measureTransitionMarkers(truncated),
+    /Truncated transition/,
+  );
+  const watermark = matrixEpochFixture();
+  watermark.identities[2].pts += 0.2;
+  assert.throws(() => measureTransitionMarkers(watermark), /program watermark/);
+  for (const lag of [-0.05, -0.130667, 0.130667]) {
+    const d = {
+      selections: [
+        {
+          identity: "a",
+          tick: 30,
+          fps: 30,
+          sourcePts: 90000,
+          carryIn: false,
+          endTick: 150,
+          pulses: [1, 2, 3, 4].map((n) => ({
+            tick: n * 30,
+            sourcePts: n * 90000,
+          })),
+        },
+      ],
+      identities: [
+        { identity: "slate", pts: 0 },
+        { identity: "a", pts: 1 },
+      ],
+      visual: [1, 2, 3, 4],
+      audible: [1, 2, 3, 4].map((v) => v + lag),
+      videoEnd: 6,
+      audioEnd: 6,
+    };
+    if (lag < -0.1)
+      assert.throws(
+        () => measureTransitionMarkers(d),
+        /Missing same-cycle audio/,
+      );
+    else {
+      const result = measureTransitionMarkers(d);
+      assert.equal(
+        Math.max(
+          ...result[0].pairs.map((p) => Math.abs(p.audioMinusVideoMs)),
+        ) <= 100,
+        lag === -0.05,
+      );
+    }
+  }
+});
+
+test("encoded phase shifted A and B audio remain bound to the actual selection epoch", async (t) => {
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { createProcessOwner } =
+    await import("../../scripts/event-proof-processes.mjs");
+  const { measureMediaMarkers } =
+    await import("../../scripts/event-capacity-media.mjs");
+  const directory = await mkdtemp("/tmp/event-epoch-media-"),
+    owner = createProcessOwner(),
+    file = `${directory}/markers.ts`;
+  t.after(async () => {
+    await owner.close();
+    await rm(directory, { recursive: true, force: true });
+  });
+  await owner.run(
+    "ffmpeg",
+    [
+      "-v",
+      "error",
+      "-f",
+      "lavfi",
+      "-i",
+      "color=black:size=64x48:rate=30",
+      "-f",
+      "lavfi",
+      "-i",
+      "aevalsrc=if(if(lt(t\\,6)\\,lt(mod(t+0.3\\,1)\\,0.1)\\,lt(mod(t-1/6\\,1)\\,0.1))\\,0.65*sin(2*PI*1000*t)\\,0):s=48000",
+      "-t",
+      "12",
+      "-vf",
+      "drawbox=x=0:y=0:w=4:h=6:color=red:t=fill:enable='gte(t,1)*lt(t,6)',drawbox=x=0:y=0:w=4:h=6:color=blue:t=fill:enable='gte(t,6)',drawbox=x=4:y=0:w=5:h=6:color=white:t=fill:enable='gte(t,1)*if(lt(t,6),lt(mod(t+0.3,1),0.1),lt(mod(t-1/6,1),0.1))'",
+      "-c:v",
+      "libx264",
+      "-threads",
+      "1",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "160k",
+      "-muxdelay",
+      "0",
+      "-f",
+      "mpegts",
+      file,
+    ],
+    { timeoutMs: 15000 },
+  );
+  const selections = [
+    {
+      identity: "a",
+      revision: 1,
+      tick: 30,
+      fps: 30,
+      sourcePts: 90000,
+      carryIn: false,
+      endTick: 150,
+      pulses: [51, 81, 111, 141].map((tick) => ({
+        tick,
+        sourcePts: tick * 3000,
+      })),
+    },
+    {
+      identity: "b",
+      revision: 1,
+      tick: 180,
+      fps: 30,
+      sourcePts: 540000,
+      carryIn: false,
+      endTick: 300,
+      pulses: [185, 215, 245, 275].map((tick) => ({
+        tick,
+        sourcePts: tick * 3000,
+      })),
+    },
+  ];
+  const facts = await measureMediaMarkers(owner, file, {
+    width: 64,
+    height: 48,
+    windows: [],
+    selections,
+    maxSeconds: 14,
+  });
+  assert.equal(facts.markerCount, 8);
+  assert(
+    facts.avDriftMs <= 100,
+    JSON.stringify({ avDriftMs: facts.avDriftMs }),
+  );
+  assert.equal(facts.transitionMarkers[1].preEpochExclusions.length, 1);
+  const excluded = facts.transitionMarkers[1].preEpochExclusions[0].audioPts;
+  assert(excluded < facts.transitionMarkers[1].start - 0.1);
+  assert(
+    Math.abs(excluded - facts.transitionMarkers[1].pairs[0].videoPts) < 0.5,
+    "prior source would have caused the original ambiguity",
+  );
+});

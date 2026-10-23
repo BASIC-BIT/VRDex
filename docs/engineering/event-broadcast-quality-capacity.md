@@ -76,7 +76,7 @@ start, jitter, ads, fresh resolution after 403, deadlines and cancellation.
 Named outcomes must include no skipped or expected-failure required tests. The
 same nine Node acquisition-owner regressions run with built-in type stripping,
 including TERM-ignoring descendants, leader exit, retries and failed cleanup.
-The image also runs 22 renderer and 28 timestamp/PCM tests: 59 required Node
+The image also runs 22 renderer and 32 timestamp/PCM tests: 63 required Node
 outcomes in total. The timing tests include real FFmpeg conversion of 44.1-kHz
 mono input to timestamped stereo 48-kHz PCM and a prewarmed 30-fps source rendered
 as a 60-fps stereo program with measured markers. The buffered-start regression
@@ -296,3 +296,30 @@ pulse. This does not exempt any subsequent complete selected pulse. Pacing can
 preserve upstream buffered delay: renderer internalDelay measures only render
 clock versus encoder progress. Absolute source-to-viewer latency still requires
 the separate owned UTC observation; these controls do not establish it.
+
+## Selection boundary in transition audio proof
+
+The first 300-second canary exposed a proof ambiguity: its first B flash had a
+correct B beep 7.333 ms earlier, plus an A beep 310 ms before the encoded B
+selection. Both lay inside the half-period candidate search. The saved program
+and destination recordings show this same cross-selection ambiguity; the original
+failure receipt remains preserved in
+[the numeric canary evidence](./evidence/twitch-operator-task6/selection-epoch-matrix01.json).
+
+Audio candidate eligibility now begins at the actual encoded selection boundary
+minus the existing 100 ms A/V acceptance allowance. An earlier onset cannot be an
+accepted pair for a selected flash. This permits legitimate audio lead at the
+boundary while excluding the demonstrated prior-source candidate. Every excluded
+onset within the half-period search is reported by numeric PTS and a fixed reason,
+with at most 128 unique exclusions per selection. Zero eligible candidates and
+multiple eligible candidates have distinct fixed failure codes. The verifier
+never resolves ambiguity by choosing whichever candidate is nearest.
+
+The half-period fence, exactly-one-unused-candidate requirement, complete pulse
+accounting, source-bound carry-in fragments, original timestamps and 100 ms gate
+remain unchanged. Numeric regressions replay both actual recordings; an encoded
+two-source regression changes the pulse phase at Take and reproduces the earlier
+candidate overlap. Missing B audio, two eligible candidates, next-cycle aliases,
+truncated media, watermark errors and out-of-gate offsets still fail. This is a
+proof correction, not a runtime synchronization change. The original canary also
+failed CPU capacity at 84.388% P95; the correction does not admit that allocation.

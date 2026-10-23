@@ -324,6 +324,7 @@ export function measureTransitionMarkers({
     if (encoded.length !== expected.length)
       throw Error("Incomplete encoded transition flashes");
     const used = new Set();
+    const preEpochExclusions = new Set();
     let boundaryFragment = null;
     const pairs = [];
     for (let i = 0; i < expected.length; i++) {
@@ -339,11 +340,22 @@ export function measureTransitionMarkers({
         };
         continue;
       }
-      const candidates = audible.filter(
-        (t) => Math.abs(t - videoPts) < 0.5 && !used.has(t),
-      );
-      if (candidates.length !== 1)
+      const candidates = audible.filter((t) => {
+        if (Math.abs(t - videoPts) >= 0.5 || used.has(t)) return false;
+        // A selected flash cannot have an accepted pair more than the existing
+        // 100ms allowance before its source's encoded selection boundary.
+        if (t < start - 0.1) {
+          preEpochExclusions.add(t);
+          if (preEpochExclusions.size > 128)
+            throw Error("Selection exclusion proof bound exceeded");
+          return false;
+        }
+        return true;
+      });
+      if (candidates.length === 0)
         throw Error("Missing same-cycle audio marker");
+      if (candidates.length > 1)
+        throw Error("Ambiguous same-cycle audio markers");
       const audioPts = candidates[0];
       used.add(audioPts);
       pairs.push({
@@ -362,6 +374,10 @@ export function measureTransitionMarkers({
       start,
       end,
       boundaryFragment,
+      preEpochExclusions: [...preEpochExclusions].map((audioPts) => ({
+        audioPts,
+        reason: "before-selection-acceptance-bound",
+      })),
       pairs,
       complete: true,
     };

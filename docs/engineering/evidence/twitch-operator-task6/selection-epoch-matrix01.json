@@ -1,0 +1,320 @@
+{
+  "schemaVersion": 1,
+  "capacityAccepted": false,
+  "baseCandidate": "f34d3f87b54b975e7c2385ce8e2fa6c26ffdf5e3",
+  "actualImage": "sha256:a9aff8783054abc832f0453c8394dcf0065e1900c53184fef504b45137b5dcd0",
+  "actualRuntime": "FFmpeg5.1.9; saved recordings independently decoded with host original-PTS/no-seek verifier",
+  "originalReceipt": {
+    "passed": false,
+    "failurePhase": "verify",
+    "failureCode": "transition_audio_missing",
+    "steady": {
+      "durationMs": 300003.870454,
+      "dualDecodeMs": 300003.88722100004,
+      "readinessLosses": 0,
+      "samples": 300,
+      "maxSampleGapMs": 1009.921789999993
+    },
+    "resources": {
+      "cpuP95Percent": 84.3880431312699,
+      "cpuP50Percent": 82.44702091505204,
+      "sampleCoverageMs": 300003.15867399995,
+      "memoryPeakBytes": 662618112,
+      "accounting": "whole-cgroup-including-fixtures-and-receivers"
+    }
+  },
+  "selections": [
+    {
+      "identity": "a",
+      "revision": 1,
+      "tick": 127,
+      "fps": 30,
+      "sourcePts": 7921,
+      "carryIn": true,
+      "pulses": [
+        {
+          "tick": 127,
+          "sourcePts": 7921
+        },
+        {
+          "tick": 156,
+          "sourcePts": 93421
+        },
+        {
+          "tick": 185,
+          "sourcePts": 181921
+        },
+        {
+          "tick": 215,
+          "sourcePts": 271921
+        },
+        {
+          "tick": 245,
+          "sourcePts": 361921
+        }
+      ],
+      "sourcePulses": [91921, 181921, 271921, 361921],
+      "lastSourcePts": 364921,
+      "endTick": 247
+    },
+    {
+      "identity": "b",
+      "revision": 1,
+      "tick": 9264,
+      "fps": 30,
+      "sourcePts": 27010465,
+      "carryIn": false,
+      "pulses": [
+        {
+          "tick": 9269,
+          "sourcePts": 27026965
+        },
+        {
+          "tick": 9299,
+          "sourcePts": 27115465
+        },
+        {
+          "tick": 9329,
+          "sourcePts": 27205465
+        },
+        {
+          "tick": 9359,
+          "sourcePts": 27295465
+        }
+      ],
+      "sourcePulses": [27025465, 27115465, 27205465, 27295465],
+      "lastSourcePts": 27368965,
+      "endTick": 9384
+    }
+  ],
+  "recordedCandidateSets": [
+    {
+      "name": "program.ts",
+      "identity": "a",
+      "identityStart": 4.254666666666667,
+      "pulses": [
+        {
+          "tick": 127,
+          "sourcePts": 7921,
+          "videoPts": 4.254666666666667,
+          "boundaryFragment": true,
+          "audioCandidates": [4.255333333333334],
+          "deltasMs": [0.6666666666665932]
+        },
+        {
+          "tick": 156,
+          "sourcePts": 93421,
+          "videoPts": 5.221333333333333,
+          "boundaryFragment": false,
+          "audioCandidates": [5.184],
+          "deltasMs": [-37.333333333332774]
+        },
+        {
+          "tick": 185,
+          "sourcePts": 181921,
+          "videoPts": 6.188,
+          "boundaryFragment": false,
+          "audioCandidates": [6.1866666666666665],
+          "deltasMs": [-1.3333333333331865]
+        },
+        {
+          "tick": 215,
+          "sourcePts": 271921,
+          "videoPts": 7.188,
+          "boundaryFragment": false,
+          "audioCandidates": [7.188],
+          "deltasMs": [0.0]
+        },
+        {
+          "tick": 245,
+          "sourcePts": 361921,
+          "videoPts": 8.188,
+          "boundaryFragment": false,
+          "audioCandidates": [8.180666666666667],
+          "deltasMs": [-7.333333333333414]
+        }
+      ]
+    },
+    {
+      "name": "program.ts",
+      "identity": "b",
+      "identityStart": 308.8213333333333,
+      "pulses": [
+        {
+          "tick": 9269,
+          "sourcePts": 27026965,
+          "videoPts": 308.988,
+          "boundaryFragment": false,
+          "audioCandidates": [308.5113333333333, 308.98066666666665],
+          "deltasMs": [-476.6666666666879, -7.333333333349401]
+        },
+        {
+          "tick": 9299,
+          "sourcePts": 27115465,
+          "videoPts": 309.988,
+          "boundaryFragment": false,
+          "audioCandidates": [309.98333333333335],
+          "deltasMs": [-4.666666666651054]
+        },
+        {
+          "tick": 9329,
+          "sourcePts": 27205465,
+          "videoPts": 310.988,
+          "boundaryFragment": false,
+          "audioCandidates": [310.986],
+          "deltasMs": [-2.0000000000095497]
+        },
+        {
+          "tick": 9359,
+          "sourcePts": 27295465,
+          "videoPts": 311.988,
+          "boundaryFragment": false,
+          "audioCandidates": [311.9886666666667],
+          "deltasMs": [0.6666666666887977]
+        }
+      ]
+    },
+    {
+      "name": "vrcdn.ts",
+      "identity": "a",
+      "identityStart": 5.655,
+      "pulses": [
+        {
+          "tick": 127,
+          "sourcePts": 7921,
+          "videoPts": 5.655,
+          "boundaryFragment": true,
+          "audioCandidates": [5.655333333333333],
+          "deltasMs": [0.33333333333285253]
+        },
+        {
+          "tick": 156,
+          "sourcePts": 93421,
+          "videoPts": 6.621,
+          "boundaryFragment": false,
+          "audioCandidates": [6.584],
+          "deltasMs": [-37.00000000000081]
+        },
+        {
+          "tick": 185,
+          "sourcePts": 181921,
+          "videoPts": 7.588,
+          "boundaryFragment": false,
+          "audioCandidates": [7.586666666666667],
+          "deltasMs": [-1.3333333333331865]
+        },
+        {
+          "tick": 215,
+          "sourcePts": 271921,
+          "videoPts": 8.588,
+          "boundaryFragment": false,
+          "audioCandidates": [8.588],
+          "deltasMs": [0.0]
+        },
+        {
+          "tick": 245,
+          "sourcePts": 361921,
+          "videoPts": 9.588,
+          "boundaryFragment": false,
+          "audioCandidates": [9.580666666666668],
+          "deltasMs": [-7.3333333333316375]
+        }
+      ]
+    },
+    {
+      "name": "vrcdn.ts",
+      "identity": "b",
+      "identityStart": 310.221,
+      "pulses": [
+        {
+          "tick": 9269,
+          "sourcePts": 27026965,
+          "videoPts": 310.388,
+          "boundaryFragment": false,
+          "audioCandidates": [309.91133333333335, 310.3806666666667],
+          "deltasMs": [-476.66666666663104, -7.333333333292558]
+        },
+        {
+          "tick": 9299,
+          "sourcePts": 27115465,
+          "videoPts": 311.388,
+          "boundaryFragment": false,
+          "audioCandidates": [311.3833333333333],
+          "deltasMs": [-4.666666666651054]
+        },
+        {
+          "tick": 9329,
+          "sourcePts": 27205465,
+          "videoPts": 312.388,
+          "boundaryFragment": false,
+          "audioCandidates": [312.386],
+          "deltasMs": [-1.9999999999527063]
+        },
+        {
+          "tick": 9359,
+          "sourcePts": 27295465,
+          "videoPts": 313.388,
+          "boundaryFragment": false,
+          "audioCandidates": [313.38866666666667],
+          "deltasMs": [0.6666666666887977]
+        }
+      ]
+    }
+  ],
+  "evidenceHashes": {
+    "task-6-matrix01-same-cycle-candidates.json": "3d9f17ffd1eab3f5907b0f961f86e01441dc53ee4b207c89f50726a84395e9ac",
+    "task-6-matrix01-identity-analysis.json": "57c5992204597b2f7e233bdd87fa9e146e166f4f53feccd79c271912bc1207b7",
+    "task-6-matrix01-receipt-f34d3f87.json": "192b204e44058b8052db72310c46c561d6615e7ad35a5775003a9a1f8bdb4e2e"
+  },
+  "finding": "First B flash has correct B beep and prior A onset310ms before encoded B selection; global +/-0.5s candidate search falsely treats them as ambiguous.",
+  "correction": "Exclude candidate onsets before encoded selection start minus existing100ms allowance; retain exactly-one eligible onset and unchanged100ms acceptance.",
+  "limitations": [
+    "CPU P9584.388% still fails strict below80% capacity gate.",
+    "Original output list is empty because verify threw before first output append; no uncompleted output gates are claimed passing.",
+    "Boundary gating does not provide spectral source identity inside the permitted overlap; in-epoch ambiguity still fails.",
+    "Prior A/V and PCM negatives remain preserved; no runtime/media/profile/buffer/cursor/selector change."
+  ],
+  "hostRegressionEvidence": {
+    "runtime": "Node24.19.0 / FFmpeg7.1.5; not image capacity evidence",
+    "newCasesBeforeCorrection": {
+      "tests": 4,
+      "passed": 0,
+      "failed": 4
+    },
+    "newCasesAfterCorrection": {
+      "tests": 4,
+      "passed": 4,
+      "failed": 0
+    },
+    "fullTimingSuite": {
+      "tests": 32,
+      "passed": 29,
+      "failed": 3,
+      "skipped": 0
+    },
+    "preservedFailures": [
+      {
+        "case": "real prewarmed30fps mono rendered60fps stereo",
+        "avDriftMs": 449.3333333333318
+      },
+      {
+        "case": "real buffered decoder wall rate",
+        "mediaMs": 1100,
+        "wallMs": 606.5777739999976,
+        "sourceAheadMs": 493.4222260000024
+      },
+      {
+        "case": "real60to30 startup continuous selected PCM",
+        "actualCursor": 213115,
+        "expectedCursor": 209115
+      }
+    ],
+    "assertionsUnchanged": true,
+    "failureCauseEstablished": false,
+    "logHashes": {
+      "task-6-selection-epoch-red.log": "6cd9a34270f184d471235ad3c0abeeb68313324fa246f706a696edf9bbb0ab40",
+      "task-6-selection-epoch-green.log": "06e973ccb836a96dee2a3f64c3914ad97c1d30db32b7c5e5938f543671186424",
+      "task-6-selection-epoch-timing-full.log": "671a1b241d9daf5161a75d94689bfe461e9ab24baf8f0f10c70cf5f29da43ca3"
+    }
+  }
+}

@@ -557,6 +557,9 @@ export async function runCapacityWorkload(
         "Output format/packet contract failed": "format_packet",
         "Incomplete healthy dual interval": "sample_completeness",
         "Missing same-cycle audio marker": "transition_audio_missing",
+        "Ambiguous same-cycle audio markers": "transition_audio_ambiguous",
+        "Selection exclusion proof bound exceeded":
+          "transition_exclusion_bound",
         "Selected source pulse was not submitted":
           "transition_source_pulse_missing",
         "Incomplete encoded transition flashes": "transition_flash_missing",
