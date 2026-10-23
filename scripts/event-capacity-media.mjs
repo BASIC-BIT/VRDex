@@ -177,12 +177,203 @@ const rawArgs = (file, start, duration, filter, one = false) => [
   "rawvideo",
   "pipe:1",
 ];
+/** Proof-only observation of the exact selected frame and submitted program tick.
+ * Delegates original buffer methods without changing media, cursor or ownership. */
+export function observeSelectionMarkers(
+  input,
+  { source, quality },
+  getTick,
+  selections,
+) {
+  const buffer = input.buffer;
+  let lastIndex = -1,
+    sourceLit = false,
+    sourceOnset,
+    selected,
+    outputLit = false;
+  const flash = () => {
+    if (!buffer.frame) return false;
+    let sum = 0;
+    for (let y = 0; y < 4; y++)
+      for (let x = 0; x < 4; x++)
+        sum +=
+          buffer.frame[
+            Math.floor(((32 + y * 16) * quality.height) / 1080) *
+              quality.width +
+              Math.floor(((160 + x * 16) * quality.width) / 1920)
+          ];
+    return sum / 16 > 180;
+  };
+  const publish = buffer.publishFrame;
+  buffer.publishFrame = function (...args) {
+    const result = Reflect.apply(publish, this, args);
+    if (this.frameIndex !== lastIndex) {
+      const on = flash();
+      if (on && !sourceLit) {
+        sourceOnset = this.framePts;
+        if (selected && getTick() < selected.tick + 4 * selected.fps) {
+          if (selected.sourcePulses.length >= 256)
+            throw Error("Source marker proof bound exceeded");
+          selected.sourcePulses.push(sourceOnset);
+        }
+      }
+      sourceLit = on;
+      lastIndex = this.frameIndex;
+    }
+    return result;
+  };
+  const reset = buffer.reset;
+  buffer.reset = function (...args) {
+    const result = Reflect.apply(reset, this, args);
+    lastIndex = -1;
+    sourceLit = false;
+    sourceOnset = undefined;
+    selected = undefined;
+    outputLit = false;
+    return result;
+  };
+  const begin = buffer.beginPlayback;
+  buffer.beginPlayback = function (...args) {
+    const result = Reflect.apply(begin, this, args);
+    if (selections.length >= 8) throw Error("Selection proof bound exceeded");
+    selected = {
+      identity: source.sourceId,
+      revision: source.revision,
+      tick: getTick(),
+      fps: quality.frameRate,
+      sourcePts: this.framePts,
+      carryIn: flash() && sourceOnset < this.framePts,
+      pulses: [],
+      sourcePulses: [],
+      lastSourcePts: this.framePts,
+      endTick: getTick(),
+    };
+    selections.push(selected);
+    outputLit = false;
+    return result;
+  };
+  const take = buffer.takeAudio;
+  buffer.takeAudio = function (...args) {
+    const result = Reflect.apply(take, this, args);
+    const tick = getTick();
+    if (selected && tick < selected.tick + 4 * selected.fps) {
+      const on = flash();
+      if (on && !outputLit)
+        selected.pulses.push({ tick, sourcePts: this.framePts });
+      selected.endTick = tick + 1;
+      selected.lastSourcePts = this.framePts;
+      outputLit = on;
+    }
+    return result;
+  };
+  return input;
+}
+
+/** Pair each actually submitted flash with its encoded frame and its own cycle.
+ * A half-period association fence prevents a missing beep aliasing the next one;
+ * the acceptance threshold remains 100ms, applied to every complete pulse. */
+export function measureTransitionMarkers({
+  selections,
+  identities,
+  visual,
+  audible,
+  videoEnd,
+  audioEnd,
+}) {
+  if (!selections.length || selections.length > 8)
+    throw Error("Missing selection watermarks");
+  if (identities[0]?.identity !== "slate")
+    throw Error("Missing preselection encoded coverage");
+  let origin;
+  return selections.map((selection, index) => {
+    const transition = identities.filter((r) => r.identity !== "slate")[index];
+    if (
+      !transition ||
+      transition.identity !== selection.identity ||
+      selection.endTick !== selection.tick + 4 * selection.fps ||
+      selection.pulses.length < 3
+    )
+      throw Error("Incomplete selected transition");
+    const start = transition.pts;
+    origin ??= start - selection.tick / selection.fps;
+    if (
+      Math.abs(start - (origin + selection.tick / selection.fps)) >
+      1 / selection.fps + 0.0001
+    )
+      throw Error("Encoded transition disagrees with program watermark");
+    const end = start + 4;
+    if (videoEnd < end || audioEnd < end + 0.5)
+      throw Error("Truncated transition media");
+    for (const sourceOnset of selection.sourcePulses ?? []) {
+      if (sourceOnset > selection.lastSourcePts) continue;
+      const matches = selection.pulses.filter(
+        (p) =>
+          p.sourcePts >= sourceOnset &&
+          p.sourcePts - sourceOnset <= 90000 / selection.fps,
+      );
+      if (matches.length !== 1)
+        throw Error("Selected source pulse was not submitted");
+    }
+    const expected = selection.pulses.map((p) => ({
+      ...p,
+      at: start + (p.tick - selection.tick) / selection.fps,
+    }));
+    const encoded = visual.filter(
+      (t) => t >= start - 0.0001 && t < end - 0.0001,
+    );
+    if (encoded.length !== expected.length)
+      throw Error("Incomplete encoded transition flashes");
+    const used = new Set();
+    let boundaryFragment = null;
+    const pairs = [];
+    for (let i = 0; i < expected.length; i++) {
+      const pulse = expected[i],
+        videoPts = encoded[i];
+      if (Math.abs(videoPts - pulse.at) > 1 / selection.fps + 0.0001)
+        throw Error("Encoded flash disagrees with submitted frame");
+      if (i === 0 && pulse.tick === selection.tick && selection.carryIn) {
+        boundaryFragment = {
+          videoPts,
+          sourcePts: pulse.sourcePts,
+          reason: "pulse-underway-at-selection",
+        };
+        continue;
+      }
+      const candidates = audible.filter(
+        (t) => Math.abs(t - videoPts) < 0.5 && !used.has(t),
+      );
+      if (candidates.length !== 1)
+        throw Error("Missing same-cycle audio marker");
+      const audioPts = candidates[0];
+      used.add(audioPts);
+      pairs.push({
+        videoPts,
+        audioPts,
+        sourcePts: pulse.sourcePts,
+        tick: pulse.tick,
+        audioMinusVideoMs: (audioPts - videoPts) * 1000,
+      });
+    }
+    return {
+      identity: selection.identity,
+      revision: selection.revision,
+      programTick: selection.tick,
+      sourcePts: selection.sourcePts,
+      start,
+      end,
+      boundaryFragment,
+      pairs,
+      complete: true,
+    };
+  });
+}
+
 /** Decode once without seeking and retain original integer timestamps. Every
  * marker in each declared source window contributes to the maximum drift. */
 export async function measureMediaMarkers(
   owner,
   file,
-  { width, height, windows, maxSeconds },
+  { width, height, windows, maxSeconds, selections },
 ) {
   const child = owner.start(
     "ffmpeg",
@@ -202,7 +393,9 @@ export async function measureMediaMarkers(
       "-map",
       "0:v:0",
       "-vf",
-      `crop=${Math.max(2, Math.floor((64 * width) / 1920))}:${Math.max(2, Math.floor((64 * height) / 1080))}:${Math.floor((160 * width) / 1920)}:${Math.floor((32 * height) / 1080)},scale=1:1,format=yuv444p,settb=1/90000,signalstats,metadata=mode=print:key=lavfi.signalstats.YAVG:direct=1:file='pipe\\:5',format=rgb24`,
+      selections
+        ? `crop=${Math.max(4, Math.floor((192 * width) / 1920))}:${Math.max(2, Math.floor((64 * height) / 1080))}:${Math.floor((32 * width) / 1920)}:${Math.floor((32 * height) / 1080)},scale=2:1:flags=neighbor,format=yuv444p,settb=1/90000,signalstats,metadata=mode=print:key=lavfi.signalstats.YAVG:direct=1:file='pipe\\:5',format=rgb24`
+        : `crop=${Math.max(2, Math.floor((64 * width) / 1920))}:${Math.max(2, Math.floor((64 * height) / 1080))}:${Math.floor((160 * width) / 1920)}:${Math.floor((32 * height) / 1080)},scale=1:1,format=yuv444p,settb=1/90000,signalstats,metadata=mode=print:key=lavfi.signalstats.YAVG:direct=1:file='pipe\\:5',format=rgb24`,
       "-fps_mode",
       "passthrough",
       "-threads",
@@ -228,7 +421,7 @@ export async function measureMediaMarkers(
     sizes = [0, 0, 0, 0];
   const caps = [
     Math.ceil(maxSeconds * 64 * 1024),
-    Math.ceil(maxSeconds * 61 * 3),
+    Math.ceil(maxSeconds * 61 * (selections ? 6 : 3)),
     Math.ceil(maxSeconds * 48000 * 2 + 96000),
     Math.ceil(maxSeconds * 32 * 1024),
   ];
@@ -279,7 +472,7 @@ export async function measureMediaMarkers(
   if (
     !video.length ||
     !audio.length ||
-    video.length * 3 !== rgb.length ||
+    video.length * (selections ? 6 : 3) !== rgb.length ||
     audio.reduce((sum, r) => sum + r.samples, 0) * 2 !== pcm.length
   )
     throw Error(
@@ -294,12 +487,25 @@ export async function measureMediaMarkers(
       )
         throw Error("Invalid timestamp marker sequence");
   const visual = [],
-    audible = [];
+    audible = [],
+    identities = [];
   let lit = false,
     loud = false,
     offset = 0;
   for (const row of video) {
-    const i = row.index * 3,
+    const base = row.index * (selections ? 6 : 3);
+    if (selections) {
+      const [r, g, b] = rgb.subarray(base, base + 3);
+      const identity =
+        r > 150 && r > 2 * g && r > 2 * b
+          ? "a"
+          : b > 150 && b > 2 * r && b > 2 * g
+            ? "b"
+            : "slate";
+      if (identities.at(-1)?.identity !== identity)
+        identities.push({ identity, pts: row.pts / 90000 });
+    }
+    const i = base + (selections ? 3 : 0),
       on = rgb[i] > 180 && rgb[i + 1] > 180 && rgb[i + 2] > 180;
     if (on && !lit) visual.push(row.pts / 90000);
     lit = on;
@@ -360,7 +566,17 @@ export async function measureMediaMarkers(
       pairs,
     };
   });
-  const deltas = measured.flatMap((window) =>
+  const transitionMarkers = selections
+    ? measureTransitionMarkers({
+        selections,
+        identities,
+        visual,
+        audible,
+        videoEnd: video.at(-1).pts / 90000,
+        audioEnd: (audio.at(-1).pts + audio.at(-1).samples) / 48000,
+      })
+    : [];
+  const deltas = [...measured, ...transitionMarkers].flatMap((window) =>
     window.pairs.map((row) => Math.abs(row.audioMinusVideoMs)),
   );
   return {
@@ -370,6 +586,8 @@ export async function measureMediaMarkers(
     markerVisualSeconds: visual,
     markerAudioSeconds: audible,
     markerWindows: measured,
+    transitionMarkers,
+    markerIdentities: identities,
     markerDecode: {
       videoFrames: video.length,
       audioWindows: audio.length,
@@ -390,6 +608,7 @@ export async function verifyMedia(
   phases,
   references,
   internalDelayMs,
+  selections,
 ) {
   const info = await probe(owner, file),
     video = info.streams.find((s) => s.codec_type === "video"),
@@ -460,6 +679,7 @@ export async function verifyMedia(
   const markers = await measureMediaMarkers(owner, file, {
     width: p.width,
     height: p.height,
+    selections,
     maxSeconds: request.durationSeconds + 180,
     windows: phases
       .filter((phase) => phase.identity !== "slate")

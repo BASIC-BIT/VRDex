@@ -355,7 +355,12 @@ test("cursor beyond newly retained PCM reanchors only when the matched video is 
   assert.deepEqual(left(b.takeAudio(8)), [105, 106]);
   assert.equal(b.audioCursor, 10);
 });
-async function createMonoTimingFixture(owner, source, normalized = true) {
+async function createMonoTimingFixture(
+  owner,
+  source,
+  normalized = true,
+  timing60 = false,
+) {
   await owner.run(
     "ffmpeg",
     [
@@ -365,7 +370,7 @@ async function createMonoTimingFixture(owner, source, normalized = true) {
       "-f",
       "lavfi",
       "-i",
-      "color=black:size=854x480:rate=30",
+      `color=black:size=854x480:rate=${timing60 ? 60 : 30}`,
       "-f",
       "lavfi",
       "-i",
@@ -373,7 +378,8 @@ async function createMonoTimingFixture(owner, source, normalized = true) {
       "-t",
       "16",
       "-vf",
-      "drawbox=x=57:y=0:w=57:h=57:color=white:t=fill:enable='lt(mod(t,1),0.1)'",
+      (timing60 ? "drawbox=x=0:y=0:w=57:h=57:color=red:t=fill," : "") +
+        "drawbox=x=57:y=0:w=57:h=57:color=white:t=fill:enable='lt(mod(t,1),0.1)'",
       "-c:v",
       "libx264",
       "-threads",
@@ -543,11 +549,7 @@ test("real prewarmed 30fps mono source stays synchronized in a 60fps stereo prog
     createInput: (options) =>
       createInputSupervisor({
         ...options,
-        spawnProcess: (command, args, options) => {
-          const paced = [...args];
-          paced.splice(paced.indexOf("-i"), 0, "-re");
-          return owner.start(command, paced, options);
-        },
+        spawnProcess: (...args) => owner.start(...args),
       }),
   });
   renderer.subscribe((chunk) => {
@@ -596,3 +598,406 @@ test("real prewarmed 30fps mono source stays synchronized in a 60fps stereo prog
   );
   assert.equal(info.streams.find((s) => s.codec_type === "audio").channels, 2);
 });
+
+test("real buffered decoder advances source media at wall rate without a test pacing override", async (t) => {
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { createProcessOwner } =
+    await import("../../scripts/event-proof-processes.mjs");
+  const { createInputSupervisor } =
+    await import("../../workers/restream/input-supervisor.mjs");
+  const { setTimeout: sleep } = await import("node:timers/promises");
+  const directory = await mkdtemp("/tmp/event-decoder-pacing-"),
+    owner = createProcessOwner();
+  let input;
+  t.after(async () => {
+    await input?.stop();
+    await owner.close();
+    await rm(directory, { recursive: true, force: true });
+  });
+  const source = `${directory}/buffered.ts`;
+  await owner.run(
+    "ffmpeg",
+    [
+      "-v",
+      "error",
+      "-f",
+      "lavfi",
+      "-i",
+      "testsrc2=size=320x180:rate=60",
+      "-f",
+      "lavfi",
+      "-i",
+      "sine=frequency=997:sample_rate=48000",
+      "-t",
+      "6",
+      "-c:v",
+      "libx264",
+      "-threads",
+      "2",
+      "-preset",
+      "ultrafast",
+      "-pix_fmt",
+      "yuv420p",
+      "-c:a",
+      "aac",
+      "-ac",
+      "2",
+      "-b:a",
+      "160k",
+      "-muxdelay",
+      "0",
+      "-flush_packets",
+      "1",
+      "-f",
+      "mpegts",
+      source,
+    ],
+    { timeoutMs: 15000 },
+  );
+  input = createInputSupervisor({
+    source: { slotKey: "a", sourceId: "a", url: source },
+    quality: { width: 320, height: 180, frameRate: 30 },
+    spawnProcess: (...args) => owner.start(...args),
+  });
+  const frames = [],
+    b = input.buffer,
+    publish = b.publishFrame;
+  b.publishFrame = function (...args) {
+    const before = this.frameCount;
+    const result = Reflect.apply(publish, this, args);
+    if (this.frameCount !== before)
+      frames.push({ pts: this.framePts, at: performance.now() });
+    return result;
+  };
+  input.start();
+  const deadline = performance.now() + 5000;
+  while (frames.length < 61 && performance.now() < deadline) await sleep(10);
+  assert(frames.length >= 61, "bounded real decoder progress");
+  const mediaMs = (frames[60].pts - frames[0].pts) / 90,
+    wallMs = frames[60].at - frames[0].at;
+  assert(
+    mediaMs - wallMs <= 100,
+    JSON.stringify({ mediaMs, wallMs, sourceAheadMs: mediaMs - wallMs }),
+  );
+  assert(b.audioBytes <= 48000);
+});
+
+for (const [name, lag, missing, carryIn] of [
+  ["measured startup lag is retained", 0.130667, false, false],
+  ["carry-in is explicit and full pulses align", 0, false, true],
+  ["missing full pulse cannot alias next cycle", 0, true, true],
+])
+  test(`transition marker proof ${name}`, async () => {
+    const { measureTransitionMarkers } =
+      await import("../../scripts/event-capacity-media.mjs");
+    const selection = {
+      identity: "a",
+      tick: 90,
+      fps: 30,
+      sourcePts: 9000,
+      carryIn,
+      pulses: [
+        { tick: 90, sourcePts: 9000 },
+        ...[1, 2, 3].map((n) => ({
+          tick: 90 + n * 30,
+          sourcePts: 9000 + n * 90000,
+        })),
+      ],
+      endTick: 210,
+    };
+    const data = {
+      selections: [selection],
+      identities: [
+        { identity: "slate", pts: 1 },
+        { identity: "a", pts: 4 },
+      ],
+      visual: [4, 5, 6, 7],
+      audible: [4, 5, 6, 7]
+        .filter((_, i) => !(missing && i === 1))
+        .map((v) => v + lag),
+      videoEnd: 9,
+      audioEnd: 9,
+    };
+    if (missing)
+      assert.throws(
+        () => measureTransitionMarkers(data),
+        /Missing same-cycle audio/,
+      );
+    else {
+      const result = measureTransitionMarkers(data);
+      assert.equal(result[0].boundaryFragment !== null, carryIn);
+      assert.equal(result[0].pairs.length, carryIn ? 3 : 4);
+      const dropped = structuredClone(data);
+      dropped.selections[0].sourcePulses = [99000, 189000, 279000];
+      dropped.selections[0].lastSourcePts = 279000;
+      dropped.selections[0].pulses.splice(1, 1);
+      dropped.visual.splice(1, 1);
+      assert.throws(
+        () => measureTransitionMarkers(dropped),
+        /Selected source pulse was not submitted/,
+      );
+      assert.equal(
+        Math.max(
+          ...result[0].pairs.map((p) => Math.abs(p.audioMinusVideoMs)),
+        ) <= 100,
+        lag === 0,
+      );
+    }
+  });
+
+test("selection observation preserves receivers and binds first source frame to submitted tick", async () => {
+  const { observeSelectionMarkers } =
+    await import("../../scripts/event-capacity-media.mjs");
+  const b = new LatestMediaBuffer((192 * 108 * 3) / 2),
+    selections = [];
+  let tick = 17;
+  const input = { buffer: b };
+  assert.equal(
+    observeSelectionMarkers(
+      input,
+      {
+        source: { sourceId: "a", revision: 7 },
+        quality: { width: 192, height: 108, frameRate: 30 },
+      },
+      () => tick,
+      selections,
+    ),
+    input,
+  );
+  const white = Buffer.alloc((192 * 108 * 3) / 2, 235);
+  b.videoTimestamp(0, 9000);
+  b.video(white);
+  b.videoTimestamp(1, 10500);
+  b.video(white);
+  audio(b, 0, 0.1, 12000, 1);
+  b.beginPlayback();
+  const first = b.takeAudio(6400);
+  assert.equal(first.length, 6400);
+  assert.equal(b.audioCursor, 5600 + 1600);
+  assert.deepEqual(selections[0], {
+    identity: "a",
+    revision: 7,
+    tick: 17,
+    fps: 30,
+    sourcePts: 10500,
+    carryIn: true,
+    pulses: [{ tick: 17, sourcePts: 10500 }],
+    sourcePulses: [],
+    lastSourcePts: 10500,
+    endTick: 18,
+  });
+  tick++;
+  b.takeAudio(6400);
+  assert.equal(
+    selections[0].pulses.length,
+    1,
+    "duplicate video does not invent a new pulse",
+  );
+  b.reset();
+  assert.equal(b.frame, undefined);
+});
+
+test("real 60 to 30 startup proof binds complete pulses, PCM and submitted watermark", async (t) => {
+  const { mkdtemp, writeFile, rm } = await import("node:fs/promises");
+  const { setTimeout: sleep } = await import("node:timers/promises");
+  const { createProcessOwner } =
+    await import("../../scripts/event-proof-processes.mjs");
+  const { createInputSupervisor } =
+    await import("../../workers/restream/input-supervisor.mjs");
+  const { createProgramRenderer } =
+    await import("../../workers/restream/program-renderer.mjs");
+  const { observeSelectionMarkers, measureMediaMarkers } =
+    await import("../../scripts/event-capacity-media.mjs");
+  const directory = await mkdtemp("/tmp/event-startup-marker-"),
+    owner = createProcessOwner(),
+    selections = [],
+    chunks = [];
+  let renderer,
+    bytes = 0,
+    overflow = false,
+    missingSamples = 0,
+    takes = 0;
+  const holes = [];
+  t.after(async () => {
+    await renderer?.stop();
+    await owner.close();
+    await rm(directory, { recursive: true, force: true });
+  });
+  const source = `${directory}/source.ts`,
+    output = `${directory}/program.ts`;
+  await createMonoTimingFixture(owner, source, true, true);
+  renderer = createProgramRenderer({
+    quality: "480p30",
+    createInput: (options) => {
+      const input = observeSelectionMarkers(
+        createInputSupervisor({
+          ...options,
+          spawnProcess: (...args) => owner.start(...args),
+        }),
+        options,
+        () => renderer.getState().ticks,
+        selections,
+      );
+      const b = input.buffer,
+        take = b.takeAudio;
+      b.takeAudio = function (...args) {
+        const ranges = this.audioRanges(),
+          before = this.audioCursor,
+          q = args[0] / 4;
+        const result = Reflect.apply(take, this, args);
+        const start = this.audioCursor - q;
+        let covered = 0;
+        for (const range of ranges)
+          covered += Math.max(
+            0,
+            Math.min(start + q, range.end) - Math.max(start, range.start),
+          );
+        missingSamples += q - covered;
+        takes++;
+        if (covered < q && holes.length < 8)
+          holes.push({
+            take: takes,
+            ready: input.getObservation().ready,
+            framePts: this.framePts,
+            cursorBefore: before,
+            start,
+            end: start + q,
+            covered,
+            requested: q,
+            rawSamples: this.audioSamplesReceived,
+            metadataSamples: this.audioMetadataSamples,
+            ranges: ranges.map((r) => ({ start: r.start, end: r.end })),
+          });
+        if (before !== undefined)
+          assert.equal(
+            this.audioCursor,
+            before + q,
+            "continuous selected PCM cursor",
+          );
+        assert(this.audioBytes <= 48000);
+        return result;
+      };
+      return input;
+    },
+  });
+  renderer.subscribe((chunk) => {
+    bytes += chunk.length;
+    if (bytes > 16 * 1048576) overflow = true;
+    else chunks.push(chunk);
+  });
+  await renderer.reconcileSources([
+    { slotKey: "a", sourceId: "a", revision: 1, url: source },
+  ]);
+  await renderer.start();
+  await sleep(2000);
+  assert.equal(renderer.selectSource("a"), true);
+  await sleep(6000);
+  t.diagnostic(JSON.stringify({ takes, missingSamples, holes }));
+  assert.equal(renderer.getState().error, undefined);
+  await renderer.stop();
+  assert.equal(overflow, false);
+  assert(takes >= 170);
+  await writeFile(output, Buffer.concat(chunks));
+  const facts = await measureMediaMarkers(owner, output, {
+    width: 854,
+    height: 480,
+    windows: [],
+    selections,
+    maxSeconds: 12,
+  });
+  assert.equal(facts.transitionMarkers.length, 1);
+  assert(facts.markerCount >= 3);
+  assert(
+    facts.avDriftMs <= 100,
+    JSON.stringify({ avDriftMs: facts.avDriftMs }),
+  );
+  assert.equal(
+    missingSamples,
+    0,
+    JSON.stringify({
+      reason: "all selected PCM intervals have actual matched coverage",
+      missingSamples,
+      takes,
+      holes,
+      avDriftMs: facts.avDriftMs,
+    }),
+  );
+});
+
+for (const lag of [0, 0.130667])
+  test(`encoded first A and Take markers preserve all pulses with audio lag ${Math.round(lag * 1000)}ms`, async (t) => {
+    const { mkdtemp, rm } = await import("node:fs/promises");
+    const { createProcessOwner } =
+      await import("../../scripts/event-proof-processes.mjs");
+    const { measureMediaMarkers } =
+      await import("../../scripts/event-capacity-media.mjs");
+    const directory = await mkdtemp("/tmp/event-transition-media-"),
+      owner = createProcessOwner(),
+      file = `${directory}/markers.ts`;
+    t.after(async () => {
+      await owner.close();
+      await rm(directory, { recursive: true, force: true });
+    });
+    await owner.run(
+      "ffmpeg",
+      [
+        "-v",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=black:size=64x48:rate=30",
+        "-f",
+        "lavfi",
+        "-i",
+        "aevalsrc=if(lt(mod(t\\,1)\\,0.1)\\,0.65*sin(2*PI*1000*t)\\,0):s=48000",
+        "-t",
+        "12",
+        "-vf",
+        "drawbox=x=0:y=0:w=4:h=6:color=red:t=fill:enable='gte(t,1)*lt(t,6)',drawbox=x=0:y=0:w=4:h=6:color=blue:t=fill:enable='gte(t,6)',drawbox=x=4:y=0:w=5:h=6:color=white:t=fill:enable='gte(t,1)*lt(mod(t,1),0.1)'",
+        "-af",
+        `asetpts=PTS+${lag}/TB`,
+        "-c:v",
+        "libx264",
+        "-threads",
+        "1",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "160k",
+        "-muxdelay",
+        "0",
+        "-f",
+        "mpegts",
+        file,
+      ],
+      { timeoutMs: 15000 },
+    );
+    const selections = [1, 6].map((second, i) => ({
+      identity: i ? "b" : "a",
+      revision: 1,
+      tick: second * 30,
+      fps: 30,
+      sourcePts: 90000,
+      carryIn: false,
+      endTick: second * 30 + 120,
+      pulses: [0, 1, 2, 3].map((n) => ({
+        tick: (second + n) * 30,
+        sourcePts: (1 + n) * 90000,
+      })),
+    }));
+    const facts = await measureMediaMarkers(owner, file, {
+      width: 64,
+      height: 48,
+      windows: [],
+      selections,
+      maxSeconds: 14,
+    });
+    assert.equal(facts.markerCount, 8);
+    assert.equal(facts.transitionMarkers.length, 2);
+    assert.equal(
+      facts.avDriftMs <= 100,
+      lag === 0,
+      JSON.stringify({ lag, avDriftMs: facts.avDriftMs }),
+    );
+  });

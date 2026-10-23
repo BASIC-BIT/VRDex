@@ -322,6 +322,9 @@ export function createInputSupervisor({
         ...(source.url.startsWith("http://127.0.0.1:")
           ? ["-f", "mpegts", "-protocol_whitelist", "http,tcp"]
           : []),
+        // Buffered normalized input must not accelerate the selected media clock.
+        "-readrate",
+        "1",
         "-i",
         source.url,
         "-map",

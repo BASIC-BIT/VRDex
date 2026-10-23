@@ -92,7 +92,34 @@ export function validateOutputFacts(facts, settings, destination) {
     facts.monotonic !== true
   )
     throw Error("Output format/packet contract failed");
+  const transitionValid =
+    Array.isArray(facts.transitionMarkers) &&
+    facts.transitionMarkers.map((r) => r.identity).join(",") === "a,b" &&
+    facts.transitionMarkers.every(
+      (r) =>
+        r.complete === true &&
+        Number.isSafeInteger(r.programTick) &&
+        r.programTick >= 0 &&
+        Number.isSafeInteger(r.sourcePts) &&
+        Number.isFinite(r.start) &&
+        Number.isFinite(r.end) &&
+        Math.abs(r.end - r.start - 4) < 0.0001 &&
+        Array.isArray(r.pairs) &&
+        r.pairs.length >= 3 &&
+        r.pairs.every(
+          (pair) =>
+            Number.isFinite(pair.videoPts) &&
+            Number.isFinite(pair.audioPts) &&
+            Number.isFinite(pair.audioMinusVideoMs) &&
+            Math.abs(
+              pair.audioMinusVideoMs - (pair.audioPts - pair.videoPts) * 1000,
+            ) < 0.0001 &&
+            Math.abs(pair.audioMinusVideoMs) <= 100 &&
+            Math.abs(pair.audioMinusVideoMs) <= facts.avDriftMs + 0.0001,
+        ),
+    );
   if (
+    !transitionValid ||
     facts.identities?.join(",") !== "a,b,slate" ||
     !(
       Number.isFinite(facts.avDriftMs) &&

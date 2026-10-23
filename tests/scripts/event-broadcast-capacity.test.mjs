@@ -212,6 +212,19 @@ function receipt() {
       avDriftMs: 20,
       visualPsnrDb: 35,
       markerCount: 5,
+      transitionMarkers: ["a", "b"].map((identity) => ({
+        identity,
+        complete: true,
+        programTick: 30,
+        sourcePts: 90000,
+        start: 1,
+        end: 5,
+        pairs: [1, 2, 3].map((v) => ({
+          videoPts: v,
+          audioPts: v + 0.02,
+          audioMinusVideoMs: 20,
+        })),
+      })),
       internalDelayMs: 100,
     })),
   };
@@ -232,6 +245,15 @@ for (const [name, mutate] of Object.entries({
   wrongAudio: (r) => (r.outputs[1].audioKbps = 320),
   wrongGop: (r) => (r.outputs[0].maxGop = 2),
   drift: (r) => (r.outputs[0].avDriftMs = 200),
+  missingStartup: (r) => delete r.outputs[0].transitionMarkers,
+  missingTake: (r) => r.outputs[0].transitionMarkers.pop(),
+  falseStartupAggregate: (r) => {
+    const p = r.outputs[0].transitionMarkers[0].pairs[0];
+    p.audioPts = p.videoPts + 0.130667;
+    p.audioMinusVideoMs = 130.667;
+  },
+  invalidStartup: (r) =>
+    (r.outputs[0].transitionMarkers[0].pairs[0].audioMinusVideoMs = NaN),
   poorQuality: (r) => (r.outputs[0].visualPsnrDb = 15),
   delay: (r) => (r.outputs[0].internalDelayMs = 2000),
 }))
@@ -375,8 +397,26 @@ for (const invalid of [undefined, NaN, -1, 0])
     assert.throws(() => validateCapacityReceipt(r));
   });
 
-import { readFile } from 'node:fs/promises';
-test('explicit image manifest closes every relative runtime/proof import and excludes admission map',async()=>{
- const paths=JSON.parse(await readFile('workers/restream/packaging-manifest.json','utf8'));assert.equal(new Set(paths).size,paths.length);assert(!paths.includes('workers/restream/broadcast-capacity.mjs'));
- for(const path of paths.filter(p=>p.endsWith('.mjs'))){const text=await readFile(path,'utf8');for(const match of text.matchAll(/(?:from\s*|import\(\s*)['"](\.[^'"]+\.mjs)['"]/g)){const target=new URL(match[1],new URL(path,new URL('../../',import.meta.url))).pathname;const relative=target.slice(new URL('../../',import.meta.url).pathname.length);assert(paths.includes(relative),`${path} imports missing ${relative}`);}}
+import { readFile } from "node:fs/promises";
+test("explicit image manifest closes every relative runtime/proof import and excludes admission map", async () => {
+  const paths = JSON.parse(
+    await readFile("workers/restream/packaging-manifest.json", "utf8"),
+  );
+  assert.equal(new Set(paths).size, paths.length);
+  assert(!paths.includes("workers/restream/broadcast-capacity.mjs"));
+  for (const path of paths.filter((p) => p.endsWith(".mjs"))) {
+    const text = await readFile(path, "utf8");
+    for (const match of text.matchAll(
+      /(?:from\s*|import\(\s*)['"](\.[^'"]+\.mjs)['"]/g,
+    )) {
+      const target = new URL(
+        match[1],
+        new URL(path, new URL("../../", import.meta.url)),
+      ).pathname;
+      const relative = target.slice(
+        new URL("../../", import.meta.url).pathname.length,
+      );
+      assert(paths.includes(relative), `${path} imports missing ${relative}`);
+    }
+  }
 });

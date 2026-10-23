@@ -9,7 +9,7 @@ for await (const event of run({
     "tests/scripts/event-media-timing.test.mjs",
   ],
   execArgv: ["--experimental-strip-types"],
-  timeout: 45000,
+  timeout: 90000,
   concurrency: 1,
 })) {
   if (!["test:pass", "test:fail"].includes(event.type)) continue;
@@ -40,7 +40,7 @@ console.log(
     outcomes,
     passed:
       !overflow &&
-      outcomes.length === 51 &&
+      outcomes.length === 59 &&
       outcomes.every(
         (row) =>
           row.outcome === "passed" && row.test !== "invalid_test_identifier",

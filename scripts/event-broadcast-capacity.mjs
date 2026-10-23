@@ -25,6 +25,7 @@ import {
 } from "./event-capacity-resources.mjs";
 import {
   createFixture,
+  observeSelectionMarkers,
   referenceFrames,
   verifyMedia,
 } from "./event-capacity-media.mjs";
@@ -72,6 +73,7 @@ export async function runCapacityWorkload(
     transitions = [],
     samples = [],
     phases = [],
+    selections = [],
     commands = [];
   const byteCap = Math.ceil((request.durationSeconds + 180) * 1500000); // all recordings; > worst admitted output rate
   let recordedBytes = 0,
@@ -271,30 +273,35 @@ export async function runCapacityWorkload(
           internalDelayMs = Math.max(internalDelayMs, e.delayMs);
       },
       createInput: (args) =>
-        createSupervisor({
-          ...args,
-          spawnProcess: (cmd, argv, opts) => {
-            const child = owner.start(cmd, argv, opts);
-            const facts = (decoderFacts[args.source.sourceId] ??= {
-              videoBytes: 0,
-              audioBytes: 0,
-              ptsLines: 0,
-              exits: 0,
-              invalidData: 0,
-            });
-            child.stdio[3].on("data", (b) => (facts.videoBytes += b.length));
-            child.stdio[4].on("data", (b) => (facts.audioBytes += b.length));
-            child.stderr.on("data", (b) => {
-              const s = b.toString();
-              facts.ptsLines += (s.match(/pts_time:/g) ?? []).length;
-              facts.invalidData += (
-                s.match(/Invalid|Error|error|failed/g) ?? []
-              ).length;
-            });
-            child.once("close", () => facts.exits++);
-            return child;
-          },
-        }),
+        observeSelectionMarkers(
+          createSupervisor({
+            ...args,
+            spawnProcess: (cmd, argv, opts) => {
+              const child = owner.start(cmd, argv, opts);
+              const facts = (decoderFacts[args.source.sourceId] ??= {
+                videoBytes: 0,
+                audioBytes: 0,
+                ptsLines: 0,
+                exits: 0,
+                invalidData: 0,
+              });
+              child.stdio[3].on("data", (b) => (facts.videoBytes += b.length));
+              child.stdio[4].on("data", (b) => (facts.audioBytes += b.length));
+              child.stderr.on("data", (b) => {
+                const s = b.toString();
+                facts.ptsLines += (s.match(/pts_time:/g) ?? []).length;
+                facts.invalidData += (
+                  s.match(/Invalid|Error|error|failed/g) ?? []
+                ).length;
+              });
+              child.once("close", () => facts.exits++);
+              return child;
+            },
+          }),
+          args,
+          () => renderer.getState().ticks,
+          selections,
+        ),
       onObservation: (e) => {
         const previous = observations.get(e.sourceId);
         if (phase === "steady" && previous?.ready && !e.ready) {
@@ -493,6 +500,7 @@ export async function runCapacityWorkload(
     receipt.cleanup = await owner.close();
     sampleFile.end();
     receipt.phases = phases;
+    receipt.selections = selections;
     phase = "verify";
     const verifier = createProcessOwner();
     try {
@@ -507,12 +515,14 @@ export async function runCapacityWorkload(
             phases,
             references,
             internalDelayMs,
+            selections,
           ),
         );
     } finally {
       await verifier.close();
     }
     receipt.phases = phases;
+    receipt.selections = selections;
     receipt.maxCompressedBufferBytes = maxCompressedBufferBytes;
     receipt.maxDecoders = maxDecoders;
     receipt.maxAcquisitions = maxAcquisitions;
@@ -546,6 +556,18 @@ export async function runCapacityWorkload(
         "Capacity contract failed": "capacity_limit",
         "Output format/packet contract failed": "format_packet",
         "Incomplete healthy dual interval": "sample_completeness",
+        "Missing same-cycle audio marker": "transition_audio_missing",
+        "Selected source pulse was not submitted":
+          "transition_source_pulse_missing",
+        "Incomplete encoded transition flashes": "transition_flash_missing",
+        "Encoded flash disagrees with submitted frame":
+          "transition_flash_watermark",
+        "Encoded transition disagrees with program watermark":
+          "transition_identity_watermark",
+        "Missing preselection encoded coverage":
+          "transition_preselection_missing",
+        "Incomplete selected transition": "transition_incomplete",
+        "Truncated transition media": "transition_truncated",
       }[error.message] ?? "contract_failed";
     receipt.decoderFacts = decoderFacts;
     receipt.failureState = {

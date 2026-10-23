@@ -76,10 +76,14 @@ start, jitter, ads, fresh resolution after 403, deadlines and cancellation.
 Named outcomes must include no skipped or expected-failure required tests. The
 same nine Node acquisition-owner regressions run with built-in type stripping,
 including TERM-ignoring descendants, leader exit, retries and failed cleanup.
-The image also runs 22 renderer and 20 timestamp/PCM tests: 51 required Node
+The image also runs 22 renderer and 28 timestamp/PCM tests: 59 required Node
 outcomes in total. The timing tests include real FFmpeg conversion of 44.1-kHz
 mono input to timestamped stereo 48-kHz PCM and a prewarmed 30-fps source rendered
-as a 60-fps stereo program with measured markers; all required cases must pass.
+as a 60-fps stereo program with measured markers. The buffered-start regression
+uses production decoder pacing, and a separate 60-to-30 startup case checks every
+selected PCM interval and complete flash/beep markers. All required cases must
+pass. The expanded Node file has a 90-second deadline inside a 120-second owner
+proof deadline; the transport envelope remains unchanged.
 Public receipts retain bounded typed acquisition reasons and separate decoder
 readiness. `realAdMarkersObserved` means an actual public HLS `ad_wait` state;
 `realAdPlaybackObserved` remains false unless decoded ad playback is verified.
@@ -108,7 +112,7 @@ Source/proof packaging uses the explicit `workers/restream/packaging-manifest.js
 Build the committed candidate from a clean archive; preserve the main-only
 publishing workflow guard. For the constrained managed Docker disk, collect an
 actual-image file inventory in an isolated Fargate task. Independently compare
-all 46 packaged source files and 1850 installed wheel payload files with the
+all 46 packaged source files and 1854 installed wheel payload files (including four relocated Streamlink data files) with the
 clean archive and verified locked wheelhouse, including native libraries.
 The controller records that comparison and the inventory artifact hash before
 accepting the image. The small `packaged-files` export and
@@ -215,13 +219,13 @@ Three subsequent isolated traces preserved the same missing pulses. Their
 show complete decoded PCM and metadata, with all children and cloud resources
 closed. Successful diagnostic collection is not successful playback.
 
-| Observation | Measured result | Consequence |
-| --- | --- | --- |
-| Default fixture AAC packetization | 42 PES groups of 16 frames, plus groups of 13 and 6 | Most audio groups span 371.5 ms |
-| Audio position behind preceding video DTS | 271.6–304.3 ms for full groups | Paced file decoding delivers old audio after newer video |
-| Raw PCM and metadata gaps | Both approximately 337 ms at P95 | Raw PCM output flushing is not the demonstrated cause |
+| Observation                                | Measured result                                                     | Consequence                                               |
+| ------------------------------------------ | ------------------------------------------------------------------- | --------------------------------------------------------- |
+| Default fixture AAC packetization          | 42 PES groups of 16 frames, plus groups of 13 and 6                 | Most audio groups span 371.5 ms                           |
+| Audio position behind preceding video DTS  | 271.6–304.3 ms for full groups                                      | Paced file decoding delivers old audio after newer video  |
+| Raw PCM and metadata gaps                  | Both approximately 337 ms at P95                                    | Raw PCM output flushing is not the demonstrated cause     |
 | Decoded pulses near source seconds 3 and 6 | 4,938 detected sampleframes each, zero copied in all three attempts | Tail limits and the advanced cursor discard expired audio |
-| Encoded output | Eight flashes, six beeps; exact silence around two interior flashes | The strict synchronization gate correctly remains failed |
+| Encoded output                             | Eight flashes, six beeps; exact silence around two interior flashes | The strict synchronization gate correctly remains failed  |
 
 The default-muxed file bypassed the normalized packetization used by the Twitch
 remux command. An offline control with that exact command preserved all 480 video
@@ -241,15 +245,54 @@ New exact-image transport, functional and capacity proof is still required.
 
 ## Measured allocation status
 
-| Preset | Primary only | Twitch simulcast |
-| --- | --- | --- |
-| 480p30 | Unproved | Unproved |
-| 480p60 | Unproved | Unproved |
-| 720p30 | Unproved | Unproved |
-| 720p60 | Unproved | Unproved |
-| 1080p30 | Unproved | Unproved |
-| 1080p60 | Unproved | Unproved |
+| Preset  | Primary only | Twitch simulcast |
+| ------- | ------------ | ---------------- |
+| 480p30  | Unproved     | Unproved         |
+| 480p60  | Unproved     | Unproved         |
+| 720p30  | Unproved     | Unproved         |
+| 720p60  | Unproved     | Unproved         |
+| 1080p30 | Unproved     | Unproved         |
+| 1080p60 | Unproved     | Unproved         |
 
 This table and the production map must be populated together from passing
 controller receipts before Task 6 completion. No production deployment is part
 of the benchmark work.
+
+## Decoder pacing correction awaiting image qualification
+
+The decoder consumes buffered normalized input at readrate 1. No buffer, cursor,
+FPS, freshness or render scheduling policy changes accompany this correction.
+The same-image controlled experiment eliminated the observed startup acceleration
+and PCM eviction/underflow in its observed interval. Its full original-PTS output
+aligned all subsequent complete pulses. The original instrumented run nevertheless
+passed its steady receipt while an early complete pulse had 130.667 ms audio lag.
+The prior unwrapped 8-CPU 145 ms failure remains a separate negative whose exact
+cause was not retrospectively established. Sanitized measured facts and original
+artifact hashes are retained in
+[the controlled evidence receipt](./evidence/twitch-operator-task6/decoder-pacing-control.json).
+
+The proof now observes each actual beginPlayback through the existing supervisor
+factory, preserving receiver, arguments and return. Its program tick is the frame
+about to be submitted, before the renderer increments the tick. At most eight
+selections retain four seconds of selected flash onsets and at most 256 decoded
+source onsets each. A decoded full pulse reached by selected video must also
+appear in submitted frames. Each onset includes its
+source integer PTS and program tick; a pulse underway before selection is an
+explicit boundary fragment. The original frame/PCM methods remain unchanged.
+
+Full original-PTS decoding also reads source identity. First A establishes the
+encoded program origin, and Take must match the same origin and submitted tick
+within one output frame. Every submitted flash in both four-second transition
+windows must appear in the recording. Every complete flash must have exactly one
+unused audio onset within its own one-second cycle's half-period association
+fence. Missing audio cannot alias the next cycle. The maximum absolute drift
+includes these pairs and every existing steady-window pair, with the unchanged
+100 ms gate. Missing transition coverage fails receipt admission. No existing
+steady interval is shifted or shortened.
+
+A carry-in visual fragment can legitimately outlast its source beep. That fragment
+is reported, not paired with a beep one second later and not counted as a full
+pulse. This does not exempt any subsequent complete selected pulse. Pacing can
+preserve upstream buffered delay: renderer internalDelay measures only render
+clock versus encoder progress. Absolute source-to-viewer latency still requires
+the separate owned UTC observation; these controls do not establish it.

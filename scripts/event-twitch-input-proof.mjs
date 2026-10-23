@@ -118,9 +118,9 @@ export async function runTransportWorkload(request) {
       await owner.run(
         process.execPath,
         ["workers/restream/tests/owner_proof.mjs"],
-        { timeoutMs: 60000, maxBytes: 131072 },
+        { timeoutMs: 120000, maxBytes: 131072 },
       ),
-      51,
+      59,
     );
     const contractFailure = transportContractFailurePhase(tests);
     if (contractFailure) {
