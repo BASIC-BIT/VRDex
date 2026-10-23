@@ -46,7 +46,7 @@ export function EventOperatorView({
         title={current.eventTitle}
         onTwitch={(input) => configureTwitch({ currentSlug, ...input })}
         onCommand={(type, targetSourceKey) =>
-          queue({ currentSlug, type, targetSourceKey })
+          queue({ currentSlug, type, targetSourceKey, idempotencyKey: crypto.randomUUID() })
         }
         onStart={(outputKey) =>
           start({ currentSlug, outputKey, startImmediately: true })

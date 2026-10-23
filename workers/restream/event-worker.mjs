@@ -43,7 +43,7 @@ export function createEventWorker({ identity, control, renderer, outputs, create
     let startupUntil = Infinity, published = false;
     let lastOutput = 0, outputProgressAt = 0, silenceThresholdDb, outputConfiguration;
     const completed = new Map(), sourceURLs = new Map(), revisionBarriers = new Map();
-    const request = (name, args = {}) => bounded(signal => control(name, { ...identity, ...args }, signal), requestTimeoutMs);
+    const request = (name, args = {}) => bounded(signal => control(name, { ...identity, protocolVersion: 2, ...args }, signal), requestTimeoutMs);
     function fence(reason) {
         if (stopped)
             return;
@@ -103,7 +103,7 @@ export function createEventWorker({ identity, control, renderer, outputs, create
                 const url = await bounded(() => resolveSource(source), requestTimeoutMs);
                 if (stopped)
                     return;
-                sources.push({ slotKey: slot.slotKey, sourceId: slot.sourceId, url });
+                sources.push({ slotKey: slot.slotKey, sourceId: slot.sourceId, revision: source.revision ?? 1, url });
             }
             catch {
                 slot.available = false;
@@ -137,11 +137,106 @@ export function createEventWorker({ identity, control, renderer, outputs, create
             return;
         if (state.renderedSourceId && !(current?.sourceId === state.renderedSourceId && current.available))
             return;
-        const result = await request('observeProgram', { state: state.renderedSourceId ? 'live' : 'hold', sourceId: state.renderedSourceId, outputId: config.outputId, outputMs: state.outputMs, publishing: true, mode });
-        if (!result.accepted)
+        const result = await request('observeProgram', { state: state.renderedSourceId ? 'live' : 'hold', sourceId: state.renderedSourceId, outputId: config.outputId, outputMs: state.outputMs, publishing: true, mode, intentSequence:config.intentSequence,sourceRevision:state.renderedSourceRevision,slotKey:state.renderedSlotKey });
+        if (result.kind === 'fenced' || (!result.kind && !result.accepted))
             throw Error('Observation rejected');
     }
+    // Protocol adapter for the existing blocking loop. Task 5 replaces acquisition
+    // scheduling; these transactions already own intent and the original budget.
+    async function executeControl(command) {
+      const receipt = { commandId: command._id, sequence: command.sequence };
+      const accept = (result) => {
+        if (result.kind === "fenced") throw Error("Control authority fenced");
+        if (result.kind !== "ok") {
+          pending = undefined;
+          return false;
+        }
+        return true;
+      };
+      if (!pending || pending.command._id !== command._id) {
+        pending = undefined;
+        const begun = await request("beginPreparation", receipt);
+        if (!accept(begun)) return;
+        pending = {
+          command,
+          beganAt: clock(),
+          target:
+            command.controlTarget.kind === "source"
+              ? {
+                  ...command.controlTarget.source,
+                  available: true,
+                  startAt: scheduleNow(),
+                }
+              : undefined,
+          slate: command.controlTarget.kind === "slate",
+          promoted: command.controlPhase === "promoting",
+          expiresAt:
+            clock() + Math.max(0, begun.preparationExpiresAt - scheduleNow()),
+        };
+        if (pending.promoted) config.intentSequence = command.sequence;
+        await reconcile(pending.target);
+      }
+      const target = pending.target;
+      if (
+        clock() >= pending.expiresAt ||
+        (target &&
+          !config.sources.some(
+            (s) =>
+              s.id === target.sourceId && (s.revision ?? 1) === target.revision,
+          ))
+      ) {
+        accept(
+          await request("acknowledgeCommand", {
+            ...receipt,
+            outcome: "failed",
+            failureReason:
+              clock() >= pending.expiresAt ? "expired" : "source_unavailable",
+          }),
+        );
+        pending = undefined;
+        return;
+      }
+      if (!pending.promoted) {
+        if (target && !observation(target)?.ready) return;
+        const grant = await request("promoteOperation", {
+          ...receipt,
+          target: command.controlTarget,
+        });
+        if (!accept(grant)) return;
+        pending.promoted = true;
+        config.intentSequence = grant.intentSequence;
+      }
+      mode =
+        command.controlTarget.mode === "slate"
+          ? "hold"
+          : command.controlTarget.mode;
+      current = target;
+      if (target) renderer.selectSource(target.slotKey);
+      else renderer.hold();
+      const state = actual();
+      const rendered = target
+        ? state.renderedSlotKey === target.slotKey &&
+          state.renderedSourceId === target.sourceId &&
+          state.renderedSourceRevision === target.revision
+        : state.renderedSourceId === undefined &&
+          state.renderedSlotKey === undefined;
+      if (!state.publishing || !rendered) return;
+      const result = await request("acknowledgeCommand", {
+        ...receipt,
+        outcome: "succeeded",
+        intentSequence: config.intentSequence,
+        outputMs: state.outputMs,
+        observedState: target ? "live" : "hold",
+        observedSourceId: state.renderedSourceId ?? null,
+        sourceRevision: state.renderedSourceRevision,
+        slotKey: state.renderedSlotKey,
+        observedOutputId: config.outputId,
+      });
+      accept(result);
+      pending = undefined;
+    }
     async function execute(command) {
+        if(command.controlTarget)return executeControl(command);
         if (completed.has(command.sequence))
             return request('acknowledgeCommand', completed.get(command.sequence));
         if (command.sequence <= lastSequence)
@@ -227,9 +322,10 @@ export function createEventWorker({ identity, control, renderer, outputs, create
             else if (pending.slate) current = undefined;
         }
         const ack = { commandId: command._id, sequence: command.sequence, outcome: pending.outcome,
+            intentSequence:config.intentSequence,outputMs:state.outputMs,sourceRevision:pending.terminal?undefined:state.renderedSourceRevision,slotKey:pending.terminal?undefined:state.renderedSlotKey,
             ...(pending.outcome === 'succeeded' ? { observedState: pending.terminal ? 'ended' : state.renderedSourceId ? 'live' : 'hold', observedSourceId: pending.terminal ? null : state.renderedSourceId ?? null, observedOutputId: config.outputId, observedSceneId: null } : {}) };
         const result = await request('acknowledgeCommand', ack);
-        if (!result.accepted)
+        if (result.kind === "fenced" || (!result.kind && !result.accepted))
             throw Error('Command acknowledgement rejected');
         completed.set(command.sequence, ack);
         if (completed.size > 64)
@@ -259,6 +355,7 @@ export function createEventWorker({ identity, control, renderer, outputs, create
                 for (const source of config.sources)
                     sourceURLs.set(source.id, source.publicUrl);
                 mode = config.mode;
+                if(config.committedIntent?.kind === 'manual')config.currentSourceId=config.committedIntent.sourceId;
                 current = mode === 'automatic' ? undefined : config.slots.find(s => s.sourceId === config.currentSourceId);
                 if (!current && mode === 'manual' && config.sources.some(s => s.id === config.currentSourceId))
                     current = { slotKey: `manual-${config.currentSourceId}`, sourceId: config.currentSourceId, startAt: lease.serverNow, available: true };
@@ -310,7 +407,19 @@ export function createEventWorker({ identity, control, renderer, outputs, create
                 const fresh = await request('refreshConfiguration');
                 if (!fresh.granted)
                     throw Error('Configuration authority denied');
+                const previousIntentSequence=config.intentSequence;
                 config = fresh.configuration;
+                if(config.controlProtocolVersion === 2) {
+                    if(pending?.command.controlTarget && config.pendingOperation?._id !== pending.command._id)pending=undefined;
+                    mode=config.mode;
+                    if(config.committedIntent?.kind === 'slate') { current=undefined;renderer.hold(); }
+                    else if(config.committedIntent?.kind === 'manual') {
+                        const desired=config.committedIntent;
+                        const source=config.sources.find(s=>s.id===desired.sourceId && (s.revision??1)===desired.revision);
+                        current=source ? {...config.slots.find(s=>s.sourceId===source.id),slotKey:source.eventSlotId??`manual-${source.id}`,sourceId:source.id,revision:desired.revision,startAt:scheduleNow(),available:true} : undefined;
+                        if(!current)renderer.hold();
+                    }else if(previousIntentSequence!==config.intentSequence && !pending)current=undefined;
+                }
                 if (JSON.stringify({ outputId: config.outputId, outputs: config.outputs }) !== outputConfiguration)
                     throw Error('Destination configuration changed');
                 for (const source of config.sources) {
@@ -353,7 +462,8 @@ export function createEventWorker({ identity, control, renderer, outputs, create
                 const claims = await request('claimCommands');
                 if (!claims.granted)
                     throw Error('Command authority denied');
-                for (const command of [...claims.commands].sort((a, b) => a.sequence - b.sequence)) {
+                for (const command of claims.commands) {
+                    if(command.commandType === "stop_program")pending=undefined;
                     await execute(command);
                     if (pending || stopped)
                         break;

@@ -1,3 +1,5 @@
+import {assertWorkerProtocol,beginControlPreparation,promoteControlOperation,completeControlOperation,controlFence,coherentEvidence,writeControlObservation,isCut,isControl} from "./_eventBroadcastControl";
+import {controlTargetValidator,controlResultValidator,controlFailureValidator} from "./_eventMediaControl";
 import { parseMediaSettings, resolveDestinationProfile } from "../workers/restream/broadcast-profiles.mjs";
 import { eventProfileBroadcastInputChoices, resolveBroadcastInput, broadcastInputPublicUrl, eventMediaSourceWorkerDescriptor } from "./_eventBroadcastSources";
 import { outputHealthValidator, eventOutputIsAuthorized } from './_eventOutputSetup';
@@ -7,6 +9,7 @@ import { mutation, type MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { settleTerminalSessionCommands, effectiveBroadcastPolicy, allocateSessionCommandSequence, EVENT_BROADCAST_STOP_GRACE_MS, EVENT_BROADCAST_COMMAND_BATCH, EVENT_BROADCAST_LEASE_MS, EVENT_BROADCAST_MAX_SOURCES, EVENT_BROADCAST_MAX_SCENES, EVENT_BROADCAST_MAX_OUTPUTS, EVENT_BROADCAST_RENEW_AFTER_MS, requireEventMediaBridgeToken, observedBroadcastStateValidator, workerSessionArgs, } from "./_eventBroadcastInputs";
 type Request = {
+    protocolVersion?:number;
     bridgeToken: string;
     eventId: Id<"events">;
     sessionId: Id<"eventMediaSessions">;
@@ -25,6 +28,7 @@ async function records(ctx: MutationCtx, args: Request, allowTerminal = false, a
     const session = await ctx.db.get(args.sessionId);
     if (session === null || session.eventId !== args.eventId)
         return null;
+    assertWorkerProtocol(session,args);
     const program = await ctx.db.get(session.programId);
     const event = await ctx.db.get(args.eventId);
     const terminal = ["ended", "error"].includes(session.status);
@@ -98,10 +102,10 @@ export const acquireSession = mutation({
             if (siblings.some(s => s._id !== session._id)) {
                 return reject(ctx, args, "Another event session has an unexpired owner.");
             }
-            await ctx.db.patch(session._id, { workerId: args.workerId, epoch, acquiredAt, leaseExpiresAt: expiresAt, status: "starting", programObservedAt:undefined, outputHealthObservedAt:undefined, outputHealth:[], updatedAt: now });
+            await ctx.db.patch(session._id, { workerId: args.workerId, epoch, acquiredAt, leaseExpiresAt: expiresAt, status: "starting", programObservedAt:undefined, observedOutputMs:undefined, observedSourceRevision:undefined, observedSlotKey:undefined, outputHealthObservedAt:undefined, outputHealth:[], updatedAt: now });
             await ctx.db.insert("eventMediaAuditEvents", { programId: program._id, eventId: args.eventId, sessionId: session._id, actorSurface: "worker", action: "worker_session_acquired", privateSummary: `Epoch ${epoch}.`, createdAt: now });
         }
-        return { ...lease(session, epoch, acquiredAt, expiresAt), configuration: await configuration(ctx, found) };
+        return { ...lease(session, epoch, acquiredAt, expiresAt), configuration: await configuration(ctx, {...found,session:(await ctx.db.get(session._id))!}) };
     },
 });
 export const renewSession = mutation({
@@ -121,33 +125,147 @@ export const renewSession = mutation({
     },
 });
 export const claimCommands = mutation({
-    args: workerSessionArgs,
-    handler: async (ctx, args) => {
-        authenticate(args);
-        const found = await records(ctx, args);
-        const now = Date.now();
-        if (found === null || !owns(found.session, args, now))
-            return reject(ctx, args, "Session ownership is stale or expired.");
-        // Number any legacy commands without consuming an unused sequence.
-        await allocateSessionCommandSequence(ctx.db, args.sessionId, false);
-        const pending = (await Promise.all((["queued", "claimed"] as const).map(status =>
-            ctx.db.query("eventMediaCommands").withIndex("by_session_scope_status_sequence", q => q.eq("sessionId", args.sessionId).eq("eventId", args.eventId).eq("programId", found.program._id).eq("status", status).gt("sequence", undefined)).take(EVENT_BROADCAST_COMMAND_BATCH)))).flat().sort((a, b) => a.sequence! - b.sequence!);
-        const commands = [];
-        for (const command of pending.slice(0, EVENT_BROADCAST_COMMAND_BATCH)) {
-            // An earlier future command must become eligible before later intent
-            // can execute; otherwise its acknowledgement would be out of order.
-            if ((command.availableAt ?? command.createdAt) > now) break;
-            commands.push(command);
-        }
-        for (const command of commands) {
-            await ctx.db.patch(command._id, { status: "claimed", claimedByWorkerId: args.workerId, claimedEpoch: args.epoch, claimedAt: now, updatedAt: now });
-        }
-        return { granted: true as const, epoch: args.epoch, commands: commands.map(c => ({ ...c, status: "claimed" as const, claimedEpoch: args.epoch, claimedByWorkerId: args.workerId })) };
-    },
+  args: workerSessionArgs,
+  handler: async (ctx, args) => {
+    authenticate(args);
+    const found = await records(ctx, args);
+    const now = Date.now();
+    if (found === null || !owns(found.session, args, now))
+      return reject(ctx, args, "Session ownership is stale or expired.");
+    // Number any legacy commands without consuming an unused sequence.
+    await allocateSessionCommandSequence(ctx.db, args.sessionId, false);
+    const batches = await Promise.all(
+      (["queued", "claimed"] as const).map((status) =>
+        ctx.db
+          .query("eventMediaCommands")
+          .withIndex("by_session_scope_status_sequence", (q) =>
+            q
+              .eq("sessionId", args.sessionId)
+              .eq("eventId", args.eventId)
+              .eq("programId", found.program._id)
+              .eq("status", status)
+              .gt("sequence", undefined),
+          )
+          .take(EVENT_BROADCAST_COMMAND_BATCH),
+      ),
+    );
+    // Emergency controls must remain reachable even behind a full ordinary
+    // batch. The pointer and indexed Stop lookups keep these reads bounded.
+    const emergency = await Promise.all([
+      found.session.pendingControlCommandId
+        ? ctx.db.get(found.session.pendingControlCommandId)
+        : null,
+      ...(["queued", "claimed"] as const).map((status) =>
+        ctx.db
+          .query("eventMediaCommands")
+          .withIndex("by_sessionId_commandType_status", (q) =>
+            q
+              .eq("sessionId", args.sessionId)
+              .eq("commandType", "stop_program")
+              .eq("status", status),
+          )
+          .first(),
+      ),
+    ]);
+    const pending = [
+      ...new Map(
+        [
+          ...batches.flat(),
+          ...emergency.filter(
+            (command) =>
+              command !== null &&
+              command.eventId === args.eventId &&
+              command.programId === found.program._id &&
+              command.sessionId === args.sessionId &&
+              command.sequence !== undefined &&
+              (command.status === "queued" || command.status === "claimed"),
+          ),
+        ].map((command) => [command!._id, command!]),
+      ).values(),
+    ].sort((a, b) =>
+      a.commandType === "stop_program"
+        ? -1
+        : b.commandType === "stop_program"
+          ? 1
+          : isCut(a.commandType)
+            ? -1
+            : isCut(b.commandType)
+              ? 1
+              : a.sequence! - b.sequence!,
+    );
+    const commands = [];
+    for (const command of pending.slice(0, EVENT_BROADCAST_COMMAND_BATCH)) {
+      // An earlier future command must become eligible before later intent
+      // can execute; otherwise its acknowledgement would be out of order.
+      if (
+        found.session.stopRequestedAt !== undefined &&
+        command.commandType !== "stop_program"
+      )
+        continue;
+      if (
+        found.session.controlProtocolVersion === 2 &&
+        isControl(command.commandType) &&
+        !command.controlTarget
+      )
+        continue;
+      if (
+        command.controlTarget &&
+        command._id !== found.session.pendingControlCommandId
+      )
+        continue;
+      if ((command.availableAt ?? command.createdAt) > now) break;
+      commands.push(command);
+    }
+    for (const command of commands) {
+      await ctx.db.patch(command._id, {
+        status: "claimed",
+        claimedByWorkerId: args.workerId,
+        claimedEpoch: args.epoch,
+        claimedAt: now,
+        updatedAt: now,
+      });
+    }
+    return {
+      granted: true as const,
+      epoch: args.epoch,
+      commands: commands.map((c) => ({
+        ...c,
+        status: "claimed" as const,
+        claimedEpoch: args.epoch,
+        claimedByWorkerId: args.workerId,
+      })),
+    };
+  },
+});
+export const beginPreparation = mutation({
+  args: {
+    ...workerSessionArgs,
+    commandId: v.id("eventMediaCommands"),
+    sequence: v.number(),
+  },
+  returns: controlResultValidator,
+  handler: async (ctx, args) => {
+    authenticate(args);
+    return beginControlPreparation(ctx.db, args);
+  },
+});
+export const promoteOperation = mutation({
+  args: {
+    ...workerSessionArgs,
+    commandId: v.id("eventMediaCommands"),
+    sequence: v.number(),
+    target: controlTargetValidator,
+  },
+  returns: controlResultValidator,
+  handler: async (ctx, args) => {
+    authenticate(args);
+    return promoteControlOperation(ctx.db, args);
+  },
 });
 export const acknowledgeCommand = mutation({
     args: {
         ...workerSessionArgs, commandId: v.id("eventMediaCommands"), sequence: v.number(),
+        intentSequence:v.optional(v.number()),outputMs:v.optional(v.number()),sourceRevision:v.optional(v.number()),slotKey:v.optional(v.string()),failureReason:v.optional(controlFailureValidator),
         outcome: v.union(v.literal("succeeded"), v.literal("failed")),
         observedSourceId: v.optional(v.union(v.id("eventMediaSources"), v.null())),
         observedSceneId: v.optional(v.union(v.id("eventMediaScenes"), v.null())),
@@ -156,6 +274,8 @@ export const acknowledgeCommand = mutation({
     },
     handler: async (ctx, args) => {
         authenticate(args);
+        const controlCommand=await ctx.db.get(args.commandId);
+        if(controlCommand?.controlTarget) return completeControlOperation(ctx.db,args,{intentSequence:args.intentSequence,outputMs:args.outputMs,sourceId:args.observedSourceId,sourceRevision:args.sourceRevision,slotKey:args.slotKey,outputId:args.observedOutputId,state:args.observedState});
         const denied = async (reason: string) => ({ ...await reject(ctx, args, reason), accepted: false as const });
         if (!Number.isSafeInteger(args.sequence) || args.sequence < 1)
             return denied("Command sequence is invalid.");
@@ -164,6 +284,7 @@ export const acknowledgeCommand = mutation({
         if (found === null || !owns(found.session, args, now))
             return denied("Session ownership is stale or expired.");
         const command = await ctx.db.get(args.commandId);
+        if(found.session.controlProtocolVersion===2 && command && isControl(command.commandType))return {kind:"superseded" as const};
         if (args.outcome === "succeeded" && !["ended","error"].includes(args.observedState ?? "") && found.session.outputId) {
             const selectedOutput = await ctx.db.get(found.session.outputId);
             if (!selectedOutput || !eventOutputIsAuthorized(found.event, selectedOutput)) return denied("Destination authority was revoked.");
@@ -171,6 +292,8 @@ export const acknowledgeCommand = mutation({
         if (command === null || command.sessionId !== args.sessionId || command.eventId !== args.eventId || command.programId !== found.program._id || command.sequence !== args.sequence) {
             return denied("Command does not belong to this session and sequence.");
         }
+        const completionPayload=JSON.stringify([args.outcome,args.intentSequence??null,args.outputMs??null,args.sourceRevision??null,args.slotKey??null,args.observedSourceId??null,args.observedSceneId??null,args.observedOutputId??null,args.observedState??null]);
+        if (command.completionPayload!==undefined && command.status===args.outcome && command.completionPayload!==completionPayload)return {kind:"superseded" as const};
         if (command.status === args.outcome && command.acknowledgedEpoch === args.epoch && command.observedSourceId === args.observedSourceId && command.observedSceneId === args.observedSceneId && command.observedOutputId === args.observedOutputId && command.observedState === args.observedState) {
             return { accepted: true as const, duplicate: true };
         }
@@ -182,7 +305,7 @@ export const acknowledgeCommand = mutation({
             return denied("Command sequence has already been superseded.");
         const earlier = await Promise.all((["queued", "claimed"] as const).map(status =>
             ctx.db.query("eventMediaCommands").withIndex("by_session_scope_status_sequence", q => q.eq("sessionId", args.sessionId).eq("eventId", args.eventId).eq("programId", found.program._id).eq("status", status).gt("sequence", undefined).lt("sequence", args.sequence)).first()));
-        if (earlier.some(Boolean))
+        if (command.commandType!=="stop_program" && earlier.some(c=>c && !(found.session.controlProtocolVersion===2 && isControl(c.commandType) && !c.controlTarget)))
             return denied("An earlier command is still pending.");
         const selectedOutput = await selectedObservationOutput(ctx, found, args.observedOutputId, args.outcome === "succeeded" ? args.observedState : undefined);
         if (selectedOutput === false) return denied("Observed output is unavailable.");
@@ -197,14 +320,16 @@ export const acknowledgeCommand = mutation({
         if (args.outcome === "succeeded" && command.commandType === "switch_source" && args.observedSourceId == null) {
             return denied("A successful source switch requires the actual observed source.");
         }
-        await ctx.db.patch(command._id, { status: args.outcome, acknowledgedEpoch: args.epoch, observedSourceId: args.observedSourceId, observedSceneId: args.observedSceneId, observedOutputId: args.observedOutputId, observedState: args.observedState, completedAt: now, updatedAt: now });
+        const hasV2Observation=found.session.controlProtocolVersion===2 && args.outcome==="succeeded" && !["ended","error"].includes(args.observedState??"") && (args.observedState!==undefined || args.observedSourceId!==undefined);
+        if(hasV2Observation && !await coherentEvidence(ctx.db,found.session,{intentSequence:args.intentSequence,outputMs:args.outputMs,sourceId:args.observedSourceId,sourceRevision:args.sourceRevision,slotKey:args.slotKey,outputId:args.observedOutputId,state:args.observedState}))return {kind:"superseded" as const};
+        await ctx.db.patch(command._id, { completionPayload, status: args.outcome, acknowledgedEpoch: args.epoch, observedSourceId: args.observedSourceId, observedSceneId: args.observedSceneId, observedOutputId: args.observedOutputId, observedState: args.observedState, completedAt: now, updatedAt: now });
         const observed = args.outcome === "succeeded" ? {
             ...(args.observedSourceId === undefined ? {} : { currentSourceId: args.observedSourceId ?? undefined }),
             ...(args.observedSceneId === undefined ? {} : { currentSceneId: args.observedSceneId ?? undefined }),
         } : {};
         const observedState = args.outcome === "succeeded" ? args.observedState : undefined;
         const mode = command.commandType === "set_automatic_mode" ? "automatic" : ["switch_hold", "show_hold_scene"].includes(command.commandType) ? "hold" : ["hold_current", "switch_source", "switch_next", "next_slot", "switch_previous", "previous_slot"].includes(command.commandType) ? "manual" : undefined;
-        await ctx.db.patch(args.sessionId, { ...(args.outcome === "succeeded" && mode ? { broadcastMode: mode } : {}), ...observed, ...(args.outcome === "succeeded" && (mode || observedState || args.observedSourceId !== undefined) ? {programObservedAt:now} : {}), ...(observedState === undefined ? {} : { status: observedState }), lastAcknowledgedSequence: args.sequence, updatedAt: now });
+        await ctx.db.patch(args.sessionId, { ...(hasV2Observation?{observedOutputMs:args.outputMs,observedSourceRevision:args.sourceRevision,observedSlotKey:args.slotKey}:{}), ...(args.outcome === "succeeded" && mode ? { broadcastMode: mode } : {}), ...observed, ...(args.outcome === "succeeded" && (mode || observedState || args.observedSourceId !== undefined) ? {programObservedAt:now} : {}), ...(observedState === undefined ? {} : { status: observedState }), lastAcknowledgedSequence: args.sequence, updatedAt: now });
         if (args.outcome === "succeeded")
             await ctx.db.patch(found.program._id, { ...observed, ...(args.observedOutputId === undefined ? {} : { currentOutputId: args.observedOutputId ?? undefined }), ...(observedState === undefined ? {} : { state: observedState }), ...(["ended", "error"].includes(observedState ?? "") ? { activeSessionId: undefined } : {}), updatedAt: now });
         await updateObservedOutput(ctx, found.event, selectedOutput, observedState, now);
@@ -267,11 +392,13 @@ async function configuration(ctx: MutationCtx, { session, program, event }: NonN
         await ctx.db.patch(session._id, { runtimeDeadlineAt: deadline });
     return {
         programId: program._id, eventId: event._id, outputId: session.outputId,
+        committedIntent:session.committedIntent,intentSequence:session.intentSequence,
+        pendingOperation:session.pendingControlCommandId?await ctx.db.get(session.pendingControlCommandId):null,
         mediaSettings: parseMediaSettings(session.mediaSettings), controlProtocolVersion: session.controlProtocolVersion,
         currentSourceId: session.currentSourceId ?? program.currentSourceId,
         currentSceneId: session.currentSceneId ?? program.currentSceneId,
         sessionDeadline: deadline, stopped: event.eventStatus !== "scheduled" || session.stopRequestedAt !== undefined,
-        mode: session.broadcastMode ?? "automatic", policy: effectiveBroadcastPolicy(program.broadcastPolicy), slots,
+        mode: session.committedIntent ? session.committedIntent.kind === "slate" ? "hold" : session.committedIntent.kind : session.broadcastMode ?? "automatic", policy: effectiveBroadcastPolicy(program.broadcastPolicy), slots,
         sources: sources.filter(s => s.eventId === event._id && s.state !== "disabled" && s.projectionAvailable !== false && (!s.eventSlotId || authored.some(slot => slot._id === s.eventSlotId))).flatMap(source => { const descriptor = eventMediaSourceWorkerDescriptor(source); return descriptor ? [descriptor] : []; }),
         scenes: scenes.filter(s => s.eventId === event._id).map(s => ({ id: s._id, key: s.key, type: s.type, sourceId: s.sourceId })),
         outputs: outputs.filter(o => o.eventId === event._id && eventOutputIsAuthorized(event, o) && ["ready", "active"].includes(o.state) && (!session.destinationProfiles || session.destinationProfiles.some(d => d.outputId === o._id))).map(o => ({ id: o._id, key: o.key, type: o.type, credential: o.credential, vrcdnSetup: o.vrcdnSetup, twitchSetup: o.twitchSetup, profile: session.destinationProfiles?.find(d => d.outputId === o._id)?.profile ?? resolveDestinationProfile({settings:session.mediaSettings,destination:o.type === "vrcdn" ? "vrcdn" : "twitch"}), simulcastEnabled: session.destinationProfiles ? o._id !== session.outputId : o.simulcastEnabled ?? false, compliance: o.compliance })),
@@ -284,8 +411,16 @@ export const refreshConfiguration = mutation({ args: workerSessionArgs, handler:
             return reject(ctx, args, "Session ownership is stale or expired.");
         return { granted: true as const, serverNow: Date.now(), configuration: await configuration(ctx, found) };
     } });
-export const observeProgram = mutation({ args: { ...workerSessionArgs, state: observedBroadcastStateValidator, outputMs: v.number(), publishing: v.boolean(), outputId: v.optional(v.id("eventMediaOutputs")), sourceId: v.optional(v.id("eventMediaSources")), mode: v.optional(v.union(v.literal("automatic"), v.literal("manual"), v.literal("hold"))) }, handler: async (ctx, args) => {
+export const observeProgram = mutation({ args: { ...workerSessionArgs, intentSequence:v.optional(v.number()),sourceRevision:v.optional(v.number()),slotKey:v.optional(v.string()), state: observedBroadcastStateValidator, outputMs: v.number(), publishing: v.boolean(), outputId: v.optional(v.id("eventMediaOutputs")), sourceId: v.optional(v.id("eventMediaSources")), mode: v.optional(v.union(v.literal("automatic"), v.literal("manual"), v.literal("hold"))) }, handler: async (ctx, args) => {
         authenticate(args);
+        const session=await ctx.db.get(args.sessionId);
+        if(session?.controlProtocolVersion===2 && !["ended","error"].includes(args.state)) {
+          const found=await controlFence(ctx.db,args);if("result" in found)return found.result;
+          if(["live","hold"].includes(args.state) && (!args.publishing || !Number.isFinite(args.outputMs) || args.outputMs<=0))throw Error("Publishing progress is required.");
+          const evidence={...args,state:args.state};
+          if(!args.publishing || !await coherentEvidence(ctx.db,found.session,evidence))return {kind:"superseded" as const};
+          await writeControlObservation(ctx.db,found.session,evidence);return {kind:"ok" as const};
+        }
         const found = await records(ctx, args, false, ["ended","error"].includes(args.state));
         if (!found || !owns(found.session, args, Date.now()))
             return { ...await reject(ctx, args, "Session ownership is stale or expired."), accepted: false };

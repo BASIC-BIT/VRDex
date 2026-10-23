@@ -127,20 +127,20 @@ test("hidden explicit inputs are retained but unavailable, and new hidden select
   await assert.rejects(owner.mutation(api.events.updateCommunityEvent, { currentSlug: event.slug, communitySlug: "club", lineup: [{ ...row, clientKey: "new" }] }), /public inputs/);
 });
 
-test("custom source scope and active or pending removal are enforced before disabling", async () => {
+test("custom source removal retains scope checks and is idempotent without an active session", async () => {
   const { t, owner, event } = await fixture();
   const created = await owner.mutation(sourceMutation("create"), { currentSlug: event.slug, label: "Guest", url: "vrcdn:alpha" });
   const source = (await t.run(ctx => ctx.db.get(created.sourceId)))!;
   const other = await owner.mutation(api.events.createCommunityEvent, { title: "Other night", communitySlug: "club", startAt, timezone: "UTC" });
   await assert.rejects(owner.mutation(sourceMutation("remove"), { currentSlug: other.slug, sourceId: source._id }), /not found/);
   await t.run(ctx => ctx.db.patch(source.programId, { currentSourceId: source._id, state: "live" }));
-  await assert.rejects(owner.mutation(sourceMutation("remove"), { currentSlug: event.slug, sourceId: source._id }), /Active or pending/);
+  await owner.mutation(sourceMutation("remove"), { currentSlug: event.slug, sourceId: source._id });
   await t.run(async ctx => {
     await ctx.db.patch(source.programId, { currentSourceId: undefined, state: "draft" });
     await ctx.db.insert("eventMediaCommands", { programId: source.programId, eventId: event.eventId, commandType: "switch_source", status: "queued", actorSurface: "web", targetSourceId: source._id, publicFallbackLinks: [], createdAt: Date.now(), updatedAt: Date.now() });
   });
-  await assert.rejects(owner.mutation(sourceMutation("remove"), { currentSlug: event.slug, sourceId: source._id }), /Active or pending/);
-  assert.equal((await t.run(ctx => ctx.db.get(source._id)))!.state, "ready");
+  await owner.mutation(sourceMutation("remove"), { currentSlug: event.slug, sourceId: source._id });
+  assert.equal((await t.run(ctx => ctx.db.get(source._id)))!.state, "disabled");
   const outsiderSubject = newClerkUserId();
   await t.run(ctx => ctx.db.insert("users", { clerkUserId: outsiderSubject, name: "Outsider", emailVerificationTime: Date.now() }));
   const outsider = t.withIdentity({ subject: outsiderSubject, issuer: "test", tokenIdentifier: `test|${outsiderSubject}`, emailVerified: true });
@@ -157,7 +157,7 @@ test("worker configuration derives canonical inputs, positive revisions and publ
   const scheduled = await owner.mutation(api.events.scheduleEventMediaWorker, { currentSlug: event.slug });
   await t.run(ctx => ctx.db.patch(scheduled.sessionId, { scheduledStartAt: Date.now() - 1000 }));
   process.env.VRDEX_EVENT_MEDIA_BRIDGE_TOKEN = "sources-test-bridge";
-  const lease = await t.mutation(makeFunctionReference<"mutation">("eventMediaWorker:acquireSession"), { bridgeToken: "sources-test-bridge", eventId: event.eventId, sessionId: scheduled.sessionId, workerId: "sources-worker", epoch: 0 });
+  const lease = await t.mutation(makeFunctionReference<"mutation">("eventMediaWorker:acquireSession"), { protocolVersion:2, bridgeToken: "sources-test-bridge", eventId: event.eventId, sessionId: scheduled.sessionId, workerId: "sources-worker", epoch: 0 });
   assert.equal(lease.granted, true);
   const sources = lease.configuration.sources;
   const projected = sources.find((source: { eventSlotId?: string }) => source.eventSlotId !== undefined);
@@ -173,7 +173,7 @@ test("worker configuration derives canonical inputs, positive revisions and publ
   const statusLegacy = status.sources.find(source => source.sourceId === legacyId)!;
   assert.deepEqual(statusLegacy.input, legacy.input);
   assert.equal(statusLegacy.publicUrl, legacy.publicUrl);
-  const again = await t.mutation(makeFunctionReference<"mutation">("eventMediaWorker:refreshConfiguration"), { bridgeToken: "sources-test-bridge", eventId: event.eventId, sessionId: scheduled.sessionId, workerId: "sources-worker", epoch: lease.epoch });
+  const again = await t.mutation(makeFunctionReference<"mutation">("eventMediaWorker:refreshConfiguration"), { protocolVersion:2, bridgeToken: "sources-test-bridge", eventId: event.eventId, sessionId: scheduled.sessionId, workerId: "sources-worker", epoch: lease.epoch });
   assert.equal(again.configuration.sources.find((source: { id: string }) => source.id === projected.id).revision, 1);
 });
 
@@ -232,7 +232,7 @@ test("deployment-owned endpoint descriptors reach the guarded relay without inve
   const scheduled = await owner.mutation(api.events.scheduleEventMediaWorker, { currentSlug: event.slug });
   await t.run(ctx => ctx.db.patch(scheduled.sessionId, { scheduledStartAt: Date.now() - 1000 }));
   process.env.VRDEX_EVENT_MEDIA_BRIDGE_TOKEN = "sources-test-bridge";
-  const lease = await t.mutation(makeFunctionReference<"mutation">("eventMediaWorker:acquireSession"), { bridgeToken: "sources-test-bridge", eventId: event.eventId, sessionId: scheduled.sessionId, workerId: "sources-worker", epoch: 0 });
+  const lease = await t.mutation(makeFunctionReference<"mutation">("eventMediaWorker:acquireSession"), { protocolVersion:2, bridgeToken: "sources-test-bridge", eventId: event.eventId, sessionId: scheduled.sessionId, workerId: "sources-worker", epoch: 0 });
   assert.equal(lease.configuration.sources.length, records.length);
   const relay = await createSourceRelay({ operatorEndpoints: records.map(row => row.publicUrl) });
   const unauthorized = await createSourceRelay();

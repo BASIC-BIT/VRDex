@@ -25,7 +25,7 @@ export function createProgramRenderer({ quality = '720p30', audioBitrateKbps = 1
     const profile = QUALITY_PROFILES[settings.videoPreset];
     const inputs = new Map(), subscribers = new Set(), acknowledgements = new RenderAcknowledgements();
     let reconcileQueue = Promise.resolve(), stopped = false;
-    let child, timer, running = false, selected, submittedSlotKey, submittedSourceId, renderedSlotKey, renderedSourceId, startedAt, ticks = 0, error, outputMs = 0;
+    let child, timer, running = false, selected, submittedSlotKey, submittedSourceId, submittedSourceRevision, renderedSlotKey, renderedSourceId, renderedSourceRevision, startedAt, ticks = 0, error, outputMs = 0;
     const frameBytes = profile.width * profile.height * 3 / 2;
     const holdFrame = Buffer.alloc(frameBytes, 128);
     holdFrame.fill(32, 0, profile.width * profile.height);
@@ -56,8 +56,10 @@ export function createProgramRenderer({ quality = '720p30', audioBitrateKbps = 1
             const ready = input?.getObservation().ready;
             const actualSlotKey = ready ? selected : undefined;
             const actualSourceId = ready ? input.source.sourceId : undefined;
-            if (actualSlotKey !== submittedSlotKey || actualSourceId !== submittedSourceId) {
-                acknowledgements.submit(actualSlotKey, (ticks + 1) * 1000 / profile.frameRate, actualSourceId);
+            const actualRevision = ready ? input.source.revision : undefined;
+            if (actualSlotKey !== submittedSlotKey || actualSourceId !== submittedSourceId || actualRevision !== submittedSourceRevision) {
+                acknowledgements.submit(actualSlotKey, (ticks + 1) * 1000 / profile.frameRate, actualSourceId, actualRevision);
+                submittedSourceRevision = actualRevision;
                 submittedSourceId = actualSourceId;
                 submittedSlotKey = actualSlotKey;
             }
@@ -78,7 +80,7 @@ export function createProgramRenderer({ quality = '720p30', audioBitrateKbps = 1
                 if (sources.length > 2 || new Set(sources.map(s => s.slotKey)).size !== sources.length)
                     throw new Error('At most two distinct current/next inputs');
                 for (const [key, input] of inputs) {
-                    if (!sources.some(s => s.slotKey === key && s.sourceId === input.source.sourceId && s.url === input.source.url)) {
+                    if (!sources.some(s => s.slotKey === key && s.sourceId === input.source.sourceId && s.url === input.source.url && s.revision === input.source.revision)) {
                         await input.stop();
                         inputs.delete(key);
                         if (selected === key)
@@ -97,7 +99,7 @@ export function createProgramRenderer({ quality = '720p30', audioBitrateKbps = 1
             return result;
         },
         getInputs: () => [...inputs.values()],
-        getState: () => ({ selectedSlotKey: selected, renderedSlotKey, renderedSourceId, outputMs, error, running, ticks, videoQueueBytes: child?.stdio[3].writableLength ?? 0 }),
+        getState: () => ({ selectedSlotKey: selected, renderedSlotKey, renderedSourceId, renderedSourceRevision, outputMs, error, running, ticks, videoQueueBytes: child?.stdio[3].writableLength ?? 0 }),
         selectSource(slotKey) {
             if (!inputs.get(slotKey)?.getObservation().ready)
                 return false;
@@ -141,6 +143,7 @@ export function createProgramRenderer({ quality = '720p30', audioBitrateKbps = 1
                     outputMs = next;
                     renderedSlotKey = acknowledgements.advance(outputMs);
                     renderedSourceId = acknowledgements.renderedSourceId;
+                    renderedSourceRevision = acknowledgements.renderedSourceRevision;
                     onProgress({ outputMs, wallElapsedMs: clock() - startedAt, delayMs: clock() - startedAt - outputMs });
                 }
             });
@@ -169,17 +172,19 @@ export class RenderAcknowledgements {
     pending = [];
     renderedSlotKey = undefined;
     renderedSourceId = undefined;
-    submit(slotKey, outputMs, sourceId) {
+    renderedSourceRevision = undefined;
+    submit(slotKey, outputMs, sourceId, sourceRevision) {
         // At most two seconds of submitted switches can exist before the clock fails.
         if (this.pending.length >= 256)
             throw new Error('Program acknowledgement queue exceeded bound');
-        this.pending.push({ slotKey, outputMs, sourceId });
+        this.pending.push({ slotKey, outputMs, sourceId, sourceRevision });
     }
     advance(outputMs) {
         while (this.pending[0]?.outputMs <= outputMs) {
             const rendered = this.pending.shift();
             this.renderedSlotKey = rendered.slotKey;
             this.renderedSourceId = rendered.sourceId;
+            this.renderedSourceRevision = rendered.sourceRevision;
         }
         return this.renderedSlotKey;
     }

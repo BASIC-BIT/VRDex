@@ -1,3 +1,4 @@
+import {disableSourceControl} from "./_eventBroadcastControl";
 import { v } from "convex/values";
 import { mutation, type MutationCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
@@ -63,20 +64,7 @@ export const remove = mutation({
   handler: async (ctx, args) => {
     const { actor, event, source, program } = await sourceAuthority(ctx, args.currentSlug, args.sourceId);
     if (source.state === "disabled") return;
-    // Task 3 replaces this staging guard with atomic pending cancellation/active slate.
-    const activeSession = await ctx.db.query("eventMediaSessions")
-      .withIndex("by_programId_status", q => q.eq("programId", program._id))
-      .filter(q => q.and(q.eq(q.field("currentSourceId"), source._id),
-        q.neq(q.field("status"), "ended"), q.neq(q.field("status"), "error"), q.neq(q.field("status"), "cancelled")))
-      .first();
-    const pending = await Promise.all((["queued", "claimed"] as const).map(status => ctx.db.query("eventMediaCommands")
-      .withIndex("by_programId_status_createdAt", q => q.eq("programId", program._id).eq("status", status))
-      .filter(q => q.or(q.eq(q.field("targetSourceId"), source._id), q.eq(q.field("targetSourceKey"), source.key)))
-      .first()));
-    const programIsActive = ["starting", "live", "hold", "fallback", "stopping"].includes(program.state);
-    if ((programIsActive && program.currentSourceId === source._id) || activeSession || pending.some(command => command !== null)) {
-      throw new Error("Active or pending sources cannot be removed yet.");
-    }
+    await disableSourceControl(ctx.db,source,program);
     const now = Date.now();
     await ctx.db.patch(source._id, { state: "disabled", updatedAt: now });
     await recordEventMediaAuditEvent(ctx.db, { programId: source.programId, eventId: event._id, sourceId: source._id, actor, action: "source_removed", createdAt: now });

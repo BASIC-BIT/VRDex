@@ -1,8 +1,29 @@
-import { v } from "convex/values";
+import { v, type Infer } from "convex/values";
 
 import { normalizeProfileInlineText } from "./_profileSubmissions";
 import { safeHttpsUrl } from "./_publicFields";
 import { parseVrcdnStreamLinks } from "./_vrcdnLinks";
+
+export const committedIntentValidator = v.union(
+  v.object({kind:v.literal("automatic")}),
+  v.object({kind:v.literal("manual"),sourceId:v.id("eventMediaSources"),revision:v.number()}),
+  v.object({kind:v.literal("slate")}),
+);
+export const workerSourceTargetValidator = v.object({sourceId:v.id("eventMediaSources"),revision:v.number(),slotKey:v.string()});
+export const controlTargetValidator = v.union(
+  v.object({kind:v.literal("source"),source:workerSourceTargetValidator,mode:v.union(v.literal("manual"),v.literal("automatic"))}),
+  v.object({kind:v.literal("slate"),mode:v.union(v.literal("slate"),v.literal("automatic"))}),
+);
+export const controlFailureValidator = v.union(v.literal("expired"),v.literal("source_unavailable"),v.literal("actor_revoked"));
+export const controlResultValidator = v.union(
+ v.object({kind:v.literal("ok"),intentSequence:v.optional(v.number()),preparationExpiresAt:v.optional(v.number()),duplicate:v.optional(v.boolean())}),
+ v.object({kind:v.literal("superseded")}),v.object({kind:v.literal("cancelled")}),
+ v.object({kind:v.literal("failed"),reason:controlFailureValidator}),
+ v.object({kind:v.literal("fenced"),reason:v.union(v.literal("lease"),v.literal("destination"),v.literal("stopped"))}),
+);
+export type CommittedIntent = Infer<typeof committedIntentValidator>;
+export type ControlTarget = Infer<typeof controlTargetValidator>;
+export type ControlResult = Infer<typeof controlResultValidator>;
 
 export const videoPresetValidator = v.union(
   v.literal("480p30"), v.literal("480p60"),

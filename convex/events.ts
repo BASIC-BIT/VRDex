@@ -1,3 +1,5 @@
+import {admitControlOperation,cancelControlOperation,isControl,supersedePending,findControlRequest,recordControlRequest} from "./_eventBroadcastControl";
+import {canManageEventMedia,eventMediaSourceProjectionAvailable} from "./_eventBroadcastAuthority";
 import { NEW_PROGRAM_MEDIA_SETTINGS, parseMediaSettings, resolveDestinationProfile } from "../workers/restream/broadcast-profiles.mjs";
 import { broadcastInputValidator, authoredBroadcastInput, eventProfileBroadcastInputChoices, resolveBroadcastInput, broadcastInputPublicUrl, eventMediaSourceBroadcastInput, listUsableEventMediaSources } from "./_eventBroadcastSources";
 import { sanitizeTwitchOutput, getTwitchOutputAccount, listTwitchOutputAccounts, eventOutputIsAuthorized } from './_eventOutputSetup';
@@ -238,6 +240,7 @@ const eventMediaWorkerScheduleArgs = {
 };
 
 const eventMediaCommandArgs = {
+  idempotencyKey:v.string(),
   currentSlug: v.string(),
   type: eventMediaCommandTypeValidator,
   targetSourceKey: v.optional(v.string()),
@@ -424,26 +427,6 @@ export async function canUpdateEvent(
   return subjectHasCommunityCapability(db, event.communityProfileId, subject, "manage_events");
 }
 
-async function canManageEventMedia(
-  db: DatabaseReader,
-  event: Doc<"events">,
-  subject: AuthSubject,
-  userId?: Id<"users"> | null,
-): Promise<boolean> {
-  if (event.communityProfileId === undefined) {
-    return false;
-  }
-
-  if (
-    userId !== undefined &&
-    userId !== null &&
-    await userOwnsProfile(db, event.communityProfileId, userId)
-  ) {
-    return true;
-  }
-
-  return subjectHasCommunityCapability(db, event.communityProfileId, subject, "manage_event_media");
-}
 
 async function canViewEventOperations(
   db: DatabaseReader,
@@ -1715,19 +1698,6 @@ function commandStatusSummary(commands: Doc<"eventMediaCommands">[]) {
   );
 }
 
-async function eventMediaSourceProjectionAvailable(
-  db: DatabaseReader,
-  source: Doc<"eventMediaSources">,
-) {
-  const projected = source.profileProjection || (source.eventSlotId !== undefined && source.sourceProfileId !== undefined && source.key === `slot-${source.eventSlotId}`);
-  if (!projected) return true;
-  const slot = source.eventSlotId === undefined ? null : await db.get(source.eventSlotId);
-  if (!slot?.personProfileId || slot.eventId !== source.eventId) return false;
-  const profile = await db.get(slot.personProfileId);
-  if (!profile || !canReadProfile("public", profile)) return false;
-  const input = resolveBroadcastInput({ choices: eventProfileBroadcastInputChoices(profile), explicitInput: slot.broadcastInput, legacySelectedStreamId: slot.selectedStreamId });
-  return input !== undefined && broadcastInputPublicUrl(input) === source.publicUrl && source.projectionAvailable !== false;
-}
 
 async function resolveEventMediaCommandTargets(
   db: DatabaseReader,
@@ -1924,10 +1894,12 @@ export async function settleEventMediaForCancellation(
   }
 
   if (session.status !== "stopping") {
+    await supersedePending(db,session);
     await Promise.all([
       db.patch(session._id, {
         status: "stopping",
         workerTaskStatus: session.workerTaskStatus === "failed" ? "failed" : "stopping",
+        pendingControlCommandId:undefined,
         stopRequestedAt: now,
         updatedAt: now,
       }),
@@ -1997,6 +1969,7 @@ export async function reconcileEventMediaScheduleChange(
 
 function workerSessionStatus(session: Doc<"eventMediaSessions">) {
   return {
+    committedIntent:session.committedIntent,intentSequence:session.intentSequence,pendingControlCommandId:session.pendingControlCommandId,
     mediaSettings: parseMediaSettings(session.mediaSettings),
     controlProtocolVersion: session.controlProtocolVersion,
     destinationProfiles: session.destinationProfiles ?? [],
@@ -2534,10 +2507,14 @@ export const getEventMediaControlStatus = query({
           playbackLinkCount: output.playbackLinks.length,
           updatedAt: output.updatedAt,
         })),
-      sessions: sessions.sort((first, second) => second.updatedAt - first.updatedAt).map(workerSessionStatus),
+      sessions: await Promise.all(sessions.sort((first, second) => second.updatedAt - first.updatedAt).map(async session => {
+        const pending=session.pendingControlCommandId?await ctx.db.get(session.pendingControlCommandId):null;
+        return {...workerSessionStatus(session),pendingOperation:pending?{commandId:pending._id,sequence:pending.sequence,target:pending.controlTarget,phase:pending.controlPhase,preparationExpiresAt:pending.preparationExpiresAt}:null};
+      })),
       commands: programCommands.map((command) => ({
         sessionId: command.sessionId,
         sequence: command.sequence,
+        controlTarget:command.controlTarget,controlPhase:command.controlPhase,preparationExpiresAt:command.preparationExpiresAt,controlOutcome:command.controlOutcome,controlFailure:command.controlFailure,
         acknowledgedEpoch: command.acknowledgedEpoch,
         commandId: command._id,
         commandType: command.commandType,
@@ -2589,23 +2566,17 @@ export const queueEventMediaCommand = mutation({
     }
 
     const session = await getOpenEventMediaSession(ctx.db, program);
-    if (command.type === "switch_next") {
-      const pending = (await Promise.all((["queued", "claimed"] as const).map(status =>
-        ctx.db.query("eventMediaCommands")
-          .withIndex("by_programId_status_createdAt", q => q.eq("programId", program._id).eq("status", status))
-          .take(100),
-      ))).flat();
-      const duplicate = pending.find(row =>
-        row.commandType === "switch_next" && row.sessionId === session?._id,
-      );
-      if (duplicate) return {
-        eventId: event._id,
-        eventPath: await eventPathForRecord(ctx.db, event, slug),
-        programId: program._id,
-        commandId: duplicate._id,
-        status: duplicate.status,
-        commandType: duplicate.commandType,
-      };
+    if(command.type === "preview_source")throw Error("Preview is local and cannot queue a worker command.");
+    if(isControl(command.type)) {
+      const receipt=await admitControlOperation(ctx.db,event,session,subject,args.idempotencyKey,command);
+      return {eventId:event._id,eventPath:await eventPathForRecord(ctx.db,event,slug),programId:program._id,commandId:receipt._id,status:receipt.status,commandType:receipt.commandType};
+    }
+    const requestScope={eventId:event._id,_id:session?._id};
+    const requestPayload=JSON.stringify(command);
+    const retry=await findControlRequest(ctx.db,requestScope,subject,args.idempotencyKey,requestPayload);
+    if(retry) {
+      const receipt=(await ctx.db.get(retry.commandId))!;
+      return {eventId:event._id,eventPath:await eventPathForRecord(ctx.db,event,slug),programId:program._id,commandId:receipt._id,status:receipt.status,commandType:receipt.commandType};
     }
     const targets = await resolveEventMediaCommandTargets(ctx.db, program, command);
     if (command.type === "switch_source" && targets.source !== null && !(await eventMediaSourceProjectionAvailable(ctx.db, targets.source))) throw new Error("Event media source is unavailable.");
@@ -2632,6 +2603,7 @@ export const queueEventMediaCommand = mutation({
       updatedAt: now,
     });
 
+    await recordControlRequest(ctx.db,requestScope,subject,args.idempotencyKey,requestPayload,commandId);
     await recordEventMediaAuditEvent(ctx.db, {
       programId: program._id,
       eventId: event._id,
@@ -2656,6 +2628,40 @@ export const queueEventMediaCommand = mutation({
   },
 });
 
+export const cancelEventMediaOperation = mutation({
+  args: {
+    currentSlug: v.string(),
+    commandId: v.id("eventMediaCommands"),
+    idempotencyKey: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const subject = await requireAuthenticatedSubject(ctx);
+    const { event } = await getMediaManageableEventBySlug(
+      ctx,
+      args.currentSlug,
+      subject,
+    );
+    const command = await ctx.db.get(args.commandId);
+    const session = command?.sessionId
+      ? await ctx.db.get(command.sessionId)
+      : null;
+    const program = session ? await ctx.db.get(session.programId) : null;
+    if (
+      !session ||
+      session.eventId !== event._id ||
+      program?.activeSessionId !== session._id
+    )
+      throw Error("Active operation was not found.");
+    return cancelControlOperation(
+      ctx.db,
+      event,
+      session,
+      subject,
+      args.idempotencyKey,
+      args.commandId,
+    );
+  },
+});
 export const claimEventMediaWorkerCommand = mutation({
   args: eventMediaWorkerBridgeArgs,
   handler: async (ctx, args) => {
@@ -3803,6 +3809,8 @@ export const scheduleEventMediaWorker = mutation({
       outputId: output._id,
       mediaSettings,
       controlProtocolVersion: 2 as const,
+      committedIntent: openSession?.committedIntent ?? {kind:"automatic" as const},
+      intentSequence: openSession?.intentSequence ?? 0,
       destinationProfiles: openSession?.destinationProfiles ?? destinationProfiles,
       status: "scheduled" as const,
       ...(workerRuntime === undefined ? {} : { workerRuntime }),
@@ -3968,6 +3976,7 @@ export const stopEventMediaWorker = mutation({
       throw new Error("Event media worker session has already ended.");
     }
 
+    await supersedePending(ctx.db,session);
     await ctx.db.patch(session._id, {
       status: "stopping",
       workerTaskStatus: session.workerTaskStatus === "failed" ? "failed" : "stopping",

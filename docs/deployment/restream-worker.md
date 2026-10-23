@@ -863,6 +863,75 @@ are still checked against current destination grants. Deploy the protocol
 migration only with no active sessions. The control status query exposes program
 settings alongside each session's active settings for the operator console.
 
+### Control protocol 2 activation
+
+Hold new starts during deployment. Drain every scheduled, starting, live, hold,
+fallback and stopping session, including scheduled sessions that have not yet
+acquired a worker. Reconcile each reserved or dispatched provider task to
+confirmed STOPPED before retiring its ownership. An ended media session or a
+failed task diagnostic alone does not establish that its process stopped.
+
+Deploy the backend schema/functions and a worker that sends `protocolVersion: 2`
+on every session request. With starts still held, run the internal
+`eventMediaControlMigration:backfill` mutation against the explicitly selected
+deployment, initially with `{"batchSize":100}`. Persist its returned `phase` and
+`cursor`, and pass them back on each call until `done` is true. Batch size is
+bounded to 1–100. Every page independently checks quiescence through indexed
+session/task lookups; replaying a page is safe. Resume starts only after all
+pages and the compatible worker rollout have completed. This is deployment
+sequencing, not an operator feature toggle. Keep the dispatcher's separate
+`launchProtocol: "fenced-v1"` contract unchanged.
+
+The migration normalizes canonical source references and positive revisions,
+preserves disabled sources and deployment-owned internal endpoint descriptors,
+and never recreates removed profile links. Legacy automatic intent stays
+automatic and hold becomes slate. A recorded manual source is retained only
+when its revision is recoverable and still authorized. Revision 1 is recoverable
+for unchanged legacy rows; later revisions need recorded observation evidence.
+Ambiguous, disabled or revoked manual state becomes slate. Historical controls
+are settled, never attached to a new session. Existing explicit migrated intent,
+terminal command history, sequences and acknowledgments remain intact.
+
+New sessions start with automatic `committedIntent`, `intentSequence: 0` and no
+pending operation. Same-session takeover retains the original command, phase,
+pinned revision and preparation expiry. The session stores only a
+`pendingControlCommandId`; its command owns target, prior intent, phase and
+expiry. `queueEventMediaCommand` and `cancelEventMediaOperation` require a caller
+generated idempotency key scoped to event, session and stable actor. Retrying the
+same normalized payload returns the original receipt; reusing its key for a
+different payload is rejected. Browser preview does not enqueue a command.
+
+`beginPreparation` starts the persisted 15-second preparation-through-confirmation
+budget once. `promoteOperation` validates authority and the pinned target, then
+commits intent before granting renderer selection. Cancel is available only
+while preparing. Cut commits slate immediately and supersedes ordinary pending
+controls. Terminal Stop rejects subsequent controls and outranks Cut. Removing
+a source disables it and cancels its pending preparation or commits slate in the
+same transaction, including a manual desired source currently showing fallback.
+Actor revocation blocks preparation/promotion, while an already committed intent
+survives that revocation. Destination revocation always fences publication.
+
+Control transitions return `ok`, `superseded`, `cancelled`,
+`failed` (`expired`, `source_unavailable`, `actor_revoked`), or
+`fenced` (`lease`, `destination`, `stopped`). Only `fenced` stops publication;
+ordinary operation failures settle while retaining committed intent. Acquisition,
+renewal, dispatch and terminal lifecycle operations retain their existing lease
+and cleanup contracts. Protocol 2 rejects omitted or older worker versions at
+the request boundary.
+
+Program observations and successful nonterminal acknowledgments include
+`intentSequence`, `outputMs`, the selected output ID and one coherent rendered
+source ID/revision/slot snapshot, or no source fields for slate. The renderer
+carries the submitted revision through encoded-output acknowledgment; do not
+substitute a newly refreshed revision for older encoded media. Stale intent,
+regressing output progress, conflicting equal-watermark identity and inconsistent
+target evidence cannot update publication observations. Exact completion retries
+are read-only. Fallback observations do not erase durable manual intent.
+
+The existing worker has a protocol adapter for these transactions. The complete
+nonblocking acquisition/controller work remains required before feature rollout;
+this adapter alone does not establish Cut latency during blocked acquisition.
+
 `eventMediaWorker.observeOutputs` persists only bounded numeric health and fixed
 statuses under the same session/epoch/lease fence. Authenticated
 `getEventMediaControlStatus` exposes `outputs[].twitchSetup`, `simulcastEnabled`,

@@ -39,7 +39,7 @@ async function fixture() {
   async function schedule(actor = a.actor, event = a.event) {
     const session = await actor.mutation(api.events.scheduleEventMediaWorker, { currentSlug: event.slug });
     await t.run(async ({db}) => { await db.patch(session.sessionId, { scheduledStartAt: Date.now() - 1 }); if (session.startCommandId) await db.patch(session.startCommandId, { availableAt: Date.now() - 1 }); });
-    return { ...session, args: { bridgeToken, eventId: event.eventId, sessionId: session.sessionId, workerId: 'test-worker', epoch: 0 } };
+    return { ...session, args: { protocolVersion:2, bridgeToken, eventId: event.eventId, sessionId: session.sessionId, workerId: 'test-worker', epoch: 0 } };
   }
   return { t, a, b, account, setup, schedule };
 }
@@ -93,14 +93,17 @@ it('revoked VRCDN entitlement denies every publication path while Stop remains a
   await f.t.run(({db}) => db.patch(session.sessionId, { workerTaskId: 'synthetic-task', workerTaskStatus: 'running' }));
   const claim = await f.t.mutation(worker('claimCommands'), request);
   assert.ok(claim.commands[0]);
+  const cut=await f.b.actor.mutation(api.events.queueEventMediaCommand,{currentSlug:f.b.event.slug,type:'switch_hold',idempotencyKey:'revoked-cut'});
+  const operation=(await f.t.run(({db})=>db.get(cut.commandId)))!;
   process.env.VRDEX_VRCDN_OUTPUT_ACCOUNTS_JSON = JSON.stringify([f.account]);
+  assert.deepEqual(await f.t.mutation(worker('beginPreparation'),{...request,commandId:cut.commandId,sequence:operation.sequence}),{kind:'fenced',reason:'destination'});
   assert.equal((await f.t.run(({db}) => db.get(configured.outputId)))?.state, 'ready');
   await assert.rejects(f.b.actor.mutation(api.events.scheduleEventMediaWorker, { currentSlug: f.b.event.slug }), /not authorized/);
   assert.equal(await f.t.mutation(api.events.claimEventMediaWorkerCommand, { bridgeToken, workerId: 'revoked-bridge' }), null);
   assert.equal((await f.t.mutation(worker('admitDispatch'), { bridgeToken, eventId: f.b.event.eventId, sessionId: session.sessionId, dispatchId: 'revoked' })).granted, false);
   for (const name of ['acquireSession', 'renewSession', 'refreshConfiguration', 'claimCommands']) assert.equal((await f.t.mutation(worker(name), request)).granted, false, name);
   assert.equal((await f.t.mutation(worker('acknowledgeCommand'), { ...request, commandId: claim.commands[0]._id, sequence: claim.commands[0].sequence, outcome: 'succeeded', observedState: 'hold' })).accepted, false);
-  assert.equal((await f.t.mutation(worker('observeProgram'), { ...request, state: 'hold', outputMs: 1000, publishing: true, outputId: configured.outputId })).accepted, false);
+  assert.deepEqual(await f.t.mutation(worker('observeProgram'), { ...request, intentSequence:0,state: 'hold', outputMs: 1000, publishing: true, outputId: configured.outputId }), {kind:'fenced',reason:'destination'});
   assert.equal((await f.t.mutation(worker('observeOutputs'), { ...request, destinations: [{ outputId: configured.outputId, destination: 'vrcdn', status: 'publishing', publishing: true, queueBytes: 0, outputMs: 1000, restarts: 0 }] })).accepted, false);
   await f.b.actor.mutation(api.events.stopEventMediaWorker, { currentSlug: f.b.event.slug, sessionId: session.sessionId });
   const pendingStops = await f.t.run(({db}) => db.query('eventMediaCommands').filter(q => q.eq(q.field('commandType'), 'stop_program')).collect());
@@ -186,7 +189,7 @@ for (const offset of [60000, 0, -3600000]) it(`F2 immediate start uses server ti
   assert.equal(session.readyDeadlineAt - session.scheduledStartAt, 180000);
   const claimed = await f.t.mutation(api.events.claimEventMediaWorkerCommand, { bridgeToken, workerId: 'bridge' });
   assert.equal(claimed?.session.sessionId, session.sessionId);
-  const request = { bridgeToken, eventId: f.a.event.eventId, sessionId: session.sessionId, workerId: 'worker', epoch: 0 };
+  const request = { protocolVersion:2, bridgeToken, eventId: f.a.event.eventId, sessionId: session.sessionId, workerId: 'worker', epoch: 0 };
   const lease = await f.t.mutation(worker('acquireSession'), request);
   assert.equal(lease.granted, true);
   assert.ok(lease.configuration.sessionDeadline >= before + 43200000);
@@ -232,9 +235,9 @@ it('R3F2 only selected VRCDN and enabled optional Twitch are public while all ac
     process.env.VRDEX_TWITCH_OUTPUT_ACCOUNTS_JSON=JSON.stringify([{key:'owned',channel:'channel',credentialRef:'event-media/twitch/owned',ownerCommunityProfileId:f.a.id}]);
     await f.a.actor.mutation(api.events.configureTwitchOutput,{currentSlug:f.a.event.slug,key:'twitch',label:'Twitch',channel:'channel',outputAccountKey:'owned',simulcastEnabled:enabled,...consent});
     const scheduled=await f.a.actor.mutation(api.events.scheduleEventMediaWorker,{currentSlug:f.a.event.slug,outputKey:'main',startImmediately:true});
-    const args={bridgeToken,eventId:f.a.event.eventId,sessionId:scheduled.sessionId,workerId:'selected',epoch:0};
+    const args={protocolVersion:2,bridgeToken,eventId:f.a.event.eventId,sessionId:scheduled.sessionId,workerId:'selected',epoch:0};
     const lease=await f.t.mutation(worker('acquireSession'),args);
-    await f.t.mutation(worker('observeProgram'),{...args,epoch:lease.epoch,state:'hold',publishing:true,outputMs:1000,outputId:first.outputId});
+    await f.t.mutation(worker('observeProgram'),{...args,intentSequence:0,epoch:lease.epoch,state:'hold',publishing:true,outputMs:1000,outputId:first.outputId});
     const urls=(await f.t.query(api.events.getPublicBySlug,{slug:f.a.event.slug}))!.mediaLinks.map(link=>link.url);
     assert(urls.some(url=>url==='https://example.test/first'));assert(urls.some(url=>url==='https://example.test/direct'));
     assert.equal(urls.some(url=>url==='https://example.test/alternate'),false);

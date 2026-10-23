@@ -1,3 +1,4 @@
+import {committedIntentValidator,controlTargetValidator,controlFailureValidator} from "./_eventMediaControl";
 import { broadcastInputValidator } from "./_eventBroadcastSources";
 import { twitchSetupValidator, outputHealthValidator } from './_eventOutputSetup';
 import { mediaSettingsValidator, sessionDestinationProfilesValidator, observedBroadcastStateValidator } from "./_eventMediaControl";
@@ -1570,7 +1571,18 @@ export default defineSchema({
     .index("by_programId_key", ["programId", "key"])
     .index("by_programId_state", ["programId", "state"])
     .index("by_eventId_type", ["eventId", "type"]),
+  eventMediaControlRequests: defineTable({
+    eventId:v.id("events"), sessionId:v.optional(v.id("eventMediaSessions")), actorKey:v.string(), key:v.string(),
+    payload:v.string(), commandId:v.id("eventMediaCommands"), createdAt:v.number(),
+  }).index("by_scope_key",["eventId","sessionId","actorKey","key"]),
   eventMediaCommands: defineTable({
+    controlTarget:v.optional(controlTargetValidator),
+    priorIntent:v.optional(committedIntentValidator), priorIntentSequence:v.optional(v.number()),
+    controlPhase:v.optional(v.union(v.literal("preparing"),v.literal("promoting"))),
+    preparationExpiresAt:v.optional(v.number()),
+    controlOutcome:v.optional(v.union(v.literal("superseded"),v.literal("cancelled"),v.literal("failed"),v.literal("ok"))),
+    controlFailure:v.optional(controlFailureValidator), completionPayload:v.optional(v.string()),
+
     programId: v.id("eventMediaPrograms"),
     eventId: v.id("events"),
     sessionId: v.optional(v.id("eventMediaSessions")),
@@ -1606,12 +1618,17 @@ export default defineSchema({
     .index("by_status_commandType_availableAt_createdAt", ["status", "commandType", "availableAt", "createdAt"])
     .index("by_programId_status_createdAt", ["programId", "status", "createdAt"])
     .index("by_sessionId_status_createdAt", ["sessionId", "status", "createdAt"])
+    .index("by_sessionId_commandType_status", ["sessionId", "commandType", "status"])
     .index("by_eventId_createdAt", ["eventId", "createdAt"])
     .index("by_idempotencyKey", ["idempotencyKey"])
     .index("by_sessionId_sequence", ["sessionId", "sequence"])
     .index("by_session_scope_status_sequence", ["sessionId", "eventId", "programId", "status", "sequence", "createdAt"])
     .index("by_program_scope_session_status_createdAt", ["programId", "eventId", "sessionId", "status", "createdAt"]),
   eventMediaSessions: defineTable({
+    committedIntent:v.optional(committedIntentValidator), intentSequence:v.optional(v.number()),
+    pendingControlCommandId:v.optional(v.id("eventMediaCommands")),
+    observedOutputMs:v.optional(v.number()), observedSourceRevision:v.optional(v.number()), observedSlotKey:v.optional(v.string()),
+
     mediaSettings: v.optional(mediaSettingsValidator),
     controlProtocolVersion: v.optional(v.literal(2)),
     destinationProfiles: v.optional(sessionDestinationProfilesValidator),
@@ -1667,6 +1684,7 @@ export default defineSchema({
     .index("by_status_updatedAt", ["status", "updatedAt"])
     .index("by_dispatchStopConfirmedAt_dispatchId", ["dispatchStopConfirmedAt", "dispatchId"])
     .index("by_workerTaskStatus", ["workerTaskStatus"])
+    .index("by_workerTaskStatus_stopConfirmation_task", ["workerTaskStatus", "dispatchStopConfirmedAt", "workerTaskId"])
     .index("by_workerTaskCleanupPending", ["workerTaskCleanupPending"])
     .index("by_workerId_status", ["workerId", "status"])
     .index("by_leaseExpiresAt", ["leaseExpiresAt"]),

@@ -37,7 +37,7 @@ async function setupFixture() {
       await ctx.db.patch(scheduled.sessionId, { scheduledStartAt: Date.now() - 1000 });
       if (scheduled.startCommandId) await ctx.db.patch(scheduled.startCommandId, { availableAt: Date.now() - 1000 });
     });
-    const args = { bridgeToken, eventId: event.eventId, sessionId: scheduled.sessionId, workerId: "worker-a", epoch: 0 };
+    const args = { protocolVersion: 2, bridgeToken, eventId: event.eventId, sessionId: scheduled.sessionId, workerId: "worker-a", epoch: 0 };
     return { scheduled, args };
   }
   return {t, owner, event, output, schedule};
@@ -66,7 +66,7 @@ it("duplicate_start_is_idempotent", async () => {
 it("expired_owner_cannot_ack", async () => {
   const { t, owner, event, args } = await fixture();
   const lease = await t.mutation(worker("acquireSession"), args);
-  await owner.mutation(api.events.queueEventMediaCommand, { currentSlug: event.slug, type: "hold_current" });
+  await owner.mutation(api.events.queueEventMediaCommand, { idempotencyKey:crypto.randomUUID(), currentSlug: event.slug, type: "hold_current" });
   const claim = await t.mutation(worker("claimCommands"), { ...args, epoch: lease.epoch });
   const command = claim.commands[0];
   assert.ok(command);
@@ -91,33 +91,24 @@ it("replacement_increments_epoch", async () => {
 });
 
 it("queued_switch_does_not_change_observed_source", async () => {
-  const { t, owner, event, output, args } = await fixture();
-  const sourceId = await t.run(ctx => ctx.db.insert("eventMediaSources", { programId: output.programId, eventId: event.eventId, key: "dj", position: 0, type: "vrcdn_link", purpose: "program", state: "ready", label: "DJ", publicUrl: "https://stream.vrcdn.live/live/dj.live.ts", createdAt: Date.now(), updatedAt: Date.now() }));
-  const lease = await t.mutation(worker("acquireSession"), args);
-  const queued = await owner.mutation(api.events.queueEventMediaCommand, { currentSlug: event.slug, type: "switch_source", targetSourceKey: "dj" });
-  await owner.mutation(api.events.queueEventMediaCommand, { currentSlug: event.slug, type: "hold_current" });
-  assert.equal((await t.run(ctx => ctx.db.get(output.programId)))?.currentSourceId, undefined);
-  const claimed = await t.mutation(worker("claimCommands"), { ...args, epoch: lease.epoch });
-  assert.equal(claimed.granted, true);
-  const commands = claimed.commands;
-  assert.ok(commands.length >= 2);
-  assert.ok(commands.every((c: { sequence: number }, i: number) => i === 0 || c.sequence > commands[i - 1].sequence));
-  const switched = commands.find((c: { _id: string }) => c._id === queued.commandId);
-  assert.ok(switched);
-  // Acknowledgements advance in sequence; the scheduled lifecycle start may precede the switch.
-  for (const command of commands.filter((c: { sequence: number }) => c.sequence <= switched.sequence)) {
-    const result = await t.mutation(worker("acknowledgeCommand"), { ...args, epoch: lease.epoch, commandId: command._id, sequence: command.sequence, outcome: "succeeded", ...(command._id === queued.commandId ? { observedSourceId: sourceId } : {}) });
-    assert.equal(result.accepted, true);
-  }
-  assert.equal((await t.run(ctx => ctx.db.get(output.programId)))?.currentSourceId, sourceId);
-  const retry = await t.mutation(worker("acknowledgeCommand"), { ...args, epoch: lease.epoch, commandId: switched._id, sequence: switched.sequence, outcome: "succeeded", observedSourceId: sourceId });
-  assert.equal(retry.accepted, true);
-  assert.equal(retry.duplicate, true);
+ const {t,owner,event,output,args}=await fixture();
+ const sourceId=await t.run(ctx=>ctx.db.insert("eventMediaSources",{programId:output.programId,eventId:event.eventId,key:"dj",position:0,type:"vrcdn_link",purpose:"program",state:"ready",label:"DJ",publicUrl:"vrcdn:source_a",revision:1,createdAt:Date.now(),updatedAt:Date.now()}));
+ const lease=await t.mutation(worker("acquireSession"),args);const owned={...args,epoch:lease.epoch};
+ const queued=await owner.mutation(api.events.queueEventMediaCommand,{currentSlug:event.slug,type:"switch_source",targetSourceKey:"dj",idempotencyKey:"take"});
+ await assert.rejects(owner.mutation(api.events.queueEventMediaCommand,{currentSlug:event.slug,type:"hold_current",idempotencyKey:"hold"}),/pending/);
+ assert.equal((await t.run(ctx=>ctx.db.get(output.programId)))?.currentSourceId,undefined);
+ const command=(await t.run(ctx=>ctx.db.get(queued.commandId)))!;
+ const receipt={...owned,commandId:command._id,sequence:command.sequence};
+ await t.mutation(worker("beginPreparation"),receipt);await t.mutation(worker("promoteOperation"),{...receipt,target:command.controlTarget});
+ assert.equal((await t.run(ctx=>ctx.db.get(output.programId)))?.currentSourceId,undefined);
+ const ack={...receipt,outcome:"succeeded",intentSequence:command.sequence,outputMs:100,observedSourceId:sourceId,sourceRevision:1,slotKey:`manual-${sourceId}`,observedOutputId:output.outputId,observedState:"live"};
+ assert.equal((await t.mutation(worker("acknowledgeCommand"),ack)).kind,"ok");assert.equal((await t.mutation(worker("acknowledgeCommand"),ack)).duplicate,true);
+ assert.equal((await t.run(ctx=>ctx.db.get(output.programId)))?.currentSourceId,sourceId);
 });
 
 it("rejects unauthorized actors and cross-event session and command IDs", async () => {
   const { t, event, args, scheduled } = await fixture();
-  await assert.rejects(t.mutation(api.events.queueEventMediaCommand, { currentSlug: event.slug, type: "hold_current" }), /authenticat|signed-in/i);
+  await assert.rejects(t.mutation(api.events.queueEventMediaCommand, { idempotencyKey:crypto.randomUUID(), currentSlug: event.slug, type: "hold_current" }), /authenticat|signed-in/i);
   await assert.rejects(t.mutation(worker("acquireSession"), { ...args, bridgeToken: "incorrect" }), /token.*invalid/i);
   const otherEventId = await t.run(async ({ db }) => {
     const { _id, _creationTime, ...record } = (await db.get(event.eventId))!;
@@ -131,7 +122,7 @@ it("rejects unauthorized actors and cross-event session and command IDs", async 
 it("replacement reclaims pending commands and rejects old epoch acknowledgements", async () => {
   const { t, owner, event, args } = await fixture();
   const first = await t.mutation(worker("acquireSession"), args);
-  await owner.mutation(api.events.queueEventMediaCommand, { currentSlug: event.slug, type: "hold_current" });
+  await owner.mutation(api.events.queueEventMediaCommand, { idempotencyKey:crypto.randomUUID(), currentSlug: event.slug, type: "hold_current" });
   const initial = await t.mutation(worker("claimCommands"), { ...args, epoch: first.epoch });
   await t.run(ctx => ctx.db.patch(args.sessionId, { leaseExpiresAt: Date.now() - 1 }));
   const nextArgs = { ...args, workerId: "worker-b", epoch: first.epoch };
@@ -143,19 +134,11 @@ it("replacement reclaims pending commands and rejects old epoch acknowledgements
   assert.equal((await t.mutation(worker("acknowledgeCommand"), { ...nextArgs, epoch: next.epoch, commandId: command._id, sequence: command.sequence, outcome: "succeeded" })).accepted, true);
 });
 
-it("legacy commands are sequenced and claims and acknowledgements stay ordered", async () => {
-  const { t, owner, event, args, scheduled } = await fixture();
-  await t.run(async ({ db }) => {
-    await db.patch(args.sessionId, { nextCommandSequence: undefined });
-    await db.patch(scheduled.startCommandId!, { sequence: undefined });
-  });
-  const queued = await owner.mutation(api.events.queueEventMediaCommand, { currentSlug: event.slug, type: "hold_current" });
-  const lease = await t.mutation(worker("acquireSession"), args);
-  const claimed = await t.mutation(worker("claimCommands"), { ...args, epoch: lease.epoch });
-  assert.deepEqual(claimed.commands.map((c: { sequence: number }) => c.sequence), [1, 2]);
-  assert.equal((await t.mutation(worker("acknowledgeCommand"), { ...args, epoch: lease.epoch, commandId: queued.commandId, sequence: 2, outcome: "succeeded" })).accepted, false);
-  assert.equal((await t.mutation(worker("acknowledgeCommand"), { ...args, epoch: lease.epoch, commandId: scheduled.startCommandId, sequence: 1, outcome: "failed" })).accepted, true);
-  assert.equal((await t.mutation(worker("acknowledgeCommand"), { ...args, epoch: lease.epoch, commandId: queued.commandId, sequence: 2, outcome: "succeeded" })).accepted, true);
+it("protocol 2 does not attach unnumbered historical commands",async()=>{
+ const {t,args,scheduled}=await fixture();
+ await t.run(ctx=>ctx.db.patch(scheduled.startCommandId!,{sequence:undefined}));
+ const lease=await t.mutation(worker("acquireSession"),args);const claim=await t.mutation(worker("claimCommands"),{...args,epoch:lease.epoch});
+ assert.deepEqual(claim.commands,[]);assert.equal((await t.run(ctx=>ctx.db.get(scheduled.startCommandId!)))?.sequence,undefined);
 });
 
 it("cross-event commands and observed sources cannot be acknowledged", async () => {
@@ -170,7 +153,7 @@ it("cross-event commands and observed sources cannot be acknowledged", async () 
     const outputId = await db.insert("eventMediaOutputs", { ...outputRecord, eventId });
     return { sourceId, commandId, outputId };
   });
-  assert.equal((await t.mutation(worker("acknowledgeCommand"), { ...args, epoch: lease.epoch, commandId: other.commandId, sequence: 999, outcome: "succeeded" })).accepted, false);
+  assert.equal((await t.mutation(worker("acknowledgeCommand"), { ...args, epoch: lease.epoch, commandId: other.commandId, sequence: 999, outcome: "succeeded" })).kind, "superseded");
   const claimed = await t.mutation(worker("claimCommands"), { ...args, epoch: lease.epoch });
   const command = claimed.commands[0];
   assert.equal((await t.mutation(worker("acknowledgeCommand"), { ...args, epoch: lease.epoch, commandId: command._id, sequence: command.sequence, outcome: "succeeded", observedSourceId: other.sourceId })).accepted, false);
@@ -186,33 +169,26 @@ it("legacy bridge status cannot overwrite fenced ownership", async () => {
   assert.equal(session?.epoch, lease.epoch);
 });
 
-it("successful source switches require actual observed source and never infer it from intent", async () => {
-  const { t, owner, event, args, output } = await fixture();
-  const sourceId = await t.run(ctx => ctx.db.insert("eventMediaSources", { programId: output.programId, eventId: event.eventId, key: "dj", position: 0, type: "vrcdn_link", purpose: "program", state: "ready", label: "DJ", createdAt: Date.now(), updatedAt: Date.now() }));
-  const lease = await t.mutation(worker("acquireSession"), args);
-  const queued = await owner.mutation(api.events.queueEventMediaCommand, { currentSlug: event.slug, type: "switch_source", targetSourceKey: "dj" });
-  const claim = await t.mutation(worker("claimCommands"), { ...args, epoch: lease.epoch });
-  const first = claim.commands[0];
-  await t.mutation(worker("acknowledgeCommand"), { ...args, epoch: lease.epoch, commandId: first._id, sequence: first.sequence, outcome: "succeeded" });
-  const command = claim.commands.find((c: { _id: string }) => c._id === queued.commandId);
-  const result = await t.mutation(worker("acknowledgeCommand"), { ...args, epoch: lease.epoch, commandId: command._id, sequence: command.sequence, outcome: "succeeded" });
-  assert.equal(result.accepted, false);
-  assert.equal((await t.run(ctx => ctx.db.get(output.programId)))?.currentSourceId, undefined);
-  assert.equal((await t.mutation(worker("acknowledgeCommand"), { ...args, epoch: lease.epoch, commandId: command._id, sequence: command.sequence, outcome: "succeeded", observedSourceId: sourceId })).accepted, true);
+it("successful source switches require coherent observed identity",async()=>{
+ const {t,owner,event,args,output}=await fixture();
+ const sourceId=await t.run(ctx=>ctx.db.insert("eventMediaSources",{programId:output.programId,eventId:event.eventId,key:"dj",position:0,type:"vrcdn_link",purpose:"program",state:"ready",label:"DJ",publicUrl:"vrcdn:source_a",createdAt:Date.now(),updatedAt:Date.now()}));
+ const lease=await t.mutation(worker("acquireSession"),args);
+ const queued=await owner.mutation(api.events.queueEventMediaCommand,{currentSlug:event.slug,type:"switch_source",targetSourceKey:"dj",idempotencyKey:"take"});
+ const c=(await t.run(ctx=>ctx.db.get(queued.commandId)))!;const receipt={...args,epoch:lease.epoch,commandId:c._id,sequence:c.sequence};
+ await t.mutation(worker("beginPreparation"),receipt);await t.mutation(worker("promoteOperation"),{...receipt,target:c.controlTarget});
+ assert.equal((await t.mutation(worker("acknowledgeCommand"),{...receipt,outcome:"succeeded"})).kind,"superseded");
+ assert.equal((await t.run(ctx=>ctx.db.get(output.programId)))?.currentSourceId,undefined);
+ assert.equal((await t.mutation(worker("acknowledgeCommand"),{...receipt,outcome:"succeeded",intentSequence:c.sequence,outputMs:100,observedSourceId:sourceId,sourceRevision:1,slotKey:`manual-${sourceId}`,observedOutputId:output.outputId,observedState:"live"})).kind,"ok");
 });
 
-it("acknowledgement records observed hold state and explicitly clears the old source", async () => {
-  const { t, owner, event, args, output } = await fixture();
-  const lease = await t.mutation(worker("acquireSession"), args);
-  await owner.mutation(api.events.queueEventMediaCommand, { currentSlug: event.slug, type: "switch_hold" });
-  const claimed = await t.mutation(worker("claimCommands"), { ...args, epoch: lease.epoch });
-  for (const command of claimed.commands) {
-    assert.equal((await t.mutation(worker("acknowledgeCommand"), { ...args, epoch: lease.epoch, commandId: command._id, sequence: command.sequence, outcome: "succeeded", observedState: "hold", observedSourceId: null })).accepted, true);
-  }
-  const state = await t.run(async ({ db }) => ({ session: await db.get(args.sessionId), program: await db.get(output.programId) }));
-  assert.equal(state.session?.status, "hold");
-  assert.equal(state.program?.state, "hold");
-  assert.equal(state.program?.currentSourceId, undefined);
+it("Cut acknowledgement records slate and does not wait for Start acknowledgement",async()=>{
+ const {t,owner,event,args,output}=await fixture();const lease=await t.mutation(worker("acquireSession"),args);
+ const cut=await owner.mutation(api.events.queueEventMediaCommand,{currentSlug:event.slug,type:"switch_hold",idempotencyKey:"cut"});
+ const c=(await t.run(ctx=>ctx.db.get(cut.commandId)))!;const receipt={...args,epoch:lease.epoch,commandId:c._id,sequence:c.sequence};
+ await t.mutation(worker("beginPreparation"),receipt);
+ assert.equal((await t.mutation(worker("acknowledgeCommand"),{...receipt,outcome:"succeeded",intentSequence:c.sequence,outputMs:100,observedState:"hold",observedSourceId:null,observedOutputId:output.outputId})).kind,"ok");
+ const state=await t.run(async({db})=>({session:await db.get(args.sessionId),program:await db.get(output.programId)}));
+ assert.equal(state.session?.status,"hold");assert.equal(state.session?.committedIntent?.kind,"slate");assert.equal(state.program?.currentSourceId,undefined);
 });
 
 it("cancellation during fenced startup delivers stop before task registration", async () => {
@@ -233,23 +209,13 @@ it("cancellation during fenced startup delivers stop before task registration", 
   assert.equal((await t.mutation(worker("renewSession"), owned)).granted, false);
 });
 
-it("older unbound source intent precedes newer session-bound intent", async () => {
-  const { t, owner, event, output, args } = await fixture();
-  const [sourceA, sourceB] = await t.run(async ({ db }) => Promise.all(["source_a", "source_b"].map(key => db.insert("eventMediaSources", { programId: output.programId, eventId: event.eventId, key, position: 0, type: "vrcdn_link", purpose: "program", state: "ready", label: key, createdAt: Date.now(), updatedAt: Date.now() }))));
-  const olderId = await t.run(({ db }) => db.insert("eventMediaCommands", { programId: output.programId, eventId: event.eventId, commandType: "switch_source", status: "queued", actorSurface: "web", targetSourceId: sourceA, targetSourceKey: "source_a", publicFallbackLinks: [], createdAt: Date.now() - 1000, updatedAt: Date.now() - 1000 }));
-  const newer = await owner.mutation(api.events.queueEventMediaCommand, { currentSlug: event.slug, type: "switch_source", targetSourceKey: "source_b" });
-  const acquired = await t.mutation(worker("acquireSession"), args);
-  const owned = { ...args, epoch: acquired.epoch };
-  const claimed = await t.mutation(worker("claimCommands"), owned);
-  const older = claimed.commands.find((c: { _id: string }) => c._id === olderId);
-  const latest = claimed.commands.find((c: { _id: string }) => c._id === newer.commandId);
-  assert.ok(older.sequence < latest.sequence);
-  for (const command of claimed.commands) {
-    assert.equal((await t.mutation(worker("acknowledgeCommand"), { ...owned, commandId: command._id, sequence: command.sequence, outcome: "succeeded", ...(command.targetSourceId === undefined ? {} : { observedSourceId: command.targetSourceId }) })).accepted, true);
-  }
-  assert.equal((await t.run(ctx => ctx.db.get(output.programId)))?.currentSourceId, sourceB);
-  assert.equal((await t.mutation(worker("acknowledgeCommand"), { ...owned, commandId: older._id, sequence: older.sequence, outcome: "succeeded", observedSourceId: sourceA })).duplicate, true);
-  assert.equal((await t.run(ctx => ctx.db.get(output.programId)))?.currentSourceId, sourceB);
+it("older unbound source intent cannot enter a new protocol session",async()=>{
+ const {t,owner,event,output,args}=await fixture();
+ const old=await t.run(({db})=>db.insert("eventMediaCommands",{programId:output.programId,eventId:event.eventId,commandType:"switch_source",status:"queued",actorSurface:"web",publicFallbackLinks:[],createdAt:1,updatedAt:1}));
+ const queued=await owner.mutation(api.events.queueEventMediaCommand,{currentSlug:event.slug,type:"switch_hold",idempotencyKey:"cut"});
+ const lease=await t.mutation(worker("acquireSession"),args);const claim=await t.mutation(worker("claimCommands"),{...args,epoch:lease.epoch});
+ assert.ok(claim.commands.some((c:{_id:string})=>c._id===queued.commandId));assert.ok(!claim.commands.some((c:{_id:string})=>c._id===old));
+ assert.equal((await t.run(ctx=>ctx.db.get(old)))?.sessionId,undefined);
 });
 
 it("cancelled session renewal cannot extend publication past its stop grace period", async () => {
@@ -318,8 +284,8 @@ it('destination keys cannot be converted by the legacy VRCDN writer or malformed
  const arn='arn:aws:secretsmanager:us-east-1:123456789012:secret:optional-ABC123';
  const definition=taskDefinitionFor(command,{baseEnvironment:{},secretRefMap:{'event-media/vrcdn/main':'arn:main','event-media/twitch/owned':arn},outputSecretEnvName:'VRDEX_EVENT_MEDIA_OUTPUT_INGEST_SECRET_JSON',workerTokenSecretArn:'arn:token'});
  assert.ok(!definition.containerDefinitions[0].secrets.some((entry:any)=>entry.valueFrom===arn));
- const lease=await t.mutation(worker('acquireSession'),{bridgeToken,eventId:event.eventId,sessionId:command.session.sessionId,workerId:'output-worker',epoch:0});
- const badHealth=await t.mutation(worker('observeOutputs'),{bridgeToken,eventId:event.eventId,sessionId:command.session.sessionId,workerId:'output-worker',epoch:lease.epoch,destinations:[{outputId:added.outputId,destination:'twitch',status:'publishing',publishing:true,queueBytes:0,outputMs:1000,restarts:0}]});
+ const lease=await t.mutation(worker('acquireSession'),{protocolVersion:2,bridgeToken,eventId:event.eventId,sessionId:command.session.sessionId,workerId:'output-worker',epoch:0});
+ const badHealth=await t.mutation(worker('observeOutputs'),{protocolVersion:2,bridgeToken,eventId:event.eventId,sessionId:command.session.sessionId,workerId:'output-worker',epoch:lease.epoch,destinations:[{outputId:added.outputId,destination:'twitch',status:'publishing',publishing:true,queueBytes:0,outputMs:1000,restarts:0}]});
  assert.equal(badHealth.accepted,false);
 });
 
@@ -333,14 +299,14 @@ it("operator_status_projects_observed_execution_and_capability", async () => {
   await assert.rejects(t.query(api.events.getEventMediaControlStatus, { currentSlug: event.slug }));
 });
 
-it("double_next_keeps_one_pending_command_and_revocation_denies_commands", async () => {
+it("identical keyed request reuses one pending command and revocation denies commands", async () => {
   const { owner, event, t } = await fixture();
-  const first = await owner.mutation(api.events.queueEventMediaCommand, { currentSlug: event.slug, type: "switch_next" });
-  const second = await owner.mutation(api.events.queueEventMediaCommand, { currentSlug: event.slug, type: "switch_next" });
+  const first = await owner.mutation(api.events.queueEventMediaCommand, { idempotencyKey:"same", currentSlug: event.slug, type: "hold_current" });
+  const second = await owner.mutation(api.events.queueEventMediaCommand, { idempotencyKey:"same", currentSlug: event.slug, type: "hold_current" });
   assert.equal(first.commandId, second.commandId);
   await t.run(async ctx => { for (const row of await ctx.db.query("profileOwners").collect()) await ctx.db.delete(row._id); });
-  await assert.rejects(owner.mutation(api.events.queueEventMediaCommand, { currentSlug: event.slug, type: "switch_hold" }));
-  await assert.rejects(t.mutation(api.events.queueEventMediaCommand, { currentSlug: event.slug, type: "switch_hold" }));
+  await assert.rejects(owner.mutation(api.events.queueEventMediaCommand, { idempotencyKey:"same", currentSlug: event.slug, type: "switch_hold" }));
+  await assert.rejects(t.mutation(api.events.queueEventMediaCommand, { idempotencyKey:"same", currentSlug: event.slug, type: "switch_hold" }));
 });
 
 for (const capability of ["view_event_operations", "manage_events"] as const) it(`read_only_${capability}_can_read_status_but_cannot_control`, async () => {
@@ -354,7 +320,7 @@ for (const capability of ["view_event_operations", "manage_events"] as const) it
   const host = t.withIdentity({ subject, emailVerified: true, issuer: "test", tokenIdentifier: `test|${subject}` });
   const status = await host.query(api.events.getEventMediaControlStatus, { currentSlug: event.slug });
   assert.equal(status.canControl, false);
-  await assert.rejects(host.mutation(api.events.queueEventMediaCommand, { currentSlug: event.slug, type: "switch_hold" }));
+  await assert.rejects(host.mutation(api.events.queueEventMediaCommand, { idempotencyKey:crypto.randomUUID(), currentSlug: event.slug, type: "switch_hold" }));
   await assert.rejects(host.mutation(api.events.scheduleEventMediaWorker, { currentSlug: event.slug }));
   await assert.rejects(host.mutation(api.events.scheduleEventMediaWorker, { currentSlug: event.slug, startImmediately: true }));
 });
@@ -372,15 +338,15 @@ it("operator_stops_offering_revoked_profile_source_before_worker_refresh", async
   await t.run(({db}) => db.patch(person, { outboundLinks: [] }));
   const after = await owner.query(api.events.getEventMediaControlStatus, { currentSlug: event.slug });
   assert.equal(after.sources[0].hasPublicUrl, false);
-  await assert.rejects(owner.mutation(api.events.queueEventMediaCommand, { currentSlug: event.slug, type: "switch_source", targetSourceKey: after.sources[0].key }));
+  await assert.rejects(owner.mutation(api.events.queueEventMediaCommand, { idempotencyKey:crypto.randomUUID(), currentSlug: event.slug, type: "switch_source", targetSourceKey: after.sources[0].key }));
 });
 
-it("pending_next_from_an_ended_session_does_not_block_a_new_session", async () => {
+it("pending_control_from_an_ended_session_does_not_block_a_new_session", async () => {
   const { t, owner, event, args } = await fixture();
-  const old = await owner.mutation(api.events.queueEventMediaCommand, { currentSlug:event.slug, type:"switch_next" });
+  const old = await owner.mutation(api.events.queueEventMediaCommand, { idempotencyKey:crypto.randomUUID(), currentSlug:event.slug, type:"hold_current" });
   await t.run(({db}) => db.patch(args.sessionId, { status:"ended" }));
   await owner.mutation(api.events.scheduleEventMediaWorker, { currentSlug:event.slug });
-  const current = await owner.mutation(api.events.queueEventMediaCommand, { currentSlug:event.slug, type:"switch_next" });
+  const current = await owner.mutation(api.events.queueEventMediaCommand, { idempotencyKey:crypto.randomUUID(), currentSlug:event.slug, type:"hold_current" });
   assert.notEqual(current.commandId, old.commandId);
 });
 
@@ -524,7 +490,7 @@ it("actual program observations have a distinct timestamp that renewal cannot re
   const lease=await f.t.mutation(worker("acquireSession"),f.args), request={...f.args,epoch:lease.epoch};
   assert.equal((await f.owner.query(api.events.getEventMediaControlStatus,{currentSlug:f.event.slug})).sessions[0].programObservedAt,undefined);
   const before=Date.now();
-  await f.t.mutation(worker("observeProgram"),{...request,state:"hold",mode:"hold",outputMs:500,publishing:true,outputId:f.output.outputId});
+  await f.t.mutation(worker("observeProgram"),{...request,intentSequence:0,state:"hold",mode:"hold",outputMs:500,publishing:true,outputId:f.output.outputId});
   const first=await f.owner.query(api.events.getEventMediaControlStatus,{currentSlug:f.event.slug});
   const observedAt=first.sessions[0].programObservedAt;
   assert.ok(observedAt!==undefined && observedAt>=before && observedAt<=first.serverNow);
@@ -566,9 +532,11 @@ it("only successful observed command acknowledgements stamp program media time",
   const first=initial.commands[0];
   await f.t.mutation(worker("acknowledgeCommand"),{...request,commandId:first._id,sequence:first.sequence,outcome:"failed"});
   assert.equal((await f.owner.query(api.events.getEventMediaControlStatus,{currentSlug:f.event.slug})).sessions[0].programObservedAt,undefined);
-  await f.owner.mutation(api.events.queueEventMediaCommand,{currentSlug:f.event.slug,type:"hold_current"});
+  await f.owner.mutation(api.events.queueEventMediaCommand,{ idempotencyKey:crypto.randomUUID(),currentSlug:f.event.slug,type:"hold_current"});
   const next=await f.t.mutation(worker("claimCommands"),request), command=next.commands[0], before=Date.now();
-  assert.equal((await f.t.mutation(worker("acknowledgeCommand"),{...request,commandId:command._id,sequence:command.sequence,outcome:"succeeded",observedState:"hold"})).accepted,true);
+  const receipt={...request,commandId:command._id,sequence:command.sequence};
+  await f.t.mutation(worker("beginPreparation"),receipt);await f.t.mutation(worker("promoteOperation"),{...receipt,target:command.controlTarget});
+  assert.equal((await f.t.mutation(worker("acknowledgeCommand"),{...receipt,outcome:"succeeded",intentSequence:command.sequence,outputMs:100,observedOutputId:f.output.outputId,observedState:"hold"})).kind,"ok");
   const status=await f.owner.query(api.events.getEventMediaControlStatus,{currentSlug:f.event.slug});
   assert.ok(status.sessions[0].programObservedAt!==undefined && status.sessions[0].programObservedAt>=before && status.sessions[0].programObservedAt<=status.serverNow);
 });

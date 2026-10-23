@@ -39,7 +39,7 @@ async function setupFixture() {
       await ctx.db.patch(scheduled.sessionId, { scheduledStartAt: Date.now() - 1000 });
       if (scheduled.startCommandId) await ctx.db.patch(scheduled.startCommandId, { availableAt: Date.now() - 1000 });
     });
-    const args = { bridgeToken, eventId: event.eventId, sessionId: scheduled.sessionId, workerId: "worker-a", epoch: 0 };
+    const args = { protocolVersion: 2, bridgeToken, eventId: event.eventId, sessionId: scheduled.sessionId, workerId: "worker-a", epoch: 0 };
     return { scheduled, args };
   }
   return {t, owner, event, output, schedule};

@@ -171,3 +171,18 @@ test('renderer accepts six video presets and rejects unsupported audio', async (
     await renderer.stop();
     assert.throws(() => createProgramRenderer({audioBitrateKbps:192}), /audio|settings/i);
 });
+test('encoded snapshot retains revision when the same source and slot acquire a newer revision', async () => {
+    const { RenderAcknowledgements } = await import('../../workers/restream/program-renderer.mjs');
+    const state = new RenderAcknowledgements();
+    state.submit('slot', 1000, 'source', 1);
+    state.advance(1000);
+    state.submit('slot', 2000, 'source', 2);
+    state.advance(1999);
+    assert.equal(state.renderedSourceRevision, 1);
+    state.advance(2000);
+    assert.equal(state.renderedSourceRevision, 2);
+    state.submit(undefined, 3000, undefined, undefined);
+    state.advance(3000);
+    assert.equal(state.renderedSourceRevision, undefined);
+    assert.equal(state.renderedSourceId, undefined);
+});
