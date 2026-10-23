@@ -85,10 +85,10 @@ OpenCode's `.opencode/opencode.json` defaults.
 | `aws_docs` | Parked | Available AWS documentation tools or official AWS docs |
 | `aws_iac` | Parked | AWS CLI and CloudFormation tooling |
 | `aws_terraform` | Parked | Terraform CLI and provider documentation |
-| `aws_mcp` | Enabled | Configured AWS MCP with the intended account and region |
+| `aws_mcp` | Parked | Connected BASIC AWS machine plugin with the intended account and machine role |
 | `daytona` | Parked | Deliberate reactivation when Daytona is needed |
 
-The five parked entries have `enabled = false` to avoid starting redundant or
+The six parked entries have `enabled = false` to avoid starting redundant or
 unused transports in each checkout. Their launch and account settings remain
 available for recovery. Missing parked tools are expected, not a setup failure.
 A native plugin or CLI must be available and authenticated for the intended task;
@@ -100,6 +100,18 @@ checkout, confirm the declared runtime and account/region, then refresh the chat
 and verify the required operation. Preserve the other profile fields and approval
 rules. Return it to `enabled = false` when the temporary need is finished; do not
 make routine recovery a global registration.
+
+For AWS, discover BASIC AWS machine first and verify the intended account and
+`basic-aws-mcp-operator` role before resource operations. The retained AWS MCP
+selects the explicit `account-admin` SSO recovery profile. Reactivate it only after
+reporting a native operation gap and verifying a fresh SSO identity. Expired or
+missing SSO must fail visibly. Do not select `default`, root credentials, or an
+unspecified AWS Core connection as a substitute.
+
+Cloud CLI and Terraform authentication are separate from the native MCP. Use an
+explicitly configured workload identity or approved named profile, verify its
+identity, and report missing setup. Native MCP access does not supply CLI
+credentials, and CLI availability does not establish authenticated access.
 
 Keep project-specific tools in repo-local config. Global Codex MCP entries should
 be reserved for tools needed across repositories. Project commands should be
