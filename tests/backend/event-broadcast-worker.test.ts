@@ -975,7 +975,7 @@ it('R4F1 R4F2 real backend observation and command ack agree through failure, re
   const result:any[]=[];
   for(const [index,key] of ['a','b'].entries()){
    const slot=await db.insert('eventSlots',{eventId:f.event.eventId,position:index,startAt:now+(index===0?-1000:60000),endAt:now+(index===0?60000:120000),displayLabel:key,roleLabel:'DJ',sourceType:'manual',sourceLabel:'Owner',confidence:1,reviewState:'confirmed',updatedAt:now});
-   const source=await db.insert('eventMediaSources',{programId:f.output.programId,eventId:f.event.eventId,key,position:index,type:'vrcdn_link',purpose:'program',state:'ready',label:key,eventSlotId:slot,publicUrl:`https://stream.vrcdn.live/live/${key}.live.ts`,createdAt:now,updatedAt:now});result.push({slot,source});
+   const source=await db.insert('eventMediaSources',{programId:f.output.programId,eventId:f.event.eventId,key,position:index,type:'vrcdn_link',purpose:'program',state:'ready',label:key,eventSlotId:slot,publicUrl:`https://stream.vrcdn.live/live/source_${key}.live.ts`,createdAt:now,updatedAt:now});result.push({slot,source});
   }return result;
  });
  let time=0,rendered:any,prepared:any[]=[];const ready=new Set([sources[0].slot]);

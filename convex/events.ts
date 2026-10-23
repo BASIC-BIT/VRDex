@@ -1,3 +1,4 @@
+import { broadcastInputValidator, authoredBroadcastInput, eventProfileBroadcastInputChoices, resolveBroadcastInput, broadcastInputPublicUrl, eventMediaSourceBroadcastInput } from "./_eventBroadcastSources";
 import { sanitizeTwitchOutput, getTwitchOutputAccount, listTwitchOutputAccounts, eventOutputIsAuthorized } from './_eventOutputSetup';
 import { EVENT_BROADCAST_MAX_OUTPUTS, validateBroadcastPolicy, allocateSessionCommandSequence, settleTerminalSessionCommands, requireEventMediaBridgeToken } from "./_eventBroadcastInputs";
 import { dateOnlyEventsEnabled, eventDateForInstant, eventSortAt, eventSortEndAt, normalizeEventSchedule, publicEventSchedule, requireDateOnlyEventsEnabled } from "./_eventSchedule";
@@ -161,6 +162,7 @@ const eventDraftArgs = {
     v.array(
       v.object({
         selectedStreamId: v.optional(v.union(v.string(), v.null())),
+        broadcastInput: v.optional(v.union(broadcastInputValidator, v.null())),
         personSlug: v.optional(v.string()),
         displayLabel: v.string(),
         roleLabel: v.optional(v.string()),
@@ -185,6 +187,7 @@ const eventDraftUpdateArgs = {
     personSlug: v.optional(v.string()), roleLabel: v.optional(v.string()),
     startAt: v.optional(v.number()), endAt: v.optional(v.number()),
     selectedStreamId: v.optional(v.union(v.string(), v.null())),
+    broadcastInput: v.optional(v.union(broadcastInputValidator, v.null())),
   }))),
   title: v.optional(v.string()),
   startAt: v.optional(v.number()),
@@ -769,8 +772,13 @@ async function replaceEventSlots(
       }
     }
 
+    // Public API replacement writes have no browser association snapshot. The
+    // old position can preserve input only when the resolved performer is equal.
+    const previousInputSlot = preservedSlot ?? existing.find(previous => previous.position === slot.position);
+    const broadcastInput = authoredBroadcastInput({ value: slot.broadcastInput, previous: previousInputSlot?.broadcastInput, samePerson: previousInputSlot !== undefined && previousInputSlot.personProfileId === personProfileId, profile: profile ?? previousProfile });
     if (preservedSlot !== undefined) {
       await db.patch(preservedSlot._id, {
+        broadcastInput,
         selectedStreamId: slot.selectedStreamId,
         eventStartAt,
         eventSortAt: eventStartAt,
@@ -792,6 +800,7 @@ async function replaceEventSlots(
     }
 
     await db.insert("eventSlots", {
+      broadcastInput,
       ...optionalValue("selectedStreamId", slot.selectedStreamId),
       eventId,
       eventStartAt,
@@ -1394,7 +1403,7 @@ async function updateCommunityEventRecord(
     for (const slot of slots) {
       await db.insert("eventLineupEntries", {
         eventId: event._id, clientKey: slot.clientKey ?? slot._id, position: slot.position,
-        performerLabel: slot.displayLabel, personProfileId: slot.personProfileId,
+        performerLabel: slot.displayLabel, personProfileId: slot.personProfileId, broadcastInput: slot.broadcastInput,
         roleLabel: slot.roleLabel, updatedAt: now,
         sourceType: slot.sourceType, sourceLabel: slot.sourceLabel,
         sourceUrl: slot.sourceUrl, notes: slot.notes,
@@ -1448,7 +1457,7 @@ async function updateCommunityEventRecord(
   };
 }
 
-async function getOrCreateEventMediaProgram(
+export async function getOrCreateEventMediaProgram(
   db: DatabaseWriter,
   event: Doc<"events">,
   now: number,
@@ -1509,7 +1518,7 @@ async function getEditableEventBySlug(
   return { event, slug: validation.slug };
 }
 
-async function getMediaManageableEventBySlug(
+export async function getMediaManageableEventBySlug(
   ctx: MutationCtx | QueryCtx,
   currentSlug: string,
   subject: AuthSubject,
@@ -1651,7 +1660,7 @@ async function requireStoppedOutputSessions(db: DatabaseReader, programId: Id<"e
   }
 }
 
-async function recordEventMediaAuditEvent(
+export async function recordEventMediaAuditEvent(
   db: DatabaseWriter,
   input: {
     programId: Id<"eventMediaPrograms">;
@@ -1714,8 +1723,8 @@ async function eventMediaSourceProjectionAvailable(
   if (!slot?.personProfileId || slot.eventId !== source.eventId) return false;
   const profile = await db.get(slot.personProfileId);
   if (!profile || !canReadProfile("public", profile)) return false;
-  const stream = resolveEventStream(eventProfileStreamChoices(profile), slot.selectedStreamId);
-  return stream !== undefined && stream.questUrl === source.publicUrl && source.projectionAvailable !== false;
+  const input = resolveBroadcastInput({ choices: eventProfileBroadcastInputChoices(profile), explicitInput: slot.broadcastInput, legacySelectedStreamId: slot.selectedStreamId });
+  return input !== undefined && broadcastInputPublicUrl(input) === source.publicUrl && source.projectionAvailable !== false;
 }
 
 async function resolveEventMediaCommandTargets(
@@ -2487,20 +2496,26 @@ export const getEventMediaControlStatus = query({
       },
       sources: sources
         .sort((first, second) => first.position - second.position || first.key.localeCompare(second.key))
-        .map((source) => ({
-          sourceId: source._id,
-          key: source.key,
-          position: source.position,
-          type: source.type,
-          purpose: source.purpose,
-          state: source.state,
-          label: source.label,
-          ...(source.eventSlotId === undefined ? {} : { eventSlotId: source.eventSlotId }),
-          ...(source.sourceProfileId === undefined ? {} : { sourceProfileId: source.sourceProfileId }),
-          hasPublicUrl: source.publicUrl !== undefined && source.projectionAvailable !== false && availableSources.has(source._id),
-          hasPrivateConfig: source.privateConfigRef !== undefined,
-          updatedAt: source.updatedAt,
-        })),
+        .map((source) => {
+          const input = eventMediaSourceBroadcastInput(source);
+          return {
+            sourceId: source._id,
+            key: source.key,
+            position: source.position,
+            type: source.type,
+            input,
+            revision: source.revision ?? 1,
+            publicUrl: input ? broadcastInputPublicUrl(input) : undefined,
+            purpose: source.purpose,
+            state: source.state,
+            label: source.label,
+            ...(source.eventSlotId === undefined ? {} : { eventSlotId: source.eventSlotId }),
+            ...(source.sourceProfileId === undefined ? {} : { sourceProfileId: source.sourceProfileId }),
+            hasPublicUrl: source.publicUrl !== undefined && source.projectionAvailable !== false && availableSources.has(source._id),
+            hasPrivateConfig: source.privateConfigRef !== undefined,
+            updatedAt: source.updatedAt,
+          };
+        }),
       outputs: outputs
         .sort((first, second) => first.key.localeCompare(second.key))
         .map((output) => ({
@@ -4079,5 +4094,15 @@ export const configureEventBroadcastPolicy = mutation({
     await ctx.db.patch(program._id,{broadcastPolicy:policy,updatedAt:Date.now()});
     await recordEventMediaAuditEvent(ctx.db,{programId:program._id,eventId:event._id,actor:subject,action:"broadcast_policy_configured",createdAt:Date.now()});
     return {programId:program._id,policy};
+  },
+});
+
+export const getPersonBroadcastInputChoices = query({
+  args: { personSlug: v.string() },
+  returns: v.array(v.object({ input: broadcastInputValidator, key: v.string(), label: v.string() })),
+  handler: async (ctx, { personSlug }) => {
+    if (personSlug.length > 64) return [];
+    const profile = await ctx.db.query("profiles").withIndex("by_slug", q => q.eq("slug", personSlug)).unique();
+    return profile?.profileType === "person" ? eventProfileBroadcastInputChoices(profile) : [];
   },
 });

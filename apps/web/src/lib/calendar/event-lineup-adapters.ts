@@ -1,3 +1,4 @@
+import type { BroadcastInputRef, BroadcastInputChoice } from "../../../../../convex/_eventBroadcastSources";
 import type { PlaybackStream } from "../../../../../convex/_eventPlayback";
 import { resolveEventLocalTime, type EventIntakePatch, type EventIntakeLocalTime } from "../../../../../packages/api-contracts/src/event-intake";
 import { readIntakeEditorClock } from "./event-editor-time";
@@ -7,6 +8,8 @@ import { formatZonedDateTimeInput } from "./zoned-date-time";
 export type SlotFormRow = {
   position?: number;
   selectedStreamId?: string;
+  broadcastInput?: BroadcastInputRef | null;
+  broadcastInputChoices?: BroadcastInputChoice[];
   streamChoices?: PlaybackStream[];
   id: string;
   offsetMinutes: string;

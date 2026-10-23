@@ -1,3 +1,4 @@
+import { eventProfileBroadcastInputChoices } from "./_eventBroadcastSources";
 import { eventOutputIsAuthorized } from "./_eventOutputSetup";
 import { eventProfileStreamChoices, resolveEventStream, type PlaybackStream } from "./_eventPlayback";
 import { dateOnlyEventsEnabled, eventSortAt, eventSortEndAt, publicEventSchedule, type StoredEventSchedule } from "./_eventSchedule";
@@ -850,13 +851,24 @@ export async function getEventForEditor(
     : {
         ...projected,
         usesCanonicalLineup: event.sourceType === "contributor" || Boolean(record?.lineupEntries?.length) || slotAssociations.some(slot => slot.clientKey !== undefined),
-        lineup: projected.lineup.map(row => ({ ...row, key: record?.lineupEntries?.find(entry => entry.entry._id === row.key)?.entry.clientKey ?? row.key })),
+        lineup: projected.lineup.map(row => {
+          const untimed = record?.lineupEntries?.find(entry => entry.entry._id === row.key);
+          const timed = record?.slots.find(entry => entry.slot._id === row.key);
+          const input = untimed?.entry.broadcastInput ?? timed?.slot.broadcastInput;
+          const profile = untimed?.profile ?? timed?.profile;
+          return { ...row, key: untimed?.entry.clientKey ?? row.key,
+            ...optionalField("broadcastInput", input),
+            broadcastInputChoices: profile === undefined ? [] : eventProfileBroadcastInputChoices(profile),
+          };
+        }),
         slots: projected.slots.map((slot) => {
           const source = record?.slots.find((entry) => entry.slot._id === slot.playbackKey);
           return {
             ...slot,
             ...optionalField("clientKey", source?.slot.clientKey),
             ...optionalField("selectedStreamId", source?.slot.selectedStreamId),
+            ...optionalField("broadcastInput", source?.slot.broadcastInput),
+            broadcastInputChoices: source?.profile === undefined ? [] : eventProfileBroadcastInputChoices(source.profile),
             streamChoices: source?.profile === undefined ? [] : eventProfileStreamChoices(source.profile),
           };
         }),

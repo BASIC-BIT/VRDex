@@ -1,5 +1,5 @@
+import { eventProfileBroadcastInputChoices, resolveBroadcastInput, broadcastInputPublicUrl, eventMediaSourceBroadcastInput } from "./_eventBroadcastSources";
 import { outputHealthValidator, eventOutputIsAuthorized } from './_eventOutputSetup';
-import { eventProfileStreamChoices, resolveEventStream } from "./_eventPlayback";
 import { canReadProfile } from "./_profilePermissions";
 import { v } from "convex/values";
 import { mutation, type MutationCtx } from "./_generated/server";
@@ -222,24 +222,25 @@ async function configuration(ctx: MutationCtx, { session, program, event }: NonN
         let source = await ctx.db.query("eventMediaSources").withIndex("by_programId_key", q => q.eq("programId", program._id).eq("key", `slot-${slot._id}`)).first();
         if (slot.personProfileId) {
             const profile = await ctx.db.get(slot.personProfileId);
-            const stream = profile && canReadProfile("public", profile) ? resolveEventStream(eventProfileStreamChoices(profile), slot.selectedStreamId) : undefined;
-            if (stream && !source) {
-                const id = await ctx.db.insert("eventMediaSources", { programId: program._id, eventId: event._id, key: `slot-${slot._id}`, position: slot.position, type: "vrcdn_link", purpose: "program", state: "ready", label: slot.displayLabel, eventSlotId: slot._id, sourceProfileId: slot.personProfileId, profileProjection: true, projectionAvailable: true, publicUrl: stream.questUrl, createdAt: Date.now(), updatedAt: Date.now() });
+            const input = profile && canReadProfile("public", profile) ? resolveBroadcastInput({ choices: eventProfileBroadcastInputChoices(profile), explicitInput: slot.broadcastInput, legacySelectedStreamId: slot.selectedStreamId }) : undefined;
+            const publicUrl = input ? broadcastInputPublicUrl(input) : undefined;
+            if (input && !source) {
+                const id = await ctx.db.insert("eventMediaSources", { programId: program._id, eventId: event._id, key: `slot-${slot._id}`, position: slot.position, type: input.kind === "vrcdn" ? "vrcdn_link" : "twitch_watch", input, revision: 1, purpose: "program", state: "ready", label: slot.displayLabel, eventSlotId: slot._id, sourceProfileId: slot.personProfileId, profileProjection: true, projectionAvailable: true, publicUrl, createdAt: Date.now(), updatedAt: Date.now() });
                 source = await ctx.db.get(id);
             }
-            else if (source && (source.publicUrl !== stream?.questUrl || source.profileProjection !== true || source.projectionAvailable !== !!stream || source.sourceProfileId !== slot.personProfileId)) {
-                await ctx.db.patch(source._id, { publicUrl: stream?.questUrl, profileProjection: true, projectionAvailable: !!stream, sourceProfileId: slot.personProfileId, updatedAt: Date.now() });
+            else if (source && (source.publicUrl !== publicUrl || source.profileProjection !== true || source.projectionAvailable !== !!input || source.sourceProfileId !== slot.personProfileId)) {
+                await ctx.db.patch(source._id, { publicUrl, input, revision: (source.revision ?? 1) + 1, ...(input ? { type: input.kind === "vrcdn" ? "vrcdn_link" as const : "twitch_watch" as const } : {}), profileProjection: true, projectionAvailable: !!input, sourceProfileId: slot.personProfileId, updatedAt: Date.now() });
                 source = await ctx.db.get(source._id);
             }
         }
         else if (source && (source.profileProjection || source.sourceProfileId)) {
             if (source.profileProjection !== true || source.projectionAvailable !== false || source.publicUrl !== undefined)
-                await ctx.db.patch(source._id, { profileProjection: true, projectionAvailable: false, publicUrl: undefined, updatedAt: Date.now() });
+                await ctx.db.patch(source._id, { profileProjection: true, projectionAvailable: false, publicUrl: undefined, input: undefined, revision: (source.revision ?? 1) + 1, updatedAt: Date.now() });
             source = null;
         }
         if (!source && !slot.personProfileId)
             source = (await ctx.db.query("eventMediaSources").withIndex("by_programId_eventSlotId", q => q.eq("programId", program._id).eq("eventSlotId", slot._id)).take(EVENT_BROADCAST_MAX_SOURCES + 1)).find(s => s.eventSlotId === slot._id && !s.profileProjection && !(s.sourceProfileId && s.key === `slot-${slot._id}`)) ?? null;
-        slots.push({ slotKey: slot._id, sourceId: source?._id, startAt: slot.startAt, endAt: slot.endAt, available: source !== null && source.state !== "disabled" && source.projectionAvailable !== false && !!source.publicUrl });
+        slots.push({ slotKey: slot._id, sourceId: source?._id, startAt: slot.startAt, endAt: slot.endAt, available: source !== null && source.state !== "disabled" && source.projectionAvailable !== false && eventMediaSourceBroadcastInput(source) !== undefined });
     }
     // Index each current slot plus unbound manual sources. Detached projections
     // cannot consume the bound or hide later authored/manual sources.
@@ -269,7 +270,7 @@ async function configuration(ctx: MutationCtx, { session, program, event }: NonN
         currentSceneId: session.currentSceneId ?? program.currentSceneId,
         sessionDeadline: deadline, stopped: event.eventStatus !== "scheduled" || session.stopRequestedAt !== undefined,
         mode: session.broadcastMode ?? "automatic", policy: effectiveBroadcastPolicy(program.broadcastPolicy), slots,
-        sources: sources.filter(s => s.eventId === event._id && s.state !== "disabled" && s.projectionAvailable !== false && (!s.eventSlotId || authored.some(slot => slot._id === s.eventSlotId))).map(s => ({ id: s._id, key: s.key, type: s.type, eventSlotId: s.eventSlotId, publicUrl: s.publicUrl, privateConfigRef: s.privateConfigRef })),
+        sources: sources.filter(s => s.eventId === event._id && s.state !== "disabled" && s.projectionAvailable !== false && (!s.eventSlotId || authored.some(slot => slot._id === s.eventSlotId))).flatMap(s => { const input = eventMediaSourceBroadcastInput(s); return input ? [{ id: s._id, key: s.key, type: s.type, eventId: s.eventId, eventSlotId: s.eventSlotId, input, revision: s.revision ?? 1, publicUrl: broadcastInputPublicUrl(input) }] : []; }),
         scenes: scenes.filter(s => s.eventId === event._id).map(s => ({ id: s._id, key: s.key, type: s.type, sourceId: s.sourceId })),
         outputs: outputs.filter(o => o.eventId === event._id && eventOutputIsAuthorized(event, o) && ["ready", "active"].includes(o.state)).map(o => ({ id: o._id, key: o.key, type: o.type, credential: o.credential, vrcdnSetup: o.vrcdnSetup, twitchSetup:o.twitchSetup, simulcastEnabled:o.simulcastEnabled ?? false, compliance: o.compliance })),
     };

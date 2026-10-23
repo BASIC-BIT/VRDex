@@ -1,3 +1,4 @@
+import { broadcastInputValidator } from "./_eventBroadcastSources";
 import { twitchSetupValidator, outputHealthValidator } from './_eventOutputSetup';
 import { observedBroadcastStateValidator } from "./_eventMediaControl";
 import { clubPermission, clubVisibility, clubSubject } from "./_clubModel";
@@ -1343,6 +1344,7 @@ export default defineSchema({
       "eventEndAt",
     ]),
   eventLineupEntries: defineTable({
+    broadcastInput: v.optional(broadcastInputValidator),
     eventId: v.id("events"),
     clientKey: v.string(),
     position: v.number(),
@@ -1356,6 +1358,7 @@ export default defineSchema({
     updatedAt: v.number(),
   }).index("by_eventId_position", ["eventId", "position"]),
   eventSlots: defineTable({
+    broadcastInput: v.optional(broadcastInputValidator),
     clientKey: v.optional(v.string()),
     selectedStreamId: v.optional(v.string()),
     eventId: v.id("events"),
@@ -1504,6 +1507,8 @@ export default defineSchema({
     .index("by_communityProfileId_state", ["communityProfileId", "state"])
     .index("by_state_updatedAt", ["state", "updatedAt"]),
   eventMediaSources: defineTable({
+    input: v.optional(broadcastInputValidator),
+    revision: v.optional(v.number()),
     programId: v.id("eventMediaPrograms"),
     eventId: v.id("events"),
     key: v.string(),
