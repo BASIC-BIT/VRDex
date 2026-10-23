@@ -1,6 +1,6 @@
 # Twitch inputs and event operator controls
 
-Status: current recommendation, ready for design review. This document extends the merged event-broadcast design. It does not authorize implementation by itself.
+Status: design approved by BASIC after review of resolution/frame-rate choices, audio settings, and operator diagnostics. The approved scope includes 480p/720p/1080p at 30/60 fps, the proposed VRCDN audio choices, and allocation/pricing diagnostics. This document extends the merged event-broadcast design. Implementation follows the separately reviewed task plan.
 
 ## Intent and success
 
