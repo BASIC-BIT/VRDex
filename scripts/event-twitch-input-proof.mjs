@@ -36,14 +36,65 @@ export function parseTwitchArguments(args) {
     throw Error("Invalid Twitch proof arguments");
   return { case: args[1], outputDir: args[3] };
 }
+export function parseNamedSummary(bytes, expectedCount) {
+  if (bytes.length > 131072) throw Error("Oversized named summary");
+  let value;
+  try {
+    value = JSON.parse(bytes.toString());
+  } catch {
+    throw Error("Invalid named summary");
+  }
+  if (
+    !value ||
+    Object.keys(value).some(
+      (key) => !["testsRun", "outcomes", "passed"].includes(key),
+    ) ||
+    !Number.isInteger(value.testsRun) ||
+    value.testsRun < 1 ||
+    value.testsRun > 256 ||
+    !Array.isArray(value.outcomes) ||
+    value.outcomes.length !== value.testsRun ||
+    typeof value.passed !== "boolean" ||
+    value.outcomes.some(
+      (row) =>
+        !row ||
+        typeof row.test !== "string" ||
+        row.test.length > 200 ||
+        !/^[A-Za-z0-9_.,' /\-]+$/.test(row.test) ||
+        ![
+          "passed",
+          "failed",
+          "error",
+          "skipped",
+          "expected_failure",
+          "unexpected_success",
+          "todo",
+        ].includes(row.outcome) ||
+        Object.keys(row).some(
+          (k) => !["test", "outcome", "type"].includes(k),
+        ) ||
+        (row.type !== undefined &&
+          (typeof row.type !== "string" ||
+            !/^[A-Za-z0-9_]{1,80}$/.test(row.type))),
+    )
+  )
+    throw Error("Invalid named summary");
+  value.passed =
+    value.passed &&
+    value.outcomes.every((row) => row.outcome === "passed") &&
+    (expectedCount === undefined || value.testsRun === expectedCount);
+  return value;
+}
 export async function runTransportWorkload(request) {
   const owner = createProcessOwner();
   let passed = false,
     cleanup,
-    tests;
+    tests,
+    phase = "python_contracts",
+    failurePhase;
   await mkdir(request.outputDir, { recursive: false });
   try {
-    tests = JSON.parse(
+    tests = parseNamedSummary(
       (
         await owner.run(
           "python3",
@@ -55,9 +106,20 @@ export async function runTransportWorkload(request) {
           { timeoutMs: 240000, maxBytes: 262144 },
         )
       ).toString(),
+      request.case === "all" ? 42 : undefined,
     );
-    if (!tests.passed || !tests.testsRun)
+    phase = "owner_contracts";
+    tests.owner = parseNamedSummary(
+      await owner.run(
+        process.execPath,
+        ["workers/restream/tests/owner_proof.mjs"],
+        { timeoutMs: 60000, maxBytes: 131072 },
+      ),
+      9,
+    );
+    if (!tests.passed || !tests.owner.passed)
       throw Error("Named transport contracts failed");
+    phase = "blocked_resolution_cancellation";
     // Cancellation during blocked resolution must close the real wrapper's group.
     const input = createTwitchInput({
       source: { kind: "twitch", channel: "fixture" },
@@ -71,12 +133,15 @@ export async function runTransportWorkload(request) {
     tests.cancellationMs = performance.now() - began;
     if (tests.cancellationMs > 1500) throw Error("Cancellation exceeded bound");
     passed = true;
+  } catch {
+    failurePhase = phase;
   } finally {
     try {
       cleanup = await owner.close();
     } catch {
       cleanup = { closed: false };
       passed = false;
+      failurePhase ??= "cleanup";
     }
     await writeFile(
       `${request.outputDir}/receipt.json`,
@@ -88,6 +153,9 @@ export async function runTransportWorkload(request) {
           cleanup,
           case: request.case,
           tests,
+          ...(failurePhase
+            ? { failurePhase, failureCode: "transport_contract_failed" }
+            : {}),
           deterministic: true,
           realAdsObserved: false,
           providerExpiryObserved: false,
@@ -115,7 +183,7 @@ if (
         kind: "twitch",
         args: process.argv.slice(2),
         directory: request.outputDir,
-        timeoutMs: request.case === "public" ? 2100000 : 300000,
+        timeoutMs: request.case === "public" ? 2100000 : 360000,
         byteCap: request.case === "public" ? 1700 * 1048576 : 8 * 1048576,
       });
   } catch {

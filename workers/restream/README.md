@@ -246,7 +246,6 @@ environment; no production code depends on it. Fixtures generate their own
 verified CA/SAN and audible synthetic media. See
 [fixture recipes and preserved negative research](tests/fixtures/README.md).
 
-
 ## Immutable allocation and exact-image proofs
 
 Managed event workers require `VRDEX_EVENT_MEDIA_ALLOCATION_SNAPSHOT_JSON` from

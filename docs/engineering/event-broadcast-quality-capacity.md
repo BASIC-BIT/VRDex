@@ -73,7 +73,12 @@ forced provider expiry and physical PC/Quest playback remain observation gaps
 unless separately exercised. Deterministic cases cover TLS/DNS/redirect/nested
 resource boundaries, MPEGTS/fMP4 normalization with actual decoded audio, cold
 start, jitter, ads, fresh resolution after 403, deadlines and cancellation.
-Named outcomes must include no skipped or expected-failure required tests.
+Named outcomes must include no skipped or expected-failure required tests. The
+same nine Node acquisition-owner regressions run with built-in type stripping,
+including TERM-ignoring descendants, leader exit, retries and failed cleanup.
+Public receipts retain bounded typed acquisition reasons and separate decoder
+readiness. `realAdMarkersObserved` means an actual public HLS `ad_wait` state;
+`realAdPlaybackObserved` remains false unless decoded ad playback is verified.
 
 ## Evidence and cleanup
 
@@ -89,7 +94,8 @@ belongs in a receipt.
 Capacity inner deadline is steady duration plus 600 seconds, with at most 180
 additional seconds for finalization; recording/upload cap is
 `(steady seconds + 180) * 1,500,000` bytes. The public workload has a 2100-second
-inner deadline, 180-second finalization budget and 1700-MiB artifact cap. Root
+inner deadline, 180-second finalization budget and 1700-MiB artifact cap. The deterministic transport workload has a 360-second inner deadline plus 180
+seconds for finalization. Root
 must set an outer ECS deadline and independently confirm zero exit status,
 terminal artifact delivery, exact task STOPPED and definition INACTIVE. The
 inner terminal file cannot attest to its own eventual upload or AWS cleanup.

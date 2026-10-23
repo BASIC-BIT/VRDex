@@ -1286,7 +1286,7 @@ false. Its exact repository-main subject and STS audience permit ECR authenticat
 and exact-repository push/DescribeImages, plus `ecr:BatchGetImage` and
 `ecr:GetDownloadUrlForLayer` on the same repository. Retry recovery pulls the
 existing immutable digest for `linux/amd64` and verifies the source label and all
-13 packaged source files on the runner before executing syntax/import checks.
+files in `workers/restream/packaging-manifest.json` on the runner before executing syntax/import checks.
 It regenerates provenance without a prior artifact and never pushes or retags an
 existing image. Mismatches fail closed. Other eligible main-branch jobs share that
 trust boundary; it does not isolate one workflow. The Terraform role's broader permissions

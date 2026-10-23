@@ -38,7 +38,10 @@ def main():
     from workers.restream.twitch_input import remux_command
     from workers.restream.twitch_transport import PINNED
 
-    subprocess.run(["aws", "--version"], check=True, capture_output=True, timeout=10)
+    tools = {}
+    for command in (["aws", "--version"], ["openssl", "version"], ["ffmpeg", "-version"], ["ffprobe", "-version"]):
+        checked = subprocess.run(command, check=True, capture_output=True, timeout=10, text=True)
+        tools[command[0]] = checked.stdout.splitlines()[0]
     subprocess.run(
         [
             "node",
@@ -110,6 +113,10 @@ def main():
             and s["channels"] == 2
             for s in streams
         )
+        pcm = subprocess.run([
+            "ffmpeg", "-v", "error", "-i", str(output), "-vn", "-f", "s16le", "pipe:1",
+        ], capture_output=True, check=True, timeout=10)
+        assert len(pcm.stdout) > 96000 and not pcm.stderr, "Normalized AAC must decode"
     print(
         json.dumps(
             {
@@ -123,6 +130,7 @@ def main():
                     ["ffmpeg", "-version"], text=True
                 ).splitlines()[0],
                 "packagedFileCount": len(manifest),
+                "tools": tools,
             }
         )
     )

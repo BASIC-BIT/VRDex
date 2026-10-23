@@ -17,6 +17,94 @@ import {
 import { quantile } from "./event-capacity-contracts.mjs";
 import { readTaskMetadata } from "../workers/restream/task-metadata.mjs";
 import { validateTaskMetadata } from "../workers/restream/worker-allocation.mjs";
+const publicKinds = new Set([
+  "acquiring",
+  "warming",
+  "transport_ready",
+  "ad_wait",
+  "unavailable",
+  "cancelled",
+  "buffer",
+]);
+const publicReasons = new Set([
+  "destination_denied",
+  "dns_denied",
+  "dns_timeout",
+  "proxy_denied",
+  "credentials_denied",
+  "tls_denied",
+  "http_timeout",
+  "response_limit",
+  "dependency_mismatch",
+  "unsupported_media",
+  "provider_unavailable",
+  "media_timeout",
+  "preparation_timeout",
+  "cancelled",
+  "process_failed",
+]);
+/** Typed bounded observations, independent of raw provider diagnostics. */
+export function createPublicObservations(
+  sourceIds,
+  clock = () => performance.now(),
+) {
+  const start = clock();
+  const sources = Object.fromEntries(
+    sourceIds.map((id) => [
+      id,
+      {
+        counts: Object.fromEntries([...publicKinds].map((kind) => [kind, 0])),
+        events: [],
+        droppedEvents: 0,
+        decoder: {
+          observed: false,
+          ready: false,
+          readyTransitions: 0,
+          losses: 0,
+        },
+      },
+    ]),
+  );
+  return {
+    state(id, event) {
+      const row = sources[id];
+      if (!row || !publicKinds.has(event?.kind)) return;
+      row.counts[event.kind]++;
+      const typed = { atMs: Math.round(clock() - start), kind: event.kind };
+      if (event.kind === "unavailable")
+        typed.reason = publicReasons.has(event.reason)
+          ? event.reason
+          : "provider_unavailable";
+      row.latest = typed;
+      if (event.kind !== "buffer") {
+        if (row.events.length < 128) row.events.push(typed);
+        else row.droppedEvents++;
+      }
+    },
+    decoder(event) {
+      const row = sources[event?.sourceId];
+      if (!row || typeof event.ready !== "boolean") return;
+      const previous = row.decoder;
+      if (previous.ready && !event.ready) previous.losses++;
+      if (!previous.ready && event.ready) previous.readyTransitions++;
+      previous.observed = true;
+      previous.ready = event.ready;
+      previous.lastAtMs = Math.round(clock() - start);
+    },
+    snapshot() {
+      return JSON.parse(
+        JSON.stringify({
+          sources,
+          realAdMarkersObserved: Object.values(sources).some(
+            (row) => row.counts.ad_wait > 0,
+          ),
+          adEvidenceKind: "public_hls_ad_wait_state",
+          realAdPlaybackObserved: false,
+        }),
+      );
+    },
+  };
+}
 /** Public access is recorded privately only. There is no sender or endpoint input. */
 export async function runPublicInputWorkload({ outputDir }, env = process.env) {
   const channels = JSON.parse(env.VRDEX_PROOF_PUBLIC_CHANNELS_JSON ?? "null");
@@ -39,6 +127,7 @@ export async function runPublicInputWorkload({ outputDir }, env = process.env) {
     metadata,
   );
   const owner = createProcessOwner();
+  const observations = createPublicObservations(["source-0", "source-1"]);
   let worker,
     renderer,
     stream,
@@ -86,6 +175,7 @@ export async function runPublicInputWorkload({ outputDir }, env = process.env) {
       createInput: (args) =>
         createInputSupervisor({ ...args, spawnProcess: owner.start }),
       onObservation: (e) => {
+        observations.decoder(e);
         if (phase === "steady" && previousReady.get(e.sourceId) && !e.ready)
           losses++;
         previousReady.set(e.sourceId, e.ready);
@@ -101,6 +191,7 @@ export async function runPublicInputWorkload({ outputDir }, env = process.env) {
           source: args.source.input,
           spawnProcess: owner.start,
           onState: (e) => {
+            observations.state(args.source.id, e);
             args.onState(e);
             bufferMax = Math.max(
               bufferMax,
@@ -201,7 +292,10 @@ export async function runPublicInputWorkload({ outputDir }, env = process.env) {
     const start = previous.at;
     receipt.steadyStartedAt = new Date().toISOString();
     receipt.startOutputMs = renderer.getState().outputMs;
-    while (performance.now() - start < 1800000 || renderer.getState().outputMs - receipt.startOutputMs < 1800000) {
+    while (
+      performance.now() - start < 1800000 ||
+      renderer.getState().outputMs - receipt.startOutputMs < 1800000
+    ) {
       await sleep(1000);
       const state = renderer.getState();
       assert(!worker.getState().stopped && !outputFault && !state.error);
@@ -293,7 +387,7 @@ export async function runPublicInputWorkload({ outputDir }, env = process.env) {
       terminal: true,
       cleanup,
       finishedAt: new Date().toISOString(),
-      realAdsObserved: false,
+      publicObservations: observations.snapshot(),
       forcedExpiryObserved: false,
       physicalPlaybackObserved: false,
     });
