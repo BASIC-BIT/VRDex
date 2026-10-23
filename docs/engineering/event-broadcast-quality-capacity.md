@@ -115,6 +115,25 @@ changes runtime telemetry bytes; Task 9 must repeat affected exact-image and
 capacity gates on the final reviewed image rather than inheriting candidate
 coverage across different digests.
 
+## Preserved image failure
+
+The first candidate image `sha256:d136dfc9437a02908a2844d61107a265d182eb4eb974a325217dfbeb1e71685a`
+failed two of 42 Python contracts; all nine Node owner contracts passed. The
+[sanitized receipts and cleanup readbacks](./evidence/twitch-operator-task6/transport-d136dfc.json)
+retain that negative result and the focused experiments on the same image.
+The ad-deadline child imported its TLS fixture before activating private Python
+dependencies, causing a `requests` import failure. FFmpeg 5.1 continued copying
+Opus after a codec-whitelist error. Adding global `-xerror` rejected that input
+with nonzero exit and zero output, while AAC TS and fragmented MP4 retained
+192,000 bytes of decoded PCM each without decoder errors. The candidate applies
+that flag and imports the package bootstrap before the fixture. Its regression
+requires zero output for unsupported audio and retains real AAC decoding checks.
+The original receipt incorrectly labeled the Python failures `owner_contracts`;
+the corrected classifier retains the failing Python phase even when Node passes.
+These diagnostic experiments do not replace a rebuilt-image deterministic gate
+or establish capacity. All three diagnostic tasks stopped, their definitions
+became inactive, and their network interfaces were absent at cleanup readback.
+
 ## Measured allocation status
 
 | Preset | Primary only | Twitch simulcast |

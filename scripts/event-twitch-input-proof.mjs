@@ -85,6 +85,11 @@ export function parseNamedSummary(bytes, expectedCount) {
     (expectedCount === undefined || value.testsRun === expectedCount);
   return value;
 }
+export function transportContractFailurePhase(tests) {
+  if (tests?.passed !== true) return "python_contracts";
+  if (tests.owner?.passed !== true) return "owner_contracts";
+  return undefined;
+}
 export async function runTransportWorkload(request) {
   const owner = createProcessOwner();
   let passed = false,
@@ -117,8 +122,11 @@ export async function runTransportWorkload(request) {
       ),
       9,
     );
-    if (!tests.passed || !tests.owner.passed)
+    const contractFailure = transportContractFailurePhase(tests);
+    if (contractFailure) {
+      phase = contractFailure;
       throw Error("Named transport contracts failed");
+    }
     phase = "blocked_resolution_cancellation";
     // Cancellation during blocked resolution must close the real wrapper's group.
     const input = createTwitchInput({

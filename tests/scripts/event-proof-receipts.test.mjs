@@ -63,7 +63,10 @@ test("clean named summary retains success", async () => {
 });
 
 import { createPublicObservations } from "../../scripts/event-public-input-proof.mjs";
-import { parseNamedSummary } from "../../scripts/event-twitch-input-proof.mjs";
+import {
+  parseNamedSummary,
+  transportContractFailurePhase,
+} from "../../scripts/event-twitch-input-proof.mjs";
 test("public startup diagnostics retain typed acquisition and decoder facts without provider text", () => {
   let now = 10;
   const observations = createPublicObservations(
@@ -155,4 +158,28 @@ test("class setup failure emits a sanitized terminal outcome", async () => {
   assert.equal(value.testsRun, 1);
   assert.equal(value.outcomes[0].outcome, "error");
   assert.equal(value.outcomes[0].type, "RuntimeError");
+});
+
+test("transport failure phase identifies Python failures even after successful owner contracts", () => {
+  assert.equal(
+    transportContractFailurePhase({ passed: false, owner: { passed: true } }),
+    "python_contracts",
+  );
+  assert.equal(
+    transportContractFailurePhase({ passed: true, owner: { passed: false } }),
+    "owner_contracts",
+  );
+  assert.equal(
+    transportContractFailurePhase({ passed: false, owner: { passed: false } }),
+    "python_contracts",
+  );
+  assert.equal(
+    transportContractFailurePhase({ passed: true, owner: { passed: true } }),
+    undefined,
+  );
+  assert.equal(transportContractFailurePhase(undefined), "python_contracts");
+  assert.equal(
+    transportContractFailurePhase({ passed: true }),
+    "owner_contracts",
+  );
 });

@@ -421,6 +421,7 @@ class SyntheticHLSContracts(unittest.TestCase):
                 timeout=8,
             )
             self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(result.stdout, b"", "Unsupported audio must not be copied")
 
     def test_delivery_jitter_keeps_normalized_packet_progress(self):
         handler = self.fixture.server.RequestHandlerClass
@@ -544,6 +545,7 @@ class AdvertisementDeadlineContracts(unittest.TestCase):
     def test_live_ad_wait_ends_after_fifteen_seconds_without_readiness(self):
         code = """import sys
 from types import SimpleNamespace
+import workers.restream
 sys.path.insert(0,'workers/restream/tests')
 from test_twitch_transport import TLSFixture
 from workers.restream.twitch_input import run_attempt

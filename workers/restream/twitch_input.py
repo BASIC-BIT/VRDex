@@ -134,6 +134,7 @@ def select_rendition(streams, preset):
 def remux_command():
     return [
         "ffmpeg",
+        "-xerror",
         "-hide_banner",
         "-loglevel",
         "error",
