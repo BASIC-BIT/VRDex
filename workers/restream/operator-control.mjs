@@ -30,8 +30,9 @@ export function createOperatorControl({
     epoch,
     generation = 0,
     stopped = false;
-  const completed = new Map(),
-    lifecycle = new Map();
+  const completed = new Map();
+  let ordinary,
+    claimVersion = 0;
   const mode = () =>
     intent.kind === "slate"
       ? "hold"
@@ -402,41 +403,98 @@ export function createOperatorControl({
     )
       select(current);
   }
-  function lifecycleReceipt(command, state) {
-    if (lifecycle.has(command._id) || completed.has(command._id)) return;
-    if (command.commandType === "start_program" && !state.publishing) return;
-    const capturedEpoch = epoch;
-    const ack = {
-      commandId: command._id,
-      sequence: command.sequence,
-      outcome: "succeeded",
-      intentSequence,
-      outputMs: state.outputMs,
-      sourceRevision: state.renderedSourceRevision,
-      slotKey: state.renderedSlotKey,
-      observedState: state.renderedSourceId ? "live" : "hold",
-      observedSourceId: state.renderedSourceId ?? null,
-      observedOutputId: config.outputId,
-    };
-    lifecycle.set(command._id, ack);
+  /** Ordinary receipts are ordered independently of source control. An explicit
+   * nonfatal rejection is not proof the backend settled the receipt: a later
+   * claim must confirm absence, or we replace the rejected evidence. An unknown
+   * transport outcome instead retries exactly the same frozen fingerprint.
+   */
+  function advanceOrdinary(claims, state, allowDispatch) {
+    const commands = claims
+      .filter(
+        (command) =>
+          !command.controlTarget && command.commandType !== "stop_program",
+      )
+      .sort((a, b) => a.sequence - b.sequence);
+    if (
+      ordinary?.phase === "rejected" &&
+      claimVersion > ordinary.replyClaimVersion
+    ) {
+      if (!commands.some((command) => command._id === ordinary.command._id)) {
+        remember(ordinary.command._id, { settled: true });
+        ordinary = undefined;
+      } else {
+        ordinary.ack = undefined;
+        ordinary.phase = "ready";
+      }
+    }
+    if (!ordinary) {
+      const command = commands.find((command) => !completed.has(command._id));
+      if (command)
+        ordinary = {
+          command,
+          epoch,
+          phase: "ready",
+          inflight: false,
+          retryAt: 0,
+        };
+    }
+    const receipt = ordinary;
+    if (
+      !receipt ||
+      !allowDispatch ||
+      receipt.inflight ||
+      receipt.phase === "rejected" ||
+      clock() < receipt.retryAt
+    )
+      return;
+    if (!receipt.ack) {
+      const { command } = receipt;
+      const supported = command.commandType === "start_program";
+      if (supported && !state.publishing) return;
+      receipt.ack = Object.freeze({
+        commandId: command._id,
+        sequence: command.sequence,
+        outcome: supported ? "succeeded" : "failed",
+        ...(supported
+          ? {
+              intentSequence,
+              outputMs: state.outputMs,
+              sourceRevision: state.renderedSourceRevision,
+              slotKey: state.renderedSlotKey,
+              observedState: state.renderedSourceId ? "live" : "hold",
+              observedSourceId: state.renderedSourceId ?? null,
+              observedOutputId: config.outputId,
+            }
+          : {}),
+      });
+    }
+    receipt.inflight = true;
+    const ownsReceipt = () =>
+      !stopped && ordinary === receipt && receipt.epoch === epoch;
     Promise.resolve()
       .then(() =>
-        control("acknowledgeCommand", { ...ack, epoch: capturedEpoch }),
+        control("acknowledgeCommand", { ...receipt.ack, epoch: receipt.epoch }),
       )
       .then(
         (result) => {
-          lifecycle.delete(command._id);
-          if (stopped || capturedEpoch !== epoch) return;
+          if (!ownsReceipt()) return;
+          receipt.inflight = false;
           if (result.kind === "fenced" || (!result.kind && !result.accepted)) {
             context.onFence?.("command-fenced");
             return;
           }
-          remember(command._id, { ack });
-          if (completed.size > 64)
-            completed.delete(completed.keys().next().value);
+          if (result.accepted === true || result.kind === "ok") {
+            remember(receipt.command._id, { ack: receipt.ack });
+            ordinary = undefined;
+          } else {
+            receipt.phase = "rejected";
+            receipt.replyClaimVersion = claimVersion;
+          }
         },
         () => {
-          lifecycle.delete(command._id);
+          if (!ownsReceipt()) return;
+          receipt.inflight = false;
+          receipt.retryAt = clock() + 1000;
         },
       );
   }
@@ -448,7 +506,7 @@ export function createOperatorControl({
         epoch = configuration.epoch;
         abandon();
         completed.clear();
-        lifecycle.clear();
+        ordinary = undefined;
         intentSequence = -1;
         current = undefined;
       }
@@ -508,6 +566,7 @@ export function createOperatorControl({
       context = observation;
       epoch ??= observation.epoch;
       const claims = observation.commands ?? [];
+      claimVersion++;
       if (claims.some((c) => c.commandType === "stop_program")) {
         context.onStop?.(claims.find((c) => c.commandType === "stop_program"));
         return;
@@ -520,9 +579,9 @@ export function createOperatorControl({
       for (const command of claims) {
         if (command.controlTarget) {
           if (!cut) begin(command);
-        } else if (!cut && !pending)
-          lifecycleReceipt(command, observation.state);
+        }
       }
+      advanceOrdinary(claims, observation.state, !cut && !pending);
       if (pending) advanceOperation(observation.state);
       else automatic();
     },
@@ -531,6 +590,7 @@ export function createOperatorControl({
       intentSequence,
       current,
       mode: mode(),
+      ordinaryReceiptPending: ordinary !== undefined,
       pending: pending
         ? {
             command: pending.command,
@@ -542,6 +602,7 @@ export function createOperatorControl({
     stop() {
       if (stopped) return;
       stopped = true;
+      ordinary = undefined;
       abandon();
       hold();
       inputs.reconcile({ epoch, intentSequence });

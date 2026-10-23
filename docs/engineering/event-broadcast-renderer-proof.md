@@ -24,6 +24,16 @@ before its RPC reply without losing the receipt. Obsolete callbacks cannot selec
 media or clear newer operations. Encoded acknowledgement retries preserve the
 original source/revision/slot and output watermark.
 
+Ordinary Start/admin receipts use one ordered controller slot. Program reporting
+waits for unresolved receipt evidence while lease renewal, configuration, and
+emergency controls continue. An unknown transport outcome retries the exact
+frozen payload, even if the command disappeared from later claims. An explicit
+stale reply is reconciled with a later claim before rebuilding encoded evidence;
+it does not mark a still-claimed command complete. Source-control promotion may
+overtake Start. Unsupported admin actions settle as failed without successful
+media observations. Real Convex tests cover these receipt/report races separately
+from the synthetic recording authority.
+
 Cut changes local committed intent and holds the renderer immediately. Stop
 fences publication before cleanup. Cancel retires the candidate while keeping the
 committed source. Manual intent survives fallback and recovers its pinned source;

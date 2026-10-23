@@ -697,6 +697,7 @@ it('R2F1 rejected ordinary output save preserves the active worker configuration
     outputs:{start:async()=>{},stop:async()=>{},stopNow:()=>{},enqueue:()=>{},getState:()=>({publishing:true})},inputs: syntheticInputs(async()=>undefined), checkEnabled:async()=>true});
   try {
     await controller.start();await controller.tick();
+    await drainReceiptCallbacks(); // Start settles asynchronously before the save baseline.
     const before=await f.t.run(({db})=>db.get(f.output.outputId));
     await assert.rejects(save(),/session/);
     await controller.tick();
@@ -1898,3 +1899,369 @@ for (const startClaimed of [false, true])
       await runtime.stop();
     }
   });
+
+function receiptGate() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+async function drainReceiptCallbacks() {
+  for (let i = 0; i < 4; i++)
+    await new Promise<void>((resolve) => setImmediate(resolve));
+}
+async function ordinaryReceiptRuntime(
+  intercept?: (
+    name: string,
+    args: any,
+    next: () => Promise<any>,
+  ) => Promise<any>,
+) {
+  const f = await fixture();
+  const { createEventWorker: createRuntime } =
+    await import("../../workers/restream/event-worker.mjs");
+  let time = 0,
+    outputMs = 1000,
+    stops = 0,
+    renewals = 0;
+  const calls: { name: string; args: any; result?: any }[] = [];
+  const runtime = createRuntime({
+    identity: { ...f.args },
+    clock: () => time,
+    inputs: syntheticInputs(),
+    checkEnabled: async () => true,
+    renderer: {
+      start: async () => {},
+      stop: async () => {},
+      subscribe: () => () => {},
+      reconcileSources: () => {},
+      getInputs: () => [],
+      selectSource: () => false,
+      hold: () => {},
+      getState: () => ({ running: true, outputMs: ++outputMs }),
+    },
+    outputs: {
+      start: async () => {},
+      stop: async () => {},
+      stopNow: () => {
+        stops++;
+      },
+      getState: () => ({ publishing: stops === 0 }),
+    },
+    control: async (name: string, args: any) => {
+      const call: any = { name, args: structuredClone(args) };
+      calls.push(call);
+      if (name === "renewSession") renewals++;
+      const next = async () => {
+        const result = await f.t.mutation(worker(name), args);
+        call.result = result;
+        return result;
+      };
+      return intercept ? intercept(name, args, next) : next();
+    },
+  });
+  await runtime.start();
+  return {
+    ...f,
+    runtime,
+    calls,
+    counts: () => ({ stops, renewals }),
+    setOutput: (value: number) => {
+      outputMs = value;
+    },
+    tick: async (elapsed = 1000) => {
+      time += elapsed;
+      await runtime.tick();
+      await drainReceiptCallbacks();
+    },
+    command: (id: any) => f.t.run(({ db }) => db.get(id)),
+    admin: () =>
+      f.owner.mutation(api.events.queueEventMediaCommand, {
+        currentSlug: f.event.slug,
+        type: "publish_current_public_watch_link",
+        idempotencyKey: crypto.randomUUID(),
+      }),
+  };
+}
+it("ordinary receipts serialize behind delayed Start while renewal and Cut remain independent", async () => {
+  const gate = receiptGate();
+  let first = true;
+  const f = await ordinaryReceiptRuntime(async (name, args, next) => {
+    if (name === "acknowledgeCommand" && first) {
+      first = false;
+      await gate.promise;
+    }
+    return next();
+  });
+  try {
+    const admin = await f.admin();
+    await f.tick();
+    assert.deepEqual(
+      f.calls
+        .filter((c) => c.name === "acknowledgeCommand")
+        .map((c) => c.args.commandId),
+      [f.scheduled.startCommandId],
+    );
+    await f.tick(5000);
+    await f.tick(5000);
+    assert.equal(f.counts().renewals, 1);
+    assert.equal(f.counts().stops, 0);
+    const cut = await f.owner.mutation(api.events.queueEventMediaCommand, {
+      currentSlug: f.event.slug,
+      type: "switch_hold",
+      idempotencyKey: "ordinary-race-cut",
+    });
+    for (let i = 0; i < 4; i++) await f.tick(0);
+    assert.equal((await f.command(cut.commandId))?.status, "succeeded");
+    assert.equal(f.runtime.getState().committedIntent.kind, "slate");
+    gate.resolve();
+    await drainReceiptCallbacks();
+    for (let i = 0; i < 4; i++) await f.tick(0);
+    assert.equal(
+      (await f.command(f.scheduled.startCommandId))?.status,
+      "cancelled",
+    );
+    assert.equal((await f.command(admin.commandId))?.status, "cancelled");
+    assert.equal(f.counts().stops, 0);
+  } finally {
+    gate.resolve();
+    await f.runtime.stop();
+  }
+});
+it("ordinary Start evidence blocks a newer report until its delayed acknowledgement commits", async () => {
+  const gate = receiptGate();
+  let first = true;
+  const f = await ordinaryReceiptRuntime(async (name, args, next) => {
+    if (name === "acknowledgeCommand" && first) {
+      first = false;
+      await gate.promise;
+    }
+    return next();
+  });
+  try {
+    const admin = await f.admin();
+    await f.tick();
+    await f.tick();
+    assert.equal(
+      f.calls.filter((c) => c.name === "observeProgram").length,
+      0,
+      "newer observation must not overtake frozen receipt",
+    );
+    gate.resolve();
+    await drainReceiptCallbacks();
+    await f.tick();
+    assert.equal(
+      (await f.command(f.scheduled.startCommandId))?.status,
+      "succeeded",
+    );
+    await f.tick();
+    assert.equal((await f.command(admin.commandId))?.status, "failed");
+    assert.deepEqual(
+      f.calls
+        .filter((c) => c.name === "acknowledgeCommand")
+        .map((c) => c.args.commandId),
+      [f.scheduled.startCommandId, admin.commandId],
+    );
+    assert.equal(f.counts().stops, 0);
+  } finally {
+    gate.resolve();
+    await f.runtime.stop();
+  }
+});
+for (const committed of [false, true])
+  it(`ordinary acknowledgement preserves exact payload after lost reply (committed=${committed})`, async () => {
+    let first = true;
+    const f = await ordinaryReceiptRuntime(async (name, args, next) => {
+      if (name === "acknowledgeCommand" && first) {
+        first = false;
+        if (committed) await next();
+        throw Error("response lost");
+      }
+      return next();
+    });
+    try {
+      await f.tick();
+      await f.tick();
+      await f.tick();
+      const acks = f.calls.filter((c) => c.name === "acknowledgeCommand");
+      assert.equal(acks.length, 2);
+      assert.deepEqual(
+        acks[1].args,
+        acks[0].args,
+        "ambiguous outcome must retry exact fingerprint",
+      );
+      assert.equal(
+        (await f.command(f.scheduled.startCommandId))?.status,
+        "succeeded",
+      );
+      assert.equal(acks[1].result.duplicate, committed);
+      const admin = await f.admin();
+      await f.tick();
+      await f.tick();
+      assert.equal((await f.command(admin.commandId))?.status, "failed");
+      assert.equal(f.counts().stops, 0);
+    } finally {
+      await f.runtime.stop();
+    }
+  });
+it("explicit stale Start reply is reconciled with continued claims and refreshed encoded evidence", async () => {
+  const gate = receiptGate();
+  let first = true;
+  const f = await ordinaryReceiptRuntime(async (name, args, next) => {
+    if (name === "acknowledgeCommand" && first) {
+      first = false;
+      await gate.promise;
+    }
+    return next();
+  });
+  try {
+    await f.tick();
+    const original = f.calls.find((c) => c.name === "acknowledgeCommand")!;
+    await f.t.mutation(worker("observeProgram"), {
+      ...f.args,
+      epoch: 1,
+      intentSequence: 0,
+      outputMs: 5000,
+      state: "hold",
+      outputId: f.output.outputId,
+      publishing: true,
+    });
+    f.setOutput(6000);
+    gate.resolve();
+    await drainReceiptCallbacks();
+    assert.equal(original.result.kind, "superseded");
+    assert.equal(
+      (await f.command(f.scheduled.startCommandId))?.status,
+      "claimed",
+    );
+    await f.tick();
+    await f.tick();
+    assert.equal(
+      (await f.command(f.scheduled.startCommandId))?.status,
+      "succeeded",
+    );
+    const retry = f.calls.filter((c) => c.name === "acknowledgeCommand")[1];
+    assert.ok(retry.args.outputMs > original.args.outputMs);
+    const admin = await f.admin();
+    await f.tick();
+    await f.tick();
+    assert.equal((await f.command(admin.commandId))?.status, "failed");
+    assert.equal(f.counts().stops, 0);
+  } finally {
+    gate.resolve();
+    await f.runtime.stop();
+  }
+});
+it("unsupported ordinary admin fails without successful media evidence or program mutation", async () => {
+  const f = await ordinaryReceiptRuntime();
+  try {
+    await f.tick();
+    await f.tick();
+    const before = await f.t.run(({ db }) => db.get(f.output.programId));
+    const admin = await f.admin();
+    await f.tick();
+    await f.tick();
+    const ack = f.calls.find(
+      (c) =>
+        c.name === "acknowledgeCommand" && c.args.commandId === admin.commandId,
+    )!;
+    assert.equal(ack.args.outcome, "failed");
+    assert.equal(ack.args.observedState, undefined);
+    assert.equal(ack.args.observedSourceId, undefined);
+    assert.equal(ack.args.outputMs, undefined);
+    assert.equal((await f.command(admin.commandId))?.status, "failed");
+    const after = await f.t.run(({ db }) => db.get(f.output.programId));
+    assert.equal(after?.state, before?.state);
+    assert.equal(after?.currentSourceId, before?.currentSourceId);
+    assert.equal(after?.currentOutputId, before?.currentOutputId);
+    assert.equal(f.counts().stops, 0);
+  } finally {
+    await f.runtime.stop();
+  }
+});
+it("Return to auto may promote before Start reply and superseded Start remains retryable until settled", async () => {
+  const startGate = receiptGate(),
+    controlGate = receiptGate();
+  let first = true;
+  let returnId: any;
+  const f = await ordinaryReceiptRuntime(async (name, args, next) => {
+    if (name === "acknowledgeCommand") {
+      if (first) {
+        first = false;
+        await startGate.promise;
+      } else if (args.commandId === returnId) await controlGate.promise;
+    }
+    return next();
+  });
+  try {
+    await f.tick();
+    const returned = await f.owner.mutation(api.events.queueEventMediaCommand, {
+      currentSlug: f.event.slug,
+      type: "set_automatic_mode",
+      idempotencyKey: "overtake-start",
+    });
+    returnId = returned.commandId;
+    for (let i = 0; i < 4; i++) await f.tick(0);
+    assert.equal((await f.command(returnId))?.controlPhase, "promoting");
+    assert.equal(f.runtime.getState().committedIntent.kind, "automatic");
+    startGate.resolve();
+    await drainReceiptCallbacks();
+    assert.equal(
+      f.calls.find(
+        (c) =>
+          c.name === "acknowledgeCommand" &&
+          c.args.commandId === f.scheduled.startCommandId,
+      )?.result.kind,
+      "superseded",
+    );
+    assert.equal(
+      (await f.command(f.scheduled.startCommandId))?.status,
+      "claimed",
+    );
+    controlGate.resolve();
+    await drainReceiptCallbacks();
+    for (let i = 0; i < 4; i++) await f.tick();
+    assert.equal((await f.command(returnId))?.status, "succeeded");
+    assert.equal(
+      (await f.command(f.scheduled.startCommandId))?.status,
+      "cancelled",
+    );
+    assert.equal(f.counts().stops, 0);
+    const admin = await f.admin();
+    await f.tick();
+    await f.tick();
+    assert.equal((await f.command(admin.commandId))?.status, "failed");
+  } finally {
+    startGate.resolve();
+    controlGate.resolve();
+    await f.runtime.stop();
+  }
+});
+it("terminal Stop fences publication while ordinary Start acknowledgement is unresolved", async () => {
+  const gate = receiptGate();
+  let first = true;
+  const f = await ordinaryReceiptRuntime(async (name, args, next) => {
+    if (name === "acknowledgeCommand" && first) {
+      first = false;
+      await gate.promise;
+    }
+    return next();
+  });
+  try {
+    await f.tick();
+    await f.owner.mutation(api.events.stopEventMediaWorker, {
+      currentSlug: f.event.slug,
+      sessionId: f.args.sessionId,
+    });
+    await f.tick();
+    assert.equal(f.runtime.getState().stopped, true);
+    assert.equal(f.counts().stops, 1);
+    gate.resolve();
+    await drainReceiptCallbacks();
+    assert.equal(f.counts().stops, 1);
+  } finally {
+    gate.resolve();
+    await f.runtime.stop();
+  }
+});

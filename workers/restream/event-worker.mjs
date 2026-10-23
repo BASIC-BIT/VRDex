@@ -154,8 +154,10 @@ export function createEventWorker({
     const state = actual();
     if (state.error || !state.running) throw Error("Renderer failed");
     if (!state.publishing) return;
-    const { current, mode, pending, intentSequence } = operator.getState();
-    if (pending) return;
+    const { current, mode, pending, ordinaryReceiptPending, intentSequence } =
+      operator.getState();
+    // Do not advance the backend watermark past unresolved ordinary evidence.
+    if (pending || ordinaryReceiptPending) return;
     if (
       state.renderedSourceId &&
       !(
