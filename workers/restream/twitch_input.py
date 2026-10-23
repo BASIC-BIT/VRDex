@@ -187,6 +187,22 @@ class MediaPlaylistParser(M3U8Parser):
         # EXT-X-MAP remains applicable until another MAP (RFC 8216 4.3.2.5).
         # The upstream generic parser clears it at discontinuities.
         self._discontinuity = True
+        self._continuity_steps = getattr(self, "_continuity_steps", 0) + 1
+
+    @parse_tag("EXT-X-DISCONTINUITY-SEQUENCE")
+    def discontinuity_sequence(self, value):
+        # Streamlink 8.6.2 registers this tag with a spelling error. Parse the
+        # standard spelling here; an absent sequence defaults to zero in HLS.
+        if not re.fullmatch(r"[0-9]{1,20}", value) or int(value) > 2**64 - 1:
+            raise InputError("unsupported_media")
+        self.m3u8.discontinuity_sequence = int(value)
+
+    def get_segment(self, uri):
+        segment = super().get_segment(uri)
+        # Count every preceding tag, including consecutive discontinuities.
+        segment.continuity_steps = getattr(self, "_continuity_steps", 0)
+        self._continuity_steps = 0
+        return segment
 
 
 class HLSReader:
@@ -294,20 +310,29 @@ class HLSReader:
             body.decode("utf-8"), base_uri=final_urls[0], parser=MediaPlaylistParser
         )
 
-    def _program_times(self, segments):
-        dates = []
+    def _program_times(self, segments, discontinuity_sequence=0):
+        dates, identities = [], []
+        continuity = discontinuity_sequence if discontinuity_sequence is not None else 0
         for index, segment in enumerate(segments):
+            continuity += getattr(
+                segment, "continuity_steps", int(segment.discontinuity)
+            )
+            identities.append(continuity)
             if not math.isfinite(segment.duration) or segment.duration <= 0:
                 raise InputError("unsupported_media")
             date = segment.date
-            cached = self.timeline.get(segment.num)
+            cached = self.timeline.get((segment.num, continuity))
             if date is None and cached and cached[1] == segment.duration:
                 date = cached[0]
             if date is None and not segment.discontinuity:
-                if index and segments[index - 1].num + 1 == segment.num:
+                if (
+                    index
+                    and segments[index - 1].num + 1 == segment.num
+                    and identities[index - 1] == continuity
+                ):
                     previous = (dates[-1], segments[index - 1].duration)
                 else:
-                    previous = self.timeline.get(segment.num - 1)
+                    previous = self.timeline.get((segment.num - 1, continuity))
                 if previous and previous[0] is not None:
                     date = previous[0] + timedelta(seconds=previous[1])
             dates.append(date)
@@ -318,15 +343,15 @@ class HLSReader:
             if (
                 dates[index] is None
                 and dates[index + 1] is not None
-                and not segments[index + 1].discontinuity
+                and identities[index] == identities[index + 1]
                 and segments[index].num + 1 == segments[index + 1].num
             ):
                 dates[index] = dates[index + 1] - timedelta(
                     seconds=segments[index].duration
                 )
         self.timeline = {
-            segment.num: (date, segment.duration)
-            for segment, date in zip(segments, dates)
+            (segment.num, identity): (date, segment.duration)
+            for segment, date, identity in zip(segments, dates, identities)
         }
         return dates
 
@@ -386,7 +411,7 @@ class HLSReader:
                 if len(segments) > 2048:
                     raise InputError("response_limit")
                 self._remember_ads(playlist)
-                dates = self._program_times(segments)
+                dates = self._program_times(segments, playlist.discontinuity_sequence)
                 # Enter live close to its edge; VOD fixtures retain their beginning.
                 if (
                     self.last_sequence is None

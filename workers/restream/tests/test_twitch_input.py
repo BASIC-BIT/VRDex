@@ -758,3 +758,52 @@ class AdvertisementTimelineContracts(unittest.TestCase):
                 )
             )
         self.assertLessEqual(len(reader.ad_ranges), 128)
+
+    def test_discontinuity_sequence_advance_without_anchor_fails_closed(self):
+        first = (
+            self.HEADER
+            + "#EXT-X-DISCONTINUITY-SEQUENCE:0\n"
+            + self.AD
+            + "#EXT-X-PROGRAM-DATE-TIME:2026-01-01T00:00:02Z\n"
+            + "#EXTINF:1,\nad0.ts\n"
+        )
+        second = (
+            self.HEADER
+            + "#EXT-X-MEDIA-SEQUENCE:1\n"
+            + "#EXT-X-DISCONTINUITY-SEQUENCE:1\n"
+            + "#EXTINF:1,\nunknown.ts\n#EXT-X-ENDLIST\n"
+        )
+        reader, data, events, hits = self.run_playlists([first, second])
+        self.assertEqual(reader.failure, "unsupported_media")
+        self.assertEqual(data, b"")
+        self.assertEqual(events, ["ad_wait"])
+        self.assertEqual([name for name, _ in hits], ["index.m3u8", "index.m3u8"])
+
+    def test_discontinuity_base_advance_preserves_known_new_side_overlap(self):
+        for steps in (1, 2):
+            with self.subTest(preceding_tags=steps):
+                first = (
+                    self.HEADER
+                    + "#EXT-X-DISCONTINUITY-SEQUENCE:7\n"
+                    + self.AD
+                    + self.ANCHOR
+                    + "#EXTINF:1,\nad0.ts\n"
+                    + "#EXT-X-DISCONTINUITY\n" * steps
+                    + "#EXT-X-PROGRAM-DATE-TIME:2026-01-01T00:00:02Z\n"
+                    + "#EXTINF:1,\nad1.ts\n"
+                )
+                second = (
+                    self.HEADER
+                    + "#EXT-X-MEDIA-SEQUENCE:1\n"
+                    + f"#EXT-X-DISCONTINUITY-SEQUENCE:{7 + steps}\n"
+                    + "#EXTINF:1,\nad1.ts\n#EXTINF:1,\nnormal.ts\n#EXT-X-ENDLIST\n"
+                )
+                reader, data, events, hits = self.run_playlists([first, second])
+                self.assertIsNone(reader.failure)
+                self.assertEqual(data, b"NORMAL")
+                self.assertEqual(events, ["ad_wait", "acquiring"])
+                self.assertEqual(hits[1], ("index.m3u8", ["ad_wait"]))
+                self.assertEqual(
+                    [name for name, _ in hits],
+                    ["index.m3u8", "index.m3u8", "normal.ts"],
+                )
