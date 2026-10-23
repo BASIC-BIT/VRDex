@@ -134,6 +134,24 @@ These diagnostic experiments do not replace a rebuilt-image deterministic gate
 or establish capacity. All three diagnostic tasks stopped, their definitions
 became inactive, and their network interfaces were absent at cleanup readback.
 
+## Isolated functional failures
+
+The next image `sha256:7046ad0634866ba48e4f4db94c4caff95916addac6f23b3031b9e54a805eb5aa`
+passed all42 Python and9 Node owner contracts, then failed the60-second
+480p30/simulcast/AAC320 functional case at both4CPU/8GiB and8CPU/16GiB.
+[Preserved functional receipts and decoded marker timestamps](./evidence/twitch-operator-task6/functional-7046ad.json)
+show zero readiness loss and valid output identity/format/quality in both cases.
+CPU P95 dropped from86.44% to23.14%, but measured A/V drift remained above100ms.
+Decoding the complete recordings with original timestamps places the lag in the
+program before destination sending; independent seeking accounts for only about
+6–16ms of measurement difference. These failures admit no production allocation.
+
+The isolated proof harness accepts an explicit supervisor factory for diagnostic
+observation. Its default remains the production supervisor. This lets an observer
+record decoded timestamps and retained audio at the existing process/buffer
+boundaries without changing production behavior or trusting a resource override.
+A runtime correction awaits measured input/buffer timestamp correlation.
+
 ## Measured allocation status
 
 | Preset | Primary only | Twitch simulcast |

@@ -35,7 +35,11 @@ import { runProofEnvelope } from "./event-proof-envelope.mjs";
  */
 export async function runCapacityWorkload(
   request,
-  { metadata, readCounters = readCgroupCounters } = {},
+  {
+    metadata,
+    readCounters = readCgroupCounters,
+    createSupervisor = createInputSupervisor,
+  } = {},
 ) {
   const directory = request.outputDir;
   const owner = createProcessOwner();
@@ -267,7 +271,7 @@ export async function runCapacityWorkload(
           internalDelayMs = Math.max(internalDelayMs, e.delayMs);
       },
       createInput: (args) =>
-        createInputSupervisor({
+        createSupervisor({
           ...args,
           spawnProcess: (cmd, argv, opts) => {
             const child = owner.start(cmd, argv, opts);
