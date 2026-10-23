@@ -1,4 +1,4 @@
-import { eventProfileBroadcastInputChoices, resolveBroadcastInput, broadcastInputPublicUrl, eventMediaSourceBroadcastInput } from "./_eventBroadcastSources";
+import { eventProfileBroadcastInputChoices, resolveBroadcastInput, broadcastInputPublicUrl, eventMediaSourceWorkerDescriptor } from "./_eventBroadcastSources";
 import { outputHealthValidator, eventOutputIsAuthorized } from './_eventOutputSetup';
 import { canReadProfile } from "./_profilePermissions";
 import { v } from "convex/values";
@@ -240,7 +240,7 @@ async function configuration(ctx: MutationCtx, { session, program, event }: NonN
         }
         if (!source && !slot.personProfileId)
             source = (await ctx.db.query("eventMediaSources").withIndex("by_programId_eventSlotId", q => q.eq("programId", program._id).eq("eventSlotId", slot._id)).take(EVENT_BROADCAST_MAX_SOURCES + 1)).find(s => s.eventSlotId === slot._id && !s.profileProjection && !(s.sourceProfileId && s.key === `slot-${slot._id}`)) ?? null;
-        slots.push({ slotKey: slot._id, sourceId: source?._id, startAt: slot.startAt, endAt: slot.endAt, available: source !== null && source.state !== "disabled" && source.projectionAvailable !== false && eventMediaSourceBroadcastInput(source) !== undefined });
+        slots.push({ slotKey: slot._id, sourceId: source?._id, startAt: slot.startAt, endAt: slot.endAt, available: source !== null && source.state !== "disabled" && source.projectionAvailable !== false && eventMediaSourceWorkerDescriptor(source) !== undefined });
     }
     // Index each current slot plus unbound manual sources. Detached projections
     // cannot consume the bound or hide later authored/manual sources.
@@ -270,7 +270,7 @@ async function configuration(ctx: MutationCtx, { session, program, event }: NonN
         currentSceneId: session.currentSceneId ?? program.currentSceneId,
         sessionDeadline: deadline, stopped: event.eventStatus !== "scheduled" || session.stopRequestedAt !== undefined,
         mode: session.broadcastMode ?? "automatic", policy: effectiveBroadcastPolicy(program.broadcastPolicy), slots,
-        sources: sources.filter(s => s.eventId === event._id && s.state !== "disabled" && s.projectionAvailable !== false && (!s.eventSlotId || authored.some(slot => slot._id === s.eventSlotId))).flatMap(s => { const input = eventMediaSourceBroadcastInput(s); return input ? [{ id: s._id, key: s.key, type: s.type, eventId: s.eventId, eventSlotId: s.eventSlotId, input, revision: s.revision ?? 1, publicUrl: broadcastInputPublicUrl(input) }] : []; }),
+        sources: sources.filter(s => s.eventId === event._id && s.state !== "disabled" && s.projectionAvailable !== false && (!s.eventSlotId || authored.some(slot => slot._id === s.eventSlotId))).flatMap(source => { const descriptor = eventMediaSourceWorkerDescriptor(source); return descriptor ? [descriptor] : []; }),
         scenes: scenes.filter(s => s.eventId === event._id).map(s => ({ id: s._id, key: s.key, type: s.type, sourceId: s.sourceId })),
         outputs: outputs.filter(o => o.eventId === event._id && eventOutputIsAuthorized(event, o) && ["ready", "active"].includes(o.state)).map(o => ({ id: o._id, key: o.key, type: o.type, credential: o.credential, vrcdnSetup: o.vrcdnSetup, twitchSetup:o.twitchSetup, simulcastEnabled:o.simulcastEnabled ?? false, compliance: o.compliance })),
     };

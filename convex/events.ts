@@ -1,4 +1,4 @@
-import { broadcastInputValidator, authoredBroadcastInput, eventProfileBroadcastInputChoices, resolveBroadcastInput, broadcastInputPublicUrl, eventMediaSourceBroadcastInput } from "./_eventBroadcastSources";
+import { broadcastInputValidator, authoredBroadcastInput, eventProfileBroadcastInputChoices, resolveBroadcastInput, broadcastInputPublicUrl, eventMediaSourceBroadcastInput, listUsableEventMediaSources } from "./_eventBroadcastSources";
 import { sanitizeTwitchOutput, getTwitchOutputAccount, listTwitchOutputAccounts, eventOutputIsAuthorized } from './_eventOutputSetup';
 import { EVENT_BROADCAST_MAX_OUTPUTS, validateBroadcastPolicy, allocateSessionCommandSequence, settleTerminalSessionCommands, requireEventMediaBridgeToken } from "./_eventBroadcastInputs";
 import { dateOnlyEventsEnabled, eventDateForInstant, eventSortAt, eventSortEndAt, normalizeEventSchedule, publicEventSchedule, requireDateOnlyEventsEnabled } from "./_eventSchedule";
@@ -2446,10 +2446,7 @@ export const getEventMediaControlStatus = query({
     }
 
     const [sources, outputs, sessions, commands, queuedCommands] = await Promise.all([
-      ctx.db
-        .query("eventMediaSources")
-        .withIndex("by_programId_position", (query) => query.eq("programId", program._id))
-        .take(100),
+      listUsableEventMediaSources(ctx.db, program._id, 100),
       ctx.db
         .query("eventMediaOutputs")
         .withIndex("by_programId_key", (query) => query.eq("programId", program._id))

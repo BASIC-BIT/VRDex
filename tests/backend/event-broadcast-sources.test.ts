@@ -209,3 +209,70 @@ test("inactive removal permits the last observed source after its program ended"
   await owner.mutation(sourceMutation("remove"), { currentSlug: event.slug, sourceId: source._id });
   assert.equal((await t.run(ctx => ctx.db.get(source._id)))!.state, "disabled");
 });
+
+test("deployment-owned endpoint descriptors reach the guarded relay without invented provider identities", async () => {
+  const { createSourceRelay, validateSourceEndpoint } = await import("../../workers/restream/source-relay.mjs");
+  const { t, owner, event } = await fixture();
+  const club = await t.run(ctx => ctx.db.query("profiles").withIndex("by_slug", q => q.eq("slug", "club")).unique());
+  bindVrcdnTestAccount(club!._id, "event-media/vrcdn/main");
+  const output = await owner.mutation(api.events.configureVrcdnOutput, { currentSlug: event.slug, key: "main", label: "Main", credentialRef: "event-media/vrcdn/main", sourceConsentAccepted: true, destinationAuthorityAccepted: true, providerRulesAccepted: true, rightsClearedMediaAccepted: true, playbackLinks: [{ platform: "browser", url: "https://example.test/watch" }] });
+  const records = await t.run(async ctx => {
+    const rows = [];
+    for (const [position, type] of (["rtmp_source", "vrcdn_link"] as const).entries()) {
+      for (const bound of [true, false]) {
+        const key = `${type}-${bound ? "slot" : "manual"}`;
+        const publicUrl = `https://operator.example.test/${key}.ts?variant=host`;
+        const eventSlotId = bound ? await ctx.db.insert("eventSlots", { eventId: event.eventId, position, startAt: startAt + position * 3600000, displayLabel: key, roleLabel: "DJ", sourceType: "manual", sourceLabel: "Operator", confidence: 1, reviewState: "confirmed", updatedAt: Date.now() }) : undefined;
+        const sourceId = await ctx.db.insert("eventMediaSources", { programId: output.programId, eventId: event.eventId, eventSlotId, key, position, type, purpose: "program", state: "ready", label: key, publicUrl, privateConfigRef: `operator/${key}`, createdAt: Date.now(), updatedAt: Date.now() });
+        rows.push({ sourceId, eventSlotId, publicUrl, type, privateConfigRef: `operator/${key}` });
+      }
+    }
+    return rows;
+  });
+  const scheduled = await owner.mutation(api.events.scheduleEventMediaWorker, { currentSlug: event.slug });
+  await t.run(ctx => ctx.db.patch(scheduled.sessionId, { scheduledStartAt: Date.now() - 1000 }));
+  process.env.VRDEX_EVENT_MEDIA_BRIDGE_TOKEN = "sources-test-bridge";
+  const lease = await t.mutation(makeFunctionReference<"mutation">("eventMediaWorker:acquireSession"), { bridgeToken: "sources-test-bridge", eventId: event.eventId, sessionId: scheduled.sessionId, workerId: "sources-worker", epoch: 0 });
+  assert.equal(lease.configuration.sources.length, records.length);
+  const relay = await createSourceRelay({ operatorEndpoints: records.map(row => row.publicUrl) });
+  const unauthorized = await createSourceRelay();
+  let privateRequests = 0;
+  const privateDns = await createSourceRelay({ operatorEndpoints: records.map(row => row.publicUrl), resolveAddresses: async () => [{ address: "127.0.0.1", family: 4 }], requestSource: () => { privateRequests++; throw new Error("Private address must not be fetched"); } });
+  try {
+    for (const row of records) {
+      const source = lease.configuration.sources.find((source: { id: string }) => source.id === row.sourceId);
+      assert.ok(source);
+      assert.equal(source.type, row.type);
+      assert.equal(source.input, undefined);
+      assert.equal(source.publicUrl, row.publicUrl);
+      assert.equal(source.privateConfigRef, row.privateConfigRef);
+      assert.equal(source.eventSlotId, row.eventSlotId);
+      if (row.eventSlotId) assert.equal(lease.configuration.slots.find((slot: { slotKey: string }) => slot.slotKey === row.eventSlotId).available, true);
+      assert.match(relay.resolveSource(source), /^http:\/\/127\.0\.0\.1:/);
+      assert.throws(() => unauthorized.resolveSource(source), /not authorized/);
+      assert.throws(() => validateSourceEndpoint(`${source.publicUrl}&extra=1`, records.map(row => row.publicUrl)), /not authorized/);
+    }
+    const source = lease.configuration.sources[0];
+    assert.equal((await fetch(privateDns.resolveSource(source))).status, 502);
+    assert.equal(privateRequests, 0);
+    assert.throws(() => validateSourceEndpoint("https://127.0.0.1/source.ts", ["https://127.0.0.1/source.ts"]), /not public/);
+    await assert.rejects(owner.mutation(sourceMutation("create"), { currentSlug: event.slug, label: "Not public input", url: source.publicUrl }), /canonical/);
+    const canonical = await owner.mutation(sourceMutation("create"), { currentSlug: event.slug, label: "Canonical", url: "vrcdn:alpha" });
+    await assert.rejects(owner.mutation(sourceMutation("replace"), { currentSlug: event.slug, sourceId: canonical.sourceId, label: "Not public input", url: source.publicUrl }), /canonical/);
+  } finally { relay.stop(); unauthorized.stop(); privateDns.stop(); }
+});
+
+test("operational source readback excludes disabled audit history before bounding usable rows", async () => {
+  const { t, owner, event } = await fixture();
+  for (let index = 0; index < 105; index++) {
+    const created = await owner.mutation(sourceMutation("create"), { currentSlug: event.slug, label: `Past ${index}`, url: "vrcdn:alpha" });
+    await owner.mutation(sourceMutation("remove"), { currentSlug: event.slug, sourceId: created.sourceId });
+  }
+  const current = await owner.mutation(sourceMutation("create"), { currentSlug: event.slug, label: "Current", url: "https://twitch.tv/basic_bit" });
+  const status = await owner.query(api.events.getEventMediaControlStatus, { currentSlug: event.slug });
+  assert.deepEqual(status.sources.map(source => source.sourceId), [current.sourceId]);
+  assert.equal(status.sources[0]!.state, "ready");
+  const history = await t.run(ctx => ctx.db.query("eventMediaSources").withIndex("by_eventId_state", q => q.eq("eventId", event.eventId).eq("state", "disabled")).collect());
+  assert.equal(history.length, 105);
+  assert.equal((await t.run(ctx => ctx.db.query("eventMediaAuditEvents").collect())).filter(row => row.action === "source_removed").length, 105);
+});

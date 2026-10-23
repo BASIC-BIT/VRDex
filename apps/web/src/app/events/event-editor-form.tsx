@@ -30,7 +30,7 @@ import { VrcdnMediaLinkAssistant } from "../_components/vrcdn-media-link-assista
 import { ViewerLocalEventDateTime } from "../_components/viewer-local-event-times";
 import { parseVrcdnStreamLinks } from "../../../../../convex/_vrcdnLinks";
 import { formatZonedDateTimeInput } from "@/lib/calendar/zoned-date-time";
-import { applyStaffLineupTimings, changeStaffSlotOffset, readStaffLineupTimings, type SlotFormRow } from "@/lib/calendar/event-lineup-adapters";
+import { applyStaffLineupTimings, changeStaffSlotOffset, readStaffLineupTimings, timeUntimedLineupRow, type UntimedFormRow, type SlotFormRow } from "@/lib/calendar/event-lineup-adapters";
 import { changeLineupDuration, generateLineupTimings, getLineupEndAt, getLineupEndConflict, insertLineupSlot, removeLineupSlot, shiftLineupStart, type LineupEditResult, type LineupTimingRow } from "@/lib/calendar/event-lineup-timing";
 import { EventSlotRemove, EventLineupSetup, EventLineupInsert, EventSlotDuration, EventLineupReset, EventLineupConflict } from "./event-lineup-controls";
 import { resolveAuthoredEventEndAt } from "@/lib/calendar/event-end-time";
@@ -63,15 +63,6 @@ type VrcdnOutputFormState = {
   standaloneUrl: string;
   pcUrl: string;
   authorized: boolean;
-};
-
-type UntimedFormRow = {
-  clientKey: string;
-  position: number;
-  performerLabel: string;
-  personSlug: string;
-  roleLabel: string;
-  broadcastInput?: BroadcastInputRef | null;
 };
 
 export type EditableEvent = Omit<PublicEvent, "slots" | "lineup"> & {
@@ -1014,7 +1005,7 @@ function ConnectedEventEditorForm({
       {!timeTba ? <details><summary className="cursor-pointer text-sm font-medium">Details</summary><Field className="mt-3">Slot offset minutes<Input inputMode="numeric" disabled={previewStart === undefined} onKeyDown={change => { if (change.key === "Enter") { change.preventDefault(); change.currentTarget.blur(); } }} onBlur={change => {
         const value = change.currentTarget.value;
         if (previewStart === undefined || !value.trim() || !Number.isInteger(Number(value))) return;
-        updateSlotRows(rows => [...rows, { id: row.clientKey, position: row.position, personSlug: row.personSlug, displayLabel: row.performerLabel, roleLabel: row.roleLabel, offsetMinutes: value, durationMinutes: "", startAtOverride: previewStart + Number(value) * 60_000 }]);
+        updateSlotRows(rows => [...rows, timeUntimedLineupRow({ row, offsetMinutes: value, eventStartAt: previewStart })]);
         updateUntimedRows(rows => rows.filter(item => item.clientKey !== row.clientKey));
       }} /></Field></details> : null}
       <EventSlotRemove label={row.performerLabel} onConfirm={() => applyTimingEdit(removeLineupSlot(timings, row.clientKey))} />

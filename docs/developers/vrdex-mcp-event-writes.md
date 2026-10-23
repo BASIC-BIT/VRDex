@@ -254,3 +254,9 @@ Replacing the URL creates a new source record; the old source stays unchanged
 until explicitly removed. Renaming only changes the label. Removal disables the
 record and preserves audit history. Active or pending removal is rejected until
 the atomic cancellation/slate control protocol is installed.
+
+Operational source readback includes non-disabled sources. Disabled source rows
+and their audit events remain stored separately and do not consume the operational
+read limit. Deployment-provisioned relay endpoints retain their internal worker
+descriptors and still require the worker's exact endpoint allowlist and public-IP
+checks. Public custom source create/replace calls cannot author those endpoints.

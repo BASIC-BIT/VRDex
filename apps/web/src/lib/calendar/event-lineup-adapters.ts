@@ -23,6 +23,24 @@ export type SlotFormRow = {
   durationMsOverride?: number;
 };
 
+export type UntimedFormRow = {
+  clientKey: string;
+  position: number;
+  performerLabel: string;
+  personSlug: string;
+  roleLabel: string;
+  broadcastInput?: BroadcastInputRef | null;
+};
+
+export function timeUntimedLineupRow({ row, offsetMinutes, eventStartAt }: {
+  row: UntimedFormRow; offsetMinutes: string; eventStartAt: number;
+}): SlotFormRow {
+  return { id: row.clientKey, position: row.position, personSlug: row.personSlug,
+    displayLabel: row.performerLabel, roleLabel: row.roleLabel, offsetMinutes,
+    ...(row.broadcastInput === undefined ? {} : { broadcastInput: row.broadcastInput }),
+    durationMinutes: "", startAtOverride: eventStartAt + Number(offsetMinutes) * 60_000 };
+}
+
 export function readStaffLineupTimings(rows: readonly SlotFormRow[], eventStartAt: number): LineupTimingRow[] {
   return rows.map(row => {
     const offsetMs = row.offsetMsOverride ?? (row.offsetMinutes.trim() && Number.isInteger(Number(row.offsetMinutes)) ? Number(row.offsetMinutes) * 60_000 : undefined);

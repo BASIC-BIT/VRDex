@@ -1529,6 +1529,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_programId_position", ["programId", "position"])
+    .index("by_programId_state_position", ["programId", "state", "position"])
     .index("by_programId_eventSlotId", ["programId", "eventSlotId"])
     .index("by_programId_key", ["programId", "key"])
     .index("by_eventId_state", ["eventId", "state"]),

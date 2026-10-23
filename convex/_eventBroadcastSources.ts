@@ -1,5 +1,7 @@
 import { v, type Infer } from "convex/values";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
+import type { DatabaseReader } from "./_generated/server";
+import { eventMediaSourceStateValidator } from "./_eventMediaControl";
 import { canReadProfile } from "./_profilePermissions";
 import { publicProfileOutboundLinks } from "./_profilePublic";
 import { parseVrcdnStreamLinks, createVrcdnStreamLinks } from "./_vrcdnLinks";
@@ -85,4 +87,31 @@ export function authoredBroadcastInput({ value, previous, samePerson, profile }:
     throw new Error("Broadcast input must belong to the performer's public inputs.");
   }
   return input;
+}
+
+
+/** Internal descriptors still pass through the relay's deployment allowlist and
+ * public-address checks. Public authoring accepts only BroadcastInputRef URLs.
+ */
+export function eventMediaSourceWorkerDescriptor(source: Doc<"eventMediaSources">) {
+  const input = eventMediaSourceBroadcastInput(source);
+  const descriptor = {
+    id: source._id, key: source.key, type: source.type, eventId: source.eventId,
+    eventSlotId: source.eventSlotId, revision: source.revision ?? 1,
+    privateConfigRef: source.privateConfigRef,
+  };
+  if (input) return { ...descriptor, input, publicUrl: broadcastInputPublicUrl(input) };
+  if (source.input === undefined && source.publicUrl && (source.type === "rtmp_source" || source.type === "vrcdn_link")) {
+    return { ...descriptor, input: undefined, publicUrl: source.publicUrl };
+  }
+  return undefined;
+}
+
+/** Disabled audit history does not consume the operational read/count bound. */
+export async function listUsableEventMediaSources(db: DatabaseReader, programId: Id<"eventMediaPrograms">, limit: number) {
+  const states = eventMediaSourceStateValidator.members.map(state => state.value).filter(state => state !== "disabled");
+  const rows = (await Promise.all(states.map(state => db.query("eventMediaSources")
+    .withIndex("by_programId_state_position", q => q.eq("programId", programId).eq("state", state))
+    .take(limit)))).flat();
+  return rows.sort((a, b) => a.position - b.position || a.key.localeCompare(b.key)).slice(0, limit);
 }

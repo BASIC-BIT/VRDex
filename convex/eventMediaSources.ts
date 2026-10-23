@@ -4,7 +4,7 @@ import type { Id } from "./_generated/dataModel";
 import { requireActiveBrowserSessionSubject } from "./_browserSessionAuthority";
 import { getMediaManageableEventBySlug, getOrCreateEventMediaProgram, recordEventMediaAuditEvent } from "./events";
 import { EVENT_BROADCAST_MAX_SOURCES } from "./_eventBroadcastInputs";
-import { parseBroadcastInputUrl, broadcastInputPublicUrl } from "./_eventBroadcastSources";
+import { parseBroadcastInputUrl, broadcastInputPublicUrl, listUsableEventMediaSources } from "./_eventBroadcastSources";
 import { normalizeProfileInlineText } from "./_profileSubmissions";
 
 function sourceLabel(value: string): string {
@@ -33,7 +33,7 @@ async function insertSource(ctx: MutationCtx, args: { currentSlug: string; label
   const now = Date.now();
   const programId = await getOrCreateEventMediaProgram(ctx.db, event, now);
   if (previous && previous.programId !== programId) throw new Error("Event source belongs to an old program.");
-  const sources = await ctx.db.query("eventMediaSources").withIndex("by_programId_position", q => q.eq("programId", programId)).filter(q => q.neq(q.field("state"), "disabled")).take(EVENT_BROADCAST_MAX_SOURCES + 1);
+  const sources = await listUsableEventMediaSources(ctx.db, programId, EVENT_BROADCAST_MAX_SOURCES + 1);
   if (sources.length >= EVENT_BROADCAST_MAX_SOURCES) throw new Error("Event broadcast source limit reached.");
   const revision = (previous?.revision ?? (previous ? 1 : 0)) + 1;
   const sourceId = await ctx.db.insert("eventMediaSources", {
