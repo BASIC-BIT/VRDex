@@ -162,14 +162,13 @@ const rawArgs = (file, start, duration, filter, one = false) => [
   "-hide_banner",
   "-loglevel",
   "error",
-  "-ss",
-  String(start),
+  "-copyts",
   "-i",
   file,
-  "-t",
-  String(duration),
   "-vf",
-  filter,
+  `trim=start=${start}:duration=${duration},${filter}`,
+  "-fps_mode",
+  "passthrough",
   "-an",
   "-pix_fmt",
   "rgb24",
@@ -178,6 +177,211 @@ const rawArgs = (file, start, duration, filter, one = false) => [
   "rawvideo",
   "pipe:1",
 ];
+/** Decode once without seeking and retain original integer timestamps. Every
+ * marker in each declared source window contributes to the maximum drift. */
+export async function measureMediaMarkers(
+  owner,
+  file,
+  { width, height, windows, maxSeconds },
+) {
+  const child = owner.start(
+    "ffmpeg",
+    [
+      "-hide_banner",
+      "-nostdin",
+      "-nostats",
+      "-loglevel",
+      "info",
+      "-copyts",
+      "-threads",
+      "2",
+      "-filter_threads",
+      "1",
+      "-i",
+      file,
+      "-map",
+      "0:v:0",
+      "-vf",
+      `crop=${Math.max(2, Math.floor((64 * width) / 1920))}:${Math.max(2, Math.floor((64 * height) / 1080))}:${Math.floor((160 * width) / 1920)}:${Math.floor((32 * height) / 1080)},scale=1:1,format=yuv444p,settb=1/90000,signalstats,metadata=mode=print:key=lavfi.signalstats.YAVG:direct=1:file='pipe\\:5',format=rgb24`,
+      "-fps_mode",
+      "passthrough",
+      "-threads",
+      "1",
+      "-f",
+      "rawvideo",
+      "pipe:3",
+      "-map",
+      "0:a:0",
+      "-af",
+      "aresample=48000,aformat=sample_fmts=s16:channel_layouts=mono,asettb=1/48000,astats=metadata=1:reset=1:measure_perchannel=none:measure_overall=Number_of_samples,ametadata=mode=print:direct=1:file='pipe\\:6'",
+      "-ac",
+      "1",
+      "-ar",
+      "48000",
+      "-f",
+      "s16le",
+      "pipe:4",
+    ],
+    { stdio: ["ignore", "ignore", "pipe", "pipe", "pipe", "pipe", "pipe"] },
+  );
+  const parts = [[], [], [], []],
+    sizes = [0, 0, 0, 0];
+  const caps = [
+    Math.ceil(maxSeconds * 64 * 1024),
+    Math.ceil(maxSeconds * 61 * 3),
+    Math.ceil(maxSeconds * 48000 * 2 + 96000),
+    Math.ceil(maxSeconds * 32 * 1024),
+  ];
+  let failed = false;
+  const stop = () => {
+    failed = true;
+    child.kill("SIGKILL");
+  };
+  const timer = setTimeout(stop, 120000);
+  let diagnosticBytes = 0;
+  child.stderr.on("data", (chunk) => {
+    diagnosticBytes += chunk.length;
+    if (diagnosticBytes > 1048576) stop();
+  });
+  for (const [pipe, i] of [
+    [5, 0],
+    [3, 1],
+    [4, 2],
+    [6, 3],
+  ])
+    child.stdio[pipe].on("data", (chunk) => {
+      sizes[i] += chunk.length;
+      if (sizes[i] > caps[i]) stop();
+      else parts[i].push(chunk);
+    });
+  const code = await child.closed;
+  clearTimeout(timer);
+  if (code !== 0 || failed)
+    throw Error("Bounded timestamp marker decode failed");
+  const videoMetadata = Buffer.concat(parts[0]).toString(),
+    audioMetadata = Buffer.concat(parts[3]).toString(),
+    rgb = Buffer.concat(parts[1]),
+    pcm = Buffer.concat(parts[2]);
+  const video = [
+    ...videoMetadata.matchAll(
+      /^frame:(\d+)\s+pts:(-?\d+)\s+pts_time:[^\n]+\nlavfi\.signalstats\.YAVG=[^\n]+\n/gm,
+    ),
+  ].map((m) => ({ index: Number(m[1]), pts: Number(m[2]) }));
+  const audio = [
+    ...audioMetadata.matchAll(
+      /^frame:(\d+)\s+pts:(-?\d+)\s+pts_time:[^\n]+\nlavfi\.astats\.Overall\.Number_of_samples=([\d.]+)\n/gm,
+    ),
+  ].map((m) => ({
+    index: Number(m[1]),
+    pts: Number(m[2]),
+    samples: Number(m[3]),
+  }));
+  if (
+    !video.length ||
+    !audio.length ||
+    video.length * 3 !== rgb.length ||
+    audio.reduce((sum, r) => sum + r.samples, 0) * 2 !== pcm.length
+  )
+    throw Error(
+      `Incomplete timestamp marker payload (${video.length} frames/${rgb.length} bytes; ${audio.length} windows/${audio.reduce((sum, r) => sum + r.samples, 0)} samples/${pcm.length} bytes)`,
+    );
+  for (const rows of [video, audio])
+    for (let i = 0; i < rows.length; i++)
+      if (
+        rows[i].index !== i ||
+        !Number.isSafeInteger(rows[i].pts) ||
+        (i && rows[i].pts <= rows[i - 1].pts)
+      )
+        throw Error("Invalid timestamp marker sequence");
+  const visual = [],
+    audible = [];
+  let lit = false,
+    loud = false,
+    offset = 0;
+  for (const row of video) {
+    const i = row.index * 3,
+      on = rgb[i] > 180 && rgb[i + 1] > 180 && rgb[i + 2] > 180;
+    if (on && !lit) visual.push(row.pts / 90000);
+    lit = on;
+  }
+  for (const row of audio) {
+    for (let start = 0; start < row.samples; start += 480) {
+      const count = Math.min(480, row.samples - start);
+      let sum = 0;
+      for (let i = 0; i < count; i++) {
+        const value = pcm.readInt16LE(offset + (start + i) * 2) / 32768;
+        sum += value * value;
+      }
+      const on = Math.sqrt(sum / count) > 0.15;
+      if (on && !loud) audible.push((row.pts + start) / 48000);
+      loud = on;
+    }
+    offset += row.samples * 2;
+  }
+  const measured = windows.map((window) => {
+    const frames = video.filter(
+      (r) => r.pts / 90000 >= window.start && r.pts / 90000 < window.end,
+    );
+    const blocks = audio.filter(
+      (r) => r.pts / 48000 >= window.start && r.pts / 48000 < window.end,
+    );
+    const markers = visual.filter(
+      (time) => time > window.start + 0.2 && time < window.end - 0.2,
+    );
+    const sound = audible.filter(
+      (time) => time >= window.start && time < window.end,
+    );
+    if (
+      !frames.length ||
+      !blocks.length ||
+      blocks[0].pts / 48000 > window.start + 0.025 ||
+      (blocks.at(-1).pts + blocks.at(-1).samples) / 48000 <
+        window.end - 0.025 ||
+      markers.length < Math.floor(window.end - window.start - 0.4) ||
+      sound.length < Math.floor(window.end - window.start - 0.4)
+    )
+      throw Error("Incomplete source marker window");
+    const pairs = markers.map((videoPts) => {
+      const audioPts = sound.reduce((a, b) =>
+        Math.abs(a - videoPts) <= Math.abs(b - videoPts) ? a : b,
+      );
+      return {
+        videoPts,
+        audioPts,
+        audioMinusVideoMs: (audioPts - videoPts) * 1000,
+      };
+    });
+    return {
+      ...window,
+      videoFrames: frames.length,
+      audioWindows: blocks.length,
+      visualMarkers: markers.length,
+      audioMarkers: sound.length,
+      pairs,
+    };
+  });
+  const deltas = measured.flatMap((window) =>
+    window.pairs.map((row) => Math.abs(row.audioMinusVideoMs)),
+  );
+  return {
+    avDriftMs: Math.max(...deltas),
+    markerCount: deltas.length,
+    markerMethod: "original-integer-pts-no-seek-passthrough",
+    markerVisualSeconds: visual,
+    markerAudioSeconds: audible,
+    markerWindows: measured,
+    markerDecode: {
+      videoFrames: video.length,
+      audioWindows: audio.length,
+      videoRange: [video[0].pts / 90000, video.at(-1).pts / 90000],
+      audioRange: [
+        audio[0].pts / 48000,
+        (audio.at(-1).pts + audio.at(-1).samples) / 48000,
+      ],
+      complete: true,
+    },
+  };
+}
 export async function verifyMedia(
   owner,
   file,
@@ -205,7 +409,7 @@ export async function verifyMedia(
       "ffmpeg",
       rawArgs(
         file,
-        phase.atSeconds,
+        Number(info.format.start_time) + phase.atSeconds,
         0.05,
         `crop=2:2:${x}:${y},scale=1:1`,
         true,
@@ -228,7 +432,13 @@ export async function verifyMedia(
     if (identity === "slate") continue;
     const frame = await owner.run(
       "ffmpeg",
-      rawArgs(file, phase.atSeconds, 0.05, "scale=160:90", true),
+      rawArgs(
+        file,
+        Number(info.format.start_time) + phase.atSeconds,
+        0.05,
+        "scale=160:90",
+        true,
+      ),
       { maxBytes: 65536 },
     );
     const reference = references[identity];
@@ -247,63 +457,18 @@ export async function verifyMedia(
       10 * Math.log10((255 * 255) / Math.max(mse, 0.00001)),
     );
   }
-  const start = phases[0].atSeconds,
-    duration = 6;
-  const flashes = await owner.run(
-    "ffmpeg",
-    rawArgs(
-      file,
-      start,
-      duration,
-      `crop=${Math.max(2, Math.floor((64 * p.width) / 1920))}:${Math.max(2, Math.floor((64 * p.height) / 1080))}:${Math.floor((160 * p.width) / 1920)}:${Math.floor((32 * p.height) / 1080)},scale=1:1`,
-    ),
-    { maxBytes: 65536 },
-  );
-  const pcm = await owner.run(
-    "ffmpeg",
-    [
-      "-hide_banner",
-      "-loglevel",
-      "error",
-      "-ss",
-      String(start),
-      "-i",
-      file,
-      "-t",
-      String(duration),
-      "-vn",
-      "-ac",
-      "1",
-      "-ar",
-      "48000",
-      "-f",
-      "s16le",
-      "pipe:1",
-    ],
-    { maxBytes: 1000000 },
-  );
-  const visual = [],
-    audible = [];
-  let lit = false,
-    loud = false;
-  for (let i = 0; i < flashes.length; i += 3) {
-    const on = flashes[i] > 180 && flashes[i + 1] > 180 && flashes[i + 2] > 180;
-    if (on && !lit) visual.push(i / 3 / p.frameRate);
-    lit = on;
-  }
-  for (let i = 0; i + 960 <= pcm.length; i += 960) {
-    let sum = 0;
-    for (let j = i; j < i + 960; j += 2) {
-      const value = pcm.readInt16LE(j) / 32768;
-      sum += value * value;
-    }
-    const on = Math.sqrt(sum / 480) > 0.15;
-    if (on && !loud) audible.push(i / 960 / 100);
-    loud = on;
-  }
-  const deltas = visual
-    .filter((t) => t > 0.2 && t < duration - 0.2)
-    .map((t) => Math.min(...audible.map((a) => Math.abs(a - t))) * 1000);
+  const markers = await measureMediaMarkers(owner, file, {
+    width: p.width,
+    height: p.height,
+    maxSeconds: request.durationSeconds + 180,
+    windows: phases
+      .filter((phase) => phase.identity !== "slate")
+      .map((phase) => ({
+        identity: phase.identity,
+        start: Number(info.format.start_time) + phase.atSeconds,
+        end: Number(info.format.start_time) + phase.atSeconds + 6,
+      })),
+  });
   return {
     ...facts,
     destination,
@@ -317,10 +482,7 @@ export async function verifyMedia(
     sampleRate: Number(audio?.sample_rate),
     identities,
     visualPsnrDb: psnr,
-    avDriftMs: Math.max(...deltas),
-    markerVisualSeconds: visual,
-    markerAudioSeconds: audible,
-    markerCount: deltas.length,
+    ...markers,
     internalDelayMs,
   };
 }

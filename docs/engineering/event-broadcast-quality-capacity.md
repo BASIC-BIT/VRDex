@@ -76,6 +76,10 @@ start, jitter, ads, fresh resolution after 403, deadlines and cancellation.
 Named outcomes must include no skipped or expected-failure required tests. The
 same nine Node acquisition-owner regressions run with built-in type stripping,
 including TERM-ignoring descendants, leader exit, retries and failed cleanup.
+The image also runs 22 renderer and 18 timestamp/PCM tests: 49 required Node
+outcomes in total. The timing tests include real FFmpeg conversion of 44.1-kHz
+mono input to timestamped stereo 48-kHz PCM and a prewarmed 30-fps source rendered
+as a 60-fps stereo program with measured markers; all required cases must pass.
 Public receipts retain bounded typed acquisition reasons and separate decoder
 readiness. `realAdMarkersObserved` means an actual public HLS `ad_wait` state;
 `realAdPlaybackObserved` remains false unless decoded ad playback is verified.
@@ -102,11 +106,16 @@ inner terminal file cannot attest to its own eventual upload or AWS cleanup.
 
 Source/proof packaging uses the explicit `workers/restream/packaging-manifest.json`.
 Build the committed candidate from a clean archive; preserve the main-only
-publishing workflow guard. Export the small `packaged-files` target, then run
-`python3 scripts/verify-restream-package.py EXPORT LOCKED_WHEELHOUSE OUTPUT_JSON`
-from that same clean source. It compares actual exported source and installed
-wheel bytes against independently hashed reviewed inputs, including native
-libraries. Map/evidence documents stay outside the image.
+publishing workflow guard. For the constrained managed Docker disk, collect an
+actual-image file inventory in an isolated Fargate task. Independently compare
+all 46 packaged source files and 1850 installed wheel payload files with the
+clean archive and verified locked wheelhouse, including native libraries.
+The controller records that comparison and the inventory artifact hash before
+accepting the image. The small `packaged-files` export and
+`verify-restream-package.py` remain an alternative when sufficient disk is
+available; neither verification route may substitute repository declarations
+for bytes actually read from the built image. Map/evidence documents stay outside
+the image.
 
 Record the immutable image digest, candidate revision, package/lock hashes,
 actual task/container shape, all attempts and failures, phase times, resource
@@ -150,7 +159,52 @@ The isolated proof harness accepts an explicit supervisor factory for diagnostic
 observation. Its default remains the production supervisor. This lets an observer
 record decoded timestamps and retained audio at the existing process/buffer
 boundaries without changing production behavior or trusting a resource override.
-A runtime correction awaits measured input/buffer timestamp correlation.
+The subsequent actual-image diagnostic completed that correlation. Its
+[typed evidence](./evidence/twitch-operator-task6/av-timing-cf8cd9f3.json)
+retains the verified full trace hash, source baselines and original failed
+workload. Both source fixtures measured audio-minus-video at -1.333 ms. At
+selected ticks, retained PCM was about 225 ms long and its oldest samples were
+about 150–155 ms behind the latest video; newest PCM already covered the video
+PTS. The old buffer selected the oldest PCM against the newest video. Additional
+CPU could not correct that timestamp mismatch.
+
+The candidate decoder associates video and PCM bytes with exact integer PTS,
+using 1/90000 video and 1/48000 audio timebases. Audio is normalized to stereo
+48 kHz before timestamps/sample counts are emitted on a separate metadata pipe.
+Each metadata queue is limited to 128 entries, stderr lines to 4096 bytes and
+audio metadata lines to 1024 bytes. Malformed or overflowing timing fails closed.
+Readiness requires matched frames and fresh audio timestamps; unmatched raw
+arrivals cannot refresh stale media. Raw retention stays at one matched frame,
+one partial/pending frame and 250 ms of PCM.
+
+Actual source identity transitions, resume and decoder resets invalidate the
+playback anchor. Audio starts at the selected frame PTS, then advances on a
+continuous sample clock. Repeated selection and duplicated 30-fps video in a
+60-fps program do not replay PCM. Timestamp overlaps are skipped and explicit
+gaps produce silence. Ordinary video jitter does not resnap audio each tick. Draining the PCM queue
+cannot revoke still-fresh matched decoder evidence, and a forward jump between
+retained video frames is not itself a decoder reset. These false reset paths were
+reproduced and corrected during host integration.
+
+The [preserved host negatives](./evidence/twitch-operator-task6/timing-host-negatives.json)
+include the same recording measured by the old independent-seek verifier at
+330 ms and by original-timestamp decoding at 133.33 ms, still outside the gate.
+The corrected proof decodes without seeking, with video passthrough and separate
+numeric metadata pipes. It checks every marker in the declared six-second A and
+B windows, reports their absolute source ranges and payload completeness, and
+uses the maximum absolute drift. Real FFmpeg regressions retain known aligned,
+150-ms delayed/advanced and marker-straddling-gap cases; the latter measures about
+384 ms and remains a failure. No favorable subset or relaxed limit is used.
+After correcting false resets, the full host workload retained 60 samples,
+zero steady readiness losses and clean teardown. B measured 33.33/44.83 ms;
+A still failed at 125.67/113.83 ms. A subsequent regression also corrects the
+future-cursor case when playout outruns newly retained PCM, preserving the
+approved reanchor-on-retained-range-loss rule. A smaller real 30-fps-mono to 60-fps-stereo host path also measured
+100.667 ms and failed the unchanged limit; it remains a required image test.
+No production shape is admitted from these host results. Isolated exact-image timing remains an unresolved gate.
+
+Rebuilt-image transport and strict output/capacity gates remain required; the
+correction itself establishes no production allocation.
 
 ## Measured allocation status
 

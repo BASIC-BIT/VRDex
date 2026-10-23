@@ -207,6 +207,7 @@ export function createProgramRenderer({
         actualSourceId !== submittedSourceId ||
         actualRevision !== submittedSourceRevision
       ) {
+        if (actualSlotKey !== undefined) input.buffer.beginPlayback();
         acknowledgements.submit(
           actualSlotKey,
           ((ticks + 1) * 1000) / profile.frameRate,

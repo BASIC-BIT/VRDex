@@ -1,15 +1,19 @@
-/** Run the same nine production owner regressions on the image's Node runtime. */
+/** Run the same owner, decoder timing, and renderer regressions on the image's Node runtime. */
 import { run } from "node:test";
 const outcomes = [];
 let overflow = false;
 for await (const event of run({
-  files: ["tests/backend/event-twitch-input.test.ts"],
+  files: [
+    "tests/backend/event-twitch-input.test.ts",
+    "tests/backend/event-broadcast-renderer.test.ts",
+    "tests/scripts/event-media-timing.test.mjs",
+  ],
   execArgv: ["--experimental-strip-types"],
   timeout: 45000,
   concurrency: 1,
 })) {
   if (!["test:pass", "test:fail"].includes(event.type)) continue;
-  if (outcomes.length >= 32) {
+  if (outcomes.length >= 64) {
     overflow = true;
     continue;
   }
@@ -36,7 +40,7 @@ console.log(
     outcomes,
     passed:
       !overflow &&
-      outcomes.length === 9 &&
+      outcomes.length === 49 &&
       outcomes.every(
         (row) =>
           row.outcome === "passed" && row.test !== "invalid_test_identifier",
