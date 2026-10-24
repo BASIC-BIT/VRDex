@@ -53,6 +53,7 @@
   "scripts/marker-qualification/trains.mjs",
   "tests/backend/event-broadcast-renderer.test.ts",
   "tests/backend/event-twitch-input.test.ts",
+  "tests/fixtures/event-encoded-continuing-train.json",
   "tests/fixtures/source-marker-literal.mjs",
   "tests/scripts/event-capacity-output-contracts.test.mjs",
   "tests/scripts/event-media-timing.test.mjs",

@@ -76,8 +76,11 @@ start, jitter, ads, fresh resolution after 403, deadlines and cancellation.
 Named outcomes must include no skipped or expected-failure required tests. The
 same nine Node acquisition-owner regressions run with built-in type stripping,
 including TERM-ignoring descendants, leader exit, retries and failed cleanup.
-The image also runs 22 renderer, 45 timestamp/PCM/assembler and 13 encoder/output-contract
-tests: 89 required Node outcomes in total. The timing tests include real FFmpeg conversion of 44.1-kHz
+The image also runs 22 renderer, 46 timestamp/PCM/assembler and 13 encoder/output-contract
+tests: 90 required Node outcomes in total (132 with the unchanged 42 Python cases).
+The [encoded fixture correction](event-encoded-fixture-correction.md) preserves
+both actual continuing-train endpoint failures in a pure regression. The timing
+tests include real FFmpeg conversion of 44.1-kHz
 mono input to timestamped stereo 48-kHz PCM and a prewarmed 30-fps source rendered
 as a 60-fps stereo program with measured markers. The buffered-start regression
 uses production decoder pacing, and a separate 60-to-30 startup case checks every
@@ -404,7 +407,7 @@ capacity map remains empty until complete measured evidence and review.
 The next proof schema uses independent700/1300-Hz source identity, original integer
 PTS, complete interval accounting and strict compact evidence. Its explicit image
 manifest now contains85 files; this source count has not yet been verified in an
-actual image. The existing131-case gate remains required. The separate79,996-case
+actual image. The expanded132-case gate remains required. The separate79,996-case
 qualification and all affected capacity proofs remain open. See
 [source marker qualification](./source-marker-qualification.md) for contracts,
 preserved counterexamples, fixed execution bounds and root-owned acceptance.
@@ -414,11 +417,11 @@ preserved counterexamples, fixed execution bounds and root-owned acceptance.
 The local migration fixture/driver and CLI pin forwarding are source prerequisites,
 not capacity receipts. The production measured map remains empty. All 24 matrix
 outcomes, both audio rates, destination modes, final-image inventory, immutable
-image/source pins, controller cleanup receipts, the 131-outcome deterministic
+image/source pins, controller cleanup receipts, the 132-outcome deterministic
 gate and separate 79,996-case source-marker qualification still require actual
 accepted evidence. The earlier 47-file baseline and later 85-file candidate
 counts above describe their dated source/image states. The current checked-in
-manifest has 87 source entries after Task 7; that static count is not a final-image
+manifest has 88 source entries after the encoded-fixture regression; that static count is not a final-image
 inventory claim. ROOT must reconcile the completed manifest with actual image
 bytes and the accepted map before recording deployment readiness. Task 9 changes
 no worker runtime, proof package or capacity-map bytes.

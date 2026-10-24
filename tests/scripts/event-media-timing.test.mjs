@@ -1165,6 +1165,44 @@ test("real 60 to 30 startup proof binds complete pulses, PCM and submitted water
   );
 });
 
+test("captured continuing train rejects endpoint episodes in both transitions despite eight valid pairs", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const { associateContext } = await import("../../scripts/event-marker-association.mjs");
+  // Full original capture, including every episode, visual, fit and disposition.
+  // Provenance: docs/engineering/event-encoded-fixture-correction.md.
+  const captured = JSON.parse(await readFile(
+    new URL("../fixtures/event-encoded-continuing-train.json", import.meta.url),
+    "utf8",
+  ));
+  const record = {
+    episodes: captured.audio.episodes,
+    audioRange: captured.audio.audioRange,
+    visuals: captured.bindings.visuals,
+    watermarks: captured.bindings.watermarks,
+    identityEpochs: captured.video.identityEpochs,
+    videoRange: captured.video.videoRange,
+  };
+  const results = captured.contexts.map(({ context, result }) => {
+    const actual = associateContext(record, context);
+    assert.deepEqual(actual, result);
+    assert.equal(actual.valid, false);
+    assert.deepEqual(actual.failures, ["unaccounted_episode"]);
+    assert.equal(actual.pairs.length, 4);
+    assert.equal(actual.relevantEpisodeCount, 5);
+    assert.equal(actual.dispositions.length, 5);
+    return actual;
+  });
+  assert.equal(results.length, 2);
+  assert.deepEqual(results.map((r) => r.dispositions.at(-1)), [
+    { episodeId: 5, code: "failure", visualId: -1 },
+    { episodeId: 10, code: "failure", visualId: -1 },
+  ]);
+  assert.deepEqual(results.flatMap((r) => r.pairs.map((p) => p.offsetNumerator)), [
+    -6240, -4320, -2400, -480, -3840, -1920, 0, -6240,
+  ]);
+  assert(results.every((r) => r.pairs.every((p) => Math.abs(p.offsetNumerator) <= 72000)));
+});
+
 for (const lag of [0, 0.130667])
   test(`encoded first A and Take markers preserve all pulses with audio lag ${Math.round(lag * 1000)}ms`, async (t) => {
     const { mkdtemp, rm } = await import("node:fs/promises");
@@ -1191,11 +1229,11 @@ for (const lag of [0, 0.130667])
         "-f",
         "lavfi",
         "-i",
-        "aevalsrc=if(lt(mod(t\\,1)\\,0.1)\\,0.65*sin(2*PI*if(lt(t\\,6)\\,700\\,1300)*t)\\,0):s=48000",
+        "aevalsrc=if((gte(t\\,1)*lt(t\\,5)+gte(t\\,6)*lt(t\\,10))*lt(mod(t\\,1)\\,0.1)\\,0.65*sin(2*PI*if(lt(t\\,6)\\,700\\,1300)*t)\\,0):s=48000",
         "-t",
         "12",
         "-vf",
-        "drawbox=x=0:y=0:w=4:h=6:color=red:t=fill:enable='gte(t,1)*lt(t,6)',drawbox=x=0:y=0:w=4:h=6:color=blue:t=fill:enable='gte(t,6)',drawbox=x=4:y=0:w=5:h=6:color=white:t=fill:enable='gte(t,1)*lt(mod(t,1),0.1)'",
+        "drawbox=x=0:y=0:w=4:h=6:color=red:t=fill:enable='gte(t,1)*lt(t,6)',drawbox=x=0:y=0:w=4:h=6:color=blue:t=fill:enable='gte(t,6)',drawbox=x=4:y=0:w=5:h=6:color=white:t=fill:enable='(gte(t,1)*lt(t,5)+gte(t,6)*lt(t,10))*lt(mod(t,1),0.1)'",
         "-af",
         `asetpts=PTS+${lag}/TB`,
         "-c:v",
@@ -1232,7 +1270,7 @@ for (const lag of [0, 0.130667])
     const measure = () => measureMediaMarkers(owner, file, {
       width: 64, height: 48, windows: [], selections, maxSeconds: 14,
     });
-    if (lag > 0) { await assert.rejects(measure, /marker_context_failure/); return; }
+    if (lag > 0) { await assert.rejects(measure, /^Error: marker_context_failure:av_out_of_bounds$/); return; }
     const facts = await measure();
     assert.equal(facts.markerCount, 8);
     assert.equal(facts.transitionMarkers.length, 2);

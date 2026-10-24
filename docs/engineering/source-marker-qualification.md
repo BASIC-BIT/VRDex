@@ -73,7 +73,7 @@ association gates are unchanged. See the preserved
 
 ## Exact-image execution
 
-The separate qualification command leaves the existing42-Python/89-Node owner
+The separate qualification command leaves the 42-Python/90-Node owner
 and acquisition gate and its deadlines unchanged. It enumerates79,996 required
 IDs in83 explicit groups, including3,072 quarter-amplitude30-ms mixtures:
 

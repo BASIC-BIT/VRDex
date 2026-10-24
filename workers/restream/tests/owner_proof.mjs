@@ -14,7 +14,7 @@ for await (const event of run({
   concurrency: 1,
 })) {
   if (!["test:pass", "test:fail"].includes(event.type)) continue;
-  if (outcomes.length >= 89) {
+  if (outcomes.length >= 90) {
     overflow = true;
     continue;
   }
@@ -41,7 +41,7 @@ console.log(
     outcomes,
     passed:
       !overflow &&
-      outcomes.length === 89 &&
+      outcomes.length === 90 &&
       outcomes.every(
         (row) =>
           row.outcome === "passed" && row.test !== "invalid_test_identifier",
