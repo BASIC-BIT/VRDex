@@ -393,12 +393,13 @@ test.describe("Pixel 7 operator console", () => {
     await page.getByRole("button", { name: "Observe live", exact: true }).click();
     await page.getByRole("button", { name: "Hold preparation", exact: true }).click();
     await page.getByRole("button", { name: "Take Custom", exact: true }).click();
-    const controls = page.getByTestId("event-operator-controls");
+    const preparing = page.getByText("Preparing", { exact: true });
+    const cut = page.getByRole("button", { name: "Cut to slate", exact: true });
     const cancel = page.getByRole("group", { name: "Preparation", exact: true })
       .getByRole("button", { name: "Cancel", exact: true });
-    await expect(page.getByText("Preparing", { exact: true })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Cut to slate", exact: true })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Cut to slate", exact: true })).toBeEnabled();
+    await expect(preparing).toBeVisible();
+    await expect(cut).toBeVisible();
+    await expect(cut).toBeEnabled();
     await expect(cancel).toBeVisible();
     await expect(cancel).toBeEnabled();
     const diagnostics = page.getByText("Diagnostics", { exact: true });
@@ -408,7 +409,17 @@ test.describe("Pixel 7 operator console", () => {
     await expect(page.getByText("CPU", { exact: true })).toBeVisible();
     await expect(page.getByText("Memory", { exact: true })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    await controls.screenshot({ path: info.outputPath("task8-operator-mobile-preparing.png") });
+    // Cut, Preparing and Cancel share this viewport; Diagnostics is farther down.
+    await cut.locator("..").evaluate((row) => row.scrollIntoView({ block: "start" }));
+    for (const control of [cut, preparing, cancel]) {
+      await expect(control).toBeInViewport({ ratio: 1 });
+    }
+    await page.screenshot({ path: info.outputPath("task8-operator-mobile-preparing.png"), fullPage: false });
+    await diagnostics.evaluate((summary) => summary.scrollIntoView({ block: "start" }));
+    for (const control of [diagnostics, page.getByText("CPU", { exact: true }).locator(".."), page.getByText("Memory", { exact: true }).locator("..")]) {
+      await expect(control).toBeInViewport({ ratio: 1 });
+    }
+    await page.screenshot({ path: info.outputPath("task8-operator-mobile-diagnostics.png"), fullPage: false });
 
     await cancel.click();
     await expect(page.getByText(/^(Command pending|Preparing|Promoting)$/)).toHaveCount(0);
