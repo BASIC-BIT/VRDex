@@ -205,3 +205,120 @@ test('bounded process runner handles abort, spawn errors and a missing close wit
     if (mode !== 'spawn') assert.deepEqual(signals, ['SIGTERM', 'SIGKILL']);
   }
 });
+
+function failedReceipt() {
+  const value = receipt();
+  value.passed = false;
+  value.failurePhase = 'owner_contracts';
+  value.failureCode = 'transport_contract_failed';
+  value.tests.owner.passed = false;
+  value.tests.owner.outcomes[0].outcome = 'failed';
+  return value;
+}
+
+test('failed native receipt retains only pinned diagnostic fields while exit and cleanup stay negative', async () => {
+  const value = failedReceipt();
+  const sentinel = 'RAW_SENTINEL_secret_path_url_stack';
+  value.message = sentinel;
+  value.tests.owner.outcomes[0].type = sentinel;
+  value.tests.owner.outcomes[0].error = { stack: sentinel };
+  const fake = dockerFixture((args, result) => args[0] === 'start'
+    ? { ...result, code: 1, stdout: JSON.stringify(value), stderr: result.stderr + sentinel } : result);
+  const result = await runGate({ execute: fake.execute, names });
+  assert.deepEqual(result.negativeDiagnostic, { receipt: 'complete', failurePhase: 'owner_contracts',
+    failureCode: 'transport_contract_failed', failed: [{ suite: 'owner', name: names.node[0], outcome: 'failed' }] });
+  assert.equal(result.nativeExit, 1); assert.equal(result.nativeSignal, null);
+  assert.equal(result.counts, null); assert.equal(result.cleanup, true); assert.equal(result.passed, false);
+  assert.doesNotMatch(JSON.stringify(result), /RAW_SENTINEL/);
+});
+
+test('negative receipt rejects malformed, unknown, duplicate, missing and oversized sources without partial diagnostics', async () => {
+  const sentinel = 'RAW_SENTINEL';
+  const malformed = ['', '{', JSON.stringify(failedReceipt()).slice(0, -1),
+    sentinel + JSON.stringify(failedReceipt()), JSON.stringify(failedReceipt()) + '{}', ' '.repeat(131073)];
+  const mutations = [r => { r.tests.owner.outcomes[0].test = sentinel; },
+    r => { r.failurePhase = sentinel; }, r => { r.failureCode = sentinel; },
+    r => { r.tests.owner.outcomes[1] = r.tests.owner.outcomes[0]; },
+    r => { r.tests.owner.outcomes[0].outcome = sentinel; },
+    r => { delete r.tests; }, r => { delete r.tests.owner.outcomes; },
+    r => { r.tests.owner.outcomes.pop(); }, r => { r.tests.owner.testsRun = 91; },
+    r => { r.tests.owner.outcomes.push(r.tests.owner.outcomes[0]); },
+    r => { r.tests.owner.passed = 'false'; }, r => { r.tests.owner = null; },
+    r => { r.tests.outcomes[0].test = sentinel; }, r => { r.tests.testsRun = 43; },
+    ...[ ['schemaVersion', '1'], ['terminal', false], ['case', 'owner'], ['deterministic', 1], ['passed', true] ]
+      .map(([key, value]) => r => { r[key] = value; })];
+  const sources = [...malformed, ...mutations.map(mutate => { const value = failedReceipt(); mutate(value); return JSON.stringify(value); })];
+  for (const stdout of sources) {
+    const fake = dockerFixture((args, result) => args[0] === 'start' ? { ...result, code: 1, stdout } : result);
+    const result = await runGate({ execute: fake.execute, names });
+    assert.deepEqual(result.negativeDiagnostic, { receipt: 'unavailable' });
+    assert.equal(result.passed, false); assert.equal(result.nativeExit, 1);
+    assert.equal(result.counts, null); assert.equal(result.cleanup, true);
+    assert.doesNotMatch(JSON.stringify(result), /RAW_SENTINEL/);
+  }
+});
+
+test('negative diagnostics require exit one without runner failure and a failed complete receipt', async () => {
+  for (const patch of [{ failure: 'output_limit' }, { failure: 'deadline' }, { failure: 'cancelled' },
+    { failure: 'spawn' }, { failure: 'process_cleanup' }, { signal: 'SIGTERM' }, { code: 124 },
+    { code: null }, { stderr: 'x'.repeat(131072) }, { stdout: JSON.stringify(receipt()) }]) {
+    const fake = dockerFixture((args, result) => args[0] === 'start'
+      ? { ...result, code: 1, stdout: JSON.stringify(failedReceipt()), ...patch } : result);
+    const result = await runGate({ execute: fake.execute, names });
+    assert.deepEqual(result.negativeDiagnostic, { receipt: 'unavailable' });
+    assert.equal(result.passed, false); assert.equal(result.counts, null); assert.equal(result.cleanup, true);
+  }
+});
+
+test('negative projection bounds all 132 pinned identities and keeps each reviewed nonpassed outcome', async () => {
+  const value = failedReceipt();
+  const outcomes = ['failed', 'error', 'skipped', 'expected_failure', 'unexpected_success', 'todo'];
+  value.tests.passed = false;
+  for (const summary of [value.tests, value.tests.owner]) {
+    summary.outcomes.forEach((row, index) => { row.outcome = outcomes[index % outcomes.length]; });
+  }
+  for (const phase of ['python_contracts', 'owner_contracts', 'blocked_resolution_cancellation', 'cleanup']) {
+    value.failurePhase = phase;
+    const fake = dockerFixture((args, result) => args[0] === 'start'
+      ? { ...result, code: 1, stdout: JSON.stringify(value) } : result);
+    const result = await runGate({ execute: fake.execute, names });
+    assert.equal(result.negativeDiagnostic.receipt, 'complete');
+    assert.equal(result.negativeDiagnostic.failurePhase, phase);
+    assert.equal(result.negativeDiagnostic.failed.length, 132);
+    assert.ok(Buffer.byteLength(JSON.stringify(result.negativeDiagnostic)) <= 32768);
+    assert.deepEqual(result.negativeDiagnostic.failed[0], { suite: 'python', name: names.python[0], outcome: 'failed' });
+    assert.deepEqual(result.negativeDiagnostic.failed[42], { suite: 'owner', name: names.node[0], outcome: 'failed' });
+    assert.equal(result.passed, false); assert.equal(result.counts, null);
+  }
+});
+
+
+test('early failed Python receipts project only present complete summaries', async () => {
+  const value = failedReceipt();
+  value.failurePhase = 'python_contracts';
+  delete value.tests.owner;
+  value.tests.testsRun = 1;
+  value.tests.passed = false;
+  value.tests.outcomes = [{ test: names.python[0], outcome: 'error' }];
+  const fake = dockerFixture((args, result) => args[0] === 'start'
+    ? { ...result, code: 1, stdout: JSON.stringify(value) } : result);
+  const result = await runGate({ execute: fake.execute, names });
+  assert.deepEqual(result.negativeDiagnostic, { receipt: 'complete', failurePhase: 'python_contracts',
+    failureCode: 'transport_contract_failed', failed: [{ suite: 'python', name: names.python[0], outcome: 'error' }] });
+  assert.equal(result.counts, null); assert.equal(result.passed, false);
+});
+
+test('negative projection rejects its own byte overflow without returning a partial list', async () => {
+  const value = failedReceipt();
+  const longNames = { python: names.python.map(name => name + 'x'.repeat(300)), node: names.node.map(name => name + 'x'.repeat(300)) };
+  for (const [summary, expected] of [[value.tests, longNames.python], [value.tests.owner, longNames.node]]) {
+    summary.passed = false;
+    summary.outcomes = expected.map(test => ({ test, outcome: 'failed' }));
+  }
+  assert.ok(Buffer.byteLength(JSON.stringify(value)) < 131072);
+  const fake = dockerFixture((args, result) => args[0] === 'start'
+    ? { ...result, code: 1, stdout: JSON.stringify(value) } : result);
+  const result = await runGate({ execute: fake.execute, names: longNames });
+  assert.deepEqual(result.negativeDiagnostic, { receipt: 'unavailable' });
+  assert.equal(result.counts, null); assert.equal(result.cleanup, true); assert.equal(result.passed, false);
+});

@@ -35,6 +35,46 @@ export function validateReceipt(raw, names) {
   return { python: 42, node: 90 };
 }
 
+// Failed receipts are diagnostic claims only. Copy reviewed values, never raw
+// errors or unknown fields, and leave native exit/positive acceptance untouched.
+function projectNegativeReceipt(result, names) {
+  const unavailable = { receipt: 'unavailable' };
+  if (result.code !== 1 || result.failure !== null || result.signal !== null ||
+      typeof result.stdout !== 'string' || typeof result.stderr !== 'string' ||
+      Buffer.byteLength(result.stdout) + Buffer.byteLength(result.stderr) > BYTE_CAP) return unavailable;
+  try {
+    const receipt = JSON.parse(result.stdout); // No partial, prefix or suffix parsing.
+    if (!receipt || receipt.schemaVersion !== 1 || receipt.terminal !== true || receipt.case !== 'all' ||
+        receipt.deterministic !== true || receipt.passed !== false ||
+        !['python_contracts', 'owner_contracts', 'blocked_resolution_cancellation', 'cleanup'].includes(receipt.failurePhase) ||
+        receipt.failureCode !== 'transport_contract_failed' || !receipt.tests) return unavailable;
+    const failed = [];
+    for (const [suite, summary, expected, count] of [
+      ['python', receipt.tests, names.python, 42], ['owner', receipt.tests.owner, names.node, 90],
+    ]) {
+      if (suite === 'owner' && !Object.hasOwn(receipt.tests, 'owner')) continue;
+      if (!summary || !Array.isArray(expected) || expected.length !== count ||
+          expected.some(name => typeof name !== 'string') || new Set(expected).size !== count ||
+          !Number.isInteger(summary.testsRun) || summary.testsRun < 1 || summary.testsRun > count ||
+          typeof summary.passed !== 'boolean' || !Array.isArray(summary.outcomes) ||
+          summary.outcomes.length !== summary.testsRun) return unavailable;
+      const allowed = new Set(expected), seen = new Set();
+      for (const row of summary.outcomes) {
+        if (!row || !allowed.has(row.test) || seen.has(row.test) ||
+            !['passed', 'failed', 'error', 'skipped', 'expected_failure', 'unexpected_success', 'todo'].includes(row.outcome)) return unavailable;
+        seen.add(row.test);
+        if (row.outcome !== 'passed') failed.push({ suite, name: row.test, outcome: row.outcome });
+      }
+    }
+    const diagnostic = { receipt: 'complete', failurePhase: receipt.failurePhase,
+      failureCode: 'transport_contract_failed', failed };
+    if (failed.length > 132 || Buffer.byteLength(JSON.stringify(diagnostic)) > 32 * 1024) return unavailable;
+    return diagnostic;
+  } catch {
+    return unavailable;
+  }
+}
+
 // A Docker CLI can hang independently of the container. Bound both output streams
 // together and terminate its process group even when its leader has already exited.
 export function boundedCommand(command, args, { timeoutMs, signal, graceMs = 1000, spawnProcess = spawn,
@@ -103,7 +143,7 @@ export async function runGate({ execute = boundedCommand, names, signal, now = (
   const deadline = now() + 400000;
   const token = randomUUID();
   const name = `vrdex-native-${token}`; // Identity exists before even an uncertain create.
-  const report = { passed: false, nativeExit: null, nativeSignal: null, cleanup: false, image: null, counts: null, versions: null, errors: [] };
+  const report = { passed: false, nativeExit: null, nativeSignal: null, cleanup: false, image: null, counts: null, versions: null, errors: [], negativeDiagnostic: { receipt: 'unavailable' } };
   let id, createAttempted = false;
   const invoke = async (args, limit = 5000, cleaning = false) => {
     const remaining = deadline - now() - (cleaning ? 1100 : 20000);
@@ -142,6 +182,7 @@ export async function runGate({ execute = boundedCommand, names, signal, now = (
       python: attached.stderr.match(/^Python [0-9.]+$/m)?.[0],
       ffmpeg: attached.stderr.match(/^ffmpeg version [^\r\n]{1,200}/m)?.[0],
     };
+    report.negativeDiagnostic = projectNegativeReceipt(attached, names);
     const raw = successful(attached);
     assert.ok(Object.values(report.versions).every(Boolean), 'runtime versions');
     const container = await inspect(id);
