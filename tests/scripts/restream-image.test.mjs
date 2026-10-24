@@ -63,50 +63,60 @@ throw Error('Unexpected CLI invocation: ' + JSON.stringify([tool, ...args]));
 
 const archiveFixture = String.raw`
 import io, json, os, pathlib, sys, tarfile
-_, requested_source, target = sys.argv[1:]
-fixture = pathlib.Path(os.environ['FIXTURE'])
-with (fixture / 'calls.jsonl').open('a') as calls:
-    calls.write(json.dumps(['docker', *sys.argv[1:]], separators=(',', ':')) + '\n')
-source_name = requested_source.split(':/app/')[1] if ':/app/' in requested_source else ''
-if not source_name or not (fixture / 'container').exists():
-    raise RuntimeError('invalid stopped-container copy')
-if target != '-':
-    raise RuntimeError('copy fixture expects a tar stream')
-source = fixture / 'image' / source_name
-kind = os.environ['BAD_KIND'] if os.environ['BAD_FILE'] == source_name else ''
-if kind == 'copy-failure':
-    sys.exit(7)
-with tarfile.open(fileobj=sys.stdout.buffer, mode='w|', format=tarfile.USTAR_FORMAT) as archive:
-    if kind in ('directory', 'aggregate'):
-        entry = tarfile.TarInfo(source.name)
-        entry.type = tarfile.DIRTYPE
-        archive.addfile(entry)
-        for index in range(110 if kind == 'aggregate' else 1):
-            content = bytes(131072)
-            entry = tarfile.TarInfo(source.name + '/nested-' + str(index))
-            entry.size = len(content)
-            archive.addfile(entry, io.BytesIO(content))
-    elif kind == 'symlink':
-        entry = tarfile.TarInfo(source.name)
-        entry.type, entry.linkname = tarfile.SYMTYPE, '/outside-canary'
-        archive.addfile(entry)
-    elif kind == 'oversize':
-        content = source.read_bytes() + b'x'
-        entry = tarfile.TarInfo(source.name)
-        entry.size = len(content)
-        archive.addfile(entry, io.BytesIO(content))
-    else:
-        archive.add(source, arcname='../outside-canary' if kind == 'wrong-path' else source.name, recursive=False)
-        if kind == 'multiple':
-            archive.add(source, arcname='extra-canary', recursive=False)
+fixture, bad_file, bad_kind = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+sources = json.loads((fixture / 'archive-sources.json').read_text())
+for index, source_name in enumerate(sources):
+    source = fixture / 'image' / source_name
+    kind = bad_kind if bad_file == source_name else ''
+    if kind == 'copy-failure':
+        continue
+    with (fixture / 'archives' / (str(index) + '.tar')).open('wb') as output:
+        with tarfile.open(fileobj=output, mode='w|', format=tarfile.USTAR_FORMAT) as archive:
+            if kind in ('directory', 'aggregate'):
+                entry = tarfile.TarInfo(source.name)
+                entry.type = tarfile.DIRTYPE
+                archive.addfile(entry)
+                for nested in range(110 if kind == 'aggregate' else 1):
+                    content = bytes(131072)
+                    entry = tarfile.TarInfo(source.name + '/nested-' + str(nested))
+                    entry.size = len(content)
+                    archive.addfile(entry, io.BytesIO(content))
+            elif kind == 'symlink':
+                entry = tarfile.TarInfo(source.name)
+                entry.type, entry.linkname = tarfile.SYMTYPE, '/outside-canary'
+                archive.addfile(entry)
+            elif kind == 'oversize':
+                content = source.read_bytes() + b'x'
+                entry = tarfile.TarInfo(source.name)
+                entry.size = len(content)
+                archive.addfile(entry, io.BytesIO(content))
+            else:
+                archive.add(source, arcname='../outside-canary' if kind == 'wrong-path' else source.name, recursive=False)
+                if kind == 'multiple':
+                    archive.add(source, arcname='extra-canary', recursive=False)
 `;
+
+const shellQuote = value => `'${value.replaceAll("'", "'\\''")}'`;
+
+function fakeDockerWrapper(directory, options) {
+  const copyCases = files.map((file, index) => {
+    const source = `fixture-container:/app/${file}`;
+    const ledger = JSON.stringify(['docker', 'cp', source, '-']);
+    const copy = options.badFile === file && options.badKind === 'copy-failure'
+      ? 'exit 7'
+      : `archive=${shellQuote(join(directory, 'archives', `${index}.tar`))}`;
+    return `  ${shellQuote(source)}) printf '%s\\n' ${shellQuote(ledger)} >> "$FIXTURE/calls.jsonl"; ${copy} ;;`;
+  }).join('\n');
+  return `#!/bin/sh\nif [ "$1" = cp ]; then\n  [ "$#" -eq 3 ] && [ "$3" = - ] && [ -f "$FIXTURE/container" ] || exit 1\n  case "$2" in\n${copyCases}\n    *) echo 'invalid stopped-container copy' >&2; exit 1 ;;\n  esac\n  [ -f "$archive" ] || exit 1\n  exec cat "$archive"\nfi\nexec '${process.execPath}' '${directory}/fake-cli.mjs' docker "$@"\n`;
+}
 
 async function publish(options = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'restream-image-test-'));
   try {
-    for (const subdirectory of ['bin', 'image', 'provenance', 'temporary']) await mkdir(join(directory, subdirectory));
+    for (const subdirectory of ['bin', 'image', 'archives', 'provenance', 'temporary']) await mkdir(join(directory, subdirectory));
     const expected = [];
     for (const file of files) {
+      if (typeof file !== 'string' || file.startsWith('/') || file.split('/').some(part => !part || part === '.' || part === '..')) throw Error('invalid packaged source path');
       const content = await readFile(file);
       expected.push(`${createHash('sha256').update(content).digest('hex')}  ${file}`);
       for (const prefix of ['', 'image/']) {
@@ -119,8 +129,11 @@ async function publish(options = {}) {
     await writeFile(join(directory, 'provenance/source-sha.txt'), `${sha}\n`);
     await writeFile(join(directory, 'fake-cli.mjs'), fakeCli);
     await writeFile(join(directory, 'archive.py'), archiveFixture);
+    await writeFile(join(directory, 'archive-sources.json'), JSON.stringify(files));
+    const prepared = spawnSync('python3', [join(directory, 'archive.py'), directory, options.badFile ?? '', options.badKind ?? ''], { encoding: 'utf8', timeout: 30000 });
+    if (prepared.status !== 0 || prepared.error) throw Error(`fixture archive preparation failed: ${prepared.stderr || prepared.error}`);
     for (const tool of ['docker', 'aws', 'rm']) await writeFile(join(directory, 'bin', tool), tool === 'docker'
-      ? `#!/bin/sh\nif [ "$1" = cp ]; then exec python3 '${directory}/archive.py' "$@"; fi\nexec '${process.execPath}' '${directory}/fake-cli.mjs' docker "$@"\n`
+      ? fakeDockerWrapper(directory, options)
       : `#!/bin/sh\nexec '${process.execPath}' '${directory}/fake-cli.mjs' ${tool} "$@"\n`, { mode: 0o755 });
     const workflow = parse(await readFile('.github/workflows/restream-image.yml', 'utf8'));
     const step = workflow.jobs.image.steps.find(value => value.name === 'Build and publish immutable image');
