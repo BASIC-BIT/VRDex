@@ -1,3 +1,4 @@
+import { resourceSnapshotValidator, computeRuntimeValidator } from "./_eventBroadcastResources";
 import {committedIntentValidator,controlTargetValidator,controlFailureValidator} from "./_eventMediaControl";
 import { broadcastInputValidator } from "./_eventBroadcastSources";
 import { twitchSetupValidator, outputHealthValidator } from './_eventOutputSetup';
@@ -1625,6 +1626,9 @@ export default defineSchema({
     .index("by_session_scope_status_sequence", ["sessionId", "eventId", "programId", "status", "sequence", "createdAt"])
     .index("by_program_scope_session_status_createdAt", ["programId", "eventId", "sessionId", "status", "createdAt"]),
   eventMediaSessions: defineTable({
+    resourceSnapshot: v.optional(resourceSnapshotValidator),
+    resourceObservedAt: v.optional(v.number()),
+    computeRuntime: v.optional(computeRuntimeValidator),
     committedIntent:v.optional(committedIntentValidator), intentSequence:v.optional(v.number()),
     pendingControlCommandId:v.optional(v.id("eventMediaCommands")),
     observedOutputMs:v.optional(v.number()), observedSourceRevision:v.optional(v.number()), observedSlotKey:v.optional(v.string()),

@@ -399,7 +399,9 @@ async function startCommand(command, client, config, runAws, isDraining) {
   // begins in flight. Reconciliation can then stop the exact recorded task.
   const taskArn = await runTask(command, taskDefinitionArn, config, runAws);
   if (!taskArn) throw new Error("ECS RunTask did not return a task ARN.");
-  const recorded=await client.mutation(convexApi.recordDispatchedTask, {bridgeToken:config.bridgeToken,sessionId:command.session.sessionId,dispatchId:command.dispatchId,taskArn,taskDefinitionArn});
+  // This path registers LINUX/X86_64 and uses explicit --launch-type FARGATE,
+  // with no capacity-provider strategy (therefore On-Demand, never FARGATE_SPOT).
+  const recorded=await client.mutation(convexApi.recordDispatchedTask, {bridgeToken:config.bridgeToken,sessionId:command.session.sessionId,dispatchId:command.dispatchId,taskArn,taskDefinitionArn,computeRuntime:{region:config.region,os:"linux",architecture:"x86_64",purchaseModel:"on_demand"}});
   if(recorded?.accepted!==true)throw new Error("Worker dispatch registration denied.");
   console.log(JSON.stringify({ event: "event_media_ecs_task_started", sessionId: command.session.sessionId, taskArn, taskDefinitionArn }));
 }

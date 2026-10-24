@@ -1,3 +1,4 @@
+import { recordResourceSnapshot, computeRuntimeValidator, trustedComputeRuntime } from "./_eventBroadcastResources";
 import {assertWorkerProtocol,beginControlPreparation,promoteControlOperation,completeControlOperation,controlFence,coherentEvidence,writeControlObservation,isCut,isControl,settleControl} from "./_eventBroadcastControl";
 import {controlTargetValidator,controlResultValidator,controlFailureValidator} from "./_eventMediaControl";
 import { parseMediaSettings, resolveDestinationProfile } from "../workers/restream/broadcast-profiles.mjs";
@@ -102,14 +103,15 @@ export const acquireSession = mutation({
             if (siblings.some(s => s._id !== session._id)) {
                 return reject(ctx, args, "Another event session has an unexpired owner.");
             }
-            await ctx.db.patch(session._id, { workerId: args.workerId, epoch, acquiredAt, leaseExpiresAt: expiresAt, status: "starting", programObservedAt:undefined, observedOutputMs:undefined, observedSourceRevision:undefined, observedSlotKey:undefined, outputHealthObservedAt:undefined, outputHealth:[], updatedAt: now });
+            await ctx.db.patch(session._id, { workerId: args.workerId, epoch, acquiredAt, leaseExpiresAt: expiresAt, status: "starting", resourceSnapshot:undefined, resourceObservedAt:undefined, programObservedAt:undefined, observedOutputMs:undefined, observedSourceRevision:undefined, observedSlotKey:undefined, outputHealthObservedAt:undefined, outputHealth:[], updatedAt: now });
             await ctx.db.insert("eventMediaAuditEvents", { programId: program._id, eventId: args.eventId, sessionId: session._id, actorSurface: "worker", action: "worker_session_acquired", privateSummary: `Epoch ${epoch}.`, createdAt: now });
         }
         return { ...lease(session, epoch, acquiredAt, expiresAt), configuration: await configuration(ctx, {...found,session:(await ctx.db.get(session._id))!}) };
     },
 });
 export const renewSession = mutation({
-    args: workerSessionArgs,
+    // Parse optional telemetry inside the handler so malformed samples cannot deny a valid lease.
+    args: { ...workerSessionArgs, sample: v.optional(v.any()) },
     handler: async (ctx, args) => {
         authenticate(args);
         const found = await records(ctx, args);
@@ -120,6 +122,7 @@ export const renewSession = mutation({
         if (stopDeadline <= now)
             return reject(ctx, args, "Session stop grace period has expired.");
         const expiresAt = Math.min(now + EVENT_BROADCAST_LEASE_MS, stopDeadline);
+        await recordResourceSnapshot(ctx, { ...args, sample: args.sample });
         await ctx.db.patch(args.sessionId, { leaseExpiresAt: expiresAt, updatedAt: now });
         return lease(found.session, args.epoch, found.session.acquiredAt ?? now, expiresAt);
     },
@@ -542,7 +545,7 @@ export const completeUnlaunchedCleanup = mutation({ args: { bridgeToken: v.strin
     await ctx.db.patch(session._id, { workerTaskCleanupPending: false, updatedAt: Date.now() });
     return { accepted: true };
 } });
-export const recordDispatchedTask = mutation({ args: { bridgeToken: v.string(), sessionId: v.id("eventMediaSessions"), dispatchId: v.string(), taskArn: v.string(), taskDefinitionArn: v.string() }, handler: async (ctx, args) => {
+export const recordDispatchedTask = mutation({ args: { bridgeToken: v.string(), sessionId: v.id("eventMediaSessions"), dispatchId: v.string(), taskArn: v.string(), taskDefinitionArn: v.string(), computeRuntime: v.optional(computeRuntimeValidator) }, handler: async (ctx, args) => {
         requireEventMediaBridgeToken(args.bridgeToken);
         const session = await ctx.db.get(args.sessionId);
         if (!session || session.dispatchId !== args.dispatchId || (session.launchProtocol === "fenced-v1" && (session.launchAttemptedAt === undefined || session.workerTaskDefinitionArn !== args.taskDefinitionArn)))
@@ -551,7 +554,7 @@ export const recordDispatchedTask = mutation({ args: { bridgeToken: v.string(), 
             return { accepted: false };
         if (session.dispatchStopConfirmedAt !== undefined)
             return { accepted: true };
-        await ctx.db.patch(session._id, { workerProvider: "aws_ecs", workerRuntime: "ecs-fargate", workerTaskId: args.taskArn, workerTaskDefinitionArn: args.taskDefinitionArn, workerTaskStatus: "starting", updatedAt: Date.now() });
+        await ctx.db.patch(session._id, { computeRuntime: trustedComputeRuntime(args.computeRuntime, args.taskArn, args.taskDefinitionArn) ?? session.computeRuntime, workerProvider: "aws_ecs", workerRuntime: "ecs-fargate", workerTaskId: args.taskArn, workerTaskDefinitionArn: args.taskDefinitionArn, workerTaskStatus: "starting", updatedAt: Date.now() });
         return { accepted: true };
     } });
 export const recordProcessStatus = mutation({ args: { bridgeToken: v.string(), sessionId: v.id("eventMediaSessions"), taskArn: v.string(), stopped: v.boolean() }, handler: async (ctx, args) => {

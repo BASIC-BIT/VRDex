@@ -1323,3 +1323,27 @@ all five final tasks STOPPED, their interfaces DELETED, latest proof definitions
 INACTIVE and both switches false at production/rehearsal versions 1/21. The output
 secret remains unchanged; the full provider and rollout gates remain open. See the [rehearsal record](../engineering/event-broadcast-rehearsal.md#october-22-2026-diagnostic-session)
 for exact metrics, provenance, retained failures and remaining gates.
+
+## Diagnostics provenance and compute estimates
+
+The existing authenticated dispatch handshake now stores region, Linux/x86
+platform and On-Demand purchase model for the returned task. Region is checked
+against both task and task-definition ARNs. On-Demand follows the bridge's
+explicit `--launch-type FARGATE` request without a capacity-provider strategy;
+generic Fargate metadata alone does not supply pricing provenance. Older sessions
+without that handshake retain an unknown estimate.
+
+Recreate region through the existing Terraform bridge configuration
+(`VRDEX_EVENT_MEDIA_ECS_REGION` and worker `AWS_REGION` in `bridge.tf`). OS,
+architecture and purchase model come from the checked-in task-definition and
+launch code. No new environment variables or dashboard settings are required.
+Deploy the protocol migration with no active sessions. Changes apply to new
+sessions and never resize or restart an on-air worker.
+
+Authorized console readers receive the latest cgroup observation through the
+existing renewal path, with a 30-second freshness limit. Compute uses the dated
+October 22, 2026 Linux/x86 us-east-1 On-Demand rates: approximately USD 0.19748/hour
+for four vCPUs/eight GiB and USD 0.39496/hour for eight vCPUs/sixteen GiB. Estimates
+exclude transfer, IPv4, logs, extra storage, provider subscriptions, taxes and
+discounts. See [the diagnostics contract](../engineering/event-broadcast-resources.md)
+for source rates, provenance, failure behavior and the pending final-image proof.

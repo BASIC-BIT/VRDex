@@ -1,3 +1,8 @@
+import { createResourceSampler, readCgroupCounters } from "./resource-sampler.mjs";
+import {
+  RESOURCE_INTERVAL_MS,
+  RESOURCE_REQUEST_ALLOWANCE_MS,
+} from "./resource-policy.mjs";
 import { readTaskMetadata, createManagedAllocationValidator } from './task-metadata.mjs';
 import { createEventOutputs } from "./output-sender.mjs";
 import { execFile } from "node:child_process";
@@ -40,12 +45,23 @@ export function createEventWorker({
   createOutputs,
   inputs,
   checkEnabled,
+  // Managed validation returns the immutable, ECS-verified allocation.
+  // Unmanaged synthetic callers collect no host counters by default.
   validateConfiguration = () => {},
+  readCounters = readCgroupCounters,
   clock = () => performance.now(),
   maxSessionMs = 43200000,
-  requestTimeoutMs = 3000,
+  requestTimeoutMs = RESOURCE_REQUEST_ALLOWANCE_MS,
   metric = () => {},
 }) {
+  let resourceSampler,
+    resourceAt = Infinity;
+  // Diagnostics never join the media/control promise chain.
+  function sampleResources() {
+    if (!resourceSampler || stopped || clock() < resourceAt) return;
+    resourceAt = clock() + RESOURCE_INTERVAL_MS;
+    void resourceSampler.sample();
+  }
   let stopped = false,
     started = false,
     busy = false,
@@ -68,12 +84,13 @@ export function createEventWorker({
     const captured = { ...identity, protocolVersion: 2, ...args };
     return bounded(
       (signal) => control(name, captured, signal),
-      requestTimeoutMs,
+      Math.min(requestTimeoutMs, RESOURCE_REQUEST_ALLOWANCE_MS),
     );
   };
   function fence(reason) {
     if (stopped) return;
     stopped = true;
+    resourceSampler?.reset();
     unsubscribe?.();
     // This MUST precede all awaited cleanup, including renderer decoder shutdown.
     outputs?.stopNow();
@@ -116,6 +133,7 @@ export function createEventWorker({
       });
       fence("authority-expired");
     }
+    sampleResources();
   }
   function acceptLease(lease, sentAt) {
     if (
@@ -127,6 +145,7 @@ export function createEventWorker({
     // Subtract the full round trip, conservatively anchoring at request start.
     authorityUntil =
       sentAt + Math.max(0, lease.expiresAt - lease.serverNow - 250);
+    if (identity.epoch !== lease.epoch) resourceSampler?.reset();
     identity.epoch = lease.epoch;
     renewAt = sentAt + Math.min(lease.renewAfterMs, 10000);
     serverTime = lease.serverNow;
@@ -197,7 +216,16 @@ export function createEventWorker({
         const lease = await request("acquireSession");
         acceptLease(lease, sent);
         config = lease.configuration;
-        validateConfiguration(config);
+        const allocation = validateConfiguration(config);
+        if (allocation) {
+          resourceSampler = createResourceSampler({
+            allocation,
+            readCounters,
+            clock,
+          });
+          resourceAt = clock();
+          sampleResources();
+        }
         outputConfiguration = JSON.stringify({
           outputId: config.outputId,
           outputs: config.outputs,
@@ -264,7 +292,8 @@ export function createEventWorker({
         }
         if (clock() >= renewAt) {
           const sent = clock();
-          acceptLease(await request("renewSession"), sent);
+          const sample = resourceSampler?.latest();
+          acceptLease(await request("renewSession", sample ? { sample } : {}), sent);
         }
         const fresh = await request("refreshConfiguration");
         if (!fresh.granted) throw Error("Configuration authority denied");
@@ -408,6 +437,7 @@ export async function checkHostedEnabled({
 export async function runEventWorker({
   createOutputs = createEventOutputs,
   env = process.env,
+  readCounters = readCgroupCounters,
 } = {}) {
   if (!createOutputs) throw Error("Output sender is unavailable");
   const maxSessionMs =
@@ -443,6 +473,7 @@ export async function runEventWorker({
       createProgramRenderer({ ...options, onError: () => void worker?.stop() }),
     createOutputs: (options) => createOutputs({ ...options, env }),
     maxSessionMs,
+    readCounters,
     validateConfiguration,
     checkEnabled: () =>
       checkHostedEnabled({

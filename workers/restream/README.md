@@ -260,3 +260,17 @@ excluded. The `packaged-files` Docker target exports actual `/app` files and
 `/opt/twitch` for independent comparison without a local inspection container.
 See [quality and capacity](../../docs/engineering/event-broadcast-quality-capacity.md)
 for benchmark commands, acceptance gates and candidate evidence status.
+
+## Worker diagnostics
+
+The validated allocation feeds a nonblocking, latest-only cgroup sampler every
+ten seconds. Existing lease renewals carry optional CPU/memory observations;
+counter failures never block media or Cut/Stop. Readings include worker children
+and page cache, age independently of heartbeats and become unknown after
+30 seconds. Only authorized console readers receive them.
+
+Compute estimates use dated allocation rates for explicit Linux/x86 us-east-1
+On-Demand dispatch provenance. They exclude transfer, IPv4, logs, extra storage,
+provider subscriptions, taxes and discounts. No new frontend poll, resource RPC,
+provider request or resource control is introduced. See
+[diagnostics contracts and actual-image verification](../../docs/engineering/event-broadcast-resources.md).

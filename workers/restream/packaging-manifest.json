@@ -69,6 +69,8 @@
   "workers/restream/output-sender.mjs",
   "workers/restream/packaging-manifest.json",
   "workers/restream/program-renderer.mjs",
+  "workers/restream/resource-policy.mjs",
+  "workers/restream/resource-sampler.mjs",
   "workers/restream/source-relay.mjs",
   "workers/restream/task-metadata.mjs",
   "workers/restream/tests/capacity_input.py",

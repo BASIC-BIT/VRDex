@@ -1,3 +1,4 @@
+import { projectSessionResources } from "./_eventBroadcastResources";
 import { resolveWorkerAllocation, validateMeasuredSnapshot } from '../workers/restream/broadcast-capacity.mjs';
 import { validateAllocationSnapshot } from '../workers/restream/worker-allocation.mjs';
 import {admitControlOperation,cancelControlOperation,isControl,supersedePending,findControlRequest,recordControlRequest} from "./_eventBroadcastControl";
@@ -1978,6 +1979,9 @@ function workerSessionStatus(session: Doc<"eventMediaSessions">) {
     allocation: session.allocation,
     currentSourceId: session.currentSourceId,
     programObservedAt: session.programObservedAt,
+    observedSourceRevision: session.observedSourceRevision,
+    observedSlotKey: session.observedSlotKey,
+    observedOutputMs: session.observedOutputMs,
     lastAcknowledgedSequence: session.lastAcknowledgedSequence,
     epoch:session.epoch,launchProtocol:session.launchProtocol,launchAttemptedAt:session.launchAttemptedAt,dispatchId:session.dispatchId,dispatchStopConfirmedAt:session.dispatchStopConfirmedAt,workerTaskCleanupPending:session.workerTaskCleanupPending,broadcastMode:session.broadcastMode,runtimeDeadlineAt:session.runtimeDeadlineAt,
     sessionId: session._id,
@@ -2512,7 +2516,11 @@ export const getEventMediaControlStatus = query({
         })),
       sessions: await Promise.all(sessions.sort((first, second) => second.updatedAt - first.updatedAt).map(async session => {
         const pending=session.pendingControlCommandId?await ctx.db.get(session.pendingControlCommandId):null;
-        return {...workerSessionStatus(session),pendingOperation:pending?{commandId:pending._id,sequence:pending.sequence,target:pending.controlTarget,phase:pending.controlPhase,preparationExpiresAt:pending.preparationExpiresAt}:null};
+        return {
+          ...workerSessionStatus(session),
+          resources: projectSessionResources(session, Date.now()),
+          pendingOperation: pending ? {commandId:pending._id,sequence:pending.sequence,target:pending.controlTarget,phase:pending.controlPhase,preparationExpiresAt:pending.preparationExpiresAt} : null,
+        };
       })),
       commands: programCommands.map((command) => ({
         sessionId: command.sessionId,
