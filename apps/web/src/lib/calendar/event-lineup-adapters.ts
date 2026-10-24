@@ -30,6 +30,7 @@ export type UntimedFormRow = {
   personSlug: string;
   roleLabel: string;
   broadcastInput?: BroadcastInputRef | null;
+  broadcastInputChoices?: BroadcastInputChoice[];
 };
 
 export function timeUntimedLineupRow({ row, offsetMinutes, eventStartAt }: {
@@ -38,6 +39,7 @@ export function timeUntimedLineupRow({ row, offsetMinutes, eventStartAt }: {
   return { id: row.clientKey, position: row.position, personSlug: row.personSlug,
     displayLabel: row.performerLabel, roleLabel: row.roleLabel, offsetMinutes,
     ...(row.broadcastInput === undefined ? {} : { broadcastInput: row.broadcastInput }),
+    broadcastInputChoices: row.broadcastInputChoices,
     durationMinutes: "", startAtOverride: eventStartAt + Number(offsetMinutes) * 60_000 };
 }
 

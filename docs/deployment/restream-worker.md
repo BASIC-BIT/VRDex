@@ -1006,10 +1006,13 @@ private status. Staff with `view_event_operations` or `manage_events` can read
 the panel with mutation controls disabled; `manage_event_media` grants control.
 Public hosts use the `host` route. Mutations recheck capabilities.
 
-Controls submit sequenced commands. Requested source and queued/claimed command
-states remain separate from worker-observed source, mode, lease and destination
-health. Pending Next commands are coalesced by the backend; Stop requires an
-explicit confirmation and remains available during a pending switch. An expired
+Controls submit sequenced commands. Committed intent, pending preparation and
+encoded source/revision observations remain distinct. Cancel is available only
+while preparing. Cut to slate remains independent of pending ordinary requests;
+confirmed Stop takes priority over source controls. See the
+[console integration contract](../engineering/event-broadcast-operator-console.md)
+for source authorization, status windows, settings, editor selection and local
+preview ownership. An expired
 lease or destination observation older than 15 seconds displays unknown health.
 The explicit session runtime deadline is displayed independently of calendar end.
 

@@ -1,4 +1,6 @@
 import { expect, test } from "@playwright/test";
+// Fixture controls never initiate live provider probes.
+test.beforeEach(async ({page})=>{await page.route('**/operate/status?*',route=>route.fulfill({json:{}}));});
 test("anonymous operator route requires sign-in before private payload @flow @fixture", async ({
   page,
 }) => {
@@ -25,15 +27,16 @@ test("operator keeps execution separate, recovers hold, prevents double next and
   await expect(page.getByText("publishing", { exact: true })).toBeVisible();
   await expect(page.getByText("reconnecting", { exact: true })).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Select Nova" }),
+    page.getByRole("button", { name: "Take Nova" }),
   ).toBeDisabled();
-  await page.getByRole("button", { name: "Select Aurora" }).click();
+  await page.getByRole("button", { name: "Take Aurora" }).click();
   await expect(
-    page.getByText("Command pending", { exact: true }),
+    page.getByText("Preparing", { exact: true }),
   ).toBeVisible();
+  await expect(page.getByRole("button", {name: "Cut to slate"})).toBeEnabled();
   await expect(
     page.getByText("Observed output", { exact: true }).locator(".."),
-  ).toContainText("Hold");
+  ).toContainText("Slate");
   await expect(
     page.getByText("Observed output", { exact: true }).locator(".."),
   ).toContainText("Aurora");
@@ -46,11 +49,11 @@ test("operator keeps execution separate, recovers hold, prevents double next and
       }
     });
   await expect(page.getByLabel("Command count")).toHaveText("2");
-  await expect(page.getByText("Command pending", { exact: true })).toHaveCount(
+  await expect(page.getByText(/^(Command pending|Preparing|Promoting)$/)).toHaveCount(
     0,
   );
   await page.getByRole("button", { name: "Hold current", exact: true }).click();
-  await expect(page.getByText("Command pending", { exact: true })).toHaveCount(
+  await expect(page.getByText(/^(Command pending|Preparing|Promoting)$/)).toHaveCount(
     0,
   );
   await expect(
@@ -59,11 +62,11 @@ test("operator keeps execution separate, recovers hold, prevents double next and
   await expect(
     page.getByText("Observed mode", { exact: true }).locator(".."),
   ).toContainText("manual");
-  await page.getByRole("button", { name: "Show slate", exact: true }).click();
+  await page.getByRole("button", { name: "Cut to slate", exact: true }).click();
   await expect(
     page.getByText("Observed mode", { exact: true }).locator(".."),
   ).toContainText("hold");
-  await expect(page.getByText("Command pending", { exact: true })).toHaveCount(
+  await expect(page.getByText(/^(Command pending|Preparing|Promoting)$/)).toHaveCount(
     0,
   );
   await page
@@ -72,12 +75,12 @@ test("operator keeps execution separate, recovers hold, prevents double next and
   await expect(
     page.getByText("Observed mode", { exact: true }).locator(".."),
   ).toContainText("automatic");
-  await expect(page.getByText("Command pending", { exact: true })).toHaveCount(
+  await expect(page.getByText(/^(Command pending|Preparing|Promoting)$/)).toHaveCount(
     0,
   );
   await expect(
-    page.getByText("Commanded source", { exact: true }).locator(".."),
-  ).toContainText("None");
+    page.getByText("Desired source", { exact: true }).locator(".."),
+  ).toContainText("Automatic");
   expect(errors).toEqual([]);
   await page
     .getByTestId("event-operator-controls")
@@ -306,4 +309,111 @@ test("pre-session intent permits Start with the selected output @flow @fixture",
   await expect(page.getByLabel("Started output")).toHaveText("primary");
   await expect(page.getByText("queued", { exact: true }).first()).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+
+test("preparation Cancel, Cut, failure, and Stop keep encoded output distinct @flow @fixture",async({page},info)=>{
+ await page.goto('/playwright/event-operator');
+ await page.getByRole('button',{name:'Observe live',exact:true}).click();
+ await page.getByRole('button',{name:'Hold preparation',exact:true}).click();
+ await page.getByRole('button',{name:'Take Custom',exact:true}).click();
+ await expect(page.getByText('Preparing',{exact:true})).toBeVisible();
+ await expect(page.getByRole("button", {name: "Cut to slate"})).toBeEnabled();
+ await expect(page.getByText('Observed output',{exact:true}).locator('..')).toContainText('Aurora');
+ await expect(page.getByText('Pending source',{exact:true}).locator('..')).toContainText('Custom');
+ await page.getByTestId('event-operator-controls').screenshot({path:info.outputPath('task8-preparing.png')});
+ await page.getByRole('group',{name:'Preparation',exact:true}).getByRole('button',{name:'Cancel',exact:true}).click();
+ await expect(page.getByText('Preparing',{exact:true})).toHaveCount(0);
+ await expect(page.getByText('Observed output',{exact:true}).locator('..')).toContainText('Aurora');
+ await page.getByRole('button',{name:'Take Custom',exact:true}).click();
+ await page.getByRole('button',{name:'Fail preparation',exact:true}).click();
+ await expect(page.getByText('Observed output',{exact:true}).locator('..')).toContainText('Aurora');
+ await page.getByRole('button',{name:'Take Custom',exact:true}).click();
+ await page.getByRole('button',{name:'Promote preparation',exact:true}).click();
+ await expect(page.getByText('Promoting',{exact:true})).toBeVisible();
+ await expect(page.getByRole('group',{name:'Preparation',exact:true})).toHaveCount(0);
+ await page.getByRole('button',{name:'Cut to slate',exact:true}).click();
+ await expect(page.getByText('superseded',{exact:true}).first()).toBeVisible();
+ await expect(page.getByText('Observed output',{exact:true}).locator('..')).toContainText('Slate');
+ await page.getByRole('button',{name:'Return to auto',exact:true}).click();
+ await expect(page.getByText('Desired source',{exact:true}).locator('..')).toContainText('Automatic');
+ await page.getByRole('button',{name:'Stop',exact:true}).click();
+ await page.getByRole('button',{name:'Confirm stop',exact:true}).click();
+ await expect(page.getByRole('button',{name:'Cut to slate',exact:true})).toBeDisabled();
+});
+
+test("Cut is independent of a held ordinary request and stale diagnostics @flow @fixture",async({page},info)=>{
+ await page.clock.install();await page.goto('/playwright/event-operator');
+ await page.getByRole('button',{name:'Hold request',exact:true}).click();
+ await page.getByRole('button',{name:'Next',exact:true}).click();
+ await expect(page.getByText('Command pending',{exact:true})).toBeVisible();
+ await page.clock.fastForward(30_000);
+ await page.getByText('Diagnostics',{exact:true}).click();
+ await expect(page.getByText('CPU',{exact:true}).locator('..')).toContainText('Unknown');
+ await expect(page.getByRole('button',{name:'Cut to slate',exact:true})).toBeEnabled();
+ await page.getByRole('button',{name:'Cut to slate',exact:true}).click();
+ await expect(page.getByLabel('Command count')).toHaveText('2');
+ await page.getByTestId('event-operator-controls').screenshot({path:info.outputPath('task8-stale-diagnostics.png')});
+});
+
+test("custom replacement preserves source identity and active settings stay separate @flow @fixture",async({page},info)=>{
+ await page.goto('/playwright/event-operator');
+ await page.getByRole('button',{name:'Take Custom',exact:true}).click();
+ await expect(page.getByText('Observed output',{exact:true}).locator('..')).toContainText('Custom');
+ await page.getByRole('button',{name:'Replace Custom',exact:true}).click();
+ await page.getByLabel('Source label',{exact:true}).fill('Replacement');
+ await page.getByLabel('Source URL',{exact:true}).fill('https://www.twitch.tv/replacement');
+ await page.getByRole('button',{name:'Replace source',exact:true}).click();
+ await expect(page.getByRole('article',{name:'Replacement',exact:true})).toBeVisible();
+ await expect(page.getByRole('article',{name:'Custom',exact:true})).toBeVisible();
+ await expect(page.getByText('Observed output',{exact:true}).locator('..')).toContainText('Custom');
+ await page.getByRole('button',{name:'Remove Replacement',exact:true}).click();
+ await expect(page.getByRole('article',{name:'Replacement',exact:true})).toHaveCount(0);
+ await expect(page.getByRole('button',{name:'Remove Aurora',exact:true})).toHaveCount(0);
+ await page.getByLabel('Resolution',{exact:true}).selectOption('1080');
+ await page.getByLabel('Frame rate',{exact:true}).selectOption('60');
+ await page.getByLabel('Audio bitrate',{exact:true}).selectOption('320');
+ await page.getByRole('button',{name:'Save settings',exact:true}).click();
+ await expect(page.getByText('Active',{exact:true}).first().locator('..')).toContainText('720p30');
+ await expect(page.getByText('Next start',{exact:true}).locator('..')).toContainText('1080p60');
+ await page.getByTestId('event-operator-controls').screenshot({path:info.outputPath('task8-custom-settings.png')});
+});
+
+test('editor broadcast inputs preserve legacy VRCDN selection through save, reload and reset @flow @fixture',async({page})=>{
+ await page.goto('/playwright/event-lineup?editor');
+ await page.getByRole('navigation',{name:'Event editor',exact:true}).getByRole('button',{name:'Lineup',exact:true}).click();
+ const rows=page.locator('[data-lineup-row]');
+ await rows.nth(2).getByRole('combobox',{name:'Broadcast input',exact:true}).selectOption('vrcdn:lumen-main');
+ await rows.first().getByRole('combobox',{name:'Broadcast input',exact:true}).selectOption('twitch:aurora');
+ page.once('dialog',dialog=>dialog.accept());
+ await page.getByRole('button',{name:'Unpublish and save draft',exact:true}).click();
+ // The existing fixture starts published; accept its normal unpublish confirmation.
+ await expect(page.getByRole('button',{name:'Save draft',exact:true})).toBeVisible();
+ const stored=await page.evaluate(()=>JSON.parse(localStorage.getItem('event-lineup-fixture-v1-submission')!));
+ expect(stored.lineup[2].selectedStreamId).toBe('removed-source');
+ expect(stored.lineup[2].broadcastInput).toEqual({kind:'vrcdn',streamId:'lumen-main'});
+ expect(stored.lineup[0].broadcastInput).toEqual({kind:'twitch',channel:'aurora'});
+ await page.reload();
+ await page.getByRole('navigation',{name:'Event editor',exact:true}).getByRole('button',{name:'Lineup',exact:true}).click();
+ await expect(rows.first().getByRole('combobox',{name:'Broadcast input',exact:true})).toHaveValue('twitch:aurora');
+ await rows.first().getByRole('combobox',{name:'Broadcast input',exact:true}).selectOption('');
+ await page.getByRole('button',{name:'Save draft',exact:true}).click();
+ await expect.poll(()=>page.evaluate(()=>JSON.parse(localStorage.getItem('event-lineup-fixture-v1-submission')!).lineup[0].broadcastInput)).toBeNull();
+});
+
+test('custom source creation rejects fetch endpoints and keeps provider failure independent from Take @flow @fixture',async({page})=>{
+ await page.route('**/operate/status?*',route=>route.fulfill({status:503,json:{}}));
+ await page.goto('/playwright/event-operator');
+ await page.getByText('Custom source',{exact:true}).click();
+ await page.getByLabel('Source label',{exact:true}).fill('New source');
+ await page.getByLabel('Source URL',{exact:true}).fill('https://example.invalid/private');
+ await page.getByRole('button',{name:'Add source',exact:true}).click();
+ await expect(page.getByText('Save failed',{exact:true})).toBeVisible();
+ await expect(page.getByRole('article',{name:'New source',exact:true})).toHaveCount(0);
+ await page.getByLabel('Source URL',{exact:true}).fill('https://www.twitch.tv/new_source');
+ await page.getByRole('button',{name:'Add source',exact:true}).click();
+ const source=page.getByRole('article',{name:'New source',exact:true});
+ await expect(source.getByRole('link',{name:'Open',exact:true})).toHaveAttribute('href','https://www.twitch.tv/new_source');
+ await expect(source.getByRole('button',{name:'Take New source',exact:true})).toBeEnabled();
+ await source.getByRole('button',{name:'Remove New source',exact:true}).click();await expect(source).toHaveCount(0);
 });

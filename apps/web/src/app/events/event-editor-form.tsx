@@ -1,4 +1,5 @@
 "use client";
+import { SlotBroadcastInputSelect } from "./slot-broadcast-input-select";
 
 import type { BroadcastInputRef, BroadcastInputChoice } from "../../../../../convex/_eventBroadcastSources";
 import { authoredSnapshot, hasUnsavedEventChanges } from "@/lib/event-editor-persistence";
@@ -95,6 +96,12 @@ type VrcdnOutputAccountOption = {
     url: string;
   }>;
 };
+
+function SlotBroadcastInput({personSlug,value,choices,onChange}:{personSlug:string;value:BroadcastInputRef|null|undefined;choices?:BroadcastInputChoice[];onChange:(value:BroadcastInputRef|null)=>void}) {
+  const slug=personSlug.trim();
+  const currentChoices=useQuery(api.events.getPersonBroadcastInputChoices,/^[a-z0-9-]{1,64}$/.test(slug)?{personSlug:slug}:"skip");
+  return <SlotBroadcastInputSelect value={value} choices={slug?currentChoices??choices??[]:[]} onChange={onChange}/>;
+}
 
 function SlotStreamSelect({ row, invalid, onChange }: { row: SlotFormRow; invalid?: boolean; onChange: (value: string) => void }) {
   const slug = row.personSlug.trim();
@@ -468,7 +475,7 @@ function ConnectedEventEditorForm({
   const [timeTba, setTimeTba] = useState(event?.scheduleKind === "date_only");
   const performers = useEventPerformerEditor([...(event?.slots.flatMap(row => row.performer ? [row.performer] : []) ?? []), ...(event?.participants ?? []), ...(event?.lineup?.flatMap(row => row.performer ? [row.performer] : []) ?? [])].map(person => ({ kind: "person", slug: person.slug, title: person.displayName, href: `/${person.slug}`, imageUrl: person.imageUrl, imageKind: "profile", trustLabel: person.trustLabel })));
   const [untimedRows, setUntimedRows] = useState<UntimedFormRow[]>(() => (event?.lineup ?? []).filter(row => row.startAt === undefined).map(row => ({
-    clientKey: row.key, position: row.position, performerLabel: row.displayLabel, personSlug: row.performer?.slug ?? "", roleLabel: row.roleLabel ?? "", broadcastInput: row.broadcastInput,
+    clientKey: row.key, position: row.position, performerLabel: row.displayLabel, personSlug: row.performer?.slug ?? "", roleLabel: row.roleLabel ?? "", broadcastInput: row.broadcastInput, broadcastInputChoices: row.broadcastInputChoices,
   })));
   // A known instant does not need a canonical source zone to remain exact.
   const [startInstantOverride, setStartInstantOverride] = useState<number | undefined>(event?.timezone ? undefined : event?.startAt);
@@ -722,7 +729,7 @@ function ConnectedEventEditorForm({
             clientKey: row.id, position: row.position ?? index, ...(row.broadcastInput === undefined ? {} : { broadcastInput: row.broadcastInput }), performerLabel: row.displayLabel || performers.person(row.personSlug)?.title || `Session ${index + 1}`, personSlug: optionalString(row.personSlug), roleLabel: optionalString(row.roleLabel),
             ...(!timeTba ? { startAt: slotLinks[index]!.startAt, endAt: slotLinks[index]!.endAt, selectedStreamId: slotLinks[index]!.selectedStreamId, broadcastInput: slotLinks[index]!.broadcastInput } : {}),
           })),
-          ...untimedRows.map(row => ({ ...row, personSlug: optionalString(row.personSlug), roleLabel: optionalString(row.roleLabel) })),
+          ...untimedRows.map(row => ({ clientKey: row.clientKey, position: row.position, performerLabel: row.performerLabel, personSlug: optionalString(row.personSlug), roleLabel: optionalString(row.roleLabel), ...(row.broadcastInput === undefined ? {} : { broadcastInput: row.broadcastInput }) })),
         ].sort((a, b) => a.position - b.position).map((row, position) => ({ ...row, position })) } : {}),
       };
       const submittedSlotKeys = slotRows.map(row => row.id);
@@ -999,8 +1006,9 @@ function ConnectedEventEditorForm({
     return <Card data-lineup-row={row.clientKey} key={row.clientKey} className="grid gap-3" padding="sm" surface="dashed">
       <EventPerformerField value={performers.value({ key: row.clientKey, label: row.performerLabel, personSlug: row.personSlug })} selectedPerson={performers.person(row.personSlug)} onResolve={performers.resolve} onChange={value => {
         const next = performers.change({ key: row.clientKey, label: row.performerLabel, personSlug: row.personSlug }, value);
-        updateUntimedRows(rows => rows.map(item => item.clientKey === row.clientKey ? { ...item, performerLabel: next.label, personSlug: next.personSlug, ...(item.personSlug === next.personSlug ? {} : { broadcastInput: null }) } : item));
+        updateUntimedRows(rows => rows.map(item => item.clientKey === row.clientKey ? { ...item, performerLabel: next.label, personSlug: next.personSlug, ...(item.personSlug === next.personSlug ? {} : { broadcastInput: null, broadcastInputChoices: undefined }) } : item));
       }} />
+      <SlotBroadcastInput personSlug={row.personSlug} value={row.broadcastInput} choices={row.broadcastInputChoices} onChange={value=>updateUntimedRows(rows=>rows.map(item=>item.clientKey===row.clientKey?{...item,broadcastInput:value}:item))}/>
       <Field>Role<Input value={row.roleLabel} onChange={change => updateUntimedRows(rows => rows.map(item => item.clientKey === row.clientKey ? { ...item, roleLabel: change.target.value } : item))} /></Field>
       {!timeTba ? <details><summary className="cursor-pointer text-sm font-medium">Details</summary><Field className="mt-3">Slot offset minutes<Input inputMode="numeric" disabled={previewStart === undefined} onKeyDown={change => { if (change.key === "Enter") { change.preventDefault(); change.currentTarget.blur(); } }} onBlur={change => {
         const value = change.currentTarget.value;
@@ -1142,6 +1150,7 @@ function ConnectedEventEditorForm({
                 }} />
                 {!timeTba ? <EventSlotDuration value={duration} onCommit={minutes => applyTimingEdit(changeLineupDuration(timings, slot.id, minutes))} /> : null}
               </div>
+              <SlotBroadcastInput personSlug={slot.personSlug} value={slot.broadcastInput} choices={slot.broadcastInputChoices} onChange={value=>updateSlotRows(rows=>rows.map(row=>row.id===slot.id?{...row,broadcastInput:value}:row))}/>
               {watchSurfaceEnabled && watchMode === "performer_sequence" && (slot.personSlug.trim() || slot.selectedStreamId) ? <SlotStreamSelect
                 row={slot}
                 invalid={status.kind === "error" && Boolean(slot.selectedStreamId) && status.streamSelections?.[slot.id] === slot.selectedStreamId}

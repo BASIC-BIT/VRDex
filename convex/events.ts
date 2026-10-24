@@ -2488,6 +2488,7 @@ export const getEventMediaControlStatus = query({
             type: source.type,
             input,
             revision: source.revision ?? 1,
+            editable: !source.profileProjection && !source.sourceProfileId && !source.eventSlotId && source.state !== "disabled",
             publicUrl: input ? broadcastInputPublicUrl(input) : undefined,
             purpose: source.purpose,
             state: source.state,

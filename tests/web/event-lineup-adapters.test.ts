@@ -196,3 +196,12 @@ test("timing an untimed row preserves a pending performer reset separately from 
     if (broadcastInput === null) assert.equal(serialized.broadcastInput, null);
   }
 });
+
+
+test('broadcast selections and legacy streams survive reorder independently',()=>{
+ const rows:SlotFormRow[]=[{id:'a',position:0,offsetMinutes:'0',durationMinutes:'60',personSlug:'guest',displayLabel:'Guest',roleLabel:'DJ',selectedStreamId:'legacy',broadcastInput:{kind:'twitch',channel:'one'}},{id:'b',position:1,offsetMinutes:'60',durationMinutes:'60',personSlug:'other',displayLabel:'Other',roleLabel:'DJ',broadcastInput:null}];
+ const timings=readStaffLineupTimings(rows,1000);
+ const reordered=applyStaffLineupTimings(rows,[timings[1]!,timings[0]!],1000);
+ assert.deepEqual(reordered[1].broadcastInput,{kind:'twitch',channel:'one'});
+ assert.equal(reordered[1].selectedStreamId,'legacy');assert.equal(reordered[0].broadcastInput,null);
+});
