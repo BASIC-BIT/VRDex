@@ -254,7 +254,7 @@ jobs:
             echo "enabled=false" >> "$GITHUB_OUTPUT"
             {
               echo "## Restream Local Checks"
-              echo "Skipped because no restream-relevant files changed."
+              echo "Optional gateway and host validation skipped; image build and native transport gate remain required."
             } >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
@@ -267,15 +267,23 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Setup pnpm
-        if: steps.changes.outputs.enabled == 'true'
         uses: pnpm/action-setup@v6
 
       - name: Setup Node.js
-        if: steps.changes.outputs.enabled == 'true'
         uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: pnpm
+
+      - name: Check native CI contracts
+        run: node --test .github/scripts/restream-native*.test.mjs
+
+      - name: Build hosted restream worker image
+        run: docker build -f workers/restream/Dockerfile -t vrdex-restream-worker:ci .
+
+      - name: Run required native transport gate
+        timeout-minutes: 7
+        run: node .github/scripts/restream-native.mjs
 
       - name: Install dependencies
         if: steps.changes.outputs.enabled == 'true'
@@ -299,10 +307,6 @@ jobs:
       - name: Test Discord Gateway
         if: steps.changes.outputs.enabled == 'true'
         run: pnpm test:discord-gateway
-
-      - name: Build hosted restream worker image
-        if: steps.changes.outputs.enabled == 'true'
-        run: docker build -f workers/restream/Dockerfile -t vrdex-restream-worker:ci .
 
       - name: Dry-run hosted restream worker image
         if: steps.changes.outputs.enabled == 'true'

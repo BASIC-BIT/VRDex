@@ -5,6 +5,54 @@ No preset is admitted to a new production session until its checked-in evidence
 covers both audio settings and its frozen destination membership. Local media
 proofs are functional diagnostics, not Fargate capacity evidence.
 
+## Required native CI coverage
+
+Every **Restream Local Checks** job builds the current production worker image
+and runs the full deterministic transport gate with network isolation. The
+46-case timing suite lives at `tests/native/event-media-timing.test.mjs`; its
+assertions are unchanged. The packaged owner runs that file alongside
+`tests/backend/event-twitch-input.test.ts` (9 cases),
+`tests/backend/event-broadcast-renderer.test.ts` (22 cases), and
+`tests/scripts/event-capacity-output-contracts.test.mjs` (13 cases). These 90
+Node cases and 42 Python cases are all required, with their exact identities
+reviewed in `.github/scripts/restream-native-names.json` against the accepted
+F1 receipt. A missing, duplicate, unexpected, skipped or failed case fails CI.
+
+The host driver is `node .github/scripts/restream-native.mjs`, after the existing
+`docker build -f workers/restream/Dockerfile -t vrdex-restream-worker:ci .`.
+It resolves the fresh image ID and invokes the existing CLI inside its uniquely
+owned container, with `--network none`, working directory `/app`, and only
+`VRDEX_PROOF_INNER=twitch` supplied as an environment override:
+
+```sh
+node scripts/event-twitch-input-proof.mjs --case all --output-dir /tmp/event-capacity-ci-native
+```
+
+The inner flag keeps this command local; no S3 envelope or AWS credentials are
+used. The native command has a 360-second hard timeout, at most one second of
+TERM grace, and then KILL. Bounded host commands and cleanup fit within a
+400-second absolute driver deadline and a seven-minute step; the existing job
+retains its 20-minute limit. A pass requires native exit zero, independent
+stopped/PID-zero/no-OOM/image checks, the strict terminal receipt, cancellation
+within 1500ms, closed child/process groups, successful removal and exact-ID
+absence. Uncertain creation, deadline or cleanup outcomes fail. The summary
+records source revision, fresh image ID, runtime versions, counts, actual native
+exit, receipt verdict and cleanup; raw media artifacts are not uploaded.
+
+The full host `pnpm verify:vrdex-mcp` → `pnpm test:scripts` chain and all other
+script coverage remain required. The timing file leaves the host glob through
+its directory move. Other native owner cases intentionally overlap host/backend
+coverage, so host and native totals are not disjoint. The old path selector
+only controls the optional gateway and local-validation steps; setup, image
+build and the full native gate run even for unrelated changes.
+
+The Dockerfile's apt FFmpeg package is not version pinned. Fresh builds test
+the production worker environment, without guaranteeing the historical image
+digest or FFmpeg version. This ownership change does not establish the cause of
+the historical host pacing failure, resolve other host failures, or grant
+production capacity acceptance. Actual CI duration and native success still
+need fresh execution evidence.
+
 ## Session authority
 
 The server snapshots `{cpuUnits, memoryMiB, evidenceId}` with media settings and

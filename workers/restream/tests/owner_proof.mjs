@@ -6,7 +6,7 @@ for await (const event of run({
   files: [
     "tests/backend/event-twitch-input.test.ts",
     "tests/backend/event-broadcast-renderer.test.ts",
-    "tests/scripts/event-media-timing.test.mjs",
+    "tests/native/event-media-timing.test.mjs",
     "tests/scripts/event-capacity-output-contracts.test.mjs",
   ],
   execArgv: ["--experimental-strip-types"],

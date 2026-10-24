@@ -1,5 +1,12 @@
 # Hosted Restream Worker Benchmark
 
+The required **Restream Local Checks** CI job builds the current worker image
+and runs all 132 deterministic transport cases with `--network none`. Its
+native timing suite is packaged from `tests/native`, while the full host
+MCP/script suite remains required. See [native CI coverage](../engineering/event-broadcast-quality-capacity.md#required-native-ci-coverage)
+for the fresh-image, receipt, deadline and cleanup contract. This CI check does
+not admit a Fargate capacity profile or authorize deployment.
+
 ## Status
 
 The current implementation provides persistent event dispatch through a scheduled
