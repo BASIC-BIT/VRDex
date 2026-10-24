@@ -2,7 +2,7 @@ import {
   foregroundPlayback,
   type ForegroundPlayback,
 } from "./foreground-playback";
-import type { PlaybackAdapter } from "./event-playback-owner";
+import type { PlaybackAdapter, PlaybackRequest } from "./event-playback-owner";
 /** A local handle: deliberately has no EventPlaybackOwner or persistent request. */
 export class LocalPreviewPlayer {
   private adapter?: PlaybackAdapter;
@@ -38,6 +38,9 @@ export class LocalPreviewPlayer {
       if (this.adapter === adapter) this.stop();
     });
     return true;
+  }
+  update(request: PlaybackRequest) {
+    this.adapter?.update(request);
   }
   stop() {
     const adapter = this.adapter;

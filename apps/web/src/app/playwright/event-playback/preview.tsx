@@ -1,5 +1,5 @@
 "use client";
-import { EventOperatorPreview } from "@/app/_components/event-operator-preview";
+import { EventOperatorPreview, type PreviewSource } from "@/app/_components/event-operator-preview";
 import { EventWatchSurface } from "@/app/_components/event-watch-surface";
 import { VrcdnStreamPlayer } from "@/app/_components/vrcdn-stream-player";
 import Link from "next/link";
@@ -10,6 +10,10 @@ import type { PlaybackRequest } from "@/lib/event-playback-owner";
 export function PlaybackFixture({ eventId, twitch }: { eventId: string; twitch: boolean }) {
   const owner = useEventPlayback();
   const [operatorPreview,setOperatorPreview]=useState(false);
+  const [previewSource, setPreviewSource] = useState<PreviewSource>({
+    input: { kind: "twitch", channel: "preview" },
+    publicUrl: "https://www.twitch.tv/preview", label: "Operator preview",
+  });
   const [startAt] = useState(() => Date.now() - 1000);
   const request = useMemo<PlaybackRequest>(() => ({ eventId, eventSlug: eventId, href: `/playwright/event-playback?event=${eventId}`, title: `Event ${eventId}`, startAt,
     ...(twitch ? { kind: "twitch", sourceId: "channel", channel: "fixture" } : { kind: "vrcdn", sourceId: eventId, src: `/retained-test.wav?event=${eventId}`, transport: "video" }),
@@ -22,7 +26,11 @@ export function PlaybackFixture({ eventId, twitch }: { eventId: string; twitch: 
     <VrcdnStreamPlayer initialMuted src="/preview.live.ts" title="Preview" />
     <VrcdnStreamPlayer src="/profile.live.ts" title="Profile" />
     <button onClick={()=>setOperatorPreview(true)}>Operator preview</button>
-    {operatorPreview?<EventOperatorPreview source={{input:{kind:"twitch",channel:"preview"},publicUrl:"https://www.twitch.tv/preview",label:"Operator preview"}} onClose={()=>setOperatorPreview(false)}/>:null}
+    {operatorPreview ? <>
+      <button onClick={() => setPreviewSource(current => ({ ...current, label: "Renamed preview" }))}>Rename preview</button>
+      <button onClick={() => setPreviewSource(current => ({ ...current, input: { kind: "twitch", channel: "replacement" }, publicUrl: "https://www.twitch.tv/replacement" }))}>Replace preview</button>
+      <EventOperatorPreview source={previewSource} onClose={() => setOperatorPreview(false)} />
+    </> : null}
     {owner && <EventPlaybackInline owner={owner} request={request} />}
   </main>;
 }

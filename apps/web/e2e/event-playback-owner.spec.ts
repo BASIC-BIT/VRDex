@@ -93,15 +93,15 @@ test("explicit legacy/profile playback hands off both directions while browsing 
   await page.getByRole("button", { name: "Close event playback" }).click();
 });
 
-test('operator local preview is inert until Monitor acquires audio, and close retains paused program @fixture',async({page},info)=>{
+test('operator preview retains rename ownership, gates replacements until Monitor, and close retains paused program @fixture',async({page},info)=>{
  await page.route('**/retained-test.wav?*',route=>route.fulfill({contentType:'audio/wav',body:wave()}));
  await page.route('https://player.twitch.tv/js/embed/v1.js',route=>route.fulfill({contentType:'application/javascript',body:`
  window.previewCalls=[];
  class Player {
-  constructor(mount,options){this.handlers={};window.previewCalls.push('initial:'+options.muted);const frame=document.createElement('iframe');frame.width='400';frame.height='300';frame.srcdoc='<button>Provider control</button>';mount.append(frame);setTimeout(()=>this.emit('ready'),0);}
+  constructor(mount,options){this.handlers={};window.previewMuted=options.muted;window.previewCalls.push('initial:'+options.muted);const frame=document.createElement('iframe');frame.width='400';frame.height='300';frame.srcdoc='<button>Provider control</button>';mount.append(frame);setTimeout(()=>this.emit('ready'),0);}
   addEventListener(event,callback){this.handlers[event]=callback;}removeEventListener(event){delete this.handlers[event];}emit(event){this.handlers[event]?.();}
   play(){window.previewCalls.push('play');this.emit('playing');}pause(){window.previewCalls.push('pause');}
-  setMuted(value){window.previewCalls.push('muted:'+value);if(!value)window.programPausedAtUnmute=document.querySelector('[data-event-playback-mount] video')?.paused;}
+  setMuted(value){window.previewMuted=value;window.previewCalls.push('muted:'+value);if(!value)window.programPausedAtUnmute=document.querySelector('[data-event-playback-mount] video')?.paused;}
   setVolume(){}
  }
  Object.assign(Player,{READY:'ready',PLAYING:'playing',PAUSE:'pause',OFFLINE:'offline',PLAYBACK_BLOCKED:'blocked'});window.Twitch={Player};
@@ -112,7 +112,7 @@ test('operator local preview is inert until Monitor acquires audio, and close re
  await expect.poll(()=>program.evaluate(node=>(node as HTMLVideoElement).paused)).toBe(false);
  const original=await program.elementHandle();
  await page.getByRole('button',{name:'Operator preview',exact:true}).click();
- const preview=page.getByRole('region',{name:'Preview Operator preview'});
+ const preview=page.getByRole('region',{name:/^Preview (Operator preview|Renamed preview)$/});
  await preview.scrollIntoViewIfNeeded();
  const availableWidth=await preview.locator('[aria-label="Local preview player"]').evaluate(node=>node.getBoundingClientRect().width);
  if(availableWidth<400){
@@ -133,6 +133,37 @@ test('operator local preview is inert until Monitor acquires audio, and close re
   expect(await page.evaluate(()=>(window as unknown as {programPausedAtUnmute:boolean}).programPausedAtUnmute)).toBe(true);
   await expect(preview.locator('[aria-label="Local preview player"]')).not.toHaveAttribute('inert','');
   await page.screenshot({path:info.outputPath('task8-preview-monitor.png')});
+  const monitoredFrame = await preview.locator('iframe').elementHandle();
+  const callsBeforeRename = await page.evaluate(() => (window as unknown as { previewCalls: string[] }).previewCalls);
+  await page.getByRole('button', { name: 'Rename preview', exact: true }).click();
+  await expect(preview.getByRole('heading', { name: 'Renamed preview', exact: true })).toBeVisible();
+  expect(await preview.locator('iframe').evaluate((node, previous) => node === previous, monitoredFrame)).toBe(true);
+  expect(await page.evaluate(() => (window as unknown as { previewCalls: string[] }).previewCalls)).toEqual(callsBeforeRename);
+  await page.getByRole('group', { name: 'Event a controls' }).getByRole('button', { name: 'Play', exact: true }).click();
+  await expect(preview.locator('iframe')).toHaveCount(0);
+  await expect(preview.locator('[aria-label="Local preview player"]')).toHaveAttribute('inert', '');
+  await preview.getByRole('button', { name: 'Monitor', exact: true }).click();
+  await expect(preview.locator('iframe')).toBeVisible();
+  expect(await page.evaluate(() => (window as unknown as { programPausedAtUnmute: boolean }).programPausedAtUnmute)).toBe(true);
+  const callsBeforeReplace = await page.evaluate(() => (window as unknown as { previewCalls: string[] }).previewCalls.filter(call => call === 'muted:false').length);
+  await page.getByRole('button', { name: 'Replace preview', exact: true }).click();
+  await expect(preview.locator('iframe')).toBeVisible();
+  const playerMount = preview.locator('[aria-label="Local preview player"]');
+  await expect(playerMount).toHaveAttribute('inert', '');
+  await expect(playerMount).toHaveCSS('pointer-events', 'none');
+  expect(await page.evaluate(() => (window as unknown as { previewMuted: boolean }).previewMuted)).toBe(true);
+  expect(await page.evaluate(() => (window as unknown as { previewCalls: string[] }).previewCalls.filter(call => call === 'muted:false').length)).toBe(callsBeforeReplace);
+  await preview.getByRole('button', { name: 'Monitor', exact: true }).focus();
+  await page.keyboard.press('Tab');
+  await expect(preview.getByRole('button', { name: 'Close preview', exact: true })).toBeFocused();
+  await page.keyboard.press('Tab');
+  expect(await page.evaluate(() => document.activeElement?.tagName)).not.toBe('IFRAME');
+  await page.getByRole('group', { name: 'Event a controls' }).getByRole('button', { name: 'Play', exact: true }).click();
+  await expect.poll(() => program.evaluate(node => (node as HTMLVideoElement).paused)).toBe(false);
+  await expect(preview.locator('iframe')).toBeVisible();
+  expect(await page.evaluate(() => (window as unknown as { previewMuted: boolean }).previewMuted)).toBe(true);
+  await preview.getByRole('button', { name: 'Monitor', exact: true }).click();
+  expect(await page.evaluate(() => (window as unknown as { programPausedAtUnmute: boolean }).programPausedAtUnmute)).toBe(true);
   const viewport=page.viewportSize()!;
   await page.setViewportSize({width:399,height:viewport.height});
   await expect(preview.locator('iframe')).toHaveCount(0);

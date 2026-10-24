@@ -10,6 +10,12 @@ export type PreviewSource = Pick<
   OperatorSource,
   "input" | "publicUrl" | "label"
 >;
+type PreviewState = {
+  handle: LocalPreviewPlayer;
+  sourceKey: string;
+  monitoring: boolean;
+  failed: boolean;
+};
 export function EventOperatorPreview({
   source,
   onClose,
@@ -18,15 +24,18 @@ export function EventOperatorPreview({
   onClose: () => void;
 }) {
   const mount = useRef<HTMLDivElement>(null),
-    player = useRef<LocalPreviewPlayer | undefined>(undefined);
-  const [monitoring, setMonitoring] = useState(false),
-    [available, setAvailable] = useState(false),
-    [failed, setFailed] = useState(false);
+    player = useRef<LocalPreviewPlayer | undefined>(undefined),
+    currentRequest = useRef<PlaybackRequest | undefined>(undefined);
+  const [view, setView] = useState<PreviewState | undefined>(undefined);
   const input = source.input,
     url = source.publicUrl,
     label = source.label;
   const kind = input?.kind,
     name = input?.kind === "twitch" ? input.channel : input?.streamId;
+  const sourceKey = `${kind}:${name}:${url}`;
+  const available = view?.sourceKey === sourceKey;
+  const monitoring = available && view.monitoring;
+  const failed = available && view.failed;
   useEffect(() => {
     const element = mount.current;
     if (!element || !kind || !name || !url) return;
@@ -37,7 +46,7 @@ export function EventOperatorPreview({
       eventId: "local-preview",
       eventSlug: "local-preview",
       href: url,
-      title: label,
+      title: name,
       startAt: 0,
       sourceId: `${kind}:${name}`,
     };
@@ -53,6 +62,21 @@ export function EventOperatorPreview({
               transport: "mpegts",
             }
           : undefined;
+    currentRequest.current = request;
+    function blockInteraction() {
+      // React may batch state updates. Fence the existing iframe synchronously
+      // before releasing ownership or constructing a replacement adapter.
+      element!.inert = true;
+      element!.style.pointerEvents = "none";
+    }
+    function closeHandle() {
+      blockInteraction();
+      const previous = handle;
+      handle = undefined;
+      player.current = undefined;
+      setView(undefined);
+      previous?.close();
+    }
     function measure() {
       if (disposed) return;
       const rect = element!.getBoundingClientRect();
@@ -64,26 +88,40 @@ export function EventOperatorPreview({
           rect.bottom <= window.innerHeight &&
           rect.left >= 0 &&
           rect.right <= window.innerWidth);
-      setAvailable(fits && Boolean(request));
       if (!fits || !request) {
-        handle?.close();
-        handle = undefined;
-        player.current = undefined;
-        setMonitoring(false);
+        closeHandle();
         return;
       }
       if (handle) return;
-      handle = new LocalPreviewPlayer(
-        () =>
-          createEventPlaybackAdapter(request, element!, (patch) => {
-            if (!disposed && patch.status === "unavailable") setFailed(true);
-          }),
+      blockInteraction();
+      let adapterGeneration = 0;
+      const candidate = new LocalPreviewPlayer(
         () => {
-          if (!disposed) setMonitoring(false);
+          const generation = ++adapterGeneration;
+          return createEventPlaybackAdapter(currentRequest.current!, element!, (patch) => {
+            if (disposed || player.current !== candidate || generation !== adapterGeneration) return;
+            if (patch.status === "unavailable" || patch.status === "playing") {
+              setView(current => current?.handle === candidate
+                ? { ...current, failed: patch.status === "unavailable" }
+                : current);
+            }
+          });
+        },
+        () => {
+          adapterGeneration++;
+          if (disposed || player.current !== candidate) return;
+          blockInteraction();
+          setView(current => current?.handle === candidate
+            ? { ...current, monitoring: false }
+            : current);
         },
       );
-      player.current = handle;
-      if (!handle.start()) setFailed(true);
+      handle = candidate;
+      player.current = candidate;
+      setView({ handle: candidate, sourceKey, monitoring: false, failed: false });
+      if (!candidate.start()) {
+        setView(current => current?.handle === candidate ? { ...current, failed: true } : current);
+      }
     }
     measure();
     const resize = new ResizeObserver(measure);
@@ -95,9 +133,14 @@ export function EventOperatorPreview({
       resize.disconnect();
       window.removeEventListener("resize", measure);
       window.removeEventListener("scroll", measure, true);
-      handle?.close();
-      player.current = undefined;
+      closeHandle();
+      currentRequest.current = undefined;
     };
+  }, [kind, name, url, sourceKey]);
+  useEffect(() => {
+    if (!currentRequest.current) return;
+    currentRequest.current = { ...currentRequest.current, title: label };
+    player.current?.update(currentRequest.current);
   }, [kind, name, url, label]);
   return (
     <section
@@ -112,9 +155,12 @@ export function EventOperatorPreview({
             variant="secondary"
             disabled={!available}
             onClick={() => {
-              const started = player.current?.monitor() ?? false;
-              setMonitoring(started);
-              setFailed(!started);
+              const candidate = player.current;
+              if (!candidate || view?.handle !== candidate || !available) return;
+              const started = candidate.monitor();
+              setView(current => current?.handle === candidate
+                ? { ...current, monitoring: started, failed: !started }
+                : current);
             }}
           >
             {monitoring ? "Monitoring" : "Monitor"}

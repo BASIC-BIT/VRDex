@@ -67,6 +67,12 @@ Preview owns a local adapter and foreground identity. It never calls the persist
 playback owner's Play or replaces its request. It starts muted. Monitor acquires
 foreground audio synchronously before unmuting, and focus loss disposes the local
 adapter. Close and navigation do not resume the program automatically.
+Monitoring and provider status belong to the current local handle. Label changes
+update metadata without replacing playback. Source or geometry replacements reset
+keyboard/pointer interactivity synchronously before creating a muted adapter; they
+require their own Monitor acquisition. Notifications from stopped or replaced
+adapters cannot change the current handle's state, and current successful playback
+clears an earlier Unavailable status.
 
 Twitch preview uses the official SDK, passes initial muted state into construction,
 and fences late SDK/READY callbacks after disposal. Its mount is inert to keyboard
