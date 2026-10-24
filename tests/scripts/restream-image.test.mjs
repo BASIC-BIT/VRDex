@@ -105,7 +105,7 @@ function fakeDockerWrapper(directory, options) {
     const copy = options.badFile === file && options.badKind === 'copy-failure'
       ? 'exit 7'
       : `archive=${shellQuote(join(directory, 'archives', `${index}.tar`))}`;
-    return `  ${shellQuote(source)}) printf '%s\\n' ${shellQuote(ledger)} >> "$FIXTURE/calls.jsonl"; ${copy} ;;`;
+    return `  ${shellQuote(source)}) printf '%s\\n' ${shellQuote(ledger)} >> "$FIXTURE/calls.jsonl" || exit 1; ${copy} ;;`;
   }).join('\n');
   return `#!/bin/sh\nif [ "$1" = cp ]; then\n  [ "$#" -eq 3 ] && [ "$3" = - ] && [ -f "$FIXTURE/container" ] || exit 1\n  case "$2" in\n${copyCases}\n    *) echo 'invalid stopped-container copy' >&2; exit 1 ;;\n  esac\n  [ -f "$archive" ] || exit 1\n  exec cat "$archive"\nfi\nexec '${process.execPath}' '${directory}/fake-cli.mjs' docker "$@"\n`;
 }
