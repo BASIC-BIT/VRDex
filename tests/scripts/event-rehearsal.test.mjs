@@ -201,11 +201,39 @@ test('image workflow stays manual, main-bound, immutable and image-only', async 
  assert.ok(!/aws\s+(ecs|iam|ssm|secretsmanager|s3)\s/.test(source));
  const dockerfile = await readFile('workers/restream/Dockerfile', 'utf8');
  const installer = await readFile('workers/restream/install_twitch.py','utf8');
+ const manifest = JSON.parse(await readFile('workers/restream/packaging-manifest.json', 'utf8'));
  assert.ok(dockerfile.includes('install_twitch.py'));
- for(const name of ['event-output-local-proof.mjs','event-proof-metrics.mjs','event-vrcdn-rehearsal.mjs','event-proof-runner.mjs','event-proof-fixtures.mjs','event-command-local-proof.mjs','event-silence-local-proof.mjs'])assert.ok(installer.includes(`"${name}"`));
- assert.ok(installer.includes('"*.mjs"'));
- assert.ok(installer.includes('"broadcast-capacity.mjs"'));
+ for (const path of [
+  'scripts/event-output-local-proof.mjs',
+  'scripts/event-proof-metrics.mjs',
+  'scripts/event-vrcdn-rehearsal.mjs',
+  'scripts/event-proof-runner.mjs',
+  'scripts/event-proof-fixtures.mjs',
+  'scripts/event-command-local-proof.mjs',
+  'scripts/event-silence-local-proof.mjs',
+ ]) assert.ok(manifest.includes(path), `${path} must be packaged`);
+ assert.equal(new Set(manifest).size, manifest.length, 'package paths must be unique');
+ assert.ok(manifest.every(path => !/[*?\[\]]/.test(path)), 'package paths must be explicit');
+ assert.ok(!manifest.includes('workers/restream/broadcast-capacity.mjs'), 'production allocation map must stay outside the image');
+ assert.ok(installer.includes('worker / "packaging-manifest.json"'));
+ assert.ok(installer.includes('files = [source / name for name in paths]'));
+ assert.ok(installer.includes('"broadcast-capacity.mjs" == Path(name).name and name.startswith("workers/")'));
  assert.ok(dockerfile.includes('CMD ["node", "workers/restream/hosted-worker.mjs"]'));
+});
+test('API and MCP verification installs FFmpeg before full script coverage', async () => {
+ const { parse } = await import('yaml');
+ const workflow = parse(await readFile('.github/workflows/baseline-checks.yml', 'utf8'));
+ const steps = workflow.jobs['verify-api-mcp'].steps;
+ const install = steps.findIndex(step => step.name === 'Install script media test prerequisites');
+ const verify = steps.findIndex(step => step.name === 'Run MCP package verification');
+ assert.ok(install >= 0 && install < verify, 'FFmpeg must be installed before MCP verification');
+ assert.equal(steps[install]['timeout-minutes'], 5);
+ assert.match(steps[install].run, /\/etc\/apt\/apt-mirrors\.txt/);
+ assert.match(steps[install].run, /sudo sed -i '[^']*azure[^']*\/d' \/etc\/apt\/apt-mirrors\.txt/);
+ assert.match(steps[install].run, /sudo apt-get update/);
+ assert.match(steps[install].run, /sudo apt-get install --no-install-recommends --yes ffmpeg/);
+ assert.match(steps[install].run, /ffmpeg -version/);
+ assert.equal(steps[verify].run, 'pnpm verify:vrdex-mcp');
 });
 test('rehearsal IAM resources are opt-in, standalone, exact and additive', async () => {
  const worker = await readFile('infra/terraform/restream-worker/rehearsal.tf', 'utf8');

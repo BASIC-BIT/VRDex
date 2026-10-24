@@ -107,6 +107,17 @@ jobs:
       - name: Run API contract verification
         run: pnpm verify:api-contracts
 
+      - name: Install script media test prerequisites
+        timeout-minutes: 5
+        run: |
+          # Keep the runner's official HTTPS fallbacks; Azure HTTP downloads can crawl.
+          if [[ -f /etc/apt/apt-mirrors.txt ]]; then
+            sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt
+          fi
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes ffmpeg
+          ffmpeg -version
+
       - name: Run MCP package verification
         run: pnpm verify:vrdex-mcp
 
