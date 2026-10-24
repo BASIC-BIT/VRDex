@@ -274,3 +274,15 @@ On-Demand dispatch provenance. They exclude transfer, IPv4, logs, extra storage,
 provider subscriptions, taxes and discounts. No new frontend poll, resource RPC,
 provider request or resource control is introduced. See
 [diagnostics contracts and actual-image verification](../../docs/engineering/event-broadcast-resources.md).
+
+## Protocol migration rehearsal
+
+The branch supplies a local-only database rehearsal through
+`scripts/event-broadcast-migration-rehearsal.ts`. Follow the
+[bounded bootstrap, migration and cleanup procedure](../../docs/engineering/event-broadcast-rehearsal.md#october-24-2026-task-9-source-prerequisites).
+It calls actual handlers and preserves admission from the measured map. Historical
+fixture sessions cannot establish worker dispatch or physical sender termination.
+Final-image capacity, counter-failure media, browser/audio and provider/device
+acceptance remain open. Preset/audio changes apply only to the next session;
+legacy defaults remain 720p30/160-kbps AAC, new program audio is 320 kbps, and
+Twitch output audio remains 160 kbps, stereo at 48 kHz.

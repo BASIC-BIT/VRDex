@@ -759,3 +759,97 @@ with refreshed credentials, the complete two-account rehearsal, two independent
 DJ sources, real Convex authority, live Twitch, musical-silence calibration,
 physical PC/Quest playback and multi-hour capacity remain open. The plan is not
 fully accepted and ordinary hosted output remains disabled.
+
+## October 24, 2026: Task 9 source prerequisites
+
+Status: source preparation only. Actual local Convex migration, protocol lifecycle,
+final-image media, capacity, browser/audio and owned-provider acceptance remain
+open. In-memory schema/handler tests cannot close those gates or the existing
+physical PC/Quest gaps. No temporary provider task or paid operation belongs to
+this source-only step (USD 0).
+
+The import-safe driver is `scripts/event-broadcast-migration-rehearsal.ts`; its
+internal fixture is `convex/localEventBroadcastRehearsal.ts`. The new manifest
+stores exact run ownership and historical IDs, never secrets or allocation
+substitutes. The table is empty in production. All four fixture RPCs require a
+loopback deployment and a short run ID. They expose seed, fixed scenarios,
+bounded inspection and owned cleanup. The driver uses `ConvexHttpClient` with
+separate admin and acting-owner clients, then calls the production migration,
+`events` and `eventMediaWorker` functions. No alternate admission implementation
+is provided.
+
+ROOT execution procedure (not executed by the source author):
+
+1. Read the [cloud startup guide](./cloud-task-start.md), establish a fresh isolated
+   anonymous local state directory and ports, and generate schema/functions from
+   the final source. Keep it separate from the browser backend. No hosted binding,
+   real account registry, dispatcher, media worker or cloud credentials belong in
+   this database rehearsal. Existing `convex/crons.ts` has no event-media launch
+   cron; ROOT must also verify no external bridge targets this deployment.
+2. Supply `REHEARSAL_CONVEX_URL` (an explicit loopback HTTP origin),
+   `REHEARSAL_CONVEX_ADMIN_KEY` (local admin credential), `REHEARSAL_RUN_ID`
+   (1–32 lowercase letters/digits/hyphens, first character alphanumeric),
+   `REHEARSAL_SOURCE_SHA` (the exact 40-character source commit),
+   `CONVEX_LOCAL_BACKEND_VERSION`, and a unique `REHEARSAL_RECEIPT_PATH`.
+   Invoke `node --import tsx scripts/event-broadcast-migration-rehearsal.ts seed`.
+   This bounded bootstrap intentionally retains the owned seed for local binding.
+3. From the seed receipt's `manifest.communityId`, ROOT provisions **only this
+   isolated local backend's** `VRDEX_VRCDN_OUTPUT_ACCOUNTS_JSON` with one entry:
+   `key: "local-rehearsal"`, `label: "Local rehearsal"`,
+   `credentialRef: "local-rehearsal/output"`, `ownerCommunityProfileId` equal to
+   that ID, and `playbackLinks: []`. This is a fake registry reference; no provider
+   secret is provisioned. Supply a temporary local
+   `VRDEX_EVENT_MEDIA_BRIDGE_TOKEN`, with the same value in the caller's
+   `REHEARSAL_BRIDGE_TOKEN`. Keep admin and bridge values out of command logs.
+   The driver never sets deployment environment variables.
+4. After accepted real capacity evidence populates the production map, choose a
+   new receipt path and invoke
+   `node --import tsx scripts/event-broadcast-migration-rehearsal.ts run`.
+   It reuses the same owned seed idempotently. Before the whole-table migration,
+   it requires the complete sources/sessions/commands inventory to match the
+   historical manifest; unrelated broadcast rows fail the run. Each migration
+   page independently enforces production quiescence.
+5. Retain the receipt and native process exit even on failure. `run` always
+   attempts owned cleanup in `finally`; a failed assertion/timeout/cleanup is a
+   failed rehearsal. For interrupted bootstrap or recovery, invoke the same
+   driver with `cleanup`. ROOT independently verifies the remaining manifest,
+   stops its backend, and removes the isolated state and temporary local bindings.
+   A disposable state directory supplements ownership checks; it does not replace
+   them. No production registry entry, grant or secret is overwritten.
+
+The caller budget is 180 seconds plus up to 30 seconds for cleanup, with a
+10-second per-call bound, at most 256 migration calls and a 512-KiB receipt cap.
+There are no real-time sleeps. Lease and receipt expiry scenarios patch only the
+current owned session/receipt through closed fixture actions. Receipts retain
+source/backend pins, fixed scenario labels, migration request/response cursors,
+nonsecret semantic snapshots and cleanup counts. Native backend version/cache
+selection must also be independently recorded; the supplied pin is not proof
+that a binary ran.
+
+Historical coverage includes all six open statuses without an active pointer,
+unconfirmed dispatch and queued/running/failed/unnamed legacy task ownership,
+confirmed stop, and a blocker introduced between pages. Batch size is one; every
+page is replayed and a full second traversal must be semantically unchanged.
+Recoverable manual revision one and observed revision two remain pinned;
+ambiguous, stale, disabled, removed/hidden-link, hidden-profile, missing and
+foreign sources become slate. The internal compatibility row is
+`type: rtmp_source` with a canonical public VRCDN `.live.ts` URL and no canonical
+`input`; it retains manual history without inventing a provider identity. This
+matches `_eventBroadcastSources.ts`'s deployment-owned descriptor path and
+`tests/backend/event-broadcast-sources.test.ts`'s guarded-relay compatibility
+coverage. An initial noncanonical fixture URL was narrowed to that approved
+shape during source review. No relay is started by these tests.
+
+After historical migration, the real scheduling path must admit new protocol-2
+sessions with automatic intent and sequence zero; omitted/0/1/3 worker versions
+must fail, and historical controls must never attach. Subsequent scenarios cover
+manual intent after replacement, promoting phase/target/original expiry across
+replacement, coherent completion within the original budget, expired receipt
+failure, Stop before/after Cut, and disabled or unauthorized destination fences
+for late completion/observation. The unauthorized case changes only the owned
+output's reference to a fixed **unbound** registry reference; it tests registry
+lookup denial, not deployment-environment editing. Renewal/configuration are
+asserted according to their actual response shapes: Stop retains its bounded
+cleanup grace, disabled output disappears from configuration, and a missing
+registry grant denies authority. Real sender-process cessation and provider Stop
+confirmation remain independent final-image gates.

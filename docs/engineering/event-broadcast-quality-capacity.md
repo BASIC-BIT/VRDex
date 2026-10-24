@@ -408,3 +408,17 @@ actual image. The existing131-case gate remains required. The separate79,996-cas
 qualification and all affected capacity proofs remain open. See
 [source marker qualification](./source-marker-qualification.md) for contracts,
 preserved counterexamples, fixed execution bounds and root-owned acceptance.
+
+## October 24 Task 9 source status
+
+The local migration fixture/driver and CLI pin forwarding are source prerequisites,
+not capacity receipts. The production measured map remains empty. All 24 matrix
+outcomes, both audio rates, destination modes, final-image inventory, immutable
+image/source pins, controller cleanup receipts, the 131-outcome deterministic
+gate and separate 79,996-case source-marker qualification still require actual
+accepted evidence. The earlier 47-file baseline and later 85-file candidate
+counts above describe their dated source/image states. The current checked-in
+manifest has 87 source entries after Task 7; that static count is not a final-image
+inventory claim. ROOT must reconcile the completed manifest with actual image
+bytes and the accepted map before recording deployment readiness. Task 9 changes
+no worker runtime, proof package or capacity-map bytes.

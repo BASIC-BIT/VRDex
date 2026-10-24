@@ -1490,6 +1490,15 @@ export default defineSchema({
     .index("by_candidateId_reviewState", ["candidateId", "reviewState"])
     .index("by_candidateId_visibility", ["candidateId", "visibility"])
     .index("by_fieldKey_reviewState", ["fieldKey", "reviewState"]),
+  // Local-only rehearsal ownership. No public API writes this manifest.
+  localEventBroadcastRehearsals: defineTable({
+    runId: v.string(), userId: v.id("users"), ownerId: v.id("profileOwners"),
+    communityId: v.id("profiles"), eventId: v.id("events"), programId: v.id("eventMediaPrograms"),
+    profileIds: v.array(v.id("profiles")), slotIds: v.array(v.id("eventSlots")),
+    sources: v.array(v.object({case: v.string(), id: v.id("eventMediaSources")})),
+    sessions: v.array(v.object({case: v.string(), id: v.id("eventMediaSessions")})),
+    commands: v.array(v.object({case: v.string(), id: v.id("eventMediaCommands")})),
+  }).index("by_runId", ["runId"]),
   eventMediaPrograms: defineTable({
     mediaSettings: v.optional(mediaSettingsValidator),
     broadcastPolicy: v.optional(v.object({maxOverrunMs:v.optional(v.number()),silence:v.optional(v.object({thresholdDb:v.number(),durationMs:v.number()}))})),

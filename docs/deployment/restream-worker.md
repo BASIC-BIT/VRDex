@@ -931,9 +931,9 @@ regressing output progress, conflicting equal-watermark identity and inconsisten
 target evidence cannot update publication observations. Exact completion retries
 are read-only. Fallback observations do not erase durable manual intent.
 
-The existing worker has a protocol adapter for these transactions. The complete
-nonblocking acquisition/controller work remains required before feature rollout;
-this adapter alone does not establish Cut latency during blocked acquisition.
+The branch implements the protocol adapter and nonblocking acquisition/controller.
+Final reviewed-image proof of Cut latency during blocked acquisition, sender
+termination and measured capacity remains required before feature rollout.
 
 `eventMediaWorker.observeOutputs` persists only bounded numeric health and fixed
 statuses under the same session/epoch/lease fence. Authenticated
@@ -1350,3 +1350,20 @@ for four vCPUs/eight GiB and USD 0.39496/hour for eight vCPUs/sixteen GiB. Estim
 exclude transfer, IPv4, logs, extra storage, provider subscriptions, taxes and
 discounts. See [the diagnostics contract](../engineering/event-broadcast-resources.md)
 for source rates, provenance, failure behavior and the pending final-image proof.
+
+## October 24 Task 9 rollout readiness
+
+Source plumbing is available; actual whole-flow acceptance remains open. Run the
+[isolated migration rehearsal](../engineering/event-broadcast-rehearsal.md#october-24-2026-task-9-source-prerequisites)
+after accepted capacity receipts populate the measured map. Its internal fixture
+module and manifest require canonical Convex generation. Never populate admission
+from historical fixture inserts or in-memory test allocations.
+
+Hold starts and confirm all provider tasks stopped before deploying protocol 2 or
+running the production whole-table backfill. Preserve account grants, credential
+definitions, emergency SSM state, fenced-v1 dispatcher lifecycle and concurrency
+cap. Each migration page checks open sessions and unconfirmed provider ownership.
+New settings apply to the next session; do not restart or resize an on-air worker.
+The DB rehearsal proves authority denial, while final-image evidence must prove
+actual sender-process cessation. Deployment stays blocked until those distinct
+gates and the remaining provider/browser evidence are accepted.
