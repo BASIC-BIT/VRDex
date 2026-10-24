@@ -5,7 +5,7 @@ function wave() {
   for (let i = 0; i < samples; i++) buffer.writeInt16LE(Math.round(Math.sin(i * Math.PI * 880 / 48000) * 1000), 44 + i * 2);
   return buffer;
 }
-test("retains the actual playing media node across route navigation and replaces only on Play @fixture", async ({ page }, testInfo) => {
+test("retains the actual playing media node across route navigation and replaces only on Play @flow @fixture", async ({ page }, testInfo) => {
   await page.route("**/retained-test.wav?*", route => route.fulfill({ contentType: "audio/wav", body: wave() }));
   await page.goto("/playwright/event-playback");
   await page.getByRole("button", { name: "Play Event a", exact: true }).click();
@@ -25,7 +25,7 @@ test("retains the actual playing media node across route navigation and replaces
   await page.getByRole("button", { name: "Close event playback" }).click(); await expect(video).toHaveCount(0);
 });
 
-test("visible Twitch SDK player handles blocked playback, real controls and iframe disposal @fixture", async ({ page }, testInfo) => {
+test("visible Twitch SDK player handles blocked playback, real controls and iframe disposal @flow @fixture", async ({ page }, testInfo) => {
   await page.route("https://player.twitch.tv/js/embed/v1.js", route => route.fulfill({ contentType: "application/javascript", body: `
     window.sdkCalls = []; window.sdkLoads = (window.sdkLoads || 0) + 1;
     class Player {
@@ -60,7 +60,7 @@ test("visible Twitch SDK player handles blocked playback, real controls and ifra
   await page.getByRole("button", { name: "Close event playback" }).click(); await expect(frame).toHaveCount(0);
 });
 
-test("explicit legacy/profile playback hands off both directions while browsing stays passive @fixture", async ({ page }) => {
+test("explicit legacy/profile playback hands off both directions while browsing stays passive @flow @fixture", async ({ page }) => {
   await page.route("**/retained-test.wav?*", route => route.fulfill({ contentType: "audio/wav", body: wave() }));
   await page.route("**/profile.live.ts", () => {});
   await page.route("**/preview.live.ts", () => {});
@@ -93,7 +93,7 @@ test("explicit legacy/profile playback hands off both directions while browsing 
   await page.getByRole("button", { name: "Close event playback" }).click();
 });
 
-test('operator preview retains rename ownership, gates replacements until Monitor, and close retains paused program @fixture',async({page},info)=>{
+test('operator preview retains rename ownership, gates replacements until Monitor, and close retains paused program @flow @fixture',async({page},info)=>{
  await page.route('**/retained-test.wav?*',route=>route.fulfill({contentType:'audio/wav',body:wave()}));
  await page.route('https://player.twitch.tv/js/embed/v1.js',route=>route.fulfill({contentType:'application/javascript',body:`
  window.previewCalls=[];
@@ -115,6 +115,8 @@ test('operator preview retains rename ownership, gates replacements until Monito
  const preview=page.getByRole('region',{name:/^Preview (Operator preview|Renamed preview)$/});
  await preview.scrollIntoViewIfNeeded();
  const availableWidth=await preview.locator('[aria-label="Local preview player"]').evaluate(node=>node.getBoundingClientRect().width);
+ if(info.project.name==='desktop-chromium')
+  expect(availableWidth, 'Desktop preview must exercise Monitor, focus and replacement assertions').toBeGreaterThanOrEqual(400);
  if(availableWidth<400){
   await expect(preview.getByRole('link',{name:'Open',exact:true})).toBeVisible();
   await expect(preview.locator('iframe')).toHaveCount(0);
@@ -186,7 +188,7 @@ test('operator preview retains rename ownership, gates replacements until Monito
  expect(await program.evaluate((node,old)=>node===old,original)).toBe(true);
 });
 
-for(const width of [399,400])test(`operator Twitch fallback uses real available width at viewport ${width} @fixture`,async({page},info)=>{
+for(const width of [399,400])test(`operator Twitch fallback uses real available width at viewport ${width} @flow @fixture`,async({page},info)=>{
  await page.setViewportSize({width,height:800});
  let sdkLoads=0;await page.route('https://player.twitch.tv/js/embed/v1.js',route=>{sdkLoads++;return route.abort();});
  await page.goto('/playwright/event-playback');

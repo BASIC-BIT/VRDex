@@ -51,9 +51,12 @@ describe("API platform review boundaries", () => {
 
   it("authorizes normal event sessions through durable profile ownership", () => {
     const events = source("convex/events.ts");
+    const broadcastAuthority = source("convex/_eventBroadcastAuthority.ts");
 
     assert.match(events, /canUpdateEvent\([\s\S]*userOwnsProfile\(db, event\.communityProfileId, userId\)/);
-    assert.match(events, /canManageEventMedia\([\s\S]*userOwnsProfile\(db, event\.communityProfileId, userId\)/);
+    assert.match(events, /import\s*\{[^}]*\bcanManageEventMedia\b[^}]*\}\s*from\s*"\.\/_eventBroadcastAuthority"/);
+    assert.match(broadcastAuthority, /canManageEventMedia\([\s\S]*userOwnsProfile\(db, event\.communityProfileId, userId\)/);
+    assert.match(events, /canManageEventMedia\(ctx\.db, event, subject, \(await requireUser\(ctx\)\)\.userId\)/);
     assert.match(events, /canViewEventOperations\([\s\S]*userOwnsProfile\(db, event\.communityProfileId, userId\)/);
     assert.match(events, /canUpdateEvent\(ctx\.db, event, subject, userId\)/);
   });

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { devices, expect, test } from "@playwright/test";
 // Fixture controls never initiate live provider probes.
 test.beforeEach(async ({page})=>{await page.route('**/operate/status?*',route=>route.fulfill({json:{}}));});
 test("anonymous operator route requires sign-in before private payload @flow @fixture", async ({
@@ -377,6 +377,52 @@ test("custom replacement preserves source identity and active settings stay sepa
  await expect(page.getByText('Active',{exact:true}).first().locator('..')).toContainText('720p30');
  await expect(page.getByText('Next start',{exact:true}).locator('..')).toContainText('1080p60');
  await page.getByTestId('event-operator-controls').screenshot({path:info.outputPath('task8-custom-settings.png')});
+});
+
+test.describe("Pixel 7 operator console", () => {
+  const { defaultBrowserType, ...mobile } = devices["Pixel 7"];
+  // Keep the project's browser worker; pass the device screen through contextOptions.
+  test.use({ ...mobile, contextOptions: mobile });
+
+  test("mobile preparation controls, diagnostics and next-start settings @flow @fixture", async ({ page }, info) => {
+    info.annotations.push({
+      type: "device-emulation",
+      description: `Pixel 7 (${defaultBrowserType}) in ${info.project.name}; viewport ${mobile.viewport.width}x${mobile.viewport.height}; mobile/touch context, not a physical device`,
+    });
+    await page.goto("/playwright/event-operator");
+    await page.getByRole("button", { name: "Observe live", exact: true }).click();
+    await page.getByRole("button", { name: "Hold preparation", exact: true }).click();
+    await page.getByRole("button", { name: "Take Custom", exact: true }).click();
+    const controls = page.getByTestId("event-operator-controls");
+    const cancel = page.getByRole("group", { name: "Preparation", exact: true })
+      .getByRole("button", { name: "Cancel", exact: true });
+    await expect(page.getByText("Preparing", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Cut to slate", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Cut to slate", exact: true })).toBeEnabled();
+    await expect(cancel).toBeVisible();
+    await expect(cancel).toBeEnabled();
+    const diagnostics = page.getByText("Diagnostics", { exact: true });
+    await expect(diagnostics).toBeVisible();
+    await expect(diagnostics).toBeEnabled();
+    await diagnostics.click();
+    await expect(page.getByText("CPU", { exact: true })).toBeVisible();
+    await expect(page.getByText("Memory", { exact: true })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await controls.screenshot({ path: info.outputPath("task8-operator-mobile-preparing.png") });
+
+    await cancel.click();
+    await expect(page.getByText(/^(Command pending|Preparing|Promoting)$/)).toHaveCount(0);
+    await expect(page.getByText("Observed output", { exact: true }).locator("..")).toContainText("Aurora");
+    await page.getByLabel("Resolution", { exact: true }).selectOption("1080");
+    await page.getByLabel("Frame rate", { exact: true }).selectOption("60");
+    await page.getByLabel("Audio bitrate", { exact: true }).selectOption("320");
+    await page.getByRole("button", { name: "Save settings", exact: true }).click();
+    await expect(page.getByText("Active", { exact: true }).first().locator("..")).toContainText("720p30 · 160 kbps");
+    await expect(page.getByText("Next start", { exact: true }).locator("..")).toContainText("1080p60 · 320 kbps");
+    await expect(page.getByText("CPU", { exact: true })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: info.outputPath("task8-operator-mobile-settings.png"), fullPage: true });
+  });
 });
 
 test('editor broadcast inputs preserve legacy VRCDN selection through save, reload and reset @flow @fixture',async({page})=>{
