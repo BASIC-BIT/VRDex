@@ -14,9 +14,9 @@ const files = JSON.parse(await readFile('workers/restream/packaging-manifest.jso
 // Only Docker and AWS are faked. Bash, jq, file-type checks and sha256sum run on
 // the host, against real files copied from the requested-source fixture.
 const fakeCli = String.raw`
-import { appendFileSync, copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, lstatSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { basename, dirname, join } from 'node:path';
+import { join } from 'node:path';
 const [tool, ...args] = process.argv.slice(2), env = process.env;
 appendFileSync(join(env.FIXTURE, 'calls.jsonl'), JSON.stringify([tool, ...args]) + '\n');
 const option = name => args[args.indexOf(name) + 1];
@@ -34,25 +34,6 @@ if (tool === 'docker') {
   if (['login', 'build', 'pull', 'push'].includes(args[0])) finish();
   if (args[0] === 'image' && args[1] === 'inspect') finish(env.LABEL || env.RELEASE_SHA);
   if (args[0] === 'create') { writeFileSync(join(env.FIXTURE, 'container'), 'stopped'); finish('fixture-container'); }
-  if (args[0] === 'cp') {
-    const source = args[1].split(':/app/')[1], target = args[2];
-    if (!source || !existsSync(join(env.FIXTURE, 'container'))) throw Error('invalid stopped-container copy');
-    const badKind = env.BAD_FILE === source ? env.BAD_KIND : '';
-    if (target === '-') {
-      const result = spawnSync('python3', [join(env.FIXTURE, 'archive.py'), join(env.FIXTURE, 'image', source), badKind], { stdio: ['ignore', 1, 2] });
-      process.exit(result.status ?? 1);
-    }
-    mkdirSync(dirname(target), { recursive: true });
-    if (env.BAD_FILE === source && env.BAD_KIND === 'copy-failure') process.exit(7);
-    if (env.BAD_FILE === source && env.BAD_KIND === 'symlink') symlinkSync(join(env.FIXTURE, 'image', source), target);
-    else if (['directory', 'aggregate'].includes(badKind)) {
-      mkdirSync(target);
-      const count = badKind === 'aggregate' ? 110 : 1;
-      for (let index = 0; index < count; index++) writeFileSync(join(target, 'nested-' + index), Buffer.alloc(131072));
-    }
-    else copyFileSync(join(env.FIXTURE, 'image', source), target);
-    finish();
-  }
   if (args[0] === 'rm') {
     if (args.length !== 2 || args[1] !== 'fixture-container') throw Error('cleanup must remove only its own container');
     const snapshot = [];
@@ -81,8 +62,18 @@ throw Error('Unexpected CLI invocation: ' + JSON.stringify([tool, ...args]));
 `;
 
 const archiveFixture = String.raw`
-import io, os, pathlib, sys, tarfile
-source, kind = pathlib.Path(sys.argv[1]), sys.argv[2]
+import io, json, os, pathlib, sys, tarfile
+_, requested_source, target = sys.argv[1:]
+fixture = pathlib.Path(os.environ['FIXTURE'])
+with (fixture / 'calls.jsonl').open('a') as calls:
+    calls.write(json.dumps(['docker', *sys.argv[1:]], separators=(',', ':')) + '\n')
+source_name = requested_source.split(':/app/')[1] if ':/app/' in requested_source else ''
+if not source_name or not (fixture / 'container').exists():
+    raise RuntimeError('invalid stopped-container copy')
+if target != '-':
+    raise RuntimeError('copy fixture expects a tar stream')
+source = fixture / 'image' / source_name
+kind = os.environ['BAD_KIND'] if os.environ['BAD_FILE'] == source_name else ''
 if kind == 'copy-failure':
     sys.exit(7)
 with tarfile.open(fileobj=sys.stdout.buffer, mode='w|', format=tarfile.USTAR_FORMAT) as archive:
@@ -128,7 +119,9 @@ async function publish(options = {}) {
     await writeFile(join(directory, 'provenance/source-sha.txt'), `${sha}\n`);
     await writeFile(join(directory, 'fake-cli.mjs'), fakeCli);
     await writeFile(join(directory, 'archive.py'), archiveFixture);
-    for (const tool of ['docker', 'aws', 'rm']) await writeFile(join(directory, 'bin', tool), `#!/bin/sh\nexec '${process.execPath}' '${directory}/fake-cli.mjs' ${tool} "$@"\n`, { mode: 0o755 });
+    for (const tool of ['docker', 'aws', 'rm']) await writeFile(join(directory, 'bin', tool), tool === 'docker'
+      ? `#!/bin/sh\nif [ "$1" = cp ]; then exec python3 '${directory}/archive.py' "$@"; fi\nexec '${process.execPath}' '${directory}/fake-cli.mjs' docker "$@"\n`
+      : `#!/bin/sh\nexec '${process.execPath}' '${directory}/fake-cli.mjs' ${tool} "$@"\n`, { mode: 0o755 });
     const workflow = parse(await readFile('.github/workflows/restream-image.yml', 'utf8'));
     const step = workflow.jobs.image.steps.find(value => value.name === 'Build and publish immutable image');
     const result = spawnSync('bash', ['-c', step.run], {
