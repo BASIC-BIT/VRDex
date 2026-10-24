@@ -7,7 +7,7 @@ import {
 } from "./_eventMediaControl";
 export const twitchSetupValidator = v.object({
   channel: v.string(),
-  profile: v.literal("twitch-conservative-720p30"),
+  profile: v.union(v.literal("twitch-selected-video"), v.literal("twitch-conservative-720p30")),
   accountKey: v.optional(v.string()),
 });
 export const outputHealthValidator = v.object({
@@ -44,7 +44,7 @@ export function sanitizeTwitchOutput(
   return {
     ...common,
     type: "external_rtmp" as const,
-    twitchSetup: { channel, profile: "twitch-conservative-720p30" as const },
+    twitchSetup: { channel, profile: "twitch-selected-video" as const },
     simulcastEnabled: input.simulcastEnabled === true,
     playbackLinks: [
       {

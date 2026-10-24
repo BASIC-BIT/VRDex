@@ -1,0 +1,536 @@
+{
+  "schema": "source-marker-codec-execution-plan-v1-proposed",
+  "status": "design-only; execution structure pending root review; no codec results",
+  "designProposalSha256": "2f19405449d3fb0509ab8153cfdf56f917f4c8c9eccb30fb41b233c4cc5beef9",
+  "sourceRevisionAtPlan": "991b0d677a33a53bc2034ad3c4cae40391296019",
+  "runtimeRequired": {
+    "node": "22.23.4",
+    "ffmpeg": "5.1.9",
+    "audioSampleRate": 48000,
+    "audioChannels": 2,
+    "analysisSampleRate": 48000,
+    "analysisChannels": 1
+  },
+  "dimensions": {
+    "source": [
+      "a",
+      "b"
+    ],
+    "phase": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
+    "phaseMeaning": "index*pi/4 relative to original pulse onset",
+    "seed": [
+      42,
+      43
+    ],
+    "kbps": [
+      160,
+      320
+    ],
+    "path": [
+      "program",
+      "program_twitch"
+    ],
+    "offset": [
+      0,
+      1,
+      47,
+      48,
+      239,
+      479
+    ],
+    "placement": [
+      0,
+      1440,
+      3360
+    ],
+    "foreignMs": [
+      1,
+      2,
+      5,
+      10
+    ]
+  },
+  "carrier": {
+    "a": 700,
+    "b": 1300,
+    "amplitude": 0.65,
+    "noiseAmplitude": 0.12,
+    "pulseSamples": 4800,
+    "quarterAmplitude": 0.1625,
+    "mixtureSamples": 1440,
+    "sampleQuantization": "round(x*32768), clip to [-32768,32767]; never normalize mixed amplitude"
+  },
+  "families": [
+    {
+      "id": "q30",
+      "axes": {
+        "source": "source",
+        "placement": "placement",
+        "phase": "phase",
+        "foreignPhase": "phase",
+        "seed": "seed",
+        "kbps": "kbps",
+        "path": "path"
+      },
+      "offset": 0,
+      "signal": "quarter additive competitor for exactly1440 samples at placement within4800-sample dominant pulse",
+      "expected": "reject_whole_episode_with_original_onset; adjacent local hit evidence required",
+      "expectedCount": 3072,
+      "resultContract": {
+        "stage": "classifier",
+        "episodeCount": 1,
+        "originalOnsetRequired": true,
+        "outcome": "mixed",
+        "reason": "simultaneous_local_energy",
+        "adjacentHitPairRequired": true,
+        "hitCoordinatesRetained": true
+      }
+    },
+    {
+      "id": "eq30",
+      "axes": {
+        "source": "source",
+        "placement": "placement",
+        "phase": "phase",
+        "foreignPhase": "phase",
+        "seed": "seed",
+        "kbps": "kbps",
+        "path": "path"
+      },
+      "offset": 0,
+      "signal": "equal-amplitude additive competitor for exactly1440 samples; s16 clipping retained",
+      "expected": "reject_whole_episode_with_original_onset",
+      "expectedCount": 3072,
+      "resultContract": {
+        "stage": "classifier",
+        "episodeCount": 1,
+        "originalOnsetRequired": true,
+        "outcome": "mixed",
+        "reasonOneOf": [
+          "simultaneous_energy",
+          "simultaneous_local_energy"
+        ],
+        "bothFrequencyEvidenceRequired": true
+      }
+    },
+    {
+      "id": "foreign",
+      "axes": {
+        "source": "source",
+        "placement": [
+          "prefix",
+          "interior",
+          "suffix"
+        ],
+        "durationMs": "foreignMs",
+        "phase": "phase",
+        "foreignPhase": "phase",
+        "seed": "seed",
+        "kbps": "kbps",
+        "path": "path"
+      },
+      "offset": 0,
+      "signal": "replace carrier by opposite carrier at full0.65 amplitude; prefix starts0, interior starts2400-floor(durationSamples/2), suffix ends4800",
+      "expected": "reject_whole_episode_with_original_onset; no relabeled later segment",
+      "expectedCount": 12288,
+      "resultContract": {
+        "stage": "classifier",
+        "episodeCount": 1,
+        "originalOnsetRequired": true,
+        "outcomeOneOf": [
+          "unknown",
+          "mixed"
+        ],
+        "reasonOneOf": [
+          "single_carrier_inconsistent",
+          "simultaneous_energy",
+          "simultaneous_local_energy"
+        ],
+        "forbidSplitOrRelabeledOnset": true
+      }
+    },
+    {
+      "id": "pure",
+      "axes": {
+        "source": "source",
+        "phase": "phase",
+        "offset": "offset",
+        "seed": "seed",
+        "kbps": "kbps",
+        "path": "path"
+      },
+      "signal": "single4800-sample carrier at0.65 plus noise",
+      "expected": "exact_source_identity; original_onset_retained",
+      "expectedCount": 768,
+      "resultContract": {
+        "stage": "classifier",
+        "episodeCount": 1,
+        "originalOnsetRequired": true,
+        "outcome": "source_identified",
+        "source": "axis.source",
+        "reason": "none"
+      }
+    },
+    {
+      "id": "resample44100mono",
+      "axes": {
+        "source": "source",
+        "phase": "phase",
+        "offset": "offset",
+        "seed": "seed",
+        "kbps": "kbps",
+        "path": "path"
+      },
+      "signal": "same pure carrier; source44100Hz mono4410-sample pulse, start at nearest rational44100 sample corresponding to requested48k offset, record exact rational source start; convert explicitly to48k stereo before encoder",
+      "expected": "exact_source_identity; measured source baseline and full decoded sample accounting",
+      "expectedCount": 768,
+      "resultContract": {
+        "stage": "classifier",
+        "episodeCount": 1,
+        "originalOnsetRequired": true,
+        "outcome": "source_identified",
+        "source": "axis.source",
+        "reason": "none"
+      }
+    },
+    {
+      "id": "q30offset",
+      "axes": {
+        "source": "source",
+        "placement": "placement",
+        "offset": [
+          1,
+          47,
+          48,
+          239,
+          479
+        ],
+        "seed": "seed",
+        "kbps": "kbps",
+        "path": "path"
+      },
+      "phase": 0,
+      "foreignPhase": 0,
+      "signal": "q30 plus declared nonzero onset offset; supplemental offset cases, not a replacement of q30 full phase crossproduct",
+      "expected": "reject_whole_episode_with_original_onset; adjacent hit evidence required",
+      "expectedCount": 240,
+      "resultContract": {
+        "stage": "classifier",
+        "episodeCount": 1,
+        "originalOnsetRequired": true,
+        "outcome": "mixed",
+        "reason": "simultaneous_local_energy",
+        "adjacentHitPairRequired": true,
+        "hitCoordinatesRetained": true
+      }
+    },
+    {
+      "id": "phasejump",
+      "axes": {
+        "source": "source",
+        "phase": "phase",
+        "jump": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7
+        ],
+        "seed": "seed",
+        "kbps": "kbps",
+        "path": "path"
+      },
+      "offset": 0,
+      "signal": "same source changes phase by jump*pi/4 at sample2400 without splitting/restarting carrier fit",
+      "expected": "reject_inconsistent_whole_episode_with_original_onset",
+      "expectedCount": 896,
+      "resultContract": {
+        "stage": "classifier",
+        "episodeCount": 1,
+        "originalOnsetRequired": true,
+        "outcome": "unknown",
+        "reason": "single_carrier_inconsistent"
+      }
+    },
+    {
+      "id": "unknown1000",
+      "axes": {
+        "phase": "phase",
+        "offset": "offset",
+        "seed": "seed",
+        "kbps": "kbps",
+        "path": "path"
+      },
+      "signal": "1000Hz4800-sample pulse amplitude0.65",
+      "expected": "unknown; cannot pair to source-a or source-b",
+      "expectedCount": 384,
+      "resultContract": {
+        "stage": "classifier",
+        "episodeCount": 1,
+        "originalOnsetRequired": true,
+        "outcome": "unknown",
+        "reason": "single_carrier_inconsistent",
+        "completeObservedEpisodeRequired": true
+      }
+    },
+    {
+      "id": "missing",
+      "axes": {
+        "kind": [
+          "silence",
+          "noise_only"
+        ],
+        "seed": "seed",
+        "kbps": "kbps",
+        "path": "path"
+      },
+      "signal": "no tone; quiet or noise0.12",
+      "expected": "no accepted source episode; required visual marker reports missing audio",
+      "expectedCount": 16,
+      "resultContract": {
+        "stage": "association",
+        "outcome": "missing_audio",
+        "episodeCountInFullFence": 0,
+        "requiredEncodedFlashCount": 1,
+        "completeZeroMarkerCoverageRequired": true,
+        "originalOnsetRequired": false
+      }
+    },
+    {
+      "id": "hidden105",
+      "axes": {
+        "source": "source",
+        "phase": "phase",
+        "foreignPhase": "phase",
+        "seed": "seed",
+        "kbps": "kbps",
+        "path": "path"
+      },
+      "signal": "10ms opposite-source prefix then100ms source carrier contiguous; prefix onset at visual+95ms, source begins+105ms; no favorable split or onset shift; hidden105 visual is at slot origin (not the50ms normal pulse offset), so the complete110ms episode fits before slot+205ms",
+      "expected": "reject_whole_episode; never accept95ms as source onset",
+      "expectedCount": 1024,
+      "resultContract": {
+        "stage": "classifier",
+        "episodeCount": 1,
+        "originalOnsetRequired": true,
+        "outcomeOneOf": [
+          "unknown",
+          "mixed"
+        ],
+        "reasonOneOf": [
+          "single_carrier_inconsistent",
+          "simultaneous_energy",
+          "simultaneous_local_energy"
+        ],
+        "forbidSplitOrRelabeledOnset": true
+      }
+    }
+  ],
+  "massTrain": {
+    "profile": "480p30",
+    "width": 854,
+    "height": 480,
+    "fps": 30,
+    "videoBitrateKbps": 1000,
+    "slotsPerTrain": 64,
+    "slotSamples": 14400,
+    "pulseOffsetWithinSlotSamples": 2400,
+    "leadingGuardSamples": 48000,
+    "trailingGuardSamples": 48000,
+    "maxTrainSeconds": 24.8,
+    "order": "family array order then cartesian product in axes insertion order; partition physical cases by kbps and source sample format, excluding path; program and program_twitch results reference the same physical case",
+    "emptySlots": "actual quiet/noise preserved and explicitly counted; never fabricate tests",
+    "sourceBaseline": "decode/read every raw source sample before encoding; no source identity inferred from output expectation",
+    "noise": "actual FFmpeg anoisesrc seeded42 or43, same named seed on both test channels; production paired42/43 fixture checked separately; never substitute Python random noise",
+    "video": "bounded deterministic YUV420 static scene with visible source and slot index; no source encoder or arbitrary video resolution shortcut; program receives exact profile frames",
+    "formatRequired": {
+      "program": "MPEGTS,H264,854x480,30/1,yuv420p,AAC,48000Hz,stereo,requested160or320kbps,GOP1s",
+      "program_twitch": "FLV,H264,854x480,30/1,yuv420p,AAC,48000Hz,stereo,160kbps,GOP2s"
+    },
+    "missingSlotSamples": 57600,
+    "missingFlashOffsetSamples": 28800,
+    "videoFrameRule": "floor(nominalVideoPts/3000) for480p30, never derived from audio; on for3frames; flash coordinates independently read from encodedframes; mass trains are classifier cases, not the four-second transition workload"
+  },
+  "bounds": {
+    "perTrainHardWorkMs": 90000,
+    "perInvocationHardWorkMs": 120000,
+    "trainsPerInvocation": 1,
+    "ownedCleanupMs": 10000,
+    "maxChildrenConcurrent": 2,
+    "sourcePcmFileBytes": 5242880,
+    "programBytes": 5242880,
+    "twitchBytes": 5242880,
+    "numericResultBytes": 262144,
+    "boundedFailureDiagnosticsBytes": 65536,
+    "perInvocationArtifactsBytes": 16777216,
+    "sourceRawVideoPersistedBytes": 0,
+    "classifierScratchBytes": 65536,
+    "metadataLineBytes": 4096,
+    "totalStdoutBytes": 65536,
+    "resamplingInputMonoBytes": 2097152
+  },
+  "sourceBuilderPinsPendingImplementation": "actual programEncoderArguments(settings) and outputArguments('twitch',local target,resolveDestinationProfile(...)); terminal transport rewrite only, preserve encoder/mux options byte-for-byte; preserve existing profile and production source hashes at execution",
+  "admission": "none; complete exact-image codec qualification requires all generated IDs plus separate association/profile/literal cases, all outcomes with no skips; source/actual artifacts and cleanup hashes must bind every invocation; no retry-until-pass or partial qualification",
+  "executionGroups": {
+    "massInvocationsPerTask": 4,
+    "associationInvocationsPerTask": 3,
+    "profileInvocationsPerTask": 3,
+    "literalTaskCount": 7,
+    "workDeadlineMs": 400000,
+    "physicalCleanupDeadlineMs": 20000,
+    "uploadDeadlineMs": 160000,
+    "terminalUploadAllowanceMs": 20000,
+    "wrapperHardExitMs": 600000,
+    "ecsRunningDeadlineMs": 660000,
+    "ecsPendingDeadlineMs": 120000,
+    "taskCpu": 8192,
+    "taskMemoryMiB": 16384,
+    "taskAggregateArtifactBytes": 134217728,
+    "terminalReserveBytes": 65536,
+    "policy": "Separate proposed exact-image qualification command; existing131owner/acquisition gate and deadlines unchanged. Root manually selects fixed manifest group; no scheduler/framework/product flag. All groups required for aggregate qualification; all hard limits enforced, no throughput assertion."
+  },
+  "typedResultContract": {
+    "prerequisites": [
+      "source_constructed",
+      "source_baseline_complete",
+      "encode_complete",
+      "probe_complete",
+      "declared_format_valid",
+      "decode_complete",
+      "intended_coverage_complete",
+      "artifact_sha_bound",
+      "physical_children_closed"
+    ],
+    "prerequisiteStates": [
+      "pass",
+      "fail",
+      "not_run"
+    ],
+    "incompleteReasons": [
+      "source_failure",
+      "encode_failure",
+      "probe_failure",
+      "format_failure",
+      "decode_failure",
+      "coverage_failure",
+      "timeout",
+      "byte_cap",
+      "missing_artifact",
+      "sha_mismatch",
+      "process_leak",
+      "unrun"
+    ],
+    "rule": "All prerequisites must be pass BEFORE matching a declared semantic outcome. A prerequisite fail/not_run is incomplete, never an expected-negative success. Only the intended post-decode mutation may be malformed; raw input/output remains complete against its declared construction."
+  },
+  "formatPolicy": {
+    "allEncodedCases": [
+      "actual builder array pin and reversal check",
+      "expected container/H264/AAC/dimensions/fps/pixel format/channels/48000Hz",
+      "monotonic complete packet/frame/sample metadata and exact bytes",
+      "GOP positive and <=program1.05s/Twitch2.05s"
+    ],
+    "bitrate": "Configured bitrate exact in builder. Packet-byte bitrate is always retained. Sparse/negative mass scenes do not run the capacity active-bitrate predicate; profile and compressed-source positive bridges require unchanged0.75..1.25 active-audio bitrate bound. No generic capacity receipt validator substitutes for typed codec assertions."
+  },
+  "assertionAuthority": {
+    "total": 79996,
+    "allFamiliesIncluded": true,
+    "generator": "source-marker-codec-authority.py",
+    "caseId": "family + / + comma-joined canonical tokens in declared axis order; enum token literal, finite numeric JSON token, list [semicolon-joined tokens]; no implicit slash variant",
+    "expectedSequenceBinding": "hash canonical UTF8 JSON of [id,typedContract] per row plus LF; ID hash uses id plus LF. Prefixes assoc/profile/compressed/literal are explicit in generator. Each invocation and group receives both hashes/counts.",
+    "resultUnion": "exact disjoint79996ID union; every observed row matches its expected typed contract and source/image/plan pins; missing/unrun, duplicates, unexpected IDs, contradictory rows fail even matching summed totals"
+  },
+  "canary": {
+    "trainIds": [
+      "mass-160-44100mono-000",
+      "mass-320-48000stereo-073",
+      "mass-160-48000stereo-024",
+      "mass-320-48000stereo-000"
+    ],
+    "roles": [
+      "normalization_positive",
+      "ordinary_pure_positive",
+      "one_ms_foreign_negative",
+      "q30_negative"
+    ],
+    "bothPathsRequired": true,
+    "bothProgramBitratesRequired": true,
+    "bulkRequiresCompletePass": true,
+    "stopRule": "Any positive mismatch, required-negative evidence mismatch, incomplete case, timeout/cap/ownership or retrieval failure stops all bulk launches. Passing the canary proves only these cases and packaging. No new canary chosen after results. Canary groups consume original trains exactly once; remaining mass trains regroup canonically without changing IDs or cases."
+  },
+  "retrieval": {
+    "groupsConcurrent": 1,
+    "ownedDirectoryTemplate": "/workspace/VRDex-stream-operator-sdd/codec-retrieval/<approved-run-id>/<group-id>",
+    "runId": "root-frozen task6-[a-z0-9-]{1,96}; group ID must be in frozen authority",
+    "maxPayloadBytes": 134152192,
+    "maxLocalHighWaterBytes": 402653184,
+    "minimumFreeBeforeDownloadBytes": 536870912,
+    "minimumFreeDuringBytes": 134217728,
+    "copies": "At most one download tree plus one independent verification/staging copy, each<=128MiB; remaining128MiB is metadata/transient reserve. Streaming concat/hash, no extra third full copy. Native wrappers/terminal are bounded compact files.",
+    "durableOriginalsBeforeLocalDelete": true,
+    "deletePreconditions": [
+      "all expected remote originals retained under private fixed prefix",
+      "full local byte/part/full-file SHA match terminal",
+      "independent private object retrieval SHA/length verified, including failures",
+      "compact verified manifest plus root native cleanup/STOPPED attestation durably saved and hash-read back",
+      "no active writer/child and local target exact owned group directory, regular files only/no symlink traversal"
+    ],
+    "deleteScope": "Only listed files in that exact group directory and empty owned subdirectories; never prefix-wide or parent cleanup. Record paths/bytes/deletion result. Keep durable originals.",
+    "stopRule": "Insufficient space, missing remote original, incomplete retrieval/hash/readback or deletion proof stops next download/launch batch; do not delete sole verified copy or claim missing evidence retained."
+  },
+  "resultStages": {
+    "innerMayAssertFutureStopped": false,
+    "rootStoppedAttestationRequired": true,
+    "inner": "Observed work/outcomes, exact artifacts SHA/bytes, child/PIDstartTicks ownership, two empty nonbaseline censuses, cleanup and upload facts only; terminal cannot know own future upload success/exit/ECSSTOPPED.",
+    "root": "Bind terminal full SHA+bytes to independent successful retrieval and native DescribeTasks STOPPED/exit, task definition INACTIVE, exact ENI query absent and root cleanup records; distinguish capture from asserted intent. Aggregate needs both stages."
+  },
+  "normalization": {
+    "sourceAuthority": "workers/restream/input-supervisor.mjs pinned in builder manifest",
+    "filter": "aresample=48000,aformat=sample_fmts=s16:channel_layouts=stereo,asettb=1/48000,astats=metadata=1:reset=1:measure_perchannel=none:measure_overall=Number_of_samples,ametadata=mode=print:direct=1:file='pipe\\:5'",
+    "coordinates": "Source44100 integerPTS/44100 retained; normalization outputintegerPTS/48000 separately observed; preserve resampling delay rather than subtracting or equating rationalcoordinates.",
+    "argumentArray": [
+      "-hide_banner",
+      "-loglevel",
+      "info",
+      "-nostdin",
+      "-f",
+      "s16le",
+      "-ar",
+      "44100",
+      "-ac",
+      "1",
+      "-i",
+      "pipe:0",
+      "-map",
+      "0:a:0",
+      "-ac",
+      "2",
+      "-ar",
+      "48000",
+      "-af",
+      "aresample=48000,aformat=sample_fmts=s16:channel_layouts=stereo,asettb=1/48000,astats=metadata=1:reset=1:measure_perchannel=none:measure_overall=Number_of_samples,ametadata=mode=print:direct=1:file='pipe\\:5'",
+      "-f",
+      "s16le",
+      "pipe:4"
+    ]
+  },
+  "resultShardContract": {
+    "maxRowsPerShard": 256,
+    "maxBytesPerShard": 262144,
+    "maxCaseFactBytes": 512,
+    "maxHeaderBytes": 4096,
+    "maxShardsPerInvocation": 8,
+    "caseReference": "ordinal index in invocation expected sequence plus actual typed result/facts; no repeated longID required. Each shard binds invocation ID, first/last index,expectedID+contract hashes,plan/image/source pins and actual full SHA/length in terminal. Every index observed exactly once; unrun indices explicit incomplete or absence fails aggregate.",
+    "actualValues": "Keep actual original coordinates, class/reason, both scores/residual facts and required adjacent pair. Never truncate facts/round/drop failing cases to fit; exceeding a guard is incomplete."
+  }
+}

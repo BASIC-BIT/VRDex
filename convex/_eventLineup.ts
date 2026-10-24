@@ -1,3 +1,4 @@
+import { authoredBroadcastInput } from "./_eventBroadcastSources";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseWriter } from "./_generated/server";
 import { sanitizeEventLineupInput, type EventLineupInput } from "./_eventInputs";
@@ -86,6 +87,8 @@ export async function replaceEventLineup(
         (slot.clientKey ?? slot._id) === entry.clientKey || (slot.clientKey === undefined && slot.startAt === entry.startAt
           && slot.personProfileId === personProfileId && (personProfileId !== undefined || slot.displayLabel === entry.performerLabel))
       ));
+      const previousInput = existing ?? untimed.find(row => row.clientKey === entry.clientKey);
+      const broadcastInput = authoredBroadcastInput({ value: entry.broadcastInput, previous: previousInput?.broadcastInput, samePerson: previousInput?.personProfileId === personProfileId, profile });
       const selectedStreamId = entry.selectedStreamId === undefined
         ? (existing?.personProfileId === personProfileId ? existing?.selectedStreamId : undefined)
         : entry.selectedStreamId ?? undefined;
@@ -95,7 +98,7 @@ export async function replaceEventLineup(
       }
       const source = existing ?? untimed.find(row => row.clientKey === entry.clientKey) ?? previousParticipant(entry.clientKey);
       const fields = {
-        selectedStreamId,
+        selectedStreamId, broadcastInput,
         eventId: event._id, clientKey: entry.clientKey, position: entry.position,
         eventStartAt: event.startAt, eventSortAt: eventSortAt(event),
         startAt: entry.startAt, endAt: entry.endAt, personProfileId,
@@ -112,7 +115,9 @@ export async function replaceEventLineup(
       const source = untimed.find(row => row.clientKey === entry.clientKey)
         ?? slots.find(row => (row.clientKey ?? row._id) === entry.clientKey)
         ?? previousParticipant(entry.clientKey);
+      const broadcastInput = authoredBroadcastInput({ value: entry.broadcastInput, previous: source && "broadcastInput" in source ? source.broadcastInput : undefined, samePerson: source?.personProfileId === personProfileId, profile });
       await db.insert("eventLineupEntries", {
+        broadcastInput,
         eventId: event._id, clientKey: entry.clientKey, position: entry.position,
         performerLabel: entry.performerLabel, personProfileId,
         roleLabel: entry.roleLabel, updatedAt: now,

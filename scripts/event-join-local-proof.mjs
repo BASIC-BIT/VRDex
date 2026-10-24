@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { createEventWorker } from '../workers/restream/event-worker.mjs';
+import { createProofWorker as createEventWorker, syntheticInputs } from './event-proof-fixtures.mjs';
 import { createProgramRenderer } from '../workers/restream/program-renderer.mjs';
 import { createEventOutputs } from '../workers/restream/output-sender.mjs';
 import { verifyProgramPackets } from './event-proof-metrics.mjs';
@@ -33,7 +33,7 @@ try {
       spawnForDestination: () => (command, args, options) => { const local = [...args]; local[local.length - 1] = 'rtmp://127.0.0.1:19881/live'; return spawn(command, local, options); },
     });
     const worker = createEventWorker({ identity: { eventId: 'local', sessionId: name, workerId: name, epoch: 0 }, renderer, outputs,
-      resolveSource: async source => { resolved.push(source.id); assert.equal(source.id, 'upcoming', 'expired feed must never be opened'); return 'udp://127.0.0.1:19883?fifo_size=1024&overrun_nonfatal=1'; }, checkEnabled: async () => true,
+      inputs: syntheticInputs(async source => { resolved.push(source.id); assert.equal(source.id, 'upcoming', 'expired feed must never be opened'); return 'udp://127.0.0.1:19883?fifo_size=1024&overrun_nonfatal=1'; }), checkEnabled: async () => true,
       control: async name => {
         if (name === 'acquireSession' || name === 'renewSession') { if (name === 'renewSession') renewals++; return { granted: true, epoch: 1, serverNow: Date.now(), expiresAt: Date.now() + 30000, renewAfterMs: 10000, configuration }; }
         if (name === 'refreshConfiguration') return { granted: true, serverNow: Date.now(), configuration };

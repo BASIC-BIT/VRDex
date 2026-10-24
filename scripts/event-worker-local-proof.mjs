@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { createEventWorker } from '../workers/restream/event-worker.mjs';
+import { createProofWorker as createEventWorker, syntheticInputs } from './event-proof-fixtures.mjs';
 import { createProgramRenderer } from '../workers/restream/program-renderer.mjs';
 // Test-only injection: production source resolution has no loopback bypass.
 const port = 19439;
@@ -20,7 +20,7 @@ const worker = createEventWorker({ identity: { eventId: 'test', sessionId: 'test
         if (name === 'claimCommands')
             return { granted: true, commands: [] };
         return { accepted: true };
-    }, resolveSource: async () => `udp://127.0.0.1:${port}?fifo_size=1000000&overrun_nonfatal=1`, checkEnabled: async () => true,
+    }, inputs: syntheticInputs(async () => `udp://127.0.0.1:${port}?fifo_size=1000000&overrun_nonfatal=1`), checkEnabled: async () => true,
     outputs: { start: async () => { }, enqueue: chunk => { if (active)
             bytes += chunk.length; }, getState: () => ({ publishing: active && bytes > 0 }), stopNow: () => { active = false; fences++; }, stop: async () => { } }, metric: event => { if (event.event === 'event_worker_stopped')
         console.log(JSON.stringify(event)); observations.push({ ...renderer.getState(), at: Date.now() }); } });

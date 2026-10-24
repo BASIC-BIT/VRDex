@@ -1,0 +1,132 @@
+{
+  "jitter_v2": {
+    "scope": "Historical synthetic research; not production acceptance",
+    "ffmpeg": "7.1.5 local, not deployed 5.x",
+    "results": [
+      {
+        "name": "baseline",
+        "firstReadyMs": 1523,
+        "readyDropCount": 4,
+        "maxRemuxChunkGapMs": 2703,
+        "maxVideoPipeGapMs": 2705,
+        "maxAudioPipeGapMs": 2720,
+        "queueHighWaterBytes": 122200,
+        "queueByteLimit": 524288,
+        "remuxLaunchedAtSeconds": 0.046,
+        "decoderStarts": [
+          {
+            "at": 16,
+            "closedAt": 31157,
+            "code": null,
+            "signal": "SIGKILL"
+          }
+        ]
+      },
+      {
+        "name": "prebuffer2s",
+        "firstReadyMs": 20472,
+        "readyDropCount": 1,
+        "maxRemuxChunkGapMs": 1582,
+        "maxVideoPipeGapMs": 8085,
+        "maxAudioPipeGapMs": 8309,
+        "queueHighWaterBytes": 297492,
+        "queueByteLimit": 524288,
+        "remuxLaunchedAtSeconds": 3.848,
+        "decoderStarts": [
+          {
+            "at": 11,
+            "closedAt": 5067,
+            "code": null,
+            "signal": "SIGKILL"
+          },
+          {
+            "at": 6477,
+            "closedAt": 11758,
+            "code": null,
+            "signal": "SIGKILL"
+          },
+          {
+            "at": 13891,
+            "closedAt": 21120,
+            "code": null,
+            "signal": "SIGKILL"
+          },
+          {
+            "at": 25536,
+            "closedAt": 31096,
+            "code": null,
+            "signal": "SIGKILL"
+          }
+        ]
+      }
+    ]
+  },
+  "cold_start": {
+    "scope": "Historical synthetic research; not production acceptance",
+    "ffmpeg": "7.1.5 local, not deployed 5.x",
+    "results": [
+      {
+        "name": "empty200",
+        "firstReadyMs": 6342,
+        "readyDropCount": 0,
+        "maxRemuxChunkGapMs": 267,
+        "maxVideoPipeGapMs": 272,
+        "maxAudioPipeGapMs": 267,
+        "queueHighWaterBytes": 355320,
+        "queueByteLimit": 524288,
+        "remuxLaunchedAtSeconds": 5.044,
+        "decoderStarts": [
+          {
+            "at": 12,
+            "closedAt": 5025,
+            "code": null,
+            "signal": "SIGKILL"
+          },
+          {
+            "at": 6028,
+            "closedAt": 16102,
+            "code": null,
+            "signal": "SIGKILL"
+          }
+        ]
+      },
+      {
+        "name": "warming503",
+        "firstReadyMs": 7437,
+        "readyDropCount": 0,
+        "maxRemuxChunkGapMs": 270,
+        "maxVideoPipeGapMs": 271,
+        "maxAudioPipeGapMs": 274,
+        "queueHighWaterBytes": 355320,
+        "queueByteLimit": 524288,
+        "remuxLaunchedAtSeconds": 5.051,
+        "decoderStarts": [
+          {
+            "at": 5,
+            "closedAt": 92,
+            "code": 8,
+            "signal": null
+          },
+          {
+            "at": 1096,
+            "closedAt": 1180,
+            "code": 8,
+            "signal": null
+          },
+          {
+            "at": 3182,
+            "closedAt": 3272,
+            "code": 8,
+            "signal": null
+          },
+          {
+            "at": 7275,
+            "closedAt": 16102,
+            "code": null,
+            "signal": "SIGKILL"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -227,3 +227,36 @@ the separate provider-approval and non-empty-instance gates.
 Existing event create/update tools accept `watchMode: "event_stream" | "performer_sequence"` and per-slot `selectedStreamId`. Use a normalized VRCDN ID from that performer's discovery-visible links. `null` clears a supplied row's explicit choice. Omitting schedule collections preserves saved choices; replacing schedule data still requires both `participantLinks` and `slotLinks`. These fields add no permission or tool, and owner authority plus `events:write` remain required. MCP create continues to publish atomically.
 
 A removed explicit stream stays unavailable rather than selecting another source. The event readback contains effective `watchMode`, typed participant/performer `outboundLinks`, and each slot's `playbackKey` plus optional canonical `stream`. Event roster visibility excludes unlisted and private links. Direct video files are roster links but are not live stream choices.
+
+## Broadcast input selection
+
+Owner event writes accept `broadcastInput` on `slotLinks` and `lineup` rows.
+Use `{kind: "vrcdn", streamId: "alpha"}` or
+`{kind: "twitch", channel: "basic_bit"}` with a canonical lowercase Twitch login.
+The input must be one of the matched performer's public broadcast choices.
+Omitting the field preserves an existing selection for the same performer.
+Send `null` to reset it to automatic selection. Replacing the performer clears
+the old selection unless the write supplies a valid input for the new performer.
+An unchanged explicit selection remains stored if its profile link disappears,
+but it is unavailable for broadcasting. It never silently falls back to another
+provider.
+
+`selectedStreamId` remains the separate VRCDN performer-sequence choice. It also
+initializes legacy broadcast selection when no explicit `broadcastInput` exists.
+Automatic broadcast selection uses a sole public VRCDN stream, requires a choice
+when several exist, and uses the first valid public typed Twitch channel only
+when no VRCDN stream exists.
+
+Custom source mutations require `manage_event_media`: `eventMediaSources.create`,
+`rename`, `replace`, and `remove`. Create and replace return `{sourceId, revision}`.
+Create can initialize the media program without an output or worker session.
+Replacing the URL creates a new source record; the old source stays unchanged
+until explicitly removed. Renaming only changes the label. Removal disables the
+record and preserves audit history. Active or pending removal is rejected until
+the atomic cancellation/slate control protocol is installed.
+
+Operational source readback includes non-disabled sources. Disabled source rows
+and their audit events remain stored separately and do not consume the operational
+read limit. Deployment-provisioned relay endpoints retain their internal worker
+descriptors and still require the worker's exact endpoint allowlist and public-IP
+checks. Public custom source create/replace calls cannot author those endpoints.

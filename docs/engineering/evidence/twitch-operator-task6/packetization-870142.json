@@ -1,0 +1,1387 @@
+{
+  "kind": "actual_synthetic_audio_packetization_negative",
+  "capacityAccepted": false,
+  "candidate": "934e3d57bd2d9918bd8d1644e734c5d9455eeadd",
+  "imageDigest": "sha256:870142421409fdcb1d7f58a7f078ef0f39f5249d4b41b1c689ea4983e472afc7",
+  "proofRun": "task6-934e3d57-buffertrace-20261023t1203",
+  "source": {
+    "sha256": "e1010ac35f76abd2f1434630154263e8dcf5d398b780c8a60aae2e03f348c431",
+    "bytes": 210560,
+    "streams": [
+      {
+        "codec_name": "h264",
+        "codec_type": "video",
+        "width": 854,
+        "height": 480,
+        "r_frame_rate": "30/1",
+        "sample_rate": null,
+        "channels": null,
+        "start_time": "1.466667",
+        "duration": "16.000000"
+      },
+      {
+        "codec_name": "aac",
+        "codec_type": "audio",
+        "width": null,
+        "height": null,
+        "r_frame_rate": "0/0",
+        "sample_rate": "44100",
+        "channels": 1,
+        "start_time": "1.443444",
+        "duration": "15.928878"
+      }
+    ],
+    "completeIndexedPayload": true,
+    "videoFrames": 480,
+    "audioFrames": 691,
+    "audioSamples": 707584,
+    "visualMarkers": [
+      1.4666666666666666,
+      2.466666666666667,
+      3.466666666666667,
+      4.466666666666667,
+      5.466666666666667,
+      6.466666666666667,
+      7.466666666666667,
+      8.466666666666667,
+      9.466666666666667,
+      10.466666666666667,
+      11.466666666666667,
+      12.466666666666667,
+      13.466666666666667,
+      14.466666666666667,
+      15.466666666666667,
+      16.466666666666665
+    ],
+    "audioMarkers": [
+      1.4666666666666666,
+      2.465124716553288,
+      3.4635827664399095,
+      4.462040816326531,
+      5.460498866213152,
+      6.4589569160997735,
+      7.467414965986395,
+      8.465873015873015,
+      9.464331065759637,
+      10.462789115646258,
+      11.46124716553288,
+      12.4597052154195,
+      13.458163265306123,
+      14.466621315192743,
+      15.465079365079365,
+      16.466757369614513
+    ]
+  },
+  "sourcePESGroups": [
+    {
+      "position": 5452,
+      "firstPTS": 1.4434444444444445,
+      "lastPTS": 1.7917444444444444,
+      "count": 16,
+      "precedingVideoDTS": 1.7333333333333334,
+      "precedingVideoPTS": 1.8,
+      "precedingVideoDTSMinusFirstAudioMs": 289.8888888888889,
+      "audioDurationMs": 371.51927437641723
+    },
+    {
+      "position": 11280,
+      "firstPTS": 1.8149666666666666,
+      "lastPTS": 2.1632666666666664,
+      "count": 16,
+      "precedingVideoDTS": 2.1,
+      "precedingVideoPTS": 2.2666666666666666,
+      "precedingVideoDTSMinusFirstAudioMs": 285.03333333333336,
+      "audioDurationMs": 371.51927437641723
+    },
+    {
+      "position": 15416,
+      "firstPTS": 2.186488888888889,
+      "lastPTS": 2.534788888888889,
+      "count": 16,
+      "precedingVideoDTS": 2.466666666666667,
+      "precedingVideoPTS": 2.5,
+      "precedingVideoDTSMinusFirstAudioMs": 280.1777777777778,
+      "audioDurationMs": 371.51927437641723
+    },
+    {
+      "position": 21808,
+      "firstPTS": 2.558,
+      "lastPTS": 2.9062888888888887,
+      "count": 16,
+      "precedingVideoDTS": 2.8333333333333335,
+      "precedingVideoPTS": 2.8333333333333335,
+      "precedingVideoDTSMinusFirstAudioMs": 275.3333333333333,
+      "audioDurationMs": 371.51927437641723
+    },
+    {
+      "position": 25944,
+      "firstPTS": 2.9295222222222224,
+      "lastPTS": 3.2778222222222224,
+      "count": 16,
+      "precedingVideoDTS": 3.2333333333333334,
+      "precedingVideoPTS": 3.2333333333333334,
+      "precedingVideoDTSMinusFirstAudioMs": 303.81111111111113,
+      "audioDurationMs": 371.51927437641723
+    },
+    {
+      "position": 29704,
+      "firstPTS": 3.3010444444444444,
+      "lastPTS": 3.6493444444444445,
+      "count": 16,
+      "precedingVideoDTS": 3.6,
+      "precedingVideoPTS": 3.6666666666666665,
+      "precedingVideoDTSMinusFirstAudioMs": 298.9555555555556,
+      "audioDurationMs": 371.51927437641723
+    },
+    {
+      "position": 36096,
+      "firstPTS": 3.6725666666666665,
+      "lastPTS": 4.020866666666667,
+      "count": 16,
+      "precedingVideoDTS": 3.966666666666667,
+      "precedingVideoPTS": 4.133333333333334,
+      "precedingVideoDTSMinusFirstAudioMs": 294.1,
+      "audioDurationMs": 371.51927437641723
+    },
+    {
+      "position": 40232,
+      "firstPTS": 4.044077777777778,
+      "lastPTS": 4.392377777777778,
+      "count": 16,
+      "precedingVideoDTS": 4.333333333333333,
+      "precedingVideoPTS": 4.366666666666666,
+      "precedingVideoDTSMinusFirstAudioMs": 289.25555555555553,
+      "audioDurationMs": 371.51927437641723
+    },
+    {
+      "position": 43804,
+      "firstPTS": 4.4156,
+      "lastPTS": 4.7639,
+      "count": 16,
+      "precedingVideoDTS": 4.7,
+      "precedingVideoPTS": 4.7,
+      "precedingVideoDTSMinusFirstAudioMs": 284.4,
+      "audioDurationMs": 371.51927437641723
+    },
+    {
+      "position": 50196,
+      "firstPTS": 4.787122222222222,
+      "lastPTS": 5.135422222222222,
+      "count": 16,
+      "precedingVideoDTS": 5.066666666666666,
+      "precedingVideoPTS": 5.133333333333334,
+      "precedingVideoDTSMinusFirstAudioMs": 279.5444444444444,
+      "audioDurationMs": 371.51927437641723
+    },
+    {
+      "position": 54332,
+      "firstPTS": 5.158644444444445,
+      "lastPTS": 5.506944444444445,
+      "count": 16,
+      "precedingVideoDTS": 5.433333333333334,
+      "precedingVideoPTS": 5.6,
+      "precedingVideoDTSMinusFirstAudioMs": 274.68888888888887,
+      "audioDurationMs": 371.51927437641723
+    },
+    {
+      "position": 60348,
+      "firstPTS": 5.530155555555556,
+      "lastPTS": 5.878455555555556,
+      "count": 16,
+      "precedingVideoDTS": 5.833333333333333,
+      "precedingVideoPTS": 6.0,
+      "precedingVideoDTSMinusFirstAudioMs": 303.1777777777778,
+      "audioDurationMs": 371.51927437641723
+    },
+    {
+      "position": 64484,
+      "firstPTS": 5.901677777777778,
+      "lastPTS": 6.249977777777778,
+      "count": 16,
+      "precedingVideoDTS": 6.2,
+      "precedingVideoPTS": 6.233333333333333,
+      "precedingVideoDTSMinusFirstAudioMs": 298.3222222222222,
+      "audioDurationMs": 371.51927437641723
+    },
+    {
+      "position": 68620,
+      "firstPTS": 6.2732,
+      "lastPTS": 6.6215,
+      "count": 16,
+      "precedingVideoDTS": 6.566666666666666,
+      "precedingVideoPTS": 6.566666666666666,
+      "precedingVideoDTSMinusFirstAudioMs": 293.46666666666664,
+      "audioDurationMs": 371.51927437641723
+    },
+    {
+      "position": 75012,
+      "firstPTS": 6.6447111111111115,
+      "lastPTS": 6.9930111111111115,
+      "count": 16,
+      "precedingVideoDTS": 6.933333333333334,
+      "precedingVideoPTS": 7.0,
+      "precedingVideoDTSMinusFirstAudioMs": 288.6222222222222,
+      "audioDurationMs": 371.51927437641723
+    },
+    {
+      "position": 78584,
+      "firstPTS": 7.016233333333333,
+      "lastPTS": 7.364533333333333,
+      "count": 16,
+      "precedingVideoDTS": 7.3,
+      "precedingVideoPTS": 7.466666666666667,
+      "precedingVideoDTSMinusFirstAudioMs": 283.76666666666665,
+      "audioDurationMs": 371.51927437641723
+    },
+    {
+      "position": 82720,
+      "firstPTS": 7.387755555555556,
+      "lastPTS": 7.736055555555556,
+      "count": 16,
+      "precedingVideoDTS": 7.666666666666667,
+      "precedingVideoPTS": 7.7,
+      "precedingVideoDTSMinusFirstAudioMs": 278.9111111111111,
+      "audioDurationMs": 371.51927437641723
+    },
+    {
+      "position": 89300,
+      "firstPTS": 7.759277777777778,
+      "lastPTS": 8.107577777777777,
+      "count": 16,
+      "precedingVideoDTS": 8.033333333333333,
+      "precedingVideoPTS": 8.033333333333333,
+      "precedingVideoDTSMinusFirstAudioMs": 274.05555555555554,
+      "audioDurationMs": 371.51927437641723
+    },
+    {
+      "position": 93624,
+      "firstPTS": 8.130788888888889,
+      "lastPTS": 8.479088888888889,
+      "count": 16,
+      "precedingVideoDTS": 8.433333333333334,
+      "precedingVideoPTS": 8.433333333333334,
+      "precedingVideoDTSMinusFirstAudioMs": 302.5444444444444,
+      "audioDurationMs": 371.51927437641723
+    },
+    {
+      "position": 98136,
+      "firstPTS": 8.50231111111111,
+      "lastPTS": 8.85061111111111,
+      "count": 16,
+      "precedingVideoDTS": 8.8,
+      "precedingVideoPTS": 8.866666666666667,
+      "precedingVideoDTSMinusFirstAudioMs": 297.68888888888887,
+      "audioDurationMs": 371.51927437641723
+    },
+    {
+      "position": 103400,
+      "firstPTS": 8.873833333333334,
+      "lastPTS": 9.222133333333334,
+      "count": 16,
+      "precedingVideoDTS": 9.166666666666666,
+      "precedingVideoPTS": 9.333333333333334,
+      "precedingVideoDTSMinusFirstAudioMs": 292.8333333333333,
+      "audioDurationMs": 371.51927437641723
+    },
+    {
+      "position": 106784,
+      "firstPTS": 9.245355555555555,
+      "lastPTS": 9.523988888888889,
+      "count": 13,
+      "precedingVideoDTS": 9.466666666666667,
+      "precedingVideoPTS": 9.533333333333333,
+      "precedingVideoDTSMinusFirstAudioMs": 221.3111111111111,
+      "audioDurationMs": 301.85941043083903
+    },
+    {
+      "position": 113364,
+      "firstPTS": 9.54721111111111,
+      "lastPTS": 9.89551111111111,
+      "count": 16,
+      "precedingVideoDTS": 9.833333333333334,
+      "precedingVideoPTS": 9.833333333333334,
+      "precedingVideoDTSMinusFirstAudioMs": 286.1222222222222,
+      "audioDurationMs": 371.51927437641723
+    },
+    {
+      "position": 117876,
+      "firstPTS": 9.918733333333334,
+      "lastPTS": 10.267033333333334,
+      "count": 16,
+      "precedingVideoDTS": 10.2,
+      "precedingVideoPTS": 10.266666666666667,
+      "precedingVideoDTSMinusFirstAudioMs": 281.26666666666665,
+      "audioDurationMs": 371.51927437641723
+    },
+    {
+      "position": 122012,
+      "firstPTS": 10.290244444444445,
+      "lastPTS": 10.638544444444445,
+      "count": 16,
+      "precedingVideoDTS": 10.566666666666666,
+      "precedingVideoPTS": 10.733333333333333,
+      "precedingVideoDTSMinusFirstAudioMs": 276.4222222222222,
+      "audioDurationMs": 371.51927437641723
+    },
+    {
+      "position": 128028,
+      "firstPTS": 10.661766666666667,
+      "lastPTS": 11.010066666666667,
+      "count": 16,
+      "precedingVideoDTS": 10.933333333333334,
+      "precedingVideoPTS": 10.966666666666667,
+      "precedingVideoDTSMinusFirstAudioMs": 271.56666666666666,
+      "audioDurationMs": 371.51927437641723
+    },
+    {
+      "position": 132352,
+      "firstPTS": 11.033288888888888,
+      "lastPTS": 11.381588888888889,
+      "count": 16,
+      "precedingVideoDTS": 11.333333333333334,
+      "precedingVideoPTS": 11.366666666666667,
+      "precedingVideoDTSMinusFirstAudioMs": 300.0444444444444,
+      "audioDurationMs": 371.51927437641723
+    },
+    {
+      "position": 136300,
+      "firstPTS": 11.404811111111112,
+      "lastPTS": 11.753111111111112,
+      "count": 16,
+      "precedingVideoDTS": 11.7,
+      "precedingVideoPTS": 11.7,
+      "precedingVideoDTSMinusFirstAudioMs": 295.18888888888887,
+      "audioDurationMs": 371.51927437641723
+    },
+    {
+      "position": 142692,
+      "firstPTS": 11.776322222222221,
+      "lastPTS": 12.124611111111111,
+      "count": 16,
+      "precedingVideoDTS": 12.066666666666666,
+      "precedingVideoPTS": 12.133333333333333,
+      "precedingVideoDTSMinusFirstAudioMs": 290.34444444444443,
+      "audioDurationMs": 371.51927437641723
+    },
+    {
+      "position": 146452,
+      "firstPTS": 12.147844444444445,
+      "lastPTS": 12.496144444444445,
+      "count": 16,
+      "precedingVideoDTS": 12.433333333333334,
+      "precedingVideoPTS": 12.6,
+      "precedingVideoDTSMinusFirstAudioMs": 285.4888888888889,
+      "audioDurationMs": 371.51927437641723
+    },
+    {
+      "position": 151716,
+      "firstPTS": 12.519366666666667,
+      "lastPTS": 12.867666666666667,
+      "count": 16,
+      "precedingVideoDTS": 12.8,
+      "precedingVideoPTS": 12.833333333333334,
+      "precedingVideoDTSMinusFirstAudioMs": 280.6333333333333,
+      "audioDurationMs": 371.51927437641723
+    },
+    {
+      "position": 156604,
+      "firstPTS": 12.890888888888888,
+      "lastPTS": 13.239188888888888,
+      "count": 16,
+      "precedingVideoDTS": 13.166666666666666,
+      "precedingVideoPTS": 13.166666666666666,
+      "precedingVideoDTSMinusFirstAudioMs": 275.77777777777777,
+      "audioDurationMs": 371.51927437641723
+    },
+    {
+      "position": 160928,
+      "firstPTS": 13.2624,
+      "lastPTS": 13.6107,
+      "count": 16,
+      "precedingVideoDTS": 13.566666666666666,
+      "precedingVideoPTS": 13.566666666666666,
+      "precedingVideoDTSMinusFirstAudioMs": 304.26666666666665,
+      "audioDurationMs": 371.51927437641723
+    },
+    {
+      "position": 166944,
+      "firstPTS": 13.633922222222223,
+      "lastPTS": 13.982222222222223,
+      "count": 16,
+      "precedingVideoDTS": 13.933333333333334,
+      "precedingVideoPTS": 14.0,
+      "precedingVideoDTSMinusFirstAudioMs": 299.4111111111111,
+      "audioDurationMs": 371.51927437641723
+    },
+    {
+      "position": 170892,
+      "firstPTS": 14.005444444444445,
+      "lastPTS": 14.353744444444445,
+      "count": 16,
+      "precedingVideoDTS": 14.3,
+      "precedingVideoPTS": 14.466666666666667,
+      "precedingVideoDTSMinusFirstAudioMs": 294.55555555555554,
+      "audioDurationMs": 371.51927437641723
+    },
+    {
+      "position": 175028,
+      "firstPTS": 14.376966666666666,
+      "lastPTS": 14.725266666666666,
+      "count": 16,
+      "precedingVideoDTS": 14.666666666666666,
+      "precedingVideoPTS": 14.7,
+      "precedingVideoDTSMinusFirstAudioMs": 289.7,
+      "audioDurationMs": 371.51927437641723
+    },
+    {
+      "position": 181044,
+      "firstPTS": 14.748477777777778,
+      "lastPTS": 15.096777777777778,
+      "count": 16,
+      "precedingVideoDTS": 15.033333333333333,
+      "precedingVideoPTS": 15.033333333333333,
+      "precedingVideoDTSMinusFirstAudioMs": 284.85555555555555,
+      "audioDurationMs": 371.51927437641723
+    },
+    {
+      "position": 185180,
+      "firstPTS": 15.12,
+      "lastPTS": 15.4683,
+      "count": 16,
+      "precedingVideoDTS": 15.4,
+      "precedingVideoPTS": 15.466666666666667,
+      "precedingVideoDTSMinusFirstAudioMs": 280.0,
+      "audioDurationMs": 371.51927437641723
+    },
+    {
+      "position": 190068,
+      "firstPTS": 15.491522222222223,
+      "lastPTS": 15.839822222222223,
+      "count": 16,
+      "precedingVideoDTS": 15.766666666666667,
+      "precedingVideoPTS": 15.933333333333334,
+      "precedingVideoDTSMinusFirstAudioMs": 275.14444444444445,
+      "audioDurationMs": 371.51927437641723
+    },
+    {
+      "position": 195708,
+      "firstPTS": 15.863033333333334,
+      "lastPTS": 16.211333333333332,
+      "count": 16,
+      "precedingVideoDTS": 16.166666666666668,
+      "precedingVideoPTS": 16.333333333333332,
+      "precedingVideoDTSMinusFirstAudioMs": 303.6333333333333,
+      "audioDurationMs": 371.51927437641723
+    },
+    {
+      "position": 199468,
+      "firstPTS": 16.234555555555556,
+      "lastPTS": 16.582855555555554,
+      "count": 16,
+      "precedingVideoDTS": 16.533333333333335,
+      "precedingVideoPTS": 16.566666666666666,
+      "precedingVideoDTSMinusFirstAudioMs": 298.77777777777777,
+      "audioDurationMs": 371.51927437641723
+    },
+    {
+      "position": 205860,
+      "firstPTS": 16.606077777777777,
+      "lastPTS": 16.95437777777778,
+      "count": 16,
+      "precedingVideoDTS": 16.9,
+      "precedingVideoPTS": 16.9,
+      "precedingVideoDTSMinusFirstAudioMs": 293.9222222222222,
+      "audioDurationMs": 371.51927437641723
+    },
+    {
+      "position": 209808,
+      "firstPTS": 16.9776,
+      "lastPTS": 17.3259,
+      "count": 16,
+      "precedingVideoDTS": 17.266666666666666,
+      "precedingVideoPTS": 17.333333333333332,
+      "precedingVideoDTSMinusFirstAudioMs": 289.06666666666666,
+      "audioDurationMs": 371.51927437641723
+    },
+    {
+      "position": 210372,
+      "firstPTS": 17.34911111111111,
+      "lastPTS": 17.46521111111111,
+      "count": 6,
+      "precedingVideoDTS": 17.3,
+      "precedingVideoPTS": 17.3,
+      "precedingVideoDTSMinusFirstAudioMs": -49.111111111111114,
+      "audioDurationMs": 139.31972789115645
+    }
+  ],
+  "attempts": [
+    {
+      "attempt": 1,
+      "namedTestOutcomes": [
+        {
+          "passed": false,
+          "numericFailureObserved": false
+        }
+      ],
+      "collectionComplete": true,
+      "traceSha256": "da3666487c54503fc15bbae84b6c79c73e9fc53ac0612f6b8854aaba7477d454",
+      "rawSamples": 478128,
+      "metadataSamples": 478128,
+      "returnedSamples": 388800,
+      "audioCallbackBytesHistogram": {
+        "35600": 1,
+        "31204": 1,
+        "4460": 213,
+        "8916": 10,
+        "13372": 2,
+        "13376": 3,
+        "4456": 166
+      },
+      "audioGapMs": {
+        "count": 395,
+        "min": 0.04297500000029686,
+        "p50": 0.106698000000506,
+        "p95": 336.96759399999974,
+        "max": 367.86143300000094
+      },
+      "metadataGapMs": {
+        "count": 428,
+        "min": 0.01007599999957165,
+        "p50": 0.10611550000021452,
+        "p95": 331.004465,
+        "max": 367.842219000001
+      },
+      "takeGapMs": {
+        "count": 485,
+        "min": 15.667742999999973,
+        "p50": 16.58340500000122,
+        "p95": 17.429558000001634,
+        "max": 17.774623000000247
+      },
+      "takeReasons": {
+        "3": 1,
+        "2": 300,
+        "0": 185
+      },
+      "lostDecodedPulseWindows": [
+        {
+          "start": 144876,
+          "end": 149814,
+          "deliveryStartMs": 4664.209903,
+          "deliveryEndMs": 4664.602616,
+          "detectedSampleWindows": [
+            [
+              144876,
+              149814
+            ]
+          ],
+          "detectedSamples": 4938,
+          "copiedSamples": 0,
+          "trimmedByTakeSamples": 2449,
+          "trimmedByCapSamples": 2489,
+          "sourcePTSRange": [
+            3.01825,
+            3.1211041666666666
+          ],
+          "copyMappings": [],
+          "takesAtDelivery": [
+            {
+              "t": 4646.217747,
+              "reason": 2,
+              "cursor": 152315,
+              "framePTS": 287090,
+              "range": []
+            },
+            {
+              "t": 4663.448563,
+              "reason": 2,
+              "cursor": 153115,
+              "framePTS": 287090,
+              "range": []
+            },
+            {
+              "t": 4679.450705,
+              "reason": 0,
+              "cursor": 153915,
+              "framePTS": 287090,
+              "range": [
+                147365,
+                159365
+              ]
+            }
+          ]
+        },
+        {
+          "start": 289134,
+          "end": 294072,
+          "deliveryStartMs": 7637.5286,
+          "deliveryEndMs": 7637.82399,
+          "detectedSampleWindows": [
+            [
+              289134,
+              294072
+            ]
+          ],
+          "detectedSamples": 4938,
+          "copiedSamples": 0,
+          "trimmedByTakeSamples": 4938,
+          "trimmedByCapSamples": 0,
+          "sourcePTSRange": [
+            6.023625,
+            6.126479166666667
+          ],
+          "copyMappings": [],
+          "takesAtDelivery": [
+            {
+              "t": 7629.848988,
+              "reason": 2,
+              "cursor": 295515,
+              "framePTS": 554090,
+              "range": []
+            },
+            {
+              "t": 7646.69772,
+              "reason": 0,
+              "cursor": 296315,
+              "framePTS": 554090,
+              "range": [
+                288914,
+                300914
+              ]
+            }
+          ]
+        }
+      ],
+      "program": {
+        "sha256": "8d148ddf71fb2ab06804bb7f710ce883a719a27be6a6fad85597e03bfe97fdac",
+        "bytes": 2156924,
+        "completeIndexedPayload": true,
+        "videoFrames": 607,
+        "audioFrames": 476,
+        "audioSamples": 487424,
+        "videoRange": [
+          0.021333333333333333,
+          10.121333333333334
+        ],
+        "audioRange": [
+          0.0,
+          10.154666666666667
+        ],
+        "visualMarkers": [
+          2.188,
+          3.188,
+          4.188,
+          5.188,
+          6.188,
+          7.188,
+          8.204666666666666,
+          9.188
+        ],
+        "audioMarkers": [
+          2.2826666666666666,
+          4.2026666666666666,
+          5.248,
+          7.199333333333334,
+          8.202,
+          9.247333333333334
+        ],
+        "signedNearestPairs": [
+          {
+            "video": 2.188,
+            "audio": 2.2826666666666666,
+            "audioMinusVideoMs": 94.66666666666646
+          },
+          {
+            "video": 3.188,
+            "audio": 2.2826666666666666,
+            "audioMinusVideoMs": -905.3333333333336
+          },
+          {
+            "video": 4.188,
+            "audio": 4.2026666666666666,
+            "audioMinusVideoMs": 14.666666666666828
+          },
+          {
+            "video": 5.188,
+            "audio": 5.248,
+            "audioMinusVideoMs": 60.0000000000005
+          },
+          {
+            "video": 6.188,
+            "audio": 5.248,
+            "audioMinusVideoMs": -939.9999999999995
+          },
+          {
+            "video": 7.188,
+            "audio": 7.199333333333334,
+            "audioMinusVideoMs": 11.333333333333862
+          },
+          {
+            "video": 8.204666666666666,
+            "audio": 8.202,
+            "audioMinusVideoMs": -2.666666666666373
+          },
+          {
+            "video": 9.188,
+            "audio": 9.247333333333334,
+            "audioMinusVideoMs": 59.333333333333016
+          }
+        ]
+      },
+      "missingPulseNeighborhoodMaximumRms": [
+        0.0,
+        0.0
+      ],
+      "cleanup": {
+        "closed": true,
+        "liveChildren": 0,
+        "trackedGroups": 4,
+        "trackedChildren": 6
+      }
+    },
+    {
+      "attempt": 2,
+      "namedTestOutcomes": [
+        {
+          "passed": false,
+          "numericFailureObserved": false
+        }
+      ],
+      "collectionComplete": true,
+      "traceSha256": "84a8569f26ef2d6cabdd304816a9325f21cf2e253f517fa2fe71e42670cf700d",
+      "rawSamples": 478128,
+      "metadataSamples": 478128,
+      "returnedSamples": 388800,
+      "audioCallbackBytesHistogram": {
+        "53432": 1,
+        "13372": 7,
+        "4460": 172,
+        "8916": 22,
+        "13376": 6,
+        "17832": 4,
+        "4456": 134,
+        "8920": 4,
+        "17836": 1
+      },
+      "audioGapMs": {
+        "count": 350,
+        "min": 0.045962000000145053,
+        "p50": 0.13278600000012375,
+        "p95": 338.08886600000005,
+        "max": 362.1551830000003
+      },
+      "metadataGapMs": {
+        "count": 428,
+        "min": 0.006825000000389991,
+        "p50": 0.11255049999908806,
+        "p95": 327.8166510000001,
+        "max": 362.1544039999999
+      },
+      "takeGapMs": {
+        "count": 485,
+        "min": 14.179292000000714,
+        "p50": 16.6199289999995,
+        "p95": 17.454179000000295,
+        "max": 19.161102000000028
+      },
+      "takeReasons": {
+        "3": 3,
+        "2": 279,
+        "0": 202,
+        "6": 2
+      },
+      "lostDecodedPulseWindows": [
+        {
+          "start": 144876,
+          "end": 149814,
+          "deliveryStartMs": 4643.609085,
+          "deliveryEndMs": 4644.010849,
+          "detectedSampleWindows": [
+            [
+              144876,
+              149814
+            ]
+          ],
+          "detectedSamples": 4938,
+          "copiedSamples": 0,
+          "trimmedByTakeSamples": 2449,
+          "trimmedByCapSamples": 2489,
+          "sourcePTSRange": [
+            3.01825,
+            3.1211041666666666
+          ],
+          "copyMappings": [],
+          "takesAtDelivery": [
+            {
+              "t": 4627.086254,
+              "reason": 2,
+              "cursor": 152315,
+              "framePTS": 287090,
+              "range": []
+            },
+            {
+              "t": 4643.243261,
+              "reason": 2,
+              "cursor": 153115,
+              "framePTS": 287090,
+              "range": []
+            },
+            {
+              "t": 4660.352518,
+              "reason": 0,
+              "cursor": 153915,
+              "framePTS": 287090,
+              "range": [
+                147365,
+                159365
+              ]
+            }
+          ]
+        },
+        {
+          "start": 289134,
+          "end": 294072,
+          "deliveryStartMs": 7614.2031560000005,
+          "deliveryEndMs": 7614.8201850000005,
+          "detectedSampleWindows": [
+            [
+              289134,
+              294072
+            ]
+          ],
+          "detectedSamples": 4938,
+          "copiedSamples": 0,
+          "trimmedByTakeSamples": 4044,
+          "trimmedByCapSamples": 894,
+          "sourcePTSRange": [
+            6.023625,
+            6.126479166666667
+          ],
+          "copyMappings": [],
+          "takesAtDelivery": [
+            {
+              "t": 7610.266402,
+              "reason": 2,
+              "cursor": 294715,
+              "framePTS": 554090,
+              "range": []
+            },
+            {
+              "t": 7627.195671,
+              "reason": 0,
+              "cursor": 295515,
+              "framePTS": 554090,
+              "range": [
+                290028,
+                302028
+              ]
+            }
+          ]
+        }
+      ],
+      "program": {
+        "sha256": "ba2354e7fdab47fc919283f706b7c9eb09d5e89152388e331af160579723e83d",
+        "bytes": 2156736,
+        "completeIndexedPayload": true,
+        "videoFrames": 607,
+        "audioFrames": 476,
+        "audioSamples": 487424,
+        "videoRange": [
+          0.021333333333333333,
+          10.121333333333334
+        ],
+        "audioRange": [
+          0.0,
+          10.154666666666667
+        ],
+        "visualMarkers": [
+          2.188,
+          3.188,
+          4.188,
+          5.188,
+          6.188,
+          7.171333333333333,
+          8.204666666666666,
+          9.188
+        ],
+        "audioMarkers": [
+          2.2826666666666666,
+          4.2026666666666666,
+          5.248,
+          7.220666666666666,
+          8.223333333333333,
+          9.237333333333334
+        ],
+        "signedNearestPairs": [
+          {
+            "video": 2.188,
+            "audio": 2.2826666666666666,
+            "audioMinusVideoMs": 94.66666666666646
+          },
+          {
+            "video": 3.188,
+            "audio": 2.2826666666666666,
+            "audioMinusVideoMs": -905.3333333333336
+          },
+          {
+            "video": 4.188,
+            "audio": 4.2026666666666666,
+            "audioMinusVideoMs": 14.666666666666828
+          },
+          {
+            "video": 5.188,
+            "audio": 5.248,
+            "audioMinusVideoMs": 60.0000000000005
+          },
+          {
+            "video": 6.188,
+            "audio": 5.248,
+            "audioMinusVideoMs": -939.9999999999995
+          },
+          {
+            "video": 7.171333333333333,
+            "audio": 7.220666666666666,
+            "audioMinusVideoMs": 49.33333333333323
+          },
+          {
+            "video": 8.204666666666666,
+            "audio": 8.223333333333333,
+            "audioMinusVideoMs": 18.666666666666387
+          },
+          {
+            "video": 9.188,
+            "audio": 9.237333333333334,
+            "audioMinusVideoMs": 49.33333333333323
+          }
+        ]
+      },
+      "missingPulseNeighborhoodMaximumRms": [
+        0.0,
+        0.0
+      ],
+      "cleanup": {
+        "closed": true,
+        "liveChildren": 0,
+        "trackedGroups": 3,
+        "trackedChildren": 5
+      }
+    },
+    {
+      "attempt": 3,
+      "namedTestOutcomes": [
+        {
+          "passed": false,
+          "numericFailureObserved": false
+        }
+      ],
+      "collectionComplete": true,
+      "traceSha256": "c236157dd5ea777b88342272e9f06ed72e4af2141984b8d38092e2409409d048",
+      "rawSamples": 478128,
+      "metadataSamples": 478128,
+      "returnedSamples": 388800,
+      "audioCallbackBytesHistogram": {
+        "26680": 1,
+        "40124": 1,
+        "4460": 210,
+        "8916": 8,
+        "13372": 1,
+        "13376": 2,
+        "4456": 164,
+        "17832": 2,
+        "31208": 1
+      },
+      "audioGapMs": {
+        "count": 389,
+        "min": 0.039354000000457745,
+        "p50": 0.11430199999995239,
+        "p95": 336.70006099999955,
+        "max": 362.68641800000023
+      },
+      "metadataGapMs": {
+        "count": 428,
+        "min": 0.010546000000431377,
+        "p50": 0.10815600000023551,
+        "p95": 330.35908500000005,
+        "max": 362.64640800000006
+      },
+      "takeGapMs": {
+        "count": 485,
+        "min": 13.394098000000668,
+        "p50": 16.602859000000535,
+        "p95": 17.4085529999993,
+        "max": 19.329029999998966
+      },
+      "takeReasons": {
+        "5": 14,
+        "3": 2,
+        "0": 200,
+        "2": 269,
+        "6": 1
+      },
+      "lostDecodedPulseWindows": [
+        {
+          "start": 144876,
+          "end": 149814,
+          "deliveryStartMs": 4637.241838,
+          "deliveryEndMs": 4637.705118,
+          "detectedSampleWindows": [
+            [
+              144876,
+              149814
+            ]
+          ],
+          "detectedSamples": 4938,
+          "copiedSamples": 0,
+          "trimmedByTakeSamples": 2449,
+          "trimmedByCapSamples": 2489,
+          "sourcePTSRange": [
+            3.01825,
+            3.1211041666666666
+          ],
+          "copyMappings": [],
+          "takesAtDelivery": [
+            {
+              "t": 4618.29932,
+              "reason": 2,
+              "cursor": 152315,
+              "framePTS": 287090,
+              "range": []
+            },
+            {
+              "t": 4634.866526,
+              "reason": 2,
+              "cursor": 153115,
+              "framePTS": 287090,
+              "range": []
+            },
+            {
+              "t": 4651.959765,
+              "reason": 0,
+              "cursor": 153915,
+              "framePTS": 287090,
+              "range": [
+                147365,
+                159365
+              ]
+            }
+          ]
+        },
+        {
+          "start": 289134,
+          "end": 294072,
+          "deliveryStartMs": 7607.1362229999995,
+          "deliveryEndMs": 7607.558258,
+          "detectedSampleWindows": [
+            [
+              289134,
+              294072
+            ]
+          ],
+          "detectedSamples": 4938,
+          "copiedSamples": 0,
+          "trimmedByTakeSamples": 4938,
+          "trimmedByCapSamples": 0,
+          "sourcePTSRange": [
+            6.023625,
+            6.126479166666667
+          ],
+          "copyMappings": [],
+          "takesAtDelivery": [
+            {
+              "t": 7601.363998,
+              "reason": 2,
+              "cursor": 294715,
+              "framePTS": 554090,
+              "range": []
+            },
+            {
+              "t": 7618.330367,
+              "reason": 0,
+              "cursor": 295515,
+              "framePTS": 554090,
+              "range": [
+                288914,
+                300914
+              ]
+            }
+          ]
+        }
+      ],
+      "program": {
+        "sha256": "b6f3ae5f8892ea13cf99ae93226611c4195361b8655356eab442b5ad29abb17e",
+        "bytes": 2157112,
+        "completeIndexedPayload": true,
+        "videoFrames": 607,
+        "audioFrames": 476,
+        "audioSamples": 487424,
+        "videoRange": [
+          0.021333333333333333,
+          10.121333333333334
+        ],
+        "audioRange": [
+          0.0,
+          10.154666666666667
+        ],
+        "visualMarkers": [
+          2.188,
+          3.188,
+          4.188,
+          5.188,
+          6.188,
+          7.188,
+          8.204666666666666,
+          9.188
+        ],
+        "audioMarkers": [
+          2.271333333333333,
+          4.2026666666666666,
+          5.248,
+          7.220666666666666,
+          8.223333333333333,
+          9.247333333333334
+        ],
+        "signedNearestPairs": [
+          {
+            "video": 2.188,
+            "audio": 2.271333333333333,
+            "audioMinusVideoMs": 83.33333333333303
+          },
+          {
+            "video": 3.188,
+            "audio": 2.271333333333333,
+            "audioMinusVideoMs": -916.666666666667
+          },
+          {
+            "video": 4.188,
+            "audio": 4.2026666666666666,
+            "audioMinusVideoMs": 14.666666666666828
+          },
+          {
+            "video": 5.188,
+            "audio": 5.248,
+            "audioMinusVideoMs": 60.0000000000005
+          },
+          {
+            "video": 6.188,
+            "audio": 5.248,
+            "audioMinusVideoMs": -939.9999999999995
+          },
+          {
+            "video": 7.188,
+            "audio": 7.220666666666666,
+            "audioMinusVideoMs": 32.66666666666662
+          },
+          {
+            "video": 8.204666666666666,
+            "audio": 8.223333333333333,
+            "audioMinusVideoMs": 18.666666666666387
+          },
+          {
+            "video": 9.188,
+            "audio": 9.247333333333334,
+            "audioMinusVideoMs": 59.333333333333016
+          }
+        ]
+      },
+      "missingPulseNeighborhoodMaximumRms": [
+        0.0,
+        0.0
+      ],
+      "cleanup": {
+        "closed": true,
+        "liveChildren": 0,
+        "trackedGroups": 3,
+        "trackedChildren": 5
+      }
+    }
+  ],
+  "artifactReceipts": [
+    {
+      "name": "timing-buffer-attempt1.ndjson",
+      "bytes": 2887319,
+      "sha256": "da3666487c54503fc15bbae84b6c79c73e9fc53ac0612f6b8854aaba7477d454"
+    },
+    {
+      "name": "timing-buffer-attempt1-source.ts",
+      "bytes": 210560,
+      "sha256": "e1010ac35f76abd2f1434630154263e8dcf5d398b780c8a60aae2e03f348c431"
+    },
+    {
+      "name": "timing-buffer-attempt1-program.ts",
+      "bytes": 2156924,
+      "sha256": "8d148ddf71fb2ab06804bb7f710ce883a719a27be6a6fad85597e03bfe97fdac"
+    },
+    {
+      "name": "timing-buffer-attempt2.ndjson",
+      "bytes": 2907970,
+      "sha256": "84a8569f26ef2d6cabdd304816a9325f21cf2e253f517fa2fe71e42670cf700d"
+    },
+    {
+      "name": "timing-buffer-attempt2-source.ts",
+      "bytes": 210560,
+      "sha256": "e1010ac35f76abd2f1434630154263e8dcf5d398b780c8a60aae2e03f348c431"
+    },
+    {
+      "name": "timing-buffer-attempt2-program.ts",
+      "bytes": 2156736,
+      "sha256": "ba2354e7fdab47fc919283f706b7c9eb09d5e89152388e331af160579723e83d"
+    },
+    {
+      "name": "timing-buffer-attempt3.ndjson",
+      "bytes": 3005198,
+      "sha256": "c236157dd5ea777b88342272e9f06ed72e4af2141984b8d38092e2409409d048"
+    },
+    {
+      "name": "timing-buffer-attempt3-source.ts",
+      "bytes": 210560,
+      "sha256": "e1010ac35f76abd2f1434630154263e8dcf5d398b780c8a60aae2e03f348c431"
+    },
+    {
+      "name": "timing-buffer-attempt3-program.ts",
+      "bytes": 2157112,
+      "sha256": "b6f3ae5f8892ea13cf99ae93226611c4195361b8655356eab442b5ad29abb17e"
+    },
+    {
+      "name": "timing-buffer-bundle.json",
+      "bytes": 9411,
+      "sha256": "ca9ba2d97da886d774aa7a2145551240a38b88af6fbdc66f957242d3d397f3e3"
+    }
+  ],
+  "rootCollectionComplete": true,
+  "rootCleanup": {
+    "taskStatus": "STOPPED",
+    "containerExitCode": 0,
+    "definitionStatus": "INACTIVE",
+    "remainingNetworkInterfaces": 0,
+    "runningTasks": 0,
+    "pendingTasks": 0
+  },
+  "offlineRemuxControl": {
+    "hostPython": "3.12.14",
+    "hostFFmpeg": "ffmpeg version 7.1.5-0+deb13u1 Copyright (c) 2000-2026 the FFmpeg developers",
+    "exactCheckedInPureCommandFactory": true,
+    "commandSourceSha256": "818e8e6012e63301681b9343ebd71700ca44389247b3e9caaf01266a375143b5",
+    "packetPayloadsAndTimestampOffsets": [
+      {
+        "stream": 0,
+        "packets": 480,
+        "payloadHashesEqual": true,
+        "ptsOffsetTicks": [
+          -126000
+        ],
+        "dtsOffsetTicks": [
+          -126000
+        ]
+      },
+      {
+        "stream": 1,
+        "packets": 691,
+        "payloadHashesEqual": true,
+        "ptsOffsetTicks": [
+          -126012,
+          -126011,
+          -126010,
+          -126009,
+          -126008,
+          -126007,
+          -126006,
+          -126005,
+          -126004,
+          -126003,
+          -126002,
+          -126001,
+          -126000
+        ],
+        "dtsOffsetTicks": [
+          -126012,
+          -126011,
+          -126010,
+          -126009,
+          -126008,
+          -126007,
+          -126006,
+          -126005,
+          -126004,
+          -126003,
+          -126002,
+          -126001,
+          -126000
+        ]
+      }
+    ],
+    "normalizedPESGroupCounts": {
+      "1": 691
+    },
+    "normalizedPrecedingVideoDTSMinusFirstAudioMs": [
+      -165.2111111111111,
+      -43.48888888888889
+    ],
+    "media": {
+      "sha256": "a7687d3232a291fb7da9fa20e965ef1d57ce3dfeff072313ae25a7edea5b4bdb",
+      "bytes": 319600,
+      "streams": [
+        {
+          "codec_name": "h264",
+          "codec_type": "video",
+          "width": 854,
+          "height": 480,
+          "r_frame_rate": "30/1",
+          "sample_rate": null,
+          "channels": null,
+          "start_time": "0.066667",
+          "duration": "16.000000"
+        },
+        {
+          "codec_name": "aac",
+          "codec_type": "audio",
+          "width": null,
+          "height": null,
+          "r_frame_rate": "0/0",
+          "sample_rate": "44100",
+          "channels": 1,
+          "start_time": "0.043444",
+          "duration": "16.044978"
+        }
+      ],
+      "completeIndexedPayload": true,
+      "visualMarkers": [
+        0.06666666666666667,
+        1.0666666666666667,
+        2.066666666666667,
+        3.066666666666667,
+        4.066666666666666,
+        5.066666666666666,
+        6.066666666666666,
+        7.066666666666666,
+        8.066666666666666,
+        9.066666666666666,
+        10.066666666666666,
+        11.066666666666666,
+        12.066666666666666,
+        13.066666666666666,
+        14.066666666666666,
+        15.066666666666666
+      ],
+      "audioMarkers": [
+        0.06666666666666667,
+        1.065124716553288,
+        2.063582766439909,
+        3.0620408163265305,
+        4.060498866213152,
+        5.058956916099773,
+        6.067414965986394,
+        7.065873015873016,
+        8.064331065759637,
+        9.06278911564626,
+        10.06124716553288,
+        11.059705215419502,
+        12.058163265306122,
+        13.066621315192744,
+        14.065079365079365,
+        15.066757369614512
+      ]
+    },
+    "runtimeGateExecuted": false
+  },
+  "analysisSha256": "c5552b8e2e05d73afaa4921cf6be49b24d9854bd887c2670bb80a13ea556379f"
+}

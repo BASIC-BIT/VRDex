@@ -1,3 +1,4 @@
+import { parseMediaSettings, resolveDestinationProfile } from './broadcast-profiles.mjs';
 import { promisify } from 'node:util';
 import { spawn, execFile } from 'node:child_process';
 import { performance } from 'node:perf_hooks';
@@ -5,7 +6,7 @@ import { performance } from 'node:perf_hooks';
 // data behind a blocked pipe: recycle that destination and rejoin the live program.
 export const OUTPUT_QUEUE_BYTES = 512 * 1024;
 export const OUTPUT_QUEUE_MS = 2000;
-export const TWITCH_PROFILE = 'twitch-conservative-720p30';
+
 export function parseOutputCredential(destination, value) {
     try {
         if (typeof value !== 'string' || value.length > 8192)
@@ -49,18 +50,20 @@ export async function resolveOptionalOutputSecret({ arn, region, signal, run = p
         throw Error('Optional credential unavailable');
     }
 }
-export function outputArguments(destination, target) {
+export function outputArguments(destination, target, profile = resolveDestinationProfile({destination})) {
+    const expected = resolveDestinationProfile({settings: {videoPreset: profile.videoPreset, audioBitrateKbps: profile.audioBitrateKbps}, destination});
+    if (Object.keys(expected).some(key => expected[key] !== profile[key])) throw Error('Invalid destination profile');
     return ['-hide_banner', '-loglevel', 'error', '-nostdin', '-stats_period', '0.25', '-progress', 'pipe:3',
         '-fflags', '+discardcorrupt', '-probesize', '262144', '-analyzeduration', '1000000', '-f', 'mpegts', '-i', 'pipe:0',
         '-map', '0:v:0', '-map', '0:a:0',
-        ...(destination === 'vrcdn' ? ['-c', 'copy'] : ['-c:v', 'libx264', '-threads', '2', '-preset', 'veryfast', '-vf', 'scale=1280:720,fps=30', '-pix_fmt', 'yuv420p', '-g', '60', '-keyint_min', '60', '-sc_threshold', '0', '-bf', '0', '-b:v', '1800k', '-minrate', '1800k', '-maxrate', '1800k', '-bufsize', '3600k', '-x264-params', 'nal-hrd=cbr:force-cfr=1', '-c:a', 'aac', '-b:a', '160k', '-ar', '48000', '-ac', '2']),
+        ...(destination === 'vrcdn' ? ['-c', 'copy'] : ['-c:v', 'libx264', '-threads', '2', '-preset', profile.videoPreset === '1080p60' ? 'superfast' : 'veryfast', '-vf', `scale=${profile.width}:${profile.height},fps=${profile.frameRate}`, '-pix_fmt', 'yuv420p', '-g', String(profile.frameRate * profile.keyframeIntervalSeconds), '-keyint_min', String(profile.frameRate * profile.keyframeIntervalSeconds), '-sc_threshold', '0', '-bf', '0', '-b:v', `${profile.videoBitrateKbps}k`, '-minrate', `${profile.videoBitrateKbps}k`, '-maxrate', `${profile.videoBitrateKbps}k`, '-bufsize', `${profile.videoBitrateKbps * 2}k`, '-x264-params', 'nal-hrd=cbr:force-cfr=1', '-c:a', 'aac', '-b:a', '160k', '-ar', '48000', '-ac', '2']),
         '-rw_timeout', '2000000', '-rtmp_playpath', target.key, '-f', 'flv', target.url];
 }
 /** Secret resolution and process creation happen only on start, inside the worker.
  * stderr is drained and discarded: arbitrary FFmpeg/provider diagnostics never
  * cross this boundary. Only fixed status codes are observable.
  */
-export function createOutputSender({ destination, credentialRef, program, onHealth = () => { }, resolveCredential, spawnProcess = spawn, clock = () => performance.now(), parseCredential = parseOutputCredential, credentialTimeoutMs = 2000 }) {
+export function createOutputSender({ destination, profile = resolveDestinationProfile({destination}), credentialRef, program, onHealth = () => { }, resolveCredential, spawnProcess = spawn, clock = () => performance.now(), parseCredential = parseOutputCredential, credentialTimeoutMs = 2000 }) {
     let child, terminal = false, active = false, timer, unsubscribe, blockedAt, lastProgressAt, startedAt, retryAt = 0, attempts = 0, progressMs = 0, status = 'idle', progressBuffer = '';
     let resolving = false, credentialController, credentialTimer, cachedTarget;
     const queue = [];
@@ -121,7 +124,7 @@ export function createOutputSender({ destination, credentialRef, program, onHeal
         }
         const target = cachedTarget;
         try {
-            const proc = spawnProcess('ffmpeg', outputArguments(destination, target), { stdio: ['pipe', 'ignore', 'pipe', 'pipe'] });
+            const proc = spawnProcess('ffmpeg', outputArguments(destination, target, profile), { stdio: ['pipe', 'ignore', 'pipe', 'pipe'] });
             child = proc;
             startedAt = clock();
             progressMs = 0;
@@ -234,6 +237,7 @@ export function createOutputSender({ destination, credentialRef, program, onHeal
         }, async stop() { stopNow(); } };
 }
 export function createEventOutputs({ configuration, clock, env = process.env, resolveCredential, spawnForDestination = () => spawn, readSecret = resolveOptionalOutputSecret, credentialTimeoutMs = 2000 }) {
+    const settings = parseMediaSettings(configuration.mediaSettings);
     const selected = configuration.outputs.find(o => o.id === configuration.outputId);
     if (!selected || !['vrcdn', 'external_rtmp'].includes(selected.type) || (selected.type === 'external_rtmp' && !selected.twitchSetup) || (selected?.type === 'vrcdn' && selected.twitchSetup))
         throw Error('Selected output unavailable');
@@ -251,12 +255,14 @@ export function createEventOutputs({ configuration, clock, env = process.env, re
     });
     const entries = [selected, ...optional].map(output => {
         const destination = output.type === 'vrcdn' ? 'vrcdn' : 'twitch';
+        const expectedProfile = resolveDestinationProfile({settings,destination});
+        const profile = Object.freeze({...(output.profile ?? expectedProfile)});
         const resolve = (ref, options) => {
-            if (!output.credential?.secretRef || !['sourceConsent', 'destinationAuthority', 'providerRules', 'rightsClearedMedia'].every(k => output.compliance?.[k] === 'accepted') || (destination === 'twitch' && output.twitchSetup?.profile !== TWITCH_PROFILE) || (destination === 'vrcdn' && Object.entries({ keyframeIntervalSeconds: 1, targetVideoBitrateKbps: 1800, targetAudioBitrateKbps: 160, audioSampleRateHz: 48000 }).some(([key, value]) => output.vrcdnSetup?.[key] !== undefined && output.vrcdnSetup[key] !== value)))
+            if (!output.credential?.secretRef || !['sourceConsent', 'destinationAuthority', 'providerRules', 'rightsClearedMedia'].every(k => output.compliance?.[k] === 'accepted') || Object.keys(expectedProfile).some(key => profile[key] !== expectedProfile[key]) || (destination === 'vrcdn' && Object.entries({keyframeIntervalSeconds: profile.keyframeIntervalSeconds, targetVideoBitrateKbps: profile.videoBitrateKbps, targetAudioBitrateKbps: profile.audioBitrateKbps, audioSampleRateHz: profile.audioSampleRateHz}).some(([key,value]) => output.vrcdnSetup?.[key] !== undefined && output.vrcdnSetup[key] !== value)))
                 throw Error('Invalid output setup');
             return resolver(ref, options);
         };
-        return { outputId: output.id, sender: createOutputSender({ destination, credentialRef: output.credential?.secretRef, resolveCredential: resolve, spawnProcess: spawnForDestination(destination), clock, credentialTimeoutMs }) };
+        return { outputId: output.id, sender: createOutputSender({ destination, profile, credentialRef: output.credential?.secretRef, resolveCredential: resolve, spawnProcess: spawnForDestination(destination), clock, credentialTimeoutMs }) };
     });
     return { async start() { await Promise.all(entries.map(e => e.sender.start())); }, enqueue(chunk) {
             for (const e of entries)

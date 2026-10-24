@@ -5,7 +5,7 @@ import type { PublicStatusSource } from './event-source-observations';
 /** Spend one four-probe wave on current/upcoming performers. All authored links
  * remain in the roster; omitted health is unknown, never inferred offline.
  */
-export function eventHostStatusSources(event: PublicEvent, now: number): PublicStatusSource[] {
+export function eventHostStatusSources(event: PublicEvent, now: number, priorityKeys: readonly string[] = []): PublicStatusSource[] {
   const slots = [...event.slots].sort((a, b) => a.startAt - b.startAt);
   const current = slots.filter((slot, index) => {
     const end = slot.endAt ?? slots[index + 1]?.startAt;
@@ -32,5 +32,9 @@ export function eventHostStatusSources(event: PublicEvent, now: number): PublicS
       if (target && sources.size < 4) sources.set(target.key, { key: target.key, url: target.url });
     }
   }
-  return [...sources.values()];
+  const requested = (event.lineup ?? event.slots).flatMap(row => row.performer?.outboundLinks ?? []).flatMap(link => {
+    const target=eventDjTarget(link.url);
+    return target && priorityKeys.includes(target.key) ? [{key:target.key,url:target.url}] : [];
+  });
+  return [...new Map([...sources.values()].slice(0,2).concat(requested,[...sources.values()]).map(source=>[source.key,source])).values()].slice(0,4);
 }

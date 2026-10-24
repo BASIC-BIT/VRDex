@@ -109,3 +109,21 @@ prepared helpers, credential delivery and successful operations separate.
 record operator setup and acceptance evidence. Verify the active repository
 skill and guide in a fresh task after each publication change. Private setup
 uses `Only me` access and `All (unrestricted)` networking.
+
+## Optional local Convex backend pin
+
+`CONVEX_LOCAL_BACKEND_VERSION` is forwarded unchanged to the Convex CLI only for
+`dev --local`. An explicit `--local-backend-version VALUE` or
+`--local-backend-version=VALUE` takes precedence. An absent/empty environment
+value adds no flag. Existing ports, noninteractive force-upgrade and environment
+isolation remain in effect; force-upgrade alone does not choose a version.
+
+The dated Task 9 verification pin is exactly
+`precompiled-2026-09-28-5c7cb5b`. It is an execution input, not a repository default;
+do not append `600`. Verify the isolated cache before ROOT's canonical local
+workflow. The CLI may download missing artifacts or manage a dashboard, so this
+setting is not an offline guarantee. Record the selected native backend version
+and exit status independently. `pnpm check:backend:generated` starts a backend;
+run canonical generation first and account for its reviewed generated diff.
+The [migration rehearsal](./event-broadcast-rehearsal.md#october-24-2026-task-9-source-prerequisites)
+requires its own isolated state and temporary local bindings.

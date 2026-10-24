@@ -30,3 +30,14 @@ test('newer source edits do not regain stale extraction suggestions', () => {
   const saved = { ...submitted, tentative: { title: 'Old suggestion' }, questions: ['Old question'], evidence: [] };
   assert.deepEqual(mergeSavedEventFields<object>(current, submitted, saved), current);
 });
+
+
+test('broadcast choice edits preserve legacy playback and survive dirty state and in-flight saves',()=>{
+ const submitted={lineup:[{clientKey:'a',selectedStreamId:'legacy',broadcastInput:{kind:'twitch',channel:'first'}}]};
+ const current={lineup:[{clientKey:'a',selectedStreamId:'legacy',broadcastInput:{kind:'twitch',channel:'next'}}]};
+ const saved=JSON.parse(JSON.stringify(submitted));
+ assert.deepEqual(mergeSavedEventFields(current,submitted,saved),current);
+ assert.equal(hasUnsavedEventChanges({current:authoredSnapshot(current),persisted:authoredSnapshot(saved),pendingInput:false}),true);
+ assert.notEqual(authoredSnapshot({broadcastInput:null}),authoredSnapshot({broadcastInput:undefined}));
+ assert.equal(JSON.parse(authoredSnapshot(current)).lineup[0].selectedStreamId,'legacy');
+});
