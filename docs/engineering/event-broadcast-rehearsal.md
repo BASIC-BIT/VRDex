@@ -897,7 +897,22 @@ flow. It retains its 180-second work budget, 30-second cleanup budget, ten-secon
 HTTP calls, 256 migration-call cap and 512-KiB receipt. The surrounding phase
 always attempts the owned recovery RPC, checks the manifest table is empty,
 removes both local environment bindings and deletes the private env file. Setup
-or cleanup failure remains a failed rehearsal. The empty production capacity map
+or cleanup failure remains a failed rehearsal. Convex CLI 1.32.0 reports an empty
+table with native exit zero, no stdout and the exact stderr line
+`There are no documents in this table.` The helper recognizes that fixed notice
+incrementally without retaining stderr. Empty JSON arrays also require successful
+native close and no stderr; unknown blank output, malformed/nonempty data, mixed
+output, timeout or native failure cannot establish an empty manifest.
+
+Phase/recovery receipts retain the last 16 RPC failures as allowlisted function
+names and fixed reason labels, with an earlier-entry drop count. Unrecognized
+functions/reasons remain `unknown`; messages, arguments, keys and returned data
+are not retained. Delegation invokes each original client call once and rethrows
+the same error. These records can include intentionally rejected driver calls;
+acceptance still comes from the unchanged whole-flow driver receipt. Previously
+discarded actual error causes cannot be reconstructed from these new labels.
+
+The empty production capacity map
 currently blocks actual admission; there is no historical-only exemption.
 
 The owner has one 330-second deadline, reserving the final 15 seconds for closure

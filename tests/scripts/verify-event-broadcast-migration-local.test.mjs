@@ -54,7 +54,7 @@ function phaseFixture(failAt) {
     cli: async (args, value) => {
       calls.push(["cli", args, value]);
       if (failAt === args[1] || (failAt === "second-set" && args[1] === "set" && args[2] === "VRDEX_EVENT_MEDIA_BRIDGE_TOKEN")) throw Error("secret");
-      return args[0] === "data" ? "[]" : "";
+      return args[0] === "data" ? cliDataResult("[]") : "";
     },
     runDriver: async input => { calls.push(["driver", input]); if (failAt === "driver") throw Error("secret"); return structuredClone(passed); },
     recover: async () => { calls.push("recover"); if (failAt === "recover") throw Error("secret"); return { deleted: 0 }; },
@@ -100,7 +100,7 @@ test("historical-only, dirty cleanup, wrong source and nonempty manifest cannot 
     assert.equal((await executePhase(input, deps)).status, "failed");
   }
   const { deps } = phaseFixture();
-  deps.cli = async args => args[0] === "data" ? '[{"_id":"leftover"}]' : "";
+  deps.cli = async args => args[0] === "data" ? cliDataResult('[{"_id":"leftover"}]') : "";
   assert.equal((await executePhase(input, deps)).status, "failed");
 });
 
@@ -255,7 +255,7 @@ test("interrupted work recovers after seed, first binding and driver before back
     let stopped = false;
     const recoveryDeps = {
       recover: async () => { assert.ok(stopped); calls.push("fixture-cleanup"); },
-      cli: async args => { assert.ok(stopped); calls.push(args[0] === "data" ? "manifest-empty" : `remove-${args[2]}`); return "[]"; },
+      cli: async args => { assert.ok(stopped); calls.push(args[0] === "data" ? "manifest-empty" : `remove-${args[2]}`); return cliDataResult("[]"); },
       removePrivateFile: () => calls.push("remove-envfile"),
     };
     const result = await supervisePhase(330000, {
@@ -358,7 +358,7 @@ async function fakeOuterRun(signal, at, workStage = "driver") {
           nativeResult: async () => ({ ...good, code: null, signal: "SIGTERM" }), phaseProof: () => null,
           recover: () => helper.executeRecovery({
             recover: async () => { calls.push("fixture-cleanup"); },
-            cli: async args => { calls.push(args[0] === "data" ? "manifest-empty" : `remove-${args[2]}`); return "[]"; },
+            cli: async args => { calls.push(args[0] === "data" ? "manifest-empty" : `remove-${args[2]}`); return cliDataResult("[]"); },
             removePrivateFile: () => calls.push("remove-envfile"),
           }),
           saveRecovery: proof => { calls.push("persist-recovery"); files.set("recovery.json", proof); },
@@ -427,4 +427,116 @@ test("final proof yield cannot pass after deadline or lose a signal before proce
     assert.equal(cancelled.proof.cancelled, true);
     assert.equal(cancelled.exitCode, 1);
   }
+});
+
+const cliDataResult = (stdout = "", changes = {}) => ({ code: 0, signal: null, close: true, timedOut: false, overflow: false, stdout, stderrBytes: 0, emptyTableNotice: false, cliVersion: "1.32.0", ...changes });
+
+// Convex 1.32.0 lib/data.ts returns native zero, no stdout and this stderr notice.
+test("recovery accepts the exact successful Convex 1.32 empty-table observation", async () => {
+  const result = await helper.executeRecovery({
+    recover: async () => {}, removePrivateFile: () => {},
+    cli: async args => args[0] === "data" ? cliDataResult("", { emptyTableNotice: true, stderrBytes: 38 }) : cliDataResult(),
+  });
+  assert.equal(result.manifestEmpty, true);
+  assert.equal(result.status, "passed");
+});
+
+test("empty-table recognition requires exact stderr bytes across native chunks", async () => {
+  const { EventEmitter } = await import("node:events");
+  for (const [stderr, want] of [["There are no documents in this table.\n", true], ["", false], ["There are no documents in this table.\nextra", false], ["secret There are no documents in this table.\n", false]]) {
+    const child = new EventEmitter(); child.stdout = new EventEmitter(); child.stderr = new EventEmitter(); child.stdin = new EventEmitter(); child.stdin.end = () => {}; child.kill = () => {};
+    const task = helper.runNative("fixed", [], { deadline: 10000, capture: true, observeEmptyTable: true }, { spawn: () => child, now: () => 0, setTimeout: () => 1, clearTimeout: () => {} });
+    for (const chunk of [stderr.slice(0, 8), stderr.slice(8)]) child.stderr.emit("data", Buffer.from(chunk));
+    child.emit("close", 0, null);
+    const native = await task.done;
+    assert.equal(native.emptyTableNotice, want);
+    assert.equal(native.stderrBytes, Buffer.byteLength(stderr));
+    assert.ok(!JSON.stringify(native).includes("secret"));
+  }
+});
+
+test("manifest proof rejects unknown blank, nonempty, malformed and failed native observations", async () => {
+  for (const result of [
+    cliDataResult(), cliDataResult(" "), cliDataResult("not-json"), cliDataResult('[{"_id":"owned-row"}]'),
+    cliDataResult("", { emptyTableNotice: true, stderrBytes: 38, code: 1 }),
+    cliDataResult("", { emptyTableNotice: true, stderrBytes: 38, signal: "SIGTERM" }),
+    cliDataResult("", { emptyTableNotice: true, stderrBytes: 38, timedOut: true }),
+    cliDataResult("", { emptyTableNotice: true, stderrBytes: 38, close: false }),
+    cliDataResult("", { emptyTableNotice: true, stderrBytes: 38, overflow: true }),
+    cliDataResult("", { emptyTableNotice: true, stderrBytes: 38, cliVersion: "future" }),
+    cliDataResult("[]", { emptyTableNotice: true, stderrBytes: 38 }),
+    cliDataResult("[]", { stderrBytes: 1 }),
+  ]) {
+    const proof = await helper.executeRecovery({ recover: async () => {}, removePrivateFile: () => {}, cli: async args => args[0] === "data" ? result : cliDataResult() });
+    assert.equal(proof.manifestEmpty, false, JSON.stringify(result));
+    assert.equal(proof.status, "failed");
+    assert.equal(proof.privateFileRemoved, true);
+  }
+});
+
+test("RPC observer records only allowlisted function and fixed reason, rethrowing original error", async () => {
+  assert.equal(typeof helper.createRpcObserver, "function");
+  const { getFunctionName, makeFunctionReference } = await import("convex/server");
+  const observer = helper.createRpcObserver(getFunctionName);
+  let calls = 0;
+  const original = new Error("[Request ID: private-request] Server Error\nUncaught Error: Unproved broadcast configuration\n    at schedule (private-path)");
+  const client = { async mutation(ref, args) { calls++; assert.equal(this, client); assert.deepEqual(args, { secret: "private-key" }); throw original; }, async query() { return "unchanged"; } };
+  const observed = observer.wrap(client, "owner");
+  await assert.rejects(observed.mutation(makeFunctionReference("events:scheduleEventMediaWorker"), { secret: "private-key" }), error => error === original);
+  assert.equal(await observed.query(makeFunctionReference("localEventBroadcastRehearsal:inspect"), {}), "unchanged");
+  assert.equal(calls, 1);
+  assert.deepEqual(observer.receipt().failures, [{ client: "owner", method: "mutation", function: "events:scheduleEventMediaWorker", reason: "unproved-broadcast-configuration" }]);
+  assert.ok(!JSON.stringify(observer.receipt()).includes("private"));
+});
+
+test("RPC observer keeps unknown errors unknown and bounds evidence without suppressing failures", async () => {
+  assert.equal(typeof helper.createRpcObserver, "function");
+  const { getFunctionName, makeFunctionReference } = await import("convex/server");
+  const observer = helper.createRpcObserver(getFunctionName);
+  const failures = [new Error("secret Unproved broadcast configuration"), new Error("other failure: private-key"), new Error("x".repeat(9000) + "\nUncaught Error: Unproved broadcast configuration"), { message: "Unproved broadcast configuration", data: { secret: "private-key" } }];
+  for (const original of failures) {
+    const client = observer.wrap({ mutation: async () => { throw original; } }, "admin");
+    await assert.rejects(client.mutation(makeFunctionReference("events:scheduleEventMediaWorker"), {}), error => error === original);
+  }
+  const privateClient = observer.wrap({ mutation: async () => { throw new Error("Unproved broadcast configuration"); } }, "admin");
+  await assert.rejects(privateClient.mutation(makeFunctionReference("private-function:private-key"), {}));
+  const original = new Error("Unproved broadcast configuration");
+  const client = observer.wrap({ mutation: async () => { throw original; } }, "owner");
+  for (let i = 0; i < 30; i++) await assert.rejects(client.mutation(makeFunctionReference("events:configureVrcdnOutput"), {}), error => error === original);
+  const receipt = observer.receipt();
+  assert.ok(receipt.failures.every(item => item.reason === "unknown"));
+  assert.equal(receipt.failures.length, 16);
+  assert.equal(receipt.dropped, 19);
+  assert.ok(!JSON.stringify(receipt).includes("private"));
+  assert.ok(Buffer.byteLength(JSON.stringify(receipt)) < 4096);
+});
+
+
+test("RPC classification wraps the installed Convex client without extra transport or lost final failure", async () => {
+  const [{ ConvexHttpClient }, { getFunctionName, makeFunctionReference }] = await Promise.all([import("convex/browser"), import("convex/server")]);
+  const observer = helper.createRpcObserver(getFunctionName);
+  let transportCalls = 0, original;
+  const client = new ConvexHttpClient("http://127.0.0.1:3210", { logger: false, fetch: async (_url, options) => {
+    transportCalls++;
+    const request = JSON.parse(options.body);
+    assert.equal(request.path, "events:scheduleEventMediaWorker");
+    assert.deepEqual(request.args, [{ opaqueArgument: "private-value" }]);
+    return new Response(JSON.stringify({ status: "error", errorMessage: "[Request ID: private-id] Server Error\nUncaught Error: Unproved broadcast configuration\n    at private-location" }), { status: 560, headers: { "Content-Type": "application/json" } });
+  } });
+  const delegate = client.mutation.bind(client);
+  client.mutation = async (...args) => { try { return await delegate(...args); } catch (error) { original = error; throw error; } };
+  const observed = observer.wrap(client, "owner");
+  await assert.rejects(observed.mutation(makeFunctionReference("events:scheduleEventMediaWorker"), { opaqueArgument: "private-value" }), error => error === original);
+  assert.equal(transportCalls, 1);
+  assert.equal(observer.receipt().failures.at(-1).reason, "unproved-broadcast-configuration");
+  assert.ok(!JSON.stringify(observer.receipt()).includes("private"));
+
+  const tail = helper.createRpcObserver(getFunctionName);
+  const rejected = tail.wrap({ mutation: async () => { throw new Error("unknown earlier error"); } }, "admin");
+  for (let i = 0; i < 20; i++) await assert.rejects(rejected.mutation(makeFunctionReference("eventMediaControlMigration:backfill"), {}));
+  const final = tail.wrap({ mutation: async () => { throw new Error("Unproved broadcast configuration"); } }, "owner");
+  await assert.rejects(final.mutation(makeFunctionReference("events:scheduleEventMediaWorker"), {}));
+  assert.equal(tail.receipt().failures.length, 16);
+  assert.equal(tail.receipt().failures.at(-1).reason, "unproved-broadcast-configuration");
+  assert.equal(tail.receipt().dropped, 5);
 });

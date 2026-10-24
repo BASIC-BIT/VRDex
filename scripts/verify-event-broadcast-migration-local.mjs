@@ -84,10 +84,65 @@ export function createLogCapture(limit = 128 * 1024) {
 function driverPassed(receipt, input) {
   return receipt?.status === "passed" && receipt.scope === "whole-flow" && receipt.cleanup?.status === "passed" && receipt.sourceSha === input.sourceSha && receipt.backendVersion === input.backendVersion && receipt.runId === input.runId;
 }
+const EMPTY_TABLE_NOTICE = Buffer.from("There are no documents in this table.\n");
+function manifestRows(result) {
+  requireNative(result);
+  check(result.cliVersion === "1.32.0" && typeof result.stdout === "string");
+  if (result.stdout === "" && result.emptyTableNotice === true && result.stderrBytes === EMPTY_TABLE_NOTICE.length) return [];
+  // Unknown blank output, warnings and mixed stdout/stderr are not empty-table proof.
+  check(result.stderrBytes === 0 && result.emptyTableNotice === false);
+  const rows = JSON.parse(result.stdout);
+  check(Array.isArray(rows));
+  return rows;
+}
+const RPC_FUNCTIONS = new Set([
+  "localEventBroadcastRehearsal:seed", "localEventBroadcastRehearsal:setScenario", "localEventBroadcastRehearsal:inspect", "localEventBroadcastRehearsal:cleanup", "eventMediaControlMigration:backfill",
+  "events:configureVrcdnOutput", "events:scheduleEventMediaWorker", "events:stopEventMediaWorker", "events:markEventMediaWorkerEnded", "events:queueEventMediaCommand", "events:cancelEventMediaOperation",
+  "eventMediaWorker:acquireSession", "eventMediaWorker:claimCommands", "eventMediaWorker:beginPreparation", "eventMediaWorker:acknowledgeCommand", "eventMediaWorker:observeProgram", "eventMediaWorker:promoteOperation", "eventMediaWorker:renewSession", "eventMediaWorker:refreshConfiguration",
+]);
+const SCHEDULE_REASONS = new Map([
+  ["Unproved broadcast configuration", "unproved-broadcast-configuration"],
+  ["Invalid capacity profile", "invalid-capacity-profile"],
+  ["A ready event media output is required before scheduling a worker.", "output-not-ready"],
+  ["Output account is not authorized for this community.", "output-unauthorized"],
+  ["You do not have permission to control event media.", "control-permission-denied"],
+]);
+function rpcReason(name, error) {
+  try {
+    if (name !== "events:scheduleEventMediaWorker" || !(error instanceof Error) || typeof error.message !== "string" || error.message.length > 8192) return "unknown";
+    for (const line of error.message.split("\n")) {
+      const reason = SCHEDULE_REASONS.get(line.startsWith("Uncaught Error: ") ? line.slice(16) : line);
+      if (reason) return reason;
+    }
+  } catch { /* Error getters and unrecognized error values must not change delegation. */ }
+  return "unknown";
+}
+export function createRpcObserver(getFunctionName) {
+  const failures = [];
+  let dropped = 0;
+  return {
+    wrap(client, role) {
+      check(role === "admin" || role === "owner");
+      return Object.fromEntries(["mutation", "query"].map(method => [method, async (...args) => {
+        try { return await client[method](...args); }
+        catch (error) {
+          try {
+            let name = "unknown";
+            try { const candidate = getFunctionName(args[0]); if (RPC_FUNCTIONS.has(candidate)) name = candidate; } catch { /* unknown reference */ }
+            if (failures.length === 16) { failures.shift(); dropped = Math.min(65535, dropped + 1); }
+            failures.push({ client: role, method, function: name, reason: rpcReason(name, error) });
+          } catch { /* Observation must never replace the original failure. */ }
+          throw error;
+        }
+      }]));
+    },
+    receipt: () => ({ failures: failures.map(item => ({ ...item })), dropped }),
+  };
+}
 export async function executeRecovery(deps) {
   const proof = { status: "failed", fixtureCleanup: false, manifestEmpty: false, bindingsRemoved: {}, privateFileRemoved: false };
   try { await deps.recover(); proof.fixtureCleanup = true; } catch { /* Continue every cleanup boundary. */ }
-  try { const rows = JSON.parse(await deps.cli(["data", "localEventBroadcastRehearsals", "--limit", "1", "--format", "json"])); proof.manifestEmpty = Array.isArray(rows) && rows.length === 0; } catch { /* retained below */ }
+  try { const rows = manifestRows(await deps.cli(["data", "localEventBroadcastRehearsals", "--limit", "1", "--format", "json"])); proof.manifestEmpty = Array.isArray(rows) && rows.length === 0; } catch { /* retained below */ }
   for (const name of BINDINGS) {
     try { await deps.cli(["env", "remove", name]); proof.bindingsRemoved[name] = true; } catch { proof.bindingsRemoved[name] = false; }
   }
@@ -190,12 +245,18 @@ function cleanEnv(extra = {}) {
   // Allowlist, never propagate provider, hosted deployment, NODE_OPTIONS or user startup hooks.
   return { PATH: process.env.PATH, HOME: path.join(ROOT, ".convex-home"), CI: "true", LANG: "C.UTF-8", CONVEX_AGENT_MODE: "anonymous", CONVEX_LOCAL_BACKEND_VERSION: BACKEND_VERSION, GITHUB_RUN_ID: process.env.GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT: process.env.GITHUB_RUN_ATTEMPT, MIGRATION_PR_HEAD_SHA: process.env.MIGRATION_PR_HEAD_SHA, ...extra };
 }
-export function runNative(command, args, { env = cleanEnv(), stdin, deadline, detached = false, capture = false, logs, holdInput = false } = {}, ops = { spawn, now: Date.now, setTimeout, clearTimeout }) {
+export function runNative(command, args, { env = cleanEnv(), stdin, deadline, detached = false, capture = false, logs, holdInput = false, observeEmptyTable = false } = {}, ops = { spawn, now: Date.now, setTimeout, clearTimeout }) {
   check(deadline > ops.now());
   const child = ops.spawn(command, args, { cwd: ROOT, env, detached, stdio: ["pipe", "pipe", "pipe"] });
   let stdout = "", size = 0, timedOut = false, overflow = false;
+  let stderrBytes = 0, emptyTableMatches = true;
   const collect = (name, chunk) => {
     logs?.add(name, chunk);
+    if (observeEmptyTable && name === "stderr") {
+      // Compare fixed bytes incrementally; never retain arbitrary stderr text.
+      if (stderrBytes + chunk.length > EMPTY_TABLE_NOTICE.length || !chunk.equals(EMPTY_TABLE_NOTICE.subarray(stderrBytes, stderrBytes + chunk.length))) emptyTableMatches = false;
+      stderrBytes += chunk.length;
+    }
     size += chunk.length;
     overflow ||= size > 128 * 1024 || Boolean(logs?.receipt().overflow);
     if (capture && name === "stdout" && !overflow) stdout += chunk.toString("utf8");
@@ -211,7 +272,7 @@ export function runNative(command, args, { env = cleanEnv(), stdin, deadline, de
     if (settled) return;
     settled = true;
     ops.clearTimeout(termTimer); ops.clearTimeout(killTimer);
-    settle({ code, signal, close, timedOut, overflow, stdout });
+    settle({ code, signal, close, timedOut, overflow, stdout, ...(observeEmptyTable ? { stderrBytes, emptyTableNotice: emptyTableMatches && stderrBytes === EMPTY_TABLE_NOTICE.length } : {}) });
   };
   // Termination and native EOF observation share the caller's original deadline.
   const termTimer = ops.setTimeout(() => { timedOut = true; child.kill("SIGTERM"); }, Math.max(0, deadline - ops.now() - 1000));
@@ -252,23 +313,26 @@ async function work() {
   const bridgeToken = randomBytes(32).toString("hex");
   const logs = createLogCapture(30 * 1024);
   const cliStatuses = [];
-  let proof;
+  let proof, rpcObserver;
+  const cliVersion = json(path.join(ROOT, "node_modules/convex/package.json")).version;
   try {
-    const [{ ConvexHttpClient }, { makeFunctionReference }, { runMigrationRehearsal }] = await Promise.all([import("convex/browser"), import("convex/server"), import("./event-broadcast-migration-rehearsal.ts")]);
+    const [{ ConvexHttpClient }, { makeFunctionReference, getFunctionName }, { runMigrationRehearsal }] = await Promise.all([import("convex/browser"), import("convex/server"), import("./event-broadcast-migration-rehearsal.ts")]);
     const fetchBounded = (url, options) => fetch(url, { ...options, signal: AbortSignal.timeout(Math.max(1, Math.min(10_000, timing.deadline - 20_000 - Date.now()))) });
-    const admin = new ConvexHttpClient("http://127.0.0.1:3210", { fetch: fetchBounded, logger: false });
-    const owner = new ConvexHttpClient("http://127.0.0.1:3210", { fetch: fetchBounded, logger: false });
-    admin.setAdminAuth(config.adminKey);
+    const adminClient = new ConvexHttpClient("http://127.0.0.1:3210", { fetch: fetchBounded, logger: false });
+    const ownerClient = new ConvexHttpClient("http://127.0.0.1:3210", { fetch: fetchBounded, logger: false });
+    adminClient.setAdminAuth(config.adminKey);
+    rpcObserver = createRpcObserver(getFunctionName);
+    const admin = rpcObserver.wrap(adminClient, "admin"), owner = rpcObserver.wrap(ownerClient, "owner");
     const runId = `ci-${ownership.ownerId.slice(0, 24)}`;
     const input = { admin, owner, bridgeToken, runId, sourceSha: id.sourceSha, backendVersion: BACKEND_VERSION };
     const cli = async (args, value) => {
-      const result = await native(path.join(ROOT, "node_modules/.bin/convex"), [...args, "--env-file", envfile], { stdin: value === undefined ? undefined : `${value}\n`, deadline: Math.min(Date.now() + 10_000, timing.deadline - 20_000), capture: args[0] === "data", logs }).done;
-      cliStatuses.push({ operation: args.slice(0, 3), code: result.code, signal: result.signal, close: result.close, timedOut: result.timedOut, overflow: result.overflow });
-      requireNative(result); return result.stdout;
+      const result = await native(path.join(ROOT, "node_modules/.bin/convex"), [...args, "--env-file", envfile], { stdin: value === undefined ? undefined : `${value}\n`, deadline: Math.min(Date.now() + 10_000, timing.deadline - 20_000), capture: args[0] === "data", observeEmptyTable: args[0] === "data", logs }).done;
+      cliStatuses.push({ operation: args.slice(0, 3), code: result.code, signal: result.signal, close: result.close, timedOut: result.timedOut, overflow: result.overflow, ...(args[0] === "data" ? { cliVersion, stderrBytes: result.stderrBytes, emptyTableNotice: result.emptyTableNotice } : {}) });
+      requireNative(result); return { ...result, cliVersion };
     };
     proof = await executePhase(input, {
       seed: () => admin.mutation(makeFunctionReference("localEventBroadcastRehearsal:seed"), { runId }),
-      bindOwner: actor => owner.setAdminAuth(config.adminKey, actor),
+      bindOwner: actor => ownerClient.setAdminAuth(config.adminKey, actor),
       cli, runDriver: input => { requireDriverBudget(timing.deadline); return runMigrationRehearsal(input); },
       recover: () => admin.mutation(makeFunctionReference("localEventBroadcastRehearsal:cleanup"), { runId }),
       saveDriver: receipt => {
@@ -281,7 +345,7 @@ async function work() {
     });
   } finally {
     if (present(envfile)) rmSync(envfile);
-    writeJson(path.join(artifact, "phase.json"), { ...(proof ?? { status: "failed" }), cliStatuses, logs: logs.receipt() });
+    writeJson(path.join(artifact, "phase.json"), { ...(proof ?? { status: "failed" }), cliStatuses, rpcFailures: rpcObserver?.receipt() ?? { failures: [], dropped: 0 }, logs: logs.receipt() });
   }
   check(proof?.status === "passed" && !logs.receipt().overflow);
 }
@@ -292,19 +356,22 @@ async function recover() {
   const deadline = timing.deadline - 20_000;
   const config = loadConfig(), envfile = path.join(privateDir(ROOT), "recovery.env");
   const logs = createLogCapture(30 * 1024), cliStatuses = [];
-  let proof = { status: "failed" };
+  let proof = { status: "failed" }, rpcObserver;
+  const cliVersion = json(path.join(ROOT, "node_modules/convex/package.json")).version;
   try {
     writeFileSync(envfile, `CONVEX_SELF_HOSTED_URL=http://127.0.0.1:3210\nCONVEX_SELF_HOSTED_ADMIN_KEY=${config.adminKey}\n`, { mode: 0o600, flag: "wx" });
-    const [{ ConvexHttpClient }, { makeFunctionReference }] = await Promise.all([import("convex/browser"), import("convex/server")]);
+    const [{ ConvexHttpClient }, { makeFunctionReference, getFunctionName }] = await Promise.all([import("convex/browser"), import("convex/server")]);
     const fetchBounded = (url, options) => { check(Date.now() < deadline); return fetch(url, { ...options, signal: AbortSignal.timeout(Math.max(1, Math.min(10_000, deadline - Date.now()))) }); };
-    const admin = new ConvexHttpClient("http://127.0.0.1:3210", { fetch: fetchBounded, logger: false });
-    admin.setAdminAuth(config.adminKey);
+    const adminClient = new ConvexHttpClient("http://127.0.0.1:3210", { fetch: fetchBounded, logger: false });
+    adminClient.setAdminAuth(config.adminKey);
+    rpcObserver = createRpcObserver(getFunctionName);
+    const admin = rpcObserver.wrap(adminClient, "admin");
     proof = await executeRecovery({
       recover: () => admin.mutation(makeFunctionReference("localEventBroadcastRehearsal:cleanup"), { runId: `ci-${ownership.ownerId.slice(0, 24)}` }),
       cli: async args => {
-        const result = await native(path.join(ROOT, "node_modules/.bin/convex"), [...args, "--env-file", envfile], { deadline: Math.min(Date.now() + 10_000, deadline), capture: args[0] === "data", logs }).done;
+        const result = await native(path.join(ROOT, "node_modules/.bin/convex"), [...args, "--env-file", envfile], { deadline: Math.min(Date.now() + 10_000, deadline), capture: args[0] === "data", observeEmptyTable: args[0] === "data", logs }).done;
         cliStatuses.push({ operation: args.slice(0, 3), ...result, stdout: undefined });
-        requireNative(result); return result.stdout;
+        requireNative(result); return { ...result, cliVersion };
       },
       removePrivateFile: () => {
         for (const name of ["loopback.env", "recovery.env"]) rmSync(path.join(privateDir(ROOT), name), { force: true });
@@ -313,7 +380,7 @@ async function recover() {
     });
   } finally {
     rmSync(envfile, { force: true });
-    writeJson(path.join(artifactDir(ROOT), "recovery.json"), { ...proof, cliStatuses, logs: logs.receipt() });
+    writeJson(path.join(artifactDir(ROOT), "recovery.json"), { ...proof, cliStatuses, rpcFailures: rpcObserver?.receipt() ?? { failures: [], dropped: 0 }, logs: logs.receipt() });
   }
   check(proof.status === "passed" && !logs.receipt().overflow);
 }
