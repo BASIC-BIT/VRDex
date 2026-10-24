@@ -239,26 +239,19 @@ jobs:
         if: ${{ always() && steps.migration.outcome != 'skipped' }}
         run: git diff --exit-code -- convex/_generated
 
-      - name: Require complete migration evidence
+      - name: Stage safe migration evidence and require completeness
+        id: migration-evidence
         if: ${{ always() && steps.migration.outcome != 'skipped' }}
         run: node scripts/verify-event-broadcast-migration-local.mjs check-artifacts
 
       - name: Upload safe migration evidence
-        if: ${{ always() && steps.migration.outcome != 'skipped' }}
+        if: ${{ always() && steps.migration.outcome != 'skipped' && steps.migration-evidence.outputs.upload-path != '' }}
         uses: actions/upload-artifact@v7
         with:
           name: event-broadcast-migration-local-${{ github.run_id }}-${{ github.run_attempt }}
           retention-days: 7
           if-no-files-found: error
-          path: |
-            artifacts/event-broadcast-migration-local/preflight.json
-            artifacts/event-broadcast-migration-local/result.json
-            artifacts/event-broadcast-migration-local/group.json
-            artifacts/event-broadcast-migration-local/runtime.json
-            artifacts/event-broadcast-migration-local/driver.json
-            artifacts/event-broadcast-migration-local/phase.json
-            artifacts/event-broadcast-migration-local/phase-native.json
-            artifacts/event-broadcast-migration-local/parent-native.json
+          path: ${{ steps.migration-evidence.outputs.upload-path }}
 
   restream-local-checks:
     name: Restream Local Checks

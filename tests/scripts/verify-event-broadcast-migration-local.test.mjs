@@ -184,20 +184,19 @@ test("exit without close does not supply native success and output overflow is f
   assert.deepEqual(signals, ["SIGKILL"]);
 });
 
-test("artifact verification rejects missing expected proof and symlink artifacts", () => {
-  const { verifyArtifacts } = requireHelper();
-  assert.equal(typeof verifyArtifacts, "function");
+test("artifact completeness rejects missing proof and symlink sources", () => {
+  const { stageArtifacts } = requireHelper();
   const root = mkdtempSync(path.join(os.tmpdir(), "migration-test-"));
   try {
-    mkdirSync(path.join(root, "artifacts/event-broadcast-migration-local"), { recursive: true });
-    writeFileSync(path.join(root, "artifacts/event-broadcast-migration-local/result.json"), '{}');
-    assert.throws(() => verifyArtifacts(root));
     const directory = path.join(root, "artifacts/event-broadcast-migration-local");
-    for (const name of ["preflight", "group", "runtime", "driver", "phase", "phase-native", "parent-native"]) writeFileSync(path.join(directory, `${name}.json`), "{}");
-    verifyArtifacts(root);
+    mkdirSync(directory, { recursive: true });
+    writeFileSync(path.join(directory, "result.json"), "{}");
+    assert.equal(stageArtifacts(root, root).complete, false);
+    for (const name of ["preflight", "group", "runtime", "driver", "phase", "phase-native", "parent-native", "work-group", "recovery"]) writeFileSync(path.join(directory, `${name}.json`), "{}");
+    assert.equal(stageArtifacts(root, root).complete, true);
     rmSync(path.join(directory, "result.json"));
     symlinkSync(path.join(directory, "driver.json"), path.join(directory, "result.json"));
-    assert.throws(() => verifyArtifacts(root));
+    assert.equal(stageArtifacts(root, root).complete, false);
   } finally { rmSync(root, { recursive: true }); }
 });
 
@@ -215,10 +214,13 @@ test("existing backend CI pins both phases, preserves canonical checks and uploa
   assert.equal(rehearsal.run, "node --import tsx scripts/verify-event-broadcast-migration-local.mjs run");
   assert.equal(rehearsal["continue-on-error"], undefined);
   const artifact = job.steps.find(step => step.uses === "actions/upload-artifact@v7");
-  assert.equal(artifact.if, "${{ always() && steps.migration.outcome != 'skipped' }}");
+  assert.equal(artifact.if, "${{ always() && steps.migration.outcome != 'skipped' && steps.migration-evidence.outputs.upload-path != '' }}");
   assert.equal(artifact.with["retention-days"], 7);
   assert.equal(artifact.with["if-no-files-found"], "error");
-  assert.ok(artifact.with.path.split("\n").filter(Boolean).every(file => /^artifacts\/event-broadcast-migration-local\/[a-z-]+\.json$/.test(file)));
+  assert.equal(artifact.with.path, "${{ steps.migration-evidence.outputs.upload-path }}");
+  const selection = job.steps.find(step => step.id === "migration-evidence");
+  assert.equal(selection.if, "${{ always() && steps.migration.outcome != 'skipped' }}");
+  assert.equal(selection.run, "node scripts/verify-event-broadcast-migration-local.mjs check-artifacts");
 });
 
 test("final acceptance requires every native, closure, runtime and whole-flow proof", () => {
@@ -240,6 +242,189 @@ test("final acceptance requires every native, closure, runtime and whole-flow pr
 test("late startup cannot spend the cleanup and physical-closure reserve on driver work", () => {
   const { requireDriverBudget } = requireHelper();
   assert.equal(typeof requireDriverBudget, "function");
-  assert.doesNotThrow(() => requireDriverBudget(330000, 59999));
-  assert.throws(() => requireDriverBudget(330000, 60001));
+  assert.doesNotThrow(() => requireDriverBudget(330000, 54999));
+  assert.throws(() => requireDriverBudget(330000, 55001));
+});
+
+// The supervisor must quiesce the workload, recover logical state, then release run-sh.
+test("interrupted work recovers after seed, first binding and driver before backend release", async () => {
+  const { supervisePhase, executeRecovery } = requireHelper();
+  assert.equal(typeof supervisePhase, "function");
+  for (const stage of ["seed", "first-binding", "driver", "work-crash"]) {
+    const calls = [stage];
+    let stopped = false;
+    const recoveryDeps = {
+      recover: async () => { assert.ok(stopped); calls.push("fixture-cleanup"); },
+      cli: async args => { assert.ok(stopped); calls.push(args[0] === "data" ? "manifest-empty" : `remove-${args[2]}`); return "[]"; },
+      removePrivateFile: () => calls.push("remove-envfile"),
+    };
+    const result = await supervisePhase(330000, {
+      now: () => 1000, cancelled: () => stage !== "work-crash", closed: () => stage === "work-crash", pause: async () => {},
+      stopWork: async () => { calls.push("work-group-close"); stopped = true; return { passed: true }; },
+      nativeResult: async () => ({ code: 1, signal: null, close: true }),
+      phaseProof: () => null,
+      recover: deadline => { assert.equal(deadline, 310000); return executeRecovery(recoveryDeps); },
+      saveRecovery: result => calls.push(["persist-recovery", result]),
+    });
+    calls.push("backend-group-close");
+    assert.equal(result.status, "failed");
+    assert.equal(result.recovery.status, "passed");
+    assert.deepEqual(calls.slice(1, 7), ["work-group-close", "fixture-cleanup", "manifest-empty", "remove-VRDEX_VRCDN_OUTPUT_ACCOUNTS_JSON", "remove-VRDEX_EVENT_MEDIA_BRIDGE_TOKEN", "remove-envfile"]);
+    assert.equal(calls.at(-2)[0], "persist-recovery");
+    assert.equal(calls.at(-1), "backend-group-close");
+  }
+});
+
+test("interruption recovery persists every failed cleanup attempt before backend release", async () => {
+  const { supervisePhase, executeRecovery } = requireHelper();
+  assert.equal(typeof supervisePhase, "function");
+  const calls = [];
+  let saved;
+  const result = await supervisePhase(330000, {
+    now: () => 270000, cancelled: () => true, closed: () => false, pause: async () => {},
+    stopWork: async () => ({ passed: true }), nativeResult: async () => ({ code: null, signal: "SIGKILL", close: true }), phaseProof: () => null,
+    recover: () => executeRecovery({ recover: async () => { calls.push("rpc"); throw Error("secret"); }, cli: async args => { calls.push(args); throw Error("secret"); }, removePrivateFile: () => { calls.push("unlink"); } }),
+    saveRecovery: proof => { saved = proof; },
+  });
+  assert.equal(calls.length, 5);
+  assert.equal(result.status, "failed");
+  assert.equal(saved.status, "failed");
+  assert.equal(saved.fixtureCleanup, false);
+  assert.equal(saved.manifestEmpty, false);
+  assert.ok(!JSON.stringify(saved).includes("secret"));
+});
+
+test("safe upload staging excludes rejected source links while retaining failure evidence", () => {
+  const { stageArtifacts } = requireHelper();
+  assert.equal(typeof stageArtifacts, "function");
+  const root = mkdtempSync(path.join(os.tmpdir(), "migration-stage-test-"));
+  try {
+    const source = path.join(root, "artifacts/event-broadcast-migration-local");
+    mkdirSync(source, { recursive: true });
+    writeFileSync(path.join(root, "private-config"), "private-admin-secret");
+    writeFileSync(path.join(source, "result.json"), '{"status":"failed"}');
+    symlinkSync(path.join(root, "private-config"), path.join(source, "driver.json"));
+    const selection = stageArtifacts(root, root);
+    assert.equal(selection.complete, false);
+    assert.ok(!selection.selected.includes("driver.json"));
+    assert.equal(readFileSync(path.join(selection.directory, "result.json"), "utf8"), '{"status":"failed"}');
+    assert.ok(readFileSync(path.join(selection.directory, "selection.json"), "utf8").includes('"complete": false'));
+    assert.ok(!readFileSync(path.join(selection.directory, "selection.json"), "utf8").includes("private-admin-secret"));
+    assert.throws(() => readFileSync(path.join(selection.directory, "driver.json")));
+    rmSync(source, { recursive: true });
+    symlinkSync(path.dirname(source), source);
+    const rejected = stageArtifacts(root, root);
+    assert.equal(rejected.complete, false);
+    assert.deepEqual(rejected.selected, []);
+    assert.ok(readFileSync(path.join(rejected.directory, "selection.json"), "utf8"));
+  } finally { rmSync(root, { recursive: true }); }
+});
+
+// Evaluate the real outer owner with only process/filesystem/native boundaries replaced.
+async function fakeOuterRun(signal, at, workStage = "driver") {
+  const { EventEmitter } = await import("node:events");
+  const { default: vm } = await import("node:vm");
+  const source = readFileSync(modulePath, "utf8");
+  const body = source.slice(source.indexOf("async function run() {"), source.indexOf("const EXPECTED_ARTIFACTS"));
+  const ownerId = "b".repeat(32);
+  const events = new EventEmitter(), child = new EventEmitter();
+  child.pid = 100; child.stdin = new EventEmitter(); child.stdin.end = () => {};
+  child.stdout = new EventEmitter(); child.stderr = new EventEmitter(); child.kill = () => {};
+  const good = { code: 0, signal: null, close: true, timedOut: false, overflow: false, logs: { overflow: false } };
+  const files = new Map([
+    ["phase.json", { status: "passed", logs: { overflow: false } }], ["phase-native.json", good], ["parent-native.json", good],
+    ["driver.json", { ...passed, runId: `ci-${ownerId.slice(0, 24)}` }], ["runtime.json", { binarySha256: "c".repeat(64) }],
+    ["recovery.json", { status: "passed" }], ["work-group.json", { ownerId, pid: 200, group: 200, start: "234" }],
+  ]);
+  let delivered = false, closed = false, clock = 1000;
+  const calls = [];
+  let workSignalSent = false;
+  const deliver = stage => { if (!delivered && signal && stage === at) { delivered = true; events.emit(signal); } };
+  const context = {
+    Date: { now: () => clock }, ROOT: "/fake-root", SCRIPT: "fixed", BACKEND_VERSION: config.backendVersion, path,
+    identity: () => ({ sourceSha: sha }), readOwnership: () => ({ ownerId }), artifactDir: () => "/artifact", privateDir: () => "/private",
+    present: file => ["work-group.json", "cancel.json"].includes(path.basename(file)) && files.has(path.basename(file)), processOps: {}, check: x => { if (!x) throw Error("rejected"); },
+    writeJson: (file, data) => { if (path.basename(file) === "result.json" && data.finished) deliver("proof-write"); files.set(path.basename(file), structuredClone(data)); },
+    json: file => files.get(path.basename(file)), process: Object.assign(events, { platform: "linux", execPath: "/fake-node" }),
+    createLogCapture: () => ({ add() {}, receipt: () => ({ overflow: false }) }), listeners: () => [], loadConfig() {}, cleanEnv: () => ({}), spawn: () => child,
+    processView: () => [{ pid: 100, group: 100, start: "123" }],
+    pause: async () => {
+      if (!closed && at === "work") {
+        if (!workSignalSent) { workSignalSent = true; calls.push(workStage); deliver("work"); return; }
+        assert.ok(files.has("cancel.json"), "outer must request recovery before group closure");
+        await helper.supervisePhase(330000, {
+          now: () => 1000, pause: async () => {}, closed: () => false, cancelled: () => true,
+          stopWork: async () => { calls.push("stop-work"); return { passed: true }; },
+          nativeResult: async () => ({ ...good, code: null, signal: "SIGTERM" }), phaseProof: () => null,
+          recover: () => helper.executeRecovery({
+            recover: async () => { calls.push("fixture-cleanup"); },
+            cli: async args => { calls.push(args[0] === "data" ? "manifest-empty" : `remove-${args[2]}`); return "[]"; },
+            removePrivateFile: () => calls.push("remove-envfile"),
+          }),
+          saveRecovery: proof => { calls.push("persist-recovery"); files.set("recovery.json", proof); },
+        });
+        closed = true; child.emit("close", 1, null);
+      } else if (!closed) { closed = true; child.emit("close", 0, null); }
+      else { if (at === "deadline") clock = 331001; deliver("final-yield"); }
+    },
+    closeOwnedGroup: async owner => { calls.push(owner.pid === 100 ? "backend-group-close" : "work-group-close"); deliver("closure"); return { passed: true }; },
+    native: () => { deliver("generated"); return { done: Promise.resolve(good) }; },
+    acceptEvidence: helper.acceptEvidence, rmSync: () => {},
+  };
+  vm.createContext(context);
+  const run = vm.runInContext(body + "\nrun", context);
+  let rejected = false;
+  try { await run(); } catch { rejected = true; }
+  if (at === "after-return") deliver("after-return");
+  return { delivered, rejected, proof: files.get("result.json"), calls, exitCode: context.process.exitCode };
+}
+
+test("both cancellation signals remain authoritative through closure, generated diff and proof writing", async () => {
+  const control = await fakeOuterRun(null, null);
+  assert.equal(control.proof.status, "passed");
+  for (const signal of ["SIGTERM", "SIGINT"]) for (const at of ["closure", "generated", "proof-write", "final-yield"]) {
+    const result = await fakeOuterRun(signal, at);
+    assert.ok(result.delivered, `${signal} ${at}`);
+    assert.equal(result.proof.status, "failed", `${signal} ${at}`);
+    assert.equal(result.proof.cancelled, true, `${signal} ${at}`);
+    assert.equal(result.rejected, true, `${signal} ${at}`);
+  }
+});
+
+
+test("outer cancellation waits for persisted recovery after partial setup and active driver", async () => {
+  for (const signal of ["SIGTERM", "SIGINT"]) for (const stage of ["seed", "first-binding", "driver"]) {
+    const result = await fakeOuterRun(signal, "work", stage);
+    assert.equal(result.proof.status, "failed");
+    assert.equal(result.proof.cancelled, true);
+    assert.equal(result.rejected, true);
+    assert.ok(result.calls.indexOf("persist-recovery") < result.calls.indexOf("backend-group-close"));
+    for (const operation of ["stop-work", "fixture-cleanup", "manifest-empty", "remove-VRDEX_VRCDN_OUTPUT_ACCOUNTS_JSON", "remove-VRDEX_EVENT_MEDIA_BRIDGE_TOKEN", "remove-envfile"]) assert.ok(result.calls.includes(operation), operation);
+  }
+});
+
+test("phase supervision accepts only a closed workload with complete cleanup", async () => {
+  const clean = { status: "passed", fixtureCleanup: true, manifestEmpty: true, bindingsRemoved: { VRDEX_VRCDN_OUTPUT_ACCOUNTS_JSON: true, VRDEX_EVENT_MEDIA_BRIDGE_TOKEN: true }, privateFileRemoved: true };
+  for (const changed of [{}, { close: false }, { code: 1 }]) {
+    const result = await helper.supervisePhase(330000, {
+      now: () => 1000, pause: async () => {}, closed: () => true, cancelled: () => false,
+      stopWork: async () => ({ passed: true }), nativeResult: async () => ({ code: 0, signal: null, close: true, ...changed }),
+      phaseProof: () => clean, recover: () => { throw Error("unexpected recovery"); }, saveRecovery: () => {},
+    });
+    assert.equal(result.status, Object.keys(changed).length ? "failed" : "passed");
+    assert.equal(result.recovery.independent, false);
+  }
+});
+
+
+test("final proof yield cannot pass after deadline or lose a signal before process exit", async () => {
+  const expired = await fakeOuterRun(null, "deadline");
+  assert.equal(expired.proof.status, "failed");
+  assert.equal(expired.rejected, true);
+  for (const signal of ["SIGTERM", "SIGINT"]) {
+    const cancelled = await fakeOuterRun(signal, "after-return");
+    assert.equal(cancelled.proof.status, "failed");
+    assert.equal(cancelled.proof.cancelled, true);
+    assert.equal(cancelled.exitCode, 1);
+  }
 });

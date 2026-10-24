@@ -885,6 +885,13 @@ Installed Convex CLI commands receive the local registry grant and random bridge
 token over stdin using a private mode-0600 self-hosted loopback env file. The grant
 belongs only to the returned community and contains no provider credential.
 
+The phase supervisor separately owns the workload process group. On cancellation
+or interrupted work, it closes that group first, then runs independent bounded
+fixture/environment recovery while `--run-sh` keeps the backend alive. Recovery
+outcomes are persisted before the outer owner closes the backend group. Failed
+recovery remains failed evidence. Cancellation stays authoritative through final
+generated-file verification, proof writing and native process exit.
+
 The unchanged `runMigrationRehearsal` executes the entire migration and lifecycle
 flow. It retains its 180-second work budget, 30-second cleanup budget, ten-second
 HTTP calls, 256 migration-call cap and 512-KiB receipt. The surrounding phase
@@ -895,8 +902,9 @@ currently blocks actual admission; there is no historical-only exemption.
 
 The owner has one 330-second deadline, reserving the final 15 seconds for closure
 and generated-file verification. Phase startup must leave at least 285 seconds.
-The driver starts only with 270 seconds left, reserving its full 210 seconds,
-40 seconds of fixture/environment recovery and 20 seconds for closure/diff.
+The driver starts only with 275 seconds left, reserving its full 210 seconds,
+five seconds of workload-group closure, 40 seconds of fixture/environment recovery
+and 20 seconds for backend closure/diff.
 Every CLI helper includes termination in its ten-second ceiling. Native timeout
 or missing pipe EOF fails; the outer owner independently terminates its process
 group with at most one second of TERM grace, then KILL, and verifies no owned live
@@ -905,12 +913,16 @@ The existing ten-minute job ceiling and six-minute rehearsal step remain fixed;
 timings have not yet been measured by an actual CI attempt.
 
 The seven-day `event-broadcast-migration-local-<run>-<attempt>` artifact uploads
-an explicit JSON file allowlist even after a failed attempted rehearsal. It
+a fresh staging directory even after a failed attempted rehearsal. Only validated
+regular files from the explicit JSON allowlist are copied; rejected source paths
+never reach the uploader. A generated selection receipt is uploaded even when
+proof is missing or unsafe, while completeness still fails the evidence step. It
 contains ownership/source pins, runtime/binary hashes, native parent and phase
 close/exit evidence, the driver receipt, fixture/environment cleanup, generated
 diff status and physical closure. Raw child output is discarded: logs contain
 only stream byte counts and SHA-256 values. The aggregate 128-KiB output budget
-is divided among the CLI owner (64 KiB), phase helpers (60 KiB), phase supervisor
+is divided among the CLI owner (64 KiB), workload helpers (30 KiB), independent
+recovery helpers (30 KiB), phase supervisor
 (2 KiB) and outer owner/generated diff (2 KiB). Overflow fails. Missing expected
 proof files fails the evidence step. Upload cannot be guaranteed after a whole-job
 hard timeout or cancellation; missing evidence never counts as acceptance.
