@@ -79,10 +79,21 @@ it("real migration rejects all open and legacy ownership blockers, then preserve
     "dispatch-unconfirmed",
     "task-queued",
     "task-running",
+    "task-starting",
+    "task-stopping",
     "task-failed",
     "task-legacy",
   ] as const) {
     await t.mutation(scenario, { runId, case: caseName });
+    if (["task-starting", "task-running", "task-stopping"].includes(caseName)) {
+      const row = await t.run(async ({ db }) => {
+        const m = await db.query("localEventBroadcastRehearsals").first();
+        assert.ok(m);
+        return db.get(m.sessions[0].id);
+      });
+      assert.equal(row?.status, "ended");
+      assert.equal(row?.workerTaskId, undefined);
+    }
     const before = await t.query(inspect, { runId });
     await assert.rejects(
       t.mutation(migration, { batchSize: 1 }),

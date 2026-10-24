@@ -171,6 +171,8 @@ export async function runMigrationRehearsal(
       "dispatch-unconfirmed",
       "task-queued",
       "task-running",
+      "task-starting",
+      "task-stopping",
       "task-failed",
       "task-legacy",
     ] as const) {

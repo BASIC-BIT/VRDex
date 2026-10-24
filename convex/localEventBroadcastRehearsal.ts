@@ -399,6 +399,8 @@ const scenario = v.union(
       "dispatch-unconfirmed",
       "task-queued",
       "task-running",
+      "task-starting",
+      "task-stopping",
       "task-failed",
       "task-legacy",
       "task-confirmed",
@@ -429,6 +431,8 @@ export const setScenario = internalMutation({
         "dispatch-unconfirmed",
         "task-queued",
         "task-running",
+        "task-starting",
+        "task-stopping",
         "task-failed",
         "task-legacy",
         "task-confirmed",
@@ -454,7 +458,12 @@ export const setScenario = internalMutation({
           name === "dispatch-unconfirmed" || name === "task-confirmed"
             ? "local-rehearsal-dispatch"
             : undefined,
-        workerTaskId: name.startsWith("task-")
+        workerTaskId: [
+          "task-queued",
+          "task-failed",
+          "task-legacy",
+          "task-confirmed",
+        ].includes(name)
           ? "local-rehearsal-task"
           : undefined,
         workerTaskStatus:
@@ -462,9 +471,13 @@ export const setScenario = internalMutation({
             ? "queued"
             : name === "task-running"
               ? "running"
-              : name === "task-failed" || name === "task-confirmed"
-                ? "failed"
-                : undefined,
+              : name === "task-starting"
+                ? "starting"
+                : name === "task-stopping"
+                  ? "stopping"
+                  : name === "task-failed" || name === "task-confirmed"
+                    ? "failed"
+                    : undefined,
         dispatchStopConfirmedAt: name === "task-confirmed" ? 1 : undefined,
       });
       await db.patch(m.programId, { activeSessionId: undefined });

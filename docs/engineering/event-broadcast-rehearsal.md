@@ -827,7 +827,8 @@ selection must also be independently recorded; the supplied pin is not proof
 that a binary ran.
 
 Historical coverage includes all six open statuses without an active pointer,
-unconfirmed dispatch and queued/running/failed/unnamed legacy task ownership,
+unconfirmed dispatch and queued/failed/unnamed legacy task ownership, plus
+starting/running/stopping diagnostics even without a task ID,
 confirmed stop, and a blocker introduced between pages. Batch size is one; every
 page is replayed and a full second traversal must be semantically unchanged.
 Recoverable manual revision one and observed revision two remain pinned;
