@@ -201,6 +201,9 @@ jobs:
     name: Verify Backend Local
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      CONVEX_LOCAL_BACKEND_VERSION: precompiled-2026-09-28-5c7cb5b
+      MIGRATION_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || '' }}
 
     steps:
       - name: Checkout
@@ -218,11 +221,44 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Require fresh owned local migration state
+        run: node scripts/verify-event-broadcast-migration-local.mjs preflight
+
       - name: Verify backend bootstrap
         run: pnpm verify:backend:local
 
       - name: Check generated backend files
         run: git diff --exit-code -- convex/_generated
+
+      - name: Rehearse actual local event broadcast migration
+        id: migration
+        timeout-minutes: 6
+        run: node --import tsx scripts/verify-event-broadcast-migration-local.mjs run
+
+      - name: Check generated backend files after closure
+        if: ${{ always() && steps.migration.outcome != 'skipped' }}
+        run: git diff --exit-code -- convex/_generated
+
+      - name: Require complete migration evidence
+        if: ${{ always() && steps.migration.outcome != 'skipped' }}
+        run: node scripts/verify-event-broadcast-migration-local.mjs check-artifacts
+
+      - name: Upload safe migration evidence
+        if: ${{ always() && steps.migration.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: event-broadcast-migration-local-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 7
+          if-no-files-found: error
+          path: |
+            artifacts/event-broadcast-migration-local/preflight.json
+            artifacts/event-broadcast-migration-local/result.json
+            artifacts/event-broadcast-migration-local/group.json
+            artifacts/event-broadcast-migration-local/runtime.json
+            artifacts/event-broadcast-migration-local/driver.json
+            artifacts/event-broadcast-migration-local/phase.json
+            artifacts/event-broadcast-migration-local/phase-native.json
+            artifacts/event-broadcast-migration-local/parent-native.json
 
   restream-local-checks:
     name: Restream Local Checks

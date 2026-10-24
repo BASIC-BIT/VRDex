@@ -854,3 +854,71 @@ asserted according to their actual response shapes: Stop retains its bounded
 cleanup grace, disabled output disappears from configuration, and a missing
 registry grant denies authority. Real sender-process cessation and provider Stop
 confirmation remain independent final-image gates.
+
+### Durable migration rehearsal in existing backend CI
+
+The existing **Verify Backend Local** job owns the durable Linux rehearsal.
+It keeps the canonical `pnpm verify:backend:local` bootstrap and generated-file
+checks, using `precompiled-2026-09-28-5c7cb5b` for both bootstrap and rehearsal.
+The helper requires a fresh checkout: `.convex`, `.convex-home`, `.convex-tmp`,
+repository/web `.env.local`, ownership directory and artifact directory must be
+absent. Unexpected state fails without deletion. A private ownership marker binds
+a random run identity to the actual Git checkout SHA, CI run/attempt and separate
+PR head SHA. Do not run this helper in an existing developer or browser backend.
+
+The fixed sequence is:
+
+```sh
+node scripts/verify-event-broadcast-migration-local.mjs preflight
+pnpm verify:backend:local
+git diff --exit-code -- convex/_generated
+node --import tsx scripts/verify-event-broadcast-migration-local.mjs run
+```
+
+The job supplies `CONVEX_LOCAL_BACKEND_VERSION` and GitHub run identifiers.
+The helper releases its fixed `--run-sh` command only after recording the detached
+process group's native identity. The phase runs while the same anonymous backend
+is alive. It reads only the exact project-local config, requires loopback ports
+3210/3211 and the pinned backend, records the running executable's SHA-256, seeds
+through the real admin client, and impersonates the returned manifest actor.
+Installed Convex CLI commands receive the local registry grant and random bridge
+token over stdin using a private mode-0600 self-hosted loopback env file. The grant
+belongs only to the returned community and contains no provider credential.
+
+The unchanged `runMigrationRehearsal` executes the entire migration and lifecycle
+flow. It retains its 180-second work budget, 30-second cleanup budget, ten-second
+HTTP calls, 256 migration-call cap and 512-KiB receipt. The surrounding phase
+always attempts the owned recovery RPC, checks the manifest table is empty,
+removes both local environment bindings and deletes the private env file. Setup
+or cleanup failure remains a failed rehearsal. The empty production capacity map
+currently blocks actual admission; there is no historical-only exemption.
+
+The owner has one 330-second deadline, reserving the final 15 seconds for closure
+and generated-file verification. Phase startup must leave at least 285 seconds.
+The driver starts only with 270 seconds left, reserving its full 210 seconds,
+40 seconds of fixture/environment recovery and 20 seconds for closure/diff.
+Every CLI helper includes termination in its ten-second ceiling. Native timeout
+or missing pipe EOF fails; the outer owner independently terminates its process
+group with at most one second of TERM grace, then KILL, and verifies no owned live
+processes or port-3210/3211 listeners remain. Signals never target process names.
+The existing ten-minute job ceiling and six-minute rehearsal step remain fixed;
+timings have not yet been measured by an actual CI attempt.
+
+The seven-day `event-broadcast-migration-local-<run>-<attempt>` artifact uploads
+an explicit JSON file allowlist even after a failed attempted rehearsal. It
+contains ownership/source pins, runtime/binary hashes, native parent and phase
+close/exit evidence, the driver receipt, fixture/environment cleanup, generated
+diff status and physical closure. Raw child output is discarded: logs contain
+only stream byte counts and SHA-256 values. The aggregate 128-KiB output budget
+is divided among the CLI owner (64 KiB), phase helpers (60 KiB), phase supervisor
+(2 KiB) and outer owner/generated diff (2 KiB). Overflow fails. Missing expected
+proof files fails the evidence step. Upload cannot be guaranteed after a whole-job
+hard timeout or cancellation; missing evidence never counts as acceptance.
+
+Private config, keys, env files, databases and command lines are excluded. Owned
+local database/cache state is left for disposal of the ephemeral CI job, avoiding
+an unbounded recursive deletion inside the deadline. The private env file is
+removed explicitly, including outer recovery after a phase interruption. State
+is never reused by a later rehearsal. Source/fake contract checks establish only
+orchestration behavior; actual whole-flow admission, native runtime compatibility,
+media, provider and physical PC/Quest acceptance remain separate gates.
