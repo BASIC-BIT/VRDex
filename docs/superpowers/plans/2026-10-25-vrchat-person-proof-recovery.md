@@ -101,7 +101,7 @@ In `collector-proof-checks.test.ts`, reuse `seedCollector`, `seedAttempt`, and `
 
 - [x] **Step 7: Run green checks and inspect the scope.** Repeat the focused worker command, then run `pnpm test:group-telemetry`, the two-file backend command from Step 1, and `pnpm lint:markdown`. Expected: all tests pass, no skipped new regression cases, no Markdown errors. Check `git diff --check` and inspect the complete diff for unexpected source, lockfile, environment, UI, or schema changes. No browser or visual selection is needed for the approved no-UI scope; existing required CI still applies. Do not count synthetic tests as live acceptance.
 
-- [ ] **Step 8: Commit and prepare review.** Commit the code, tests, and operator docs together as `fix: read and validate VRChat person proof bios`. Preserve the design/plan commits. Push the implementation branch and open a draft PR when execution is authorized; describe the fixed trigger, the unavailable-versus-negative distinction, and the pending live collector proof. Prefix posted agent-authored prose with `[AGENT]`. Use the selected execution method's independent review and address valid feedback. If asked to reach merge readiness, observe the repo's 30-minute current-head review window and refresh every feedback surface afterward. Hold merge because it can release the collector automatically.
+- [x] **Step 8: Commit and prepare review.** Commit the code, tests, and operator docs together as `fix: read and validate VRChat person proof bios`. Preserve the design/plan commits. Push the implementation branch and open a draft PR when execution is authorized; describe the fixed trigger, the unavailable-versus-negative distinction, and the pending live collector proof. Prefix posted agent-authored prose with `[AGENT]`. Use the selected execution method's independent review and address valid feedback. If asked to reach merge readiness, observe the repo's 30-minute current-head review window and refresh every feedback surface afterward. Hold merge because it can release the collector automatically.
 
 ## Task 2: Approved collector rollout and one controlled proof
 
@@ -117,7 +117,7 @@ In `collector-proof-checks.test.ts`, reuse `seedCollector`, `seedAttempt`, and `
 
 ## Execution status
 
-Task 1 code and documentation are implemented. Its independent task review approved spec compliance and code quality. Saved checks passed: 189 collector tests, 34 backend tests, and Markdown lint, with no skipped tests. Whole-branch review and draft-PR publication are the remaining local delivery steps. Task 2 has not run; rollout and controlled live acceptance still need their stated approvals.
+Task 1 code and documentation are implemented. Its independent task review approved spec compliance and code quality. Saved checks passed: 189 collector tests, 34 backend tests, and Markdown lint, with no skipped tests. Independent whole-branch review also approved the implementation. [Draft PR #384](https://github.com/BASIC-BIT/VRDex/pull/384) is published; hosted CI and PR feedback are separate from these local checks. Task 2 has not run; rollout and controlled live acceptance still need their stated approvals.
 
 ## Plan validation and evidence appendix
 
