@@ -1,5 +1,7 @@
 # Automatic aggregate statistics for linked VRChat groups
 
+**Status:** Approved by BASIC on October 25, 2026. [Implementation plan](../plans/2026-10-25-automatic-group-statistics.md) prepared for review.
+
 ## Review brief
 
 VRDex should begin collecting and publishing a bounded set of group statistics when a public community profile has a valid primary VRChat group link, even if no verified operator has claimed the community. This makes profiles useful before onboarding and records event population without relying on someone remaining in an instance with VRCX.
@@ -10,7 +12,7 @@ The recommended approach reuses the existing collector, leases, budgets, observa
 
 **Confirmed enrollment decision, October 25:** BASIC selected automatic enrollment with limits over a VRDex-reviewed enrollment queue.
 
-**Proposed defaults within that direction:** eligible primary links; free-join admission only without operator action; a fixed public aggregate projection; one collection assignment per immutable group; verified operator opt-out; existing managed communities keep their settings. These details and the migration remain awaiting design approval.
+**Approved defaults within that direction:** eligible primary links; free-join admission only without operator action; a fixed public aggregate projection; one collection assignment per immutable group; verified operator opt-out; existing managed communities keep their settings. BASIC approved these design details and the migration direction on October 25. This is approval to plan the implementation, not to perform live migration or activation.
 
 **Main tradeoff:** a public population graph can reveal that a small members-only gathering is happening, even without names or links. This design permits that aggregate activity signal as requested. It does not claim that aggregate statistics prevent all inference.
 
@@ -102,7 +104,7 @@ All profile reads resolve the current primary group before reading shared statis
 
 A verified operator adopting an already observed group reuses the assignment and history. It does not join again or reset history merely because management became available. Validate external group control using the existing proof system; owning an unrelated or unverified VRDex profile is insufficient. Existing duplicate managed connections require reconciliation, not silent reassignment.
 
-Proposed adoption default: preserve the exact safe aggregate public projection until the verified operator explicitly saves managed publication settings. Record that publication-policy variant independently from collection mode; becoming managed must not expose worlds, instance rows, membership movement detail or event recaps through broader category defaults. Adoption enables no named collection or group management feature automatically. Those require the existing explicit feature configuration and authority. Existing managed integrations migrate directly to their existing category policy, never to this adoption default.
+Approved adoption default: preserve the exact safe aggregate public projection until the verified operator explicitly saves managed publication settings. Record that publication-policy variant independently from collection mode; becoming managed must not expose worlds, instance rows, membership movement detail or event recaps through broader category defaults. Adoption enables no named collection or group management feature automatically. Those require the existing explicit feature configuration and authority. Existing managed integrations migrate directly to their existing category policy, never to this adoption default.
 
 ### Explicit worker and ingest boundary
 
@@ -167,8 +169,8 @@ Launch remains separate from design and implementation approval. Preserve the ex
 ## Decision status
 
 1. Confirmed October 25: automatic enrollment with limits. A reviewed enrollment queue is not the chosen approach.
-2. Approve the fixed public aggregate set, including members-only occupancy, while excluding worlds, per-instance rows, names and private links.
-3. Approve verified group-level opt-out and preservation of every existing managed privacy/disable decision. This is a change to the earlier operator-only collection/publication contract for newly automatic groups.
+2. Approved October 25: the fixed public aggregate set, including members-only occupancy, while excluding worlds, per-instance rows, names and private links.
+3. Approved October 25: verified group-level opt-out and preservation of every existing managed privacy/disable decision. This changes the earlier operator-only collection/publication contract for newly automatic groups once implemented.
 
 No additional open architecture decision is required from BASIC. The builder may choose names and module boundaries; changes to collection scope, authority, visibility, retention or admission require returning to this contract.
 
@@ -181,6 +183,6 @@ No additional open architecture decision is required from BASIC. The builder may
 - `workers/group-telemetry/worker.mjs`, `vrchat-client.mjs`, `membership-collection.mjs`: aggregate adapter, admission, management phases and named membership collector to exclude.
 - `convex/_externalControl.ts`, `profileExternalLinks` and `externalControlProofs`: identity, primary links and group-control proof boundaries.
 - `docs/planning/group-instance-analytics/2026-09-10-club-staff-and-visibility-design.md`: later permanent-retention and visibility decisions supersede older telemetry docs.
-- Topical parent: `docs/planning/community-group-telemetry.md`. That older contract must explicitly link this proposed amendment before implementation; its operator-only/public-off defaults are not silently replaced by a design draft.
+- Topical parent: `docs/planning/community-group-telemetry.md`. That document links this approved amendment. Its operator-only/public-off behavior remains the current implementation until the approved change is built and released.
 - [VRChat Creator Guidelines, API Usage / Bots](https://hello.vrchat.com/creator-guidelines#api-usage-bots), checked October 25, 2026: unsupported mutable API, identifying User-Agent, caching, metered requests, randomized polling and error backoff. Existing service-account/session posture remains an independent operating decision.
 - No live provider, deployment, queue-count capability or admission-capacity verification was performed for this design.

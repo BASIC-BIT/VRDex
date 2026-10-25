@@ -102,6 +102,6 @@ Compaction may remove redundant heartbeats only after an equivalent rollup exist
 - Desktop/mobile Playwright baselines and accessibility assertions cover the dashboard before completion.
 - The real-provider proof writes sanitized evidence JSON outside git and updates `docs/engineering/group-telemetry-provider-proof.md` with only request counts, tested states, cadence, remaining gaps, and go/adjust/stop disposition.
 
-## Proposed automatic aggregate observation amendment
+## Approved automatic aggregate observation amendment
 
-The [October 25 automatic group statistics design](../superpowers/specs/2026-10-25-automatic-group-statistics-design.md) proposes aggregate-only collection for eligible linked groups without verified operator onboarding. It includes members-only aggregate counts, excludes individual users and private instance links, and preserves existing managed privacy settings. It is awaiting design approval and does not replace this contract or authorize live enrollment yet.
+The [October 25 automatic group statistics design](../superpowers/specs/2026-10-25-automatic-group-statistics-design.md) proposes aggregate-only collection for eligible linked groups without verified operator onboarding. It includes members-only aggregate counts, excludes individual users and private instance links, and preserves existing managed privacy settings. BASIC approved the design on October 25, 2026. The [implementation plan](../superpowers/plans/2026-10-25-automatic-group-statistics.md) defines source work and a separately authorized rollout. Existing runtime behavior and managed privacy settings remain unchanged until implementation and release.
