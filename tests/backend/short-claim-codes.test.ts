@@ -157,13 +157,14 @@ for (const targetType of ["vrchat_user", "vrchat_group"] as const) {
         fetcher: async (url: string) => {
           urls.push(String(url));
           return new Response(JSON.stringify({
+            ...(targetType === "vrchat_user" ? { id: f.args.targetExternalId } : {}),
             [targetType === "vrchat_group" ? "description" : "bio"]: `Hello! (${code.toLowerCase()})`,
           }), { status: 200, headers: { "content-type": "application/json" } });
         },
       });
       const found = await provider.findProofCode(attempt.targetType, attempt.targetExternalId, attempt.proofCode);
       assert.equal(found, true);
-      assert.deepEqual(urls, [`https://provider.example.test/${targetType === "vrchat_group" ? "groups" : "users"}/${f.args.targetExternalId}`]);
+      assert.deepEqual(urls, [`https://provider.example.test/${targetType === "vrchat_group" ? "groups" : "profile"}/${f.args.targetExternalId}`]);
       const result = await f.t.mutation(internal.communityTelemetry.recordProofCheckResult, {
         collectorAccountId, workerKeyHash: "a".repeat(64), attemptId: attempt.attemptId, found, now: Date.now(),
       });
