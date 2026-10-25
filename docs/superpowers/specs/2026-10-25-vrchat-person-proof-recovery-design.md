@@ -8,7 +8,7 @@ This fixes the endpoint mismatch and prevents the same missing-field failure fro
 
 **Locked decision:** BASIC selected the focused fix with one controlled collector proof. A recurring live check is out of scope.
 
-**Current recommendation:** implement the bounded provider change, update the existing fixtures and operator documentation, then prove one real verification through the released collector. This document is proposed for approval. No implementation or live action is authorized by writing it.
+**Approved design:** BASIC approved this document in chat on October 25, 2026 and requested the implementation plan. The agreed direction is the bounded provider change, updated fixtures and operator documentation, and one real verification through the released collector. Implementation execution, merge, rollout, and live acceptance remain separate from this planning request.
 
 The main tradeoff is deliberate refusal when the response is incomplete. Some users will remain pending during a provider-contract problem instead of receiving a negative verdict. That is preferable to claiming we inspected evidence we could not read.
 
