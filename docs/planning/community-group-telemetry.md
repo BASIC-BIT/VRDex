@@ -101,3 +101,7 @@ Compaction may remove redundant heartbeats only after an equivalent rollup exist
 - Worker adapter tests cover schema drift, 401/404/429/5xx, timeouts, and aggregate-only parsing.
 - Desktop/mobile Playwright baselines and accessibility assertions cover the dashboard before completion.
 - The real-provider proof writes sanitized evidence JSON outside git and updates `docs/engineering/group-telemetry-provider-proof.md` with only request counts, tested states, cadence, remaining gaps, and go/adjust/stop disposition.
+
+## Proposed automatic aggregate observation amendment
+
+The [October 25 automatic group statistics design](../superpowers/specs/2026-10-25-automatic-group-statistics-design.md) proposes aggregate-only collection for eligible linked groups without verified operator onboarding. It includes members-only aggregate counts, excludes individual users and private instance links, and preserves existing managed privacy settings. It is awaiting design approval and does not replace this contract or authorize live enrollment yet.
