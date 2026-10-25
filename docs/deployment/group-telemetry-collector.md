@@ -58,6 +58,60 @@ Run read-only membership inspection first with `pnpm proof:group-telemetry`. On 
 6. Apply with `enable_service=false` and `desired_count=0`. Review the task role, execution role, one-secret scope, SSM deployment gate, logs, alarms, budget, and egress-only networking.
 7. After a `go` or acceptable `adjust`, set `enable_service=true`, `desired_count=1`, and a budget alert email. Keep the task cap at two.
 
+## Person-proof reads and recovery
+
+Each person check spends one provider request on authenticated
+`GET /profile/{targetExternalId}`. The reader requires a non-null, non-array
+object, the exact requested `id`, and a string `bio`. Only the bio can match a
+person's proof code. There is no `/users` fallback or second status request.
+Group checks keep their `/groups` endpoint and `description`/`name` fields.
+
+A readable bio without the code, including an empty bio, is `not_found`.
+Missing or invalid bio evidence or identity is `schema_drift`. The worker
+records `provider_unavailable` with that bounded category and sends no negative
+`proof_result`. It does not log the provider error message or response body.
+The same pending attempt retains its code and expiry and retries on a later
+due poll, subject to the existing budgets, cooldown, expiry, and kill switches.
+Authentication shutdown and rate-limit backoff are unchanged. The browser's
+pending/queued presentation is unchanged. Expired or canceled attempts start
+again through the normal flow.
+
+## Controlled person-proof acceptance
+
+Offline provider tests and browser adapter tests do not establish live bio
+access. A heartbeat or healthy release-readiness result proves neither that the
+collector can read a person's bio nor that a claim can settle.
+
+This procedure requires separate approval for rollout, live profile edits, and
+claim settlement. Merge can trigger an automatic collector release after
+successful main-branch Baseline Checks, so hold merge until rollout is approved.
+
+1. Identify the exact controlled VRChat identity, test profile, claimant,
+   expected trust outcome, and cleanup owner in the private approval record.
+   Prefer an existing dedicated fixture. If none exists, obtain approval to
+   create one; do not substitute an unrelated person's profile.
+2. After the approved rollout, confirm convergence on the exact collector
+   release using the release-readiness procedure below. Capture the previous
+   immutable image for rollback.
+3. Use one fresh or still-valid pending attempt through the normal claim flow.
+   With authorization, save its code in the controlled identity's bio. Let the
+   ordinary queue dispatch it to the released collector. An old stored proof,
+   manual verification, or fixture adapter verdict does not pass this check.
+4. Confirm a collector `found` result for that attempt, normal backend
+   settlement, and the reactive claim-page result. Check the expected trust
+   outcome against the fixture's existing associations; do not assume every
+   proof produces `claimed_verified`.
+5. Retain only the release, timestamps, bounded outcomes, and approval
+   reference. Keep the code, bio, provider session, and claimant details out of
+   saved receipts and logs. The cleanup owner can remove the code after
+   completion under the approved cleanup scope.
+
+If acceptance fails, preserve the existing claim history and report the bounded
+failure. Use the existing release recovery procedure and captured immutable
+image when rollback is authorized. Restoring the old reader can restore false
+negatives, so fleet recovery does not prove person-proof recovery. Do not
+manually grant ownership to conceal a failed check.
+
 ## Automatic releases and drift detection
 
 `.github/workflows/group-telemetry-release.yml` is the only automatic writer

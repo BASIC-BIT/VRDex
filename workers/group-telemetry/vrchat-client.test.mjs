@@ -2,12 +2,75 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { VrchatClient } from "./vrchat-client.mjs";
 
-function client(body, status = 200) {
+function client(body, status = 200, options = {}) {
   return new VrchatClient({
     authCookie: "test-cookie", userAgent: "VRDex/test",
     fetcher: async () => new Response(body, { status }),
+    ...options,
   });
 }
+
+test("person proof reads the requested public profile exactly once", async () => {
+  const paths = [];
+  const provider = client(null, 200, {
+    fetcher: async (url) => {
+      paths.push(new URL(url).pathname);
+      return Response.json({ id: "usr_fixture", bio: "VRDEX19825" });
+    },
+  });
+  assert.equal(await provider.findProofCode("vrchat_user", "usr_fixture", "VRDEX19825"), true);
+  assert.deepEqual(paths, ["/api/1/profile/usr_fixture"]);
+});
+
+test("person proof rejects unreadable or foreign profile evidence", async () => {
+  const records = [
+    { id: "usr_fixture", statusDescription: "VRDEX19825" },
+    ...[null, 42, [], {}].map((bio) => ({ id: "usr_fixture", bio })),
+    { id: "usr_other", bio: "VRDEX19825" },
+    { bio: "VRDEX19825" },
+    ...[null, 42].map((id) => ({ id, bio: "VRDEX19825" })),
+    null, [], "VRDEX19825", 42, true,
+  ];
+  for (const record of records) {
+    await assert.rejects(
+      client(JSON.stringify(record)).findProofCode("vrchat_user", "usr_fixture", "VRDEX19825"),
+      { category: "schema_drift", message: "Proof target response is malformed." },
+    );
+  }
+});
+
+test("person proof uses only a readable bio", async () => {
+  for (const [bio, expected] of [["VRDEX19825", true], ["VRDEX99999", false], ["", false]]) {
+    assert.equal(await client(JSON.stringify({ id: "usr_fixture", bio, statusDescription: "VRDEX19825" }))
+      .findProofCode("vrchat_user", "usr_fixture", "VRDEX19825"), expected);
+  }
+  assert.equal(await client(JSON.stringify({ id: "usr_fixture", bio: "" }))
+    .findProofCode("vrchat_user", "usr_fixture", "VRDEX19825"), false);
+});
+
+test("person proof preserves bounded transport errors", async () => {
+  for (const [status, category] of [[401, "authentication"], [429, "rate_limit"], [503, "transient"]]) {
+    await assert.rejects(client(null, status, {
+      fetcher: async () => {
+        return new Response("private-bio-sentinel", { status, headers: { "retry-after": "7" } });
+      },
+    }).findProofCode("vrchat_user", "usr_fixture", "VRDEX19825"), {
+      category, status, retryAfterMs: 7000, message: `Provider returned HTTP ${status}.`,
+    });
+  }
+  await assert.rejects(client("private-bio-sentinel")
+    .findProofCode("vrchat_user", "usr_fixture", "VRDEX19825"), {
+    category: "schema_drift", message: "Provider returned malformed JSON.",
+  });
+  await assert.rejects(client(null, 200, {
+    timeoutMs: 5,
+    fetcher: async (_url, { signal }) => new Promise((_resolve, reject) => {
+      signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+    }),
+  }).findProofCode("vrchat_user", "usr_fixture", "VRDEX19825"), {
+    category: "timeout", message: "Provider request timed out.",
+  });
+});
 
 test("documented empty success is accepted only when explicitly enabled", async () => {
   assert.equal(await client("").request("/test", { method: "POST", maxResponseBytes: 100, allowEmptyResponse: true }), null);
