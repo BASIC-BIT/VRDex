@@ -8,7 +8,9 @@ The recommended approach reuses the existing collector, leases, budgets, observa
 
 **Confirmed by BASIC:** aggregate counts may include members-only instances visible to our bot. Individual users and private instance links must not be exposed.
 
-**Proposed defaults:** automatic enrollment for eligible primary links; free-join admission only without operator action; a fixed public aggregate projection; one collection assignment per immutable group; verified operator opt-out; existing managed communities keep their settings. These defaults and the migration are awaiting design approval. The pending enrollment preference question may revise automatic enrollment to a reviewed queue.
+**Confirmed enrollment decision, October 25:** BASIC selected automatic enrollment with limits over a VRDex-reviewed enrollment queue.
+
+**Proposed defaults within that direction:** eligible primary links; free-join admission only without operator action; a fixed public aggregate projection; one collection assignment per immutable group; verified operator opt-out; existing managed communities keep their settings. These details and the migration remain awaiting design approval.
 
 **Main tradeoff:** a public population graph can reveal that a small members-only gathering is happening, even without names or links. This design permits that aggregate activity signal as requested. It does not claim that aggregate statistics prevent all inference.
 
@@ -18,8 +20,8 @@ Design only. No implementation, group join, provider probe, deployment or produc
 
 | Approach | Benefit | Cost or limitation | Disposition |
 | --- | --- | --- | --- |
-| Automatic aggregate-only enrollment, shared collector | Delivers useful history before operator onboarding; reuses collection infrastructure | Requires group deduplication, an explicit privacy contract, admission limits and opt-out | Recommended working approach, consistent with the requested automatic joining |
-| VRDex-reviewed enrollment, shared collector | Limits unsolicited joins and capacity abuse through manual review | Preserves a human onboarding bottleneck and misses activity while waiting | Alternative pending BASIC's enrollment preference |
+| Automatic aggregate-only enrollment, shared collector | Delivers useful history before operator onboarding; reuses collection infrastructure | Requires group deduplication, an explicit privacy contract, admission limits and opt-out | Selected by BASIC on October 25; removes the manual onboarding bottleneck while bounding admission |
+| VRDex-reviewed enrollment, shared collector | Limits unsolicited joins and capacity abuse through manual review | Preserves a human onboarding bottleneck and misses activity while waiting | Not selected; BASIC chose automatic enrollment with limits |
 | A separate discovery collector | Isolates discovery implementation | Duplicates credentials, budgets, joins, history and failure handling | Rejected; there is one fleet and collection lifecycle |
 
 This is a product and authorization change, not a switch that bypasses `manage_integrations`.
@@ -162,9 +164,9 @@ Use the existing collector alarms and verify their actionable email path to `bas
 
 Launch remains separate from design and implementation approval. Preserve the existing provider-session operating decision and request limits; this feature does not establish provider permission for fleet scale-out. No bot registration or capacity increase is part of this design.
 
-## Decisions for BASIC
+## Decision status
 
-1. Approve or revise automatic enrollment with limits versus a reviewed enrollment queue. Automatic enrollment is the working recommendation.
+1. Confirmed October 25: automatic enrollment with limits. A reviewed enrollment queue is not the chosen approach.
 2. Approve the fixed public aggregate set, including members-only occupancy, while excluding worlds, per-instance rows, names and private links.
 3. Approve verified group-level opt-out and preservation of every existing managed privacy/disable decision. This is a change to the earlier operator-only collection/publication contract for newly automatic groups.
 
