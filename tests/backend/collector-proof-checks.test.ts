@@ -108,6 +108,52 @@ async function webSessionIdentity(ctx: never, userId: string) {
 }
 
 describe("collector proof check queue", () => {
+  it("provider unavailable preserves a pending attempt that a later check resolves", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const collectorAccountId = await t.run(async (ctx) => {
+      const id = await seedCollector(ctx as never, "recovery", now);
+      await seedAttempt(ctx as never, { targetType: "vrchat_user", now });
+      return id;
+    });
+    const claim = (at: number) => t.mutation(internal.communityTelemetry.claimPendingProofChecks, {
+      collectorAccountId, workerId: "worker-recovery", limit: 1, now: at,
+    });
+    const first = await claim(now + 1);
+    assert.equal(first.attempts.length, 1);
+    const attempt = first.attempts[0]!;
+    const before = await t.run(({ db }) => db.get(attempt.attemptId));
+    assert.ok(before);
+    const { proofCode, expiresAt } = before;
+    const outcome = await t.mutation(internal.communityTelemetry.recordProofCheckOutcome, {
+      collectorAccountId, workerKeyHash: "a".repeat(64), attemptId: attempt.attemptId,
+      outcome: "provider_unavailable", now: now + 2,
+    });
+    assert.equal(outcome.recorded, true);
+    await t.run(async ({ db }) => {
+      const pending = await db.get(attempt.attemptId);
+      assert.equal(pending?.state, "pending");
+      assert.equal(pending?.proofCode, proofCode);
+      assert.equal(pending?.expiresAt, expiresAt);
+      assert.equal(pending?.lastCheckOutcome, "provider_unavailable");
+    });
+    const due = now + 6 * 60_000;
+    const retried = await claim(due);
+    assert.equal(retried.attempts.length, 1);
+    assert.equal(retried.attempts[0]?.attemptId, attempt.attemptId);
+    assert.equal(retried.attempts[0]?.proofCode, proofCode);
+    const result = await t.mutation(internal.communityTelemetry.recordProofCheckResult, {
+      collectorAccountId, workerKeyHash: "a".repeat(64), attemptId: attempt.attemptId,
+      found: true, now: due + 1,
+    });
+    assert.equal(result.state, "verified");
+    await t.run(async ({ db }) => {
+      const verified = await db.get(attempt.attemptId);
+      assert.equal(verified?.state, "verified");
+      assert.equal(verified?.lastCheckOutcome, "found");
+    });
+  });
+
   it("separates dispatch from a completed provider check on the attempt", async () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
