@@ -37,6 +37,7 @@ args = ["awslabs.terraform-mcp-server@latest"]
 FASTMCP_LOG_LEVEL = "ERROR"
 
 [mcp_servers.aws_mcp]
+enabled = false
 command = "uvx"
 args = [
   "--from",
@@ -46,7 +47,7 @@ args = [
   "--service",
   "aws-mcp",
   "--profile",
-  "default",
+  "account-admin",
   "--region",
   "us-east-1",
 ]
