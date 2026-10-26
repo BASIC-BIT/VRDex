@@ -1,7 +1,7 @@
 # Home timeline and night planning
 
-Status: proposed design for BASIC's review. No implementation authorized by
-this document alone.
+Status: approved by BASIC on October 26, 2026. Implementation planning follows
+this design; implementation begins after review of that plan.
 
 ## Intent and existing decisions
 
