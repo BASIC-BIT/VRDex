@@ -107,11 +107,49 @@ export function eventMediaSourceWorkerDescriptor(source: Doc<"eventMediaSources"
   return undefined;
 }
 
-/** Disabled audit history does not consume the operational read/count bound. */
+export async function eventMediaSourceProjectionAvailable(
+  db: DatabaseReader,
+  source: Doc<"eventMediaSources">,
+) {
+  const projected =
+    source.profileProjection ||
+    (source.eventSlotId !== undefined &&
+      source.sourceProfileId !== undefined &&
+      source.key === `slot-${source.eventSlotId}`);
+  if (!projected) return true;
+  const slot =
+    source.eventSlotId === undefined ? null : await db.get(source.eventSlotId);
+  if (!slot?.personProfileId || slot.eventId !== source.eventId) return false;
+  const profile = await db.get(slot.personProfileId);
+  if (!profile || !canReadProfile("public", profile)) return false;
+  const input = resolveBroadcastInput({
+    choices: eventProfileBroadcastInputChoices(profile),
+    explicitInput: slot.broadcastInput,
+    legacySelectedStreamId: slot.selectedStreamId,
+  });
+  return (
+    input !== undefined &&
+    broadcastInputPublicUrl(input) === source.publicUrl &&
+    source.projectionAvailable !== false
+  );
+}
+
+/** Bound usable rows, not disabled history or unavailable profile projections. */
 export async function listUsableEventMediaSources(db: DatabaseReader, programId: Id<"eventMediaPrograms">, limit: number) {
+  if (limit <= 0) return [];
   const states = eventMediaSourceStateValidator.members.map(state => state.value).filter(state => state !== "disabled");
-  const rows = (await Promise.all(states.map(state => db.query("eventMediaSources")
-    .withIndex("by_programId_state_position", q => q.eq("programId", programId).eq("state", state))
-    .take(limit)))).flat();
+  const rows = (await Promise.all(states.map(async state => {
+    const usable: Doc<"eventMediaSources">[] = [];
+    // Iterate the index so preexisting detached rows cannot exhaust a take(limit).
+    // Retain at most limit rows per state instead of collecting source history.
+    for await (const source of db.query("eventMediaSources")
+      .withIndex("by_programId_state_position", q => q.eq("programId", programId).eq("state", state))) {
+      if (await eventMediaSourceProjectionAvailable(db, source)) {
+        usable.push(source);
+        if (usable.length >= limit) break;
+      }
+    }
+    return usable;
+  }))).flat();
   return rows.sort((a, b) => a.position - b.position || a.key.localeCompare(b.key)).slice(0, limit);
 }

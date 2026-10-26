@@ -2,9 +2,9 @@ import { projectSessionResources } from "./_eventBroadcastResources";
 import { resolveWorkerAllocation, validateMeasuredSnapshot } from '../workers/restream/broadcast-capacity.mjs';
 import { validateAllocationSnapshot } from '../workers/restream/worker-allocation.mjs';
 import {admitControlOperation,cancelControlOperation,isControl,supersedePending,findControlRequest,recordControlRequest} from "./_eventBroadcastControl";
-import {canManageEventMedia,eventMediaSourceProjectionAvailable} from "./_eventBroadcastAuthority";
+import {canManageEventMedia} from "./_eventBroadcastAuthority";
 import { NEW_PROGRAM_MEDIA_SETTINGS, parseMediaSettings, resolveDestinationProfile } from "../workers/restream/broadcast-profiles.mjs";
-import { broadcastInputValidator, authoredBroadcastInput, eventProfileBroadcastInputChoices, resolveBroadcastInput, broadcastInputPublicUrl, eventMediaSourceBroadcastInput, listUsableEventMediaSources } from "./_eventBroadcastSources";
+import { broadcastInputValidator, authoredBroadcastInput, eventProfileBroadcastInputChoices, resolveBroadcastInput, broadcastInputPublicUrl, eventMediaSourceBroadcastInput, eventMediaSourceProjectionAvailable, listUsableEventMediaSources } from "./_eventBroadcastSources";
 import { sanitizeTwitchOutput, getTwitchOutputAccount, listTwitchOutputAccounts, eventOutputIsAuthorized } from './_eventOutputSetup';
 import { EVENT_BROADCAST_MAX_OUTPUTS, validateBroadcastPolicy, allocateSessionCommandSequence, settleTerminalSessionCommands, requireEventMediaBridgeToken } from "./_eventBroadcastInputs";
 import { dateOnlyEventsEnabled, eventDateForInstant, eventSortAt, eventSortEndAt, normalizeEventSchedule, publicEventSchedule, requireDateOnlyEventsEnabled } from "./_eventSchedule";
@@ -2450,11 +2450,6 @@ export const getEventMediaControlStatus = query({
         .withIndex("by_programId_status_createdAt", (query) => query.eq("programId", program._id).eq("status", "queued"))
         .take(100),
     ]);
-    const availableSources = new Set(
-      (await Promise.all(sources.map(async source =>
-        await eventMediaSourceProjectionAvailable(ctx.db, source) ? source._id : undefined,
-      ))).filter(id => id !== undefined),
-    );
     const programCommands = commands.filter((command) => command.programId === program._id);
 
     return {
@@ -2495,7 +2490,7 @@ export const getEventMediaControlStatus = query({
             label: source.label,
             ...(source.eventSlotId === undefined ? {} : { eventSlotId: source.eventSlotId }),
             ...(source.sourceProfileId === undefined ? {} : { sourceProfileId: source.sourceProfileId }),
-            hasPublicUrl: source.publicUrl !== undefined && source.projectionAvailable !== false && availableSources.has(source._id),
+            hasPublicUrl: source.publicUrl !== undefined && source.projectionAvailable !== false,
             hasPrivateConfig: source.privateConfigRef !== undefined,
             updatedAt: source.updatedAt,
           };

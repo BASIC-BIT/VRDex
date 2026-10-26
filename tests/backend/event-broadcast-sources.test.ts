@@ -276,3 +276,110 @@ test("operational source readback excludes disabled audit history before boundin
   assert.equal(history.length, 105);
   assert.equal((await t.run(ctx => ctx.db.query("eventMediaAuditEvents").collect())).filter(row => row.action === "source_removed").length, 105);
 });
+
+async function detachedProjectionFixture() {
+  const context = await fixture();
+  const { t, owner, event } = context;
+  const current = await owner.mutation(sourceMutation("create"), { currentSlug: event.slug, label: "Current", url: "vrcdn:alpha" });
+  const source = await t.run(async ({ db }) => {
+    const source = await db.get(current.sourceId);
+    assert.ok(source);
+    const profile = await db.query("profiles").withIndex("by_slug", q => q.eq("slug", "guest")).unique();
+    assert.ok(profile);
+    // Preexisting history exceeds both the 65-row count and 100-row status bounds.
+    for (let position = 0; position < 105; position++) {
+      const slotId = await db.insert("eventSlots", { eventId: event.eventId, position, startAt, personProfileId: profile._id, displayLabel: "Past", roleLabel: "DJ", sourceType: "community", sourceLabel: "Fixture", confidence: 1, reviewState: "confirmed", updatedAt: Date.now() });
+      await db.insert("eventMediaSources", { programId: source.programId, eventId: event.eventId, eventSlotId: slotId, sourceProfileId: profile._id, ...(position % 2 === 0 ? { profileProjection: true } : {}), key: `slot-${slotId}`, position, type: "vrcdn_link", purpose: "program", state: "ready", label: "Past", publicUrl: "https://stream.vrcdn.live/live/alpha.live.ts", createdAt: Date.now(), updatedAt: Date.now() });
+      await db.delete(slotId);
+    }
+    await db.patch(source._id, { position: 200, state: "live" });
+    await db.patch(source.programId, { state: "live", currentSourceId: source._id });
+    return (await db.get(source._id))!;
+  });
+  return { ...context, current, source };
+}
+
+test("detached projections beyond operational bounds do not block create or replace the observed source", async () => {
+  const { t, owner, event, current, source } = await detachedProjectionFixture();
+  const created = await owner.mutation(sourceMutation("create"), { currentSlug: event.slug, label: "Added", url: "https://twitch.tv/Basic_Bit" });
+  const replacement = await owner.mutation(sourceMutation("replace"), { currentSlug: event.slug, sourceId: current.sourceId, label: "Replacement", url: "vrcdn:beta" });
+  assert.equal(replacement.revision, 2);
+  assert.notEqual(replacement.sourceId, source._id);
+  assert.deepEqual(await t.run(ctx => ctx.db.get(source._id)), source);
+  assert.equal((await t.run(ctx => ctx.db.get(source.programId)))!.currentSourceId, source._id);
+  assert.deepEqual((await t.run(ctx => ctx.db.get(created.sourceId)))!.input, input);
+  const audit = await t.run(ctx => ctx.db.query("eventMediaAuditEvents").collect());
+  assert.ok(audit.some(row => row.action === "source_replaced" && row.sourceId === replacement.sourceId));
+  assert.equal((await t.run(ctx => ctx.db.query("eventMediaSources").collect())).length, 108);
+});
+
+test("detached projections beyond operational bounds cannot hide current status sources", async () => {
+  const { t, owner, event, source } = await detachedProjectionFixture();
+  // Put the live row in the same state index as the older ghosts.
+  await t.run(ctx => ctx.db.patch(source._id, { state: "ready" }));
+  const status = await owner.query(api.events.getEventMediaControlStatus, { currentSlug: event.slug });
+  assert.deepEqual(status.sources.map(row => row.sourceId), [source._id]);
+  assert.equal(status.sources[0]!.hasPublicUrl, true);
+  assert.deepEqual(status.operationReadiness.sourceStates, { ready: 1 });
+});
+
+test("detached history still leaves the 64 usable source limit enforced for create and replace", async () => {
+  const { t, owner, event, source } = await detachedProjectionFixture();
+  await t.run(async ({ db }) => {
+    for (let index = 0; index < 63; index++) await db.insert("eventMediaSources", { programId: source.programId, eventId: event.eventId, key: `usable-${index}`, position: 201 + index, type: "vrcdn_link", purpose: "program", state: "ready", label: "Usable", publicUrl: "https://stream.vrcdn.live/live/alpha.live.ts", createdAt: Date.now(), updatedAt: Date.now() });
+  });
+  const args = { currentSlug: event.slug, label: "Over limit", url: "vrcdn:beta" };
+  await assert.rejects(owner.mutation(sourceMutation("create"), args), /source limit/);
+  await assert.rejects(owner.mutation(sourceMutation("replace"), { ...args, sourceId: source._id }), /source limit/);
+  const status = await owner.query(api.events.getEventMediaControlStatus, { currentSlug: event.slug });
+  assert.equal(status.sources.length, 64);
+  assert.deepEqual(await t.run(ctx => ctx.db.get(source._id)), source);
+});
+
+test("lineup removal excludes its ready projection while preserving source history and manual operator sources", async () => {
+  const { t, owner, event } = await fixture();
+  const current = await owner.mutation(sourceMutation("create"), { currentSlug: event.slug, label: "Current", url: "vrcdn:alpha" });
+  await owner.mutation(api.events.updateCommunityEvent, { currentSlug: event.slug, communitySlug: "club", lineup: [{ clientKey: "guest", position: 0, performerLabel: "Guest", personSlug: "guest", startAt, broadcastInput: input }] });
+  const records = await t.run(async ({ db }) => {
+    const source = await db.get(current.sourceId);
+    const slot = await db.query("eventSlots").withIndex("by_eventId", q => q.eq("eventId", event.eventId)).unique();
+    assert.ok(source && slot);
+    const fields = { programId: source.programId, eventId: event.eventId, eventSlotId: slot._id, sourceProfileId: slot.personProfileId, position: 1, type: "twitch_watch" as const, purpose: "program" as const, state: "ready" as const, label: "Guest", publicUrl: "https://www.twitch.tv/basic_bit", createdAt: Date.now(), updatedAt: Date.now() };
+    const projectedId = await db.insert("eventMediaSources", { ...fields, key: `slot-${slot._id}`, profileProjection: true });
+    const manualId = await db.insert("eventMediaSources", { ...fields, key: "operator-input", type: "rtmp_source", publicUrl: "https://operator.example.test/live.ts" });
+    return { projected: await db.get(projectedId), manualId, slotId: slot._id };
+  });
+  const before = await owner.query(api.events.getEventMediaControlStatus, { currentSlug: event.slug });
+  assert.equal(before.sources.length, 3);
+  await owner.mutation(api.events.updateCommunityEvent, { currentSlug: event.slug, communitySlug: "club", lineup: [] });
+  assert.equal(await t.run(ctx => ctx.db.get(records.slotId)), null);
+  const after = await owner.query(api.events.getEventMediaControlStatus, { currentSlug: event.slug });
+  assert.deepEqual(after.sources.map(row => row.sourceId), [current.sourceId, records.manualId]);
+  assert.ok(records.projected);
+  assert.deepEqual(await t.run(ctx => ctx.db.get(records.projected!._id)), records.projected);
+  assert.equal((await t.run(ctx => ctx.db.query("eventMediaSessions").collect())).length, 0);
+});
+
+for (const unavailable of ["flagged", "detached", "private profile", "removed input", "changed selection", "wrong event"] as const) test(`operational sources exclude a projection with ${unavailable} availability`, async () => {
+  const { t, owner, event } = await fixture();
+  const current = await owner.mutation(sourceMutation("create"), { currentSlug: event.slug, label: "Current", url: "vrcdn:alpha" });
+  await owner.mutation(api.events.updateCommunityEvent, { currentSlug: event.slug, communitySlug: "club", lineup: [{ clientKey: "guest", position: 0, performerLabel: "Guest", personSlug: "guest", startAt, broadcastInput: input }] });
+  await t.run(async ({ db }) => {
+    const source = await db.get(current.sourceId);
+    const slot = await db.query("eventSlots").withIndex("by_eventId", q => q.eq("eventId", event.eventId)).unique();
+    assert.ok(source && slot?.personProfileId);
+    await db.insert("eventMediaSources", { programId: source.programId, eventId: event.eventId, eventSlotId: unavailable === "detached" ? undefined : slot._id, sourceProfileId: slot.personProfileId, profileProjection: true, projectionAvailable: unavailable !== "flagged", key: `slot-${slot._id}`, position: -1, type: "twitch_watch", purpose: "program", state: "ready", label: "Unavailable", publicUrl: "https://www.twitch.tv/basic_bit", createdAt: Date.now(), updatedAt: Date.now() });
+    if (unavailable === "private profile") await db.patch(slot.personProfileId, { publicationState: "draft_private" });
+    if (unavailable === "removed input") await db.patch(slot.personProfileId, { outboundLinks: [] });
+    if (unavailable === "changed selection") await db.patch(slot._id, { broadcastInput: { kind: "vrcdn", streamId: "alpha" } });
+    if (unavailable === "wrong event") {
+      const original = await db.get(event.eventId);
+      assert.ok(original);
+      const { _id, _creationTime, ...fields } = original;
+      const otherEventId = await db.insert("events", { ...fields, slug: "other-event" });
+      await db.patch(slot._id, { eventId: otherEventId });
+    }
+  });
+  const status = await owner.query(api.events.getEventMediaControlStatus, { currentSlug: event.slug });
+  assert.deepEqual(status.sources.map(row => row.sourceId), [current.sourceId]);
+});

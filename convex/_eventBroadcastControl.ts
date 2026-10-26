@@ -8,11 +8,8 @@ import type {
   SanitizedEventMediaCommand,
 } from "./_eventMediaControl";
 import { allocateSessionCommandSequence } from "./_eventBroadcastInputs";
-import {
-  canManageEventMedia,
-  eventMediaSourceProjectionAvailable,
-} from "./_eventBroadcastAuthority";
-import { eventMediaSourceWorkerDescriptor } from "./_eventBroadcastSources";
+import { canManageEventMedia } from "./_eventBroadcastAuthority";
+import { eventMediaSourceWorkerDescriptor, eventMediaSourceProjectionAvailable } from "./_eventBroadcastSources";
 import { eventOutputIsAuthorized } from "./_eventOutputSetup";
 
 type Session = Doc<"eventMediaSessions">;
