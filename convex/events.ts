@@ -3747,7 +3747,9 @@ export const configureTwitchOutput = mutation({
   },
 });
 
-export const scheduleEventMediaWorker = mutation({
+/** Bind capacity authority at construction; public callers cannot override it. */
+export function createScheduleEventMediaWorker(resolveAllocation = resolveWorkerAllocation) {
+  return mutation({
   args: eventMediaWorkerScheduleArgs,
   handler: async (ctx, args) => {
     const subject = await requireAuthenticatedSubject(ctx);
@@ -3811,8 +3813,8 @@ export const scheduleEventMediaWorker = mutation({
       return {outputId:o._id,destination,profile:resolveDestinationProfile({settings:mediaSettings,destination})};
     });
     const frozenDestinations = openSession?.destinationProfiles ?? destinationProfiles;
-    const allocation = openSession ? openSession.allocation : resolveWorkerAllocation({videoPreset:mediaSettings.videoPreset,simulcastEnabled:frozenDestinations.some(d=>d.destination==='twitch')});
-    validateMeasuredSnapshot(validateAllocationSnapshot({mediaSettings,allocation,outputId:output._id,destinationProfiles:frozenDestinations}));
+    const allocation = openSession ? openSession.allocation : resolveAllocation({videoPreset:mediaSettings.videoPreset,simulcastEnabled:frozenDestinations.some(d=>d.destination==='twitch')});
+    validateMeasuredSnapshot(validateAllocationSnapshot({mediaSettings,allocation,outputId:output._id,destinationProfiles:frozenDestinations}), resolveAllocation);
     const sessionRecord = {
       allocation,
       programId: program._id,
@@ -3908,6 +3910,9 @@ export const scheduleEventMediaWorker = mutation({
     };
   },
 });
+}
+
+export const scheduleEventMediaWorker = createScheduleEventMediaWorker();
 
 export const recordEventMediaWorkerTaskStatus = mutation({
   args: eventMediaWorkerTaskStatusArgs,

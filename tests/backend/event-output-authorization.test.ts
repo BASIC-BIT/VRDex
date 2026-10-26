@@ -1,3 +1,4 @@
+import { loadFixtureEvents } from "../fixtures/event-modules";
 import assert from 'node:assert/strict';
 import { it, afterEach } from 'node:test';
 import { convexTest } from 'convex-test';
@@ -8,7 +9,7 @@ import { newClerkUserId } from './_clerkTestIdentity';
 const schema = (schemaModule as unknown as { default?: typeof schemaModule }).default ?? schemaModule;
 const modules = {
   '../../convex/_generated/api.ts': () => import('../../convex/_generated/api'),
-  '../../convex/events.ts': () => import('../../convex/events'),
+  '../../convex/events.ts': loadFixtureEvents,
   '../../convex/eventMediaWorker.ts': () => import('../../convex/eventMediaWorker'),
 };
 const bridgeToken = 'destination-test-only';
