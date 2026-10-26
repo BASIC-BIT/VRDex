@@ -1,4 +1,5 @@
 import { resolveWorkerAllocation, validateMeasuredSnapshot } from '../workers/restream/broadcast-capacity.mjs';
+/** @typedef {import("../workers/restream/broadcast-capacity.mjs").CapacityResolver} CapacityResolver */
 import { validateAllocationSnapshot } from '../workers/restream/worker-allocation.mjs';
 import { pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
@@ -301,8 +302,9 @@ export function taskDefinitionFor(command, config, resolve = resolveWorkerAlloca
   };
 }
 
-async function registerTaskDefinition(command, config, runAws) {
-  return runAws(config, ["ecs", "register-task-definition", "--cli-input-json", JSON.stringify(taskDefinitionFor(command, config))]);
+/** @param {CapacityResolver} resolveAllocation */
+async function registerTaskDefinition(command, config, runAws, resolveAllocation) {
+  return runAws(config, ["ecs", "register-task-definition", "--cli-input-json", JSON.stringify(taskDefinitionFor(command, config, resolveAllocation))]);
 }
 
 async function runTask(command, taskDefinitionArn, config, runAws) {
@@ -359,7 +361,8 @@ async function cleanupLosingDefinition(client, config, command, taskDefinitionAr
     console.warn(JSON.stringify({ event: "event_media_unused_definition_manual_cleanup", sessionId: command.session.sessionId, ...(recorded?.accepted === true ? { taskDefinitionArn } : {}) }));
   }
 }
-async function startCommand(command, client, config, runAws, isDraining) {
+/** @param {CapacityResolver} resolveAllocation */
+async function startCommand(command, client, config, runAws, isDraining, resolveAllocation) {
   command.dispatchId = command.session.dispatchId ?? randomUUID();
   const identity = { bridgeToken: config.bridgeToken, eventId: command.eventId, sessionId: command.session.sessionId, dispatchId: command.dispatchId, commandId: command.commandId, workerId: config.workerId };
   const admission = await client.mutation(convexApi.admitDispatch, {bridgeToken:config.bridgeToken,eventId:command.eventId,sessionId:command.session.sessionId,dispatchId:command.dispatchId,launchProtocol:"fenced-v1"});
@@ -371,7 +374,7 @@ async function startCommand(command, client, config, runAws, isDraining) {
   let taskDefinitionArn;
   try {
     if (isDraining()) throw Error("Bridge is draining before task registration.");
-    const registered = await registerTaskDefinition(command, config, runAws);
+    const registered = await registerTaskDefinition(command, config, runAws, resolveAllocation);
     taskDefinitionArn = registered.taskDefinition?.taskDefinitionArn;
     if (typeof taskDefinitionArn !== "string" || !taskDefinitionArn || taskDefinitionArn.length > 512) throw Error("Task definition registration is unknown.");
   } catch {
@@ -469,7 +472,8 @@ async function recordClaimedCommandError(command, error, client, config) {
   );
 }
 
-export async function claimAndProcess(client, config, runAws = aws, isDraining = () => false) {
+/** @param {{resolveAllocation?: CapacityResolver}} [dependencies] */
+export async function claimAndProcess(client, config, runAws = aws, isDraining = () => false, {resolveAllocation = resolveWorkerAllocation} = {}) {
   if (isDraining()) return false;
   const command = await client.mutation(convexApi.claimEventMediaWorkerCommand, {
     bridgeToken: config.bridgeToken,
@@ -483,7 +487,7 @@ export async function claimAndProcess(client, config, runAws = aws, isDraining =
   try {
     if (command.commandType === "start_program") {
       if (isDraining()) throw Error("Bridge is draining after command claim.");
-      await startCommand(command, client, config, runAws, isDraining);
+      await startCommand(command, client, config, runAws, isDraining, resolveAllocation);
       return true;
     }
 
@@ -611,6 +615,7 @@ export async function runBridge(client, config, runAws = aws, {
   monotonicClock = () => performance.now(),
   signals = process,
   wait = (ms, signal) => sleep(ms, undefined, { signal }),
+  resolveAllocation = resolveWorkerAllocation,
 } = {}) {
   // Anchor the absolute deadline once. Wall clock changes cannot extend this
   // process, and a retry uses the same absolute environment deadline.
@@ -631,7 +636,7 @@ export async function runBridge(client, config, runAws = aws, {
   signals.on("SIGINT", requestDrain);
   try {
     while (true) {
-      if (!isDraining()) await claimAndProcess(client, config, runAws, isDraining);
+      if (!isDraining()) await claimAndProcess(client, config, runAws, isDraining, {resolveAllocation});
       const refreshDraining = isDraining();
       const remaining = await refreshSessions(client, config, runAws, refreshDraining);
       if (isDraining()) {
