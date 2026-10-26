@@ -39,7 +39,19 @@ export async function readPublicGroupId(db: DatabaseReader, profileId: Id<"profi
       .eq("assetType", "vrchat_group").eq("state", "active")).take(101);
   if (links.length > 100) return null;
   const primary = links.filter(link => link.linkRole === "primary");
-  if (primary.length) return primary.length === 1 ? primary[0]!.assetExternalId : null;
+  if (primary.length) {
+    if (primary.length !== 1) return null;
+    const link = primary[0]!;
+    if (link.provenance === "directory_reference") {
+      const selected = (await db.get(profileId))?.primaryGroupReference;
+      if (!selected) return null;
+      const destination = await db.query("profileLinkDestinations")
+        .withIndex("by_key", q => q.eq("key", selected.key)).unique();
+      if (destination?.kind !== "vrchat_group" || destination.status !== "resolved" ||
+        destination.entityId !== link.assetExternalId) return null;
+    }
+    return link.assetExternalId;
+  }
   const integration = await readManagedIntegration(db, profileId);
   if (!integration || integration.state === "disconnected" || integration.state === "disconnecting") return null;
   const priorLinks = await db.query("profileExternalLinks")

@@ -691,3 +691,34 @@ it("enrollment attributes a new directory candidate without rewriting existing o
   assert.equal((await t.run(ctx => ctx.db.get(linkId)))?.linkedByUserId, undefined);
   assert.equal((await t.run(ctx => ctx.db.get(linkId)))?.provenance, undefined);
 });
+
+for (const change of ["clear", "relink"] as const) {
+  it(`enrollment rejects a superseded directory selection before reconciliation (${change})`, async () => {
+    const { t, accountId, userId } = await enrollmentFixture({ enabled: true });
+    const { createCommunityProfileRecord } = await import("../../convex/profiles");
+    const { applyApiProfileUpdate } = await import("../../convex/_profileUpdates");
+    const url = "https://vrc.group/OLD.1234";
+    const other = "https://vrc.group/NEW.1234";
+    const oldGroup = "grp_11111111-1111-1111-1111-111111111111";
+    const created = await t.run(ctx => createCommunityProfileRecord(ctx, {
+      profileType: "community", displayName: "Superseded selection", primaryGroupUrl: url,
+      outboundLinks: [{ type: "vrchat_profile", url }, { type: "vrchat_profile", url: other }],
+    }, { issuer: "test", subject: String(userId), tokenIdentifier: "directory-editor" }, userId));
+    await t.run(async ctx => {
+      for (const [key, entityId] of [["OLD.1234", oldGroup], ["NEW.1234", "grp_22222222-2222-2222-2222-222222222222"]]) {
+        const destination = await ctx.db.query("profileLinkDestinations").withIndex("by_key", q => q.eq("key", `vrchat_group:${key}`)).unique();
+        await ctx.db.patch(destination!._id, { status: "resolved", entityId });
+      }
+    });
+    await t.mutation(reconcileEnrollment, { profileId: created.profileId, affectedGroupIds: [], now: 200 });
+    await t.run(async ctx => applyApiProfileUpdate(ctx, {
+      profile: (await ctx.db.get(created.profileId))!, input: { primaryGroupUrl: change === "clear" ? null : other },
+      subject: "community_submitter", contributorUserId: userId, now: 201,
+    }));
+    const links = await t.run(ctx => ctx.db.query("profileExternalLinks").collect());
+    assert.equal(links.find(link => link.assetExternalId === oldGroup)?.state, "active");
+    assert.equal((await t.mutation(admitEnrollment, { now: 202 })).admitted, 0);
+    assert.equal((await t.run(ctx => ctx.db.get(accountId)))?.assignedGroupCount, 0);
+    assert.equal(await t.run(ctx => ctx.db.query("communityVrchatIntegrations").first()), null);
+  });
+}
