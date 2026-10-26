@@ -96,6 +96,63 @@ for (const outcome of ["clipboard", "fallback", "failure", "fallback throws"] as
   });
 }
 
+test("overlapping public copies retain one reset timer and cancel it on unmount @flow", async ({ page }) => {
+  await page.goto("/search?q=VRDJ");
+  const row = publicResultRow(page, "/basicbit");
+  await row.getByText("Links", { exact: true }).click();
+  const button = row.getByRole("button", { name: "Copy", exact: true }).first();
+  const now = new Date();
+  await page.clock.install({ time: now });
+  await page.clock.pauseAt(now);
+  await page.evaluate(() => {
+    const copies: Array<() => void> = [];
+    const timers = new Set<number>();
+    let fired = 0;
+    const setTimer = window.setTimeout.bind(window);
+    const clearTimer = window.clearTimeout.bind(window);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: {
+      writeText: () => new Promise<void>((resolve) => copies.push(resolve)),
+    } });
+    // Observe the real reset callbacks while Playwright controls browser time.
+    Object.defineProperty(window, "setTimeout", { configurable: true, value: (handler: TimerHandler, delay?: number, ...args: unknown[]) => {
+      if (delay !== 1400 || typeof handler !== "function") return setTimer(handler, delay, ...args);
+      const timer = setTimer(() => {
+        timers.delete(timer);
+        fired++;
+        handler(...args);
+      }, delay);
+      timers.add(timer);
+      return timer;
+    } });
+    Object.defineProperty(window, "clearTimeout", { configurable: true, value: (timer?: number) => {
+      if (timer !== undefined) timers.delete(timer);
+      clearTimer(timer);
+    } });
+    Reflect.set(window, "copyLifecycle", {
+      count: () => copies.length,
+      settle: (index: number) => copies[index]?.(),
+      timers: () => ({ pending: timers.size, fired }),
+    });
+  });
+  await button.click();
+  await button.click();
+  expect(await page.evaluate(() => Reflect.get(window, "copyLifecycle").count())).toBe(2);
+  await page.evaluate(async () => {
+    Reflect.get(window, "copyLifecycle").settle(0);
+    await Promise.resolve();
+  });
+  await page.clock.runFor(900);
+  await page.evaluate(() => Reflect.get(window, "copyLifecycle").settle(1));
+  await expect(row.getByRole("status").filter({ hasText: "Copied" })).toHaveCount(1);
+  expect(await page.evaluate(() => Reflect.get(window, "copyLifecycle").timers())).toEqual({ pending: 1, fired: 0 });
+  await page.getByRole("link", { name: "Communities", exact: true }).click();
+  await expect(page).toHaveURL(/\/search\?q=VRDJ&type=community$/);
+  await expect(row).toHaveCount(0);
+  expect(await page.evaluate(() => Reflect.get(window, "copyLifecycle").timers())).toEqual({ pending: 0, fired: 0 });
+  await page.clock.runFor(3000);
+  expect(await page.evaluate(() => Reflect.get(window, "copyLifecycle").timers())).toEqual({ pending: 0, fired: 0 });
+});
+
 test("expanded public links agree with legacy provider formatting @flow", async ({ page }) => {
   await page.goto("/search?q=BASICBIT");
   const row = publicResultRow(page, "/basicbit");

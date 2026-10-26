@@ -8,12 +8,17 @@ import { cn } from "@/lib/cn";
 export function LookupCopyButton({ className, label = "Copy", value }: { className?: string; label?: string; value: string }) {
   const [status, setStatus] = useState<"idle" | "copied" | "failed">("idle");
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const copyOperation = useRef(0);
   const resetTimer = useRef<number | undefined>(undefined);
   const copied = status === "copied";
 
-  useEffect(() => () => window.clearTimeout(resetTimer.current), []);
+  useEffect(() => () => {
+    copyOperation.current++;
+    window.clearTimeout(resetTimer.current);
+  }, []);
 
   async function copyValue() {
+    const operation = ++copyOperation.current;
     const button = buttonRef.current;
     let copiedValue = false;
     window.clearTimeout(resetTimer.current);
@@ -23,6 +28,7 @@ export function LookupCopyButton({ className, label = "Copy", value }: { classNa
       await navigator.clipboard.writeText(value);
       copiedValue = true;
     } catch {
+      if (operation !== copyOperation.current || !button?.isConnected) return;
       const textArea = document.createElement("textarea");
 
       try {
@@ -44,9 +50,13 @@ export function LookupCopyButton({ className, label = "Copy", value }: { classNa
       }
     }
 
-    if (button?.isConnected) {
+    if (operation === copyOperation.current && button?.isConnected) {
+      window.clearTimeout(resetTimer.current);
       setStatus(copiedValue ? "copied" : "failed");
-      resetTimer.current = window.setTimeout(() => setStatus("idle"), 1400);
+      resetTimer.current = window.setTimeout(() => {
+        resetTimer.current = undefined;
+        setStatus("idle");
+      }, 1400);
     }
   }
 
