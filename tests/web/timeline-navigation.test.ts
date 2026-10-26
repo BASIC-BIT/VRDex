@@ -1,0 +1,56 @@
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+
+import { readTimelineNavigation, timelineNavigationHref } from "../../apps/web/src/lib/timeline/navigation";
+
+describe("timeline navigation", () => {
+  it("defaults to timeline without guessing an anchor or viewer timezone", () => {
+    assert.deepEqual(readTimelineNavigation(new URLSearchParams()), {
+      anchor: null, timeZone: null, view: "timeline", favoritesOnly: false,
+    });
+  });
+
+  it("reads explicit epoch milliseconds, IANA timezone, agenda and favorites", () => {
+    assert.deepEqual(readTimelineNavigation(new URLSearchParams("at=1793509200000&tz=America%2FNew_York&scheduleView=agenda&favorites=1")), {
+      anchor: 1793509200000, timeZone: "America/New_York", view: "agenda", favoritesOnly: true,
+    });
+    assert.equal(readTimelineNavigation(new URLSearchParams("at=0&tz=America%2FIndiana%2FIndianapolis")).anchor, 0);
+  });
+
+  it("ignores malformed, out-of-range and nonfinite query values", () => {
+    for (const at of ["", "NaN", "Infinity", "1e3", "12oops", "1.5", "8640000000000001", " 0"]) {
+      assert.equal(readTimelineNavigation(new URLSearchParams({ at })).anchor, null);
+    }
+    assert.deepEqual(readTimelineNavigation(new URLSearchParams("tz=MadeUp%2FZone&scheduleView=nope&favorites=true")), {
+      anchor: null, timeZone: null, view: "timeline", favoritesOnly: false,
+    });
+  });
+
+  it("preserves search and duplicate unrelated keys through anchor and view changes", () => {
+    const searchParams = new URLSearchParams("q=DJ+Aurora&tag=a&tag=b&view=dj&at=1&tz=UTC");
+    const href = timelineNavigationHref({ pathname: "/", searchParams, state: {
+      anchor: 1793509200000, timeZone: "America/New_York", view: "agenda", favoritesOnly: true,
+    } });
+    assert.equal(href, "/?q=DJ+Aurora&tag=a&tag=b&view=dj&at=1793509200000&tz=America%2FNew_York&scheduleView=agenda&favorites=1");
+    assert.equal(searchParams.get("at"), "1");
+  });
+
+  it("clears optional timeline keys without resetting unrelated navigation history", () => {
+    assert.equal(timelineNavigationHref({ pathname: "/", searchParams: new URLSearchParams("q=test&view=dj&at=1&tz=UTC&scheduleView=agenda&favorites=1"), state: {
+      anchor: null, timeZone: null, view: "timeline", favoritesOnly: false,
+    } }), "/?q=test&view=dj");
+    assert.equal(timelineNavigationHref({ pathname: "/", searchParams: new URLSearchParams(), state: {
+      anchor: null, timeZone: null, view: "timeline", favoritesOnly: false,
+    } }), "/");
+  });
+
+  it("restores the previous anchor when a caller reads a prior history URL", () => {
+    const previous = new URL("https://vrdex.test/?q=aurora&at=1793509200000&tz=America%2FNew_York");
+    const next = timelineNavigationHref({ pathname: previous.pathname, searchParams: previous.searchParams, state: {
+      ...readTimelineNavigation(previous.searchParams), anchor: 1793512800000,
+    } });
+    assert.equal(new URL(next, previous).searchParams.get("at"), "1793512800000");
+    assert.equal(readTimelineNavigation(previous.searchParams).anchor, 1793509200000);
+    assert.equal(previous.searchParams.get("q"), "aurora");
+  });
+});
