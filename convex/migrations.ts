@@ -284,7 +284,9 @@ export const backfillGroupObservationPolicies = migrations.define({
     await ctx.db.insert("vrchatGroupObservationPolicies", {
       vrchatGroupId: integration.vrchatGroupId,
       ...(canonical ? { integrationId: canonical._id } : {}),
-      decision: reason ? { kind: "stopped", reason, actor: "migration", at: now } : { kind: "enabled", at: now },
+      decision: reason === "analytics_disabled"
+        ? { kind: "admission_blocked", reason, actor: "migration", at: now }
+        : reason ? { kind: "stopped", reason, actor: "migration", at: now } : { kind: "enabled", at: now },
       createdAt: now, updatedAt: now,
     });
     if (conflict) await ctx.db.insert("communityTelemetryAuditEvents", {

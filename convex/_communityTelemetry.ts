@@ -16,6 +16,7 @@ export const collectionScopeValidator = v.union(
 
 export const groupObservationDecisionValidator = v.union(
   v.object({ kind: v.literal("enabled"), at: v.number() }),
+  v.object({ kind: v.literal("admission_blocked"), reason: v.literal("analytics_disabled"), actor: v.literal("migration"), at: v.number() }),
   v.object({
     kind: v.literal("stopped"), reason: v.string(),
     actor: v.union(v.literal("migration"), v.literal("verified_operator"), v.literal("moderation"), v.literal("provider"), v.literal("system")),

@@ -973,7 +973,8 @@ describe("community telemetry control plane", () => {
     const staleSessions = await t.run(async ctx => {
       const {_id, _creationTime, ...session} = (await ctx.db.get(seeded.sessions[0]!))!;
       const {_id: integrationId, _creationTime: integrationCreation, ...integration} = (await ctx.db.get(session.integrationId))!;
-      const oldIntegration = await ctx.db.insert("communityVrchatIntegrations", {...integration, communityProfileId:otherCommunity});
+      const oldIntegration = await ctx.db.insert("communityVrchatIntegrations", {...integration, communityProfileId:otherCommunity,
+        collectionScope: { kind: "managed", communityProfileId: otherCommunity }, state: "disconnected" });
       const previousConnection = await ctx.db.insert("instanceSessions", {...session,integrationId:oldIntegration});
       const previousEpoch = await ctx.db.insert("instanceSessions", {...session,openedAt:(integration.telemetryEpochStartedAt??integration.createdAt)-1});
       return [previousConnection,previousEpoch];

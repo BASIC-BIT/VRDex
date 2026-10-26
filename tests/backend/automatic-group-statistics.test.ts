@@ -5,11 +5,13 @@ import { makeFunctionReference } from "convex/server";
 import type { Doc } from "../../convex/_generated/dataModel";
 import schemaModule from "../../convex/schema";
 import { defaultClubVisibility } from "../../convex/_clubModel";
+import { getPublicCommunityTelemetry, getPublicGroupMembership } from "../../convex/_communityTelemetryPublic";
 const schema = (schemaModule as unknown as { default?: typeof schemaModule }).default ?? schemaModule;
 const modules = {
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
   "../../convex/migrations.ts": () => import("../../convex/migrations"),
   "../../convex/communityTelemetry.ts": () => import("../../convex/communityTelemetry"),
+  "../../convex/profiles.ts": () => import("../../convex/profiles"),
 };
 const migrate = makeFunctionReference<"mutation", { cursor: string | null; dryRun: boolean; oneBatchOnly: boolean }, { continueCursor: string; isDone: boolean; processed: number }>("migrations:backfillGroupObservationPolicies");
 const backfillRollups = makeFunctionReference<"mutation", { cursor: string | null; dryRun: boolean; oneBatchOnly: boolean }, { continueCursor: string; isDone: boolean }>("migrations:backfillGroupTelemetryRollupIntegrations");
@@ -75,7 +77,7 @@ it("legacy migration preserves managed settings and canonicalizes historical rec
   assert.equal(policy("active").decision.kind, "enabled");
   assert.equal(policy("private").decision.kind, "enabled");
   assert.equal(policy("disconnected").decision.kind, "stopped");
-  assert.equal(policy("disabled").decision.kind, "stopped");
+  assert.equal(policy("disabled").decision.kind, "admission_blocked");
   assert.equal(policy("history").integrationId, ids[5]);
   assert.equal(policy("history").decision.kind, "stopped");
   assert.equal(policy("conflict").integrationId, undefined);
@@ -220,4 +222,175 @@ it("collection identity merges safe legacy and scoped read pages with stable cur
   }));
   assert.deepEqual(second.map(row => row.bucketStartAt), [100]);
   assert.equal(new Set([...first, ...second].map(row => row._id)).size, 3);
+});
+
+async function publicPolicyFixture() {
+  const t = convexTest({ schema, modules });
+  const integrationId = await seed(t, "policy-group", { lastSuccessfulObservationAt: 200 });
+  const integration = await t.run(ctx => ctx.db.get(integrationId));
+  assert.ok(integration?.communityProfileId);
+  const ownerId = integration.communityProfileId;
+  const duplicateId = await t.run(async ctx => {
+    const profileId = await ctx.db.insert("profiles", {
+      slug: "duplicate", displayName: "duplicate", sortName: "duplicate", aliases: [], tags: [],
+      claimState: "unclaimed", publicationState: "published", publicSurfacingState: "public",
+      creationSource: "self", updatedAt: 100, profileType: "community", community: { categoryTags: [] },
+    });
+    for (const id of [ownerId, profileId]) await ctx.db.insert("profileExternalLinks", {
+      profileId: id, assetType: "vrchat_group", assetExternalId: integration.vrchatGroupId,
+      linkRole: "primary", state: "active", createdAt: 100, updatedAt: 100,
+    });
+    const categories = defaultClubVisibility();
+    for (const category of Object.values(categories)) category.audience = "public";
+    await ctx.db.insert("communityDataVisibility", { communityProfileId: profileId, categories, updatedAt: 100 });
+    await ctx.db.insert("vrchatGroupMemberSnapshots", { vrchatGroupId: integration.vrchatGroupId, memberCount: 42, observedAt: 200 });
+    return profileId;
+  });
+  return { t, integrationId, integration, ownerId, duplicateId };
+}
+
+it("duplicate privacy applies managed categories, analytics disablement and disconnect to public profiles", async () => {
+  const s = await publicPolicyFixture();
+  await s.t.run(ctx => ctx.db.insert("communityDataVisibility", {
+    communityProfileId: s.ownerId, categories: defaultClubVisibility(), updatedAt: 100,
+  }));
+  const read = () => s.t.query(makeFunctionReference<"query">("profiles:getPublicBySlug"), { slug: "duplicate" });
+  assert.equal((await read())?.groupMembership, undefined);
+  assert.equal((await read())?.telemetry, undefined);
+  await s.t.run(async ctx => {
+    const visibility = await ctx.db.query("communityDataVisibility").withIndex("by_communityProfileId", q => q.eq("communityProfileId", s.ownerId)).unique();
+    assert.ok(visibility);
+    await ctx.db.patch(visibility._id, { categories: { ...defaultClubVisibility(), group_size: { audience: "public", staffRoleIds: null } } });
+    await ctx.db.patch(s.integrationId, { enabledFeatures: ["posts"] });
+  });
+  assert.equal((await read())?.telemetry, undefined);
+  await s.t.run(ctx => ctx.db.patch(s.integrationId, { state: "disconnected" }));
+  assert.equal((await read())?.groupMembership, undefined);
+  assert.equal((await read())?.telemetry, undefined);
+});
+
+it("public policy group stop suppresses retained member snapshots and direct helper reads", async () => {
+  const s = await publicPolicyFixture();
+  await s.t.run(ctx => ctx.db.insert("vrchatGroupObservationPolicies", {
+    vrchatGroupId: s.integration.vrchatGroupId, integrationId: s.integrationId,
+    decision: { kind: "stopped", reason: "operator_opt_out", actor: "verified_operator", at: 201 }, createdAt: 100, updatedAt: 201,
+  }));
+  for (const id of [s.ownerId, s.duplicateId]) {
+    assert.equal(await s.t.run(ctx => getPublicGroupMembership(ctx.db, id)), null);
+    assert.equal(await s.t.run(ctx => getPublicCommunityTelemetry(ctx.db, id, 202)), null);
+  }
+});
+
+it("public policy migration blocks analytics admission while preserving explicitly public managed metadata", async () => {
+  const s = await publicPolicyFixture();
+  await s.t.run(async ctx => {
+    await ctx.db.patch(s.integrationId, { enabledFeatures: ["posts"] });
+    await ctx.db.insert("communityDataVisibility", { communityProfileId: s.ownerId,
+      categories: { ...defaultClubVisibility(), group_size: { audience: "public", staffRoleIds: null } }, updatedAt: 100 });
+  });
+  await allPages(s.t);
+  const policy = await s.t.run(ctx => ctx.db.query("vrchatGroupObservationPolicies").unique());
+  assert.equal(policy?.decision.kind, "admission_blocked");
+  for (const id of [s.ownerId, s.duplicateId]) {
+    assert.equal((await s.t.run(ctx => getPublicGroupMembership(ctx.db, id)))?.latest.value, 42);
+    assert.equal(await s.t.run(ctx => getPublicCommunityTelemetry(ctx.db, id, 201)), null);
+  }
+  assert.ok(policy);
+  await s.t.run(ctx => ctx.db.patch(policy._id, {
+    decision: { kind: "stopped", reason: "operator_opt_out", actor: "verified_operator", at: 202 },
+  }));
+  assert.equal(await s.t.run(ctx => getPublicGroupMembership(ctx.db, s.duplicateId)), null);
+});
+
+it("projection uses canonical automatic history and never exposes private fields, including after adoption", async () => {
+  const s = await publicPolicyFixture();
+  const forbidden = ["wrld_private-world", "private-location", "private-instance", "usr_private-user", "Private Person"];
+  const sessionId = await s.t.run(async ctx => {
+    await ctx.db.patch(s.integrationId, { communityProfileId: undefined, collectionScope: { kind: "automatic" } });
+    await ctx.db.insert("vrchatGroupObservationPolicies", {
+      vrchatGroupId: s.integration.vrchatGroupId, integrationId: s.integrationId,
+      decision: { kind: "enabled", at: 100 }, publicHistoryStartAt: 100, createdAt: 100, updatedAt: 100,
+    });
+    await ctx.db.insert("communityPopulationObservations", {
+      integrationId: s.integrationId, idempotencyKey: "private-population", totalPopulation: 20, activeInstanceCount: 2,
+      worldDistribution: [{ vrchatWorldId: forbidden[0]!, population: 20, instanceCount: 2 }], observedAt: 200,
+      source: "first_party", collectorVersion: "test", coverageState: "observed", fencingToken: 1,
+    });
+    await ctx.db.insert("communityTelemetryRollups", {
+      integrationId: s.integrationId, communityProfileId: s.ownerId, grain: "hour", bucketStartAt: 100, bucketEndAt: 200,
+      rollupVersion: "test", currentPopulation: 20, activeInstanceCount: 2, peakConcurrency: 30,
+      playerMinutes: 90, coverageRatio: 0.5, worldDistribution: [{ vrchatWorldId: forbidden[0]!, samples: 1 }], computedAt: 200,
+    });
+    await ctx.db.insert("communityMembershipEvents", { integrationId: s.integrationId, epochStartedAt: 90,
+      groupId: s.integration.vrchatGroupId, auditId: "private-event", eventType: "join", occurredAt: 200,
+      targetUserId: forbidden[3], targetDisplayName: forbidden[4], receivedAt: 200, verified: true });
+    return ctx.db.insert("instanceSessions", { integrationId: s.integrationId, communityProfileId: s.ownerId,
+      providerInstanceId: forbidden[2]!, providerLocation: forbidden[1]!, vrchatWorldId: forbidden[0]!,
+      source: "first_party", state: "open", openedAt: 100, lastObservedAt: 200, consecutiveMisses: 0, updatedAt: 200 });
+  });
+  const read = () => s.t.run(ctx => getPublicCommunityTelemetry(ctx.db, s.duplicateId, 201));
+  const automatic = await read();
+  assert.ok(automatic);
+  assert.equal(automatic.publicationPolicy, "automatic_aggregate");
+  assert.equal(automatic.currentPopulation?.value, 20);
+  assert.equal(automatic.groupMemberCount?.value, 42);
+  assert.equal(automatic.populationHistory?.[0]?.playerHours, 1.5);
+  assert.equal(automatic.populationHistory?.[0]?.coverageRatio, 0.5);
+  for (const value of [...forbidden, sessionId]) assert.equal(JSON.stringify(automatic).includes(value), false);
+  assert.equal("instanceHistory" in automatic, false);
+  assert.equal("eventRecaps" in automatic, false);
+  assert.equal("worldDistribution" in automatic.populationHistory![0]!, false);
+  assert.deepEqual(await s.t.query(makeFunctionReference<"query">("communityTelemetry:getPublicForCommunity"), {
+    communitySlug: "duplicate", now: 201,
+  }), automatic);
+  const profile = await s.t.query(makeFunctionReference<"query">("profiles:getPublicBySlug"), { slug: "duplicate" });
+  assert.equal(profile?.telemetry?.publicationPolicy, "automatic_aggregate");
+  for (const value of [...forbidden, sessionId]) assert.equal(JSON.stringify(profile?.telemetry).includes(value), false);
+  assert.ok("publicationPolicy" in schema.tables.communityVrchatIntegrations.validator.fields);
+  await s.t.run(ctx => ctx.db.patch(s.integrationId, { communityProfileId: s.ownerId,
+    collectionScope: { kind: "managed", communityProfileId: s.ownerId }, publicationPolicy: "automatic_aggregate" }));
+  assert.deepEqual(await read(), automatic);
+  const stale = await s.t.run(ctx => getPublicCommunityTelemetry(ctx.db, s.duplicateId, 200 + 6 * 60_000 + 1));
+  assert.equal(stale?.currentPopulation, undefined);
+});
+
+it("public policy requires registry eligibility and active primary links and suppresses private profiles", async () => {
+  const s = await publicPolicyFixture();
+  await s.t.run(ctx => ctx.db.patch(s.integrationId, { communityProfileId: undefined, collectionScope: { kind: "automatic" } }));
+  const read = () => s.t.run(ctx => getPublicCommunityTelemetry(ctx.db, s.duplicateId, 201));
+  assert.equal(await read(), null);
+  await s.t.run(ctx => ctx.db.insert("vrchatGroupObservationPolicies", {
+    vrchatGroupId: s.integration.vrchatGroupId, integrationId: s.integrationId, decision: { kind: "enabled", at: 100 }, createdAt: 100, updatedAt: 100,
+  }));
+  assert.ok(await read());
+  for (const patch of [{ groupVisibility: "private" }, { joinPolicy: "request" }, { state: "disconnected" }, { killSwitchEnabled: true }] satisfies Partial<Doc<"communityVrchatIntegrations">>[]) {
+    await s.t.run(ctx => ctx.db.patch(s.integrationId, patch));
+    assert.equal(await read(), null);
+    await s.t.run(ctx => ctx.db.patch(s.integrationId, { groupVisibility: "public", joinPolicy: "free", state: "active", killSwitchEnabled: false }));
+  }
+  await s.t.run(ctx => ctx.db.patch(s.duplicateId, { publicSurfacingState: "suppressed" }));
+  assert.equal(await read(), null);
+  assert.equal(await s.t.run(ctx => getPublicGroupMembership(ctx.db, s.duplicateId)), null);
+  await s.t.run(async ctx => {
+    await ctx.db.patch(s.duplicateId, { publicSurfacingState: "public" });
+    const link = await ctx.db.query("profileExternalLinks").withIndex("by_profileId_assetType_state", q => q
+      .eq("profileId", s.duplicateId).eq("assetType", "vrchat_group").eq("state", "active")).first();
+    assert.ok(link);
+    await ctx.db.patch(link._id, { assetExternalId: "replacement-group" });
+  });
+  assert.equal(await read(), null);
+  assert.equal(await s.t.run(ctx => getPublicGroupMembership(ctx.db, s.duplicateId)), null);
+});
+
+it("public policy public-history boundary restricts managed member metadata and telemetry", async () => {
+  const s = await publicPolicyFixture();
+  await s.t.run(async ctx => {
+    await ctx.db.insert("vrchatGroupObservationPolicies", { vrchatGroupId: s.integration.vrchatGroupId,
+      integrationId: s.integrationId, decision: { kind: "enabled", at: 201 }, publicHistoryStartAt: 201, createdAt: 100, updatedAt: 201 });
+    await ctx.db.insert("communityMemberCountObservations", { integrationId: s.integrationId, communityProfileId: s.ownerId,
+      idempotencyKey: "pre-public-history", vrchatGroupId: s.integration.vrchatGroupId, memberCount: 42, observedAt: 200,
+      source: "first_party", collectorVersion: "test", coverageState: "observed", fencingToken: 1 });
+  });
+  assert.equal(await s.t.run(ctx => getPublicGroupMembership(ctx.db, s.ownerId)), null);
+  assert.equal((await s.t.run(ctx => getPublicCommunityTelemetry(ctx.db, s.ownerId, 202)))?.groupMemberCount, undefined);
 });

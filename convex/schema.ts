@@ -1855,6 +1855,7 @@ export default defineSchema({
   }).index("by_vrchatGroupId", ["vrchatGroupId"]),
   communityVrchatIntegrations: defineTable({
     collectionScope: v.optional(collectionScopeValidator),
+    publicationPolicy: v.optional(v.union(v.literal("automatic_aggregate"), v.literal("managed_categories"))),
     enabledFeatures: v.optional(v.array(integrationFeature)),
     providerAuthority: v.optional(storedAuthority),
     communityProfileId: v.optional(v.id("profiles")),
