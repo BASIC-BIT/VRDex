@@ -394,3 +394,300 @@ it("public policy public-history boundary restricts managed member metadata and 
   assert.equal(await s.t.run(ctx => getPublicGroupMembership(ctx.db, s.ownerId)), null);
   assert.equal((await s.t.run(ctx => getPublicCommunityTelemetry(ctx.db, s.ownerId, 202)))?.groupMemberCount, undefined);
 });
+
+it("enrollment deduplicates primary references and defaults to queued with admission disabled", async () => {
+  const t = convexTest({ schema, modules: { ...modules, "../../convex/groupObservations.ts": () => import("../../convex/groupObservations") } });
+  const profileId = await t.run(async ctx => {
+    const profileId = await ctx.db.insert("profiles", { slug: "enrollment", displayName: "Enrollment", sortName: "enrollment", aliases: [], tags: [], claimState: "unclaimed", publicationState: "published", publicSurfacingState: "public", creationSource: "community", updatedAt: 100, profileType: "community", community: { categoryTags: [] } });
+    await ctx.db.insert("profileExternalLinks", { profileId, assetType: "vrchat_group", assetExternalId: "grp_11111111-1111-1111-1111-111111111111", linkRole: "primary", state: "active", createdAt: 100, updatedAt: 100 });
+    return profileId;
+  });
+  const ref = makeFunctionReference<"mutation">("groupObservations:reconcileProfile");
+  await t.mutation(ref, { profileId, affectedGroupIds: [], now: 200 });
+  await t.mutation(ref, { profileId, affectedGroupIds: [], now: 201 });
+  const policies = await t.run(ctx => ctx.db.query("vrchatGroupObservationPolicies").collect());
+  assert.equal(policies.length, 1);
+  assert.equal(policies[0]?.queuedAdmission?.priority, "automatic");
+  assert.equal((await t.mutation(makeFunctionReference<"mutation">("groupObservations:admitQueued"), { now: 202 })).admitted, 0);
+  assert.equal((await t.run(ctx => ctx.db.query("communityVrchatIntegrations").collect())).length, 0);
+});
+
+it("enrollment directory contribution resolves only an explicit primary and preserves contributor provenance", async () => {
+  const t = convexTest({ schema, modules: { ...modules, "../../convex/groupObservations.ts": () => import("../../convex/groupObservations") } });
+  const { createCommunityProfileRecord } = await import("../../convex/profiles");
+  const userId = await t.run(ctx => ctx.db.insert("users", { name: "Contributor", clerkUserId: "contributor" }));
+  const url = "https://vrc.group/TEST.1234";
+  const created = await t.run(ctx => createCommunityProfileRecord(ctx, { profileType: "community", displayName: "Directory group", outboundLinks: [{ type: "vrchat_profile", url }], primaryGroupUrl: url }, { issuer: "test", subject: String(userId), tokenIdentifier: `test:${userId}` }, userId));
+  assert.equal((await t.run(ctx => ctx.db.get(created.profileId)))?.primaryGroupReference?.contributorUserId, userId);
+  assert.equal((await t.run(ctx => ctx.db.query("profileExternalLinks").collect())).length, 0);
+  await t.run(async ctx => {
+    const row = await ctx.db.query("profileLinkDestinations").withIndex("by_key", q => q.eq("key", "vrchat_group:TEST.1234")).unique();
+    assert.ok(row);
+    await ctx.db.patch(row._id, { status: "resolved", entityId: "grp_11111111-1111-1111-1111-111111111111" });
+  });
+  await t.mutation(makeFunctionReference<"mutation">("groupObservations:reconcileProfile"), { profileId: created.profileId, affectedGroupIds: [] });
+  const links = await t.run(ctx => ctx.db.query("profileExternalLinks").collect());
+  assert.equal(links.length, 1);
+  assert.equal(links[0]?.provenance, "directory_reference");
+  assert.equal(links[0]?.linkedByUserId, userId);
+  assert.equal(links[0]?.verifiedByProofId, undefined);
+  assert.equal((await t.run(ctx => ctx.db.query("vrchatGroupObservationPolicies").collect())).length, 1);
+});
+
+const enrollmentModules = { ...modules, "../../convex/groupObservations.ts": () => import("../../convex/groupObservations") };
+const reconcileEnrollment = makeFunctionReference<"mutation">("groupObservations:reconcileProfile");
+const admitEnrollment = makeFunctionReference<"mutation">("groupObservations:admitQueued");
+async function enrollmentFixture(options: { enabled?: boolean; capacity?: number } = {}) {
+  const t = convexTest({ schema, modules: enrollmentModules });
+  const ids = await t.run(async ctx => {
+    const userId = await ctx.db.insert("users", { clerkUserId: "enrollment-contributor" });
+    const accountId = await ctx.db.insert("collectorAccounts", { vrchatUserId: "usr_fixture", accountAlias: "fixture", state: "ready", capacity: options.capacity ?? 2, reservedHeadroom: 1, assignedGroupCount: 0, requestsPerMinute: 30, secretRef: "test", workerKeyHash: "test", credentialGeneration: 1, killSwitchEnabled: false, createdAt: 100, updatedAt: 100 });
+    await ctx.db.insert("collectorFleetSettings", { key: "global", killSwitchEnabled: false, globalRequestsPerMinute: 30, automaticEnrollmentEnabled: options.enabled ?? false, automaticEnrollmentLimit: options.enabled ? 10 : 0, ...(options.enabled ? { automaticEnrollmentScope: {kind: "all_eligible" as const} } : {}), updatedAt: 100 });
+    return { userId, accountId };
+  });
+  async function add(group: string, suffix = "") {
+    return t.run(async ctx => {
+      const profileId = await ctx.db.insert("profiles", { slug: group + suffix, displayName: group, sortName: group, aliases: [], tags: [], claimState: "unclaimed", publicationState: "published", publicSurfacingState: "public", creationSource: "community", updatedAt: 100, profileType: "community", community: { categoryTags: [] } });
+      const linkId = await ctx.db.insert("profileExternalLinks", { profileId, assetType: "vrchat_group", assetExternalId: group, linkRole: "primary", provenance: "directory_reference", linkedByUserId: ids.userId, state: "active", createdAt: 100, updatedAt: 100 });
+      return { profileId, linkId };
+    });
+  }
+  return { t, ...ids, add };
+}
+it("enrollment concurrent duplicate references allocate exactly one assignment and reserve headroom", async () => {
+  const { t, add, accountId } = await enrollmentFixture({enabled: true});
+  const a = await add("group-a"); const b = await add("group-a", "-duplicate");
+  // Control associations do not require a directory selection to synchronize.
+  await t.run(async ctx => { await ctx.db.patch(a.linkId, { provenance: "control_association" }); await ctx.db.patch(b.linkId, { provenance: "control_association" }); });
+  await Promise.all([a, b].map(row => t.mutation(reconcileEnrollment, { profileId: row.profileId, affectedGroupIds: [], now: 200 })));
+  await Promise.all([t.mutation(admitEnrollment, { now: 200 }), t.mutation(admitEnrollment, { now: 200 })]);
+  const assignments = await t.run(ctx => ctx.db.query("communityVrchatIntegrations").collect());
+  assert.equal(assignments.length, 1);
+  assert.equal(assignments[0]?.joinPolicy, "unknown");
+  assert.equal(assignments[0]?.state, "connecting");
+  assert.equal((await t.run(ctx => ctx.db.get(accountId)))?.assignedGroupCount, 1);
+  const c = await add("group-c");
+  await t.run(ctx => ctx.db.patch(c.linkId, {provenance: "control_association"}));
+  await t.mutation(reconcileEnrollment, { profileId: c.profileId, affectedGroupIds: [], now: 201 });
+  assert.equal((await t.mutation(admitEnrollment, { now: 201 })).admitted, 0);
+  assert.equal((await t.run(ctx => ctx.db.query("vrchatGroupObservationPolicies").withIndex("by_vrchatGroupId", q => q.eq("vrchatGroupId", "group-c")).unique()))?.queuedAdmission?.reason, "capacity");
+});
+it("candidate limit counts five immutable groups per contributor and repeat saves consume none", async () => {
+  const { t, add, userId } = await enrollmentFixture();
+  for (let i = 0; i < 6; i++) {
+    const row = await add(`candidate-${i}`);
+    await t.run(ctx => ctx.db.patch(row.linkId, {provenance: "control_association"}));
+    await t.mutation(reconcileEnrollment, { profileId: row.profileId, affectedGroupIds: [], now: 200 + i });
+    await t.mutation(reconcileEnrollment, { profileId: row.profileId, affectedGroupIds: [], now: 210 + i });
+  }
+  const policies = await t.run(ctx => ctx.db.query("vrchatGroupObservationPolicies").collect());
+  assert.equal(policies.length, 6);
+  assert.equal(policies.find(p => p.vrchatGroupId === "candidate-5")?.queuedAdmission?.reason, "contributor_limit");
+  const quota = await t.run(ctx => ctx.db.query("groupObservationCandidateLimits").withIndex("by_key", q => q.eq("key", `user:${userId}`)).unique());
+  assert.equal(quota?.admittedAt.length, 5);
+});
+it("orphan cleanup waits for other references and stale queued work cannot re-enroll", async () => {
+  const { t, add } = await enrollmentFixture({enabled: true});
+  const a = await add("orphan"); const b = await add("orphan", "-duplicate");
+  await t.run(async ctx => { await ctx.db.patch(a.linkId, {provenance: "control_association"}); await ctx.db.patch(b.linkId, {provenance: "control_association"}); });
+  await t.mutation(reconcileEnrollment, { profileId: a.profileId, affectedGroupIds: [], now: 200 });
+  await t.mutation(admitEnrollment, { now: 200 });
+  await t.run(ctx => ctx.db.patch(a.linkId, {state: "removed"}));
+  await t.mutation(reconcileEnrollment, { profileId: a.profileId, affectedGroupIds: ["orphan"], now: 201 });
+  assert.equal((await t.run(ctx => ctx.db.query("communityVrchatIntegrations").first()))?.state, "connecting");
+  await t.run(ctx => ctx.db.patch(b.linkId, {state: "removed"}));
+  await t.mutation(reconcileEnrollment, { profileId: b.profileId, affectedGroupIds: ["orphan"], now: 202 });
+  assert.equal((await t.run(ctx => ctx.db.query("communityVrchatIntegrations").first()))?.state, "disconnecting");
+  assert.equal((await t.mutation(admitEnrollment, {now: 203})).admitted, 0);
+  assert.equal((await t.run(ctx => ctx.db.query("vrchatGroupObservationPolicies").first()))?.queuedAdmission, undefined);
+});
+it("enrollment managed queue wins the next slot without evicting an assignment", async () => {
+  const { t, add, accountId } = await enrollmentFixture({enabled: true});
+  const automatic = await add("automatic");
+  await t.run(ctx => ctx.db.patch(automatic.linkId, {provenance: "control_association"}));
+  await t.mutation(reconcileEnrollment, {profileId: automatic.profileId, affectedGroupIds: [], now: 200});
+  const managedId = await seed(t, "managed-queue", {state: "connecting"});
+  await t.run(ctx => ctx.db.insert("vrchatGroupObservationPolicies", {vrchatGroupId: "managed-queue", integrationId: managedId, decision: {kind: "enabled", at: 201}, queuedAdmission: {priority: "managed", queuedAt: 201, dueAt: 201}, createdAt: 201, updatedAt: 201}));
+  assert.equal((await t.mutation(admitEnrollment, {now: 202})).admitted, 1);
+  assert.equal((await t.run(ctx => ctx.db.get(managedId)))?.assignedCollectorAccountId, accountId);
+  assert.equal((await t.run(ctx => ctx.db.query("communityVrchatIntegrations").collect())).length, 1);
+});
+
+it("enrollment directory update removes its old primary, preserves links, and denies claimed-profile contributors", async () => {
+  const t = convexTest({schema, modules: enrollmentModules});
+  const {createCommunityProfileRecord} = await import("../../convex/profiles");
+  const {applyApiProfileUpdate} = await import("../../convex/_profileUpdates");
+  const userId = await t.run(ctx => ctx.db.insert("users", {clerkUserId: "directory-editor"}));
+  const url = "https://vrc.group/TEST.1234";
+  const other = "https://vrc.group/NEXT.1234";
+  const links = [{type: "vrchat_profile" as const, url}, {type: "vrchat_profile" as const, url: other}];
+  const created = await t.run(ctx => createCommunityProfileRecord(ctx, {profileType: "community", displayName: "Primary update", outboundLinks: links, primaryGroupUrl: url}, {issuer: "test", subject: String(userId), tokenIdentifier: "directory-editor"}, userId));
+  await t.run(async ctx => {
+    for (const [key, id] of [["TEST.1234", "grp_11111111-1111-1111-1111-111111111111"], ["NEXT.1234", "grp_22222222-2222-2222-2222-222222222222"]]) {
+      const row = await ctx.db.query("profileLinkDestinations").withIndex("by_key", q => q.eq("key", `vrchat_group:${key}`)).unique();
+      await ctx.db.patch(row!._id, {status: "resolved", entityId: id});
+    }
+  });
+  await t.mutation(reconcileEnrollment, {profileId: created.profileId, affectedGroupIds: [], now: 200});
+  await t.run(async ctx => {
+    const profile = (await ctx.db.get(created.profileId))!;
+    await applyApiProfileUpdate(ctx, {profile, input: {primaryGroupUrl: other}, subject: "community_submitter", contributorUserId: userId, now: 201});
+  });
+  await t.mutation(reconcileEnrollment, {profileId: created.profileId, affectedGroupIds: [], now: 202});
+  const active = await t.run(ctx => ctx.db.query("profileExternalLinks").filter(q => q.eq(q.field("state"), "active")).collect());
+  assert.deepEqual(active.map(link => link.assetExternalId), ["grp_22222222-2222-2222-2222-222222222222"]);
+  const before = await t.run(ctx => ctx.db.get(created.profileId));
+  assert.equal(before?.outboundLinks?.length, 2);
+  await t.run(async ctx => { const profile = (await ctx.db.get(created.profileId))!; await applyApiProfileUpdate(ctx, {profile, input: {primaryGroupUrl: null}, subject: "community_submitter", contributorUserId: userId, now: 203}); });
+  await t.mutation(reconcileEnrollment, {profileId: created.profileId, affectedGroupIds: [], now: 204});
+  assert.equal((await t.run(ctx => ctx.db.query("profileExternalLinks").filter(q => q.eq(q.field("state"), "active")).collect())).length, 0);
+  await t.run(ctx => ctx.db.patch(created.profileId, {claimState: "claimed_verified"}));
+  await assert.rejects(t.run(async ctx => applyApiProfileUpdate(ctx, {profile: (await ctx.db.get(created.profileId))!, input: {primaryGroupUrl: url}, subject: "community_submitter", contributorUserId: userId, now: 205})), /cannot be edited/);
+});
+it("enrollment admission-required target releases unused capacity and does not loop allocation", async () => {
+  const {t, add, accountId} = await enrollmentFixture({enabled: true});
+  const row = await add("request-group");
+  await t.run(ctx => ctx.db.patch(row.linkId, {provenance: "control_association"}));
+  await t.mutation(reconcileEnrollment, {profileId: row.profileId, affectedGroupIds: [], now: 200});
+  await t.mutation(admitEnrollment, {now: 200});
+  const integration = (await t.run(ctx => ctx.db.query("communityVrchatIntegrations").first()))!;
+  await t.mutation(makeFunctionReference<"mutation">("groupObservations:recordAdmissionRequired"), {integrationId: integration._id, reason: "request", now: 201});
+  assert.equal((await t.run(ctx => ctx.db.get(accountId)))?.assignedGroupCount, 0);
+  await t.mutation(reconcileEnrollment, {profileId: row.profileId, affectedGroupIds: [], now: 202});
+  assert.equal((await t.mutation(admitEnrollment, {now: 203})).admitted, 0);
+  assert.equal((await t.run(ctx => ctx.db.get(integration._id)))?.state, "blocked");
+});
+
+it("enrollment released admission-required capacity admits another group at limit one", async () => {
+  const {t, add} = await enrollmentFixture({enabled: true});
+  await t.run(async ctx => { const fleet = (await ctx.db.query("collectorFleetSettings").first())!; await ctx.db.patch(fleet._id, {automaticEnrollmentLimit: 1}); });
+  for (const group of ["request-limited", "next-limited"]) {
+    const row = await add(group);
+    await t.run(ctx => ctx.db.patch(row.linkId, {provenance: "control_association"}));
+    await t.mutation(reconcileEnrollment, {profileId: row.profileId, affectedGroupIds: [], now: 200});
+  }
+  assert.equal((await t.mutation(admitEnrollment, {now: 200})).admitted, 1);
+  const integration = (await t.run(ctx => ctx.db.query("communityVrchatIntegrations").first()))!;
+  await t.mutation(makeFunctionReference<"mutation">("groupObservations:recordAdmissionRequired"), {integrationId: integration._id, reason: "private", now: 201});
+  assert.equal((await t.mutation(admitEnrollment, {now: 60_201})).admitted, 1);
+});
+it("orphan scans retain an eligible reference beyond the first page and reject stale continuations", async () => {
+  const {t, add} = await enrollmentFixture({enabled: true});
+  const initial = await add("paged-group", "initial");
+  await t.run(ctx => ctx.db.patch(initial.linkId, {provenance: "control_association"}));
+  await t.mutation(reconcileEnrollment, {profileId: initial.profileId, affectedGroupIds: [], now: 200});
+  await t.mutation(admitEnrollment, {now: 200});
+  await t.run(ctx => ctx.db.patch(initial.linkId, {state: "removed"}));
+  for (let i = 0; i < 51; i++) {
+    const row = await add("paged-group", `page-${i}`);
+    await t.run(async ctx => { await ctx.db.patch(row.linkId, {provenance: "control_association"}); if (i < 50) await ctx.db.patch(row.profileId, {publicSurfacingState: "suppressed"}); });
+  }
+  await t.mutation(reconcileEnrollment, {profileId: initial.profileId, affectedGroupIds: ["paged-group"], now: 201});
+  const policy = (await t.run(ctx => ctx.db.query("vrchatGroupObservationPolicies").first()))!;
+  const page = await t.run(ctx => ctx.db.query("profileExternalLinks").withIndex("by_assetType_assetExternalId_state", q => q.eq("assetType", "vrchat_group").eq("assetExternalId", "paged-group").eq("state", "active")).take(50));
+  const boundary = page[49]!;
+  const scan = makeFunctionReference<"mutation">("groupObservations:scanReferences");
+  await t.mutation(scan, {policyId: policy._id, vrchatGroupId: "paged-group", revision: policy.referenceRevision ?? 0, after: {at: boundary._creationTime, id: boundary._id}});
+  assert.equal((await t.run(ctx => ctx.db.get(policy.integrationId!)))?.state, "connecting");
+  const current = (await t.run(ctx => ctx.db.get(policy._id)))!;
+  assert.notEqual(current.eligibleProfileId, initial.profileId);
+  await t.run(ctx => ctx.db.patch(policy._id, {referenceRevision: 1}));
+  await t.mutation(scan, {policyId: policy._id, vrchatGroupId: "paged-group", revision: 0, after: {at: Date.now() + 1000, id: boundary._id}});
+  assert.equal((await t.run(ctx => ctx.db.get(policy.integrationId!)))?.state, "connecting");
+});
+
+it("candidate limit rolls forward and privileged override audits only a blocked candidate", async () => {
+  const {t, add, userId} = await enrollmentFixture({enabled: true, capacity: 20});
+  for (let i = 0; i < 7; i++) {
+    const row = await add(`quota-${i}`);
+    await t.run(ctx => ctx.db.patch(row.linkId, {provenance: "control_association"}));
+    await t.mutation(reconcileEnrollment, {profileId: row.profileId, affectedGroupIds: [], now: 200});
+  }
+  const override = makeFunctionReference<"mutation">("groupObservations:overrideCandidateLimit");
+  await assert.rejects(t.mutation(override, {vrchatGroupId: "quota-5", reason: " ", now: 201}), /audit reason/);
+  assert.equal(await t.mutation(override, {vrchatGroupId: "quota-5", reason: "Approved fixture exception", now: 201}), true);
+  assert.equal(await t.mutation(override, {vrchatGroupId: "quota-5", reason: "Repeat", now: 201}), false);
+  assert.equal((await t.mutation(admitEnrollment, {now: 201})).admitted, 6);
+  assert.equal((await t.run(ctx => ctx.db.query("communityTelemetryAuditEvents").first()))?.action, "automatic_admission.quota_override");
+  assert.equal((await t.mutation(admitEnrollment, {now: 86_400_201})).admitted, 1);
+  assert.equal((await t.run(ctx => ctx.db.query("groupObservationCandidateLimits").withIndex("by_key", q => q.eq("key", `user:${userId}`)).unique()))?.admittedAt.length, 1);
+});
+it("enrollment scope is required and pilot admission matches only its immutable group", async () => {
+  const {t, add} = await enrollmentFixture({enabled: true, capacity: 20});
+  for (const group of ["pilot", "outside"]) {
+    const row = await add(group);
+    await t.run(ctx => ctx.db.patch(row.linkId, {provenance: "control_association"}));
+    await t.mutation(reconcileEnrollment, {profileId: row.profileId, affectedGroupIds: [], now: 200});
+  }
+  const fleet = (await t.run(ctx => ctx.db.query("collectorFleetSettings").first()))!;
+  await t.run(ctx => ctx.db.patch(fleet._id, {automaticEnrollmentScope: undefined}));
+  assert.equal((await t.mutation(admitEnrollment, {now: 200})).admitted, 0);
+  await t.run(ctx => ctx.db.patch(fleet._id, {automaticEnrollmentScope: {kind: "pilot", vrchatGroupId: "pilot"}}));
+  assert.equal((await t.mutation(admitEnrollment, {now: 60_201})).admitted, 1);
+  assert.equal((await t.run(ctx => ctx.db.query("communityVrchatIntegrations").first()))?.vrchatGroupId, "pilot");
+});
+
+it("enrollment scans an unregistered group beyond a full ineligible page", async () => {
+  const {t, add} = await enrollmentFixture();
+  for (let i = 0; i < 51; i++) {
+    const row = await add("unregistered-page", String(i));
+    await t.run(async ctx => { await ctx.db.patch(row.linkId, {provenance: "control_association"}); if (i < 50) await ctx.db.patch(row.profileId, {publicSurfacingState: "suppressed"}); });
+  }
+  await t.mutation(makeFunctionReference<"mutation">("groupObservations:reconcileRegisteredGroup"), {vrchatGroupId: "unregistered-page"});
+  const page = await t.run(ctx => ctx.db.query("profileExternalLinks").withIndex("by_assetType_assetExternalId_state", q => q.eq("assetType", "vrchat_group").eq("assetExternalId", "unregistered-page").eq("state", "active")).take(50));
+  const boundary = page[49]!;
+  await t.mutation(makeFunctionReference<"mutation">("groupObservations:scanReferences"), {vrchatGroupId: "unregistered-page", revision: 0, after: {at: boundary._creationTime, id: boundary._id}});
+  const policy = (await t.run(ctx => ctx.db.query("vrchatGroupObservationPolicies").first()))!;
+  assert.equal(policy.queuedAdmission?.priority, "automatic");
+  assert.ok(policy.eligibleProfileId);
+});
+it("enrollment directory selection reuses active directory rows and preserves active control provenance", async () => {
+  const {t, add, userId} = await enrollmentFixture();
+  const {linkProfileToAsset} = await import("../../convex/_externalControl");
+  const row = await add("active-provenance");
+  await t.run(async ctx => {
+    const directory = await linkProfileToAsset(ctx, {profileId: row.profileId, assetType: "vrchat_group", assetExternalId: "active-provenance", provenance: "directory_reference", linkedByUserId: userId, now: 201});
+    assert.equal(directory, row.linkId);
+    await ctx.db.patch(row.linkId, {provenance: "control_association", linkedByUserId: undefined});
+    const control = await linkProfileToAsset(ctx, {profileId: row.profileId, assetType: "vrchat_group", assetExternalId: "active-provenance", provenance: "directory_reference", linkedByUserId: userId, now: 202});
+    assert.equal(control, row.linkId);
+    assert.equal((await ctx.db.get(row.linkId))?.provenance, "control_association");
+    assert.equal((await ctx.db.get(row.linkId))?.linkedByUserId, undefined);
+  });
+});
+
+it("enrollment reconciliation does not undo authenticated removal or control-primary promotion", async () => {
+  const {t, userId} = await enrollmentFixture();
+  const {createCommunityProfileRecord} = await import("../../convex/profiles");
+  const {linkProfileToAsset, removeProfileLink} = await import("../../convex/_externalControl");
+  const url = "https://vrc.group/TEST.1234";
+  for (const action of ["remove", "promote"] as const) {
+    const created = await t.run(ctx => createCommunityProfileRecord(ctx, {profileType: "community", displayName: `Connection ${action}`, outboundLinks: [{type: "vrchat_profile", url}], primaryGroupUrl: url}, {issuer: "test", subject: String(userId), tokenIdentifier: String(userId)}, userId));
+    await t.run(async ctx => { const destination = (await ctx.db.query("profileLinkDestinations").withIndex("by_key", q => q.eq("key", "vrchat_group:TEST.1234")).unique())!; await ctx.db.patch(destination._id, {status: "resolved", entityId: "original-group"}); });
+    await t.mutation(reconcileEnrollment, {profileId: created.profileId, affectedGroupIds: [], now: 200});
+    await t.run(async ctx => {
+      if (action === "remove") await removeProfileLink(ctx, created.profileId, "vrchat_group", "original-group", 201);
+      else await linkProfileToAsset(ctx, {profileId: created.profileId, assetType: "vrchat_group", assetExternalId: "operator-group", linkRole: "primary", now: 201});
+    });
+    await t.mutation(reconcileEnrollment, {profileId: created.profileId, affectedGroupIds: ["original-group"], now: 202});
+    const links = await t.run(ctx => ctx.db.query("profileExternalLinks").withIndex("by_profileId_assetType_state", q => q.eq("profileId", created.profileId).eq("assetType", "vrchat_group").eq("state", "active")).collect());
+    assert.deepEqual(links.filter(link => link.linkRole === "primary").map(link => link.assetExternalId), action === "remove" ? [] : ["operator-group"]);
+    assert.equal((await t.run(ctx => ctx.db.get(created.profileId)))?.primaryGroupReference, undefined);
+  }
+});
+
+it("enrollment attributes a new directory candidate without rewriting existing operator evidence", async () => {
+  const {t, userId} = await enrollmentFixture();
+  const {createCommunityProfileRecord} = await import("../../convex/profiles");
+  const url = "https://vrc.group/TEST.1234";
+  const created = await t.run(ctx => createCommunityProfileRecord(ctx, {profileType: "community", displayName: "Existing association", outboundLinks: [{type: "vrchat_profile", url}], primaryGroupUrl: url}, {issuer: "test", subject: String(userId), tokenIdentifier: String(userId)}, userId));
+  const linkId = await t.run(async ctx => {
+    const destination = (await ctx.db.query("profileLinkDestinations").withIndex("by_key", q => q.eq("key", "vrchat_group:TEST.1234")).unique())!;
+    await ctx.db.patch(destination._id, {status: "resolved", entityId: "existing-operator"});
+    return ctx.db.insert("profileExternalLinks", {profileId: created.profileId, assetType: "vrchat_group", assetExternalId: "existing-operator", linkRole: "primary", state: "active", createdAt: 100, updatedAt: 100});
+  });
+  await t.mutation(reconcileEnrollment, {profileId: created.profileId, affectedGroupIds: [], now: 200});
+  assert.equal((await t.run(ctx => ctx.db.query("vrchatGroupObservationPolicies").first()))?.candidateContributorId, userId);
+  assert.equal((await t.run(ctx => ctx.db.get(linkId)))?.linkedByUserId, undefined);
+  assert.equal((await t.run(ctx => ctx.db.get(linkId)))?.provenance, undefined);
+});

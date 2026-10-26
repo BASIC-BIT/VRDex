@@ -1,3 +1,4 @@
+import { makeFunctionReference } from "convex/server";
 import { cronJobs } from "convex/server";
 
 import { internal } from "./_generated/api";
@@ -116,5 +117,9 @@ crons.interval("reconcile media upload objects", { minutes: 10 }, internal.contr
 
 crons.interval("expire archived contribution payloads", { minutes: 10 }, internal.contributionOperations.expirePayloads, {});
 crons.interval("expire contribution source-host counters", { minutes: 10 }, internal.contributionCapacity.sweepExpiredHostFetches, {});
+
+crons.interval("reconcile primary group observations", { hours: 6 }, makeFunctionReference<"mutation">("groupObservations:reconcilePage"), {});
+crons.interval("reconcile orphan group observations", { hours: 6 }, makeFunctionReference<"mutation">("groupObservations:reconcileRegistryPage"), {});
+crons.interval("admit queued group observations", { minutes: 1 }, makeFunctionReference<"mutation">("groupObservations:admitQueued"), {});
 
 export default crons;

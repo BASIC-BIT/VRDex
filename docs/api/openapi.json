@@ -11503,6 +11503,18 @@
               }
             }
           },
+          "primaryGroupUrl": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2048,
+                "format": "uri"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "outboundLinks": {
             "maxItems": 20,
             "type": "array",
@@ -11651,6 +11663,18 @@
                 }
               }
             }
+          },
+          "primaryGroupUrl": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2048,
+                "format": "uri"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "outboundLinks": {
             "maxItems": 20,
@@ -14324,6 +14348,10 @@
             ],
             "additionalProperties": {},
             "description": "Public media kit metadata for a public profile."
+          },
+          "primaryGroupUrl": {
+            "type": "string",
+            "format": "uri"
           },
           "outboundLinks": {
             "type": "array",

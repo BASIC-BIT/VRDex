@@ -267,6 +267,7 @@ function E2eSubmissionForm() {
             aliases: payload.aliases,
             tags: payload.tags,
             outboundLinks: payload.outboundLinks,
+            primaryGroupUrl: payload.primaryGroupUrl,
             // Optional in the payload because the editor renders only the fields
             // its writer may change. This form renders all of them, so the
             // fallbacks are for the type rather than for a case that happens.

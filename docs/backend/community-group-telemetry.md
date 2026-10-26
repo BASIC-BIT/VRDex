@@ -34,6 +34,22 @@ and fleet proof gates pass. This lets the claim action distinguish a live proof
 reader from a generic running task, while the deployment gate can also reject
 an obsolete release.
 
+## Automatic candidate queue
+
+Community submission and edit accept optional `primaryGroupUrl`. Omission preserves the selection, `null` clears it, and a selected URL must match one of the community's outbound group links. Existing outbound-link permissions apply. The server records the authenticated contributor in `primaryGroupReference`, then waits for the normalized destination resolver to confirm an immutable group ID. It does not infer a primary link from link order.
+
+The resulting `profileExternalLinks.provenance = "directory_reference"` association is listing data. It cannot corroborate ownership or control, including for a different contributor. Selecting a removed operator association creates a separate directory row and preserves the removed association's history; selecting an active control association preserves its provenance. Actual authenticated control proofs retain their existing upgrade path. Authenticated connection removal or control-primary promotion clears a superseded directory selection so reconciliation cannot undo that action.
+
+`groupObservations.reconcileProfile` registers and rechecks eligible references; link and profile-cache writers schedule it with affected immutable IDs. Profile and registry reconciliation crons cover missed or legacy changes. Group-reference scans continue in bounded pages and use a reference revision to reject stale cleanup. A full page never proves absence. Any managed history keeps its existing decisions authoritative.
+
+`admitQueued` handles at most 50 due candidates per call. Managed admissions precede automatic candidates, and deferrals move forward in due order. Allocation reserves healthy account headroom and creates the canonical integration in the same mutation. It never evicts an assignment. Automatic admission defaults to disabled, limit zero, and no scope. All three gates must explicitly permit the group; pilot scope matches one exact immutable ID.
+
+New immutable groups consume at most five contributor candidates per rolling 24 hours. Legacy references without contributor provenance use a separate global backfill allowance of 50. Duplicate references and repeat saves consume no additional candidate. The internal `overrideCandidateLimit` requires an audit reason and only releases an already attributed quota-blocked candidate.
+
+An automatic allocation starts with unknown visibility and join policy. The subsequent worker eligibility gate must confirm public/free-join before joining. `recordAdmissionRequired` retires a pre-join request/invite/private/invalid target, releases unused capacity, and prevents allocation loops. This queue does not itself contact VRChat.
+
+Member metadata remains available without an aggregate slot under the shared publication policy. The daily sampler skips a healthy active aggregate assignment only while its successful observation is within six minutes, then can resume standalone metadata sampling. `group_member_authorize` rechecks the claim and shared policy immediately before the provider read, and completion rechecks policy again. A group stop or managed privacy applies across duplicate references.
+
 ## Observation model
 
 - `communityPopulationObservations`: one immutable total population, instance count, and world distribution per successful poll; the poll ID is the idempotency key.

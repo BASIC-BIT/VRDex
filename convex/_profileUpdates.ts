@@ -1,7 +1,8 @@
+import { parseProfileLinkDestination } from "./_profileLinkDestination";
 import { queueProfileLinkDestinations } from "./_profileLinkDestinationCache";
 import { ConvexError } from "convex/values";
 
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader, MutationCtx } from "./_generated/server";
 import { getProfileFieldVisibility } from "./_profileFieldVisibility";
 import {
@@ -30,6 +31,7 @@ import {
   PROFILE_TAG_MAX_COUNT,
   PROFILE_TAG_MAX_LENGTH,
   profileInputError,
+  sanitizePrimaryGroupUrl,
   sanitizeProfileTextList,
 } from "./_profileSubmissions";
 import { reindexProfileSearchDocument } from "./_searchDocuments";
@@ -59,6 +61,7 @@ export type ApiProfileUpdateInput = {
     categoryTags?: string[];
   };
   outboundLinks?: unknown;
+  primaryGroupUrl?: string | null;
 };
 
 export type SanitizedApiProfileUpdate = {
@@ -261,6 +264,7 @@ export function namesNestedGroupField(
 
 export function submittedEditableFields(input: ApiProfileUpdateInput): ProfileEditableField[] {
   return PROFILE_EDITABLE_FIELDS.filter((field): field is ProfileEditableField => {
+    if (field === "outboundLinks" && hasOwn(input, "primaryGroupUrl")) return true;
     if (field === "slug" || !hasOwn(input as Record<string, unknown>, field)) {
       return false;
     }
@@ -768,14 +772,31 @@ export async function applyApiProfileUpdate(
     profile: Doc<"profiles">;
     input: ApiProfileUpdateInput;
     subject?: ProfileEditSubject;
+    contributorUserId?: Id<"users">;
     now: number;
   },
 ) {
+  const input = options.input.primaryGroupUrl !== undefined && options.input.outboundLinks === undefined
+    ? { ...options.input, outboundLinks: options.profile.outboundLinks ?? [] } : options.input;
   const sanitized = sanitizeApiProfileUpdateInput(
     options.profile,
-    options.input,
+    input,
     options.subject ?? "claimed_owner",
   );
+  if (options.input.primaryGroupUrl !== undefined || options.input.outboundLinks !== undefined) {
+    requireEditableFields(options.profile, ["outboundLinks"], options.subject ?? "claimed_owner");
+    const links = (sanitized.patch.outboundLinks ?? options.profile.outboundLinks ?? []) as NonNullable<Doc<"profiles">["outboundLinks"]>;
+    const previous = options.profile.primaryGroupReference;
+    const selected = options.input.primaryGroupUrl !== undefined ? options.input.primaryGroupUrl
+      : previous && links.some(link => parseProfileLinkDestination(link)?.key === previous.key) ? previous.url : null;
+    const url = sanitizePrimaryGroupUrl(selected, options.profile.profileType, links);
+    if (url !== previous?.url) {
+      if (url && !options.contributorUserId) throw new Error("Authenticated contributor is required.");
+      sanitized.patch.primaryGroupReference = url && options.contributorUserId
+        ? { url, key: parseProfileLinkDestination(url)!.key, contributorUserId: options.contributorUserId } : undefined;
+      addChangedField(sanitized.changedFields, "outboundLinks");
+    }
+  }
   return await persistProfileUpdate(ctx, options, sanitized);
 }
 

@@ -381,6 +381,9 @@ export const configureFleet = internalMutation({
   args: {
     killSwitchEnabled: v.boolean(),
     globalRequestsPerMinute: v.number(),
+    automaticEnrollmentEnabled: v.optional(v.boolean()),
+    automaticEnrollmentLimit: v.optional(v.number()),
+    automaticEnrollmentScope: v.optional(v.union(v.object({ kind: v.literal("pilot"), vrchatGroupId: v.string() }), v.object({ kind: v.literal("all_eligible") }))),
     now: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
@@ -389,9 +392,13 @@ export const configureFleet = internalMutation({
       .query("collectorFleetSettings")
       .withIndex("by_key", (q) => q.eq("key", "global"))
       .first();
+    if (args.automaticEnrollmentLimit !== undefined && (!Number.isSafeInteger(args.automaticEnrollmentLimit) || args.automaticEnrollmentLimit < 0 || args.automaticEnrollmentLimit > 1000)) throw new Error("Automatic enrollment limit is invalid.");
     const values = {
       killSwitchEnabled: args.killSwitchEnabled,
       globalRequestsPerMinute: Math.max(1, Math.floor(args.globalRequestsPerMinute)),
+      automaticEnrollmentEnabled: args.automaticEnrollmentEnabled ?? existing?.automaticEnrollmentEnabled ?? false,
+      automaticEnrollmentLimit: args.automaticEnrollmentLimit ?? existing?.automaticEnrollmentLimit ?? 0,
+      automaticEnrollmentScope: args.automaticEnrollmentScope ?? existing?.automaticEnrollmentScope,
       updatedAt: now,
     };
     if (existing) await ctx.db.patch(existing._id, values);
@@ -579,7 +586,7 @@ export const connectGroup = mutation({
       return subject.kind === "managed" && subject.communityProfileId === profile._id && row.state === "disconnected";
     }).sort((a, b) => b.createdAt - a.createdAt || b._id.localeCompare(a._id))[0];
     const account = await chooseCollectorAccount(ctx);
-    if (!account) throw new Error("No healthy collector account currently has reserved capacity.");
+
     const state = args.joinPolicy === "invite" ? "awaiting_invite" : "connecting";
     const values = {
       collectionScope: { kind: "managed", communityProfileId: profile._id },
@@ -587,7 +594,7 @@ export const connectGroup = mutation({
       groupVisibility: args.groupVisibility,
       joinPolicy: args.joinPolicy,
       state,
-      assignedCollectorAccountId: account._id,
+      assignedCollectorAccountId: account?._id,
       killSwitchEnabled: false,
       requestsPerMinute: 4,
       leaseGeneration: reusable?.leaseGeneration ?? 0,
@@ -617,11 +624,15 @@ export const connectGroup = mutation({
         createdAt: now,
       });
     }
-    await ctx.db.patch(account._id, { assignedGroupCount: account.assignedGroupCount + 1, updatedAt: now });
+    if (account) await ctx.db.patch(account._id, { assignedGroupCount: account.assignedGroupCount + 1, updatedAt: now });
+    const registry = await ctx.db.query("vrchatGroupObservationPolicies").withIndex("by_vrchatGroupId", q => q.eq("vrchatGroupId", vrchatGroupId)).unique();
+    const registryValues = { integrationId, queuedAdmission: account ? undefined : { priority: "managed" as const, queuedAt: now, dueAt: now }, updatedAt: now };
+    if (registry) await ctx.db.patch(registry._id, registryValues);
+    else await ctx.db.insert("vrchatGroupObservationPolicies", { ...registryValues, vrchatGroupId, decision: { kind: "enabled", at: now }, createdAt: now });
     await audit(ctx, {
       communityProfileId: profile._id,
       integrationId,
-      collectorAccountId: account._id,
+      collectorAccountId: account?._id,
       actor,
       action: "integration.connect",
       result: state,

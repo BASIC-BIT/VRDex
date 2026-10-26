@@ -1,3 +1,4 @@
+import { makeFunctionReference } from "convex/server";
 import { allowedDestinationArtworkUrl } from "../workers/group-telemetry/profile-link-destination.mjs";
 import { canReadProfile } from "./_profilePermissions";
 import { visibleProfileList } from "./_profileFieldVisibility";
@@ -116,6 +117,7 @@ export const recordResult = internalMutation({
         observedAt: now,
       }),
     });
+    if (row.kind === "vrchat_group") await ctx.scheduler.runAfter(0, makeFunctionReference<"mutation">("groupObservations:reconcileDestination"), { key: row.key });
     await syncDestinationQueue(ctx, row.provider, now);
     return {accepted: true,destinationWorkDueAt:await destinationWorkHint(ctx.db)};
   },

@@ -56,6 +56,7 @@ export type ProfileFieldsDefaults = {
   subtype?: string;
   categoryTags?: string[];
   links?: ProfileLinkInput[];
+  primaryGroupUrl?: string | null;
 };
 
 /**
@@ -92,6 +93,7 @@ type SharedFields = {
   aliases?: string[];
   tags?: string[];
   outboundLinks?: ProfileLinkInput[];
+  primaryGroupUrl?: string | null;
 } & NarrativeFields;
 
 export type ProfileFieldsPayload =
@@ -475,6 +477,8 @@ export function profileFieldsPayload(
       : parseList(formData, "aliases")),
     ...when("tags", parseList(formData, "tags")),
     ...when("outboundLinks", linksFromFormData(formData)),
+    ...(profileType === "community" && present.has("outboundLinks") && formData.has("primaryGroupUrl")
+      ? { primaryGroupUrl: stringField(formData.get("primaryGroupUrl")).trim() || null } : {}),
     ...Object.fromEntries(
       NARRATIVE_FIELDS.filter((name) => present.has(name)).map((name) => [
         name,

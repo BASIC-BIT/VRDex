@@ -94,6 +94,10 @@ export async function resolveGroupObservationPolicy(
     const links = await db.query("profileExternalLinks")
       .withIndex("by_profileId_assetType_state", q => q.eq("profileId", input.profileId)
         .eq("assetType", "vrchat_group").eq("state", "active")).take(101);
+    if (readCollectionSubject(integration).kind === "automatic" && registry?.decision.kind === "enabled" && !["active", "degraded"].includes(integration.state)) {
+      return (await readClubVisibility(db, input.profileId)).group_size.audience === "public"
+        ? { kind: "member_metadata", integration, historyStartAt } : { kind: "hidden" };
+    }
     if (!registry || registry.decision.kind !== "enabled" ||
       !links.some(link => link.linkRole === "primary" && link.assetExternalId === input.vrchatGroupId) ||
       integration.groupVisibility !== "public" || integration.joinPolicy !== "free" ||
@@ -101,7 +105,7 @@ export async function resolveGroupObservationPolicy(
     return { kind: "automatic_aggregate", integration,
       historyStartAt: Math.max(integration.telemetryEpochStartedAt ?? integration.createdAt, historyStartAt) };
   }
-  if (registry) return { kind: "hidden" };
+  if (registry && registry.decision.kind !== "enabled") return { kind: "hidden" };
   return (await readClubVisibility(db, input.profileId)).group_size.audience === "public"
     ? { kind: "member_metadata", integration: null, historyStartAt } : { kind: "hidden" };
 }

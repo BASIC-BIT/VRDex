@@ -1050,7 +1050,7 @@ export const recordDiscordCommunityAdminApproval = internalMutation({
       (await getActiveProfileLinks(ctx.db, profile._id, "discord_guild")).some(
         (link) =>
           link.assetExternalId === claimRequest.discordGuildId &&
-          link.linkedByUserId !== claimRequest.userId,
+          link.provenance !== "directory_reference" && link.linkedByUserId !== claimRequest.userId,
       );
 
     await ctx.db.patch(claimRequest._id, {
@@ -1099,7 +1099,7 @@ export const recordDiscordCommunityAdminApproval = internalMutation({
         now,
       });
 
-      await linkProfileToAsset(ctx.db, {
+      await linkProfileToAsset(ctx, {
         profileId: profile._id,
         assetType: "discord_guild",
         assetExternalId: claimRequest.discordGuildId,
@@ -1632,7 +1632,7 @@ export const recordVrchatProofVerification = internalMutation({
     ).some(
       (link) =>
         link.assetExternalId === attempt.targetExternalId &&
-        link.linkedByUserId !== attempt.userId,
+        link.provenance !== "directory_reference" && link.linkedByUserId !== attempt.userId,
     );
 
     // An existing owner proving control of *another* account or group is adding
@@ -1717,7 +1717,7 @@ export const recordVrchatProofVerification = internalMutation({
         now,
       });
 
-      await linkProfileToAsset(ctx.db, {
+      await linkProfileToAsset(ctx, {
         profileId: profile._id,
         assetType,
         assetExternalId: attempt.targetExternalId,

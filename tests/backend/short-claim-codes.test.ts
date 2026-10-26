@@ -10,6 +10,7 @@ import { VrchatClient } from "../../workers/group-telemetry/vrchat-client.mjs";
 
 const schema = (schemaModule as unknown as { default?: typeof schemaModule }).default ?? schemaModule;
 const modules = {
+  "../../convex/groupObservations.ts": () => import("../../convex/groupObservations"),
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
   "../../convex/profileClaims.ts": () => import("../../convex/profileClaims"),
   "../../convex/communityTelemetry.ts": () => import("../../convex/communityTelemetry"),

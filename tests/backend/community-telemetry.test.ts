@@ -1451,15 +1451,12 @@ describe("community telemetry control plane", () => {
       joinPolicy: "free",
     });
     const claimAt = Date.now() + 1_000;
-    await assert.rejects(
-      t.withIdentity(identity).mutation(api.communityTelemetry.connectGroup, {
-        communitySlug: "second-community",
-        vrchatGroupId: "grp_00000000-0000-4000-8000-000000000002",
-        groupVisibility: "public",
-        joinPolicy: "free",
-      }),
-      /reserved capacity/,
-    );
+    const queuedId = await t.withIdentity(identity).mutation(api.communityTelemetry.connectGroup, {
+      communitySlug: "second-community", vrchatGroupId: "grp_00000000-0000-4000-8000-000000000002",
+      groupVisibility: "public", joinPolicy: "free",
+    });
+    assert.equal((await t.run(ctx => ctx.db.get(queuedId)))?.assignedCollectorAccountId, undefined);
+    assert.equal((await t.run(ctx => ctx.db.get(accountId)))?.assignedGroupCount, 1);
     await t.mutation(internal.communityTelemetry.setIntegrationKillSwitch, {
       integrationId, enabled: true, reason: "test", now: claimAt,
     });
@@ -1684,10 +1681,10 @@ describe("community telemetry control plane", () => {
         joinPolicy: "request",
       }),
     ]);
-    assert.equal(connections.filter((result) => result.status === "fulfilled").length, 1);
-    assert.equal(connections.filter((result) => result.status === "rejected").length, 1);
-    const fulfilled = connections.find((result): result is PromiseFulfilledResult<Id<"communityVrchatIntegrations">> => result.status === "fulfilled")!;
-    const integrationId = fulfilled.value;
+    assert.equal(connections.filter((result) => result.status === "fulfilled").length, 2);
+    const allocated = await t.run(ctx => ctx.db.query("communityVrchatIntegrations").filter(q => q.neq(q.field("assignedCollectorAccountId"), undefined)).collect());
+    assert.equal(allocated.length, 1);
+    const integrationId = allocated[0]!._id;
     const claimAt = Date.now() + 1_000;
     const firstClaim = await t.mutation(internal.communityTelemetry.claimDueAssignments, {
       collectorAccountId: firstAccountId,
@@ -1904,8 +1901,8 @@ it("preserves canonical group identity and history when a disconnected community
   const history = await t.run(async ctx => {
     await ctx.db.patch(oldId, { state: "disconnected", assignedCollectorAccountId: undefined });
     await ctx.db.patch(accountId, { assignedGroupCount: 0 });
-    const policyId = await ctx.db.insert("vrchatGroupObservationPolicies", { vrchatGroupId: oldGroup, integrationId: oldId,
-      decision: { kind: "stopped", reason: "disconnected", actor: "migration", at: NOW }, createdAt: NOW, updatedAt: NOW });
+    const policyId = (await ctx.db.query("vrchatGroupObservationPolicies").withIndex("by_vrchatGroupId", q => q.eq("vrchatGroupId", oldGroup)).unique())!._id;
+    await ctx.db.patch(policyId, {decision: {kind: "stopped", reason: "disconnected", actor: "migration", at: NOW}});
     const observationId = await ctx.db.insert("communityPopulationObservations", { integrationId: oldId, idempotencyKey: "relink-history", totalPopulation: 7,
       activeInstanceCount: 1, worldDistribution: [], observedAt: NOW, source: "first_party", collectorVersion: "test", coverageState: "observed", fencingToken: 1 });
     return { policyId, observationId };

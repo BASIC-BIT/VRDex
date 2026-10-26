@@ -8,6 +8,7 @@ import schemaModule from "../../convex/schema";
 import { clerkTestIdentity, newClerkUserId } from "./_clerkTestIdentity";
 
 const modules = {
+  "../../convex/groupObservations.ts": () => import("../../convex/groupObservations"),
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
   "../../convex/communityTelemetry.ts": () => import("../../convex/communityTelemetry"),
   "../../convex/profileClaims.ts": () => import("../../convex/profileClaims"),
@@ -137,3 +138,38 @@ it("isolates two claimants and grants a competing VRChat proof to exactly one us
   assert.equal(finalB?.lastVerifiedProof, null);
   assert.equal(fetchMock.mock.callCount(), 0);
 });
+
+for (const sameContributor of [true, false]) {
+  it(`directory reference from ${sameContributor ? "self" : "another contributor"} cannot corroborate a VRChat claim or revive removed operator evidence`, async () => {
+    const t = convexTest({schema, modules});
+    const {linkProfileToAsset, removeProfileLink} = await import("../../convex/_externalControl");
+    const now = Date.now();
+    const clerkId = newClerkUserId();
+    const groupId = "grp_01234567-89ab-cdef-0123-456789abcdef";
+    const seeded = await t.run(async ctx => {
+      const claimant = await ctx.db.insert("users", {clerkUserId: clerkId, email: "directory-claim@example.test", emailVerificationTime: now});
+      const contributor = sameContributor ? claimant : await ctx.db.insert("users", {clerkUserId: newClerkUserId()});
+      const profileId = await ctx.db.insert("profiles", {profileType: "community", slug: "directory-claim", displayName: "Directory Claim", sortName: "directory claim", aliases: [], tags: [], claimState: "unclaimed", publicationState: "published", publicSurfacingState: "public", creationSource: "community", community: {categoryTags: []}, updatedAt: now});
+      const removedId = await linkProfileToAsset(ctx, {profileId, assetType: "vrchat_group", assetExternalId: groupId, now});
+      await removeProfileLink(ctx, profileId, "vrchat_group", groupId, now + 1);
+      const removed = await ctx.db.get(removedId);
+      const directoryId = await linkProfileToAsset(ctx, {profileId, assetType: "vrchat_group", assetExternalId: groupId, provenance: "directory_reference", linkedByUserId: contributor, now: now + 2});
+      assert.notEqual(directoryId, removedId);
+      assert.deepEqual(await ctx.db.get(removedId), removed);
+      assert.equal((await ctx.db.get(directoryId))?.provenance, "directory_reference");
+      const collectorAccountId = await ctx.db.insert("collectorAccounts", {vrchatUserId: "usr_fixture", accountAlias: "directory-proof", state: "ready", capacity: 100, reservedHeadroom: 15, assignedGroupCount: 0, requestsPerMinute: 30, secretRef: "test", workerKeyHash: "a".repeat(64), credentialGeneration: 1, killSwitchEnabled: false, createdAt: now, updatedAt: now});
+      return {profileId, claimant, directoryId, collectorAccountId};
+    });
+    const asUser = t.withIdentity(clerkTestIdentity(clerkId));
+    const attempt = await asUser.mutation(api.profileClaims.startVrchatProof, {profileSlug: "directory-claim", targetType: "vrchat_group", targetExternalId: groupId});
+    assert.equal((await t.run(ctx => ctx.db.query("profileOwners").collect())).length, 0);
+    await t.mutation(internal.communityTelemetry.claimPendingProofChecks, {collectorAccountId: seeded.collectorAccountId, workerId: "fixture", limit: 5, now: Date.now()});
+    const result = await t.mutation(internal.communityTelemetry.recordProofCheckResult, {collectorAccountId: seeded.collectorAccountId, workerKeyHash: "a".repeat(64), attemptId: attempt.attemptId, found: true, now: Date.now()});
+    assert.equal(result.state, "verified");
+    assert.equal((await t.run(ctx => ctx.db.get(seeded.profileId)))?.claimState, "claimed_unverified");
+    const provenLink = await t.run(ctx => ctx.db.get(seeded.directoryId));
+    assert.equal(provenLink?.linkedByUserId, seeded.claimant);
+    assert.equal(provenLink?.provenance, "control_association");
+    assert.ok(provenLink?.verifiedByProofId);
+  });
+}

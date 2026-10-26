@@ -1,3 +1,4 @@
+import { scheduleGroupReconciliation } from "./groupObservations";
 import type { Doc } from "./_generated/dataModel";
 import type { DatabaseReader, MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
@@ -38,6 +39,7 @@ export async function syncDestinationQueue(ctx: MutationCtx, provider: Provider,
 
 export async function queueProfileLinkDestinations(ctx: MutationCtx, profile: Doc<"profiles">, now: number, options: {requestExisting?: boolean; previousProfile?: Doc<"profiles">} = {}) {
   const db = ctx.db;
+  if (profile.profileType === "community") await scheduleGroupReconciliation(ctx, profile._id);
   const publicLinks = canReadProfile("public", profile)
     ? visibleProfileList(profile, "outboundLinks", profile.outboundLinks ?? [], "profile_page") : [];
   const targets = new Map(publicLinks.flatMap(link => { const target = parseProfileLinkDestination(link); return target ? [[target.key, target] as const] : []; }));

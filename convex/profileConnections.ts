@@ -254,13 +254,13 @@ export const claimCommunityWithVerifiedGuild = mutation({
     // self-satisfying on the second attempt.
     const associatedGuilds = await getActiveProfileLinks(ctx.db, profile._id, "discord_guild");
     const guildBacksThisProfile = associatedGuilds.some(
-      (link) => link.assetExternalId === args.guildId && link.linkedByUserId !== user._id,
+      (link) => link.assetExternalId === args.guildId && link.provenance !== "directory_reference" && link.linkedByUserId !== user._id,
     );
 
     // Attaching the guild is idempotent and has to happen either way — a
     // verified owner may be claiming with a server that is not linked yet.
     const linkGuild = async (verifiedByProofId: typeof proof._id) =>
-      await linkProfileToAsset(ctx.db, {
+      await linkProfileToAsset(ctx, {
         profileId: profile._id,
         assetType: "discord_guild",
         assetExternalId: args.guildId,
@@ -405,7 +405,7 @@ export const addVerifiedConnection = mutation({
       required,
     );
     const now = Date.now();
-    const linkId = await linkProfileToAsset(ctx.db, {
+    const linkId = await linkProfileToAsset(ctx, {
       profileId: profile._id,
       assetType: args.assetType,
       assetExternalId: args.assetExternalId,
@@ -441,11 +441,12 @@ export const setPrimaryConnection = mutation({
     }
 
     const now = Date.now();
-    await linkProfileToAsset(ctx.db, {
+    await linkProfileToAsset(ctx, {
       profileId: profile._id,
       assetType: args.assetType,
       assetExternalId: args.assetExternalId,
       linkRole: "primary",
+      provenance: existing.provenance,
       ...(existing.linkedByUserId !== undefined
         ? { linkedByUserId: existing.linkedByUserId }
         : {}),
@@ -471,7 +472,7 @@ export const removeConnection = mutation({
 
     const now = Date.now();
     const linkId = await removeProfileLink(
-      ctx.db,
+      ctx,
       profile._id,
       args.assetType,
       args.assetExternalId,
@@ -614,7 +615,7 @@ export const recordOperatorAssociation = internalMutation({
       throw claimError("INVALID_DISCORD_GUILD_ID");
     }
 
-    const linkId = await linkProfileToAsset(ctx.db, {
+    const linkId = await linkProfileToAsset(ctx, {
       profileId: profile._id,
       assetType: args.assetType,
       assetExternalId,

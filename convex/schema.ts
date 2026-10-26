@@ -652,6 +652,7 @@ const fieldVisibility = v.object({
 });
 
 const sharedProfileFields = {
+  primaryGroupReference: v.optional(v.object({ url: v.string(), key: v.string(), contributorUserId: v.id("users") })),
   slug: v.string(),
   displayName: v.string(),
   sortName: v.string(),
@@ -1732,7 +1733,13 @@ export default defineSchema({
     acceptedBySubject:v.optional(clubSubject),acceptedAt:v.optional(v.number()),revokedAt:v.optional(v.number()),revokedBySubject:v.optional(clubSubject),
   }).index("by_tokenHash",["tokenHash"]).index("by_communityProfileId_state",["communityProfileId","state"]),
   communityActionLog:defineTable({communityProfileId:v.id("profiles"),actorSubject:clubSubject,action:v.string(),details:v.record(v.string(),v.union(v.string(),v.array(v.string()),v.null())),targetSubject:v.optional(clubSubject),roleId:v.optional(v.id("communityRoles")),createdAt:v.number()}).index("by_communityProfileId_createdAt",["communityProfileId","createdAt"]),
+  groupObservationCandidateLimits: defineTable({
+    key: v.string(), admittedAt: v.array(v.number()),
+  }).index("by_key", ["key"]),
   collectorFleetSettings: defineTable({
+    automaticEnrollmentEnabled: v.optional(v.boolean()),
+    automaticEnrollmentLimit: v.optional(v.number()),
+    automaticEnrollmentScope: v.optional(v.union(v.object({ kind: v.literal("pilot"), vrchatGroupId: v.string() }), v.object({ kind: v.literal("all_eligible") }))),
     destinationWorkDueAt: v.optional(v.number()),
     key: v.literal("global"),
     killSwitchEnabled: v.boolean(),
@@ -1848,11 +1855,17 @@ export default defineSchema({
     vrchatGroupId: v.string(),
     integrationId: v.optional(v.id("communityVrchatIntegrations")),
     decision: groupObservationDecisionValidator,
-    queuedAdmission: v.optional(v.object({ queuedAt: v.number(), priority: v.union(v.literal("managed"), v.literal("automatic")) })),
+    eligibleProfileId: v.optional(v.id("profiles")),
+    referenceRevision: v.optional(v.number()),
+    candidateContributorId: v.optional(v.id("users")),
+    candidateCountedAt: v.optional(v.number()),
+    admissionRequired: v.optional(v.boolean()),
+    queuedAdmission: v.optional(v.object({ queuedAt: v.number(), dueAt: v.optional(v.number()), reason: v.optional(v.string()), priority: v.union(v.literal("managed"), v.literal("automatic")) })),
     publicHistoryStartAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
-  }).index("by_vrchatGroupId", ["vrchatGroupId"]),
+  }).index("by_vrchatGroupId", ["vrchatGroupId"])
+    .index("by_queue_priority_dueAt", ["queuedAdmission.priority", "queuedAdmission.dueAt"]),
   communityVrchatIntegrations: defineTable({
     collectionScope: v.optional(collectionScopeValidator),
     publicationPolicy: v.optional(v.union(v.literal("automatic_aggregate"), v.literal("managed_categories"))),
@@ -1880,10 +1893,12 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_communityProfileId", ["communityProfileId"])
+    .index("by_collectionScope_kind_account", ["collectionScope.kind", "assignedCollectorAccountId"])
     .index("by_vrchatGroupId", ["vrchatGroupId"])
     .index("by_assignedCollectorAccountId_state", ["assignedCollectorAccountId", "state"])
     .index("by_state_nextPollAt", ["state", "nextPollAt"]),
   vrchatGroupMemberMetadata: defineTable({
+    lastStandaloneObservedAt: v.optional(v.number()),
     vrchatGroupId: v.string(),
     groupCreatedAt: v.optional(v.number()),
     lastObservedAt: v.optional(v.number()),
@@ -2902,6 +2917,7 @@ export default defineSchema({
   // community may hold several Discord guilds and VRChat groups (one marked
   // `primary`), and one guild may back several community profiles.
   profileExternalLinks: defineTable({
+    provenance: v.optional(v.union(v.literal("directory_reference"), v.literal("control_association"))),
     profileId: v.id("profiles"),
     assetType: externalAssetType,
     assetExternalId: v.string(),

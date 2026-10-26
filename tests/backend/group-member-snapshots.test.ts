@@ -149,3 +149,19 @@ it("private visibility is not claimed and shared groups reuse a fresh point", as
     .withIndex("by_vrchatGroupId_observedAt", q => q.eq("vrchatGroupId", GROUP)).collect());
   assert.equal(rows.length, 1);
 });
+it("member sampler honors group stops after a lease was claimed", async () => {
+  const { t, worker } = await fixture();
+  const lease = (await t.mutation(internal.groupMemberSnapshots.claim, { worker, now: NOW }))!;
+  await t.run(ctx => ctx.db.insert("vrchatGroupObservationPolicies", { vrchatGroupId: GROUP, decision: { kind: "stopped", reason: "operator", actor: "verified_operator", at: NOW }, createdAt: NOW, updatedAt: NOW }));
+  assert.equal(await t.mutation(internal.groupMemberSnapshots.complete, { worker, ...{linkId: lease.linkId, leaseToken: lease.leaseToken}, memberCount: 1, observedAt: NOW, now: NOW }), false);
+});
+it("member sampler resumes when aggregate observations exceed six minutes", async () => {
+  const {t, worker} = await fixture();
+  await t.run(async ctx => {
+    const integrationId = await ctx.db.insert("communityVrchatIntegrations", {collectionScope: {kind: "automatic"}, publicationPolicy: "automatic_aggregate", vrchatGroupId: GROUP, groupVisibility: "public", joinPolicy: "free", state: "active", assignedCollectorAccountId: worker.collectorAccountId, killSwitchEnabled: false, requestsPerMinute: 4, leaseGeneration: 1, publicMetrics: {currentPopulation: true, populationHistory: true, groupMemberCount: true, groupMemberGrowth: true, eventRecaps: false}, consecutiveFailures: 0, lastSuccessfulObservationAt: NOW, createdAt: NOW, updatedAt: NOW});
+    await ctx.db.insert("vrchatGroupObservationPolicies", {vrchatGroupId: GROUP, integrationId, decision: {kind: "enabled", at: NOW}, createdAt: NOW, updatedAt: NOW});
+    await ctx.db.insert("vrchatGroupMemberMetadata", {vrchatGroupId: GROUP, lastObservedAt: NOW, updatedAt: NOW});
+  });
+  assert.equal(await t.mutation(internal.groupMemberSnapshots.claim, {worker, now: NOW}), null);
+  assert.ok(await t.mutation(internal.groupMemberSnapshots.claim, {worker, now: NOW + 6 * 60_000 + 1}));
+});

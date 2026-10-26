@@ -226,6 +226,7 @@ export const PublicProfileSchema = z
     /** The stable profile identity, matching `PublicEvent.id`. */
     id: z.string(),
     mediaKit: PublicProfileMediaKitSchema.optional(),
+    primaryGroupUrl: z.string().url().optional(),
     outboundLinks: z.array(PublicOutboundLinkSchema).optional(),
     profileType: ProfileTypeSchema,
     slug,
@@ -713,6 +714,7 @@ export const ApiProfileUpdateRequestSchema = z
         categoryTags: z.array(z.string().max(32)).max(12).optional(),
       })
       .optional(),
+    primaryGroupUrl: z.string().url().max(2048).nullable().optional(),
     outboundLinks: z.array(ApiProfileLinkInputSchema).max(20).optional(),
     /**
      * The `updatedAt` the writer last read, pinning what they are editing.
@@ -752,6 +754,7 @@ export const ApiProfileSubmitRequestSchema = z
         categoryTags: z.array(z.string().max(32)).max(12).optional(),
       })
       .optional(),
+    primaryGroupUrl: z.string().url().max(2048).nullable().optional(),
     outboundLinks: z.array(ApiProfileLinkInputSchema).max(20).optional(),
   })
   .meta({

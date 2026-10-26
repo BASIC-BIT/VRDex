@@ -1,3 +1,4 @@
+import { parseProfileLinkDestination } from "./_profileLinkDestination";
 import { ConvexError } from "convex/values";
 import {
   type NormalizedProfileLink,
@@ -38,6 +39,7 @@ export type CommunitySubmissionProfileInput = {
   aliases?: string[];
   tags?: string[];
   outboundLinks?: unknown;
+  primaryGroupUrl?: string | null;
   person?: {
     roleTags?: string[];
   };
@@ -57,6 +59,7 @@ export type SanitizedCommunitySubmissionProfileInput =
       aliases: string[];
       tags: string[];
       outboundLinks: SanitizedProfileLink[];
+      primaryGroupUrl?: string;
       person: {
         roleTags: string[];
       };
@@ -68,6 +71,7 @@ export type SanitizedCommunitySubmissionProfileInput =
       aliases: string[];
       tags: string[];
       outboundLinks: SanitizedProfileLink[];
+      primaryGroupUrl?: string;
       community: {
         subtype?: string;
         categoryTags: string[];
@@ -213,6 +217,8 @@ export function sanitizeCommunitySubmissionProfileInput(
     outboundLinks: sanitizeProfileLinks(input.outboundLinks ?? [], options.linkSource),
   };
 
+  const primaryGroupUrl = sanitizePrimaryGroupUrl(input.primaryGroupUrl, input.profileType, shared.outboundLinks);
+
   if (input.profileType === "person") {
     if (hasCommunitySubmissionFields(input.community)) {
       throw profileInputError("Community fields cannot be submitted for a person profile.");
@@ -243,6 +249,7 @@ export function sanitizeCommunitySubmissionProfileInput(
   return {
     ...shared,
     profileType: "community",
+    ...(primaryGroupUrl ? { primaryGroupUrl } : {}),
     community: {
       ...(subtype ? { subtype } : {}),
       categoryTags: sanitizeProfileTextList(input.community?.categoryTags, "Category tags", {
@@ -251,4 +258,13 @@ export function sanitizeCommunitySubmissionProfileInput(
       }),
     },
   };
+}
+
+export function sanitizePrimaryGroupUrl(value: string | null | undefined, profileType: string, links: { url: string }[]) {
+  if (!value?.trim()) return undefined;
+  const target = parseProfileLinkDestination(value.trim());
+  if (profileType !== "community" || target?.kind !== "vrchat_group") throw profileInputError("Outbound links are invalid.");
+  const link = links.find(link => parseProfileLinkDestination(link)?.key === target.key);
+  if (!link) throw profileInputError("Outbound links are invalid.");
+  return link.url;
 }
