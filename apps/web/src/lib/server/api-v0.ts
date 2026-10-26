@@ -1,6 +1,8 @@
 import {
   getBearerTokenFromAuthorizationHeader,
   ApiProblemSchema,
+  PublicProfileReadInputSchema,
+  PublicProfileSchema,
   createBearerTokenQueryProblem,
   createPublicDataUnavailableProblem,
   createPublicNotFoundProblem,
@@ -10,7 +12,7 @@ import {
   type ApiRouteClass,
   type ApiScope,
 } from "@vrdex/api-contracts";
-import { internal } from "@convex-generated-api";
+import { api, internal } from "@convex-generated-api";
 import { NextResponse } from "next/server";
 
 import {
@@ -25,7 +27,7 @@ import {
   type ApiRateLimitResult,
 } from "@/lib/server/api-rate-limit";
 import { recordApiRateLimitBlockedEvent } from "@/lib/server/api-rate-limit-events";
-import { convexAdminHttpClient } from "@/lib/server/convex-http";
+import { convexAdminHttpClient, convexHttpClient } from "@/lib/server/convex-http";
 import { validateOAuthAccessTokenRecord } from "@/lib/server/oauth-dynamic-client-persistence";
 import {
   oauthAccessTokenSigningConfigured,
@@ -507,4 +509,38 @@ export function publicNotFoundResponse(resourceName: string) {
 
 export function publicDataUnavailableResponse(resourceName: string) {
   return apiProblemResponse(createPublicDataUnavailableProblem(resourceName));
+}
+
+
+/** Public profile reads re-evaluate group policy and never cache pre-opt-out data. */
+export async function publicProfileReadResponse(request: Request, target: { slug: string; profileType?: "person" | "community" }) {
+  const uncached = (response: Response) => {
+    response.headers.set("Cache-Control", "no-store");
+    return response;
+  };
+  const rejected = rejectBearerTokenQuery(request) ?? await rejectInvalidOrRateLimitedPublicApiRequest(request);
+  if (rejected) return uncached(rejected);
+  const params = new URL(request.url).searchParams;
+  const timestamp = (key: string) => {
+    const values = params.getAll(key);
+    if (!values.length) return undefined;
+    return values.length === 1 && /^\d+$/.test(values[0]) ? Number(values[0]) : NaN;
+  };
+  const parsed = PublicProfileReadInputSchema.safeParse({ ...target,
+    statisticsStartAt: timestamp("statisticsStartAt"), statisticsEndAt: timestamp("statisticsEndAt"),
+  });
+  const invalid = () => uncached(apiProblemResponse({ type: "about:blank", status: 400,
+    title: "Invalid statistics range", detail: "Statistics ranges require a community profile and both bounds within 24 elapsed hours." }));
+  if (!parsed.success) return invalid();
+  try {
+    const profile = await convexHttpClient().query(api.profiles.getPublicBySlug, { ...parsed.data, now: Date.now() });
+    return uncached(profile === null ? publicNotFoundResponse(target.profileType === "person" ? "Person profile" : target.profileType === "community" ? "Community profile" : "Profile") : apiJson(PublicProfileSchema, profile));
+  } catch (error) {
+    const code = typeof error === "object" && error !== null && "data" in error &&
+      typeof error.data === "object" && error.data !== null && "code" in error.data ? error.data.code : null;
+    if (code === "STATISTICS_RANGE_INVALID") return invalid();
+    if (code === "STATISTICS_RANGE_LIMIT") return uncached(apiProblemResponse({ type: "about:blank", status: 400,
+      title: "Statistics range exceeds the read limit", detail: "Choose a shorter statistics range." }));
+    return uncached(publicDataUnavailableResponse("Profile"));
+  }
 }

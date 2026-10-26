@@ -42,6 +42,7 @@ import {
   PublicEventSchema,
   PublicEventsResponseSchema,
   PublicProfileSchema,
+  PublicProfileReadInputSchema,
   PublicProfileMediaDetailsSchema,
   PublicProfileMediaDetailsInputSchema,
   PublicSearchResponseSchema,
@@ -2499,24 +2500,28 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     {
       title: "Get VRDex Profile",
       description: "Read one public VRDex person or community profile by slug.",
-      inputSchema: z.object({
-        profileType: z.enum(["person", "community"]).optional(),
-        slug: mcpSlugSchema,
-      }),
+      inputSchema: PublicProfileReadInputSchema,
       outputSchema: mcpOutputSchema(PublicProfileSchema),
       annotations: { readOnlyHint: true, idempotentHint: true },
       _meta: readToolMeta,
     },
-    async ({ profileType, slug }) => {
+    async ({ profileType, slug, statisticsStartAt, statisticsEndAt }) => {
       let profile;
 
       try {
         profile = await convex().query(api.profiles.getPublicBySlug, {
           slug,
+          ...(statisticsStartAt === undefined ? {} : { statisticsStartAt, statisticsEndAt }),
           ...(profileType === undefined ? {} : { profileType }),
           now: now(),
         });
-      } catch {
+      } catch (error) {
+        const code = mcpConvexErrorCode(error);
+        if (code === "STATISTICS_RANGE_INVALID" || code === "STATISTICS_RANGE_LIMIT") return {
+          content: [{ type: "text" as const, text: code === "STATISTICS_RANGE_LIMIT"
+            ? "Statistics range exceeds the read limit." : "Invalid statistics range. Ranges require a community profile." }],
+          isError: true as const,
+        };
         return mcpPublicReadUnavailable("profile lookup");
       }
 

@@ -1,3 +1,6 @@
+import { ConvexError } from "convex/values";
+import { PublicStatisticsRangeInputSchema } from "../packages/api-contracts/src/schemas";
+import { buildGroupPopulationSeries } from "./_groupPopulationSeries";
 import { readIntegrationRollups, readPublicGroupId, resolveGroupObservationPolicy } from "./_groupObservationPolicy";
 import { readClubVisibility } from "./_clubAccess";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -191,13 +194,42 @@ function publicRollup(rollup: {
   };
 }
 
+export function publicStatisticsRange(now: number, input?: { startAt: number; endAt: number }) {
+  if (!input) return { startAt: Math.max(0, now - 86_400_000), endAt: now };
+  const result = PublicStatisticsRangeInputSchema.safeParse({ statisticsStartAt: input.startAt, statisticsEndAt: input.endAt });
+  if (!result.success || input.endAt > now) throw new ConvexError({ code: "STATISTICS_RANGE_INVALID", message: "Invalid statistics range." });
+  return input;
+}
+
+async function readPopulationSeries(db: DatabaseReader, integrationId: Id<"communityVrchatIntegrations">,
+  historyStartAt: number, now: number, range: { startAt: number; endAt: number }) {
+  const floor = Math.max(historyStartAt, range.startAt - 300_000);
+  const ceiling = Math.min(now, range.endAt + 300_000);
+  // One bounded page also carries the adjacent samples needed for clipped integration.
+  const observations = await db.query("communityPopulationObservations")
+    .withIndex("by_integrationId_observedAt", q => q.eq("integrationId", integrationId)
+      .gte("observedAt", floor).lte("observedAt", Math.max(floor, ceiling)))
+    .paginate({ cursor: null, numItems: 5000 });
+  if (!observations.isDone) throw new ConvexError({ code: "STATISTICS_RANGE_LIMIT", message: "Statistics range exceeds the 5000 observation read limit." });
+  const [priorWindow, windows] = await Promise.all([
+    db.query("collectionCoverageWindows").withIndex("by_integrationId_startedAt", q => q.eq("integrationId", integrationId).lt("startedAt", floor)).order("desc").first(),
+    db.query("collectionCoverageWindows").withIndex("by_integrationId_startedAt", q => q.eq("integrationId", integrationId)
+      .gte("startedAt", floor).lte("startedAt", Math.max(floor, ceiling))).take(5001),
+  ]);
+  if (windows.length > 5000) throw new ConvexError({ code: "STATISTICS_RANGE_LIMIT", message: "Statistics range exceeds the 5000 coverage read limit." });
+  return buildGroupPopulationSeries({ ...range, observations: observations.page,
+    coverageWindows: [...(priorWindow ? [priorWindow] : []), ...windows] });
+}
+
 async function getAutomaticGroupTelemetry(
   db: DatabaseReader,
   profileId: Id<"profiles">,
   integration: Doc<"communityVrchatIntegrations">,
   historyStartAt: number,
   now: number,
+  range: { startAt: number; endAt: number },
 ) {
+  const populationSeries = await readPopulationSeries(db, integration._id, historyStartAt, now, range);
   const [latestPopulation, membership, hourlyRollups] = await Promise.all([
     db.query("communityPopulationObservations")
       .withIndex("by_integrationId_observedAt", q => q.eq("integrationId", integration._id)
@@ -212,6 +244,7 @@ async function getAutomaticGroupTelemetry(
   return {
     schemaVersion: 1 as const,
     publicationPolicy: "automatic_aggregate" as const,
+    populationSeries,
     rollupVersion: TELEMETRY_ROLLUP_VERSION,
     freshness,
     ...(latestPopulation ? { observedAt: latestPopulation.observedAt } : {}),
@@ -248,12 +281,14 @@ export async function getPublicCommunityTelemetry(
   db: DatabaseReader,
   communityProfileId: Id<"profiles">,
   now: number,
+  range?: { startAt: number; endAt: number },
 ) {
+  const bounds = publicStatisticsRange(now, range);
   const groupId = await readPublicGroupId(db, communityProfileId);
   if (!groupId) return null;
   const policy = await resolveGroupObservationPolicy(db, { vrchatGroupId: groupId, profileId: communityProfileId, now });
   if (policy.kind === "hidden" || policy.kind === "member_metadata") return null;
-  if (policy.kind === "automatic_aggregate") return getAutomaticGroupTelemetry(db, communityProfileId, policy.integration, policy.historyStartAt, now);
+  if (policy.kind === "automatic_aggregate") return getAutomaticGroupTelemetry(db, communityProfileId, policy.integration, policy.historyStartAt, now, bounds);
   const integration = policy.integration;
   const visibility = policy.categories;
   const profileVisibility = await readClubVisibility(db, communityProfileId);
@@ -262,10 +297,12 @@ export async function getPublicCommunityTelemetry(
   if (!Object.values(publicMetrics).some(Boolean)) return null;
   const epochStartedAt = Math.max(policy.historyStartAt, integration.telemetryEpochStartedAt ?? integration.createdAt);
 
+  const populationSeries = publicMetrics.populationHistory
+    ? await readPopulationSeries(db, integration._id, epochStartedAt, now, bounds) : undefined;
   const [latestPopulation, memberCounts, hourlyRollups, eventRollups] = await Promise.all([
     db.query("communityPopulationObservations")
       .withIndex("by_integrationId_observedAt", (query) =>
-        query.eq("integrationId", integration._id).gte("observedAt", epochStartedAt),
+        query.eq("integrationId", integration._id).gte("observedAt", epochStartedAt).lte("observedAt", now),
       )
       .order("desc")
       .first(),
@@ -316,8 +353,8 @@ export async function getPublicCommunityTelemetry(
       ...publicRollup(rollup, publicMetrics),
     };
   }))).filter((recap) => recap !== null);
-  const freshness = integration.lastSuccessfulObservationAt !== undefined &&
-    now - integration.lastSuccessfulObservationAt <= CURRENT_FRESHNESS_MS ? "current" as const : "stale" as const;
+  const freshness = latestPopulation && now - latestPopulation.observedAt <= CURRENT_FRESHNESS_MS
+    ? "current" as const : "stale" as const;
 
   return {
     schemaVersion: 1 as const,
@@ -333,6 +370,7 @@ export async function getPublicCommunityTelemetry(
           coverage: latestPopulation.coverageState,
         } }
       : {}),
+    ...(populationSeries ? { populationSeries } : {}),
     ...(publicMetrics.populationHistory
       ? { populationHistory: hourlyRollups.reverse().map((rollup) => publicRollup(rollup, publicMetrics)) }
       : {}),

@@ -1,3 +1,4 @@
+import { PublicProfileReadInputSchema } from "../packages/api-contracts/src/schemas";
 import { parseProfileLinkDestination } from "./_profileLinkDestination";
 import { projectProfileLinkDestinations, queueProfileLinkDestinations } from "./_profileLinkDestinationCache";
 import { publicKitAvailable } from "./_mediaReview";
@@ -452,6 +453,8 @@ export const updateProfileForApiOwner = internalMutation({
 export const getPublicBySlug = query({
   args: {
     slug: v.string(),
+    statisticsStartAt: v.optional(v.number()),
+    statisticsEndAt: v.optional(v.number()),
     profileType: v.optional(profileType),
     now: v.optional(v.number()),
     includeTelemetry: v.optional(v.boolean()),
@@ -478,6 +481,10 @@ export const getPublicBySlug = query({
       return null;
     }
 
+    const parsed = PublicProfileReadInputSchema.safeParse({ ...args, profileType: profile.profileType });
+    if (!parsed.success) throw new ConvexError({ code: "STATISTICS_RANGE_INVALID", message: "Invalid statistics range. Ranges require a community profile." });
+    const range = args.statisticsStartAt !== undefined && args.statisticsEndAt !== undefined
+      ? { startAt: args.statisticsStartAt, endAt: args.statisticsEndAt } : undefined;
     const now = args.now ?? Date.now();
     const eventContext =
       profile.profileType === "person"
@@ -510,7 +517,7 @@ export const getPublicBySlug = query({
         ? publicProfile.bannerImageUrl
         : undefined;
     const telemetry = profile.profileType === "community" && args.includeTelemetry !== false
-      ? await getPublicCommunityTelemetry(ctx.db, profile._id, now)
+      ? await getPublicCommunityTelemetry(ctx.db, profile._id, now, range)
       : null;
     const groupMembership = profile.profileType === "community" && args.includeTelemetry !== false
       ? await getPublicGroupMembership(ctx.db, profile._id)

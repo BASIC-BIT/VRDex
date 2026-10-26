@@ -722,3 +722,67 @@ for (const change of ["clear", "relink"] as const) {
     assert.equal(await t.run(ctx => ctx.db.query("communityVrchatIntegrations").first()), null);
   });
 }
+
+it("public statistics range defaults to 24 elapsed hours, rejects invalid ranges and persons", async () => {
+  const s = await publicPolicyFixture();
+  await s.t.run(async ctx => {
+    await ctx.db.patch(s.integrationId, { communityProfileId: undefined, collectionScope: { kind: "automatic" } });
+    await ctx.db.insert("vrchatGroupObservationPolicies", { vrchatGroupId: s.integration.vrchatGroupId, integrationId: s.integrationId, decision: { kind: "enabled", at: 100 }, createdAt: 100, updatedAt: 100 });
+  });
+  const now = 100_000_000;
+  const read = (range?: { startAt: number; endAt: number }) => s.t.run(ctx => getPublicCommunityTelemetry(ctx.db, s.duplicateId, now, range));
+  const normal = await read();
+  assert.equal(normal?.populationSeries?.startAt, now - 86_400_000);
+  assert.equal(normal?.populationSeries?.endAt, now);
+  for (const range of [{ startAt: now - 90_000_000, endAt: now }, {startAt: 1.5, endAt: 10}, {startAt: 20, endAt: 10}, {startAt: now, endAt: now + 1}]) await assert.rejects(read(range), /statistics|range/i);
+  const personId = await s.t.run(ctx => ctx.db.insert("profiles", { slug: "range-person", displayName: "Range person", sortName: "range person", aliases: [], tags: [], claimState: "unclaimed", publicationState: "published", publicSurfacingState: "public", creationSource: "self", updatedAt: 100, profileType: "person", person: { roleTags: [] } }));
+  assert.ok(personId);
+  const ref = makeFunctionReference<"query">("profiles:getPublicBySlug");
+  assert.ok(await s.t.query(ref, { slug: "range-person", now }));
+  await assert.rejects(s.t.query(ref, { slug: "range-person", now, statisticsStartAt: now - 1000, statisticsEndAt: now }), /community|range/i);
+  await assert.rejects(s.t.query(ref, { slug: "duplicate", now, statisticsStartAt: 100 }), /statistics|range/i);
+});
+
+it("public statistics range rejects more than 5000 rows instead of silently truncating", async () => {
+  const s = await publicPolicyFixture();
+  await s.t.run(async ctx => {
+    await ctx.db.patch(s.integrationId, { communityProfileId: undefined, collectionScope: { kind: "automatic" } });
+    await ctx.db.insert("vrchatGroupObservationPolicies", { vrchatGroupId: s.integration.vrchatGroupId, integrationId: s.integrationId, decision: { kind: "enabled", at: 100 }, createdAt: 100, updatedAt: 100 });
+    for (let i = 0; i < 5001; i++) await ctx.db.insert("communityPopulationObservations", { integrationId: s.integrationId, idempotencyKey: `range-${i}`, totalPopulation: i === 5000 ? 999 : 1, activeInstanceCount: 1, worldDistribution: [], observedAt: 1000 + i, source: "first_party", collectorVersion: "test", coverageState: "observed", fencingToken: 1 });
+  });
+  await assert.rejects(s.t.run(ctx => getPublicCommunityTelemetry(ctx.db, s.duplicateId, 7000, {startAt: 1000, endAt: 7000})), /5000|5,000/);
+  await s.t.run(async ctx => {
+    const last = await ctx.db.query("communityPopulationObservations").withIndex("by_integrationId_observedAt", q => q.eq("integrationId", s.integrationId)).order("desc").first();
+    assert.ok(last);
+    await ctx.db.delete(last._id);
+  });
+  assert.equal((await s.t.run(ctx => getPublicCommunityTelemetry(ctx.db, s.duplicateId, 7000, {startAt: 1000, endAt: 7000})))?.populationSeries?.peakConcurrency, 1);
+});
+
+it("public statistics series follows immutable group relinks and the public-history boundary", async () => {
+  const s = await publicPolicyFixture();
+  const secondId = await seed(s.t, "range-second", { communityProfileId: undefined, collectionScope: { kind: "automatic" } });
+  await s.t.run(async ctx => {
+    await ctx.db.patch(s.integrationId, { communityProfileId: undefined, collectionScope: { kind: "automatic" } });
+    for (const [integrationId, vrchatGroupId] of [[s.integrationId, s.integration.vrchatGroupId], [secondId, "range-second"]] as const) {
+      await ctx.db.insert("vrchatGroupObservationPolicies", { vrchatGroupId, integrationId, publicHistoryStartAt: 1000, decision: {kind:"enabled",at:1000},createdAt:1000,updatedAt:1000 });
+    }
+    for (const [integrationId, at, count] of [[s.integrationId, 900, 999], [s.integrationId, 1000, 50], [secondId, 900, 888], [secondId, 1000, 2], [secondId, 61000, 0]] as const) {
+      await ctx.db.insert("communityPopulationObservations", { integrationId, idempotencyKey: `${integrationId}-${at}`, totalPopulation: count, activeInstanceCount: count ? 1 : 0, worldDistribution: [], observedAt: at, source: "first_party", collectorVersion: "test", coverageState: "observed", fencingToken: 1 });
+    }
+    for (const [observedAt, memberCount] of [[1000, 10], [61000, 7]]) await ctx.db.insert("vrchatGroupMemberSnapshots", {vrchatGroupId:"range-second", observedAt, memberCount});
+  });
+  const read = () => s.t.run(ctx => getPublicCommunityTelemetry(ctx.db, s.duplicateId, 500_000, {startAt:0,endAt:120_000}));
+  assert.equal((await read())?.populationSeries?.peakConcurrency,50);
+  await s.t.run(async ctx => {
+    const link = await ctx.db.query("profileExternalLinks").withIndex("by_profileId_assetType_state", q=>q.eq("profileId",s.duplicateId).eq("assetType","vrchat_group").eq("state","active")).first();
+    assert.ok(link);
+    await ctx.db.patch(link._id,{assetExternalId:"range-second"});
+  });
+  const telemetry = await read();
+  assert.equal(telemetry?.populationSeries?.peakConcurrency,2);
+  assert.equal(telemetry?.populationSeries?.playerHours,1/60);
+  assert.equal(telemetry?.populationSeries?.buckets[0]?.populationLast,0);
+  assert.equal(telemetry?.groupMemberGrowth?.value,-3);
+  assert.equal(telemetry?.currentPopulation,undefined);
+});

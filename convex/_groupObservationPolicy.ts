@@ -21,7 +21,7 @@ export function readCollectionSubject(integration: Doc<"communityVrchatIntegrati
   return { kind: "managed", communityProfileId };
 }
 
-export async function readManagedIntegration(db: DatabaseReader, communityProfileId: Id<"profiles">) {
+export async function readManagedIntegration(db: DatabaseReader, communityProfileId: Id<"profiles">): Promise<Doc<"communityVrchatIntegrations"> | null> {
   // shortcut: more than 100 historical connections require reconciliation before managed access.
   const rows = await db.query("communityVrchatIntegrations")
     .withIndex("by_communityProfileId", q => q.eq("communityProfileId", communityProfileId)).take(101);

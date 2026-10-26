@@ -14,6 +14,7 @@ import {
   PublicEventSchema,
   PublicEventsResponseSchema,
   PublicProfileSchema,
+  PublicProfileReadInputSchema,
   PublicProfileMediaDetailsSchema,
   PublicProfileMediaDetailsInputSchema,
   PublicSearchResponseSchema,
@@ -281,15 +282,12 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     {
       title: "Get VRDex Profile",
       description: "Read one public VRDex person or community profile by slug.",
-      inputSchema: z.object({
-        profileType: z.enum(["person", "community"]).optional(),
-        slug: mcpSlugSchema,
-      }),
+      inputSchema: PublicProfileReadInputSchema,
       outputSchema: mcpOutputSchema(PublicProfileSchema),
       annotations: { readOnlyHint: true, idempotentHint: true },
     },
-    async ({ profileType, slug }) => {
-      const result = await apiClient.getProfile({ slug, profileType });
+    async ({ profileType, slug, statisticsStartAt, statisticsEndAt }) => {
+      const result = await apiClient.getProfile({ slug, profileType, statisticsStartAt, statisticsEndAt });
 
       if (!result.ok) {
         return result.status === 404 ? mcpNotFound("Profile", slug) : mcpApiError(result);

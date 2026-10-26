@@ -165,7 +165,56 @@ const PublicTelemetryRollupSchema = z.object({
   worldDistribution: z.array(PublicTelemetryWorldDistributionSchema),
 });
 
-export const PublicCommunityTelemetrySchema = z.object({
+export const PublicStatisticsRangeInputSchema = z.object({
+  statisticsStartAt: timestampMs.optional().describe("Community statistics start in Unix milliseconds. Supply both bounds; the elapsed range must be at most 24 hours."),
+  statisticsEndAt: timestampMs.optional().describe("Exclusive community statistics end in Unix milliseconds, after the start and no later than now. Person profiles reject statistics ranges."),
+}).superRefine(({ statisticsStartAt: start, statisticsEndAt: end }, ctx) => {
+  if (start === undefined && end === undefined) return;
+  if (start === undefined || end === undefined || start >= end || end - start > 86_400_000 || end > Date.now()) {
+    ctx.addIssue({ code: "custom", message: "Statistics require both bounds, ordered within the past 24 elapsed hours." });
+  }
+});
+
+export const PublicProfileReadInputSchema = PublicStatisticsRangeInputSchema.safeExtend({
+  slug,
+  profileType: z.enum(["person", "community"]).optional(),
+}).refine(input => input.profileType !== "person" || input.statisticsStartAt === undefined, {
+  message: "Statistics ranges are only available for community profiles.",
+});
+
+const PublicPopulationPointSchema = z.object({
+  observedAt: timestampMs,
+  population: z.number().int().nonnegative(),
+  instanceCount: z.number().int().nonnegative(),
+}).strict();
+
+export const PublicGroupPopulationSeriesSchema = z.object({
+  startAt: timestampMs,
+  endAt: timestampMs,
+  coverageRatio: z.number().min(0).max(1),
+  peakConcurrency: z.number().int().nonnegative(),
+  playerHours: z.number().nonnegative(),
+  buckets: z.array(z.object({
+    startAt: timestampMs,
+    endAt: timestampMs,
+    populationMin: z.number().int().nonnegative().optional(),
+    populationMax: z.number().int().nonnegative().optional(),
+    populationLast: z.number().int().nonnegative().optional(),
+    instanceCountMin: z.number().int().nonnegative().optional(),
+    instanceCountMax: z.number().int().nonnegative().optional(),
+    instanceCountLast: z.number().int().nonnegative().optional(),
+    observedAt: timestampMs.optional(),
+    observedSpans: z.array(z.object({
+      startAt: timestampMs,
+      endAt: timestampMs,
+      points: z.array(PublicPopulationPointSchema).max(6),
+    }).strict()),
+  }).strict()).max(720),
+}).strict();
+
+const PublicManagedCommunityTelemetrySchema = z.object({
+  publicationPolicy: z.literal("managed_categories").optional(),
+  populationSeries: PublicGroupPopulationSeriesSchema.optional(),
   schemaVersion: z.literal(1),
   rollupVersion: z.string().min(1),
   freshness: z.enum(["current", "stale"]),
@@ -200,7 +249,28 @@ export const PublicCommunityTelemetrySchema = z.object({
   eventRecaps: z.array(PublicTelemetryRollupSchema.extend({
     event: z.object({ slug, title: z.string().min(1) }).optional(),
   })).optional(),
-}).meta({ description: "Independently opted-in aggregate telemetry for a public community profile." });
+}).meta({ description: "Managed community telemetry with category-specific public permissions." });
+
+export const PublicAutomaticGroupStatisticsSchema = PublicManagedCommunityTelemetrySchema
+  .omit({ instanceHistory: true, eventRecaps: true, populationHistory: true, publicationPolicy: true })
+  .extend({
+    publicationPolicy: z.literal("automatic_aggregate"),
+    currentPopulation: PublicManagedCommunityTelemetrySchema.shape.currentPopulation.unwrap().strict().optional(),
+    groupMemberCount: PublicManagedCommunityTelemetrySchema.shape.groupMemberCount.unwrap().strict().optional(),
+    groupMemberGrowth: PublicManagedCommunityTelemetrySchema.shape.groupMemberGrowth.unwrap().strict().optional(),
+    definitions: z.object({
+      currentPopulation: PublicManagedCommunityTelemetrySchema.shape.definitions.valueType.strict().optional(),
+      populationHistory: PublicManagedCommunityTelemetrySchema.shape.definitions.valueType.strict().optional(),
+      groupMemberCount: PublicManagedCommunityTelemetrySchema.shape.definitions.valueType.strict().optional(),
+      groupMemberGrowth: PublicManagedCommunityTelemetrySchema.shape.definitions.valueType.strict().optional(),
+    }).strict(),
+    populationHistory: z.array(PublicTelemetryRollupSchema.omit({ worldDistribution: true, groupMemberCount: true, groupMemberGrowth: true }).strict()).optional(),
+  }).strict().meta({ description: "Public group aggregate statistics without world, instance, event or named membership details." });
+
+export const PublicCommunityTelemetrySchema = z.union([
+  PublicAutomaticGroupStatisticsSchema,
+  PublicManagedCommunityTelemetrySchema,
+]);
 
 export const PublicGroupMembershipSchema = z.object({
   groupCreatedAt: timestampMs.optional(),
