@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { parse } from 'yaml';
@@ -10,6 +10,8 @@ import { parse } from 'yaml';
 const sha = 'a'.repeat(40), digest = `sha256:${'b'.repeat(64)}`;
 const repository = '079358094174.dkr.ecr.us-east-1.amazonaws.com/vrdex-restream-worker';
 const files = JSON.parse(await readFile('workers/restream/packaging-manifest.json', 'utf8'));
+const python = spawnSync('python3', ['-c', 'import sys; print(sys.executable)'], { encoding: 'utf8', timeout: 30000 });
+assert.equal(python.status, 0, python.stderr);
 
 // Only Docker and AWS are faked. Bash, jq, file-type checks and sha256sum run on
 // the host, against real files copied from the requested-source fixture.
@@ -68,7 +70,7 @@ sources = json.loads((fixture / 'archive-sources.json').read_text())
 for index, source_name in enumerate(sources):
     source = fixture / 'image' / source_name
     kind = bad_kind if bad_file == source_name else ''
-    if kind == 'copy-failure':
+    if kind in ('copy-failure', 'copy-signal'):
         continue
     with (fixture / 'archives' / (str(index) + '.tar')).open('wb') as output:
         with tarfile.open(fileobj=output, mode='w|', format=tarfile.USTAR_FORMAT) as archive:
@@ -104,6 +106,8 @@ function fakeDockerWrapper(directory, options) {
     const ledger = JSON.stringify(['docker', 'cp', source, '-']);
     const copy = options.badFile === file && options.badKind === 'copy-failure'
       ? 'exit 7'
+      : options.badFile === file && options.badKind === 'copy-signal'
+      ? 'kill -TERM "$$"; exit 1'
       : `archive=${shellQuote(join(directory, 'archives', `${index}.tar`))}`;
     return `  ${shellQuote(source)}) printf '%s\\n' ${shellQuote(ledger)} >> "$FIXTURE/calls.jsonl" || exit 1; ${copy} ;;`;
   }).join('\n');
@@ -112,6 +116,7 @@ function fakeDockerWrapper(directory, options) {
 
 async function publish(options = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'restream-image-test-'));
+  let evidence;
   try {
     for (const subdirectory of ['bin', 'image', 'archives', 'provenance', 'temporary']) await mkdir(join(directory, subdirectory));
     const expected = [];
@@ -135,6 +140,9 @@ async function publish(options = {}) {
     for (const tool of ['docker', 'aws', 'rm']) await writeFile(join(directory, 'bin', tool), tool === 'docker'
       ? fakeDockerWrapper(directory, options)
       : `#!/bin/sh\nexec '${process.execPath}' '${directory}/fake-cli.mjs' ${tool} "$@"\n`, { mode: 0o755 });
+    // Count the actual verification boundary, then delegate stdin/argv/status
+    // unchanged to host Python. Archive preparation happens before this wrapper.
+    await writeFile(join(directory, 'bin/python3'), `#!/bin/sh\nprintf '%s\\n' '["python3"]' >> "$FIXTURE/calls.jsonl" || exit 1\nexec ${shellQuote(python.stdout.trim())} "$@"\n`, { mode: 0o755 });
     const workflow = parse(await readFile('.github/workflows/restream-image.yml', 'utf8'));
     const step = workflow.jobs.image.steps.find(value => value.name === 'Build and publish immutable image');
     const result = spawnSync('bash', ['-c', step.run], {
@@ -144,17 +152,34 @@ async function publish(options = {}) {
         RELEASE_SHA: sha, IMAGE_TAG: `proof-${sha}`, DIGEST: options.digest ?? digest, POST_DIGEST: options.postDigest ?? '',
         MODE: options.mode ?? 'existing', LABEL: options.label ?? '', BAD_FILE: options.badFile ?? '', BAD_KIND: options.badKind ?? '', RUN_FAILURE: String(options.runFailure ?? false), DOCKER_RM_FAILURE: String(options.dockerRmFailure ?? false), TEMP_RM_FAILURE: String(options.tempRmFailure ?? false) },
     });
+    if (result.error && process.env.RESTREAM_IMAGE_TEST_EVIDENCE) {
+      // Preserve the last real boundary before finally removes a timed-out fixture.
+      const ledger = await readFile(join(directory, 'calls.jsonl'), 'utf8').catch(error => {
+        if (error.code === 'ENOENT') return '';
+        throw error;
+      });
+      await appendFile(`${process.env.RESTREAM_IMAGE_TEST_EVIDENCE}.failures`, `${JSON.stringify({ options, directory,
+        error: result.error.message, code: result.error.code, status: result.status, signal: result.signal,
+        stdout: result.stdout, stderr: result.stderr, ledger })}\n`);
+    }
     assert.equal(result.error, undefined);
     const calls = (await readFile(join(directory, 'calls.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
+    assert.equal(calls.filter(call => call[0] === 'python3').length, calls.some(call => call[0] === 'docker' && call[1] === 'cp') ? 1 : 0,
+      'one real verification interpreter must handle all sequential copies');
     const provenance = {};
     for (const file of await readdir(join(directory, 'provenance'))) provenance[file] = await readFile(join(directory, 'provenance', file), 'utf8');
     assert.equal((await readdir(directory)).includes('container'), options.dockerRmFailure ?? false, 'stopped container removal state');
     const temporary = await readdir(join(directory, 'temporary'));
     if (!options.tempRmFailure) assert.deepEqual(temporary, [], 'host extraction directory must be removed');
     const snapshot = (await readdir(directory)).includes('temporary-snapshot.json') ? JSON.parse(await readFile(join(directory, 'temporary-snapshot.json'), 'utf8')) : [];
+    evidence = { options, status: result.status, calls, temporary, snapshot,
+      expectedHashes: provenance['expected-runtime.sha256'], actualHashes: provenance['actual-runtime.sha256'],
+      imageUri: provenance['image-uri.txt'] ?? null };
     return { ...result, calls, provenance, snapshot, temporary, expected: `${expected.join('\n')}\n` };
   } finally {
     await rm(directory, { recursive: true, force: true });
+    if (evidence && process.env.RESTREAM_IMAGE_TEST_EVIDENCE) await appendFile(process.env.RESTREAM_IMAGE_TEST_EVIDENCE,
+      `${JSON.stringify({ ...evidence, fixtureRemoved: directory })}\n`);
   }
 }
 
@@ -210,6 +235,18 @@ test('nonregular copied sources and copy failures fail closed and clean up', asy
     assert.ok(dockerCalls(result).some(call => call[1] === 'cp' && call[2].endsWith(files.at(-1))));
     assert.ok(dockerCalls(result).some(call => call[1] === 'rm'));
     assert.ok(!dockerCalls(result).some(call => call[1] === 'run'));
+    if (badKind === 'copy-failure') assert.equal(result.status, 7);
+  }
+  for (const badKind of ['copy-failure', 'copy-signal']) {
+    const result = await publish({ badFile: files[0], badKind, dockerRmFailure: true, tempRmFailure: true });
+    assert.equal(result.status, badKind === 'copy-failure' ? 7 : 143, 'copy status survives interpreter and both cleanup failures');
+    assert.equal(dockerCalls(result).filter(call => call[1] === 'cp').length, 1, 'failed copy stops before the next source');
+    assert.ok(!result.snapshot.some(entry => entry.file && !entry.path.endsWith('source.tar')), 'failed copy is never extracted');
+    assert.equal(result.provenance['actual-runtime.sha256'], undefined);
+    assert.ok(result.calls.some(call => call[0] === 'rm'));
+    assert.ok(!dockerCalls(result).some(call => call[1] === 'run'));
+    assert.equal(result.provenance['image-uri.txt'], undefined);
+    assertNoPublication(result);
   }
 });
 
