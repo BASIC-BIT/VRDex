@@ -31,9 +31,18 @@ Run the last two in separate shells. The web app is at
 `http://localhost:3000`. Bootstrap writes `NEXT_PUBLIC_CONVEX_URL` into
 `apps/web/.env.local` for you.
 
-`/` is the lookup surface and stays empty until you search, so it is not
-where you check the seed. Open `http://localhost:3000/discovery` for the
-seeded feed, or a slug directly such as `/playwright-dj-aurora`.
+`/` is the public search entry. Search for `BASICBIT` or `Afterglow` to check
+real local results; new submissions open `/search?q=...`. The preview shows at
+most five options and opens canonical entity pages when selected. Home links
+to `/discovery` for the seeded feed; slugs such as `/playwright-dj-aurora` also
+work directly.
+
+Compatibility checks: nonempty `/?q=BASICBIT` and `/lookup?q=BASICBIT` redirect
+to `/search?q=BASICBIT&view=dj`. Whitespace-only root queries stay on public
+Home. `/lookup/suggest`, legacy bulk lookup and permission-scoped private seed
+access remain unchanged. Public Home/search do not read lookup recents or
+request private suggestions. `/discover?q=aurora` redirects to standard search.
+Timeline, favorites and the later discovery composition are not part of Home.
 
 Scripts refuse to run on the `main` branch. Work on a branch or a worktree;
 the guard prints the command to create one.

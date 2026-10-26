@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { playbackAuthorization } from "./helpers/playback-authorization";
 function wave() {
   const samples = 48000 * 20; const buffer = Buffer.alloc(44 + samples * 2);
   buffer.write("RIFF"); buffer.writeUInt32LE(buffer.length - 8, 4); buffer.write("WAVEfmt ", 8); buffer.writeUInt32LE(16, 16); buffer.writeUInt16LE(1, 20); buffer.writeUInt16LE(1, 22); buffer.writeUInt32LE(48000, 24); buffer.writeUInt32LE(96000, 28); buffer.writeUInt16LE(2, 32); buffer.writeUInt16LE(16, 34); buffer.write("data", 36); buffer.writeUInt32LE(samples * 2, 40);
@@ -6,11 +7,13 @@ function wave() {
   return buffer;
 }
 test("retains the actual playing media node across route navigation and replaces only on Play @flow @fixture", async ({ page }, testInfo) => {
-  await page.route("**/retained-test.wav?*", route => route.fulfill({ contentType: "audio/wav", body: wave() }));
+  const authorization = await playbackAuthorization(page);
+  await page.route("https://stream.vrcdn.live/live/*.webm", route => route.fulfill({ contentType: "audio/wav", body: wave() }));
   await page.goto("/playwright/event-playback");
   await page.getByRole("button", { name: "Play Event a", exact: true }).click();
   const video = page.locator("[data-event-playback-mount] video");
   await expect.poll(() => video.evaluate(node => (node as HTMLVideoElement).currentTime)).toBeGreaterThan(0.1);
+  await expect.poll(() => authorization.reads).toContain("a");
   await page.screenshot({ path: testInfo.outputPath("retained-player.png") });
   const original = await video.elementHandle(); const time = await video.evaluate(node => (node as HTMLVideoElement).currentTime);
   await page.getByRole("link", { name: "Other event" }).click();
@@ -25,7 +28,26 @@ test("retains the actual playing media node across route navigation and replaces
   await page.getByRole("button", { name: "Close event playback" }).click(); await expect(video).toHaveCount(0);
 });
 
+test("authorization refresh revokes the actual playing fixture node @flow @fixture", async ({ page }) => {
+  await page.clock.install();
+  const authorization = await playbackAuthorization(page);
+  await page.route("https://stream.vrcdn.live/live/*.webm", route => route.fulfill({ contentType: "audio/wav", body: wave() }));
+  await page.goto("/playwright/event-playback");
+  await page.getByRole("button", { name: "Play Event a", exact: true }).click();
+  const video = page.locator("[data-event-playback-mount] video");
+  await expect.poll(() => video.evaluate(node => node instanceof HTMLVideoElement && !node.paused && node.currentTime > 0)).toBe(true);
+  await expect.poll(() => authorization.reads).toEqual(["a"]);
+  const original = await video.elementHandle();
+  authorization.revoke();
+  await page.clock.fastForward(15_000);
+  await expect.poll(() => authorization.reads).toEqual(["a", "a"]);
+  await expect(video).toHaveCount(0);
+  expect(await original!.evaluate(node => node.isConnected)).toBe(false);
+  await expect(page.getByRole("region", { name: "Event playback", exact: true })).toBeHidden();
+});
+
 test("visible Twitch SDK player handles blocked playback, real controls and iframe disposal @flow @fixture", async ({ page }, testInfo) => {
+  const authorization = await playbackAuthorization(page, true);
   await page.route("https://player.twitch.tv/js/embed/v1.js", route => route.fulfill({ contentType: "application/javascript", body: `
     window.sdkCalls = []; window.sdkLoads = (window.sdkLoads || 0) + 1;
     class Player {
@@ -46,6 +68,7 @@ test("visible Twitch SDK player handles blocked playback, real controls and ifra
   await page.goto("/playwright/event-playback?kind=twitch");
   await page.getByRole("button", { name: "Play Event a", exact: true }).click();
   await expect(page.getByRole("button", { name: "Enable playback", exact: true })).toBeVisible();
+  await expect.poll(() => authorization.reads).toContain("a");
   const frame = page.locator("[data-event-playback-mount] iframe"); await expect(frame).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath("twitch-player.png") });
   const box = await frame.boundingBox(); expect(box!.width).toBeGreaterThanOrEqual(400); expect(box!.height).toBeGreaterThanOrEqual(300);
@@ -61,7 +84,8 @@ test("visible Twitch SDK player handles blocked playback, real controls and ifra
 });
 
 test("explicit legacy/profile playback hands off both directions while browsing stays passive @flow @fixture", async ({ page }) => {
-  await page.route("**/retained-test.wav?*", route => route.fulfill({ contentType: "audio/wav", body: wave() }));
+  const authorization = await playbackAuthorization(page);
+  await page.route("https://stream.vrcdn.live/live/*.webm", route => route.fulfill({ contentType: "audio/wav", body: wave() }));
   await page.route("**/profile.live.ts", () => {});
   await page.route("**/preview.live.ts", () => {});
   await page.route("https://clips.twitch.tv/**", route => route.fulfill({ contentType: "text/html", body: "<button>Play</button>" }));
@@ -70,6 +94,7 @@ test("explicit legacy/profile playback hands off both directions while browsing 
   await page.getByRole("button", { name: "Play Event a", exact: true }).click();
   const retained = page.locator("[data-event-playback-mount] video");
   await expect.poll(() => retained.evaluate(node => (node as HTMLVideoElement).paused)).toBe(false);
+  await expect.poll(() => authorization.reads).toContain("a");
   await expect(page.locator('iframe[title="YouTube player for Legacy"]')).toHaveCount(0);
   await page.getByRole("button", { name: "Play YouTube player for Legacy", exact: true }).click();
   await expect.poll(() => retained.evaluate(node => (node as HTMLVideoElement).paused)).toBe(true);
@@ -94,7 +119,8 @@ test("explicit legacy/profile playback hands off both directions while browsing 
 });
 
 test('operator preview retains rename ownership, gates replacements until Monitor, and close retains paused program @flow @fixture',async({page},info)=>{
- await page.route('**/retained-test.wav?*',route=>route.fulfill({contentType:'audio/wav',body:wave()}));
+ const authorization=await playbackAuthorization(page);
+ await page.route('https://stream.vrcdn.live/live/*.webm',route=>route.fulfill({contentType:'audio/wav',body:wave()}));
  await page.route('https://player.twitch.tv/js/embed/v1.js',route=>route.fulfill({contentType:'application/javascript',body:`
  window.previewCalls=[];
  class Player {
@@ -110,6 +136,7 @@ test('operator preview retains rename ownership, gates replacements until Monito
  await page.getByRole('button',{name:'Play Event a',exact:true}).click();
  const program=page.locator('[data-event-playback-mount] video');
  await expect.poll(()=>program.evaluate(node=>(node as HTMLVideoElement).paused)).toBe(false);
+ await expect.poll(()=>authorization.reads).toContain('a');
  const original=await program.elementHandle();
  await page.getByRole('button',{name:'Operator preview',exact:true}).click();
  const preview=page.getByRole('region',{name:/^Preview (Operator preview|Renamed preview)$/});

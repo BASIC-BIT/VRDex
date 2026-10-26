@@ -1,6 +1,7 @@
 import { expect, type Locator, type Page, type TestInfo } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
+import { expectDecodedImage } from "./image-readiness";
 
 const screenshotDir = path.join(process.cwd(), "playwright-artifacts", "screenshots");
 
@@ -214,8 +215,14 @@ export async function captureRouteScreenshot(
 }
 
 export async function expectHomePage(page: Page) {
-  await expect(page.getByRole("heading", { name: "Search VRDex" })).toBeVisible();
-  await expect(page.getByLabel("DJ name")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "DJs, clubs & events", exact: true })).toBeVisible();
+  const input = page.getByRole("combobox", { name: /Search/i });
+  await expect(input).toBeVisible();
+  await expect(input.locator("xpath=ancestor::form")).toHaveAttribute("action", "/search");
+  await expect(page.getByLabel("DJ name")).toHaveCount(0);
+  await expect(page.getByRole("navigation", { name: "Search view" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "DJ links", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Discovery", exact: true })).toHaveAttribute("href", "/discovery");
   await expect(page.getByRole("button", { name: "Toggle color theme" })).toBeVisible();
   await expect(page.getByText(/Start with a name, scene, world, genre, or event/i)).toHaveCount(0);
   await expect(page.getByText("Start with a name or genre.", { exact: true })).toHaveCount(0);
@@ -238,17 +245,21 @@ export async function expectDiscoveryPage(page: Page) {
 }
 
 export async function expectSearchPage(page: Page) {
-  await expect(page.getByRole("heading", { name: "Search VRDex" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Search results", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: /Results for aurora/i })).toBeVisible();
   await expect(page.getByRole("button", { name: /Search VRDex/i })).toBeVisible();
   await expect(page.getByRole("link", { name: /DJ Aurora/i }).first()).toBeVisible();
   await expect(page.locator('[title="Logo"]').first()).toBeVisible();
+  for (const image of await page.getByRole("region", { name: "Search results" }).locator("img").all()) {
+    await expectDecodedImage(image);
+  }
   await expect(page.getByRole("heading", { name: /Upcoming events/i })).toHaveCount(0);
 }
 
 export async function expectLookupPage(page: Page) {
   await expect(page.getByRole("heading", { name: "Search VRDex" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "DJ links" })).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("link", { name: "Search results", exact: true })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Search view" })).toHaveCount(0);
   await expect(page.getByLabel("DJ name")).toBeVisible();
   await expect(page.getByRole("button", { name: "Toggle color theme" })).toBeVisible();
   await expect(page.getByRole("link", { name: "BASICBIT", exact: true })).toBeVisible();

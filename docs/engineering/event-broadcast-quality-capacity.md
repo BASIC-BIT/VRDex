@@ -70,6 +70,31 @@ the historical host pacing failure, resolve other host failures, or grant
 production capacity acceptance. Actual CI duration and native success still
 need fresh execution evidence.
 
+## Synthetic unit fixtures
+
+Backend and dispatcher unit tests bind explicit nonproduction resolvers through
+handler construction and runtime dependencies. The shared branch fixture in
+`tests/scripts/_event-allocation-fixture.mjs` uses `fixture-capacity-v1` with
+4096 CPU units and 8192 MiB. Its loader is
+`tests/backend/_eventCapacityFixture.ts:loadEventsWithFixtureCapacity`.
+The separate migration protocol unit fixture uses
+`tests/fixtures/event-capacity.mjs`, `unit-test-synthetic-capacity-v1`, and
+`tests/fixtures/event-modules.ts:loadFixtureEvents`, with the same resource values.
+Each frozen snapshot is checked against its own resolver and evidence identity.
+Neither fixture is measured evidence. Both module loaders replace only the
+scheduling mutation; the remaining handlers, validators and lifecycle assertions
+run unchanged. Public scheduling and default dispatcher entrypoints still use the
+empty production registry and reject these fixtures. No environment variable,
+client field or database fixture can populate the measured registry.
+
+The baseline CI migration lane explicitly selects `run-admission-blocked` and
+requires `migration-admission-blocked` evidence: historical migration, exact
+production capacity rejection, unchanged owned admission rows and cleanup. Its
+passing receipt does not establish successful whole-flow admission, native
+execution, measured capacity or external A. Default `run` continues to require
+`whole-flow` evidence and remains blocked by the empty production map. See the
+[local rehearsal scope](event-broadcast-rehearsal.md#october-24-2026-task-9-source-prerequisites).
+
 ## Session authority
 
 The server snapshots `{cpuUnits, memoryMiB, evidenceId}` with media settings and

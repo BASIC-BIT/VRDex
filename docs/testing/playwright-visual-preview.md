@@ -83,6 +83,13 @@ Local webserver runs set token-gated E2E helper defaults so `pnpm test:e2e` incl
 
 Profile screenshots use deterministic Next-server fixtures when `VRDEX_ENABLE_PLAYWRIGHT_FIXTURES=true`. Fixture profiles are disabled when `NODE_ENV=production`.
 
+The `/playwright/event-playback` UI tests supply synthetic public authorization
+responses only for their invented `a` and `b` events. The real retained owner,
+authorization polling, media element, and player adapters still run. These tests
+cover node retention, playback handoff, SDK controls, and disposal after a null
+authorization refresh; they do not establish real backend authorization or live
+provider compatibility.
+
 ## Captured routes
 
 - `/`
@@ -115,6 +122,15 @@ The `@flow` Playwright test is the first mutation-backed journey. It:
 - searches discovery for the submitted display name
 - captures screenshots for both readback pages
 - cleans up the E2E-created profile, search document, and audit event by slug
+
+The Home search preview and long-name cases create their own real public profiles
+through `/api/e2e/profile-submissions` on a loopback target. Each test searches a
+unique run tag, uses the returned canonical profile paths, and deletes its records
+by run ID during fixture teardown. The preview cap checks all eight created
+records in the server response and five visible options. These cases work against
+a fresh local backend without a separate `pnpm seed:local` step. Home/search
+cases carry `@fixture` and stay in the local `@flow` lane; hosted selection
+excludes them because they require this checkout's UI and local fixture data.
 
 ## Auth-backed E2E
 

@@ -230,10 +230,10 @@ jobs:
       - name: Check generated backend files
         run: git diff --exit-code -- convex/_generated
 
-      - name: Rehearse actual local event broadcast migration
+      - name: Rehearse local migration and production admission denial
         id: migration
         timeout-minutes: 6
-        run: node --import tsx scripts/verify-event-broadcast-migration-local.mjs run
+        run: node --import tsx scripts/verify-event-broadcast-migration-local.mjs run-admission-blocked
 
       - name: Check generated backend files after closure
         if: ${{ always() && steps.migration.outcome != 'skipped' }}

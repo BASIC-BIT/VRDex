@@ -3747,6 +3747,7 @@ export const configureTwitchOutput = mutation({
   },
 });
 
+/** Bind capacity authority at construction; public callers cannot override it. */
 export function createScheduleEventMediaWorker(resolveAllocation: typeof resolveWorkerAllocation) {
   return mutation({
   args: eventMediaWorkerScheduleArgs,

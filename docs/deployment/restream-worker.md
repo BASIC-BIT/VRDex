@@ -1360,7 +1360,13 @@ for source rates, provenance, failure behavior and the pending final-image proof
 
 ## October 24 Task 9 rollout readiness
 
-Source plumbing is available; actual whole-flow acceptance remains open. Run the
+Source plumbing is available; actual whole-flow acceptance remains open. Backend
+CI explicitly runs the separate `migration-admission-blocked` scope while the
+production measured allocation map is empty. It proves actual local historical
+migration, the exact production admission rejection, unchanged admission state,
+no session/start-command writes and owned cleanup. This bounded pass supplies no
+positive protocol lifecycle or capacity-readiness acceptance. The default `run`
+mode still requires whole-flow admission and lifecycle success. Run the
 [isolated migration rehearsal](../engineering/event-broadcast-rehearsal.md#october-24-2026-task-9-source-prerequisites)
 after accepted capacity receipts populate the measured map. Its internal fixture
 module and manifest require canonical Convex generation. Never populate admission

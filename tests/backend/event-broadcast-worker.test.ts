@@ -1645,7 +1645,7 @@ for(const first of ['marker','release','concurrent'])it(`R8 prelaunch ${first} h
 });
 for(const failure of ['config','register'])it(`R8 actual bridge ${failure} failure releases provably unlaunched admission`,async()=>{
  const f=await fixture();const calls:string[]=[];
- await claimAndProcess({mutation:(ref:any,args:any)=>f.t.mutation(ref,args)},{bridgeToken,workerId:'bridge',redactValues:[],secretRefMap:failure==='config'?{}:{'event-media/vrcdn/main':'test-secret'},baseEnvironment:{}},async(_config:any,args:string[])=>{calls.push(args[1]);throw Error('synthetic registration failure');}, () => false, { resolveAllocation: fixtureCapacityResolver });
+ await claimAndProcess({mutation:(ref:any,args:any)=>f.t.mutation(ref,args)},{bridgeToken,workerId:'bridge',region:'us-east-1',redactValues:[],secretRefMap:failure==='config'?{}:{'event-media/vrcdn/main':'test-secret'},baseEnvironment:{}},async(_config:any,args:string[])=>{calls.push(args[1]);throw Error('synthetic registration failure');}, () => false, { resolveAllocation: fixtureCapacityResolver });
  const session=await f.t.run(({db})=>db.get(f.args.sessionId));assert.equal(session?.dispatchId,undefined);assert.equal(session?.status,'error');assert.equal(session?.dispatchStopConfirmedAt,undefined);assert(!calls.includes('run-task'));assert.equal(calls.includes('register-task-definition'),failure==='register');
  const next=await f.owner.mutation(api.events.scheduleEventMediaWorker,{currentSlug:f.event.slug});assert.equal((await f.t.mutation(worker('admitDispatch'),{bridgeToken,eventId:f.event.eventId,sessionId:next.sessionId,dispatchId:'replacement'})).granted,true);
 });
@@ -1696,7 +1696,7 @@ for(const loss of ['before','after','malformed','unknown','run','record'])it(`R8
 it('R8 Stop before marker releases and durable cleanup retries without capacity leak',async()=>{
  const f=await fixture();let cleanup=0;
  const client={mutation:(ref:any,args:any)=>f.t.mutation(ref,args),query:(ref:any,args:any)=>f.t.query(ref,args)};
- await claimAndProcess(client,{bridgeToken,workerId:'bridge',redactValues:[],secretRefMap:{'event-media/vrcdn/main':'test-secret'},baseEnvironment:{}},async(_config:any,args:string[])=>{
+ await claimAndProcess(client,{bridgeToken,workerId:'bridge',region:'us-east-1',redactValues:[],secretRefMap:{'event-media/vrcdn/main':'test-secret'},baseEnvironment:{}},async(_config:any,args:string[])=>{
   if(args[1]==='register-task-definition'){await f.owner.mutation(api.events.stopEventMediaWorker,{currentSlug:f.event.slug,sessionId:f.args.sessionId});return {taskDefinition:{taskDefinitionArn:'unused-definition'}};}
   assert.equal(args[1],'deregister-task-definition');cleanup++;throw Error('cleanup unavailable');
  }, () => false, { resolveAllocation: fixtureCapacityResolver });
@@ -1732,7 +1732,7 @@ it('R8 reclaimed competing bridges issue exactly one RunTask and never overwrite
 it('R8 duplicate marker with same definition never deregisters winner',async()=>{
  const f=await fixture();let releases=0,runs=0;
  const client={mutation:async(ref:any,args:any)=>{if(getFunctionName(ref)==='eventMediaWorker:markLaunchAttempt'){await f.t.mutation(ref,args);return f.t.mutation(ref,args);}return f.t.mutation(ref,args);}};
- await claimAndProcess(client,{bridgeToken,workerId:'bridge',redactValues:[],secretRefMap:{'event-media/vrcdn/main':'test-secret'},baseEnvironment:{}},async(_config:any,args:string[])=>{if(args[1]==='register-task-definition')return {taskDefinition:{taskDefinitionArn:'winner-definition'}};if(args[1]==='deregister-task-definition')releases++;else runs++;return {};}, () => false, { resolveAllocation: fixtureCapacityResolver });
+ await claimAndProcess(client,{bridgeToken,workerId:'bridge',region:'us-east-1',redactValues:[],secretRefMap:{'event-media/vrcdn/main':'test-secret'},baseEnvironment:{}},async(_config:any,args:string[])=>{if(args[1]==='register-task-definition')return {taskDefinition:{taskDefinitionArn:'winner-definition'}};if(args[1]==='deregister-task-definition')releases++;else runs++;return {};}, () => false, { resolveAllocation: fixtureCapacityResolver });
  assert.equal(releases,0);assert.equal(runs,0);assert.equal((await f.t.run(({db})=>db.get(f.args.sessionId)))?.workerTaskDefinitionArn,'winner-definition');
 });
 it('R8 unused-definition audit refuses arbitrary provider text and winner ARN',async()=>{

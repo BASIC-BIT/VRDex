@@ -203,7 +203,7 @@ test('secret requests also abort after fifteen seconds', async t => {
   assert.equal(f.requests.length, 0);
 });
 
-test('Lambda dispatch carries the same measured resources and launch fence through the SDK', async t => {
+test('Lambda dispatch carries explicit synthetic resources and launch fence through the SDK', async t => {
   withEnvironment(t);
   const { allocatedSession } = await import('./_event-allocation-fixture.mjs');
   const { taskDefinitionFor } = await import('../../scripts/event-media-ecs-bridge.mjs');

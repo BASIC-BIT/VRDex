@@ -6,8 +6,9 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useEventPlayback } from "@/app/_components/event-playback-provider";
 import { EventPlaybackInline } from "@/app/_components/event-playback-inline";
-import type { PlaybackRequest } from "@/lib/event-playback-owner";
-export function PlaybackFixture({ eventId, twitch }: { eventId: string; twitch: boolean }) {
+import { eventPlaybackRequest } from "@/lib/event-playback-request";
+import { playbackFixtureEvent } from "./fixture-state";
+export function PlaybackFixture({ eventId, twitch }: { eventId: "a" | "b"; twitch: boolean }) {
   const owner = useEventPlayback();
   const [operatorPreview,setOperatorPreview]=useState(false);
   const [previewSource, setPreviewSource] = useState<PreviewSource>({
@@ -15,9 +16,11 @@ export function PlaybackFixture({ eventId, twitch }: { eventId: string; twitch: 
     publicUrl: "https://www.twitch.tv/preview", label: "Operator preview",
   });
   const [startAt] = useState(() => Date.now() - 1000);
-  const request = useMemo<PlaybackRequest>(() => ({ eventId, eventSlug: eventId, href: `/playwright/event-playback?event=${eventId}`, title: `Event ${eventId}`, startAt,
-    ...(twitch ? { kind: "twitch", sourceId: "channel", channel: "fixture" } : { kind: "vrcdn", sourceId: eventId, src: `/retained-test.wav?event=${eventId}`, transport: "video" }),
-  }), [eventId, twitch, startAt]);
+  const request = useMemo(() => {
+    const playback = eventPlaybackRequest(playbackFixtureEvent(eventId, twitch, startAt));
+    if (!playback) throw new Error("Playback fixture must have a public source");
+    return { ...playback, href: `/playwright/event-playback?event=${eventId}` };
+  }, [eventId, twitch, startAt]);
   return <main className="mx-auto w-full max-w-3xl p-6">
     <Link href={`/playwright/event-playback?event=${eventId === "a" ? "b" : "a"}`}>Other event</Link>
     <Link href="/playwright/event-lineup">Browse</Link>

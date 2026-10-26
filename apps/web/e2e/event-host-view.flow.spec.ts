@@ -74,7 +74,8 @@ test('preview is explicit, muted, singular and disposed on close @flow @fixture'
  await expect(page.locator('video')).toHaveCount(0);
  const otherLinks=page.getByText('Other links',{exact:true}).first();
  await otherLinks.click();
- await otherLinks.locator('..').getByRole('button',{name:'Preview',exact:true}).click();
+ const alternateVrcdn=otherLinks.locator('..').getByRole('button',{name:'Copy Quest',exact:true}).locator('..');
+ await alternateVrcdn.getByRole('button',{name:'Preview',exact:true}).click();
  await expect(page.locator('video')).toHaveCount(1);
  await otherLinks.click();
  await expect(page.locator('video')).toHaveCount(0);

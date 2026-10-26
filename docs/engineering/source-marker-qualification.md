@@ -315,7 +315,16 @@ inference 7/7. Actual anonymous-local Convex analysis found exactly one public
 scheduling mutation and no factory or fixture endpoint. These checks resolve the
 earlier host fixture failures; they supply no native execution, measurement or A.
 The actual migration rehearsal's positive production admission remains blocked
-by the empty measured allocation map.
+by the empty measured allocation map. Incoming main `0a7231acf3eb59c5107360536a615a1f6773a19b`
+adds a separate explicit `migration-admission-blocked` baseline CI lane. That lane
+requires historical migration, exact production-capacity rejection, no admission
+writes and owned cleanup; it rejects whole-flow receipts, and whole-flow
+acceptance rejects its receipt. Its success establishes neither positive
+admission nor PROGRAM/native132, measured capacity or external A. The current
+[rehearsal documentation](event-broadcast-rehearsal.md#october-24-2026-task-9-source-prerequisites)
+describes both scopes. The earlier verification above remains historical evidence
+for its recorded source, and integration requires fresh source and execution
+evidence for the resolved merge.
 
 Before any paid continuation, Root refreshes actual spend and reservations under
 the remaining $20 ceiling and $1 ancillary reserve; $1.53346 is an estimate.

@@ -14,6 +14,26 @@ Current recommendation and first implementation for expanded public discovery, c
 - events, worlds, people, and communities participate in universal search through search documents
 - PostHog is the first-pass analytics target for discovery instrumentation when configured
 
+## Public web entry and compatibility
+
+Home `/` renders the shared public search control without fetching lookup or
+private data. New submissions use `/search?q=...`; a selected preview opens
+the entity's canonical person, community, event or world route. The overlay
+renders at most five suggestions, not a total match count. Full search keeps
+All, People, Communities, Events and Worlds filters in URL state and applies
+them server-side before the result limit. Empty input does not enumerate data.
+
+Nonempty old `/?q=...` bookmarks redirect to `/search?q=...&view=dj` after
+trimming. `/lookup`, `/lookup/suggest` and the legacy DJ view retain their
+permissions and bulk behavior. Public Home and standard search use only
+`/search/suggest` and the public projection, never private seed suggestions or
+lookup recents. `/discover?q=...` still redirects to standard search; the
+existing `/discovery` page remains reachable from Home navigation.
+
+The [approved first-slice scope](../superpowers/specs/2026-10-26-homepage-search-first-slice-design.md)
+defers exact genre filtering, timeline and favorites. Genre keyword search
+remains supported; there is no client-side exact genre filter.
+
 ## Search Documents
 
 `searchDocuments` is the universal search surface.
@@ -62,6 +82,18 @@ turn remain ahead of partial profile names.
 The shared `searchPublicDocuments` helper serves universal search, person lookup,
 the public HTTP API, and hosted MCP. The stdio MCP client uses the HTTP API.
 There is no separate UI matching implementation.
+
+The web `PublicSearchResult` type derives from the backend projection and adds only
+the server-authored claim entry path. Person results retain visible genre labels,
+featured flags, outbound link presentation and resolved destination metadata.
+`public-search-genres` provides readable labels and stable featured-first ordering
+without mutating results. The shared `PublicProfileLinks` board handles public
+link actions independently of legacy lookup queries or private seed access.
+Standard public results show up to three readable genre names, with the rest
+behind an independent `+N` disclosure. Each person with public links has its own
+`Links` disclosure; opening one does not close another. Clipboard success and
+failure are announced without closing the result or navigating away. Fallback
+copy restores the copy control's focus and removes its temporary textarea.
 
 Keyword, literal-name, and stylized-name reads share a 256-document candidate
 budget (86 keyword, 85 literal, 85 stylized) before deduplication and ranking.

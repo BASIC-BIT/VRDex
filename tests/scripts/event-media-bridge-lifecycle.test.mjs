@@ -462,3 +462,21 @@ test('accepted launch marker finishes task registration then immediately drains 
   assert.deepEqual(calls, ['register-task-definition', 'run-task', 'describe-tasks', 'stop-task', 'describe-tasks', 'deregister-task-definition']);
   assert.equal((await f.session()).workerTaskCleanupPending, false);
 });
+
+
+test('production dispatch refuses synthetic allocation before any provider registration or launch', async () => {
+  const command = { commandId: 'command', commandType: 'start_program', eventId: 'event', program: { programId: 'program' }, session: allocatedSession() };
+  const controlCalls = [], providerCalls = [];
+  const client = { mutation: async ref => {
+    const name = getFunctionName(ref);
+    controlCalls.push(name);
+    if (name === 'events:claimEventMediaWorkerCommand') return command;
+    if (name === 'eventMediaWorker:admitDispatch') return { granted: true };
+    return { accepted: true };
+  } };
+  assert.throws(() => bridge.taskDefinitionFor(command, config), /Unproved broadcast configuration/);
+  await bridge.claimAndProcess(client, config, async (_config, args) => { providerCalls.push(args); return {}; });
+  assert.deepEqual(providerCalls, []);
+  assert.ok(controlCalls.includes('eventMediaWorker:releaseUnlaunchedDispatch'));
+  assert.ok(!controlCalls.includes('eventMediaWorker:markLaunchAttempt'));
+});

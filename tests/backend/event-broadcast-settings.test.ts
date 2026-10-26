@@ -21,8 +21,8 @@ const modules = {
 };
 const bridgeToken = "settings-test-credential";
 process.env.VRDEX_EVENT_MEDIA_BRIDGE_TOKEN = bridgeToken;
-async function setupFixture() {
-  const t = convexTest({ schema, modules });
+async function setupFixture(eventsLoader = loadEventsWithFixtureCapacity) {
+  const t = convexTest({ schema, modules: { ...modules, "../../convex/events.ts": eventsLoader } });
   const subject = newClerkUserId();
   await t.run(async ({ db }) => {
     const now = Date.now();
@@ -140,4 +140,36 @@ test('configure rejects unknown presets and unsupported audio without modifying 
   const {t,owner,event,output} = await setupFixture();
   for (const values of [{videoPreset:'bogus',audioBitrateKbps:160},{videoPreset:'720p30',audioBitrateKbps:192}]) await assert.rejects(owner.mutation(settingsMutation,{currentSlug:event.slug,...values}),/validator/i);
   assert.deepEqual((await t.run(ctx=>ctx.db.get(output.programId)))!.mediaSettings,{videoPreset:'720p30',audioBitrateKbps:320});
+});
+
+
+test("synthetic scheduling does not open the production capacity registry", async () => {
+  const synthetic = await setupFixture();
+  const { scheduled } = await synthetic.schedule();
+  const stored = await synthetic.t.run(ctx => ctx.db.get(scheduled.sessionId));
+  assert.deepEqual(stored!.allocation, {
+    cpuUnits: 4096, memoryMiB: 8192, evidenceId: "fixture-capacity-v1",
+  });
+  const production = await setupFixture(() => import("../../convex/events"));
+  const snapshot = () => production.t.run(async ({ db }) => ({
+    sessions: await db.query("eventMediaSessions").collect(),
+    commands: await db.query("eventMediaCommands").collect(),
+    program: await db.get(production.output.programId),
+  }));
+  const before = await snapshot();
+  await assert.rejects(production.schedule(), /Unproved broadcast configuration/);
+  assert.deepEqual(await snapshot(), before);
+  const { resolveWorkerAllocation } = await import("../../workers/restream/broadcast-capacity.mjs");
+  assert.throws(() => resolveWorkerAllocation({ videoPreset: "720p30", simulcastEnabled: false }), /Unproved broadcast configuration/);
+});
+
+test("synthetic scheduling still rejects a forged frozen allocation", async () => {
+  const { t, schedule } = await setupFixture();
+  const { scheduled } = await schedule();
+  await t.run(async ({ db }) => {
+    const session = await db.get(scheduled.sessionId);
+    assert.ok(session?.allocation);
+    await db.patch(scheduled.sessionId, { allocation: { ...session.allocation, evidenceId: "forged-synthetic-capacity-v1" } });
+  });
+  await assert.rejects(schedule(), /Unproved allocation snapshot/);
 });

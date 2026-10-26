@@ -51,8 +51,8 @@ async function fixture() {
 }
 async function observationFixture() {
   const f = await setupFixture();
-  // Already admitted session for observation tests; real scheduling tests
-  // retain the production empty-capacity-map guard.
+  // Already admitted session for observation tests; scheduling fixtures bind
+  // explicit synthetic capacity separately from the production guard.
   const scheduled = await f.t.run(async ({ db }) => {
     const now = Date.now();
     const sessionId = await db.insert("eventMediaSessions", {
