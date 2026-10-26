@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { markerFrame } from './scenes.mjs';
+import { markerFrame } from './marker-frame.mjs';
 export function sourceBaseline(pcm,rate,channels) {
  if(!Buffer.isBuffer(pcm)||![44100,48000].includes(rate)||![1,2].includes(channels)||pcm.length===0||pcm.length%(channels*2))throw Error('source_failure');
  const minimum=Array(channels).fill(32767),maximum=Array(channels).fill(-32768),energy=Array(channels).fill(0),clips=Array(channels).fill(0),samplesPerChannel=Array(channels).fill(0);

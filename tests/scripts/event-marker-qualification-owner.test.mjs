@@ -27,3 +27,16 @@ test('qualification proc parser preserves start ticks and ignores zombie ownersh
  assert.deepEqual(parseProcessStat('71 (name with ) spaces) '+fields.join(' ')),{pid:71,parent:1,group:71,startTicks:'987654321',live:true});
  fields[0]='Z';assert.equal(parseProcessStat('71 (x) '+fields.join(' ')).live,false);assert.throws(()=>parseProcessStat('bad'),/proc_stat/);
 });
+
+test('qualification owner preserves actual close code and signal separately from early spawn errors',async()=>{
+ let now=0,next=90;
+ const owner=await createQualificationOwner({scan:async()=>[],clock:()=>now,sleep:async n=>{now+=n;},signal:()=>{},spawn:()=>{const c=new EventEmitter();c.pid=next++;return c;}});
+ for(const [exitCode,signal] of [[0,null],[null,'SIGTERM']]) {
+  const child=owner.start('ffmpeg',[]);child.emit('close',exitCode,signal);
+  assert.equal(await child.closed,exitCode);assert.deepEqual(await child.nativeClosed,{exitCode,signal});assert(Object.isFrozen(await child.nativeClosed));
+ }
+ const failed=owner.start('ffmpeg',[]),error=Object.assign(new Error('missing executable'),{code:'ENOENT'});failed.emit('error',error);
+ assert.equal(await failed.closed,1);assert.equal(failed.nativeError,error);
+ failed.emit('close',-2,null);assert.deepEqual(await failed.nativeClosed,{exitCode:-2,signal:null});
+ assert.equal((await owner.close()).closed,true);
+});

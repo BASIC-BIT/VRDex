@@ -1,3 +1,4 @@
+import { audioEpisodeRawRange } from '../../scripts/event-marker-clock.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { decodeMarkerVisuals, validateIdentityEpochs, precedingIdentityAt } from '../../scripts/event-marker-record.mjs';
@@ -20,4 +21,22 @@ test('visual records retain every actual integer identity and closed flash span'
   const r=decodeMarkerVisuals(rgb,[0,3000,6000,9000].map((pts,index)=>({index,pts})));
   assert.deepEqual(r.identityEpochs,[[0,4],[3000,1],[9000,4]]);assert.deepEqual(r.videoRange,[0,9000]);assert.equal(r.visuals[0].start,3000);assert.equal(r.visuals[0].end,6000);
   assert.throws(()=>decodeMarkerVisuals(rgb.subarray(0,12),[{index:0,pts:0},{index:1,pts:3000}]),/marker_visual_unmatched_eof/);
+});
+test('visual ordinals remain independent from the millisecond native PTS grid',()=>{
+  const rgb=Buffer.from([0,0,0,0,0,0,255,0,0,255,255,255,255,0,0,0,0,0,0,0,0,0,0,0]);
+  const r=decodeMarkerVisuals(rgb,[4860,7920,10890,13860].map((pts,index)=>({index,pts})));
+  assert.deepEqual(r.identityEpochFrames,[0,1,3]);assert.equal(r.visuals[0].startFrame,1);assert.equal(r.visuals[0].endFrame,2);
+  assert.equal(r.visuals[0].start,7920);assert.equal(r.visuals[0].end,10890);
+});
+
+test('audio range projection retains observed endpoint sides across native timestamp discontinuities',()=>{
+ const episode={onset:100,end:2060,loudEnd:960,firstMetadataIndex:0,metadataRowCount:3,
+  firstLoudLeft:{ordinal:0,row:0,inRow:0,raw:100,side:'left'},
+  lastLoudRight:{ordinal:960,row:1,inRow:480,raw:1600,side:'right'},
+  closureRight:{ordinal:1440,row:2,inRow:480,raw:2060,side:'right'}};
+ assert.deepEqual(audioEpisodeRawRange(episode),[100,1600,2060,0,3]);
+ assert.notEqual(episode.lastLoudRight.raw,episode.onset+episode.loudEnd);
+ for(const mutate of [e=>e.onset++,e=>e.end++,e=>e.loudEnd++,e=>e.firstMetadataIndex++,e=>e.metadataRowCount--,e=>e.lastLoudRight.side='left',e=>e.lastLoudRight.inRow=NaN,e=>delete e.lastLoudRight]) {
+  const e=structuredClone(episode);mutate(e);assert.throws(()=>audioEpisodeRawRange(e),/marker_endpoint/);
+ }
 });

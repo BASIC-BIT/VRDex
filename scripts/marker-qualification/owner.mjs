@@ -28,31 +28,38 @@ export async function createQualificationOwner({scan=processCensus,spawn=nativeS
   if(closing)throw Error('qualification_owner_closed');
   if(active().length>=2)throw Error('qualification_child_bound');
   const child=spawn(command,args,{...options,detached:true});children.add(child);
+  child.nativeClosed=new Promise(resolve=>child.once('close',(exitCode,signal)=>resolve(Object.freeze({exitCode,signal:signal??null}))));
   child.closed=new Promise(resolve=>{
    const finish=code=>{if(!child.settled){child.settled=true;resolve(code);}};
-   child.once('close',finish);child.once('error',()=>finish(1));
+   child.once('close',finish);child.once('error',error=>{child.nativeError=error;finish(1);});
   });
   child.on('error',()=>{});return child;
  }
  function signalGroup(child,s) {
   try{signal(-child.pid,s);}catch(error){if(error.code!=='ESRCH')throw error;}
  }
- async function run(command,args,{timeoutMs=30000,maxBytes=1048576,...options}={}) {
+ async function run(command,args,{timeoutMs=30000,maxBytes=1048576,observeCapture,signal:abortSignal,...options}={}) {
+  abortSignal?.throwIfAborted();
   const child=start(command,args,{...options,stdio:['ignore','pipe','pipe']});
-  const chunks=[];let bytes=0,diagnostics=0,failure;
+  const chunks=[],stderr=[];let bytes=0,diagnostics=0,failure,stdoutEOF=false,stderrEOF=false;
   const stop=reason=>{failure??=reason;signalGroup(child,'SIGKILL');};
   child.stdout.on('data',b=>{bytes+=b.length;if(bytes>maxBytes)stop('byte_cap');else chunks.push(b);});
-  child.stderr.on('data',b=>{diagnostics+=b.length;if(diagnostics>65536)stop('byte_cap');});
+  child.stderr.on('data',b=>{diagnostics+=b.length;if(diagnostics>65536)stop('byte_cap');else stderr.push(Buffer.from(b));});
+  child.stdout.once('end',()=>{stdoutEOF=true;});child.stderr.once('end',()=>{stderrEOF=true;});
+  child.stdout.on('error',()=>stop('pipe_error'));child.stderr.on('error',()=>stop('pipe_error'));
   const timer=setTimeout(()=>stop('timeout'),timeoutMs);
-  let code;try{code=await child.closed;}finally{clearTimeout(timer);}
-  if(failure||code!==0)throw Error(failure??'encode_failure');
+  const onAbort=()=>stop('timeout');abortSignal?.addEventListener('abort',onAbort,{once:true});
+  let code;try{code=await child.closed;}finally{clearTimeout(timer);abortSignal?.removeEventListener('abort',onAbort);}
+  const native=await child.nativeClosed;
+  await observeCapture?.({command,args:[...args],raw:Buffer.concat(chunks),stderr:Buffer.concat(stderr),native,channelEOF:{stdout:stdoutEOF,stderr:stderrEOF},error:failure??child.nativeError?.message??null});
+  if(failure||code!==0||native.signal!==null||!stdoutEOF||!stderrEOF)throw Error(failure??'encode_failure');
   return Buffer.concat(chunks);
  }
  async function cleanup({timeoutMs=20000,termMs=500}={}) {
   closing=true;const startAt=clock(),seen=new Set();let empty=0,scans=0,last=[];
   while(clock()-startAt<timeoutMs) {
    last=(await scan()).filter(row=>row.live&&!baseline.has(identity(row)));scans++;
-   if(last.length===0&&active().length===0){empty++;if(empty===2)return {closed:true,children:children.size,observedIdentities:seen.size,emptyCensuses:empty,censuses:scans,survivors:[]};}
+   if(last.length===0&&active().length===0){empty++;if(empty===2)return {closed:true,children:children.size,observedIdentities:seen.size,emptyCensuses:empty,censuses:scans,survivors:[],liveChildren:active().length,liveGroups:new Set(last.map(r=>r.group)).size};}
    else empty=0;
    const sig=clock()-startAt<termMs?'SIGTERM':'SIGKILL';
    for(const row of last) {

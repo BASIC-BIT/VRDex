@@ -1,3 +1,4 @@
+import { audioEpisodeRawRange } from '../event-marker-clock.mjs';
 import { bindMarkerSelections } from '../event-marker-contexts.mjs';
 import { associateContext } from '../event-marker-association.mjs';
 import { markerOffset } from '../event-source-markers.mjs';
@@ -34,7 +35,7 @@ function evaluateRule(rule,context,observation) {
   const found=inputEpisodes(start,Math.max(...inputs.map(t=>t.start+t.samples)));check(found.length===1,'episode_selector');return found[0];
  };
  const disposition=e=>context.dispositions.find(d=>d.episodeId===e.id);
- const boundedOriginal=e=>reference.episodes.some(r=>equal([e.onset,e.onset+e.loudEnd,e.end,e.firstMetadataIndex,e.metadataRowCount],r));
+ const boundedOriginal=e=>reference.episodes.some(r=>equal(audioEpisodeRawRange(e),r));
  const relevant=context.dispositions.map(d=>episodes.find(e=>e.id===d.episodeId));
  switch(rule.rule) {
   case 'complete_context_coverage': {

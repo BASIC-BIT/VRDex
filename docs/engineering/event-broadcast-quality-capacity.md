@@ -21,15 +21,22 @@ F1 receipt. A missing, duplicate, unexpected, skipped or failed case fails CI.
 The host driver is `node .github/scripts/restream-native.mjs`, after the existing
 `docker build -f workers/restream/Dockerfile -t vrdex-restream-worker:ci .`.
 It resolves the fresh image ID and invokes the existing CLI inside its uniquely
-owned container, with `--network none`, working directory `/app`, and only
-`VRDEX_PROOF_INNER=twitch` supplied as an environment override:
+owned container, with `--network none`, working directory `/app`, and
+`VRDEX_PROOF_INNER=twitch`. The controller can also supply an optional reviewed
+finite binding context through `VRDEX_NATIVE_BINDING_CONTEXT` and its read-only
+context mount. The original native132 command and assertions still run when
+that context is absent, with an honest unproven/absent-binding state:
 
 ```sh
 node scripts/event-twitch-input-proof.mjs --case all --output-dir /tmp/event-capacity-ci-native
 ```
 
 The inner flag keeps this command local; no S3 envelope or AWS credentials are
-used. The native command has a 360-second hard timeout, at most one second of
+used. The native gate regression result remains separate from conditional
+measurement and capacity admission. The
+[conditional native-binding source path and separate readback scopes](source-marker-qualification.md#conditional-native-binding-and-single-program-source-path)
+describe the optional context and its evidence requirements. The native command
+has a 360-second hard timeout, at most one second of
 TERM grace, and then KILL. Bounded host commands and cleanup fit within a
 400-second absolute driver deadline and a seven-minute step; the existing job
 retains its 20-minute limit. A pass requires native exit zero, independent

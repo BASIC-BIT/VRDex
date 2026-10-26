@@ -5,6 +5,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 import { createProcessOwner } from "./event-proof-processes.mjs";
 import { runProofEnvelope } from "./event-proof-envelope.mjs";
+import { captureNativePrelude } from './event-marker-native-prelude.mjs';
 export const TRANSPORT_CASES = Object.freeze({
   public: [],
   tls: ["test_twitch_transport"],
@@ -184,6 +185,7 @@ if (
   try {
     const request = parseTwitchArguments(process.argv.slice(2));
     if (process.env.VRDEX_PROOF_INNER === "twitch") {
+      await captureNativePrelude(`${request.outputDir}/native-binding`);
       if (request.case === "public") await runPublicInputWorkload(request);
       else await runTransportWorkload(request);
     } else

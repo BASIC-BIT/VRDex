@@ -1,10 +1,16 @@
 import { once } from 'node:events';
+import { createAcquisitionDeadline } from '../event-marker-native-binding.mjs';
 import { writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { programEncoderArguments } from '../../workers/restream/program-renderer.mjs';
 import { outputArguments } from '../../workers/restream/output-sender.mjs';
+import { VIDEO_PROFILES } from '../../workers/restream/broadcast-profiles.mjs';
+import { captureNativeFeed } from '../event-marker-native-capture.mjs';
+import { createRawCapture } from '../event-marker-raw-capture.mjs';
+import { prepareRegenerableSource,joinRegeneratedFeed,snapshotProgramConstruction } from '../event-marker-source-ledger.mjs';
+import { inventoryProgramTransport } from '../event-marker-conservation.mjs';
+import { startCapturedInvocation,retainFeed } from './invocation-capture.mjs';
 import { resolveDestinationProfile } from '../../workers/restream/broadcast-profiles.mjs';
-import { plan } from './authority.mjs';
 import { parseMarkerMetadata } from '../event-marker-metadata.mjs';
 export function localTwitchArguments(settings) {
  const target={url:'rtmp://example.invalid/app',key:'synthetic_qualification'},profile=resolveDestinationProfile({settings,destination:'twitch'});
@@ -20,7 +26,7 @@ export function localTwitchArguments(settings) {
  if(JSON.stringify(restored)!==JSON.stringify(original))throw Error('qualification_builder_reversal');
  return {args,originalSha256:createHash('sha256').update(JSON.stringify(original)).digest('hex'),transformedSha256:createHash('sha256').update(JSON.stringify(args)).digest('hex'),removed};
 }
-async function feed(stream,chunks) {
+export async function feed(stream,chunks) {
  try {for await(const chunk of chunks){if(!stream.write(chunk))await once(stream,'drain');}stream.end();}
  catch {stream.destroy();throw Error('qualification_input_pipe');}
 }
@@ -40,39 +46,43 @@ async function writeArtifact(path,bytes,cap) {
  await writeFile(path,bytes,{flag:'wx',mode:0o600});
  return {name:path.split('/').at(-1),bytes:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')};
 }
-export async function generateNoise(owner,rate,count) {
+export async function generateNoise(owner,rate,count,{observeCapture,signal}={}) {
  if(![44100,48000].includes(rate)||!Number.isSafeInteger(count)||count<=0||count>1190400)throw Error('qualification_noise_request');
  const output={};
  for(const seed of [42,43]) {
-  const bytes=await owner.run('ffmpeg',['-hide_banner','-nostdin','-loglevel','error','-f','lavfi','-i',`anoisesrc=color=white:sample_rate=${rate}:amplitude=0.12:seed=${seed}:duration=${(count+rate)/rate}`,'-af',`atrim=end_sample=${count}`,'-ac','1','-ar',String(rate),'-f','s16le','pipe:1'],{timeoutMs:15000,maxBytes:count*2});
+  const bytes=await owner.run('ffmpeg',['-hide_banner','-nostdin','-loglevel','error','-f','lavfi','-i',`anoisesrc=color=white:sample_rate=${rate}:amplitude=0.12:seed=${seed}:duration=${(count+rate)/rate}`,'-af',`atrim=end_sample=${count}`,'-ac','1','-ar',String(rate),'-f','s16le','pipe:1'],{timeoutMs:15000,maxBytes:count*2,signal,observeCapture:observeCapture?data=>observeCapture(seed,data):undefined});
   if(bytes.length!==count*2)throw Error('qualification_noise_extent');output[seed]=bytes;
  }
  return output;
 }
-export async function normalizeMono(owner,pcm) {
- if(!Buffer.isBuffer(pcm)||pcm.length>2097152||pcm.length%2)throw Error('qualification_normalization_input');
- const child=owner.start('ffmpeg',[...plan.normalization.argumentArray],{stdio:['pipe','ignore','pipe','ignore','pipe','pipe']});
- // Normalizer raw PCM is fd4, while the shared collector reads stdout.
- const parts=[],metadata=[];let total=0,metaBytes=0,stderrBytes=0,failed=false;
- const stop=()=>{failed=true;try{process.kill(-child.pid,'SIGKILL');}catch{child.kill('SIGKILL');}};
- child.stdio[4].on('data',b=>{total+=b.length;if(total>5242880)stop();else parts.push(b);});
- child.stdio[5].on('data',b=>{metaBytes+=b.length;if(metaBytes>1048576)stop();else metadata.push(b);});
- child.stderr.on('data',b=>{stderrBytes+=b.length;if(stderrBytes>65536)stop();});
- const timer=setTimeout(stop,15000);
- let code;try{[code]=await Promise.all([child.closed,feed(child.stdin,[pcm])]);}finally{clearTimeout(timer);}
- if(code!==0||failed)throw Error('qualification_normalization_failure');
- const bytes=Buffer.concat(parts),rows=parseMarkerMetadata(Buffer.concat(metadata).toString(),'audio');
- let end;for(let i=0;i<rows.length;i++){const r=rows[i];if(r.index!==i||r.samples<=0||(end!==undefined&&r.pts!==end))throw Error('qualification_normalization_metadata');end=r.pts+r.samples;}
- if(rows.reduce((n,r)=>n+r.samples,0)*4!==bytes.length)throw Error('qualification_normalization_bytes');
- return {pcm:bytes,rows,inputSamples:pcm.length/2,outputSamples:bytes.length/4,inputSha256:createHash('sha256').update(pcm).digest('hex'),outputSha256:createHash('sha256').update(bytes).digest('hex')};
-}
-export async function encodeProgram(owner,{settings,frames,pcm,path,maxBytes=5242880,timeoutMs=90000}) {
- const args=programEncoderArguments(settings),child=owner.start('ffmpeg',args,{stdio:['ignore','pipe','pipe','pipe','pipe','pipe']});
- const collected=collect(child,{maxBytes,extraPipes:[5],timeoutMs});
- const inputs=Promise.all([feed(child.stdio[3],frames),feed(child.stdio[4],[pcm])]);
- const [result]=await Promise.all([collected,inputs]);
- const artifact=await writeArtifact(path,result.bytes,maxBytes);
- return {artifact,bytes:result.bytes,builderSha256:createHash('sha256').update(JSON.stringify(args)).digest('hex')};
+export async function encodeProgram(owner,{settings,frames,frameFactory,construction,frameCount,pcm,path,store,maxBytes=5242880,timeoutMs=90000},io={}) {
+ const ownsDeadline=!io.acquisition,acquisition=io.acquisition??createAcquisitionDeadline(timeoutMs);
+ try {
+ const profile=VIDEO_PROFILES[settings.videoPreset],frameBytes=profile.width*profile.height*3/2;
+ if(!store||!Number.isSafeInteger(frameCount)||frameCount<1||!Number.isSafeInteger(frameCount*frameBytes))throw Error('marker_source_bounds');
+ const parameters=construction?snapshotProgramConstruction(construction):null;
+ const factory=parameters?.frames??frameFactory;
+ const prefix=path.split('/').at(-1).replace(/\.ts$/,''),source=factory?prepareRegenerableSource({construct:factory,replay:factory,frameBytes,byteCap:frameCount*frameBytes,numericCap:196608,deadline:acquisition.deadline,clock:()=>performance.now()}):null;
+ if(source&&source.construction.frameCount!==frameCount)throw Error('marker_source_extent');
+ const immutablePcm=Buffer.from(pcm),audio={bytes:immutablePcm.length,sha256:createHash('sha256').update(immutablePcm).digest('hex')};
+ const pcmRef=parameters?await acquisition.run(()=>store.write(`${prefix}-input.pcm`,immutablePcm,5242880,'pcm',acquisition)):null;
+ const parametersRef=parameters?await acquisition.run(()=>store.write(`${prefix}-parameters.json`,parameters.bytes,196608,'sourceObservation',acquisition)):null;
+ const constructionRef=await acquisition.run(()=>store.json(`${prefix}-source-construction.json.gz`,{video:source?.construction??null,audio},196608,'sourceObservation',acquisition));
+ const args=programEncoderArguments(settings),session=await startCapturedInvocation(owner,{original:args,stdio:['ignore','pipe','pipe','pipe','pipe','pipe'],channels:{coded:{fd:1,cap:maxBytes,role:'coded',retention:'memory'}},stderrCap:65536,timeoutMs,store,prefix,recordKey:prefix,...io,acquisition,stage:'encode'});
+ const feed=async(kind,fd,chunks,byteCap)=>{
+  const result=await captureNativeFeed(session.child.stdio[fd],chunks,{byteCap,trace:createRawCapture({producerCap:196608,remainingBytes:store.remainingNumericBytes})});
+  if(!result.complete)session.stop('input_pipe',result.error);await acquisition.run(()=>retainFeed(store,`${prefix}-${kind}-feed`,result,acquisition));return result;
+ };
+ const settled=await Promise.allSettled([session.finish(),feed('video',3,source?source.replayFrames():frames,frameCount*frameBytes),feed('audio',4,[immutablePcm],immutablePcm.length)]);
+ const rejected=settled.find(item=>item.status==='rejected');if(rejected)throw rejected.reason;
+ const [capture,videoFeed,audioFeed]=settled.map(item=>item.value);if(!capture.channelEOF.coded)throw Error('marker_capture_incomplete');
+ const bytes=capture.coded,artifact=await acquisition.run(()=>store.write(path.split('/').at(-1),bytes,maxBytes,'coded',acquisition)),inventory=inventoryProgramTransport(bytes,{byteCap:maxBytes});
+ const sourceJoin=source?joinRegeneratedFeed(source,videoFeed):null;
+ const sourceObservations={video:source?.construction??null,audio,replay:source?.replay??null,sourceJoin,parametersSHA256:parameters?.sha256,pcmRef,parametersRef,missing:parameters?[]:source?['generator_closure','immutable_input_refs','replay_rule_ref']:['compressed_source_disposition_ledger']};
+ await acquisition.run(()=>store.json(`${prefix}-source-replay.json.gz`,{constructionRef,replay:sourceObservations.replay,sourceJoin,missing:sourceObservations.missing},196608,'sourceObservation',acquisition));
+ await acquisition.run(()=>store.json(`${prefix}-inventory.json.gz`,{file:inventory.file,videoPictures:inventory.video.packets.length,audioUnits:inventory.audio.packets.length},196608,'packet',acquisition));
+ return {artifact,bytes,builderSha256:createHash('sha256').update(JSON.stringify(args)).digest('hex'),producerEvidence:{recordKey:prefix,file:inventory.file,inventory,source:sourceObservations,parameters:parameters?.bytes,inputPcm:parameters?immutablePcm:undefined,feeds:{video:videoFeed,audio:audioFeed},encoder:capture,store}};
+ }finally{if(ownsDeadline)acquisition.dispose();}
 }
 export async function encodeTwitch(owner,{settings,program,path,maxBytes=5242880,timeoutMs=90000}) {
  const builder=localTwitchArguments(settings),child=owner.start('ffmpeg',builder.args,{stdio:['pipe','pipe','pipe','pipe']});

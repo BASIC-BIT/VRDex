@@ -7,16 +7,11 @@ import { decodeMarkerVisuals } from "./event-marker-record.mjs";
 import { buildMarkerContexts } from "./event-marker-contexts.mjs";
 import { packMarkerRecord, validateMarkerRecord } from "./event-marker-evidence.mjs";
 import { resolveDestinationProfile } from "../workers/restream/broadcast-profiles.mjs";
-export async function probe(owner, file) {
-  return JSON.parse(
-    (
-      await owner.run(
-        "ffprobe",
-        ["-v", "error", "-show_streams", "-show_format", "-of", "json", file],
-        { timeoutMs: 15000 },
-      )
-    ).toString(),
-  );
+import { assertProgramClock } from './event-marker-clock.mjs';
+import { programDecodeArguments } from './event-marker-program-guards.mjs';
+export async function probe(owner, file, {observeRaw,observeCapture,acquisition}={}) {
+ const raw=await owner.run("ffprobe",["-v","error","-show_streams","-show_format","-of","json",file],{timeoutMs:15000,observeCapture,signal:acquisition?.signal});
+ await observeRaw?.(raw);return JSON.parse(raw.toString());
 }
 export async function createFixture(owner, file, id) {
   if (!Object.hasOwn(SOURCE_FREQUENCIES, id)) throw Error("marker_fixture_identity");
@@ -283,48 +278,12 @@ export function observeSelectionMarkers(
 export async function decodeMediaMarkerRecord(
   owner,
   file,
-  { width, height, maxSeconds, observeDecoded },
+  { width, height, maxSeconds, observeDecoded, startCapture, finalProbe=probe },
 ) {
-  const child = owner.start(
-    "ffmpeg",
-    [
-      "-hide_banner",
-      "-nostdin",
-      "-nostats",
-      "-loglevel",
-      "info",
-      "-copyts",
-      "-threads",
-      "2",
-      "-filter_threads",
-      "1",
-      "-i",
-      file,
-      "-map",
-      "0:v:0",
-      "-vf",
-      `crop=${Math.max(4, Math.floor((192 * width) / 1920))}:${Math.max(2, Math.floor((64 * height) / 1080))}:${Math.floor((32 * width) / 1920)}:${Math.floor((32 * height) / 1080)},scale=2:1:flags=neighbor,format=yuv444p,settb=1/90000,signalstats,metadata=mode=print:key=lavfi.signalstats.YAVG:direct=1:file='pipe\\:5',format=rgb24`,
-      "-fps_mode",
-      "passthrough",
-      "-threads",
-      "1",
-      "-f",
-      "rawvideo",
-      "pipe:3",
-      "-map",
-      "0:a:0",
-      "-af",
-      "aresample=48000,aformat=sample_fmts=s16:channel_layouts=mono,asettb=1/48000,astats=metadata=1:reset=1:measure_perchannel=none:measure_overall=Number_of_samples,ametadata=mode=print:direct=1:file='pipe\\:6'",
-      "-ac",
-      "1",
-      "-ar",
-      "48000",
-      "-f",
-      "s16le",
-      "pipe:4",
-    ],
-    { stdio: ["ignore", "ignore", "pipe", "pipe", "pipe", "pipe", "pipe"] },
-  );
+  const original=programDecodeArguments(file,{width,height});
+  const stdio=["ignore", "ignore", "pipe", "pipe", "pipe", "pipe", "pipe"];
+  const captured=startCapture?await startCapture({original,stdio}):null;
+  const child=captured?.child??owner.start("ffmpeg",original,{stdio});
   const parts = [[], [], [], []],
     sizes = [0, 0, 0, 0];
   const caps = [
@@ -336,11 +295,11 @@ export async function decodeMediaMarkerRecord(
   let failed = false;
   const stop = () => {
     failed = true;
-    child.kill("SIGKILL");
+    if(captured)captured.stop("byte_cap");else child.kill("SIGKILL");
   };
-  const timer = setTimeout(stop, 120000);
+  const timer = captured?null:setTimeout(stop, 120000);
   let diagnosticBytes = 0;
-  child.stderr.on("data", (chunk) => {
+  if(!captured)child.stderr.on("data", (chunk) => {
     diagnosticBytes += chunk.length;
     if (diagnosticBytes > 1048576) stop();
   });
@@ -355,7 +314,8 @@ export async function decodeMediaMarkerRecord(
       if (sizes[i] > caps[i]) stop();
       else parts[i].push(chunk);
     });
-  const code = await child.closed;
+  const nativeCapture=captured?await captured.finish():null;
+  const code=nativeCapture?nativeCapture.native.exitCode:await child.closed;
   clearTimeout(timer);
   if (code !== 0 || failed)
     throw Error("Bounded timestamp marker decode failed");
@@ -364,19 +324,20 @@ export async function decodeMediaMarkerRecord(
     rgb = Buffer.concat(parts[1]);
   const video = parseMarkerMetadata(videoMetadata, "video"),
     audio = parseMarkerMetadata(audioMetadata, "audio");
-  // Proof-only observation of the same complete decode; no filters or timing changes.
-  observeDecoded?.({audioChunks: parts[2], audioRows: audio, videoRows: video, rgb});
+  const info = await finalProbe(owner, file);
+  const clock=await observeDecoded?.({audioChunks: parts[2], audioRows: audio, videoRows: video, rgb, nativeCapture,finalProbe:info});
+  assertProgramClock(clock);
   const decoded = {
-    ...decodeSourceAudio(parts[2], audio),
-    ...decodeMarkerVisuals(rgb, video),
+    ...decodeSourceAudio(parts[2], audio,clock),
+    ...decodeMarkerVisuals(rgb, video,clock),
     watermarks: [],
     audioMetadataRows: audio.length,
+    clock,assurance:clock.assurance,
   };
   decoded.episodes.forEach((episode, id) => { episode.id = id; });
   const hash = createHash("sha256");
   for await (const chunk of createReadStream(file)) hash.update(chunk);
   decoded.recordingSha256 = hash.digest("hex");
-  const info = await probe(owner, file);
   decoded.videoStreamIndex = info.streams.find(s => s.codec_type === "video")?.index;
   decoded.audioStreamIndex = info.streams.find(s => s.codec_type === "audio")?.index;
   return decoded;

@@ -1,4 +1,5 @@
-/** Synthetic proof only. No selected source, video or timing-acceptance input. */
+import { assertAudioClock } from './event-marker-clock.mjs';
+/** Synthetic proof only. No selected source or timing-acceptance input. */
 export const MARKER_SCHEMA = 'source-tones-v1';
 export const SOURCE_FREQUENCIES = Object.freeze({ a: 700, b: 1300 });
 export const MARKER_LIMITS = Object.freeze({ episodes:4096, episodeSamples:12000,
@@ -73,6 +74,33 @@ function fitCarrier(samples,length,loudEnd,firstEnd,lastStart,wave,matrix,ring,c
   return {score,openingGate,closingGate,maxResidual:finite(Math.sqrt(Math.max(0,maxSquared)/48)),maxResidualAt,code:0,condition,coefficients:[dc,sn,cs]};
 }
 
+function preludeResidual(samples,length,edges,fit,wave,scratch,counters,index) {
+  const count=edges.prelude.kind==='UnclaimedQuiet'?edges.prelude.count:0;
+  if(!count)return {code:0,openingGate:null,maxResidual:null,maxResidualAt:null};
+  if(fit.code!==0)return {code:1,openingGate:null,maxResidual:null,maxResidualAt:null};
+  const windows=Math.max(0,length+count-47);
+  counters.residual[index]+=windows;
+  if(counters.residual[index]>MARKER_LIMITS.residualWindows)throw Error('marker_residual_bound');
+  const [dc,sn,cs]=fit.coefficients;
+  const model=i=>{const phase=((i%480)+480)%480;return dc+sn*wave.sin[phase]+cs*wave.cos[phase];};
+  const value=i=>(i<0?scratch.prelude[count+i]:samples[i])/32768;
+  let cost=0;
+  for(let i=-count;i<edges.firstEnd;i++)cost+=finite((value(i)-model(i))**2);
+  let best=finite(cost),openingGate=-count;
+  for(let i=-count;i<edges.firstEnd;i++) {
+    const x=value(i);cost=finite(cost+((x-dc)**2-(x-model(i))**2));
+    if(cost<best){best=cost;openingGate=i+1;}
+  }
+  const ring=scratch.ring;ring.fill(0);
+  let rolling=0,maxSquared=-1,maxResidualAt=-count;
+  for(let i=-count;i<length;i++) {
+    const at=i+count,residual=finite((value(i)-(i>=openingGate&&i<fit.closingGate?model(i):dc))**2);
+    rolling=finite(rolling+(residual-ring[at%48]));ring[at%48]=residual;
+    if(at>=47&&rolling>maxSquared){maxSquared=rolling;maxResidualAt=i-47;}
+  }
+  return {code:2,openingGate,maxResidual:finite(Math.sqrt(Math.max(0,maxSquared)/48)),maxResidualAt};
+}
+
 function classify(samples,length,edges,scratch,counters) {
   const local={windows:Math.floor(length/480),hits:0,firstPair:-1,amplitudes:[null,null,null,null]};
   counters.local+=local.windows;
@@ -88,6 +116,7 @@ function classify(samples,length,edges,scratch,counters) {
     previousHit=hit;previousA=A;previousB=B;
   }
   const fits=basis.map((wave,i)=>fitCarrier(samples,length,edges.loudEnd,edges.firstEnd,edges.lastStart,wave,scratch.matrix,scratch.ring,counters,i));
+  fits.forEach((fit,i)=>{fit.guard=preludeResidual(samples,length,edges,fit,basis[i],scratch,counters,i);});
   let identity='unknown',reason='single_carrier_inconsistent';
   if(edges.loudEnd<1440) reason='insufficient_samples';
   else if(local.firstPair>=0) {identity='mixed';reason='simultaneous_local_energy';}
@@ -97,47 +126,61 @@ function classify(samples,length,edges,scratch,counters) {
     if(eligible.filter(Boolean).length===1) {identity=eligible[0]?'a':'b';reason='none';}
     else if(fits.some(f=>f.code!==0)) reason='invalid_metadata_or_fit';
   }
+  if((identity==='a'||identity==='b')&&fits[identity==='a'?0:1].guard.maxResidual>.14){identity='unknown';reason='single_carrier_inconsistent';}
   return {identity,reason,fits,local};
 }
 
 /** Chunk boundaries are irrelevant; RMS blocks restart at EACH metadata row. */
-export function decodeSourceAudio(chunks,rows) {
+export function decodeSourceAudio(chunks,rows,clock) {
   if(!Array.isArray(chunks)||!Array.isArray(rows)||!rows.length) throw Error('marker_audio_metadata');
+  if(clock!==undefined)assertAudioClock(clock,chunks,rows);
   let bytes=0,total=0,lastEnd;
   for(const chunk of chunks) {if(!(chunk instanceof Uint8Array)) throw Error('marker_pcm_type');bytes=safe(bytes+chunk.byteLength);}
   for(let i=0;i<rows.length;i++) {
     const r=rows[i];
     if(r.index!==i||!Number.isSafeInteger(r.pts)||!Number.isSafeInteger(r.samples)||r.samples<=0) throw Error('marker_audio_metadata');
-    if(lastEnd!==undefined&&r.pts!==lastEnd) throw Error('marker_audio_continuity');
+    if(clock===undefined&&lastEnd!==undefined&&r.pts!==lastEnd) throw Error('marker_audio_continuity');
     lastEnd=safe(r.pts+r.samples);total=safe(total+r.samples);
   }
   if(safe(total*2)!==bytes) throw Error('marker_pcm_length');
   const samples=new Int16Array(MARKER_LIMITS.episodeSamples),matrix=new Float64Array(32),ring=new Float64Array(48);
-  const scratchBytes=samples.byteLength+matrix.byteLength+ring.byteLength+basis.reduce((n,b)=>n+b.sin.byteLength+b.cos.byteLength,0);
+  let scratchBytes=samples.byteLength+matrix.byteLength+ring.byteLength+basis.reduce((n,b)=>n+b.sin.byteLength+b.cos.byteLength,0);
   if(scratchBytes>MARKER_LIMITS.scratchBytes) throw Error('marker_scratch_bound');
   let ci=0,bi=0;
   const byte=()=>{while(ci<chunks.length&&bi===chunks[ci].byteLength){ci++;bi=0;}return chunks[ci][bi++];};
   const sample=()=>{const n=byte()|(byte()<<8);return n>=32768?n-65536:n;};
   const counters={residual:[0,0],local:0},episodes=[];
-  let blockCount=0,episode,filled=0;
-  // One block is staged in the episode backing's unused prefix when inactive.
+  let blockCount=0,episode,filled=0,ordinal=0,previous,prelude;
+  // While inactive, the previous unclaimed block occupies [0,480), and the
+  // current block is staged at 480. A prior closure never supplies samples.
   for(const row of rows) for(let start=0;start<row.samples;start+=480) {
-    const count=Math.min(480,row.samples-start),position=episode?filled:0;
+    const count=Math.min(480,row.samples-start),position=episode?filled:480;
     if(position+count>samples.length) throw Error('marker_episode_bound');
     let energy=0;
     for(let i=0;i<count;i++) {const v=sample();samples[position+i]=v;energy+=(v/32768)**2;}
     blockCount++;
     const loud=Math.sqrt(energy/count)>.15,pts=safe(row.pts+start);
-    if(loud&&!episode) {episode={onset:pts,firstMetadataIndex:row.index,firstEnd:count,lastStart:0,loudEnd:count};filled=0;}
+    const endpoint=(inRow,side)=>({ordinal:safe(ordinal+inRow-start),row:row.index,inRow,raw:safe(row.pts+inRow),side});
+    if(loud&&!episode) {
+      const predecessor=previous?{...previous}: {kind:'FileOrigin',row:0,offset:0,count:0,owner:-1};
+      if(predecessor.kind==='UnclaimedQuiet') {
+        if(!prelude){prelude=new Int16Array(480);scratchBytes+=prelude.byteLength;}
+        prelude.set(samples.subarray(0,predecessor.count));
+      }
+      samples.copyWithin(0,480,480+count);
+      episode={onset:pts,firstMetadataIndex:row.index,firstEnd:count,lastStart:0,loudEnd:count,firstLoudLeft:endpoint(start,'left'),prelude:predecessor};filled=0;
+    }
     if(episode) {
-      if(loud) {episode.lastStart=filled;episode.loudEnd=filled+count;}
+      if(loud) {episode.lastStart=filled;episode.loudEnd=filled+count;episode.lastLoudRight=endpoint(start+count,'right');}
       filled+=count;
       if(!loud) {
         if(episodes.length>=MARKER_LIMITS.episodes) throw Error('marker_episode_count_bound');
-        episodes.push({...episode,end:safe(pts+count),metadataRowCount:row.index-episode.firstMetadataIndex+1,...classify(samples,filled,episode,{matrix,ring},counters)});
+        episodes.push({...episode,end:safe(pts+count),closureRight:endpoint(start+count,'right'),metadataRowCount:row.index-episode.firstMetadataIndex+1,...classify(samples,filled,episode,{matrix,ring,prelude},counters)});
+        previous={kind:'PriorClosure',row:row.index,offset:start,count,owner:episodes.length-1};
         episode=undefined;filled=0;
       }
-    }
+    } else {samples.copyWithin(0,480,480+count);previous={kind:'UnclaimedQuiet',row:row.index,offset:start,count,owner:-1};}
+    ordinal=safe(ordinal+count);
   }
   if(episode) throw Error('marker_unmatched_eof');
   return {schema:MARKER_SCHEMA,metadataSamples:total,decodedBytes:bytes,detectorBlockCount:blockCount,scratchBytes,audioRange:[rows[0].pts,lastEnd],residualWindowCounts:counters.residual,localWindowCount:counters.local,episodes};

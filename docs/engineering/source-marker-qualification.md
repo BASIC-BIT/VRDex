@@ -75,7 +75,7 @@ association gates are unchanged. See the preserved
 
 The separate qualification command leaves the 42-Python/90-Node owner
 and acquisition gate and its deadlines unchanged. It enumerates79,996 required
-IDs in83 explicit groups, including3,072 quarter-amplitude30-ms mixtures:
+IDs in83 explicit groups and294 invocations, including3,072 quarter-amplitude30-ms mixtures:
 
 | Family | Required assertions |
 | --- | ---: |
@@ -126,16 +126,31 @@ frame and coverage totals must agree. The canonical train assigns each complete
 episode once and binds every visual to its original frame. Copied case tables,
 if supplied, must match that derivation exactly; new producers omit them.
 
- Every
-unrun/failed case remains in its exact result shard; duplicate, missing, changed
-or overlapping shards fail the union. Each shard has at most256 cases/256KiB,
-each case at most512 bytes of summarized facts. Complete scene observations are
-losslessly gzip-compressed alongside the original source PCM and encoded media;
-compressed observation bytes and all final result shards together remain
-subject to the frozen262144-byte invocation numeric cap. A65536-byte failure
-reserve sits inside both numeric and aggregate invocation caps. Source, decode
-and result files are accounted together; an overrun makes every invocation ID
-incomplete. No episode or original media is removed to make a positive fit.
+Every unrun/failed case remains in its exact result shard; duplicate, missing,
+changed or overlapping shards fail the union. Each shard has at most256
+cases/256KiB, each case at most512 bytes of summarized facts. Complete scene
+observations are losslessly gzip-compressed alongside original source PCM and
+encoded media. The default `legacy-native-evidence-v1` policy, including
+`sourceClosed` and unselected runs, allows 196608 normal/262144 final numeric
+bytes with a 65536-byte failure reserve. Only the explicitly selected,
+authenticated reviewed owned `trustedStackMeasurement` workload can use
+`r83-native-evidence-v1`, with 1572864 normal/1638400 final numeric bytes and the
+same 65536-byte failure reserve. Each policy covers the whole invocation; it
+never renews per child, record or scene. Positive replay, results, receipts and
+the complete held outer reservation must fit both the normal numeric budget
+and existing normal aggregate budget. The failure allowance funds only negatives.
+
+Bootstrap and each runtime original remain capped at 196608 bytes, profile and
+manifest at 65536 bytes each, with at most 256 runtime entries. Invocation
+aggregates remain 16MiB for mass/literal, 32MiB for association/profile and 64MiB
+for compressed-source, with the failure reserve inside each aggregate. Every
+full DATA logical use and actual maps-read event is charged. Only independently
+semantically audited `implementationCode` bodies receive code-original numeric
+treatment; their full unique bodies still require reservation in every using
+invocation and group aggregate. JSON, profile/configuration and mixed authority
+data remain DATA. Collector labels do not establish semantic approval. Source,
+decode and result files are accounted together; an overrun makes every invocation
+ID incomplete. No episode or original media is removed to make a positive fit.
 Result shards use lossless gzip with the original256-KiB decompressed limit,
 and retrieval validates actual compressed bytes/SHA before bounded decoding. Artifact/CPU/deadline feasibility is unproved until actual execution.
 
@@ -172,3 +187,61 @@ definition, absent ENI and full-byte/hash retrieval independently. Local retriev
 handles one group at a time, preserving verified original private objects before
 local deletion, under the frozen384MiB high-water/two-copy allowance. No script
 here deletes those objects or writes a production map.
+
+## Conditional native binding and single PROGRAM source path
+
+The checked-in source supports a conditional `trustedStackMeasurement` path
+under an explicitly reviewed platform/vendor premise. Both
+`nativeBindingVerified` and `loaderComplete` remain false. The strict
+`sourceClosed` branch retains its missing-premise failures. Source-review
+acceptance does not establish an actual profile, image, native run or allocation.
+
+The [reviewed-bundle materializer](../../scripts/event-marker-native-bundle.mjs)
+binds complete runtime originals, source closure and audit references into K.
+It requires real complete inputs; its output cannot generate external Root
+approval A. The [ECS request producer](../../scripts/event-marker-native-ecs-controller.mjs)
+binds the selected workload, image and exact request bytes. The
+[single-PROGRAM collector](../../scripts/event-marker-program-collector.mjs)
+calls the [acquisition entrypoint](../../scripts/event-marker-program-acquire.mjs)
+for the unchanged `mass-320-48000stereo-073` PROGRAM request. This source path
+uses checked-in components and does not depend on private helper recipes.
+
+Independent [PROGRAM replay](../../scripts/marker-qualification/program-replay.mjs)
+reacquires the binding and requires the complete public-frontdoor graph:
+request/use and prebinding originals, both full noise originals and their owners,
+both metadata originals and their owners, and full encoder/decoder originals.
+No missing optional file or collector label can select a weaker graph. The
+[common outer verifier](../../scripts/event-marker-native-controller.mjs) then
+joins K/source/audit, actual launch/readbacks, original inventories and real
+external Root A. Materializer outputs and local/helper receipts remain pending
+until those actual joins pass. Absolute deadlines, owned cleanup and cancellation
+remain mandatory through collection, upload, retrieval and final publication.
+
+One unchanged PROGRAM acquisition does not qualify the four-train canary,
+paired captures, native132, bulk or capacity. There is no automatic retry or
+promotion. The complete 79,996 IDs, 83 groups and 294 invocations still require
+the actual first four paired captures before bulk under the existing gates.
+
+### Separate readback scopes
+
+CI native132 finite-binding auxiliary readback uses a finite inventory and at
+most 8,388,608 combined archive bytes, including all framing, with an independent
+1,048,576-byte parser bound. The controller copies exact listed members; the
+allowance never resets per copy. Engine auxiliary readback retains this 8MiB
+limit and grants no measurement admission. See the
+[CI producer](../../scripts/event-marker-native-ci-controller.mjs),
+[Engine readback](../../scripts/event-marker-engine-readback.mjs) and
+[independent native132 replay](../../scripts/event-marker-native132-replay.mjs).
+
+Root qualification original retrieval retains its separate 134,152,192-byte
+payload plus 65536-byte terminal limit, totaling 134,217,728 bytes per group and
+at most 257 objects. The checked-in
+[Root wrapper](../../scripts/event-marker-root-retrieval.mjs) and
+[retrieval library](../../scripts/event-marker-root-retrieval.py) require actual
+STOPPED, definition INACTIVE and ENI absence, two full reads of every original,
+and timely successful helper completion independently retained by Root. The
+existing 512MiB free-before, 128MiB free-during and 384MiB local high-water limits
+remain. A provisional helper file cannot attest its actual return or cleanup.
+Both readback scopes retain full hashes, EOF, actual owner/cleanup, deadline and
+exit evidence. These are engineering evidence protocols, not operator product
+flows or authority to delete private originals.

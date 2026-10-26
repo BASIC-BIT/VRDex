@@ -27,8 +27,8 @@ test('post-executor shards cannot exceed numeric or aggregate budgets and every 
   const dir=await mkdtemp(join(tmpdir(),'marker-shard-budget-'));
   try{
    const result=await runQualificationGroup({groupId:'literal-000',directory:dir,pins},{ownerFactory:async()=>({close:async()=>({closed:true,emptyCensuses:2})}),execute:async(inv,{store})=>{
-    if(mode==='numeric')await store.write(`${inv.id}-source.json`,Buffer.alloc(150000,32),262144);
-    else await store.write(`${inv.id}-source.pcm`,Buffer.alloc(16777216-65536),16777216);
+    if(mode==='numeric')await store.write(`${inv.id}-source.json`,Buffer.alloc(150000,32),262144,'sourceObservation');
+    else await store.write(`${inv.id}-source.pcm`,Buffer.alloc(16777216-65536),16777216,'pcm');
     return inv.rows.map((_,index)=>({index,status:'pass',facts:{observed:Array.from({length:4},(_,k)=>createHash('sha256').update(`${index}/${k}`).digest('hex')).join('')}}));
    }});
    assert.equal(result.passed,false);

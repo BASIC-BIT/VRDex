@@ -1,3 +1,4 @@
+import { audioEpisodeRawRange } from '../event-marker-clock.mjs';
 import { createHash } from 'node:crypto';
 import { bindSceneDescriptors,matchSceneContract } from './scene-policy.mjs';
 import { associateContext } from '../event-marker-association.mjs';
@@ -13,8 +14,11 @@ export function applySceneFault(contract,baseline,material) {
  const copy=structuredClone(baseline),name=baseline.sceneName,originalSha256=sha(baseline);let caught,details={};
  try {
   if(name==='truncated_closure') {
-   const selected=copy.contexts.selected_transition.identity,e=copy.record.episodes.filter(e=>e.identity===selected).at(-1),cut=e.onset+e.loudEnd,rows=material.audioRows.filter(r=>r.pts<cut).map(r=>({...r,samples:Math.min(r.samples,cut-r.pts)}));
-   const count=cut-material.audioRows[0].pts,bytes=material.pcm.subarray(0,count*2);
+   const selected=copy.contexts.selected_transition.identity,e=copy.record.episodes.filter(e=>e.identity===selected).at(-1);
+   audioEpisodeRawRange(e);
+   const endpoint=e.lastLoudRight,cut=endpoint.raw,count=endpoint.ordinal;
+   const rows=material.audioRows.slice(0,endpoint.row+1).map((r,index)=>({...r,samples:index===endpoint.row?endpoint.inRow:r.samples}));
+   const bytes=material.pcm.subarray(0,count*2);
    details={cut,originalBytes:material.pcm.length,viewBytes:bytes.length,originalPcmSha256:sha(material.pcm),viewPcmSha256:sha(bytes),originalRows:material.audioRows.length,viewRows:rows.length,viewSamples:rows.reduce((n,r)=>n+r.samples,0)};
    copy.record.audioRange[1]=cut;copy.record.decodedBytes=bytes.length;copy.record.metadataSamples=count;
    decodeSourceAudio([bytes],rows);

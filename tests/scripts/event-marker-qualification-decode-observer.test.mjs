@@ -5,7 +5,7 @@ import { mkdtemp,writeFile,rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { decodeMediaMarkerRecord } from '../../scripts/event-capacity-media.mjs';
-test('qualification observer sees complete original PCM and PTS without changing decoded record',async()=>{
+test('qualification observer sees complete originals but a missing encoded clock cannot return a naked record',async()=>{
  const dir=await mkdtemp(join(tmpdir(),'marker-decode-pure-'));try{
  const path=join(dir,'synthetic-bytes');await writeFile(path,'not media: injected owner only');
  let calls=0,observation;
@@ -17,8 +17,8 @@ test('qualification observer sees complete original PCM and PTS without changing
    pipes[6].write('frame:0 pts:48000 pts_time:1\nlavfi.astats.Overall.Number_of_samples=480\n');resolve(0);
   }));return child;
  }};
- const first=await decodeMediaMarkerRecord(owner,path,{width:854,height:480,maxSeconds:2,observeDecoded:x=>{calls++;observation=x;}});
- const second=await decodeMediaMarkerRecord(owner,path,{width:854,height:480,maxSeconds:2});
- assert.equal(calls,1);assert.deepEqual(first,second);assert.deepEqual(observation.audioRows,[{index:0,pts:48000,samples:480}]);assert.equal(observation.audioChunks.reduce((n,b)=>n+b.length,0),960);assert.deepEqual(observation.videoRows.map(r=>r.pts),[90000,93000]);assert.equal(observation.rgb.length,12);
+ await assert.rejects(decodeMediaMarkerRecord(owner,path,{width:854,height:480,maxSeconds:2,observeDecoded:x=>{calls++;observation=x;}}),/marker_clock_unproven/);
+ await assert.rejects(decodeMediaMarkerRecord(owner,path,{width:854,height:480,maxSeconds:2}),/marker_clock_unproven/);
+ assert.equal(calls,1);assert.deepEqual(observation.audioRows,[{index:0,pts:48000,samples:480}]);assert.equal(observation.audioChunks.reduce((n,b)=>n+b.length,0),960);assert.deepEqual(observation.videoRows.map(r=>r.pts),[90000,93000]);assert.equal(observation.rgb.length,12);
  }finally{await rm(dir,{recursive:true});}
 });

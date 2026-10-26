@@ -1,10 +1,12 @@
-import { deriveMassCases } from './media-facts.mjs';
+import { audioEpisodeRawRange } from '../event-marker-clock.mjs';
+import { deriveMassCases } from './mass-facts.mjs';
 import { gzipSync,gunzipSync } from 'node:zlib';
 import { matchSceneContract } from './scene-policy.mjs';
 import { matchGlobalSceneContract } from './scene-faults.mjs';
 import { markerOffset } from '../event-source-markers.mjs';
 import { createHash } from 'node:crypto';
 import { binding, plan, wire } from './authority.mjs';
+import { assertReplayedProgram } from './program-replay.mjs';
 const sha=bytes=>createHash('sha256').update(bytes).digest('hex');
 const equal=(a,b)=>wire(a)===wire(b);
 const required=plan.typedResultContract.prerequisites;
@@ -33,7 +35,7 @@ export function evaluateClassifierCase(row,prerequisites,evidence) {
  }
  if(episodes.length!==c.episodeCount||reference.length!==c.episodeCount)return fail('episode_count');
  const e=episodes[0],r=reference[0];
- if(!equal([e.onset,e.onset+e.loudEnd,e.end,e.firstMetadataIndex,e.metadataRowCount],r))return fail('original_episode_changed');
+ try{if(!equal(audioEpisodeRawRange(e),r))return fail('original_episode_changed');}catch{return fail('original_episode_changed');}
  const identities=c.outcome==='source_identified'?[c.source]:c.outcomeOneOf??[c.outcome],reasons=c.reasonOneOf??[c.reason];
  if(!identities.includes(e.identity)||!reasons.includes(e.reason))return {...fail('classifier_outcome'),facts:compactEpisode(e)};
  if(c.adjacentHitPairRequired&&(e.local.firstPair<0||e.local.hits<2||e.local.amplitudes.some(a=>!Number.isFinite(a))))return fail('adjacent_pair_missing');
@@ -65,6 +67,7 @@ export function observationName(invocation,index) {
 }
 export function observeVerdict(invocation,index,observed) {
  const row=invocation.rows[index];
+ if(invocation.kind!=='literal')assertReplayedProgram(observed);
  if(invocation.kind==='mass')return evaluateClassifierCase(row,prerequisiteStates('pass'),deriveMassCases(invocation,observed)[Math.floor(index/2)]);
  if(invocation.kind==='association'){
   const paths=observed.observations.filter(o=>o.path===row.params.path);if(paths.length!==1)throw Error('qualification_result_observation');
@@ -99,7 +102,7 @@ export function makeResultShards(invocation,results,pins) {
  return {invocation:invocation.id,expected,pins,shards};
 }
 /** Reparse actual bytes, never trust the convenience bundle fields as results. */
-export function validateResultUnion(invocations,bundles,pins,readObservation) {
+export function validateResultUnion(invocations,bundles,pins,readObservation,resolveReplayedObservation) {
  if(bundles.length!==invocations.length||new Set(bundles.map(b=>b.invocation)).size!==bundles.length)throw Error('qualification_result_union');
  let count=0,passed=true;const allIds=new Set();
  for(const inv of invocations) {
@@ -120,6 +123,11 @@ export function validateResultUnion(invocations,bundles,pins,readObservation) {
      if(typeof readObservation!=='function')throw Error('qualification_result_observation_missing');
      const bytes=readObservation(ref.name);if(!(bytes instanceof Uint8Array)||bytes.length!==ref.bytes||sha(bytes)!==ref.sha256)throw Error('qualification_result_observation_sha');
      try{observed=JSON.parse(gunzipSync(bytes,{maxOutputLength:8388608}).toString());}catch{throw Error('qualification_result_observation_decode');}
+     if(inv.kind!=='literal'){
+      if(typeof resolveReplayedObservation!=='function')throw Error('qualification_result_program_replay');
+      const replayed=resolveReplayedObservation(ref,observed);assertReplayedProgram(replayed,{outer:true});
+      if(JSON.stringify(replayed.record)!==JSON.stringify(observed.record)||JSON.stringify(replayed.programProof)!==JSON.stringify(observed.programProof))throw Error('qualification_result_program_replay');observed=replayed;
+     }
      observations.set(ref.name,{value:observed,sha256:ref.sha256,bytes:ref.bytes});
     }else{if(observed.sha256!==ref.sha256||observed.bytes!==ref.bytes)throw Error('qualification_result_observation_sha');observed=observed.value;}
     let verdict;try{verdict=observeVerdict(inv,index,observed);}catch{throw Error('qualification_result_semantic');}

@@ -1,4 +1,5 @@
 import { MARKER_SCHEMA } from './event-source-markers.mjs';
+import { assertVideoClock } from './event-marker-clock.mjs';
 const integer = n => { if(!Number.isSafeInteger(n))throw Error('marker_integer');return n; };
 // Same identity classifier as the original two-pixel marker decoder.
 const colorClass = (r,g,b) => r>150&&r>2*g&&r>2*b?'a':b>150&&b>2*r&&b>2*g?'b':'slate';
@@ -35,9 +36,10 @@ export function precedingIdentityAt(record,selection) {
 }
 
 /** Every visual end is an observed off-frame PTS, never an inferred duration. */
-export function decodeMarkerVisuals(rgb,rows) {
+export function decodeMarkerVisuals(rgb,rows,clock) {
+  if(clock!==undefined)assertVideoClock(clock,rgb,rows);
   if(!(rgb instanceof Uint8Array)||!Array.isArray(rows)||!rows.length||rows.length*6!==rgb.byteLength)throw Error('marker_video_payload');
-  const visuals=[],identities=[],identityEpochs=[];
+  const visuals=[],identities=[],identityEpochs=[],identityEpochFrames=[];
   let current,previous;
   for(let i=0;i<rows.length;i++) {
     const r=rows[i];integer(r.pts);
@@ -46,16 +48,16 @@ export function decodeMarkerVisuals(rgb,rows) {
     const identity=colorClass(...rgb.subarray(i*6,i*6+3));
     if(identities.at(-1)?.identity!==identity) {
       if(identityEpochs.length>=32)throw Error('marker_identity_bound');
-      identities.push({identity,pts:r.pts});identityEpochs.push([r.pts,IDENTITY_CODES[identity]]);
+      identities.push({identity,pts:r.pts});identityEpochs.push([r.pts,IDENTITY_CODES[identity]]);identityEpochFrames.push(i);
     }
     const on=rgb[i*6+3]>180&&rgb[i*6+4]>180&&rgb[i*6+5]>180;
     // A source switch while lit closes one observed span and starts the next.
-    if(current&&(!on||current.identity!==identity)) {current.end=r.pts;visuals.push(current);current=undefined;}
+    if(current&&(!on||current.identity!==identity)) {current.end=r.pts;current.endFrame=i;visuals.push(current);current=undefined;}
     if(on&&!current) {
       if(visuals.length>=4096)throw Error('marker_visual_bound');
-      current={id:visuals.length,start:r.pts,identity,watermark:-1};
+      current={id:visuals.length,start:r.pts,startFrame:i,identity,watermark:-1};
     }
   }
   if(current)throw Error('marker_visual_unmatched_eof');
-  return {schema:MARKER_SCHEMA,visuals,identities,identityEpochs,videoRange:[rows[0].pts,rows.at(-1).pts],videoFrames:rows.length};
+  return {schema:MARKER_SCHEMA,visuals,identities,identityEpochs,identityEpochFrames,videoRange:[rows[0].pts,rows.at(-1).pts],videoFrames:rows.length};
 }

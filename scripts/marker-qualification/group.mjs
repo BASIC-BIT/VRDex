@@ -28,7 +28,7 @@ export async function runQualificationGroup(request,{clock=()=>performance.now()
    const limit=Math.min(workMs-(beganInvocation-began),invocation.kind==='compressed-source'?360000:invocation.kind==='association'?110000:90000);
    const timeout=setTimeout(()=>{expired=true;void owner.close().catch(()=>{});},limit);timeout.unref?.();
    try {results=await execute(invocation,{owner,store:scope});}
-   catch(error){results=incomplete(['byte_cap','invocation_byte_cap'].includes(error.message)?'byte_cap':'unrun');}
+   catch(error){await scope.writeFailure(invocation.id+'-final-failure.json',{primary:{stage:'retain',error:{message:error.message}},secondary:[]});results=incomplete(['byte_cap','invocation_byte_cap'].includes(error.message)?'byte_cap':'unrun');}
    finally {
     clearTimeout(timeout);expired ||= clock()-beganInvocation>=limit;
     try{cleanup=await owner.close();}catch{cleanup={closed:false,reason:'process_leak'};}
@@ -53,10 +53,10 @@ export async function runQualificationGroup(request,{clock=()=>performance.now()
   if(results.some(r=>r.reason==='byte_cap'))results=incomplete('byte_cap',results);
   let bundle,budget;
   try{bundle=makeResultShards(invocation,results,request.pins);budget=scope.checkFinal(bundle.shards.map(s=>s.bytes));}
-  catch(error){results=incomplete(['byte_cap','invocation_byte_cap','qualification_result_shard_bound'].includes(error.message)?'byte_cap':'invalid_result',results);bundle=makeResultShards(invocation,results,request.pins);if(bundle.shards.reduce((n,s)=>n+s.length,0)>65536)throw Error('qualification_failure_reserve');budget=scope.checkFinal(bundle.shards.map(s=>s.bytes));}
+  catch(error){await scope.writeFailure(invocation.id+'-final-failure.json',{primary:{stage:'retain',error:{message:error.message}},secondary:[]});results=incomplete(['byte_cap','invocation_byte_cap','qualification_result_shard_bound'].includes(error.message)?'byte_cap':'invalid_result',results);bundle=makeResultShards(invocation,results,request.pins);if(bundle.shards.reduce((n,s)=>n+s.length,0)>65536)throw Error('qualification_failure_reserve');budget=scope.checkFinal(bundle.shards.map(s=>s.bytes));}
   bundles.push(bundle);
   const shards=[];
-  for(const [index,shard] of bundle.shards.entries())shards.push(await store.write(`${invocation.id}-results-${String(index).padStart(2,'0')}.json.gz`,shard.bytes,262144));
+  for(const [index,shard] of bundle.shards.entries())shards.push(await store.write(`${invocation.id}-results-${String(index).padStart(2,'0')}.json.gz`,shard.bytes,262144,'results'));
   const counts={pass:0,fail:0,incomplete:0};for(const r of results)counts[r.status]++;
   reports.push({id:invocation.id,expected,counts,shards,budget,cleanup:cleanup??null});
  }

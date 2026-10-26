@@ -4,36 +4,14 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { appendFile, readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
+import { createCiNativeProducer } from '../../scripts/event-marker-native-ci-controller.mjs';
 
 const BYTE_CAP = 128 * 1024;
 const ID = /^[a-f0-9]{64}$/;
 const LABEL = 'io.vrdex.native-ci';
 
-export function validateReceipt(raw, names) {
-  assert.ok(Buffer.byteLength(raw) <= BYTE_CAP, 'receipt byte limit');
-  const receipt = JSON.parse(raw); // Exactly one complete JSON document.
-  for (const [key, value] of Object.entries({ schemaVersion: 1, terminal: true, passed: true, case: 'all', deterministic: true })) {
-    assert.equal(receipt[key], value, key);
-  }
-  assert.ok(!Object.hasOwn(receipt, 'failurePhase') && !Object.hasOwn(receipt, 'failureCode'), 'failure fields');
-  for (const [summary, expected, count] of [[receipt.tests, names.python, 42], [receipt.tests?.owner, names.node, 90]]) {
-    assert.equal(summary.testsRun, count);
-    assert.equal(summary.passed, true);
-    assert.equal(expected.length, count);
-    assert.equal(new Set(expected).size, count, 'expected identities must be unique');
-    assert.equal(summary.outcomes.length, count);
-    for (const outcome of summary.outcomes) {
-      assert.deepEqual(Object.keys(outcome).sort(), ['outcome', 'test']);
-      assert.equal(outcome.outcome, 'passed');
-    }
-    assert.deepEqual(summary.outcomes.map(row => row.test).sort(), [...expected].sort(), 'required identities');
-  }
-  assert.ok(Number.isFinite(receipt.tests.cancellationMs) && receipt.tests.cancellationMs >= 0 && receipt.tests.cancellationMs <= 1500, 'cancellation bound');
-  assert.equal(receipt.cleanup.closed, true);
-  assert.equal(receipt.cleanup.liveChildren, 0);
-  assert.equal(receipt.cleanup.liveGroups, 0);
-  return { python: 42, node: 90 };
-}
+import { validateReceipt } from '../../scripts/event-marker-native132-receipt.mjs';
+export { validateReceipt } from '../../scripts/event-marker-native132-receipt.mjs';
 
 // Failed receipts are diagnostic claims only. Copy reviewed values, never raw
 // errors or unknown fields, and leave native exit/positive acceptance untouched.
@@ -139,7 +117,7 @@ function successful(result) {
   return result.stdout.trim();
 }
 
-export async function runGate({ execute = boundedCommand, names, signal, now = () => performance.now() } = {}) {
+export async function runGate({ execute = boundedCommand, names, signal, now = () => performance.now(),bindingProducer } = {}) {
   const deadline = now() + 400000;
   const token = randomUUID();
   const name = `vrdex-native-${token}`; // Identity exists before even an uncertain create.
@@ -151,7 +129,7 @@ export async function runGate({ execute = boundedCommand, names, signal, now = (
     return execute('docker', args, { timeoutMs: Math.min(limit, remaining), signal: cleaning ? undefined : signal });
   };
   const inspect = async (container, cleaning = false) => {
-    const rows = JSON.parse(successful(await invoke(['inspect', container], 5000, cleaning)));
+    const original=successful(await invoke(['inspect', container], 5000, cleaning));bindingProducer?.inspected(original);const rows = JSON.parse(original);
     assert.equal(rows.length, 1, 'single container');
     const value = rows[0];
     assert.ok(ID.test(value.Id), 'container ID');
@@ -166,15 +144,18 @@ export async function runGate({ execute = boundedCommand, names, signal, now = (
     const image = successful(await invoke(['image', 'inspect', '--format', '{{.Id}}', 'vrdex-restream-worker:ci']));
     assert.match(image, /^sha256:[a-f0-9]{64}$/);
     report.image = image;
-    createAttempted = true;
-    id = successful(await invoke(['create', '--name', name, '--label', `${LABEL}=${token}`, '--network', 'none',
+    let createArguments=['create', '--name', name, '--label', `${LABEL}=${token}`, '--network', 'none',
       '--workdir', '/app', '-e', 'VRDEX_PROOF_INNER=twitch', '--entrypoint', 'timeout', report.image,
       '--signal=TERM', '--kill-after=1s', '360s', 'sh', '-c',
       'node --version >&2 && python3 --version >&2 && ffmpeg -version >&2 || exit 1\n' +
       'node scripts/event-twitch-input-proof.mjs --case all --output-dir /tmp/event-capacity-ci-native\n' +
-      'result=$?\ncat /tmp/event-capacity-ci-native/receipt.json\nexit "$result"']));
+      'result=$?\ncat /tmp/event-capacity-ci-native/receipt.json\nexit "$result"'];
+    if(bindingProducer)createArguments=await bindingProducer.prepare({image:report.image,originalArguments:createArguments,invoke,deadline,signal});
+    createAttempted = true;
+    id = successful(await invoke(createArguments));bindingProducer?.created(id);
     assert.match(id, ID);
     const attached = await invoke(['start', '--attach', id], 362000);
+    bindingProducer?.attached(attached);
     report.nativeExit = attached.code;
     report.nativeSignal = attached.signal;
     report.versions = {
@@ -192,6 +173,7 @@ export async function runGate({ execute = boundedCommand, names, signal, now = (
       exit: container.State.ExitCode, oom: container.State.OOMKilled, error: container.State.Error,
     }, { status: 'exited', running: false, pid: 0, exit: 0, oom: false, error: '' }, 'independent stopped native state');
     report.counts = validateReceipt(raw, names);
+    await bindingProducer?.readback({id,deadline,signal});
   } catch (error) {
     report.errors.push(error.message.slice(0, 1000));
   } finally {
@@ -205,11 +187,12 @@ export async function runGate({ execute = boundedCommand, names, signal, now = (
           assert.match(found, ID);
           id = (await inspect(found, true)).Id;
         }
-        if (id) successful(await invoke(['rm', '--force', id], 5000, true));
-        assert.equal(await listOwned(), '', 'owned name absence');
+        let removal;if (id) {removal=await invoke(['rm', '--force', id], 5000, true);successful(removal);}
+        const nameAbsence=await listOwned();assert.equal(nameAbsence, '', 'owned name absence');
         if (id) {
           const remaining = successful(await invoke(['container', 'ls', '--all', '--no-trunc', '--format', '{{.ID}}', '--filter', `id=${id}`], 5000, true));
           assert.equal(remaining, '', 'exact ID absence');
+          bindingProducer?.cleaned({schema:'native-docker-cleanup-v1',remove:removal,ownedName:{stdout:nameAbsence,code:0,signal:null,failure:null},ownedId:{stdout:remaining,code:0,signal:null,failure:null}});
         }
       }
       report.cleanup = true;
@@ -217,6 +200,7 @@ export async function runGate({ execute = boundedCommand, names, signal, now = (
   }
   if (signal?.aborted || now() >= deadline) report.errors.push('outer deadline/cancellation');
   report.passed = report.errors.length === 0 && report.nativeExit === 0 && report.cleanup && report.counts !== null;
+  if(bindingProducer)try{report.binding=await bindingProducer.finish(report);}catch(error){report.errors.push('binding retention: '+error.message);report.passed=false;}
   return report;
 }
 
@@ -228,7 +212,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const absolute = setTimeout(() => { console.error('Native CI absolute deadline; cleanup unconfirmed'); process.exit(1); }, 400000);
   try {
     const names = JSON.parse(await readFile(new URL('./restream-native-names.json', import.meta.url)));
-    const report = await runGate({ names, signal: controller.signal });
+    const report = await runGate({ names, signal: controller.signal,bindingProducer:createCiNativeProducer() });
     const safe = { sourceRevision: process.env.GITHUB_SHA, ...report };
     const output = JSON.stringify(safe, null, 2);
     console.log(output);

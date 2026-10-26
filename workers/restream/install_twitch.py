@@ -114,6 +114,32 @@ def main():
     ):
         raise ValueError("Invalid explicit package manifest")
     files = [source / name for name in paths]
+    # An explicit reviewed runtime bundle is optional for ordinary transport
+    # coverage. Its absence never becomes measurement approval. K and Root's
+    # external approval ledger are deliberately outside this packaged tree.
+    runtime = worker / "native-binding/runtime"
+    native_manifest = runtime / "manifest.json"
+    if native_manifest.exists():
+        if native_manifest.is_symlink() or native_manifest.stat().st_size > 65536:
+            raise ValueError("Invalid native runtime manifest")
+        native = json.loads(native_manifest.read_bytes())
+        entries = native.get("entries")
+        if native.get("schema") != "native-runtime-deps-v1" or not isinstance(entries, list) or not 1 <= len(entries) <= 256:
+            raise ValueError("Invalid native runtime entries")
+        names = set()
+        for entry in entries:
+            name = entry.get("relativePath", "")
+            if not name or name.startswith("/") or any(part in ("", ".", "..") for part in name.split("/")) or name in names:
+                raise ValueError("Invalid native runtime path")
+            names.add(name)
+            path = runtime / name
+            if any((runtime.joinpath(*Path(name).parts[:i])).is_symlink() for i in range(1, len(Path(name).parts) + 1)) or not path.is_file() or not 0 < path.stat().st_size <= 196608:
+                raise ValueError("Invalid native runtime file")
+            data = path.read_bytes()
+            if not 0 < len(data) <= 196608 or len(data) != entry.get("bytes") or hashlib.sha256(data).hexdigest() != entry.get("sha256"):
+                raise ValueError("Changed native runtime file")
+            files.append(path)
+        files.append(native_manifest)
     manifest = {}
     for path in sorted(set(files)):
         relative = path.relative_to(source)

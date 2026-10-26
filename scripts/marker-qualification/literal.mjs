@@ -1,3 +1,4 @@
+import { audioEpisodeRawRange } from '../event-marker-clock.mjs';
 import { executeBound } from "./literal-bounds.mjs";
 import { executeMalformed } from "./literal-invalid.mjs";
 import assert from 'node:assert/strict';
@@ -42,7 +43,7 @@ export function executeLiteral(row) {
   const classes={unknown:0,a:1,b:2,mixed:3},reasons={none:0,insufficient_samples:1};
   return {samples:result.metadataSamples,bytes:result.decodedBytes,rows:reference.metadataRows,blocks:reference.detectorBlocks,
    blockSha256:createHash('sha256').update(JSON.stringify(reference.blocks)).digest('hex'),
-   episodes:result.episodes.map(e=>[e.onset,e.onset+e.loudEnd,e.end,e.firstMetadataIndex,e.metadataRowCount,classes[e.identity],reasons[e.reason],e.fits.map(f=>f.score),e.fits.map(f=>[f.code,f.maxResidual]),e.local.firstPair])};
+   episodes:result.episodes.map(e=>[...audioEpisodeRawRange(e),classes[e.identity],reasons[e.reason],e.fits.map(f=>f.score),e.fits.map(f=>[f.code,f.maxResidual]),e.local.firstPair])};
  }
  if(['detector_offset','mixture_literal','foreign_literal','hidden105_literal','phasejump_literal'].includes(family)) {
   const options={family:family==='detector_offset'||family==='metadata_short_tail'?'pure':family,source:p.source??p.dominant,phase:p.phase??0,foreignPhase:p.foreignPhase??0,

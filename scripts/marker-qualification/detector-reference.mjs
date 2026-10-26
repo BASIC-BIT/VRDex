@@ -1,12 +1,14 @@
+import { assertAudioClock, audioEpisodeRawRange } from '../event-marker-clock.mjs';
 /** Independent integer-energy detector oracle, never calls the classifier.
  * The 0.15 RMS comparison is 400*sum(s16^2) > 9*32768^2*count. */
-export function referenceDetector(pcm,rows) {
+export function referenceDetector(pcm,rows,clock) {
  if(!Buffer.isBuffer(pcm)||!Array.isArray(rows)||pcm.length%2)throw Error('reference_payload');
+ if(clock!==undefined)assertAudioClock(clock,[pcm],rows);
  const origin=rows[0]?.pts;if(!Number.isSafeInteger(origin))throw Error('reference_metadata');
  const blocks=[],episodes=[];let cursor=0,active;
  for(let rowIndex=0;rowIndex<rows.length;rowIndex++) {
   const row=rows[rowIndex];
-  if(row.index!==rowIndex||!Number.isSafeInteger(row.pts)||!Number.isSafeInteger(row.samples)||row.samples<=0||row.pts!==origin+cursor)throw Error('reference_metadata');
+  if(row.index!==rowIndex||!Number.isSafeInteger(row.pts)||!Number.isSafeInteger(row.samples)||row.samples<=0||clock===undefined&&row.pts!==origin+cursor)throw Error('reference_metadata');
   for(let at=0;at<row.samples;at+=480) {
    const count=Math.min(480,row.samples-at),start=row.pts+at;let energy=0;
    for(let i=0;i<count;i++){if((cursor+at+i)*2+2>pcm.length)throw Error('reference_bytes');const value=pcm.readInt16LE((cursor+at+i)*2);energy+=value*value;}
@@ -30,7 +32,7 @@ export function validateShortTailObservation(expected,reference,actual) {
  if(reference.metadataRows!==expected.metadataRows||reference.blocks.length!==expected.detectorBlocks||reference.blocks.reduce((n,r)=>n+r[2],0)!==expected.samples)fail();
  const ranges=expected.episodes.map(e=>e.slice(0,5));
  if(JSON.stringify(reference.episodes)!==JSON.stringify(ranges))fail();
- const vector=actual.episodes.map(e=>[e.onset,e.onset+e.loudEnd,e.end,e.firstMetadataIndex,e.metadataRowCount,e.identity,e.reason]);
+ let vector;try{vector=actual.episodes.map(e=>[...audioEpisodeRawRange(e),e.identity,e.reason]);}catch{fail();}
  if(JSON.stringify(vector)!==JSON.stringify(expected.episodes))fail();
  // Recheck every observed positive against the unchanged classification gates.
  for(const e of actual.episodes)if(['a','b'].includes(e.identity)) {
@@ -48,7 +50,7 @@ export function validateMinimumObservation(nominal,reference,actual) {
  const blockCount=nominal===1441?5:4;
  if(reference.samples!==nominal+480||reference.bytes!==(nominal+480)*2||reference.metadataRows!==2||reference.detectorBlocks!==blockCount||reference.blocks.length!==blockCount||reference.blocks.reduce((n,b)=>n+b[2],0)!==nominal+480)fail();
  if(actual.metadataSamples!==reference.samples||actual.decodedBytes!==reference.bytes||actual.detectorBlockCount!==blockCount||actual.episodes.length!==1)fail();
- const e=actual.episodes[0],vector=[e.onset,e.onset+e.loudEnd,e.end,e.firstMetadataIndex,e.metadataRowCount];
+ const e=actual.episodes[0];let vector;try{vector=audioEpisodeRawRange(e);}catch{fail();}
  if(JSON.stringify(vector)!==JSON.stringify(expected)||(e.reason==='insufficient_samples')!==(nominal===1439))fail();
  return {nominalToneSamples:nominal,measuredLoudSamples:expected[1],quietGuardStart:expected[1],quietGuardEnd:expected[2],samples:reference.samples,bytes:reference.bytes,rows:2,blocks:blockCount};
 }

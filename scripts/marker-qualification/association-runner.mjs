@@ -29,14 +29,14 @@ export async function executeAssociation(invocation,{owner,store,io=defaults,clo
    const source=sourceBaseline(pcm,48000,2),sourceRows=[];
    for(let at=0;at<scene.samples;at+=1024)sourceRows.push({index:sourceRows.length,pts:at,samples:Math.min(1024,scene.samples-at)});
    const reference=referenceDetector(stereoMono(pcm),sourceRows);
-   await store.write(`${prefix}-source.pcm`,pcm,3145728);prerequisites.source_baseline_complete='pass';stage='encode_complete';
-   const programName=`${prefix}-program.ts`,program=await io.encodeProgram(owner,{settings,frames:submitted.replayFrames(),pcm:submitted.pcm,path:store.path(programName),maxBytes:Math.min(3145728,store.remainingBytes??3145728),timeoutMs:20000});await store.adopt(programName,3145728);
-   const twitchName=`${prefix}-twitch.flv`,twitch=await io.encodeTwitch(owner,{settings,program:program.bytes,path:store.path(twitchName),maxBytes:Math.min(3145728,store.remainingBytes??3145728),timeoutMs:20000});await store.adopt(twitchName,3145728);
+   await store.write(`${prefix}-source.pcm`,pcm,3145728,'pcm');prerequisites.source_baseline_complete='pass';stage='encode_complete';
+   const programName=`${prefix}-program.ts`,program=await io.encodeProgram(owner,{settings,frameFactory:()=>submitted.replayFrames(),frameCount:scene.frames,pcm:submitted.pcm,store,path:store.path(programName),maxBytes:Math.min(3145728,store.remainingBytes??3145728),timeoutMs:20000});
+   const twitchName=`${prefix}-twitch.flv`,twitch=await io.encodeTwitch(owner,{settings,program:program.bytes,path:store.path(twitchName),maxBytes:Math.min(3145728,store.remainingBytes??3145728),timeoutMs:20000});await store.adopt(twitchName,3145728,'coded');
    prerequisites.encode_complete='pass';
    const observations=[];
    for(const [offset,path,file,builder] of [[0,'program',programName,program],[1,'program_twitch',twitchName,twitch]]) {
     stage='probe_complete';
-    const decoded=await io.readRecording(owner,store.path(file),{settings,path,frames:scene.frames,samples:scene.samples,allowEpisodeBound:rows[offset].contract.outcome==='episode_bound'});
+    const decoded=await io.readRecording(owner,store.path(file),{settings,path,frames:scene.frames,samples:scene.samples,producerEvidence:builder.producerEvidence,store,allowEpisodeBound:rows[offset].contract.outcome==='episode_bound'});
     for(const key of ['probe_complete','declared_format_valid','decode_complete','intended_coverage_complete'])prerequisites[key]='pass';
     stage='artifact_sha_bound';const artifact=store.entries.find(e=>e.name===file);
     // A classifier-bound negative still has the independently hashed original
@@ -54,7 +54,7 @@ export async function executeAssociation(invocation,{owner,store,io=defaults,clo
    if(bytes.length>8388608)throw Error('byte_cap');
    const compressed=gzipSync(bytes,{level:6});numericBytes+=compressed.length;
    if(numericBytes>262144||store.total-startBytes+compressed.length>33554432)throw Error('byte_cap');
-   const artifact=await store.write(`${prefix}-observation.json.gz`,compressed,262144);for(const result of pending)result.observation=artifact;
+   const artifact=await store.write(`${prefix}-observation.json.gz`,compressed,262144,'observation');for(const result of pending)result.observation=artifact;
    if(expired||clock()-began>=20000)throw Error('timeout');
    results.push(...pending);
   }catch(error) {

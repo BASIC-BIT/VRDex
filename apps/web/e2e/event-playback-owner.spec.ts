@@ -131,6 +131,13 @@ test('operator preview retains rename ownership, gates replacements until Monito
   await expect(preview.getByRole('button',{name:'Close preview',exact:true})).toBeFocused();
   await page.keyboard.press('Tab');
   expect(await page.evaluate(()=>document.activeElement?.tagName)).not.toBe('IFRAME');
+  await preview.scrollIntoViewIfNeeded();
+  await expect(preview.locator('iframe')).toBeVisible();
+  await expect(preview.locator('[aria-label="Local preview player"]')).toHaveAttribute('inert','');
+  await expect(preview.locator('[aria-label="Local preview player"]')).toHaveCSS('pointer-events','none');
+  expect(await page.evaluate(()=>(window as unknown as {previewMuted:boolean}).previewMuted)).toBe(true);
+  await expect(preview.getByRole('button',{name:'Monitor',exact:true})).toBeEnabled();
+  await expect.poll(()=>program.evaluate(node=>(node as HTMLVideoElement).paused)).toBe(false);
   await preview.getByRole('button',{name:'Monitor',exact:true}).click();
   expect(await page.evaluate(()=>(window as unknown as {programPausedAtUnmute:boolean}).programPausedAtUnmute)).toBe(true);
   await expect(preview.locator('[aria-label="Local preview player"]')).not.toHaveAttribute('inert','');
@@ -160,6 +167,12 @@ test('operator preview retains rename ownership, gates replacements until Monito
   await expect(preview.getByRole('button', { name: 'Close preview', exact: true })).toBeFocused();
   await page.keyboard.press('Tab');
   expect(await page.evaluate(() => document.activeElement?.tagName)).not.toBe('IFRAME');
+  await preview.scrollIntoViewIfNeeded();
+  await expect(preview.locator('iframe')).toBeVisible();
+  await expect(playerMount).toHaveAttribute('inert', '');
+  await expect(playerMount).toHaveCSS('pointer-events', 'none');
+  expect(await page.evaluate(() => (window as unknown as { previewMuted: boolean }).previewMuted)).toBe(true);
+  await expect(preview.getByRole('button', { name: 'Monitor', exact: true })).toBeEnabled();
   await page.getByRole('group', { name: 'Event a controls' }).getByRole('button', { name: 'Play', exact: true }).click();
   await expect.poll(() => program.evaluate(node => (node as HTMLVideoElement).paused)).toBe(false);
   await expect(preview.locator('iframe')).toBeVisible();
