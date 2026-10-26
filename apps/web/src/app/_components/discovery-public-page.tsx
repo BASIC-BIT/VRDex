@@ -15,6 +15,7 @@ import {
 import { HomeActiveWorldsSection, type PublicActiveWorld } from "./home-active-worlds";
 import { searchHref, type SearchResultFilter } from "./search-view-state";
 import { SearchViewShell } from "./search-view-shell";
+import { PublicSearchResultDetails } from "./public-search-result-details";
 import type { PublicEventPreview } from "./event-public-page";
 import {
   ViewerLocalEventDateTime,
@@ -308,6 +309,7 @@ function SearchResultCard({ result }: { result: PublicSearchResult }) {
           {roleLabels.length > 0 ? <span className="text-xs text-muted">{roleLabels.join(" · ")}</span> : null}
         </span>
       </TrackedDiscoveryLink>
+      {result.person ? <PublicSearchResultDetails person={result.person} /> : null}
       {result.claimEntryPath ? (
         <div className="border-t border-border px-4 py-3">
           <Link className="text-sm font-medium text-accent-strong hover:underline" href={result.claimEntryPath}>

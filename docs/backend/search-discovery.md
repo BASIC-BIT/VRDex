@@ -69,6 +69,11 @@ featured flags, outbound link presentation and resolved destination metadata.
 `public-search-genres` provides readable labels and stable featured-first ordering
 without mutating results. The shared `PublicProfileLinks` board handles public
 link actions independently of legacy lookup queries or private seed access.
+Standard public results show up to three readable genre names, with the rest
+behind an independent `+N` disclosure. Each person with public links has its own
+`Links` disclosure; opening one does not close another. Clipboard success and
+failure are announced without closing the result or navigating away. Fallback
+copy restores the copy control's focus and removes its temporary textarea.
 
 Keyword, literal-name, and stylized-name reads share a 256-document candidate
 budget (86 keyword, 85 literal, 85 stylized) before deduplication and ranking.

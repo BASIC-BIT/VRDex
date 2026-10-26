@@ -89,7 +89,7 @@ test("legacy discovery query redirects to search", async ({ page }) => {
   await expect(page).toHaveURL(/\/search\?q=aurora$/);
 
   if (process.env.PLAYWRIGHT_BASE_URL) {
-    await expect(page.getByRole("heading", { name: "Search VRDex" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Search results", exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: /Results for aurora/i })).toBeVisible();
     await expect(page.getByRole("button", { name: /Search VRDex/i })).toBeVisible();
     return;
@@ -820,10 +820,10 @@ test.describe("fixture lookup smoke", () => {
     await expect(page.getByRole("link", { name: "People" })).toHaveAttribute("aria-current", "page");
   });
 
-  test("unified search preserves BASICBIT identity across standard and DJ views", async ({ page }) => {
+  test("unified search preserves BASICBIT identity across standard and legacy DJ URLs", async ({ page }) => {
     await page.goto("/search?q=BASICBIT");
 
-    await expect(page.getByRole("link", { name: "All VRDex" })).toHaveAttribute("aria-current", "page");
+    await expect(page.getByRole("heading", { name: "Search results", exact: true })).toBeVisible();
     const standardResults = page.getByRole("region", { name: "Search results" });
     await expect(standardResults.getByRole("link", { name: /BASICBIT/ })).toHaveCount(1);
     await expect(standardResults.getByText("BASICBIT", { exact: true })).toBeVisible();
@@ -832,13 +832,14 @@ test.describe("fixture lookup smoke", () => {
 
     await page.reload();
     await expect(page).toHaveURL(/\/search\?q=BASICBIT$/);
-    await expect(page.getByRole("link", { name: "All VRDex" })).toHaveAttribute("aria-current", "page");
+    await expect(page.getByRole("heading", { name: "Search results", exact: true })).toBeVisible();
     await expect(page.getByRole("region", { name: "Search results" }).getByText("BASICBIT", { exact: true })).toBeVisible();
 
-    await page.getByRole("link", { name: "DJ links" }).click();
+    await expect(page.getByRole("link", { name: "DJ links", exact: true })).toHaveCount(0);
+    await page.goto("/search?q=BASICBIT&view=dj");
     await expect(page).toHaveURL(/\/search\?q=BASICBIT&view=dj$/);
     await expect(page.getByRole("heading", { name: "Search VRDex" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "DJ links" })).toHaveAttribute("aria-current", "page");
+    await expect(page.getByRole("link", { name: "Search results", exact: true })).toHaveAttribute("href", "/search?q=BASICBIT");
     await expect(page.getByRole("link", { name: "BASICBIT", exact: true })).toBeVisible();
     await expect(page.getByRole("link", { name: "Website: basicbit.net", exact: true })).toBeVisible();
     const djAvatar = page.locator(".lookup-avatar img").first();
@@ -847,20 +848,20 @@ test.describe("fixture lookup smoke", () => {
 
     await page.reload();
     await expect(page).toHaveURL(/\/search\?q=BASICBIT&view=dj$/);
-    await expect(page.getByRole("link", { name: "DJ links" })).toHaveAttribute("aria-current", "page");
+    await expect(page.getByRole("link", { name: "Search results", exact: true })).toHaveAttribute("href", "/search?q=BASICBIT");
     await expect(page.getByRole("link", { name: "BASICBIT", exact: true })).toBeVisible();
 
-    await page.getByRole("link", { name: "All VRDex" }).click();
+    await page.getByRole("link", { name: "Search results", exact: true }).click();
     await expect(page).toHaveURL(/\/search\?q=BASICBIT$/);
-    await expect(page.getByRole("link", { name: "All VRDex" })).toHaveAttribute("aria-current", "page");
+    await expect(page.getByRole("heading", { name: "Search results", exact: true })).toBeVisible();
 
     await page.goBack();
     await expect(page).toHaveURL(/\/search\?q=BASICBIT&view=dj$/);
-    await expect(page.getByRole("link", { name: "DJ links" })).toHaveAttribute("aria-current", "page");
+    await expect(page.getByRole("link", { name: "Search results", exact: true })).toHaveAttribute("href", "/search?q=BASICBIT");
 
     await page.goForward();
     await expect(page).toHaveURL(/\/search\?q=BASICBIT$/);
-    await expect(page.getByRole("link", { name: "All VRDex" })).toHaveAttribute("aria-current", "page");
+    await expect(page.getByRole("heading", { name: "Search results", exact: true })).toBeVisible();
   });
 
   test("search views share empty states and legacy lookup preserves its query", async ({ page }) => {
@@ -868,13 +869,13 @@ test.describe("fixture lookup smoke", () => {
     await expect(page).toHaveURL(/\/search\?q=No(?:%20|\+)Matching(?:%20|\+)Fixture&view=dj$/);
     await expect(page.getByText("No matches found.", { exact: true })).toBeVisible();
 
-    await page.getByRole("link", { name: "All VRDex" }).click();
+    await page.getByRole("link", { name: "Search results", exact: true }).click();
     await expect(page).toHaveURL(/\/search\?q=No(?:%20|\+)Matching(?:%20|\+)Fixture$/);
     await expect(page.getByText("No public results matched that search yet.", { exact: true })).toBeVisible();
 
     await page.goto("/search?q=BASICBIT&view=dj&type=world");
     await expect(page).toHaveURL(/\/search\?q=BASICBIT&view=dj$/);
-    await expect(page.getByRole("link", { name: "DJ links" })).toHaveAttribute("aria-current", "page");
+    await expect(page.getByRole("link", { name: "Search results", exact: true })).toHaveAttribute("href", "/search?q=BASICBIT");
   });
 
   test("standard search supports keyboard typeahead and sparse profile fallbacks", async ({ page }) => {

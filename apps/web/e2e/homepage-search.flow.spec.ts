@@ -1,4 +1,140 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+
+function publicResultRow(page: Page, path: string) {
+  return page.getByRole("region", { name: "Search results" }).locator(`a[href="${path}"]`).locator("..");
+}
+
+test("public result genres and Links disclose independently per person @flow", async ({ page }, info) => {
+  await page.addInitScript(() => localStorage.setItem("vrdex-theme", "dark"));
+  await page.goto("/search?q=VRDJ");
+  await expect(page.getByRole("heading", { name: "Search results", exact: true })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Search view" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "DJ links", exact: true })).toHaveCount(0);
+  const first = publicResultRow(page, "/basicbit");
+  const second = publicResultRow(page, "/playwright-moth");
+  await expect(first.getByRole("link", { name: /BASICBIT/ })).toBeVisible();
+  await expect(first.getByText("Software Dev | 3D Designer | VRDJ", { exact: true })).toBeVisible();
+  await expect(first.getByText("DnB · House · Techno", { exact: true })).toBeVisible();
+  await expect(first.getByText("Drum and Bass", { exact: true })).toHaveCount(0);
+  await expect(first.getByRole("button", { name: "Copy", exact: true })).toHaveCount(0);
+  await expect(second.getByRole("button", { name: "Copy", exact: true })).toHaveCount(0);
+  await expect(first.getByText("Bass · 140 · Trap · Space Bass · Midtempo · UKG · Dancefloor · Neurofunk", { exact: true })).toBeHidden();
+  await page.screenshot({ path: info.outputPath("public-results-collapsed.png"), fullPage: true });
+  const overflow = first.getByText("+8", { exact: true });
+  await overflow.focus();
+  await overflow.press("Enter");
+  await expect(first.getByText("Bass · 140 · Trap · Space Bass · Midtempo · UKG · Dancefloor · Neurofunk", { exact: true })).toBeVisible();
+  await expect(first.getByRole("button", { name: "Copy", exact: true })).toHaveCount(0);
+  await first.getByText("Links", { exact: true }).click();
+  await second.getByText("Links", { exact: true }).click();
+  await expect(first.getByRole("button", { name: "Copy", exact: true }).first()).toBeVisible();
+  await expect(second.getByRole("button", { name: "Copy", exact: true }).first()).toBeVisible();
+  await expect(first.locator('a[href="/basicbit"] button, a[href="/basicbit"] summary')).toHaveCount(0);
+  await expect(first.getByRole("link", { name: "Website: basicbit.net", exact: true })).toHaveAttribute("href", "https://basicbit.net/");
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({ path: info.outputPath("public-results-expanded.png"), fullPage: true });
+  await first.locator('a[href="/basicbit"]').click();
+  await expect(page).toHaveURL(/\/basicbit$/, { timeout: 15_000 });
+});
+
+test("sparse public results omit empty disclosure controls @flow", async ({ page }) => {
+  await page.goto("/search?q=Sparse%20Import");
+  const row = publicResultRow(page, "/playwright-sparse-import");
+  await expect(row.getByRole("link", { name: /Sparse Import/ })).toBeVisible();
+  await expect(row.getByRole("link", { name: "Claim this profile", exact: true })).toHaveAttribute("href", "/claim/playwright-sparse-import?source=search");
+  await expect(row.getByText("Links", { exact: true })).toHaveCount(0);
+  await expect(row.locator("summary")).toHaveCount(0);
+  await expect(row.getByText("No public links", { exact: true })).toHaveCount(0);
+});
+
+for (const outcome of ["clipboard", "fallback", "failure", "fallback throws"] as const) {
+  test(`public result ${outcome} copy preserves panels, focus and URL @flow`, async ({ page }) => {
+    const copied: string[] = [];
+    const fallbacks: string[] = [];
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.exposeFunction("recordCopiedValue", (value: string) => copied.push(value));
+    await page.exposeFunction("recordFallbackValue", (value: string) => fallbacks.push(value));
+    await page.addInitScript((mode) => {
+      Object.defineProperty(navigator, "clipboard", { configurable: true, value: {
+        writeText: async (value: string) => {
+          const record = Reflect.get(window, "recordCopiedValue");
+          if (typeof record === "function") await record(value);
+          if (mode !== "clipboard") throw new Error("Clipboard denied");
+        },
+      } });
+      document.execCommand = (command) => {
+        if (command !== "copy") throw new Error("Unexpected clipboard command");
+        const record = Reflect.get(window, "recordFallbackValue");
+        if (typeof record === "function") void record(document.activeElement instanceof HTMLTextAreaElement ? document.activeElement.value : "");
+        if (mode === "fallback throws") throw new Error("Fallback denied");
+        return mode === "fallback";
+      };
+    }, outcome);
+    await page.goto("/search?q=VRDJ");
+    const first = publicResultRow(page, "/basicbit");
+    const second = publicResultRow(page, "/playwright-moth");
+    await first.getByText("Links", { exact: true }).click();
+    await second.getByText("Links", { exact: true }).click();
+    const url = page.url();
+    const button = first.locator("button").first();
+    await button.click();
+    await expect(first.getByRole("status").filter({ hasText: outcome === "failure" || outcome === "fallback throws" ? "Copy failed" : "Copied" })).toHaveCount(1);
+    await expect(button).toBeFocused();
+    await expect(first.locator('details[open]')).toHaveCount(1);
+    await expect(second.locator('details[open]')).toHaveCount(1);
+    await expect(second.getByRole("button", { name: "Copy", exact: true }).first()).toBeVisible();
+    await expect(page).toHaveURL(url);
+    await expect(page.locator("textarea")).toHaveCount(0);
+    expect(copied).toEqual(["basic_bit"]);
+    expect(fallbacks).toEqual(outcome === "clipboard" ? [] : ["basic_bit"]);
+    expect(errors).toEqual([]);
+    if (outcome === "clipboard" || outcome === "fallback") {
+      await expect(button).toHaveAccessibleName("Copy");
+      await expect(first.getByRole("status").filter({ hasText: "Copied" })).toHaveCount(0);
+    }
+  });
+}
+
+test("expanded public links agree with legacy provider formatting @flow", async ({ page }) => {
+  await page.goto("/search?q=BASICBIT");
+  const row = publicResultRow(page, "/basicbit");
+  await row.getByText("Links", { exact: true }).click();
+  const values = await row.locator("input[readonly]").evaluateAll((inputs) => inputs.map((input) => input.getAttribute("value")));
+  const preview = await row.getByRole("link", { name: "VRCDN preview", exact: true }).getAttribute("href");
+  await expect(row.getByRole("link", { name: "Twitch: twitch.tv", exact: true })).toHaveAttribute("href", "https://www.twitch.tv/basic_bit");
+  expect(values).toEqual(["basic_bit", "https://stream.vrcdn.live/live/basicbit.live.ts", "rtspt://stream.vrcdn.live/live/basicbit"]);
+  await page.goto("/search?q=BASICBIT&view=dj");
+  const legacy = page.locator(".lookup-result-card").filter({ has: page.locator('a[href="/basicbit"]') }).first();
+  expect(await legacy.locator("input[readonly]").evaluateAll((inputs) => inputs.map((input) => input.getAttribute("value")))).toEqual(values);
+  await expect(legacy.getByRole("link", { name: "VRCDN preview", exact: true })).toHaveAttribute("href", preview!);
+});
+
+test("non-person public results retain canonical metadata and viewer-local event dates @flow", async ({ browser, baseURL }) => {
+  const context = await browser.newContext({ baseURL, timezoneId: "America/Los_Angeles" });
+  const page = await context.newPage();
+  await page.goto("/search?q=Afterglow");
+  const event = publicResultRow(page, "/playwright-afterglow-social/events/playwright-afterglow-harbor-sessions");
+  await expect(event.getByText("Afterglow Social", { exact: true })).toBeVisible();
+  await expect(event.getByText("Late-night harbor club session with house, trance, and warm social energy.", { exact: true })).toBeVisible();
+  const time = event.locator("time");
+  const timestamp = await time.getAttribute("datetime");
+  expect(timestamp).not.toBeNull();
+  await expect(time).toHaveText(new Intl.DateTimeFormat("en", { timeZone: "America/Los_Angeles", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(new Date(timestamp!)));
+  const community = publicResultRow(page, "/playwright-afterglow-social");
+  await expect(community.getByText("A warm VRChat club night for music-first communities.", { exact: true })).toBeVisible();
+  await expect(event.locator("summary")).toHaveCount(0);
+  await expect(community.locator("summary")).toHaveCount(0);
+  await community.locator('a[href="/playwright-afterglow-social"]').click();
+  await expect(page).toHaveURL(/\/playwright-afterglow-social$/);
+  await page.goto("/search?q=Neon%20Harbor");
+  const world = publicResultRow(page, "/playwright-neon-harbor");
+  await expect(world.getByText("Cyberpunk harbor club world with layered dance floors and quiet balcony corners.", { exact: true })).toBeVisible();
+  await expect(world.locator("summary")).toHaveCount(0);
+  await world.locator('a[href="/playwright-neon-harbor"]').click();
+  await expect(page).toHaveURL(/\/playwright-neon-harbor$/);
+  await context.close();
+});
 
 test("public preview caps real eight-result responses without shifting layout @flow", async ({ page }, info) => {
   await page.addInitScript(() => localStorage.setItem("vrdex-theme", "dark"));
