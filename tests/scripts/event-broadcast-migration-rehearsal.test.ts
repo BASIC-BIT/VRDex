@@ -1,3 +1,5 @@
+import { loadFixtureEvents } from "../fixtures/event-modules";
+import { syntheticAllocation } from "../fixtures/event-capacity.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { convexTest } from "convex-test";
@@ -25,7 +27,7 @@ const modules = {
 };
 // The client uses its actual codec and dispatch; only transport is in memory.
 // Convex-test executes the production handlers and schema. No sockets are opened.
-const createTest = () => convexTest({ schema, modules });
+const createTest = (synthetic = false) => convexTest({ schema, modules: synthetic ? { ...modules, "../../convex/events.ts": loadFixtureEvents } : modules });
 function localClient(
   t: Pick<ReturnType<typeof createTest>, "mutation" | "query">,
   failAt = 0,
@@ -129,9 +131,11 @@ test("failed rehearsal retains negative receipt and cleans up owned rows", async
   );
 });
 
-test("whole-flow driver honors the production map and cleans up both admission outcomes", async () => {
+for (const synthetic of [false, true]) test(synthetic
+  ? "synthetic nonproduction capacity exercises every whole-flow protocol scenario"
+  : "whole-flow driver honors the production map and cleans up both admission outcomes", async () => {
   process.env.CONVEX_CLOUD_URL = "http://127.0.0.1:3210";
-  const t = createTest();
+  const t = createTest(synthetic);
   const runId = "admission-check";
   await t.mutation(
     makeFunctionReference<"mutation">("localEventBroadcastRehearsal:seed"),
@@ -180,7 +184,7 @@ test("whole-flow driver honors the production map and cleans up both admission o
       sourceSha: "c".repeat(40),
       backendVersion: "precompiled-2026-09-28-5c7cb5b",
     });
-    if (measured) {
+    if (measured || synthetic) {
       assert.equal(
         receipt.status,
         "passed",
@@ -190,9 +194,12 @@ test("whole-flow driver honors the production map and cleans up both admission o
           errors,
         }),
       );
-      assert.ok(
-        receipt.evidence.some((item) => item.label === "real-admission"),
-      );
+      const admissions = receipt.evidence.filter((item) => item.label === "real-admission");
+      assert.ok(admissions.length > 0);
+      if (synthetic) for (const admission of admissions) {
+        assert.ok(admission.data && typeof admission.data === "object" && "allocation" in admission.data);
+        assert.deepEqual(admission.data.allocation, syntheticAllocation);
+      }
     } else {
       assert.equal(receipt.status, "failed");
       assert.equal(receipt.failedStage, "protocol-lifecycle");

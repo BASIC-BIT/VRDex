@@ -1,3 +1,4 @@
+import { loadFixtureEvents } from "../fixtures/event-modules";
 import { bindVrcdnTestAccount } from "./_eventOutputAccountFixture";
 import assert from "node:assert/strict";
 import { it } from "node:test";
@@ -12,7 +13,7 @@ const schema = (schemaModule as unknown as {
 const worker = (name: string) => makeFunctionReference<"mutation">(`eventMediaWorker:${name}`);
 const modules = {
     "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
-    "../../convex/events.ts": () => import("../../convex/events"),
+    "../../convex/events.ts": loadFixtureEvents,
     "../../convex/eventMediaWorker.ts": () => import("../../convex/eventMediaWorker"),
 };
 const bridgeToken = "worker-test-only-credential";
@@ -473,7 +474,9 @@ it('I4 legacy task reservations without process status stay discoverable', async
     const sessions = await f.t.query(api.events.listEventMediaWorkerBridgeSessions, { bridgeToken, workerId: 'bridge' });
     assert.equal(sessions[0]?.workerTaskId, 'legacy-task');
 });
-import { claimAndProcess } from '../../scripts/event-media-ecs-bridge.mjs';
+import { claimAndProcess as processClaim } from '../../scripts/event-media-ecs-bridge.mjs';
+import { resolveSyntheticAllocation } from '../fixtures/event-capacity.mjs';
+const claimAndProcess = (...args: Parameters<typeof processClaim>) => processClaim(args[0], { region: "us-east-1", ...args[1] }, args[2], args[3], resolveSyntheticAllocation);
 async function admittedBeforeAcquisition() {
     const f = await fixture();
     await f.t.mutation(worker('admitDispatch'), { bridgeToken, eventId: f.event.eventId, sessionId: f.args.sessionId, dispatchId: 'managed' });

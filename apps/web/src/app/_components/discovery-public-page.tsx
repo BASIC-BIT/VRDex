@@ -15,6 +15,7 @@ import {
 import { HomeActiveWorldsSection, type PublicActiveWorld } from "./home-active-worlds";
 import { searchHref, type SearchResultFilter } from "./search-view-state";
 import { SearchViewShell } from "./search-view-shell";
+import { PublicSearchResultDetails } from "./public-search-result-details";
 import type { PublicEventPreview } from "./event-public-page";
 import {
   ViewerLocalEventDateTime,
@@ -25,7 +26,7 @@ import { Card, SectionTitle } from "@/components/ui/card";
 import { EntityImage } from "@/components/ui/entity-image";
 import { EventSchedule, EventScheduleRow } from "@/components/ui/event-schedule";
 import { ProfileAvatarImage } from "@/components/ui/profile-avatar-image";
-import type { AvatarAppearance } from "@/lib/avatar-appearance";
+import type { PublicSearchResult } from "@/lib/public-search";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
 import { VerifiedTrustMark } from "@/components/ui/verified-trust-mark";
 import { cn } from "@/lib/cn";
@@ -35,41 +36,8 @@ import {
   type DiscoveryAnalyticsSurface,
 } from "@/lib/posthog";
 
-type EntityType = "profile" | "world" | "event";
-type ProfileType = "person" | "community";
 export type { SearchResultFilter } from "./search-view-state";
-
-export type PublicSearchResult = {
-  entityType: EntityType;
-  profileType?: ProfileType;
-  slug: string;
-  routePath: string;
-  title: string;
-  subtitle?: string;
-  summary?: string;
-  imageUrl?: string;
-  profileImageUrl?: string;
-  logoImageUrl?: string;
-  avatarAppearance?: AvatarAppearance;
-  trustLabel?: "community_submitted" | "unclaimed" | "claimed_unverified" | "claimed_verified";
-  startsAt?: number;
-  eventDate?: string;
-  scheduleKind?: "timed" | "date_only";
-  source?: {
-    sourceType?: string;
-    label: string;
-  };
-  person?: {
-    displayName: string;
-    roleTags: string[];
-    tags: string[];
-    genres: Array<{ slug: string; displayName: string; displayLabel?: string | null }>;
-    outboundLinks: Array<{ type: string; label: string; url: string }>;
-  };
-  claimEligible?: boolean;
-  claimEntryPath?: string;
-  score: number;
-};
+export type { PublicSearchResult } from "@/lib/public-search";
 
 export type PublicDiscoveryData = {
   featured: PublicSearchResult[];
@@ -311,7 +279,7 @@ function DiscoveryCard({
 
 function SearchResultCard({ result }: { result: PublicSearchResult }) {
   const subtitle = resultSubtitle(result);
-  const roleLabels = !result.summary && result.person
+  const roleLabels = result.person
     ? [...new Set([...result.person.roleTags, ...result.person.tags])].slice(0, 3)
     : [];
 
@@ -341,6 +309,7 @@ function SearchResultCard({ result }: { result: PublicSearchResult }) {
           {roleLabels.length > 0 ? <span className="text-xs text-muted">{roleLabels.join(" · ")}</span> : null}
         </span>
       </TrackedDiscoveryLink>
+      {result.person ? <PublicSearchResultDetails person={result.person} /> : null}
       {result.claimEntryPath ? (
         <div className="border-t border-border px-4 py-3">
           <Link className="text-sm font-medium text-accent-strong hover:underline" href={result.claimEntryPath}>

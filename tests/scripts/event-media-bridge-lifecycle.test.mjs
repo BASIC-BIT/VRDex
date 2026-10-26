@@ -1,3 +1,5 @@
+import { loadFixtureEvents } from "../fixtures/event-modules.ts";
+import { resolveSyntheticAllocation } from "../fixtures/event-capacity.mjs";
 import { allocatedSession } from './_event-allocation-fixture.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -13,7 +15,7 @@ import * as bridge from '../../scripts/event-media-ecs-bridge.mjs';
 const schema = schemaModule.default ?? schemaModule;
 const bridgeToken = 'lifecycle-test-token';
 const worker = name => makeFunctionReference(`eventMediaWorker:${name}`);
-const config = { bridgeToken, workerId: 'lifecycle-bridge', cluster: 'test', pollMs: 1000, redactValues: [], secretRefMap: {}, baseEnvironment: {} };
+const config = { region: 'us-east-1', bridgeToken, workerId: 'lifecycle-bridge', cluster: 'test', pollMs: 1000, redactValues: [], secretRefMap: {}, baseEnvironment: {} };
 
 test('optional drain epoch config accepts unsigned safe integers and preserves unbounded startup when absent', () => {
   const environment = {
@@ -58,7 +60,7 @@ async function fixture() {
   process.env.VRDEX_EVENT_BROADCAST_MAX_CONCURRENT = '1';
   const t = convexTest({ schema, modules: {
     '../../convex/_generated/api.ts': () => import('../../convex/_generated/api.js'),
-    '../../convex/events.ts': () => import('../../convex/events.ts'),
+    '../../convex/events.ts': loadFixtureEvents,
     '../../convex/eventMediaWorker.ts': () => import('../../convex/eventMediaWorker.ts'),
   } });
   const subject = newClerkUserId();
@@ -95,7 +97,7 @@ test('RunTask propagates the ownership tags from its registered task definition'
     calls.push(args);
     if (args[1] === 'register-task-definition') return { taskDefinition: { taskDefinitionArn: 'definition' } };
     return { tasks: [{ taskArn: 'task' }] };
-  });
+  }, undefined, resolveSyntheticAllocation);
   const args = calls.find(args => args[1] === 'run-task');
   assert.ok(args, 'start must reach actual RunTask');
   assert.equal(args[args.indexOf('--propagate-tags') + 1], 'TASK_DEFINITION');
@@ -235,7 +237,7 @@ test('drain observes a worker that stops after five seconds and acknowledges cle
       assert.equal((await f.session()).dispatchStopConfirmedAt, undefined);
     } else assert.equal(args[1], 'deregister-task-definition');
     return {};
-  }, { wallClock: () => 0, monotonicClock: () => now, signals: new EventEmitter(), wait: async ms => {
+  }, { resolveAllocation: resolveSyntheticAllocation, wallClock: () => 0, monotonicClock: () => now, signals: new EventEmitter(), wait: async ms => {
     waits.push(ms);
     advance(ms);
   } });
@@ -392,7 +394,7 @@ for (const boundary of ['claim', 'admission', 'registration']) test(`crossing de
     }
     if (args[1] === 'run-task') { launched = true; return { tasks: [{ taskArn: 'managed-task' }] }; }
     return {};
-  }, { wallClock: () => 0, monotonicClock: () => now, signals: new EventEmitter(), wait: async () => { throw Error('ambiguous launch marker remains pending'); } });
+  }, { resolveAllocation: resolveSyntheticAllocation, wallClock: () => 0, monotonicClock: () => now, signals: new EventEmitter(), wait: async () => { throw Error('ambiguous launch marker remains pending'); } });
   await pending;
   assert.equal(launched, false);
   const session = await f.session();
@@ -418,7 +420,25 @@ test('accepted launch marker finishes task registration then immediately drains 
     if (args[1] === 'describe-tasks') return { tasks: [{ taskArn: 'managed-task', lastStatus: stopped ? 'STOPPED' : 'RUNNING' }] };
     if (args[1] === 'stop-task') stopped = true;
     return {};
-  }, { wallClock: () => 0, monotonicClock: () => now, signals: new EventEmitter(), wait: async () => {} });
+  }, { resolveAllocation: resolveSyntheticAllocation, wallClock: () => 0, monotonicClock: () => now, signals: new EventEmitter(), wait: async () => {} });
   assert.deepEqual(calls, ['register-task-definition', 'run-task', 'describe-tasks', 'stop-task', 'describe-tasks', 'deregister-task-definition']);
   assert.equal((await f.session()).workerTaskCleanupPending, false);
+});
+
+
+test('production dispatch refuses synthetic allocation before any provider registration or launch', async () => {
+  const command = { commandId: 'command', commandType: 'start_program', eventId: 'event', program: { programId: 'program' }, session: allocatedSession() };
+  const controlCalls = [], providerCalls = [];
+  const client = { mutation: async ref => {
+    const name = getFunctionName(ref);
+    controlCalls.push(name);
+    if (name === 'events:claimEventMediaWorkerCommand') return command;
+    if (name === 'eventMediaWorker:admitDispatch') return { granted: true };
+    return { accepted: true };
+  } };
+  assert.throws(() => bridge.taskDefinitionFor(command, config), /Unproved broadcast configuration/);
+  await bridge.claimAndProcess(client, config, async (_config, args) => { providerCalls.push(args); return {}; });
+  assert.deepEqual(providerCalls, []);
+  assert.ok(controlCalls.includes('eventMediaWorker:releaseUnlaunchedDispatch'));
+  assert.ok(!controlCalls.includes('eventMediaWorker:markLaunchAttempt'));
 });

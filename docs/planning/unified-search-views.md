@@ -2,8 +2,10 @@
 
 ## Status
 
-Current recommendation from the July 25, 2026 repository, production, and
-independent Fable review.
+The July 25, 2026 architecture recommendation, updated for the approved
+[October 26 Home/search first slice](../superpowers/specs/2026-10-26-homepage-search-first-slice-design.md).
+This slice ships public Home and standard search; broader stored views and
+future schedule/discovery composition remain separate work.
 
 This document defines how VRDex should unify public search and DJ Lookup without
 turning a useful DJ workflow into the product's permanent taxonomy.
@@ -14,22 +16,32 @@ turning a useful DJ workflow into the product's permanent taxonomy.
   worlds, and events, then applied `type=person|community|world|event` in the
   client over the first 24 results. The unified implementation sends those
   closed filters to the backend.
-- `/` and `/lookup` render the same person-only lookup component. The UI is
-  DJ-oriented, with genres and operator links foregrounded, but the query does
-  not require a DJ role. It searches every public person profile.
-- DJ Lookup owns the stronger interaction pattern: cancellable look-ahead,
-  recent searches, public/private seed deduplication, and bulk lookup.
+- `/` renders compact public search without lookup or private-data fetching.
+  Its GET form submits to `/search`, with no DJ view parameter. Nonempty old
+  `/?q=...` bookmarks redirect to `/search?q=...&view=dj`; whitespace-only
+  queries render Home.
+- `/lookup` redirects to the person-only legacy DJ view. That query does not
+  require a DJ role and still searches every public person profile.
+- Home and standard search share cancellable public look-ahead. Legacy DJ
+  Lookup retains lookup recents, public/private seed deduplication, and bulk
+  lookup.
 - `profiles.person.roleTags` is a flexible, visibility-controlled role field.
   `DJ` is not a verified credential. Role terms can be seeded, user-created,
   reviewed, or imported, while claim and source trust currently apply at the
   profile level rather than to an individual role assertion.
 - Search documents already include normalized `person_role:*` vocabulary keys,
   but Convex cannot use array membership as an exact search-index filter.
-- Production matches the repository behavior. A live `DJ` search returns the
-  first bounded set of person results; DJ Lookup presents the same records with
-  DJ/operator links and private seed results when the viewer has access.
+- The earlier production review observed a bounded `DJ` result set and legacy
+  DJ/operator links with permission-scoped private seed results. The Home/search
+  slice described here is a repository delivery, not evidence of deployment.
 - `BASICBIT` is the canonical rich acceptance record. The repository already
   has a public fixture plus a private seed candidate and deduplication coverage.
+- Standard search uses the `Search results` heading and has no visible view
+  switch. Person rows show up to three readable genres, an independent `+N`
+  disclosure for the rest, and a `Links` disclosure only when public links exist.
+  Several link panels can stay open. The legacy `/lookup` and `view=dj` URLs
+  retain their existing lookup permissions and bulk behavior, with a plain
+  query-preserving return link to standard search.
 
 ## Locked Decisions
 
@@ -57,8 +69,10 @@ Adopt a small `SearchViewPreset` registry in TypeScript. The first two views are
 | Standard | Profiles, worlds, events | Generic entity results | `/search?q=...` |
 | DJ | People | Genres and DJ/operator links first; bulk mode available | `/search?q=...&view=dj` |
 
-`/lookup` remains a compatible entry point for the DJ view. `/` may keep the
-same current entry experience until homepage direction is reopened.
+`/lookup` remains a compatible entry point for the DJ view. `/` is the public
+search entry. Home and standard search share a five-option preview and never
+read lookup recents or private seed suggestions. The primary public search
+experience has no DJ mode switch.
 
 The first implementation does not make DJ an index-enforced eligibility rule.
 That would imply stronger taxonomy semantics than VRDex currently has. The DJ
@@ -101,7 +115,8 @@ flowchart TD
 
 1. A generic entry opens standard search.
 2. A DJ/operator entry opens the named DJ view directly.
-3. The active view is visible and removable; leaving it preserves the query.
+3. Legacy DJ results offer a plain `Search results` return link that preserves
+   the query. Standard search has no view tabs.
 4. Look-ahead uses the same query and result projection as submitted results.
 5. Enter opens the selected suggestion. Escape closes suggestions. Arrow keys
    move through visible options.

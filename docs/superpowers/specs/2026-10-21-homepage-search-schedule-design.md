@@ -1,5 +1,15 @@
 # Homepage search and schedule design
 
+## Supersession note
+
+The approved [October 26 Home/search first slice](2026-10-26-homepage-search-first-slice-design.md)
+governs the current delivery. Home now contains compact public search and
+brand/account navigation, with `/discovery` reachable. Standard search has
+readable genres and individual link disclosures. Nonempty old root-query
+bookmarks retain legacy DJ lookup behavior. The whole-home mockups below are
+broader reference for later timeline, discovery and favorites slices, not
+shipped Home behavior.
+
 ## Review brief
 
 Give VRDex a homepage where visitors can find a person or community and see
@@ -34,12 +44,12 @@ its stronger search/result interactions and improving genre display. The
 unified search study below incorporates that request. Specific route changes,
 date behavior, favorites and copy below remain proposed production behavior.
 
-The current root-lookup decision in
+The former root-lookup decision in
 [Product direction](../../planning/product-direction.md#homepage-direction)
-remains in force until this design is approved and implemented. This proposal
-would replace it with search plus a public schedule and individual expanded
-link details. Existing bulk lookup remains a compatibility workflow until the
-event-management replacement is usable; it is not a new search product bet.
+is superseded by the October 26 first slice. Public search replaces the root;
+the public schedule remains later work. Existing bulk lookup remains a
+compatibility workflow until the event-management replacement is usable; it is
+not a new search product bet.
 
 ## Visual reference
 

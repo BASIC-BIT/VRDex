@@ -70,6 +70,17 @@ the historical host pacing failure, resolve other host failures, or grant
 production capacity acceptance. Actual CI duration and native success still
 need fresh execution evidence.
 
+## Synthetic unit fixtures
+
+Backend and dispatcher unit tests bind an explicit resolver from
+`tests/fixtures/event-capacity.mjs` through handler construction and runtime
+dependencies. Its `unit-test-synthetic-capacity-v1` allocation is nonproduction
+fixture data, not a measured receipt. The test module loader replaces only the
+scheduling mutation; all remaining handlers, validators and lifecycle assertions
+run unchanged. Public scheduling and default dispatcher entrypoints still use the
+empty production registry and reject these fixtures. No environment variable,
+client field or database fixture can populate the measured registry.
+
 ## Session authority
 
 The server snapshots `{cpuUnits, memoryMiB, evidenceId}` with media settings and

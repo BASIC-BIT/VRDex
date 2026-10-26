@@ -82,7 +82,16 @@ export function createLogCapture(limit = 128 * 1024) {
   };
 }
 function driverPassed(receipt, input) {
-  return receipt?.status === "passed" && receipt.scope === "whole-flow" && receipt.cleanup?.status === "passed" && receipt.sourceSha === input.sourceSha && receipt.backendVersion === input.backendVersion && receipt.runId === input.runId;
+  const scope = input.scope ?? "whole-flow";
+  if (scope !== "whole-flow" && scope !== "migration-admission-blocked") return false;
+  if (!(receipt?.status === "passed" && receipt.scope === scope && receipt.cleanup?.status === "passed" && receipt.sourceSha === input.sourceSha && receipt.backendVersion === input.backendVersion && receipt.runId === input.runId)) return false;
+  if (scope === "whole-flow") return true;
+  const blocked = receipt.evidence?.filter(item => item.label === "production-admission-blocked");
+  return receipt.failedStage === null && Number.isInteger(receipt.migrationCalls) && receipt.migrationCalls > 50 && receipt.migrationCalls <= 256 &&
+    receipt.evidence.some(item => item.label === "historical-result") &&
+    !receipt.evidence.some(item => item.label === "real-admission") && blocked.length === 1 &&
+    blocked[0].data?.reason === "unproved-broadcast-configuration" && blocked[0].data.unchanged === true &&
+    blocked[0].data.noSessionWrites === true && blocked[0].data.noStartCommandWrites === true;
 }
 const EMPTY_TABLE_NOTICE = Buffer.from("There are no documents in this table.\n");
 function manifestRows(result) {
@@ -171,9 +180,9 @@ export async function supervisePhase(deadline, deps) {
   const passed = !interrupted && !deps.cancelled() && workClosure.passed && nativeResult.code === 0 && nativeResult.close && !nativeResult.signal && !nativeResult.timedOut && !nativeResult.overflow && phaseProof?.status === "passed" && recovery.status === "passed";
   return { status: passed ? "passed" : "failed", interrupted, workClosure, nativeResult, recovery };
 }
-/** Dependency boundary is the real HTTP/CLI/file I/O; production driver is unchanged. */
+/** Dependency boundary is the real HTTP/CLI/file I/O; default whole-flow acceptance stays intact. */
 export async function executePhase(input, deps) {
-  const proof = { status: "failed", driver: false, fixtureCleanup: false, manifestEmpty: false, bindingsRemoved: {}, privateFileRemoved: false };
+  const proof = { status: "failed", scope: input.scope ?? "whole-flow", driver: false, fixtureCleanup: false, manifestEmpty: false, bindingsRemoved: {}, privateFileRemoved: false };
   try {
     const manifest = await deps.seed();
     check(typeof manifest.communityId === "string" && manifest.actor);
@@ -324,7 +333,7 @@ async function work() {
     rpcObserver = createRpcObserver(getFunctionName);
     const admin = rpcObserver.wrap(adminClient, "admin"), owner = rpcObserver.wrap(ownerClient, "owner");
     const runId = `ci-${ownership.ownerId.slice(0, 24)}`;
-    const input = { admin, owner, bridgeToken, runId, sourceSha: id.sourceSha, backendVersion: BACKEND_VERSION };
+    const input = { admin, owner, bridgeToken, runId, sourceSha: id.sourceSha, backendVersion: BACKEND_VERSION, ...(timing.scope === "migration-admission-blocked" ? { scope: timing.scope } : {}) };
     const cli = async (args, value) => {
       const result = await native(path.join(ROOT, "node_modules/.bin/convex"), [...args, "--env-file", envfile], { stdin: value === undefined ? undefined : `${value}\n`, deadline: Math.min(Date.now() + 10_000, timing.deadline - 20_000), capture: args[0] === "data", observeEmptyTable: args[0] === "data", logs }).done;
       cliStatuses.push({ operation: args.slice(0, 3), code: result.code, signal: result.signal, close: result.close, timedOut: result.timedOut, overflow: result.overflow, ...(args[0] === "data" ? { cliVersion, stderrBytes: result.stderrBytes, emptyTableNotice: result.emptyTableNotice } : {}) });
@@ -443,12 +452,13 @@ export function acceptEvidence(proof, evidence, input, now) {
     return true;
   } catch { return false; }
 }
-async function run() {
+async function run(scope = "whole-flow") {
+  check(scope === "whole-flow" || scope === "migration-admission-blocked");
   const started = Date.now(), deadline = started + 330_000;
   const id = identity(), ownership = readOwnership(ROOT, id), artifact = artifactDir(ROOT);
   check(!present(path.join(privateDir(ROOT), "attempt.json")));
-  writeJson(path.join(privateDir(ROOT), "attempt.json"), { ownerId: ownership.ownerId, started, deadline });
-  const proof = { status: "failed", ...id, ownerId: ownership.ownerId, backendVersion: BACKEND_VERSION, started, deadline, closure: null, generated: null };
+  writeJson(path.join(privateDir(ROOT), "attempt.json"), { ownerId: ownership.ownerId, started, deadline, scope });
+  const proof = { status: "failed", scope, ...id, ownerId: ownership.ownerId, backendVersion: BACKEND_VERSION, started, deadline, closure: null, generated: null };
   writeJson(path.join(artifact, "result.json"), proof);
   let child, childClosed = false, nativeStatus = null, owner, cancelled = false, finalProof = false;
   const logs = createLogCapture(2 * 1024);
@@ -501,7 +511,7 @@ async function run() {
       const runtime = json(path.join(artifact, "runtime.json"));
       const recovery = json(path.join(artifact, "recovery.json"));
       check(recovery.status === "passed" && proof.workClosure?.passed);
-      const input = { sourceSha: id.sourceSha, backendVersion: BACKEND_VERSION, runId: `ci-${ownership.ownerId.slice(0, 24)}` };
+      const input = { sourceSha: id.sourceSha, backendVersion: BACKEND_VERSION, runId: `ci-${ownership.ownerId.slice(0, 24)}`, scope };
       proof.logs = logs.receipt();
       check(acceptEvidence(proof, { phase: phaseProof, phaseNative, parentNative, driver, runtime }, input, Date.now()));
       proof.status = "passed";
@@ -564,6 +574,7 @@ async function main() {
     check(selection.complete);
   }
   else if (mode === "run") await run();
+  else if (mode === "run-admission-blocked") await run("migration-admission-blocked");
   else if (mode === "group") await group();
   else if (mode === "phase") await phase();
   else if (mode === "recover") await recover();

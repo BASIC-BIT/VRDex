@@ -1,3 +1,4 @@
+import { loadFixtureEvents } from "../fixtures/event-modules";
 import { bindVrcdnTestAccount } from "./_eventOutputAccountFixture";
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
@@ -15,7 +16,7 @@ import schemaModule from "../../convex/schema";
 import { newClerkUserId } from "./_clerkTestIdentity";
 const modules = {
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
-  "../../convex/events.ts": () => import("../../convex/events"),
+  "../../convex/events.ts": loadFixtureEvents,
   "../../convex/communityTelemetry.ts": () => import("../../convex/communityTelemetry"),
   "../../convex/profileAssets.ts": () => import("../../convex/profileAssets"),
   "../../convex/search.ts": () => import("../../convex/search"),

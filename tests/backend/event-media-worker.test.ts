@@ -1,3 +1,5 @@
+import { resolveSyntheticAllocation } from "../fixtures/event-capacity.mjs";
+import { loadFixtureEvents } from "../fixtures/event-modules";
 import { syntheticInputs } from '../../scripts/event-proof-fixtures.mjs';
 import { bindVrcdnTestAccount } from "./_eventOutputAccountFixture";
 import assert from "node:assert/strict";
@@ -12,7 +14,7 @@ const schema = (schemaModule as unknown as { default?: typeof schemaModule }).de
 const worker = (name: string) => makeFunctionReference<"mutation">(`eventMediaWorker:${name}`);
 const modules = {
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
-  "../../convex/events.ts": () => import("../../convex/events"),
+  "../../convex/events.ts": loadFixtureEvents,
   "../../convex/eventMediaWorker.ts": () => import("../../convex/eventMediaWorker"),
 };
 const bridgeToken = "worker-test-only-credential";
@@ -49,8 +51,8 @@ async function fixture() {
 }
 async function observationFixture() {
   const f = await setupFixture();
-  // Already admitted session for observation tests; real scheduling tests
-  // retain the production empty-capacity-map guard.
+  // Already admitted session for observation tests; scheduling fixtures bind
+  // explicit synthetic capacity separately from the production guard.
   const scheduled = await f.t.run(async ({ db }) => {
     const now = Date.now();
     const sessionId = await db.insert("eventMediaSessions", {
@@ -313,7 +315,7 @@ it('destination keys cannot be converted by the legacy VRCDN writer or malformed
  assert.ok(command); assert.deepEqual(command.optionalOutputs.map((o:any)=>o?.outputId),[other.outputId]);
  const {taskDefinitionFor}=await import('../../scripts/event-media-ecs-bridge.mjs');
  const arn='arn:aws:secretsmanager:us-east-1:123456789012:secret:optional-ABC123';
- const definition=taskDefinitionFor(command,{baseEnvironment:{},secretRefMap:{'event-media/vrcdn/main':'arn:main','event-media/twitch/owned':arn},outputSecretEnvName:'VRDEX_EVENT_MEDIA_OUTPUT_INGEST_SECRET_JSON',workerTokenSecretArn:'arn:token'});
+ const definition=taskDefinitionFor(command,{baseEnvironment:{},secretRefMap:{'event-media/vrcdn/main':'arn:main','event-media/twitch/owned':arn},outputSecretEnvName:'VRDEX_EVENT_MEDIA_OUTPUT_INGEST_SECRET_JSON',workerTokenSecretArn:'arn:token'}, resolveSyntheticAllocation);
  assert.ok(!definition.containerDefinitions[0].secrets.some((entry:any)=>entry.valueFrom===arn));
  const lease=await t.mutation(worker('acquireSession'),{protocolVersion:2,bridgeToken,eventId:event.eventId,sessionId:command.session.sessionId,workerId:'output-worker',epoch:0});
  const badHealth=await t.mutation(worker('observeOutputs'),{protocolVersion:2,bridgeToken,eventId:event.eventId,sessionId:command.session.sessionId,workerId:'output-worker',epoch:lease.epoch,destinations:[{outputId:added.outputId,destination:'twitch',status:'publishing',publishing:true,queueBytes:0,outputMs:1000,restarts:0}]});
@@ -368,8 +370,8 @@ it("operator_stops_offering_revoked_profile_source_before_worker_refresh", async
   assert.equal(before.sources[0].hasPublicUrl, true);
   await t.run(({db}) => db.patch(person, { outboundLinks: [] }));
   const after = await owner.query(api.events.getEventMediaControlStatus, { currentSlug: event.slug });
-  assert.equal(after.sources[0].hasPublicUrl, false);
-  await assert.rejects(owner.mutation(api.events.queueEventMediaCommand, { idempotencyKey:crypto.randomUUID(), currentSlug: event.slug, type: "switch_source", targetSourceKey: after.sources[0].key }));
+  assert.deepEqual(after.sources, []);
+  await assert.rejects(owner.mutation(api.events.queueEventMediaCommand, { idempotencyKey:crypto.randomUUID(), currentSlug: event.slug, type: "switch_source", targetSourceKey: before.sources[0].key }));
 });
 
 it("pending_control_from_an_ended_session_does_not_block_a_new_session", async () => {

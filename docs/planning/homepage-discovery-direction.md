@@ -2,7 +2,10 @@
 
 ## Status
 
-Current recommendation from the July 9, 2026 product-design pass.
+Broader direction from the July 9, 2026 product-design pass. The approved
+[October 26 Home/search first slice](../superpowers/specs/2026-10-26-homepage-search-first-slice-design.md)
+supersedes the former root-lookup decision. The timeline, favorites and later
+discovery composition remain reference direction, not shipped Home behavior.
 
 This document captures homepage, discovery, event-calendar, privacy,
 personalization, and design-system implications that should not live only in
@@ -91,16 +94,21 @@ Current gaps:
 
 Locked decision:
 
-- Direct lookup is the root experience for the current product stage.
-- The richer event-oriented surface remains available at `/discovery` without
-  primary navigation until it has enough useful data and a reviewed name.
+- Home is a compact public search entry with brand/account navigation and the
+  approved `DJs, clubs & events` heading. It submits to standard `/search` and
+  shows at most five public preview options in an overlay.
+- The richer event-oriented surface remains at `/discovery`, reachable through
+  Home navigation. Home has no timeline, My night or favorites placeholders.
+- Nonempty old `/?q=...` bookmarks keep the legacy DJ lookup destination.
+  Empty or whitespace-only root queries render public Home without lookup data.
 
 Current recommendation:
 
 - The long-term discovery surface should include a timeline-style view of
   events happening today.
 - The homepage should lead with utility, not explanatory product copy.
-- Direct lookup may own the current root while the discovery surface matures.
+- Keep public search as the current root while later schedule and discovery
+  slices gain real data contracts.
 - A "today / tonight / soon" event schedule should be the strongest first data
   module when public event data exists.
 - The value is the time-oriented view of what is happening when, not simply a
@@ -133,9 +141,11 @@ Locked direction from current implementation:
 
 - `/search` is direct-intent lookup across public people, communities, worlds,
   and events.
-- `/lookup` remains a stable direct lookup route, while `/` uses the same
-  lookup experience.
-- `/discovery` is the unlisted richer discovery surface.
+- `/` uses shared public search, with new submissions going to `/search?q=...`.
+- `/lookup` remains a stable legacy entry to `/search?view=dj`, including bulk
+  lookup and explicitly authorized private seed workflows. Nonempty `/?q=...`
+  bookmarks redirect there with their trimmed query.
+- `/discovery` retains the richer discovery surface and is linked from Home.
 - `/discover` remains a legacy redirect and must not be repurposed.
 
 Current recommendation:

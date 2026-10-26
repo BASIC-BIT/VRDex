@@ -1,5 +1,7 @@
-import { ProfileLookupPage } from "./_components/profile-lookup-page";
-import { fetchProfileLookup } from "@/convex/server";
+import { redirect } from "next/navigation";
+
+import { HomeSearchPage } from "./_components/home-search-page";
+import { searchHref } from "./_components/search-view-state";
 
 export const dynamic = "force-dynamic";
 
@@ -12,16 +14,7 @@ type HomePageProps = {
 export default async function Home({ searchParams }: HomePageProps) {
   const { q } = await searchParams;
   const query = q?.trim() ?? "";
-  const lookup = await fetchProfileLookup(query);
+  if (query) redirect(searchHref({ query, view: "dj" }));
 
-  return (
-    <ProfileLookupPage
-      privateResults={lookup.privateResults}
-      query={query}
-      results={lookup.results}
-      routePath="/"
-      status={lookup.kind}
-      viewerAccess={lookup.viewerAccess}
-    />
-  );
+  return <HomeSearchPage />;
 }

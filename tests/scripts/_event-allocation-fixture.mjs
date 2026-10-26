@@ -1,4 +1,4 @@
-import { resolveWorkerAllocation } from "../../workers/restream/broadcast-capacity.mjs";
+import { resolveSyntheticAllocation } from "../fixtures/event-capacity.mjs";
 import { resolveDestinationProfile } from "../../workers/restream/broadcast-profiles.mjs";
 export function allocatedSession({
   sessionId = "session",
@@ -12,7 +12,7 @@ export function allocatedSession({
     sessionId,
     outputId: primary,
     mediaSettings,
-    allocation: resolveWorkerAllocation({
+    allocation: resolveSyntheticAllocation({
       videoPreset,
       simulcastEnabled: optional !== undefined,
     }),

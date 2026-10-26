@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { loadConfig } from '../../scripts/event-media-ecs-bridge.mjs';
+import { resolveSyntheticAllocation } from '../fixtures/event-capacity.mjs';
+import { loadConfig, runBridge } from '../../scripts/event-media-ecs-bridge.mjs';
 import * as lambda from '../../scripts/event-media-lambda-bridge.mjs';
 const environment = {
   CONVEX_URL: 'https://example.convex.cloud',
@@ -202,13 +203,13 @@ test('secret requests also abort after fifteen seconds', async t => {
   assert.equal(f.requests.length, 0);
 });
 
-test('Lambda dispatch carries the same measured resources and launch fence through the SDK', async t => {
+test('Lambda dispatch carries explicit synthetic resources and launch fence through the SDK', async t => {
   withEnvironment(t);
   const { allocatedSession } = await import('./_event-allocation-fixture.mjs');
   const { taskDefinitionFor } = await import('../../scripts/event-media-ecs-bridge.mjs');
   const command={commandId:'command',commandType:'start_program',eventId:'event',program:{programId:'program'},session:allocatedSession({videoPreset:'1080p60',optional:'optional'})};
   const events=[], sent=[];let registered;
-  const f=fixture({fetch:async(_url,init)=>{
+  const f=fixture({runBridge: (client, config, runner, options) => runBridge(client, config, runner, { ...options, resolveAllocation: resolveSyntheticAllocation }), fetch:async(_url,init)=>{
     const body=JSON.parse(init.body);events.push(body.path);
     let value={accepted:true};
     if(body.path==='events:claimEventMediaWorkerCommand')value=command;
@@ -218,7 +219,7 @@ test('Lambda dispatch carries the same measured resources and launch fence throu
   }});
   f.runtime.ecsClient.send=async request=>{sent.push(request);if(request.operation==='RegisterTaskDefinition'){registered=request.input;return {taskDefinition:{taskDefinitionArn:'definition'}};}assert.equal(request.operation,'RunTask');assert(events.includes('eventMediaWorker:markLaunchAttempt'));assert.equal(request.input.taskDefinition,'definition');assert.equal(typeof request.input.clientToken,'string');assert.equal(request.input.overrides,undefined);return {tasks:[{taskArn:'task'}]};};
   await f.handler({}, {awsRequestId:'launch'});
-  const expected=taskDefinitionFor(command,loadConfig({bridgeToken:'test-token'}));
+  const expected=taskDefinitionFor(command,loadConfig({bridgeToken:'test-token'}), resolveSyntheticAllocation);
   assert.equal(registered.cpu,expected.cpu);assert.equal(registered.memory,expected.memory);
   assert.equal(registered.containerDefinitions[0].cpu,expected.containerDefinitions[0].cpu);
   assert.equal(registered.containerDefinitions[0].memory,expected.containerDefinitions[0].memory);

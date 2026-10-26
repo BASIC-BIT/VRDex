@@ -762,9 +762,10 @@ fully accepted and ordinary hosted output remains disabled.
 
 ## October 24, 2026: Task 9 source prerequisites
 
-Status: source preparation only. Actual local Convex migration, protocol lifecycle,
-final-image media, capacity, browser/audio and owned-provider acceptance remain
-open. In-memory schema/handler tests cannot close those gates or the existing
+Historical status on October 24: source preparation only. The bounded CI mode
+below separately verifies actual local migration and expected admission denial.
+Whole-flow protocol lifecycle, final-image media, capacity, browser/audio and
+owned-provider acceptance remain open. In-memory schema/handler tests cannot close those gates or the existing
 physical PC/Quest gaps. No temporary provider task or paid operation belongs to
 this source-only step (USD 0).
 
@@ -872,7 +873,7 @@ The fixed sequence is:
 node scripts/verify-event-broadcast-migration-local.mjs preflight
 pnpm verify:backend:local
 git diff --exit-code -- convex/_generated
-node --import tsx scripts/verify-event-broadcast-migration-local.mjs run
+node --import tsx scripts/verify-event-broadcast-migration-local.mjs run-admission-blocked
 ```
 
 The job supplies `CONVEX_LOCAL_BACKEND_VERSION` and GitHub run identifiers.
@@ -892,8 +893,28 @@ outcomes are persisted before the outer owner closes the backend group. Failed
 recovery remains failed evidence. Cancellation stays authoritative through final
 generated-file verification, proof writing and native process exit.
 
-The unchanged `runMigrationRehearsal` executes the entire migration and lifecycle
-flow. It retains its 180-second work budget, 30-second cleanup budget, ten-second
+CI explicitly selects `run-admission-blocked` while the production measured
+allocation map is intentionally empty. Its driver receipt has scope
+`migration-admission-blocked`. It executes the same historical migration assertions,
+then configures the fake output through the acting owner's production handler and
+calls the real `events:scheduleEventMediaWorker`. Passing requires the exact
+`Unproved broadcast configuration` rejection. Unexpected success, a different
+error or any changed admission snapshot fails. The snapshot includes a SHA-256
+digest of complete fixture-owned event, program, output, session, command and audit
+rows, plus session/start-command IDs. Raw credential or lease fields do not enter
+the receipt. The driver requires all historical sessions ended and no start
+commands before the call, then checks unchanged state and no added sessions or
+start commands afterward.
+
+The default `run` and `runMigrationRehearsal` behavior still requires the entire
+migration and positive protocol lifecycle when an owner is supplied. That path
+remains the capacity-readiness verifier. Its acceptance requires `whole-flow`
+scope and rejects the bounded CI receipt. Selecting the blocked mode also rejects
+a whole-flow or historical-only receipt. Neither mode infers its scope from a
+caught error. For direct driver use, choose `run-admission-blocked` in step 4 above
+to exercise the bounded regression before accepted capacity receipts exist.
+
+Both modes retain the 180-second work budget, 30-second cleanup budget, ten-second
 HTTP calls, 256 migration-call cap and 512-KiB receipt. The surrounding phase
 always attempts the owned recovery RPC, checks the manifest table is empty,
 removes both local environment bindings and deletes the private env file. Setup
@@ -909,11 +930,14 @@ names and fixed reason labels, with an earlier-entry drop count. Unrecognized
 functions/reasons remain `unknown`; messages, arguments, keys and returned data
 are not retained. Delegation invokes each original client call once and rethrows
 the same error. These records can include intentionally rejected driver calls;
-acceptance still comes from the unchanged whole-flow driver receipt. Previously
-discarded actual error causes cannot be reconstructed from these new labels.
+acceptance comes from the driver receipt matching the explicitly selected scope.
+Previously discarded actual error causes cannot be reconstructed from these labels.
 
-The empty production capacity map
-currently blocks actual admission; there is no historical-only exemption.
+A passing bounded CI run proves actual local migration and the production
+admission block with owned cleanup. It does not prove positive protocol lifecycle,
+measured capacity, media, provider output or rollout readiness. The production map
+stays empty. Restore CI's `run` command only when accepted measured allocations
+make real admission available; keep both scope checks and their negative tests.
 
 The owner has one 330-second deadline, reserving the final 15 seconds for closure
 and generated-file verification. Phase startup must leave at least 285 seconds.

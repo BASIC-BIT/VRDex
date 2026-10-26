@@ -685,6 +685,94 @@ describe("search document projection", () => {
     assert.equal(result?.source, undefined);
   });
 
+  it("preserves public genre and destination details while excluding private profile data", async () => {
+    const profile = {
+      _id: "profile123",
+      slug: "public-dj",
+      displayName: "Public DJ",
+      aliases: ["Private alias"],
+      tags: ["Unlisted tag"],
+      genres: [{ slug: "techno", displayName: "Techno", displayLabel: "Hard techno", featured: true }],
+      outboundLinks: [
+        { type: "discord", label: "Discord", url: "https://discord.gg/public-club", source: "owner_authored" },
+        { type: "twitch", label: "Live sets", labelMode: "custom", url: "https://www.twitch.tv/publicdj", handle: "publicdj", presentation: "copy", source: "reviewed" },
+        { type: "website", label: "Unsafe", url: "javascript:alert(1)", source: "owner_authored" },
+      ],
+      bio: "Private bio",
+      headline: "Unlisted headline",
+      fieldVisibility: { aliases: "private", tags: "unlisted", bio: "private", headline: "unlisted" },
+      claimState: "unclaimed",
+      creationSource: "community",
+      publicationState: "published",
+      publicSurfacingState: "public",
+      profileType: "person",
+      person: { roleTags: ["DJ"] },
+      updatedAt: 2,
+    } as unknown as Doc<"profiles">;
+    const document = {
+      ...createProfileSearchDocument(profile),
+      _id: "document123",
+      _creationTime: 1,
+    } as Doc<"searchDocuments">;
+    const destinationReads: string[] = [];
+    const ctx = {
+      db: {
+        get: async () => profile,
+        query: (table: string) => {
+          const builder = {
+            withIndex: (_index: string, query: (q: unknown) => unknown) => {
+              if (table === "profileLinkDestinations") {
+                query({ eq: (_field: string, value: string) => { destinationReads.push(value); } });
+              }
+              return builder;
+            },
+            collect: async () => [],
+            unique: async () => table === "profileLinkDestinations" ? {
+              status: "resolved", entityId: "guild123", name: "Public club",
+              kind: "discord_guild", artworkSourceUrl: "https://cdn.discordapp.com/icons/guild123/guild-art.png",
+              observedAt: 42,
+            } : null,
+          };
+          return builder;
+        },
+      },
+    } as unknown as QueryCtx;
+
+    const result = await projectPublicSearchResult(ctx, document, "Public DJ");
+    assert.deepEqual(result?.person?.genres, [
+      { slug: "techno", displayName: "Techno", displayLabel: "Hard techno", featured: true },
+    ]);
+    assert.deepEqual(result?.person?.outboundLinks, [{
+      type: "discord", label: "Discord", url: "https://discord.gg/public-club", source: "owner_authored",
+      destination: {
+        targetKey: "discord_guild:public-club", kind: "discord_guild", status: "resolved",
+        entityId: "guild123", name: "Public club", observedAt: 42,
+        artworkUrl: "/api/profile-link-artwork/discord_guild%3Apublic-club?v=42&profile=profile123",
+      },
+    }, {
+      type: "twitch", label: "Live sets", labelMode: "custom", url: "https://www.twitch.tv/publicdj",
+      handle: "publicdj", presentation: "copy", source: "reviewed",
+    }]);
+    assert.deepEqual(result?.person?.aliases, []);
+    assert.deepEqual(result?.person?.tags, []);
+    assert.equal(result?.person?.bio, undefined);
+    assert.equal(result?.person?.headline, undefined);
+    assert.equal(result?.claimEligible, true);
+    assert.deepEqual(destinationReads, ["discord_guild:public-club"]);
+
+    for (const visibility of ["private", "unlisted"] as const) {
+      profile.fieldVisibility = { ...profile.fieldVisibility, outboundLinks: visibility, genres: visibility };
+      const filtered = await projectPublicSearchResult(ctx, document, "Public DJ");
+      assert.deepEqual(filtered?.person?.outboundLinks, []);
+      assert.deepEqual(filtered?.person?.genres, []);
+    }
+    assert.deepEqual(destinationReads, ["discord_guild:public-club"]);
+    for (const publicSurfacingState of ["suppressed", "opted_out", "archived"] as const) {
+      profile.publicSurfacingState = publicSurfacingState;
+      assert.equal(await projectPublicSearchResult(ctx, document, "Public DJ"), null);
+    }
+  });
+
   it("applies the result limit after dropping stale search documents", async () => {
     const hiddenProfiles = Array.from({ length: 3 }, (_, index) => ({
       _id: `hiddenProfile${index}`,
