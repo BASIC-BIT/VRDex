@@ -33,7 +33,7 @@ export async function positiveProgram(options={}) {
   for(const [i,a] of binding.artifacts.entries()){const ref=await store.write(key+'-prebinding-'+i+'.bin',Buffer.from(a.data,'base64'),196608,'runtimeBinding');store.useRuntimeDependency(ref,key,a.id);}await store.json(key+'-prebinding.json',{...binding,artifacts:binding.artifacts.map(({data,...r})=>r)},196608,'runtimeBinding');
   const metadata=await captureNativeMetadata({store,prefix:key,control,environment:{ECS_CONTAINER_METADATA_URI_V4:'http://169.254.170.2/v4/SIMULATED'},fetchImpl:async url=>new Response(JSON.stringify(url.endsWith('/task')?{TaskARN:'arn:aws:ecs:us-east-1:079358094174:task/vrdex-restream-worker/'+'1'.repeat(32),Containers:[{DockerId:'SIMULATED-container',Name:'worker'}]}:{DockerId:'SIMULATED-container',ImageID:'sha256:'+runtime.imageFacts.configSHA}))}),requestBytes=Buffer.from(JSON.stringify(request));await store.json(key+'-request-use.json',{acquisition:key,artifactId:'program-request',bytes:requestBytes.length,sha256:sha(requestBytes)},196608,'runtimeBinding');
   const noise=await generateNoise(runtime.owner,48000,train.samples,{observeCapture:async(seed,capture)=>{await store.write(key+'-noise-'+seed+'.pcm',capture.raw,2380800,'pcm');await store.json(key+'-noise-'+seed+'-owner.json',{...capture,raw:undefined,stderr:Buffer.from(capture.stderr).toString('base64')},196608,'native');}});
-  let acquisitions=0;const producerIO={...runtime,dependencies:async options=>++acquisitions===1?binding:runtime.dependencies(options)};
+  let acquisitions=0;const producerIO={...runtime,...options.decoderIO,dependencies:async options=>++acquisitions===1?binding:runtime.dependencies(options)};
   const producer=await encodeProgram(runtime.owner,{settings,construction:{kind:'massFrames',train},frameCount:runtime.frames,pcm:constructTrainPcm(train,noise),path:file,store},producerIO);
   options.mutateProducer?.(producer.producerEvidence);
   const result=await readQualificationRecording(runtime.owner,file,{settings,path:'program',frames:runtime.frames,samples:runtime.samples,producerEvidence:producer.producerEvidence,store,allowEpisodeBound:options.allowEpisodeBound??false},producerIO);
@@ -193,6 +193,72 @@ test('R93 independent noise replay rejects coherently rehashed seed amplitude co
    const body=Buffer.from(JSON.stringify(owner)+'\n'),changed=structuredClone(manifest),entry=changed.budget.uses.find(r=>r[1]===name),delta=body.length-entry[2];entry[2]=body.length;entry[3]=sha(body);changed.budget.numericBytes+=delta;changed.budget.artifactBytes+=delta;
    const raw=Buffer.from(JSON.stringify(changed)+'\n'),serialized=structuredClone(v.result);serialized.programProof.replayRef={...serialized.programProof.replayRef,bytes:raw.length,sha256:sha(raw)};
    for(const replay of replays)await assert.rejects(replay(serialized,{resolveOriginal:r=>r.name===name?body:r.name===serialized.programProof.replayRef.name?raw:readFile(v.store.path(r.name)),resolveImplementation:v.runtime.resolveImplementation}),/marker_replay_noise_original/);
+  }
+ }finally{await rm(v.directory,{recursive:true,force:true});}
+});
+
+// R95: decoder seam attacks use the real supplier and genuine verifier first.
+// No fixture registers a certificate or invents a CheckedProgram.
+import * as mediaDecoder from '../../scripts/event-capacity-media.mjs';
+import { writeFile } from 'node:fs/promises';
+
+for(const [name,mutate,reason] of [
+ ['PCM byte',d=>{d.audioChunks[0][0]^=1;},'marker_clock_binding'],
+ ['RGB byte',d=>{d.rgb[0]^=1;},'marker_clock_binding'],
+ ['audio PTS',d=>{d.audioRows[1].pts++;},'marker_clock_binding'],
+ ['audio samples',d=>{d.audioRows[1].samples++;},'marker_clock_binding'],
+ ['audio row index',d=>{d.audioRows[1].index++;},'marker_clock_input'],
+ ['video PTS',d=>{d.videoRows[1].pts++;},'marker_clock_binding'],
+ ['video row index',d=>{d.videoRows[1].index++;},'marker_clock_input'],
+])test(`R95 real supplier then mutated ${name} reaches channel binding`,async()=>{
+ let issued=false;
+ await assert.rejects(positiveProgram({decoderIO:{decodeQualifiedMediaMarkerRecord:(owner,file,options)=>mediaDecoder.decodeQualifiedMediaMarkerRecord(owner,file,{...options,observeDecoded:async data=>{
+  const clock=await options.observeDecoded(data);clocks.assertProgramClock(clock);issued=true;mutate(data);return clock;
+ }})}}),error=>{assert.equal(issued,true);assert.equal(error.message,reason);assert.equal(error.qualificationPrerequisite,'decode_complete');return true;});
+});
+test('R95 matching-channel genuine clock with changed current recording requires the SHA binding guard',async()=>{
+ let issued=false,channelsMatch=false;
+ await assert.rejects(positiveProgram({decoderIO:{decodeQualifiedMediaMarkerRecord:(owner,file,options)=>mediaDecoder.decodeQualifiedMediaMarkerRecord(owner,file,{...options,observeDecoded:async data=>{
+  const clock=await options.observeDecoded(data),checked=clocks.assertProgramClock(clock);issued=true;
+  clocks.assertAudioClock(clock,data.audioChunks,data.audioRows);clocks.assertVideoClock(clock,data.rgb,data.videoRows);channelsMatch=true;
+  const bytes=await readFile(file);assert.equal(sha(bytes),clock.inputSHA);assert.equal(checked.file.sha256,clock.inputSHA);bytes[bytes.length-1]^=1;await writeFile(file,bytes);assert.notEqual(sha(bytes),clock.inputSHA);return clock;
+ }})}}),error=>{assert(issued&&channelsMatch);assert.equal(error.message,'marker_clock_binding');assert.equal(error.qualificationPrerequisite,'decode_complete');return true;});
+});
+for(const [name,replace] of [['missing',()=>undefined],['plain',()=>({kind:'ClockCompatible'})],['copied',c=>({...c})],['serialized',c=>JSON.parse(JSON.stringify(c))]])test(`R95 real observer then ${name} returned clock and deleted SHA fails before coverage`,async()=>{
+ let issued=false;
+ await assert.rejects(positiveProgram({decoderIO:{decodeQualifiedMediaMarkerRecord:async(owner,file,options)=>{
+  const record=await mediaDecoder.decodeQualifiedMediaMarkerRecord(owner,file,options);clocks.assertProgramClock(record.clock);issued=true;
+  record.clock=replace(record.clock);delete record.recordingSha256;return record;
+ }}}),error=>{assert(issued);assert.equal(error.message,'marker_clock_unproven');assert.equal(error.qualificationPrerequisite,'decode_complete');assert.deepEqual(error.qualificationCompleted,['probe_complete','declared_format_valid']);return true;});
+});
+test('R95 another genuine returned clock cannot replace the actual supplier clock',async()=>{
+ const control=await positiveProgram();let issued=false;
+ try{await assert.rejects(positiveProgram({decoderIO:{decodeQualifiedMediaMarkerRecord:async(owner,file,options)=>{
+  const record=await mediaDecoder.decodeQualifiedMediaMarkerRecord(owner,file,options);clocks.assertProgramClock(record.clock);clocks.assertProgramClock(control.result.record.clock);assert.notEqual(record.clock,control.result.record.clock);assert.equal(record.clock.inputSHA,control.result.record.clock.inputSHA);issued=true;
+  record.clock=control.result.record.clock;delete record.recordingSha256;return record;
+ }}}),error=>{assert(issued);assert.equal(error.message,'marker_clock_binding');assert.equal(error.qualificationPrerequisite,'decode_complete');return true;});}
+ finally{await rm(control.directory,{recursive:true,force:true});}
+});
+test('R95 ordinary decoder substituted under strict injection key cannot qualify',async()=>{
+ await assert.rejects(positiveProgram({decoderIO:{decodeQualifiedMediaMarkerRecord:mediaDecoder.decodeMediaMarkerRecord}}),error=>{assert.equal(error.message,'marker_qualified_decoder_required');assert.equal(error.qualificationPrerequisite,'decode_complete');return true;});
+});
+
+for(const [name,replace] of [['copied',c=>({...c})],['serialized',c=>JSON.parse(JSON.stringify(c))]])test(`R95 real observer returning a ${name} clock loses private membership`,async()=>{
+ let issued=false;
+ await assert.rejects(positiveProgram({decoderIO:{decodeQualifiedMediaMarkerRecord:(owner,file,options)=>mediaDecoder.decodeQualifiedMediaMarkerRecord(owner,file,{...options,observeDecoded:async data=>{
+  const clock=await options.observeDecoded(data);clocks.assertProgramClock(clock);issued=true;return replace(clock);
+ }})}}),error=>{assert(issued);assert.equal(error.message,'marker_clock_unproven');assert.equal(error.qualificationPrerequisite,'decode_complete');return true;});
+});
+test('R95 genuine certificate does not authorize changed completion, capture or probe originals',async()=>{
+ const v=await positiveProgram();try{
+  const m=v.result.material,capture={audioChunks:[m.pcm],audioRows:m.audioRows,videoRows:m.videoRows,rgb:m.rgb},input={bytes:await readFile(v.file),producer:v.producer.producerEvidence,decoder:m.decoder,capture,settings:v.settings,file:v.file,fileIdentity:m.fileIdentity,probes:m.probes,budget:v.store.programBudget(v.key)};
+  clocks.assertProgramClock(v.result.record.clock);assert.equal(conservation.verifyProgramRecording(input).kind,'CheckedProgram');
+  for(const [name,mutate,reason] of [
+   ['native exit',x=>{x.decoder={...x.decoder,native:{...x.decoder.native,exitCode:1}};},{message:'marker_program_native_completion',guard:'G10'}],
+   ['capture EOF',x=>{x.decoder={...x.decoder,channelEOF:{...x.decoder.channelEOF,pcm:false}};},{message:'marker_program_native_completion',guard:'G10'}],
+   ['probe raw',x=>{x.probes={...x.probes,final:{...x.probes.final,raw:Buffer.from('{}')}};},{message:'marker_program_probe_format',guard:'G7'}],
+  ]){
+   const changed={...input};mutate(changed);assert.throws(()=>conservation.verifyProgramRecording(changed),reason,name);
   }
  }finally{await rm(v.directory,{recursive:true,force:true});}
 });

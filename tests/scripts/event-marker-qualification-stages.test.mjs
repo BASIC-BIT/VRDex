@@ -5,7 +5,7 @@ import { strictPacketFacts } from '../../scripts/marker-qualification/media-fact
 import { prerequisiteStates } from '../../scripts/marker-qualification/results.mjs';
 test('successful probe followed by wrong format is typed format failure, never probe success fabrication',async()=>{
  let decoded=false;
- const io={probe:async()=>({streams:[{index:0,time_base:'1/1'},{index:1,time_base:'1/1'}],format:{format_name:'mpegts'}}),decodeMediaMarkerRecord:async()=>{decoded=true;throw Error('unexpected');}};
+ const io={probe:async()=>({streams:[{index:0,time_base:'1/1'},{index:1,time_base:'1/1'}],format:{format_name:'mpegts'}}),decodeQualifiedMediaMarkerRecord:async()=>{decoded=true;throw Error('unexpected');}};
  const owner={run:async()=>Buffer.from(JSON.stringify({packets:[0,1].flatMap(i=>[0,1].map(t=>({stream_index:i,pts:t,dts:t,pts_time:String(t),dts_time:String(t),size:'100',flags:'K_'})))}))};
  let error;try{await readQualificationRecording(owner,'synthetic',{settings:{videoPreset:'480p30',audioBitrateKbps:160},path:'program',frames:30,samples:48000},io);}catch(e){error=e;}
  const states=prerequisiteStates('not_run');assert.equal(applyDecodeStageFailure(states,error,'probe_complete'),'declared_format_valid');
@@ -20,7 +20,7 @@ test('qualification caller accounts every packet PTS DTS and byte before probe c
  for(const mutate of [null,p=>{p[2].pts=-90000;p[2].pts_time='-1.000000';},p=>p.push({stream_index:0,size:'100',pts_time:'N/A',dts_time:'N/A'}),p=>{delete p[2].pts;},p=>{p[2].dts_time='NaN';},p=>{p[2].size='NaN';},p=>{p[2].stream_index=7;}]){
   const rows=structuredClone(packets);mutate?.(rows);let decoded=false,caught;
   const owner={run:async(command,args)=>{assert.equal(command,'ffprobe');assert(args.includes('json'));return Buffer.from(JSON.stringify({packets:rows}));}};
-  try{await readQualificationRecording(owner,'injected',{settings:{videoPreset:'480p30',audioBitrateKbps:160},path:'program',frames:30,samples:48000},{probe:async()=>info,decodeMediaMarkerRecord:async()=>{decoded=true;throw Error('decode_sentinel');}});}catch(e){caught=e;}
+  try{await readQualificationRecording(owner,'injected',{settings:{videoPreset:'480p30',audioBitrateKbps:160},path:'program',frames:30,samples:48000},{probe:async()=>info,decodeQualifiedMediaMarkerRecord:async()=>{decoded=true;throw Error('decode_sentinel');}});}catch(e){caught=e;}
   assert.equal(decoded,mutate===null);assert.equal(caught.qualificationPrerequisite,mutate?'probe_complete':'decode_complete');
   assert.deepEqual(caught.qualificationCompleted,mutate?[]:['probe_complete','declared_format_valid']);
  }

@@ -6,7 +6,7 @@ import { audioEpisodeRawRange,inspectProgramClock,assertProgramClock } from '../
 import { inspectAcquiredDependencies,createAcquisitionDeadline } from '../event-marker-native-binding.mjs';
 import { constants } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { probe,decodeMediaMarkerRecord } from '../event-capacity-media.mjs';
+import { probe,decodeQualifiedMediaMarkerRecord } from '../event-capacity-media.mjs';
 import { decodeMarkerVisuals } from '../event-marker-record.mjs';
 import { referenceDetector } from './detector-reference.mjs';
 import { assertEncodedFormat,assertDecodedCoverage,strictPacketFacts } from './media-facts.mjs';
@@ -16,7 +16,7 @@ import { readFile } from 'node:fs/promises';
 /** Decode exactly once; independent RMS detector sees the same original bytes
  * before classifier bounds can reject a fully captured long episode. */
 export async function readQualificationRecording(owner,file,{settings,path,frames,samples,activeBitrate=false,allowEpisodeBound=false,producerEvidence,store=producerEvidence?.store},io={}) {
- io={probe,decodeMediaMarkerRecord,strictPacketFacts,...io};
+ io={probe,decodeQualifiedMediaMarkerRecord,strictPacketFacts,...io};
  const ownsDeadline=!io.acquisition,acquisition=io.acquisition??createAcquisitionDeadline(120000);
  const completed=[];let prerequisite='probe_complete',failure,failurePrefix;
  try {
@@ -36,7 +36,7 @@ export async function readQualificationRecording(owner,file,{settings,path,frame
  const maxSeconds=samples/48000+1;
  const startCapture=store?({original,stdio})=>startCapturedInvocation(owner,{original,stdio,channels:{rgb:{fd:3,cap:Math.ceil(maxSeconds*61*6),role:'rgb',retention:'raw'},pcm:{fd:4,cap:Math.ceil(maxSeconds*48000*2+96000),role:'pcm',retention:'raw'},videoMetadata:{fd:5,cap:Math.ceil(maxSeconds*65536),role:'videoMetadata'},audioMetadata:{fd:6,cap:Math.ceil(maxSeconds*32768),role:'audioMetadata'}},stderrCap:1048576,timeoutMs:120000,store,prefix,recordKey,stage:'decode',...(io.dependencies?{dependencies:io.dependencies}:{}),observerIO:io.observerIO,acquisition}):undefined;
  try {
-  record=await acquisition.run(()=>io.decodeMediaMarkerRecord(owner,file,{width:profile.width,height:profile.height,maxSeconds,startCapture,finalProbe:(o,f)=>acquisition.run(()=>io.probe(o,f,{acquisition,observeRaw:retainProbe('final-probe',1048576),observeCapture:observeProbe('final')})),observeDecoded:async data=>{
+  record=await acquisition.run(()=>io.decodeQualifiedMediaMarkerRecord(owner,file,{width:profile.width,height:profile.height,maxSeconds,startCapture,finalProbe:(o,f)=>acquisition.run(()=>io.probe(o,f,{acquisition,observeRaw:retainProbe('final-probe',1048576),observeCapture:observeProbe('final')})),observeDecoded:async data=>{
    const pcm=Buffer.concat(data.audioChunks);
    let audioEnd=data.audioRows[0]?.pts,totalSamples=0;
    for(const [index,row] of data.audioRows.entries()){if(row.index!==index||row.samples<=0||row.pts!==audioEnd)throw Error('reference_metadata');audioEnd+=row.samples;totalSamples+=row.samples;}
@@ -59,6 +59,8 @@ export async function readQualificationRecording(owner,file,{settings,path,frame
   assertProgramClock(clock);record={...observation.visual,audioRange:[rows[0].pts,rows.at(-1).pts+rows.at(-1).samples],metadataSamples:r.samples,decodedBytes:r.bytes,episodes:[],clock,assurance:clock.assurance,recordingSha256:original.sha256,videoStreamIndex:0,audioStreamIndex:1};
  }
  if(!observation)throw Error('decode_failure');
+ assertProgramClock(record?.clock);
+ if(record.clock!==clock)throw Error('marker_clock_binding');
  if(!classificationFailure) {
   const actual=record.episodes.map(e=>audioEpisodeRawRange(e));
   if(JSON.stringify(actual)!==JSON.stringify(observation.reference.episodes))throw Error('decode_failure');

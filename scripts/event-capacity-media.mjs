@@ -274,17 +274,70 @@ export function observeSelectionMarkers(
   return input;
 }
 
-/** Decode once without seeking and retain original integer timestamps. Every
- * marker in each declared source window contributes to the maximum drift. */
-export async function decodeMediaMarkerRecord(
+/** @typedef {{width:number, height:number, maxSeconds:number, finalProbe?:typeof probe}} DecodeOptions
+ * @typedef {{index:number, pts:number, samples:number}} AudioMetadataRow
+ * @typedef {{index:number, pts:number}} VideoMetadataRow
+ * @typedef {Awaited<ReturnType<typeof probe>>} ProbeResult
+ * @typedef {{native:{exitCode:number}, [key:string]:*}} CapturedInvocation
+ * @typedef {{child:object, stop:Function, finish:()=>Promise<CapturedInvocation>}} StartedCapturedInvocation
+ * @typedef {{assurance:object, inputSHA:string}} ProgramClock
+ * ProgramClock additionally requires membership in the existing private registry.
+ * @typedef {{audioChunks:Uint8Array[], audioRows:AudioMetadataRow[], videoRows:VideoMetadataRow[], rgb:Uint8Array, nativeCapture:CapturedInvocation|null, finalProbe:ProbeResult}} DecodedCapture
+ * @typedef {Omit<DecodedCapture, 'nativeCapture'> & {nativeCapture:CapturedInvocation}} QualifiedDecodedCapture
+ * @typedef {DecodeOptions & {startCapture:(request:{original:string[], stdio:string[]})=>StartedCapturedInvocation|Promise<StartedCapturedInvocation>, observeDecoded:(capture:QualifiedDecodedCapture)=>ProgramClock|Promise<ProgramClock>}} QualifiedDecodeOptions
+ * @typedef {ReturnType<typeof decodeSourceAudio> & ReturnType<typeof decodeMarkerVisuals> & {watermarks:object[], audioMetadataRows:number, recordingSha256:string, videoStreamIndex:number|undefined, audioStreamIndex:number|undefined}} DecodedMarkerFacts
+ * @typedef {DecodedMarkerFacts & {clock?:never, assurance?:never}} ObservedMediaMarkerRecord
+ * @typedef {DecodedMarkerFacts & {clock:ProgramClock, assurance:ProgramClock['assurance']}} ProgramClockMarkerRecord
+ */
+/** Ordinary observations do not carry qualification authority.
+ * @param {DecodeOptions} options
+ * @returns {Promise<ObservedMediaMarkerRecord>}
+ */
+export async function decodeMediaMarkerRecord(owner, file, options) {
+  if ('observeDecoded' in options || 'startCapture' in options)
+    throw Error('marker_qualified_decoder_required');
+  return decodeMarkerRecord(owner, file, options, () => undefined);
+}
+/** Require captured originals and a privately checked program clock.
+ * @param {QualifiedDecodeOptions} options
+ * @returns {Promise<ProgramClockMarkerRecord>}
+ */
+export async function decodeQualifiedMediaMarkerRecord(owner, file, options) {
+  if (typeof options?.startCapture !== 'function' || typeof options?.observeDecoded !== 'function')
+    throw Error('marker_clock_unproven');
+  return decodeMarkerRecord(owner, file, options, async capture => {
+    if (!capture.nativeCapture) throw Error('marker_clock_unproven');
+    const clock = await options.observeDecoded(capture);
+    assertProgramClock(clock);
+    return clock;
+  });
+}
+/** Decode once without seeking and retain original integer timestamps. The
+ * resolver is required and supplied only by the two module-owned wrappers.
+ * @param {(capture:DecodedCapture)=>ProgramClock|undefined|Promise<ProgramClock|undefined>} resolveClock
+ */
+async function decodeMarkerRecord(
   owner,
   file,
-  { width, height, maxSeconds, observeDecoded, startCapture, finalProbe=probe },
+  { width, height, maxSeconds, startCapture, finalProbe=probe },
+  resolveClock,
 ) {
   const original=programDecodeArguments(file,{width,height});
   const stdio=["ignore", "ignore", "pipe", "pipe", "pipe", "pipe", "pipe"];
   const captured=startCapture?await startCapture({original,stdio}):null;
-  const child=captured?.child??owner.start("ffmpeg",original,{stdio});
+  if (startCapture && (!captured?.child || typeof captured.stop !== 'function' || typeof captured.finish !== 'function' ||
+      ![3,4,5,6].every(fd => typeof captured.child.stdio?.[fd]?.on === 'function'))) {
+    // A malformed supplier may already own a child. Close that child without
+    // launching an uncaptured replacement or invoking its observer.
+    if (typeof captured?.stop === 'function') captured.stop('marker_clock_unproven');
+    else captured?.child?.kill?.('SIGKILL');
+    const failure = Error('marker_clock_unproven');
+    try { if (typeof captured?.finish === 'function') await captured.finish(); }
+    catch (error) { failure.cause = error; }
+    await (captured?.child?.nativeClosed ?? captured?.child?.closed);
+    throw failure;
+  }
+  const child=startCapture?captured.child:owner.start("ffmpeg",original,{stdio});
   const parts = [[], [], [], []],
     sizes = [0, 0, 0, 0];
   const caps = [
@@ -316,7 +369,8 @@ export async function decodeMediaMarkerRecord(
       else parts[i].push(chunk);
     });
   const nativeCapture=captured?await captured.finish():null;
-  const code=nativeCapture?nativeCapture.native.exitCode:await child.closed;
+  if (captured && !Number.isInteger(nativeCapture?.native?.exitCode)) throw Error('marker_clock_unproven');
+  const code=captured?nativeCapture.native.exitCode:await child.closed;
   clearTimeout(timer);
   if (code !== 0 || failed)
     throw Error("Bounded timestamp marker decode failed");
@@ -326,23 +380,32 @@ export async function decodeMediaMarkerRecord(
   const video = parseMarkerMetadata(videoMetadata, "video"),
     audio = parseMarkerMetadata(audioMetadata, "audio");
   const info = await finalProbe(owner, file);
-  const clock=await observeDecoded?.({audioChunks: parts[2], audioRows: audio, videoRows: video, rgb, nativeCapture,finalProbe:info});
-  assertProgramClock(clock);
+  const clock=await resolveClock({audioChunks: parts[2], audioRows: audio, videoRows: video, rgb, nativeCapture,finalProbe:info});
   const decoded = {
     ...decodeSourceAudio(parts[2], audio,clock),
     ...decodeMarkerVisuals(rgb, video,clock),
     watermarks: [],
     audioMetadataRows: audio.length,
-    clock,assurance:clock.assurance,
+    ...(clock === undefined ? {} : {clock, assurance:clock.assurance}),
   };
   decoded.episodes.forEach((episode, id) => { episode.id = id; });
   const hash = createHash("sha256");
   for await (const chunk of createReadStream(file)) hash.update(chunk);
   decoded.recordingSha256 = hash.digest("hex");
+  if (clock !== undefined) {
+    const checked = assertProgramClock(clock);
+    if (decoded.recordingSha256 !== clock.inputSHA || decoded.recordingSha256 !== checked.file.sha256)
+      throw Error('marker_clock_binding');
+  }
   decoded.videoStreamIndex = info.streams.find(s => s.codec_type === "video")?.index;
   decoded.audioStreamIndex = info.streams.find(s => s.codec_type === "audio")?.index;
   return decoded;
 }
+/** @typedef {Parameters<typeof buildMarkerContexts>[1]} ContextOptions
+ * @typedef {{markerSchema:string, markerEvidence:ReturnType<typeof packMarkerRecord>, avDriftMs:number, markerCount:number, markerMethod:string, markerWindows:object[], transitionMarkers:object[], markerDecode:{videoFrames:number, audioWindows:number, videoRange:number[], audioRange:number[], complete:boolean}}} MediaMarkerMeasurement
+ * @param {DecodeOptions & ContextOptions} options
+ * @returns {Promise<MediaMarkerMeasurement>}
+ */
 export async function measureMediaMarkers(owner, file, options) {
   const decoded = await decodeMediaMarkerRecord(owner, file, options);
   const bound = buildMarkerContexts(decoded, options);
