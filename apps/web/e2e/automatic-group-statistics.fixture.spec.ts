@@ -8,6 +8,7 @@ test("public population preserves gaps, zero and actual pointer/keyboard observa
   page.on("pageerror", error => errors.push(error.message));
   await page.goto("/playwright-group-population");
   await expect(page.getByRole("img", { name: "Population history" })).toBeVisible();
+  await expect(page.locator(".population-history").locator("..")).toHaveAttribute("aria-busy", "false");
   await expect(page.getByText("0 people", { exact: true })).toBeVisible();
   const curve = page.locator('.population-history .recharts-line-curve');
   await expect(curve).toHaveCount(2);
@@ -85,6 +86,7 @@ test("a failed range read keeps the last successful range and existing control c
 
 test("dense 24-hour observations retain exact keyboard times and pointer details @visual", async ({ page }, testInfo) => {
   await page.goto("/playwright-group-population-dense");
+  await expect(page.locator(".population-history").locator("..")).toHaveAttribute("aria-busy", "false");
   const slider = page.getByRole("slider", { name: "Observation" });
   await expect(slider).toHaveAttribute("max", "719");
   await slider.focus();
