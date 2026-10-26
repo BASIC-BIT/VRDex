@@ -1,8 +1,8 @@
 import { MARKER_SCHEMA } from './event-source-markers.mjs';
 import { IDENTITY_CODES, validateIdentityEpochs } from './event-marker-record.mjs';
 import { associateContext } from './event-marker-association.mjs';
+import { MARKER_WIRE_SCHEMA, packAudioEpisode, unpackAudioEpisode } from './event-marker-wire.mjs';
 const CLASS={unknown:0,a:1,b:2,mixed:3};
-const REASON={none:0,insufficient_samples:1,invalid_metadata_or_fit:2,single_carrier_inconsistent:3,simultaneous_energy:4,simultaneous_local_energy:5};
 const DISPOSITION={paired_full:0,previous_epoch_tail:1,existing_carry_in_fragment:2,existing_steady_edge_fragment:3,recorded_pre_epoch_exclusion:4,failure:5};
 const inverse=o=>Object.fromEntries(Object.entries(o).map(([k,v])=>[v,k]));
 const CLASS_NAME=inverse(CLASS),IDENTITY_NAME=inverse(IDENTITY_CODES);
@@ -66,12 +66,10 @@ export function packMarkerRecord(record) {
   const episodes=record.episodes.map((e,i)=>{
     if(e.id!==i)throw Error('marker_episode_reference');
     classCounts[CLASS[e.identity]]++;
-    return [e.onset,e.end-e.onset,e.loudEnd,e.firstMetadataIndex,e.metadataRowCount,CLASS[e.identity],REASON[e.reason],e.fits[0].score,e.fits[1].score,
-      ...e.fits.map(f=>[f.openingGate,f.closingGate,f.maxResidual,f.maxResidualAt,f.code]),
-      [e.local.windows,e.local.hits,e.local.firstPair,...e.local.amplitudes]];
+    return packAudioEpisode(e);
   });
   const contexts=record.contexts.map(contextTuple);
-  const result={schema:MARKER_SCHEMA,recordingSha256:record.recordingSha256,audioStreamIndex:record.audioStreamIndex,videoStreamIndex:record.videoStreamIndex,
+  const result={schema:MARKER_SCHEMA,episodeEncoding:MARKER_WIRE_SCHEMA,recordingSha256:record.recordingSha256,audioStreamIndex:record.audioStreamIndex,videoStreamIndex:record.videoStreamIndex,
     metadataSamples:record.metadataSamples,decodedBytes:record.decodedBytes,detectorBlockCount:record.detectorBlockCount,
     audioRange:[...record.audioRange],videoRange:[...record.videoRange],videoFrames:record.videoFrames,
     residualWindowCounts:[...record.residualWindowCounts],localWindowCount:record.localWindowCount,
@@ -88,46 +86,64 @@ export function packMarkerRecord(record) {
 /** Recompute source classification predicates and complete context partitions.
  * Artifact SHA provenance still requires independent original-file verification. */
 export function validateMarkerRecord(record) {
-  if(record?.schema!==MARKER_SCHEMA)throw Error('marker_schema');
+  if(record?.schema!==MARKER_SCHEMA||record.episodeEncoding!==MARKER_WIRE_SCHEMA)throw Error('marker_schema');
   assertMarkerEvidenceSize([record]);
   if(!/^[a-f0-9]{64}$/.test(record.recordingSha256)||!Number.isSafeInteger(record.audioStreamIndex)||record.audioStreamIndex<0||!Number.isSafeInteger(record.videoStreamIndex)||record.videoStreamIndex<0)throw Error('marker_recording_binding');
   for(const key of ['metadataSamples','decodedBytes','detectorBlockCount','videoFrames','localWindowCount'])if(!Number.isSafeInteger(record[key])||record[key]<0)throw Error('marker_count');
   if(record.metadataSamples<=0||record.videoFrames<2||safe(record.metadataSamples*2)!==record.decodedBytes||record.detectorBlockCount<Math.ceil(record.metadataSamples/480)||record.detectorBlockCount>record.metadataSamples)throw Error('marker_audio_conservation');
   if(!Array.isArray(record.audioRange)||record.audioRange.length!==2||!record.audioRange.every(Number.isSafeInteger)||record.audioRange[1]-record.audioRange[0]!==record.metadataSamples)throw Error('marker_audio_range');
-  const classCounts=[0,0,0,0],residual=[0,0];let localTotal=0,previousEnd;
-  const episodes=record.episodes.map((r,id)=>{
-    if(!Array.isArray(r)||r.length!==12)throw Error('marker_episode_tuple');
-    r.slice(0,7).forEach(safe);
-    const [onset,length,loud,firstRow,rowCount,cls,reason,scoreA,scoreB,a,b,local]=r;
-    if(length<=0||length>12000||loud<=0||loud>=length||firstRow<0||rowCount<=0||!(cls in CLASS_NAME)||reason<0||reason>5||onset<record.audioRange[0]||safe(onset+length)>record.audioRange[1]||(previousEnd!==undefined&&onset<previousEnd)||![scoreA,scoreB].every(n=>Number.isFinite(n)&&n>=0))throw Error('marker_episode_range');
-    previousEnd=onset+length;
-    for(const [i,f] of [a,b].entries()) {
-      if(!Array.isArray(f)||f.length!==5||![0,1,2].includes(f[4]))throw Error('marker_fit_tuple');
-      if(f[4]===0) {
-        [f[0],f[1],f[3]].forEach(safe);
-        if(f[0]<0||f[1]<f[0]||f[1]>length||!Number.isFinite(f[2])||f[2]<0||f[3]<0||f[3]+48>length)throw Error('marker_fit_range');
+  const classCounts=[0,0,0,0],residual=[0,0];let localTotal=0,previous;
+  const episodes=record.episodes.map((leaf,id)=>{
+    let e;try{e=unpackAudioEpisode(leaf);}catch{throw Error('marker_episode_tuple');}
+    const {firstLoudLeft:first,lastLoudRight:last,closureRight:end,prelude:p,local,fits}=e;
+    const length=safe(end.ordinal-first.ordinal),loud=e.loudEnd,cls=CLASS[e.identity];
+    if(length<=0||length>12000||loud<=0||loud>=length||end.ordinal-last.ordinal>480||first.inRow%480||first.row>last.row||last.row>end.row||first.ordinal<0||end.ordinal>record.metadataSamples||previous&&first.ordinal<previous.closureRight.ordinal)throw Error('marker_episode_range');
+    for(const point of [first,last,end])if(point.raw!==safe(record.audioRange[0]+point.ordinal)||point.row>=record.detectorBlockCount||point.inRow>point.ordinal||point.inRow>record.metadataSamples)throw Error('marker_episode_range');
+    for(const [left,right] of [[first,last],[last,end]])if(left.row===right.row?right.inRow-left.inRow!==right.ordinal-left.ordinal:right.row-left.row>right.ordinal-left.ordinal||right.inRow>right.ordinal-left.ordinal)throw Error('marker_episode_range');
+    if(p.kind==='FileOrigin'){
+      if(id!==0||first.ordinal!==0||first.row!==0||first.inRow!==0||p.row!==0||p.offset!==0||p.count!==0||p.owner!==-1)throw Error('marker_prelude');
+    }else{
+      if(p.count<1||p.count>480||p.offset%480||p.count>first.ordinal||!(p.row===first.row&&p.offset+p.count===first.inRow||p.row+1===first.row&&first.inRow===0))throw Error('marker_prelude');
+      if(p.kind==='PriorClosure'){
+        if(!previous||p.owner!==id-1||first.ordinal!==previous.closureRight.ordinal||p.row!==previous.closureRight.row||p.offset+p.count!==previous.closureRight.inRow||p.count!==previous.closureRight.ordinal-previous.lastLoudRight.ordinal)throw Error('marker_prelude');
+      }else if(p.kind!=='UnclaimedQuiet'||p.owner!==-1||previous&&first.ordinal-p.count<previous.closureRight.ordinal)throw Error('marker_prelude');
+    }
+    for(const [i,f] of fits.entries()) {
+      if(!Number.isFinite(f.score)||f.score<0)throw Error('marker_fit_range');
+      if(f.code===0) {
+        if(f.openingGate<0||f.closingGate<f.openingGate||f.closingGate>length||f.maxResidual<0||f.maxResidualAt<0||f.maxResidualAt+48>length)throw Error('marker_fit_range');
         residual[i]+=Math.max(0,length-47);
-      } else if(f.slice(0,4).some(n=>n!==null))throw Error('marker_failed_fit');
+      }
+      const guardCode=p.kind==='UnclaimedQuiet'?(f.code===0?2:1):0,g=f.guard;
+      if(g.code!==guardCode)throw Error('marker_fit_guard');
+      if(guardCode===2){
+        if(g.openingGate< -p.count||g.openingGate>Math.min(480,loud)||g.maxResidual<0||g.maxResidualAt< -p.count||g.maxResidualAt+48>length)throw Error('marker_fit_guard');
+        residual[i]+=Math.max(0,length+p.count-47);
+      }
     }
-    if(!Array.isArray(local)||local.length!==7)throw Error('marker_local_tuple');
-    local.slice(0,3).forEach(safe);
-    if(local[0]!==Math.floor(length/480)||local[1]<0||local[1]>local[0])throw Error('marker_local_conservation');
-    localTotal+=local[0];
-    if(local[2]===-1) {if(local.slice(3).some(n=>n!==null))throw Error('marker_local_pair');}
-    else {
-      if(local[2]<0||local[2]%480||local[2]+960>length||local[1]<2)throw Error('marker_local_pair');
-      for(let j=3;j<7;j+=2) {const major=Math.max(local[j],local[j+1]),minor=Math.min(local[j],local[j+1]);if(![local[j],local[j+1]].every(Number.isFinite)||major<.4||minor<.1||minor/major<.2)throw Error('marker_local_pair');}
+    if(local.windows!==Math.floor(length/480)||local.hits<0||local.hits>local.windows)throw Error('marker_local_conservation');
+    localTotal+=local.windows;
+    if(local.firstPair!==-1) {
+      if(local.firstPair<0||local.firstPair%480||local.firstPair+960>length||local.hits<2)throw Error('marker_local_pair');
+      for(let j=0;j<4;j+=2) {const major=Math.max(local.amplitudes[j],local.amplitudes[j+1]),minor=Math.min(local.amplitudes[j],local.amplitudes[j+1]);if(major<.4||minor<.1||minor/major<.2)throw Error('marker_local_pair');}
     }
-    if(cls===1||cls===2) {
-      const own=cls===1?a:b,score=cls===1?scoreA:scoreB,other=cls===1?scoreB:scoreA;
-      if(reason!==0||loud<1440||own[4]!==0||own[2]>.14||score<.6||other>=.05||local[2]!==-1)throw Error('marker_source_classification');
-    } else if(reason===0||(cls===3&&!(reason===4&&scoreA>=.05&&scoreB>=.05||reason===5&&local[2]>=0)))throw Error('marker_rejected_classification');
-    classCounts[cls]++;return {id,onset,end:onset+length,identity:CLASS_NAME[cls]};
+    let identity='unknown',reason='single_carrier_inconsistent';
+    if(loud<1440)reason='insufficient_samples';
+    else if(local.firstPair>=0){identity='mixed';reason='simultaneous_local_energy';}
+    else if(fits.every(f=>f.score>=.05)){identity='mixed';reason='simultaneous_energy';}
+    else{
+      const eligible=fits.map((f,i)=>f.code===0&&f.maxResidual<=.14&&f.score>=.6&&fits[1-i].score<.05);
+      if(eligible.filter(Boolean).length===1){identity=eligible[0]?'a':'b';reason='none';}
+      else if(fits.some(f=>f.code!==0))reason='invalid_metadata_or_fit';
+    }
+    if((identity==='a'||identity==='b')&&fits[identity==='a'?0:1].guard.maxResidual>.14){identity='unknown';reason='single_carrier_inconsistent';}
+    if(e.identity!==identity||e.reason!==reason)throw Error(cls===1||cls===2?'marker_source_classification':'marker_rejected_classification');
+    classCounts[cls]++;previous=e;return {id,...e};
   });
   if(!same(classCounts,record.classCounts)||!same(residual,record.residualWindowCounts)||residual.some(n=>n>12000000)||localTotal!==record.localWindowCount||localTotal>1200000)throw Error('marker_record_conservation');
   if(!Array.isArray(record.coefficientAndConditionRanges)||record.coefficientAndConditionRanges.length!==2)throw Error('marker_fit_summary');
   record.coefficientAndConditionRanges.forEach((summary,i)=>{
-    const invalid=record.episodes.filter(e=>e[9+i][4]!==0).length;
+    const invalid=episodes.filter(e=>e.fits[i].code!==0).length;
     if(!summary||!same(Object.keys(summary).sort(),['invalidFits','max','min'])||summary.invalidFits!==invalid||!Array.isArray(summary.min)||!Array.isArray(summary.max)||summary.min.length!==4||summary.max.length!==4)throw Error('marker_fit_summary');
     if(invalid===episodes.length) {
       if([...summary.min,...summary.max].some(n=>n!==null))throw Error('marker_fit_summary');

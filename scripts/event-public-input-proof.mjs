@@ -17,6 +17,7 @@ import {
 import { quantile } from "./event-capacity-contracts.mjs";
 import { readTaskMetadata } from "../workers/restream/task-metadata.mjs";
 import { validateTaskMetadata } from "../workers/restream/worker-allocation.mjs";
+import { captureNativePrelude } from './event-marker-native-prelude.mjs';
 const publicKinds = new Set([
   "acquiring",
   "warming",
@@ -106,7 +107,10 @@ export function createPublicObservations(
   };
 }
 /** Public access is recorded privately only. There is no sender or endpoint input. */
-export async function runPublicInputWorkload({ outputDir }, env = process.env) {
+export async function runPublicInputWorkload({ outputDir }, env = process.env, {
+  readMetadata = readTaskMetadata, ownerFactory = createProcessOwner,
+  prelude = captureNativePrelude, createRenderer = createProgramRenderer,
+} = {}) {
   const channels = JSON.parse(env.VRDEX_PROOF_PUBLIC_CHANNELS_JSON ?? "null");
   if (
     !Array.isArray(channels) ||
@@ -115,7 +119,7 @@ export async function runPublicInputWorkload({ outputDir }, env = process.env) {
     channels.some((c) => typeof c !== "string" || !/^[a-z0-9_]{3,25}$/.test(c))
   )
     throw Error("Two canonical public channels required");
-  const metadata = await readTaskMetadata();
+  const metadata = await readMetadata();
   const cpuUnits = metadata.task.Limits?.CPU * 1024,
     memoryMiB = metadata.task.Limits?.Memory;
   if (!["4096:8192", "8192:16384"].includes(`${cpuUnits}:${memoryMiB}`))
@@ -126,7 +130,8 @@ export async function runPublicInputWorkload({ outputDir }, env = process.env) {
     },
     metadata,
   );
-  const owner = createProcessOwner();
+  await mkdir(outputDir, { recursive: false });
+  const owner = ownerFactory();
   const observations = createPublicObservations(["source-0", "source-1"]);
   let worker,
     renderer,
@@ -134,7 +139,7 @@ export async function runPublicInputWorkload({ outputDir }, env = process.env) {
     closed,
     poll,
     watchdog,
-    phase = "startup",
+    phase = "native_binding_prelude",
     passed = false,
     cleanup;
   const receipt = {
@@ -157,8 +162,9 @@ export async function runPublicInputWorkload({ outputDir }, env = process.env) {
     outputFault = false;
   const previousReady = new Map(),
     samples = [];
-  await mkdir(outputDir, { recursive: false });
   try {
+    await prelude(`${outputDir}/native-binding`);
+    phase = "startup";
     stream = createWriteStream(`${outputDir}/program.ts`, {
       flags: "wx",
       highWaterMark: 4 * 1048576,
@@ -169,7 +175,7 @@ export async function runPublicInputWorkload({ outputDir }, env = process.env) {
       stream.once("error", reject);
     });
     closed.catch(() => {});
-    renderer = createProgramRenderer({
+    renderer = createRenderer({
       quality: "720p30",
       audioBitrateKbps: 320,
       createInput: (args) =>

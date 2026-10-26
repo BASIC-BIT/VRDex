@@ -91,15 +91,20 @@ export function transportContractFailurePhase(tests) {
   if (tests.owner?.passed !== true) return "owner_contracts";
   return undefined;
 }
-export async function runTransportWorkload(request) {
-  const owner = createProcessOwner();
+export async function runTransportWorkload(request, {
+  ownerFactory = createProcessOwner, prelude = captureNativePrelude,
+  createInput = createTwitchInput, delay = sleep,
+} = {}) {
+  await mkdir(request.outputDir, { recursive: false });
+  const owner = ownerFactory();
   let passed = false,
     cleanup,
     tests,
-    phase = "python_contracts",
+    phase = "native_binding_prelude",
     failurePhase;
-  await mkdir(request.outputDir, { recursive: false });
   try {
+    await prelude(`${request.outputDir}/native-binding`);
+    phase = "python_contracts";
     tests = parseNamedSummary(
       (
         await owner.run(
@@ -130,13 +135,13 @@ export async function runTransportWorkload(request) {
     }
     phase = "blocked_resolution_cancellation";
     // Cancellation during blocked resolution must close the real wrapper's group.
-    const input = createTwitchInput({
+    const input = createInput({
       source: { kind: "twitch", channel: "fixture" },
       settings: { videoPreset: "720p30", audioBitrateKbps: 320 },
       spawnProcess: (_cmd, _args, options) =>
         owner.start("python3", ["-c", "import time; time.sleep(60)"], options),
     });
-    await sleep(100);
+    await delay(100);
     const began = performance.now();
     await input.dispose();
     tests.cancellationMs = performance.now() - began;
@@ -178,6 +183,12 @@ export async function runTransportWorkload(request) {
   }
   if (!passed) throw Error("Transport contract failed");
 }
+/** The selected workload exclusively owns its directory before binding capture. */
+export function runTwitchProofWorkload(request, { env = process.env, transport, publicInput } = {}) {
+  return request.case === "public"
+    ? runPublicInputWorkload(request, env, publicInput)
+    : runTransportWorkload(request, transport);
+}
 if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(process.argv[1]).href
@@ -185,9 +196,7 @@ if (
   try {
     const request = parseTwitchArguments(process.argv.slice(2));
     if (process.env.VRDEX_PROOF_INNER === "twitch") {
-      await captureNativePrelude(`${request.outputDir}/native-binding`);
-      if (request.case === "public") await runPublicInputWorkload(request);
-      else await runTransportWorkload(request);
+      await runTwitchProofWorkload(request);
     } else
       await runProofEnvelope({
         kind: "twitch",

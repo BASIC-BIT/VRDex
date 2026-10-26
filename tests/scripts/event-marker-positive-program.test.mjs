@@ -26,7 +26,7 @@ test('program verification and encoded clock reject copied evidence and serializ
 });
 
 export async function positiveProgram(options={}) {
- const id='mass-320-48000stereo-073',key=id+'-program',settings={videoPreset:'480p30',audioBitrateKbps:320},train={sourceRate:48000,samples:31*1600,frames:31,slots:[{index:0,start:1,end:2,sourceStart:1,visualFrame:0,family:'missing',params:{seed:42,kind:'silence'}}]},request={schema:'positive-program-acquisition-v1',invocationId:id,groupId:'canary-000',settings,train};
+ const id='mass-320-48000stereo-073',key=id+'-program',settings={videoPreset:'480p30',audioBitrateKbps:320},train=options.programTrain??{sourceRate:48000,samples:31*1600,frames:31,slots:[{index:0,start:1,end:2,sourceStart:1,visualFrame:0,family:'missing',params:{seed:42,kind:'silence'}}]},request={schema:'positive-program-acquisition-v1',invocationId:id,groupId:'canary-000',settings,train};
  const runtime=await simulatedProgramRuntime({...options,programRequest:request,containerName:'worker',taskDefinition:'arn:aws:ecs:us-east-1:079358094174:task-definition/SIMULATED:1'}),directory=await mkdtemp(join(tmpdir(),'marker-positive-')),store=createInvocationStore(createArtifactStore(directory),{id,kind:'mass'}),file=store.path(key+'.ts'),control=createAcquisitionDeadline(90000);
  try{
   const binding=await runtime.dependencies({registerImplementationAssets:files=>store.registerImplementationAssets(files,key,'encode')});store.selectNativePolicy(binding);
@@ -122,3 +122,40 @@ test('R90 selected 216-object real-volume source layout completes both E/D and i
 test('PP27-03 replay rejects retagged original JSON and forged aggregate despite consistent recomputed hashes/totals',async()=>{const v=await positiveProgram();try{const base=JSON.parse(await readFile(v.store.path(v.result.programProof.replayRef.name)));for(const mutate of [b=>{const row=b.uses.find(r=>r[1].endsWith('-runtime.json'));row[0]='pcm';b.numericBytes-=row[2];},b=>{const row=b.uses.find(r=>r[1].endsWith('-parameters.json'));row[0]='coded';b.numericBytes-=row[2];},b=>b.artifactCap=67108864]){const manifest=structuredClone(base);mutate(manifest.budget);const raw=Buffer.from(JSON.stringify(manifest)+'\n'),serialized=structuredClone(v.result);serialized.programProof.replayRef={...serialized.programProof.replayRef,bytes:raw.length,sha256:sha(raw)};await assert.rejects(replayProgramRecording(serialized,{resolveOriginal:r=>r.name===serialized.programProof.replayRef.name?raw:readFile(v.store.path(r.name)),resolveImplementation:v.runtime.resolveImplementation}),/original_role_or_cap|budget/);}}finally{await rm(v.directory,{recursive:true,force:true});}});
 
 test('PP27-01 pinned mux prefix is SDT then PAT then PMT before PES and rejects alternate ordering',async()=>{const runtime=await simulatedProgramRuntime(),b=runtime.transport.bytes;assert.equal(runtime.inventory.physical.packets[0].pid,17);for(const bytes of [Buffer.concat([b.subarray(188,376),b.subarray(0,188),b.subarray(376)]),b.subarray(188)]){assert.throws(()=>{const inventory=conservation.inventoryProgramTransport(bytes,{byteCap:bytes.length});conservation.replayProgramDemux(inventory,{fps:30,fileIdentity:{regular:true,seekable:true,nlink:1,position:0,bytes:bytes.length}});},/probe_rewind_prefix|psi_sections/);}});
+
+
+test('SIMULATED unchanged canary 64-episode replay preserves proof guards and rejects the complete oversized outer result',async(t)=>{
+ const {enumerateQualification}=await import('../../scripts/marker-qualification/authority.mjs'),{compileTrain}=await import('../../scripts/marker-qualification/trains.mjs'),{stereoMono}=await import('../../scripts/marker-qualification/codec-input.mjs'),{deriveMassCases}=await import('../../scripts/marker-qualification/mass-facts.mjs'),{prerequisiteStates,evaluateClassifierCase,makeResultShards,validateResultUnion}=await import('../../scripts/marker-qualification/results.mjs'),{gzipSync}=await import('node:zlib');
+ const invocation=enumerateQualification().invocations.find(i=>i.id==='mass-320-48000stereo-073'),train=compileTrain(invocation),noise=Buffer.alloc(train.samples*2),mono=stereoMono(constructTrainPcm(train,{42:noise,43:noise}));
+ const v=await positiveProgram({programTrain:train,mutateLogs:(data,role)=>{
+  if(role!=='decode')return;
+  // Explicit simulated codec I/O: retain the complete unchanged source train,
+  // coded population/priming, frame table and independent classifier/replay.
+  mono.copy(data.pcm,1024*2);
+  for(let tick=0;tick<train.frames;tick++){
+   const slot=train.slots.find(s=>tick*1600>=s.start&&tick*1600<s.end);if(!slot)continue;
+   data.rgb[tick*6+(slot.params.source==='b'?2:0)]=255;
+   if(tick>=slot.visualFrame&&tick<slot.visualFrame+3)data.rgb.fill(255,tick*6+3,tick*6+6);
+  }
+ }});
+ try{
+  assertReplayedProgram(v.result);assert.equal(v.result.record.episodes.length,64);
+  const raw=Buffer.from(JSON.stringify(v.result)+'\n'),details={bytes:raw.length,sha256:sha(raw),perResultCap:196608,topLevelBytes:Object.fromEntries(Object.entries(JSON.parse(raw)).map(([key,value])=>[key,Buffer.byteLength(JSON.stringify(value))]))};
+  t.diagnostic('SIMULATED-full-canary-result-layout '+JSON.stringify(details));
+  t.diagnostic('SIMULATED-full-canary-result-original-base64 '+raw.toString('base64'));
+  assert(raw.length>196608);
+  await assert.rejects(v.store.writeProgramOuter(v.key,'oversized-result.json',raw),/invocation_byte_cap/);
+  const outer=await simulatedOuter(v);await assert.rejects(replayProgramRecording(JSON.parse(JSON.stringify(v.result)),outer.options),/native_controller_outer_original/);
+  const originalOptions={resolveOriginal:r=>readFile(v.store.path(r.name)),resolveImplementation:v.runtime.resolveImplementation};
+  const reordered=structuredClone(v.result);reordered.record.episodes=reordered.record.episodes.map(e=>Object.fromEntries(Object.entries(e).reverse()));assertReplayedProgram(await replayProgramRecording(reordered,originalOptions));
+  for(const change of [x=>x.record.episodes[0].fits[0].coefficients[0]+=1,x=>x.record.episodes[0].extra=true,x=>x.record.episodes.reverse()]){
+   const altered=structuredClone(v.result);change(altered);await assert.rejects(replayProgramRecording(altered,originalOptions),/marker_replay_independent_classification|reference_wire_value/);
+  }
+  const cases=deriveMassCases(invocation,v.result),pins={scope:'SIMULATED PROGRAM local only; outer size blocked; FLV unrun'},name=invocation.id+'-program-decode.json.gz',bytes=gzipSync(Buffer.from(JSON.stringify(v.result))),ref={name,bytes:bytes.length,sha256:sha(bytes)};
+  const results=invocation.rows.map((row,index)=>row.params.path==='program'?{index,prerequisites:prerequisiteStates('pass'),observation:ref,...evaluateClassifierCase(row,prerequisiteStates('pass'),cases[Math.floor(index/2)])}:{index,status:'incomplete',reason:'prerequisite_incomplete',prerequisites:prerequisiteStates('not_run')});
+  assert(results.filter((_,i)=>i%2===0).every(r=>r.status==='pass'));assert(results.filter((_,i)=>i%2===1).every(r=>r.status==='incomplete'));
+  const bundle=makeResultShards(invocation,results,pins),read=key=>{assert.equal(key,name);return bytes;};
+  assert.throws(()=>validateResultUnion([invocation],[bundle],pins,read),/qualification_result_program_replay/);
+  for(const unproven of [v.result,structuredClone(v.result)])assert.throws(()=>validateResultUnion([invocation],[bundle],pins,read,()=>unproven),/marker_replay_proof_required/);
+ }finally{await rm(v.directory,{recursive:true,force:true});}
+});

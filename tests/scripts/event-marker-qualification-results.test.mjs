@@ -4,7 +4,7 @@ const hash=b=>createHash('sha256').update(b).digest('hex');
 const zip=b=>gzipSync(b),unzip=b=>b[0]===31?gunzipSync(b).toString():Buffer.from(b).toString();
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { evaluateClassifierCase, observeVerdict, observationName, prerequisiteStates, makeResultShards, validateResultUnion } from '../../scripts/marker-qualification/results.mjs';
+import { evaluateClassifierCase, evaluateBridgeCase, observeVerdict, observationName, prerequisiteStates, makeResultShards, validateResultUnion } from '../../scripts/marker-qualification/results.mjs';
 import { literalPcm } from '../../scripts/marker-qualification/signals.mjs';
 import { decodeSourceAudio } from '../../scripts/event-source-markers.mjs';
 import { referenceDetector } from '../../scripts/marker-qualification/detector-reference.mjs';
@@ -13,6 +13,8 @@ import { compileTrain,constructTrainPcm } from '../../scripts/marker-qualificati
 import { stereoMono } from '../../scripts/marker-qualification/codec-input.mjs';
 import { decodeMarkerVisuals } from '../../scripts/event-marker-record.mjs';
 import { assertDecodedCoverage } from '../../scripts/marker-qualification/media-facts.mjs';
+import { deriveMassCases } from '../../scripts/marker-qualification/mass-facts.mjs';
+import { matchSceneContract } from '../../scripts/marker-qualification/scene-policy.mjs';
 const authority=enumerateQualification();
 const row=authority.rows.find(r=>r.id.startsWith('q30/'));
 function evidence(){const s=literalPcm({family:'q30',source:'a',placement:0});const decoded=decodeSourceAudio([s.pcm],s.rows);return {episodes:decoded.episodes,referenceRanges:referenceDetector(s.pcm,s.rows).episodes};}
@@ -44,7 +46,7 @@ function completeMassObservation(inv) {
   const slot=train.slots.find(s=>tick*1600>=s.start&&tick*1600<s.end);if(!slot)continue;
   rgb[tick*6+(slot.params.source==='b'?2:0)]=255;if(tick>=slot.visualFrame&&tick<slot.visualFrame+3)rgb.fill(255,tick*6+3,tick*6+6);
  }
- const visual=decodeMarkerVisuals(rgb,videoRows),record={...decodeSourceAudio([pcm],audioRows),...visual,watermarks:[],recordingSha256:'a'.repeat(64)};
+ const visual=decodeMarkerVisuals(rgb,videoRows),record={...decodeSourceAudio([pcm],audioRows),...visual,watermarks:[]};
  record.episodes.forEach((e,id)=>e.id=id);const reference=referenceDetector(pcm,audioRows),coverage=assertDecodedCoverage(record,{frames:train.frames,fps:30,samples:train.samples});
  const cases=train.slots.map(s=>({episodes:record.episodes.filter(e=>e.onset>=48000+s.start&&e.end<=48000+s.end),referenceRanges:reference.episodes.filter(e=>e[0]>=48000+s.start&&e[2]<=48000+s.end),visualCount:1,fullFenceCovered:true,coverage:record.audioRange}));
  return {record,observation:{reference,audioRows,videoRows,visual,pcmSha256:hash(pcm),rgbSha256:hash(rgb)},coverage,cases};
@@ -55,26 +57,25 @@ function serializedMass(inv,observed) {
  return {pins,files,results,bundle:makeResultShards(inv,results,pins)};
 }
 
-test('serialized rehashed codec rows require actual stages and contract-matching observed evidence',()=>{
- const inv=authority.invocations.find(i=>i.id==='mass-320-48000stereo-000'),observed=completeMassObservation(inv),{pins,files,results,bundle}=serializedMass(inv,observed);
- assert.equal(validateResultUnion([inv],[bundle],pins,name=>files.get(name)).passed,true);
- const badFiles=new Map(files),badObservation=structuredClone(observed);badObservation.cases[0].episodes[0].identity='a';
- const name=`${inv.id}-program-decode.json.gz`,badBytes=gzipSync(Buffer.from(JSON.stringify(badObservation)));badFiles.set(name,badBytes);
- const contradictory=structuredClone(results);for(const r of contradictory)if(r.observation.name===name)r.observation={name,bytes:badBytes.length,sha256:hash(badBytes)};
- contradictory[0].facts.class='a';
- assert.throws(()=>validateResultUnion([inv],[makeResultShards(inv,contradictory,pins)],pins,n=>badFiles.get(n)),/qualification_result_semantic/);
- for(const mutate of [r=>delete r.prerequisites,r=>r.prerequisites.encode_complete='fail',r=>r.facts.class='a',r=>delete r.observation]){
-  const changed=structuredClone(bundle),s=changed.shards[0],parsed=JSON.parse(unzip(s.bytes));mutate(parsed.rows[0]);s.bytes=zip(Buffer.from(JSON.stringify(parsed)+'\n'));s.length=s.bytes.length;s.sha256=hash(s.bytes);
-  assert.throws(()=>validateResultUnion([inv],[changed],pins,name=>files.get(name)),/qualification_result/);
+test('serialized rehashed codec rows require actual stages and reject fabricated recording or replay proof',()=>{
+ const inv=authority.invocations.find(i=>i.id==='mass-320-48000stereo-000'),observed=completeMassObservation(inv),{pins,files,bundle}=serializedMass(inv,observed);
+ assert.deepEqual(deriveMassCases(inv,observed),observed.cases);
+ assert.throws(()=>assertDecodedCoverage({...observed.record,recordingSha256:'a'.repeat(64)},{frames:observed.coverage.frames,fps:30,samples:observed.coverage.samples}),/marker_clock_unproven/);
+ assert.throws(()=>validateResultUnion([inv],[bundle],pins,name=>files.get(name)),/qualification_result_program_replay/);
+ assert.throws(()=>validateResultUnion([inv],[bundle],pins,name=>files.get(name),()=>observed),/marker_replay_proof_required/);
+ const bad=JSON.parse(JSON.stringify(observed));bad.cases[0].episodes[0].identity='a';
+ assert.throws(()=>deriveMassCases(inv,bad),/qualification_mass_observation/);
+ for(const [mutate,reason] of [[r=>delete r.prerequisites,/qualification_result_prerequisites/],[r=>r.prerequisites.encode_complete='fail',/qualification_result_prerequisites/],[r=>r.facts.class='a',/qualification_result_program_replay/],[r=>delete r.observation,/qualification_result_observation/]]){
+  const changed=structuredClone(bundle),shard=changed.shards[0],parsed=JSON.parse(unzip(shard.bytes));mutate(parsed.rows[0]);shard.bytes=zip(Buffer.from(JSON.stringify(parsed)+'\n'));shard.length=shard.bytes.length;shard.sha256=hash(shard.bytes);
+  assert.throws(()=>validateResultUnion([inv],[changed],pins,name=>files.get(name)),reason);
  }
 });
 
-test('mass union rejects rehashed original versus copied evidence and conservation contradictions',()=>{
- const inv=authority.invocations.find(i=>i.id==='mass-320-48000stereo-000'),original=completeMassObservation(inv),{pins,results}=serializedMass(inv,original);
+test('mass literal derivation rejects original versus copied evidence and conservation contradictions',()=>{
+ const inv=authority.invocations.find(i=>i.id==='mass-320-48000stereo-000'),original=completeMassObservation(inv);
+ assert.throws(()=>assertDecodedCoverage({...original.record,recordingSha256:'a'.repeat(64)},{frames:original.coverage.frames,fps:30,samples:original.coverage.samples}),/marker_clock_unproven/);
  const withoutCopies=JSON.parse(JSON.stringify(original));delete withoutCopies.cases;
- const completeBytes=gzipSync(Buffer.from(JSON.stringify(withoutCopies))),completeRows=structuredClone(results);
- for(const r of completeRows){r.observation.bytes=completeBytes.length;r.observation.sha256=hash(completeBytes);}
- assert.equal(validateResultUnion([inv],[makeResultShards(inv,completeRows,pins)],pins,()=>completeBytes).passed,true);
+ assert.deepEqual(deriveMassCases(inv,withoutCopies),deriveMassCases(inv,original));
 
  const mutations=[
   x=>{delete x.record;delete x.observation;delete x.coverage;},
@@ -87,28 +88,39 @@ test('mass union rejects rehashed original versus copied evidence and conservati
   x=>x.cases[0].episodes[0].onset++,x=>x.cases[0].referenceRanges[0][0]++,x=>x.cases.pop(),x=>x.cases.push(structuredClone(x.cases[0])),
  ];
  for(const mutate of mutations){
-  // JSON cloning deliberately breaks producer aliases: original and copied
-  // tables can be changed independently, then both artifact and shards rehash.
-  const changed=JSON.parse(JSON.stringify(original));mutate(changed);const bytes=gzipSync(Buffer.from(JSON.stringify(changed))),rows=structuredClone(results);
-  for(const r of rows){r.observation.bytes=bytes.length;r.observation.sha256=hash(bytes);}
-  assert.throws(()=>validateResultUnion([inv],[makeResultShards(inv,rows,pins)],pins,()=>bytes),/qualification_result_semantic/);
+  // JSON cloning breaks producer aliases, so originals and copied case tables
+  // are independently tested at the pure source conservation boundary.
+  const changed=JSON.parse(JSON.stringify(original));mutate(changed);
+  assert.throws(()=>deriveMassCases(inv,changed),/qualification_mass_observation|coverage_failure|marker_/);
+
  }
 });
 
-test('serialized scene and bridge rows re-evaluate full observations rather than summary status',()=>{
+test('plain scene and bridge observations remain literal contracts and cannot claim replay admission',()=>{
  for(const kind of ['association','profile']){
   const inv=authority.invocations.find(i=>i.kind===kind),pins={test:kind},files=new Map(),results=[];
   for(const [index,row] of inv.rows.entries()){
-   const name=observationName(inv,index);let detail;
-   if(kind==='association')detail={observations:['program','program_twitch'].map(path=>({path,observation:{contexts:{}}}))};
-   else{const record={recordingSha256:'a'.repeat(64),visuals:Array.from({length:8},(_,id)=>({id,start:id*90000,identity:row.contract.source})),episodes:Array.from({length:8},(_,id)=>({id,onset:id*48000,identity:row.contract.source}))};detail={decoded:{record},quality:{fullFrameYuvPsnrDb:30},artifact:{sha256:record.recordingSha256},aacGenerations:row.params.path==='program'?1:2};}
+   const name=observationName(inv,index);let detail,verdict;
+   if(kind==='association'){
+    detail={observations:['program','program_twitch'].map(path=>({path,observation:{contexts:{}}}))};
+    verdict=matchSceneContract(row.contract,detail.observations[0].observation);assert.equal(verdict.status,'fail');
+   }else{
+    // A labeled source-only pulse table tests the pure bridge matcher; its
+    // hash is a binding operand, never a coded-recording/clock certificate.
+    const record={recordingSha256:'a'.repeat(64),visuals:Array.from({length:8},(_,id)=>({id,start:id*90000,identity:row.contract.source})),episodes:Array.from({length:8},(_,id)=>({id,onset:id*48000,identity:row.contract.source}))};
+    detail={decoded:{record},quality:{fullFrameYuvPsnrDb:30},artifact:{sha256:record.recordingSha256},aacGenerations:row.params.path==='program'?1:2};
+    verdict=evaluateBridgeCase(row,detail,false);assert.equal(verdict.status,'pass');
+    for(const mutate of [x=>x.decoded.record.episodes.pop(),x=>x.decoded.record.episodes[0].identity='unknown',x=>x.decoded.record.episodes[0].onset+=7201,x=>x.quality.fullFrameYuvPsnrDb=27,x=>x.aacGenerations++,x=>x.artifact.sha256='b'.repeat(64)]){const changed=structuredClone(detail);mutate(changed);assert.equal(evaluateBridgeCase(row,changed,false).status,'fail');}
+    const changed=structuredClone(detail);changed.quality.fullFrameYuvPsnrDb=40;assert.notDeepEqual(evaluateBridgeCase(row,changed,false).facts,verdict.facts);
+   }
+   assert.throws(()=>observeVerdict(inv,index,detail),/marker_replay_proof_required/);
    const bytes=gzipSync(Buffer.from(JSON.stringify(detail)));files.set(name,bytes);
-   results.push({index,prerequisites:prerequisiteStates('pass'),observation:{name,bytes:bytes.length,sha256:hash(bytes)},...observeVerdict(inv,index,detail)});
+   results.push({index,prerequisites:prerequisiteStates('pass'),observation:{name,bytes:bytes.length,sha256:hash(bytes)},...verdict});
   }
-  const bundle=makeResultShards(inv,results,pins);assert.equal(validateResultUnion([inv],[bundle],pins,n=>files.get(n)).passed,kind==='profile');
-  const changed=structuredClone(bundle),s=changed.shards[0],parsed=JSON.parse(unzip(s.bytes));
+  const bundle=makeResultShards(inv,results,pins);assert.throws(()=>validateResultUnion([inv],[bundle],pins,n=>files.get(n)),/qualification_result_program_replay/);
+  const changed=structuredClone(bundle),shard=changed.shards[0],parsed=JSON.parse(unzip(shard.bytes));
   if(kind==='association'){parsed.rows[0].status='pass';delete parsed.rows[0].reason;}else parsed.rows[0].facts.visualPsnrDb=40;
-  s.bytes=zip(Buffer.from(JSON.stringify(parsed)));s.length=s.bytes.length;s.sha256=hash(s.bytes);
-  assert.throws(()=>validateResultUnion([inv],[changed],pins,n=>files.get(n)),/qualification_result_semantic/);
+  shard.bytes=zip(Buffer.from(JSON.stringify(parsed)));shard.length=shard.bytes.length;shard.sha256=hash(shard.bytes);
+  assert.throws(()=>validateResultUnion([inv],[changed],pins,n=>files.get(n)),/qualification_result_program_replay/);
  }
 });

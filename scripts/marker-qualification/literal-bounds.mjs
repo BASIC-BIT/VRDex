@@ -77,7 +77,7 @@ export function executeBound(name) {
  if(name==='marker_bytes524288_pass524289_fail') {
   // Structural byte witness only: duplicate rows deliberately do not qualify
   // as source evidence. Exercise the exact total-byte guard independently.
-  const record=sourceMarkerFixture().markerEvidence,episode=[...record.episodes[0]];
+  const record=sourceMarkerFixture().markerEvidence,episode=record.episodes[0];
   record.padding='';
   const initial=assertMarkerEvidenceSize([record]).bytes,perRow=Buffer.byteLength(JSON.stringify(episode))+1;
   const added=Math.floor((524288-initial)/perRow);

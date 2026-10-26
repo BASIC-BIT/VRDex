@@ -72,6 +72,21 @@ export function packAudioEpisode(episode) {
  values['local.amplitudes']=episode.local?.amplitudes.map(v=>absent(v,episode.local.firstPair===-1));
  return packMarkerLeaf('episode',values);
 }
+/** Lossless logical view of the same fixed episode leaf. Canonical sentinel
+ * slots are checked by re-encoding; decoding creates no clock/replay proof. */
+export function unpackAudioEpisode(leaf) {
+ const v=unpackMarkerLeaf('episode',leaf),name=(kind,value)=>Object.keys(MARKER_WIRE_ENUMS[kind]).find(k=>MARKER_WIRE_ENUMS[kind][k]===value);
+ const endpoint=(key,side)=>({...Object.fromEntries(['ordinal','row','inRow','raw'].map(k=>[k,v[`${key}.${k}`]])),side});
+ const firstLoudLeft=endpoint('firstLoudLeft','left'),lastLoudRight=endpoint('lastLoudRight','right'),closureRight=endpoint('closureRight','right');
+ const episode={firstLoudLeft,lastLoudRight,closureRight,onset:firstLoudLeft.raw,end:closureRight.raw,loudEnd:lastLoudRight.ordinal-firstLoudLeft.ordinal,
+  firstMetadataIndex:firstLoudLeft.row,metadataRowCount:closureRight.row-firstLoudLeft.row+1,identity:name('class',v.class),reason:name('reason',v.reason),
+  prelude:{kind:name('prelude',v['prelude.kind']),...Object.fromEntries(['row','offset','count','owner'].map(k=>[k,v[`prelude.${k}`]]))},
+  fits:['a','b'].map(k=>({score:v[`${k}.score`],code:v[`${k}.code`],...Object.fromEntries([['openingGate','opening'],['closingGate','closing'],['maxResidual','residual'],['maxResidualAt','maxAt']].map(([field,key])=>[field,v[`${k}.code`]===0?v[`${k}.${key}`]:null])),
+   guard:{code:v[`${k}.guardCode`],...Object.fromEntries([['openingGate','guardOpening'],['maxResidual','guardResidual'],['maxResidualAt','guardMaxAt']].map(([field,key])=>[field,v[`${k}.guardCode`]===2?v[`${k}.${key}`]:null]))}})),
+  local:{...Object.fromEntries(['windows','hits','firstPair'].map(k=>[k,v[`local.${k}`]])),amplitudes:v['local.amplitudes'].map(n=>v['local.firstPair']===-1?null:n)}};
+ if(packAudioEpisode(episode)!==leaf)fail();
+ return episode;
+}
 /** Exact envelope accounting is structural, never semantic/capture admission.
  * Headers include epochs/watermarks; the original 1024-byte failure reserve
  * stays inside both the combined-header and 512 KiB total limits. */

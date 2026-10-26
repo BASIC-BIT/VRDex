@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { decodeSourceAudio } from '../../scripts/event-source-markers.mjs';
 import { decodeMarkerVisuals } from '../../scripts/event-marker-record.mjs';
 import { associateContext } from '../../scripts/event-marker-association.mjs';
+import { packMarkerLeaf,unpackMarkerLeaf } from '../../scripts/event-marker-wire.mjs';
 import { packMarkerRecord, validateMarkerRecord } from '../../scripts/event-marker-evidence.mjs';
 // Complete literal PCM/pixel fixture, no encoder, process, network or provider.
 function measured() {
@@ -30,7 +31,7 @@ test('marker receipt revalidates actual literal fits references and complete par
 });
 test('marker receipt rejects old schema and tampered measured identity pairs or conservation',()=>{
   const record=packMarkerRecord(measured());
-  for(const mutate of [r=>delete r.schema,r=>r.episodes[0][5]=2,r=>r.contexts[0][5][0][3]++,r=>r.contexts[0][6].pop(),r=>r.metadataSamples++,r=>r.identityEpochs.shift(),r=>r.visuals[0][2]=r.visuals[0][1],r=>r.coefficientAndConditionRanges[0].max[3]=101,r=>r.coefficientAndConditionRanges[0].invalidFits++]) {
+  for(const mutate of [r=>delete r.schema,r=>{const e=unpackMarkerLeaf('episode',r.episodes[0]);e.class=2;r.episodes[0]=packMarkerLeaf('episode',e);},r=>r.contexts[0][5][0][3]++,r=>r.contexts[0][6].pop(),r=>r.metadataSamples++,r=>r.identityEpochs.shift(),r=>r.visuals[0][2]=r.visuals[0][1],r=>r.coefficientAndConditionRanges[0].max[3]=101,r=>r.coefficientAndConditionRanges[0].invalidFits++]) {
     const r=structuredClone(record);mutate(r);assert.throws(()=>validateMarkerRecord(r),/marker_/);
   }
 });

@@ -1,4 +1,5 @@
 import { gunzipSync } from 'node:zlib';
+import { isDeepStrictEqual } from 'node:util';
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { replayRawMembers } from '../event-marker-raw-capture.mjs';
@@ -109,7 +110,7 @@ export async function replayProgramRecording(serialized,{resolveOriginal,resolve
  for(const [key,value] of Object.entries(visual))must(same(serialized.record[key],value)&&same(serialized.observation.visual[key],value),'visual_partition');
  let independent;
  if(serialized.classificationFailure){must(serialized.classificationFailure==='episode_bound','classifier_failure');try{replayAudioWire(serialized.record.episodes.map(packAudioEpisode),decoder.pcm,audioRows);throw Error('marker_replay_missing_episode_failure');}catch(error){must(error.message==='reference_episode_bound','episode_bound');}must(serialized.record.episodes.length===0,'negative_episode_record');}
- else{independent=replayAudioWire(serialized.record.episodes.map(packAudioEpisode),decoder.pcm,audioRows);must(same(independent.episodes.map((e,id)=>({...e,id})),serialized.record.episodes),'independent_classification');}
+ else{independent=replayAudioWire(serialized.record.episodes.map(packAudioEpisode),decoder.pcm,audioRows);must(isDeepStrictEqual(independent.episodes.map((e,id)=>({...e,id})),serialized.record.episodes),'independent_classification');}
  must(serialized.record.metadataSamples===facts.population.decodedSamples&&serialized.record.decodedBytes===decoder.pcm.length,'population');
  const local={...serialized,record:{...serialized.record,clock},observation:{...serialized.observation,clock}};
  must(same(local.record.audioRange,[audioRows[0].pts,audioRows.at(-1).pts+audioRows.at(-1).samples])&&local.record.videoStreamIndex===0&&local.record.audioStreamIndex===1,'record_ranges');
