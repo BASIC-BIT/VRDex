@@ -63,6 +63,13 @@ The shared `searchPublicDocuments` helper serves universal search, person lookup
 the public HTTP API, and hosted MCP. The stdio MCP client uses the HTTP API.
 There is no separate UI matching implementation.
 
+The web `PublicSearchResult` type derives from the backend projection and adds only
+the server-authored claim entry path. Person results retain visible genre labels,
+featured flags, outbound link presentation and resolved destination metadata.
+`public-search-genres` provides readable labels and stable featured-first ordering
+without mutating results. The shared `PublicProfileLinks` board handles public
+link actions independently of legacy lookup queries or private seed access.
+
 Keyword, literal-name, and stylized-name reads share a 256-document candidate
 budget (86 keyword, 85 literal, 85 stylized) before deduplication and ranking.
 Keyword-only queries may use all 256 slots.

@@ -1,4 +1,5 @@
 import type { PublicProfile } from "@/app/_components/profile-public-page";
+import type { PublicSearchPerson } from "@/lib/public-search";
 import type {
   PrivateSeedLookupResult,
   PublicProfileLookupResult,
@@ -1249,7 +1250,7 @@ type PlaywrightPublicShortLinkFixture = {
 function toProfileLookupFixture(
   profile: PublicProfile,
   sourceLabel?: string,
-): PublicProfileLookupResult | null {
+): (PublicSearchPerson & Pick<PublicProfileLookupResult, "accentColor" | "secondaryColor">) | null {
   if (profile.profileType !== "person") {
     return null;
   }
@@ -1263,20 +1264,23 @@ function toProfileLookupFixture(
     profilePath: `/${profile.slug}`,
     aliases: profile.aliases,
     tags: profile.tags,
-    genres: profile.genres,
+    genres: profile.genres.map((genre) => ({
+      ...genre,
+      displayLabel: genre.displayLabel ?? undefined,
+    })),
     roleTags: profile.person.roleTags,
     trustLabel: profile.trustLabel,
     ...(sourceLabel === undefined ? {} : { sourceLabel }),
-    ...(profile.headline === undefined ? {} : { headline: profile.headline }),
-    ...(profile.bio === undefined ? {} : { bio: profile.bio }),
-    ...(profile.avatarImageUrl === undefined ? {} : { avatarImageUrl: profile.avatarImageUrl }),
+    ...(profile.headline == null ? {} : { headline: profile.headline }),
+    ...(profile.bio == null ? {} : { bio: profile.bio }),
+    ...(profile.avatarImageUrl == null ? {} : { avatarImageUrl: profile.avatarImageUrl }),
     ...("mediaKit" in profile && profile.mediaKit?.avatarAppearance
       ? { avatarAppearance: profile.mediaKit.avatarAppearance }
       : {}),
     ...(accentColor === undefined ? {} : { accentColor }),
     ...(secondaryColor === undefined ? {} : { secondaryColor }),
-    ...(profile.region === undefined ? {} : { region: profile.region }),
-    ...(profile.timezone === undefined ? {} : { timezone: profile.timezone }),
+    ...(profile.region == null ? {} : { region: profile.region }),
+    ...(profile.timezone == null ? {} : { timezone: profile.timezone }),
     outboundLinks: profile.outboundLinks,
   };
 }

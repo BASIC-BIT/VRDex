@@ -25,7 +25,7 @@ import { Card, SectionTitle } from "@/components/ui/card";
 import { EntityImage } from "@/components/ui/entity-image";
 import { EventSchedule, EventScheduleRow } from "@/components/ui/event-schedule";
 import { ProfileAvatarImage } from "@/components/ui/profile-avatar-image";
-import type { AvatarAppearance } from "@/lib/avatar-appearance";
+import type { PublicSearchResult } from "@/lib/public-search";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
 import { VerifiedTrustMark } from "@/components/ui/verified-trust-mark";
 import { cn } from "@/lib/cn";
@@ -35,41 +35,8 @@ import {
   type DiscoveryAnalyticsSurface,
 } from "@/lib/posthog";
 
-type EntityType = "profile" | "world" | "event";
-type ProfileType = "person" | "community";
 export type { SearchResultFilter } from "./search-view-state";
-
-export type PublicSearchResult = {
-  entityType: EntityType;
-  profileType?: ProfileType;
-  slug: string;
-  routePath: string;
-  title: string;
-  subtitle?: string;
-  summary?: string;
-  imageUrl?: string;
-  profileImageUrl?: string;
-  logoImageUrl?: string;
-  avatarAppearance?: AvatarAppearance;
-  trustLabel?: "community_submitted" | "unclaimed" | "claimed_unverified" | "claimed_verified";
-  startsAt?: number;
-  eventDate?: string;
-  scheduleKind?: "timed" | "date_only";
-  source?: {
-    sourceType?: string;
-    label: string;
-  };
-  person?: {
-    displayName: string;
-    roleTags: string[];
-    tags: string[];
-    genres: Array<{ slug: string; displayName: string; displayLabel?: string | null }>;
-    outboundLinks: Array<{ type: string; label: string; url: string }>;
-  };
-  claimEligible?: boolean;
-  claimEntryPath?: string;
-  score: number;
-};
+export type { PublicSearchResult } from "@/lib/public-search";
 
 export type PublicDiscoveryData = {
   featured: PublicSearchResult[];

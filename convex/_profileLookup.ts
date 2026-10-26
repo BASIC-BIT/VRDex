@@ -51,7 +51,9 @@ function optionalStringField(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
-function publicLookupGenres(profile: Doc<"profiles">) {
+function publicLookupGenres(profile: Doc<"profiles">): Array<
+  Pick<ProfileLookupGenre, "slug" | "displayName" | "displayLabel" | "featured">
+> {
   return visibleProfileList(profile, "genres", profile.genres ?? [], "discovery").map(
     (genre: ProfileLookupGenre) => ({
       slug: genre.slug,
