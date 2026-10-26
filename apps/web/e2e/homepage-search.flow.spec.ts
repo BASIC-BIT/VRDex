@@ -136,6 +136,9 @@ test("public result genres and Links disclose independently per person @flow", a
   const second = publicResultRow(page, "/playwright-moth");
   await expect(first.getByRole("link", { name: /BASICBIT/ })).toBeVisible();
   await expect(first.getByText("Software Dev | 3D Designer | VRDJ", { exact: true })).toBeVisible();
+  await expect(second.getByText("Moth fixture profile for lookup density checks.", { exact: true })).toBeVisible();
+  await expect(second.getByText("DJ · VRDJ · Fixture lineup", { exact: true })).toBeVisible();
+  await expect(second.locator("details").filter({ has: page.locator("summary", { hasText: "Links" }) })).not.toHaveAttribute("open");
   await expect(first.getByText("DnB · House · Techno", { exact: true })).toBeVisible();
   await expect(first.getByText("Drum and Bass", { exact: true })).toHaveCount(0);
   await expect(first.getByRole("button", { name: "Copy", exact: true })).toHaveCount(0);

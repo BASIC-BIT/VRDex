@@ -279,7 +279,7 @@ function DiscoveryCard({
 
 function SearchResultCard({ result }: { result: PublicSearchResult }) {
   const subtitle = resultSubtitle(result);
-  const roleLabels = !result.summary && result.person
+  const roleLabels = result.person
     ? [...new Set([...result.person.roleTags, ...result.person.tags])].slice(0, 3)
     : [];
 
