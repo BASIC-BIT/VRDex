@@ -1,5 +1,5 @@
 import { recordResourceSnapshot, computeRuntimeValidator, trustedComputeRuntime } from "./_eventBroadcastResources";
-import {assertWorkerProtocol,beginControlPreparation,promoteControlOperation,completeControlOperation,controlFence,coherentEvidence,writeControlObservation,isCut,isControl,settleControl} from "./_eventBroadcastControl";
+import {assertWorkerProtocol,beginControlPreparation,promoteControlOperation,completeControlOperation,controlFence,coherentEvidence,writeControlObservation,broadcastModeForIntent,isCut,isControl,settleControl} from "./_eventBroadcastControl";
 import {controlTargetValidator,controlResultValidator,controlFailureValidator} from "./_eventMediaControl";
 import { parseMediaSettings, resolveDestinationProfile } from "../workers/restream/broadcast-profiles.mjs";
 import { eventProfileBroadcastInputChoices, resolveBroadcastInput, broadcastInputPublicUrl, eventMediaSourceWorkerDescriptor } from "./_eventBroadcastSources";
@@ -338,13 +338,14 @@ export const acknowledgeCommand = mutation({
         }
         const hasV2Observation=found.session.controlProtocolVersion===2 && args.outcome==="succeeded" && !["ended","error"].includes(args.observedState??"") && (args.observedState!==undefined || args.observedSourceId!==undefined);
         if(hasV2Observation && !await coherentEvidence(ctx.db,found.session,{intentSequence:args.intentSequence,outputMs:args.outputMs,sourceId:args.observedSourceId,sourceRevision:args.sourceRevision,slotKey:args.slotKey,outputId:args.observedOutputId,state:args.observedState}))return {kind:"superseded" as const};
+        if(hasV2Observation && found.session.pendingControlCommandId !== undefined)return {kind:"superseded" as const};
         await ctx.db.patch(command._id, { completionPayload, status: args.outcome, acknowledgedEpoch: args.epoch, observedSourceId: args.observedSourceId, observedSceneId: args.observedSceneId, observedOutputId: args.observedOutputId, observedState: args.observedState, completedAt: now, updatedAt: now });
         const observed = args.outcome === "succeeded" ? {
             ...(args.observedSourceId === undefined ? {} : { currentSourceId: args.observedSourceId ?? undefined }),
             ...(args.observedSceneId === undefined ? {} : { currentSceneId: args.observedSceneId ?? undefined }),
         } : {};
         const observedState = args.outcome === "succeeded" ? args.observedState : undefined;
-        const mode = command.commandType === "set_automatic_mode" ? "automatic" : ["switch_hold", "show_hold_scene"].includes(command.commandType) ? "hold" : ["hold_current", "switch_source", "switch_next", "next_slot", "switch_previous", "previous_slot"].includes(command.commandType) ? "manual" : undefined;
+        const mode = hasV2Observation ? broadcastModeForIntent(found.session.committedIntent) : command.commandType === "set_automatic_mode" ? "automatic" : ["switch_hold", "show_hold_scene"].includes(command.commandType) ? "hold" : ["hold_current", "switch_source", "switch_next", "next_slot", "switch_previous", "previous_slot"].includes(command.commandType) ? "manual" : undefined;
         await ctx.db.patch(args.sessionId, { ...(hasV2Observation?{observedOutputMs:args.outputMs,observedSourceRevision:args.sourceRevision,observedSlotKey:args.slotKey}:{}), ...(args.outcome === "succeeded" && mode ? { broadcastMode: mode } : {}), ...observed, ...(args.outcome === "succeeded" && (mode || observedState || args.observedSourceId !== undefined) ? {programObservedAt:now} : {}), ...(observedState === undefined ? {} : { status: observedState }), lastAcknowledgedSequence: args.sequence, updatedAt: now });
         if (args.outcome === "succeeded")
             await ctx.db.patch(found.program._id, { ...observed, ...(args.observedOutputId === undefined ? {} : { currentOutputId: args.observedOutputId ?? undefined }), ...(observedState === undefined ? {} : { state: observedState }), ...(["ended", "error"].includes(observedState ?? "") ? { activeSessionId: undefined } : {}), updatedAt: now });
@@ -435,7 +436,10 @@ export const observeProgram = mutation({ args: { ...workerSessionArgs, intentSeq
           const found=await controlFence(ctx.db,args);if("result" in found)return found.result;
           if(["live","hold"].includes(args.state) && (!args.publishing || !Number.isFinite(args.outputMs) || args.outputMs<=0))throw Error("Publishing progress is required.");
           const evidence={...args,state:args.state};
+          // Committed intent can lead encoded output during Take/Cut. Completion
+          // proves the pending target before periodic observations resume.
           if(!args.publishing || !await coherentEvidence(ctx.db,found.session,evidence))return {kind:"superseded" as const};
+          if(found.session.pendingControlCommandId !== undefined)return {kind:"superseded" as const};
           await writeControlObservation(ctx.db,found.session,evidence);return {kind:"ok" as const};
         }
         const found = await records(ctx, args, false, ["ended","error"].includes(args.state));

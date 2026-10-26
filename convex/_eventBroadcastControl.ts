@@ -608,7 +608,12 @@ function sameTarget(a: ControlTarget, b: ControlTarget) {
         a.source.slotKey === b.source.slotKey))
   );
 }
+// Policy mode is independent of rendered slate (automatic gaps/manual fallback).
+export const broadcastModeForIntent = (intent: Session["committedIntent"]) =>
+  intent?.kind === "slate" ? "hold" : intent?.kind;
+
 export type RenderedEvidence = {
+  mode?: Session["broadcastMode"];
   intentSequence?: number;
   outputMs?: number;
   sourceId?: Id<"eventMediaSources"> | null;
@@ -677,7 +682,8 @@ export async function coherentEvidence(
     target?.kind === "source"
   )
     return false;
-  return true;
+  const mode = broadcastModeForIntent(session.committedIntent);
+  return mode !== undefined && (e.mode === undefined || e.mode === mode);
 }
 export async function writeControlObservation(
   db: DatabaseWriter,
@@ -687,6 +693,7 @@ export async function writeControlObservation(
   const now = Date.now();
   const state = e.state as "live" | "hold" | "fallback";
   await db.patch(session._id, {
+    broadcastMode: broadcastModeForIntent(session.committedIntent),
     currentSourceId: e.sourceId ?? undefined,
     observedSourceRevision: e.sourceRevision,
     observedSlotKey: e.slotKey,

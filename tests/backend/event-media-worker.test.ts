@@ -47,6 +47,36 @@ async function fixture() {
   const f=await setupFixture();
   return {...f,...await f.schedule()};
 }
+async function observationFixture() {
+  const f = await setupFixture();
+  // Already admitted session for observation tests; real scheduling tests
+  // retain the production empty-capacity-map guard.
+  const scheduled = await f.t.run(async ({ db }) => {
+    const now = Date.now();
+    const sessionId = await db.insert("eventMediaSessions", {
+      programId: f.output.programId, eventId: f.event.eventId,
+      outputId: f.output.outputId, controlProtocolVersion: 2,
+      committedIntent: { kind: "automatic" }, intentSequence: 0,
+      status: "scheduled", nextCommandSequence: 2,
+      scheduledStartAt: now, readyDeadlineAt: now + 180_000,
+      createdAt: now, updatedAt: now,
+    });
+    const startCommandId = await db.insert("eventMediaCommands", {
+      programId: f.output.programId, eventId: f.event.eventId, sessionId,
+      commandType: "start_program", sequence: 1, status: "queued",
+      targetOutputId: f.output.outputId, publicFallbackLinks: [],
+      actorSurface: "web", availableAt: now, createdAt: now, updatedAt: now,
+    });
+    await db.patch(f.output.programId, {
+      activeSessionId: sessionId, currentOutputId: f.output.outputId,
+      state: "ready", updatedAt: now,
+    });
+    return { sessionId, startCommandId };
+  });
+  const args = { protocolVersion: 2, bridgeToken, eventId: f.event.eventId,
+    sessionId: scheduled.sessionId, workerId: "worker-a", epoch: 0 };
+  return { ...f, scheduled, args };
+}
 
 it("duplicate_start_is_idempotent", async () => {
   const { t, args } = await fixture();
@@ -487,12 +517,13 @@ it("revoked selected ready destination cannot enter the bridge before acquisitio
 });
 
 it("actual program observations have a distinct timestamp that renewal cannot refresh or replacement inherit", async () => {
-  const f=await fixture();
+  const f=await observationFixture();
   const lease=await f.t.mutation(worker("acquireSession"),f.args), request={...f.args,epoch:lease.epoch};
   assert.equal((await f.owner.query(api.events.getEventMediaControlStatus,{currentSlug:f.event.slug})).sessions[0].programObservedAt,undefined);
   const before=Date.now();
-  await f.t.mutation(worker("observeProgram"),{...request,intentSequence:0,state:"hold",mode:"hold",outputMs:500,publishing:true,outputId:f.output.outputId});
+  await f.t.mutation(worker("observeProgram"),{...request,intentSequence:0,state:"hold",mode:"automatic",outputMs:500,publishing:true,outputId:f.output.outputId});
   const first=await f.owner.query(api.events.getEventMediaControlStatus,{currentSlug:f.event.slug});
+  assert.equal(first.sessions[0].broadcastMode,"automatic");
   const observedAt=first.sessions[0].programObservedAt;
   assert.ok(observedAt!==undefined && observedAt>=before && observedAt<=first.serverNow);
   await f.t.mutation(worker("renewSession"),request);
@@ -527,7 +558,7 @@ it("actual optional grant revocation fences the controller before more program p
 });
 
 it("only successful observed command acknowledgements stamp program media time", async () => {
-  const f=await fixture();
+  const f=await observationFixture();
   const lease=await f.t.mutation(worker("acquireSession"),f.args), request={...f.args,epoch:lease.epoch};
   const initial=await f.t.mutation(worker("claimCommands"),request);
   const first=initial.commands[0];
@@ -550,4 +581,84 @@ it("late terminal observation cannot clear a replacement session's active progra
   const late=await f.t.mutation(worker("observeProgram"),{...f.args,epoch:lease.epoch,state:"error",outputMs:0,publishing:false});
   assert.equal(late.accepted,false);
   assert.equal((await f.t.run(({db})=>db.get(f.output.programId)))?.activeSessionId,replacement.sessionId);
+});
+
+for (const evidence of ["coherent", "omitted", "failed"] as const)
+  it(`ordinary Start ${evidence} evidence establishes only validated observed mode`, async () => {
+    const f = await observationFixture();
+    const lease = await f.t.mutation(worker("acquireSession"), f.args);
+    const request = { ...f.args, epoch: lease.epoch };
+    const claim = await f.t.mutation(worker("claimCommands"), request);
+    const command = claim.commands[0];
+    assert.equal(command.commandType, "start_program");
+    assert.equal((await f.t.run(({db}) => db.get(f.args.sessionId)))?.broadcastMode, undefined);
+    const ack = {
+      ...request, commandId: command._id, sequence: command.sequence,
+      outcome: evidence === "failed" ? "failed" : "succeeded",
+      ...(evidence === "omitted" ? {} : {
+        intentSequence: 0, outputMs: 100, observedState: "hold",
+        observedOutputId: f.output.outputId,
+      }),
+    };
+    assert.equal((await f.t.mutation(worker("acknowledgeCommand"), ack)).accepted, true);
+    const after = await f.t.run(({db}) => db.get(f.args.sessionId));
+    assert.equal(after?.broadcastMode, evidence === "coherent" ? "automatic" : undefined);
+    if (evidence === "coherent") {
+      assert.equal(after?.observedOutputMs, 100);
+      await f.t.mutation(worker("observeProgram"), {
+        ...request, intentSequence: 0, outputMs: 200, state: "fallback",
+        publishing: true, outputId: f.output.outputId,
+      });
+      const newer = await f.t.run(({db}) => db.get(f.args.sessionId));
+      assert.equal((await f.t.mutation(worker("acknowledgeCommand"), ack)).duplicate, true);
+      assert.deepEqual(await f.t.run(({db}) => db.get(f.args.sessionId)), newer);
+    } else {
+      assert.equal(after?.programObservedAt, undefined);
+    }
+  });
+
+it("ordinary Start cannot turn pending Cut intent into observed mode", async () => {
+  const f = await observationFixture();
+  const lease = await f.t.mutation(worker("acquireSession"), f.args);
+  const request = { ...f.args, epoch: lease.epoch };
+  const claim = await f.t.mutation(worker("claimCommands"), request);
+  const start = claim.commands[0];
+  await f.owner.mutation(api.events.queueEventMediaCommand, {
+    currentSlug: f.event.slug, type: "switch_hold", idempotencyKey: "cut",
+  });
+  const before = await f.t.run(({db}) => db.get(f.args.sessionId));
+  assert.deepEqual(await f.t.mutation(worker("acknowledgeCommand"), {
+    ...request, commandId: start._id, sequence: start.sequence, outcome: "succeeded",
+    intentSequence: before?.intentSequence, outputMs: 100,
+    observedState: "hold", observedOutputId: f.output.outputId,
+  }), { kind: "superseded" });
+  assert.deepEqual(await f.t.run(({db}) => db.get(f.args.sessionId)), before);
+});
+
+it("legacy observations retain supplied mode without protocol 2 intent", async () => {
+  const f = await observationFixture();
+  await f.t.run(({ db }) => db.patch(f.args.sessionId, {
+    controlProtocolVersion: undefined, committedIntent: undefined, intentSequence: undefined,
+  }));
+  const lease = await f.t.mutation(worker("acquireSession"), f.args);
+  assert.equal((await f.t.mutation(worker("observeProgram"), {
+    ...f.args, epoch: lease.epoch, state: "hold", mode: "hold", outputMs: 100,
+    publishing: true, outputId: f.output.outputId,
+  })).accepted, true);
+  assert.equal((await f.t.run(({db}) => db.get(f.args.sessionId)))?.broadcastMode, "hold");
+});
+
+it("terminal protocol 2 observation preserves the last observed policy mode", async () => {
+  const f = await observationFixture();
+  const lease = await f.t.mutation(worker("acquireSession"), f.args);
+  const request = { ...f.args, epoch: lease.epoch, outputId: f.output.outputId };
+  await f.t.mutation(worker("observeProgram"), {
+    ...request, intentSequence: 0, state: "hold", outputMs: 100, publishing: true,
+  });
+  assert.equal((await f.t.mutation(worker("observeProgram"), {
+    ...request, state: "ended", outputMs: 100, publishing: false,
+  })).accepted, true);
+  const ended = await f.t.run(({db}) => db.get(f.args.sessionId));
+  assert.equal(ended?.status, "ended");
+  assert.equal(ended?.broadcastMode, "automatic");
 });

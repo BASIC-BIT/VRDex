@@ -84,10 +84,30 @@ async function setupFixture() {
     playbackLinks: [{ platform: "browser", url: "https://example.test/watch" }],
   });
   async function schedule() {
-    const scheduled = await owner.mutation(
-      api.events.scheduleEventMediaWorker,
-      { currentSlug: event.slug },
-    );
+    // Seed an already admitted session: these tests exercise control mutations,
+    // not capacity admission. The production measured allocation map stays empty.
+    const scheduled = await t.run(async ({ db }) => {
+      const now = Date.now();
+      const sessionId = await db.insert("eventMediaSessions", {
+        programId: output.programId, eventId: event.eventId,
+        outputId: output.outputId, controlProtocolVersion: 2,
+        committedIntent: { kind: "automatic" }, intentSequence: 0,
+        status: "scheduled", nextCommandSequence: 2,
+        scheduledStartAt: now, readyDeadlineAt: now + 180_000,
+        createdAt: now, updatedAt: now,
+      });
+      const startCommandId = await db.insert("eventMediaCommands", {
+        programId: output.programId, eventId: event.eventId, sessionId,
+        commandType: "start_program", sequence: 1, status: "queued",
+        targetOutputId: output.outputId, publicFallbackLinks: [],
+        actorSurface: "web", availableAt: now, createdAt: now, updatedAt: now,
+      });
+      await db.patch(output.programId, {
+        activeSessionId: sessionId, currentOutputId: output.outputId,
+        state: "ready", updatedAt: now,
+      });
+      return { sessionId, startCommandId };
+    });
     // Make the scheduled start eligible without replacing Convex's clock.
     await t.run(async (ctx) => {
       await ctx.db.patch(scheduled.sessionId, {
@@ -199,23 +219,81 @@ it("scoped idempotency and one pending operation", async () => {
   assert.deepEqual(s.committedIntent, { kind: "automatic" });
   assert.equal(s.pendingControlCommandId, a.commandId);
 });
+it("first automatic slate and fallback observations persist policy mode in public status", async () => {
+  const f = await controlFixture();
+  assert.equal((await f.receipt(f.args.sessionId)).broadcastMode, undefined);
+  for (const [state, outputMs] of [["hold", 10], ["fallback", 20]] as const) {
+    assert.deepEqual(await f.t.mutation(worker("observeProgram"), {
+      ...f.args, intentSequence: 0, state, outputMs, publishing: true,
+      outputId: f.output.outputId, mode: "automatic",
+    }), { kind: "ok" });
+    assert.equal((await f.receipt(f.args.sessionId)).broadcastMode, "automatic");
+    const status = await f.owner.query(api.events.getEventMediaControlStatus, {
+      currentSlug: f.event.slug,
+    });
+    assert.equal(status.sessions.find(row => row.sessionId === f.args.sessionId)?.broadcastMode, "automatic");
+  }
+});
+for (const mode of ["manual", "hold"] as const)
+  it(`automatic slate rejects contradictory ${mode} mode without writes`, async () => {
+    const f = await controlFixture();
+    const before = await f.receipt(f.args.sessionId);
+    assert.deepEqual(await f.t.mutation(worker("observeProgram"), {
+      ...f.args, intentSequence: 0, state: "hold", outputMs: 10,
+      publishing: true, outputId: f.output.outputId, mode,
+    }), { kind: "superseded" });
+    assert.deepEqual(await f.receipt(f.args.sessionId), before);
+  });
 it("promotion commits before ack, and duplicate completion cannot rewrite evidence", async () => {
   const f = await controlFixture();
+  await f.t.mutation(worker("observeProgram"), {
+    ...f.args, intentSequence: 0, state: "hold", outputMs: 10,
+    publishing: true, outputId: f.output.outputId,
+  });
   const c = await f.take();
+  assert.equal((await f.receipt(f.args.sessionId)).broadcastMode, "automatic");
   assert.equal((await f.begin(c.commandId)).kind, "ok");
+  assert.equal((await f.receipt(f.args.sessionId)).broadcastMode, "automatic");
   assert.equal((await f.promote(c.commandId)).kind, "ok");
   assert.deepEqual((await f.receipt(f.args.sessionId)).committedIntent, {
-    kind: "manual",
-    sourceId: f.sourceId,
-    revision: 1,
+    kind: "manual", sourceId: f.sourceId, revision: 1,
   });
+  assert.equal((await f.receipt(f.args.sessionId)).broadcastMode, "automatic");
   assert.equal((await f.ack(c.commandId)).kind, "ok");
+  assert.equal((await f.receipt(f.args.sessionId)).broadcastMode, "manual");
+  const command = await f.receipt(c.commandId);
+  assert.equal((await f.t.mutation(worker("observeProgram"), {
+    ...f.args, intentSequence: command.sequence, state: "fallback", outputMs: 200,
+    publishing: true, outputId: f.output.outputId,
+  })).kind, "ok");
+  const newer = await f.receipt(f.args.sessionId);
+  assert.equal(newer.broadcastMode, "manual");
   assert.equal((await f.ack(c.commandId)).duplicate, true);
-  assert.equal(
-    (await f.ack(c.commandId, { outputMs: 101 })).kind,
-    "superseded",
-  );
+  assert.deepEqual(await f.receipt(f.args.sessionId), newer);
+  assert.equal((await f.ack(c.commandId, { outputMs: 101 })).kind, "superseded");
+  assert.deepEqual(await f.receipt(f.args.sessionId), newer);
 });
+for (const phase of ["preparing", "promoting", "cut"] as const)
+  it(`periodic slate cannot establish mode during pending ${phase}`, async () => {
+    const f = await controlFixture();
+    const request = {
+      ...f.args, intentSequence: 0, state: "hold", outputMs: 10,
+      publishing: true, outputId: f.output.outputId,
+    };
+    await f.t.mutation(worker("observeProgram"), request);
+    const c = phase === "cut"
+      ? await f.owner.mutation(api.events.queueEventMediaCommand, {
+          currentSlug: f.event.slug, type: "switch_hold", idempotencyKey: "cut",
+        })
+      : await f.take();
+    await f.begin(c.commandId);
+    if (phase === "promoting") await f.promote(c.commandId);
+    const before = await f.receipt(f.args.sessionId);
+    assert.equal((await f.t.mutation(worker("observeProgram"), {
+      ...request, intentSequence: before.intentSequence, outputMs: 20,
+    })).kind, "superseded");
+    assert.deepEqual(await f.receipt(f.args.sessionId), before);
+  });
 for (const promoteFirst of [false, true])
   it(`Cut supersedes ${promoteFirst ? "promoting" : "preparing"} receipt`, async () => {
     const f = await controlFixture();
@@ -260,6 +338,10 @@ it("preparation deadline starts once and takeover retains identity", async () =>
 });
 it("expired preparation retains automatic intent", async () => {
   const f = await controlFixture();
+  await f.t.mutation(worker("observeProgram"), {
+    ...f.args, intentSequence: 0, state: "hold", outputMs: 10,
+    publishing: true, outputId: f.output.outputId,
+  });
   const c = await f.take();
   await f.begin(c.commandId);
   await f.t.run((ctx) =>
@@ -272,6 +354,7 @@ it("expired preparation retains automatic intent", async () => {
   assert.deepEqual((await f.receipt(f.args.sessionId)).committedIntent, {
     kind: "automatic",
   });
+  assert.equal((await f.receipt(f.args.sessionId)).broadcastMode, "automatic");
 });
 for (const promoteFirst of [false, true])
   it(`removal atomically settles ${promoteFirst ? "committed" : "pending"} target`, async () => {
@@ -372,6 +455,10 @@ for (const authority of ["owner", "delegate"] as const)
 for (const committed of [false, true])
   it(`destination revocation fences ${committed ? "completion" : "grant"}`, async () => {
     const f = await controlFixture();
+    await f.t.mutation(worker("observeProgram"), {
+      ...f.args, intentSequence: 0, state: "hold", outputMs: 10,
+      publishing: true, outputId: f.output.outputId,
+    });
     const c = await f.take();
     await f.begin(c.commandId);
     if (committed) await f.promote(c.commandId);
@@ -382,10 +469,15 @@ for (const committed of [false, true])
       committed ? await f.ack(c.commandId) : await f.promote(c.commandId),
       { kind: "fenced", reason: "destination" },
     );
+    assert.equal((await f.receipt(f.args.sessionId)).broadcastMode, "automatic");
   });
 for (const stopFirst of [false, true])
   it(`Stop outranks Cut ${stopFirst ? "before" : "after"} admission`, async () => {
     const f = await controlFixture();
+    await f.t.mutation(worker("observeProgram"), {
+      ...f.args, intentSequence: 0, state: "hold", outputMs: 10,
+      publishing: true, outputId: f.output.outputId,
+    });
     const c = await f.take();
     await f.begin(c.commandId);
     await f.promote(c.commandId);
@@ -414,6 +506,7 @@ for (const stopFirst of [false, true])
       kind: "fenced",
       reason: "stopped",
     });
+    assert.equal((await f.receipt(f.args.sessionId)).broadcastMode, "automatic");
     const claims = await f.t.mutation(worker("claimCommands"), f.args);
     assert.equal(claims.commands[0].commandType, "stop_program");
   });
@@ -440,6 +533,8 @@ it("coherent observations reject stale intent, revision, slot, destination and r
   });
   const before = await f.receipt(f.args.sessionId);
   for (const change of [
+    { mode: "automatic" },
+    { mode: "hold" },
     { intentSequence: 0 },
     { sourceRevision: 2 },
     { slotKey: "wrong" },
@@ -459,6 +554,7 @@ it("coherent observations reject stale intent, revision, slot, destination and r
       await f.t.mutation(worker("observeProgram"), {
         ...good,
         state: "hold",
+        mode: "manual",
         outputMs: 201,
         sourceId: undefined,
         sourceRevision: undefined,
@@ -471,6 +567,7 @@ it("coherent observations reject stale intent, revision, slot, destination and r
     (await f.receipt(f.args.sessionId)).committedIntent.kind,
     "manual",
   );
+  assert.equal((await f.receipt(f.args.sessionId)).broadcastMode, "manual");
 });
 it("ack then Cut leaves old observation superseded and Cut bypasses future ordinary heads", async () => {
   const f = await controlFixture();
@@ -498,6 +595,7 @@ it("ack then Cut leaves old observation superseded and Cut bypasses future ordin
     type: "switch_hold",
     idempotencyKey: "cut",
   });
+  assert.equal((await f.receipt(f.args.sessionId)).broadcastMode, "manual");
   const claims = await f.t.mutation(worker("claimCommands"), f.args);
   assert.equal(claims.commands[0]._id, cut.commandId);
   assert.equal((await f.ack(c.commandId)).kind, "superseded");
@@ -520,6 +618,10 @@ it("ack then Cut leaves old observation superseded and Cut bypasses future ordin
     ).kind,
     "ok",
   );
+  const confirmed = await f.receipt(f.args.sessionId);
+  assert.equal(confirmed.broadcastMode, "hold");
+  assert.equal((await f.ack(c.commandId)).kind, "superseded");
+  assert.deepEqual(await f.receipt(f.args.sessionId), confirmed);
 });
 for (const prior of ["manual", "slate"] as const)
   it(`failed Return to auto preserves ${prior} intent`, async () => {
@@ -543,6 +645,8 @@ for (const prior of ["manual", "slate"] as const)
         observedState: "hold",
       });
     }
+    const beforeMode = (await f.receipt(f.args.sessionId)).broadcastMode;
+    assert.equal(beforeMode, prior === "slate" ? "hold" : "manual");
     const before = (await f.receipt(f.args.sessionId)).committedIntent;
     const auto = await f.owner.mutation(api.events.queueEventMediaCommand, {
       currentSlug: f.event.slug,
@@ -564,6 +668,7 @@ for (const prior of ["manual", "slate"] as const)
       (await f.receipt(f.args.sessionId)).committedIntent,
       before,
     );
+    assert.equal((await f.receipt(f.args.sessionId)).broadcastMode, beforeMode);
   });
 it("promoting takeover keeps phase, original expiry and committed target after timeout", async () => {
   const f = await controlFixture();
@@ -1010,6 +1115,31 @@ it("Return to auto with an unavailable current interval commits automatic slate"
     ).kind,
     "ok",
   );
+  assert.equal((await f.receipt(f.args.sessionId)).broadcastMode, "automatic");
+});
+it("Return to auto confirms an available scheduled source", async () => {
+  const f = await controlFixture();
+  const take = await f.take();
+  await f.begin(take.commandId);
+  await f.promote(take.commandId);
+  await f.ack(take.commandId);
+  const slot = await f.t.run(async ({ db }) => {
+    const id = await db.insert("eventSlots", {
+      eventId: f.event.eventId, position: 0, startAt: Date.now() - 1000,
+      displayLabel: "DJ", roleLabel: "DJ", sourceType: "manual",
+      sourceLabel: "Owner", confidence: 1, reviewState: "confirmed", updatedAt: Date.now(),
+    });
+    await db.patch(f.sourceId, { eventSlotId: id });
+    return id;
+  });
+  const auto = await f.owner.mutation(api.events.queueEventMediaCommand, {
+    currentSlug: f.event.slug, type: "set_automatic_mode", idempotencyKey: "auto",
+  });
+  await f.begin(auto.commandId);
+  await f.promote(auto.commandId);
+  assert.equal((await f.receipt(f.args.sessionId)).broadcastMode, "manual");
+  assert.equal((await f.ack(auto.commandId, { outputMs: 200, slotKey: slot })).kind, "ok");
+  assert.equal((await f.receipt(f.args.sessionId)).broadcastMode, "automatic");
 });
 it("Next joins the current interval, advances early, and Previous preserves authored adjacency", async () => {
   const f = await controlFixture();
@@ -1323,8 +1453,10 @@ it("Cut confirmation requires the persisted worker receipt budget", async () => 
     (await f.receipt(f.args.sessionId)).pendingControlCommandId,
     cut.commandId,
   );
+  assert.equal((await f.receipt(f.args.sessionId)).broadcastMode, undefined);
   await f.begin(cut.commandId);
   assert.equal((await f.ack(cut.commandId, evidence)).kind, "ok");
+  assert.equal((await f.receipt(f.args.sessionId)).broadcastMode, "hold");
 });
 for (const commandType of ["start_program", "mark_source_live"] as const)
   it(`confirmed Cut supersedes older ${commandType} receipt without accepting its evidence`, async () => {
@@ -1365,6 +1497,7 @@ for (const commandType of ["start_program", "mark_source_live"] as const)
       "ok",
     );
     const before = await f.receipt(f.args.sessionId);
+    assert.equal(before.broadcastMode, "hold");
     const command = await f.receipt(commandId);
     const late = {
       ...f.args,
@@ -1438,4 +1571,34 @@ for (const commandType of ["start_program", "mark_source_live"] as const)
       ).accepted,
       true,
     );
+  });
+
+for (const fence of ["epoch", "lease", "replacement"] as const)
+  it(`stale ${fence} rejects completion and periodic mode without observation writes`, async () => {
+    const f = await controlFixture();
+    await f.t.mutation(worker("observeProgram"), {
+      ...f.args, intentSequence: 0, state: "hold", outputMs: 10,
+      publishing: true, outputId: f.output.outputId,
+    });
+    const c = await f.take();
+    await f.begin(c.commandId);
+    await f.promote(c.commandId);
+    await f.t.run(async ({ db }) => {
+      if (fence === "epoch") await db.patch(f.args.sessionId, { epoch: f.args.epoch + 1 });
+      if (fence === "lease") await db.patch(f.args.sessionId, { leaseExpiresAt: 0 });
+      if (fence === "replacement") {
+        const session = (await db.get(f.args.sessionId))!;
+        const { _id, _creationTime, ...record } = session;
+        const replacement = await db.insert("eventMediaSessions", { ...record, workerId: "new" });
+        await db.patch(f.output.programId, { activeSessionId: replacement });
+      }
+    });
+    const before = await f.receipt(f.args.sessionId);
+    assert.deepEqual(await f.ack(c.commandId), { kind: "fenced", reason: "lease" });
+    assert.deepEqual(await f.t.mutation(worker("observeProgram"), {
+      ...f.args, intentSequence: before.intentSequence, state: "hold", outputMs: 20,
+      publishing: true, outputId: f.output.outputId,
+    }), { kind: "fenced", reason: "lease" });
+    assert.deepEqual(await f.receipt(f.args.sessionId), before);
+    assert.equal(before.broadcastMode, "automatic");
   });
