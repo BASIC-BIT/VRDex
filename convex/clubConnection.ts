@@ -133,6 +133,19 @@ export const setFeature = mutation({
       ),
       updatedAt: Date.now(),
     });
+    if (args.feature === "analytics" && args.enabled) {
+      const policy = await ctx.db.query("vrchatGroupObservationPolicies")
+        .withIndex("by_vrchatGroupId", q => q.eq("vrchatGroupId", integration.vrchatGroupId)).unique();
+      if (policy?.decision.kind === "admission_blocked" && policy.decision.reason === "analytics_disabled") {
+        if (policy.integrationId !== integration._id) throw new Error("Group connections require reconciliation.");
+        const now = Date.now();
+        await ctx.db.patch(policy._id, {
+          decision: { kind: "enabled", at: now }, updatedAt: now,
+          ...(!integration.assignedCollectorAccountId && ["disconnected", "connecting", "awaiting_invite", "awaiting_approval"].includes(integration.state)
+            ? { queuedAdmission: { priority: "managed", queuedAt: now, dueAt: now } } : {}),
+        });
+      }
+    }
     const updated = await ctx.db.get(integration._id);
     if (updated) await reconcileStoppedIntegration(ctx, updated, Date.now());
     return null;

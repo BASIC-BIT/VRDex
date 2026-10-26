@@ -161,3 +161,50 @@ it("adoption role deletion that changes visibility requires verified publication
   assert.equal((await h.t.run(ctx => ctx.db.get(h.integrationId)))?.publicationPolicy, "managed_categories");
   assert.equal(await h.t.run(ctx => getPublicGroupMembership(ctx.db, h.duplicateId)), null);
 });
+for (const needsAdmission of [false, true]) it(`analytics re-enable restores resumed publication and preserves history boundary (admission=${needsAdmission})`, async () => {
+  const h = await setup(); await h.adopt();
+  const analytics = (enabled: boolean) => h.owner.mutation(ref("clubConnection:setFeature"), { communityProfileId: h.profileId, feature: "analytics", enabled });
+  await analytics(false);
+  await h.owner.mutation(ref("clubConnection:setFeature"), { communityProfileId: h.profileId, feature: "posts", enabled: true });
+  await h.decision("stop");
+  if (needsAdmission) await h.t.run(async ctx => {
+    await ctx.db.patch(h.integrationId, { state: "disconnected", assignedCollectorAccountId: undefined });
+    await ctx.db.patch(h.accountId, { assignedGroupCount: 0 });
+  });
+  await h.decision("resume");
+  const before = (await h.t.run(ctx => ctx.db.get(h.policyId)))!;
+  assert.equal(before.decision.kind, "admission_blocked");
+  await analytics(true);
+  const after = (await h.t.run(ctx => ctx.db.get(h.policyId)))!;
+  assert.equal(after.decision.kind, "enabled");
+  assert.equal(after.publicHistoryStartAt, before.publicHistoryStartAt);
+  if (needsAdmission) {
+    assert.equal(after.queuedAdmission?.priority, "managed");
+    assert.equal((await h.t.mutation(ref("groupObservations:admitQueued"), {})).admitted, 1);
+    await h.t.run(ctx => ctx.db.patch(h.integrationId, { state: "active" }));
+  }
+  const observedAt = before.publicHistoryStartAt! + 1;
+  await h.t.run(ctx => ctx.db.insert("communityPopulationObservations", { integrationId: h.integrationId, idempotencyKey: "after-resume", totalPopulation: 7, activeInstanceCount: 1, worldDistribution: [], observedAt, source: "first_party", collectorVersion: "test", coverageState: "observed", fencingToken: 3 }));
+  for (const id of [h.profileId, h.duplicateId]) {
+    const readback = await h.t.run(ctx => getPublicCommunityTelemetry(ctx.db, id, observedAt));
+    assert.equal(readback?.currentPopulation?.value, 7);
+    assert.equal(readback?.groupMemberCount, undefined);
+  }
+  await h.decision("stop"); await analytics(false); await analytics(true);
+  assert.equal((await h.t.run(ctx => ctx.db.get(h.policyId)))?.decision.kind, "stopped");
+  assert.equal(await h.t.run(ctx => getPublicCommunityTelemetry(ctx.db, h.profileId, observedAt)), null);
+});
+for (const republish of [false, true]) it(`managed resume growth uses only permitted history (republish=${republish})`, async () => {
+  const h = await setup(); await h.adopt();
+  await h.owner.mutation(ref("communityTelemetry:setPublicMetric"), { communitySlug: "controls", metric: "groupMemberGrowth", enabled: true });
+  const foundingAt = h.now - 86400000;
+  const recordMember = (memberCount: number, observedAt: number) => h.t.run(ctx => ctx.db.insert("communityMemberCountObservations", { integrationId: h.integrationId, communityProfileId: h.profileId, idempotencyKey: `member-${observedAt}`, vrchatGroupId: GROUP, memberCount, observedAt, source: "first_party", collectorVersion: "test", coverageState: "observed", fencingToken: 3 }));
+  await h.t.run(ctx => ctx.db.insert("vrchatGroupMemberMetadata", { vrchatGroupId: GROUP, groupCreatedAt: foundingAt, updatedAt: h.now }));
+  await recordMember(42, h.now - 1000);
+  await h.decision("stop"); await h.decision("resume", republish);
+  const firstAt = Date.now() + 1;
+  await recordMember(44, firstAt); await recordMember(46, firstAt + 1);
+  const readback = await h.t.run(ctx => getPublicCommunityTelemetry(ctx.db, h.profileId, firstAt + 1));
+  assert.deepEqual(readback?.groupMemberGrowth, { value: republish ? 45 : 2, startAt: republish ? foundingAt : firstAt, endAt: firstAt + 1 });
+  assert.equal(readback?.groupMemberCount?.value, 46);
+});

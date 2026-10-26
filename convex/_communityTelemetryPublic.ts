@@ -286,6 +286,7 @@ export async function getPublicCommunityTelemetry(
         .unique()
     : null;
   const foundingAt = groupMetadata?.groupCreatedAt !== undefined && latestMember &&
+    groupMetadata.groupCreatedAt >= policy.historyStartAt &&
     groupMetadata.groupCreatedAt <= latestMember.observedAt ? groupMetadata.groupCreatedAt : undefined;
   const sessions = publicMetrics.instanceHistory
     ? await db.query("instanceSessions")
