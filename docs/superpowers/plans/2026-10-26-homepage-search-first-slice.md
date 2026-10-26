@@ -10,6 +10,25 @@
 
 **Spec:** [Approved first-slice design](../specs/2026-10-26-homepage-search-first-slice-design.md), approved by BASIC on October 26, 2026.
 
+## Execution status
+
+Implemented October 26, 2026 in [draft PR #387](https://github.com/BASIC-BIT/VRDex/pull/387).
+All four task reviews and the whole-branch review are complete. The final review's
+public-role omission was fixed in `3281366` and passed scoped re-review.
+
+Recorded checks include 819 web tests, 41 focused backend tests, 122 applicable
+browser checks and eight affected snapshots. After the final role fix, 18 affected
+browser checks and two search snapshot comparisons passed. Desktop/mobile captures
+were inspected. Lint, typechecks and the webpack production build passed before
+the final narrow role fix; targeted lint passed afterward.
+
+Verification remains qualified: the broader backend run had 172 failures, whose
+individual baseline causes were not all established. Default Turbopack failed on
+Google Fonts TLS in the cloud environment. Four hosted-only browser cases were
+skipped, and a parallel development-server reload observation remains unresolved.
+Existing middleware deprecation warnings remain. No merge or deployment is included.
+The checkboxes below retain the original execution instructions.
+
 ## Global constraints
 
 - Node 24 and repository-pinned pnpm 10.15.1. No new dependencies.
