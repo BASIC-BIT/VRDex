@@ -294,6 +294,7 @@ async function collect(assignment) {
       await control.send("ingest", { ...lease, pollId: pollId(assignment.integrationId, snapshot.observedAt),
         observedAt: snapshot.observedAt, collectorVersion: COLLECTOR_PROTOCOL_VERSION,
         groupMemberCount: snapshot.group.memberCount,
+        groupVisibility: snapshot.group.groupVisibility, joinPolicy: snapshot.group.joinPolicy,
         ...(snapshot.group.groupCreatedAt === undefined ? {} : { groupCreatedAt: snapshot.group.groupCreatedAt }),
         instances: snapshot.instances, nextPollAt: snapshot.observedAt + randomPollDelayMs(snapshot.instances.length > 0) });
       attempts.delete(assignment.integrationId);
@@ -336,13 +337,13 @@ async function collect(assignment) {
       return;
     }
     phase = "analytics";
-    const aggregateOnly = assignment.namedMembershipCollectionEnabled === false;
-    if (!aggregateOnly && !(await reserve(2))) return;
+    const guardedSnapshot = assignment.namedMembershipCollectionEnabled === false || assignment.publicationPolicy === "automatic_aggregate";
+    if (!guardedSnapshot && !(await reserve(2))) return;
     let telemetryError;
     try {
       const snapshot = await provider.readAggregateSnapshot(
         assignment.vrchatGroupId,
-        aggregateOnly ? { authorizeRequest: (operation) => reserve(1, operation) } : undefined,
+        guardedSnapshot ? { authorizeRequest: (operation) => reserve(1, operation) } : undefined,
       );
       if (!snapshot) return;
       const nextPollAt =
@@ -353,6 +354,7 @@ async function collect(assignment) {
         observedAt: snapshot.observedAt,
         collectorVersion: COLLECTOR_PROTOCOL_VERSION,
         groupMemberCount: snapshot.group.memberCount,
+        groupVisibility: snapshot.group.groupVisibility, joinPolicy: snapshot.group.joinPolicy,
         ...(snapshot.group.groupCreatedAt === undefined ? {} : { groupCreatedAt: snapshot.group.groupCreatedAt }),
         instances: snapshot.instances,
         nextPollAt,

@@ -229,6 +229,7 @@ async function getAutomaticGroupTelemetry(
   now: number,
   range: { startAt: number; endAt: number },
 ) {
+  historyStartAt = Math.max(historyStartAt, integration.telemetryEpochStartedAt ?? integration.createdAt);
   const populationSeries = await readPopulationSeries(db, integration._id, historyStartAt, now, range);
   const [latestPopulation, membership, hourlyRollups] = await Promise.all([
     db.query("communityPopulationObservations")

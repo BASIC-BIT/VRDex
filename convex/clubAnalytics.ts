@@ -1,4 +1,4 @@
-import { readIntegrationRollups, readManagedIntegration } from "./_groupObservationPolicy";
+import { isManagedIntegrationSession, readIntegrationRollups, readManagedIntegration } from "./_groupObservationPolicy";
 import { membershipCoverage } from "./_collectionCoverage";
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
@@ -635,7 +635,7 @@ export const listInstances = query({
         .order("desc")
         .paginate(opts);
       return {
-        page: await Promise.all(result.page.map(session =>
+        page: await Promise.all(result.page.filter(session => isManagedIntegrationSession(state.integration, state.community._id, session)).map(session =>
           projectSession(ctx, session, now, liveObservedAt(session)))),
         isDone: result.isDone,
         continueCursor: result.continueCursor,
@@ -648,8 +648,8 @@ export const listInstances = query({
             .eq("state", "closed")
             .gte("openedAt", state.epoch))
       : ctx.db.query("instanceSessions")
-          .withIndex("by_communityProfileId_openedAt", q => q
-            .eq("communityProfileId", state.community._id)
+          .withIndex("by_integrationId_openedAt", q => q
+            .eq("integrationId", state.integration!._id)
             .gte("openedAt", state.epoch));
     const result = await sessions
       .order("desc")
@@ -658,7 +658,7 @@ export const listInstances = query({
       page: await Promise.all(
         result.page
           .filter((session) =>
-            session.integrationId === state.integration!._id &&
+            isManagedIntegrationSession(state.integration, state.community._id, session) &&
             (args.kind === "live"
               ? liveObservedAt(session) !== null
               : args.kind === "past" ? session.state === "closed" : true),
@@ -680,9 +680,7 @@ async function requireSession(
   const session = await ctx.db.get(sessionId);
   if (
     !session ||
-    session.integrationId !== state.integration?._id ||
-    session.communityProfileId !== state.community._id ||
-    session.openedAt < state.epoch
+    !isManagedIntegrationSession(state.integration, state.community._id, session)
   )
     throw new Error("Instance not found.");
   return { state, session };
@@ -698,9 +696,7 @@ export const getInstance = query({
     const session = await ctx.db.get(sessionId);
     if (
       !session ||
-      session.integrationId !== state.integration?._id ||
-      session.communityProfileId !== state.community._id ||
-      session.openedAt < state.epoch
+      !isManagedIntegrationSession(state.integration, state.community._id, session)
     )
       return null;
     const now = Date.now();
@@ -888,8 +884,7 @@ export const listAssociationSuggestions = query({
       const confirmed = session ? await ctx.db.query("eventInstanceAssociations")
         .withIndex("by_sessionId_state", (q) => q.eq("sessionId", session._id).eq("state", "confirmed"))
         .first() : null;
-      const validSession = !!session && session.communityProfileId === state.community._id &&
-        session.integrationId === state.integration!._id && session.openedAt >= state.epoch;
+      const validSession = !!session && isManagedIntegrationSession(state.integration, state.community._id, session);
       const validEvent = !!event && event.communityProfileId === state.community._id;
       return {
         id: association._id,

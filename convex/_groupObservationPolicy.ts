@@ -5,6 +5,8 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { readClubVisibility } from "./_clubAccess";
 import type { ClubVisibility } from "./_clubModel";
 import { canReadProfile } from "./_profilePermissions";
+import { visibleProfileList } from "./_profileFieldVisibility";
+import { parseProfileLinkDestination } from "./_profileLinkDestination";
 
 export type CollectionSubject = NonNullable<Doc<"communityVrchatIntegrations">["collectionScope"]>;
 
@@ -41,6 +43,18 @@ export async function readManagedIntegration(db: DatabaseReader, communityProfil
   return current[0] ?? rows.sort((a, b) => b.createdAt - a.createdAt || b._id.localeCompare(a._id))[0] ?? null;
 }
 
+export function isManagedIntegrationSession(
+  integration: Doc<"communityVrchatIntegrations"> | null,
+  communityProfileId: Id<"profiles">,
+  session: Doc<"instanceSessions">,
+) {
+  if (!integration || session.integrationId !== integration._id ||
+    (session.communityProfileId !== undefined && session.communityProfileId !== communityProfileId) ||
+    session.openedAt < (integration.telemetryEpochStartedAt ?? integration.createdAt)) return false;
+  const subject = readCollectionSubject(integration);
+  return subject.kind === "managed" && subject.communityProfileId === communityProfileId;
+}
+
 export async function saveManagedPublicationChoice(ctx: MutationCtx, communityProfileId: Id<"profiles">) {
   const integration = await readManagedIntegration(ctx.db, communityProfileId);
   if (!integration) return;
@@ -61,8 +75,13 @@ export async function readPublicGroupId(db: DatabaseReader, profileId: Id<"profi
     if (primary.length !== 1) return null;
     const link = primary[0]!;
     if (link.provenance === "directory_reference") {
-      const selected = (await db.get(profileId))?.primaryGroupReference;
-      if (!selected) return null;
+      const profile = await db.get(profileId);
+      const selected = profile?.primaryGroupReference;
+      if (!profile || !selected || !visibleProfileList(profile, "outboundLinks", profile.outboundLinks ?? [], "profile_page")
+        .some(outbound => parseProfileLinkDestination(outbound)?.key === selected.key)) return null;
+      const reference = await db.query("profileLinkDestinationReferences")
+        .withIndex("by_key_profile", q => q.eq("key", selected.key).eq("profileId", profileId)).first();
+      if (!reference) return null;
       const destination = await db.query("profileLinkDestinations")
         .withIndex("by_key", q => q.eq("key", selected.key)).unique();
       if (destination?.kind !== "vrchat_group" || destination.status !== "resolved" ||
@@ -132,8 +151,7 @@ export async function resolveGroupObservationPolicy(
       !links.some(link => link.linkRole === "primary" && link.assetExternalId === input.vrchatGroupId) ||
       integration.groupVisibility !== "public" || integration.joinPolicy !== "free" ||
       !["active", "degraded"].includes(integration.state) || integration.killSwitchEnabled) return { kind: "hidden" };
-    return { kind: "automatic_aggregate", integration,
-      historyStartAt: Math.max(integration.telemetryEpochStartedAt ?? integration.createdAt, historyStartAt) };
+    return { kind: "automatic_aggregate", integration, historyStartAt };
   }
   if (registry && registry.decision.kind !== "enabled") return { kind: "hidden" };
   return (await readClubVisibility(db, input.profileId)).group_size.audience === "public"

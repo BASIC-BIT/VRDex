@@ -11,8 +11,12 @@ export async function recordGroupMemberObservation(
     .order("desc").first();
   const metadata = await db.query("vrchatGroupMemberMetadata")
     .withIndex("by_vrchatGroupId", q => q.eq("vrchatGroupId", value.vrchatGroupId)).unique();
+  const policy = await db.query("vrchatGroupObservationPolicies")
+    .withIndex("by_vrchatGroupId", q => q.eq("vrchatGroupId", value.vrchatGroupId)).unique();
+  const historyStartAt = policy?.publicHistoryStartAt ?? 0;
   if (!latest || (value.observedAt > latest.observedAt &&
-    (latest.memberCount !== value.memberCount || value.observedAt - latest.observedAt >= DAY))) {
+    (latest.memberCount !== value.memberCount || value.observedAt - latest.observedAt >= DAY ||
+      (latest.observedAt < historyStartAt && value.observedAt >= historyStartAt)))) {
     await db.insert("vrchatGroupMemberSnapshots", value);
   }
   if (metadata) {

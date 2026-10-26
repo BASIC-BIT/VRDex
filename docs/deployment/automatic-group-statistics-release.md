@@ -26,6 +26,16 @@ The optional `namedMembershipCollectionEnabled` field defaults to legacy managed
 
 Cleanup uses the disconnected state rather than creating an operator kill switch. Authorized resume and orphan readmission retain the epoch and become claimable. An independent integration kill switch still blocks allocation and claims. Historical disconnected records with an already-set switch remain held until the existing operator control explicitly clears it; this change cannot infer why an old switch was set.
 
+## PR 386 review corrections
+
+Adopted `automatic_aggregate` publication refreshes visibility and join policy on each successful snapshot. Workers retain per-request metadata authorization even after named-history opt-in. Missing metadata or a failed poll invalidates automatic public eligibility; an older result cannot restore it. Explicit `managed_categories` publication keeps its existing category policy for private groups.
+
+Directory-derived groups require a currently visible selected outbound link and that profile's own destination reference. Another profile's shared cache entry cannot keep a hidden association eligible. Verified control associations keep their existing behavior.
+
+Managed instance reads and event associations resolve ownership through the current integration and epoch. Adoption therefore retains ownerless sessions collected before management, without rewriting history. Conflicting stored ownership and foreign integrations remain inaccessible.
+
+Shared member snapshots retain their group history when automatic admission starts. Population observations retain the integration epoch. Explicit stop/resume still fences both histories, and the first new member observation after that fence persists even when its count is unchanged.
+
 ## Alarm coverage and response
 
 Existing alarms cover task count, CPU, heartbeat, authentication, control-plane failures and restarts. A healthy collector can still have a stuck enrollment queue, so the authenticated heartbeat now returns only a backlog boolean. The worker logs it as `automaticEnrollmentBacklog` with value zero or one, without group IDs or provider records.
@@ -42,7 +52,7 @@ Implementation through Task 7 starts at `bb3c401f5001f90c01644209f174603a6c92e35
 
 Local evidence includes backend policy/worker regressions, worker protocol tests, public contracts, MCP tests, web tests/types/lint, docs checks and the mounted desktop/mobile Playwright fixture. The mounted refresh regression starts with visible current values and a graph, then removes telemetry or permitted population fields in a successful response and verifies that stale visible values clear.
 
-Three broadcast/audio test failures were reproduced on clean pre-feature source `042edb1a7` in `baseline-broadcast-proof.md` and its raw log in the plan scratch directory. They are known baseline failures, not a green full backend suite. Final evidence must list any additional failures separately.
+The earlier three-failure baseline at `042edb1a7` no longer describes the branch after merging main. PR 386 validation records the current Windows failures and exact incoming-main comparisons in `.superpowers/sdd/2026-10-25-automatic-group-statistics/pr386/implementation-report.md`. The full backend suite is not green; Linux CI remains required.
 
 Local Convex generation succeeded in Task 6. Existing wrapper `DEP0190`, anonymous-mode beta/update notices, Git LF/CRLF warnings, Next middleware deprecation and webpack preview notices remain disclosed tooling follow-up. They do not establish a provider or production failure, and they are not repaired in this feature.
 

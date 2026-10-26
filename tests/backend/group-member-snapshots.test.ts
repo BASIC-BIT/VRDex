@@ -187,6 +187,7 @@ for (const change of ["clear", "relink"] as const) {
       for (const [locator, entityId] of [["OLD.1234", GROUP], ["NEW.1234", "grp_22222222-2222-2222-2222-222222222222"]]) {
         await ctx.db.insert("profileLinkDestinations", { key: `vrchat_group:${locator}`, locator,
           kind: "vrchat_group", provider: "vrchat", status: "resolved", entityId });
+        await ctx.db.insert("profileLinkDestinationReferences", { key: `vrchat_group:${locator}`, profileId });
       }
       return userId;
     });

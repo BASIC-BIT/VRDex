@@ -12,6 +12,7 @@ const modules = {
   "../../convex/groupObservations.ts": () => import("../../convex/groupObservations"),
   "../../convex/communityTelemetry.ts": () => import("../../convex/communityTelemetry"),
   "../../convex/groupMemberSnapshots.ts": () => import("../../convex/groupMemberSnapshots"),
+  "../../convex/clubAnalytics.ts": () => import("../../convex/clubAnalytics"),
   "../../convex/clubConnection.ts": () => import("../../convex/clubConnection"),
   "../../convex/clubStaff.ts": () => import("../../convex/clubStaff"),
   "../../convex/clubMembership.ts": () => import("../../convex/clubMembership"),
@@ -205,7 +206,7 @@ it("automatic ingest produces scheduled canonical hour and day history across ad
   for (const [index, population] of [10, 20].entries()) await h.t.mutation(ref("communityTelemetry:ingestAggregatePoll"), {
     integrationId: h.integrationId, collectorAccountId: h.accountId, workerId: "worker", fencingToken: 1,
     pollId: `rollup-${index}`, observedAt: firstAt + index * 60000, now: firstAt + index * 60000,
-    collectorVersion: "test", source: "first_party", groupMemberCount: 42 + index, nextPollAt: h.now,
+    collectorVersion: "test", source: "first_party", groupMemberCount: 42 + index, groupVisibility: "public", joinPolicy: "free", nextPollAt: h.now,
     instances: [{ providerInstanceId: "instance", providerLocation: "wrld_private:instance", vrchatWorldId: "wrld_private", population }],
   });
   assert.equal((await h.t.mutation(ref("communityTelemetry:scheduleTelemetryRollups"), { now: h.now })).scheduled, 2);
@@ -374,4 +375,145 @@ for (const republish of [false, true]) it(`managed resume growth uses only permi
   const readback = await h.t.run(ctx => getPublicCommunityTelemetry(ctx.db, h.profileId, firstAt + 1));
   assert.deepEqual(readback?.groupMemberGrowth, { value: republish ? 45 : 2, startAt: republish ? foundingAt : firstAt, endAt: firstAt + 1 });
   assert.equal(readback?.groupMemberCount?.value, 46);
+});
+
+for (const eligibility of [{ groupVisibility: "private", joinPolicy: "free" }, { groupVisibility: "public", joinPolicy: "invite" }]) it(`adopted automatic publication refreshes ${eligibility.groupVisibility}/${eligibility.joinPolicy} eligibility`, async () => {
+  const h = await setup(); await h.adopt();
+  const poll = { integrationId: h.integrationId, collectorAccountId: h.accountId, workerId: "worker", fencingToken: 1,
+    observedAt: h.now, collectorVersion: "test", source: "first_party", groupMemberCount: 42, instances: [], nextPollAt: h.now + 60000, now: h.now };
+  await h.t.mutation(ref("communityTelemetry:ingestAggregatePoll"), { ...poll, pollId: "public", groupVisibility: "public", joinPolicy: "free" });
+  assert.ok(await h.t.run(ctx => getPublicGroupMembership(ctx.db, h.duplicateId)));
+  await h.t.mutation(ref("communityTelemetry:ingestAggregatePoll"), { ...poll, ...eligibility, pollId: "private", observedAt: h.now + 1 });
+  assert.equal(await h.t.run(ctx => getPublicGroupMembership(ctx.db, h.duplicateId)), null);
+  assert.equal(await h.t.run(ctx => getPublicCommunityTelemetry(ctx.db, h.duplicateId, h.now + 1)), null);
+  const row = await h.t.run(ctx => ctx.db.get(h.integrationId));
+  assert.equal(row?.groupVisibility, eligibility.groupVisibility);
+  assert.equal(row?.joinPolicy, eligibility.joinPolicy);
+  assert.equal(row?.state, "active");
+  await h.owner.mutation(ref("communityTelemetry:setPublicMetric"), { communitySlug: "controls", metric: "groupMemberCount", enabled: true });
+  assert.equal((await h.t.run(ctx => getPublicGroupMembership(ctx.db, h.duplicateId)))?.latest.value, 42);
+});
+
+for (const hiddenBy of ["visibility", "reference", "selection"] as const) it(`directory public resolution excludes stale shared cache after ${hiddenBy} changes`, async () => {
+  const h = await setup();
+  const url = `https://vrchat.com/home/group/${GROUP}`; const key = `vrchat_group:${GROUP}`;
+  const ownReference = await h.t.run(async ctx => {
+    await ctx.db.patch(h.profileId, { primaryGroupReference: { url, key, contributorUserId: h.userId }, outboundLinks: [{ type: "vrchat_profile", url, label: "Group", source: "community_submitted" }] });
+    const link = await ctx.db.query("profileExternalLinks").withIndex("by_profileId_assetType_state", q => q.eq("profileId", h.profileId).eq("assetType", "vrchat_group").eq("state", "active")).first();
+    await ctx.db.patch(link!._id, { provenance: "directory_reference" });
+    await ctx.db.insert("profileLinkDestinations", { key, kind: "vrchat_group", locator: GROUP, provider: "vrchat", status: "resolved", entityId: GROUP });
+    await ctx.db.insert("profileLinkDestinationReferences", { key, profileId: h.duplicateId });
+    return ctx.db.insert("profileLinkDestinationReferences", { key, profileId: h.profileId });
+  });
+  assert.ok(await h.t.run(ctx => getPublicGroupMembership(ctx.db, h.profileId)));
+  await h.t.run(async ctx => {
+    if (hiddenBy === "visibility") await ctx.db.patch(h.profileId, { fieldVisibility: { outboundLinks: "private" } });
+    if (hiddenBy === "reference") await ctx.db.delete(ownReference);
+    if (hiddenBy === "selection") await ctx.db.patch(h.profileId, { outboundLinks: [] });
+  });
+  assert.equal(await h.t.run(ctx => getPublicGroupMembership(ctx.db, h.profileId)), null);
+  assert.ok(await h.t.run(ctx => getPublicGroupMembership(ctx.db, h.duplicateId)));
+  await h.t.mutation(ref("groupObservations:reconcileProfile"), { profileId: h.profileId, affectedGroupIds: [GROUP], now: h.now });
+  assert.equal((await h.t.run(ctx => ctx.db.get(h.integrationId)))?.state, "active");
+  await h.t.run(async ctx => {
+    const link = await ctx.db.query("profileExternalLinks").withIndex("by_profileId_assetType_state", q => q.eq("profileId", h.profileId).eq("assetType", "vrchat_group").eq("state", "active")).first();
+    await ctx.db.patch(link!._id, { provenance: "control_association" });
+  });
+  assert.ok(await h.t.run(ctx => getPublicGroupMembership(ctx.db, h.profileId)), "verified associations do not depend on directory visibility");
+});
+
+for (const surface of ["detail", "history", "dashboard", "association"] as const) it(`adoption retains ownerless open session ${surface} through canonical integration`, async () => {
+  const h = await setup();
+  const poll = { integrationId: h.integrationId, collectorAccountId: h.accountId, workerId: "worker", fencingToken: 1,
+    observedAt: h.now, collectorVersion: "test", source: "first_party", groupMemberCount: 42, groupVisibility: "public", joinPolicy: "free",
+    instances: [{ providerInstanceId: "123", providerLocation: "wrld_example:123", vrchatWorldId: "wrld_example", population: 5 }],
+    nextPollAt: h.now + 60000, now: h.now };
+  await h.t.mutation(ref("communityTelemetry:ingestAggregatePoll"), { ...poll, pollId: "before-adoption" });
+  const session = (await h.t.run(ctx => ctx.db.query("instanceSessions").first()))!;
+  assert.equal(session.communityProfileId, undefined);
+  await h.adopt();
+  const query = (name: string, args: Record<string, unknown>) => h.owner.query(makeFunctionReference<"query">(name), args);
+  const args = { communitySlug: "controls", sessionId: session._id };
+  if (surface === "detail") {
+    assert.equal((await query("clubAnalytics:getInstance", args))?.id, session._id);
+    const series = await query("clubAnalytics:getInstanceSeries", { ...args, startAt: h.now - 1000, endAt: h.now + 1, paginationOpts: { numItems: 10, cursor: null } });
+    assert.equal(series.page.length, 1);
+  }
+  if (surface === "history") {
+    for (const kind of ["live", "history"]) {
+      const result = await query("clubAnalytics:listInstances", { communitySlug: "controls", kind, paginationOpts: { numItems: 10, cursor: null } });
+      assert.deepEqual(result.page.map((row: { id: string }) => row.id), [session._id]);
+    }
+  }
+  if (surface === "dashboard") assert.deepEqual((await query("communityTelemetry:getPrivateDashboard", { communitySlug: "controls" })).sessions.map((row: { _id: string }) => row._id), [session._id]);
+  if (surface === "association") {
+    const eventId = await h.t.run(ctx => ctx.db.insert("events", { title: "Adopted event", sortTitle: "adopted event", startAt: h.now,
+      communityProfileId: h.profileId, sourceType: "manual", sourceLabel: "test", eventStatus: "scheduled", publicationState: "published", updatedAt: h.now }));
+    await h.owner.mutation(ref("communityTelemetry:associateEventInstance"), { ...args, eventId });
+    assert.equal((await query("communityTelemetry:getInstanceEventAssociation", args))?.eventId, eventId);
+  }
+  await h.t.run(ctx => ctx.db.insert("profileOwners", { profileId: h.duplicateId, userId: h.userId, roleKey: "owner", state: "active", grantedAt: h.now, updatedAt: h.now }));
+  assert.equal(await query("clubAnalytics:getInstance", { ...args, communitySlug: "duplicate" }), null);
+  await h.t.run(ctx => ctx.db.patch(session._id, { communityProfileId: h.duplicateId }));
+  assert.equal(await query("clubAnalytics:getInstance", args), null, "conflicting stored ownership must fail closed");
+});
+
+it("automatic admission preserves standalone member history while population stays in its epoch", async () => {
+  const h = await setup();
+  await h.t.run(ctx => ctx.db.patch(h.integrationId, { telemetryEpochStartedAt: h.now }));
+  assert.equal((await h.t.run(ctx => getPublicGroupMembership(ctx.db, h.profileId)))?.latest.value, 42);
+  await h.t.mutation(ref("communityTelemetry:ingestAggregatePoll"), { integrationId: h.integrationId, collectorAccountId: h.accountId, workerId: "worker", fencingToken: 1,
+    pollId: "admission-count", observedAt: h.now, collectorVersion: "test", source: "first_party", groupMemberCount: 42,
+    groupVisibility: "public", joinPolicy: "free", instances: [], nextPollAt: h.now + 60000, now: h.now });
+  assert.equal((await h.t.run(ctx => getPublicGroupMembership(ctx.db, h.profileId)))?.latest.value, 42);
+  await h.t.run(ctx => ctx.db.insert("communityPopulationObservations", { integrationId: h.integrationId, idempotencyKey: "old-population", totalPopulation: 999,
+    activeInstanceCount: 1, worldDistribution: [], observedAt: h.now - 1000, source: "first_party", collectorVersion: "test", coverageState: "observed", fencingToken: 1 }));
+  const result = await h.t.run(ctx => getPublicCommunityTelemetry(ctx.db, h.profileId, h.now + 1));
+  assert.equal(result?.groupMemberCount?.value, 42);
+  assert.equal(result?.populationSeries?.peakConcurrency, 0);
+  assert.ok(result?.populationSeries?.buckets.every(bucket => bucket.observedSpans.every(span => span.points.every(point => point.observedAt >= h.now))));
+});
+it("first unchanged member observation after explicit resume crosses its publication fence", async test => {
+  let now = Date.now(); test.mock.method(Date, "now", () => now);
+  const h = await setup(); await h.decision("stop"); now += 1000; await h.decision("resume");
+  assert.equal(await h.t.run(ctx => getPublicGroupMembership(ctx.db, h.profileId)), null);
+  const generation = await h.t.run(async ctx => {
+    const row = (await ctx.db.get(h.integrationId))!;
+    await ctx.db.patch(h.integrationId, { state: "active" });
+    const lease = (await ctx.db.query("collectorAccountLeases").first())!;
+    await ctx.db.patch(lease._id, { state: "active", fencingToken: row.leaseGeneration, expiresAt: now + 300000 });
+    return row.leaseGeneration;
+  });
+  await h.t.mutation(ref("communityTelemetry:ingestAggregatePoll"), { integrationId: h.integrationId, collectorAccountId: h.accountId, workerId: "worker", fencingToken: generation,
+    pollId: "resumed-count", observedAt: now, collectorVersion: "test", source: "first_party", groupMemberCount: 42,
+    groupVisibility: "public", joinPolicy: "free", instances: [], nextPollAt: now + 60000, now });
+  const member = await h.t.run(ctx => getPublicGroupMembership(ctx.db, h.profileId));
+  assert.deepEqual(member?.points, [{ observedAt: now, value: 42 }]);
+  assert.equal((await h.t.run(ctx => ctx.db.query("vrchatGroupMemberSnapshots").collect())).length, 2);
+});
+
+for (const failure of ["missing", "unreadable"] as const) it(`adopted automatic publication fails closed on ${failure} fresh eligibility`, async () => {
+  const h = await setup(); await h.adopt();
+  assert.ok(await h.t.run(ctx => getPublicGroupMembership(ctx.db, h.profileId)));
+  if (failure === "missing") await h.t.mutation(ref("communityTelemetry:ingestAggregatePoll"), {
+    integrationId: h.integrationId, collectorAccountId: h.accountId, workerId: "worker", fencingToken: 1,
+    pollId: "missing-eligibility", observedAt: h.now, collectorVersion: "test", source: "first_party", groupMemberCount: 42,
+    instances: [], nextPollAt: h.now + 60000, now: h.now,
+  });
+  else await h.t.mutation(ref("communityTelemetry:recordPollFailure"), {
+    integrationId: h.integrationId, collectorAccountId: h.accountId, workerId: "worker", fencingToken: 1,
+    statusClass: "visibility", telemetryOnly: true, coverageState: "unknown", collectorVersion: "test", nextPollAt: h.now + 60000, now: h.now,
+  });
+  assert.equal(await h.t.run(ctx => getPublicGroupMembership(ctx.db, h.profileId)), null);
+  assert.equal(await h.t.run(ctx => getPublicCommunityTelemetry(ctx.db, h.profileId, h.now)), null);
+  const row = await h.t.run(ctx => ctx.db.get(h.integrationId));
+  assert.equal(row?.groupVisibility, "unknown"); assert.equal(row?.joinPolicy, "unknown");
+  await h.t.mutation(ref("communityTelemetry:ingestAggregatePoll"), {
+    integrationId: h.integrationId, collectorAccountId: h.accountId, workerId: "worker", fencingToken: 1,
+    pollId: "late-public-snapshot", observedAt: h.now - 1, collectorVersion: "test", source: "first_party", groupMemberCount: 42,
+    groupVisibility: "public", joinPolicy: "free", instances: [], nextPollAt: h.now + 60000, now: h.now,
+  });
+  assert.equal(await h.t.run(ctx => getPublicGroupMembership(ctx.db, h.profileId)), null, "an older result cannot restore invalidated eligibility");
+  await h.owner.mutation(ref("communityTelemetry:setPublicMetric"), { communitySlug: "controls", metric: "groupMemberCount", enabled: true });
+  assert.equal((await h.t.run(ctx => getPublicGroupMembership(ctx.db, h.profileId)))?.latest.value, 42);
 });
