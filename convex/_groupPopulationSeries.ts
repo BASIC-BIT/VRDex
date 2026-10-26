@@ -63,7 +63,7 @@ export function buildGroupPopulationSeries({ observations, coverageWindows, star
         extrema.push(inside.reduce((a, b) => a[key] <= b[key] ? a : b));
         extrema.push(inside.reduce((a, b) => a[key] >= b[key] ? a : b));
       }
-      return [{ startAt: first.observedAt, endAt: last.observedAt,
+      return [{ startAt: points[0]!.observedAt, endAt: points[points.length - 1]!.observedAt,
         points: [...new Map(extrema.map(point => [point.observedAt, point])).values()].sort((a, b) => a.observedAt - b.observedAt) }];
     });
     const points = observedSpans.flatMap(span => span.points);

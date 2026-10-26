@@ -205,8 +205,8 @@ export const PublicGroupPopulationSeriesSchema = z.object({
     instanceCountLast: z.number().int().nonnegative().optional(),
     observedAt: timestampMs.optional(),
     observedSpans: z.array(z.object({
-      startAt: timestampMs,
-      endAt: timestampMs,
+      startAt: timestampMs.describe("First in-window observation of the complete continuous segment. Repeated across bucket fragments of that segment."),
+      endAt: timestampMs.describe("Last in-window observation of the complete continuous segment. Join fragments only when both segment bounds match."),
       points: z.array(PublicPopulationPointSchema).max(6),
     }).strict()),
   }).strict()).max(720),

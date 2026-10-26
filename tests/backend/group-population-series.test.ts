@@ -27,3 +27,12 @@ it("series clips integration using boundary samples without fabricating in-range
   assert.equal(series.coverageRatio, 1);
   assert.ok(series.buckets.every(b => b.populationLast === undefined));
 });
+it("bucket fragments share full in-window segment bounds without joining neighboring failures", () => {
+  const series = buildGroupPopulationSeries({ startAt: 0, endAt: 600_000,
+    observations: [point(-10_000, 99), point(17_000, 1), point(137_000, 2), point(257_000, 3), point(377_000, 4), point(617_000, 99)],
+    coverageWindows: [{ startedAt: 200_000, endedAt: 240_000, state: "degraded" }],
+  });
+  assert.deepEqual(series.buckets.flatMap(bucket => bucket.observedSpans.map(span => [span.startAt, span.endAt])),
+    [[17_000, 137_000], [17_000, 137_000], [257_000, 377_000], [257_000, 377_000]]);
+  assert.ok(series.buckets.flatMap(bucket => bucket.observedSpans.flatMap(span => span.points)).every(point => point.observedAt >= 0 && point.observedAt < 600_000));
+});

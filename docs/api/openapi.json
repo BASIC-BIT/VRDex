@@ -14647,12 +14647,14 @@
                                   "startAt": {
                                     "type": "integer",
                                     "minimum": 0,
-                                    "maximum": 9007199254740991
+                                    "maximum": 9007199254740991,
+                                    "description": "First in-window observation of the complete continuous segment. Repeated across bucket fragments of that segment."
                                   },
                                   "endAt": {
                                     "type": "integer",
                                     "minimum": 0,
-                                    "maximum": 9007199254740991
+                                    "maximum": 9007199254740991,
+                                    "description": "Last in-window observation of the complete continuous segment. Join fragments only when both segment bounds match."
                                   },
                                   "points": {
                                     "maxItems": 6,
@@ -15078,12 +15080,14 @@
                                   "startAt": {
                                     "type": "integer",
                                     "minimum": 0,
-                                    "maximum": 9007199254740991
+                                    "maximum": 9007199254740991,
+                                    "description": "First in-window observation of the complete continuous segment. Repeated across bucket fragments of that segment."
                                   },
                                   "endAt": {
                                     "type": "integer",
                                     "minimum": 0,
-                                    "maximum": 9007199254740991
+                                    "maximum": 9007199254740991,
+                                    "description": "Last in-window observation of the complete continuous segment. Join fragments only when both segment bounds match."
                                   },
                                   "points": {
                                     "maxItems": 6,

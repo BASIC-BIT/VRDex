@@ -10,6 +10,8 @@ import { ProfileAvatarImage } from "./profile-avatar-image";
 import { ProfileVrcdnStreams } from "./profile-vrcdn-streams";
 import { ProfilePrivateRecord } from "./profile-private-record";
 import { PublicGroupMembershipChart, type GroupMembership } from "./public-group-membership-chart";
+import { CommunityPopulationHistory } from "./public-group-population-chart";
+import type { PopulationSeries } from "@/lib/public-group-statistics";
 import { ViewerLocalEventDateTime } from "./viewer-local-event-times";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, Eyebrow, SectionHeading } from "@/components/ui/card";
@@ -189,6 +191,8 @@ type PublicCommunityProfile = PublicProfileBase & {
   };
   groupMembership?: GroupMembership;
   telemetry?: {
+    publicationPolicy?: "automatic_aggregate" | "managed_categories";
+    populationSeries?: PopulationSeries;
     freshness: "current" | "stale";
     observedAt?: number;
     currentPopulation?: { value: number; activeInstanceCount: number; observedAt: number };
@@ -278,21 +282,23 @@ function CommunityActivity({ profile }: { profile: PublicCommunityProfile }) {
   const showCount = profile.appearance?.showMemberCount !== false;
   const showHistory = profile.appearance?.showMemberHistory !== false;
   const memberCount = showCount ? groupMembership?.latest ?? telemetry?.groupMemberCount : undefined;
-  const history = telemetry?.populationHistory ?? [];
+  const automatic = telemetry?.publicationPolicy === "automatic_aggregate";
+  const history = telemetry?.populationSeries ? [] : telemetry?.populationHistory ?? [];
   const historyMax = Math.max(1, ...history.map((point) => point.peakConcurrency));
-  const hasSummary = telemetry?.currentPopulation || memberCount || telemetry?.groupMemberGrowth;
-  if (!hasSummary && !(showHistory && groupMembership) && history.length === 0 && !telemetry?.instanceHistory?.length && !telemetry?.eventRecaps?.length) return null;
+  const hasSummary = (!telemetry?.populationSeries && telemetry?.currentPopulation) || memberCount || telemetry?.groupMemberGrowth;
+  if (!hasSummary && !telemetry?.populationSeries && !(showHistory && groupMembership) && history.length === 0 && !telemetry?.instanceHistory?.length && !telemetry?.eventRecaps?.length) return null;
   return (
     <section className="border-t border-border py-8">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <SectionHeading>Activity</SectionHeading>
-        {telemetry ? <p className="text-xs text-muted">{telemetry.freshness === "current" ? "Current" : "Stale"}</p> : null}
+        {telemetry && !telemetry.populationSeries ? <p className="text-xs text-muted">{telemetry.freshness === "current" ? "Current" : "Stale"}</p> : null}
       </div>
       {hasSummary ? <div className="mt-5 grid gap-3 sm:grid-cols-3">
-        {telemetry?.currentPopulation ? <Card padding="sm" surface="strong"><p className="text-sm text-muted">In group instances</p><p className="mt-2 text-3xl font-semibold">{telemetry.currentPopulation.value}</p><p className="mt-1 text-xs text-muted">{telemetry.currentPopulation.activeInstanceCount} active instances</p></Card> : null}
+        {telemetry?.currentPopulation && !telemetry.populationSeries ? <Card padding="sm" surface="strong"><p className="text-sm text-muted">In group instances</p><p className="mt-2 text-3xl font-semibold">{telemetry.currentPopulation.value}</p><p className="mt-1 text-xs text-muted">{telemetry.currentPopulation.activeInstanceCount} active instances</p></Card> : null}
         {memberCount ? <Card padding="sm" surface="strong"><p className="text-sm text-muted">Group members</p><p className="mt-2 text-3xl font-semibold">{memberCount.value.toLocaleString()}</p><time className="mt-1 block text-xs text-muted" dateTime={new Date(memberCount.observedAt).toISOString()}>{formatSubmittedDate(memberCount.observedAt)}</time></Card> : null}
         {telemetry?.groupMemberGrowth ? <Card padding="sm" surface="strong"><p className="text-sm text-muted">Member growth</p><p className="mt-2 text-3xl font-semibold">{telemetry.groupMemberGrowth.value > 0 ? "+" : ""}{telemetry.groupMemberGrowth.value.toLocaleString()}</p></Card> : null}
       </div> : null}
+      {telemetry?.populationSeries ? <CommunityPopulationHistory key={profile.slug} slug={profile.slug} initialSeries={telemetry.populationSeries} currentPopulation={telemetry.currentPopulation} /> : null}
       {showHistory && groupMembership ? <div className="mt-6"><PublicGroupMembershipChart membership={groupMembership} /></div> : null}
       {history.length > 0 ? <div className="mt-6" aria-label="Hourly peak population history. Missing buckets are blank." role="img">
         <div className="flex h-32 items-end gap-1 border-b border-border" aria-hidden="true">
@@ -303,7 +309,7 @@ function CommunityActivity({ profile }: { profile: PublicCommunityProfile }) {
         </div>
         <p className="mt-2 text-xs text-muted">Hourly peak population · gaps remain unfilled</p>
       </div> : null}
-      {telemetry?.instanceHistory && telemetry.instanceHistory.length > 0 ? <div className="mt-7">
+      {!automatic && telemetry?.instanceHistory && telemetry.instanceHistory.length > 0 ? <div className="mt-7">
         <h3 className="text-sm font-semibold">Recent instances</h3>
         <ul className="mt-3 grid gap-3 sm:grid-cols-2">
           {telemetry.instanceHistory.map((session, index) => <li key={`${session.openedAt}-${index}`}>
@@ -314,7 +320,7 @@ function CommunityActivity({ profile }: { profile: PublicCommunityProfile }) {
           </li>)}
         </ul>
       </div> : null}
-      {telemetry?.eventRecaps && telemetry.eventRecaps.length > 0 ? <div className="mt-7 grid gap-3 sm:grid-cols-2">{telemetry.eventRecaps.map((recap) => <Card key={`${recap.event?.slug ?? "event"}-${recap.startAt}`} padding="sm" surface="strong"><p className="font-medium">{recap.event?.title ?? "Event recap"}</p><p className="mt-2 text-sm text-muted">Peak {recap.peakConcurrency.toLocaleString()} · {recap.playerHours.toFixed(1)} player hours · {Math.round(recap.durationMinutes)} min · {Math.round(recap.coverageRatio * 100)}% coverage</p></Card>)}</div> : null}
+      {!automatic && telemetry?.eventRecaps && telemetry.eventRecaps.length > 0 ? <div className="mt-7 grid gap-3 sm:grid-cols-2">{telemetry.eventRecaps.map((recap) => <Card key={`${recap.event?.slug ?? "event"}-${recap.startAt}`} padding="sm" surface="strong"><p className="font-medium">{recap.event?.title ?? "Event recap"}</p><p className="mt-2 text-sm text-muted">Peak {recap.peakConcurrency.toLocaleString()} · {recap.playerHours.toFixed(1)} player hours · {Math.round(recap.durationMinutes)} min · {Math.round(recap.coverageRatio * 100)}% coverage</p></Card>)}</div> : null}
     </section>
   );
 }

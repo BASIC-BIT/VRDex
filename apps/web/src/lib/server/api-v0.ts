@@ -28,6 +28,7 @@ import {
 } from "@/lib/server/api-rate-limit";
 import { recordApiRateLimitBlockedEvent } from "@/lib/server/api-rate-limit-events";
 import { convexAdminHttpClient, convexHttpClient } from "@/lib/server/convex-http";
+import { getPlaywrightPublicProfileFixture } from "@/convex/playwright-fixtures";
 import { validateOAuthAccessTokenRecord } from "@/lib/server/oauth-dynamic-client-persistence";
 import {
   oauthAccessTokenSigningConfigured,
@@ -533,6 +534,9 @@ export async function publicProfileReadResponse(request: Request, target: { slug
     title: "Invalid statistics range", detail: "Statistics ranges require a community profile and both bounds within 24 elapsed hours." }));
   if (!parsed.success) return invalid();
   try {
+    const fixture = target.profileType === "community" ? getPlaywrightPublicProfileFixture(target.slug, "community",
+      parsed.data.statisticsStartAt === undefined ? undefined : { startAt: parsed.data.statisticsStartAt, endAt: parsed.data.statisticsEndAt! }) : null;
+    if (fixture) return uncached(apiJson(PublicProfileSchema, fixture));
     const profile = await convexHttpClient().query(api.profiles.getPublicBySlug, { ...parsed.data, now: Date.now() });
     return uncached(profile === null ? publicNotFoundResponse(target.profileType === "person" ? "Person profile" : target.profileType === "community" ? "Community profile" : "Profile") : apiJson(PublicProfileSchema, profile));
   } catch (error) {

@@ -7,6 +7,7 @@ import vm from 'node:vm';
 import ts from 'typescript';
 import { eventDjTarget } from '../../apps/web/src/lib/event-dj-target';
 import { createSourceStatusReader } from '../../apps/web/src/lib/event-source-observations';
+import { buildGroupPopulationSeries } from '../../convex/_groupPopulationSeries';
 const webRequire=createRequire(path.resolve('apps/web/package.json'));
 function load(relative:string,dependencies:Record<string,unknown>,globals:Record<string,unknown>={}) {
  const source=readFileSync(path.resolve('apps/web/src',relative),'utf8');
@@ -15,6 +16,26 @@ function load(relative:string,dependencies:Record<string,unknown>,globals:Record
  vm.runInNewContext(outputText,{exports,require:(name:string)=>name in dependencies?dependencies[name]:name.startsWith('@/')?webRequire(path.resolve('apps/web/src',name.slice(2))):webRequire(name),Date,Response,AbortController,AbortSignal,setTimeout,clearTimeout,setInterval,clearInterval,...globals});
  return exports;
 }
+it('known fixture profiles omit unrelated world reads only while fixtures are enabled',async()=>{
+ for(const enabled of [true,false]) {
+  const processFixture={env:{NODE_ENV:'test',VRDEX_ENABLE_PLAYWRIGHT_FIXTURES:enabled?'true':'false',NEXT_PUBLIC_CONVEX_URL:'http://127.0.0.1:3210'}};
+  const fixtures=load('convex/playwright-fixtures.ts',{
+   '../../../../convex/_groupPopulationSeries':{buildGroupPopulationSeries},
+  },{process:processFixture});
+  const calls:string[]=[];
+  const server=load('convex/server.ts',{
+   'convex/nextjs':{fetchQuery:async(_ref:unknown,args:{slug:string})=>{calls.push(args.slug);return null;}},
+   '@convex-generated-api':{api:{worlds:{getPublicBySlug:'world-query'}}},
+   '@/lib/server/auth':{},'@/lib/server/twitch-live':{},'@/lib/server/vrcdn-live':{},
+   './playwright-fixtures':fixtures,
+  },{process:processFixture,console});
+  const known=await server.fetchPublicWorldBySlug('playwright-group-population');
+  assert.equal(known.kind,'live');assert.equal(known.world,null);
+  assert.equal(calls.length,enabled?0:1);
+  await server.fetchPublicWorldBySlug('ordinary-live-world');
+  assert.equal(calls.at(-1),'ordinary-live-world');
+ }
+});
 function roster() {
  const slots=Array.from({length:80},(_,index)=>({playbackKey:`slot-${index}`,position:index,startAt:index*1000,endAt:(index+1)*1000,stream:{streamId:`dj${index}`},performer:{slug:`dj${index}`,outboundLinks:[{url:`vrcdn:dj${index}`},{url:`https://twitch.tv/dj${index}`}]}}));
  return {slug:'show',communitySlug:'club',slots,lineup:slots.map(slot=>({...slot,key:slot.playbackKey})),participants:[]};
