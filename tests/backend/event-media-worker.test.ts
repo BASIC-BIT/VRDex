@@ -1,3 +1,5 @@
+import { fixtureCapacityResolver } from "../scripts/_event-allocation-fixture.mjs";
+import { loadEventsWithFixtureCapacity } from "./_eventCapacityFixture";
 import { syntheticInputs } from '../../scripts/event-proof-fixtures.mjs';
 import { bindVrcdnTestAccount } from "./_eventOutputAccountFixture";
 import assert from "node:assert/strict";
@@ -12,7 +14,7 @@ const schema = (schemaModule as unknown as { default?: typeof schemaModule }).de
 const worker = (name: string) => makeFunctionReference<"mutation">(`eventMediaWorker:${name}`);
 const modules = {
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
-  "../../convex/events.ts": () => import("../../convex/events"),
+  "../../convex/events.ts": loadEventsWithFixtureCapacity,
   "../../convex/eventMediaWorker.ts": () => import("../../convex/eventMediaWorker"),
 };
 const bridgeToken = "worker-test-only-credential";
@@ -313,7 +315,7 @@ it('destination keys cannot be converted by the legacy VRCDN writer or malformed
  assert.ok(command); assert.deepEqual(command.optionalOutputs.map((o:any)=>o?.outputId),[other.outputId]);
  const {taskDefinitionFor}=await import('../../scripts/event-media-ecs-bridge.mjs');
  const arn='arn:aws:secretsmanager:us-east-1:123456789012:secret:optional-ABC123';
- const definition=taskDefinitionFor(command,{baseEnvironment:{},secretRefMap:{'event-media/vrcdn/main':'arn:main','event-media/twitch/owned':arn},outputSecretEnvName:'VRDEX_EVENT_MEDIA_OUTPUT_INGEST_SECRET_JSON',workerTokenSecretArn:'arn:token'});
+ const definition=taskDefinitionFor(command,{baseEnvironment:{},secretRefMap:{'event-media/vrcdn/main':'arn:main','event-media/twitch/owned':arn},outputSecretEnvName:'VRDEX_EVENT_MEDIA_OUTPUT_INGEST_SECRET_JSON',workerTokenSecretArn:'arn:token'},fixtureCapacityResolver);
  assert.ok(!definition.containerDefinitions[0].secrets.some((entry:any)=>entry.valueFrom===arn));
  const lease=await t.mutation(worker('acquireSession'),{protocolVersion:2,bridgeToken,eventId:event.eventId,sessionId:command.session.sessionId,workerId:'output-worker',epoch:0});
  const badHealth=await t.mutation(worker('observeOutputs'),{protocolVersion:2,bridgeToken,eventId:event.eventId,sessionId:command.session.sessionId,workerId:'output-worker',epoch:lease.epoch,destinations:[{outputId:added.outputId,destination:'twitch',status:'publishing',publishing:true,queueBytes:0,outputMs:1000,restarts:0}]});

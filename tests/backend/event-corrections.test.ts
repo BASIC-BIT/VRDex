@@ -1,3 +1,4 @@
+import { loadEventsWithFixtureCapacity } from "./_eventCapacityFixture";
 import { bindVrcdnTestAccount } from "./_eventOutputAccountFixture";
 import assert from "node:assert/strict";
 import { it } from "node:test";
@@ -275,7 +276,7 @@ async function fixture() {
     "../../convex/eventIntake.ts": () => import("../../convex/eventIntake"),
     "../../convex/eventIntakeSources.ts": () => import("../../convex/eventIntakeSources"),
     "../../convex/eventCorrections.ts": () => import("../../convex/eventCorrections"),
-    "../../convex/events.ts": () => import("../../convex/events"),
+    "../../convex/events.ts": loadEventsWithFixtureCapacity,
     "../../convex/communityTelemetry.ts": () => import("../../convex/communityTelemetry"),
     "../../convex/search.ts": () => import("../../convex/search"),
   } });

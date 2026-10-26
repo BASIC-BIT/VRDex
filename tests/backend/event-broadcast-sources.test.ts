@@ -1,3 +1,4 @@
+import { loadEventsWithFixtureCapacity } from "./_eventCapacityFixture";
 import { bindVrcdnTestAccount } from "./_eventOutputAccountFixture";
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -14,7 +15,7 @@ const sourceMutation = (name: string) => makeFunctionReference<"mutation">(`even
 async function fixture() {
   const t = convexTest({ schema, modules: {
     "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
-    "../../convex/events.ts": () => import("../../convex/events"),
+    "../../convex/events.ts": loadEventsWithFixtureCapacity,
     "../../convex/eventMediaWorker.ts": () => import("../../convex/eventMediaWorker"),
     "../../convex/eventMediaSources.ts": () => import("../../convex/eventMediaSources"),
   } });

@@ -1,3 +1,5 @@
+import { fixtureCapacityResolver } from "../scripts/_event-allocation-fixture.mjs";
+import { loadEventsWithFixtureCapacity } from "./_eventCapacityFixture";
 import { bindVrcdnTestAccount } from "./_eventOutputAccountFixture";
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -12,7 +14,7 @@ const worker = (name: string) => makeFunctionReference<"mutation">(`eventMediaWo
 const settingsMutation = makeFunctionReference<"mutation">("eventMediaSettings:configure");
 const modules = {
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
-  "../../convex/events.ts": () => import("../../convex/events"),
+  "../../convex/events.ts": loadEventsWithFixtureCapacity,
   "../../convex/eventMediaWorker.ts": () => import("../../convex/eventMediaWorker"),
   "../../convex/eventMediaSettings.ts": () => import("../../convex/eventMediaSettings"),
   "../../convex/eventMediaSources.ts": () => import("../../convex/eventMediaSources"),
@@ -75,8 +77,7 @@ test("settings require media authority, preserve active snapshots, and apply at 
   const lease = await t.mutation(worker("acquireSession"),workerArgs);
   const original = await t.run(ctx => ctx.db.get(scheduled.sessionId));
   assert.equal(original!.controlProtocolVersion,2);
-  const { resolveWorkerAllocation } = await import('../../workers/restream/broadcast-capacity.mjs');
-  assert.deepEqual(original!.allocation, resolveWorkerAllocation({videoPreset:'1080p60',simulcastEnabled:false}));
+  assert.deepEqual(original!.allocation, fixtureCapacityResolver({videoPreset:'1080p60',simulcastEnabled:false}));
   assert.deepEqual(lease.configuration.allocation, original!.allocation);
   assert.deepEqual(original!.mediaSettings,{videoPreset:"1080p60",audioBitrateKbps:320});
   assert.equal(original!.destinationProfiles![0]!.profile.frameRate,60);

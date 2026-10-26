@@ -1,3 +1,4 @@
+import { loadEventsWithFixtureCapacity } from "./_eventCapacityFixture";
 import { bindVrcdnTestAccount } from "./_eventOutputAccountFixture";
 import assert from "node:assert/strict";
 import { it } from "node:test";
@@ -12,7 +13,7 @@ const schema = (schemaModule as unknown as {
 const worker = (name: string) => makeFunctionReference<"mutation">(`eventMediaWorker:${name}`);
 const modules = {
     "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
-    "../../convex/events.ts": () => import("../../convex/events"),
+    "../../convex/events.ts": loadEventsWithFixtureCapacity,
     "../../convex/eventMediaWorker.ts": () => import("../../convex/eventMediaWorker"),
 };
 const bridgeToken = "worker-test-only-credential";
