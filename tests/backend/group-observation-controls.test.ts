@@ -176,6 +176,28 @@ it("adopted aggregate-only snapshot stops between metadata and instances while p
   assert.equal((await h.t.mutation(ref("communityTelemetry:reserveRequestBudget"), lease)).granted, true);
 });
 
+it("adopted aggregate-only snapshot keeps its request fence after named history is enabled and analytics disabled", async () => {
+  const h = await setup(); await h.adopt();
+  await h.owner.mutation(ref("clubConnection:setFeature"), { communityProfileId: h.profileId, feature: "posts", enabled: true });
+  const lease = { integrationId: h.integrationId, collectorAccountId: h.accountId, workerId: "worker", fencingToken: 1, requestCount: 1 };
+  const provider = new VrchatClient({ authCookie: "test-cookie", userAgent: "test/1" });
+  const sent: string[] = [];
+  provider.getGroup = async () => {
+    sent.push("metadata");
+    await h.owner.mutation(ref("clubConnection:setNamedMembershipCollectionEnabled"), { communityProfileId: h.profileId, enabled: true });
+    await h.owner.mutation(ref("clubConnection:setFeature"), { communityProfileId: h.profileId, feature: "analytics", enabled: false });
+    return { membershipStatus: "member", joinPolicy: "free", groupVisibility: "public", memberCount: 42 };
+  };
+  provider.request = async () => { sent.push("instances"); return []; };
+  assert.equal(await provider.readAggregateSnapshot(GROUP, { authorizeRequest: async (automaticRequest: string) => (await h.t.mutation(ref("communityTelemetry:reserveRequestBudget"), { ...lease, automaticRequest })).granted }), null);
+  assert.deepEqual(sent, ["metadata"]);
+  const row = (await h.t.run(ctx => ctx.db.get(h.integrationId)))!;
+  assert.equal(row.namedMembershipCollectionEnabled, true);
+  assert.deepEqual(row.enabledFeatures, ["posts"]);
+  for (const automaticRequest of ["metadata", "instances"]) assert.equal((await h.t.mutation(ref("communityTelemetry:reserveRequestBudget"), { ...lease, automaticRequest })).granted, false);
+  assert.equal((await h.t.mutation(ref("communityTelemetry:reserveRequestBudget"), lease)).granted, true, "independent posts budget remains available");
+});
+
 it("automatic ingest produces scheduled canonical hour and day history across adoption", async () => {
   const h = await setup();
   const hourEnd = Math.floor(h.now / 3600000) * 3600000;

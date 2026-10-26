@@ -1059,7 +1059,7 @@ export const reserveRequestBudget = internalMutation({
         (integration.automaticAdmissionAttempt && integration.automaticAdmissionAttempt.collectorAccountId !== account._id))
         return { granted: false, retryAt: now + 60_000, reason: "unavailable" as const };
     }
-    if (integration.namedMembershipCollectionEnabled === false && args.automaticRequest && args.automaticRequest !== "leave") {
+    if (args.automaticRequest && args.automaticRequest !== "leave") {
       const policy = await ctx.db.query("vrchatGroupObservationPolicies")
         .withIndex("by_vrchatGroupId", q => q.eq("vrchatGroupId", integration.vrchatGroupId)).unique();
       if (!(integration.enabledFeatures ?? ["analytics"]).includes("analytics") ||
