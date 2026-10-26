@@ -1,5 +1,6 @@
+import { scheduleGroupReconciliation } from "./groupObservations";
 import type { Doc, Id } from "./_generated/dataModel";
-import type { DatabaseReader, DatabaseWriter } from "./_generated/server";
+import type { DatabaseReader, DatabaseWriter, MutationCtx } from "./_generated/server";
 import { claimError } from "./_claimErrors";
 
 export type ExternalAssetType = Doc<"externalControlProofs">["assetType"];
@@ -304,6 +305,7 @@ async function findRemovedLink(
 }
 
 type LinkProfileOptions = {
+  provenance?: Doc<"profileExternalLinks">["provenance"];
   profileId: Id<"profiles">;
   assetType: ExternalAssetType;
   assetExternalId: string;
@@ -320,10 +322,16 @@ type LinkProfileOptions = {
  * demotes the incumbent so at most one primary exists per (profile, type).
  */
 export async function linkProfileToAsset(
-  db: DatabaseWriter,
+  ctx: MutationCtx,
   options: LinkProfileOptions,
 ): Promise<Id<"profileExternalLinks">> {
+  const { db } = ctx;
   const siblings = await getActiveProfileLinks(db, options.profileId, options.assetType);
+  if (options.assetType === "vrchat_group") await scheduleGroupReconciliation(ctx, options.profileId, [options.assetExternalId]);
+  if (options.assetType === "vrchat_group" && options.linkRole === "primary" && options.provenance !== "directory_reference") {
+    const profile = await db.get(options.profileId);
+    if (profile?.primaryGroupReference) await db.patch(profile._id, {primaryGroupReference: undefined, updatedAt: options.now});
+  }
   // A removed link is reused, not superseded, so re-attaching an asset restores
   // the row — and with it whoever originally put the association on record.
   const active = await findLink(
@@ -334,7 +342,7 @@ export async function linkProfileToAsset(
   );
   const existing =
     active ??
-    (await findRemovedLink(db, options.profileId, options.assetType, options.assetExternalId));
+    (options.provenance === "directory_reference" ? null : await findRemovedLink(db, options.profileId, options.assetType, options.assetExternalId));
   // Re-linking an asset that is already attached must not change its role.
   // `siblings` includes the existing row, so defaulting on count alone demoted
   // an incumbent primary to secondary and left the profile with none.
@@ -362,8 +370,12 @@ export async function linkProfileToAsset(
     );
   }
 
+  const provenance = options.provenance === "directory_reference"
+    ? existing?.provenance === "directory_reference" || !existing ? "directory_reference" as const : existing.provenance
+    : options.verifiedByProofId || options.linkedByUserId === undefined ? "control_association" as const : existing?.provenance;
   if (existing !== null) {
     await db.patch(existing._id, {
+      provenance,
       // Restores a removed row; a no-op for one that is already active.
       state: "active",
       removedAt: undefined,
@@ -390,6 +402,8 @@ export async function linkProfileToAsset(
       //   a row they resurrected themselves.
       ...(options.linkedByUserId === undefined
         ? { linkedByUserId: undefined }
+        : existing.provenance === "directory_reference" && options.verifiedByProofId !== undefined
+          ? { linkedByUserId: options.linkedByUserId }
         : active === null && existing.linkedByUserId !== undefined
           ? { linkedByUserId: options.linkedByUserId }
           : {}),
@@ -400,6 +414,7 @@ export async function linkProfileToAsset(
   }
 
   return await db.insert("profileExternalLinks", {
+    provenance: options.provenance ?? "control_association",
     profileId: options.profileId,
     assetType: options.assetType,
     assetExternalId: options.assetExternalId,
@@ -420,18 +435,26 @@ export async function linkProfileToAsset(
 }
 
 export async function removeProfileLink(
-  db: DatabaseWriter,
+  ctx: MutationCtx,
   profileId: Id<"profiles">,
   assetType: ExternalAssetType,
   assetExternalId: string,
   now: number,
 ) {
+  const { db } = ctx;
+  if (assetType === "vrchat_group") await scheduleGroupReconciliation(ctx, profileId, [assetExternalId]);
   const link = await findLink(db, profileId, assetType, assetExternalId);
 
   if (link === null) {
     throw claimError("LINK_NOT_FOUND");
   }
 
+  if (assetType === "vrchat_group") {
+    const profile = await db.get(profileId);
+    const reference = profile?.primaryGroupReference;
+    const destination = reference ? await db.query("profileLinkDestinations").withIndex("by_key", q => q.eq("key", reference.key)).unique() : null;
+    if (profile && destination?.entityId === assetExternalId) await db.patch(profile._id, {primaryGroupReference: undefined, updatedAt: now});
+  }
   await db.patch(link._id, { state: "removed", removedAt: now, updatedAt: now });
 
   // Keep exactly one primary when the removed link held that role.

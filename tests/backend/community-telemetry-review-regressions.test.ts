@@ -208,7 +208,7 @@ describe("community telemetry review regressions", () => {
       const integration = (await ctx.db.get(integrationId))!;
       const { _id, _creationTime, ...fields } = integration;
       const otherIntegrationId = await ctx.db.insert("communityVrchatIntegrations", {
-        ...fields, vrchatGroupId: "grp_00000000-0000-4000-8000-000000000002",
+        ...fields, state: "disconnected", vrchatGroupId: "grp_00000000-0000-4000-8000-000000000002",
       });
       await ctx.db.insert("instanceSessions", {
         integrationId: otherIntegrationId, communityProfileId,
@@ -313,7 +313,7 @@ describe("community telemetry review regressions", () => {
       groupVisibility: "public",
       joinPolicy: "free",
     });
-    assert.equal(reconnectedId, integrationId);
+    assert.notEqual(reconnectedId, integrationId);
 
     const dashboard = await t.withIdentity(identity).query(api.communityTelemetry.getPrivateDashboard, {
       communitySlug: "faceless",
@@ -326,7 +326,7 @@ describe("community telemetry review regressions", () => {
     assert.deepEqual(dashboard?.sessions, []);
     assert.deepEqual(dashboard?.coverage, []);
     assert.deepEqual(dashboard?.rollups, []);
-    const reconnected = await t.run((ctx) => ctx.db.get(integrationId));
+    const reconnected = await t.run((ctx) => ctx.db.get(reconnectedId));
     assert.ok((reconnected?.telemetryEpochStartedAt ?? 0) > firstEpoch);
 
     await grantVisibilityOwner(t);

@@ -4,7 +4,7 @@ import { normalizeMembershipAuditPage } from "./membership-audit.mjs";
 /** One durable audit page per leased poll, leaving other work a bounded request share. */
 export async function collectMembershipPage({ assignment, authority, provider, control, expectedUserId, accountBudget, integrationBudget, requestBudgeted = false, clock = Date.now }) {
   const now = clock();
-  if (!assignment.enabledFeatures?.includes("analytics") || !authority || authority.groupId !== assignment.vrchatGroupId ||
+  if (assignment.namedMembershipCollectionEnabled === false || !assignment.enabledFeatures?.includes("analytics") || !authority || authority.groupId !== assignment.vrchatGroupId ||
       authority.userId !== expectedUserId || authority.membershipStatus !== "member" ||
       now < authority.observedAt || now - authority.observedAt > 60_000 ||
       !authority.permissions.some(value => value === "*" || value === "group-audit-view")) return { collected: false };

@@ -13,6 +13,7 @@ import {
   PublicEventSchema,
   PublicEventsResponseSchema,
   PublicProfileSchema,
+  PublicProfileReadInputSchema,
   PublicProfileMediaDetailsSchema,
   PublicProfileMediaDetailsInputSchema,
   PublicSearchResponseSchema,
@@ -242,11 +243,12 @@ export function createVrdexApiClient(options: ApiClientOptions) {
       const { slug, assetId } = PublicProfileMediaDetailsInputSchema.parse(input);
       return request(PublicProfileMediaDetailsSchema, `profiles/${encodeURIComponent(slug)}/assets/${encodeURIComponent(assetId)}`, { authenticate: false });
     },
-    getProfile(input: { profileType?: VrdexProfileType; slug: string }) {
+    getProfile(raw: z.infer<typeof PublicProfileReadInputSchema>) {
+      const input = PublicProfileReadInputSchema.parse(raw);
       const segment =
         input.profileType === "person" ? "people" : input.profileType === "community" ? "communities" : "profiles";
 
-      return get(PublicProfileSchema, `${segment}/${encodeURIComponent(input.slug)}`);
+      return get(PublicProfileSchema, `${segment}/${encodeURIComponent(input.slug)}`, { statisticsStartAt: input.statisticsStartAt, statisticsEndAt: input.statisticsEndAt });
     },
     getWorld(slug: string) {
       return get(PublicWorldSchema, `worlds/${encodeURIComponent(slug)}`);

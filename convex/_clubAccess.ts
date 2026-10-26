@@ -1,3 +1,4 @@
+import { readManagedIntegration } from "./_groupObservationPolicy";
 import type { Doc, Id } from "./_generated/dataModel";
 import type {
   DatabaseReader,
@@ -153,12 +154,7 @@ export async function readClubVisibility(
     .unique();
   if (saved) return saved.categories;
   const defaults = defaultClubVisibility();
-  const integration = await db
-    .query("communityVrchatIntegrations")
-    .withIndex("by_communityProfileId", (q) =>
-      q.eq("communityProfileId", communityProfileId),
-    )
-    .first();
+  const integration = await readManagedIntegration(db, communityProfileId);
   for (const [key, category] of Object.entries(LEGACY_CATEGORY_MAP))
     if (integration?.publicMetrics[key as keyof typeof LEGACY_CATEGORY_MAP])
       defaults[category] = { audience: "public", staffRoleIds: null };

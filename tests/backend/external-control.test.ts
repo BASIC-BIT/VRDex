@@ -142,14 +142,14 @@ describe("profile external links", () => {
       });
       const profileId = await seedCommunity(ctx as never, "link-order", now);
 
-      await linkProfileToAsset(ctx.db, {
+      await linkProfileToAsset(ctx, {
         profileId,
         assetType: "discord_guild",
         assetExternalId: "111",
         linkedByUserId: userId,
         now,
       });
-      await linkProfileToAsset(ctx.db, {
+      await linkProfileToAsset(ctx, {
         profileId,
         assetType: "discord_guild",
         assetExternalId: "222",
@@ -161,7 +161,7 @@ describe("profile external links", () => {
       assert.equal(afterAdd.find((l) => l.assetExternalId === "111")?.linkRole, "primary");
       assert.equal(afterAdd.find((l) => l.assetExternalId === "222")?.linkRole, "secondary");
 
-      await linkProfileToAsset(ctx.db, {
+      await linkProfileToAsset(ctx, {
         profileId,
         assetType: "discord_guild",
         assetExternalId: "222",
@@ -193,7 +193,7 @@ describe("profile external links", () => {
       const profileId = await seedCommunity(ctx as never, "link-relink", now);
 
       for (const guildId of ["111", "222"]) {
-        await linkProfileToAsset(ctx.db, {
+        await linkProfileToAsset(ctx, {
           profileId,
           assetType: "discord_guild",
           assetExternalId: guildId,
@@ -203,7 +203,7 @@ describe("profile external links", () => {
       }
 
       // Same asset, no explicit role — as every claim and proof path calls it.
-      await linkProfileToAsset(ctx.db, {
+      await linkProfileToAsset(ctx, {
         profileId,
         assetType: "discord_guild",
         assetExternalId: "111",
@@ -232,7 +232,7 @@ describe("profile external links", () => {
       const profileId = await seedCommunity(ctx as never, "link-relink-secondary", now);
 
       for (const guildId of ["111", "222"]) {
-        await linkProfileToAsset(ctx.db, {
+        await linkProfileToAsset(ctx, {
           profileId,
           assetType: "discord_guild",
           assetExternalId: guildId,
@@ -241,7 +241,7 @@ describe("profile external links", () => {
         });
       }
 
-      await linkProfileToAsset(ctx.db, {
+      await linkProfileToAsset(ctx, {
         profileId,
         assetType: "discord_guild",
         assetExternalId: "222",
@@ -277,15 +277,15 @@ describe("profile external links", () => {
       });
       const profileId = await seedCommunity(ctx as never, "link-resurrect", now);
 
-      await linkProfileToAsset(ctx.db, {
+      await linkProfileToAsset(ctx, {
         profileId,
         assetType: "discord_guild",
         assetExternalId: "111",
         linkedByUserId: owner,
         now,
       });
-      await removeProfileLink(ctx.db, profileId, "discord_guild", "111", now + 1);
-      await linkProfileToAsset(ctx.db, {
+      await removeProfileLink(ctx, profileId, "discord_guild", "111", now + 1);
+      await linkProfileToAsset(ctx, {
         profileId,
         assetType: "discord_guild",
         assetExternalId: "222",
@@ -294,7 +294,7 @@ describe("profile external links", () => {
       });
 
       // 111 comes back. It was primary before removal, but 222 holds that now.
-      await linkProfileToAsset(ctx.db, {
+      await linkProfileToAsset(ctx, {
         profileId,
         assetType: "discord_guild",
         assetExternalId: "111",
@@ -327,14 +327,14 @@ describe("profile external links", () => {
       });
       const profileId = await seedCommunity(ctx as never, "link-operator-survives", now);
 
-      await linkProfileToAsset(ctx.db, {
+      await linkProfileToAsset(ctx, {
         profileId,
         assetType: "discord_guild",
         assetExternalId: "333",
         now,
       });
-      await removeProfileLink(ctx.db, profileId, "discord_guild", "333", now + 1);
-      await linkProfileToAsset(ctx.db, {
+      await removeProfileLink(ctx, profileId, "discord_guild", "333", now + 1);
+      await linkProfileToAsset(ctx, {
         profileId,
         assetType: "discord_guild",
         assetExternalId: "333",
@@ -362,7 +362,7 @@ describe("profile external links", () => {
       const profileId = await seedCommunity(ctx as never, "link-removal", now);
 
       for (const guildId of ["111", "222"]) {
-        await linkProfileToAsset(ctx.db, {
+        await linkProfileToAsset(ctx, {
           profileId,
           assetType: "discord_guild",
           assetExternalId: guildId,
@@ -371,7 +371,7 @@ describe("profile external links", () => {
         });
       }
 
-      await removeProfileLink(ctx.db, profileId, "discord_guild", "111", now + 1);
+      await removeProfileLink(ctx, profileId, "discord_guild", "111", now + 1);
 
       const remaining = await getActiveProfileLinks(ctx.db, profileId, "discord_guild");
       assert.equal(remaining.length, 1);
@@ -395,7 +395,7 @@ describe("profile external links", () => {
       const second = await seedCommunity(ctx as never, "shared-two", now);
 
       for (const profileId of [first, second]) {
-        await linkProfileToAsset(ctx.db, {
+        await linkProfileToAsset(ctx, {
           profileId,
           assetType: "discord_guild",
           assetExternalId: "999",
@@ -2282,7 +2282,7 @@ describe("claiming a community with a verified guild", () => {
       });
       // Somebody other than the claimant put guild 999 on record for this
       // listing. That is the association the claim is checked against.
-      await linkProfileToAsset(ctx.db, {
+      await linkProfileToAsset(ctx, {
         profileId,
         assetType: "discord_guild",
         assetExternalId: "999",

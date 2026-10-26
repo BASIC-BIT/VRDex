@@ -3746,6 +3746,22 @@ paths:
             description: Public slug.
           required: true
           description: Public slug.
+        - in: query
+          name: statisticsStartAt
+          schema:
+            description: Community statistics start in Unix milliseconds. Supply both bounds; the elapsed range must be at most 24 hours.
+            type: integer
+            minimum: 0
+            maximum: 9007199254740991
+          description: Community statistics start in Unix milliseconds. Supply both bounds; the elapsed range must be at most 24 hours.
+        - in: query
+          name: statisticsEndAt
+          schema:
+            description: Exclusive community statistics end in Unix milliseconds, after the start and no later than now. Person profiles reject statistics ranges.
+            type: integer
+            minimum: 0
+            maximum: 9007199254740991
+          description: Exclusive community statistics end in Unix milliseconds, after the start and no later than now. Person profiles reject statistics ranges.
       responses:
         "200":
           description: The public profile.
@@ -4430,6 +4446,22 @@ paths:
             description: Public slug.
           required: true
           description: Public slug.
+        - in: query
+          name: statisticsStartAt
+          schema:
+            description: Community statistics start in Unix milliseconds. Supply both bounds; the elapsed range must be at most 24 hours.
+            type: integer
+            minimum: 0
+            maximum: 9007199254740991
+          description: Community statistics start in Unix milliseconds. Supply both bounds; the elapsed range must be at most 24 hours.
+        - in: query
+          name: statisticsEndAt
+          schema:
+            description: Exclusive community statistics end in Unix milliseconds, after the start and no later than now. Person profiles reject statistics ranges.
+            type: integer
+            minimum: 0
+            maximum: 9007199254740991
+          description: Exclusive community statistics end in Unix milliseconds, after the start and no later than now. Person profiles reject statistics ranges.
       responses:
         "200":
           description: The public person profile.
@@ -4483,6 +4515,22 @@ paths:
             description: Public slug.
           required: true
           description: Public slug.
+        - in: query
+          name: statisticsStartAt
+          schema:
+            description: Community statistics start in Unix milliseconds. Supply both bounds; the elapsed range must be at most 24 hours.
+            type: integer
+            minimum: 0
+            maximum: 9007199254740991
+          description: Community statistics start in Unix milliseconds. Supply both bounds; the elapsed range must be at most 24 hours.
+        - in: query
+          name: statisticsEndAt
+          schema:
+            description: Exclusive community statistics end in Unix milliseconds, after the start and no later than now. Person profiles reject statistics ranges.
+            type: integer
+            minimum: 0
+            maximum: 9007199254740991
+          description: Exclusive community statistics end in Unix milliseconds, after the start and no later than now. Person profiles reject statistics ranges.
       responses:
         "200":
           description: The public community profile.
@@ -6194,6 +6242,12 @@ components:
               items:
                 type: string
                 maxLength: 32
+        primaryGroupUrl:
+          anyOf:
+            - type: string
+              maxLength: 2048
+              format: uri
+            - type: "null"
         outboundLinks:
           maxItems: 20
           type: array
@@ -6308,6 +6362,12 @@ components:
               items:
                 type: string
                 maxLength: 32
+        primaryGroupUrl:
+          anyOf:
+            - type: string
+              maxLength: 2048
+              format: uri
+            - type: "null"
         outboundLinks:
           maxItems: 20
           type: array
@@ -8356,6 +8416,9 @@ components:
             - logos
           additionalProperties: {}
           description: Public media kit metadata for a public profile.
+        primaryGroupUrl:
+          type: string
+          format: uri
         outboundLinks:
           type: array
           items:
@@ -8459,306 +8522,758 @@ components:
           items:
             type: string
         telemetry:
-          type: object
-          properties:
-            schemaVersion:
-              type: number
-              const: 1
-            rollupVersion:
-              type: string
-              minLength: 1
-            freshness:
-              type: string
-              enum:
-                - current
-                - stale
-            observedAt:
-              type: integer
-              minimum: 0
-              maximum: 9007199254740991
-            definitions:
-              type: object
-              propertyNames:
-                type: string
-              additionalProperties:
-                type: object
-                properties:
-                  unit:
-                    type: string
-                    minLength: 1
-                  grain:
-                    type: string
-                    minLength: 1
-                  gapPolicy:
-                    type: string
-                    minLength: 1
-                required:
-                  - unit
-                  - grain
-                  - gapPolicy
-                additionalProperties: false
-            currentPopulation:
-              type: object
+          anyOf:
+            - type: object
               properties:
-                value:
-                  type: integer
-                  minimum: 0
-                  maximum: 9007199254740991
-                activeInstanceCount:
-                  type: integer
-                  minimum: 0
-                  maximum: 9007199254740991
-                observedAt:
-                  type: integer
-                  minimum: 0
-                  maximum: 9007199254740991
-                coverage:
+                populationSeries:
+                  type: object
+                  properties:
+                    startAt:
+                      type: integer
+                      minimum: 0
+                      maximum: 9007199254740991
+                    endAt:
+                      type: integer
+                      minimum: 0
+                      maximum: 9007199254740991
+                    coverageRatio:
+                      type: number
+                      minimum: 0
+                      maximum: 1
+                    peakConcurrency:
+                      type: integer
+                      minimum: 0
+                      maximum: 9007199254740991
+                    playerHours:
+                      type: number
+                      minimum: 0
+                    buckets:
+                      maxItems: 720
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          startAt:
+                            type: integer
+                            minimum: 0
+                            maximum: 9007199254740991
+                          endAt:
+                            type: integer
+                            minimum: 0
+                            maximum: 9007199254740991
+                          populationMin:
+                            type: integer
+                            minimum: 0
+                            maximum: 9007199254740991
+                          populationMax:
+                            type: integer
+                            minimum: 0
+                            maximum: 9007199254740991
+                          populationLast:
+                            type: integer
+                            minimum: 0
+                            maximum: 9007199254740991
+                          instanceCountMin:
+                            type: integer
+                            minimum: 0
+                            maximum: 9007199254740991
+                          instanceCountMax:
+                            type: integer
+                            minimum: 0
+                            maximum: 9007199254740991
+                          instanceCountLast:
+                            type: integer
+                            minimum: 0
+                            maximum: 9007199254740991
+                          observedAt:
+                            type: integer
+                            minimum: 0
+                            maximum: 9007199254740991
+                          observedSpans:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                startAt:
+                                  type: integer
+                                  minimum: 0
+                                  maximum: 9007199254740991
+                                  description: First in-window observation of the complete continuous segment. Repeated across bucket fragments of that segment.
+                                endAt:
+                                  type: integer
+                                  minimum: 0
+                                  maximum: 9007199254740991
+                                  description: Last in-window observation of the complete continuous segment. Join fragments only when both segment bounds match.
+                                points:
+                                  maxItems: 6
+                                  type: array
+                                  items:
+                                    type: object
+                                    properties:
+                                      observedAt:
+                                        type: integer
+                                        minimum: 0
+                                        maximum: 9007199254740991
+                                      population:
+                                        type: integer
+                                        minimum: 0
+                                        maximum: 9007199254740991
+                                      instanceCount:
+                                        type: integer
+                                        minimum: 0
+                                        maximum: 9007199254740991
+                                    required:
+                                      - observedAt
+                                      - population
+                                      - instanceCount
+                                    additionalProperties: false
+                              required:
+                                - startAt
+                                - endAt
+                                - points
+                              additionalProperties: false
+                        required:
+                          - startAt
+                          - endAt
+                          - observedSpans
+                        additionalProperties: false
+                  required:
+                    - startAt
+                    - endAt
+                    - coverageRatio
+                    - peakConcurrency
+                    - playerHours
+                    - buckets
+                  additionalProperties: false
+                schemaVersion:
+                  type: number
+                  const: 1
+                rollupVersion:
+                  type: string
+                  minLength: 1
+                freshness:
                   type: string
                   enum:
-                    - observed
-                    - estimated
+                    - current
                     - stale
-                    - unknown
-                    - degraded
-              required:
-                - value
-                - activeInstanceCount
-                - observedAt
-                - coverage
-              additionalProperties: false
-            populationHistory:
-              type: array
-              items:
-                type: object
-                properties:
-                  startAt:
-                    type: integer
-                    minimum: 0
-                    maximum: 9007199254740991
-                  endAt:
-                    type: integer
-                    minimum: 0
-                    maximum: 9007199254740991
-                  durationMinutes:
-                    type: number
-                    minimum: 0
-                  currentPopulation:
-                    type: integer
-                    minimum: 0
-                    maximum: 9007199254740991
-                  activeInstanceCount:
-                    type: integer
-                    minimum: 0
-                    maximum: 9007199254740991
-                  peakConcurrency:
-                    type: integer
-                    minimum: 0
-                    maximum: 9007199254740991
-                  playerHours:
-                    type: number
-                    minimum: 0
-                  coverageRatio:
-                    type: number
-                    minimum: 0
-                    maximum: 1
-                  groupMemberCount:
-                    type: integer
-                    minimum: 0
-                    maximum: 9007199254740991
-                  groupMemberGrowth:
-                    type: integer
-                    minimum: -9007199254740991
-                    maximum: 9007199254740991
-                  worldDistribution:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        vrchatWorldId:
-                          type: string
-                          pattern: ^wrld_.*
-                        samples:
-                          type: integer
-                          minimum: 0
-                          maximum: 9007199254740991
-                      required:
-                        - vrchatWorldId
-                        - samples
-                      additionalProperties: false
-                required:
-                  - startAt
-                  - endAt
-                  - durationMinutes
-                  - activeInstanceCount
-                  - peakConcurrency
-                  - playerHours
-                  - coverageRatio
-                  - worldDistribution
-                additionalProperties: false
-            groupMemberCount:
-              type: object
-              properties:
-                value:
-                  type: integer
-                  minimum: 0
-                  maximum: 9007199254740991
                 observedAt:
                   type: integer
                   minimum: 0
                   maximum: 9007199254740991
+                definitions:
+                  type: object
+                  properties:
+                    currentPopulation:
+                      type: object
+                      properties:
+                        unit:
+                          type: string
+                          minLength: 1
+                        grain:
+                          type: string
+                          minLength: 1
+                        gapPolicy:
+                          type: string
+                          minLength: 1
+                      required:
+                        - unit
+                        - grain
+                        - gapPolicy
+                      additionalProperties: false
+                    populationHistory:
+                      type: object
+                      properties:
+                        unit:
+                          type: string
+                          minLength: 1
+                        grain:
+                          type: string
+                          minLength: 1
+                        gapPolicy:
+                          type: string
+                          minLength: 1
+                      required:
+                        - unit
+                        - grain
+                        - gapPolicy
+                      additionalProperties: false
+                    groupMemberCount:
+                      type: object
+                      properties:
+                        unit:
+                          type: string
+                          minLength: 1
+                        grain:
+                          type: string
+                          minLength: 1
+                        gapPolicy:
+                          type: string
+                          minLength: 1
+                      required:
+                        - unit
+                        - grain
+                        - gapPolicy
+                      additionalProperties: false
+                    groupMemberGrowth:
+                      type: object
+                      properties:
+                        unit:
+                          type: string
+                          minLength: 1
+                        grain:
+                          type: string
+                          minLength: 1
+                        gapPolicy:
+                          type: string
+                          minLength: 1
+                      required:
+                        - unit
+                        - grain
+                        - gapPolicy
+                      additionalProperties: false
+                  additionalProperties: false
+                currentPopulation:
+                  type: object
+                  properties:
+                    value:
+                      type: integer
+                      minimum: 0
+                      maximum: 9007199254740991
+                    activeInstanceCount:
+                      type: integer
+                      minimum: 0
+                      maximum: 9007199254740991
+                    observedAt:
+                      type: integer
+                      minimum: 0
+                      maximum: 9007199254740991
+                    coverage:
+                      type: string
+                      enum:
+                        - observed
+                        - estimated
+                        - stale
+                        - unknown
+                        - degraded
+                  required:
+                    - value
+                    - activeInstanceCount
+                    - observedAt
+                    - coverage
+                  additionalProperties: false
+                groupMemberCount:
+                  type: object
+                  properties:
+                    value:
+                      type: integer
+                      minimum: 0
+                      maximum: 9007199254740991
+                    observedAt:
+                      type: integer
+                      minimum: 0
+                      maximum: 9007199254740991
+                  required:
+                    - value
+                    - observedAt
+                  additionalProperties: false
+                groupMemberGrowth:
+                  type: object
+                  properties:
+                    value:
+                      type: integer
+                      minimum: -9007199254740991
+                      maximum: 9007199254740991
+                    startAt:
+                      type: integer
+                      minimum: 0
+                      maximum: 9007199254740991
+                    endAt:
+                      type: integer
+                      minimum: 0
+                      maximum: 9007199254740991
+                  required:
+                    - value
+                    - startAt
+                    - endAt
+                  additionalProperties: false
+                publicationPolicy:
+                  type: string
+                  const: automatic_aggregate
+                populationHistory:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      startAt:
+                        type: integer
+                        minimum: 0
+                        maximum: 9007199254740991
+                      endAt:
+                        type: integer
+                        minimum: 0
+                        maximum: 9007199254740991
+                      durationMinutes:
+                        type: number
+                        minimum: 0
+                      currentPopulation:
+                        type: integer
+                        minimum: 0
+                        maximum: 9007199254740991
+                      activeInstanceCount:
+                        type: integer
+                        minimum: 0
+                        maximum: 9007199254740991
+                      peakConcurrency:
+                        type: integer
+                        minimum: 0
+                        maximum: 9007199254740991
+                      playerHours:
+                        type: number
+                        minimum: 0
+                      coverageRatio:
+                        type: number
+                        minimum: 0
+                        maximum: 1
+                    required:
+                      - startAt
+                      - endAt
+                      - durationMinutes
+                      - activeInstanceCount
+                      - peakConcurrency
+                      - playerHours
+                      - coverageRatio
+                    additionalProperties: false
               required:
-                - value
-                - observedAt
+                - schemaVersion
+                - rollupVersion
+                - freshness
+                - definitions
+                - publicationPolicy
               additionalProperties: false
-            groupMemberGrowth:
-              type: object
+              description: Public group aggregate statistics without world, instance, event or named membership details.
+            - type: object
               properties:
-                value:
-                  type: integer
-                  minimum: -9007199254740991
-                  maximum: 9007199254740991
-                startAt:
+                publicationPolicy:
+                  type: string
+                  const: managed_categories
+                populationSeries:
+                  type: object
+                  properties:
+                    startAt:
+                      type: integer
+                      minimum: 0
+                      maximum: 9007199254740991
+                    endAt:
+                      type: integer
+                      minimum: 0
+                      maximum: 9007199254740991
+                    coverageRatio:
+                      type: number
+                      minimum: 0
+                      maximum: 1
+                    peakConcurrency:
+                      type: integer
+                      minimum: 0
+                      maximum: 9007199254740991
+                    playerHours:
+                      type: number
+                      minimum: 0
+                    buckets:
+                      maxItems: 720
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          startAt:
+                            type: integer
+                            minimum: 0
+                            maximum: 9007199254740991
+                          endAt:
+                            type: integer
+                            minimum: 0
+                            maximum: 9007199254740991
+                          populationMin:
+                            type: integer
+                            minimum: 0
+                            maximum: 9007199254740991
+                          populationMax:
+                            type: integer
+                            minimum: 0
+                            maximum: 9007199254740991
+                          populationLast:
+                            type: integer
+                            minimum: 0
+                            maximum: 9007199254740991
+                          instanceCountMin:
+                            type: integer
+                            minimum: 0
+                            maximum: 9007199254740991
+                          instanceCountMax:
+                            type: integer
+                            minimum: 0
+                            maximum: 9007199254740991
+                          instanceCountLast:
+                            type: integer
+                            minimum: 0
+                            maximum: 9007199254740991
+                          observedAt:
+                            type: integer
+                            minimum: 0
+                            maximum: 9007199254740991
+                          observedSpans:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                startAt:
+                                  type: integer
+                                  minimum: 0
+                                  maximum: 9007199254740991
+                                  description: First in-window observation of the complete continuous segment. Repeated across bucket fragments of that segment.
+                                endAt:
+                                  type: integer
+                                  minimum: 0
+                                  maximum: 9007199254740991
+                                  description: Last in-window observation of the complete continuous segment. Join fragments only when both segment bounds match.
+                                points:
+                                  maxItems: 6
+                                  type: array
+                                  items:
+                                    type: object
+                                    properties:
+                                      observedAt:
+                                        type: integer
+                                        minimum: 0
+                                        maximum: 9007199254740991
+                                      population:
+                                        type: integer
+                                        minimum: 0
+                                        maximum: 9007199254740991
+                                      instanceCount:
+                                        type: integer
+                                        minimum: 0
+                                        maximum: 9007199254740991
+                                    required:
+                                      - observedAt
+                                      - population
+                                      - instanceCount
+                                    additionalProperties: false
+                              required:
+                                - startAt
+                                - endAt
+                                - points
+                              additionalProperties: false
+                        required:
+                          - startAt
+                          - endAt
+                          - observedSpans
+                        additionalProperties: false
+                  required:
+                    - startAt
+                    - endAt
+                    - coverageRatio
+                    - peakConcurrency
+                    - playerHours
+                    - buckets
+                  additionalProperties: false
+                schemaVersion:
+                  type: number
+                  const: 1
+                rollupVersion:
+                  type: string
+                  minLength: 1
+                freshness:
+                  type: string
+                  enum:
+                    - current
+                    - stale
+                observedAt:
                   type: integer
                   minimum: 0
                   maximum: 9007199254740991
-                endAt:
-                  type: integer
-                  minimum: 0
-                  maximum: 9007199254740991
-              required:
-                - value
-                - startAt
-                - endAt
-              additionalProperties: false
-            instanceHistory:
-              maxItems: 20
-              type: array
-              items:
-                type: object
-                properties:
-                  world:
-                    anyOf:
-                      - type: object
+                definitions:
+                  type: object
+                  propertyNames:
+                    type: string
+                  additionalProperties:
+                    type: object
+                    properties:
+                      unit:
+                        type: string
+                        minLength: 1
+                      grain:
+                        type: string
+                        minLength: 1
+                      gapPolicy:
+                        type: string
+                        minLength: 1
+                    required:
+                      - unit
+                      - grain
+                      - gapPolicy
+                    additionalProperties: false
+                currentPopulation:
+                  type: object
+                  properties:
+                    value:
+                      type: integer
+                      minimum: 0
+                      maximum: 9007199254740991
+                    activeInstanceCount:
+                      type: integer
+                      minimum: 0
+                      maximum: 9007199254740991
+                    observedAt:
+                      type: integer
+                      minimum: 0
+                      maximum: 9007199254740991
+                    coverage:
+                      type: string
+                      enum:
+                        - observed
+                        - estimated
+                        - stale
+                        - unknown
+                        - degraded
+                  required:
+                    - value
+                    - activeInstanceCount
+                    - observedAt
+                    - coverage
+                  additionalProperties: false
+                populationHistory:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      startAt:
+                        type: integer
+                        minimum: 0
+                        maximum: 9007199254740991
+                      endAt:
+                        type: integer
+                        minimum: 0
+                        maximum: 9007199254740991
+                      durationMinutes:
+                        type: number
+                        minimum: 0
+                      currentPopulation:
+                        type: integer
+                        minimum: 0
+                        maximum: 9007199254740991
+                      activeInstanceCount:
+                        type: integer
+                        minimum: 0
+                        maximum: 9007199254740991
+                      peakConcurrency:
+                        type: integer
+                        minimum: 0
+                        maximum: 9007199254740991
+                      playerHours:
+                        type: number
+                        minimum: 0
+                      coverageRatio:
+                        type: number
+                        minimum: 0
+                        maximum: 1
+                      groupMemberCount:
+                        type: integer
+                        minimum: 0
+                        maximum: 9007199254740991
+                      groupMemberGrowth:
+                        type: integer
+                        minimum: -9007199254740991
+                        maximum: 9007199254740991
+                      worldDistribution:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            vrchatWorldId:
+                              type: string
+                              pattern: ^wrld_.*
+                            samples:
+                              type: integer
+                              minimum: 0
+                              maximum: 9007199254740991
+                          required:
+                            - vrchatWorldId
+                            - samples
+                          additionalProperties: false
+                    required:
+                      - startAt
+                      - endAt
+                      - durationMinutes
+                      - activeInstanceCount
+                      - peakConcurrency
+                      - playerHours
+                      - coverageRatio
+                      - worldDistribution
+                    additionalProperties: false
+                groupMemberCount:
+                  type: object
+                  properties:
+                    value:
+                      type: integer
+                      minimum: 0
+                      maximum: 9007199254740991
+                    observedAt:
+                      type: integer
+                      minimum: 0
+                      maximum: 9007199254740991
+                  required:
+                    - value
+                    - observedAt
+                  additionalProperties: false
+                groupMemberGrowth:
+                  type: object
+                  properties:
+                    value:
+                      type: integer
+                      minimum: -9007199254740991
+                      maximum: 9007199254740991
+                    startAt:
+                      type: integer
+                      minimum: 0
+                      maximum: 9007199254740991
+                    endAt:
+                      type: integer
+                      minimum: 0
+                      maximum: 9007199254740991
+                  required:
+                    - value
+                    - startAt
+                    - endAt
+                  additionalProperties: false
+                instanceHistory:
+                  maxItems: 20
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      world:
+                        anyOf:
+                          - type: object
+                            properties:
+                              slug:
+                                type: string
+                                minLength: 1
+                                maxLength: 160
+                              displayName:
+                                type: string
+                                minLength: 1
+                            required:
+                              - slug
+                              - displayName
+                            additionalProperties: false
+                          - type: "null"
+                      openedAt:
+                        type: integer
+                        minimum: 0
+                        maximum: 9007199254740991
+                      lastObservedAt:
+                        type: integer
+                        minimum: 0
+                        maximum: 9007199254740991
+                      closedAt:
+                        type: integer
+                        minimum: 0
+                        maximum: 9007199254740991
+                    required:
+                      - world
+                      - openedAt
+                      - lastObservedAt
+                    additionalProperties: false
+                eventRecaps:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      startAt:
+                        type: integer
+                        minimum: 0
+                        maximum: 9007199254740991
+                      endAt:
+                        type: integer
+                        minimum: 0
+                        maximum: 9007199254740991
+                      durationMinutes:
+                        type: number
+                        minimum: 0
+                      currentPopulation:
+                        type: integer
+                        minimum: 0
+                        maximum: 9007199254740991
+                      activeInstanceCount:
+                        type: integer
+                        minimum: 0
+                        maximum: 9007199254740991
+                      peakConcurrency:
+                        type: integer
+                        minimum: 0
+                        maximum: 9007199254740991
+                      playerHours:
+                        type: number
+                        minimum: 0
+                      coverageRatio:
+                        type: number
+                        minimum: 0
+                        maximum: 1
+                      groupMemberCount:
+                        type: integer
+                        minimum: 0
+                        maximum: 9007199254740991
+                      groupMemberGrowth:
+                        type: integer
+                        minimum: -9007199254740991
+                        maximum: 9007199254740991
+                      worldDistribution:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            vrchatWorldId:
+                              type: string
+                              pattern: ^wrld_.*
+                            samples:
+                              type: integer
+                              minimum: 0
+                              maximum: 9007199254740991
+                          required:
+                            - vrchatWorldId
+                            - samples
+                          additionalProperties: false
+                      event:
+                        type: object
                         properties:
                           slug:
                             type: string
                             minLength: 1
                             maxLength: 160
-                          displayName:
+                          title:
                             type: string
                             minLength: 1
                         required:
                           - slug
-                          - displayName
+                          - title
                         additionalProperties: false
-                      - type: "null"
-                  openedAt:
-                    type: integer
-                    minimum: 0
-                    maximum: 9007199254740991
-                  lastObservedAt:
-                    type: integer
-                    minimum: 0
-                    maximum: 9007199254740991
-                  closedAt:
-                    type: integer
-                    minimum: 0
-                    maximum: 9007199254740991
-                required:
-                  - world
-                  - openedAt
-                  - lastObservedAt
-                additionalProperties: false
-            eventRecaps:
-              type: array
-              items:
-                type: object
-                properties:
-                  startAt:
-                    type: integer
-                    minimum: 0
-                    maximum: 9007199254740991
-                  endAt:
-                    type: integer
-                    minimum: 0
-                    maximum: 9007199254740991
-                  durationMinutes:
-                    type: number
-                    minimum: 0
-                  currentPopulation:
-                    type: integer
-                    minimum: 0
-                    maximum: 9007199254740991
-                  activeInstanceCount:
-                    type: integer
-                    minimum: 0
-                    maximum: 9007199254740991
-                  peakConcurrency:
-                    type: integer
-                    minimum: 0
-                    maximum: 9007199254740991
-                  playerHours:
-                    type: number
-                    minimum: 0
-                  coverageRatio:
-                    type: number
-                    minimum: 0
-                    maximum: 1
-                  groupMemberCount:
-                    type: integer
-                    minimum: 0
-                    maximum: 9007199254740991
-                  groupMemberGrowth:
-                    type: integer
-                    minimum: -9007199254740991
-                    maximum: 9007199254740991
-                  worldDistribution:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        vrchatWorldId:
-                          type: string
-                          pattern: ^wrld_.*
-                        samples:
-                          type: integer
-                          minimum: 0
-                          maximum: 9007199254740991
-                      required:
-                        - vrchatWorldId
-                        - samples
-                      additionalProperties: false
-                  event:
-                    type: object
-                    properties:
-                      slug:
-                        type: string
-                        minLength: 1
-                        maxLength: 160
-                      title:
-                        type: string
-                        minLength: 1
                     required:
-                      - slug
-                      - title
+                      - startAt
+                      - endAt
+                      - durationMinutes
+                      - activeInstanceCount
+                      - peakConcurrency
+                      - playerHours
+                      - coverageRatio
+                      - worldDistribution
                     additionalProperties: false
-                required:
-                  - startAt
-                  - endAt
-                  - durationMinutes
-                  - activeInstanceCount
-                  - peakConcurrency
-                  - playerHours
-                  - coverageRatio
-                  - worldDistribution
-                additionalProperties: false
-          required:
-            - schemaVersion
-            - rollupVersion
-            - freshness
-            - definitions
-          additionalProperties: false
-          description: Independently opted-in aggregate telemetry for a public community profile.
+              required:
+                - schemaVersion
+                - rollupVersion
+                - freshness
+                - definitions
+              additionalProperties: false
+              description: Managed community telemetry with category-specific public permissions.
         trustLabel:
           type: string
           enum:

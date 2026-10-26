@@ -1,5 +1,9 @@
+import { ConvexError } from "convex/values";
+import { PublicStatisticsRangeInputSchema } from "../packages/api-contracts/src/schemas";
+import { buildGroupPopulationSeries } from "./_groupPopulationSeries";
+import { readIntegrationRollups, readPublicGroupId, resolveGroupObservationPolicy } from "./_groupObservationPolicy";
 import { readClubVisibility } from "./_clubAccess";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
 import { CURRENT_FRESHNESS_MS, TELEMETRY_ROLLUP_VERSION } from "./_communityTelemetry";
 
@@ -17,31 +21,18 @@ export async function getPublicGroupMembership(
   db: DatabaseReader,
   communityProfileId: Id<"profiles">,
 ) {
-  const visibility = await readClubVisibility(db, communityProfileId);
-  if (visibility.group_size.audience !== "public") return null;
-
-  const primary = await db.query("profileExternalLinks")
-    .withIndex("by_profileId_assetType_state", (q) => q
-      .eq("profileId", communityProfileId).eq("assetType", "vrchat_group").eq("state", "active"))
-    .take(100);
-  const primaryGroupId = primary.find((link) => link.linkRole === "primary")?.assetExternalId;
-  const integration = await db.query("communityVrchatIntegrations")
-    .withIndex("by_communityProfileId", (q) => q.eq("communityProfileId", communityProfileId))
-    .first();
-  const fallbackGroupId = !primaryGroupId && integration?.state !== "disconnected" &&
-    integration?.state !== "disconnecting" ? integration?.vrchatGroupId : undefined;
-  const removedFallback = fallbackGroupId ? (await db.query("profileExternalLinks")
-    .withIndex("by_profileId_assetType_assetExternalId", (q) => q
-      .eq("profileId", communityProfileId).eq("assetType", "vrchat_group")
-      .eq("assetExternalId", fallbackGroupId))
-    .take(100)).some((link) => link.state === "removed") : false;
-  const groupId = primaryGroupId ?? (removedFallback ? undefined : fallbackGroupId);
+  const groupId = await readPublicGroupId(db, communityProfileId);
   if (!groupId) return null;
+  const policy = await resolveGroupObservationPolicy(db, { vrchatGroupId: groupId, profileId: communityProfileId, now: Date.now() });
+  if (policy.kind === "hidden" || (policy.kind === "managed" && policy.categories.group_size.audience !== "public")) return null;
+  if (policy.kind !== "automatic_aggregate" && (await readClubVisibility(db, communityProfileId)).group_size.audience !== "public") return null;
+  const integration = policy.integration;
+  const historyStartAt = policy.historyStartAt;
 
   const groupQuery = () => db.query("vrchatGroupMemberSnapshots")
-    .withIndex("by_vrchatGroupId_observedAt", (q) => q.eq("vrchatGroupId", groupId));
+    .withIndex("by_vrchatGroupId_observedAt", (q) => q.eq("vrchatGroupId", groupId).gte("observedAt", historyStartAt));
   const connected = integration?.vrchatGroupId === groupId ? integration : null;
-  const epochStart = connected ? connected.telemetryEpochStartedAt ?? connected.createdAt : 0;
+  const epochStart = Math.max(historyStartAt, connected ? connected.telemetryEpochStartedAt ?? connected.createdAt : 0);
   const [groupRecent, groupFirst, connectedRecent, connectedFirst, groupMetadata] = await Promise.all([
     groupQuery().order("desc").take(500),
     groupQuery().order("asc").first(),
@@ -203,43 +194,116 @@ function publicRollup(rollup: {
   };
 }
 
+export function publicStatisticsRange(now: number, input?: { startAt: number; endAt: number }) {
+  if (!input) return { startAt: Math.max(0, now - 86_400_000), endAt: now };
+  const result = PublicStatisticsRangeInputSchema.safeParse({ statisticsStartAt: input.startAt, statisticsEndAt: input.endAt });
+  if (!result.success || input.endAt > now) throw new ConvexError({ code: "STATISTICS_RANGE_INVALID", message: "Invalid statistics range." });
+  return input;
+}
+
+async function readPopulationSeries(db: DatabaseReader, integrationId: Id<"communityVrchatIntegrations">,
+  historyStartAt: number, now: number, range: { startAt: number; endAt: number }) {
+  const floor = Math.max(historyStartAt, range.startAt - 300_000);
+  const ceiling = Math.min(now, range.endAt + 300_000);
+  // One bounded page also carries the adjacent samples needed for clipped integration.
+  const observations = await db.query("communityPopulationObservations")
+    .withIndex("by_integrationId_observedAt", q => q.eq("integrationId", integrationId)
+      .gte("observedAt", floor).lte("observedAt", Math.max(floor, ceiling)))
+    .paginate({ cursor: null, numItems: 5000 });
+  if (!observations.isDone) throw new ConvexError({ code: "STATISTICS_RANGE_LIMIT", message: "Statistics range exceeds the 5000 observation read limit." });
+  const [priorWindow, windows] = await Promise.all([
+    db.query("collectionCoverageWindows").withIndex("by_integrationId_startedAt", q => q.eq("integrationId", integrationId).lt("startedAt", floor)).order("desc").first(),
+    db.query("collectionCoverageWindows").withIndex("by_integrationId_startedAt", q => q.eq("integrationId", integrationId)
+      .gte("startedAt", floor).lte("startedAt", Math.max(floor, ceiling))).take(5001),
+  ]);
+  if (windows.length > 5000) throw new ConvexError({ code: "STATISTICS_RANGE_LIMIT", message: "Statistics range exceeds the 5000 coverage read limit." });
+  return buildGroupPopulationSeries({ ...range, observations: observations.page,
+    coverageWindows: [...(priorWindow ? [priorWindow] : []), ...windows] });
+}
+
+async function getAutomaticGroupTelemetry(
+  db: DatabaseReader,
+  profileId: Id<"profiles">,
+  integration: Doc<"communityVrchatIntegrations">,
+  historyStartAt: number,
+  now: number,
+  range: { startAt: number; endAt: number },
+) {
+  historyStartAt = Math.max(historyStartAt, integration.telemetryEpochStartedAt ?? integration.createdAt);
+  const populationSeries = await readPopulationSeries(db, integration._id, historyStartAt, now, range);
+  const [latestPopulation, membership, hourlyRollups] = await Promise.all([
+    db.query("communityPopulationObservations")
+      .withIndex("by_integrationId_observedAt", q => q.eq("integrationId", integration._id)
+        .gte("observedAt", historyStartAt).lte("observedAt", now)).order("desc").first(),
+    getPublicGroupMembership(db, profileId),
+    readIntegrationRollups(db, integration, { grain: "hour", startAt: historyStartAt, endAt: now + 1, limit: 168 }),
+  ]);
+  const latest = membership?.latest;
+  const first = membership?.points[0];
+  const freshness = latestPopulation && now - latestPopulation.observedAt <= CURRENT_FRESHNESS_MS
+    ? "current" as const : "stale" as const;
+  return {
+    schemaVersion: 1 as const,
+    publicationPolicy: "automatic_aggregate" as const,
+    populationSeries,
+    rollupVersion: TELEMETRY_ROLLUP_VERSION,
+    freshness,
+    ...(latestPopulation ? { observedAt: latestPopulation.observedAt } : {}),
+    definitions: {
+      currentPopulation: PUBLIC_TELEMETRY_DEFINITIONS.currentPopulation,
+      populationHistory: PUBLIC_TELEMETRY_DEFINITIONS.populationHistory,
+      groupMemberCount: PUBLIC_TELEMETRY_DEFINITIONS.groupMemberCount,
+      groupMemberGrowth: { unit: "members", grain: "retained_observation_range", gapPolicy: "observed_start" },
+    },
+    ...(freshness === "current" && latestPopulation ? { currentPopulation: {
+      value: latestPopulation.totalPopulation,
+      activeInstanceCount: latestPopulation.activeInstanceCount,
+      observedAt: latestPopulation.observedAt,
+      coverage: latestPopulation.coverageState,
+    } } : {}),
+    populationHistory: hourlyRollups.reverse().map(rollup => ({
+      startAt: rollup.bucketStartAt,
+      endAt: rollup.bucketEndAt,
+      durationMinutes: Math.max(0, (rollup.bucketEndAt - rollup.bucketStartAt) / 60_000),
+      ...(rollup.currentPopulation === undefined ? {} : { currentPopulation: rollup.currentPopulation }),
+      activeInstanceCount: rollup.activeInstanceCount,
+      peakConcurrency: rollup.peakConcurrency,
+      playerHours: rollup.playerMinutes / 60,
+      coverageRatio: rollup.coverageRatio,
+    })),
+    ...(latest ? { groupMemberCount: { value: latest.value, observedAt: latest.observedAt } } : {}),
+    ...(latest && first ? { groupMemberGrowth: {
+      value: latest.value - first.value, startAt: first.observedAt, endAt: latest.observedAt,
+    } } : {}),
+  };
+}
+
 export async function getPublicCommunityTelemetry(
   db: DatabaseReader,
   communityProfileId: Id<"profiles">,
   now: number,
+  range?: { startAt: number; endAt: number },
 ) {
-  const integration = await db
-    .query("communityVrchatIntegrations")
-    .withIndex("by_communityProfileId", (query) => query.eq("communityProfileId", communityProfileId))
-    .first();
-  if (!integration || (integration.enabledFeatures && !integration.enabledFeatures.includes("analytics"))) return null;
-  const visibility = await readClubVisibility(db, communityProfileId);
-  const links = await db.query("profileExternalLinks")
-    .withIndex("by_profileId_assetType_state", (q) => q
-      .eq("profileId", communityProfileId).eq("assetType", "vrchat_group").eq("state", "active"))
-    .take(100);
-  const primaryGroupId = links.find((link) => link.linkRole === "primary")?.assetExternalId;
-  const removedFallback = !primaryGroupId && (await db.query("profileExternalLinks")
-    .withIndex("by_profileId_assetType_assetExternalId", (q) => q
-      .eq("profileId", communityProfileId).eq("assetType", "vrchat_group")
-      .eq("assetExternalId", integration.vrchatGroupId))
-    .take(100)).some((link) => link.state === "removed");
-  const memberGroupMatches = primaryGroupId
-    ? primaryGroupId === integration.vrchatGroupId : !removedFallback;
-  const publicMetrics = { currentPopulation: visibility.current_population.audience === "public", populationHistory: visibility.population_history.audience === "public", groupMemberCount: memberGroupMatches && visibility.group_size.audience === "public", groupMemberGrowth: memberGroupMatches && visibility.membership_movement.audience === "public", instanceHistory: visibility.instance_history.audience === "public", eventRecaps: visibility.event_recaps.audience === "public" };
-  if (
-    integration.state === "disconnecting" ||
-    integration.state === "disconnected" ||
-    !Object.values(publicMetrics).some(Boolean)
-  ) {
-    return null;
-  }
-  const epochStartedAt = integration.telemetryEpochStartedAt ?? integration.createdAt;
+  const bounds = publicStatisticsRange(now, range);
+  const groupId = await readPublicGroupId(db, communityProfileId);
+  if (!groupId) return null;
+  const policy = await resolveGroupObservationPolicy(db, { vrchatGroupId: groupId, profileId: communityProfileId, now });
+  if (policy.kind === "hidden" || policy.kind === "member_metadata") return null;
+  if (policy.kind === "automatic_aggregate") return getAutomaticGroupTelemetry(db, communityProfileId, policy.integration, policy.historyStartAt, now, bounds);
+  const integration = policy.integration;
+  const visibility = policy.categories;
+  const profileVisibility = await readClubVisibility(db, communityProfileId);
+  const allowed = (category: keyof typeof visibility) => visibility[category].audience === "public" && profileVisibility[category].audience === "public";
+  const publicMetrics = { currentPopulation: allowed("current_population"), populationHistory: allowed("population_history"), groupMemberCount: allowed("group_size"), groupMemberGrowth: allowed("membership_movement"), instanceHistory: allowed("instance_history"), eventRecaps: allowed("event_recaps") };
+  if (!Object.values(publicMetrics).some(Boolean)) return null;
+  const epochStartedAt = Math.max(policy.historyStartAt, integration.telemetryEpochStartedAt ?? integration.createdAt);
 
+  const populationSeries = publicMetrics.populationHistory
+    ? await readPopulationSeries(db, integration._id, epochStartedAt, now, bounds) : undefined;
   const [latestPopulation, memberCounts, hourlyRollups, eventRollups] = await Promise.all([
     db.query("communityPopulationObservations")
       .withIndex("by_integrationId_observedAt", (query) =>
-        query.eq("integrationId", integration._id).gte("observedAt", epochStartedAt),
+        query.eq("integrationId", integration._id).gte("observedAt", epochStartedAt).lte("observedAt", now),
       )
       .order("desc")
       .first(),
@@ -249,18 +313,8 @@ export async function getPublicCommunityTelemetry(
       )
       .order("desc")
       .take(500),
-    db.query("communityTelemetryRollups")
-      .withIndex("by_communityProfileId_grain_bucketStartAt", (query) =>
-        query.eq("communityProfileId", communityProfileId).eq("grain", "hour").gte("bucketStartAt", epochStartedAt),
-      )
-      .order("desc")
-      .take(168),
-    db.query("communityTelemetryRollups")
-      .withIndex("by_communityProfileId_grain_bucketStartAt", (query) =>
-        query.eq("communityProfileId", communityProfileId).eq("grain", "event").gte("bucketStartAt", epochStartedAt),
-      )
-      .order("desc")
-      .take(20),
+    readIntegrationRollups(db, integration, { grain: "hour", startAt: epochStartedAt, limit: 168 }),
+    readIntegrationRollups(db, integration, { grain: "event", startAt: epochStartedAt, limit: 20 }),
   ]);
   const latestMember = memberCounts[0];
   const earliestMember = memberCounts[memberCounts.length - 1];
@@ -270,6 +324,7 @@ export async function getPublicCommunityTelemetry(
         .unique()
     : null;
   const foundingAt = groupMetadata?.groupCreatedAt !== undefined && latestMember &&
+    groupMetadata.groupCreatedAt >= policy.historyStartAt &&
     groupMetadata.groupCreatedAt <= latestMember.observedAt ? groupMetadata.groupCreatedAt : undefined;
   const sessions = publicMetrics.instanceHistory
     ? await db.query("instanceSessions")
@@ -299,8 +354,8 @@ export async function getPublicCommunityTelemetry(
       ...publicRollup(rollup, publicMetrics),
     };
   }))).filter((recap) => recap !== null);
-  const freshness = integration.lastSuccessfulObservationAt !== undefined &&
-    now - integration.lastSuccessfulObservationAt <= CURRENT_FRESHNESS_MS ? "current" as const : "stale" as const;
+  const freshness = latestPopulation && now - latestPopulation.observedAt <= CURRENT_FRESHNESS_MS
+    ? "current" as const : "stale" as const;
 
   return {
     schemaVersion: 1 as const,
@@ -316,6 +371,7 @@ export async function getPublicCommunityTelemetry(
           coverage: latestPopulation.coverageState,
         } }
       : {}),
+    ...(populationSeries ? { populationSeries } : {}),
     ...(publicMetrics.populationHistory
       ? { populationHistory: hourlyRollups.reverse().map((rollup) => publicRollup(rollup, publicMetrics)) }
       : {}),

@@ -23,6 +23,8 @@ function harness({
   ingestError,
   membershipState = "active",
   requestsPerMinute = 100,
+  namedMembershipCollectionEnabled,
+  publicationPolicy,
 } = {}) {
   const calls = [];
   const failures = [];
@@ -111,11 +113,21 @@ function harness({
         requestsPerMinute,
         state: connection,
         enabledFeatures: features ?? undefined,
+        namedMembershipCollectionEnabled,
+        publicationPolicy,
       });
       now += 60000;
     },
   };
 }
+test("adopted managed poll skips named history despite current audit permission", async () => {
+  const h = harness({ features: ["analytics"], namedMembershipCollectionEnabled: false });
+  h.sandbox.refreshClubAuthority = async () => ({ authority: { groupId: "grp_00000000-0000-0000-0000-000000000001", userId: "bot", membershipStatus: "member", permissions: ["*"], observedAt: 1000000 } });
+  h.sandbox.collectMembershipPage = async () => assert.fail("adoption must not dispatch named audit collection");
+  await h.pass();
+  assert.ok(h.calls.includes("ingest"));
+  assert.deepEqual(h.failures, []);
+});
 for (const feature of ["posts", "membership_management", "instances"])
   for (const state of [
     "active",
@@ -328,4 +340,31 @@ test("a readiness-only schema failure does not invalidate a successful aggregate
   await h.pass();
   assert.ok(h.calls.includes("ingest"));
   assert.ok(!h.calls.includes("failure"));
+});
+
+test("adopted managed ingest carries fresh provider eligibility", async () => {
+  const h = harness({ features: ["analytics"], namedMembershipCollectionEnabled: false });
+  h.sandbox.provider.readAggregateSnapshot = async () => ({ observedAt: 1000000,
+    group: { memberCount: 1, groupVisibility: "private", joinPolicy: "invite" }, instances: [] });
+  const send = h.sandbox.control.send;
+  h.sandbox.control.send = async (op, args) => {
+    if (op === "ingest") {
+      assert.equal(args.groupVisibility, "private");
+      assert.equal(args.joinPolicy, "invite");
+    }
+    return send(op, args);
+  };
+  await h.pass();
+  assert.deepEqual(h.failures, []);
+});
+
+test("automatic publication keeps fresh per-request metadata after named-history opt-in", async () => {
+  const h = harness({ namedMembershipCollectionEnabled: true, publicationPolicy: "automatic_aggregate" });
+  h.sandbox.provider.readAggregateSnapshot = async (_groupId, options) => {
+    assert.equal(typeof options?.authorizeRequest, "function");
+    assert.equal(await options.authorizeRequest("metadata"), true);
+    return { observedAt: 1000000, group: { memberCount: 1, groupVisibility: "public", joinPolicy: "free" }, instances: [] };
+  };
+  await h.pass();
+  assert.ok(h.calls.includes("history"));
 });

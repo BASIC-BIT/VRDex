@@ -3539,3 +3539,17 @@ it("filtered catalog preserves every descriptor emitted by the installed SDK", (
   `);
   assert.match(output,/SDK descriptor parity passed/);
 });
+
+it("profile statistics range reaches hosted MCP unchanged and rejects partial or person ranges", () => {
+  runMcpProbe(`
+    import assert from "node:assert/strict";
+    import { createVrdexMcpHandler } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+    const calls=[];
+    const handler=createVrdexMcpHandler({now:()=>1000,convex:{query:async(ref,args)=>{calls.push(args);return null;}}});
+    async function rpc(arguments_){const r=await handler.fetch(new Request("https://app.example.test/mcp",{method:"POST",headers:{accept:"application/json, text/event-stream","content-type":"application/json"},body:JSON.stringify({jsonrpc:"2.0",id:1,method:"tools/call",params:{name:"vrdex_get_profile",arguments:arguments_}})}));const body=await r.text();return JSON.parse(body.split(/\\r?\\n/).find(l=>l.startsWith("data: "))?.slice(6)??body);}
+    await rpc({slug:"range",statisticsStartAt:100,statisticsEndAt:200});
+    assert.deepEqual(calls,[{slug:"range",statisticsStartAt:100,statisticsEndAt:200,now:1000}]);
+    for(const input of [{slug:"range",statisticsStartAt:100},{slug:"range",profileType:"person",statisticsStartAt:100,statisticsEndAt:200}]) { const r=await rpc(input);assert.ok(r.error||r.result?.isError); }
+    assert.equal(calls.length,1);
+  `);
+});

@@ -327,3 +327,16 @@ test("public media REST adapter encodes IDs, omits credentials and rejects priva
   privateOutput = true;
   await assert.rejects(client.getProfileMedia({ slug: "a/b", assetId: "c/d" }), /Unrecognized key/);
 });
+
+test("profile statistics range reaches REST unchanged and rejects partial or person ranges", async () => {
+  const urls: string[] = [];
+  const client = createVrdexApiClient({ apiBaseUrl: "https://example.test/api/v0", outputMode: "compact", fetch: async url => {
+    urls.push(String(url));
+    return Response.json({ type: "about:blank", title: "Not found", status: 404 }, {status: 404});
+  } });
+  await client.getProfile({ slug: "range", statisticsStartAt: 100, statisticsEndAt: 200 });
+  assert.equal(urls[0], "https://example.test/api/v0/profiles/range?statisticsStartAt=100&statisticsEndAt=200");
+  assert.throws(() => client.getProfile({ slug: "range", statisticsStartAt: 100 }));
+  assert.throws(() => client.getProfile({ slug: "range", profileType: "person", statisticsStartAt: 100, statisticsEndAt: 200 }));
+  assert.equal(urls.length, 1);
+});

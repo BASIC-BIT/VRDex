@@ -12,6 +12,8 @@ import type {
 } from "@/app/_components/discovery-public-page";
 import type { PublicEvent } from "@/app/_components/event-public-page";
 import type { PublicWorld } from "@/app/_components/world-public-page";
+import { buildGroupPopulationSeries } from "../../../../convex/_groupPopulationSeries";
+import { PublicCommunityTelemetrySchema } from "@vrdex/api-contracts";
 
 const personSlug = "playwright-dj-aurora";
 const basicBitSlug = "basicbit";
@@ -1307,6 +1309,7 @@ function toPublicFixturePersonProfile(profile: FixturePersonProfile): Extract<Pu
 export function getPlaywrightPublicProfileFixture(
   slug: string,
   profileType: "person" | "community",
+  statisticsRange?: { startAt: number; endAt: number },
 ): PublicProfile | null {
   if (
     process.env.NODE_ENV === "production" ||
@@ -1323,6 +1326,41 @@ export function getPlaywrightPublicProfileFixture(
 
   if (profileType === "community" && slug === communitySlug) {
     return communityProfile;
+  }
+  if (profileType === "community" && /^playwright-group-population(?:-empty|-stale|-managed-disabled|-managed|-dense)?$/.test(slug)) {
+    const now = Date.now();
+    const stale = slug.endsWith("-stale");
+    const count = slug.endsWith("-dense") ? 720 : 181;
+    const base = Math.floor(now / 60_000) * 60_000 - ((count - 1) * 120_000 + (stale ? 3_600_000 : 60_000)) + 17_000;
+    const privateFixture = {
+      providerInstanceId: "PRIVATE_LOCATION_TASK7_SENTINEL~private(usr_private_task7)",
+      vrchatWorldId: "wrld_private_task7",
+      users: ["usr_private_task7"],
+      observations: Array.from({ length: count }, (_, index) => ({
+        observedAt: base + index * 120_000, totalPopulation: index === 0 ? 12 : index === count - 1 ? 0 : Math.round(25 + 20 * Math.sin(index / 30)), activeInstanceCount: index === count - 1 ? 0 : 2,
+        coverageState: "observed" as const,
+        providerInstanceId: "PRIVATE_LOCATION_TASK7_SENTINEL", userId: "usr_private_task7",
+      })),
+    };
+    const bounds = statisticsRange ?? { startAt: now - 86_400_000, endAt: now };
+    const populationSeries = buildGroupPopulationSeries({ ...bounds,
+      observations: slug.endsWith("-empty") ? [] : privateFixture.observations,
+      coverageWindows: [{ startedAt: base + 89 * 120_000 + 30_000, endedAt: base + 90 * 120_000 - 30_000, state: "degraded" }],
+    });
+    const managed = slug.endsWith("-managed-disabled") || slug.endsWith("-managed");
+    const telemetry = PublicCommunityTelemetrySchema.parse({
+      schemaVersion: 1, publicationPolicy: managed ? "managed_categories" : "automatic_aggregate",
+      rollupVersion: "fixture-1", freshness: stale || slug.endsWith("-empty") ? "stale" : "current", definitions: {},
+      ...(!slug.endsWith("-managed-disabled") ? { populationSeries } : {}),
+      ...(!stale && !slug.endsWith("-empty") ? { currentPopulation: { value: 0, activeInstanceCount: 0, observedAt: base + (count - 1) * 120_000, coverage: "observed" } } : {}),
+      groupMemberCount: { value: 100, observedAt: now },
+      ...(slug.endsWith("-managed") ? {
+        instanceHistory: [{ world: null, openedAt: base, lastObservedAt: now }],
+        eventRecaps: [{ event: { slug: "fixture-night", title: "Afterglow night" }, startAt: base, endAt: now,
+          durationMinutes: 360, activeInstanceCount: 2, peakConcurrency: 45, playerHours: 123, coverageRatio: 0.9, worldDistribution: [] }],
+      } : {}),
+    });
+    return { ...communityProfile, profileType: "community", community: { categoryTags: [] }, id: `fixture-${slug}`, slug, displayName: "Afterglow Social", hostedEvents: [], worldCredits: [], telemetry };
   }
 
   return null;

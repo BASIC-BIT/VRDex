@@ -136,7 +136,7 @@ it("does not revive a removed primary link through integration fallback", async 
         updatedAt: s.now,
       });
       await ctx.db.insert("communityVrchatIntegrations", {
-        communityProfileId: profileId, vrchatGroupId: groupA,
+        communityProfileId: profileId, vrchatGroupId: profileId === s.firstId ? groupA : groupB,
         groupVisibility: "public", joinPolicy: "free", state: "active",
         killSwitchEnabled: false, requestsPerMinute: 10, leaseGeneration: 1,
         publicMetrics: { currentPopulation: false, populationHistory: false,
@@ -153,12 +153,19 @@ it("does not revive a removed primary link through integration fallback", async 
     await ctx.db.insert("vrchatGroupMemberSnapshots", {
       vrchatGroupId: groupA, memberCount: 50, observedAt: s.now,
     });
+    await ctx.db.insert("vrchatGroupMemberSnapshots", {
+      vrchatGroupId: groupB, memberCount: 50, observedAt: s.now,
+    });
   });
   assert.equal((await s.read("first-group"))?.groupMembership, undefined);
   assert.deepEqual((await s.read("second-group"))?.groupMembership?.latest, {
     observedAt: s.now, value: 50,
   });
   await s.t.run(async (ctx) => {
+    const previous = await ctx.db.query("communityVrchatIntegrations")
+      .withIndex("by_communityProfileId", q => q.eq("communityProfileId", s.secondId)).first();
+    assert.ok(previous);
+    await ctx.db.patch(previous._id, { state: "disconnected" });
     const integration = (await ctx.db.query("communityVrchatIntegrations")
       .withIndex("by_communityProfileId", (q) => q.eq("communityProfileId", s.firstId))
       .first())!;

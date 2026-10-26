@@ -387,6 +387,10 @@ export async function fetchPublicWorldBySlug(slug: string) {
     };
   }
 
+  if (getPlaywrightPublicProfileFixture(slug, "person") ?? getPlaywrightPublicProfileFixture(slug, "community")) {
+    return { kind: "live" as const, world: null };
+  }
+
   if (!process.env.NEXT_PUBLIC_CONVEX_URL) {
     return { kind: "missing-url" as const };
   }

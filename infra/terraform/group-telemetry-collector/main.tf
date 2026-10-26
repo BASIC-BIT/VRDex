@@ -360,6 +360,36 @@ resource "aws_cloudwatch_metric_alarm" "worker_restarts" {
   tags                = local.tags
 }
 
+resource "aws_cloudwatch_log_metric_filter" "automatic_enrollment_backlog" {
+  name           = "${var.name_prefix}-automatic-enrollment-backlog"
+  log_group_name = aws_cloudwatch_log_group.worker.name
+  pattern        = "{ $.event = \"collector_heartbeat\" && $.automaticEnrollmentBacklog = * }"
+
+  metric_transformation {
+    name      = "AutomaticEnrollmentBacklog"
+    namespace = local.observability_namespace
+    value     = "$.automaticEnrollmentBacklog"
+    unit      = "Count"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "automatic_enrollment_backlog" {
+  count               = var.enable_service ? 1 : 0
+  alarm_name          = "${var.name_prefix}-automatic-enrollment-backlog"
+  alarm_actions       = aws_sns_topic.alerts[*].arn
+  ok_actions          = aws_sns_topic.alerts[*].arn
+  alarm_description   = "Eligible automatic admission waited at least 15 minutes for three consecutive minutes. Inspect queue, capacity and worker capability; do not increase capacity automatically."
+  namespace           = local.observability_namespace
+  metric_name         = aws_cloudwatch_log_metric_filter.automatic_enrollment_backlog.metric_transformation[0].name
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 3
+  period              = 60
+  statistic           = "Maximum"
+  threshold           = 1
+  treat_missing_data  = "notBreaching"
+  tags                = local.tags
+}
+
 resource "aws_cloudwatch_dashboard" "operations" {
   dashboard_name = "${var.name_prefix}-operations"
   dashboard_body = jsonencode({

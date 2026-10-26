@@ -1,22 +1,20 @@
+import { publicProfileReadResponse } from "@/lib/server/api-v0";
 import {
   ApiProfileUpdateRequestSchema,
   ApiProfileWriteResponseSchema,
-  PublicProfileSchema,
 } from "@vrdex/api-contracts";
-import { api, internal } from "@convex-generated-api";
+import { internal } from "@convex-generated-api";
 import type { Id } from "../../../../../../../../convex/_generated/dataModel";
 import {
   apiJson,
   apiProblemResponse,
-  publicNotFoundResponse,
   rejectBearerTokenQuery,
-  rejectInvalidOrRateLimitedPublicApiRequest,
 } from "@/lib/server/api-v0";
 import {
   apiCredentialHasScope,
   evaluateApiUserWriteRequest,
 } from "@/lib/server/api-user-authority";
-import { convexAdminHttpClient, convexHttpClient } from "@/lib/server/convex-http";
+import { convexAdminHttpClient } from "@/lib/server/convex-http";
 
 export const dynamic = "force-dynamic";
 
@@ -121,24 +119,8 @@ function profileUpdateErrorResponse(error: unknown) {
 }
 
 export async function GET(request: Request, context: RouteContext) {
-  const rejected = rejectBearerTokenQuery(request);
-  if (rejected !== null) {
-    return rejected;
-  }
-
-  const rejectedBearerToken = await rejectInvalidOrRateLimitedPublicApiRequest(request);
-  if (rejectedBearerToken !== null) {
-    return rejectedBearerToken;
-  }
-
   const { slug } = await context.params;
-  const profile = await convexHttpClient().query(api.profiles.getPublicBySlug, { slug, now: Date.now() });
-
-  if (profile === null) {
-    return publicNotFoundResponse("Profile");
-  }
-
-  return apiJson(PublicProfileSchema, profile);
+  return publicProfileReadResponse(request, { slug });
 }
 
 export async function PATCH(request: Request, context: RouteContext) {

@@ -53,6 +53,15 @@ test("disabled analytics or stale grants do not touch audit collection", async (
     assert.equal(sends.length, 0);
   }
 });
+test("adopted aggregate analytics does not collect named audits until explicitly enabled", async () => {
+  const { args, sends, reads } = fixture();
+  args.assignment.namedMembershipCollectionEnabled = false;
+  assert.equal((await collectMembershipPage(args)).collected, false);
+  assert.deepEqual(sends, []); assert.deepEqual(reads, []);
+  args.assignment.namedMembershipCollectionEnabled = true;
+  assert.equal((await collectMembershipPage(args)).collected, true);
+  assert.equal(reads.length, 1);
+});
 test("finalizes a verified page without another provider request", async () => {
   const { args, sends, reads } = fixture();
   args.control.send = async (op, body) => {

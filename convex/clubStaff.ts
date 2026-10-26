@@ -1,3 +1,4 @@
+import { readManagedIntegration, saveManagedPublicationChoice } from "./_groupObservationPolicy";
 import schema from "./schema";
 import { categoryVisibility, clubVisibility, clubSubject } from "./_clubModel";
 import { ConvexError, v, type Infer } from "convex/values";
@@ -313,12 +314,7 @@ export const getWorkspace = query({
           .take(501)
       : [];
 
-    const connection = await ctx.db
-      .query("communityVrchatIntegrations")
-      .withIndex("by_communityProfileId", (q) =>
-        q.eq("communityProfileId", community._id),
-      )
-      .first();
+    const connection = await readManagedIntegration(ctx.db, community._id);
     const collector = connection?.assignedCollectorAccountId
       ? await ctx.db.get(connection.assignedCollectorAccountId)
       : null;
@@ -563,9 +559,11 @@ export const deleteRole = mutation({
         });
     const visibility = await readClubVisibility(ctx.db, community._id);
     const changed: ClubCategory[] = [];
+    let visibilityChanged = false;
     for (const category of CLUB_CATEGORIES) {
       const setting = visibility[category];
       if (setting.staffRoleIds?.includes(args.roleId)) {
+        visibilityChanged = true;
         setting.staffRoleIds = setting.staffRoleIds.filter(
           (id) => id !== args.roleId,
         );
@@ -587,6 +585,7 @@ export const deleteRole = mutation({
         categories: visibility,
         updatedAt: Date.now(),
       });
+    if (saved && visibilityChanged) await saveManagedPublicationChoice(ctx, community._id);
     await ctx.db.patch(args.roleId, {
       state: "deleted",
       updatedAt: Date.now(),
@@ -737,6 +736,7 @@ export const setCategoryVisibility = mutation({
       const primary = links.find(link => link.linkRole === "primary");
       if (primary) await ctx.db.patch(primary._id, { nextMemberPollAt: undefined });
     }
+    await saveManagedPublicationChoice(ctx, community._id);
     await log(ctx, community._id, actor, "visibility_changed", {
       category: args.category,
       audience: categories[args.category].audience,

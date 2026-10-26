@@ -49,7 +49,7 @@ variable "release_version" {
 variable "release_capabilities" {
   description = "Fixed protocol capabilities reported by this collector release."
   type        = list(string)
-  default     = ["telemetry_v1", "vrchat_proof_v1", "profile_link_destinations_v1"]
+  default     = ["telemetry_v1", "vrchat_proof_v1", "profile_link_destinations_v1", "automatic_group_aggregates_v2"]
 
   validation {
     condition = (
@@ -188,7 +188,7 @@ variable "monthly_budget_usd" {
 variable "budget_alert_email" {
   description = "Operator email for AWS Budget alerts and every CloudWatch alarm in this module. SNS sends a one-time subscription confirmation to it on first apply."
   type        = string
-  default     = ""
+  default     = "basic@basicbit.net"
 
   validation {
     condition     = !var.enable_service || can(regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$", var.budget_alert_email))

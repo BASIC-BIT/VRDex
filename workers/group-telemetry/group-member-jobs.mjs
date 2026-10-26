@@ -16,6 +16,7 @@ export async function checkGroupMemberSnapshot({
     const now = clock();
     const reservation = await control.send("proof_budget", { requestCount: 1, now });
     if (!reservation?.granted) { await release(); return 0; }
+    if (await control.send("group_member_authorize", lease, { requirePayload: true }) !== true) { await release(); return 0; }
     accountBudget.tryConsume(1, now);
     metadataBudget.tryConsume(1, now);
   } catch (error) {

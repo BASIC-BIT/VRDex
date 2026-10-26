@@ -12,9 +12,10 @@ const modules = {
 };
 const schema = (schemaModule as unknown as { default?: typeof schemaModule }).default ?? schemaModule;
 
-it("previews public community activity without exposing disabled metrics or saving the draft", async () => {
+it("previews public community activity without exposing disabled metrics or saving the draft", async (context) => {
   const t = convexTest({ schema, modules });
   const now = Date.now();
+  context.mock.timers.enable({ apis: ["Date"], now });
   const clerkUserId = newClerkUserId();
   const metrics = {
     currentPopulation: false, populationHistory: true, groupMemberCount: false,

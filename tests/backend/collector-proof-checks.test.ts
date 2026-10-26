@@ -286,7 +286,7 @@ describe("collector proof check queue", () => {
         workerKeyHash: "a".repeat(64),
         now,
       }),
-      { recorded: true },
+      { recorded: true, automaticEnrollmentBacklog: false },
     );
     const ready = await t.query(internal.communityTelemetry.collectorDeploymentReadiness, {
       collectorAccountId,
@@ -451,7 +451,7 @@ describe("collector proof check queue", () => {
     assert.equal((await request(workerKey, { ...body, vrchatUserId: "usr_other" })).status, 401);
     const response = await request(workerKey);
     assert.equal(response.status, 200);
-    assert.deepEqual(await response.json(), { recorded: true });
+    assert.deepEqual(await response.json(), { recorded: true, automaticEnrollmentBacklog: false });
     await t.run(async (ctx) => {
       const account = await ctx.db.get(collectorAccountId);
       assert.equal(account?.lastWorkerId, "worker-http");
