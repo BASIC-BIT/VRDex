@@ -2,7 +2,7 @@
 
 ## Status and intent
 
-Status: implementation design for BASIC's review. No product code is changed by
+Status: approved by BASIC on October 26, 2026. No product code is changed by
 this document. BASIC approved the interactive homepage prototype as the visual
 reference and selected staged production implementation, beginning with Home
 and search. This document makes the first PR's boundary reviewable.
@@ -88,14 +88,14 @@ components, and the later event inspector is not required in this PR.
 
 ### Genre filter boundary
 
-Current recommendation for this first PR: improve genre display and preserve
+Approved first-PR scope: improve genre display and preserve
 genre keyword search, but do not ship an exact Genre selector yet. The existing
 universal query has no exact genre argument; client-filtering its first 24 rows
 would silently omit valid matches. The prototype's exact filter remains a
 reference for a follow-up with a reviewed server-side eligibility, slug and
 pagination contract. Do not imply that person genres are automatically inherited
-by events, communities or worlds. This is a deliberate scope recommendation for
-BASIC to review, not an existing approved production capability.
+by events, communities or worlds. Exact filtering is deferred, not an existing
+production capability.
 
 ## Compatibility and privacy
 
@@ -153,7 +153,7 @@ an open preview and expanded result. Use `ci:browsers` and `ci:visuals` for the
 implementation PR. Update product direction, unified search planning, backend
 search docs where behavior changes, and local-development route guidance in the
 same PR. The earlier October 21 design remains historical context; this spec
-and the approved prototype govern the first slice once this document is approved.
+and the approved prototype govern the first slice.
 
 ## Explicitly later
 
