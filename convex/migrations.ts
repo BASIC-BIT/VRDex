@@ -1,4 +1,4 @@
-import { readCollectionSubject } from "./_groupObservationPolicy";
+import { readCollectionSubject, readLegacyRollupMapping } from "./_groupObservationPolicy";
 import { enabledClubFeatures } from "./_clubConnection";
 import { readClubVisibility } from "./_clubAccess";
 import { queueProfileLinkDestinations } from "./_profileLinkDestinationCache";
@@ -298,13 +298,19 @@ export const backfillGroupTelemetryRollupIntegrations = migrations.define({
   table: "communityTelemetryRollups",
   batchSize: 50,
   migrateOne: async (ctx, rollup) => {
-    if (rollup.integrationId || !rollup.communityProfileId) return;
-    const candidates = await ctx.db.query("communityVrchatIntegrations")
-      .withIndex("by_communityProfileId", q => q.eq("communityProfileId", rollup.communityProfileId)).take(2);
-    const integration = candidates.length === 1 ? candidates[0] : undefined;
-    if (!integration || readCollectionSubject(integration).kind !== "managed" ||
-        rollup.bucketStartAt < (integration.telemetryEpochStartedAt ?? integration.createdAt)) return;
-    return { integrationId: integration._id };
+    if (rollup.integrationId) return;
+    const mapping = await readLegacyRollupMapping(ctx.db, rollup.communityProfileId);
+    if (mapping.kind === "resolved" &&
+        rollup.bucketStartAt >= (mapping.integration.telemetryEpochStartedAt ?? mapping.integration.createdAt)) {
+      return { integrationId: mapping.integration._id };
+    }
+    const action = "group_observation.rollup_reconciliation_required";
+    const existing = await ctx.db.query("communityTelemetryAuditEvents")
+      .withIndex("by_rollupId_action", q => q.eq("rollupId", rollup._id).eq("action", action)).unique();
+    if (!existing) await ctx.db.insert("communityTelemetryAuditEvents", {
+      rollupId: rollup._id, communityProfileId: rollup.communityProfileId,
+      action, result: mapping.kind === "resolved" ? "pre_epoch" : mapping.kind, createdAt: Date.now(),
+    });
   },
 });
 

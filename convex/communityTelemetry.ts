@@ -1,4 +1,4 @@
-import { readCollectionSubject, readManagedIntegration } from "./_groupObservationPolicy";
+import { readCollectionSubject, readIntegrationRollups, readLegacyRollupMapping, readManagedIntegration } from "./_groupObservationPolicy";
 import { transitionCoverage } from "./_collectionCoverage";
 import { rejectConnectionOperations } from "./clubOperations";
 import { resolveClubActor, readClubVisibility, canReadCategory, requireClubPermission } from "./_clubAccess";
@@ -171,9 +171,8 @@ async function rollupForIntegration(
   if (scoped) return scoped;
   const subject = readCollectionSubject(integration);
   if (subject.kind !== "managed" || input.bucketStartAt < (integration.telemetryEpochStartedAt ?? integration.createdAt)) return null;
-  const candidates = await ctx.db.query("communityVrchatIntegrations")
-    .withIndex("by_communityProfileId", q => q.eq("communityProfileId", subject.communityProfileId)).take(2);
-  if (candidates.length !== 1) return null;
+  const mapping = await readLegacyRollupMapping(ctx.db, subject.communityProfileId);
+  if (mapping.kind !== "resolved" || mapping.integration._id !== integration._id) return null;
   const legacy = input.eventId
     ? await ctx.db.query("communityTelemetryRollups").withIndex("by_eventId_rollupVersion", q =>
       q.eq("eventId", input.eventId).eq("rollupVersion", TELEMETRY_ROLLUP_VERSION)).first()
@@ -1529,9 +1528,9 @@ async function telemetryDashboardData(ctx: QueryCtx, profile: Doc<"profiles">, n
     ctx.db.query("instancePopulationObservations").withIndex("by_integrationId_observedAt", (q) => q.eq("integrationId", integration._id).gte("observedAt", epochStartedAt)).order("desc").take(2500),
     ctx.db.query("communityMemberCountObservations").withIndex("by_integrationId_observedAt", (q) => q.eq("integrationId", integration._id).gte("observedAt", epochStartedAt)).order("desc").take(500),
     ctx.db.query("collectionCoverageWindows").withIndex("by_integrationId_startedAt", (q) => q.eq("integrationId", integration._id).gte("startedAt", epochStartedAt)).order("desc").take(200),
-    ctx.db.query("communityTelemetryRollups").withIndex("by_communityProfileId_grain_bucketStartAt", (q) => q.eq("communityProfileId", profile._id).eq("grain", "hour").gte("bucketStartAt", epochStartedAt)).order("desc").take(400),
-    ctx.db.query("communityTelemetryRollups").withIndex("by_communityProfileId_grain_bucketStartAt", (q) => q.eq("communityProfileId", profile._id).eq("grain", "day").gte("bucketStartAt", epochStartedAt)).order("desc").take(400),
-    ctx.db.query("communityTelemetryRollups").withIndex("by_communityProfileId_grain_bucketStartAt", (q) => q.eq("communityProfileId", profile._id).eq("grain", "event").gte("bucketStartAt", epochStartedAt)).order("desc").take(200),
+    readIntegrationRollups(ctx.db, integration, { grain: "hour", startAt: epochStartedAt, limit: 400 }),
+    readIntegrationRollups(ctx.db, integration, { grain: "day", startAt: epochStartedAt, limit: 400 }),
+    readIntegrationRollups(ctx.db, integration, { grain: "event", startAt: epochStartedAt, limit: 200 }),
     ctx.db.query("eventInstanceAssociations").withIndex("by_communityProfileId_createdAt", (q) => q.eq("communityProfileId", profile._id).gte("createdAt", epochStartedAt)).order("desc").take(200),
     ctx.db.query("events").withIndex("by_communityProfileId_startAt", (q) => q.eq("communityProfileId", profile._id).gte("startAt", 0)).order("desc").take(100),
   ]);

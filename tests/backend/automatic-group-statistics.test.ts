@@ -151,6 +151,12 @@ it("legacy migration and recomputation leave ambiguous or pre-epoch rollups unch
   const before = await t.run(async ctx => [await ctx.db.get(ambiguousId), await ctx.db.get(oldId)]);
   await allPages(t, backfillRollups);
   assert.deepEqual(await t.run(async ctx => [await ctx.db.get(ambiguousId), await ctx.db.get(oldId)]), before);
+  const issues = await t.run(ctx => ctx.db.query("communityTelemetryAuditEvents").collect());
+  assert.deepEqual(issues.map(issue => ({ rollupId: issue.rollupId, reason: issue.result })).sort((a, b) => a.reason.localeCompare(b.reason)), [
+    { rollupId: ambiguousId, reason: "ambiguous_mapping" }, { rollupId: oldId, reason: "pre_epoch" },
+  ]);
+  await allPages(t, backfillRollups);
+  assert.deepEqual(await t.run(ctx => ctx.db.query("communityTelemetryAuditEvents").collect()), issues);
   const resultId = await t.mutation(makeFunctionReference<"mutation">("communityTelemetry:recomputeRollup"), {
     communityProfileId: integration.communityProfileId, grain: "hour", bucketStartAt: 100, bucketEndAt: 200, now: 201,
   });
@@ -166,4 +172,52 @@ it("collection identity rejects conflicting live managed assignments instead of 
   await seed(t, "live-conflict", { communityProfileId: first.communityProfileId });
   const { readManagedIntegration } = await import("../../convex/_groupObservationPolicy");
   await assert.rejects(t.run(ctx => readManagedIntegration(ctx.db, first.communityProfileId!)), /reconciliation/);
+});
+
+it("legacy migration records missing mappings once without changing retained rollups", async () => {
+  const t = convexTest({ schema, modules });
+  const id = await seed(t, "missing-mapping");
+  const integration = await t.run(ctx => ctx.db.get(id));
+  assert.ok(integration?.communityProfileId);
+  const ids = await t.run(async ctx => {
+    await ctx.db.delete(id);
+    const values = { grain: "hour" as const, bucketStartAt: 100, bucketEndAt: 200, rollupVersion: "test",
+      activeInstanceCount: 1, peakConcurrency: 5, playerMinutes: 4, coverageRatio: 1, worldDistribution: [], computedAt: 200 };
+    return [await ctx.db.insert("communityTelemetryRollups", values),
+      await ctx.db.insert("communityTelemetryRollups", { ...values, communityProfileId: integration.communityProfileId })];
+  });
+  const before = await t.run(ctx => Promise.all(ids.map(id => ctx.db.get(id))));
+  await allPages(t, backfillRollups);
+  const issues = await t.run(ctx => ctx.db.query("communityTelemetryAuditEvents").collect());
+  assert.equal(issues.length, 2);
+  assert.deepEqual(new Set(issues.map(issue => issue.rollupId)), new Set(ids));
+  assert.ok(issues.every(issue => issue.result === "missing_mapping" && issue.action === "group_observation.rollup_reconciliation_required"));
+  await allPages(t, backfillRollups);
+  assert.deepEqual(await t.run(ctx => ctx.db.query("communityTelemetryAuditEvents").collect()), issues);
+  assert.deepEqual(await t.run(ctx => Promise.all(ids.map(id => ctx.db.get(id)))), before);
+});
+
+it("collection identity merges safe legacy and scoped read pages with stable cursors and epoch bounds", async () => {
+  const t = convexTest({ schema, modules });
+  const id = await seed(t, "read-pages");
+  const integration = await t.run(ctx => ctx.db.get(id));
+  assert.ok(integration?.communityProfileId);
+  await t.run(async ctx => {
+    for (const [bucketStartAt, scoped] of [[80, false], [100, false], [100, true], [110, false], [120, true]] as const) {
+      await ctx.db.insert("communityTelemetryRollups", {
+        communityProfileId: integration.communityProfileId, ...(scoped ? { integrationId: id } : {}),
+        grain: "event", bucketStartAt, bucketEndAt: bucketStartAt + 10, rollupVersion: "test",
+        activeInstanceCount: 1, peakConcurrency: bucketStartAt, playerMinutes: 4, coverageRatio: 1, worldDistribution: [], computedAt: 200,
+      });
+    }
+  });
+  const { readIntegrationRollups } = await import("../../convex/_groupObservationPolicy");
+  const first = await t.run(ctx => readIntegrationRollups(ctx.db, integration, { grain: "event", startAt: 0, endAt: 120, limit: 2 }));
+  assert.deepEqual(first.map(row => row.bucketStartAt), [110, 100]);
+  const last = first[1]!;
+  const second = await t.run(ctx => readIntegrationRollups(ctx.db, integration, {
+    grain: "event", startAt: 0, endAt: 120, limit: 2, before: { at: last.bucketStartAt, createdAt: last._creationTime, id: last._id },
+  }));
+  assert.deepEqual(second.map(row => row.bucketStartAt), [100]);
+  assert.equal(new Set([...first, ...second].map(row => row._id)).size, 3);
 });

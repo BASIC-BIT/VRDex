@@ -1,4 +1,4 @@
-import { readManagedIntegration } from "./_groupObservationPolicy";
+import { readIntegrationRollups, readManagedIntegration } from "./_groupObservationPolicy";
 import { readClubVisibility } from "./_clubAccess";
 import type { Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
@@ -245,18 +245,8 @@ export async function getPublicCommunityTelemetry(
       )
       .order("desc")
       .take(500),
-    db.query("communityTelemetryRollups")
-      .withIndex("by_communityProfileId_grain_bucketStartAt", (query) =>
-        query.eq("communityProfileId", communityProfileId).eq("grain", "hour").gte("bucketStartAt", epochStartedAt),
-      )
-      .order("desc")
-      .take(168),
-    db.query("communityTelemetryRollups")
-      .withIndex("by_communityProfileId_grain_bucketStartAt", (query) =>
-        query.eq("communityProfileId", communityProfileId).eq("grain", "event").gte("bucketStartAt", epochStartedAt),
-      )
-      .order("desc")
-      .take(20),
+    readIntegrationRollups(db, integration, { grain: "hour", startAt: epochStartedAt, limit: 168 }),
+    readIntegrationRollups(db, integration, { grain: "event", startAt: epochStartedAt, limit: 20 }),
   ]);
   const latestMember = memberCounts[0];
   const earliestMember = memberCounts[memberCounts.length - 1];

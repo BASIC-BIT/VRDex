@@ -1,3 +1,4 @@
+import { defaultClubVisibility } from "../../convex/_clubModel";
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { convexTest } from "convex-test";
@@ -971,4 +972,44 @@ it("live member continuity has a server deadline while fully covered historical 
   now += MEMBERSHIP_POLL_GAP_MS + 1;
   const expired = await s.owner.query(api.clubAnalytics.getBucket, { ...args, freshnessNonce: "new-attempt" });
   assert.equal(expired.membership?.continuous, false);
+});
+
+it("rollup readback excludes retained foreign and unresolved history from public, dashboard and paged recaps", async () => {
+  const s = await setup();
+  const retained = await s.t.run(async ctx => {
+    const integration = await ctx.db.get(s.integrationId);
+    assert.ok(integration);
+    const { _id, _creationTime, ...fields } = integration;
+    const foreignId = await ctx.db.insert("communityVrchatIntegrations", { ...fields, state: "disconnected", vrchatGroupId: "grp_foreign" });
+    const categories = defaultClubVisibility();
+    for (const category of ["population_history", "event_recaps"] as const) categories[category] = { audience: "public", staffRoleIds: null };
+    await ctx.db.insert("communityDataVisibility", { communityProfileId: s.communityProfileId, categories, updatedAt: epoch });
+    const eventId = await ctx.db.insert("events", { title: "Current event", sortTitle: "current event", slug: "current-event", startAt: epoch,
+      communityProfileId: s.communityProfileId, sourceType: "manual", sourceLabel: "test", eventStatus: "scheduled", publicationState: "published", updatedAt: epoch });
+    const ids = [];
+    for (const grain of ["hour", "day", "event"] as const) {
+      const values = { communityProfileId: s.communityProfileId, ...(grain === "event" ? { eventId } : {}), grain, bucketStartAt: epoch, bucketEndAt: epoch + 60000,
+        rollupVersion: "community-telemetry-v1", activeInstanceCount: 1, peakConcurrency: 7, playerMinutes: 7, coverageRatio: 1, worldDistribution: [], computedAt: epoch };
+      await ctx.db.insert("communityTelemetryRollups", { ...values, integrationId: s.integrationId });
+      // Newer foreign rows must not consume the current integration's result/page limit.
+      for (let index = 0; index < 170; index++) {
+        ids.push(await ctx.db.insert("communityTelemetryRollups", { ...values, integrationId: foreignId, peakConcurrency: 999, bucketStartAt: epoch + index + 1 }));
+        ids.push(await ctx.db.insert("communityTelemetryRollups", { ...values, peakConcurrency: 888, bucketStartAt: epoch + index + 1 }));
+      }
+    }
+    return Promise.all(ids.map(id => ctx.db.get(id)));
+  });
+  const publicTelemetry = await s.t.query(api.communityTelemetry.getPublicForCommunity, { communitySlug: "analytics", now: epoch + 1000 });
+  assert.deepEqual(publicTelemetry?.populationHistory?.map(row => row.peakConcurrency), [7]);
+  assert.deepEqual(publicTelemetry?.eventRecaps?.map(row => row.peakConcurrency), [7]);
+  const dashboard = await s.owner.query(api.communityTelemetry.getPrivateDashboard, { communitySlug: "analytics", now: epoch + 1000 });
+  assert.deepEqual(dashboard?.rollups.map(row => row.peakConcurrency), [7, 7, 7]);
+  const recaps = await s.owner.query(api.clubAnalytics.listEventRecaps, { communitySlug: "analytics", startAt: epoch, endAt: epoch + 60000,
+    paginationOpts: { numItems: 1, cursor: null } });
+  assert.deepEqual(recaps.page.map(row => row.peak), [7]);
+  const next = await s.owner.query(api.clubAnalytics.listEventRecaps, { communitySlug: "analytics", startAt: epoch, endAt: epoch + 60000,
+    paginationOpts: { numItems: 1, cursor: recaps.continueCursor } });
+  assert.deepEqual(next.page, []);
+  assert.equal(next.isDone, true);
+  assert.deepEqual(await s.t.run(ctx => Promise.all(retained.map(row => ctx.db.get(row!._id)))), retained);
 });

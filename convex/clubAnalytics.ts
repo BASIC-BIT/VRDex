@@ -1,4 +1,4 @@
-import { readManagedIntegration } from "./_groupObservationPolicy";
+import { readIntegrationRollups, readManagedIntegration } from "./_groupObservationPolicy";
 import { membershipCoverage } from "./_collectionCoverage";
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
@@ -958,21 +958,9 @@ export const listEventRecaps = query({
     // with a row cursor so hidden event rollups cannot consume visible slots.
     while (page.length < opts.numItems && scanned < 1000 && !isDone) {
       const chunkSize = Math.min(100, Math.max(20, (opts.numItems - page.length) * 4), 1000 - scanned);
-      const boundary = anchor;
-      const indexed = ctx.db.query("communityTelemetryRollups")
-        .withIndex("by_communityProfileId_grain_bucketStartAt", q => q
-          .eq("communityProfileId", state.community._id)
-          .eq("grain", "event")
-          .gte("bucketStartAt", startAt)
-          .lte("bucketStartAt", Math.min(args.endAt - 1, boundary?.at ?? Infinity)))
-        .order("desc");
-      const rows = await (boundary ? indexed.filter(q => q.or(
-          q.lt(q.field("bucketStartAt"), boundary.at),
-          q.and(q.eq(q.field("bucketStartAt"), boundary.at),
-            q.or(q.lt(q.field("_creationTime"), boundary.createdAt),
-              q.and(q.eq(q.field("_creationTime"), boundary.createdAt),
-                q.lt(q.field("_id"), boundary.id)))),
-        )) : indexed).take(chunkSize);
+      const rows = await readIntegrationRollups(ctx.db, state.integration, {
+        grain: "event", startAt, endAt: args.endAt, limit: chunkSize, before: anchor,
+      });
       if (!rows.length) { isDone = true; break; }
       let consumed = 0;
       for (const row of rows) {

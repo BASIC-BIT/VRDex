@@ -2063,9 +2063,11 @@ export default defineSchema({
   })
     .index("by_integrationId_grain_bucketStartAt", ["integrationId", "grain", "bucketStartAt"])
     .index("by_integrationId_eventId_rollupVersion", ["integrationId", "eventId", "rollupVersion"])
+    .index("by_communityProfileId_integrationId_grain_bucketStartAt", ["communityProfileId", "integrationId", "grain", "bucketStartAt"])
     .index("by_communityProfileId_grain_bucketStartAt", ["communityProfileId", "grain", "bucketStartAt"])
     .index("by_eventId_rollupVersion", ["eventId", "rollupVersion"]),
   communityTelemetryAuditEvents: defineTable({
+    rollupId: v.optional(v.id("communityTelemetryRollups")),
     communityProfileId: v.optional(v.id("profiles")),
     integrationId: v.optional(v.id("communityVrchatIntegrations")),
     collectorAccountId: v.optional(v.id("collectorAccounts")),
@@ -2076,6 +2078,7 @@ export default defineSchema({
     detail: v.optional(v.string()),
     createdAt: v.number(),
   })
+    .index("by_rollupId_action", ["rollupId", "action"])
     .index("by_communityProfileId_createdAt", ["communityProfileId", "createdAt"])
     .index("by_collectorAccountId_createdAt", ["collectorAccountId", "createdAt"]),
   profileOwners: defineTable({
