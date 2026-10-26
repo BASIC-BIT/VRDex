@@ -1,5 +1,6 @@
-import { readCollectionSubject, readIntegrationRollups, readLegacyRollupMapping, readManagedIntegration } from "./_groupObservationPolicy";
+import { readCollectionSubject, readIntegrationRollups, readLegacyRollupMapping, readManagedIntegration, saveManagedPublicationChoice } from "./_groupObservationPolicy";
 import { applyAdmissionRequired } from "./groupObservations";
+import { requireControlProof } from "./_externalControl";
 import { transitionCoverage } from "./_collectionCoverage";
 import { rejectConnectionOperations } from "./clubOperations";
 import { resolveClubActor, readClubVisibility, canReadCategory, requireClubPermission } from "./_clubAccess";
@@ -578,7 +579,26 @@ export const connectGroup = mutation({
     const duplicates = await ctx.db
       .query("communityVrchatIntegrations")
       .withIndex("by_vrchatGroupId", (q) => q.eq("vrchatGroupId", vrchatGroupId))
-      .collect();
+      .take(101);
+    if (duplicates.length > 100) throw new Error("Group connections require reconciliation.");
+    const registry = await ctx.db.query("vrchatGroupObservationPolicies").withIndex("by_vrchatGroupId", q => q.eq("vrchatGroupId", vrchatGroupId)).unique();
+    if (registry?.decision.kind === "stopped") throw new Error("Group observation is stopped. Resume before connecting.");
+    const automatic = duplicates.find(row => row._id === registry?.integrationId && readCollectionSubject(row).kind === "automatic");
+    if (automatic) {
+      const { userId } = await requireActiveBrowserSessionSubject(ctx);
+      await requireControlProof(ctx.db, userId, "vrchat_group", vrchatGroupId, "manager", now);
+      const current = await readManagedIntegration(ctx.db, profile._id);
+      if ((current && current.state !== "disconnected") || duplicates.some(row => row._id !== automatic._id && row.state !== "disconnected"))
+        throw new Error("Group connections require reconciliation.");
+      if (!["active", "degraded"].includes(automatic.state)) throw new Error("Refresh to continue.");
+      await ctx.db.patch(automatic._id, {
+        collectionScope: { kind: "managed", communityProfileId: profile._id }, communityProfileId: profile._id,
+        publicationPolicy: "automatic_aggregate", enabledFeatures: ["analytics"], updatedAt: now,
+      });
+      await audit(ctx, { communityProfileId: profile._id, integrationId: automatic._id, collectorAccountId: automatic.assignedCollectorAccountId,
+        actor, action: "integration.adopt", result: "automatic_aggregate", now });
+      return automatic._id;
+    }
     if (duplicates.some((duplicate) => {
       const subject = readCollectionSubject(duplicate);
       return (subject.kind !== "managed" || subject.communityProfileId !== profile._id) && duplicate.state !== "disconnected";
@@ -604,6 +624,7 @@ export const connectGroup = mutation({
     const state = args.joinPolicy === "invite" ? "awaiting_invite" : "connecting";
     const values = {
       collectionScope: { kind: "managed", communityProfileId: profile._id },
+      publicationPolicy: "managed_categories",
       vrchatGroupId,
       groupVisibility: args.groupVisibility,
       joinPolicy: args.joinPolicy,
@@ -639,7 +660,6 @@ export const connectGroup = mutation({
       });
     }
     if (account) await ctx.db.patch(account._id, { assignedGroupCount: account.assignedGroupCount + 1, updatedAt: now });
-    const registry = await ctx.db.query("vrchatGroupObservationPolicies").withIndex("by_vrchatGroupId", q => q.eq("vrchatGroupId", vrchatGroupId)).unique();
     const registryValues = { integrationId, queuedAdmission: account ? undefined : { priority: "managed" as const, queuedAt: now, dueAt: now }, updatedAt: now };
     if (registry) await ctx.db.patch(registry._id, registryValues);
     else await ctx.db.insert("vrchatGroupObservationPolicies", { ...registryValues, vrchatGroupId, decision: { kind: "enabled", at: now }, createdAt: now });
@@ -707,6 +727,7 @@ export const setPublicMetric = mutation({
     const clubActor = await resolveClubActor(ctx, profile._id);
     if(clubActor.kind !== "owner" || !clubActor.subject) throw new Error("Only the club owner can change visibility.");
     const actor = clubActor.subject;
+    await saveManagedPublicationChoice(ctx, profile._id);
     const integration = await readManagedIntegration(ctx.db, profile._id);
     if (!integration) throw new Error("Community telemetry is not connected.");
     if (integration.state === "disconnecting" || integration.state === "disconnected") {
@@ -882,11 +903,11 @@ export const claimDueAssignments = internalMutation({
     for (const integration of due) {
       if (claimed.length >= limit) break;
       const subject = readCollectionSubject(integration);
+      const observationPolicy = await ctx.db.query("vrchatGroupObservationPolicies")
+        .withIndex("by_vrchatGroupId", q => q.eq("vrchatGroupId", integration.vrchatGroupId)).unique();
       if (subject.kind === "automatic") {
-        const policy = await ctx.db.query("vrchatGroupObservationPolicies")
-          .withIndex("by_vrchatGroupId", q => q.eq("vrchatGroupId", integration.vrchatGroupId)).unique();
-        if (policy?.integrationId !== integration._id ||
-          (policy.decision.kind !== "enabled" && integration.state !== "disconnecting")) continue;
+        if (observationPolicy?.integrationId !== integration._id ||
+          (observationPolicy.decision.kind !== "enabled" && integration.state !== "disconnecting")) continue;
       }
       const existing = await activeLeaseForIntegration(ctx, integration._id);
       if (existing && existing.expiresAt > now && existing.workerId !== args.workerId) continue;
@@ -921,7 +942,7 @@ export const claimDueAssignments = internalMutation({
         integrationId: integration._id,
         epochStartedAt: integration.telemetryEpochStartedAt ?? integration.createdAt,
         collectionMode: subject.kind,
-        ...(subject.kind === "managed" ? { enabledFeatures: integration.enabledFeatures ?? ["analytics"] } : {}),
+        ...(subject.kind === "managed" ? { enabledFeatures: (integration.enabledFeatures ?? ["analytics"]).filter(feature => feature !== "analytics" || observationPolicy?.decision.kind !== "stopped") } : {}),
         vrchatGroupId: integration.vrchatGroupId,
         joinPolicy: integration.joinPolicy,
         groupVisibility: integration.groupVisibility,
@@ -1366,6 +1387,9 @@ export const ingestAggregatePoll = internalMutation({
     if (integration.enabledFeatures && !integration.enabledFeatures.includes("analytics")) {
       throw new Error("Analytics collection is disabled.");
     }
+    const observationPolicy = await ctx.db.query("vrchatGroupObservationPolicies")
+      .withIndex("by_vrchatGroupId", q => q.eq("vrchatGroupId", integration.vrchatGroupId)).unique();
+    if (observationPolicy?.decision.kind === "stopped") throw new Error("Group observation is stopped.");
     if (
       !Number.isSafeInteger(args.observedAt) ||
       args.observedAt < now - 15 * 60_000 ||

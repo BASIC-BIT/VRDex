@@ -1920,6 +1920,7 @@ it("preserves canonical group identity and history when a disconnected community
     await ctx.db.patch(accountId, { assignedGroupCount: 0 });
   });
   assert.equal((await t.withIdentity(identity).query(api.clubConnection.get, { communityProfileId }))?.integrationId, newId);
-  assert.equal(await connect(oldGroup), oldId);
-  assert.equal((await t.withIdentity(identity).query(api.clubConnection.get, { communityProfileId }))?.integrationId, oldId);
+  await assert.rejects(connect(oldGroup), /stopped.*Resume/);
+  assert.deepEqual(await snapshot(), before);
+  assert.equal((await t.withIdentity(identity).query(api.clubConnection.get, { communityProfileId }))?.integrationId, newId);
 });

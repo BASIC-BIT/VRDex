@@ -147,6 +147,8 @@ export const authorize = internalMutation({
     const link = await ctx.db.get(args.linkId);
     if (!link || link.state !== "active" || link.linkRole !== "primary" || link.memberPollWorkerId !== args.worker.workerId || link.memberPollLeaseToken !== args.leaseToken || (link.nextMemberPollAt ?? 0) <= now) return false;
     const policy = await samplerPolicy(ctx.db, link, now);
-    return policy.allowed && policy.freshUntil <= now;
+    const metadata = await ctx.db.query("vrchatGroupMemberMetadata")
+      .withIndex("by_vrchatGroupId", q => q.eq("vrchatGroupId", link.assetExternalId)).unique();
+    return policy.allowed && policy.freshUntil <= now && metadata?.claimToken === args.leaseToken;
   },
 });

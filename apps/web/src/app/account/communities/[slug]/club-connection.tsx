@@ -2,11 +2,11 @@
 import Link from "next/link";
 import { useMutation, useQuery } from "convex/react";
 import type { FunctionArgs } from "convex/server";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { api } from "@convex-generated-api";
 import { Button } from "@/components/ui/button";
 import { Card, SectionHeading } from "@/components/ui/card";
-import { Field, Input, Select } from "@/components/ui/field";
+import { CheckboxField, Field, Input, Select } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import {
   useClubDisplayAttempt,
@@ -23,6 +23,7 @@ export function ClubConnectionView({
   data,
   connect,
   disconnect,
+  renderObservationControls,
 }: {
   data: WorkspaceData;
   connect: (
@@ -31,6 +32,7 @@ export function ClubConnectionView({
   disconnect: (
     input: FunctionArgs<typeof api.communityTelemetry.disconnectGroup>,
   ) => Promise<unknown>;
+  renderObservationControls?: (vrchatGroupId: string) => ReactNode;
 }) {
   const [groupId, setGroupId] = useState(data.integration?.vrchatGroupId ?? "");
   const [joinPolicy, setJoinPolicy] = useState<"free" | "request" | "invite">(
@@ -167,6 +169,10 @@ export function ClubConnectionView({
               <dt className="text-muted">Join policy</dt>
               <dd className="mt-1">{integration.joinPolicy}</dd>
             </div>
+            <div>
+              <dt className="text-muted">Publication</dt>
+              <dd className="mt-1">{integration.publicationPolicy === "automatic_aggregate" ? "Automatic" : "Managed"}</dd>
+            </div>
           </dl>
           {integration.state === "awaiting_approval" ? (
             <Notice className="mt-5" variant="warning">
@@ -197,6 +203,7 @@ export function ClubConnectionView({
           </Button>
         </Card>
       )}
+      {renderObservationControls?.(integration?.vrchatGroupId ?? groupId)}
       {data.actor.kind === "owner" ? (
         <Link
           className="text-sm underline underline-offset-4"
@@ -207,6 +214,43 @@ export function ClubConnectionView({
       ) : null}
     </div>
   );
+}
+
+export function GroupObservationControls({ vrchatGroupId, stopped, canManage, setDecision }: {
+  vrchatGroupId: string;
+  stopped: boolean;
+  canManage: boolean;
+  setDecision: (input: FunctionArgs<typeof api.groupObservations.setObservationDecision>) => Promise<unknown>;
+}) {
+  const [republishRetainedHistory, setRepublishRetainedHistory] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  async function save() {
+    setBusy(true); setError(null);
+    try {
+      await setDecision({ vrchatGroupId, decision: stopped ? "resume" : "stop", ...(stopped ? { republishRetainedHistory } : {}) });
+      setRepublishRetainedHistory(false);
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "The telemetry change failed.");
+    } finally { setBusy(false); }
+  }
+  return <Card padding="lg" surface="strong">
+    <SectionHeading>Group statistics</SectionHeading>
+    <p className="mt-4 text-sm">{stopped ? "Stopped" : "Enabled"}</p>
+    {!canManage ? <p className="mt-2 text-sm text-muted">Verification required</p> : null}
+    {stopped ? <CheckboxField className="mt-4" checked={republishRetainedHistory} disabled={busy || !canManage} onChange={event => setRepublishRetainedHistory(event.target.checked)}>
+      Republish retained history
+    </CheckboxField> : null}
+    {error ? <Notice className="mt-4" variant="error" role="alert">{error}</Notice> : null}
+    <Button className="mt-5" disabled={busy || !canManage} onClick={() => void save()}>{stopped ? "Resume" : "Stop"}</Button>
+  </Card>;
+}
+
+function ConnectedObservationControls({ vrchatGroupId }: { vrchatGroupId: string }) {
+  const valid = /^grp_[a-f0-9-]{36}$/i.test(vrchatGroupId);
+  const policy = useQuery(api.groupObservations.getObservationDecision, valid ? { vrchatGroupId } : "skip");
+  const setDecision = useMutation(api.groupObservations.setObservationDecision);
+  return policy ? <GroupObservationControls key={vrchatGroupId} vrchatGroupId={vrchatGroupId} {...policy} setDecision={setDecision} /> : null;
 }
 
 export function ClubConnection() {
@@ -237,6 +281,7 @@ export function ClubConnection() {
         data={data}
         connect={connect}
         disconnect={disconnect}
+        renderObservationControls={vrchatGroupId => <ConnectedObservationControls vrchatGroupId={vrchatGroupId} />}
       />
       {allowed && connection ? (
         <ClubConnectionFeatures

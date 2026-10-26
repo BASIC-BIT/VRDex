@@ -1,4 +1,6 @@
-import type { DatabaseReader } from "./_generated/server";
+import type { DatabaseReader, MutationCtx } from "./_generated/server";
+import { requireActiveBrowserSessionSubject } from "./_browserSessionAuthority";
+import { requireControlProof } from "./_externalControl";
 import type { Doc, Id } from "./_generated/dataModel";
 import { readClubVisibility } from "./_clubAccess";
 import type { ClubVisibility } from "./_clubModel";
@@ -31,6 +33,16 @@ export async function readManagedIntegration(db: DatabaseReader, communityProfil
   const current = rows.filter(row => row.state !== "disconnected");
   if (current.length > 1) throw new Error("Group connections require reconciliation.");
   return current[0] ?? rows.sort((a, b) => b.createdAt - a.createdAt || b._id.localeCompare(a._id))[0] ?? null;
+}
+
+export async function saveManagedPublicationChoice(ctx: MutationCtx, communityProfileId: Id<"profiles">) {
+  const integration = await readManagedIntegration(ctx.db, communityProfileId);
+  if (!integration) return;
+  if (integration.publicationPolicy === "automatic_aggregate") {
+    const { userId } = await requireActiveBrowserSessionSubject(ctx);
+    await requireControlProof(ctx.db, userId, "vrchat_group", integration.vrchatGroupId, "manager");
+  }
+  await ctx.db.patch(integration._id, { publicationPolicy: "managed_categories", updatedAt: Date.now() });
 }
 
 export async function readPublicGroupId(db: DatabaseReader, profileId: Id<"profiles">) {

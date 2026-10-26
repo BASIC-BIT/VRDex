@@ -165,6 +165,7 @@ import type * as eventMediaWorker from "../eventMediaWorker.js";
 import type * as eventScheduleMigration from "../eventScheduleMigration.js";
 import type * as events from "../events.js";
 import type * as groupMemberSnapshots from "../groupMemberSnapshots.js";
+import type * as groupObservations from "../groupObservations.js";
 import type * as health from "../health.js";
 import type * as hostedSmokeFixtures from "../hostedSmokeFixtures.js";
 import type * as http from "../http.js";
@@ -364,6 +365,7 @@ declare const fullApi: ApiFromModules<{
   eventScheduleMigration: typeof eventScheduleMigration;
   events: typeof events;
   groupMemberSnapshots: typeof groupMemberSnapshots;
+  groupObservations: typeof groupObservations;
   health: typeof health;
   hostedSmokeFixtures: typeof hostedSmokeFixtures;
   http: typeof http;

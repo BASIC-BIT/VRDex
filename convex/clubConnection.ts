@@ -1,4 +1,5 @@
 import { readCollectionSubject, readManagedIntegration } from "./_groupObservationPolicy";
+import { reconcileStoppedIntegration } from "./groupObservations";
 import { assertAutomaticOperationAllowed } from "./_communityTelemetry";
 import { v } from "convex/values";
 import {
@@ -132,6 +133,8 @@ export const setFeature = mutation({
       ),
       updatedAt: Date.now(),
     });
+    const updated = await ctx.db.get(integration._id);
+    if (updated) await reconcileStoppedIntegration(ctx, updated, Date.now());
     return null;
   },
 });
