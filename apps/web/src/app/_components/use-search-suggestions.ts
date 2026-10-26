@@ -1,31 +1,14 @@
 "use client";
 
-import { useDeferredValue, useEffect, useRef, useState } from "react";
+import { type SetStateAction, useDeferredValue, useEffect, useRef, useState } from "react";
 
+import { parsePublicSearchSuggestions, type SearchSuggestion } from "@/lib/public-search-suggestions";
 import { type SearchResultFilter, searchSuggestionHref } from "./search-view-state";
 
-export type SearchSuggestion = {
-  entityType: string;
-  profileType?: string;
-  routePath: string;
-  slug: string;
-  subtitle?: string;
-  title: string;
-};
+export type { SearchSuggestion } from "@/lib/public-search-suggestions";
 
-type FetchedSearchSuggestions = {
-  query: string;
-  results: SearchSuggestion[];
-};
+type FetchedSearchSuggestions = { identity: string; results: SearchSuggestion[] };
 
-/**
- * The typeahead behind every search input: debounced, request-id guarded, and
- * scoped to the caller's filter.
- *
- * `skipWhenEqualTo` is what keeps a server-rendered result page from reopening
- * its own answer as a suggestion list the moment it mounts — the query in the
- * box is already the query on the page, so there is nothing to suggest.
- */
 export function useSearchSuggestions(
   query: string,
   filter: SearchResultFilter,
@@ -34,46 +17,35 @@ export function useSearchSuggestions(
   const normalizedQuery = query.trim();
   const deferredQuery = useDeferredValue(normalizedQuery);
   const skipQuery = options?.skipWhenEqualTo?.trim();
+  const identity = searchSuggestionHref(normalizedQuery, filter);
   const [fetchedSuggestions, setFetchedSuggestions] = useState<FetchedSearchSuggestions | null>(null);
-  const [activeIndex, setActiveIndex] = useState(-1);
+  const [selection, setSelection] = useState<{ identity: string; index: number } | null>(null);
   const suggestionRequestId = useRef(0);
-  const suggestions =
-    normalizedQuery.length > 0 &&
-    normalizedQuery !== skipQuery &&
-    fetchedSuggestions?.query === normalizedQuery
-      ? fetchedSuggestions.results
-      : [];
+  const activeController = useRef<AbortController | null>(null);
+  const suggestions = normalizedQuery.length > 0 && normalizedQuery !== skipQuery &&
+    fetchedSuggestions?.identity === identity ? fetchedSuggestions.results : [];
+  const activeIndex = selection?.identity === identity && suggestions[selection.index] ? selection.index : -1;
 
   useEffect(() => {
     const requestId = ++suggestionRequestId.current;
-
-    if (deferredQuery.length < 1 || deferredQuery === skipQuery) {
-      return;
-    }
+    if (!deferredQuery || deferredQuery !== normalizedQuery || deferredQuery === skipQuery) return;
 
     const controller = new AbortController();
+    activeController.current = controller;
     const timeoutId = window.setTimeout(() => {
-      fetch(searchSuggestionHref(deferredQuery, filter), {
-        cache: "no-store",
-        signal: controller.signal,
-      })
-        .then(async (response) => response.ok
-          ? await response.json() as { results: SearchSuggestion[] }
-          : { results: [] })
-        .then((data) => {
-          if (requestId !== suggestionRequestId.current) {
-            return;
-          }
-
-          setFetchedSuggestions({ query: deferredQuery, results: data.results });
-          setActiveIndex(-1);
+      fetch(identity, { cache: "no-store", signal: controller.signal })
+        .then(async (response) => {
+          const value: unknown = response.ok ? await response.json() : null;
+          return parsePublicSearchSuggestions(value);
         })
-        .catch((error: unknown) => {
-          if (
-            requestId === suggestionRequestId.current &&
-            !(error instanceof DOMException && error.name === "AbortError")
-          ) {
-            setFetchedSuggestions({ query: deferredQuery, results: [] });
+        .then((results) => {
+          if (requestId !== suggestionRequestId.current || controller.signal.aborted) return;
+          setFetchedSuggestions({ identity, results });
+          setSelection(null);
+        })
+        .catch(() => {
+          if (requestId === suggestionRequestId.current && !controller.signal.aborted) {
+            setFetchedSuggestions({ identity, results: [] });
           }
         });
     }, 180);
@@ -82,12 +54,22 @@ export function useSearchSuggestions(
       window.clearTimeout(timeoutId);
       controller.abort();
     };
-  }, [deferredQuery, filter, skipQuery]);
+  }, [deferredQuery, identity, normalizedQuery, skipQuery]);
 
   return {
     activeIndex,
-    reset: () => setFetchedSuggestions(null),
-    setActiveIndex,
+    reset: () => {
+      ++suggestionRequestId.current;
+      activeController.current?.abort();
+      setFetchedSuggestions(null);
+      setSelection(null);
+    },
+    setActiveIndex: (next: SetStateAction<number>) => setSelection((current) => ({
+      identity,
+      index: typeof next === "function"
+        ? next(current?.identity === identity ? current.index : -1)
+        : next,
+    })),
     suggestions,
   };
 }
