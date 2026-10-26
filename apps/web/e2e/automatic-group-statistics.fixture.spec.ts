@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 
 test.use({ timezoneId: "America/Indianapolis" });
 
-test("public population preserves gaps, zero and actual pointer/keyboard observation times", async ({ page }, testInfo) => {
+test("public population preserves gaps, zero and actual pointer/keyboard observation times @visual", async ({ page }, testInfo) => {
   const errors: string[] = [];
   page.on("console", message => { if (message.type() === "error") errors.push(message.text()); });
   page.on("pageerror", error => errors.push(error.message));
@@ -21,11 +21,11 @@ test("public population preserves gaps, zero and actual pointer/keyboard observa
   await page.locator('[data-observed-at]').first().hover();
   await expect(page.locator('.recharts-tooltip-wrapper time')).toHaveAttribute("datetime", keyboardTime!);
   await page.evaluate(() => scrollTo(0, 0));
-  await page.screenshot({ path: testInfo.outputPath("public-population-gap.png"), fullPage: true });
+  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") await page.screenshot({ path: testInfo.outputPath("public-population-gap.png"), fullPage: true });
   expect(errors).toEqual([]);
 });
 
-test("public profile JSON, DOM, links and history exclude private server fixture records", async ({ page }, testInfo) => {
+test("public profile JSON, DOM, links and history exclude private server fixture records @visual", async ({ page }, testInfo) => {
   const requests: string[] = [];
   page.on("request", request => { if (request.url().includes("/api/v0/communities/")) requests.push(request.url()); });
   const initialResponse = page.waitForResponse(response => response.url().endsWith("/api/v0/communities/playwright-group-population"));
@@ -60,7 +60,7 @@ test("public profile JSON, DOM, links and history exclude private server fixture
   await testInfo.attach("public-privacy-evidence", { body: evidence, contentType: "application/json" });
 });
 
-test("current zero expires without a reload", async ({ page }) => {
+test("current zero expires without a reload @visual", async ({ page }) => {
   await page.clock.install({ time: new Date() });
   await page.goto("/playwright-group-population");
   await expect(page.getByText("0 people", { exact: true })).toBeVisible();
@@ -70,7 +70,7 @@ test("current zero expires without a reload", async ({ page }) => {
   await expect(page.getByRole("img", { name: "Population history" })).toBeVisible();
 });
 
-test("a failed range read keeps the last successful range and existing control can retry", async ({ page }) => {
+test("a failed range read keeps the last successful range and existing control can retry @visual", async ({ page }) => {
   await page.goto("/playwright-group-population");
   await expect(page.getByRole("img", { name: "Population history" })).toBeVisible();
   await page.route("**/api/v0/communities/*?statisticsStartAt=*", route => route.fulfill({ status: 503, contentType: "application/json", body: "{}" }));
@@ -83,7 +83,7 @@ test("a failed range read keeps the last successful range and existing control c
   await expect(page.getByRole("img", { name: "Population history" })).toBeVisible();
 });
 
-test("dense 24-hour observations retain exact keyboard times and pointer details", async ({ page }, testInfo) => {
+test("dense 24-hour observations retain exact keyboard times and pointer details @visual", async ({ page }, testInfo) => {
   await page.goto("/playwright-group-population-dense");
   const slider = page.getByRole("slider", { name: "Observation" });
   await expect(slider).toHaveAttribute("max", "719");
@@ -98,10 +98,10 @@ test("dense 24-hour observations retain exact keyboard times and pointer details
   await page.locator('[data-observed-at]').first().hover();
   await expect(page.locator('.recharts-tooltip-wrapper time')).toHaveAttribute("datetime", firstTime!);
   await page.evaluate(() => scrollTo(0, 0));
-  await page.screenshot({ path: testInfo.outputPath("public-population-dense.png"), fullPage: true });
+  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") await page.screenshot({ path: testInfo.outputPath("public-population-dense.png"), fullPage: true });
 });
 
-for (const omission of ["telemetry", "populationSeries"] as const) test(`successful refresh removes previously visible ${omission}`, async ({ page }, testInfo) => {
+for (const omission of ["telemetry", "populationSeries"] as const) test(`successful refresh removes previously visible ${omission} @visual`, async ({ page }, testInfo) => {
   await page.goto("/playwright-group-population");
   await expect(page.getByRole("img", { name: "Population history" })).toBeVisible();
   await expect(page.getByText("0 people", { exact: true })).toBeVisible();
@@ -116,10 +116,10 @@ for (const omission of ["telemetry", "populationSeries"] as const) test(`success
   await page.getByRole("button", { name: "Last 24 hours" }).click();
   await expect(page.getByRole("img", { name: "Population history" })).toHaveCount(0);
   await expect(page.getByText("0 people", { exact: true })).toHaveCount(0);
-  await page.screenshot({ path: testInfo.outputPath(`permission-refresh-${omission}.png`), fullPage: true });
+  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") await page.screenshot({ path: testInfo.outputPath(`permission-refresh-${omission}.png`), fullPage: true });
 });
 
-test("empty, stale and managed-disabled population states remain usable at ordinary widths", async ({ page }, testInfo) => {
+test("empty, stale and managed-disabled population states remain usable at ordinary widths @visual", async ({ page }, testInfo) => {
   for (const state of ["empty", "stale", "managed-disabled", "managed"]) {
     await page.goto(`/playwright-group-population-${state}`);
     await expect(page.getByRole("heading", { name: "Activity", exact: true })).toBeVisible();
@@ -129,6 +129,6 @@ test("empty, stale and managed-disabled population states remain usable at ordin
     if (state === "managed") { await expect(page.getByRole("heading", { name: "Recent instances" })).toBeVisible(); await expect(page.getByText("Afterglow night", { exact: true })).toBeVisible(); }
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
     await page.evaluate(() => scrollTo(0, 0));
-    await page.screenshot({ path: testInfo.outputPath(`public-population-${state}.png`), fullPage: true });
+    if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") await page.screenshot({ path: testInfo.outputPath(`public-population-${state}.png`), fullPage: true });
   }
 });
