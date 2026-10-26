@@ -1,3 +1,4 @@
+import { MASS_FRAME_CONSTRUCTION as M } from './construction-data.mjs';
 import { createHash } from 'node:crypto';
 import { markerFrame } from './marker-frame.mjs';
 export function sourceBaseline(pcm,rate,channels) {
@@ -14,7 +15,7 @@ export function stereoMono(pcm) {
 }
 export function* massFrames(train) {
  for(let tick=0;tick<train.frames;tick++) {
-  const slot=train.slots.find(s=>tick*1600>=s.start&&tick*1600<s.end),identity=slot?(slot.params.source??'a'):'slate';
-  yield markerFrame(854,480,identity,!!slot&&tick>=slot.visualFrame&&tick<slot.visualFrame+3,slot?.index??0);
+  const slot=train.slots.find(s=>tick*M.samplesPerFrame>=s.start&&tick*M.samplesPerFrame<s.end),identity=slot?(slot.params.source??M.defaultSource):M.idleIdentity;
+  yield markerFrame(M.width,M.height,identity,!!slot&&tick>=slot.visualFrame&&tick<slot.visualFrame+M.flashFrames,slot?.index??M.defaultSlot);
  }
 }

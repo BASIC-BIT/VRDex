@@ -1,3 +1,4 @@
+import { createMinimumEpisodeVectors, MINIMUM_OBSERVATION_RULES as R } from './detector-expectations.mjs';
 import { assertAudioClock, audioEpisodeRawRange } from '../event-marker-clock.mjs';
 /** Independent integer-energy detector oracle, never calls the classifier.
  * The 0.15 RMS comparison is 400*sum(s16^2) > 9*32768^2*count. */
@@ -44,13 +45,13 @@ export function validateShortTailObservation(expected,reference,actual) {
 /** The phase-zero one-sample tail at1440 is exactly zero for700/1300Hz.
  * Nominal tone length and measured loud length are separate facts. */
 export function validateMinimumObservation(nominal,reference,actual) {
- const fixed={1439:[0,1439,1919,0,2],1440:[0,1440,1920,0,2],1441:[0,1440,1441,0,1]},expected=fixed[nominal];
+ const fixed=createMinimumEpisodeVectors(),expected=fixed[nominal];
  const fail=()=>{throw Error('literal_minimum_contract');};
  if(!expected||JSON.stringify(reference.episodes)!==JSON.stringify([expected]))fail();
- const blockCount=nominal===1441?5:4;
- if(reference.samples!==nominal+480||reference.bytes!==(nominal+480)*2||reference.metadataRows!==2||reference.detectorBlocks!==blockCount||reference.blocks.length!==blockCount||reference.blocks.reduce((n,b)=>n+b[2],0)!==nominal+480)fail();
+ const blockCount=nominal===R.tailNominal?R.tailBlocks:R.ordinaryBlocks;
+ if(reference.samples!==nominal+R.quietSamples||reference.bytes!==(nominal+R.quietSamples)*2||reference.metadataRows!==R.metadataRows||reference.detectorBlocks!==blockCount||reference.blocks.length!==blockCount||reference.blocks.reduce((n,b)=>n+b[2],0)!==nominal+R.quietSamples)fail();
  if(actual.metadataSamples!==reference.samples||actual.decodedBytes!==reference.bytes||actual.detectorBlockCount!==blockCount||actual.episodes.length!==1)fail();
  const e=actual.episodes[0];let vector;try{vector=audioEpisodeRawRange(e);}catch{fail();}
- if(JSON.stringify(vector)!==JSON.stringify(expected)||(e.reason==='insufficient_samples')!==(nominal===1439))fail();
- return {nominalToneSamples:nominal,measuredLoudSamples:expected[1],quietGuardStart:expected[1],quietGuardEnd:expected[2],samples:reference.samples,bytes:reference.bytes,rows:2,blocks:blockCount};
+ if(JSON.stringify(vector)!==JSON.stringify(expected)||(e.reason==='insufficient_samples')!==(nominal===R.insufficientNominal))fail();
+ return {nominalToneSamples:nominal,measuredLoudSamples:expected[1],quietGuardStart:expected[1],quietGuardEnd:expected[2],samples:reference.samples,bytes:reference.bytes,rows:R.metadataRows,blocks:blockCount};
 }

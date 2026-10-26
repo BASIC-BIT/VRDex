@@ -1,3 +1,4 @@
+import { DEFAULT_INPUT_QUALITY } from "./broadcast-profiles.mjs";
 import { spawn } from "node:child_process";
 import { performance } from "node:perf_hooks";
 export const reconnectDelay = (attempt) =>
@@ -235,7 +236,7 @@ export class LatestMediaBuffer {
 /** source is a trusted worker projection {slotKey, sourceId, url}; never log its URL. */
 export function createInputSupervisor({
   source,
-  quality = { width: 1280, height: 720, frameRate: 30 },
+  quality = { ...DEFAULT_INPUT_QUALITY },
   clock = () => performance.now(),
   onObservation = () => {},
   ffmpeg = "ffmpeg",

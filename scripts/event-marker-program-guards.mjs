@@ -1,3 +1,4 @@
+import { PROGRAM_SOURCE_CONTRACT } from './event-marker-program-contract.mjs';
 import { createHash } from 'node:crypto';
 import { diagnosticArguments } from './event-marker-native-capture.mjs';
 import { parseNativeStatistics,parseNativeProgress } from './event-marker-native-observations.mjs';
@@ -7,7 +8,7 @@ import { expandNativeCatalog } from './event-marker-native-catalog.mjs';
 import { validateViewRules,assertCatalogAlias } from './event-marker-platform-view.mjs';
 
 export const PROGRAM_GUARDS=Object.freeze(Array.from({length:13},(_,i)=>'G'+i));
-export const PROGRAM_SOURCE_CONTRACT=Object.freeze({design:'aa6d1308c3ed17a2440004d06ef85a5d47aa47d09034b11fe8ddc01087f13c93',guards:'a9cdeede2f5be1c9daf79cc9842b60e079e1bc2dff8501b3cc9cf75f4f9073f7',pins:'8cd6382c44b4c70bde56a20387d8268b8133023c79bd8c5afd90027dbd00e75a'});
+export { PROGRAM_SOURCE_CONTRACT };
 export const sha=b=>createHash('sha256').update(b).digest('hex');
 export const same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
 export function requireProgram(condition,guard,reason){if(!condition)throw Object.assign(Error('marker_program_'+reason),{guard});}

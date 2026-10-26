@@ -1,3 +1,4 @@
+import { CAPACITY_FIXTURE as F } from "./event-capacity-fixture-data.mjs";
 import { parseMarkerMetadata } from "./event-marker-metadata.mjs";
 import { createInterface } from "node:readline";
 import { createReadStream } from "node:fs";
@@ -16,8 +17,8 @@ export async function probe(owner, file, {observeRaw,observeCapture,acquisition}
 export async function createFixture(owner, file, id) {
   if (!Object.hasOwn(SOURCE_FREQUENCIES, id)) throw Error("marker_fixture_identity");
   const frequency = SOURCE_FREQUENCIES[id];
-  const color = id === "a" ? "red" : "blue";
-  const filter = `drawbox=x=0:y=0:w=128:h=128:color=${color}:t=fill,drawbox=x=128:y=0:w=128:h=128:color=black:t=fill,drawbox=x=128:y=0:w=128:h=128:color=white:t=fill:enable='lt(mod(t,1),0.1)'`;
+  const color = id === "a" ? F.identityColors.a : F.identityColors.b, M = F.marker, A = F.audio, O = F.output, E = F.expected;
+  const filter = `drawbox=x=${M.identityX}:y=${M.identityY}:w=${M.identityWidth}:h=${M.identityHeight}:color=${color}:t=${M.fill},drawbox=x=${M.flashX}:y=${M.flashY}:w=${M.flashWidth}:h=${M.flashHeight}:color=${M.offColor}:t=${M.fill},drawbox=x=${M.flashX}:y=${M.flashY}:w=${M.flashWidth}:h=${M.flashHeight}:color=${M.onColor}:t=${M.fill}:enable='lt(mod(t,${M.periodSeconds}),${M.onSeconds})'`;
   await owner.run(
     "ffmpeg",
     [
@@ -27,39 +28,39 @@ export async function createFixture(owner, file, id) {
       "-f",
       "lavfi",
       "-i",
-      "testsrc2=size=1920x1080:rate=60[scene];testsrc=size=480x270:rate=60:decimals=2[clock];[scene][clock]overlay=x=1440:y=0",
+      F.videoSource,
       "-f",
       "lavfi",
       "-i",
-      `anoisesrc=color=white:sample_rate=48000:amplitude=0.12:seed=42[a];anoisesrc=color=white:sample_rate=48000:amplitude=0.12:seed=43[b];[a][b]amerge=inputs=2,aeval=val(0)+if(lt(mod(t\\,1)\\,0.1)\\,0.65*sin(2*PI*${frequency}*t)\\,0)|val(1)+if(lt(mod(t\\,1)\\,0.1)\\,0.65*sin(2*PI*${frequency}*t)\\,0):c=stereo`,
+      `anoisesrc=color=${A.color}:sample_rate=${A.sampleRateHz}:amplitude=${A.amplitude}:seed=${A.leftSeed}[a];anoisesrc=color=${A.color}:sample_rate=${A.sampleRateHz}:amplitude=${A.amplitude}:seed=${A.rightSeed}[b];[a][b]amerge=inputs=${A.mergeInputs},aeval=val(0)+if(lt(mod(t\\,${A.periodSeconds})\\,${A.onSeconds})\\,${A.carrierAmplitude}*sin(2*PI*${frequency}*t)\\,0)|val(1)+if(lt(mod(t\\,${A.periodSeconds})\\,${A.onSeconds})\\,${A.carrierAmplitude}*sin(2*PI*${frequency}*t)\\,0):c=${A.layout}`,
       "-t",
-      "12",
+      O.durationText,
       "-vf",
       filter,
       "-c:v",
-      "libx264",
+      O.videoCodec,
       "-threads",
-      "2",
+      O.threadsText,
       "-preset",
-      "veryfast",
+      O.preset,
       "-b:v",
-      "6000k",
+      O.videoBitrate,
       "-maxrate",
-      "6000k",
+      O.maxrate,
       "-bufsize",
-      "12000k",
+      O.bufsize,
       "-g",
-      "60",
+      O.gopText,
       "-pix_fmt",
-      "yuv420p",
+      O.pixelFormat,
       "-c:a",
-      "aac",
+      O.audioCodec,
       "-b:a",
-      "320k",
+      O.audioBitrate,
       "-ac",
-      "2",
+      O.channelsText,
       "-f",
-      "mpegts",
+      O.mux,
       "-y",
       file,
     ],
@@ -69,20 +70,20 @@ export async function createFixture(owner, file, id) {
     v = facts.streams.find((s) => s.codec_type === "video"),
     a = facts.streams.find((s) => s.codec_type === "audio");
   if (
-    v.codec_name !== "h264" ||
-    v.width !== 1920 ||
-    v.height !== 1080 ||
-    v.r_frame_rate !== "60/1" ||
-    a.codec_name !== "aac" ||
-    a.channels !== 2 ||
-    a.sample_rate !== "48000"
+    v.codec_name !== E.videoCodec ||
+    v.width !== E.width ||
+    v.height !== E.height ||
+    v.r_frame_rate !== E.frameRateText ||
+    a.codec_name !== E.audioCodec ||
+    a.channels !== E.channels ||
+    a.sample_rate !== E.sampleRateText
   )
     throw Error("Input fixture not H264/AAC 1080p60");
   return {
     videoCodec: v.codec_name,
     width: v.width,
     height: v.height,
-    fps: 60,
+    fps: E.fps,
     audioCodec: a.codec_name,
     channels: a.channels,
     sampleRate: Number(a.sample_rate),

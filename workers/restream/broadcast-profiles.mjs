@@ -10,6 +10,45 @@ export const VIDEO_PROFILES = Object.freeze({
 });
 /** @type {Readonly<MediaSettings>} */
 export const NEW_PROGRAM_MEDIA_SETTINGS = Object.freeze({ videoPreset: '720p30', audioBitrateKbps: 320 });
+/** @type {Readonly<MediaSettings>} */
+export const LEGACY_PROGRAM_MEDIA_SETTINGS = Object.freeze({
+  videoPreset: "720p30",
+  audioBitrateKbps: 160,
+});
+export const DEFAULT_INPUT_QUALITY = Object.freeze({
+  width: 1280,
+  height: 720,
+  frameRate: 30,
+});
+export const BROADCAST_ENCODING = Object.freeze({
+  videoCodec: "libx264",
+  videoThreads: "2",
+  normalPreset: "veryfast",
+  highRatePreset: "superfast",
+  highRateVideoPreset: "1080p60",
+  pixelFormat: "yuv420p",
+  sceneThreshold: "0",
+  bFrames: "0",
+  vbvMultiplier: 2,
+  x264Params: "nal-hrd=cbr:force-cfr=1",
+  audioCodec: "aac",
+  audioSampleRateText: "48000",
+  audioChannelsText: "2",
+  programTune: "zerolatency",
+  programMuxFlags: "+resend_headers",
+  programMuxDelay: "0",
+  programMux: "mpegts",
+  outputMux: "flv",
+  twitchAudioBitrateText: "160k",
+});
+export const PROGRAM_HOLD_FRAME = Object.freeze({
+  chromaFill: 128,
+  backgroundLuma: 32,
+  rectangleLuma: 80,
+  rectangleStartDivisor: 3,
+  rectangleEndMultiplier: 2,
+  rectangleEndDivisor: 3,
+});
 /** Legacy rows have no settings. All other inputs must be complete and valid.
  * @param {unknown} value
  * @returns {MediaSettings}

@@ -6,6 +6,9 @@ export { VIDEO_PROFILES as QUALITY_PROFILES } from "./broadcast-profiles.mjs";
 import {
   VIDEO_PROFILES as QUALITY_PROFILES,
   parseMediaSettings,
+  LEGACY_PROGRAM_MEDIA_SETTINGS,
+  BROADCAST_ENCODING as E,
+  PROGRAM_HOLD_FRAME as H,
 } from "./broadcast-profiles.mjs";
 /** Production encoder arguments, also usable by the offline format proof.
  * Raw video and PCM enter descriptors 3/4; encoded MPEGTS leaves stdout.
@@ -28,7 +31,7 @@ export function programEncoderArguments(settings) {
     "-f",
     "rawvideo",
     "-pixel_format",
-    "yuv420p",
+    E.pixelFormat,
     "-video_size",
     `${profile.width}x${profile.height}`,
     "-framerate",
@@ -44,9 +47,9 @@ export function programEncoderArguments(settings) {
     "-f",
     "s16le",
     "-ar",
-    "48000",
+    E.audioSampleRateText,
     "-ac",
-    "2",
+    E.audioChannelsText,
     "-i",
     "pipe:4",
     "-map",
@@ -54,23 +57,23 @@ export function programEncoderArguments(settings) {
     "-map",
     "1:a:0",
     "-c:v",
-    "libx264",
+    E.videoCodec,
     "-threads",
-    "2",
+    E.videoThreads,
     "-preset",
-    parsed.videoPreset === "1080p60" ? "superfast" : "veryfast",
+    parsed.videoPreset === E.highRateVideoPreset ? E.highRatePreset : E.normalPreset,
     "-tune",
-    "zerolatency",
+    E.programTune,
     "-g",
     String(profile.frameRate),
     "-keyint_min",
     String(profile.frameRate),
     "-sc_threshold",
-    "0",
+    E.sceneThreshold,
     "-bf",
-    "0",
+    E.bFrames,
     "-x264-params",
-    "nal-hrd=cbr:force-cfr=1",
+    E.x264Params,
     "-b:v",
     `${profile.videoBitrateKbps}k`,
     "-minrate",
@@ -78,21 +81,21 @@ export function programEncoderArguments(settings) {
     "-maxrate",
     `${profile.videoBitrateKbps}k`,
     "-bufsize",
-    `${profile.videoBitrateKbps * 2}k`,
+    `${profile.videoBitrateKbps * E.vbvMultiplier}k`,
     "-c:a",
-    "aac",
+    E.audioCodec,
     "-b:a",
     `${parsed.audioBitrateKbps}k`,
     "-ar",
-    "48000",
+    E.audioSampleRateText,
     "-ac",
-    "2",
+    E.audioChannelsText,
     "-mpegts_flags",
-    "+resend_headers",
+    E.programMuxFlags,
     "-muxdelay",
-    "0",
+    E.programMuxDelay,
     "-f",
-    "mpegts",
+    E.programMux,
     "pipe:1",
   ];
 }
@@ -100,8 +103,8 @@ export function programEncoderArguments(settings) {
  * Destination senders own their bounded queues; this module never waits on them.
  */
 export function createProgramRenderer({
-  quality = "720p30",
-  audioBitrateKbps = 160,
+  quality = LEGACY_PROGRAM_MEDIA_SETTINGS.videoPreset,
+  audioBitrateKbps = LEGACY_PROGRAM_MEDIA_SETTINGS.audioBitrateKbps,
   onProgress = () => {},
   onObservation = () => {},
   onError = () => {},
@@ -167,14 +170,14 @@ export function createProgramRenderer({
     error,
     outputMs = 0;
   const frameBytes = (profile.width * profile.height * 3) / 2;
-  const holdFrame = Buffer.alloc(frameBytes, 128);
-  holdFrame.fill(32, 0, profile.width * profile.height);
+  const holdFrame = Buffer.alloc(frameBytes, H.chromaFill);
+  holdFrame.fill(H.backgroundLuma, 0, profile.width * profile.height);
   // Visible neutral slate with a brighter central rectangle; no product copy invented.
-  for (let y = (profile.height / 3) | 0; y < (profile.height * 2) / 3; y++)
+  for (let y = (profile.height / H.rectangleStartDivisor) | 0; y < (profile.height * H.rectangleEndMultiplier) / H.rectangleEndDivisor; y++)
     holdFrame.fill(
-      80,
-      y * profile.width + ((profile.width / 3) | 0),
-      y * profile.width + (((profile.width * 2) / 3) | 0),
+      H.rectangleLuma,
+      y * profile.width + ((profile.width / H.rectangleStartDivisor) | 0),
+      y * profile.width + (((profile.width * H.rectangleEndMultiplier) / H.rectangleEndDivisor) | 0),
     );
   const silence = Buffer.alloc((48000 / profile.frameRate) * 4);
   function fail(message) {

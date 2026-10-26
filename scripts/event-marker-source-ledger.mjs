@@ -1,3 +1,4 @@
+import { MASS_FRAME_CONSTRUCTION as M } from './marker-qualification/construction-data.mjs';
 import { createHash } from 'node:crypto';
 import { replayRawMembers } from './event-marker-raw-capture.mjs';
 import { massFrames } from './marker-qualification/codec-input.mjs';
@@ -18,7 +19,7 @@ export function verifyProgramConstruction({parameters,pcm,source,feeds,binding,d
  const dependencies=inspectAcquiredDependencies(binding);if(!dependencies)fail('generator_closure');
  const frozen=snapshotProgramConstruction(JSON.parse(Buffer.from(parameters).toString('utf8')));
  if(!Buffer.from(parameters).equals(frozen.bytes)||dependencies.plans.generator!=='massFrames'||source.parametersSHA256!==frozen.sha256||pcm.length!==frozen.parameters.train.samples*4||pcm.length!==source.audio.bytes||sha(pcm)!==source.audio.sha256)fail('immutable_input');
- const replay=prepareRegenerableSource({construct:frozen.frames,replay:frozen.frames,frameBytes:854*480*3/2,byteCap:frozen.parameters.train.frames*854*480*3/2,numericCap:196608,deadline,clock});
+ const replay=prepareRegenerableSource({construct:frozen.frames,replay:frozen.frames,frameBytes:M.width*M.height*3/2,byteCap:frozen.parameters.train.frames*M.width*M.height*3/2,numericCap:196608,deadline,clock});
  if(JSON.stringify(replay.construction)!==JSON.stringify(source.video))fail('construction');
  const traces=Object.fromEntries(['video','audio'].map(k=>[k,JSON.parse('['+replayRawMembers(feeds[k].trace,{producerCap:196608}).toString().trimEnd().split('\n').join(',')+']')]));
  // Rehash submitted byte ranges independently, including writes crossing frame

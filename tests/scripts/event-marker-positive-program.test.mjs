@@ -159,3 +159,40 @@ test('SIMULATED unchanged canary 64-episode replay preserves proof guards and re
   for(const unproven of [v.result,structuredClone(v.result)])assert.throws(()=>validateResultUnion([invocation],[bundle],pins,read,()=>unproven),/marker_replay_proof_required/);
  }finally{await rm(v.directory,{recursive:true,force:true});}
 });
+
+test('R93 every whole DATA owner has distinct E/D uses, retained copies and code-union exclusion',async()=>{
+ const v=await positiveProgram();try{
+  const manifest=JSON.parse(await readFile(v.store.path(v.result.programProof.replayRef.name))),budget=manifest.budget;
+  assert.deepEqual(budget.implementationUses.map(u=>u.event),['encode','decode']);
+  const data=v.runtime.closure.files.filter(f=>f.kind==='runtimeData');assert.equal(data.length,5);
+  assert.equal(budget.implementationBytes,v.runtime.closure.files.filter(f=>f.kind==='implementationCode').reduce((n,f)=>n+f.bytes,0));
+  for(const f of data){
+   const uses=budget.dependencyUses.filter(u=>u.id==='loaded-data:'+f.path+':'+f.sha256+':'+f.bytes);assert.equal(uses.length,1);assert.deepEqual(uses[0].recordings,[v.key,v.key+'-decode']);
+   const copies=budget.uses.filter(u=>u[0]==='runtimeBinding'&&u[2]===f.bytes&&u[3]===f.sha256);assert.equal(copies.length,1);
+   for(const copy of copies)assert.deepEqual(await readFile(v.store.path(copy[1])),v.runtime.files.get('/app/'+f.path));
+  }
+  const replayed=await replayProgramRecording(v.result,{resolveOriginal:r=>readFile(v.store.path(r.name)),resolveImplementation:v.runtime.resolveImplementation});assertReplayedProgram(replayed);
+  for(const [i,f] of data.entries()){const before={numeric:v.store.numericBytes,total:v.store.total},raw=v.runtime.files.get('/app/'+f.path);await v.store.write(v.key+'-extra-data-copy-'+i+'.bin',raw,196608,'runtimeBinding');assert.equal(v.store.numericBytes,before.numeric+raw.length);assert.equal(v.store.total,before.total+raw.length);}
+ }finally{await rm(v.directory,{recursive:true,force:true});}
+});
+
+test('R93 independent noise replay rejects coherently rehashed seed amplitude color rate order and duration changes',async()=>{
+ const v=await positiveProgram();try{
+  const manifest=JSON.parse(await readFile(v.store.path(v.result.programProof.replayRef.name))),name=v.key+'-noise-42-owner.json',original=JSON.parse(await readFile(v.store.path(name)));
+  const replays=[replayProgramRecording];if(process.env.R93_BASELINE)replays.push((await import(process.env.R93_BASELINE+'/scripts/marker-qualification/program-replay.mjs')).replayProgramRecording);
+  for(const replay of replays){const result=await replay(v.result,{resolveOriginal:r=>readFile(v.store.path(r.name)),resolveImplementation:v.runtime.resolveImplementation});assert.deepEqual(JSON.parse(JSON.stringify(result)),JSON.parse(JSON.stringify(v.result)));}
+  for(const mutate of [
+   args=>args[7]=args[7].replace('seed=42','seed=44'),
+   args=>args[7]=args[7].replace('amplitude=0.12','amplitude=0.13'),
+   args=>args[7]=args[7].replace('color=white','color=brown'),
+   args=>args[7]=args[7].replace('sample_rate=48000','sample_rate=44100'),
+   args=>{[args[0],args[1]]=[args[1],args[0]];},
+   args=>args[7]=args[7].replace(/duration=.*/, 'duration=9'),
+  ]){
+   const owner=structuredClone(original);mutate(owner.args);assert.notDeepEqual(owner.args,original.args);
+   const body=Buffer.from(JSON.stringify(owner)+'\n'),changed=structuredClone(manifest),entry=changed.budget.uses.find(r=>r[1]===name),delta=body.length-entry[2];entry[2]=body.length;entry[3]=sha(body);changed.budget.numericBytes+=delta;changed.budget.artifactBytes+=delta;
+   const raw=Buffer.from(JSON.stringify(changed)+'\n'),serialized=structuredClone(v.result);serialized.programProof.replayRef={...serialized.programProof.replayRef,bytes:raw.length,sha256:sha(raw)};
+   for(const replay of replays)await assert.rejects(replay(serialized,{resolveOriginal:r=>r.name===name?body:r.name===serialized.programProof.replayRef.name?raw:readFile(v.store.path(r.name)),resolveImplementation:v.runtime.resolveImplementation}),/marker_replay_noise_original/);
+  }
+ }finally{await rm(v.directory,{recursive:true,force:true});}
+});

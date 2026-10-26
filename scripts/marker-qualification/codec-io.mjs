@@ -1,3 +1,4 @@
+import { NATIVE_NOISE as N } from './construction-data.mjs';
 import { once } from 'node:events';
 import { createAcquisitionDeadline } from '../event-marker-native-binding.mjs';
 import { writeFile } from 'node:fs/promises';
@@ -49,8 +50,8 @@ async function writeArtifact(path,bytes,cap) {
 export async function generateNoise(owner,rate,count,{observeCapture,signal}={}) {
  if(![44100,48000].includes(rate)||!Number.isSafeInteger(count)||count<=0||count>1190400)throw Error('qualification_noise_request');
  const output={};
- for(const seed of [42,43]) {
-  const bytes=await owner.run('ffmpeg',['-hide_banner','-nostdin','-loglevel','error','-f','lavfi','-i',`anoisesrc=color=white:sample_rate=${rate}:amplitude=0.12:seed=${seed}:duration=${(count+rate)/rate}`,'-af',`atrim=end_sample=${count}`,'-ac','1','-ar',String(rate),'-f','s16le','pipe:1'],{timeoutMs:15000,maxBytes:count*2,signal,observeCapture:observeCapture?data=>observeCapture(seed,data):undefined});
+ for(const seed of N.seeds) {
+  const bytes=await owner.run('ffmpeg',['-hide_banner','-nostdin','-loglevel','error','-f','lavfi','-i',`anoisesrc=color=${N.color}:sample_rate=${rate}:amplitude=${N.amplitude}:seed=${seed}:duration=${(count+rate*N.durationPaddingRateUnits)/rate}`,'-af',`atrim=end_sample=${count}`,'-ac',N.channelsText,'-ar',String(rate),'-f',N.sampleFormat,'pipe:1'],{timeoutMs:15000,maxBytes:count*2,signal,observeCapture:observeCapture?data=>observeCapture(seed,data):undefined});
   if(bytes.length!==count*2)throw Error('qualification_noise_extent');output[seed]=bytes;
  }
  return output;
