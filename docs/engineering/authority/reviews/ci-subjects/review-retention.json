@@ -1,0 +1,45 @@
+{
+  "schema": "source-review-retention-v1",
+  "sourceHead": "94f65f6ddfb57be28f43234ea9f31edb352c28ce",
+  "sourceBaseline": "db9abbcd59a30d206d85c0dcb2f407150e31dd9e",
+  "scope": "Source reviews and safe CI investigation only; actual image/native/A/capacity remain open",
+  "reviewAndCiOriginals": [
+    {
+      "path": "docs/engineering/authority/reviews/rebaseline-source-verification-review.md",
+      "bytes": 6646,
+      "sha256": "659808afc00fc1ccd972033e55207620887fd29d3cb309d2aa1c118af40fb301"
+    },
+    {
+      "path": "docs/engineering/authority/reviews/rebaseline-whole-branch-source-review.md",
+      "bytes": 16257,
+      "sha256": "5cfd56effd3802652a88bc01ccdc616ec8b00587ad80ea5156e6e54b697ac43d"
+    },
+    {
+      "path": "docs/engineering/authority/reviews/rebaseline-ci-triage.md",
+      "bytes": 6030,
+      "sha256": "8b6fc4c67aed7177c36e5c0df5d4a08600b4bdf0481f910c75e9cbef7302f889"
+    },
+    {
+      "path": "docs/engineering/authority/reviews/ci-subjects/migration-evidence-40398508442.zip",
+      "bytes": 12359,
+      "sha256": "239c8a39b9140df75f53b2652a12fe50d1ca0d08ee809da5169c5bea02607cd7"
+    }
+  ],
+  "task3CommittedSubjects": [
+    {
+      "path": "docs/engineering/source-marker-qualification.md",
+      "bytes": 24086,
+      "sha256": "cdf1ec00c31fb2c03bed1ec78f864c2f4ae0ec5457733ec8d7c057062f67a456"
+    },
+    {
+      "path": "docs/engineering/authority/reviews/rebaseline-verification.md",
+      "bytes": 13191,
+      "sha256": "f7acc18bd1c6749f7c608c52032a3979129599482f19dac25d62e40ebca71d75"
+    },
+    {
+      "path": "tests/scripts/event-marker-qualification-authority.test.mjs",
+      "bytes": 1068,
+      "sha256": "7811579f242ad6a49395eee96852968b96c3ce398592d41079751a9336e85b15"
+    }
+  ]
+}
