@@ -36,7 +36,47 @@ Date-only events omit `startAt`. Public cards show the authored date and `Time T
 
 `sortAt` is an internal index key, never a start instant or public JSON field. Timed rows use their start instant; date-only rows use a sortable UTC date key. Participant and world caches use `eventSortAt` and `eventSortEndAt`; timed slot playback keeps its own exact start and end instants. Date-only upcoming eligibility lasts until the authored date ends in UTC-12, so timezone-boundary viewers do not lose the listing early.
 
-Discovery scans future sort keys separately from the date-only lookback, with at most 500 records per scan. The lookback index includes `scheduleKind`, so expired timed records cannot consume either result allowance or hide eligible date-only records.
+Timed events with no known end remain current through six hours after `startAt`,
+including the final millisecond. Discovery, upcoming lists, community and person
+lists, world activity, search ranking, and the scheduled watch window use that
+same runtime end. An explicit `endAt` always wins. The runtime fallback never
+writes an authored `endAt`, adds an end to public schedule output, or changes
+calendar export. Date-only expiry remains the authored date's end in UTC-12.
+
+Discovery caps each index scan at 500 raw candidates before runtime filtering.
+Future events and date-only dates have separate allowances. The date-only
+lookback index includes `scheduleKind`; expired timed rows cannot consume it.
+Ongoing candidates combine two bounded scans: ascending known ends at or after
+now and descending starts at or before now. The start ordering places current
+unknown-end events ahead of older unknown-end rows.
+The scans include legacy timed events without `scheduleKind` and retain explicit
+ends beyond six hours. Live search projection uses the current authored schedule.
+
+Person and world lists classify runtime eligibility from the current event,
+so older association caches containing a start-only end need no backfill for
+this behavior. Person lists first retain started links with a current cached end
+or a start within the inclusive six-hour fallback. Older expired links do not
+require event hydration; explicit long-event caches remain eligible. The loaded
+event still determines final eligibility. The existing bounded association scans
+still apply. Future starts
+can fill the known-end scan, and recently expired rows can fill the start scan.
+An ongoing event outside both raw allowances and the featured fallback can be
+absent from discovery. The separate future allowance still runs. With the
+date-only switch disabled, that allowance reads the shared start index and
+filters entity type after its raw cap; non-event rows can fill it and hide a
+future event outside the featured fallback. With the switch enabled, the future
+index includes the event type before the raw cap. These are
+candidate limits, not shorter runtime windows; no scan expands to read an
+unbounded number of nonmatching rows.
+
+Public search reads at most 256 candidates across its keyword and profile-name
+indexes. Event candidates resolve their current schedules before result ordering
+and the requested limit. Selected events reuse their loaded event records;
+communities are loaded only for selected results and visibility-driven refill.
+Profile and
+media-kit hydration remains limited to the ranked window needed to fill results,
+with the existing refill after hidden records are removed. Search documents do
+not store an authored or synthetic end for this ranking rule.
 
 ### Schedule migration and rollout
 
@@ -80,8 +120,11 @@ Private actor IDs and poster evidence never enter the public event DTO. See
 
 The browser editor obtains its community choices from
 `events:listManagedCommunities`, which combines active ownership and active
-`manage_events` grants and returns public community display data only. Revoking
-a grant removes the choice and blocks subsequent writes immediately.
+`manage_events` grants and returns public community display data only. Its optional
+`imageUrl` uses the existing discovery media-kit resolver, including the chosen
+logo or avatar and automatic fallback. Private and unlisted image fields remain
+excluded, even for owners and staff. Revoking a grant removes the choice and
+blocks subsequent writes immediately.
 
 `events:listManagedEvents` applies the same live authority and backs the private
 account event list. It returns bounded editor links and schedule/publication
@@ -134,6 +177,55 @@ and position. Matched people also populate `eventParticipants` with schedule sor
 caches for discovery. Date-only events accept untimed rows only. Existing timed
 sets retain their playback identity and selected stream when the person is unchanged.
 The legacy owner editor continues using its existing slot and participant writes.
+
+Untimed storage also accepts optional internal `sourceType`, `sourceLabel`,
+`sourceUrl` and `notes`. Canonical stable-key conversions and legacy date-only
+conversion retain slot provenance in these fields without retaining hidden times.
+Unchanged untimed saves carry it forward; retiming restores it onto the new slot.
+Old records without these fields and new rows fall back to event source type/label.
+There is no backfill. These fields are absent from canonical wire inputs and the
+explicit public/editor lineup and operator slot projections. After retiming, the
+existing public `slots[].source` still exposes source type, label and sanitized
+URL; notes stay private. That timed-slot projection is unchanged.
+
+The owner/staff editor uses the shared Details, Lineup, and Review
+navigation. A Details disclosure retains the existing poster URL and media/link fields;
+private single-poster intake remains a separate contributor workflow. Details
+contains the current title, description, timing, timezone, and applicable
+`Where (optional)` controls, stored as `venueLabel`. Contributor drafts select
+a community from public directory search results; search text is separate from
+the selected slug, and Clear stores null. Staff community authority stays fixed
+by the route, and scoped corrections do not expose community selection. Lineup
+shows matched public portraits or initials beside timed and
+untimed performers, with timed rows displaying their actual event-local dates.
+Review contains publication controls and a collapsed Advanced area for live
+output, worker status, cancellation, restoration, and audit history.
+
+Inactive step fields stay mounted for canonical FormData serialization.
+Publication reveals the first invalid field's step and focuses it before calling
+the existing create/update command. An unselected timezone search, a nonexistent
+local start time, or a repeated time without an occurrence choice also returns
+to Details and focuses the corresponding timing control. Save draft remains available on every step
+under the existing canonical validation rules. Publication still redirects to
+the event page. These presentation changes do not alter `events:write`, community
+authority checks, stream assignment, or VRCDN output commands.
+
+```mermaid
+flowchart LR
+  Community[Managed community or account events] --> Auth[Sign in if needed]
+  Direct[Direct staff edit link] --> Auth
+  Auth --> Details[Details]
+  Details --> Source[Source disclosure]
+  Details --> Lineup[Lineup]
+  Lineup --> Review[Review]
+  Review -->|Edit details| Details
+  Review -->|Edit lineup| Lineup
+  Review -->|Publish or save changes| Event[Event page]
+  Review -->|Expand Advanced| Operations[Staff operations]
+  Details -->|Save draft| Draft[Private canonical draft]
+  Lineup -->|Save draft| Draft
+  Review -->|Save draft| Draft
+```
 
 The public page shows one Lineup with optional local set times and portraits or
 initials. Performer names lead to their profiles. A collapsed DJ links section at
@@ -191,7 +283,7 @@ Canonical slot times are stored as timestamps. Discord timestamp tokens such as 
 
 The first slot editor uses relative minute offsets from the event start for operator-friendly sequential scheduling. Backend storage still receives absolute timestamps after the operator confirms the event start and a valid IANA timezone.
 
-Public previews include at most three ordered upcoming slot summaries. Discovery and profile queries include an event already in progress when `endAt` has not passed; a missing `endAt` means the event ends at `startAt` for this bounded query rule.
+Public previews include at most three ordered upcoming slot summaries. Discovery and profile queries include an event already in progress through its explicit end or the shared inclusive six-hour runtime window when `endAt` is absent, subject to their candidate limits.
 
 ## Discord Event Export
 
@@ -439,6 +531,24 @@ Current recommendation: VRCDN output setup starts with operator-owned accounts o
 - `compliance.destinationAuthority`
 - `compliance.providerRules`
 - `compliance.rightsClearedMedia`
+
+Destination entitlement is deployment-owned. `VRDEX_VRCDN_OUTPUT_ACCOUNTS_JSON`
+binds each key/reference to an owning community and optional explicit community
+grants, like the Twitch registry. `events.listVrcdnOutputAccounts({currentSlug})`
+requires media-management access and lists only entitled accounts; legacy
+no-argument calls return an empty list. Key and direct-reference setup, persisted
+ready outputs and worker publication all recheck the same binding. Revoking a
+managed destination also removes its public output/program links while preserving
+authored direct fallback links. See [migration and configuration](../deployment/restream-worker.md#vrcdn-destination-registry-migration).
+
+The staff editor saves VRCDN output configuration independently from event content.
+Its account, label, playback URLs and authorization acknowledgement have their own
+saved snapshot for the leave guard. Event saves do not clear output edits, and
+output saves do not clear event edits. A successful output save advances only the
+snapshot submitted by that request. Failed saves, validation failures and edits
+made while a request is pending stay dirty. Automatic account defaults initialize
+untouched fields and their baseline together, preserving any authored value or
+explicit clear made before the accounts arrive.
 
 The `events.configureVrcdnOutput` mutation treats the output as `ready` only when a configured output account resolves to a credential reference and all required compliance gates are accepted. Missing gates remain `pending`; explicitly rejected gates are `blocked`. A blocked or incomplete output stays a draft and is not projected into public event pages. Editor UI should collapse these gates into one human authorization acknowledgement and keep credential references behind an `Output account` selector.
 

@@ -20,10 +20,12 @@ test("primary connection keeps additional links in profile editing @storybook-vi
   await expect(
     page.getByRole("link", { name: "Edit additional group links" }),
   ).toHaveAttribute("href", "/afterhours/edit");
-  await page.screenshot({
-    path: `../../.cache/artifacts/club-primary-connection-${test.info().project.name}.png`,
-    fullPage: true,
-  });
+  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") {
+    await page.screenshot({
+      path: `../../.cache/artifacts/club-primary-connection-${test.info().project.name}.png`,
+      fullPage: true,
+    });
+  }
 });
 
 test("connection feature toggles remain independent @storybook-visual", async ({
@@ -77,10 +79,12 @@ test("a stale provider-role allowlist cannot restore a removed grant @storybook-
   await expect(page.getByRole("alert")).toContainText("Refresh to continue.");
   await expect(page.getByLabel("Submitted role token")).toHaveText(String(Date.UTC(2026, 8, 12, 21)));
   await expect(page.getByLabel("Stored provider roles")).toHaveText("");
-  await page.screenshot({
-    path: `../../.cache/artifacts/club-stale-provider-role-${test.info().project.name}.png`,
-    fullPage: true,
-  });
+  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") {
+    await page.screenshot({
+      path: `../../.cache/artifacts/club-stale-provider-role-${test.info().project.name}.png`,
+      fullPage: true,
+    });
+  }
 });
 
 test("a saved provider-role allowlist uses its returned version for the next save @storybook-visual", async ({ page }) => {

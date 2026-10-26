@@ -2462,6 +2462,9 @@ describe("profile media kit asset helpers", () => {
 
         return id;
       },
+      normalizeId(_tableName: string, id: string) {
+        return id;
+      },
       async patch(id: string, patch: Record<string, unknown>) {
         for (const rows of Object.values(tables)) {
           const row = rows.find((candidate) => candidate._id === id);
@@ -2559,6 +2562,8 @@ describe("profile media kit asset helpers", () => {
     assert.equal(tables.profileAssets[0]?.label, "Primary logo");
     assert.equal(tables.profileAssets[0]?.source, "owner_authored");
     assert.equal(tables.profileAssetPlacements[0]?.placement, "primary_logo");
+    assert.equal(tables.profileAssetPlacements[0]?.selectionActorUserId, "user123");
+    assert.ok(tables.profileAssetPlacements[0]?.selectionOperationId);
     assert.equal(tables.profileAuditEvents[0]?.action, "api_profile_asset_uploaded");
     assert.equal(tables.apiWriteAuditEvents[0]?.action, "profile_asset_upload_completed");
     assert.equal(tables.apiWriteAuditEvents[0]?.actorKind, "upload_token");

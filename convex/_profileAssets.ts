@@ -9,6 +9,7 @@ import {
   isProfileFieldVisible,
   type ProfileVisibilitySurface,
 } from "./_profileFieldVisibility";
+import { canReadProfile } from "./_profilePermissions";
 import { userOwnsProfile } from "./_profileOwnership";
 
 export const PROFILE_ASSET_UPLOAD_MAX_BYTES = 12 * 1024 * 1024;
@@ -55,6 +56,7 @@ export type PublicProfileAsset = {
   sourcePreserved: boolean;
   imageUrl: string;
   downloadUrl: string;
+  detailsUrl?: string;
 };
 
 export type PublicProfileAvatarAppearance = {
@@ -81,6 +83,31 @@ export type PublicProfileMediaKit = {
 };
 
 export type ProfileAssetDisplayPreference = Doc<"profileAssetDisplayPreferences">;
+
+/** Change the identity slot, retaining assets that still have gallery or other placements. */
+export async function selectProfileAssetIdentity(db: DatabaseWriter, input: {
+  profileId: Id<"profiles">; assetId: Id<"profileAssets">;
+  placement: "profile_image" | "primary_logo"; actorUserId?: Id<"users">;
+  operationId?: string; now: number;
+}) {
+  const current = await db.query("profileAssetPlacements").withIndex("by_profileId_placement_state_position", q =>
+    q.eq("profileId", input.profileId).eq("placement", input.placement).eq("state", "active")).collect();
+  await Promise.all(current.map(row => db.patch(row._id, { state: "deleted", updatedAt: input.now })));
+  await db.insert("profileAssetPlacements", {
+    profileId: input.profileId, assetId: input.assetId, placement: input.placement, position: 0,
+    state: "active", updatedAt: input.now, selectionActorUserId: input.actorUserId,
+    selectionOperationId: input.operationId ?? crypto.randomUUID(),
+  });
+  for (const assetId of new Set(current.map(row => row.assetId))) {
+    if (assetId === input.assetId) continue;
+    const remaining = await db.query("profileAssetPlacements").withIndex("by_assetId_state_placement", q => q.eq("assetId", assetId).eq("state", "active")).first();
+    if (remaining) continue;
+    const asset = await db.get(assetId);
+    if (asset && asset.retiredAt === undefined) await db.patch(assetId, {
+      state: "deleted", deletedAt: asset.deletedAt ?? input.now, retiredAt: input.now, updatedAt: input.now,
+    });
+  }
+}
 
 function bytesToHex(bytes: ArrayBuffer): string {
   return [...new Uint8Array(bytes)]
@@ -149,6 +176,8 @@ export async function getProfileMediaVersion(
       assetId: String(placement.assetId),
       placement: placement.placement,
       position: placement.position,
+      selectionActorUserId: placement.selectionActorUserId,
+      selectionOperationId: placement.selectionOperationId,
     }));
   const digest = await crypto.subtle.digest(
     "SHA-256",
@@ -451,9 +480,13 @@ export function normalizeProfileAssetSourceUrl(value: string | undefined): strin
       throw new Error("Profile media asset imports must not include URL credentials.");
     }
 
+    if (url.href.length > 4096) {
+      throw new ConvexError({ code: "MEDIA_SOURCE_URL_TOO_LONG" });
+    }
+
     return url.href;
   } catch (error) {
-    if (error instanceof Error && (error.message.includes("HTTPS") || error.message.includes("credentials"))) {
+    if (error instanceof ConvexError || (error instanceof Error && (error.message.includes("HTTPS") || error.message.includes("credentials")))) {
       throw error;
     }
 
@@ -599,7 +632,11 @@ export async function getProfileAssetDisplayPreference(
     .unique();
 }
 
-function toPublicAsset(profile: Doc<"profiles">, asset: Doc<"profileAssets">): PublicProfileAsset {
+function toPublicAsset(
+  profile: Doc<"profiles">,
+  asset: Doc<"profileAssets">,
+  detailsAssetIds: ReadonlySet<Id<"profileAssets">>,
+): PublicProfileAsset {
   return {
     assetId: asset._id,
     ...(asset.label !== undefined ? { label: asset.label } : {}),
@@ -614,6 +651,7 @@ function toPublicAsset(profile: Doc<"profiles">, asset: Doc<"profileAssets">): P
     sourcePreserved: asset.sourceStorageKey !== undefined,
     imageUrl: publicProfileAssetImageUrl(profile.slug, asset._id),
     downloadUrl: publicProfileAssetDownloadUrl(profile.slug, asset._id),
+    ...(asset.moderatorSuppressedAt === undefined && detailsAssetIds.has(asset._id) ? { detailsUrl: `/${profile.slug}#media-${asset._id}` } : {}),
   };
 }
 
@@ -696,15 +734,34 @@ export async function getPublicProfileMediaKit(
   const additionalLogoAssets = placedAssets(assetsById, sortedPlacements, "additional_logo").filter(
     (asset) => mediaKitVisible && asset._id !== primaryLogoAsset?._id,
   );
-  const profileImage = profileImageAsset ? toPublicAsset(profile, profileImageAsset) : undefined;
-  const primaryLogo = primaryLogoAsset ? toPublicAsset(profile, primaryLogoAsset) : undefined;
-  const additionalLogos = additionalLogoAssets.map((asset) => toPublicAsset(profile, asset));
-  const logos = primaryLogo ? [primaryLogo, ...additionalLogos] : additionalLogos;
   const galleryAssets = mediaKitVisible
     ? placedAssets(assetsById, sortedPlacements, "gallery").filter(
         (asset) => sanitizeProfileAssetLabel(asset.label) !== undefined,
       )
     : [];
+  // Website destinations follow profile-page visibility even on discovery reads.
+  // Logos render in both modes; gallery cards require the page's gallery flag.
+  const pageMediaKitVisible = canReadProfile("public", profile) &&
+    isProfileFieldVisible(profile, "mediaKit", "profile_page");
+  const galleryEnabled = process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED === "true" ||
+    process.env.VRDEX_ENABLE_PLAYWRIGHT_FIXTURES === "true";
+  const pagePrimaryLogo = pageMediaKitVisible
+    ? firstPlacedAsset(assetsById, sortedPlacements, "primary_logo")
+    : undefined;
+  const detailsAssetIds = new Set<Id<"profileAssets">>([
+    ...(pagePrimaryLogo ? [pagePrimaryLogo._id] : []),
+    ...(pageMediaKitVisible ? placedAssets(assetsById, sortedPlacements, "additional_logo").map(asset => asset._id) : []),
+    ...(pageMediaKitVisible && galleryEnabled
+      ? placedAssets(assetsById, sortedPlacements, "gallery")
+          .filter(asset => sanitizeProfileAssetLabel(asset.label) !== undefined)
+          .map(asset => asset._id)
+      : []),
+  ]);
+  const projectAsset = (asset: Doc<"profileAssets">) => toPublicAsset(profile, asset, detailsAssetIds);
+  const profileImage = profileImageAsset ? projectAsset(profileImageAsset) : undefined;
+  const primaryLogo = primaryLogoAsset ? projectAsset(primaryLogoAsset) : undefined;
+  const additionalLogos = additionalLogoAssets.map(projectAsset);
+  const logos = primaryLogo ? [primaryLogo, ...additionalLogos] : additionalLogos;
   const featuredCandidate = firstPlacedAsset(assetsById, sortedPlacements, "featured");
   const featuredAsset = galleryAssets.find((asset) => asset._id === featuredCandidate?._id);
   const orderedAssets = mediaKitVisible
@@ -731,13 +788,13 @@ export async function getPublicProfileMediaKit(
   return {
     ...(automaticAvatarImageUrl ? { automaticAvatarImageUrl } : {}),
     ...(profileImage ? { profileImage } : {}),
-    ...(bannerAsset ? { banner: toPublicAsset(profile, bannerAsset) } : {}),
-    ...(featuredAsset ? { featuredAsset: toPublicAsset(profile, featuredAsset) } : {}),
+    ...(bannerAsset ? { banner: projectAsset(bannerAsset) } : {}),
+    ...(featuredAsset ? { featuredAsset: projectAsset(featuredAsset) } : {}),
     ...(primaryLogo ? { primaryLogo } : {}),
     additionalLogos,
     logos,
-    assets: orderedAssets.map((asset) => toPublicAsset(profile, asset)),
-    galleryAssets: galleryAssets.map((asset) => toPublicAsset(profile, asset)),
+    assets: orderedAssets.map(projectAsset),
+    galleryAssets: galleryAssets.map(projectAsset),
     ...(logos.length > 0 ? { logoZipUrl: publicProfileLogoZipUrl(profile.slug) } : {}),
     compactDisplay,
     avatarAppearance,
@@ -756,6 +813,7 @@ export async function consumeProfileAssetUploads(
     uploads: ProfileAssetUploadInput[];
     source: Doc<"profileAssets">["source"];
     approvedSubmissionId?: Id<"profileMediaSubmissions">;
+    selectionActorUserId?: Id<"users">;
     bridgeAuthorized?: boolean;
     now: number;
   },
@@ -796,6 +854,10 @@ export async function consumeProfileAssetUploads(
     const creditUrl = sanitizeProfileAssetCreditUrl(upload.creditUrl);
     validateProfileAssetGalleryPlacements(upload.placements, label);
     const assetId = await db.insert("profileAssets", {
+      ...(input.approvedSubmissionId === undefined ? {} : { sourceSubmissionId: input.approvedSubmissionId }),
+      ...(input.approvedSubmissionId === undefined ? {} : {
+        sourceDescription: (await db.get(input.approvedSubmissionId))?.sourceDescription,
+      }),
       profileId: input.profileId,
       storageKey: intent.storageKey,
       ...(intent.sourceStorageKey !== undefined && intent.sourceContentSha256 !== undefined
@@ -831,6 +893,15 @@ export async function consumeProfileAssetUploads(
     });
 
     for (const placement of upload.placements) {
+      if (placement === "profile_image" || placement === "primary_logo") {
+        if (seenPlacementKeys.has(placement)) continue;
+        seenPlacementKeys.add(placement);
+        const actor = input.selectionActorUserId ?? (input.requestedBy.issuer === "vrdex:api"
+          ? db.normalizeId("users", input.requestedBy.subject)
+          : (await db.query("users").withIndex("clerkUserId", q => q.eq("clerkUserId", input.requestedBy.subject)).unique())?._id);
+        await selectProfileAssetIdentity(db, { profileId: input.profileId, assetId, placement, actorUserId: actor ?? undefined, now: input.now });
+        continue;
+      }
       const orderedMultiPlacement = placement === "additional_logo" || placement === "gallery";
       const key = orderedMultiPlacement ? `${placement}:${assetId}` : placement;
       if (seenPlacementKeys.has(key)) {
@@ -1045,6 +1116,13 @@ export async function finalizeProfileAssetUploadIntentUpload(
       }
     }
     await settleLegacyContribution(db,intent,input);
+    if (submission.requestKind !== "identity_placement" && (submission.requestKind !== "kit_asset" || submission.requestedPlacement !== "gallery")) {
+      await db.patch(submission._id, { requestKind: "kit_asset", requestedPlacement: "gallery", reviewRevision: (submission.reviewRevision ?? 0) + 1 });
+      await db.patch(intent._id, {
+        placements: ["gallery"],
+        ...(intent.sourceUrl === undefined ? { sourceUrl: submission.sourceUrl } : {}),
+      });
+    }
     await db.patch(submission._id, {
       status: "submitted",
       ...(input.contentSha256 !== undefined ? { contentSha256: input.contentSha256 } : {}),

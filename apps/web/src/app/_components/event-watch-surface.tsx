@@ -1,5 +1,9 @@
 "use client";
 
+import { ForegroundWatchEmbed, ForegroundWatchVideo } from "./foreground-watch-embed";
+import type { PlaybackRequest } from "@/lib/event-playback-owner";
+import { useEventPlayback } from "./event-playback-provider";
+import { EventPlaybackInline } from "./event-playback-inline";
 import { useSyncExternalStore } from "react";
 
 import { buttonVariants } from "@/components/ui/button";
@@ -7,6 +11,9 @@ import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/cn";
 import { VrcdnStreamPlayer, WatchPlayPoster } from "./vrcdn-stream-player";
 import { parseVrcdnStreamLinks } from "../../../../../convex/_vrcdnLinks";
+import { isInScheduledWatchWindow } from "../../../../../convex/_eventRuntime";
+
+export { isInScheduledWatchWindow } from "../../../../../convex/_eventRuntime";
 
 type EventMediaLinkType = "event_page" | "watch" | "stream" | "vrcdn" | "discord" | "ticket" | "other";
 type EventMediaLinkPresentation = "open" | "copy";
@@ -95,27 +102,6 @@ function useBrowserHostname() {
 
 export function useCurrentTimestamp() {
   return useSyncExternalStore(subscribeToNow, getBrowserNow, getServerNow);
-}
-
-export function isInScheduledWatchWindow({
-  doorsOpenAt,
-  endAt,
-  now,
-  startAt,
-}: {
-  doorsOpenAt?: number;
-  endAt?: number;
-  now: number | null;
-  startAt: number;
-}) {
-  if (now === null) {
-    return false;
-  }
-
-  const opensAt = doorsOpenAt ?? startAt;
-  const closesAt = endAt ?? startAt + 6 * 60 * 60 * 1000;
-
-  return now >= opensAt && now <= closesAt;
 }
 
 function parseHttpsUrl(url: string): URL | null {
@@ -340,33 +326,17 @@ function WatchEmbedFrame({ embed }: { embed: WatchEmbed }) {
     return <VrcdnStreamPlayer src={embed.src} title={embed.title} />;
   }
 
-  if (embed.kind === "video") {
-    return (
-      <video
-        className="aspect-video w-full bg-media"
-        controls
-        preload="metadata"
-        src={embed.src}
-        title={embed.title}
-      />
-    );
-  }
-
-  return (
-    <iframe
-      allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
-      allowFullScreen
-      className="aspect-video w-full bg-media"
-      loading="lazy"
-      referrerPolicy="strict-origin-when-cross-origin"
-      sandbox="allow-same-origin allow-scripts allow-popups allow-presentation"
-      src={embed.src}
-      title={embed.title}
-    />
-  );
+  if (embed.kind === "video") return <ForegroundWatchVideo src={embed.src} title={embed.title} />;
+  return <ForegroundWatchEmbed key={embed.src} src={embed.src} title={embed.title} />;
 }
 
-export function EventWatchSurface({
+export function EventWatchSurface(props: Parameters<typeof StandaloneEventWatchSurface>[0] & { playbackRequest?: PlaybackRequest }) {
+  const owner = useEventPlayback();
+  if (owner && props.playbackRequest) return <EventPlaybackInline owner={owner} request={props.playbackRequest} />;
+  return <StandaloneEventWatchSurface {...props} />;
+}
+
+function StandaloneEventWatchSurface({
   doorsOpenAt,
   endAt,
   enabled,

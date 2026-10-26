@@ -1,3 +1,4 @@
+import { bindVrcdnTestAccount } from "./_eventOutputAccountFixture";
 import assert from "node:assert/strict";
 import { it } from "node:test";
 import { convexTest } from "convex-test";
@@ -281,6 +282,7 @@ async function fixture() {
   const ids = await t.run(async ctx => {
     const users = await Promise.all(["contributor", "staff", "moderator", "other"].map(clerkUserId => ctx.db.insert("users", { clerkUserId })));
     const communityId = await ctx.db.insert("profiles", { slug: "club", displayName: "Club", sortName: "club", profileType: "community", community: { categoryTags: [] }, aliases: [], tags: [], claimState: "unclaimed", publicationState: "published", publicSurfacingState: "public", creationSource: "community", updatedAt: Date.now() });
+    bindVrcdnTestAccount(communityId, "vrcdn/main");
     await ctx.db.insert("profileOwners", { profileId: communityId, userId: users[1], roleKey: "owner", state: "active", grantedAt: Date.now(), updatedAt: Date.now() });
     await ctx.db.insert("accountFeatureGrants", { userId: users[2], feature: "super_admin", state: "active", grantedBy: { tokenIdentifier: "test|moderator", subject: "moderator", issuer: "test" }, grantedAt: Date.now(), updatedAt: Date.now() });
     return { communityId, users };
@@ -788,4 +790,19 @@ it("fails closed when removed rows fill the bounded same-day duplicate scan", as
     for (let i = 0; i < 102; i++) await ctx.db.insert("events", { ...fields, title: `Removed ${i}`, contributionFingerprint: undefined, moderationRemovedAt: Date.now(), publicationState: "draft_private" });
   });
   await assert.rejects(contributor.mutation(command("updateOwnContributedEvent"), { eventId: event._id, expectedUpdatedAt: event.updatedAt, patch: { title: "New title" } }), /TARGET_QUOTA/);
+});
+
+it("a retained published contribution uses successive correction revisions and preserves its one event", async () => {
+  const { t, contributor, staff, event } = await fixture();
+  const original = await contributor.query(api.eventCorrections.getOwnContributedEvent, { eventId: event._id });
+  const first = await contributor.mutation(api.eventCorrections.updateOwnContributedEvent, { eventId: event._id, expectedUpdatedAt: original.updatedAt, patch: { title: "After publication" } });
+  const second = await contributor.mutation(api.eventCorrections.updateOwnContributedEvent, { eventId: event._id, expectedUpdatedAt: first.updatedAt, patch: { summary: "A later edit" } });
+  assert.equal(first.eventId, event._id);
+  assert.equal(second.eventId, event._id);
+  assert.equal((await t.run(ctx => ctx.db.query("events").collect())).length, 1);
+  await assert.rejects(contributor.mutation(api.eventCorrections.updateOwnContributedEvent, { eventId: event._id, expectedUpdatedAt: first.updatedAt, patch: { title: "Stale" } }), /VERSION_CONFLICT/);
+  await assert.rejects(contributor.mutation(api.eventCorrections.updateOwnContributedEvent, { eventId: event._id, expectedUpdatedAt: second.updatedAt, patch: { sourceText: "Forbidden later edit" } }), /PATCH_FIELD/);
+  await staff.mutation(api.eventCorrections.takeOverContributedEvent, { eventId: event._id });
+  await assert.rejects(contributor.mutation(api.eventCorrections.updateOwnContributedEvent, { eventId: event._id, expectedUpdatedAt: second.updatedAt, patch: { title: "Takeover race" } }), /CONTRIBUTOR_EDIT_CLOSED/);
+  assert.equal((await t.run(ctx => ctx.db.query("events").collect())).length, 1);
 });

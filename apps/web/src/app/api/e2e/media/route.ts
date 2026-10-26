@@ -129,6 +129,9 @@ async function execute(request: NextRequest, cleanup: boolean) {
         releasedReservations: finished.releasedReservations,
       });
     }
+    if (body.op === "public-details" && (body.action === "prepare" || body.action === "hide" || body.action === "restore"))
+      return NextResponse.json(await client.mutation(internal.e2eMedia.publicDetailsFixture, { ...args, action: body.action,
+        ...(typeof body.assetId === "string" ? { assetId: body.assetId as Id<"profileAssets"> } : {}) }));
     if (body.op === "inspect")
       return NextResponse.json(
         await client.query(internal.e2eMedia.inspect, args),
@@ -164,6 +167,12 @@ async function execute(request: NextRequest, cleanup: boolean) {
         after.targetBytes !== 0 || after.targetProcessing !== 0)
         throw new Error("Cleanup worker did not reclaim the exact pending upload.");
       return NextResponse.json({ workerReclaimedUpload: true });
+    }
+    if (body.op === "exercise-publication-guards" && (body.action === "edit_bio" || body.action === "reselect_primary" || body.action === "revoke_actors")) {
+      return NextResponse.json(await client.mutation(internal.e2eMedia.exercisePublicationGuards, { ...args, action: body.action }));
+    }
+    if (body.op === "grant-publication-actors") {
+      return NextResponse.json(await client.mutation(internal.e2eMedia.grantPublicationActors, args));
     }
     if (
       body.op === "assign-review-owner" &&

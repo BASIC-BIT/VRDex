@@ -12,11 +12,11 @@ Application-only credentials cannot use these routes.
 | `POST /api/v0/event-intake` | Save a partial draft, optionally using `draftId` and `expectedVersion` to update it. |
 | `GET /api/v0/event-intake/{draftId}` | Read the actor's draft and published receipt ID. |
 | `PATCH /api/v0/event-intake/{draftId}` | Update a draft with `expectedVersion` and `patch`. |
-| `POST /api/v0/event-intake/{draftId}/extract` | Propose fields from supplied text or the draft's private poster. |
+| `POST /api/v0/event-intake/{draftId}/extract` | Propose fields from text, one private poster, or both. |
 | `POST /api/v0/event-intake/{draftId}/publish` | Publish with `expectedVersion` and `idempotencyKey`. |
 | `POST /api/v0/event-intake/{draftId}/poster-upload/begin` | Reserve a private image upload with MIME type, byte count, and SHA-256. |
-| `POST /api/v0/event-intake/{draftId}/poster-upload/complete` | Validate and freeze the uploaded source for that draft. |
-| `POST /api/v0/event-intake/{draftId}/artwork` | Explicitly select and validate a separate public artwork derivative. |
+| `POST /api/v0/event-intake/{draftId}/poster-upload/complete` | Validate the source, prepare poster artwork when eligible, and return the draft version. |
+| `POST /api/v0/event-intake/{draftId}/artwork` | Prepare artwork from a singular ready source. |
 | `GET /api/v0/events/{slug}/contribution` | Read the actor's canonical editable fields and `updatedAt` revision. |
 | `PATCH /api/v0/events/{slug}/contribution` | Correct the actor's contribution before staff takeover, using `expectedUpdatedAt`. |
 | `DELETE /api/v0/events/{slug}/contribution` | Retract the actor's contribution before staff takeover. |
@@ -27,6 +27,23 @@ a draft field, `null` clears it, and candidates remain tentative. Saving returns
 `draftId` and `version`; publishing returns `eventId`, `eventPath`, and `receiptId`.
 After a lost response, read the draft or replay publication with the exact same
 draft, version, and key. A changed request with the same key conflicts.
+
+Draft patches accept one `posterSourceId`. Save validates its actor and draft,
+including pending uploads. Save a new ID to replace the poster, or null to
+remove it and clear artwork atomically. Existing private drafts can become
+empty; new drafts require meaningful input. Extraction accepts one
+`posterAssetId`, which must be ready, unexpired and owned by the same actor and
+draft before quota is reserved. Text and the poster enter one bounded discovery
+run, with a 20 MB prepared-image data-URL ceiling. Candidate evidence has at
+most 40 private entries with text, poster, lookup or calculation origin.
+Event and lineup times may include nullable ISO `startDate` and `endDate`.
+Missing model configuration retains the manual fallback.
+
+The existing `artwork_select` command accepts a non-null singular source ID and
+returns `artworkAssetId` and `version`. Draft reads expose `artworkSourceId` for
+preview. Completion prepares artwork automatically, supports failed-derivative
+retry, and rejects stale versions. Removed or replaced sources cannot win a
+late automatic completion.
 
 `GET /api/v0/events/{eventId}/artwork/{artworkAssetId}` returns only the separately
 selected WebP for that currently public event. It checks both IDs and current
@@ -47,6 +64,9 @@ uses a date value with Time TBA; timed events retain exact instants. Lineup read
 preserves ordered timed, untimed and unmatched entries.
 
 Staff takeover closes contributor updates/retraction even with a fresh revision.
+Correction patches cannot change community, private source evidence, artwork,
+live controls, or staff fields. The website correction editor presents Details,
+Lineup, and Review on the event page with the same scoped command.
 Read the actor-scoped contribution endpoint before each correction and pass its
 `updatedAt` as `expectedUpdatedAt`. Contributor person matches remain visible in
 the event lineup but unconfirmed on the person's profile until staff review.

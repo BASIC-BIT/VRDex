@@ -23,9 +23,11 @@ import {
 import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 import { userOwnsProfile } from "./_profileOwnership";
 import { canReadProfile } from "./_profilePermissions";
+import { projectPublicMediaDetails } from "./_publicMediaDetails";
 import { isProfileFieldVisible } from "./_profileFieldVisibility";
 import {
   PROFILE_ASSET_MAX_ACTIVE_COUNT,
+  selectProfileAssetIdentity,
   PROFILE_ASSET_UPLOAD_PROCESSING_MAX_ATTEMPTS,
   PROFILE_ASSET_UPLOAD_PROCESSING_LEASE_MS,
   assertProfileMediaVersion,
@@ -1320,6 +1322,7 @@ async function replaceOwnedAssetPlacements(
   asset: Doc<"profileAssets">,
   placements: ProfileAssetPlacement[],
   now: number,
+  actorUserId: Id<"users">,
 ) {
   const uniquePlacements = [...new Set(placements)];
 
@@ -1342,6 +1345,8 @@ async function replaceOwnedAssetPlacements(
     .filter((query) => query.eq(query.field("state"), "active"))
     .collect();
   const desired = new Set(uniquePlacements);
+  if (asset.sourceSubmissionId && uniquePlacements.some(p => p === "profile_image" || p === "primary_logo") &&
+    current.some(p => p.placement === "gallery")) desired.add("gallery");
 
   await Promise.all(
     current
@@ -1350,6 +1355,10 @@ async function replaceOwnedAssetPlacements(
   );
 
   for (const placement of uniquePlacements) {
+    if (placement === "profile_image" || placement === "primary_logo") {
+      await selectProfileAssetIdentity(db, { profileId, assetId: asset._id, placement, actorUserId, now });
+      continue;
+    }
     if (current.some((item) => item.placement === placement)) {
       continue;
     }
@@ -1549,6 +1558,7 @@ export const manageOwnedMediaForMcpActor = internalMutation({
           currentAsset,
           args.asset.placements,
           now,
+          args.ownerUserId,
         );
       }
 
@@ -2118,5 +2128,31 @@ export const getOwnedAssetForStorage = query({
       downloadMimeType: asset.downloadMimeType,
       downloadByteSize: asset.downloadByteSize,
     };
+  },
+});
+
+export const getPublicAssetDetails = query({
+  args: { slug: v.string(), assetId: v.string() },
+  handler: async (ctx, args) => {
+    const validation = validateProfileSlug(args.slug);
+    const assetId = ctx.db.normalizeId("profileAssets", args.assetId);
+    if (!validation.ok || assetId === null) return null;
+    const profile = await getProfileBySlug(ctx.db, validation.slug);
+    if (!profile || !canReadProfile("public", profile)) return null;
+    const kit = await getPublicProfileMediaKit(ctx.db, profile);
+    const publicAssets = [
+      ...kit.assets,
+      ...kit.galleryAssets,
+      ...kit.logos,
+      kit.profileImage,
+      kit.banner,
+      kit.featuredAsset,
+      kit.primaryLogo,
+    ];
+    const publicAsset = publicAssets.find((asset) => asset?.assetId === assetId);
+    if (!publicAsset) return null;
+    const asset = await ctx.db.get(assetId);
+    if (!asset || asset.profileId !== profile._id || asset.moderatorSuppressedAt !== undefined) return null;
+    return await projectPublicMediaDetails(ctx.db, { profile, asset, publicAsset });
   },
 });

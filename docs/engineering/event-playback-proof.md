@@ -12,8 +12,11 @@ an analyser, a source gain, a shared viewer gain, and an output analyser. The
 measurement is upstream of viewer mute and volume. The prepared source has zero
 source gain until switching.
 
-Use **below -90 dBFS for at least 1000 ms** as the measured initial candidate for
-Task 4. Sample every 100 ms, require decoded progress and a running audio context,
+The September experiment selected **below -90 dBFS for at least 1000 ms** as an
+initial synthetic candidate for its later Task 4. The October approved event
+broadcast policy supersedes that enablement: automatic silence handoff is off
+in browser and worker until representative rights-cleared music is calibrated.
+The measurements below remain historical evidence. Sample every 100 ms, require decoded progress and a running audio context,
 and invalidate evidence when the interval exceeds 500 ms. Pause, context suspension,
 and observation resets must discard the accumulated interval. This threshold
 separates the tested quiet tone from digital silence. It is not a general music
@@ -75,8 +78,9 @@ synthetic quiet-music proxy, not a representative music corpus. A prior -80 dBFS
 candidate classified that quiet source as silence; -90 dBFS did not during the
 recorded full-second observation. The 600 ms break never qualified. The two-second
 break did qualify, as expected for a one-second rule. A genuine silent musical
-break can therefore cause a handoff if the later product's eligibility and next
-readiness conditions are also true. Do not claim zero false transitions in music.
+break would therefore satisfy that experimental silence rule. The current product
+does not enable automatic silence handoff. Do not claim zero false transitions
+from synthetic music proxies.
 
 Explicit AudioContext suspension and resumption passed in both engines. A real
 700 ms main-thread delay invalidated stale evidence. Opening and focusing another

@@ -1,3 +1,4 @@
+import { bindVrcdnTestAccount } from "./_eventOutputAccountFixture";
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
@@ -45,6 +46,7 @@ async function seedOwnedCommunity(t: ReturnType<typeof convexTest>) {
       profileType: "community",
       community: { categoryTags: [] },
     });
+    bindVrcdnTestAccount(profileId, "vrcdn/main");
     await ctx.db.insert("profileOwners", {
       profileId,
       userId,
@@ -1200,8 +1202,10 @@ describe("API-created event ownership", () => {
       });
     });
 
-    const inventory = await t.withIdentity(identity).query(api.events.listManagedCommunities, {});
-    assert.equal(inventory.some((community) => community.slug === "managed-community-target"), false);
+    await assert.rejects(
+      t.withIdentity(identity).query(api.events.listManagedCommunities, {}),
+      /Managed community inventory requires pagination/,
+    );
     const target = await t.withIdentity(identity).query(api.events.getManagedCommunityBySlug, {
       slug: "managed-community-target",
     });

@@ -230,6 +230,7 @@ export const getContext = query({
   args: { ...base, freshnessNonce: v.optional(v.string()) },
   returns: v.object({
     epochStartedAt: v.union(v.number(), v.null()),
+    groupCreatedAt: v.optional(v.number()),
     now: v.number(),
     current: v.object({
       population: v.optional(v.number()),
@@ -280,6 +281,11 @@ export const getContext = query({
             .order("desc")
             .first()
         : null;
+    const groupMetadata = state.integration && state.allowed("group_size")
+      ? await ctx.db.query("vrchatGroupMemberMetadata")
+          .withIndex("by_vrchatGroupId", (q) => q.eq("vrchatGroupId", state.integration!.vrchatGroupId))
+          .unique()
+      : null;
     const fresh =
       population &&
       (!state.integration?.enabledFeatures ||
@@ -290,6 +296,7 @@ export const getContext = query({
       state.integration?.state !== "disconnecting";
     return {
       epochStartedAt: state.integration ? state.epoch : null,
+      ...(groupMetadata?.groupCreatedAt === undefined ? {} : { groupCreatedAt: groupMetadata.groupCreatedAt }),
       now,
       current: {
         ...(fresh
@@ -444,6 +451,14 @@ export const getBucket = query({
         (latest.observedAt >= startAt || continuous)
           ? latest
           : null;
+      const groupMetadata = state.integration && state.allowed("membership_movement") && state.allowed("group_size")
+        ? await ctx.db.query("vrchatGroupMemberMetadata")
+            .withIndex("by_vrchatGroupId", (q) => q.eq("vrchatGroupId", state.integration!.vrchatGroupId))
+            .unique()
+        : null;
+      const groupCreatedAt = groupMetadata?.groupCreatedAt;
+      const foundingInRange = groupCreatedAt !== undefined &&
+        groupCreatedAt >= args.startAt && groupCreatedAt < endAt;
       membership = {
         continuous,
         continuousUntil,
@@ -454,8 +469,8 @@ export const getBucket = query({
           ? (visibleLatest?.observedAt ?? null)
           : null,
         netChange:
-          state.allowed("membership_movement") && before && latest
-            ? latest.memberCount - before.memberCount
+          state.allowed("membership_movement") && latest && (before || foundingInRange)
+            ? latest.memberCount - (before?.memberCount ?? 1)
             : null,
       };
     }

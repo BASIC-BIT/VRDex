@@ -65,6 +65,60 @@ test("metadata reaches the control plane with its lease and only after a shared 
   assert.equal(run.metadataBudget.remaining(), 14);
 });
 
+const personId = "usr_71fc66f4-249b-4737-969e-47bf30a1a8ba";
+const iconFileId = "file_df4eb0c6-4d36-468d-934f-26523453aa0e";
+const iconUrl = `https://api.vrchat.cloud/api/1/image/${iconFileId}/1/256`;
+const personJob = { key: `vrchat_user:${personId}`, kind: "vrchat_user", locator: personId, leaseToken: "person-lease" };
+const personResponse = { id: personId, displayName: "DrBlue47", iconUrl };
+const fileResponse = { id: iconFileId, ownerId: personId, tags: ["icon"], versions: [
+  { version: 0, status: "complete" },
+  { version: 1, status: "complete", file: { status: "complete", url: `https://api.vrchat.cloud/api/1/file/${iconFileId}/1/file` } },
+] };
+
+test("the observed modern person response reaches the control plane with verified icon provenance", async () => {
+  const run = scenario({ jobs: [personJob], providerResponse: url => {
+    if (url.endsWith(`/users/${personId}`)) return json(personResponse);
+    if (url.endsWith(`/file/${iconFileId}`)) return json(fileResponse);
+    assert.fail(`Unexpected provider URL: ${url}`);
+  } });
+  await run.run();
+  assert.deepEqual(run.requests.find(entry => entry.operation === "destination_result").result, {
+    status: "resolved", entityId: personId, displayName: "DrBlue47", artworkSourceUrl: iconUrl, artworkType: "user_icon",
+  });
+  const providerIndexes = run.requests.flatMap((entry, index) => entry.boundary === "provider" ? [index] : []);
+  assert.equal(providerIndexes.length, 2);
+  for (const index of providerIndexes) assert.equal(run.requests[index - 1].operation, "proof_budget");
+  assert.equal(run.accountBudget.remaining(), 28);
+  assert.equal(run.metadataBudget.remaining(), 13);
+});
+
+test("denying the icon-file reservation preserves cached artwork without making the second provider request", async () => {
+  let reservations = 0;
+  const run = scenario({ jobs: [personJob], providerResponse: () => json(personResponse),
+    controlResponse: body => body.operation === "proof_budget" ? json({ granted: ++reservations === 1 }) : undefined,
+  });
+  await run.run();
+  assert.equal(reservations, 2);
+  assert.equal(run.requests.filter(entry => entry.boundary === "provider").length, 1);
+  assert.deepEqual(run.requests.at(-1).result, { status: "transient" });
+  assert.equal(run.accountBudget.remaining(), 29);
+});
+
+test("icon-file authentication and rate limits use the existing collector account handling", async () => {
+  for (const status of [401, 429]) {
+    const run = scenario({ jobs: [personJob], providerResponse: url => url.endsWith(`/users/${personId}`) ? json(personResponse) : json({}, status, { "retry-after": "90" }) });
+    await run.run();
+    assert.equal(run.requests.filter(entry => entry.boundary === "provider").length, 2);
+    if (status === 401) {
+      assert.deepEqual(run.requests.slice(-2).map(entry => entry.operation), ["destination_result", "proof_auth_failure"]);
+      assert.deepEqual(run.requests.at(-2).result, { status: "transient" });
+    } else {
+      assert.deepEqual(run.requests.slice(-2).map(entry => entry.operation), ["proof_rate_limit", "destination_result"]);
+      assert.equal(run.requests.at(-2).retryAfterMs, 90_000);
+    }
+  }
+});
+
 test("a denied shared budget releases the lease without querying VRChat or consuming local allowance", async () => {
   const run = scenario({ controlResponse: body => body.operation === "proof_budget" ? json({ granted: false }) : undefined });
   await run.run();

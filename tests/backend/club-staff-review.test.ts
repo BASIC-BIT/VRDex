@@ -294,7 +294,7 @@ describe("independent staff boundary checks", () => {
         );
         await t
           .withIdentity(verifiedIdentity(recipient))
-          .mutation(api.clubStaff.acceptStaffInvitation, {
+          .action(api.clubStaff.acceptStaffInvitation, {
             communitySlug: "test-club",
             token: prior.token,
           });
@@ -302,7 +302,7 @@ describe("independent staff boundary checks", () => {
       await assert.rejects(
         t
           .withIdentity(verifiedIdentity(recipient))
-          .mutation(api.clubStaff.acceptStaffInvitation, {
+          .action(api.clubStaff.acceptStaffInvitation, {
             communitySlug: "test-club",
             token: invite.token,
           }),
@@ -340,7 +340,7 @@ describe("independent staff boundary checks", () => {
     );
     await t
       .withIdentity(verifiedIdentity(delegate))
-      .mutation(api.clubStaff.acceptStaffInvitation, {
+      .action(api.clubStaff.acceptStaffInvitation, {
         communitySlug: "test-club",
         token: first.token,
       });
@@ -361,7 +361,7 @@ describe("independent staff boundary checks", () => {
     await assert.rejects(
       t
         .withIdentity(verifiedIdentity(recipient))
-        .mutation(api.clubStaff.acceptStaffInvitation, {
+        .action(api.clubStaff.acceptStaffInvitation, {
           communitySlug: "test-club",
           token: invite.token,
         }),
@@ -382,7 +382,7 @@ describe("independent staff boundary checks", () => {
     );
     await t
       .withIdentity(verifiedIdentity(recipient))
-      .mutation(api.clubStaff.acceptStaffInvitation, {
+      .action(api.clubStaff.acceptStaffInvitation, {
         communitySlug: "test-club",
         token: invite.token,
       });

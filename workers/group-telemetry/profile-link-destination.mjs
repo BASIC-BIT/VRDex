@@ -38,6 +38,36 @@ export function allowedDestinationArtworkUrl(value, kind) {
   } catch { return undefined; }
 }
 
+function iconFileReference(value) {
+  const allowed = allowedDestinationArtworkUrl(value, "vrchat_user");
+  if (!allowed) return undefined;
+  const match = new URL(allowed).pathname.match(new RegExp(`^/api/1/(image|file)/(file_${UUID})/([1-9][0-9]{0,8})/([1-9][0-9]{0,4}|file)$`, "i"));
+  if (!match || (match[1] === "image" ? match[4] === "file" : match[4] !== "file")) return undefined;
+  return { endpoint: match[1], id: match[2].toLowerCase(), version: Number(match[3]) };
+}
+
+async function personArtwork(entity, requestVrchat) {
+  const explicitIcon = allowedDestinationArtworkUrl(entity.userIcon, "vrchat_user");
+  if (explicitIcon) return explicitIcon;
+  const source = allowedDestinationArtworkUrl(entity.iconUrl, "vrchat_user");
+  const reference = iconFileReference(source);
+  if (!reference) return undefined;
+  let file;
+  try { file = record(await requestVrchat(`/file/${reference.id}`)); }
+  catch (error) {
+    // An inaccessible image does not invalidate the user. Temporary and
+    // account-wide failures retain the existing cached-result/backoff policy.
+    if ([403, 404, 410].includes(error?.status)) return undefined;
+    throw error;
+  }
+  if (file.id !== reference.id || file.ownerId !== entity.id || !Array.isArray(file.tags)
+    || file.tags.length !== 1 || file.tags[0] !== "icon" || !Array.isArray(file.versions)) return undefined;
+  const version = file.versions.find(value => record(value).version === reference.version);
+  if (!version || version.deleted === true || version.status !== "complete" || record(version.file).status !== "complete") return undefined;
+  const original = iconFileReference(version.file.url);
+  return original?.endpoint === "file" && original.id === reference.id && original.version === reference.version ? source : undefined;
+}
+
 function providerFailure(error) {
   // Account-wide failures must reach the collector's existing session/cooldown handling.
   if (error?.status === 401 || error?.status === 429 || ["authentication", "rate_limit", "metadata_budget", "control_plane"].includes(error?.category)) throw error;
@@ -126,8 +156,7 @@ export async function resolveProfileLinkDestination(target, { requestVrchat, fet
     if (isGroup && entity.privacy !== "default") return { status: "inaccessible" };
     const displayName = name(isGroup ? entity.name : entity.displayName);
     if (!displayName) return { status: "transient" };
-    const candidates = isGroup ? [entity.iconUrl] : [entity.userIcon];
-    const artworkSourceUrl = candidates.map((url) => allowedDestinationArtworkUrl(url, target.kind)).find(Boolean);
+    const artworkSourceUrl = isGroup ? allowedDestinationArtworkUrl(entity.iconUrl, target.kind) : await personArtwork(entity, requestVrchat);
     return { status: "resolved", entityId: entity.id.toLowerCase(), displayName, ...(artworkSourceUrl ? { artworkSourceUrl, artworkType: isGroup ? "group_icon" : "user_icon" } : {}) };
   } catch (error) { return providerFailure(error); }
 }

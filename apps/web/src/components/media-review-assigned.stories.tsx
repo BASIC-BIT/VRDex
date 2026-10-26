@@ -19,6 +19,8 @@ const row: Props["row"] = {
   profileType: "person",
   profileIsPublic: true,
   requestedPlacement: "profile_image",
+  requestKind: undefined,
+  candidateAssetId: undefined,
   status: "submitted",
   sourceKind: "local",
   sourceDescription: description,
@@ -40,12 +42,13 @@ const row: Props["row"] = {
   publicDisposition: undefined,
   approvedAssetId: undefined,
 };
-function Fixture() {
+function Fixture({ replacement = false }: { replacement?: boolean } = {}) {
   const [selected, setSelected] = useState<ReviewDecision[]>([]);
   const [receipts, setReceipts] = useState<CommandReceipt[]>([]);
   const [revision, setRevision] = useState(1);
   const detail: Props["detail"] = {
     ...row,
+    requestKind: replacement ? "identity_placement" : "kit_asset",
     reviewVersion: String(revision),
     currentProfileUpdatedAt: 2,
     targetProfileUpdatedAt: revision,
@@ -80,7 +83,7 @@ function Fixture() {
         }
       />
       <ReviewCardView
-        row={row}
+        row={{ ...row, requestKind: replacement ? "identity_placement" : "kit_asset" }}
         detail={detail}
         selected={selected[0]}
         select={(input) => {
@@ -140,6 +143,7 @@ function ProductionPanelFixture({
     let responseLost = loseResponse;
     const detail = {
       ...row,
+      requestKind: "identity_placement",
       targetProfileUpdatedAt: 2,
       reviewVersion: "v2",
       currentPlacement: null,
@@ -176,7 +180,7 @@ function ProductionPanelFixture({
             };
           if (name.endsWith(":reviewDetail")) return detail;
           return {
-            page: removed ? [] : [row],
+            page: removed ? [] : [{ ...row, requestKind: "identity_placement" }],
             isDone: true,
             continueCursor: "",
           };
@@ -271,3 +275,5 @@ function OwnInventoryFixture() {
   );
 }
 export const OwnInventory: Story = { render: () => <OwnInventoryFixture /> };
+
+export const PublishedReplacement: Story = { render: () => <Fixture replacement /> };

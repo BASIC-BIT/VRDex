@@ -174,6 +174,7 @@ paths:
                     posterSourceId:
                       anyOf:
                         - type: string
+                          minLength: 1
                           maxLength: 200
                         - type: "null"
                     posterDeclaration:
@@ -269,6 +270,21 @@ paths:
                                       - time
                                     additionalProperties: false
                                   - type: "null"
+                              relativeTiming:
+                                type: object
+                                properties:
+                                  offsetMinutes:
+                                    type: integer
+                                    minimum: -1440
+                                    maximum: 115200
+                                  durationMinutes:
+                                    type: integer
+                                    exclusiveMinimum: 0
+                                    maximum: 1440
+                                required:
+                                  - offsetMinutes
+                                  - durationMinutes
+                                additionalProperties: false
                             required:
                               - clientKey
                               - position
@@ -390,6 +406,7 @@ paths:
                             posterSourceId:
                               anyOf:
                                 - type: string
+                                  minLength: 1
                                   maxLength: 200
                                 - type: "null"
                             posterDeclaration:
@@ -485,12 +502,62 @@ paths:
                                               - time
                                             additionalProperties: false
                                           - type: "null"
+                                      relativeTiming:
+                                        type: object
+                                        properties:
+                                          offsetMinutes:
+                                            type: integer
+                                            minimum: -1440
+                                            maximum: 115200
+                                          durationMinutes:
+                                            type: integer
+                                            exclusiveMinimum: 0
+                                            maximum: 1440
+                                        required:
+                                          - offsetMinutes
+                                          - durationMinutes
+                                        additionalProperties: false
                                     required:
                                       - clientKey
                                       - position
                                     additionalProperties: false
                                 - type: "null"
                           additionalProperties: false
+                        - type: "null"
+                    evidence:
+                      anyOf:
+                        - maxItems: 40
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              fieldPath:
+                                type: string
+                                maxLength: 120
+                              origin:
+                                type: string
+                                enum:
+                                  - text
+                                  - poster
+                                  - lookup
+                                  - calculation
+                              excerpt:
+                                anyOf:
+                                  - type: string
+                                    maxLength: 500
+                                  - type: "null"
+                              assessment:
+                                type: string
+                                enum:
+                                  - explicit
+                                  - inferred
+                                  - conflicting
+                            required:
+                              - fieldPath
+                              - origin
+                              - excerpt
+                              - assessment
+                            additionalProperties: false
                         - type: "null"
                     questions:
                       anyOf:
@@ -729,6 +796,7 @@ paths:
                       posterSourceId:
                         anyOf:
                           - type: string
+                            minLength: 1
                             maxLength: 200
                           - type: "null"
                       posterDeclaration:
@@ -824,6 +892,21 @@ paths:
                                         - time
                                       additionalProperties: false
                                     - type: "null"
+                                relativeTiming:
+                                  type: object
+                                  properties:
+                                    offsetMinutes:
+                                      type: integer
+                                      minimum: -1440
+                                      maximum: 115200
+                                    durationMinutes:
+                                      type: integer
+                                      exclusiveMinimum: 0
+                                      maximum: 1440
+                                  required:
+                                    - offsetMinutes
+                                    - durationMinutes
+                                  additionalProperties: false
                               required:
                                 - clientKey
                                 - position
@@ -945,6 +1028,7 @@ paths:
                               posterSourceId:
                                 anyOf:
                                   - type: string
+                                    minLength: 1
                                     maxLength: 200
                                   - type: "null"
                               posterDeclaration:
@@ -1040,12 +1124,62 @@ paths:
                                                 - time
                                               additionalProperties: false
                                             - type: "null"
+                                        relativeTiming:
+                                          type: object
+                                          properties:
+                                            offsetMinutes:
+                                              type: integer
+                                              minimum: -1440
+                                              maximum: 115200
+                                            durationMinutes:
+                                              type: integer
+                                              exclusiveMinimum: 0
+                                              maximum: 1440
+                                          required:
+                                            - offsetMinutes
+                                            - durationMinutes
+                                          additionalProperties: false
                                       required:
                                         - clientKey
                                         - position
                                       additionalProperties: false
                                   - type: "null"
                             additionalProperties: false
+                          - type: "null"
+                      evidence:
+                        anyOf:
+                          - maxItems: 40
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                fieldPath:
+                                  type: string
+                                  maxLength: 120
+                                origin:
+                                  type: string
+                                  enum:
+                                    - text
+                                    - poster
+                                    - lookup
+                                    - calculation
+                                excerpt:
+                                  anyOf:
+                                    - type: string
+                                      maxLength: 500
+                                    - type: "null"
+                                assessment:
+                                  type: string
+                                  enum:
+                                    - explicit
+                                    - inferred
+                                    - conflicting
+                              required:
+                                - fieldPath
+                                - origin
+                                - excerpt
+                                - assessment
+                              additionalProperties: false
                           - type: "null"
                       questions:
                         anyOf:
@@ -1247,6 +1381,7 @@ paths:
                     posterSourceId:
                       anyOf:
                         - type: string
+                          minLength: 1
                           maxLength: 200
                         - type: "null"
                     posterDeclaration:
@@ -1342,6 +1477,21 @@ paths:
                                       - time
                                     additionalProperties: false
                                   - type: "null"
+                              relativeTiming:
+                                type: object
+                                properties:
+                                  offsetMinutes:
+                                    type: integer
+                                    minimum: -1440
+                                    maximum: 115200
+                                  durationMinutes:
+                                    type: integer
+                                    exclusiveMinimum: 0
+                                    maximum: 1440
+                                required:
+                                  - offsetMinutes
+                                  - durationMinutes
+                                additionalProperties: false
                             required:
                               - clientKey
                               - position
@@ -1463,6 +1613,7 @@ paths:
                             posterSourceId:
                               anyOf:
                                 - type: string
+                                  minLength: 1
                                   maxLength: 200
                                 - type: "null"
                             posterDeclaration:
@@ -1558,12 +1709,62 @@ paths:
                                               - time
                                             additionalProperties: false
                                           - type: "null"
+                                      relativeTiming:
+                                        type: object
+                                        properties:
+                                          offsetMinutes:
+                                            type: integer
+                                            minimum: -1440
+                                            maximum: 115200
+                                          durationMinutes:
+                                            type: integer
+                                            exclusiveMinimum: 0
+                                            maximum: 1440
+                                        required:
+                                          - offsetMinutes
+                                          - durationMinutes
+                                        additionalProperties: false
                                     required:
                                       - clientKey
                                       - position
                                     additionalProperties: false
                                 - type: "null"
                           additionalProperties: false
+                        - type: "null"
+                    evidence:
+                      anyOf:
+                        - maxItems: 40
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              fieldPath:
+                                type: string
+                                maxLength: 120
+                              origin:
+                                type: string
+                                enum:
+                                  - text
+                                  - poster
+                                  - lookup
+                                  - calculation
+                              excerpt:
+                                anyOf:
+                                  - type: string
+                                    maxLength: 500
+                                  - type: "null"
+                              assessment:
+                                type: string
+                                enum:
+                                  - explicit
+                                  - inferred
+                                  - conflicting
+                            required:
+                              - fieldPath
+                              - origin
+                              - excerpt
+                              - assessment
+                            additionalProperties: false
                         - type: "null"
                     questions:
                       anyOf:
@@ -1664,6 +1865,18 @@ paths:
                           - type: string
                             maxLength: 5
                           - type: "null"
+                      startDate:
+                        anyOf:
+                          - type: string
+                            format: date
+                            pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))$
+                          - type: "null"
+                      endDate:
+                        anyOf:
+                          - type: string
+                            format: date
+                            pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))$
+                          - type: "null"
                       timezone:
                         anyOf:
                           - type: string
@@ -1690,6 +1903,8 @@ paths:
                       - eventDate
                       - start
                       - end
+                      - startDate
+                      - endDate
                       - timezone
                       - venueLabel
                       - summary
@@ -1726,15 +1941,29 @@ paths:
                             - type: string
                               maxLength: 5
                             - type: "null"
+                        startDate:
+                          anyOf:
+                            - type: string
+                              format: date
+                              pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))$
+                            - type: "null"
+                        endDate:
+                          anyOf:
+                            - type: string
+                              format: date
+                              pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))$
+                            - type: "null"
                       required:
                         - performerLabel
                         - personSlug
                         - roleLabel
                         - start
                         - end
+                        - startDate
+                        - endDate
                       additionalProperties: false
                   evidence:
-                    maxItems: 100
+                    maxItems: 40
                     type: array
                     items:
                       type: object
@@ -2050,6 +2279,10 @@ paths:
                   type: string
                   minLength: 1
                   maxLength: 200
+                expectedVersion:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
               required:
                 - posterAssetId
               additionalProperties: false
@@ -2065,8 +2298,17 @@ paths:
                     type: string
                     minLength: 1
                     maxLength: 200
+                  artworkAssetId:
+                    type: string
+                    minLength: 1
+                    maxLength: 200
+                  version:
+                    type: integer
+                    exclusiveMinimum: 0
+                    maximum: 9007199254740991
                 required:
                   - posterAssetId
+                  - version
                 additionalProperties: false
         "400": *a1
         "401":
@@ -2326,6 +2568,7 @@ paths:
                       posterSourceId:
                         anyOf:
                           - type: string
+                            minLength: 1
                             maxLength: 200
                           - type: "null"
                       posterDeclaration:
@@ -2421,6 +2664,21 @@ paths:
                                         - time
                                       additionalProperties: false
                                     - type: "null"
+                                relativeTiming:
+                                  type: object
+                                  properties:
+                                    offsetMinutes:
+                                      type: integer
+                                      minimum: -1440
+                                      maximum: 115200
+                                    durationMinutes:
+                                      type: integer
+                                      exclusiveMinimum: 0
+                                      maximum: 1440
+                                  required:
+                                    - offsetMinutes
+                                    - durationMinutes
+                                  additionalProperties: false
                               required:
                                 - clientKey
                                 - position
@@ -2656,6 +2914,21 @@ paths:
                                       - time
                                     additionalProperties: false
                                   - type: "null"
+                              relativeTiming:
+                                type: object
+                                properties:
+                                  offsetMinutes:
+                                    type: integer
+                                    minimum: -1440
+                                    maximum: 115200
+                                  durationMinutes:
+                                    type: integer
+                                    exclusiveMinimum: 0
+                                    maximum: 1440
+                                required:
+                                  - offsetMinutes
+                                  - durationMinutes
+                                additionalProperties: false
                             required:
                               - clientKey
                               - position
@@ -3642,6 +3915,164 @@ paths:
         "400": *a1
         "404": *a2
         "429": *a3
+  /api/v0/profiles/{slug}/assets/{assetId}:
+    get:
+      operationId: getPublicProfileMediaDetails
+      tags:
+        - Profiles
+        - Assets
+      summary: Get public image details and history
+      security: &a14
+        - bearerAuth: []
+        - oauth2:
+            - public:read
+        - {}
+      parameters:
+        - in: path
+          name: slug
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 160
+            description: Public profile slug.
+          required: true
+          description: Public profile slug.
+        - in: path
+          name: assetId
+          schema:
+            type: string
+            minLength: 1
+            description: Public profile asset id.
+          required: true
+          description: Public profile asset id.
+      responses:
+        "200":
+          description: Public image details and history.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  profileSlug:
+                    type: string
+                  asset:
+                    type: object
+                    properties:
+                      assetId:
+                        type: string
+                      byteSize:
+                        type: integer
+                        exclusiveMinimum: 0
+                        maximum: 9007199254740991
+                      caption:
+                        type: string
+                      altText:
+                        type: string
+                      credit:
+                        type: string
+                      creditUrl:
+                        type: string
+                        maxLength: 2048
+                        format: uri
+                      downloadUrl:
+                        $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                      detailsUrl:
+                        $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                      downloadByteSize:
+                        type: integer
+                        exclusiveMinimum: 0
+                        maximum: 9007199254740991
+                      downloadMimeType:
+                        type: string
+                      imageUrl:
+                        $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                      label:
+                        type: string
+                      mimeType:
+                        type: string
+                      sourcePreserved:
+                        type: boolean
+                    additionalProperties: false
+                  referenceUrl:
+                    anyOf:
+                      - type: string
+                        maxLength: 2048
+                        format: uri
+                      - type: "null"
+                  credit:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  uploadedBy:
+                    anyOf:
+                      - type: object
+                        properties:
+                          displayName:
+                            type: string
+                          profileSlug:
+                            type: string
+                          profileUrl:
+                            type: string
+                        required:
+                          - displayName
+                          - profileSlug
+                          - profileUrl
+                        additionalProperties: false
+                      - type: "null"
+                  history:
+                    maxItems: 3
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        kind:
+                          type: string
+                          enum:
+                            - uploaded
+                            - approved
+                            - published
+                        at:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        actor:
+                          anyOf:
+                            - type: object
+                              properties:
+                                displayName:
+                                  type: string
+                                profileSlug:
+                                  type: string
+                                profileUrl:
+                                  type: string
+                              required:
+                                - displayName
+                                - profileSlug
+                                - profileUrl
+                              additionalProperties: false
+                            - type: "null"
+                      required:
+                        - kind
+                        - at
+                        - actor
+                      additionalProperties: false
+                required:
+                  - profileSlug
+                  - asset
+                  - referenceUrl
+                  - credit
+                  - uploadedBy
+                  - history
+                additionalProperties: false
+        "400": *a1
+        "404": *a2
+        "429": *a3
+        "503":
+          description: Public profile data is unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
   /api/v0/profiles/{slug}/assets/{assetId}/file:
     get:
       operationId: downloadPublicProfileAssetFile
@@ -3943,11 +4374,7 @@ paths:
         - Assets
       summary: Probe profile asset upload storage
       description: Returns deployment health for the profile asset upload storage backend.
-      security: &a16
-        - bearerAuth: []
-        - oauth2:
-            - public:read
-        - {}
+      security: *a14
       responses:
         "200":
           description: Profile asset storage is configured and reachable.
@@ -4133,7 +4560,7 @@ paths:
         - Events
       summary: Update a current user's community event
       description: Updates a public event attached to a community profile owned by a bearer credential with user authority and events:write scope. Optional fields and relations omitted from the PATCH body are preserved.
-      security: &a14
+      security: &a15
         - bearerAuth: []
         - oauth2:
             - events:write
@@ -4192,7 +4619,7 @@ paths:
         - Events
       summary: Create a current user's community event
       description: Creates a public event attached to a community profile owned by a bearer credential with user authority and events:write scope.
-      security: *a14
+      security: *a15
       requestBody:
         required: true
         content:
@@ -4360,7 +4787,7 @@ paths:
         - Time
       summary: Parse a natural-language time expression
       description: Returns a canonical instant, range, clarification, or a 202 continuation while the scale-to-zero model warms. Closed beta requires a verified user-owned personal token with time:parse.
-      security: &a15
+      security: &a16
         - bearerAuth: []
       parameters:
         - in: header
@@ -4943,7 +5370,7 @@ paths:
       tags:
         - Time
       summary: Get an accepted temporal parse
-      security: *a15
+      security: *a16
       parameters:
         - in: path
           name: continuationToken
@@ -5486,7 +5913,7 @@ paths:
         - Usage
       summary: Get API and MCP rate-limit policy information
       description: Returns the default route-class policy table and the current request's effective API rate-limit window.
-      security: *a16
+      security: *a14
       responses:
         "200":
           description: Rate-limit policy and current caller window.
@@ -7505,6 +7932,8 @@ components:
                     format: uri
                   downloadUrl:
                     $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                  detailsUrl:
+                    $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                   downloadByteSize:
                     type: integer
                     exclusiveMinimum: 0
@@ -7544,6 +7973,8 @@ components:
                     format: uri
                   downloadUrl:
                     $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                  detailsUrl:
+                    $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                   downloadByteSize:
                     type: integer
                     exclusiveMinimum: 0
@@ -7582,6 +8013,8 @@ components:
                     maxLength: 2048
                     format: uri
                   downloadUrl:
+                    $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                  detailsUrl:
                     $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                   downloadByteSize:
                     type: integer
@@ -7647,6 +8080,8 @@ components:
                   format: uri
                 downloadUrl:
                   $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                detailsUrl:
+                  $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                 downloadByteSize:
                   type: integer
                   exclusiveMinimum: 0
@@ -7683,6 +8118,8 @@ components:
                   maxLength: 2048
                   format: uri
                 downloadUrl:
+                  $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                detailsUrl:
                   $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                 downloadByteSize:
                   type: integer
@@ -7730,6 +8167,8 @@ components:
                     format: uri
                   downloadUrl:
                     $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                  detailsUrl:
+                    $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                   downloadByteSize:
                     type: integer
                     exclusiveMinimum: 0
@@ -7767,6 +8206,8 @@ components:
                   format: uri
                 downloadUrl:
                   $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                detailsUrl:
+                  $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                 downloadByteSize:
                   type: integer
                   exclusiveMinimum: 0
@@ -7803,6 +8244,8 @@ components:
                   maxLength: 2048
                   format: uri
                 downloadUrl:
+                  $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                detailsUrl:
                   $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                 downloadByteSize:
                   type: integer
@@ -8311,6 +8754,8 @@ components:
                 format: uri
               downloadUrl:
                 $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
+              detailsUrl:
+                $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
               downloadByteSize:
                 type: integer
                 exclusiveMinimum: 0
@@ -8356,6 +8801,8 @@ components:
                     format: uri
                   downloadUrl:
                     $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                  detailsUrl:
+                    $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                   downloadByteSize:
                     type: integer
                     exclusiveMinimum: 0
@@ -8395,6 +8842,8 @@ components:
                     format: uri
                   downloadUrl:
                     $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                  detailsUrl:
+                    $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                   downloadByteSize:
                     type: integer
                     exclusiveMinimum: 0
@@ -8433,6 +8882,8 @@ components:
                     maxLength: 2048
                     format: uri
                   downloadUrl:
+                    $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                  detailsUrl:
                     $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                   downloadByteSize:
                     type: integer
@@ -8498,6 +8949,8 @@ components:
                   format: uri
                 downloadUrl:
                   $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                detailsUrl:
+                  $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                 downloadByteSize:
                   type: integer
                   exclusiveMinimum: 0
@@ -8534,6 +8987,8 @@ components:
                   maxLength: 2048
                   format: uri
                 downloadUrl:
+                  $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                detailsUrl:
                   $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                 downloadByteSize:
                   type: integer
@@ -8581,6 +9036,8 @@ components:
                     format: uri
                   downloadUrl:
                     $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                  detailsUrl:
+                    $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                   downloadByteSize:
                     type: integer
                     exclusiveMinimum: 0
@@ -8618,6 +9075,8 @@ components:
                   format: uri
                 downloadUrl:
                   $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                detailsUrl:
+                  $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                 downloadByteSize:
                   type: integer
                   exclusiveMinimum: 0
@@ -8654,6 +9113,8 @@ components:
                   maxLength: 2048
                   format: uri
                 downloadUrl:
+                  $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                detailsUrl:
                   $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                 downloadByteSize:
                   type: integer
@@ -8780,6 +9241,8 @@ components:
                 format: uri
               downloadUrl:
                 $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
+              detailsUrl:
+                $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
               downloadByteSize:
                 type: integer
                 exclusiveMinimum: 0
@@ -8824,6 +9287,8 @@ components:
                 format: uri
               downloadUrl:
                 $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
+              detailsUrl:
+                $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
               downloadByteSize:
                 type: integer
                 exclusiveMinimum: 0
@@ -8860,6 +9325,8 @@ components:
               maxLength: 2048
               format: uri
             downloadUrl:
+              $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
+            detailsUrl:
               $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
             downloadByteSize:
               type: integer

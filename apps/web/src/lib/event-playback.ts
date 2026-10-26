@@ -37,7 +37,7 @@ export type HandoffInput = {
   paused: boolean;
   nextReady: boolean;
   evidence: PlaybackEvidence;
-  silenceDurationMs: number;
+  silenceDurationMs?: number;
 };
 
 function validTimestamp(value: number): boolean {
@@ -82,11 +82,15 @@ export function handoffEligibleAt(
   current: PlaybackSlot,
   next: PlaybackSlot,
 ): number {
+  return handoffBoundaryAt(current, next) - HANDOFF_PREPARE_MS;
+}
+
+/** Preparation does not authorize promotion before either authored boundary. */
+export function handoffBoundaryAt(current: PlaybackSlot, next: PlaybackSlot): number {
   const boundary = current.endAt ?? next.startAt;
-  if (!validTimestamp(boundary) || !validTimestamp(next.startAt)) {
-    return Number.POSITIVE_INFINITY;
-  }
-  return Math.max(boundary - HANDOFF_PREPARE_MS, next.startAt - HANDOFF_PREPARE_MS);
+  return validTimestamp(boundary) && validTimestamp(next.startAt)
+    ? Math.max(boundary, next.startAt)
+    : Number.POSITIVE_INFINITY;
 }
 
 /** Decides a handoff from fresh observed evidence without comparing clock domains. */
@@ -129,6 +133,7 @@ export function shouldHandoff(input: HandoffInput): boolean {
       ? -1
       : evidence.observedAt - evidence.silenceSince;
   const silenceQualified =
+    typeof silenceDurationMs === "number" &&
     Number.isFinite(silenceDurationMs) &&
     silenceDurationMs >= 0 &&
     evidence.progressing &&

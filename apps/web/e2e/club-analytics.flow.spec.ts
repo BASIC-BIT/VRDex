@@ -207,7 +207,7 @@ test("@flow real analytics history and persisted personal dashboard", async ({
       onAuthenticated: () => provisioned.add(staff.email),
     });
     const staffClient = await client(staffPage);
-    await staffClient.mutation(mutation("clubStaff:acceptStaffInvitation"), {
+    await staffClient.action(makeFunctionReference<"action">("clubStaff:acceptStaffInvitation"), {
       ...club,
       token: invite.token,
     });

@@ -5,7 +5,7 @@ import { parseProfileLinkDestination } from "../../../../../convex/_profileLinkD
 import { Fragment, type CSSProperties, type ReactNode } from "react";
 
 import { EventPreviewCard, type PublicEventPreview } from "./event-public-page";
-import { MediaPreviewImage } from "./media-preview-image";
+import { PublicMediaAssetCard } from "./public-media-asset-card";
 import { ProfileAvatarImage } from "./profile-avatar-image";
 import { ProfileVrcdnStreams } from "./profile-vrcdn-streams";
 import { ProfilePrivateRecord } from "./profile-private-record";
@@ -92,6 +92,7 @@ type PublicProfileAsset = {
   altText?: string;
   credit?: string;
   creditUrl?: string;
+  detailsUrl?: string;
   mimeType: string;
   byteSize: number;
   downloadMimeType?: string;
@@ -265,31 +266,11 @@ function safeHttpsUrl(url: string): string | null {
   }
 }
 
-function safeCreditUrl(url: string | undefined): string | null {
-  if (!url) return null;
-  try {
-    const parsed = new URL(url);
-    return ["http:", "https:"].includes(parsed.protocol) && !parsed.username && !parsed.password
-      ? parsed.href
-      : null;
-  } catch {
-    return null;
-  }
-}
-
 function roleLabel(role: WorldCreatorRole): string {
   return role
     .split("_")
     .map((word) => `${word[0]?.toUpperCase() ?? ""}${word.slice(1)}`)
     .join(" ");
-}
-
-function formatByteSize(value: number): string {
-  if (value >= 1024 * 1024) {
-    return `${(value / (1024 * 1024)).toFixed(1)} MB`;
-  }
-
-  return `${Math.max(1, Math.round(value / 1024))} KB`;
 }
 
 function CommunityActivity({ profile }: { profile: PublicCommunityProfile }) {
@@ -335,44 +316,6 @@ function CommunityActivity({ profile }: { profile: PublicCommunityProfile }) {
       </div> : null}
       {telemetry?.eventRecaps && telemetry.eventRecaps.length > 0 ? <div className="mt-7 grid gap-3 sm:grid-cols-2">{telemetry.eventRecaps.map((recap) => <Card key={`${recap.event?.slug ?? "event"}-${recap.startAt}`} padding="sm" surface="strong"><p className="font-medium">{recap.event?.title ?? "Event recap"}</p><p className="mt-2 text-sm text-muted">Peak {recap.peakConcurrency.toLocaleString()} · {recap.playerHours.toFixed(1)} player hours · {Math.round(recap.durationMinutes)} min · {Math.round(recap.coverageRatio * 100)}% coverage</p></Card>)}</div> : null}
     </section>
-  );
-}
-
-function mimeLabel(value: string): string {
-  return value.replace(/^image\//, "").replace("svg+xml", "svg").toUpperCase();
-}
-
-function MediaAssetCard({ asset, label, featured = false }: { asset: PublicProfileAsset; label: string; featured?: boolean }) {
-  const creditUrl = safeCreditUrl(asset.creditUrl);
-  const downloadMimeType = asset.downloadMimeType ?? asset.mimeType;
-  const downloadByteSize = asset.downloadByteSize ?? asset.byteSize;
-  return (
-    <article className={cn("group grid overflow-hidden rounded-card border border-border bg-surface-strong text-sm transition hover:-translate-y-0.5 hover:shadow-panel", featured ? "lg:grid-cols-[minmax(0,1.35fr)_minmax(16rem,0.65fr)]" : undefined)}>
-      <div className={cn("relative bg-canvas-muted", featured ? "min-h-72" : "aspect-[4/3]")}>
-        <MediaPreviewImage
-          alt={asset.altText || asset.label || label}
-          className="absolute inset-0 size-full object-contain"
-          src={asset.imageUrl}
-        />
-      </div>
-      <div className="grid content-start gap-2 p-4">
-        <h3 className={cn("font-medium", featured ? "text-xl" : undefined)}>{asset.label ?? label}</h3>
-        {asset.caption ? <p className="leading-6 text-muted">{asset.caption}</p> : null}
-        {creditUrl ? (
-          <a className="w-fit break-all text-xs text-muted underline underline-offset-4" href={creditUrl}>
-            {asset.credit || creditUrl}
-          </a>
-        ) : asset.credit ? (
-          <p className="text-xs text-muted">{asset.credit}</p>
-        ) : null}
-        <p className="text-xs text-muted">
-          {mimeLabel(downloadMimeType)} / {formatByteSize(downloadByteSize)}
-        </p>
-        <a aria-label={`Download ${asset.label ?? label}`} className={cn(buttonVariants({ size: "sm", variant: "secondary" }), "mt-2 w-fit")} download href={asset.downloadUrl}>
-          Download
-        </a>
-      </div>
-    </article>
   );
 }
 
@@ -518,7 +461,7 @@ export function ProfilePublicPage({ profile, mediaKitGalleryEnabled, embedded = 
         </div>
         {mediaKitGalleryEnabled && mediaKit.featuredAsset ? (
           <div className="mt-5">
-            <MediaAssetCard asset={mediaKit.featuredAsset} featured label="Featured media" />
+            <PublicMediaAssetCard asset={mediaKit.featuredAsset} featured label="Featured media" />
           </div>
         ) : null}
         <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -526,19 +469,19 @@ export function ProfilePublicPage({ profile, mediaKitGalleryEnabled, embedded = 
             galleryAssets
               .filter((asset) => asset.assetId !== mediaKit.featuredAsset?.assetId)
               .map((asset, index) => (
-                <MediaAssetCard asset={asset} key={asset.assetId} label={`Media ${index + 1}`} />
+                <PublicMediaAssetCard asset={asset} key={asset.assetId} label={`Media ${index + 1}`} />
               ))
           ) : (
             <>
-              {mediaKit.primaryLogo ? <MediaAssetCard asset={mediaKit.primaryLogo} label="Primary logo" /> : null}
+              {mediaKit.primaryLogo ? <PublicMediaAssetCard asset={mediaKit.primaryLogo} label="Primary logo" /> : null}
               {mediaKit.additionalLogos.map((asset, index) => (
-                <MediaAssetCard asset={asset} key={asset.assetId} label={`Logo ${index + 2}`} />
+                <PublicMediaAssetCard asset={asset} key={asset.assetId} label={`Logo ${index + 2}`} />
               ))}
             </>
           )}
           {mediaKitGalleryEnabled
             ? remainingLogos.map((asset, index) => (
-                <MediaAssetCard asset={asset} key={asset.assetId} label={`Logo ${index + 1}`} />
+                <PublicMediaAssetCard asset={asset} key={asset.assetId} label={`Logo ${index + 1}`} />
               ))
             : null}
         </div>

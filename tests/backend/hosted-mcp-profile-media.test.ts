@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
@@ -10,7 +11,7 @@ import schemaModule from "../../convex/schema";
 process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "true";
 
 const modules = {
-  "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
+  "../../convex/_generated/api.js": () => import("../../convex/_generated/api"),
   "../../convex/profileAssets.ts": () => import("../../convex/profileAssets"),
 };
 const schema = (schemaModule as unknown as { default?: typeof schemaModule }).default ?? schemaModule;
@@ -395,4 +396,41 @@ describe("hosted MCP profile media", () => {
       /MCP_WRITE_DENIED/u,
     );
   });
+});
+
+
+it("hosted anonymous media protocol uses the real public query and rechecks visibility", () => {
+  const script = `
+    import assert from "node:assert/strict";
+    import { convexTest } from "convex-test";
+    import schemaModule from "./convex/schema.ts";
+    import { api } from "./convex/_generated/api.js";
+    import { createVrdexMcpHandler } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+    import { PublicProfileMediaDetailsSchema } from "./packages/api-contracts/src/public-media-details.ts";
+    process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED="true";
+    const schema=schemaModule.default??schemaModule;
+    const t=convexTest({schema,modules:{"./convex/_generated/api.js":()=>import("./convex/_generated/api.js"),"./convex/profileAssets.ts":()=>import("./convex/profileAssets.ts")}});
+    const {profileId,assetId}=await t.run(async({db})=>{
+      const user=await db.insert("users",{clerkUserId:"private-user",email:"private@example.test"});
+      const profileId=await db.insert("profiles",{profileType:"person",slug:"target",displayName:"Public Owner",sortName:"owner",aliases:[],tags:[],claimState:"claimed_verified",publicationState:"published",publicSurfacingState:"public",creationSource:"self",person:{roleTags:[]},updatedAt:999});
+      await db.insert("profileOwners",{profileId,userId:user,roleKey:"owner",state:"active",grantedAt:1,updatedAt:1});
+      const assetId=await db.insert("profileAssets",{profileId,storageKey:"private-key",sourceUrl:"https://private.test/source",mimeType:"image/png",byteSize:128,visibility:"public",source:"owner_authored",state:"active",uploadedBy:{issuer:"vrdex:api",subject:user,tokenIdentifier:"private-token"},uploadedAt:10,updatedAt:999});
+      await db.insert("profileAssetPlacements",{profileId,assetId,placement:"gallery",position:0,state:"active",updatedAt:1});return {profileId,assetId};
+    });
+    const handler=createVrdexMcpHandler({convex:{query:(ref,args)=>t.query(ref,args)}});
+    async function rpc(method,params){const r=await handler.fetch(new Request("https://app.example.test/mcp",{method:"POST",headers:{accept:"application/json, text/event-stream","content-type":"application/json"},body:JSON.stringify({jsonrpc:"2.0",id:1,method,params})}));const text=await r.text();return JSON.parse(text.split(/\\r?\\n/).find(l=>l.startsWith("data: "))?.slice(6)??text).result;}
+    assert.ok((await rpc("tools/list",{})).tools.some(tool=>tool.name==="vrdex_get_profile_media"));
+    const args={slug:"target",assetId};
+    const result=await rpc("tools/call",{name:"vrdex_get_profile_media",arguments:args});
+    const details=PublicProfileMediaDetailsSchema.parse(result.structuredContent);
+    assert.deepEqual(details,await t.query(api.profileAssets.getPublicAssetDetails,args));
+    assert.deepEqual(details.history.map(event=>[event.kind,event.at]),[["uploaded",10]]);
+    assert.equal(details.uploadedBy.displayName,"Public Owner");assert.doesNotMatch(JSON.stringify(details),/private-|private.test|example.test/);
+    await t.run(({db})=>db.patch(profileId,{publicSurfacingState:"suppressed"}));
+    assert.equal((await rpc("tools/call",{name:"vrdex_get_profile_media",arguments:args})).isError,true);
+    await handler.close();console.log("real-query public protocol passed");
+  `;
+  assert.match(execFileSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script], {
+    encoding: "utf8", env: { ...process.env, TSX_TSCONFIG_PATH: "apps/web/tsconfig.json" },
+  }), /real-query public protocol passed/);
 });

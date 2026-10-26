@@ -9,12 +9,14 @@ export function EventEditorPage({
   communityName,
   communitySlug,
   demoMode = false,
+  savedTimezonePreference = null,
   discordPostText,
   event,
 }: {
   communityName: string;
   communitySlug: string;
   demoMode?: boolean;
+  savedTimezonePreference?: string | null;
   discordPostText?: string | null;
   event?: EditableEvent;
 }) {
@@ -24,20 +26,18 @@ export function EventEditorPage({
     <div className="ph-no-capture" data-ph-no-capture>
       <PageShell className="py-10">
         <PageContainer max="6xl">
-          <PageNav>
+          <PageNav showMyEvents={false}>
             <BrandLink />
+            <Link className={buttonVariants({ variant: "secondary" })} href="/account/events">My events</Link>
+            {routePath ? <Link className={buttonVariants({ variant: "secondary" })} href={`${routePath}/operate`}>Broadcast controls</Link> : null}
             {event?.publicationState === "published" && routePath !== undefined ? (
               <Link className={buttonVariants({ variant: "secondary" })} href={routePath}>
                 View event
               </Link>
-            ) : event === undefined ? (
-              <Link className={buttonVariants({ variant: "secondary" })} href="/account/events">
-                Events
-              </Link>
             ) : null}
           </PageNav>
 
-          <header className="border-b border-border pb-6 pt-2">
+          <EventEditorForm heading={<header className="pt-2">
             {event === undefined ? (
               <Link className="text-sm font-medium text-muted underline-offset-4 hover:underline" href={`/${communitySlug}`}>
                 {communityName}
@@ -48,9 +48,7 @@ export function EventEditorPage({
             <h1 className="mt-2 text-4xl font-semibold tracking-[-0.04em] sm:text-5xl">
               {event?.title ?? "Add event"}
             </h1>
-          </header>
-
-          <EventEditorForm communitySlug={communitySlug} demoMode={demoMode} event={event} />
+          </header>} communitySlug={communitySlug} communityName={communityName} demoMode={demoMode} event={event} savedTimezonePreference={savedTimezonePreference} />
           {discordPostText ? <EventDiscordExportPanel text={discordPostText} /> : null}
         </PageContainer>
       </PageShell>

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { it } from "node:test";
 import { apiScopes, normalizeDynamicMcpClientRegistration } from "../src/index";
-import { EventIntakePatchSchema, SaveEventIntakeDraftSchema, PublishEventIntakeSchema, EventPosterBytesSchema, EVENT_POSTER_MAX_BYTES, resolveEventLocalTime, selectEventLocalTime } from "../src/event-intake";
+import { EventIntakePatchSchema, SaveEventIntakeDraftSchema, PublishEventIntakeSchema, ExtractEventIntakeSchema, EventIntakeCandidateSchema, EventIntakeCandidateJsonSchema, EventPosterBytesSchema, EVENT_POSTER_MAX_BYTES, resolveEventLocalTime, selectEventLocalTime } from "../src/event-intake";
 
 for (const byteLength of [6 * 1024 * 1024, EVENT_POSTER_MAX_BYTES]) {
   it(`accepts ${byteLength / 1024 / 1024} MiB poster content without overflowing the validator stack`, () => {
@@ -30,6 +30,23 @@ it("accepts poster-only, partial and explicit clearing patches", () => {
   assert.deepEqual(EventIntakePatchSchema.parse({ posterSourceId: "private-source" }), { posterSourceId: "private-source" });
   assert.deepEqual(EventIntakePatchSchema.parse({ title: null, summary: "" }), { title: null, summary: "" });
   assert.ok(SaveEventIntakeDraftSchema.safeParse({ patch: { title: "Night" } }).success);
+});
+it("accepts a singular poster and rejects removed plural contracts", () => {
+  assert.equal(EventIntakePatchSchema.safeParse({ posterSourceId: "a" }).success, true);
+  assert.equal(ExtractEventIntakeSchema.safeParse({ draftId: "draft", sourceText: "Night", posterAssetId: "a" }).success, true);
+  assert.equal(EventIntakePatchSchema.safeParse({ posterSourceIds: ["a"] }).success, false);
+  for (const posterSourceId of ["", " "]) assert.equal(EventIntakePatchSchema.safeParse({ posterSourceId }).success, false);
+  assert.equal(ExtractEventIntakeSchema.safeParse({ draftId: "draft", posterAssetIds: ["a"] }).success, false);
+});
+it("bounds private candidate evidence and identifies poster and date provenance", () => {
+  const candidate = { event: { title: null, communitySlug: null, eventDate: null, start: null, end: null, startDate: null, endDate: null, timezone: null, venueLabel: null, summary: null, sourceUrl: null }, lineup: [], evidence: [{ fieldPath: "event.title", origin: "poster", excerpt: "Night", assessment: "explicit" }], questions: [] };
+  assert.equal(EventIntakeCandidateSchema.safeParse(candidate).success, true);
+  assert.equal(EventIntakeCandidateSchema.safeParse({ ...candidate, event: { ...candidate.event, startDate: undefined } }).success, false);
+  assert.equal(EventIntakeCandidateSchema.safeParse({ ...candidate, evidence: Array(41).fill(candidate.evidence[0]) }).success, false);
+  assert.equal(EventIntakeCandidateSchema.safeParse({ ...candidate, event: { ...candidate.event, startDate: "2027-02-30" } }).success, false);
+  const json = EventIntakeCandidateJsonSchema as unknown as { properties: { event: { required: string[] }; evidence: { items: { required: string[] } } } };
+  assert.ok(json.properties.event.required.includes("startDate"));
+  assert.ok(!json.properties.evidence.items.required.includes("posterIndex"));
 });
 it("resolves normal times, DST gaps and repeated hours without silently choosing", () => {
   assert.deepEqual(resolveEventLocalTime("2027-03-14", { time: "02:30" }, "America/New_York"), []);

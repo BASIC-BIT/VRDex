@@ -12,9 +12,10 @@ relay, provider key, or paid entitlement.
 
 `EventPublicPage` retains its server-provided content until one event-scoped
 `events.getPublicBySlug` subscription has an authoritative result. That projection
-updates both the roster links and the watch component. A null projection removes
-the page content and releases playback. Cancellation, disabling watch, and mode
-changes unmount the lineup session. There is no subscription per performer.
+updates both the roster links and the watch component. The root playback owner
+retains active media across page navigation and independently revalidates its
+public projection. A null projection, cancellation, disabling watch or changing
+mode revokes that active request. There is no subscription per performer.
 
 `EventLineupSession` owns one current source and at most one prepared next source.
 A generation check runs before creating an asynchronous source and again before
@@ -51,8 +52,10 @@ Only the immediate next slot can be prepared. Missing, freeform and unplayable
 slots are barriers. Out-of-order or simultaneous starts adjacent to the current or
 candidate slot block that transition, including a candidate with a same-time sibling.
 Ambiguity later in the lineup does not block an earlier unambiguous transition.
-Eligibility is the later of current end and next start, minus 120 seconds.
-Ordered overlaps use that same later boundary for an established current selection.
+Preparation begins at the later of current end and next start, minus 120 seconds.
+Automatic promotion waits until that later authored boundary, including overlaps;
+preparation never authorizes early promotion. A current source that fails before
+the boundary is retried while the next source remains muted.
 Joining during simultaneous active intervals still refuses an ambiguous selection.
 If current end is absent, next start provides the handoff boundary only.
 An immediate next slot whose effective interval has ended is no longer a
@@ -75,12 +78,18 @@ volume affect output gain, not silence measurements.
 UI subscribers receive a new snapshot only when a snapshot field changes.
 Media observation continues every 100 ms regardless of UI notifications.
 
-The measured policy is below -90 dBFS for 1000 ms, sampled every 100 ms. Continuous
-stopped playback requires at least 1000 ms. Healthy decoded progress cancels
-failure evidence, including when bytes remain buffered after transport failure or
-clean EOF. EOF alone neither releases buffered playback nor advances the lineup.
-A genuine long silent musical break can satisfy the silence rule; it does not
-prove that the broadcaster has finished.
+Automatic silence handoff is disabled under the October 2026 approved policy.
+The September synthetic -90 dBFS/1000ms experiment remains historical observation
+evidence, not representative musical calibration. Quiet or silent progressing
+current media continues even after its boundary. Established playback must stop
+progressing for at least 1000ms before failure qualifies. Healthy decoded progress
+cancels failure evidence, including buffered playback after transport failure or
+clean EOF. EOF alone neither releases playback nor advances the lineup.
+
+A newly connected source has up to five seconds to begin decoded playback before
+reconnection. This prevents cold MSE/audio startup from being destroyed every
+second. Once it progresses, the established one-second failure interval applies.
+The allowance does not make a successor ready or bypass pause/revocation fences.
 
 Retries use 1, 2, 4, then 10 second intervals. Each successful handoff resets the
 preparation retry count and deadline for the next candidate. Replacing a prepared connection also
@@ -105,7 +114,7 @@ flowchart LR
   Current --> Rejected[Prepared playback rejected]
   Rejected --> Enable[Enable playback]
   Enable --> Ready[Prepared source decodes while muted]
-  Ready --> Handoff[Normal failure or silence handoff]
+  Ready --> Handoff[Confirmed failure at or after boundary]
 ```
 
 Manual selection disables following. Return to live re-evaluates the scheduled
@@ -127,8 +136,12 @@ following, not a claim of background switching or OS-suspension support.
 
 ## Verification
 
-The guarded `/playwright/event-lineup-live` route mounts the actual public page,
-query hook and player. Only its Convex transport boundary is mocked. Backend
+The guarded `/playwright/event-lineup-live` route uses the actual query hook,
+public playback normalization and standalone player for legacy lifecycle tests.
+Its `composed` variant mounts the actual public page and retained root owner;
+desktop/mobile tests prove one advancing media element survives consumer unmount.
+The Convex projection is synthetic, and generated MPEG-TS traverses the real
+browser media transport. Backend
 `event-playback-projection.test.ts` tests the actual public query and projection,
 including hidden links, removed sources, cancellation and unpublished events.
 Only the guarded fixture overrides schedule time. The loopback MPEG-TS server

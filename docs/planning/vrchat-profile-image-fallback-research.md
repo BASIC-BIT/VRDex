@@ -11,7 +11,12 @@ saved link order supplies a default before owner selection. See the
 Correction (2026-09-09): the portrait-field assumption below was wrong. The requested
 custom profile icon is `userIcon`, not `profilePicOverride` or its thumbnail. VRCX's
 [user-image helper](https://github.com/vrcx-team/VRCX/blob/master/src/shared/utils/user.js)
-handles the icon separately from the override. Current implementation uses only `userIcon`.
+handles the icon separately from the override. The September correction used only `userIcon`.
+Correction (2026-10-15): current user responses can instead expose `iconUrl`. The collector
+accepts that value only after verifying the exact referenced file's identity, owner,
+`icon` purpose, and complete matching version. The explicit legacy `userIcon` remains
+supported. The current implementation is documented in
+[Automatic profile images](../backend/profile-schema.md#automatic-profile-images).
 
 The existing destination resolver already collects a usable portrait URL for a VRChat user. Its priority is `profilePicOverrideThumbnail`, `profilePicOverride`, `currentAvatarThumbnailImageUrl`, then `currentAvatarImageUrl`. This is our implemented choice, not an assertion that VRChat guarantees this precedence. It stores one selected source URL, so the original full-size alternative is not retained when a thumbnail wins. [Resolver](../../workers/group-telemetry/profile-link-destination.mjs)
 

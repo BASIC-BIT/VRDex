@@ -33,13 +33,15 @@ test("membership bars and identifiable activity @storybook-visual", async ({
       () => document.documentElement.scrollWidth <= window.innerWidth,
     ),
   ).toBeTruthy();
-  await page.screenshot({
-    path: path.resolve(
-      process.cwd(),
-      "../../.cache/artifacts",
-      `membership-${isMobile ? "mobile" : "desktop"}.png`,
-    ),
-    fullPage: true,
-  });
+  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") {
+    await page.screenshot({
+      path: path.resolve(
+        process.cwd(),
+        "../../.cache/artifacts",
+        `membership-${isMobile ? "mobile" : "desktop"}.png`,
+      ),
+      fullPage: true,
+    });
+  }
   expect(errors).toEqual([]);
 });

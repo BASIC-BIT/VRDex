@@ -107,6 +107,7 @@ export const PublicProfileAssetSchema = z
     credit: z.string().optional(),
     creditUrl: safeHttpUrl.optional(),
     downloadUrl: absoluteOrRootRelativeUrl.optional(),
+    detailsUrl: absoluteOrRootRelativeUrl.optional(),
     downloadByteSize: z.number().int().positive().optional(),
     downloadMimeType: z.string().optional(),
     imageUrl: absoluteOrRootRelativeUrl.optional(),

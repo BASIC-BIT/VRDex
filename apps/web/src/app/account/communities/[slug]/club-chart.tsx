@@ -5,6 +5,7 @@ import {
   CartesianGrid,
   ComposedChart,
   Line,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -18,6 +19,8 @@ export type ClubChartPoint = {
   at: number;
   value: number | null;
   label: string;
+  founding?: boolean;
+  today?: boolean;
 };
 export const metricNumber = (value: number | null | undefined, digits = 0) =>
   value == null
@@ -47,6 +50,8 @@ export function ClubChart({
   showIsolatedPoints?: boolean;
 }) {
   const [table, setTable] = useState(false);
+  const founding = points.find((point) => point.founding);
+  const firstAfterFounding = founding && points.find((point) => point.at > founding.at && point.value !== null);
   if (!points.some((point) => point.value !== null))
     return <Notice variant="dashed">No observations in this range.</Notice>;
   return (
@@ -64,8 +69,13 @@ export function ClubChart({
             }}
           >
             <CartesianGrid stroke="var(--border)" vertical={false} />
+            {founding && firstAfterFounding ? <ReferenceLine segment={[
+              { x: founding.at, y: founding.value! },
+              { x: firstAfterFounding.at, y: firstAfterFounding.value! },
+            ]} stroke="var(--muted)" strokeWidth={2} strokeDasharray="3 4" /> : null}
             <XAxis
-              dataKey="label"
+              dataKey="at"
+              tickFormatter={(at: number) => points.find((point) => point.at === at)?.label ?? ""}
               tickLine={false}
               axisLine={false}
               tick={{ fill: "var(--muted)", fontSize: 11 }}
@@ -85,10 +95,16 @@ export function ClubChart({
                 borderRadius: 4,
                 color: "var(--foreground)",
               }}
-              formatter={(value) => [
+              formatter={(value, _name, entry) => [
                 metricNumber(typeof value === "number" ? value : null),
-                label,
+                (entry.payload as ClubChartPoint).founding || (entry.payload as ClubChartPoint).today
+                  ? value === 1 ? "member" : "members" : label,
               ]}
+              labelFormatter={(axisLabel, payload) => {
+                const point = payload?.[0]?.payload as ClubChartPoint | undefined;
+                return point?.founding ? `Group founded · ${metricTime(point.at)}`
+                  : point?.today ? `Today · ${metricTime(point.at)}` : point?.label ?? axisLabel;
+              }}
             />
             {kind === "bar" ? (
               <Bar
@@ -117,8 +133,11 @@ export function ClubChart({
                         index?: number;
                       }) => {
                         const position = index ?? -1;
+                        const point = points[position];
+                        if (point?.founding) return <path data-testid="staff-group-founding-dot" d={`M ${cx} ${cy! - 6} L ${cx! + 6} ${cy} L ${cx} ${cy! + 6} L ${cx! - 6} ${cy} Z`} fill="var(--surface)" stroke="var(--accent)" strokeWidth={2} />;
+                        if (point?.today) return <g data-testid="staff-group-today-dot"><circle cx={cx} cy={cy} r={7} fill="var(--surface)" stroke="var(--accent)" strokeWidth={2} /><circle cx={cx} cy={cy} r={3} fill="var(--accent)" /></g>;
                         const isolated =
-                          points[position]?.value != null &&
+                          point?.value != null &&
                           points[position - 1]?.value == null &&
                           points[position + 1]?.value == null;
                         return (
@@ -155,7 +174,7 @@ export function ClubChart({
             <thead>
               <tr className="border-b border-border text-left text-xs text-muted">
                 <th className="py-2">Time</th>
-                <th>{label}</th>
+                <th className="hidden sm:table-cell">{label}</th>
                 {onSelect ? (
                   <th>
                     <span className="sr-only">Inspect</span>
@@ -166,8 +185,8 @@ export function ClubChart({
             <tbody>
               {points.map((point) => (
                 <tr key={point.at} className="border-b border-border">
-                  <td className="py-2">{metricTime(point.at)}</td>
-                  <td>{metricNumber(point.value)}</td>
+                  <td className="py-2">{point.founding ? "Group founded · " : point.today ? "Today · " : ""}{metricTime(point.at)}<span className="block font-medium sm:hidden" aria-label={`${label}: ${metricNumber(point.value)}`}>{metricNumber(point.value)}</span></td>
+                  <td className="hidden sm:table-cell">{metricNumber(point.value)}</td>
                   {onSelect ? (
                     <td className="text-right">
                       <Button

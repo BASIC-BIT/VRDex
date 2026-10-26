@@ -398,6 +398,28 @@ describe("profile media-kit owner management", () => {
     );
   });
 
+  it("retains public credit while omitting private source provenance from anonymous profile and kit responses", async () => {
+    const seeded = await seedOwnedProfile(1);
+    await seeded.t.run(ctx => ctx.db.patch(seeded.assetIds[0]!, {
+      credit: "Public photographer", creditUrl: "https://photographer.example/",
+      sourceUrl: "https://discord.com/channels/private/message?signature=private-query",
+      sourceDescription: "Private source-message context",
+    }));
+    const kit = await seeded.t.query(api.profileAssets.listPublicBySlug, { slug: "media-owner" });
+    const profile = await seeded.t.query(api.profiles.getPublicBySlug, { slug: "media-owner" });
+    for (const response of [kit, profile]) {
+      assert.ok(response);
+      const asset = response.mediaKit.assets.find((asset) => asset.assetId === seeded.assetIds[0]);
+      assert.ok(asset);
+      assert.equal(asset.credit, "Public photographer");
+      assert.equal(asset.creditUrl, "https://photographer.example/");
+      const serialized = JSON.stringify(response);
+      assert.ok(!serialized.includes("private-query"));
+      assert.ok(!serialized.includes("Private source-message context"));
+      assert.ok(!serialized.includes("discord.com/channels/private"));
+    }
+  });
+
   it("releases a failed owner upload reservation for an immediate retry", async () => {
     const seeded = await seedOwnedProfile(11);
     const owner = seeded.t.withIdentity(seeded.ownerIdentity);

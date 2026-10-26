@@ -57,5 +57,5 @@ export function containsProofCode(candidates, proofCode) {
 export function proofSurfaceFields(targetType) {
   return targetType === "vrchat_group"
     ? ["description", "name"]
-    : ["bio", "statusDescription"];
+    : ["bio"];
 }

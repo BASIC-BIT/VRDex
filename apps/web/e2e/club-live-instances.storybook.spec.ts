@@ -80,7 +80,9 @@ for (const scenario of ["owner-analytics-off", "management-only-staff"]) {
     await expect(live.getByText("Refresh to continue.", { exact: true })).toBeVisible();
     await expect(live.getByRole("button", { name: "Refresh instances" })).toBeEnabled();
     expect(await closeAttempts(page)).toEqual([]);
-    await page.screenshot({ path: `../../.cache/artifacts/task9-provider-expired-${scenario}-${test.info().project.name}.png`, fullPage: true });
+    if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") {
+      await page.screenshot({ path: `../../.cache/artifacts/task9-provider-expired-${scenario}-${test.info().project.name}.png`, fullPage: true });
+    }
     await live.getByRole("button", { name: "Refresh instances" }).click();
     await expect(live.getByText("The Observatory", { exact: true })).toBeVisible();
     await expect(live.getByRole("button", { name: "Confirm closure" })).toHaveCount(0);
@@ -137,10 +139,12 @@ for (const scenario of ["owner-analytics-off", "management-only-staff"]) {
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     ).toBe(true);
-    await page.screenshot({
-      path: `../../.cache/artifacts/pr341-final-fix-${scenario}-${test.info().project.name}.png`,
-      fullPage: true,
-    });
+    if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") {
+      await page.screenshot({
+        path: `../../.cache/artifacts/pr341-final-fix-${scenario}-${test.info().project.name}.png`,
+        fullPage: true,
+      });
+    }
     await live.getByRole("button", { name: "Keep open", exact: true }).click();
     await expect(page.getByTestId("submitted-close")).toHaveText("null");
     await live

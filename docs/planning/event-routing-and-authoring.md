@@ -1,6 +1,43 @@
 # Event Routing And Authoring
 
-Future editor direction (2026-09-29): [visual reference](./event-editor-visual-reference-2026-09-29.md). The current one-poster, separate-artwork-selection flow described below remains implemented behavior. BASIC's newer direction combines text and multiple images in one discovery run and treats the event poster as artwork without a separate opt-in.
+Editor navigation (2026-10-11): [wizard refinement](./event-editor-wizard-refinement-2026-10-11.md). Contributor, scoped correction, and owner/staff editors use Details, Lineup, and Review inside the existing header and footer. Contributor drafts support an optional import dialog beside the page heading; staff source controls remain in a Details disclosure.
+
+Scheduling (2026-10-13): [approved design](../superpowers/specs/2026-10-13-event-editor-lineup-timezone-publish-design.md)
+and [local checkpoint](../testing/event-editor-scheduling-checkpoint.md). Generation is
+explicit; insertion/removal/duration changes cascade later timed rows while explicit
+ends stay fixed. Reset clears editable lineup rows after confirmation. Account timezone
+defaults apply only to new drafts; event selection never saves an account preference.
+Review now contains the single primary submit, with draft save and withdrawal secondary.
+The existing entry and event-page return journey remains the design's diagram.
+
+Legacy staff creation still requires a start and its untimed performers remain a separate
+group. The authorized update-only stored-slot mapping preserves hidden associations
+through timing reflow without migrating records or widening actor authority. See the
+[command boundary](../engineering/event-contribution-browser.md#legacy-stored-slot-identity).
+
+## My events workspace
+
+Authenticated navigation and authoring return links open `/account/events`. The
+workspace combines authorized managed events, own contributions and unexpired
+creator-private intake drafts. All, Upcoming, Drafts and Past filter bounded
+server pages; Find an event matches titles and current community names.
+Continuation uses the source-specific route: canonical staff drafts retain their
+community editor, intake drafts resume at `/events/new?draft=<id>`, and
+contributions retain their public correction surface. Own-contribution
+retractions stay in All; a currently authorized manager sees the canonical
+staff state, with Cancelled taking precedence over Draft or Published.
+
+Intake retention is 30 days from the last save; reading the inventory does not
+extend it. Publication receipts remove completed intake drafts. Source order is
+intake, managed communities by ID, then own contributions, with Load more for
+remaining pages. Failed reads show Retry instead of an empty inventory. Dates
+are viewer-local; date-only and incomplete schedules preserve their meaning.
+
+Details, Lineup and Review retain explicit saves and dirty-state protection.
+Review returns to the canonical event route. Published staff Save changes keeps
+the event published, and eligible Discord copying reflects its saved lineup.
+See [the browser contract](../engineering/event-contribution-browser.md#my-events-inventory-and-continuation)
+and [checkpoint evidence](../testing/event-intake-checkpoint.md#organizer-workspace-checkpoint-2026-10-22).
 
 ## Status
 
@@ -21,7 +58,7 @@ Current implementation incorporates the 2026-08-31 owner-editor decisions and th
 - Event URLs use the automatically generated seven-character short-link code.
 - Event URL codes are not editable and do not occupy the root profile and world
   slug namespace.
-- The browser editor calls the session area `Schedule`, not `Program`, `Lineup`,
+- The owner browser editor calls the session area `Schedule`, not `Program`, `Lineup`,
   or `Set times`.
 - The browser editor has one public Description field. Private notes are visible
   only to authorized event managers.
@@ -30,9 +67,11 @@ Current recommendation:
 
 - Use `/<community>/events/<event-code>` as the canonical public route and
   `/<community>/events/<event-code>/edit` as the editing route.
-- Keep the optional stored event end time for public/API compatibility, but do
-  not ask owner-editor authors for it in this slice. Derive the submitted end from
-  the final slot when the schedule has complete durations.
+- Staff Details offers an optional combined Ends control beside Start. An
+  untouched stored end retains its instant, including a later repeated-hour
+  occurrence. An entered end must follow the start; clearing it sends null on
+  update. A known final lineup end may still supply the end. Creation without
+  an authored or known lineup end omits it.
 - When template controls would replace edited schedule data, require confirmation.
 
 ## Owner authoring flow
@@ -44,15 +83,40 @@ Current recommendation:
 5. Publish or save a draft.
 
 The owner editor binds the community from the route and rechecks management
-authority. The contribution form can select any public community. A useful
-contribution needs a community, title and known date. An explicit Time TBA state
+authority. The contribution picker searches public community names and slugs and
+saves the selected result's slug. Change and Escape retain the selected community.
+Clear stores a nullable community in an incomplete draft. Linked and resumed
+slugs stay selected while search loads or returns no match. The optional location
+control is labeled `Where (optional)` and keeps the existing `venueLabel` field.
+Scoped corrections omit community selection; staff communities remain bound to
+their route. A useful contribution needs a community, title and known date. An explicit Time TBA state
 needs no timezone; timed publication needs an IANA timezone and resolved local
 time. The date-only backend switch must be enabled after its migration.
 
-Manual entry, pasted text and private posters share a versioned draft. Extraction
-proposes tentative fields for explicit acceptance or editing. Uploading or parsing
-a poster never selects public artwork. Publish goes directly to the canonical
-event page; save draft stays in the editor. Unknown dates remain drafts.
+Manual entry, pasted text and one private poster share one
+controlled versioned draft across the contributor steps. One extraction submits
+the current text and poster together. Details and Lineup retain tentative values
+for explicit acceptance, source evidence, and unresolved questions on resume.
+Changing sources invalidates suggestions and evidence while keeping accepted fields.
+Unavailable extraction stays in the import dialog with visible feedback; closing
+it returns to the current editor step.
+
+The poster becomes artwork after verified upload and processing. A new upload
+replaces it; removal clears it. Private evidence and public artwork derivatives
+remain separate. Uploads and saves retain draft version checks. No gallery,
+primary-image selection or fallback remains in contributor intake.
+A failed completion response retains Retry even when the source preview is available.
+Retry replays completion before saving later edits and preserves conflict checks.
+
+Lineup rows show matched public profile pictures with a name fallback. Native
+local dates and times map to the existing day-offset contract; numeric offsets
+are not exposed. Repeated hours retain an explicit occurrence choice. The side
+preview uses viewer-local timed dates and moves below the editor on narrow screens.
+
+Review uses the confirmed start date, including its day offset, and links back to
+Details and Lineup. Preflight reveals and focuses missing or unresolved fields; similar events appear only after the existing duplicate check finds them.
+Publish goes directly to the canonical event page. Save draft remains available
+at every step and stays in the editor. Unknown dates remain drafts.
 
 ```mermaid
 flowchart LR
@@ -60,8 +124,21 @@ flowchart LR
   Community[Community page] --> Add
   Direct[Direct community or draft link] --> Auth[Sign in if needed and return]
   Add --> Auth
-  Auth --> Intake[Manual, text or private poster draft]
-  Intake --> Review[Accept or edit tentative details]
+  Auth --> Details[Details: select community and enter or accept fields]
+  Details --> Import[Optional import action]
+  Lineup --> Import
+  Review --> Import
+  Import --> Source[Dialog: one poster and optional text]
+  Source -->|Extraction succeeds| Details
+  Source -->|Close| Current[Return to current step]
+  Details --> Lineup[Lineup: people and local dates]
+  Lineup --> Review[Review]
+  Review --> Details
+  Review --> Lineup
+  Details --> Saved[Save draft and resume]
+  Lineup --> Saved
+  Review --> Saved
+  Saved --> Details
   Review --> Publish[Preflight and publish]
   Publish --> Public[Canonical event page]
   Public --> Discovery[Public search and community events]
@@ -124,7 +201,7 @@ for local evidence and outstanding hosted checks.
   payloads.
 - API and MCP results return community-scoped browser paths.
 - Desktop and mobile screenshots for the exact event editor.
-- Manual visual review of template regeneration, edited-data confirmation, and
+- Manual visual review of explicit generation, individual editing, reset confirmation, and
   responsive session rows.
 
 ## Performer streams and roster links

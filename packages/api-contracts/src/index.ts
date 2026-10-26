@@ -12,3 +12,4 @@ export * from "./media-review";
 export * from "./media-upload";
 export * from "./contribution-batches";
 export * from "./event-intake";
+export * from "./public-media-details";

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { ClerkProvider } from "@clerk/nextjs";
 import { IBM_Plex_Mono, Space_Grotesk } from "next/font/google";
 import { ConvexClientProvider } from "./ConvexClientProvider";
+import { EventPlaybackProvider } from "./_components/event-playback-provider";
 import { PostHogProvider } from "./PostHogProvider";
 import { SiteFooter } from "@/components/ui/site-footer";
 import { publicSiteUrl } from "@/lib/public-site-url";
@@ -47,12 +48,14 @@ export default async function RootLayout({
         className={`${spaceGrotesk.variable} ${ibmPlexMono.variable} flex min-h-screen flex-col antialiased`}
       >
         <PostHogProvider>
+          <EventPlaybackProvider>
           <ConvexClientProvider>
             {children}
             {/* Outside the page's `<main>`, and here rather than in `PageShell`,
                 so a route that renders its own shell still gets a way out. */}
             <SiteFooter />
           </ConvexClientProvider>
+          </EventPlaybackProvider>
         </PostHogProvider>
       </body>
     </html>

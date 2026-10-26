@@ -47,7 +47,14 @@ IDs, or group short codes, without joining groups or fetching member lists. The
 result contains only a public display name, stable ID, and approved artwork
 source URL. Non-public group responses cannot supply display metadata. Artwork
 bytes are handled separately by the web application's bounded image boundary.
-Each provider request, including short-code resolution, reserves the existing
+Current person `iconUrl` values require an additional exact-file lookup to verify
+file identity, owner, the `icon` purpose, and the referenced complete version.
+An explicit legacy `userIcon` remains eligible without that extra read. Missing or
+ambiguous file evidence omits artwork while retaining the resolved name. Temporary
+file-read failures preserve cached metadata. No avatar, profile override, or banner
+is selected as a substitute. Unknown image URL layouts fail closed.
+
+Each provider request, including short-code resolution and icon-file metadata, reserves the existing
 shared proof budget and consumes the local account/proof allowance. Provider
 throttles publish the existing account-wide cooldown before a claim is released;
 an authenticated 401 stops the account through the existing recovery path.

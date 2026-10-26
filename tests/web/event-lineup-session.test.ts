@@ -59,3 +59,8 @@ test("later ambiguity does not block an earlier unambiguous transition", () => {
   assert.equal(nextSlot(a, [a,b,c,{ ...d,startAt: 1900 }], 900)?.key, "b");
   assert.equal(nextSlot(b, [a,b,c,{ ...d,startAt: 1900 }], 900), undefined);
 });
+
+test("same stream ID with replaced playback URL is revoked", () => {
+  const previous = { key: "slot", startAt: 0, stream: { streamId: "a", pcUrl: "pc", questUrl: "old" } };
+  assert.equal(reconcileSlot(previous, [{ ...previous, stream: { ...previous.stream, questUrl: "new" } }]), undefined);
+});

@@ -11,6 +11,7 @@ import { Notice } from "@/components/ui/notice";
 import { VerifiedTrustMark } from "@/components/ui/verified-trust-mark";
 import { cn } from "@/lib/cn";
 import { ownerProfileDestinationPath, profileClaimPath } from "@/lib/profile-claim";
+import { AccountEventTimezonePreference } from "./event-timezone-preference";
 import { AccountSignOutControl } from "./sign-out-control";
 import { ConnectedProfileVerificationStatus } from "./profile-verification-status";
 
@@ -108,6 +109,8 @@ function ConnectedAccountPanel() {
           </Button>
         </div>
       </section>
+
+      <AccountEventTimezonePreference value={viewer.user.defaultEventTimezone} />
 
       {staffWorkspaces && (staffWorkspaces.workspaces.length > 0 || staffWorkspaces.hasMore) ? (
         <section aria-labelledby="staff-clubs-heading" className="border-t border-border py-8 ph-no-capture" data-ph-no-capture>

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { publicScheduleStatus } from "../../../../../convex/_eventRuntime";
 import {
   CalendarDays,
   Globe2,
@@ -22,7 +23,7 @@ import {
 import { buttonVariants } from "@/components/ui/button";
 import { Card, SectionTitle } from "@/components/ui/card";
 import { EntityImage } from "@/components/ui/entity-image";
-import { EventSchedule, EventScheduleRow, type EventScheduleStatus } from "@/components/ui/event-schedule";
+import { EventSchedule, EventScheduleRow } from "@/components/ui/event-schedule";
 import { ProfileAvatarImage } from "@/components/ui/profile-avatar-image";
 import type { AvatarAppearance } from "@/lib/avatar-appearance";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
@@ -223,15 +224,6 @@ function TopNav() {
       <BrandLink />
     </PageNav>
   );
-}
-
-function publicScheduleStatus(event: PublicEventPreview, now: number): EventScheduleStatus {
-  if (event.scheduleKind === "date_only" || event.startAt === undefined) return "later";
-  if (event.startAt <= now && (event.endAt ?? event.startAt) >= now) {
-    return "now";
-  }
-
-  return event.startAt - now <= 2 * 60 * 60 * 1_000 ? "soon" : "later";
 }
 
 function DiscoveryEventSchedule({ events, now }: { events: PublicEventPreview[]; now: number }) {

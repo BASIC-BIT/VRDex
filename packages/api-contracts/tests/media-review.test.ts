@@ -3,8 +3,52 @@ import { it } from "node:test";
 import {
   reviewDecisionSchema,
   reviewPageRequestSchema,
+  contributionCommandBaseSchema,
+  contributionPlacementCommandSchema,
+  contributionManageCommandSchema,
+  publishedContributionDetailSchema,
+  reviewSnapshotSchema,
 } from "../src/media-review";
 import { apiScopes } from "../src/auth";
+it("preserves historical long source URLs in authenticated detail reads while keeping metadata writes bounded", () => {
+  const sourceUrl = "https://legacy.example/source?signature=" + "a".repeat(5000);
+  const detail = { submissionId: "submission", assetId: "asset", profileId: "profile", profileSlug: "dj",
+    contributionVersion: "version", metadata: { label: "Image", credit: "Artist", sourceUrl },
+    canSelectPrimary: true, canClearPrimary: false, canProposePlacement: false, canEditMetadata: true, canRemove: true };
+  assert.equal(publishedContributionDetailSchema.parse(detail).metadata.sourceUrl, sourceUrl);
+  assert.equal(reviewSnapshotSchema.shape.candidate.shape.sourceUrl.parse(sourceUrl), sourceUrl);
+  assert.equal(reviewSnapshotSchema.shape.currentPlacement.unwrap().shape.sourceUrl.parse(sourceUrl), sourceUrl);
+  assert.equal(reviewDetailSchema.shape.sourceUrl.parse(sourceUrl), sourceUrl);
+  assert.equal(contributionManageCommandSchema.safeParse({ submissionId: "submission", expectedContributionVersion: "version",
+    idempotencyKey: "key", action: "update_metadata", metadata: { sourceUrl } }).success, false);
+});
+it("bounds contribution metadata patches and forbids byte, authority, target and placement changes", () => {
+  const base = { submissionId: "submission", expectedContributionVersion: "version", idempotencyKey: "key" };
+  assert.equal(contributionManageCommandSchema.safeParse({ ...base, action: "remove" }).success, true);
+  assert.equal(contributionManageCommandSchema.safeParse({ ...base, action: "update_metadata", metadata: { credit: null, altText: null } }).success, true);
+  for (const metadata of [{ label: "x".repeat(81) }, { sourceDescription: "x".repeat(1001) }, { credit: "x".repeat(121) },
+    { altText: "x".repeat(181) }, { sourceUrl: "x".repeat(4097) }, { storageKey: "other" }, { visibility: "public" }, { profileId: "other" }, { placements: ["profile_image"] }])
+    assert.equal(contributionManageCommandSchema.safeParse({ ...base, action: "update_metadata", metadata }).success, false);
+  assert.equal(contributionManageCommandSchema.safeParse({ ...base, action: "remove", metadata: {} }).success, false);
+  assert.equal(contributionManageCommandSchema.safeParse({ ...base, action: "update_metadata", metadata: {}, actorUserId: "other" }).success, false);
+});
+it("bounds contribution commands and refuses caller-selected capabilities", () => {
+  const base = { submissionId: "submission", expectedContributionVersion: "version", idempotencyKey: "key" };
+  assert.equal(contributionCommandBaseSchema.safeParse(base).success, true);
+  assert.equal(contributionPlacementCommandSchema.safeParse({ ...base, action: "select_primary" }).success, true);
+  for (const invalid of [
+    { ...base, action: "clear_primary", canClearPrimary: true },
+    { ...base, action: "replace_primary" },
+    { ...base, action: "select_primary", expectedContributionVersion: "v".repeat(129) },
+    { ...base, action: "select_primary", idempotencyKey: "k".repeat(129) },
+    { ...base, action: "select_primary", submissionId: "s".repeat(201) },
+  ]) assert.equal(contributionPlacementCommandSchema.safeParse(invalid).success, false);
+  assert.equal(publishedContributionDetailSchema.safeParse({
+    submissionId: "submission", assetId: "asset", profileId: "profile", profileSlug: "dj",
+    contributionVersion: "version", metadata: { label: "Image", credit: "Artist" },
+    canSelectPrimary: true, canClearPrimary: false, canProposePlacement: false, canEditMetadata: true, canRemove: true,
+  }).success, true);
+});
 import {
   dynamicMcpClientScopes,
   dynamicMcpResourceWriteScopes,
@@ -112,4 +156,22 @@ it("retains an indeterminate lost response and replays the original key without 
   assert.deepEqual(replay.receipts[0], saved.get("stable"));
   assert.equal(writes, 1);
   assert.equal(input.decisions[0]?.idempotencyKey, "stable");
+});
+
+import { reviewDetailSchema, mediaPublicationSchema } from "../src/media-review";
+it("describes additive and placement intent without adding assertions to publication", () => {
+  const intent = reviewDetailSchema.pick({ requestKind: true, candidateAssetId: true });
+  assert.deepEqual(intent.parse({ requestKind: "kit_asset" }), { requestKind: "kit_asset" });
+  assert.equal(intent.safeParse({ requestKind: "identity_placement", candidateAssetId: "asset" }).success, true);
+  assert.equal(intent.safeParse({ requestKind: "unknown" }).success, false);
+  const command = { submissionId: "submission", expectedReviewVersion: "version", idempotencyKey: "key" };
+  assert.deepEqual(mediaPublicationSchema.parse(command), command);
+  assert.equal(mediaPublicationSchema.safeParse({ ...command, identityConfirmed: true }).success, false);
+});
+
+it("credit URL command contract bounds 2048 independently of the 4096 source URL limit", () => {
+  const prefix = "https://credit.example/";
+  const base = { submissionId: "submission", expectedContributionVersion: "version", idempotencyKey: "key", action: "update_metadata", metadata: { creditUrl: prefix + "a".repeat(2048 - prefix.length), sourceUrl: "https://source.example/" + "a".repeat(4000) } };
+  assert.equal(contributionManageCommandSchema.safeParse(base).success, true);
+  assert.equal(contributionManageCommandSchema.safeParse({ ...base, metadata: { creditUrl: base.metadata.creditUrl + "a" } }).success, false);
 });

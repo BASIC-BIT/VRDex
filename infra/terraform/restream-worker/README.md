@@ -49,4 +49,14 @@ The first Fargate shape is intentionally conservative for CPU-only `1080p60` evi
 
 Bridge-created task definitions can reference output credentials outside the base task definition. Keep those values in Secrets Manager or SSM, and grant the execution role read access with `execution_secret_names`, `execution_secret_arns`, or `secret_arns`; never put secret values in Terraform. Keep the committed defaults portable and set operator-specific secret names in local ignored Terraform variables.
 
+The static task always runs the synthetic benchmark. Event workers use the bridge's per-session task definitions, which supply event and session IDs along with the event entrypoint. This stack does not offer a static event-worker command override.
+
 ECS on EC2 with GPU/NVENC remains a measured fallback if Fargate misses real-time encode, transition quality, bitrate stability, or cost headroom.
+
+## Isolated provider rehearsal
+
+The separately approved rehearsal uses default-disabled
+`enable_rehearsal_permissions` for exact additive source-secret and dedicated-switch
+policies. It does not change the ordinary hosted enable parameter or existing output
+access. See [the operator procedure](../../../docs/engineering/event-broadcast-rehearsal.md)
+for bootstrap import, bounds, commands and targeted rollback.

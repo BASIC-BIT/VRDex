@@ -2,6 +2,7 @@ name: Baseline Checks
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches:
       - main
@@ -14,6 +15,23 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  visual-selection:
+    name: Select Visual Evidence
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      browsers: ${{ steps.selection.outputs.browsers }}
+      visuals: ${{ steps.selection.outputs.visuals }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Test selection and verification contracts
+        run: node --test .github/scripts/visual-ci.test.cjs
+      - name: Select visual evidence
+        id: selection
+        run: node .github/scripts/visual-ci.cjs
+
   lint-web:
     name: Lint Web
     runs-on: ubuntu-latest
@@ -83,6 +101,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Test CI selection and report contracts
+        run: node --test .github/scripts/visual-ci.test.cjs .github/scripts/pr-verification-report.test.cjs .github/scripts/visual-label-removal.test.cjs
+
       - name: Run API contract verification
         run: pnpm verify:api-contracts
 
@@ -92,7 +113,7 @@ jobs:
   typecheck-web:
     name: Typecheck Web
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
@@ -141,6 +162,17 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Install backend media test prerequisites
+        timeout-minutes: 5
+        run: |
+          # Keep the runner's official HTTPS fallbacks; Azure HTTP downloads can crawl.
+          if [[ -f /etc/apt/apt-mirrors.txt ]]; then
+            sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt
+          fi
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes ffmpeg
+          ffmpeg -version
 
       - name: Run backend typecheck
         run: pnpm typecheck:backend
@@ -240,7 +272,12 @@ jobs:
 
       - name: Install FFmpeg
         if: steps.changes.outputs.enabled == 'true'
+        timeout-minutes: 5
         run: |
+          # Keep the runner's official HTTPS fallbacks; Azure HTTP downloads can crawl.
+          if [[ -f /etc/apt/apt-mirrors.txt ]]; then
+            sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt
+          fi
           sudo apt-get update
           sudo apt-get install -y ffmpeg
 
@@ -311,7 +348,8 @@ jobs:
 
   build-storybook:
     name: Build Storybook
-    needs: [lint-web, verify-docs, typecheck-web]
+    if: github.event_name == 'pull_request' && needs.visual-selection.outputs.browsers == 'true'
+    needs: [lint-web, verify-docs, typecheck-web, visual-selection]
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -405,10 +443,66 @@ jobs:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY_PROD }}
         run: pnpm exec convex run migrations:runAll --prod
 
+  playwright-public-smoke:
+    name: Playwright Public Smoke
+    if: github.event_name == 'pull_request' && needs.visual-selection.outputs.browsers == 'true'
+    needs: [build-web, visual-selection]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        working-directory: apps/web
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Verify review capture modes
+        env:
+          PLAYWRIGHT_SKIP_WEBSERVERS: "true"
+        run: pnpm --filter web exec playwright test review-capture.spec.ts --project=desktop-chromium --project=mobile-chromium --workers=1
+
+      - name: Run public route browser assertions
+        id: flow
+        env:
+          PLAYWRIGHT_RECORD_VIDEO: "true"
+          VRDEX_ENABLE_E2E_HELPERS: "true"
+          VRDEX_E2E_BROWSER_TOKEN: local-playwright-token
+          VRDEX_E2E_CONVEX_SECRET: local-convex-e2e-secret
+        run: pnpm --filter web exec playwright test public-routes.smoke.spec.ts --project=desktop-chromium --project=mobile-chromium --workers=1
+
+      - name: Upload public smoke artifacts
+        id: upload
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-public-smoke
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+            apps/web/playwright-artifacts
+
   playwright-data-flow:
     name: Playwright Data Flow
-    if: github.event_name == 'pull_request'
-    needs: [build-web]
+    if: github.event_name == 'pull_request' && needs.visual-selection.outputs.browsers == 'true'
+    needs: [build-web, visual-selection]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -481,12 +575,15 @@ jobs:
 
   playwright-hosted-data-flow:
     name: Playwright Hosted Data Flow
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
-    needs: [build-web]
+    if: github.event_name == 'pull_request' && needs.visual-selection.outputs.browsers == 'true' && github.event.pull_request.head.repo.fork == false
+    needs: [build-web, visual-selection]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
       contents: read
+
+    outputs:
+      configured: ${{ steps.gate.outputs.enabled }}
 
     steps:
       - name: Checkout
@@ -578,10 +675,11 @@ jobs:
       # Only the flag needs this. Enabled-but-unusable already fails loudly —
       # `clerkTestAuthAvailability` throws on missing keys and on auth helpers
       # being off for a hosted target, rather than skipping.
-      - name: Capture signed-in account screenshots
+      - name: Run signed-in account assertions and selected captures
         if: always() && steps.gate.outputs.enabled == 'true' && vars.VRDEX_HOSTED_E2E_CLERK_AUTH == 'true'
         id: account-visual
         env:
+          PLAYWRIGHT_CAPTURE_SCREENSHOTS: ${{ needs.visual-selection.outputs.visuals }}
           PLAYWRIGHT_OUTPUT_DIR: test-results-account-visual
           PLAYWRIGHT_HTML_REPORT_DIR: playwright-report-account-visual
           PLAYWRIGHT_JSON_REPORT_FILE: playwright-artifacts/results-account-visual.json
@@ -604,6 +702,7 @@ jobs:
           # said `success` while the account captures failed would contradict the
           # job it is attached to — which is the failure mode this whole summary
           # was added to prevent.
+          CAPTURE_SELECTED: ${{ needs.visual-selection.outputs.visuals }}
           ACCOUNT_VISUAL_OUTCOME: ${{ steps.account-visual.outcome }}
           HOSTED_BASE_URL: ${{ vars.VRDEX_HOSTED_E2E_BASE_URL }}
           HOSTED_EXTENDED_PROFILE_FLOW: ${{ vars.VRDEX_HOSTED_E2E_EXTENDED_PROFILE_FLOW }}
@@ -619,7 +718,8 @@ jobs:
 
           Outcome: ${HOSTED_OUTCOME}
 
-          Signed-in account captures: ${ACCOUNT_VISUAL_OUTCOME:-not run}
+          Signed-in account assertions: ${ACCOUNT_VISUAL_OUTCOME:-not run}
+          Review screenshot collection selected: ${CAPTURE_SELECTED}
 
           Target: ${HOSTED_BASE_URL}
 
@@ -666,12 +766,15 @@ jobs:
 
   playwright-public-preview:
     name: Playwright Public Preview
-    if: github.event_name == 'pull_request'
-    needs: [build-web]
+    if: github.event_name == 'pull_request' && needs.visual-selection.outputs.browsers == 'true'
+    needs: [build-web, visual-selection]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
       contents: read
+
+    env:
+      PLAYWRIGHT_CAPTURE_SCREENSHOTS: ${{ needs.visual-selection.outputs.visuals }}
 
     steps:
       - name: Checkout
@@ -693,14 +796,17 @@ jobs:
         working-directory: apps/web
         run: pnpm exec playwright install --with-deps chromium
 
-      - name: Capture public route screenshots
+      - name: Run public route assertions and selected captures
         id: visual
-        run: pnpm test:e2e:visual
+        run: |
+          pnpm test:e2e:visual
+          node .github/scripts/visual-ci.cjs --check-captures apps/web/playwright-artifacts/screenshots
 
       - name: Write visual summary
         if: always()
         env:
           VISUAL_OUTCOME: ${{ steps.visual.outcome }}
+          CAPTURE_SELECTED: ${{ needs.visual-selection.outputs.visuals }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           mkdir -p apps/web/playwright-artifacts
@@ -748,9 +854,10 @@ jobs:
           fatal=$(echo "$counts" | cut -d' ' -f5)
 
           {
-            echo "## Playwright public screenshot preview"
+            echo "## Playwright public browser preview"
             echo ""
             echo "Outcome: ${VISUAL_OUTCOME}"
+            echo "Review screenshot collection selected: ${CAPTURE_SELECTED}"
             echo ""
             echo "Tests: ${passed} passed, ${failed} failed, ${skipped} skipped, ${flaky} flaky."
             if [ "$fatal" != "0" ] && [ "$fatal" != "unknown" ]; then
@@ -782,8 +889,8 @@ jobs:
 
   playwright-image-diff:
     name: Playwright Image Diff
-    if: github.event_name == 'pull_request'
-    needs: [build-web]
+    if: github.event_name == 'pull_request' && needs.visual-selection.outputs.visuals == 'true'
+    needs: [build-web, visual-selection]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -858,12 +965,15 @@ jobs:
 
   storybook-component-preview:
     name: Storybook Component Preview
-    if: github.event_name == 'pull_request'
-    needs: [build-storybook]
+    if: github.event_name == 'pull_request' && needs.visual-selection.outputs.browsers == 'true'
+    needs: [build-storybook, visual-selection]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
       contents: read
+
+    env:
+      PLAYWRIGHT_CAPTURE_SCREENSHOTS: ${{ needs.visual-selection.outputs.visuals }}
 
     steps:
       - name: Checkout
@@ -885,23 +995,27 @@ jobs:
         working-directory: apps/web
         run: pnpm exec playwright install --with-deps chromium
 
-      - name: Capture Storybook component screenshots
+      - name: Run Storybook assertions and selected captures
         id: visual
-        run: pnpm test:storybook:visual
+        run: |
+          pnpm test:storybook:visual
+          node .github/scripts/visual-ci.cjs --check-captures apps/web/playwright-artifacts/storybook
 
       - name: Write Storybook visual summary
         if: always()
         env:
           VISUAL_OUTCOME: ${{ steps.visual.outcome }}
+          CAPTURE_SELECTED: ${{ needs.visual-selection.outputs.visuals }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           mkdir -p apps/web/playwright-artifacts
           cat > apps/web/playwright-artifacts/storybook-visual-summary.md <<EOF
-          ## Storybook component screenshot preview
+          ## Storybook component browser preview
 
           Outcome: ${VISUAL_OUTCOME}
+          Review screenshot collection selected: ${CAPTURE_SELECTED}
 
-          Screenshots: component primitive stories captured on desktop and mobile.
+          Browser assertions: component stories on desktop and mobile. Review PNGs are collected only when selected.
 
           Run: ${RUN_URL}
           EOF
@@ -921,8 +1035,8 @@ jobs:
 
   storybook-image-diff:
     name: Storybook Image Diff
-    if: github.event_name == 'pull_request'
-    needs: [build-storybook]
+    if: github.event_name == 'pull_request' && needs.visual-selection.outputs.visuals == 'true'
+    needs: [build-storybook, visual-selection]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -998,7 +1112,21 @@ jobs:
   pr-verification-report:
     name: PR Verification Report
     if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
+    concurrency:
+      group: pr-verification-comment-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
     needs:
+      - lint-web
+      - verify-docs
+      - verify-api-mcp
+      - typecheck-web
+      - typecheck-backend
+      - verify-backend-local
+      - restream-local-checks
+      - build-web
+      - build-storybook
+      - visual-selection
+      - playwright-public-smoke
       - playwright-data-flow
       - playwright-hosted-data-flow
       - playwright-public-preview
@@ -1018,7 +1146,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Test PR verification report helper
-        run: node --test .github/scripts/pr-verification-report.test.cjs
+        run: node --test .github/scripts/visual-ci.test.cjs .github/scripts/pr-verification-report.test.cjs
 
       - name: Update consolidated PR verification report
         uses: actions/github-script@v9

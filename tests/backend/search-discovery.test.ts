@@ -596,6 +596,7 @@ describe("search document projection", () => {
       _id: "event123",
       communityProfileId: "community123",
       slug: "h4rb0r2",
+      startAt: Date.UTC(2026, 6, 4, 22),
     } as unknown as Doc<"events">;
     const community = {
       _id: "community123",
@@ -630,6 +631,8 @@ describe("search document projection", () => {
 
     assert.equal(result?.routePath, "/afterglow-renamed/events/h4rb0r2");
     assert.equal(result?.subtitle, "Afterglow Renamed");
+    assert.equal(result?.startsAt, event.startAt);
+    assert.equal(result?.endAt, undefined);
   });
 
   it("projects profile verification without exposing it as provenance copy", async () => {
@@ -920,7 +923,9 @@ describe("search document projection", () => {
     );
   });
 
-  it("caps stale event featured rank after an event has passed", () => {
+  it("caps stale event featured rank after an event has passed", context => {
+    const now = Date.UTC(2026, 9, 13, 12);
+    context.mock.method(Date, "now", () => now);
     const pastEvent = {
       entityType: "event",
       slug: "past-house-night",
@@ -931,7 +936,7 @@ describe("search document projection", () => {
       vocabularyKeys: ["event_tag:house"],
       trustRank: 30,
       featuredRank: 42,
-      startsAt: Date.now() - 3_600_000,
+      startsAt: now - 6 * 3_600_000 - 1,
       publicState: "public",
       updatedAt: 1,
     } as unknown as Doc<"searchDocuments">;
@@ -940,7 +945,7 @@ describe("search document projection", () => {
       slug: "upcoming-house-night",
       routePath: "/afterglow/events/upcoming-house-night",
       title: "Upcoming House Night",
-      startsAt: Date.now() + 3_600_000,
+      startsAt: now + 3_600_000,
     } as unknown as Doc<"searchDocuments">;
 
     const results = sortSearchResults([
@@ -949,5 +954,13 @@ describe("search document projection", () => {
     ]);
 
     assert.equal(results[0]?.slug, "upcoming-house-night");
+    const activeScore = toPublicSearchResult(upcomingEvent, "House").score;
+    const expiredScore = toPublicSearchResult(pastEvent, "House").score;
+    assert.ok(expiredScore < activeScore);
+    assert.equal(toPublicSearchResult({ ...pastEvent, startsAt: now - 3_600_000 }, "House").score, activeScore);
+    assert.equal(toPublicSearchResult({ ...pastEvent, startsAt: now - 6 * 3_600_000 }, "House").score, activeScore);
+    // A known end keeps its exact boundary even beyond the fallback window.
+    assert.equal(toPublicSearchResult({ ...pastEvent, endAt: now }, "House").score, activeScore);
+    assert.equal(toPublicSearchResult({ ...pastEvent, endAt: now - 1 }, "House").score, expiredScore);
   });
 });

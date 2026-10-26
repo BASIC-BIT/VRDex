@@ -1,5 +1,11 @@
 # Contributed event intake checkpoint
 
+The 2026-10-13 scheduling follow-up is recorded in the
+[event editor scheduling checkpoint](./event-editor-scheduling-checkpoint.md): explicit
+generation, fixed ends, timezone preferences, prominent Review actions, Linux visual
+evidence and the update-only legacy identity exception. The original acceptance
+boundaries below remain historical evidence.
+
 Date: 2026-09-28. Scope: Tasks 1 through 9, final review corrections and the
 merge with `main` at `326fe66e3` on `codex/event-contribution-ai-intake-design`.
 This is local evidence. Nothing here asserts deployment,
@@ -79,10 +85,17 @@ flowchart LR
   Add --> SignIn
   MCP[User-scoped MCP intake] --> Draft[Versioned private draft]
   SignIn --> Draft
-  Draft --> Source[Manual fields, text or private poster]
-  Source --> Review[Accept tentative fields or edit]
-  Source --> Art[Optional separate artwork selection]
-  Art --> Review
+  Draft --> Details[Details: community and event fields]
+  Details --> Import[Optional import action]
+  Lineup --> Import
+  Review --> Import
+  Import --> Modal[Dialog: one poster and optional text]
+  Modal -->|Accept tentative fields| Details
+  Modal -->|Close| Current[Return to current step]
+  Details --> Lineup[Lineup]
+  Lineup --> Review[Review]
+  Review --> Details
+  Review --> Lineup
   Review --> Publish[Preflight and publish]
   Publish --> Event[Canonical event page]
   Event --> Readback[Search and community listing]
@@ -93,10 +106,52 @@ flowchart LR
 
 The owner editor retains its authority and live controls, uses searchable IANA
 zones and explicit DST occurrence selection, and labels generated rows Slot N.
+Its optional Ends control preserves an untouched stored instant, accepts an
+explicit end, sends null to clear a stored end, and omits an unknown end on
+staff create. A known final lineup end remains available after an explicit
+clear. The editor still requires a known start for staff create.
+Contributor import is a top-right action that opens a dialog. The same one
+poster and optional text are sent through one extraction. A verified poster
+becomes artwork by default, and replacement or removal updates that artwork.
+Scoped corrections and staff edits do not expose this import action.
 One public Lineup includes matched/unmatched and timed/untimed entries. Repeated
 sets remain distinct; participant-only duplicates disappear. Performer and
 event-level VRCDN/Twitch stream targets share a collapsed, deduplicated DJ links
 accordion. Ordinary event links and the contextual watch player remain separate.
+
+### Three-stage editor refinement, 2026-10-13
+
+The current editor has Details, Lineup and Review. Draft import sits beside the
+heading, outside those stages. The staff editor keeps Source fields inside the
+Details disclosure, including mounted values for save and error focus. Staff
+edits of published events and scoped contributor corrections have no import
+action under the approved draft-only scope.
+
+Staff Starts and optional Ends use native combined date/time controls. A stored
+end survives an unrelated edit at its exact instant, including the later
+repeated-hour occurrence. An entered end must follow the start. Clearing Ends
+sends null for updates; a known final lineup end may still be submitted.
+Creation without either end omits the field. Staff create still requires a
+known start; contributor date-only drafts retain their existing commands.
+When an untouched stored end shifts with a changed start, Ends displays the
+pending event-local value and its repeated-hour choice. Event preview shows
+the same resulting instant in the viewer's local timezone.
+
+The new utility labels `Import poster or text`, `Import event info`,
+`Ends (optional)` and `Add end time` follow BASIC's approved wording in the
+[wizard specification](../planning/event-editor-wizard-refinement-2026-10-11.md).
+The staff ordering error reuses `Event end time must be after the start time.`
+from the existing staff error set. No new substantive product sentence was added.
+
+The committed Linux Chromium baselines include the [desktop staff Details](../../apps/web/e2e/__screenshots__/desktop-chromium/event-editor-edit-details.png)
+and [mobile staff Details](../../apps/web/e2e/__screenshots__/mobile-chromium/event-editor-edit-details.png)
+screens with the optional end visible. The fixture-backed
+[`event-editor.snapshots.spec.ts`](../../apps/web/e2e/event-editor.snapshots.spec.ts)
+also captures create, resumed draft, correction and staff edit in light and dark
+themes on desktop and mobile, plus import open/error, DST gap and repeated-time
+states. Those additional captures are generated test artifacts; the two linked
+baseline images are durable repository evidence. Fixture transport verifies
+form behavior and payloads, not live authentication or model accuracy.
 
 ## Automated evidence
 
@@ -153,7 +208,7 @@ and Pixel 7 Chromium with one worker:
 
 Coverage includes manual/text/poster publication navigation, resumed drafts,
 explicit candidate acceptance, provider-disabled manual fallback, poster
-replacement/preview failures, separate artwork selection, DST gap/fold controls,
+replacement/preview failures, poster artwork handling, DST gap/fold controls,
 stale revisions, community/direct authentication entry, public URL reload,
 search/community readback, staff takeover/removal controls and date-only calendar
 export/no-player behavior. Staff fixture mutations do not prove backend authority;
@@ -177,9 +232,9 @@ Visual review accepted the captures. Desktop uses clear grouped rows; mobile
 wraps long stream targets without overflow and keeps copy controls reachable.
 Matched portraits, fallback initials, repeated sets and untimed entries remain
 readable. Date-only views show the authored date and Time TBA with no player.
-Text candidates have explicit Accept actions; source preview and artwork choice
-remain distinct. Replacement-pending screenshots show no stale image and a
-disabled artwork action. Forms remain long; reducing unrelated profile/edit-page
+Text candidates have explicit Accept actions; private source preview and public
+artwork remain distinct. Replacement-pending screenshots show no stale image.
+Forms remain long; reducing unrelated profile/edit-page
 complexity is outside this slice. The Update elsewhere button is fixture-only.
 
 Both viewport variants were captured. Paths below are relative to `apps/web/`;
@@ -393,3 +448,102 @@ Task 9 groups event-only streams under the event's authored title. It adds no
 new public explanatory sentence. The profile-editor proposal has a separate
 [copy decision list](../planning/profile-editor-progressive-disclosure-2026-09-28.md)
 and is not implemented here.
+
+## Organizer workspace checkpoint (2026-10-22)
+
+The organizer slice adds `/account/events` inventory and source-specific
+continuation. Its [browser contract](../engineering/event-contribution-browser.md#my-events-inventory-and-continuation)
+covers sources, expiry, traversal order, filters, failure and navigation behavior.
+
+`event-inventory-checkpoint.flow.spec.ts` starts
+`tests/backend/helpers/event-inventory-browser-bridge.ts`. That child seeds
+canonical staff and intake drafts with real commands, supplies actual inventory
+pages and authorizes browser-generated query/mutation/action arguments through
+`convex-test`. The gated `/playwright/event-workspace` route composes the
+production inventory, staff editor, connected intake and public renderer. Only
+transport and browser authentication presentation are replaced. The production
+`usePaginatedQuery` hook owns accumulation and consumes actual opaque cursors.
+
+Both draft journeys follow their supplied continuation links, edit a manual
+performer and set time, Save draft, remount from saved projections, then publish
+through Review. A later staff Save changes remains published and its authorized
+Discord text contains the revised performer and saved timestamp. The checkpoint
+also checks creator privacy, expired-draft omission, anonymous write rejection,
+nonstaff export refusal and cancelled/unpublished export absence. Existing
+backend tests cover revoked authority and retention; existing authoring flows
+cover conflicts, pending edits, staff takeover/correction and local-time round
+trips without duplicating their scheduling implementation.
+
+Evidence boundaries:
+
+- Inventory state screenshots from `/playwright/event-inventory` use deterministic
+  reads for populated, empty, loading and failure presentation. They do not prove
+  backend authority, real cursors or persistence.
+- The command checkpoint runs actual Convex functions and saved projections in
+  `convex-test`, with browser-generated arguments and actual Review commands.
+  Its sign-in return targets prove continuation navigation intent. Publication
+  attempts the returned canonical URL; the exact saved public projection is
+  then rendered in the gated fixture. These child records do not exist in the
+  native Next backend, so this is not native canonical-server readback.
+- No live Clerk browser session or hosted provider delivery is claimed. Copy
+  exercises generated text and the clipboard control, not Discord delivery.
+
+Desktop/mobile light/dark screenshots are committed under
+[`assets/organizer-workspace-2026-10-22`](./assets/organizer-workspace-2026-10-22/README.md).
+The asset index records screenshot scope and visual review. Existing affected
+editor golden images remain in `apps/web/e2e/__screenshots__`.
+
+### Canonical CI visual follow-up (2026-10-22)
+
+[Baseline Checks #1807](https://github.com/BASIC-BIT/VRDex/actions/runs/39726810845)
+tested head `bda7c65` through merge checkout `268342f`. The initial local
+36-case editor/lineup comparison was 26 passed and 10 failed. All ten untouched
+failures reproduced on unchanged `main` with 18 byte-identical actual PNGs;
+those same ten cases passed on the canonical CI runner. Preserve the local
+result as qualified environment evidence, not a passing comparison run.
+
+The canonical [Playwright Image Diff job](https://github.com/BASIC-BIT/VRDex/actions/runs/39726810845/job/119654476148)
+reported **64 passed, 12 failed and 12 skipped**. Its
+[failure artifact](https://github.com/BASIC-BIT/VRDex/actions/runs/39726810845/artifacts/12403712871)
+contains 39 unique failing PNGs, all among the 84 updated baselines; initial and
+retry actuals are byte-identical, with unchanged image dimensions. Independent
+review approved the 38 mobile actuals as glyph-edge raster differences without
+material changes to content, geometry, controls or navigation. The downloaded
+Space Grotesk and IBM Plex Mono WOFF2 bodies match local files byte-for-byte.
+Local Debian 13.6 and CI Ubuntu 24.04.5 differ, but the precise raster-rendering
+cause remains unestablished. Only those reviewed mobile images are adopted;
+comparison tolerances are unchanged.
+
+The remaining desktop `schedule-light-timezone.png` actual was rejected because
+its community artwork had not loaded. The retry trace records the image request
+finishing after 3.55 seconds, while the first screenshot started 0.24 seconds
+after the request began. Font readiness alone did not establish image readiness.
+The editor snapshot spec now eagerly loads and decodes captured image elements
+before both its evidence capture helper and legacy screenshot loop. Decode
+failure rejects before capture. The artwork-containing desktop baseline is
+preserved. A scoped held-request browser check verifies capture waits for a real
+image response, and a corrupt-image case verifies failure before any screenshot.
+
+Both readiness cases passed in desktop and mobile Chromium (4/4). A final
+desktop-only run passed the two readiness cases and the normal light/dark
+scheduling comparisons (4/4), preserving all 14 existing scheduling images.
+The final timezone capture visibly retains the community artwork. The local
+fixture server used the documented Turbopack system-TLS setting to load the
+same font bytes as CI; a preceding fallback-font run failed and is not passing
+comparison evidence. With that fixture server already running, the final scope
+was:
+
+```sh
+PLAYWRIGHT_BASE_URL=http://127.0.0.1:3002 PLAYWRIGHT_SKIP_WEBSERVERS=true \
+  pnpm --filter web exec playwright test e2e/event-editor.snapshots.spec.ts \
+  --grep 'editor capture waits for artwork|scheduling states (light|dark)' \
+  --project=desktop-chromium --workers=1 --retries=0
+```
+
+Other selected jobs in that run passed: Storybook Image Diff (36 passed),
+Storybook Component Preview (354 passed) and Playwright Public Preview (72 passed,
+12 signed-in-account skips in the local lane). Hosted account captures were
+selected and reported 6 passed and 6 skipped; My events, media contributions and
+media review access skipped in both viewports because shared staging did not yet
+carry the branch revision. That run does not establish hosted My events coverage.
+The follow-up commit still requires its own selected CI comparison result.

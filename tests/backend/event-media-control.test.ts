@@ -38,7 +38,7 @@ describe("event media control helpers", () => {
       {
         platform: "browser",
         label: "Browser",
-        url: "https://stream.vrcdn.live/live/basicbit.m3u8",
+        url: "https://stream.vrcdn.live/live/basicbit.live.ts",
       },
       {
         platform: "pc",
@@ -205,7 +205,7 @@ describe("event media control helpers", () => {
       rightsClearedMedia: "accepted",
     });
     assert.deepEqual(output.playbackLinks, [
-      { platform: "browser", label: "Browser watch link", url: "https://stream.vrcdn.live/live/basicbit.m3u8" },
+      { platform: "browser", label: "Browser watch link", url: "https://stream.vrcdn.live/live/basicbit.live.ts" },
       { platform: "pc", label: "PC stream link", url: "rtspt://stream.vrcdn.live/live/basicbit" },
       { platform: "standalone", label: "Standalone stream link", url: "https://stream.vrcdn.live/live/basicbit.live.ts" },
     ]);
@@ -251,22 +251,21 @@ describe("event media control helpers", () => {
     );
   });
 
-  it("exposes output account options without credential references", () => {
-    const publicAccounts = listPublicVrcdnOutputAccounts();
-    const account = getVrcdnOutputAccount("basicbit");
-
-    assert.equal(publicAccounts.length, 1);
-    assert.deepEqual(publicAccounts[0], {
-      key: "basicbit",
-      label: "basicbit",
-      playbackLinks: [
-        { platform: "browser", label: "Event stream", url: "https://panel.vrcdn.live/preview/basicbit" },
-        { platform: "standalone", label: "Quest stream", url: "https://stream.vrcdn.live/live/basicbit.live.ts" },
-        { platform: "pc", label: "PC stream", url: "rtspt://stream.vrcdn.live/live/basicbit" },
-      ],
-    });
-    assert.equal("credentialRef" in publicAccounts[0]!, false);
-    assert.equal(account?.credentialRef, "event-media/vrcdn/basicbit-output");
+  it("exposes only scoped output account options without credential references", () => {
+    const previous = process.env.VRDEX_VRCDN_OUTPUT_ACCOUNTS_JSON;
+    process.env.VRDEX_VRCDN_OUTPUT_ACCOUNTS_JSON = JSON.stringify([{ key: "owned", label: "Owned", credentialRef: "event-media/vrcdn/owned", ownerCommunityProfileId: "community-a", playbackLinks: [{ platform: "browser", url: "https://stream.vrcdn.live/live/owned.live.ts" }] }]);
+    try {
+      assert.deepEqual(listPublicVrcdnOutputAccounts(), []);
+      assert.deepEqual(listPublicVrcdnOutputAccounts("community-b"), []);
+      const publicAccounts = listPublicVrcdnOutputAccounts("community-a");
+      assert.equal(publicAccounts.length, 1);
+      assert.equal(publicAccounts[0].key, "owned");
+      assert.equal("credentialRef" in publicAccounts[0], false);
+      assert.equal(getVrcdnOutputAccount({ communityProfileId: "community-a", key: "owned" }).credentialRef, "event-media/vrcdn/owned");
+    } finally {
+      if (previous === undefined) delete process.env.VRDEX_VRCDN_OUTPUT_ACCOUNTS_JSON;
+      else process.env.VRDEX_VRCDN_OUTPUT_ACCOUNTS_JSON = previous;
+    }
   });
 
   it("defaults worker scheduling to start five minutes early and require readiness two minutes early", () => {

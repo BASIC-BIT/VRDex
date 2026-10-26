@@ -243,10 +243,11 @@ export class VrchatClient {
     const isGroup = targetType === "vrchat_group";
     const path = isGroup
       ? `/groups/${encodeURIComponent(requireExternalId(targetExternalId, "grp_", "Group ID"))}`
-      : `/users/${encodeURIComponent(requireExternalId(targetExternalId, "usr_", "User ID"))}`;
+      : `/profile/${encodeURIComponent(requireExternalId(targetExternalId, "usr_", "User ID"))}`;
     const record = await this.request(path);
 
-    if (!record || typeof record !== "object") {
+    if (!record || typeof record !== "object" ||
+      (!isGroup && (Array.isArray(record) || record.id !== targetExternalId || typeof record.bio !== "string"))) {
       throw new VrchatProviderError("Proof target response is malformed.", {
         category: "schema_drift",
       });

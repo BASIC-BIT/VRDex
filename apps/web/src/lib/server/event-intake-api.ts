@@ -56,7 +56,7 @@ export function createEventIntakeCommands(deps: { actorUserId: Id<"users">; admi
         const input = CompleteEventPosterUploadSchema.parse(raw);
         const source = await admin.query(internal.eventIntakeSources.readActorSource, { ...actor, posterAssetId: posterAssetId(input.posterAssetId) });
         if (source.draftId !== input.draftId) throw new Error("POSTER_DRAFT_MISMATCH");
-        result = await posters.completePosterUpload({ posterAssetId: posterAssetId(input.posterAssetId) });
+        result = await posters.completePosterUpload({ posterAssetId: posterAssetId(input.posterAssetId), expectedVersion: input.expectedVersion });
         break;
       }
       case "artwork_select": {

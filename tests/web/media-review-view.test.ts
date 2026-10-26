@@ -73,3 +73,7 @@ describe("media review view model", () => {
     }), "https://automatic.example/avatar.png");
   });
 });
+
+it("recognizes published contribution and selection conflicts without discarding drafts", () => {
+  for (const code of ["contribution_changed", "selection_changed"]) assert.equal(reviewDecisionMessage({ operationId: "op", operationState: "refused", code }).conflict, true);
+});

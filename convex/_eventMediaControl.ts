@@ -66,6 +66,7 @@ export type EventMediaVrcdnRegion = "europe" | "north_america" | "south_america"
 export type EventMediaComplianceGateState = "pending" | "accepted" | "blocked";
 
 export type EventMediaCommandType =
+  | "set_automatic_mode"
   | "start_program"
   | "stop_program"
   | "preview_source"
@@ -227,6 +228,10 @@ export type EventMediaPublicProgramState = {
   directFallbackLinks: EventMediaPublicLink[];
 };
 
+export const observedBroadcastStateValidator = v.union(
+  v.literal("live"), v.literal("hold"), v.literal("fallback"), v.literal("ended"), v.literal("error"),
+);
+
 export const eventMediaProgramStateValidator = v.union(
   v.literal("draft"),
   v.literal("ready"),
@@ -320,6 +325,7 @@ export const eventMediaComplianceGateStateValidator = v.union(
 );
 
 export const eventMediaCommandTypeValidator = v.union(
+  v.literal("set_automatic_mode"),
   v.literal("start_program"),
   v.literal("stop_program"),
   v.literal("preview_source"),
@@ -543,11 +549,8 @@ export function sanitizeEventMediaPublicLink(input: EventMediaPublicLinkInput): 
         ? vrcdnLinks.pcUrl
         : input.platform === "standalone"
           ? vrcdnLinks.questUrl
-          // Browser, and a browser plays the HLS playlist -- which is what the
-          // watch surface embeds for exactly this case. This fell back to a
-          // `vrcdn.live/<id>` page that does not exist, so the one platform that
-          // could have played something in place got a 404 instead.
-          : vrcdnLinks.directVideoUrl ?? vrcdnLinks.hlsUrl;
+          // Browser playback uses MPEG-TS. Derived VRCDN HLS is not available.
+          : vrcdnLinks.directVideoUrl ?? vrcdnLinks.questUrl;
 
     return { platform: input.platform, label, url };
   }

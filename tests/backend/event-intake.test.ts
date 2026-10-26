@@ -5,7 +5,9 @@ import { makeFunctionReference } from "convex/server";
 import schemaModule from "../../convex/schema";
 import { api } from "../../convex/_generated/api";
 import { getPublicCommunityHostedEvents, getPublicPersonUpcomingEvents } from "../../convex/_eventPublic";
-import { eventContributionFingerprint } from "../../convex/_eventContributionPreflight";
+import { eventContributionFingerprint, normalizeIntakePublication } from "../../convex/_eventContributionPreflight";
+import { acceptIntakeSuggestion } from "../../apps/web/src/lib/calendar/event-intake-suggestions";
+import type { EventIntakePatch } from "../../packages/api-contracts/src/event-intake";
 
 const schema = (schemaModule as unknown as { default?: typeof schemaModule }).default ?? schemaModule;
 const save = makeFunctionReference<"mutation">("eventIntake:saveEventIntakeDraft");
@@ -32,6 +34,41 @@ async function fixture() {
 }
 const complete = { communitySlug: "public-club", title: "Night Flight", eventDate: "2027-10-15", timeTba: true };
 
+it("roundtrips relative drafts and resolves publication using elapsed time across DST", async () => {
+  const { actor, t } = await fixture();
+  const patch = { communitySlug: "public-club", title: "Relative draft", lineup: [{ clientKey: "guest", position: 0, performerLabel: "Guest", relativeTiming: { offsetMinutes: 60, durationMinutes: 60 } }] };
+  const draft = await actor.mutation(save, { patch });
+  const loaded = await actor.query(get, { draftId: draft.draftId });
+  assert.deepEqual(loaded.fields.lineup, patch.lineup);
+  await assert.rejects(actor.action(publish, { draftId: draft.draftId, expectedVersion: draft.version, idempotencyKey: "relative-incomplete" }));
+  const timed = { ...loaded.fields, eventDate: "2026-11-01", timezone: "America/New_York", timeTba: false, start: { time: "01:30", occurrence: "earlier" as const }, end: { time: "03:30" } };
+  const normalized = normalizeIntakePublication(timed);
+  assert.equal(normalized.lineup[0]?.startAt, Date.UTC(2026, 10, 1, 6, 30));
+  assert.equal(normalized.lineup[0]?.endAt, Date.UTC(2026, 10, 1, 7, 30));
+  assert.throws(() => normalizeIntakePublication({ ...timed, lineup: [{ ...patch.lineup[0]!, start: { time: "01:30" } }] }), /Relative lineup timing/);
+  assert.throws(() => normalizeIntakePublication({ ...timed, start: null, end: null, timeTba: true }), /Relative lineup timing requires/);
+  assert.throws(() => normalizeIntakePublication({ ...timed, lineup: [{ ...patch.lineup[0]!, relativeTiming: { offsetMinutes: 8 * 1440, durationMinutes: 60 } }] }), /Event date must be valid/);
+  const updated = await actor.mutation(save, { draftId: draft.draftId, expectedVersion: draft.version, patch: timed });
+  const published = await actor.action(publish, { draftId: draft.draftId, expectedVersion: updated.version, idempotencyKey: "relative-anchored" });
+  const slot = await t.run(ctx => ctx.db.query("eventSlots").withIndex("by_eventId", q => q.eq("eventId", published.eventId)).first());
+  assert.equal(slot?.startAt, normalized.lineup[0]?.startAt);
+  assert.equal(slot?.endAt, normalized.lineup[0]?.endAt);
+});
+
+for (const timeTba of [false, true]) it(`publishes accepted source starts on their canonical date while retaining overnight instants from timeTba=${timeTba}`, () => {
+  let fields: EventIntakePatch = { communitySlug: "public-club", title: "Source night", eventDate: "2026-10-10", timezone: "UTC", timeTba, tentative: { eventDate: "2026-10-11", start: { time: "23:00", dayOffset: 0 }, end: { time: "02:00", dayOffset: 1 } } };
+  for (const key of ["start", "end"] as const) {
+    const accepted = acceptIntakeSuggestion({ fields, acceptance: { key, proposalDate: fields.tentative?.eventDate } });
+    assert.ok(accepted); fields = accepted;
+  }
+  assert.equal(fields.eventDate, "2026-10-11");
+  assert.equal(fields.timeTba, false);
+  assert.equal(fields.start?.dayOffset, 0);
+  const normalized = normalizeIntakePublication(fields);
+  assert.equal(normalized.schedule.startAt, Date.UTC(2026, 9, 11, 23));
+  assert.equal(normalized.endAt, Date.UTC(2026, 9, 12, 2));
+});
+
 it("returns an unavailable draft for a malformed browser draft link", async () => {
   const { actor, t } = await fixture();
   assert.equal(await actor.query(get, { draftId: "not-a-convex-id" }), null);
@@ -42,9 +79,11 @@ it("returns an unavailable draft for a malformed browser draft link", async () =
 
 it("saves a private poster-only draft and refuses wholly empty durable drafts", async () => {
   const { t, actor } = await fixture();
-  const result = await actor.mutation(save, { patch: { posterSourceId: "source-1" } });
+  const declaration = {contentType:"image/png",byteLength:128,sha256:"a".repeat(64)};
+  const result = await actor.mutation(save, { patch: { posterDeclaration: declaration } });
   assert.equal(result.version, 1);
-  assert.equal((await actor.query(get, { draftId: result.draftId })).fields.posterSourceId, "source-1");
+  assert.deepEqual((await actor.query(get, { draftId: result.draftId })).fields.posterDeclaration, declaration);
+  await assert.rejects(actor.mutation(save, { patch: { posterSourceId: "source-1" } }), /POSTER_DRAFT_MISMATCH/);
   await assert.rejects(actor.mutation(save, { patch: { title: " " } }), /meaningful/i);
   await assert.rejects(t.query(get, { draftId: result.draftId }));
   assert.equal(await t.withIdentity({ subject: "other-user" }).query(get, { draftId: result.draftId }), null);
@@ -142,6 +181,16 @@ it("bounds drafts, rejects authority and unsafe URLs, and preserves tentative va
   for (let i = 1; i < 20; i++) await actor.mutation(save, { patch: { title: `Draft ${i}` } });
   await assert.rejects(actor.mutation(save, { patch: { title: "Over quota" } }), /DRAFT_QUOTA/);
 });
+it("keeps accepted fields but clears stale discovery when source text changes", async () => {
+  const { actor } = await fixture();
+  const evidence = [{ fieldPath: "event.title", origin: "text", excerpt: "Night", assessment: "explicit" }];
+  const draft = await actor.mutation(save, { patch: { title: "My title", sourceText: "Night", tentative: { title: "Night" }, evidence, questions: ["event.date: unknown"] } });
+  assert.deepEqual((await actor.query(get, { draftId: draft.draftId })).fields.evidence, evidence);
+  await actor.mutation(save, { draftId: draft.draftId, expectedVersion: draft.version, patch: { sourceText: "New flyer" } });
+  const fields = (await actor.query(get, { draftId: draft.draftId })).fields;
+  assert.equal(fields.title, "My title"); assert.equal(fields.tentative, undefined);
+  assert.equal(fields.evidence, undefined); assert.equal(fields.questions, undefined);
+});
 it("requires explicit DST selection and cross-midnight day offsets for timed events and lineup", async () => {
   const { t, actor } = await fixture();
   const draft = await actor.mutation(save, { patch: { ...complete, eventDate: "2027-11-07", timeTba: false, timezone: "America/New_York", start: { time: "01:30" } } });
@@ -166,13 +215,13 @@ it("does not create an event or receipt when lineup validation fails", async () 
 it("shows contributor lineup matches without claiming a performer's profile before staff review", async () => {
   const { t, actor } = await fixture();
   const personId = await t.run(ctx => ctx.db.insert("profiles", { slug: "public-dj", displayName: "Public DJ", sortName: "public dj", profileType: "person", person: { roleTags: [] }, aliases: [], tags: [], claimState: "unclaimed", publicationState: "published", publicSurfacingState: "public", creationSource: "community", updatedAt: Date.now() }));
-  const draft = await actor.mutation(save, { patch: { ...complete, sourceText: "Private source evidence", posterSourceId: "private-poster", lineup: [{ clientKey: "a", position: 0, performerLabel: "Public DJ", personSlug: "public-dj" }] } });
+  const draft = await actor.mutation(save, { patch: { ...complete, sourceText: "Private source evidence", posterDeclaration: {contentType:"image/png",byteLength:128,sha256:"a".repeat(64)}, lineup: [{ clientKey: "a", position: 0, performerLabel: "Public DJ", personSlug: "public-dj" }] } });
   const result = await actor.action(publish, { draftId: draft.draftId, expectedVersion: 1, idempotencyKey: "matched" });
   const event = await t.run(ctx => ctx.db.get(result.eventId));
   const publicEvent = await t.query(api.events.getPublicBySlug, { slug: event!.slug! });
   assert.equal(publicEvent?.lineup[0].displayLabel, "Public DJ");
   assert.equal(publicEvent?.participants.length, 0);
-  for (const key of ["contributorUserId", "sourceText", "posterSourceId", "ownerConfirmed", "submitter"]) assert.equal(Object.hasOwn(publicEvent!, key), false);
+  for (const key of ["contributorUserId", "sourceText", "posterSourceId", "posterDeclaration", "ownerConfirmed", "submitter"]) assert.equal(Object.hasOwn(publicEvent!, key), false);
   assert.equal(publicEvent?.posterImageUrl, undefined);
   assert.equal((await t.run(ctx => ctx.db.query("eventParticipants").first()))?.confirmationState, "unconfirmed");
   assert.equal((await t.run(ctx => getPublicPersonUpcomingEvents(ctx.db, personId, Date.now()))).length, 0);
@@ -323,4 +372,18 @@ it("bounds and expires declared poster-only drafts without making them public", 
   await t.run(ctx => ctx.db.patch(draft.draftId, { expiresAt: Date.now() - 1 }));
   await t.mutation(makeFunctionReference<"mutation">("eventIntake:expireDrafts"), {});
   assert.equal(await t.run(ctx => ctx.db.get(draft.draftId)), null);
+});
+
+it("saves an overrun draft across reload but rejects publication until the explicit end is extended", async () => {
+  const { actor } = await fixture();
+  const patch = { ...complete, timeTba: false, timezone: "UTC", start: { time: "20:00" }, end: { time: "21:00" }, lineup: [{ clientKey: "guest", position: 0, performerLabel: "Guest", start: { time: "20:00" }, end: { time: "22:00" } }] };
+  const saved = await actor.mutation(save, { patch });
+  const loaded = await actor.query(get, { draftId: saved.draftId });
+  assert.deepEqual(loaded.fields.lineup, patch.lineup);
+  assert.deepEqual(loaded.fields.end, { time: "21:00" });
+  await assert.rejects(actor.action(publish, { draftId: saved.draftId, expectedVersion: 1, idempotencyKey: "overrun" }), /Set times must be within the event schedule/);
+  const fixed = await actor.mutation(save, { draftId: saved.draftId, expectedVersion: 1, patch: { end: { time: "22:00" } } });
+  assert.deepEqual((await actor.query(get, { draftId: saved.draftId })).fields.lineup, patch.lineup);
+  const published = await actor.action(publish, { draftId: saved.draftId, expectedVersion: fixed.version, idempotencyKey: "overrun-fixed" });
+  assert.ok(published.eventPath);
 });

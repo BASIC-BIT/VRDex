@@ -3,15 +3,8 @@ import type { ReactNode } from "react";
 
 import { VrcdnPlayerControls } from "./vrcdn-player-controls";
 
-/**
- * The control strip only exists once a VRCDN stream is actually connected, and
- * neither CI nor the Playwright fixtures can reach that state -- the fixture
- * stream id resolves to nothing, and probing a real one spends a viewer slot
- * against an operator's capped plan.
- *
- * So the evidence comes from here instead. The component is presentational, so
- * every state it can render is reachable from props.
- */
+/** Presentation states remain useful independently of the real synthetic MPEG-TS
+ * continuity fixture in event-persistent-playback.flow.spec.ts. */
 const meta = {
   title: "Media/VRCDN player controls",
   parameters: {

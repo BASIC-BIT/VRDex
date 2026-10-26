@@ -1,5 +1,7 @@
 "use strict";
 
+const { BROWSER_JOBS, COMPARISON_JOBS, evaluateVerification, selectEvidence } = require("./visual-ci.cjs");
+
 const REPORT_MARKER = "<!-- vrdex-pr-verification-report -->";
 const LEGACY_MARKERS = [
   "<!-- vrdex-playwright-data-flow -->",
@@ -12,6 +14,16 @@ const LEGACY_MARKERS = [
 ];
 
 const REPORT_ROWS = [
+  { job: "lint-web", label: "Web lint" },
+  { job: "verify-docs", label: "Docs" },
+  { job: "verify-api-mcp", label: "API and MCP" },
+  { job: "typecheck-web", label: "Web types and unit tests" },
+  { job: "typecheck-backend", label: "Backend types and unit tests" },
+  { job: "verify-backend-local", label: "Backend bootstrap" },
+  { job: "restream-local-checks", label: "Restream checks" },
+  { job: "build-web", label: "Web build" },
+  { job: "build-storybook", label: "Storybook build" },
+  { artifact: "playwright-public-smoke", job: "playwright-public-smoke", label: "Public route smoke" },
   {
     artifact: "playwright-data-flow",
     job: "playwright-data-flow",
@@ -119,6 +131,7 @@ function buildReport({
   repo,
   runAttempt = 1,
   runId,
+  selectionChanged = false,
 }) {
   const artifactByName = new Map(
     artifacts
@@ -126,29 +139,32 @@ function buildReport({
       .map((artifact) => [artifact.name, artifact]),
   );
   const runUrl = `https://github.com/${owner}/${repo}/actions/runs/${runId}`;
+  const evaluation = evaluateVerification({ needs, artifacts });
   const rows = REPORT_ROWS.map((row) => {
     const job = needs[row.job] || {};
     const artifact = row.artifact ? artifactByName.get(row.artifact) : null;
     const optionalWasSkipped =
-      row.optional && job.result === "success" && row.artifact && !artifact;
+      row.optional && job.result === "success" && job.outputs?.configured === "false";
     const result = optionalWasSkipped ? "skipped" : job.result || "unknown";
 
-    let evidence = "Not generated";
+    const expected = COMPARISON_JOBS.has(row.job) ? evaluation.visuals
+      : BROWSER_JOBS.includes(row.job) || row.job === "build-storybook" ? evaluation.browsers : null;
+    if (expected === false && job.result === "skipped") {
+      return `| ${row.label.replace("screenshots", "preview")} | NOT SELECTED | Not requested |`;
+    }
+    const label = evaluation.visuals === false && evaluation.browsers === true
+      ? row.label.replace("screenshots", "assertions only") : row.label;
+    let evidence = row.artifact ? "Missing evidence" : `[Open run](${runUrl})`;
     if (artifact) {
       evidence = `[Open artifact](${artifactUrl({ artifact, owner, repo, runId })})`;
     } else if (result === "skipped") {
-      evidence = "Not configured";
+      evidence = optionalWasSkipped ? "Not configured" : "Not generated (unexpected skip)";
     }
 
-    return `| ${escapeTableCell(row.label)} | ${resultLabel(result)} | ${evidence} |`;
+    return `| ${escapeTableCell(label)} | ${resultLabel(result)} | ${evidence} |`;
   });
 
-  const needsAttention = REPORT_ROWS.some((row) => {
-    const result = needs[row.job]?.result || "unknown";
-    return row.optional
-      ? !["skipped", "success"].includes(result)
-      : result !== "success";
-  });
+  const needsAttention = evaluation.errors.length > 0;
   const baselines = visualBaselineLinks({ files, headSha, owner, repo });
   const baselineSection =
     baselines.length === 0
@@ -164,11 +180,17 @@ function buildReport({
 
   return [
     REPORT_MARKER,
+    `<!-- vrdex-test-selection:${JSON.stringify({ head: headSha, browsers: evaluation.browsers, visuals: evaluation.visuals })} -->`,
     "## PR verification report",
     "",
     needsAttention
       ? "One or more reported checks need attention."
-      : "All configured preview and verification checks passed.",
+      : "All required checks and selected coverage passed.",
+    "",
+    `Browsers selected for this run: ${evaluation.browsers === null ? "UNKNOWN" : evaluation.browsers ? "yes" : "no"}.`,
+    `Visuals selected for this run: ${evaluation.visuals === null ? "UNKNOWN" : evaluation.visuals ? "yes" : "no"}.`,
+    ...(selectionChanged ? ["Test selection changed since this run. Run results below describe the original selection; request a new normal PR run for current selected coverage.", ""] : []),
+    ...(needsAttention ? evaluation.errors.map(error => `- ${error}`) : []),
     "",
     "| Check | Result | Evidence |",
     "| --- | --- | --- |",
@@ -184,6 +206,11 @@ async function updatePrVerificationReport({ core, context, github, needs }) {
   const repo = context.repo.repo;
   const issueNumber = context.issue.number;
   const headSha = context.payload.pull_request.head.sha;
+  const { data: current } = await github.rest.pulls.get({ owner, repo, pull_number: issueNumber });
+  if (current.head.sha !== headSha) {
+    core.info("Ignoring verification evidence for an outdated PR head.");
+    return;
+  }
 
   let artifacts = [];
   let files = [];
@@ -211,16 +238,8 @@ async function updatePrVerificationReport({ core, context, github, needs }) {
     core.warning(`Could not list pull request files: ${error.message}`);
   }
 
-  const body = buildReport({
-    artifacts,
-    files,
-    headSha,
-    needs,
-    owner,
-    repo,
-    runAttempt: context.runAttempt,
-    runId: context.runId,
-  });
+  const evaluation = evaluateVerification({ needs, artifacts });
+  if (evaluation.errors.length > 0) core.setFailed(evaluation.errors.join("\n"));
   const comments = await github.paginate(github.rest.issues.listComments, {
     owner,
     repo,
@@ -234,6 +253,26 @@ async function updatePrVerificationReport({ core, context, github, needs }) {
     comment.body?.includes(REPORT_MARKER),
   );
   const existing = reportComments[0];
+
+  const { data: latest } = await github.rest.pulls.get({ owner, repo, pull_number: issueNumber });
+  if (latest.head.sha !== headSha) {
+    core.info("Ignoring verification evidence because the PR head changed during collection.");
+    return;
+  }
+  const currentSelection = selectEvidence("pull_request", latest.labels || []);
+  const selectionChanged = evaluation.browsers !== null && evaluation.visuals !== null
+    && (currentSelection.browsers !== evaluation.browsers || currentSelection.visuals !== evaluation.visuals);
+  const body = buildReport({
+    artifacts,
+    files,
+    headSha,
+    needs,
+    owner,
+    repo,
+    runAttempt: context.runAttempt,
+    runId: context.runId,
+    selectionChanged,
+  });
 
   if (existing) {
     await github.rest.issues.updateComment({

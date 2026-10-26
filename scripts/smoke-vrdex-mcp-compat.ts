@@ -46,10 +46,13 @@ type SmokeOptions = {
 type HostedToolDescriptor = {
   _meta?: unknown;
   name?: unknown;
+  inputSchema?: unknown;
+  outputSchema?: unknown;
 };
 
 const localReadTools = [
   "vrdex_search",
+  "vrdex_get_profile_media",
   "vrdex_get_profile",
   "vrdex_get_event",
   "vrdex_list_upcoming_events",
@@ -57,6 +60,14 @@ const localReadTools = [
   "vrdex_list_active_worlds",
 ];
 const writeToolResourceScopes: Record<string, string> = {
+  vrdex_event_intake_draft_save: "events:contribute",
+  vrdex_event_intake_extract: "events:contribute",
+  vrdex_event_intake_publish: "events:contribute",
+  vrdex_event_intake_poster_upload_begin: "events:contribute",
+  vrdex_event_intake_poster_upload_complete: "events:contribute",
+  vrdex_event_intake_artwork_select: "events:contribute",
+  vrdex_event_intake_event_update: "events:contribute",
+  vrdex_event_intake_event_retract: "events:contribute",
   vrdex_event_create: "events:write",
   vrdex_event_update: "events:write",
   vrdex_profile_media_manage: "assets:write",
@@ -76,7 +87,9 @@ const writeToolResourceScopes: Record<string, string> = {
   vrdex_media_review_decide_selected: "assets:review:write",
   vrdex_media_submission_withdraw: "assets:contribute",
   vrdex_media_submission_publish: "assets:publish",
-  vrdex_media_submission_declare: "assets:publish",
+  vrdex_media_contribution_manage: "assets:contribute",
+  vrdex_media_contribution_place: "assets:publish",
+  vrdex_media_contribution_propose_placement: "assets:contribute",
 };
 const writeToolNames = Object.keys(writeToolResourceScopes);
 const contributionCollectionWriteToolNames = new Set([
@@ -89,6 +102,14 @@ const contributionCollectionWriteToolNames = new Set([
 ]);
 const mediaUploadWriteToolNames = new Set(["vrdex_media_upload_begin", "vrdex_media_upload_complete"]);
 const hostedOnlyWriteToolNames = new Set([
+  "vrdex_event_intake_draft_save",
+  "vrdex_event_intake_extract",
+  "vrdex_event_intake_publish",
+  "vrdex_event_intake_poster_upload_begin",
+  "vrdex_event_intake_poster_upload_complete",
+  "vrdex_event_intake_artwork_select",
+  "vrdex_event_intake_event_update",
+  "vrdex_event_intake_event_retract",
   "vrdex_profile_media_manage",
   "vrdex_profile_media_submit",
   ...contributionCollectionWriteToolNames,
@@ -98,7 +119,9 @@ const hostedOnlyWriteToolNames = new Set([
   "vrdex_media_review_decide_selected",
   "vrdex_media_submission_withdraw",
   "vrdex_media_submission_publish",
-  "vrdex_media_submission_declare",
+  "vrdex_media_contribution_manage",
+  "vrdex_media_contribution_place",
+  "vrdex_media_contribution_propose_placement",
 ]);
 const localWriteToolNames = writeToolNames.filter((toolName) => !hostedOnlyWriteToolNames.has(toolName));
 // Reads, but of the caller's own inventory, so they advertise a scope pair the
@@ -109,6 +132,8 @@ const contributionCollectionReadScopes = [
   "assets:review:read",
 ];
 const ownedReadToolScopes: Record<string, string | string[]> = {
+  vrdex_event_intake_draft_get: "events:contribute",
+  vrdex_event_intake_event_get: "events:contribute",
   vrdex_contribution_capacity: contributionCollectionReadScopes,
   vrdex_contribution_capacity_requests: contributionCollectionReadScopes,
   vrdex_contribution_status: contributionCollectionReadScopes,
@@ -122,10 +147,13 @@ const ownedReadToolScopes: Record<string, string | string[]> = {
   vrdex_media_review_get: "assets:review:read",
   vrdex_media_review_preview: "assets:review:read",
   vrdex_media_submission_get: "assets:publish",
+  vrdex_media_contribution_get: "assets:contribute",
   vrdex_media_submission_preview: "assets:publish",
 };
 const ownedReadToolNames = Object.keys(ownedReadToolScopes);
 const hostedOnlyOwnedReadToolNames = new Set([
+  "vrdex_event_intake_draft_get",
+  "vrdex_event_intake_event_get",
   "vrdex_contribution_capacity",
   "vrdex_contribution_capacity_requests",
   "vrdex_contribution_status",
@@ -138,6 +166,7 @@ const hostedOnlyOwnedReadToolNames = new Set([
   "vrdex_media_review_get",
   "vrdex_media_review_preview",
   "vrdex_media_submission_get",
+  "vrdex_media_contribution_get",
   "vrdex_media_submission_preview",
 ]);
 const localOwnedReadToolNames = ownedReadToolNames.filter(
@@ -150,8 +179,34 @@ const localExpectedTools = [
   "vrdex_event_intake_poster_upload_bytes", ...localReadTools, ...localOwnedReadToolNames, ...localWriteToolNames,
 ];
 const hostedExpectedTools = ["search", "fetch", ...localReadTools];
+export const hostedExpectedToolNames = [
+  ...hostedExpectedTools,
+  ...ownedReadToolNames,
+  ...writeToolNames,
+];
 
-function assertHostedToolSecuritySchemes(tool: HostedToolDescriptor) {
+export function assertHostedContributionSchemas(tool: HostedToolDescriptor) {
+  const name = String(tool.name);
+  if (!name.startsWith("vrdex_media_contribution_")) return;
+  const input = tool.inputSchema as { type?: string; required?: string[]; additionalProperties?: boolean; properties?: Record<string, { enum?: string[] }>; oneOf?: Array<{ required?: string[]; additionalProperties?: boolean }> } | undefined;
+  const output = tool.outputSchema as { required?: string[] } | undefined;
+  assert.equal(input?.type, "object", `${name} input must be an object.`);
+  const variants = input?.oneOf ?? [input];
+  const required = name === "vrdex_media_contribution_get" ? ["submissionId"] : ["submissionId", "expectedContributionVersion", "idempotencyKey"];
+  for (const variant of variants) {
+    assert.equal(variant?.additionalProperties, false, `${name} input must be strict.`);
+    for (const field of required) assert.ok(variant?.required?.includes(field), `${name} input lacks ${field}.`);
+  }
+  if (name === "vrdex_media_contribution_place") assert.deepEqual(input?.properties?.action?.enum, ["select_primary", "clear_primary"], `${name} placement actions changed.`);
+  if (name === "vrdex_media_contribution_manage") {
+    assert.equal(variants.length, 2, `${name} management actions changed.`);
+    for (const variant of variants) assert.ok(variant?.required?.includes("action"), `${name} action is required.`);
+  }
+  const outputFields = name === "vrdex_media_contribution_get" ? ["submissionId", "assetId", "contributionVersion", "metadata", "canSelectPrimary", "canClearPrimary", "canProposePlacement", "canEditMetadata", "canRemove"] : ["operationId", "operationState"];
+  for (const field of outputFields) assert.ok(output?.required?.includes(field), `${name} ${name.endsWith("_get") ? "detail" : "receipt"} lacks ${field}.`);
+}
+
+export function assertHostedToolSecuritySchemes(tool: HostedToolDescriptor) {
   assert.equal(typeof tool._meta, "object", `Hosted tool ${String(tool.name)} is missing _meta.`);
   assert.notEqual(tool._meta, null, `Hosted tool ${String(tool.name)} is missing _meta.`);
 
@@ -302,20 +357,8 @@ async function callTool(args: {
   return call;
 }
 
-function pnpmExecCommand() {
-  const args = ["--silent", "exec", "tsx", "packages/vrdex-mcp/src/stdio.ts"];
-
-  if (process.env.npm_execpath !== undefined) {
-    return {
-      command: process.execPath,
-      args: [process.env.npm_execpath, ...args],
-    };
-  }
-
-  return {
-    command: process.platform === "win32" ? "pnpm.cmd" : "pnpm",
-    args,
-  };
+function stdioCommand() {
+  return { command: process.execPath, args: ["--import", "tsx", "packages/vrdex-mcp/src/stdio.ts"] };
 }
 
 function waitForMessage(
@@ -349,7 +392,7 @@ async function smokeLocalStdioProtocol() {
   const messages: JsonRpcMessage[] = [];
   const stderr: string[] = [];
   const messageListeners = new Set<() => void>();
-  const command = pnpmExecCommand();
+  const command = stdioCommand();
   const child = spawn(command.command, command.args, {
     cwd: process.cwd(),
     env: {
@@ -404,6 +447,7 @@ async function smokeLocalStdioProtocol() {
     const toolNames = ((tools.result as { tools: Array<{ name: string }> }).tools).map((tool) => tool.name);
 
     assert.deepEqual(toolNames, localExpectedTools);
+
 
     await callTool({
       id: 3,
@@ -477,6 +521,9 @@ async function smokeLocalStdioProtocol() {
     assert.equal(fixture.captured[0]?.searchParams.get("limit"), "2");
     assert.equal(fixture.captured[3]?.searchParams.get("limit"), "1");
     assert.equal(fixture.captured[5]?.searchParams.get("limit"), "1");
+    await callTool({ id: 103, messages, name: "vrdex_get_profile_media", onMessage, send, stderr,
+      toolArgs: { slug: "target", assetId: "asset" } });
+    assert.equal(fixture.captured.at(-1)?.pathname, "/api/v0/profiles/target/assets/asset");
   } finally {
     child.stdin.end();
     child.kill();
@@ -1038,6 +1085,7 @@ async function smokeHostedHttp(results: SmokeResult[], options: SmokeOptions) {
 
   for (const tool of listedTools ?? []) {
     assertHostedToolSecuritySchemes(tool);
+    assertHostedContributionSchemas(tool);
   }
 
   const listedToolNames = new Set((listedTools ?? []).map((tool) => String(tool.name)));

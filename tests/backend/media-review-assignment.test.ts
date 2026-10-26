@@ -515,14 +515,14 @@ it("refuses assigned approval of a private replacement with a stable receipt, in
       profileId: f.s.profileId, assetId: id, placement: "profile_image",
       position: 0, state: "active", updatedAt: NOW,
     });
-    await ctx.db.patch(f.intent.submissionId, { targetPlacementAssetId: id });
+    await ctx.db.patch(f.intent.submissionId, { requestKind: "identity_placement", requestedPlacement: "profile_image", targetPlacementAssetId: id });
     return id;
   });
   const detail = await f.actor.query(api.profileMediaSubmissions.reviewDetail, {
     submissionId: f.intent.submissionId,
   });
   assert.ok(detail);
-  assert.equal(detail.currentPlacement?.assetId, assetId);
+  assert.equal(detail.currentPlacement, null);
   assert.equal(await f.actor.query(api.profileMediaSubmissions.getCurrentForStorage, {
     submissionId: f.intent.submissionId,
     assetId,
@@ -710,6 +710,113 @@ it("binds review cursors to authenticated actors, batches and status filters", a
     /BATCH_UNAVAILABLE/,
   );
 });
+it("returns twenty ordinary assigned submissions in one requested source page", async () => {
+  const f = await fixture();
+  await f.t.run(async ctx => {
+    const { _id, _creationTime, ...fields } = (await ctx.db.get(f.intent.submissionId))!;
+    for (let n = 0; n < 19; n++) {
+      const submissionId = await ctx.db.insert("profileMediaSubmissions", { ...fields, createdAt: NOW + n });
+      const revisionId = await ctx.db.insert("contributionItemRevisions", {
+        actorUserId: f.s.contributorUserId, batchId: f.batchId, itemKey: `ordinary-${n}`, revision: 1,
+        payload: "{}", bytes: 2, createdAt: NOW,
+      });
+      await ctx.db.insert("contributionItemAttempts", { actorUserId: f.s.contributorUserId, revisionId,
+        oauthClientId: "fixture", submissionId, receipt: { operationId: `ordinary-${n}`, operationState: "committed" }, createdAt: NOW });
+    }
+  });
+  const page = await f.actor.query(api.profileMediaSubmissions.listForReview, {
+    batchId: f.batchId, paginationOpts: { cursor: null, numItems: 20 },
+  });
+  assert.equal(page.page.length, 20); assert.equal(page.isDone, true);
+  assert.equal(new Set(page.page.map(row => row.submissionId)).size, 20);
+});
+async function addOrdinaryRangeSources(f: Awaited<ReturnType<typeof fixture>>, count: number, prefix: string) {
+  return await f.t.run(async ctx => {
+    const { _id, _creationTime, ...fields } = (await ctx.db.get(f.intent.submissionId))!;
+    const ids = [];
+    for (let n = 0; n < count; n++) {
+      const submissionId = await ctx.db.insert("profileMediaSubmissions", { ...fields, createdAt: NOW + n });
+      ids.push(submissionId);
+      const itemKey = `${prefix}-${String(n).padStart(3, "0")}`;
+      const revisionId = await ctx.db.insert("contributionItemRevisions", {
+        actorUserId: f.s.contributorUserId, batchId: f.batchId, itemKey,
+        revision: 1, payload: "{}", bytes: 2, createdAt: NOW,
+      });
+      await ctx.db.insert("contributionItemAttempts", { actorUserId: f.s.contributorUserId, revisionId,
+        oauthClientId: "fixture", submissionId, receipt: { operationId: itemKey, operationState: "committed" }, createdAt: NOW });
+    }
+    return ids;
+  });
+}
+for (const numItems of [1, 40]) {
+  it(`bounds a native eighty-row endpoint and traverses all eighty/81 assigned rows at page size ${numItems}`, async () => {
+    const f = await fixture();
+    const added = await addOrdinaryRangeSources(f, 80, "range");
+    const get = (cursor: string | null, size: number, endCursor?: string, maximumRowsRead?: number) =>
+      f.actor.query(api.profileMediaSubmissions.listForReview, { batchId: f.batchId,
+        paginationOpts: { cursor, numItems: size, ...(endCursor === undefined ? {} : { endCursor }),
+          ...(maximumRowsRead === undefined ? {} : { maximumRowsRead }) } });
+    const first = await get(null, 40); const second = await get(first.continueCursor, 40);
+    assert.equal(first.page.length, 40); assert.equal(second.page.length, 40);
+    const endpoint = second.continueCursor;
+    const ranged = await get(null, numItems, endpoint, 1000);
+    assert.equal(ranged.page.length, numItems);
+    const initialCheckpoint = JSON.parse(JSON.parse(ranged.continueCursor).cursor);
+    assert.equal(ranged.page.length + initialCheckpoint.revisionIds.length, 40);
+    const collect = async (endCursor?: string) => {
+      const ids = ranged.page.map(row => row.submissionId);
+      let page = ranged;
+      for (let n = 0; !page.isDone && n < 100; n++) {
+        const checkpoint = JSON.parse(JSON.parse(page.continueCursor).cursor);
+        assert.ok(checkpoint.revisionIds.length <= 40);
+        assert.ok(checkpoint.submissionIds === null || checkpoint.submissionIds.length <= 11);
+        assert.ok(page.continueCursor.length <= 8192);
+        page = await get(page.continueCursor, numItems, endCursor);
+        assert.ok(page.page.length <= numItems);
+        ids.push(...page.page.map(row => row.submissionId));
+      }
+      assert.equal(page.isDone, true);
+      assert.equal(new Set(ids).size, ids.length);
+      return ids;
+    };
+    assert.deepEqual((await collect(endpoint)).sort(), [...first.page, ...second.page].map(row => row.submissionId).sort());
+    assert.deepEqual((await collect()).sort(), [f.intent.submissionId, ...added].sort());
+    const smaller = await get(null, 40, endpoint, 3);
+    assert.equal(smaller.page.length, 3);
+    assert.equal(smaller.pageStatus, "SplitRequired"); assert.ok(smaller.splitCursor);
+    const left = await get(null, 40, smaller.splitCursor, 3);
+    const right = await get(smaller.splitCursor, 40, smaller.continueCursor, 3);
+    assert.deepEqual([...left.page, ...right.page].map(row => row.submissionId), smaller.page.map(row => row.submissionId));
+    for (const maximumRowsRead of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])
+      await assert.rejects(get(null, numItems, endpoint, maximumRowsRead), /Invalid review page/);
+    await f.t.run(ctx => ctx.db.patch(f.assignmentId, { active: false }));
+    await assert.rejects(get(ranged.continueCursor, numItems, endpoint), /BATCH_UNAVAILABLE/);
+  });
+  it(`bounds and completes a captured endpoint after its twenty-row range grows to 81 rows at page size ${numItems}`, async () => {
+    const f = await fixture();
+    await addOrdinaryRangeSources(f, 20, "stable");
+    const get = (cursor: string | null, size: number, endCursor?: string) =>
+      f.actor.query(api.profileMediaSubmissions.listForReview, { batchId: f.batchId,
+        paginationOpts: { cursor, numItems: size, ...(endCursor === undefined ? {} : { endCursor }) } });
+    const initial = await get(null, 20);
+    assert.equal(initial.page.length, 20); assert.equal(initial.isDone, false);
+    const growth = await addOrdinaryRangeSources(f, 61, "growth");
+    const ids = [];
+    let cursor: string | null = null;
+    let done = false;
+    for (let n = 0; !done && n < 100; n++) {
+      const page = await get(cursor, numItems, initial.continueCursor);
+      assert.ok(page.page.length <= numItems);
+      const checkpoint = JSON.parse(JSON.parse(page.continueCursor).cursor);
+      assert.ok(checkpoint.revisionIds.length <= 40);
+      assert.ok(checkpoint.submissionIds === null || checkpoint.submissionIds.length <= 11);
+      ids.push(...page.page.map(row => row.submissionId));
+      cursor = page.continueCursor; done = page.isDone;
+    }
+    assert.equal(done, true); assert.equal(ids.length, 81); assert.equal(new Set(ids).size, 81);
+    assert.deepEqual(ids.sort(), [...initial.page.map(row => row.submissionId), ...growth].sort());
+  });
+}
 it("traverses past nonmatching indexed revisions instead of truncating the filtered queue", async () => {
   const f = await fixture();
   await f.t.run(async (ctx) => {
@@ -772,6 +879,7 @@ it("manages assignments only as a verified super admin and refuses donor assignm
 });
 it("placement changes require a new explicit rebase and previously viewed versions fail", async () => {
   const f = await fixture();
+  await f.t.run(ctx => ctx.db.patch(f.intent.submissionId, { requestKind: "identity_placement", requestedPlacement: "profile_image" }));
   const args = { submissionId: f.intent.submissionId };
   const before = await f.actor.query(
     api.profileMediaSubmissions.reviewDetail,

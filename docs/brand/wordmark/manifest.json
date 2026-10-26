@@ -1,0 +1,41 @@
+{
+  "status": "approved",
+  "approved_by": "BASIC",
+  "approved_date": "2026-10-21",
+  "source_archive": "docs/planning/assets/wordmark-studies-2026-10-21.zip",
+  "source_study": "docs/planning/assets/wordmark-spacing-refined-2026-10-21",
+  "source_manifest_sha256": "bb2a908ba653de3122054f3a9c2cc4d303ce72deabc1e3ab8dbeb6558fd3d27e",
+  "vr_color": "#EDF3FA",
+  "dex_color": "#B4D5E5",
+  "d_angle_degrees_down_right": 45,
+  "d_and_x_normal_gap_font_units": 149.9939297842973,
+  "pair_deltas_px_at_100_cap_from_initial": [
+    -2,
+    -2,
+    -5,
+    -2
+  ],
+  "files": {
+    "vrdex-wordmark.svg": {
+      "sha256": "88235bb5cb8f85015d4f7cffd47f4b5a30819be321b26614bd61c6699be27204"
+    },
+    "vrdex-wordmark.png": {
+      "sha256": "a3dcfa5fecacabc0f135e54b90079e51fb473cdbf3b1df292a6c11a6467f0077"
+    },
+    "vrdex-wordmark-navbar.png": {
+      "sha256": "8dd178d5148e0e3daa4fecff9facbbf6a4b87fdbc8c172da8972de535ea10d4a"
+    },
+    "vrdex-wordmark-mono.svg": {
+      "sha256": "3eeb97f8d7a93d65558041c2373fa55715b826c15e0247e53c3ed059230091d8"
+    },
+    "vrdex-wordmark-mono.png": {
+      "sha256": "964c2c1b2f5152904050b41489fdb1967d1dae7fa2af3a14f4bc36afea83dabe"
+    },
+    "vrdex-wordmark-mono-navbar.png": {
+      "sha256": "fc85014a783f80a03e20689b38dbafe79f57ac0170fdcbcc022f7e3a3de26d1c"
+    },
+    "LICENSE-OpenSans.txt": {
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    }
+  }
+}

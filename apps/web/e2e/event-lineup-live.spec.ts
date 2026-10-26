@@ -15,7 +15,10 @@ for (const engine of [chromium, firefox]) {
    browser=await engine.launch();
    const page=await browser.newPage();page.setDefaultTimeout(10000);
    const messages:string[]=[]; const pageErrors:string[]=[];
-   page.on("console",message=>{if (["error","warning"].includes(message.type())) messages.push(message.text());});
+   page.on("console",message=>{if (["error","warning"].includes(message.type())) messages.push(message.text());
+    if (/Fast Refresh|reload/i.test(message.text())) diagnostics.push({type:"dev-navigation",at:performance.now(),message:message.text()});
+   });
+   page.on("framenavigated",frame=>{if(frame===page.mainFrame()) diagnostics.push({type:"navigation",at:performance.now(),url:frame.url()});});
    page.on("pageerror",error=>pageErrors.push(error.stack ?? error.message));
    await page.exposeBinding("recordLineupDiagnostic",(_source,entry)=>{diagnostics.push(entry);});
    await page.addInitScript(()=>{
@@ -106,6 +109,11 @@ for (const engine of [chromium, firefox]) {
    await page.waitForTimeout(2500);
    expect(await current()).toBe("a");
    await control("next","online");
+   await expect.poll(()=>page.locator("video[hidden]").evaluate(v=>(v as HTMLVideoElement).currentTime),{timeout:25000}).toBeGreaterThan(1);
+   await page.getByRole("button",{name:"Boundary",exact:true}).click();
+   await page.waitForTimeout(1500); expect(await current()).toBe("a");
+   // Decoded silence is not calibrated permission to end a set.
+   await control("current","offline");
    await expect.poll(current,{timeout:25000}).toBe("b");
    await expect.poll(async()=>(await stats()).active).toBe(1);
    await page.getByRole("button",{name:"After end",exact:true}).click();
@@ -127,6 +135,7 @@ for (const engine of [chromium, firefox]) {
    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
    await page.getByRole("button",{name:"cancel",exact:true}).click();
    await expect.poll(async()=>(await stats()).active).toBe(0);
+   await control("current","online");
    await goto();await page.getByRole("button",{name:"After end",exact:true}).click();
    await expect(page.getByRole("button",{name:"Play Lineup live"})).toHaveCount(0);
    expect((await stats()).active).toBe(0);
@@ -166,7 +175,9 @@ for (const engine of [chromium, firefox]) {
    await goto("break");await start();await page.getByRole("button",{name:"Eligible",exact:true}).click();
    await expect.poll(()=>page.locator("video:not([hidden])").evaluate(v=>(v as HTMLVideoElement).currentTime)).toBeGreaterThan(3.2);
    expect(await current()).toBe("a");
-   await expect.poll(current,{timeout:15000}).toBe("b");
+   await page.getByRole("button",{name:"Boundary",exact:true}).click();
+   await expect.poll(()=>page.locator("video:not([hidden])").evaluate(v=>(v as HTMLVideoElement).currentTime),{timeout:15000}).toBeGreaterThan(7.2);
+   expect(await current()).toBe("a");
    await goto();
    await page.evaluate(()=>{
     const play=HTMLMediaElement.prototype.play;let once=true;
@@ -240,6 +251,9 @@ for (const engine of [chromium, firefox]) {
     const other=await browser.newPage();await other.bringToFront();evidence.otherTabVisibility=await page.evaluate(()=>document.visibilityState);await page.bringToFront();await other.close();
    }
    await control("current","offline");
+   await expect(page.getByRole("status").filter({hasText:"Stream unavailable"})).toBeVisible({timeout:15000});
+   expect(await current()).toBe("a");
+   await page.getByRole("button",{name:"Boundary",exact:true}).click();
    await expect.poll(current,{timeout:20000}).toBe("b");
    await page.getByRole("button",{name:"After end",exact:true}).click();
    await page.getByRole("button",{name:"Pause",exact:true}).click();
@@ -280,10 +294,15 @@ for (const engine of [chromium, firefox]) {
    const errors: string[] = [];
    page.on("pageerror", error => errors.push(error.message));
    await page.addInitScript(() => {
-    const probe = { attempts: 0, enabled: false, gains: [] as GainNode[] };
+    const probe = { attempts: 0, enabled: false, gains: [] as GainNode[], released: new Set<GainNode>() };
     const Native = window.AudioContext;
     class Context extends Native {
-     createGain() { const gain = super.createGain(); probe.gains.push(gain); return gain; }
+     createGain() {
+      const gain = super.createGain(); probe.gains.push(gain);
+      const disconnect = gain.disconnect.bind(gain);
+      gain.disconnect = () => { probe.released.add(gain); disconnect(); };
+      return gain;
+     }
     }
     const play = HTMLMediaElement.prototype.play;
     HTMLMediaElement.prototype.play = function () {
@@ -311,8 +330,9 @@ for (const engine of [chromium, firefox]) {
    expect(await current.evaluate(video => (video as HTMLVideoElement).currentTime)).toBeGreaterThan(before);
    expect(await page.locator("[data-current]").getAttribute("data-current")).toBe("a");
    expect(await page.evaluate(() => {
-    const probe = (window as unknown as { preparedProbe: { attempts: number; gains: GainNode[] } }).preparedProbe;
-    return { attempts: probe.attempts, gains: probe.gains.map(gain => gain.gain.value) };
+    const probe = (window as unknown as { preparedProbe: { attempts: number; gains: GainNode[]; released: Set<GainNode> } }).preparedProbe;
+    // Assert the connected viewer/current/prepared graph, excluding released history.
+    return { attempts: probe.attempts, gains: probe.gains.filter(gain => !probe.released.has(gain)).map(gain => gain.gain.value) };
    })).toEqual({ attempts: 1, gains: [1, 1, 0] });
    for (const [name, width, height] of [["desktop", 1280, 900], ["mobile", 390, 844]] as const) {
     await page.setViewportSize({ width, height });
@@ -334,11 +354,18 @@ for (const engine of [chromium, firefox]) {
    await expect(enable).toHaveCount(0);
    await expect.poll(() => page.locator("video[hidden]").evaluate(video => (video as HTMLVideoElement).currentTime), { timeout: 20000 }).toBeGreaterThan(1);
    expect(await page.locator("[data-current]").getAttribute("data-current")).toBe("a");
-   expect(await page.evaluate(() => (window as unknown as { preparedProbe: { gains: GainNode[] } }).preparedProbe.gains.map(gain => gain.gain.value))).toEqual([1, 1, 0]);
+   expect(await page.evaluate(() => {
+    const probe = (window as unknown as { preparedProbe: { gains: GainNode[]; released: Set<GainNode> } }).preparedProbe;
+    return probe.gains.filter(gain => !probe.released.has(gain)).map(gain => gain.gain.value);
+   })).toEqual([1, 1, 0]);
+   await page.getByRole("button", { name: "Boundary", exact: true }).click();
    await current.evaluate(video => (video as HTMLVideoElement).pause());
    await expect(page.locator("[data-current]")).toHaveAttribute("data-current", "b", { timeout: 15000 });
    expect(await page.evaluate(() => (window as unknown as { preparedProbe: { attempts: number; gains: GainNode[] } }).preparedProbe.attempts)).toBe(3);
-   expect(await page.evaluate(() => (window as unknown as { preparedProbe: { gains: GainNode[] } }).preparedProbe.gains.map(gain => gain.gain.value))).toEqual([1, 0, 1]);
+   expect(await page.evaluate(() => {
+    const probe = (window as unknown as { preparedProbe: { gains: GainNode[]; released: Set<GainNode> } }).preparedProbe;
+    return probe.gains.filter(gain => !probe.released.has(gain)).map(gain => gain.gain.value);
+   })).toEqual([1, 1]);
    await page.getByRole("button", { name: "Unmount", exact: true }).click();
    await expect.poll(async () => (await (await fetch(`${transport.url}/stats`)).json()).active).toBe(0);
    expect(errors).toEqual([]);

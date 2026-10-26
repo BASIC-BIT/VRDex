@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { manualPerformer } from "./event-performer-helpers";
 
 import {
   capturedRoutes,
@@ -47,11 +48,17 @@ test("profile edit signed out @visual", async ({ page }, testInfo) => {
 test("event editor @visual", async ({ page }, testInfo) => {
   await page.goto("/playwright/event-editor");
   await expect(page.getByRole("heading", { name: "Add event" })).toBeVisible();
-  await expect(page.getByLabel("Start", { exact: true })).toBeVisible();
-  await expect(page.getByLabel("Community", { exact: true })).toHaveCount(0);
-  await expect(page.getByLabel("World", { exact: true })).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: /^Slot [1-4]$/ })).toHaveCount(4);
-  await expect(page.getByRole("heading", { name: "Schedule" })).toBeVisible();
+  const steps = page.getByRole("navigation", { name: "Event editor" });
+  await expect(page.getByRole("heading", { name: "Details", exact: true })).toBeVisible();
+  await expect(page.locator("summary", { hasText: "Source" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Publish event" })).toHaveCount(0);
+  await captureRouteScreenshot(page, testInfo, "event-editor-initial");
+  await steps.getByRole("button", { name: "Details", exact: true }).click();
+  await expect(page.getByLabel("Starts", { exact: true })).toBeVisible();
+  await page.getByLabel("Starts", { exact: true }).fill("2026-09-12T22:00");
+  await expect(page.locator('[data-editor-step="Details"]').getByLabel("Community", { exact: true })).toContainText("Afterglow");
+  await expect(page.getByRole("combobox", { name: "Where", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Timing", exact: true })).toBeVisible();
   await expect(page.getByLabel("Break between")).toHaveCount(0);
   await expect(page.getByLabel("Description")).toBeVisible();
   await expect(page.getByLabel("Private notes")).toHaveCount(1);
@@ -59,47 +66,32 @@ test("event editor @visual", async ({ page }, testInfo) => {
   await expect(page.getByRole("button", { name: "Generate" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Customize" })).toHaveCount(0);
   await expect(page.getByLabel("Slug", { exact: true })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Publish event" })).toBeVisible();
-  await expect(page.locator("details").filter({ hasText: "Media and links" })).not.toHaveAttribute("open");
-  await page.getByLabel("Do doors open before?").check();
-  await expect(page.getByLabel("Minutes before start")).toHaveAttribute("required", "");
 
-  await page.locator("details").filter({ hasText: /^Details/ }).first().locator("summary").click();
-  await page.getByLabel("Display name").first().fill("Aurora");
-  page.once("dialog", async (dialog) => {
-    expect(dialog.message()).toBe("Replace edited schedule?");
-    await dialog.dismiss();
-  });
-  await page.getByLabel("Slots").fill("5");
-  await expect(page.getByLabel("Display name").first()).toHaveValue("Aurora");
-  await expect(page.getByRole("heading", { name: /^Slot [1-4]$/ })).toHaveCount(4);
+  await expect(page.getByLabel("Doors open", { exact: true })).toBeHidden();
+  await page.locator("summary", { hasText: "Add doors-open time" }).click();
+  await page.getByLabel("Doors open", { exact: true }).fill("2026-09-12T21:45");
+  await expect(page.getByLabel("Doors open", { exact: true })).toHaveValue("2026-09-12T21:45");
 
-  page.once("dialog", (dialog) => dialog.accept());
-  await page.getByLabel("Slots").fill("0");
-  await expect(page.getByRole("heading", { name: /^Slot \d+$/ })).toHaveCount(0);
-  await page.getByLabel("Slots").fill("4");
+  await captureRouteScreenshot(page, testInfo, "event-editor-details");
+  await steps.getByRole("button", { name: "Lineup", exact: true }).click();
+  await expect(page.getByRole("heading", { name: /^Slot [1-4]$/ })).toHaveCount(0);
+  await page.getByLabel("Slots", { exact: true }).fill("81");
+  await expect(page.getByRole("button", { name: "Generate", exact: true })).toBeDisabled();
+  await page.getByLabel("Slots", { exact: true }).fill("4");
+  await page.getByLabel("Minutes each", { exact: true }).fill("60.5");
+  await expect(page.getByRole("button", { name: "Generate", exact: true })).toBeDisabled();
+  await page.getByLabel("Minutes each", { exact: true }).fill("60");
+  await page.getByRole("button", { name: "Generate", exact: true }).click();
   await expect(page.getByRole("heading", { name: /^Slot [1-4]$/ })).toHaveCount(4);
-
-  page.once("dialog", (dialog) => dialog.accept());
-  await page.getByLabel("Slots").fill("5");
-  await expect(page.getByRole("heading", { name: /^Slot [1-5]$/ })).toHaveCount(5);
-  await page.getByLabel("Slots").fill("4");
-  await expect(page.getByRole("heading", { name: /^Slot [1-4]$/ })).toHaveCount(4);
-  await page.getByLabel("Slots").fill("81");
-  await expect(page.getByLabel("Slots")).toHaveValue("80");
-  await page.getByLabel("Slots").fill("4");
-  await expect(page.getByRole("heading", { name: /^Slot [1-4]$/ })).toHaveCount(4);
-  await page.getByLabel("Slots").fill("");
-  await expect(page.getByRole("button", { name: "Publish event" })).toBeDisabled();
-  await expect(page.getByRole("button", { name: "Save draft" })).toBeDisabled();
-  await page.getByLabel("Slots").fill("4");
-  await page.getByLabel("Minutes each").fill("");
-  await expect(page.getByRole("button", { name: "Publish event" })).toBeDisabled();
-  await expect(page.getByRole("button", { name: "Save draft" })).toBeDisabled();
-  await page.getByLabel("Minutes each").fill("60.5");
-  await expect(page.getByRole("button", { name: "Publish event" })).toBeDisabled();
-  await page.getByLabel("Minutes each").fill("60");
+  const firstPerformer = page.locator('[data-lineup-row]').first().locator("[data-performer-field]");
+  await manualPerformer(firstPerformer, "Aurora");
+  await page.getByRole("button", { name: "Reset lineup", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(firstPerformer.getByRole("textbox", { name: "Performer", exact: true })).toHaveValue("Aurora");
+  await captureRouteScreenshot(page, testInfo, "event-editor-lineup");
+  await steps.getByRole("button", { name: "Review", exact: true }).click();
   await expect(page.getByRole("button", { name: "Publish event" })).toBeEnabled();
+  await expect(page.locator("details").filter({ has: page.locator("summary", { hasText: /^Advanced/ }) })).not.toHaveAttribute("open");
   await captureRouteScreenshot(page, testInfo, "event-editor");
 });
 

@@ -764,10 +764,10 @@ test("public profile media kit @visual @fixture", async ({ page }, testInfo) => 
   ).toHaveCount(1);
   await expect(mediaKit.getByRole("img", { name: "Aurora wordmark" })).toHaveCount(1);
   await expect(
-    mediaKit.getByRole("link", { name: "Artwork by Afterglow Studio" }),
+    mediaKit.locator('a[href="https://example.invalid/afterglow-studio"]'),
   ).toHaveAttribute("href", "https://example.invalid/afterglow-studio");
   await expect(
-    mediaKit.getByRole("link", { name: "https://example.invalid/aurora-source" }),
+    mediaKit.locator('a[href="https://example.invalid/aurora-source"]'),
   ).toHaveAttribute("href", "https://example.invalid/aurora-source");
   for (const title of [
     "Aurora press portrait",
@@ -779,7 +779,8 @@ test("public profile media kit @visual @fixture", async ({ page }, testInfo) => 
   }
   const nameOnlyCredit = mediaKit.getByRole("heading", { name: "Square mark" })
     .locator("xpath=ancestor::article");
-  await expect(nameOnlyCredit.getByText("Aurora Studio", { exact: true })).toBeVisible();
+  await expect(nameOnlyCredit.getByText("Aurora Studio", { exact: true })).toHaveCount(0);
+  await expect(nameOnlyCredit.getByRole("link", { name: "View source" })).toHaveCount(0);
   await expect(nameOnlyCredit.getByRole("link")).toHaveCount(1);
   const noCredit = mediaKit.getByRole("heading", { name: "Uncredited mark" })
     .locator("xpath=ancestor::article");
@@ -787,5 +788,14 @@ test("public profile media kit @visual @fixture", async ({ page }, testInfo) => 
   await expect(mediaKit.getByRole("link", { name: "Download" }).first()).toBeVisible();
   await expect(mediaKit.getByText("PNG / 180 KB", { exact: true })).toBeVisible();
   await expect(mediaKit.locator("article")).toHaveCount(4);
+  await mediaKit.locator("img").evaluateAll(async images => {
+    await Promise.all(images.map(async image => {
+      (image as HTMLImageElement).loading = "eager";
+      await (image as HTMLImageElement).decode();
+    }));
+  });
   await captureRouteScreenshot(page, testInfo, "profile-media-kit");
+  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") {
+    await mediaKit.screenshot({ path: `playwright-artifacts/screenshots/${testInfo.project.name}-profile-media-kit-section.png` });
+  }
 });

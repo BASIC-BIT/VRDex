@@ -32,6 +32,13 @@ export type CapturedRoute = {
  * anonymous captures, off for authenticated ones.
  */
 export async function prepareVisualPage(page: Page, options?: { freezeClock?: boolean }) {
+  // Next's dev server can reload an open editor when another route compiles.
+  // Hold only local Next HMR sockets, preserving application data connections.
+  await page.routeWebSocket(
+    (url) => ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)
+      && url.pathname === "/_next/webpack-hmr",
+    () => { /* Leave the socket open without connecting to the dev server. */ },
+  );
   await page.addInitScript(({ freezeClock }: { freezeClock: boolean }) => {
     const storedTheme = window.localStorage.getItem("vrdex-theme");
     if (storedTheme !== "light" && storedTheme !== "dark") {
@@ -198,6 +205,8 @@ export async function captureRouteScreenshot(
   const projectPrefix = testInfo.project.name.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
   const fileName = `${projectPrefix}-${name}.png`;
   const screenshotPath = path.join(screenshotDir, fileName);
+
+  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS === "false") return;
 
   mkdirSync(screenshotDir, { recursive: true });
   await page.screenshot({ path: screenshotPath, fullPage: true, mask: options?.mask });
@@ -539,7 +548,6 @@ export async function expectEventPage(page: Page) {
 
 export async function expectEventWatchPage(page: Page) {
   await expect(page.getByRole("heading", { name: "Afterglow Watch Room" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Event stream" })).toBeVisible();
   // Offered, not connected. The player attaches to VRCDN only once a viewer
   // presses play, so there is no `video` on the page until it is used -- which
   // is what keeps a scheduled event's watch page from spending a viewer slot
@@ -549,7 +557,7 @@ export async function expectEventWatchPage(page: Page) {
   // so a click would put a real connection to `stream.vrcdn.live` into CI and
   // capture a connecting player as the baseline.
   await expect(
-    page.getByRole("button", { name: "Play VRCDN stream for Event stream" }),
+    page.getByRole("button", { name: "Play Afterglow Watch Room", exact: true }),
   ).toBeVisible();
   await expect(page.locator("video")).toHaveCount(0);
   // No open affordance for a VRCDN stream, because there is nowhere to open: the

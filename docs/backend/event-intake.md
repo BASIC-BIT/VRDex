@@ -37,12 +37,14 @@ flowchart LR
 
 The strict schemas and TypeScript types live in
 `packages/api-contracts/src/event-intake.ts`. Omitted top-level patch fields stay
-unchanged, `null` clears a value, and empty strings normalize to unknown. Nested
+unchanged, `null` clears a value, and empty strings normalize to unknown. A cleared
+`posterSourceId` retains null to prevent late completion from restoring artwork. Nested
 objects and the lineup array replace their previous value as a unit. A lineup
 row has a stable `clientKey`, `position`, and optional performer, role and times.
 Those structural fields alone do not constitute a meaningful draft.
 
-One meaningful input is enough to save. `sourceText`, `posterSourceId`, and a
+One meaningful input is enough to create a draft. Existing drafts may become
+empty after source removal. `sourceText`, a singular `posterSourceId`, and a
 bounded `posterDeclaration` of MIME/bytes/SHA-256 remain private. The declaration
 allows a poster-only draft before upload and inherits ordinary draft quotas and
 expiry. It does not confirm source bytes or satisfy publication minimums. The poster reference is an opaque integration reference, not a public
@@ -63,7 +65,9 @@ Private source-file retention is a separate source-service responsibility.
 ## Publication
 
 Publication requires a public community, an identifying title, a valid event
-date, and either a start time or explicit `timeTba: true`. A source URL is optional.
+date, and either a start time or explicit `timeTba: true` through API/MCP compatibility. The website requires Starts before publishing; drafts may remain incomplete. A source URL is optional.
+Draft lineup rows may use `relativeTiming: { offsetMinutes, durationMinutes }` before an event start is known. These elapsed minutes survive save and resume; setting Starts anchors them without changing their order or durations. A row cannot carry both relative timing and absolute source clocks. Publication and correction resolve relative timing from the event start in the shared preflight, and reject relative timing without a timed event. Imported unresolved clocks retain their original representation. Canonical lineup fields remain absolute instants.
+
 Public `worldSlug` and `lineup[].personSlug` matches are rechecked at publication.
 Unmatched lineup names are preserved. An incomplete lineup row remains valid in
 a draft but needs a performer label before publication.
@@ -73,7 +77,11 @@ cross-midnight intent relative to the event date. `occurrence` is `earlier` or
 `later` for a repeated local time. Timed publication requires a valid IANA
 timezone; date-only publication does not. `resolveEventLocalTime` returns zero,
 one, or multiple instants. `selectEventLocalTime` rejects gaps and unresolved
-repeated hours. Canonical schedules use `normalizeEventSchedule`.
+repeated hours. The website constrains the event start to the event date and
+reveals invalid fields from Review. End ordering uses resolved instants, including
+repeated hours; overnight ends require an explicit later date. Doors and lineup
+times retain the previous-day through seven-day offset range. Save draft bypasses
+publication validation. Canonical schedules use `normalizeEventSchedule`.
 
 The actual commit mutation calls `requireDateOnlyEventsEnabled` before inserting
 a date-only canonical event. Keep `EVENT_DATE_ONLY_ENABLED` disabled until the
@@ -115,9 +123,11 @@ Creating a new canonical event also records its actor and transport surface in
 
 Published records have `sourceType: "contributor"` and source label
 `Community-submitted`. Public projections omit contributor identity, private
-source text, poster references and draft provenance. Private source posters
-never become event artwork implicitly. Participants and worlds retain the
-contributor source type. Contributor-selected world associations start
+source text, poster references and draft provenance. The draft's single poster
+becomes artwork after verified upload and WebP preparation. Replacing or removing
+the poster clears its artwork and source suggestions while preserving accepted
+fields. The private source poster remains separate evidence. Participants and
+worlds retain the contributor source type. Contributor-selected world associations start
 `unconfirmed`: they appear on the event page but not as confirmed world-page
 activity until staff confirm them. Contributor corrections to that world also
 start unconfirmed. An unchanged world association retains its existing state.
@@ -127,6 +137,39 @@ Canonical contribution metadata is `contributorUserId`, `contributionVersion`,
 `contributorLockRevision`. Published drafts are immutable; use the correction
 commands below to change the canonical event. Replay attempts against a
 published draft return a conflict.
+
+## Website editor
+
+Contributors start at Details, with direct access to Lineup and Review. Import
+poster or text opens an optional dialog beside the heading from any stage.
+Closing retains the source and current stage, including an upload in progress.
+Successful extraction returns to Details with tentative suggestions. One
+versioned draft retains values across stages and resume. Review applies the
+existing preflight and duplicate checks. A clean successful publication returns to
+the event page. Newer pending edits require an abandonment decision first.
+The staff editor uses the same three stages with canonical commands and staff-only
+advanced controls. Existing source URLs and media controls stay mounted in a
+Details disclosure. Scoped corrections and staff edits have no import action.
+
+```mermaid
+flowchart LR
+  A[Events or community page] --> B[Add event]
+  C[Direct contribution link] --> B
+  B --> D[Sign in and return]
+  D --> F[Details]
+  F <--> G[Lineup]
+  G <--> H[Review]
+  F --> E[Optional import dialog]
+  G --> E
+  H --> E
+  E -->|Close, preserve stage and source| R[Current stage]
+  E -->|Extraction succeeds| F
+  H -->|Publish| I[Event page]
+  I -->|Correct own contribution| J[Details, Lineup, Review]
+  J -->|Save changes| I
+  I -->|Staff edit| K[Details, Lineup, Review]
+  K -->|Save| I
+```
 
 ## Correction commands
 
@@ -140,6 +183,14 @@ remain unconfirmed in person-profile feeds until staff edits that lineup.
 `updateOwnContributedEvent({eventId, expectedUpdatedAt, patch, duplicateAcknowledgements?})` allows only the
 original contributor while the listing is published, scheduled, and not taken
 over by staff. It returns the new `updatedAt` and `contributionVersion`.
+
+The inline correction editor shows Details, Lineup, and Review, then closes back
+to the event page after a successful save. It hides community selection and has
+no source upload, private evidence, artwork, live, or staff controls. Its patch
+omits unchanged fields, including unchanged lineups that contain hidden people.
+The form keeps the revision loaded when editing began, so a reactive query
+refresh cannot silently overwrite a newer edit. Report, retract, takeover, and
+removal keep their separate controls and authorization.
 
 The patch keys are `title`, `eventDate`, `timeTba`, `timezone`, `start`, `end`,
 `doors`, `venueLabel`, `worldSlug`, `sourceUrl`, `summary`, and `lineup`. Local
@@ -178,7 +229,11 @@ canonical timed and untimed rows using stable `clientKey` values, names, optiona
 public person matches, roles and absolute set timestamps. Use it instead of the
 legacy paired `slotLinks`/`participantLinks` arrays. An unchanged person's stored
 stream choice survives replacement; new choices must belong to their public
-streams, and changing/removing the person clears the old choice.
+streams, and changing/removing the person clears the old choice. The staff editor
+also clears cached stream choices when the person changes or becomes a manual
+entry. Editing billing or reselecting the same person retains the stream choice,
+row key, exact timing, provenance and protected associations. The contributor
+intake lineup contract does not carry a selected stream.
 
 An explicit `scheduleKind: "date_only"` update clears inherited event and set
 times, retaining omitted lineup rows as untimed performers. Supplying event times
@@ -244,7 +299,7 @@ detection; title/date changes can evade it.
 ## Private posters and optional extraction
 
 See [source storage and model controls](./event-intake-sources.md) for private
-upload intents, explicit artwork selection, retention, bounded extraction and
+upload intents, automatic and explicit artwork selection, retention, bounded extraction and
 default-off spam classification. The manual path has no model-key dependency.
 
 ## Integrated verification
@@ -253,3 +308,23 @@ The [Task 9 checkpoint](../testing/event-intake-checkpoint.md) separates local
 transaction, transport and browser fixtures from hosted/storage/provider proof.
 Exact public copy was approved by BASIC on 2026-09-28. The connected production
 journey, hosted verification and deployment remain open.
+
+## Browser completion and retained edits
+
+Save and publish transports return completion data. The form advances its dirty
+baseline only to the successful submitted fields. Intermediate source saves
+follow the same rule, while later local fields and pending buffers remain intact.
+Failed commands never advance that baseline.
+
+After publication plus Stay, the connected intake wrapper retains `eventId` and
+`eventPath`, reads the contributor correction revision, and uses
+`updateOwnContributedEvent` for later edits. It preserves the revision returned
+by each successful correction. It does not publish the draft again. Changed
+forbidden fields reach the correction boundary and fail; the wrapper does not
+silently filter them. Staff takeover and stale revisions retain their existing
+errors and authority checks.
+
+Retained staff creation uses `updateCommunityEvent` with the same slug. It reads
+`getEditableBySlug` before that update to obtain the authorized association IDs
+without replacing newer form fields. Staff creation still requires `startAt`;
+contributor drafts still allow partial timing.

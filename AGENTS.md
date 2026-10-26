@@ -83,6 +83,10 @@ Prefer explicit labels in docs:
 - If the user intent is clear and the step is ship-safe, continue to commit and push without asking again.
 - Ask before pushing only for risky/destructive/security/billing posture changes, or when the user explicitly asks to hold.
 
+## Cloud task startup
+
+In a managed cloud task, discover and read `.agents/skills/vrdex-cloud-start/SKILL.md` before starting services or using hosted bindings. If catalog discovery fails, report the gap and read that checked-in path, which routes to the canonical startup guide.
+
 ## Infrastructure and environment rule
 
 - Prefer infrastructure-as-code or checked-in configuration for infrastructure, CI settings, and environment variable definitions whenever the platform supports it.
@@ -123,6 +127,7 @@ Prefer explicit labels in docs:
 
 - Favor layered verification: lint, typecheck, unit, integration, e2e, visual, and policy checks where appropriate.
 - If UI changes, include visual confidence work.
+- Select `ci:browsers` for UI, authentication, or navigation changes; select `ci:visuals` when visual evidence is needed. Add labels before a normal PR run. See [CI selection](docs/testing/playwright-visual-preview.md#ci-behavior) for coverage and rerun behavior.
 - If billing, permissions, or verification logic changes, prefer stronger automated coverage.
 - Prefer video/screenshot evidence when asking the human to validate a nearly-mergeable feature.
 

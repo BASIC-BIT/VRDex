@@ -4,12 +4,13 @@ import { once } from "node:events";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { describe, it } from "node:test";
 
-import { smokeHostedClientMetadataDocument } from "../../scripts/smoke-vrdex-mcp-compat";
+import { hostedExpectedToolNames, smokeHostedClientMetadataDocument } from "../../scripts/smoke-vrdex-mcp-compat";
 
 const expectedTools = [
   "search",
   "fetch",
   "vrdex_search",
+  "vrdex_get_profile_media",
   "vrdex_get_profile",
   "vrdex_get_event",
   "vrdex_list_upcoming_events",
@@ -22,6 +23,14 @@ const expectedTools = [
 // Per tool, mirroring the server. A fixture that gave every write tool the same
 // pair would keep passing a server that had stopped distinguishing them.
 const writeToolScopes: Record<string, string> = {
+  vrdex_event_intake_draft_save: "events:contribute",
+  vrdex_event_intake_extract: "events:contribute",
+  vrdex_event_intake_publish: "events:contribute",
+  vrdex_event_intake_poster_upload_begin: "events:contribute",
+  vrdex_event_intake_poster_upload_complete: "events:contribute",
+  vrdex_event_intake_artwork_select: "events:contribute",
+  vrdex_event_intake_event_update: "events:contribute",
+  vrdex_event_intake_event_retract: "events:contribute",
   vrdex_event_create: "events:write",
   vrdex_event_update: "events:write",
   vrdex_profile_media_manage: "assets:write",
@@ -41,13 +50,27 @@ const writeToolScopes: Record<string, string> = {
   vrdex_media_review_decide_selected: "assets:review:write",
   vrdex_media_submission_withdraw: "assets:contribute",
   vrdex_media_submission_publish: "assets:publish",
-  vrdex_media_submission_declare: "assets:publish",
+  vrdex_media_contribution_manage: "assets:contribute",
+  vrdex_media_contribution_place: "assets:publish",
+  vrdex_media_contribution_propose_placement: "assets:contribute",
+};
+// Independent hosted contract fixture, deliberately not imported from runtime schemas.
+const contributionSchemas: Record<string, Record<string, unknown>> = {
+  vrdex_media_contribution_get: { inputSchema: { type: "object", additionalProperties: false, required: ["submissionId"] }, outputSchema: { required: ["submissionId", "assetId", "contributionVersion", "metadata", "canSelectPrimary", "canClearPrimary", "canProposePlacement", "canEditMetadata", "canRemove"] } },
+  vrdex_media_contribution_manage: { inputSchema: { type: "object", oneOf: [
+    { additionalProperties: false, required: ["submissionId", "expectedContributionVersion", "idempotencyKey", "action", "metadata"] },
+    { additionalProperties: false, required: ["submissionId", "expectedContributionVersion", "idempotencyKey", "action"] },
+  ] }, outputSchema: { required: ["operationId", "operationState"] } },
+  vrdex_media_contribution_place: { inputSchema: { type: "object", additionalProperties: false, required: ["submissionId", "expectedContributionVersion", "idempotencyKey", "action"], properties: { action: { enum: ["select_primary", "clear_primary"] } } }, outputSchema: { required: ["operationId", "operationState"] } },
+  vrdex_media_contribution_propose_placement: { inputSchema: { type: "object", additionalProperties: false, required: ["submissionId", "expectedContributionVersion", "idempotencyKey"] }, outputSchema: { required: ["operationId", "operationState"] } },
 };
 const expectedWriteTools = Object.keys(writeToolScopes);
 // Reads, but of the caller's own inventory, so they advertise a scope pair
 // rather than the anonymous public-read pair every other read carries.
 const contributionCollectionReadScopes = ["profile:contribute", "assets:contribute", "assets:review:read"];
 const ownedReadToolScopes: Record<string, string | string[]> = {
+  vrdex_event_intake_draft_get: "events:contribute",
+  vrdex_event_intake_event_get: "events:contribute",
   vrdex_contribution_capacity: contributionCollectionReadScopes,
   vrdex_contribution_capacity_requests: contributionCollectionReadScopes,
   vrdex_contribution_status: contributionCollectionReadScopes,
@@ -61,6 +84,7 @@ const ownedReadToolScopes: Record<string, string | string[]> = {
   vrdex_media_review_get: "assets:review:read",
   vrdex_media_review_preview: "assets:review:read",
   vrdex_media_submission_get: "assets:publish",
+  vrdex_media_contribution_get: "assets:contribute",
   vrdex_media_submission_preview: "assets:publish",
 };
 const expectedOwnedReadTools = Object.keys(ownedReadToolScopes);
@@ -183,7 +207,7 @@ async function startHostedFailureFixture() {
       writeJson(response, 200, {
         authorization_servers: [origin],
         resource: `${origin}/mcp`,
-        scopes_supported: ["mcp:read", "profile:read", "mcp:write", "assets:write", "assets:contribute", "assets:review:read", "assets:review:write", "assets:publish", "events:write", "profile:write", "profile:contribute"],
+        scopes_supported: ["mcp:read", "profile:read", "mcp:write", "assets:write", "assets:contribute", "assets:review:read", "assets:review:write", "assets:publish", "events:write", "events:contribute", "profile:write", "profile:contribute"],
       });
       return;
     }
@@ -257,6 +281,7 @@ async function startHostedFailureFixture() {
           // reached the read failures this test is about.
           tools: [...expectedTools, ...expectedOwnedReadTools, ...expectedWriteTools].map((name) => ({
             _meta: { securitySchemes: securitySchemesForTool(name) },
+            ...contributionSchemas[name],
             name,
           })),
         },
@@ -320,7 +345,7 @@ async function startHostedSuccessFixture(extraToolName?: string, omittedScope?: 
       writeJson(response, 200, {
         authorization_servers: [origin],
         resource: `${origin}/mcp`,
-        scopes_supported: ["mcp:read", "profile:read", "mcp:write", "assets:write", "assets:contribute", "assets:review:read", "assets:review:write", "assets:publish", "events:write", "profile:write", "profile:contribute"].filter((scope) => scope !== omittedScope),
+        scopes_supported: ["mcp:read", "profile:read", "mcp:write", "assets:write", "assets:contribute", "assets:review:read", "assets:review:write", "assets:publish", "events:write", "events:contribute", "profile:write", "profile:contribute"].filter((scope) => scope !== omittedScope),
       });
       return;
     }
@@ -339,6 +364,7 @@ async function startHostedSuccessFixture(extraToolName?: string, omittedScope?: 
     if (request.method === "POST" && url.pathname === "/oauth/register") {
       const registration = JSON.parse(await readRequestBody(request)) as { scope?: string };
       assert.ok(registration.scope?.split(/\s+/).includes("assets:review:read"));
+      assert.ok(registration.scope?.split(/\s+/).includes("events:contribute"));
       writeJson(response, 201, {
         client_id: "vrdx_app_0123456789abcdef01234567",
         client_name: "VRDex MCP Client",
@@ -402,6 +428,7 @@ async function startHostedSuccessFixture(extraToolName?: string, omittedScope?: 
         result: {
           tools: [...expectedTools, ...expectedOwnedReadTools, ...expectedWriteTools, ...(extraToolName ? [extraToolName] : [])].map((name) => ({
             _meta: { securitySchemes: securitySchemesForTool(name) },
+            ...contributionSchemas[name],
             name,
           })),
         },
@@ -503,6 +530,13 @@ async function startHostedSuccessFixture(extraToolName?: string, omittedScope?: 
 }
 
 describe("MCP compatibility smoke CLI", () => {
+  it("matches the independently classified hosted tool catalog", () => {
+    assert.deepEqual(
+      [...hostedExpectedToolNames].sort(),
+      [...expectedTools, ...expectedOwnedReadTools, ...expectedWriteTools].sort(),
+    );
+  });
+
   it("fetches and validates the HTTPS CIMD document and authorization redirect", async () => {
     const issuer = "https://app.example.test";
     const clientId = `${issuer}/.well-known/oauth-client/vrdex-mcp-public-client`;

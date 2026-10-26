@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { validatePosterBytes } from "../../apps/web/src/lib/server/event-poster-storage";
 import { extractEventIntake } from "../../apps/web/src/lib/server/event-intake-agent";
 import { classifyEventIntakeForPublication } from "../../apps/web/src/lib/server/event-intake-spam";
-const blank = () => ({ event: { title: null, communitySlug: null, eventDate: null, start: null, end: null, timezone: null, venueLabel: null, summary: null, sourceUrl: null }, lineup: [], evidence: [], questions: [] });
+const blank = () => ({ event: { title: null, communitySlug: null, eventDate: null, start: null, end: null, startDate: null, endDate: null, timezone: null, venueLabel: null, summary: null, sourceUrl: null }, lineup: [], evidence: [], questions: [] });
 const response = (value: unknown) => new Response(JSON.stringify({ status: "completed", output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify(value) }] }] }));
 const base = { authorize: async () => ({ actorUserId: "actor", version: 1 }), search_people: async () => [], search_communities: async () => [], apiKey: "test", enabled: true, model: "fixture", fetchImplementation: async () => response(blank()) };
 it("validates decoded PNG/JPEG/WebP, size, MIME, digest and decoding", async () => {
@@ -48,7 +48,7 @@ it("defaults spam off and flags outages with draft/version binding", async () =>
 });
 
 it("rejects false person IDs but retains IDs returned by bounded public tools", async()=>{
- const candidate={...blank(),lineup:[{performerLabel:"DJ",personSlug:"false-person",roleLabel:null,start:null,end:null}]};
+ const candidate={...blank(),lineup:[{performerLabel:"DJ",personSlug:"false-person",roleLabel:null,start:null,end:null,startDate:null,endDate:null}]};
  const rejected=await extractEventIntake({draftId:"draft",sourceText:"DJ"},{...base,fetchImplementation:async()=>response(candidate)});
  assert.equal(rejected.lineup[0]?.personSlug,null);
  let calls=0;
@@ -68,6 +68,33 @@ it("passes poster instructions only as private image input and cannot execute mu
   return new Response(JSON.stringify({status:"completed",output:[{type:"function_call",name:"publish_event",call_id:"bad",arguments:"{}"}]}));
  }});
  assert.equal(calls,1);assert.equal(result.questions[0]?.reason,"invalid_tool");
+});
+it("sends authorized text and one poster in one bounded request",async()=>{
+ const reads:string[]=[]; let authorized:string|undefined; let requests=0;
+ const candidate=blank(); candidate.evidence=[{fieldPath:"event.title",origin:"poster",excerpt:"Night",assessment:"explicit"}];
+ const result=await extractEventIntake({draftId:"draft",sourceText:"Doors at 8",posterAssetId:"poster"},{...base,
+  authorize:async input=>{authorized=input.posterAssetId;return{actorUserId:"actor",version:1};},
+  readPoster:async id=>{reads.push(id);return "data:image/png;base64,AAAA";},
+  fetchImplementation:async(_url:unknown,init:RequestInit)=>{requests++;const body=JSON.parse(String(init.body));
+   assert.deepEqual(body.input[0].content,[{type:"input_text",text:"Doors at 8"},
+    {type:"input_image",image_url:"data:image/png;base64,AAAA",detail:"high"}]);return response(candidate);}
+ });
+ assert.equal(authorized,"poster");assert.deepEqual(reads,["poster"]);assert.equal(requests,1);assert.deepEqual(result.evidence,candidate.evidence);
+});
+it("rejects invalid or oversized poster input before provider work",async()=>{
+ let requests=0;const deps={...base,fetchImplementation:async()=>{requests++;return response(blank());}};
+ for(const image of ["https://private.test/poster.png",`data:image/png;base64,${"A".repeat(20_000_004)}`]) {
+  assert.equal((await extractEventIntake({draftId:"draft",posterAssetId:"poster"},{...deps,readPoster:async()=>image})).questions[0]?.reason,"invalid_poster");
+ }
+ await assert.rejects(extractEventIntake({draftId:"draft"},deps),/EXTRACTION_INPUT_INVALID/);
+ assert.equal(requests,0);
+});
+it("asks for an undated after-midnight lineup start",async()=>{
+ const candidate=blank();Object.assign(candidate.event,{eventDate:"2026-10-10",start:"22:00",timezone:"America/New_York"});
+ candidate.lineup=[{performerLabel:"DJ",personSlug:null,roleLabel:null,start:"00:30",end:null,startDate:null,endDate:null}];
+ const result=await extractEventIntake({draftId:"draft",sourceText:"Night"},{...base,fetchImplementation:async()=>response(candidate)});
+ assert.ok(result.questions.some(question=>question.fieldPath==="lineup.0.start"&&question.reason==="start_date_required"));
+ assert.equal(result.lineup[0]?.startDate,null);
 });
 it("refuses tool floods and invalid lookup arguments before callback execution",async()=>{
  let lookups=0;
@@ -133,16 +160,21 @@ it("completes the actual storage bridge from reserved upload through separately 
  const body=await sharp({create:{width:8,height:8,channels:3,background:"blue"}}).png().toBuffer();
  const objects=new Map<string,{body:Uint8Array;contentType:string}>();
  const puts:string[]=[];
+ let failArtwork=true;
  let uploadKey="";
- const handlers=createEventPosterHandlers({authority:async()=>({actorUserId}),admin:{mutation:t.mutation,query:t.query},target:async input=>{uploadKey=input.storageKey;assert.ok(input.expiresAt-Date.now()<=600000);return{url:"https://s3.test",fields:{key:input.storageKey}};},read:async key=>objects.get(key)??null,put:async input=>{assert.equal(input.cacheControl,"private, no-store");puts.push(input.storageKey);objects.set(input.storageKey,{body:input.body,contentType:input.contentType});}});
+ const handlers=createEventPosterHandlers({authority:async()=>({actorUserId}),admin:{mutation:t.mutation,query:t.query},target:async input=>{uploadKey=input.storageKey;assert.ok(input.expiresAt-Date.now()<=600000);return{url:"https://s3.test",fields:{key:input.storageKey}};},read:async key=>objects.get(key)??null,put:async input=>{assert.equal(input.cacheControl,"private, no-store");puts.push(input.storageKey);if(input.storageKey.includes("/artwork/")&&failArtwork){failArtwork=false;throw Error("STORAGE_UNAVAILABLE");}objects.set(input.storageKey,{body:input.body,contentType:input.contentType});}});
  const started=await handlers.beginPosterUpload({draftId,contentType:"image/png",byteLength:body.length,sha256:createHash("sha256").update(body).digest("hex")});
  objects.set(uploadKey,{body,contentType:"image/png"});
- await handlers.completePosterUpload({posterAssetId:started.posterAssetId});
- assert.equal(puts.length,1);assert.notEqual(puts[0],uploadKey);
+ await assert.rejects(handlers.completePosterUpload({posterAssetId:started.posterAssetId}),/STORAGE_UNAVAILABLE/);
+ assert.equal((await t.run(ctx=>ctx.db.get(draftId)))?.version,1);
+ const completed=await handlers.completePosterUpload({posterAssetId:started.posterAssetId});
+ assert.equal(completed.version,2);assert.ok(completed.artworkAssetId);
+ assert.equal(puts.length,3);assert.notEqual(puts[0],uploadKey);assert.equal(puts[1],puts[2]);
  assert.match(await handlers.readPoster(started.posterAssetId),/^data:image\/webp;base64,/);
- assert.equal((await t.run(ctx=>ctx.db.query("eventPosterArtwork").collect())).length,0);
- await handlers.selectPosterArtwork({draftId,posterAssetId:started.posterAssetId,expectedVersion:1});
- assert.equal(puts.length,2);assert.match(puts[1],/^profile-assets\/event-posters\/artwork\//);
+ assert.equal((await t.run(ctx=>ctx.db.query("eventPosterArtwork").collect())).length,1);
+ assert.equal((await handlers.completePosterUpload({posterAssetId:started.posterAssetId})).version,2);
+ assert.equal(puts.length,3,"retry must not recopy a ready source or derivative");
+ assert.match(puts[1],/^profile-assets\/event-posters\/artwork\//);
  assert.equal((await t.run(ctx=>ctx.db.get(draftId)))?.version,2);
 });
 
@@ -171,7 +203,9 @@ it("renews stale artwork selection and recovers a key written after cleanup", as
   }
   objects.set(input.storageKey,{body:input.body,contentType:input.contentType});
  }});
- const started=await handlers.beginPosterUpload({draftId,contentType:"image/png",byteLength:body.length,sha256:createHash("sha256").update(body).digest("hex")});objects.set(uploadKey,{body,contentType:"image/png"});
+ const declaration={draftId,contentType:"image/png",byteLength:body.length,sha256:createHash("sha256").update(body).digest("hex")};
+ const started=await handlers.beginPosterUpload(declaration);objects.set(uploadKey,{body,contentType:"image/png"});
+ await t.run(ctx=>ctx.db.patch(draftId,{fields:{title:"Night",posterSourceId:null}}));
  phase="expired-source-preparation";
  try { await assert.rejects(handlers.completePosterUpload({posterAssetId:started.posterAssetId}),/POSTER_WRITE_EXPIRED/); } finally { Date.now=originalNow; }
  assert.equal(writeAttempts,0,"expired source preparation must never start a copy");
@@ -180,7 +214,8 @@ it("renews stale artwork selection and recovers a key written after cleanup", as
  const reserved=await t.mutation(internal.eventIntakeSources.selectPosterArtwork,args);
  await t.run(ctx=>ctx.db.patch(reserved.artworkAssetId,{expiresAt:0}));
  phase="retry";
- await handlers.selectPosterArtwork(args);
+ const selection=await handlers.selectPosterArtwork(args);
+ assert.equal(selection.artworkSourceId,started.posterAssetId);
  assert.equal(preparationClaims,0,"renewal must prevent cleanup while the image is prepared");
  phase="expired-preparation";
  const attemptsBefore=writeAttempts;
