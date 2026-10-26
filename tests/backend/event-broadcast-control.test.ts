@@ -1,3 +1,4 @@
+import { loadEventsWithFixtureCapacity } from "./_eventCapacityFixture";
 import { bindVrcdnTestAccount } from "./_eventOutputAccountFixture";
 import assert from "node:assert/strict";
 import { it } from "node:test";
@@ -14,7 +15,7 @@ const worker = (name: string) =>
   makeFunctionReference<"mutation">(`eventMediaWorker:${name}`);
 const modules = {
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
-  "../../convex/events.ts": () => import("../../convex/events"),
+  "../../convex/events.ts": loadEventsWithFixtureCapacity,
   "../../convex/eventMediaSources.ts": () =>
     import("../../convex/eventMediaSources"),
   "../../convex/eventMediaControlMigration.ts": () =>

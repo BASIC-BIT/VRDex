@@ -367,11 +367,12 @@ it("operator_stops_offering_revoked_profile_source_before_worker_refresh", async
   });
   await t.mutation(worker("acquireSession"), args);
   const before = await owner.query(api.events.getEventMediaControlStatus, { currentSlug: event.slug });
-  assert.equal(before.sources[0].hasPublicUrl, true);
+  const formerSource = before.sources[0];
+  assert.equal(formerSource.hasPublicUrl, true);
   await t.run(({db}) => db.patch(person, { outboundLinks: [] }));
   const after = await owner.query(api.events.getEventMediaControlStatus, { currentSlug: event.slug });
-  assert.equal(after.sources[0].hasPublicUrl, false);
-  await assert.rejects(owner.mutation(api.events.queueEventMediaCommand, { idempotencyKey:crypto.randomUUID(), currentSlug: event.slug, type: "switch_source", targetSourceKey: after.sources[0].key }));
+  assert.deepEqual(after.sources, []);
+  await assert.rejects(owner.mutation(api.events.queueEventMediaCommand, { idempotencyKey:crypto.randomUUID(), currentSlug: event.slug, type: "switch_source", targetSourceKey: formerSource.key }), /unavailable/i);
 });
 
 it("pending_control_from_an_ended_session_does_not_block_a_new_session", async () => {
