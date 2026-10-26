@@ -1,4 +1,5 @@
 import { readCollectionSubject, readManagedIntegration } from "./_groupObservationPolicy";
+import { assertAutomaticOperationAllowed } from "./_communityTelemetry";
 import { v } from "convex/values";
 import {
   query,
@@ -211,6 +212,7 @@ export const recordAuthority = internalMutation({
       args.authority.membershipStatus.length > 64
     )
       return { recorded: false };
+    assertAutomaticOperationAllowed({collectionMode: readCollectionSubject(integration).kind, operation: "club_authority"});
     const lease = await ctx.db
       .query("collectorAccountLeases")
       .withIndex("by_integrationId_state", (q) =>

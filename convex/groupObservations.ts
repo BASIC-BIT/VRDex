@@ -217,7 +217,14 @@ export const reconcileDestination = internalMutation({
 export const recordAdmissionRequired = internalMutation({
   returns: v.boolean(),
   args: { integrationId: v.id("communityVrchatIntegrations"), reason: v.union(v.literal("request"), v.literal("invite"), v.literal("private"), v.literal("invalid")), now: v.optional(v.number()) },
-  handler: async (ctx, args) => {
+  handler: applyAdmissionRequired,
+});
+
+export async function applyAdmissionRequired(ctx: MutationCtx, args: {
+  integrationId: Id<"communityVrchatIntegrations">;
+  reason: "request" | "invite" | "private" | "invalid";
+  now?: number;
+}) {
     const now = args.now ?? Date.now();
     const integration = await ctx.db.get(args.integrationId);
     if (!integration || readCollectionSubject(integration).kind !== "automatic" || integration.state !== "connecting" || integration.lastSuccessfulObservationAt !== undefined) return false;
@@ -229,8 +236,7 @@ export const recordAdmissionRequired = internalMutation({
     await ctx.db.patch(policy._id, {admissionRequired: true, queuedAdmission: undefined, updatedAt: now});
     await ctx.db.insert("communityTelemetryAuditEvents", {integrationId: integration._id, action: "automatic_admission.required", result: args.reason, createdAt: now});
     return true;
-  },
-});
+}
 
 /** Internal operations access is required; override only this already-attributed candidate. */
 export const overrideCandidateLimit = internalMutation({

@@ -1,4 +1,5 @@
 import { readCollectionSubject, readIntegrationRollups, readLegacyRollupMapping, readManagedIntegration } from "./_groupObservationPolicy";
+import { applyAdmissionRequired } from "./groupObservations";
 import { transitionCoverage } from "./_collectionCoverage";
 import { rejectConnectionOperations } from "./clubOperations";
 import { resolveClubActor, readClubVisibility, canReadCategory, requireClubPermission } from "./_clubAccess";
@@ -20,6 +21,7 @@ import {
 } from "./_claimAnalytics";
 import {
   CURRENT_FRESHNESS_MS,
+  assertAutomaticOperationAllowed,
   DEFAULT_PUBLIC_TELEMETRY_SETTINGS,
   INSTANCE_CLOSE_MISSES,
   MAX_INTERPOLATION_GAP_MS,
@@ -217,7 +219,10 @@ async function assertLease(
   now: number,
 ) {
   const lease = await activeLeaseForIntegration(ctx, integrationId);
+  const integration = await ctx.db.get(integrationId);
   if (
+    !integration || integration.assignedCollectorAccountId !== collectorAccountId ||
+    integration.leaseGeneration !== fencingToken ||
     lease === null ||
     lease.collectorAccountId !== collectorAccountId ||
     lease.workerId !== workerId ||
@@ -225,6 +230,13 @@ async function assertLease(
     lease.expiresAt <= now
   ) {
     throw new Error("Collector lease is stale or unavailable.");
+  }
+  if (readCollectionSubject(integration).kind === "automatic") {
+    const policy = await ctx.db.query("vrchatGroupObservationPolicies")
+      .withIndex("by_vrchatGroupId", q => q.eq("vrchatGroupId", integration.vrchatGroupId)).unique();
+    if (policy?.integrationId !== integration._id ||
+      (policy.decision.kind !== "enabled" && integration.state !== "disconnecting"))
+      throw new Error("Collector lease is stale or unavailable.");
   }
   return lease;
 }
@@ -277,10 +289,11 @@ async function applyCollectorAccountState(
     .collect();
   for (const integration of integrations) {
     if (integration.state === "disconnected") continue;
+    const subject = readCollectionSubject(integration);
     const integrationState = integration.state === "disconnecting"
       ? "disconnecting"
-      : state === "ready" ? "connecting" : state === "auth_required" ? "auth_required" : "degraded";
-    readCollectionSubject(integration);
+      : state === "ready" ? subject.kind === "automatic" ? "degraded" : "connecting"
+      : state === "auth_required" ? "auth_required" : "degraded";
     await ctx.db.patch(integration._id, {
       state: integrationState,
       nextPollAt: state === "ready" ? now : undefined,
@@ -482,6 +495,7 @@ export const reassignIntegration = internalMutation({
     if (!integration || integration.state === "disconnected" || integration.state === "disconnecting") {
       throw new Error("Only a connected telemetry integration can be reassigned.");
     }
+    assertAutomaticOperationAllowed({collectionMode: readCollectionSubject(integration).kind, operation: "reassign"});
     const currentAccount = integration.assignedCollectorAccountId
       ? await ctx.db.get(integration.assignedCollectorAccountId)
       : null;
@@ -781,6 +795,10 @@ export const recordMembershipResult = internalMutation({
       });
       return;
     }
+    if (subject.kind === "automatic" && (args.state !== "active" || args.groupVisibility !== "public" || args.joinPolicy !== "free" || integration.state === "disconnecting")) {
+      await stopAutomaticCollection(ctx, integration, now);
+      return;
+    }
     await ctx.db.patch(integration._id, {
       state: args.state,
       groupVisibility: args.groupVisibility,
@@ -806,6 +824,7 @@ export const claimDueAssignments = internalMutation({
   args: {
     collectorAccountId: v.id("collectorAccounts"),
     workerId: v.string(),
+    capabilities: v.optional(v.array(collectorRuntimeCapabilityValidator)),
     limit: v.optional(v.number()),
     leaseMs: v.optional(v.number()),
     now: v.optional(v.number()),
@@ -818,6 +837,11 @@ export const claimDueAssignments = internalMutation({
       .withIndex("by_key", (q) => q.eq("key", "global"))
       .first();
     if (!account || account.state !== "ready" || account.killSwitchEnabled || fleet?.killSwitchEnabled || (account.cooldownUntil ?? 0) > now) return { assignments: [], destinationWorkDueAt: null };
+    const heartbeat = await ctx.db.query("collectorWorkerHeartbeats")
+      .withIndex("by_collectorAccountId_workerId", q => q.eq("collectorAccountId", account._id).eq("workerId", args.workerId)).unique();
+    const automaticCapable = args.capabilities?.includes("automatic_group_aggregates_v1") === true &&
+      heartbeat !== null && heartbeat.heartbeatAt <= now && heartbeat.heartbeatAt >= now - WORKER_HEARTBEAT_FRESHNESS_MS &&
+      heartbeat.capabilities.includes("automatic_group_aggregates_v1");
     const candidates = await ctx.db
       .query("communityVrchatIntegrations")
       .withIndex("by_assignedCollectorAccountId_state", (q) =>
@@ -840,6 +864,7 @@ export const claimDueAssignments = internalMutation({
     const due = [...candidates, ...transitional]
       .filter(
         (integration) =>
+          (readCollectionSubject(integration).kind === "managed" || automaticCapable) &&
           !integration.killSwitchEnabled &&
           (integration.nextPollAt ?? 0) <= now &&
           (integration.backoffUntil ?? 0) <= now,
@@ -848,6 +873,7 @@ export const claimDueAssignments = internalMutation({
       // least recently claimed first so a hot management queue cannot hold the
       // first slot forever when the worker claims one lease at a time.
       .sort((left, right) =>
+        Number(readCollectionSubject(left).kind === "automatic") - Number(readCollectionSubject(right).kind === "automatic") ||
         (left.lastClaimedAt ?? 0) - (right.lastClaimedAt ?? 0) ||
         (left.nextPollAt ?? 0) - (right.nextPollAt ?? 0) ||
         left._id.localeCompare(right._id),
@@ -855,6 +881,13 @@ export const claimDueAssignments = internalMutation({
     const claimed = [];
     for (const integration of due) {
       if (claimed.length >= limit) break;
+      const subject = readCollectionSubject(integration);
+      if (subject.kind === "automatic") {
+        const policy = await ctx.db.query("vrchatGroupObservationPolicies")
+          .withIndex("by_vrchatGroupId", q => q.eq("vrchatGroupId", integration.vrchatGroupId)).unique();
+        if (policy?.integrationId !== integration._id ||
+          (policy.decision.kind !== "enabled" && integration.state !== "disconnecting")) continue;
+      }
       const existing = await activeLeaseForIntegration(ctx, integration._id);
       if (existing && existing.expiresAt > now && existing.workerId !== args.workerId) continue;
       const fencingToken = integration.leaseGeneration + 1;
@@ -887,7 +920,8 @@ export const claimDueAssignments = internalMutation({
       claimed.push({
         integrationId: integration._id,
         epochStartedAt: integration.telemetryEpochStartedAt ?? integration.createdAt,
-        enabledFeatures: integration.enabledFeatures ?? ["analytics"],
+        collectionMode: subject.kind,
+        ...(subject.kind === "managed" ? { enabledFeatures: integration.enabledFeatures ?? ["analytics"] } : {}),
         vrchatGroupId: integration.vrchatGroupId,
         joinPolicy: integration.joinPolicy,
         groupVisibility: integration.groupVisibility,
@@ -903,6 +937,49 @@ export const claimDueAssignments = internalMutation({
     return { assignments: claimed, destinationWorkDueAt: fleet?.destinationWorkDueAt ?? null };
   },
 });
+
+export const assertWorkerTargetOperation = internalQuery({
+  args: { integrationId: v.id("communityVrchatIntegrations"), operation: v.string() },
+  handler: async (ctx, args) => {
+    const integration = await ctx.db.get(args.integrationId);
+    if (!integration) throw new Error("Integration unavailable.");
+    assertAutomaticOperationAllowed({collectionMode: readCollectionSubject(integration).kind, operation: args.operation});
+    return null;
+  },
+});
+
+export const recordAutomaticAdmissionRequired = internalMutation({
+  args: {
+    integrationId: v.id("communityVrchatIntegrations"), collectorAccountId: v.id("collectorAccounts"),
+    workerId: v.string(), workerKeyHash: v.string(), fencingToken: v.number(), epochStartedAt: v.number(),
+    reason: v.union(v.literal("request"), v.literal("invite"), v.literal("private"), v.literal("invalid")), now: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const now = args.now ?? Date.now();
+    const account = await ctx.db.get(args.collectorAccountId);
+    const fleet = await ctx.db.query("collectorFleetSettings").withIndex("by_key", q => q.eq("key", "global")).unique();
+    if (!account || account.workerKeyHash !== args.workerKeyHash || account.state !== "ready" || account.killSwitchEnabled || fleet?.killSwitchEnabled)
+      throw new Error("Unauthorized automatic admission worker.");
+    await assertLease(ctx, args.integrationId, args.collectorAccountId, args.workerId, args.fencingToken, now);
+    const integration = await ctx.db.get(args.integrationId);
+    if (!integration || readCollectionSubject(integration).kind !== "automatic" || integration.killSwitchEnabled ||
+      args.epochStartedAt !== (integration.telemetryEpochStartedAt ?? integration.createdAt))
+      throw new Error("Automatic admission is stale or unavailable.");
+    return applyAdmissionRequired(ctx, {integrationId: args.integrationId, reason: args.reason, now});
+  },
+});
+
+async function stopAutomaticCollection(ctx: MutationCtx, integration: Doc<"communityVrchatIntegrations">, now: number) {
+  const policy = await ctx.db.query("vrchatGroupObservationPolicies")
+    .withIndex("by_vrchatGroupId", q => q.eq("vrchatGroupId", integration.vrchatGroupId)).unique();
+  if (policy?.integrationId !== integration._id) throw new Error("Automatic collection policy unavailable.");
+  await ctx.db.patch(policy._id, {
+    decision: {kind: "stopped", reason: "provider_membership_lost", actor: "provider", at: now}, queuedAdmission: undefined, updatedAt: now,
+  });
+  await ctx.db.patch(integration._id, {state: "disconnecting", nextPollAt: now, leaseGeneration: integration.leaseGeneration + 1, updatedAt: now});
+  await transitionCoverage(ctx, integration._id, "unknown", now, "first_party", "automatic_group_aggregates_v1", "provider_membership_lost");
+  await audit(ctx, {integrationId: integration._id, action: "automatic_collection.stopped", result: "provider_membership_lost", now});
+}
 
 export const reserveRequestBudget = internalMutation({
   args: {
@@ -1284,6 +1361,8 @@ export const ingestAggregatePoll = internalMutation({
     await assertLease(ctx, args.integrationId, args.collectorAccountId, args.workerId, args.fencingToken, now);
     const integration = await ctx.db.get(args.integrationId);
     if (!integration) throw new Error("Integration was not found.");
+    if (readCollectionSubject(integration).kind === "automatic" && !["active", "degraded"].includes(integration.state))
+      throw new Error("Automatic collection is stale or unavailable.");
     if (integration.enabledFeatures && !integration.enabledFeatures.includes("analytics")) {
       throw new Error("Analytics collection is disabled.");
     }
@@ -1480,6 +1559,11 @@ export const recordPollFailure = internalMutation({
     await assertLease(ctx, args.integrationId, args.collectorAccountId, args.workerId, args.fencingToken, now);
     const integration = await ctx.db.get(args.integrationId);
     if (!integration) throw new Error("Integration was not found.");
+    if (readCollectionSubject(integration).kind === "automatic" &&
+      (args.detail === "membership" || args.statusClass === "membership")) {
+      await stopAutomaticCollection(ctx, integration, now);
+      return;
+    }
     const failures = integration.consecutiveFailures + 1;
     // Aggregate/history failures affect coverage, not independently enabled management.
     // Authentication, throttling and membership failures retain lifecycle/backoff semantics.
@@ -2310,6 +2394,12 @@ export const recordCollectorHeartbeat = internalMutation({
       throw new Error("Collector failure count is invalid.");
     }
 
+    const prior = await ctx.db.query("collectorWorkerHeartbeats")
+      .withIndex("by_collectorAccountId_workerId", q => q.eq("collectorAccountId", accountId).eq("workerId", workerId)).unique();
+    const heartbeat = { collectorAccountId: accountId, workerId, releaseSha, collectorVersion, capabilities,
+      consecutiveControlFailures: failures, heartbeatAt: now, updatedAt: now };
+    if (prior) await ctx.db.patch(prior._id, heartbeat);
+    else await ctx.db.insert("collectorWorkerHeartbeats", heartbeat);
     await ctx.db.patch(accountId, {
       lastWorkerHeartbeatAt: now,
       lastWorkerId: workerId,

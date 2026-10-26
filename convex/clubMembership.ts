@@ -1,4 +1,5 @@
-import { readManagedIntegration } from "./_groupObservationPolicy";
+import { readCollectionSubject, readManagedIntegration } from "./_groupObservationPolicy";
+import { assertAutomaticOperationAllowed } from "./_communityTelemetry";
 import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import {
@@ -127,6 +128,7 @@ async function active(
       args.epochStartedAt
   )
     throw new Error("Inactive membership collection scope.");
+  assertAutomaticOperationAllowed({collectionMode: readCollectionSubject(integration).kind, operation: "membership_scan"});
   return integration;
 }
 export const beginScan = internalMutation({

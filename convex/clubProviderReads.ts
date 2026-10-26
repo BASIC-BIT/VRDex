@@ -1,4 +1,5 @@
 import { readCollectionSubject, readManagedIntegration } from "./_groupObservationPolicy";
+import { assertAutomaticOperationAllowed } from "./_communityTelemetry";
 import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import {
@@ -253,6 +254,7 @@ async function checkWorker(ctx: MutationCtx, args: WorkerArgs) {
       (integration.telemetryEpochStartedAt ?? integration.createdAt)
   )
     throw new Error("Invalid worker lease.");
+  assertAutomaticOperationAllowed({collectionMode: readCollectionSubject(integration).kind, operation: "club_read"});
   const lease = await ctx.db
     .query("collectorAccountLeases")
     .withIndex("by_integrationId_state", (q) =>

@@ -34,12 +34,22 @@ Required environment after the real-provider and explicit provider-approval depl
 
 Optional `VRDEX_GROUP_TELEMETRY_REQUESTS_PER_MINUTE` defaults to 30. Global, account, and integration kill switches in the control plane stop claims. ECS desired count is the live infrastructure stop; the SSM value prevents a disabled task revision from starting and is re-read when tasks restart.
 
-The worker reports `telemetry_v1`, `vrchat_proof_v1`, and `profile_link_destinations_v1` capabilities with its
+The worker reports `telemetry_v1`, `vrchat_proof_v1`, `profile_link_destinations_v1`, and `automatic_group_aggregates_v1` capabilities with its
 release SHA on startup and a bounded heartbeat. It separately polls the proof
 queue so the control plane can prove that the proof protocol, not merely the
 process, is live. Logs are JSON with fixed event names and bounded fields; they
 never include proof codes, provider target IDs, provider bodies, exception
 messages, session material, or worker credentials.
+
+Automatic assignments require the capability in both the claim request and a
+fresh heartbeat from that exact worker/account. They validate public/free-join
+policy before admission and collect aggregates only, without authority refresh,
+club operations, provider-read jobs, or named membership scans. A restricted
+initial target releases its allocation as admission-required. Membership loss
+after admission persists a group stop and fences pending polls; cleanup can
+leave the group, but cannot rejoin it or switch accounts. Account proof and
+destination jobs retain their separate authorization. Automatic enrollment stays
+disabled until separately authorized activation.
 
 After proof checks and assigned telemetry polls, the worker claims at most one
 public profile-link destination lookup. It reads exact VRChat user IDs, group

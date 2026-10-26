@@ -273,6 +273,29 @@ async function collect(assignment) {
       });
       return;
     }
+    if (assignment.collectionMode === "automatic") {
+      if (assignment.state === "connecting") {
+        if (!(await reserve(3))) return;
+        const membership = await provider.connectGroup(assignment.vrchatGroupId, { admissionMode: "automatic" });
+        if (membership.admissionRequired) {
+          await control.send("admission_required", { ...lease, epochStartedAt: assignment.epochStartedAt, reason: membership.admissionRequired });
+          return;
+        }
+        await control.send("membership", { ...lease, state: membership.state, joinPolicy: membership.joinPolicy,
+          groupVisibility: membership.groupVisibility, detail: membership.transition, now: Date.now() });
+        if (membership.state !== "active") return;
+      }
+      phase = "analytics";
+      if (!(await reserve(2))) return;
+      const snapshot = await provider.readAggregateSnapshot(assignment.vrchatGroupId, { admissionMode: "automatic" });
+      await control.send("ingest", { ...lease, pollId: pollId(assignment.integrationId, snapshot.observedAt),
+        observedAt: snapshot.observedAt, collectorVersion: COLLECTOR_PROTOCOL_VERSION,
+        groupMemberCount: snapshot.group.memberCount,
+        ...(snapshot.group.groupCreatedAt === undefined ? {} : { groupCreatedAt: snapshot.group.groupCreatedAt }),
+        instances: snapshot.instances, nextPollAt: snapshot.observedAt + randomPollDelayMs(snapshot.instances.length > 0) });
+      attempts.delete(assignment.integrationId);
+      return;
+    }
     if (assignment.state !== "active") {
       // getGroup, optional joinGroup, then getGroup after the join.
       if (!(await reserve(3))) return;
@@ -374,6 +397,8 @@ async function collect(assignment) {
     const attempt = (attempts.get(assignment.integrationId) ?? 0) + 1;
     attempts.set(assignment.integrationId, attempt);
     const failure = failureDisposition(error, attempt);
+    if (assignment.collectionMode === "automatic" && phase === "analytics" && [403, 404].includes(error?.status))
+      failure.detail = "membership";
     const telemetryOnly =
       phase === "analytics" &&
       assignment.enabledFeatures?.some((feature) => feature !== "analytics") ===
@@ -400,7 +425,7 @@ async function collectNextAssignment(setPhase) {
     ? { assignments: [] }
     // A collection can wait across several request-budget windows. Claim only
     // the lease being processed so the next one starts with a fresh deadline.
-    : await control.send("claim", { limit: 1, now: Date.now() }, { requirePayload: true });
+    : await control.send("claim", { capabilities: runtimeMetadata.capabilities, limit: 1, now: Date.now() }, { requirePayload: true });
   const { assignments = [], destinationWorkDueAt } = assignmentResponse;
   let assignmentCount = 0;
   for (const assignment of assignments) {
