@@ -12,8 +12,8 @@
     "path": "docs/engineering/authority/program-source-guards-rebaseline-v1.md",
     "kind": "audit",
     "id": "program-source-guards-rebaseline-v1",
-    "bytes": 21430,
-    "sha256": "4e6ff3ca6a3e18a8652633331dad5058480e42a9569e67af6033acb67f6353d8"
+    "bytes": 21732,
+    "sha256": "54130902985c22ddef115437afe033d4347e66901c17a211295b0e529ad7ef12"
   },
   {
     "key": "pins",
