@@ -211,7 +211,7 @@ test("existing backend CI pins both phases, preserves canonical checks and uploa
   assert.equal(commands.filter(command => command === "git diff --exit-code -- convex/_generated").length, 2);
   const rehearsal = job.steps.find(step => step.id === "migration");
   assert.equal(rehearsal["timeout-minutes"], 6);
-  assert.equal(rehearsal.run, "node --import tsx scripts/verify-event-broadcast-migration-local.mjs run");
+  assert.equal(rehearsal.run, "node --import tsx scripts/verify-event-broadcast-migration-local.mjs run-admission-blocked");
   assert.equal(rehearsal["continue-on-error"], undefined);
   const artifact = job.steps.find(step => step.uses === "actions/upload-artifact@v7");
   assert.equal(artifact.if, "${{ always() && steps.migration.outcome != 'skipped' && steps.migration-evidence.outputs.upload-path != '' }}");
@@ -325,7 +325,7 @@ async function fakeOuterRun(signal, at, workStage = "driver") {
   const { EventEmitter } = await import("node:events");
   const { default: vm } = await import("node:vm");
   const source = readFileSync(modulePath, "utf8");
-  const body = source.slice(source.indexOf("async function run() {"), source.indexOf("const EXPECTED_ARTIFACTS"));
+  const body = source.slice(source.indexOf("async function run("), source.indexOf("const EXPECTED_ARTIFACTS"));
   const ownerId = "b".repeat(32);
   const events = new EventEmitter(), child = new EventEmitter();
   child.pid = 100; child.stdin = new EventEmitter(); child.stdin.end = () => {};
@@ -539,4 +539,28 @@ test("RPC classification wraps the installed Convex client without extra transpo
   assert.equal(tail.receipt().failures.length, 16);
   assert.equal(tail.receipt().failures.at(-1).reason, "unproved-broadcast-configuration");
   assert.equal(tail.receipt().dropped, 5);
+});
+
+const blocked = { ...passed, scope: "migration-admission-blocked", failedStage: null, migrationCalls: 162, evidence: [{ label: "historical-result", data: {} }, { label: "production-admission-blocked", data: { reason: "unproved-broadcast-configuration", unchanged: true, noSessionWrites: true, noStartCommandWrites: true } }] };
+test("explicit blocked phase scope accepts only its complete separate driver proof", async () => {
+  const boundedInput = { ...input, scope: "migration-admission-blocked" };
+  const run = async (receipt, request = boundedInput) => {
+    const { deps } = phaseFixture();
+    deps.runDriver = async () => receipt;
+    return helper.executePhase(request, deps);
+  };
+  assert.equal((await run(blocked)).status, "passed");
+  assert.equal((await run(blocked, input)).status, "failed", "default whole-flow must reject bounded scope");
+  for (const changed of [passed, { ...blocked, scope: "migration" }, { ...blocked, evidence: [] }, { ...blocked, failedStage: "protocol-lifecycle" }, { ...blocked, migrationCalls: 0 }, { ...blocked, evidence: [{ label: "production-admission-blocked", data: { reason: "unproved-broadcast-configuration", unchanged: false } }] }, { ...blocked, status: "failed" }]) {
+    assert.equal((await run(changed)).status, "failed");
+  }
+});
+
+test("final acceptance never confuses bounded admission denial with whole-flow capacity readiness", () => {
+  const native = { code: 0, signal: null, close: true, timedOut: false, overflow: false, logs: { overflow: false } };
+  const proof = { cancelled: false, closure: { passed: true }, native, generated: native, logs: { overflow: false }, deadline: 20000 };
+  const evidence = { phase: { status: "passed", logs: { overflow: false } }, phaseNative: native, parentNative: native, driver: blocked, runtime: { binarySha256: "c".repeat(64) } };
+  assert.equal(helper.acceptEvidence(proof, evidence, { ...input, scope: "migration-admission-blocked" }, 10000), true);
+  assert.equal(helper.acceptEvidence(proof, evidence, input, 10000), false);
+  assert.equal(helper.acceptEvidence(proof, { ...evidence, driver: passed }, { ...input, scope: "migration-admission-blocked" }, 10000), false);
 });

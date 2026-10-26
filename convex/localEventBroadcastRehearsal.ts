@@ -611,7 +611,27 @@ export const inspect = internalQuery({
         };
       }),
     );
-    return { sources, sessions, commands, profiles };
+    const outputs = await db.query("eventMediaOutputs")
+      .withIndex("by_programId_key", (q) => q.eq("programId", m.programId)).take(9);
+    const audits = await db.query("eventMediaAuditEvents")
+      .withIndex("by_programId_createdAt", (q) => q.eq("programId", m.programId)).take(129);
+    if (outputs.length > 8 || audits.length > 128 ||
+      [...outputs, ...audits].some((row) => row.eventId !== m.eventId))
+      throw Error("Admission ownership/bound exceeded.");
+    // Compare complete owned admission rows without putting lease or credential
+    // fields in receipts. Hashing is deterministic within this fixture snapshot.
+    const bytes = new TextEncoder().encode(JSON.stringify({
+      event: await db.get(m.eventId), program: await db.get(m.programId),
+      outputs, sessions: rows, commands: commandRows, audits,
+    }));
+    const sha256 = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)),
+      (byte) => byte.toString(16).padStart(2, "0")).join("");
+    const admission = {
+      sha256,
+      sessionIds: rows.map((row) => row._id),
+      startCommandIds: commandRows.filter((row) => row.commandType === "start_program").map((row) => row._id),
+    };
+    return { sources, sessions, commands, profiles, admission };
   },
 });
 

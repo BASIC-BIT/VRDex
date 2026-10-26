@@ -81,7 +81,7 @@ type Receipt = {
   sourceSha: string;
   backendVersion: string;
   runId: string;
-  scope: "migration" | "whole-flow";
+  scope: "migration" | "whole-flow" | "migration-admission-blocked";
   status: "passed" | "failed";
   failedStage: string | null;
   migrationCalls: number;
@@ -92,6 +92,7 @@ type DriverInput = Omit<Inputs, "url"> & {
   admin: Client;
   owner?: Client;
   bridgeToken?: string;
+  scope?: "migration-admission-blocked";
 };
 
 async function bounded<T>(
@@ -116,7 +117,7 @@ async function bounded<T>(
   }
 }
 
-/** Historical-only is a separate evidence scope; whole-flow also requires actual admission. */
+/** Historical and expected-blocked scopes are distinct; whole-flow requires actual admission. */
 export async function runMigrationRehearsal(
   input: DriverInput,
 ): Promise<Receipt> {
@@ -128,7 +129,7 @@ export async function runMigrationRehearsal(
     sourceSha: input.sourceSha,
     backendVersion: input.backendVersion,
     runId,
-    scope: input.owner ? "whole-flow" : "migration",
+    scope: input.scope ?? (input.owner ? "whole-flow" : "migration"),
     status: "failed",
     failedStage: null,
     migrationCalls: 0,
@@ -301,7 +302,37 @@ export async function runMigrationRehearsal(
       0,
     );
     evidence("historical-result", migrated);
-    if (input.owner) {
+    if (input.scope === "migration-admission-blocked") {
+      stage = "production-admission-blocked";
+      const owner = input.owner;
+      assert.ok(owner, "Acting owner required for admission regression.");
+      await configureRehearsalOutput(owner, manifest.slug, call);
+      const before = await snapshot();
+      assert.ok(before.sessions.every((row) => row.status === "ended"));
+      assert.equal(before.commands.filter((row) => row.commandType === "start_program").length, 0);
+      await assert.rejects(
+        call(() => owner.mutation(api.events.scheduleEventMediaWorker, {
+          currentSlug: manifest.slug,
+          startImmediately: true,
+        })),
+        (error: unknown) => {
+          if (!(error instanceof Error) || error.message.length > 8192) return false;
+          // The HTTP client returns either the exact error or Convex's fixed server envelope.
+          return error.message === "Unproved broadcast configuration" ||
+            /^\[Request ID: [^\r\n]+\] Server Error\nUncaught Error: Unproved broadcast configuration(?:\n|$)/.test(error.message);
+        },
+      );
+      const after = await snapshot();
+      assert.deepEqual(after, before);
+      assert.deepEqual(after.admission.sessionIds, before.admission.sessionIds);
+      assert.deepEqual(after.admission.startCommandIds, []);
+      evidence("production-admission-blocked", {
+        reason: "unproved-broadcast-configuration",
+        unchanged: true,
+        noSessionWrites: true,
+        noStartCommandWrites: true,
+      });
+    } else if (input.owner) {
       stage = "protocol-lifecycle";
       assert.ok(input.bridgeToken);
       await runProtocolScenarios({
@@ -346,6 +377,19 @@ type ProtocolInput = {
   snapshot: () => Promise<FunctionReturnType<Inspect>>;
   evidence: (label: string, data: unknown) => void;
 };
+function configureRehearsalOutput(owner: Client, currentSlug: string, call: ProtocolInput["call"]) {
+  return call(() => owner.mutation(api.events.configureVrcdnOutput, {
+    currentSlug,
+    key: "rehearsal",
+    label: "Local rehearsal",
+    outputAccountKey: "local-rehearsal",
+    sourceConsentAccepted: true,
+    destinationAuthorityAccepted: true,
+    providerRulesAccepted: true,
+    rightsClearedMediaAccepted: true,
+    playbackLinks: [{ platform: "browser", url: "https://stream.vrcdn.live/live/rehearsal_output.live.ts" }],
+  }));
+}
 async function runProtocolScenarios({
   owner,
   admin,
@@ -360,25 +404,7 @@ async function runProtocolScenarios({
   const source = (await snapshot()).sources.find((s) => s.key === "manual-one");
   assert.ok(source);
   let sequence = 0;
-  const configure = () =>
-    call(() =>
-      owner.mutation(api.events.configureVrcdnOutput, {
-        currentSlug,
-        key: "rehearsal",
-        label: "Local rehearsal",
-        outputAccountKey: "local-rehearsal",
-        sourceConsentAccepted: true,
-        destinationAuthorityAccepted: true,
-        providerRulesAccepted: true,
-        rightsClearedMediaAccepted: true,
-        playbackLinks: [
-          {
-            platform: "browser",
-            url: "https://stream.vrcdn.live/live/rehearsal_output.live.ts",
-          },
-        ],
-      }),
-    );
+  const configure = () => configureRehearsalOutput(owner, currentSlug, call);
   const start = async () => {
     const output = await configure();
     const scheduled = await call(() =>
@@ -815,8 +841,8 @@ async function runProtocolScenarios({
 
 async function main() {
   const mode = process.argv[2];
-  if (!["seed", "run", "cleanup"].includes(mode ?? ""))
-    throw Error("Expected seed, run, or cleanup.");
+  if (!["seed", "run", "run-admission-blocked", "cleanup"].includes(mode ?? ""))
+    throw Error("Expected seed, run, run-admission-blocked, or cleanup.");
   const input = validateRehearsalInputs({
     url: process.env.REHEARSAL_CONVEX_URL ?? "",
     runId: process.env.REHEARSAL_RUN_ID ?? "",
@@ -900,6 +926,7 @@ async function main() {
     admin,
     owner,
     bridgeToken,
+    ...(mode === "run-admission-blocked" ? { scope: "migration-admission-blocked" as const } : {}),
   });
   await writeFile(output, JSON.stringify(receipt, null, 2) + "\n", {
     mode: 0o600,
