@@ -12,7 +12,7 @@
 
 ## Execution status
 
-Implemented October 26, 2026 in [draft PR #387](https://github.com/BASIC-BIT/VRDex/pull/387).
+Implemented October 26, 2026 in [PR #387](https://github.com/BASIC-BIT/VRDex/pull/387).
 All four task reviews and the whole-branch review are complete. The final review's
 public-role omission was fixed in `3281366` and passed scoped re-review.
 
@@ -22,11 +22,16 @@ browser checks and two search snapshot comparisons passed. Desktop/mobile captur
 were inspected. Lint, typechecks and the webpack production build passed before
 the final narrow role fix; targeted lint passed afterward.
 
-Verification remains qualified: the broader backend run had 172 failures, whose
+Initial verification was qualified: the broader backend run had 172 failures, whose
 individual baseline causes were not all established. Default Turbopack failed on
 Google Fonts TLS in the cloud environment. Four hosted-only browser cases were
 skipped, and a parallel development-server reload observation remains unresolved.
 Existing middleware deprecation warnings remain. No merge or deployment is included.
+After publication, BASIC requested CI repair through merge readiness. The broadcast
+unit fixtures now use explicit synthetic capacity dependencies, while the production
+registry continues to reject unproved allocations. Local migration CI distinguishes
+migration/admission-rejection evidence from the separate whole-flow capacity-readiness
+verifier. See [broadcast rehearsal](../../engineering/event-broadcast-rehearsal.md).
 The checkboxes below retain the original execution instructions.
 
 ## Global constraints
