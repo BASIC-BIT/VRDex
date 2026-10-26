@@ -17,6 +17,7 @@ import {
 } from "@/lib/event-source-observations";
 import { eventLineupForDisplay, type PublicEvent } from "./event-public-page";
 import { ViewerLocalEventTimeRange } from "./viewer-local-event-times";
+import { EventOperatorPreview } from "./event-operator-preview";
 import { VrcdnStreamPlayer } from "./vrcdn-stream-player";
 
 export function EventHostView({ event: initialEvent }: { event: PublicEvent }) {
@@ -38,6 +39,7 @@ function HostSource({ target, observation, now, selected, previewing, onPreview 
   const state = reportedSourceState(observation, now);
   const status = state === "live" ? "Live now" : state === "offline" ? "Offline" : state === "unavailable" ? "Unavailable" : "Unknown";
   const previewUrl = target.questUrl;
+  const twitchChannel = target.key.startsWith("twitch:") ? target.key.slice(7) : undefined;
 
   return (
     <div className="min-w-0">
@@ -57,7 +59,7 @@ function HostSource({ target, observation, now, selected, previewing, onPreview 
             <CopyValueRow actionOnly label="Quest" value={target.questUrl} />
           </>
         ) : <CopyValueRow actionOnly label={target.label} value={target.url} />}
-        {previewUrl ? (
+        {previewUrl || twitchChannel ? (
           <button className={buttonVariants({ size: "sm", variant: "ghost" })} type="button" onClick={onPreview}>
             {previewing ? "Close preview" : "Preview"}
           </button>
@@ -73,6 +75,7 @@ function HostSource({ target, observation, now, selected, previewing, onPreview 
           </div>
         </details>
       </div>
+      {previewing && twitchChannel ? <EventOperatorPreview source={{input:{kind:"twitch",channel:twitchChannel},label:target.label,publicUrl:target.url}} onClose={onPreview}/> : null}
       {previewing && previewUrl ? (
         <div className="mt-4 overflow-hidden rounded-control border border-border">
           <VrcdnStreamPlayer src={previewUrl} title={target.label} initialMuted initialStarted />
@@ -93,6 +96,7 @@ export function EventHostContent({ event }: { event: PublicEvent }) {
   const path = publicEventPath(event);
   const lineup = eventLineupForDisplay(event);
 
+  const previewKey=preview?.sourceKey;
   useEffect(() => {
     let cancelled = false;
     const controller = new AbortController();
@@ -100,7 +104,7 @@ export function EventHostContent({ event }: { event: PublicEvent }) {
     const refresh = async () => {
       setNow(Date.now());
       try {
-        const response = await fetch(`${path}/host/status`, { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(12_000)]) });
+        const response = await fetch(`${path}/host/status${previewKey?`?sources=${encodeURIComponent(previewKey)}`:""}`, { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(12_000)]) });
         if (response.ok) {
           const data = parseSourceObservations(await response.json());
           if (!cancelled) setObservations(data);
@@ -116,7 +120,7 @@ export function EventHostContent({ event }: { event: PublicEvent }) {
       clearTimeout(timer);
       clearInterval(clock);
     };
-  }, [path]);
+  }, [path,previewKey]);
 
   return (
     <PageShell>

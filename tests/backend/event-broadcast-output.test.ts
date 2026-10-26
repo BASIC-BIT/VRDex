@@ -1,3 +1,4 @@
+import { allocatedSession } from '../scripts/_event-allocation-fixture.mjs';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { spawnSync } from 'node:child_process';
@@ -149,7 +150,7 @@ test('disabled optional destinations are never started and bridge binds each ena
     assert.equal(p.children.length, 1);
     await outputs.stop();
     const { taskDefinitionFor } = await import('../../scripts/event-media-ecs-bridge.mjs');
-    const command = { commandId: 'c', eventId: 'e', program: { programId: 'p' }, session: { sessionId: 's' }, output: { outputId: 'main', credentialRef: 'ref-main', playbackLinks: [] }, optionalOutputs: [{ outputId: 't', credentialRef: 'ref-twitch' }] };
+    const command = { commandId: 'c', eventId: 'e', program: { programId: 'p' }, session: allocatedSession({sessionId:'s',primary:'main',optional:'t'}), output: { outputId: 'main', credentialRef: 'ref-main', playbackLinks: [] }, optionalOutputs: [{ outputId: 't', credentialRef: 'ref-twitch' }] };
     const definition = taskDefinitionFor(command, { baseEnvironment: {}, secretRefMap: { 'ref-main': 'arn:main', 'ref-twitch': 'arn:twitch' }, outputSecretEnvName: 'VRDEX_EVENT_MEDIA_OUTPUT_INGEST_SECRET_JSON', workerTokenSecretArn: 'arn:token' });
     const container = definition.containerDefinitions[0];
     assert.ok(!container.secrets.some((s: any) => s.valueFrom === 'arn:twitch'));
@@ -190,7 +191,7 @@ test('unsupported VRCDN profile settings are a setup fault rather than silently 
 });
 test('legacy selected-output secret environment alias also reaches the actual event CLI', async () => {
     const { taskDefinitionFor } = await import('../../scripts/event-media-ecs-bridge.mjs');
-    const command = { commandId: 'c', eventId: 'e', program: { programId: 'p' }, session: { sessionId: 's' }, output: { outputId: 'main', credentialRef: 'ref-main', playbackLinks: [] } };
+    const command = { commandId: 'c', eventId: 'e', program: { programId: 'p' }, session: allocatedSession({sessionId:'s',primary:'main'}), output: { outputId: 'main', credentialRef: 'ref-main', playbackLinks: [] } };
     const definition = taskDefinitionFor(command, { baseEnvironment: {}, secretRefMap: { 'ref-main': 'arn:main' }, outputSecretEnvName: 'LEGACY_OUTPUT_SECRET', workerTokenSecretArn: 'arn:token' });
     const secrets = definition.containerDefinitions[0].secrets;
     assert.ok(secrets.some((s: any) => s.name === 'LEGACY_OUTPUT_SECRET' && s.valueFrom === 'arn:main'));
@@ -258,4 +259,12 @@ test('AWS optional secret boundary scopes the request and suppresses errors', as
     assert.ok(call[2].timeout <= 2500);
     await assert.rejects(() => resolveOptionalOutputSecret({ arn: optionalArn, region: 'us-east-1', run: async () => { throw Error('synthetic-private-key'); } }), /^Error: Optional credential unavailable$/);
     await assert.rejects(() => resolveOptionalOutputSecret({ arn: '*', region: 'us-east-1' }), /Optional credential unavailable/);
+});
+test('Twitch sender retains selected video and destination GOP/audio', async () => {
+    const { resolveDestinationProfile } = await import('../../workers/restream/broadcast-profiles.mjs');
+    const { outputArguments } = await load();
+    const args = outputArguments('twitch', {key:'test',url:'rtmp://live.twitch.tv/app'}, resolveDestinationProfile({settings:{videoPreset:'1080p60',audioBitrateKbps:320},destination:'twitch'}));
+    assert.equal(args[args.indexOf('-vf')+1], 'scale=1920:1080,fps=60');
+    assert.equal(args[args.indexOf('-g')+1], '120');
+    assert.equal(args[args.indexOf('-b:a')+1], '160k');
 });

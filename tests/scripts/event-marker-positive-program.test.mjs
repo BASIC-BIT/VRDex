@@ -1,0 +1,277 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import * as conservation from '../../scripts/event-marker-conservation.mjs';
+import * as clocks from '../../scripts/event-marker-clock.mjs';
+import { mkdtemp,rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { simulatedProgramRuntime } from '../fixtures/marker-positive-program.mjs';
+import { createArtifactStore,createInvocationStore,artifactUseEntries } from '../../scripts/marker-qualification/artifacts.mjs';
+import { encodeProgram,generateNoise } from '../../scripts/marker-qualification/codec-io.mjs';
+import { constructTrainPcm } from '../../scripts/marker-qualification/train-construction.mjs';
+import { createAcquisitionDeadline,readBounded } from '../../scripts/event-marker-native-binding.mjs';
+import { captureNativeMetadata } from '../../scripts/event-marker-native-metadata.mjs';
+import { readQualificationRecording } from '../../scripts/marker-qualification/codec-record.mjs';
+import { replayProgramRecording,replayProgramOriginal,assertReplayedProgram } from '../../scripts/marker-qualification/program-replay.mjs';
+import { readFile } from 'node:fs/promises';
+import { nativeArtifact } from '../../scripts/event-marker-native-controller.mjs';
+import { sha } from '../fixtures/marker-positive-program.mjs';
+
+test('program verification and encoded clock reject copied evidence and serialized authority',()=>{
+ assert.equal(typeof conservation.verifyProgramRecording,'function');
+ assert.equal(typeof clocks.inspectProgramClock,'function');
+ for(const forged of [{kind:'CheckedProgram',missing:[]},{kind:'CheckedProgram',verified:true},JSON.parse('{"kind":"ClockCompatible"}')]){
+  assert.equal(clocks.inspectProgramClock({},forged).kind,'Unproven');
+ }
+});
+
+export async function positiveProgram(options={}) {
+ const id='mass-320-48000stereo-073',key=id+'-program',settings={videoPreset:'480p30',audioBitrateKbps:320},train=options.programTrain??{sourceRate:48000,samples:31*1600,frames:31,slots:[{index:0,start:1,end:2,sourceStart:1,visualFrame:0,family:'missing',params:{seed:42,kind:'silence'}}]},request={schema:'positive-program-acquisition-v1',invocationId:id,groupId:'canary-000',settings,train};
+ const runtime=await simulatedProgramRuntime({...options,programRequest:request,containerName:'worker',taskDefinition:'arn:aws:ecs:us-east-1:079358094174:task-definition/SIMULATED:1'}),directory=await mkdtemp(join(tmpdir(),'marker-positive-')),store=createInvocationStore(createArtifactStore(directory),{id,kind:'mass'}),file=store.path(key+'.ts'),control=createAcquisitionDeadline(90000);
+ try{
+  const binding=await runtime.dependencies({registerImplementationAssets:files=>store.registerImplementationAssets(files,key,'encode')});store.selectNativePolicy(binding);
+  for(const [i,a] of binding.artifacts.entries()){const ref=await store.write(key+'-prebinding-'+i+'.bin',Buffer.from(a.data,'base64'),196608,'runtimeBinding');store.useRuntimeDependency(ref,key,a.id);}await store.json(key+'-prebinding.json',{...binding,artifacts:binding.artifacts.map(({data,...r})=>r)},196608,'runtimeBinding');
+  const metadata=await captureNativeMetadata({store,prefix:key,control,environment:{ECS_CONTAINER_METADATA_URI_V4:'http://169.254.170.2/v4/SIMULATED'},fetchImpl:async url=>new Response(JSON.stringify(url.endsWith('/task')?{TaskARN:'arn:aws:ecs:us-east-1:079358094174:task/vrdex-restream-worker/'+'1'.repeat(32),Containers:[{DockerId:'SIMULATED-container',Name:'worker'}]}:{DockerId:'SIMULATED-container',ImageID:'sha256:'+runtime.imageFacts.configSHA}))}),requestBytes=Buffer.from(JSON.stringify(request));await store.json(key+'-request-use.json',{acquisition:key,artifactId:'program-request',bytes:requestBytes.length,sha256:sha(requestBytes)},196608,'runtimeBinding');
+  const noise=await generateNoise(runtime.owner,48000,train.samples,{observeCapture:async(seed,capture)=>{await store.write(key+'-noise-'+seed+'.pcm',capture.raw,2380800,'pcm');await store.json(key+'-noise-'+seed+'-owner.json',{...capture,raw:undefined,stderr:Buffer.from(capture.stderr).toString('base64')},196608,'native');}});
+  let acquisitions=0;const producerIO={...runtime,...options.decoderIO,dependencies:async options=>++acquisitions===1?binding:runtime.dependencies(options)};
+  const producer=await encodeProgram(runtime.owner,{settings,construction:{kind:'massFrames',train},frameCount:runtime.frames,pcm:constructTrainPcm(train,noise),path:file,store},producerIO);
+  options.mutateProducer?.(producer.producerEvidence);
+  const result=await readQualificationRecording(runtime.owner,file,{settings,path:'program',frames:runtime.frames,samples:runtime.samples,producerEvidence:producer.producerEvidence,store,allowEpisodeBound:options.allowEpisodeBound??false},producerIO);
+  return {result,producer,runtime,store,directory,file,settings,key,metadata};
+ }catch(error){const budget=store.programBudget(key);error.simulatedLayout={...runtime.layout,numericBytes:store.numericBytes,reservedOuterBytes:runtime.plans.outerReserveBytes,implementationBytes:budget.implementationBytes,dependencyUses:budget.dependencyUses,entries:store.entries.map(e=>[e.name,e.bytes])};await rm(directory,{recursive:true,force:true});throw error;}finally{control.dispose();}
+}
+test('SIMULATED complete program uses the production E→R→guard→private-clock→classifier path',async()=>{
+ const v=await positiveProgram();try{
+  assert.equal(v.result.record.clock.kind,'ClockCompatible');assert.equal(v.result.record.clock.sourceKind,'externalCodedRecording');
+  assert.equal(v.result.assurance.kind,'trustedStackMeasurement');assert.equal(v.result.assurance.pendingOuterJoin,true);assert.equal(v.result.assurance.nativeBindingVerified,false);assert.equal(v.result.assurance.loaderComplete,false);
+  assert.equal(v.result.record.metadataSamples,v.runtime.units*1024);assert.equal(v.result.coverage.samples,v.runtime.units*1024);assert.equal(v.runtime.commands.filter(c=>c.command==='ffprobe').length,3);
+  assert.throws(()=>clocks.assertProgramClock(JSON.parse(JSON.stringify(v.result.record.clock))),/unproven/);
+  assertReplayedProgram(v.result);assert.throws(()=>assertReplayedProgram(v.result,{outer:true}),/proof_required/);
+  const serialized=JSON.parse(JSON.stringify(v.result));
+  assert.throws(()=>assertReplayedProgram(serialized),/proof_required/);
+  for(const change of [x=>x.assurance.nativeBindingVerified=true,x=>delete x.record.assurance,x=>x.record.clock.domain.audio[0]++,x=>x.programProof.projection.file.sha256='0'.repeat(64),x=>x.record.episodes.push({identity:'a'}),x=>x.programProof.replayRef.bytes++]){
+   const altered=structuredClone(serialized);change(altered);
+   await assert.rejects(replayProgramRecording(altered,{resolveOriginal:ref=>readFile(v.store.path(ref.name)),resolveImplementation:v.runtime.resolveImplementation}));
+  }
+ }finally{await rm(v.directory,{recursive:true,force:true});}
+});
+test('SIMULATED 216-object catalog with full E/D DATA charges is a bounded negative under unchanged caps',async()=>{
+ await assert.rejects(positiveProgram({legacyPolicy:true,nativeObjectCount:216}),error=>{assert.equal(error.message,'invocation_byte_cap');const layout=error.simulatedLayout;assert(layout.mapsReads.length>=2);assert(layout.numericBytes<=262144);console.log('SIMULATED-216-charged-bounded-negative',JSON.stringify({...layout,exactHistoricalCatalogAndFourMapsPayloadOnly:2*48662+4*12407,scope:'Partial retained ledger at the unchanged cap; no complete-record fit. Two catalog and four maps historical payloads alone are 146952 bytes before other DATA/observations/outer allowance.'}));return true;});
+});
+test('SIMULATED 216-object real-volume lower bound fails the unchanged normal cap with every maps event charged',async()=>{
+ await assert.rejects(positiveProgram({legacyPolicy:true,nativeObjectCount:216,mapsVolume:true,nativeCatalogFloorBytes:48662}),error=>{const layout=error.simulatedLayout;assert.equal(error.message,'invocation_byte_cap');assert(layout.nativeCatalogBytes>=48662);assert(layout.mapsOriginalBytes>=125416);assert(layout.mapsStoredBytesPerRead>=12407);assert(layout.mapsReads.length>=2);assert(layout.numericBytes<=262144);console.log('SIMULATED-real-volume-bounded-negative',JSON.stringify(layout));return true;});
+});
+export async function simulatedOuter(v){
+ const {runtime,result,store}=v,originals=new Map(runtime.outerOriginals),ref=result.programProof.replayRef,manifest=JSON.parse(await readFile(store.path(ref.name))),put=(id,value)=>{const b=Buffer.from(JSON.stringify(value));originals.set(id,b);return nativeArtifact('observation',id,b);},candidate=JSON.parse(runtime.candidate.bytes),Q=JSON.parse(runtime.prepared.launch.bytes),I=JSON.parse(runtime.intent);
+ const taskArn='arn:aws:ecs:us-east-1:079358094174:task/vrdex-restream-worker/'+'1'.repeat(32),taskDefinitionArn=Q.parameters.taskDefinition,containerName=I.workload.containerName;
+ const definition={cpu:'8192',memory:'16384',networkMode:'awsvpc',requiresCompatibilities:['FARGATE'],runtimePlatform:{cpuArchitecture:'X86_64',operatingSystemFamily:'LINUX'},containerDefinitions:[{name:containerName,image:runtime.imageFacts.reference,cpu:8192,memory:16384,linuxParameters:{initProcessEnabled:true}}]};
+ const task={taskArn,taskDefinitionArn,lastStatus:'STOPPED',createdAt:'2026-10-25T00:00:00Z',startedAt:'2026-10-25T00:00:01Z',stoppedAt:'2026-10-25T00:00:02Z',overrides:Q.parameters.overrides,containers:[{name:containerName,runtimeId:'SIMULATED-container',imageDigest:'sha256:'+runtime.imageFacts.manifestSHA,exitCode:0,lastStatus:'STOPPED'}],attachments:[{type:'ElasticNetworkInterface',details:[{name:'networkInterfaceId',value:'eni-12345678'}]}]};
+ const resultRaw=Buffer.from(JSON.stringify(result)+'\n'),resultName=v.key+'-result.json';if(store.writeProgramOuter&&!store.entries.some(e=>e.name===resultName))await store.writeProgramOuter(v.key,resultName,resultRaw);const resultRef={name:resultName,role:'observation',bytes:resultRaw.length,sha256:sha(resultRaw)};originals.set(resultName,resultRaw);
+ const metadata=[];for(const i of [0,1]){const b=await readFile(store.path(v.key+'-metadata-'+i+'.json')),id=['metadata-task','metadata-container'][i];originals.set(id,b);metadata.push(nativeArtifact('observation',id,b));}
+ const receiptRef=put('receipt.json',{schema:'program-local-receipt-v1',assurance:result.assurance,cleanup:{closed:true,liveChildren:0,liveGroups:0},replayRef:ref,resultRef,metadata:{kind:'ecs-v4',originals:metadata.map(r=>({...r,elapsedMs:12}))}}),runTaskResponseRef=put('run-task-response',{tasks:[{taskArn}],failures:[]}),taskReadbackRef=put('task-readback',{tasks:[task],failures:[]});
+ const files=[...artifactUseEntries(manifest.budget).map(({event,kind,...r})=>r),ref,resultRef,receiptRef].map(f=>({name:f.name??f.id,bytes:f.bytes,sha256:f.sha256})),collectorTerminalRef=put('terminal.json',{schema:'single-program-terminal-v1',runId:'task6-simulated',groupId:'canary-000',invocationId:manifest.budget.invocation.id,capacityAccepted:false,pairedQualification:false,programLocalComplete:true,artifactBindingComplete:true,artifactUploadsComplete:true,cleanup:{closed:true,emptyCensuses:2},receiptRef:files.at(-1),resultRef,replayRef:ref,binding:{candidateSHA:runtime.candidate.ref.sha256,contextSHA:runtime.prepared.context.ref.sha256,imageManifestSHA:runtime.imageFacts.manifestSHA},artifacts:files,destination:'s3://vrdex-restream-worker-079358094174-artifacts/synthetic-benchmarks/task6-simulated/qualification/canary-000/'});
+ const records={task:{request:{cluster:'vrdex-restream-worker',tasks:[taskArn]},response:{tasks:[task],failures:[]}},definition:{request:{taskDefinition:taskDefinitionArn},response:{taskDefinition:{...definition,taskDefinitionArn,status:'INACTIVE'}}},eni:{request:{NetworkInterfaceIds:['eni-12345678']},response:{NetworkInterfaces:[]}}},expected={taskArn,taskDefinitionArn,imageDigest:'sha256:'+runtime.imageFacts.manifestSHA,definition,launch:Q},retrievalInputRef=put('retrieval-input',{schema:'single-program-root-retrieval-input-v1',config:{candidateSHA:runtime.candidate.ref.sha256,runId:'task6-simulated',groupId:'canary-000'},expected,records}),inventory=[{name:'terminal.json',bytes:collectorTerminalRef.bytes,sha256:collectorTerminalRef.sha256},...files];
+ const readbackRef=put('artifact-readback',{schema:'single-program-root-helper-v1',capacityAccepted:false,pairedQualification:false,helper:{command:'python3',script:'scripts/event-marker-root-retrieval.py',exitCode:0,signal:null,stdoutEOF:true,stderrEOF:true,closedBeforeDeadline:true},cleanup:{closed:true,emptyCensuses:2},retrieval:{schema:'single-program-root-retrieval-v1',runId:'task6-simulated',groupId:'canary-000',files:inventory,independentRemoteFiles:inventory,freeBeforeBytes:536870912,minimumFreeDuringBytes:134217728,localHighWaterBytes:16777216,finishedMonotonic:2,absoluteDeadlineMonotonic:3,native:{physicalClosed:true,withinDeadlines:true,exitCode:0,taskArn,records,expected}}}),retrievalCompletionRef=put('retrieval-completion',{schema:'root-helper-completion-v1',exitCode:0,signal:null,completedAtMonotonic:2,absoluteDeadlineMonotonic:3,readbackSHA:readbackRef.sha256,inputSHA:retrievalInputRef.sha256});
+ put('L',{schema:'native-outer-ledger-v1',domain:'program',startedAtUTC:'2026-10-25T00:00:01Z',requestSHA:runtime.prepared.launch.ref.sha256,contextSHA:runtime.prepared.context.ref.sha256,intentSHA:runtime.prepared.intent.ref.sha256,imageConfigSHA:runtime.imageFacts.configSHA,nativeExit:0,nativeSignal:null,receiptRef,readbackRef,collectorTerminalRef,retrievalInputRef,retrievalCompletionRef,runTaskResponseRef,taskReadbackRef,imageManifestRef:nativeArtifact('observation','image-manifest',originals.get('image-manifest')),imageConfigRef:nativeArtifact('observation','image-config',originals.get('image-config')),artifactUseRef:ref,artifactUsesSHA:sha(Buffer.from(JSON.stringify(manifest.budget.uses))),metadata:{originals:metadata,elapsedMs:12},rawImageID:'sha256:'+runtime.imageFacts.configSHA});
+ const approval={schema:'native-root-approval-v1',decision:'approve-trustedStackMeasurement',candidateSHA:runtime.candidate.ref.sha256,profileSHA:candidate.profileSHA,environmentClass:'ecs',ledgerId:'SIMULATED-external-ledger',recordId:'SIMULATED-approval',auditRefs:candidate.auditRefs,issuedAtUTC:'2026-10-25T00:00:00Z'},ledger={original:Buffer.from(JSON.stringify(approval)),ledgerId:approval.ledgerId,recordId:approval.recordId},reads=[];return {originals,ledger,put,manifest,reads,options:{resolveOriginal:async(r,{cap=r.bytes}={})=>{const b=await readBounded(store.path(r.name),cap);reads.push({kind:'owned-file',id:r.name,bytes:b.length});return b;},resolveImplementation:async path=>{const b=await runtime.resolveImplementation(path);reads.push({kind:'simulated-memory',id:path,bytes:b?.length});return b;},outerResolver:async id=>{const b=originals.get(id);reads.push({kind:'simulated-memory',id,bytes:b?.length});return b;},rootLedger:{lookup:async()=>{reads.push({kind:'simulated-memory',id:'A',bytes:ledger.original?.length});return ledger;}}}};
+}
+test('SIMULATED external Root ledger and original A/K/I/C/Q/L joins admit only the independently replayed conditional record',async()=>{
+ const v=await positiveProgram();try{const outer=await simulatedOuter(v),accepted=await replayProgramRecording(JSON.parse(JSON.stringify(v.result)),outer.options);assertReplayedProgram(accepted,{outer:true});assert.equal(accepted.replay.pendingOuterJoin,false);assert.equal(accepted.replay.nativeBindingVerified,false);assert.equal(accepted.replay.loaderComplete,false);
+  for(const id of ['K','I','C','Q','L','image','metadata-task','run-task-response',v.key+'-result.json','receipt.json','artifact-readback',v.runtime.closure.files[0].path]){const original=outer.originals.get(id);outer.originals.set(id,Buffer.from('{}'));await assert.rejects(replayProgramRecording(JSON.parse(JSON.stringify(v.result)),outer.options));outer.originals.set(id,original);}
+  const old=outer.ledger.original;outer.ledger.original=Buffer.from('{}');await assert.rejects(replayProgramRecording(JSON.parse(JSON.stringify(v.result)),outer.options));outer.ledger.original=old;
+  accepted.record.episodes.push({identity:'forged'});assert.throws(()=>assertReplayedProgram(accepted,{outer:true}),/proof_required/);
+ }finally{await rm(v.directory,{recursive:true,force:true});}
+});
+test('independent replay rejects code-asset, per-event use, outer reservation and numeric-cap forgery',async()=>{
+ const v=await positiveProgram();try{const original=JSON.parse(await readFile(v.store.path(v.result.programProof.replayRef.name)));for(const change of [b=>b.implementationBytes=0,b=>b.implementationBytes*=2,b=>b.implementationUses.pop(),b=>b.implementationUses.push({...b.implementationUses[0]}),b=>b.reservedOuterBytes=0,b=>b.normalNumericCap=262144,b=>b.uses[0][2]++,b=>b.implementationAssets.pop()]){const manifest=structuredClone(original);change(manifest.budget);const raw=Buffer.from(JSON.stringify(manifest)+'\n'),serialized=JSON.parse(JSON.stringify(v.result));serialized.programProof.replayRef={...serialized.programProof.replayRef,bytes:raw.length,sha256:sha(raw)};await assert.rejects(replayProgramRecording(serialized,{resolveOriginal:r=>r.name===serialized.programProof.replayRef.name?raw:readFile(v.store.path(r.name)),resolveImplementation:v.runtime.resolveImplementation}));}}
+ finally{await rm(v.directory,{recursive:true,force:true});}
+});
+
+for(const [name,options] of [
+ ['unsupported profile',{mutateProfile:p=>p.assuranceBasis='implicit-fallback'}],
+ ['missing critical ffprobe',{mutateProfile:p=>p.objects=p.objects.filter(o=>o.semantic!=='ffprobe')}],
+ ['changed approved view',{mutateProfile:p=>p.platform.mountinfoSHA256='1'.repeat(64)}],
+ ['unsupported loader environment',{mutateProfile:p=>p.environment.LD_PRELOAD='interpose.so'}],
+ ['missing startup mapping',{mutateLogs:(d,r)=>{if(r==='decode')d.prefix=Buffer.from(d.prefix.toString().replace('[info] Stream mapping:\n',''));}}],
+ ['wrong initialized tuple',{mutateLogs:(d,r)=>{if(r==='decode')d.prefix=Buffer.from(d.prefix.toString().replace('rgb24, 2x1','rgb24, 3x1'));}}],
+ ['extra native filter',{mutateLogs:(d,r)=>{if(r==='decode')d.prefix=Buffer.concat([d.prefix,Buffer.from('[Parsed_fps_42 @ 0xf] [verbose] fps=30\n')]);}}],
+ ['wrong aresample tuple',{mutateLogs:(d,r)=>{if(r==='decode')d.prefix=Buffer.from(d.prefix.toString().replace('fmt:s16 r:48000Hz','fmt:s16 r:44100Hz'));}}],
+ ['wrong same-process start',{mutateLogs:(d,r)=>{if(r==='decode')d.prefix=Buffer.from(d.prefix.toString().replace('start: 0.000000','start: 0.001000'));}}],
+ ['absent terminal line',{mutateLogs:d=>{d.stderr=Buffer.from(d.stderr.toString().replace('[verbose] No more output streams to write to, finishing.\n',''));}}],
+ ['undrained decoded output',{mutateLogs:(d,r)=>{if(r==='decode')d.stderr=Buffer.from(d.stderr.toString().replace(/\d+ samples/,'4096 samples'));}}],
+ ['lost decoded audio sample',{mutateLogs:(d,r)=>{if(r==='decode')d.pcm=d.pcm.subarray(0,-2);}}],
+ ['lost decoded picture',{mutateLogs:(d,r)=>{if(r==='decode')d.rgb=d.rgb.subarray(0,-6);}}],
+ ['wrong metadata timestamp',{mutateLogs:(d,r)=>{if(r==='decode')d.audio=Buffer.from(d.audio.toString().replace('pts:1024','pts:1025'));}}],
+ ['source parameter mutation',{mutateProducer:p=>{p.parameters[10]^=1;}}],
+ ['wrong successful feed hash',{mutateProducer:p=>{p.feeds.video={...p.feeds.video,actualFedSHA256:'0'.repeat(64),writtenSHA256:'0'.repeat(64)};}}],
+ ['wrong E origin file',{mutateProducer:p=>{p.file={...p.file,sha256:'0'.repeat(64)};}}],
+ ['wrong E original options',{mutateProducer:p=>{p.encoder.argv={...p.encoder.argv,args:[...p.encoder.argv.args,'-shortest']};}}],
+ ['metadata ordinal gap',{mutateLogs:(d,r)=>{if(r==='decode')d.video=Buffer.from(d.video.toString().replace('frame:1 ','frame:2 '));}}],
+ ['permission failure is not terminal absence',{mutateIO:io=>{const read=io.read;io.read=async(path,...rest)=>{if(/\/proc\/\d+\/maps$/.test(path))throw Object.assign(Error('SIMULATED denied'),{code:'EACCES'});return read(path,...rest);};}}],
+])test(`SIMULATED positive orchestration rejects ${name}`,async()=>{await assert.rejects(positiveProgram(options));});
+test('allowEpisodeBound retains verified program material and conditional assurance through independent negative replay',async()=>{const v=await positiveProgram({allowEpisodeBound:true,mutateLogs:(d,r)=>{if(r==='decode')for(let i=960;i<32000;i+=2)d.pcm.writeInt16LE(16384,i);}});try{assert.equal(v.result.classificationFailure,'episode_bound');assert.equal(v.result.record.episodes.length,0);assert(v.result.material.pcm.length);assertReplayedProgram(v.result);assert.equal(v.result.assurance.nativeBindingVerified,false);}finally{await rm(v.directory,{recursive:true,force:true});}});
+
+test('TS supported grammar falsifies nonzero rewind and requires final PES/parser population',async()=>{
+ const runtime=await simulatedProgramRuntime(),identity={regular:true,seekable:true,nlink:1,position:0,bytes:runtime.transport.bytes.length};
+ for(const change of [x=>x.position=188,x=>x.seekable=false,x=>x.nlink=2,x=>x.bytes--]){const bad={...identity};change(bad);assert.throws(()=>conservation.replayProgramDemux(runtime.inventory,{fps:30,fileIdentity:bad}),/marker_program_/);}
+ const replay=conservation.replayProgramDemux(runtime.inventory,{fps:30,fileIdentity:identity});assert.equal(replay.packets.at(-1).event,replay.emission.length);assert.deepEqual(replay.finalFlush.parserOrder,[0,1]);assert(replay.emission.some(e=>e.reason==='fileEnd'));assert.equal(replay.packets.length,runtime.frames+runtime.units);
+ for(const key of ['video','audio']){const inventory=structuredClone(runtime.inventory);inventory[key].pes.packets.pop();assert.throws(()=>conservation.replayProgramDemux(inventory,{fps:30,fileIdentity:identity}),/marker_program_/);}
+});
+
+test('R90 selected 216-object real-volume source layout completes both E/D and independent replay',async()=>{const v=await positiveProgram({nativeObjectCount:216,mapsVolume:true,nativeCatalogFloorBytes:48662});try{const manifest=JSON.parse(await readFile(v.store.path(v.result.programProof.replayRef.name)));assert.equal(manifest.budget.policyId,'r83-native-evidence-v1');assert.equal(manifest.budget.normalNumericCap,1572864);assert.equal(v.runtime.layout.mapsReads.length,4);assert(manifest.budget.numericBytes+manifest.budget.reservedOuterBytes<1572864);const record=await replayProgramRecording(v.result,{resolveOriginal:r=>readFile(v.store.path(r.name)),resolveImplementation:v.runtime.resolveImplementation});assertReplayedProgram(record);console.log('SIMULATED-R90-complete-216-layout',JSON.stringify({...v.runtime.layout,budget:manifest.budget}));}finally{await rm(v.directory,{recursive:true,force:true});}});
+test('PP27-03 replay rejects retagged original JSON and forged aggregate despite consistent recomputed hashes/totals',async()=>{const v=await positiveProgram();try{const base=JSON.parse(await readFile(v.store.path(v.result.programProof.replayRef.name)));for(const mutate of [b=>{const row=b.uses.find(r=>r[1].endsWith('-runtime.json'));row[0]='pcm';b.numericBytes-=row[2];},b=>{const row=b.uses.find(r=>r[1].endsWith('-parameters.json'));row[0]='coded';b.numericBytes-=row[2];},b=>b.artifactCap=67108864]){const manifest=structuredClone(base);mutate(manifest.budget);const raw=Buffer.from(JSON.stringify(manifest)+'\n'),serialized=structuredClone(v.result);serialized.programProof.replayRef={...serialized.programProof.replayRef,bytes:raw.length,sha256:sha(raw)};await assert.rejects(replayProgramRecording(serialized,{resolveOriginal:r=>r.name===serialized.programProof.replayRef.name?raw:readFile(v.store.path(r.name)),resolveImplementation:v.runtime.resolveImplementation}),/original_role_or_cap|budget/);}}finally{await rm(v.directory,{recursive:true,force:true});}});
+
+test('PP27-01 pinned mux prefix is SDT then PAT then PMT before PES and rejects alternate ordering',async()=>{const runtime=await simulatedProgramRuntime(),b=runtime.transport.bytes;assert.equal(runtime.inventory.physical.packets[0].pid,17);for(const bytes of [Buffer.concat([b.subarray(188,376),b.subarray(0,188),b.subarray(376)]),b.subarray(188)]){assert.throws(()=>{const inventory=conservation.inventoryProgramTransport(bytes,{byteCap:bytes.length});conservation.replayProgramDemux(inventory,{fps:30,fileIdentity:{regular:true,seekable:true,nlink:1,position:0,bytes:bytes.length}});},/probe_rewind_prefix|psi_sections/);}});
+
+
+test('SIMULATED unchanged canary 64-episode replay preserves proof guards through bounded retention, loading, outer admission and union',async(t)=>{
+ const {enumerateQualification}=await import('../../scripts/marker-qualification/authority.mjs'),{compileTrain}=await import('../../scripts/marker-qualification/trains.mjs'),{stereoMono}=await import('../../scripts/marker-qualification/codec-input.mjs'),{deriveMassCases}=await import('../../scripts/marker-qualification/mass-facts.mjs'),{prerequisiteStates,evaluateClassifierCase,makeResultShards,validateResultUnion}=await import('../../scripts/marker-qualification/results.mjs'),{gzipSync}=await import('node:zlib');
+ const invocation=enumerateQualification().invocations.find(i=>i.id==='mass-320-48000stereo-073'),train=compileTrain(invocation),noise=Buffer.alloc(train.samples*2),mono=stereoMono(constructTrainPcm(train,{42:noise,43:noise}));
+ const v=await positiveProgram({programTrain:train,mutateLogs:(data,role)=>{
+  if(role!=='decode')return;
+  // Explicit simulated codec I/O: retain the complete unchanged source train,
+  // coded population/priming, frame table and independent classifier/replay.
+  mono.copy(data.pcm,1024*2);
+  for(let tick=0;tick<train.frames;tick++){
+   const slot=train.slots.find(s=>tick*1600>=s.start&&tick*1600<s.end);if(!slot)continue;
+   data.rgb[tick*6+(slot.params.source==='b'?2:0)]=255;
+   if(tick>=slot.visualFrame&&tick<slot.visualFrame+3)data.rgb.fill(255,tick*6+3,tick*6+6);
+  }
+ }});
+ try{
+  assertReplayedProgram(v.result);assert.equal(v.result.record.episodes.length,64);
+  const requestOriginal=v.runtime.files.get('/app/workers/restream/native-binding/runtime/program-request.json'),constructionOriginal=await readFile(v.store.path(v.key+'-parameters.json'));
+  assert.equal(requestOriginal.length,49869);assert.equal(sha(requestOriginal),'295c03033e1f6f31a14538a0e84622485b9fb74a92665f7ffbeed1cd1065ea6d');assert.equal(constructionOriginal.length,49722);assert.equal(sha(constructionOriginal),'4eed2237ca4ddbecb43c0a417e042997607bdff0493efa28150cd111adfe3fa1');assert.equal(train.frames,636);assert.equal(train.samples,1017600);
+
+  const raw=Buffer.from(JSON.stringify(v.result)+'\n'),details={bytes:raw.length,sha256:sha(raw),perResultCap:262144,topLevelBytes:Object.fromEntries(Object.entries(JSON.parse(raw)).map(([key,value])=>[key,Buffer.byteLength(JSON.stringify(value))]))};
+  t.diagnostic('SIMULATED-full-canary-result-layout '+JSON.stringify(details));
+  t.diagnostic('SIMULATED-full-canary-result-original-base64 '+raw.toString('base64'));
+  t.diagnostic('SIMULATED-full-canary-manifest-original-base64 '+(await readFile(v.store.path(v.result.programProof.replayRef.name))).toString('base64'));
+  assert(raw.length>196608);
+  await assert.rejects(v.store.writeProgramOuter(v.key,'oversized-result.json',raw),/invocation_byte_cap/);
+  const oldScope=createInvocationStore(createArtifactStore(v.directory),{id:invocation.id,kind:'mass'});oldScope.reserveProgramOuter(v.key,196608);await assert.rejects(oldScope.writeProgramOuter(v.key,v.key+'-result.json',raw),/invocation_byte_cap/);
+  const outer=await simulatedOuter(v),resultRef=v.store.entries.find(e=>e.name===v.key+'-result.json'),accepted=await replayProgramOriginal(resultRef,outer.options);assertReplayedProgram(accepted,{outer:true});
+  // R94-2: the raw entrypoint must bind the actual input bytes to the same
+  // canonical original that the complete outer receipt/inventory accepts.
+  const padded=Buffer.concat([Buffer.from(' '),raw]);let delegatedReads=0;
+  await assert.rejects(replayProgramOriginal({...resultRef,bytes:padded.length,sha256:sha(padded)},{...outer.options,resolveOriginal:(r,options)=>{if(r.name===resultRef.name)return padded;delegatedReads++;return outer.options.resolveOriginal(r,options);}}),/original_encoding/);assert.equal(delegatedReads,0);
+
+  const budget=outer.manifest.budget,R=raw.length,M=v.result.programProof.replayRef.bytes,O=accepted.replay.outerJoins.chargedBytes-R;assert(O<=196608);assert.equal(budget.reservedOuterBytes,458752);assert(budget.numericBytes+M+R+O<=1572864);assert(budget.artifactBytes+M+R+O<=budget.artifactCap-65536);
+  t.diagnostic('SIMULATED-R94-same-run-ledger '+JSON.stringify({N:budget.numericBytes,G:budget.artifactBytes,M,R,O,reservation:budget.reservedOuterBytes,resultRef,uses:budget.uses,dependencyUses:budget.dependencyUses,storeEntries:v.store.entries,retainedStoreBytes:v.store.entries.reduce((n,e)=>n+e.bytes,0),RootAuditBytes:JSON.parse(v.runtime.candidate.bytes).auditRefs.reduce((n,e)=>n+e.bytes,0),outerOriginals:[...outer.originals].map(([id,b])=>({id,bytes:b.length,sha256:sha(b)})),readWork:{scope:'final bounded result load and independent replay/outer phase only; earlier producer/replays not instrumented',events:outer.reads,ownedFilesystemBytes:outer.reads.filter(r=>r.kind==='owned-file').reduce((n,r)=>n+r.bytes,0),simulatedMemoryResolvedBytes:outer.reads.filter(r=>r.kind==='simulated-memory').reduce((n,r)=>n+r.bytes,0)},rssBytes:process.memoryUsage().rss,rssMeasurement:'single post-replay sample, not peak'}));
+  const originalOptions={resolveOriginal:r=>readFile(v.store.path(r.name)),resolveImplementation:v.runtime.resolveImplementation};
+  const reordered=structuredClone(v.result);reordered.record.episodes=reordered.record.episodes.map(e=>Object.fromEntries(Object.entries(e).reverse()));assertReplayedProgram(await replayProgramRecording(reordered,originalOptions));
+  for(const change of [x=>x.record.episodes[0].fits[0].coefficients[0]+=1,x=>x.record.episodes[0].extra=true,x=>x.record.episodes.reverse()]){
+   const altered=structuredClone(v.result);change(altered);await assert.rejects(replayProgramRecording(altered,originalOptions),/marker_replay_independent_classification|reference_wire_value/);
+  }
+  const cases=deriveMassCases(invocation,v.result),pins={scope:'SIMULATED PROGRAM accepted outer; FLV unrun'},name=invocation.id+'-program-decode.json.gz',bytes=gzipSync(Buffer.from(JSON.stringify(v.result))),ref={name,bytes:bytes.length,sha256:sha(bytes)};
+  const results=invocation.rows.map((row,index)=>row.params.path==='program'?{index,prerequisites:prerequisiteStates('pass'),observation:ref,...evaluateClassifierCase(row,prerequisiteStates('pass'),cases[Math.floor(index/2)])}:{index,status:'incomplete',reason:'prerequisite_incomplete',prerequisites:prerequisiteStates('not_run')});
+  assert(results.filter((_,i)=>i%2===0).every(r=>r.status==='pass'));assert(results.filter((_,i)=>i%2===1).every(r=>r.status==='incomplete'));
+  const bundle=makeResultShards(invocation,results,pins),read=key=>{assert.equal(key,name);return bytes;};
+  assert.throws(()=>validateResultUnion([invocation],[bundle],pins,read),/qualification_result_program_replay/);
+  for(const unproven of [v.result,structuredClone(v.result)])assert.throws(()=>validateResultUnion([invocation],[bundle],pins,read,()=>unproven),/marker_replay_proof_required/);
+  validateResultUnion([invocation],[bundle],pins,read,()=>accepted);
+ }finally{await rm(v.directory,{recursive:true,force:true});}
+});
+
+test('R93 every whole DATA owner has distinct E/D uses, retained copies and code-union exclusion',async()=>{
+ const v=await positiveProgram();try{
+  const manifest=JSON.parse(await readFile(v.store.path(v.result.programProof.replayRef.name))),budget=manifest.budget;
+  assert.deepEqual(budget.implementationUses.map(u=>u.event),['encode','decode']);
+  const data=v.runtime.closure.files.filter(f=>f.kind==='runtimeData');assert.equal(data.length,5);
+  assert.equal(budget.implementationBytes,v.runtime.closure.files.filter(f=>f.kind==='implementationCode').reduce((n,f)=>n+f.bytes,0));
+  for(const f of data){
+   const uses=budget.dependencyUses.filter(u=>u.id==='loaded-data:'+f.path+':'+f.sha256+':'+f.bytes);assert.equal(uses.length,1);assert.deepEqual(uses[0].recordings,[v.key,v.key+'-decode']);
+   const copies=budget.uses.filter(u=>u[0]==='runtimeBinding'&&u[2]===f.bytes&&u[3]===f.sha256);assert.equal(copies.length,1);
+   for(const copy of copies)assert.deepEqual(await readFile(v.store.path(copy[1])),v.runtime.files.get('/app/'+f.path));
+  }
+  const replayed=await replayProgramRecording(v.result,{resolveOriginal:r=>readFile(v.store.path(r.name)),resolveImplementation:v.runtime.resolveImplementation});assertReplayedProgram(replayed);
+  for(const [i,f] of data.entries()){const before={numeric:v.store.numericBytes,total:v.store.total},raw=v.runtime.files.get('/app/'+f.path);await v.store.write(v.key+'-extra-data-copy-'+i+'.bin',raw,196608,'runtimeBinding');assert.equal(v.store.numericBytes,before.numeric+raw.length);assert.equal(v.store.total,before.total+raw.length);}
+ }finally{await rm(v.directory,{recursive:true,force:true});}
+});
+
+test('R93 independent noise replay rejects coherently rehashed seed amplitude color rate order and duration changes',async()=>{
+ const v=await positiveProgram();try{
+  const manifest=JSON.parse(await readFile(v.store.path(v.result.programProof.replayRef.name))),name=v.key+'-noise-42-owner.json',original=JSON.parse(await readFile(v.store.path(name)));
+  const replays=[replayProgramRecording];if(process.env.R93_BASELINE)replays.push((await import(process.env.R93_BASELINE+'/scripts/marker-qualification/program-replay.mjs')).replayProgramRecording);
+  for(const replay of replays){const result=await replay(v.result,{resolveOriginal:r=>readFile(v.store.path(r.name)),resolveImplementation:v.runtime.resolveImplementation});assert.deepEqual(JSON.parse(JSON.stringify(result)),JSON.parse(JSON.stringify(v.result)));}
+  for(const mutate of [
+   args=>args[7]=args[7].replace('seed=42','seed=44'),
+   args=>args[7]=args[7].replace('amplitude=0.12','amplitude=0.13'),
+   args=>args[7]=args[7].replace('color=white','color=brown'),
+   args=>args[7]=args[7].replace('sample_rate=48000','sample_rate=44100'),
+   args=>{[args[0],args[1]]=[args[1],args[0]];},
+   args=>args[7]=args[7].replace(/duration=.*/, 'duration=9'),
+  ]){
+   const owner=structuredClone(original);mutate(owner.args);assert.notDeepEqual(owner.args,original.args);
+   const body=Buffer.from(JSON.stringify(owner)+'\n'),changed=structuredClone(manifest),entry=changed.budget.uses.find(r=>r[1]===name),delta=body.length-entry[2];entry[2]=body.length;entry[3]=sha(body);changed.budget.numericBytes+=delta;changed.budget.artifactBytes+=delta;
+   const raw=Buffer.from(JSON.stringify(changed)+'\n'),serialized=structuredClone(v.result);serialized.programProof.replayRef={...serialized.programProof.replayRef,bytes:raw.length,sha256:sha(raw)};
+   for(const replay of replays)await assert.rejects(replay(serialized,{resolveOriginal:r=>r.name===name?body:r.name===serialized.programProof.replayRef.name?raw:readFile(v.store.path(r.name)),resolveImplementation:v.runtime.resolveImplementation}),/marker_replay_noise_original/);
+  }
+ }finally{await rm(v.directory,{recursive:true,force:true});}
+});
+
+// R95: decoder seam attacks use the real supplier and genuine verifier first.
+// No fixture registers a certificate or invents a CheckedProgram.
+import * as mediaDecoder from '../../scripts/event-capacity-media.mjs';
+import { writeFile } from 'node:fs/promises';
+
+for(const [name,mutate,reason] of [
+ ['PCM byte',d=>{d.audioChunks[0][0]^=1;},'marker_clock_binding'],
+ ['RGB byte',d=>{d.rgb[0]^=1;},'marker_clock_binding'],
+ ['audio PTS',d=>{d.audioRows[1].pts++;},'marker_clock_binding'],
+ ['audio samples',d=>{d.audioRows[1].samples++;},'marker_clock_binding'],
+ ['audio row index',d=>{d.audioRows[1].index++;},'marker_clock_input'],
+ ['video PTS',d=>{d.videoRows[1].pts++;},'marker_clock_binding'],
+ ['video row index',d=>{d.videoRows[1].index++;},'marker_clock_input'],
+])test(`R95 real supplier then mutated ${name} reaches channel binding`,async()=>{
+ let issued=false;
+ await assert.rejects(positiveProgram({decoderIO:{decodeQualifiedMediaMarkerRecord:(owner,file,options)=>mediaDecoder.decodeQualifiedMediaMarkerRecord(owner,file,{...options,observeDecoded:async data=>{
+  const clock=await options.observeDecoded(data);clocks.assertProgramClock(clock);issued=true;mutate(data);return clock;
+ }})}}),error=>{assert.equal(issued,true);assert.equal(error.message,reason);assert.equal(error.qualificationPrerequisite,'decode_complete');return true;});
+});
+test('R95 matching-channel genuine clock with changed current recording requires the SHA binding guard',async()=>{
+ let issued=false,channelsMatch=false;
+ await assert.rejects(positiveProgram({decoderIO:{decodeQualifiedMediaMarkerRecord:(owner,file,options)=>mediaDecoder.decodeQualifiedMediaMarkerRecord(owner,file,{...options,observeDecoded:async data=>{
+  const clock=await options.observeDecoded(data),checked=clocks.assertProgramClock(clock);issued=true;
+  clocks.assertAudioClock(clock,data.audioChunks,data.audioRows);clocks.assertVideoClock(clock,data.rgb,data.videoRows);channelsMatch=true;
+  const bytes=await readFile(file);assert.equal(sha(bytes),clock.inputSHA);assert.equal(checked.file.sha256,clock.inputSHA);bytes[bytes.length-1]^=1;await writeFile(file,bytes);assert.notEqual(sha(bytes),clock.inputSHA);return clock;
+ }})}}),error=>{assert(issued&&channelsMatch);assert.equal(error.message,'marker_clock_binding');assert.equal(error.qualificationPrerequisite,'decode_complete');return true;});
+});
+for(const [name,replace] of [['missing',()=>undefined],['plain',()=>({kind:'ClockCompatible'})],['copied',c=>({...c})],['serialized',c=>JSON.parse(JSON.stringify(c))]])test(`R95 real observer then ${name} returned clock and deleted SHA fails before coverage`,async()=>{
+ let issued=false;
+ await assert.rejects(positiveProgram({decoderIO:{decodeQualifiedMediaMarkerRecord:async(owner,file,options)=>{
+  const record=await mediaDecoder.decodeQualifiedMediaMarkerRecord(owner,file,options);clocks.assertProgramClock(record.clock);issued=true;
+  record.clock=replace(record.clock);delete record.recordingSha256;return record;
+ }}}),error=>{assert(issued);assert.equal(error.message,'marker_clock_unproven');assert.equal(error.qualificationPrerequisite,'decode_complete');assert.deepEqual(error.qualificationCompleted,['probe_complete','declared_format_valid']);return true;});
+});
+test('R95 another genuine returned clock cannot replace the actual supplier clock',async()=>{
+ const control=await positiveProgram();let issued=false;
+ try{await assert.rejects(positiveProgram({decoderIO:{decodeQualifiedMediaMarkerRecord:async(owner,file,options)=>{
+  const record=await mediaDecoder.decodeQualifiedMediaMarkerRecord(owner,file,options);clocks.assertProgramClock(record.clock);clocks.assertProgramClock(control.result.record.clock);assert.notEqual(record.clock,control.result.record.clock);assert.equal(record.clock.inputSHA,control.result.record.clock.inputSHA);issued=true;
+  record.clock=control.result.record.clock;delete record.recordingSha256;return record;
+ }}}),error=>{assert(issued);assert.equal(error.message,'marker_clock_binding');assert.equal(error.qualificationPrerequisite,'decode_complete');return true;});}
+ finally{await rm(control.directory,{recursive:true,force:true});}
+});
+test('R95 ordinary decoder substituted under strict injection key cannot qualify',async()=>{
+ await assert.rejects(positiveProgram({decoderIO:{decodeQualifiedMediaMarkerRecord:mediaDecoder.decodeMediaMarkerRecord}}),error=>{assert.equal(error.message,'marker_qualified_decoder_required');assert.equal(error.qualificationPrerequisite,'decode_complete');return true;});
+});
+
+for(const [name,replace] of [['copied',c=>({...c})],['serialized',c=>JSON.parse(JSON.stringify(c))]])test(`R95 real observer returning a ${name} clock loses private membership`,async()=>{
+ let issued=false;
+ await assert.rejects(positiveProgram({decoderIO:{decodeQualifiedMediaMarkerRecord:(owner,file,options)=>mediaDecoder.decodeQualifiedMediaMarkerRecord(owner,file,{...options,observeDecoded:async data=>{
+  const clock=await options.observeDecoded(data);clocks.assertProgramClock(clock);issued=true;return replace(clock);
+ }})}}),error=>{assert(issued);assert.equal(error.message,'marker_clock_unproven');assert.equal(error.qualificationPrerequisite,'decode_complete');return true;});
+});
+test('R95 genuine certificate does not authorize changed completion, capture or probe originals',async()=>{
+ const v=await positiveProgram();try{
+  const m=v.result.material,capture={audioChunks:[m.pcm],audioRows:m.audioRows,videoRows:m.videoRows,rgb:m.rgb},input={bytes:await readFile(v.file),producer:v.producer.producerEvidence,decoder:m.decoder,capture,settings:v.settings,file:v.file,fileIdentity:m.fileIdentity,probes:m.probes,budget:v.store.programBudget(v.key)};
+  clocks.assertProgramClock(v.result.record.clock);assert.equal(conservation.verifyProgramRecording(input).kind,'CheckedProgram');
+  for(const [name,mutate,reason] of [
+   ['native exit',x=>{x.decoder={...x.decoder,native:{...x.decoder.native,exitCode:1}};},{message:'marker_program_native_completion',guard:'G10'}],
+   ['capture EOF',x=>{x.decoder={...x.decoder,channelEOF:{...x.decoder.channelEOF,pcm:false}};},{message:'marker_program_native_completion',guard:'G10'}],
+   ['probe raw',x=>{x.probes={...x.probes,final:{...x.probes.final,raw:Buffer.from('{}')}};},{message:'marker_program_probe_format',guard:'G7'}],
+  ]){
+   const changed={...input};mutate(changed);assert.throws(()=>conservation.verifyProgramRecording(changed),reason,name);
+  }
+ }finally{await rm(v.directory,{recursive:true,force:true});}
+});

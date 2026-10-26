@@ -592,6 +592,11 @@ export const PublicEventsResponseSchema = z
     id: "PublicEventsResponse",
   });
 
+export const BroadcastInputRefSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("vrcdn"), streamId: z.string().regex(/^[a-zA-Z0-9_-]{2,128}$/) }).strict(),
+  z.object({ kind: z.literal("twitch"), channel: z.string().regex(/^[a-z0-9_]{3,25}$/) }).strict(),
+]);
+
 export const ApiEventCreateRequestSchema = z
   .object({
     title: z.string().min(2).max(120),
@@ -642,6 +647,7 @@ export const ApiEventCreateRequestSchema = z
         z
           .object({
             selectedStreamId: z.string().min(2).max(128).nullable().optional(),
+            broadcastInput: BroadcastInputRefSchema.nullable().optional(),
             personSlug: slug.optional(),
             displayLabel: z.string().min(1).max(120),
             roleLabel: z.string().max(48).optional(),
@@ -670,6 +676,7 @@ export const ApiEventUpdateRequestSchema = ApiEventCreateRequestSchema.partial()
     lineup: z.array(z.object({
       clientKey: z.string().min(1).max(120), position: z.number().int().min(0).max(79),
       performerLabel: z.string().min(1).max(120), personSlug: slug.optional(), roleLabel: z.string().max(48).optional(),
+      broadcastInput: BroadcastInputRefSchema.nullable().optional(),
       startAt: timestampMs.optional(), endAt: timestampMs.optional(), selectedStreamId: z.string().max(120).nullable().optional(),
     }).strict()).max(80).optional(),
     doorsOpenAt: timestampMs.nullable().optional(),

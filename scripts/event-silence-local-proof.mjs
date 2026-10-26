@@ -9,7 +9,7 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { performance } from 'node:perf_hooks';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { createEventWorker } from '../workers/restream/event-worker.mjs';
+import { createProofWorker as createEventWorker, syntheticInputs } from './event-proof-fixtures.mjs';
 import { createProgramRenderer, QUALITY_PROFILES } from '../workers/restream/program-renderer.mjs';
 import { decideHandoff } from '../workers/restream/handoff-policy.mjs';
 import { verifyProgramPackets } from './event-proof-metrics.mjs';
@@ -17,9 +17,8 @@ import { verifyProgramPackets } from './event-proof-metrics.mjs';
 // Real wall-time A/V proof. Only authority, source transport and output sink are
 // local. Observations, selection, encoded acknowledgements and packets are real.
 export async function runSilenceProof({ receiptPath, thresholdDb = -90 } = {}) {
-    // Smaller proof-only video profile keeps this calibration CPU-bounded; the
-    // real renderer, AAC encode and stereo 48kHz s16le detector are unchanged.
-    QUALITY_PROFILES['proof-180p15'] = { width: 320, height: 180, frameRate: 15, videoBitrateKbps: 200 };
+    // Use the supported 480p30 output preset; source fixtures remain 180p15.
+
     const directory = await mkdtemp(join(tmpdir(), 'event-silence-proof-'));
     const path = join(directory, 'program.ts'), file = createWriteStream(path);
     const begun = Date.now(), events = [], children = new Set(), samples = [];
@@ -73,7 +72,7 @@ export async function runSilenceProof({ receiptPath, thresholdDb = -90 } = {}) {
         worker = createEventWorker({ identity: { eventId: 'local', sessionId: 'local', workerId: 'silence-proof', epoch: 0 },
             createRenderer(options) {
                 factoryThreshold = options.silenceThresholdDb;
-                renderer = createProgramRenderer({ ...options, quality: 'proof-180p15' });
+                renderer = createProgramRenderer({ ...options, quality: '480p30' });
                 const select = renderer.selectSource;
                 renderer.selectSource = slotKey => {
                     if (slotKey === 'b' && !positive) {
@@ -94,8 +93,8 @@ export async function runSilenceProof({ receiptPath, thresholdDb = -90 } = {}) {
                 if (name === 'claimCommands') return { granted: true, commands: structuredClone(commands) };
                 if (name === 'acknowledgeCommand') { assert.equal(args.outcome, 'succeeded'); commands = []; }
                 return { accepted: true };
-            }, metric(event) { if (event.event !== 'event_worker_heartbeat') record(event.event, { ...event, renderer: renderer ? { ...renderer.getState(), error: renderer.getState().error?.message } : undefined, a: observation('a'), b: observation('b') }); }, resolveSource: async source => `http://127.0.0.1:${port}/${source.id}`, checkEnabled: async () => true,
-            outputs: { start: async () => {}, enqueue(chunk) { if (!active) return; bytes += chunk.length; assert(bytes < 80 * 1024 * 1024, 'bounded recording'); assert(file.writableLength < 8 * 1024 * 1024, 'bounded sink queue'); file.write(chunk); }, getState: () => ({ publishing: active && bytes > 0 }), stopNow() { active = false; }, stop: async () => {} } });
+            }, metric(event) { if (event.event !== 'event_worker_heartbeat') record(event.event, { ...event, renderer: renderer ? { ...renderer.getState(), error: renderer.getState().error?.message } : undefined, a: observation('a'), b: observation('b') }); }, inputs: syntheticInputs(async source => `http://127.0.0.1:${port}/${source.id}`), checkEnabled: async () => true,
+            outputs: { start: async () => {}, enqueue(chunk) { if (!active) return; bytes += chunk.length; assert(bytes < 100 * 1024 * 1024, 'bounded recording'); assert(file.writableLength < 8 * 1024 * 1024, 'bounded sink queue'); file.write(chunk); }, getState: () => ({ publishing: active && bytes > 0 }), stopNow() { active = false; }, stop: async () => {} } });
         await worker.start();
         assert.equal(factoryThreshold, thresholdDb, 'worker passes threshold to renderer factory');
         poll = setInterval(() => void worker.tick(), 100);
@@ -177,15 +176,17 @@ export async function runSilenceProof({ receiptPath, thresholdDb = -90 } = {}) {
     // Decode the positive encoded window to RGB: a blue B frame proves source
     // identity independently of the renderer acknowledgement bookkeeping.
     const rgb = execFileSync('ffmpeg', ['-v', 'error', '-ss', String(blueOutputSecond), '-i', path, '-frames:v', '1', '-vf', 'scale=1:1', '-f', 'rawvideo', '-pix_fmt', 'rgb24', 'pipe:1']);
+    assert.equal(rgb.length, 3);
     assert(rgb[2] > rgb[0] + 100, 'positive encoded output window is blue source B');
-    const finalRgb = execFileSync('ffmpeg', ['-v', 'error', '-sseof', '-0.5', '-i', path, '-frames:v', '1', '-vf', 'scale=1:1', '-f', 'rawvideo', '-pix_fmt', 'rgb24', 'pipe:1']);
+    const finalRgb = execFileSync('ffmpeg', ['-v', 'error', '-i', path, '-ss', String(renderer.getState().outputMs / 1000 - 0.5), '-frames:v', '1', '-vf', 'scale=1:1', '-f', 'rawvideo', '-pix_fmt', 'rgb24', 'pipe:1']);
+    assert.equal(finalRgb.length, 3);
     assert(Math.abs(finalRgb[0] - finalRgb[2]) < 10, 'final encoded output is neutral hold slate');
     const range = values => ({ min: Math.min(...values), max: Math.max(...values), samples: values.length });
     const levels = { quietMinus81: range(samples.filter(s => s.elapsedMs > 4000 && s.elapsedMs < 26_000).map(s => s.audioLevelDb)), normalBurst: range(samples.filter(s => s.elapsedMs > 40_000 && s.elapsedMs < 42_000).map(s => s.audioLevelDb)), digitalZero: range(samples.filter(s => s.elapsedMs > 47_000).map(s => s.audioLevelDb)) };
     assert(levels.quietMinus81.min > -90);
     assert(levels.digitalZero.max < thresholdDb);
     const media = await readFile(path);
-    const receipt = { profile: QUALITY_PROFILES['proof-180p15'], candidate: config.policy.silence, factoryThreshold, elapsedMs: Date.now() - begun, recordingBytes: (await stat(path)).size, mediaSha256: createHash('sha256').update(media).digest('hex'), ffmpegVersion: execFileSync('ffmpeg', ['-version'], { encoding: 'utf8' }).split('\n')[0], levels, packets, positiveFrameSecond: blueOutputSecond, positiveEncodedRgb: [...rgb], finalEncodedRgb: [...finalRgb], events, limits: 'Synthetic conservative AAC/MPEGTS calibration only. No production-resolution capacity claim, observed musical false-positive rate, hosted Convex authority, provider acceptance, reconnect/frozen-PTS or delayed-event-loop proof. Media is temporary; receipt retains hashes and measurements.' };
+    const receipt = { profile: QUALITY_PROFILES['480p30'], candidate: config.policy.silence, factoryThreshold, elapsedMs: Date.now() - begun, recordingBytes: (await stat(path)).size, mediaSha256: createHash('sha256').update(media).digest('hex'), ffmpegVersion: execFileSync('ffmpeg', ['-version'], { encoding: 'utf8' }).split('\n')[0], levels, packets, positiveFrameSecond: blueOutputSecond, positiveEncodedRgb: [...rgb], finalEncodedRgb: [...finalRgb], events, limits: 'Synthetic conservative AAC/MPEGTS calibration only. No production-resolution capacity claim, observed musical false-positive rate, hosted Convex authority, provider acceptance, reconnect/frozen-PTS or delayed-event-loop proof. Media is temporary; receipt retains hashes and measurements.' };
     if (receiptPath) await writeFile(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`);
     console.log(JSON.stringify({ result: 'passed', receiptPath, ...receipt }));
     return receipt;

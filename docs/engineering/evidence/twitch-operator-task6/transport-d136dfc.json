@@ -1,0 +1,625 @@
+{
+  "schemaVersion": 1,
+  "sourceRevision": "f1f3e934072f8e822bbf672069fcd6a37d0b79b3",
+  "imageDigest": "sha256:d136dfc9437a02908a2844d61107a265d182eb4eb974a325217dfbeb1e71685a",
+  "runtime": {
+    "python": "3.11.2",
+    "node": "22.23.4",
+    "ffmpeg": "5.1.9-0+deb12u1"
+  },
+  "capacityAccepted": false,
+  "receipts": {
+    "transport-receipt": {
+      "sourceSha256": "fd1beacaa67d1cac294d29e0cddff6528283fbbbadfd101f388946599945adc6",
+      "value": {
+        "schemaVersion": 1,
+        "terminal": true,
+        "passed": false,
+        "cleanup": {
+          "closed": true,
+          "liveChildren": 0,
+          "liveGroups": 0,
+          "children": 2
+        },
+        "case": "all",
+        "tests": {
+          "testsRun": 42,
+          "outcomes": [
+            {
+              "test": "test_twitch_transport.DeadlineContracts.test_streamed_trickle_body_has_total_five_second_deadline",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_twitch_transport.DeadlineContracts.test_tls_handshake_wait_is_bounded",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_twitch_transport.OverrideContracts.test_matching_host_header_and_pool_tls_overrides_are_rejected",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_twitch_transport.OverrideContracts.test_preloaded_credentials_and_insecure_context_are_refused",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_twitch_transport.PolicyTests.test_all_dns_answers_and_special_ranges",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_twitch_transport.PolicyTests.test_dns_subprocess_deadline",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_twitch_transport.PolicyTests.test_globally_classified_special_and_mixed_answers_are_denied",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_twitch_transport.PolicyTests.test_proxy_refusal_preserves_environment",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_twitch_transport.PolicyTests.test_url_boundary",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_twitch_transport.TLSContracts.test_forbidden_request_options_and_file_adapter",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_twitch_transport.TLSContracts.test_redirect_each_hop_and_bounded_response",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_twitch_transport.TLSContracts.test_verified_tls_reuse_and_rebinding",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_twitch_transport.TLSContracts.test_wrong_san_and_untrusted_certificate",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_twitch_input.AdvertisementDeadlineContracts.test_live_ad_wait_ends_after_fifteen_seconds_without_readiness",
+              "outcome": "failed",
+              "type": "AssertionError"
+            },
+            {
+              "test": "test_twitch_input.AdvertisementTimelineContracts.test_discontinuity_base_advance_preserves_known_new_side_overlap",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_twitch_input.AdvertisementTimelineContracts.test_discontinuity_sequence_advance_without_anchor_fails_closed",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_twitch_input.AdvertisementTimelineContracts.test_discontinuity_with_new_anchor_can_resume",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_twitch_input.AdvertisementTimelineContracts.test_discontinuity_without_anchor_fails_closed",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_twitch_input.AdvertisementTimelineContracts.test_later_anchor_extrapolates_backwards_inside_continuity",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_twitch_input.AdvertisementTimelineContracts.test_missing_reload_overlap_and_anchor_fails_closed",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_twitch_input.AdvertisementTimelineContracts.test_one_anchor_covers_all_ad_segments_and_resumes_after_range",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_twitch_input.AdvertisementTimelineContracts.test_planned_duration_does_not_prove_ad_end",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_twitch_input.AdvertisementTimelineContracts.test_sliding_reload_without_anchor_or_range_preserves_ad_timeline",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_twitch_input.AdvertisementTimelineContracts.test_timeline_is_replaced_and_ad_metadata_limit_fails_closed",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_twitch_input.AnonymousAcquisitionContracts.test_integrity_challenge_has_no_cached_or_browser_fallback",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_twitch_input.InputContracts.test_1080_only_all_presets",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_twitch_input.InputContracts.test_ffmpeg_pipe_only_copy_remux",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_twitch_input.InputContracts.test_reject_unsupported_audio_and_video",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_twitch_input.InputContracts.test_reservoir_backpressure_accounting",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_twitch_input.InputContracts.test_resolution_then_requested_fps",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_twitch_input.OuterDeadlineContracts.test_blocked_resolution_exits_without_output_at_fifteen_seconds",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_twitch_input.SyntheticHLSContracts.test_403_discards_locator_and_next_resolution_is_fresh",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_twitch_input.SyntheticHLSContracts.test_actual_unsupported_codec_is_rejected_despite_manifest_claim",
+              "outcome": "failed",
+              "type": "AssertionError"
+            },
+            {
+              "test": "test_twitch_input.SyntheticHLSContracts.test_ad_and_403_are_missing_media",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_twitch_input.SyntheticHLSContracts.test_aes_key_and_discontinuity_map",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_twitch_input.SyntheticHLSContracts.test_byte_range_and_scheme_relative_resources",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_twitch_input.SyntheticHLSContracts.test_daterange_ad_is_not_fetched",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_twitch_input.SyntheticHLSContracts.test_delivery_jitter_keeps_normalized_packet_progress",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_twitch_input.SyntheticHLSContracts.test_nested_file_key_init_segment_redirect_fail_closed",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_twitch_input.SyntheticHLSContracts.test_redirect_final_url_bases_relative_encrypted_map_key_and_segment",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_twitch_input.SyntheticHLSContracts.test_three_second_cold_then_warmup_before_normalized_ready",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_twitch_input.SyntheticHLSContracts.test_ts_fmp4_normalize_real_audio_video",
+              "outcome": "passed"
+            }
+          ],
+          "passed": false,
+          "owner": {
+            "testsRun": 9,
+            "outcomes": [
+              {
+                "test": "returns handle immediately and retains normalized bytes before transport readiness",
+                "outcome": "passed"
+              },
+              {
+                "test": "already aborted never spawns and disposal is idempotent",
+                "outcome": "passed"
+              },
+              {
+                "test": "stderr rejects raw diagnostics and oversized/incomplete events without blocking control",
+                "outcome": "passed"
+              },
+              {
+                "test": "group cancellation kills a TERM-ignoring descendant after the leader exits",
+                "outcome": "passed"
+              },
+              {
+                "test": "original preparation expiry cannot renew on retry or takeover",
+                "outcome": "passed"
+              },
+              {
+                "test": "fresh process per reconnect with bounded exponential delays",
+                "outcome": "passed"
+              },
+              {
+                "test": "retained no-consumer backlog backpressures and readiness events are bounded",
+                "outcome": "passed"
+              },
+              {
+                "test": "disposal terminates the current retry rather than reusing a completed cleanup",
+                "outcome": "passed"
+              },
+              {
+                "test": "failed cleanup rejects disposal, stays occupied, and never retries after exit or abort",
+                "outcome": "passed"
+              }
+            ],
+            "passed": true
+          }
+        },
+        "failurePhase": "owner_contracts",
+        "failureCode": "transport_contract_failed",
+        "deterministic": true,
+        "realAdsObserved": false,
+        "providerExpiryObserved": false,
+        "finishedAt": "2026-10-23T08:56:07.746Z"
+      }
+    },
+    "transport-terminal": {
+      "sourceSha256": "cb85dc639252660147a7fb198115ab99fe87c59fba1aad7cf6411ff5e6bd1e4c",
+      "value": {
+        "schemaVersion": 1,
+        "kind": "twitch",
+        "runId": "task6-f1f3e934-transport-a1-20261023t0853",
+        "passed": false,
+        "terminal": true,
+        "timedOut": false,
+        "interrupted": false,
+        "cleanup": {
+          "closed": true,
+          "liveChildren": 0,
+          "liveGroups": 0,
+          "children": 2
+        },
+        "uploadComplete": true,
+        "manifest": [
+          {
+            "name": "receipt.json",
+            "bytes": 8392,
+            "complete": true,
+            "parts": [
+              {
+                "name": "receipt.json.part-0000",
+                "bytes": 8392,
+                "sha256": "fd1beacaa67d1cac294d29e0cddff6528283fbbbadfd101f388946599945adc6"
+              }
+            ]
+          }
+        ],
+        "finishedAt": "2026-10-23T08:56:10.435Z"
+      }
+    },
+    "focused-diagnostic-receipt": {
+      "sourceSha256": "39b36096b78604fb0dcb765771a38e1ecebc994459202d1dccadafffef26df4a",
+      "value": {
+        "schemaVersion": 1,
+        "runId": "task6-f1f3e934-diagnostic-a1-20261023t0911",
+        "diagnostic": {
+          "schemaVersion": 1,
+          "kind": "focused_actual_image_diagnostic",
+          "testsRun": 2,
+          "passed": false,
+          "outcomes": [
+            {
+              "case": 0,
+              "passed": false,
+              "assertionFailure": true,
+              "elapsedMs": 80,
+              "assertionStage": "first_acquiring",
+              "childReturnCode": -9,
+              "firstLineAcquiring": false,
+              "capturedStderrBytes": 158,
+              "tracebackObserved": true,
+              "missingStreamlinkModule": false,
+              "missingRequestsModule": false
+            },
+            {
+              "case": 1,
+              "passed": false,
+              "assertionFailure": true,
+              "elapsedMs": 1983,
+              "assertionStage": "remux_nonzero_exit"
+            }
+          ],
+          "remux": [
+            {
+              "returnCode": 0,
+              "stderrBytes": 99,
+              "codecWhitelistDiagnostic": true,
+              "opusDiagnostic": true,
+              "input": {
+                "bounded": true,
+                "bytes": 35908,
+                "probeReturnCode": 0,
+                "streams": ["h264", "opus"]
+              },
+              "output": {
+                "bounded": true,
+                "bytes": 45308,
+                "probeReturnCode": 0,
+                "streams": ["h264", "opus"]
+              }
+            }
+          ]
+        },
+        "cleanup": {
+          "closed": true,
+          "liveChildren": 0,
+          "liveGroups": 0,
+          "children": 1
+        },
+        "unexpectedLiveProcesses": 0,
+        "finishedAt": "2026-10-23T09:13:59.331Z"
+      }
+    },
+    "codec-experiment-receipt": {
+      "sourceSha256": "08f16af717a177b167468d65032a749541ebd585fee8c93cd923aa6afa9048e7",
+      "value": {
+        "schemaVersion": 1,
+        "runId": "task6-f1f3e934-codec-a1-20261023t0920",
+        "diagnostic": {
+          "schemaVersion": 1,
+          "kind": "fixed_codec_and_import_experiment",
+          "imports": [
+            {
+              "case": "original_order",
+              "returnCode": 0,
+              "facts": {
+                "passed": false,
+                "stage": "import_tls_fixture",
+                "importError": true,
+                "module": "requests"
+              },
+              "stderrBytes": 0
+            },
+            {
+              "case": "bootstrap_first",
+              "returnCode": 0,
+              "facts": {
+                "passed": true,
+                "stage": "imports_complete"
+              },
+              "stderrBytes": 0
+            }
+          ],
+          "experiments": [
+            {
+              "media": "opus_ts",
+              "variant": "baseline",
+              "input": {
+                "returnCode": 0,
+                "codecs": ["h264", "opus"]
+              },
+              "returnCode": 0,
+              "outputBytes": 46060,
+              "stderrBytes": 99,
+              "whitelistDiagnostic": true,
+              "output": {
+                "returnCode": 0,
+                "codecs": ["h264", "opus"]
+              }
+            },
+            {
+              "media": "opus_ts",
+              "variant": "xerror",
+              "input": {
+                "returnCode": 0,
+                "codecs": ["h264", "opus"]
+              },
+              "returnCode": 1,
+              "outputBytes": 0,
+              "stderrBytes": 201,
+              "whitelistDiagnostic": true,
+              "output": {
+                "returnCode": 1,
+                "codecs": []
+              }
+            },
+            {
+              "media": "opus_ts",
+              "variant": "xerror_explode",
+              "input": {
+                "returnCode": 0,
+                "codecs": ["h264", "opus"]
+              },
+              "returnCode": 1,
+              "outputBytes": 0,
+              "stderrBytes": 201,
+              "whitelistDiagnostic": true,
+              "output": {
+                "returnCode": 1,
+                "codecs": []
+              }
+            },
+            {
+              "media": "aac_ts",
+              "variant": "baseline",
+              "input": {
+                "returnCode": 0,
+                "codecs": ["h264", "aac"]
+              },
+              "returnCode": 0,
+              "outputBytes": 47000,
+              "stderrBytes": 0,
+              "whitelistDiagnostic": false,
+              "output": {
+                "returnCode": 0,
+                "codecs": ["h264", "aac"]
+              },
+              "decodedPcm": {
+                "returnCode": 0,
+                "bytes": 192000,
+                "stderrBytes": 0
+              }
+            },
+            {
+              "media": "aac_ts",
+              "variant": "xerror",
+              "input": {
+                "returnCode": 0,
+                "codecs": ["h264", "aac"]
+              },
+              "returnCode": 0,
+              "outputBytes": 47000,
+              "stderrBytes": 0,
+              "whitelistDiagnostic": false,
+              "output": {
+                "returnCode": 0,
+                "codecs": ["h264", "aac"]
+              },
+              "decodedPcm": {
+                "returnCode": 0,
+                "bytes": 192000,
+                "stderrBytes": 0
+              }
+            },
+            {
+              "media": "aac_ts",
+              "variant": "xerror_explode",
+              "input": {
+                "returnCode": 0,
+                "codecs": ["h264", "aac"]
+              },
+              "returnCode": 0,
+              "outputBytes": 47000,
+              "stderrBytes": 0,
+              "whitelistDiagnostic": false,
+              "output": {
+                "returnCode": 0,
+                "codecs": ["h264", "aac"]
+              },
+              "decodedPcm": {
+                "returnCode": 0,
+                "bytes": 192000,
+                "stderrBytes": 0
+              }
+            },
+            {
+              "media": "aac_fmp4",
+              "variant": "baseline",
+              "input": {
+                "returnCode": 0,
+                "codecs": ["h264", "aac"]
+              },
+              "returnCode": 0,
+              "outputBytes": 47000,
+              "stderrBytes": 0,
+              "whitelistDiagnostic": false,
+              "output": {
+                "returnCode": 0,
+                "codecs": ["h264", "aac"]
+              },
+              "decodedPcm": {
+                "returnCode": 0,
+                "bytes": 192000,
+                "stderrBytes": 0
+              }
+            },
+            {
+              "media": "aac_fmp4",
+              "variant": "xerror",
+              "input": {
+                "returnCode": 0,
+                "codecs": ["h264", "aac"]
+              },
+              "returnCode": 0,
+              "outputBytes": 47000,
+              "stderrBytes": 0,
+              "whitelistDiagnostic": false,
+              "output": {
+                "returnCode": 0,
+                "codecs": ["h264", "aac"]
+              },
+              "decodedPcm": {
+                "returnCode": 0,
+                "bytes": 192000,
+                "stderrBytes": 0
+              }
+            },
+            {
+              "media": "aac_fmp4",
+              "variant": "xerror_explode",
+              "input": {
+                "returnCode": 0,
+                "codecs": ["h264", "aac"]
+              },
+              "returnCode": 0,
+              "outputBytes": 47000,
+              "stderrBytes": 0,
+              "whitelistDiagnostic": false,
+              "output": {
+                "returnCode": 0,
+                "codecs": ["h264", "aac"]
+              },
+              "decodedPcm": {
+                "returnCode": 0,
+                "bytes": 192000,
+                "stderrBytes": 0
+              }
+            }
+          ]
+        },
+        "cleanup": {
+          "closed": true,
+          "liveChildren": 0,
+          "liveGroups": 0,
+          "children": 1
+        },
+        "unexpectedLiveProcesses": 0,
+        "finishedAt": "2026-10-23T09:20:09.645Z"
+      }
+    }
+  },
+  "cleanupReadbacks": {
+    "transport": {
+      "sourceSha256": "bd719202512c236c4e39fe07e6c166c52d8e1410d6bade5311ebf6fc15832db7",
+      "stoppedArtifactsSha256": "490ac277ca247ca493b8808be691225faa1cfe9497886c3265729214dec04231",
+      "stoppedObservedAt": "2026-10-23T08:57:46.726570+00:00",
+      "definitionStatus": "INACTIVE",
+      "networkInterfacesRemaining": 0,
+      "taskArn": "arn:aws:ecs:us-east-1:079358094174:task/vrdex-restream-worker/a15c88cb2a93415e88363509e5cc8e74",
+      "taskStatus": "STOPPED",
+      "containerStatus": "STOPPED",
+      "exitCode": 1,
+      "imageDigest": "sha256:d136dfc9437a02908a2844d61107a265d182eb4eb974a325217dfbeb1e71685a",
+      "taskCpu": "4096",
+      "taskMemory": "8192",
+      "containerCpu": "4096",
+      "containerMemory": "8192"
+    },
+    "focused-diagnostic": {
+      "sourceSha256": "d7da5dafba2a4289bbfd1f450b244c0046c4dfb2e415789dfb12229a423998b3",
+      "observedAt": "2026-10-23T09:15:21.406724+00:00",
+      "definitionStatus": "INACTIVE",
+      "networkInterfacesRemaining": 0,
+      "clusterRunningTasks": 0,
+      "clusterPendingTasks": 0,
+      "taskArn": "arn:aws:ecs:us-east-1:079358094174:task/vrdex-restream-worker/e595043ddb5c42788c261a65647a159f",
+      "taskStatus": "STOPPED",
+      "containerStatus": "STOPPED",
+      "exitCode": 0,
+      "imageDigest": "sha256:d136dfc9437a02908a2844d61107a265d182eb4eb974a325217dfbeb1e71685a",
+      "taskCpu": "4096",
+      "taskMemory": "8192",
+      "containerCpu": "4096",
+      "containerMemory": "8192"
+    },
+    "codec-experiment": {
+      "sourceSha256": "1731d9cfd2e645c54beb5ec10a0a55efb6d2d61531aec6eb1f68772b85c783b3",
+      "observedAt": "2026-10-23T09:21:47.941808+00:00",
+      "definitionStatus": "INACTIVE",
+      "networkInterfacesRemaining": 0,
+      "clusterRunningTasks": 0,
+      "clusterPendingTasks": 0,
+      "taskArn": "arn:aws:ecs:us-east-1:079358094174:task/vrdex-restream-worker/0a79526631154c11b2c5521853f095b3",
+      "taskStatus": "STOPPED",
+      "containerStatus": "STOPPED",
+      "exitCode": 0,
+      "imageDigest": "sha256:d136dfc9437a02908a2844d61107a265d182eb4eb974a325217dfbeb1e71685a",
+      "taskCpu": "4096",
+      "taskMemory": "8192",
+      "containerCpu": "4096",
+      "containerMemory": "8192"
+    }
+  },
+  "interpretation": {
+    "transportFailurePhase": "python_contracts",
+    "originalReportedPhaseIncorrect": true,
+    "adRootCause": "Child imported TLS fixture before workers.restream activated private dependencies; requests import failed. Bootstrap-first experiment passed.",
+    "codecRootCause": "FFmpeg 5.1 continued stream copy after codec whitelist error. Global -xerror rejected H264/Opus with nonzero exit and zero output; H264/AAC TS and fMP4 retained decoded PCM.",
+    "scope": "Focused experiment on the old image is causal evidence, not acceptance of the changed candidate. Full deterministic image gate and all capacity proofs remain required."
+  }
+}

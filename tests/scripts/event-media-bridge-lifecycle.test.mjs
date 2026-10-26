@@ -1,3 +1,4 @@
+import { allocatedSession } from './_event-allocation-fixture.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { EventEmitter } from 'node:events';
@@ -82,7 +83,7 @@ async function fixture() {
 }
 
 test('RunTask propagates the ownership tags from its registered task definition', async () => {
-  const command = { commandId: 'command', commandType: 'start_program', eventId: 'event', program: { programId: 'program' }, session: { sessionId: 'session' } };
+  const command = { commandId: 'command', commandType: 'start_program', eventId: 'event', program: { programId: 'program' }, session: allocatedSession() };
   const calls = [];
   const client = { mutation: async ref => {
     const name = getFunctionName(ref);

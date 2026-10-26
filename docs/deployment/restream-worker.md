@@ -1,5 +1,12 @@
 # Hosted Restream Worker Benchmark
 
+The required **Restream Local Checks** CI job builds the current worker image
+and runs all 132 deterministic transport cases with `--network none`. Its
+native timing suite is packaged from `tests/native`, while the full host
+MCP/script suite remains required. See [native CI coverage](../engineering/event-broadcast-quality-capacity.md#required-native-ci-coverage)
+for the fresh-image, receipt, deadline and cleanup contract. This CI check does
+not admit a Fargate capacity profile or authorize deployment.
+
 ## Status
 
 The current implementation provides persistent event dispatch through a scheduled
@@ -37,8 +44,8 @@ The stack does not define an ECS service. The minute Lambda schedule starts one 
 ## Runtime Guardrails
 
 The base benchmark task defaults below include a ten-worker benchmark cap. The
-production event bridge overrides that cap to one and uses the 720p30 event
-profile; its 12-hour session bound remains the same.
+production event bridge overrides that cap to one. New sessions snapshot their
+selected event profile; the 12-hour session bound remains the same.
 
 The task definition injects these non-secret values, and the current entrypoint refuses to start unless they are present and syntactically valid:
 
@@ -80,7 +87,9 @@ Required non-secret bridge configuration:
 - `VRDEX_EVENT_MEDIA_ECS_SECURITY_GROUPS`, comma-separated security group ids
 - `VRDEX_EVENT_MEDIA_SECRET_REF_MAP_JSON`, a JSON object that maps Convex output-account credential references to AWS Secrets Manager or SSM parameter ARNs for the selected output; optional destinations require exact Secrets Manager ARNs
 
-Optional bridge configuration includes `VRDEX_EVENT_MEDIA_BRIDGE_WORKER_ID`, `VRDEX_EVENT_MEDIA_ECS_CONTAINER`, `VRDEX_EVENT_MEDIA_ECS_COMMAND_JSON`, `VRDEX_EVENT_MEDIA_ECS_CPU`, `VRDEX_EVENT_MEDIA_ECS_MEMORY`, `VRDEX_EVENT_MEDIA_ECS_EPHEMERAL_STORAGE_GIB`, `VRDEX_EVENT_MEDIA_ECS_ASSIGN_PUBLIC_IP`, `VRDEX_EVENT_MEDIA_ECS_LOG_STREAM_PREFIX`, `VRDEX_EVENT_MEDIA_ECS_BASE_ENV_JSON`, `VRDEX_EVENT_MEDIA_OUTPUT_SECRET_ENV`, and `VRDEX_EVENT_MEDIA_BRIDGE_POLL_MS`. Use `VRDEX_EVENT_MEDIA_ECS_COMMAND_JSON` when the selected image needs a command override, for example `["node","workers/restream/vrcdn-poc.mjs"]` for the VRCDN POC entrypoint.
+Event-worker CPU and memory come exclusively from the immutable session allocation. Remove `VRDEX_EVENT_MEDIA_ECS_CPU` and `VRDEX_EVENT_MEDIA_ECS_MEMORY` from dispatcher configuration; either variable now rejects startup. The shared bridge validates settings, frozen destination membership and measured evidence before registration, then sets both task and container resources. See [quality and capacity](../engineering/event-broadcast-quality-capacity.md).
+
+Optional bridge configuration includes `VRDEX_EVENT_MEDIA_BRIDGE_WORKER_ID`, `VRDEX_EVENT_MEDIA_ECS_CONTAINER`, `VRDEX_EVENT_MEDIA_ECS_COMMAND_JSON`, `VRDEX_EVENT_MEDIA_ECS_EPHEMERAL_STORAGE_GIB`, `VRDEX_EVENT_MEDIA_ECS_ASSIGN_PUBLIC_IP`, `VRDEX_EVENT_MEDIA_ECS_LOG_STREAM_PREFIX`, `VRDEX_EVENT_MEDIA_ECS_BASE_ENV_JSON`, `VRDEX_EVENT_MEDIA_OUTPUT_SECRET_ENV`, and `VRDEX_EVENT_MEDIA_BRIDGE_POLL_MS`. Use `VRDEX_EVENT_MEDIA_ECS_COMMAND_JSON` when the selected image needs a command override, for example `["node","workers/restream/vrcdn-poc.mjs"]` for the VRCDN POC entrypoint.
 
 Use `VRDEX_EVENT_MEDIA_ECS_BRIDGE_CONFIG_CHECK_ONLY=true` for a local configuration parse check that does not call Convex or AWS. Use `--once` when running the bridge from a scheduler or smoke test; omit it for a long-running operator loop.
 
@@ -110,8 +119,9 @@ Running Next, Hold, automatic/manual and source controls remain worker-driven.
 Each invocation uses a unique worker identity, `once: true` and no drain deadline.
 Completion, timeout or function replacement never triggers global media drain.
 Workers retain their own leases, authorization checks, internal SSM emergency
-publication control and 12-hour event-session limit. Production media stays on the
-unchanged reviewed 720p30 image with 4 CPU/8 GiB and admission cap one.
+publication control and 12-hour event-session limit. The currently deployed
+reviewed image uses 720p30 with 4 CPU/8 GiB and admission cap one. Updating that
+image for additional presets requires the separate capacity proofs.
 The emergency switch is an internal operations control, not a host prerequisite.
 Preserve its current value during migration.
 
@@ -127,9 +137,10 @@ node --input-type=module - <<'JS'
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const { build } = createRequire(require.resolve('tsx/package.json'))('esbuild');
-await build({ entryPoints: ['scripts/event-media-lambda-bridge.mjs'],
+const result = await build({ metafile: true, entryPoints: ['scripts/event-media-lambda-bridge.mjs'],
   outfile: '/tmp/index.mjs', bundle: true, external: ['@aws-sdk/*'],
   platform: 'node', target: 'node22', format: 'esm' });
+await (await import('node:fs/promises')).writeFile('/tmp/event-media-lambda-inputs.json', JSON.stringify(result.metafile, null, 2));
 JS
 python3 - <<'PYZIP'
 from pathlib import Path
@@ -817,20 +828,119 @@ H.264/AAC; Twitch independently transcodes for its distinct GOP. Primary progres
 alone determines worker `publishing`,so optional failure never changes VRCDN's process or blocks its writes.
 `stopNow()` is synchronous, terminal and idempotent.
 
-The event CLI's supported local profile is **720p30**, H.264/yuv420p, 1800 kbps
-CBR video, zero B-frames, AAC stereo 160 kbps at 48 kHz. VRCDN uses a one-second
-GOP; `twitch-conservative-720p30` uses a two-second GOP. The renderer uses CBR
-filler even on hold frames. Explicit VRCDN setup settings must match that profile
-or the worker reports `invalid_setup`; omitted settings use the profile. Existing
-renderer benchmark profiles remain available to proofs, but the event CLI does
-not advertise 1080p or 60 fps acceptance. This conservative Twitch profile is an
-engineering choice below the current official 3000 kbps 720p30 example, not a
-claim of provider approval. The official Broadcasting Guidelines were verified
-in a real browser on October 20, 2026: 25/30 fps, two-second keyframes, AAC-LC
-96 kbps compatibility recommendation and 160 kbps maximum. Live ingest and
-playback acceptance remain unverified; see [integration evidence](../engineering/event-broadcast-verification.md). VRCDN's combined bitrate limit is
-not precisely documented; this profile reserves substantial headroom. The existing
-low-latency x264 tune still requires actual AVPro playback verification.
+Event sessions support six H.264/yuv420p presets with zero B-frames:
+
+| Preset | Dimensions | Frame rate | Video bitrate |
+| --- | --- | --- | --- |
+| `480p30` | 854x480 | 30 fps | 1000 kbps |
+| `480p60` | 854x480 | 60 fps | 1500 kbps |
+| `720p30` | 1280x720 | 30 fps | 1800 kbps |
+| `720p60` | 1280x720 | 60 fps | 2500 kbps |
+| `1080p30` | 1920x1080 | 30 fps | 3000 kbps |
+| `1080p60` | 1920x1080 | 60 fps | 3500 kbps |
+
+`broadcast-profiles.mjs` owns these formats. The renderer uses CBR filler even
+on hold frames. VRCDN remuxes the selected program with a one-second GOP and
+AAC stereo at 48 kHz, with either 160 or 320 kbps audio. Newly created media
+programs default to `720p30`/320; rows without stored settings retain
+`720p30`/160. Higher output audio bitrates cannot restore detail lost upstream.
+Explicit VRCDN setup values must match the selected profile or that sender
+reports `invalid_setup`.
+
+Twitch retains the selected video dimensions, frame rate and bitrate, encodes a
+two-second GOP, and uses 160-kbps AAC stereo at 48 kHz regardless of the VRCDN
+audio choice. New Twitch output records use `twitch-selected-video`; the legacy
+`twitch-conservative-720p30` marker remains readable and no longer constrains
+video selection. These are initial encodings. Short local format tests do not
+establish provider acceptance, visual quality, sustained capacity or AVPro
+playback acceptance. Those require the separate capacity/provider proofs before
+merge. VRCDN's combined bitrate limit remains imprecisely documented.
+
+Run `pnpm proof:event-broadcast:formats` serially for the short local format
+proof. It encodes audible independent stereo noise for both audio choices and
+all six presets using the production encoder arguments, runs each destination
+codec path, and uses `ffprobe` plus full decoding to verify dimensions, frame
+rate, channels, sample rate, audio bitrate tolerance and GOP intervals. It runs
+offline and establishes no real-time throughput or provider acceptance.
+
+`eventMediaSettings.configure` requires `manage_event_media`. Settings changes
+apply to the next session, including changes made while a broadcast is on air.
+Session creation stores immutable `mediaSettings`, `destinationProfiles` and
+`controlProtocolVersion: 2`. Worker acquisition and refresh use those snapshots;
+a next-start setting or simulcast checkbox change cannot resize, restart or
+reconfigure an on-air encoder or sender. Publication authority and credentials
+are still checked against current destination grants. Deploy the protocol
+migration only with no active sessions. The control status query exposes program
+settings alongside each session's active settings for the operator console.
+
+### Control protocol 2 activation
+
+Hold new starts during deployment. Drain every scheduled, starting, live, hold,
+fallback and stopping session, including scheduled sessions that have not yet
+acquired a worker. Reconcile each reserved or dispatched provider task to
+confirmed STOPPED before retiring its ownership. An ended media session or a
+failed task diagnostic alone does not establish that its process stopped.
+
+Deploy the backend schema/functions and a worker that sends `protocolVersion: 2`
+on every session request. With starts still held, run the internal
+`eventMediaControlMigration:backfill` mutation against the explicitly selected
+deployment, initially with `{"batchSize":100}`. Persist its returned `phase` and
+`cursor`, and pass them back on each call until `done` is true. Batch size is
+bounded to 1–100. Every page independently checks quiescence through indexed
+session/task lookups; replaying a page is safe. Resume starts only after all
+pages and the compatible worker rollout have completed. This is deployment
+sequencing, not an operator feature toggle. Keep the dispatcher's separate
+`launchProtocol: "fenced-v1"` contract unchanged.
+
+The migration normalizes canonical source references and positive revisions,
+preserves disabled sources and deployment-owned internal endpoint descriptors,
+and never recreates removed profile links. Legacy automatic intent stays
+automatic and hold becomes slate. A recorded manual source is retained only
+when its revision is recoverable and still authorized. Revision 1 is recoverable
+for unchanged legacy rows; later revisions need recorded observation evidence.
+Ambiguous, disabled or revoked manual state becomes slate. Historical controls
+are settled, never attached to a new session. Existing explicit migrated intent,
+terminal command history, sequences and acknowledgments remain intact.
+
+New sessions start with automatic `committedIntent`, `intentSequence: 0` and no
+pending operation. Same-session takeover retains the original command, phase,
+pinned revision and preparation expiry. The session stores only a
+`pendingControlCommandId`; its command owns target, prior intent, phase and
+expiry. `queueEventMediaCommand` and `cancelEventMediaOperation` require a caller
+generated idempotency key scoped to event, session and stable actor. Retrying the
+same normalized payload returns the original receipt; reusing its key for a
+different payload is rejected. Browser preview does not enqueue a command.
+
+`beginPreparation` starts the persisted 15-second preparation-through-confirmation
+budget once. `promoteOperation` validates authority and the pinned target, then
+commits intent before granting renderer selection. Cancel is available only
+while preparing. Cut commits slate immediately and supersedes ordinary pending
+controls. Terminal Stop rejects subsequent controls and outranks Cut. Removing
+a source disables it and cancels its pending preparation or commits slate in the
+same transaction, including a manual desired source currently showing fallback.
+Actor revocation blocks preparation/promotion, while an already committed intent
+survives that revocation. Destination revocation always fences publication.
+
+Control transitions return `ok`, `superseded`, `cancelled`,
+`failed` (`expired`, `source_unavailable`, `actor_revoked`), or
+`fenced` (`lease`, `destination`, `stopped`). Only `fenced` stops publication;
+ordinary operation failures settle while retaining committed intent. Acquisition,
+renewal, dispatch and terminal lifecycle operations retain their existing lease
+and cleanup contracts. Protocol 2 rejects omitted or older worker versions at
+the request boundary.
+
+Program observations and successful nonterminal acknowledgments include
+`intentSequence`, `outputMs`, the selected output ID and one coherent rendered
+source ID/revision/slot snapshot, or no source fields for slate. The renderer
+carries the submitted revision through encoded-output acknowledgment; do not
+substitute a newly refreshed revision for older encoded media. Stale intent,
+regressing output progress, conflicting equal-watermark identity and inconsistent
+target evidence cannot update publication observations. Exact completion retries
+are read-only. Fallback observations do not erase durable manual intent.
+
+The branch implements the protocol adapter and nonblocking acquisition/controller.
+Final reviewed-image proof of Cut latency during blocked acquisition, sender
+termination and measured capacity remains required before feature rollout.
 
 `eventMediaWorker.observeOutputs` persists only bounded numeric health and fixed
 statuses under the same session/epoch/lease fence. Authenticated
@@ -903,10 +1013,13 @@ private status. Staff with `view_event_operations` or `manage_events` can read
 the panel with mutation controls disabled; `manage_event_media` grants control.
 Public hosts use the `host` route. Mutations recheck capabilities.
 
-Controls submit sequenced commands. Requested source and queued/claimed command
-states remain separate from worker-observed source, mode, lease and destination
-health. Pending Next commands are coalesced by the backend; Stop requires an
-explicit confirmation and remains available during a pending switch. An expired
+Controls submit sequenced commands. Committed intent, pending preparation and
+encoded source/revision observations remain distinct. Cancel is available only
+while preparing. Cut to slate remains independent of pending ordinary requests;
+confirmed Stop takes priority over source controls. See the
+[console integration contract](../engineering/event-broadcast-operator-console.md)
+for source authorization, status windows, settings, editor selection and local
+preview ownership. An expired
 lease or destination observation older than 15 seconds displays unknown health.
 The explicit session runtime deadline is displayed independently of calendar end.
 
@@ -916,7 +1029,7 @@ deployment-configured account and explicitly opts into simulcast through
 `configureTwitchOutput`. Only account key/channel reach the selector, and malformed
 optional account configuration does not hide primary status or Stop. The view
 displays independent destination health. The
-runtime supports the conservative 720p30 profile documented above. The policy
+runtime uses the session profiles documented above. The policy
 control sets or removes maximum overrun while stopped. Ordinary automatic
 operation uses the effective silence policy without a host calibration toggle.
 
@@ -1183,7 +1296,7 @@ false. Its exact repository-main subject and STS audience permit ECR authenticat
 and exact-repository push/DescribeImages, plus `ecr:BatchGetImage` and
 `ecr:GetDownloadUrlForLayer` on the same repository. Retry recovery pulls the
 existing immutable digest for `linux/amd64` and verifies the source label and all
-13 packaged source files on the runner before executing syntax/import checks.
+files in `workers/restream/packaging-manifest.json` on the runner before executing syntax/import checks.
 It regenerates provenance without a prior artifact and never pushes or retags an
 existing image. Mismatches fail closed. Other eligible main-branch jobs share that
 trust boundary; it does not isolate one workflow. The Terraform role's broader permissions
@@ -1220,3 +1333,44 @@ all five final tasks STOPPED, their interfaces DELETED, latest proof definitions
 INACTIVE and both switches false at production/rehearsal versions 1/21. The output
 secret remains unchanged; the full provider and rollout gates remain open. See the [rehearsal record](../engineering/event-broadcast-rehearsal.md#october-22-2026-diagnostic-session)
 for exact metrics, provenance, retained failures and remaining gates.
+
+## Diagnostics provenance and compute estimates
+
+The existing authenticated dispatch handshake now stores region, Linux/x86
+platform and On-Demand purchase model for the returned task. Region is checked
+against both task and task-definition ARNs. On-Demand follows the bridge's
+explicit `--launch-type FARGATE` request without a capacity-provider strategy;
+generic Fargate metadata alone does not supply pricing provenance. Older sessions
+without that handshake retain an unknown estimate.
+
+Recreate region through the existing Terraform bridge configuration
+(`VRDEX_EVENT_MEDIA_ECS_REGION` and worker `AWS_REGION` in `bridge.tf`). OS,
+architecture and purchase model come from the checked-in task-definition and
+launch code. No new environment variables or dashboard settings are required.
+Deploy the protocol migration with no active sessions. Changes apply to new
+sessions and never resize or restart an on-air worker.
+
+Authorized console readers receive the latest cgroup observation through the
+existing renewal path, with a 30-second freshness limit. Compute uses the dated
+October 22, 2026 Linux/x86 us-east-1 On-Demand rates: approximately USD 0.19748/hour
+for four vCPUs/eight GiB and USD 0.39496/hour for eight vCPUs/sixteen GiB. Estimates
+exclude transfer, IPv4, logs, extra storage, provider subscriptions, taxes and
+discounts. See [the diagnostics contract](../engineering/event-broadcast-resources.md)
+for source rates, provenance, failure behavior and the pending final-image proof.
+
+## October 24 Task 9 rollout readiness
+
+Source plumbing is available; actual whole-flow acceptance remains open. Run the
+[isolated migration rehearsal](../engineering/event-broadcast-rehearsal.md#october-24-2026-task-9-source-prerequisites)
+after accepted capacity receipts populate the measured map. Its internal fixture
+module and manifest require canonical Convex generation. Never populate admission
+from historical fixture inserts or in-memory test allocations.
+
+Hold starts and confirm all provider tasks stopped before deploying protocol 2 or
+running the production whole-table backfill. Preserve account grants, credential
+definitions, emergency SSM state, fenced-v1 dispatcher lifecycle and concurrency
+cap. Each migration page checks open sessions and unconfirmed provider ownership.
+New settings apply to the next session; do not restart or resize an on-air worker.
+The DB rehearsal proves authority denial, while final-image evidence must prove
+actual sender-process cessation. Deployment stays blocked until those distinct
+gates and the remaining provider/browser evidence are accepted.

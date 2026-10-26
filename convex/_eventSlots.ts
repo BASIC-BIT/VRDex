@@ -1,3 +1,4 @@
+import { normalizeBroadcastInput, type BroadcastInputRef } from "./_eventBroadcastSources";
 import { createVrcdnStreamLinks } from "./_vrcdnLinks";
 import { normalizeProfileInlineText, sanitizeProfileTextList } from "./_profileSubmissions";
 
@@ -10,6 +11,7 @@ export const EVENT_SLOT_TEMPLATE_MAX_COUNT = 80;
 export const EVENT_SLOT_TEMPLATE_MAX_DURATION_MINUTES = 24 * 60;
 
 export type EventSlotInput = {
+  broadcastInput?: BroadcastInputRef | null;
   selectedStreamId?: string | null;
   personSlug?: string;
   displayLabel: string;
@@ -22,6 +24,7 @@ export type EventSlotInput = {
 };
 
 export type SanitizedEventSlotInput = {
+  broadcastInput?: BroadcastInputRef | null;
   selectedStreamId?: string;
   position: number;
   personSlug?: string;
@@ -187,6 +190,7 @@ export function sanitizeEventSlotInputs(
 
       return {
         position: index,
+        ...(slot.broadcastInput === undefined ? {} : { broadcastInput: slot.broadcastInput === null ? null : normalizeBroadcastInput(slot.broadcastInput) }),
         ...(selectedStreamId === undefined ? {} : { selectedStreamId }),
         ...(personSlug ? { personSlug } : {}),
         displayLabel: requireBoundedText(

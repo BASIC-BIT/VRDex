@@ -114,3 +114,16 @@ it('R5F3 the live mapping cap remains 64 and identical URLs retain distinct sour
     assert.doesNotThrow(() => relay.resolveSource(source(63)));
   } finally { relay.stop(); }
 });
+it('handle disposal owns pending DNS and rejects reconnects until physical lookup completion',async()=>{
+ let resolveDns:any,lookups=0,requests=0;
+ const dns=new Promise(resolve=>{resolveDns=resolve;});
+ const relay=await createSourceRelay({resolveAddresses:()=>{lookups++;return dns;},requestSource:()=>{requests++;throw Error('obsolete request');}});
+ const handle=relay.createInput({source:{...source(1),revision:1}});const {url}=await handle.transportReady;
+ const req=httpRequest(url);req.on('error',()=>{});req.end();
+ for(let i=0;i<100&&lookups===0;i++)await new Promise(resolve=>setTimeout(resolve,5));
+ assert.equal(lookups,1);assert.equal((await fetch(url)).status,409);assert.equal(lookups,1);
+ req.destroy();await new Promise(resolve=>setTimeout(resolve,10));
+ let closed=false;const cleanup=handle.dispose().then(()=>{closed=true;});
+ await new Promise(resolve=>setTimeout(resolve,10));assert.equal(closed,false,'already-closing connection still owns DNS');
+ resolveDns([{address:'93.184.216.34',family:4}]);await cleanup;assert.equal(requests,0);assert.equal((await fetch(url)).status,404);relay.stop();
+});

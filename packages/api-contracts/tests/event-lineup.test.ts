@@ -1,3 +1,4 @@
+import { mcpOutputJsonSchemaForZodSchema } from "../src/mcp-json-schema";
 import assert from "node:assert/strict";
 import { it } from "node:test";
 import { ApiEventCreateRequestSchema, ApiEventUpdateRequestSchema, PublicEventSchema } from "../src/schemas";
@@ -59,4 +60,25 @@ it("rejects malformed lineup times and missing performer labels", () => {
   const event = { id: "event", slug: "event", title: "Event", startAt: 1000, watchSurfaceEnabled: false, source: { sourceType: "community", label: "Fixture" } };
   assert.equal(PublicEventSchema.safeParse({ ...event, lineup: [{ key: "x", position: 0 }] }).success, false);
   assert.equal(PublicEventSchema.safeParse({ ...event, lineup: [{ key: "x", position: 0, displayLabel: "Guest", startAt: "unknown" }] }).success, false);
+});
+
+it("broadcast inputs retain omitted/null semantics separately from public playback choices", () => {
+  const row = { clientKey: "guest", position: 0, performerLabel: "Guest", broadcastInput: { kind: "twitch", channel: "basic_bit" } };
+  assert.deepEqual(ApiEventUpdateRequestSchema.parse({ lineup: [row] }).lineup?.[0], row);
+  assert.equal(ApiEventUpdateRequestSchema.parse({ lineup: [{ ...row, broadcastInput: null }] }).lineup?.[0]?.broadcastInput, null);
+  assert.equal(Object.hasOwn(ApiEventUpdateRequestSchema.parse({ lineup: [{ clientKey: "x", position: 0, performerLabel: "X" }] }).lineup![0]!, "broadcastInput"), false);
+  assert.equal(ApiEventUpdateRequestSchema.safeParse({ lineup: [{ ...row, broadcastInput: { kind: "twitch", channel: "https://evil.test" } }] }).success, false);
+});
+
+
+it("MCP JSON schema exposes both canonical broadcast variants and explicit reset", () => {
+  assert.partialDeepStrictEqual(mcpOutputJsonSchemaForZodSchema(ApiEventUpdateRequestSchema), {
+    properties: { lineup: { items: { properties: { broadcastInput: { anyOf: [
+      { oneOf: [
+        { properties: { kind: { const: "vrcdn" } }, required: ["kind", "streamId"] },
+        { properties: { kind: { const: "twitch" } }, required: ["kind", "channel"] },
+      ] },
+      { type: "null" },
+    ] } } } } },
+  });
 });

@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "purpose": "preserved-negative-diagnostic-not-capacity-admission",
+  "sourceRevision": "aabff98ae46712c21da4688a07a7c8f1dd9c978c",
+  "imageDigest": "sha256:9fcbaa25832408bf3d3421836e018d9c33946b28169ea28637a400e3274a2ccd",
+  "request": {
+    "videoPreset": "1080p60",
+    "audioBitrateKbps": 160,
+    "simulcastEnabled": false,
+    "cpuUnits": 8192,
+    "memoryMiB": 16384,
+    "declaredSteadySeconds": 300
+  },
+  "trace": {
+    "bytes": 11190,
+    "sha256": "5a28513e46cee2f10226c450059015bf3e9e755ad93e118209d8d80db0ed2f84",
+    "rows": 57,
+    "progressEvents": 50,
+    "counterReads": 4,
+    "errorEvents": 1,
+    "complete": true
+  },
+  "observation": {
+    "errorCode": "processing_budget",
+    "ticks": 638,
+    "outputMs": 10581.333,
+    "videoQueueBytes": 15552000,
+    "queuedRawFrames": 5,
+    "lastProgressWallMs": 12645.530114000001,
+    "lastProgressDelayMs": 2064.1973009999983,
+    "partialIntervalCoreEquivalents": [
+      2.7519697853361245,
+      2.920691871827722,
+      2.7401315430490394
+    ],
+    "steadyCpuP95Observed": false,
+    "perThreadCauseObserved": false,
+    "audioPipeQueueObserved": false,
+    "stderrObserved": false
+  },
+  "outcome": {
+    "workload": "rejected",
+    "collectionComplete": true,
+    "capacityAccepted": false,
+    "wrapperExitCode": 0,
+    "physicalCleanupClosed": true,
+    "liveChildren": 0,
+    "liveGroups": 0
+  },
+  "preservedPriorNegatives": {
+    "initial4Cpu": "publication_failed",
+    "retry8Cpu": "publication_failed"
+  },
+  "candidateStatus": "unqualified-preset-only-change-requires-new-exact-image-proof"
+}

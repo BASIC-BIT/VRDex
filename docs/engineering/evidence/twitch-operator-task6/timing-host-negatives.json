@@ -1,0 +1,2216 @@
+{
+  "schemaVersion": 1,
+  "status": "failed-host-diagnostic-not-capacity",
+  "candidateBaseRevision": "cf8cd9f330adcc5d1c994a06f66272faabbe29dc",
+  "artifacts": {
+    "firstReceipt": {
+      "bytes": 7459,
+      "sha256": "b328235dbda827091111f29623fc7e8c01c659dac0c04d94d5aae2f5231b82e3"
+    },
+    "tracedReceipt": {
+      "bytes": 5894,
+      "sha256": "ccf8e207100142af5d10ef2914d0ac77285d0c136ba10601da1414b821836f1f"
+    },
+    "cursorTrace": {
+      "bytes": 203990,
+      "sha256": "c552ce6c5d31e85b2b7f303e21a588b6223fe4ba43871d88bbe3765e9d501057"
+    },
+    "originalPtsAnalysis": {
+      "bytes": 21904,
+      "sha256": "5140f82903e2b96c604020b82c6b21d2b9d7f881be21cc408b2507302e142d32"
+    },
+    "correctedVerifierSameRecording": {
+      "bytes": 4627,
+      "sha256": "b4620167a1384e1fe7132b7a4a57d5c96489692a4ad403aa01839849043bd66d"
+    }
+  },
+  "firstReceipt": {
+    "schemaVersion": 1,
+    "terminal": true,
+    "request": {
+      "settings": {
+        "videoPreset": "480p30",
+        "audioBitrateKbps": 320
+      },
+      "cpuUnits": 8192,
+      "memoryMiB": 16384,
+      "durationSeconds": 60,
+      "simulcastEnabled": true,
+      "outputDir": "/tmp/event-capacity-timestamped-host"
+    },
+    "startedAt": "2026-10-23T10:44:58.972Z",
+    "inputs": {
+      "a": {
+        "videoCodec": "h264",
+        "width": 1920,
+        "height": 1080,
+        "fps": 60,
+        "audioCodec": "aac",
+        "channels": 2,
+        "sampleRate": 48000
+      },
+      "b": {
+        "videoCodec": "h264",
+        "width": 1920,
+        "height": 1080,
+        "fps": 60,
+        "audioCodec": "aac",
+        "channels": 2,
+        "sampleRate": 48000
+      }
+    },
+    "steadyStartedAt": "2026-10-23T10:45:35.643Z",
+    "steady": {
+      "durationMs": 60011.624991,
+      "dualDecodeMs": 60011.637509,
+      "readinessLosses": 0,
+      "samples": 60,
+      "maxSampleGapMs": 1014.185163999995
+    },
+    "resources": {
+      "cpuP95Percent": 43.35418815078113,
+      "cpuP50Percent": 34.630479587666464,
+      "sampleCoverageMs": 60010.74315,
+      "memoryPeakBytes": 15003340800,
+      "accounting": "whole-cgroup-including-fixtures-and-receivers"
+    },
+    "cleanup": {
+      "closed": true,
+      "liveChildren": 0,
+      "liveGroups": 0,
+      "children": 16
+    },
+    "phases": [
+      {
+        "identity": "a",
+        "atSeconds": 10.32
+      },
+      {
+        "identity": "b",
+        "atSeconds": 70.893333
+      },
+      {
+        "identity": "slate",
+        "atSeconds": 81.133333
+      }
+    ],
+    "outputs": [
+      {
+        "maxGap": 0.034000000000006025,
+        "maxGop": 1.000000000000007,
+        "packets": 6556,
+        "monotonic": true,
+        "audioKbps": 324.908789762634,
+        "destination": "vrcdn",
+        "videoCodec": "h264",
+        "width": 854,
+        "height": 480,
+        "fps": 30,
+        "pixelFormat": "yuv420p",
+        "audioCodec": "aac",
+        "channels": 2,
+        "sampleRate": 48000,
+        "identities": [
+          "a",
+          "b",
+          "slate"
+        ],
+        "visualPsnrDb": 31.580451384181615,
+        "avDriftMs": 286.6666666666671,
+        "markerVisualSeconds": [
+          0,
+          3.066666666666667,
+          4.033333333333333,
+          5.033333333333333
+        ],
+        "markerAudioSeconds": [
+          0.78,
+          1.78,
+          2.78,
+          3.78,
+          4.78,
+          5.81
+        ],
+        "markerCount": 3,
+        "internalDelayMs": 162.17297299999336
+      },
+      {
+        "maxGap": 0.034000000000006025,
+        "maxGop": 2.000000000000001,
+        "packets": 6508,
+        "monotonic": true,
+        "audioKbps": 164.13791860964398,
+        "destination": "twitch",
+        "videoCodec": "h264",
+        "width": 854,
+        "height": 480,
+        "fps": 30,
+        "pixelFormat": "yuv420p",
+        "audioCodec": "aac",
+        "channels": 2,
+        "sampleRate": 48000,
+        "identities": [
+          "a",
+          "b",
+          "slate"
+        ],
+        "visualPsnrDb": 31.545103263832317,
+        "avDriftMs": 266.66666666666663,
+        "markerVisualSeconds": [
+          0,
+          4.066666666666666,
+          5.066666666666666
+        ],
+        "markerAudioSeconds": [
+          0.8,
+          1.8,
+          2.8,
+          3.8,
+          4.8,
+          5.83
+        ],
+        "markerCount": 2,
+        "internalDelayMs": 162.17297299999336
+      }
+    ],
+    "maxCompressedBufferBytes": 3342336,
+    "maxDecoders": 2,
+    "maxAcquisitions": 2,
+    "artifacts": [
+      {
+        "name": "program.ts",
+        "bytes": 14899376,
+        "sha256": "174b8f59a89dfe2a368f5ffaf44e0e50c0581f91e871659ddda5afaf04e51571",
+        "complete": true
+      },
+      {
+        "name": "vrcdn.ts",
+        "bytes": 14671708,
+        "sha256": "8c980d4150c31b6031e6fb998fb5c66729627924bf6d93d1b5855185560a4cf6",
+        "complete": true
+      },
+      {
+        "name": "twitch.ts",
+        "bytes": 13035920,
+        "sha256": "c5d7b655bd9b39ef65c6a6931a5c70b8ba5355a0cd3dc7a4bb1e509352aa844e",
+        "complete": true
+      }
+    ],
+    "finishedAt": "2026-10-23T10:46:59.269Z",
+    "passed": false,
+    "failurePhase": "verify",
+    "failureCode": "identity_quality_timing",
+    "decoderFacts": {
+      "a": {
+        "videoBytes": 2417224352,
+        "audioBytes": 12668928,
+        "ptsLines": 3935,
+        "exits": 1,
+        "invalidData": 0
+      },
+      "b": {
+        "videoBytes": 2631071520,
+        "audioBytes": 13742080,
+        "ptsLines": 4281,
+        "exits": 1,
+        "invalidData": 0
+      }
+    },
+    "failureState": {
+      "worker": {
+        "stopped": true,
+        "committedIntent": {
+          "kind": "slate"
+        },
+        "intentSequence": 2,
+        "mode": "hold",
+        "ordinaryReceiptPending": false,
+        "authorityUntil": 138481.315599
+      },
+      "renderer": {
+        "outputMs": 85400,
+        "running": false,
+        "ticks": 2562,
+        "videoQueueBytes": 0
+      },
+      "observations": [
+        {
+          "slotKey": "a",
+          "sourceId": "a",
+          "observedAt": 96727.304071,
+          "ready": true,
+          "progressing": true,
+          "analysisActive": true,
+          "audioLevelDb": -23.39248822091356
+        },
+        {
+          "slotKey": "b",
+          "sourceId": "b",
+          "observedAt": 106989.033832,
+          "ready": true,
+          "progressing": true,
+          "analysisActive": true,
+          "audioLevelDb": -23.551353988846596
+        }
+      ],
+      "outputs": {
+        "publishing": false,
+        "destinations": [
+          {
+            "outputId": "primary",
+            "destination": "vrcdn",
+            "status": "stopped",
+            "publishing": false,
+            "queueBytes": 0,
+            "outputMs": 85154.667,
+            "restarts": 0
+          },
+          {
+            "outputId": "optional",
+            "destination": "twitch",
+            "status": "stopped",
+            "publishing": false,
+            "queueBytes": 0,
+            "outputMs": 84466.667,
+            "restarts": 0
+          }
+        ]
+      }
+    },
+    "readinessLosses": 0,
+    "transitions": [
+      {
+        "sourceId": "a",
+        "kind": "acquiring"
+      },
+      {
+        "sourceId": "a",
+        "kind": "acquiring"
+      },
+      {
+        "sourceId": "a",
+        "kind": "warming"
+      },
+      {
+        "sourceId": "a",
+        "kind": "transport_ready"
+      },
+      {
+        "sourceId": "a",
+        "kind": "buffer"
+      },
+      {
+        "sourceId": "b",
+        "kind": "acquiring"
+      },
+      {
+        "sourceId": "a",
+        "kind": "buffer"
+      },
+      {
+        "sourceId": "a",
+        "kind": "buffer"
+      },
+      {
+        "sourceId": "b",
+        "kind": "acquiring"
+      },
+      {
+        "sourceId": "b",
+        "kind": "warming"
+      },
+      {
+        "sourceId": "a",
+        "kind": "buffer"
+      },
+      {
+        "sourceId": "a",
+        "kind": "buffer"
+      },
+      {
+        "sourceId": "b",
+        "kind": "transport_ready"
+      },
+      {
+        "sourceId": "b",
+        "kind": "buffer"
+      },
+      {
+        "sourceId": "a",
+        "kind": "buffer"
+      },
+      {
+        "sourceId": "a",
+        "kind": "buffer"
+      },
+      {
+        "sourceId": "b",
+        "kind": "buffer"
+      },
+      {
+        "sourceId": "a",
+        "kind": "cancelled"
+      },
+      {
+        "sourceId": "b",
+        "kind": "buffer"
+      },
+      {
+        "sourceId": "b",
+        "kind": "buffer"
+      },
+      {
+        "sourceId": "b",
+        "kind": "buffer"
+      },
+      {
+        "sourceId": "b",
+        "kind": "buffer"
+      },
+      {
+        "sourceId": "b",
+        "kind": "buffer"
+      },
+      {
+        "sourceId": "b",
+        "kind": "buffer"
+      },
+      {
+        "sourceId": "b",
+        "kind": "buffer"
+      },
+      {
+        "sourceId": "b",
+        "kind": "buffer"
+      },
+      {
+        "sourceId": "b",
+        "kind": "buffer"
+      },
+      {
+        "sourceId": "b",
+        "kind": "cancelled"
+      }
+    ]
+  },
+  "tracedReceipt": {
+    "schemaVersion": 1,
+    "terminal": true,
+    "request": {
+      "settings": {
+        "videoPreset": "480p30",
+        "audioBitrateKbps": 320
+      },
+      "cpuUnits": 8192,
+      "memoryMiB": 16384,
+      "durationSeconds": 60,
+      "simulcastEnabled": true,
+      "outputDir": "/tmp/event-capacity-timestamped-trace"
+    },
+    "startedAt": "2026-10-23T10:48:05.934Z",
+    "inputs": {
+      "a": {
+        "videoCodec": "h264",
+        "width": 1920,
+        "height": 1080,
+        "fps": 60,
+        "audioCodec": "aac",
+        "channels": 2,
+        "sampleRate": 48000
+      },
+      "b": {
+        "videoCodec": "h264",
+        "width": 1920,
+        "height": 1080,
+        "fps": 60,
+        "audioCodec": "aac",
+        "channels": 2,
+        "sampleRate": 48000
+      }
+    },
+    "steadyStartedAt": "2026-10-23T10:48:41.386Z",
+    "steady": {
+      "durationMs": 60014.113222,
+      "dualDecodeMs": 60014.124069,
+      "readinessLosses": 0,
+      "samples": 60,
+      "maxSampleGapMs": 1003.8264829999971
+    },
+    "resources": {
+      "cpuP95Percent": 37.57742784224921,
+      "cpuP50Percent": 33.77275574991533,
+      "sampleCoverageMs": 60012.62263700001,
+      "memoryPeakBytes": 15024484352,
+      "accounting": "whole-cgroup-including-fixtures-and-receivers"
+    },
+    "cleanup": {
+      "closed": true,
+      "liveChildren": 0,
+      "liveGroups": 0,
+      "children": 16
+    },
+    "phases": [
+      {
+        "identity": "a",
+        "atSeconds": 9.978667000000002
+      },
+      {
+        "identity": "b",
+        "atSeconds": 70.125333
+      },
+      {
+        "identity": "slate",
+        "atSeconds": 80.6
+      }
+    ],
+    "outputs": [
+      {
+        "maxGap": 0.034000000000006025,
+        "maxGop": 1.000000000000007,
+        "packets": 6519,
+        "monotonic": true,
+        "audioKbps": 324.2748930007288,
+        "destination": "vrcdn",
+        "videoCodec": "h264",
+        "width": 854,
+        "height": 480,
+        "fps": 30,
+        "pixelFormat": "yuv420p",
+        "audioCodec": "aac",
+        "channels": 2,
+        "sampleRate": 48000,
+        "identities": [
+          "a",
+          "b",
+          "slate"
+        ],
+        "visualPsnrDb": 31.636609830850666,
+        "avDriftMs": 330.00000000000006,
+        "markerVisualSeconds": [
+          2.1333333333333333,
+          3.1666666666666665,
+          4.166666666666667,
+          5.2
+        ],
+        "markerAudioSeconds": [
+          0.84,
+          1.84,
+          2.84,
+          3.87,
+          4.87,
+          5.87
+        ],
+        "markerCount": 4,
+        "internalDelayMs": 160.36607900000308
+      }
+    ],
+    "passed": false,
+    "failurePhase": "verify",
+    "failureCode": "wrong_identity",
+    "decoderFacts": {
+      "a": {
+        "videoBytes": 2408001152,
+        "audioBytes": 12587008,
+        "ptsLines": 3920,
+        "exits": 1,
+        "invalidData": 0
+      },
+      "b": {
+        "videoBytes": 2623824032,
+        "audioBytes": 13721600,
+        "ptsLines": 4270,
+        "exits": 1,
+        "invalidData": 0
+      }
+    },
+    "failureState": {
+      "worker": {
+        "stopped": true,
+        "committedIntent": {
+          "kind": "slate"
+        },
+        "intentSequence": 2,
+        "mode": "hold",
+        "ordinaryReceiptPending": false,
+        "authorityUntil": 137663.301958
+      },
+      "renderer": {
+        "outputMs": 84966.667,
+        "running": false,
+        "ticks": 2549,
+        "videoQueueBytes": 0
+      },
+      "observations": [
+        {
+          "slotKey": "a",
+          "sourceId": "a",
+          "observedAt": 95507.626349,
+          "ready": true,
+          "progressing": true,
+          "analysisActive": true,
+          "audioLevelDb": -23.56743719514605
+        },
+        {
+          "slotKey": "b",
+          "sourceId": "b",
+          "observedAt": 105902.41933,
+          "ready": true,
+          "progressing": true,
+          "analysisActive": true,
+          "audioLevelDb": -23.37006958524045
+        }
+      ],
+      "outputs": {
+        "publishing": false,
+        "destinations": [
+          {
+            "outputId": "primary",
+            "destination": "vrcdn",
+            "status": "stopped",
+            "publishing": false,
+            "queueBytes": 0,
+            "outputMs": 84554.667,
+            "restarts": 0
+          },
+          {
+            "outputId": "optional",
+            "destination": "twitch",
+            "status": "stopped",
+            "publishing": false,
+            "queueBytes": 0,
+            "outputMs": 84233.333,
+            "restarts": 0
+          }
+        ]
+      }
+    },
+    "readinessLosses": 0,
+    "transitions": [
+      {
+        "sourceId": "a",
+        "kind": "acquiring"
+      },
+      {
+        "sourceId": "a",
+        "kind": "acquiring"
+      },
+      {
+        "sourceId": "a",
+        "kind": "warming"
+      },
+      {
+        "sourceId": "a",
+        "kind": "transport_ready"
+      },
+      {
+        "sourceId": "a",
+        "kind": "buffer"
+      },
+      {
+        "sourceId": "b",
+        "kind": "acquiring"
+      },
+      {
+        "sourceId": "a",
+        "kind": "buffer"
+      },
+      {
+        "sourceId": "b",
+        "kind": "acquiring"
+      },
+      {
+        "sourceId": "a",
+        "kind": "buffer"
+      },
+      {
+        "sourceId": "b",
+        "kind": "warming"
+      },
+      {
+        "sourceId": "a",
+        "kind": "buffer"
+      },
+      {
+        "sourceId": "a",
+        "kind": "buffer"
+      },
+      {
+        "sourceId": "b",
+        "kind": "transport_ready"
+      },
+      {
+        "sourceId": "b",
+        "kind": "buffer"
+      },
+      {
+        "sourceId": "b",
+        "kind": "buffer"
+      },
+      {
+        "sourceId": "a",
+        "kind": "cancelled"
+      },
+      {
+        "sourceId": "b",
+        "kind": "buffer"
+      },
+      {
+        "sourceId": "b",
+        "kind": "buffer"
+      },
+      {
+        "sourceId": "b",
+        "kind": "buffer"
+      },
+      {
+        "sourceId": "b",
+        "kind": "buffer"
+      },
+      {
+        "sourceId": "b",
+        "kind": "buffer"
+      },
+      {
+        "sourceId": "b",
+        "kind": "buffer"
+      },
+      {
+        "sourceId": "b",
+        "kind": "buffer"
+      },
+      {
+        "sourceId": "b",
+        "kind": "buffer"
+      },
+      {
+        "sourceId": "b",
+        "kind": "buffer"
+      },
+      {
+        "sourceId": "b",
+        "kind": "cancelled"
+      }
+    ],
+    "finishedAt": "2026-10-23T10:50:03.297Z"
+  },
+  "correctedVerifierSameRecording": {
+    "avDriftMs": 133.33333333333997,
+    "markerCount": 10,
+    "markerMethod": "original-integer-pts-no-seek-passthrough",
+    "markerVisualSeconds": [
+      5.688,
+      6.355,
+      7.188,
+      8.155,
+      9.155,
+      10.288,
+      11.155,
+      12.121,
+      13.155,
+      14.155,
+      15.188,
+      16.188,
+      17.188,
+      18.188,
+      19.188,
+      20.188,
+      21.188,
+      22.221,
+      23.188,
+      24.155,
+      25.188,
+      26.188,
+      27.221,
+      28.221,
+      29.221,
+      30.221,
+      31.255,
+      32.288,
+      33.221,
+      34.255,
+      35.221,
+      36.188,
+      37.221,
+      38.221,
+      39.255,
+      40.255,
+      41.255,
+      42.255,
+      43.255,
+      44.255,
+      45.255,
+      46.288,
+      47.255,
+      48.221,
+      49.255,
+      50.255,
+      51.288,
+      52.255,
+      53.288,
+      54.288,
+      55.288,
+      56.288,
+      57.288,
+      58.321,
+      59.288,
+      60.255,
+      61.321,
+      62.288,
+      63.321,
+      64.355,
+      65.288,
+      66.321,
+      67.321,
+      68.355,
+      69.321,
+      69.588,
+      70.588,
+      71.621,
+      72.588,
+      73.655,
+      74.588,
+      75.588,
+      76.588,
+      77.588,
+      78.621,
+      79.621
+    ],
+    "markerAudioSeconds": [
+      7.212666666666666,
+      8.215333333333334,
+      9.218,
+      10.220666666666666,
+      11.213333333333333,
+      12.216,
+      13.218666666666667,
+      14.221333333333334,
+      15.245333333333333,
+      16.248,
+      17.250666666666667,
+      18.253333333333334,
+      19.244666666666667,
+      20.247333333333334,
+      21.25,
+      22.252666666666666,
+      23.245333333333335,
+      24.248,
+      25.250666666666667,
+      26.253333333333334,
+      27.277333333333335,
+      28.28,
+      29.282666666666668,
+      30.285333333333334,
+      31.276666666666667,
+      32.279333333333334,
+      33.282,
+      34.284666666666666,
+      35.27733333333333,
+      36.28,
+      37.282666666666664,
+      38.285333333333334,
+      39.309333333333335,
+      40.312,
+      41.31466666666667,
+      42.31733333333333,
+      43.30866666666667,
+      44.31133333333333,
+      45.314,
+      46.31666666666667,
+      47.309333333333335,
+      48.312,
+      49.31466666666667,
+      50.31733333333333,
+      51.34133333333333,
+      52.344,
+      53.346666666666664,
+      54.349333333333334,
+      55.340666666666664,
+      56.343333333333334,
+      57.346,
+      58.34866666666667,
+      59.34133333333333,
+      60.344,
+      61.346666666666664,
+      62.349333333333334,
+      63.373333333333335,
+      64.376,
+      65.37866666666666,
+      66.38133333333333,
+      67.37266666666666,
+      68.37533333333333,
+      69.378,
+      69.61266666666667,
+      70.61533333333334,
+      71.618,
+      72.62066666666666,
+      73.72,
+      74.72133333333333,
+      75.714,
+      76.71666666666667,
+      77.71933333333334,
+      78.75333333333333,
+      79.746
+    ],
+    "markerWindows": [
+      {
+        "identity": "a",
+        "start": 11.378667000000002,
+        "end": 17.378667,
+        "videoFrames": 180,
+        "audioWindows": 282,
+        "visualMarkers": 5,
+        "audioMarkers": 6,
+        "pairs": [
+          {
+            "videoPts": 12.121,
+            "audioPts": 12.216,
+            "audioMinusVideoMs": 94.99999999999886
+          },
+          {
+            "videoPts": 13.155,
+            "audioPts": 13.218666666666667,
+            "audioMinusVideoMs": 63.66666666666809
+          },
+          {
+            "videoPts": 14.155,
+            "audioPts": 14.221333333333334,
+            "audioMinusVideoMs": 66.33333333333447
+          },
+          {
+            "videoPts": 15.188,
+            "audioPts": 15.245333333333333,
+            "audioMinusVideoMs": 57.33333333333235
+          },
+          {
+            "videoPts": 16.188,
+            "audioPts": 16.248,
+            "audioMinusVideoMs": 60.000000000002274
+          }
+        ]
+      },
+      {
+        "identity": "b",
+        "start": 71.525333,
+        "end": 77.525333,
+        "videoFrames": 180,
+        "audioWindows": 281,
+        "visualMarkers": 5,
+        "audioMarkers": 6,
+        "pairs": [
+          {
+            "videoPts": 72.588,
+            "audioPts": 72.62066666666666,
+            "audioMinusVideoMs": 32.66666666667106
+          },
+          {
+            "videoPts": 73.655,
+            "audioPts": 73.72,
+            "audioMinusVideoMs": 64.99999999999773
+          },
+          {
+            "videoPts": 74.588,
+            "audioPts": 74.72133333333333,
+            "audioMinusVideoMs": 133.33333333333997
+          },
+          {
+            "videoPts": 75.588,
+            "audioPts": 75.714,
+            "audioMinusVideoMs": 126.00000000000477
+          },
+          {
+            "videoPts": 76.588,
+            "audioPts": 76.71666666666667,
+            "audioMinusVideoMs": 128.6666666666747
+          }
+        ]
+      }
+    ],
+    "markerDecode": {
+      "videoFrames": 2544,
+      "audioWindows": 3975,
+      "videoRange": [
+        1.421,
+        86.188
+      ],
+      "audioRange": [
+        1.4,
+        86.2
+      ],
+      "complete": true
+    }
+  },
+  "sourceCursorSummary": {
+    "a": {
+      "ticks": 1892,
+      "unanchoredTicks": 35,
+      "cursorMinusMatchedVideoMs": {
+        "min": -100.0,
+        "median": -65.33333333333212,
+        "p95": -33.33333333333394,
+        "max": 100.0
+      },
+      "anchors": [
+        {
+          "tick": 0,
+          "id": "a",
+          "v": 199680,
+          "after": 108096,
+          "lo": 101664,
+          "hi": 113664,
+          "bytes": 22272
+        }
+      ],
+      "initialTicks": [
+        {
+          "id": "a",
+          "v": 199680,
+          "after": 108096,
+          "lo": 101664,
+          "hi": 113664,
+          "bytes": 22272
+        },
+        {
+          "id": "a",
+          "v": 205680,
+          "old": 108096,
+          "after": 109696,
+          "lo": 108096,
+          "hi": 116736,
+          "bytes": 28160
+        },
+        {
+          "id": "a",
+          "v": 211680,
+          "old": 109696,
+          "after": 111296,
+          "lo": 109696,
+          "hi": 117760,
+          "bytes": 25856
+        },
+        {
+          "id": "a",
+          "v": 216180,
+          "old": 111296,
+          "after": 112896,
+          "lo": 111296,
+          "hi": 119808,
+          "bytes": 27648
+        },
+        {
+          "id": "a",
+          "v": 216180,
+          "old": 112896,
+          "after": 114496,
+          "lo": 112896,
+          "hi": 120832,
+          "bytes": 25344
+        },
+        {
+          "id": "a",
+          "v": 222180,
+          "old": 114496,
+          "after": 116096,
+          "lo": 114496,
+          "hi": 122880,
+          "bytes": 27136
+        }
+      ]
+    },
+    "b": {
+      "ticks": 305,
+      "unanchoredTicks": 3,
+      "cursorMinusMatchedVideoMs": {
+        "min": -150.0,
+        "median": -116.66666666667152,
+        "p95": 16.66666666666424,
+        "max": 183.33333333333576
+      },
+      "anchors": [
+        {
+          "tick": 0,
+          "id": "b",
+          "v": 5493840,
+          "after": 2931648,
+          "lo": 2924832,
+          "hi": 2936832,
+          "bytes": 20736
+        },
+        {
+          "tick": 117,
+          "id": "b",
+          "v": 5850840,
+          "after": 3122048,
+          "lo": 3120416,
+          "hi": 3132416,
+          "bytes": 41472
+        }
+      ],
+      "initialTicks": [
+        {
+          "id": "b",
+          "v": 5493840,
+          "after": 2931648,
+          "lo": 2924832,
+          "hi": 2936832,
+          "bytes": 20736
+        },
+        {
+          "id": "b",
+          "v": 5499840,
+          "old": 2931648,
+          "after": 2933248,
+          "lo": 2931648,
+          "hi": 2937856,
+          "bytes": 18432
+        },
+        {
+          "id": "b",
+          "v": 5504340,
+          "old": 2933248,
+          "after": 2934848,
+          "lo": 2933248,
+          "hi": 2938880,
+          "bytes": 16128
+        },
+        {
+          "id": "b",
+          "v": 5505840,
+          "old": 2934848,
+          "after": 2936448,
+          "lo": 2934848,
+          "hi": 2940928,
+          "bytes": 17920
+        },
+        {
+          "id": "b",
+          "v": 5507340,
+          "old": 2936448,
+          "after": 2938048,
+          "lo": 2936448,
+          "hi": 2942976,
+          "bytes": 19712
+        },
+        {
+          "id": "b",
+          "v": 5511840,
+          "old": 2938048,
+          "after": 2939648,
+          "lo": 2938048,
+          "hi": 2944000,
+          "bytes": 17408
+        }
+      ]
+    }
+  },
+  "corrections": [
+    "Fresh matched decoder evidence no longer depends on unread PCM queue length.",
+    "Forward retained-frame skips do not imply source timestamp reset.",
+    "Marker proof retains original integer timestamps, uses passthrough video, and checks all markers in both declared A/B windows."
+  ],
+  "afterFalseResetCorrection": {
+    "receipt": {
+      "schemaVersion": 1,
+      "terminal": true,
+      "request": {
+        "settings": {
+          "videoPreset": "480p30",
+          "audioBitrateKbps": 320
+        },
+        "cpuUnits": 8192,
+        "memoryMiB": 16384,
+        "durationSeconds": 60,
+        "simulcastEnabled": true,
+        "outputDir": "/tmp/event-capacity-timestamped-fixed"
+      },
+      "startedAt": "2026-10-23T11:04:43.658Z",
+      "inputs": {
+        "a": {
+          "videoCodec": "h264",
+          "width": 1920,
+          "height": 1080,
+          "fps": 60,
+          "audioCodec": "aac",
+          "channels": 2,
+          "sampleRate": 48000
+        },
+        "b": {
+          "videoCodec": "h264",
+          "width": 1920,
+          "height": 1080,
+          "fps": 60,
+          "audioCodec": "aac",
+          "channels": 2,
+          "sampleRate": 48000
+        }
+      },
+      "steadyStartedAt": "2026-10-23T11:05:17.221Z",
+      "steady": {
+        "durationMs": 60003.722477,
+        "dualDecodeMs": 60006.956172000006,
+        "readinessLosses": 0,
+        "samples": 60,
+        "maxSampleGapMs": 1109.5293410000013
+      },
+      "resources": {
+        "cpuP95Percent": 49.34194921916233,
+        "cpuP50Percent": 34.95052834581565,
+        "sampleCoverageMs": 60002.31237300001,
+        "memoryPeakBytes": 15193825280,
+        "accounting": "whole-cgroup-including-fixtures-and-receivers"
+      },
+      "cleanup": {
+        "closed": true,
+        "liveChildren": 0,
+        "liveGroups": 0,
+        "children": 16
+      },
+      "phases": [
+        {
+          "identity": "a",
+          "atSeconds": 10.32
+        },
+        {
+          "identity": "b",
+          "atSeconds": 70.722667
+        },
+        {
+          "identity": "slate",
+          "atSeconds": 80.962667
+        }
+      ],
+      "outputs": [
+        {
+          "maxGap": 0.034000000000006025,
+          "maxGop": 1.000000000000007,
+          "packets": 6532,
+          "monotonic": true,
+          "audioKbps": 325.34651215822333,
+          "destination": "vrcdn",
+          "videoCodec": "h264",
+          "width": 854,
+          "height": 480,
+          "fps": 30,
+          "pixelFormat": "yuv420p",
+          "audioCodec": "aac",
+          "channels": 2,
+          "sampleRate": 48000,
+          "identities": [
+            "a",
+            "b",
+            "slate"
+          ],
+          "visualPsnrDb": 31.56862558814702,
+          "avDriftMs": 125.66666666666748,
+          "markerCount": 12,
+          "markerMethod": "original-integer-pts-no-seek-passthrough",
+          "markerVisualSeconds": [
+            5.521,
+            6.155,
+            6.621,
+            7.455,
+            8.455,
+            9.455,
+            10.555,
+            11.488,
+            12.488,
+            13.455,
+            14.455,
+            15.455,
+            16.455,
+            17.455,
+            18.455,
+            19.488,
+            20.488,
+            21.488,
+            22.488,
+            23.488,
+            24.555,
+            25.488,
+            26.488,
+            27.488,
+            28.521,
+            29.488,
+            30.521,
+            31.521,
+            32.521,
+            33.521,
+            34.555,
+            35.521,
+            36.555,
+            37.521,
+            38.521,
+            39.521,
+            40.521,
+            41.521,
+            42.521,
+            43.555,
+            44.555,
+            45.555,
+            46.588,
+            47.555,
+            48.588,
+            49.555,
+            50.555,
+            51.588,
+            52.555,
+            53.588,
+            54.588,
+            55.588,
+            56.588,
+            57.888,
+            58.988,
+            60.421,
+            62.221,
+            63.021,
+            63.755,
+            64.621,
+            65.721,
+            66.321,
+            66.988,
+            67.821,
+            68.621,
+            69.655,
+            69.988,
+            70.988,
+            71.955,
+            72.921,
+            73.955,
+            74.888,
+            75.888,
+            76.888,
+            77.888,
+            78.921,
+            79.921
+          ],
+          "markerAudioSeconds": [
+            6.615333333333333,
+            7.554,
+            8.546666666666667,
+            9.549333333333333,
+            10.552,
+            11.554666666666666,
+            12.546,
+            13.548666666666668,
+            14.551333333333334,
+            15.554,
+            16.546666666666667,
+            17.580666666666666,
+            18.583333333333332,
+            19.586,
+            20.578666666666667,
+            21.581333333333333,
+            22.584,
+            23.586666666666666,
+            24.578,
+            25.580666666666666,
+            26.583333333333332,
+            27.586,
+            28.578666666666667,
+            29.612666666666666,
+            30.615333333333332,
+            31.618,
+            32.61066666666667,
+            33.61333333333334,
+            34.616,
+            35.61866666666667,
+            36.61,
+            37.61266666666667,
+            38.61533333333333,
+            39.618,
+            40.61066666666667,
+            41.644666666666666,
+            42.647333333333336,
+            43.65,
+            44.64266666666666,
+            45.64533333333333,
+            46.648,
+            47.650666666666666,
+            48.642,
+            49.644666666666666,
+            50.647333333333336,
+            51.65,
+            52.64266666666666,
+            53.67666666666667,
+            54.67933333333333,
+            55.682,
+            56.67466666666667,
+            57.67733333333333,
+            58.68,
+            66.71133333333333,
+            67.714,
+            68.70666666666666,
+            69.70933333333333,
+            69.98666666666666,
+            70.914,
+            71.91666666666667,
+            72.91933333333333,
+            73.922,
+            74.91466666666666,
+            75.91733333333333,
+            76.92,
+            77.92133333333334,
+            78.94666666666667,
+            79.94933333333333
+          ],
+          "markerWindows": [
+            {
+              "identity": "a",
+              "start": 11.72,
+              "end": 17.72,
+              "videoFrames": 180,
+              "audioWindows": 281,
+              "visualMarkers": 6,
+              "audioMarkers": 6,
+              "pairs": [
+                {
+                  "videoPts": 12.488,
+                  "audioPts": 12.546,
+                  "audioMinusVideoMs": 57.99999999999983
+                },
+                {
+                  "videoPts": 13.455,
+                  "audioPts": 13.548666666666668,
+                  "audioMinusVideoMs": 93.66666666666745
+                },
+                {
+                  "videoPts": 14.455,
+                  "audioPts": 14.551333333333334,
+                  "audioMinusVideoMs": 96.33333333333383
+                },
+                {
+                  "videoPts": 15.455,
+                  "audioPts": 15.554,
+                  "audioMinusVideoMs": 99.0000000000002
+                },
+                {
+                  "videoPts": 16.455,
+                  "audioPts": 16.546666666666667,
+                  "audioMinusVideoMs": 91.66666666666856
+                },
+                {
+                  "videoPts": 17.455,
+                  "audioPts": 17.580666666666666,
+                  "audioMinusVideoMs": 125.66666666666748
+                }
+              ]
+            },
+            {
+              "identity": "b",
+              "start": 72.122667,
+              "end": 78.122667,
+              "videoFrames": 180,
+              "audioWindows": 281,
+              "visualMarkers": 6,
+              "audioMarkers": 6,
+              "pairs": [
+                {
+                  "videoPts": 72.921,
+                  "audioPts": 72.91933333333333,
+                  "audioMinusVideoMs": -1.6666666666793617
+                },
+                {
+                  "videoPts": 73.955,
+                  "audioPts": 73.922,
+                  "audioMinusVideoMs": -33.00000000000125
+                },
+                {
+                  "videoPts": 74.888,
+                  "audioPts": 74.91466666666666,
+                  "audioMinusVideoMs": 26.666666666656624
+                },
+                {
+                  "videoPts": 75.888,
+                  "audioPts": 75.91733333333333,
+                  "audioMinusVideoMs": 29.33333333332655
+                },
+                {
+                  "videoPts": 76.888,
+                  "audioPts": 76.92,
+                  "audioMinusVideoMs": 31.999999999996476
+                },
+                {
+                  "videoPts": 77.888,
+                  "audioPts": 77.92133333333334,
+                  "audioMinusVideoMs": 33.33333333333144
+                }
+              ]
+            }
+          ],
+          "markerDecode": {
+            "videoFrames": 2549,
+            "audioWindows": 3983,
+            "videoRange": [
+              1.421,
+              86.355
+            ],
+            "audioRange": [
+              1.4,
+              86.37066666666666
+            ],
+            "complete": true
+          },
+          "internalDelayMs": 434.4872120000073
+        },
+        {
+          "maxGap": 0.034000000000006025,
+          "maxGop": 2.000000000000001,
+          "packets": 6487,
+          "monotonic": true,
+          "audioKbps": 164.03649511082017,
+          "destination": "twitch",
+          "videoCodec": "h264",
+          "width": 854,
+          "height": 480,
+          "fps": 30,
+          "pixelFormat": "yuv420p",
+          "audioCodec": "aac",
+          "channels": 2,
+          "sampleRate": 48000,
+          "identities": [
+            "a",
+            "b",
+            "slate"
+          ],
+          "visualPsnrDb": 31.502611221201498,
+          "avDriftMs": 113.83333333333212,
+          "markerCount": 12,
+          "markerMethod": "original-integer-pts-no-seek-passthrough",
+          "markerVisualSeconds": [
+            5.554,
+            6.188,
+            6.654,
+            7.488,
+            8.488,
+            9.488,
+            10.588,
+            11.521,
+            12.521,
+            13.488,
+            14.488,
+            15.488,
+            16.488,
+            17.488,
+            18.488,
+            19.521,
+            20.521,
+            21.521,
+            22.521,
+            23.521,
+            24.588,
+            25.521,
+            26.521,
+            27.521,
+            28.554,
+            29.521,
+            30.554,
+            31.554,
+            32.554,
+            33.554,
+            34.588,
+            35.554,
+            36.588,
+            37.554,
+            38.554,
+            39.554,
+            40.554,
+            41.554,
+            42.554,
+            43.588,
+            44.588,
+            45.588,
+            46.621,
+            47.588,
+            48.621,
+            49.588,
+            50.588,
+            51.621,
+            52.588,
+            53.621,
+            54.621,
+            55.621,
+            56.621,
+            57.921,
+            59.021,
+            60.454,
+            62.254,
+            63.054,
+            63.788,
+            64.654,
+            65.754,
+            66.354,
+            67.021,
+            67.854,
+            68.654,
+            69.688,
+            70.021,
+            71.021,
+            71.988,
+            72.954,
+            73.988,
+            74.921,
+            75.921,
+            76.921,
+            77.921,
+            78.954,
+            79.954
+          ],
+          "markerAudioSeconds": [
+            6.6365,
+            7.575166666666667,
+            8.567833333333333,
+            9.5705,
+            10.573166666666667,
+            11.575833333333334,
+            12.567166666666667,
+            13.569833333333333,
+            14.5725,
+            15.575166666666666,
+            16.567833333333333,
+            17.60183333333333,
+            18.6045,
+            19.607166666666668,
+            20.599833333333333,
+            21.6025,
+            22.605166666666666,
+            23.607833333333332,
+            24.599166666666665,
+            25.60183333333333,
+            26.6045,
+            27.607166666666668,
+            28.599833333333333,
+            29.63383333333333,
+            30.6365,
+            31.639166666666668,
+            32.63183333333333,
+            33.6345,
+            34.637166666666666,
+            35.639833333333335,
+            36.631166666666665,
+            37.633833333333335,
+            38.6365,
+            39.63916666666667,
+            40.63183333333333,
+            41.66583333333333,
+            42.6685,
+            43.671166666666664,
+            44.663833333333336,
+            45.6665,
+            46.66916666666667,
+            47.67183333333333,
+            48.66316666666667,
+            49.66583333333333,
+            50.6685,
+            51.671166666666664,
+            52.663833333333336,
+            53.697833333333335,
+            54.7005,
+            55.70316666666667,
+            56.69583333333333,
+            57.6985,
+            58.701166666666666,
+            66.7325,
+            67.73516666666667,
+            68.72783333333334,
+            69.7305,
+            70.00783333333334,
+            70.93516666666666,
+            71.93783333333333,
+            72.9405,
+            73.94316666666667,
+            74.93583333333333,
+            75.9385,
+            76.94116666666666,
+            77.9425,
+            78.96783333333333,
+            79.9705
+          ],
+          "markerWindows": [
+            {
+              "identity": "a",
+              "start": 11.72,
+              "end": 17.72,
+              "videoFrames": 180,
+              "audioWindows": 282,
+              "visualMarkers": 6,
+              "audioMarkers": 6,
+              "pairs": [
+                {
+                  "videoPts": 12.521,
+                  "audioPts": 12.567166666666667,
+                  "audioMinusVideoMs": 46.166666666666245
+                },
+                {
+                  "videoPts": 13.488,
+                  "audioPts": 13.569833333333333,
+                  "audioMinusVideoMs": 81.83333333333387
+                },
+                {
+                  "videoPts": 14.488,
+                  "audioPts": 14.5725,
+                  "audioMinusVideoMs": 84.50000000000024
+                },
+                {
+                  "videoPts": 15.488,
+                  "audioPts": 15.575166666666666,
+                  "audioMinusVideoMs": 87.16666666666661
+                },
+                {
+                  "videoPts": 16.488,
+                  "audioPts": 16.567833333333333,
+                  "audioMinusVideoMs": 79.8333333333332
+                },
+                {
+                  "videoPts": 17.488,
+                  "audioPts": 17.60183333333333,
+                  "audioMinusVideoMs": 113.83333333333212
+                }
+              ]
+            },
+            {
+              "identity": "b",
+              "start": 72.122667,
+              "end": 78.122667,
+              "videoFrames": 180,
+              "audioWindows": 281,
+              "visualMarkers": 6,
+              "audioMarkers": 6,
+              "pairs": [
+                {
+                  "videoPts": 72.954,
+                  "audioPts": 72.9405,
+                  "audioMinusVideoMs": -13.499999999993406
+                },
+                {
+                  "videoPts": 73.988,
+                  "audioPts": 73.94316666666667,
+                  "audioMinusVideoMs": -44.833333333329506
+                },
+                {
+                  "videoPts": 74.921,
+                  "audioPts": 74.93583333333333,
+                  "audioMinusVideoMs": 14.833333333328369
+                },
+                {
+                  "videoPts": 75.921,
+                  "audioPts": 75.9385,
+                  "audioMinusVideoMs": 17.499999999998295
+                },
+                {
+                  "videoPts": 76.921,
+                  "audioPts": 76.94116666666666,
+                  "audioMinusVideoMs": 20.16666666665401
+                },
+                {
+                  "videoPts": 77.921,
+                  "audioPts": 77.9425,
+                  "audioMinusVideoMs": 21.499999999988972
+                }
+              ]
+            }
+          ],
+          "markerDecode": {
+            "videoFrames": 2531,
+            "audioWindows": 3956,
+            "videoRange": [
+              1.454,
+              85.788
+            ],
+            "audioRange": [
+              1.4,
+              85.7945
+            ],
+            "complete": true
+          },
+          "internalDelayMs": 434.4872120000073
+        }
+      ],
+      "maxCompressedBufferBytes": 3342336,
+      "maxDecoders": 2,
+      "maxAcquisitions": 2,
+      "artifacts": [
+        {
+          "name": "program.ts",
+          "bytes": 14624332,
+          "sha256": "640ec4e604ca823e259170fc349748ebf52b35b6ecff06ca46b985f9ed588be2",
+          "complete": true
+        },
+        {
+          "name": "vrcdn.ts",
+          "bytes": 14380872,
+          "sha256": "dcfa9e3e7b7ede7567af25f7f57d1fc60447bda29b53d7b5366e635bd7d085bb",
+          "complete": true
+        },
+        {
+          "name": "twitch.ts",
+          "bytes": 12873112,
+          "sha256": "c6fca1a6d84fe0a6d0de4ca004f608ade0ae881f7d10d5f2dba4191a0c91f001",
+          "complete": true
+        }
+      ],
+      "finishedAt": "2026-10-23T11:06:49.982Z",
+      "passed": false,
+      "failurePhase": "verify",
+      "failureCode": "identity_quality_timing",
+      "decoderFacts": {
+        "a": {
+          "videoBytes": 2416125664,
+          "audioBytes": 12627968,
+          "ptsLines": 3933,
+          "exits": 1,
+          "invalidData": 0
+        },
+        "b": {
+          "videoBytes": 2634145920,
+          "audioBytes": 13762560,
+          "ptsLines": 4286,
+          "exits": 1,
+          "invalidData": 0
+        }
+      },
+      "failureState": {
+        "worker": {
+          "stopped": true,
+          "committedIntent": {
+            "kind": "slate"
+          },
+          "intentSequence": 2,
+          "mode": "hold",
+          "ordinaryReceiptPending": false,
+          "authorityUntil": 135440.87361100002
+        },
+        "renderer": {
+          "outputMs": 85133.333,
+          "running": false,
+          "ticks": 2554,
+          "videoQueueBytes": 0
+        },
+        "observations": [
+          {
+            "slotKey": "a",
+            "sourceId": "a",
+            "observedAt": 93708.502864,
+            "ready": true,
+            "progressing": true,
+            "analysisActive": true,
+            "audioLevelDb": -23.37340472534003
+          },
+          {
+            "slotKey": "b",
+            "sourceId": "b",
+            "observedAt": 103978.780632,
+            "ready": true,
+            "progressing": true,
+            "analysisActive": true,
+            "audioLevelDb": -23.524362235701176
+          }
+        ],
+        "outputs": {
+          "publishing": false,
+          "destinations": [
+            {
+              "outputId": "primary",
+              "destination": "vrcdn",
+              "status": "stopped",
+              "publishing": false,
+              "queueBytes": 0,
+              "outputMs": 84721.333,
+              "restarts": 0
+            },
+            {
+              "outputId": "optional",
+              "destination": "twitch",
+              "status": "stopped",
+              "publishing": false,
+              "queueBytes": 0,
+              "outputMs": 84300,
+              "restarts": 0
+            }
+          ]
+        }
+      },
+      "readinessLosses": 0,
+      "transitions": [
+        {
+          "sourceId": "a",
+          "kind": "acquiring"
+        },
+        {
+          "sourceId": "a",
+          "kind": "acquiring"
+        },
+        {
+          "sourceId": "a",
+          "kind": "warming"
+        },
+        {
+          "sourceId": "a",
+          "kind": "transport_ready"
+        },
+        {
+          "sourceId": "a",
+          "kind": "buffer"
+        },
+        {
+          "sourceId": "b",
+          "kind": "acquiring"
+        },
+        {
+          "sourceId": "a",
+          "kind": "buffer"
+        },
+        {
+          "sourceId": "a",
+          "kind": "buffer"
+        },
+        {
+          "sourceId": "b",
+          "kind": "acquiring"
+        },
+        {
+          "sourceId": "b",
+          "kind": "warming"
+        },
+        {
+          "sourceId": "a",
+          "kind": "buffer"
+        },
+        {
+          "sourceId": "a",
+          "kind": "buffer"
+        },
+        {
+          "sourceId": "b",
+          "kind": "transport_ready"
+        },
+        {
+          "sourceId": "b",
+          "kind": "buffer"
+        },
+        {
+          "sourceId": "a",
+          "kind": "buffer"
+        },
+        {
+          "sourceId": "b",
+          "kind": "buffer"
+        },
+        {
+          "sourceId": "a",
+          "kind": "cancelled"
+        },
+        {
+          "sourceId": "b",
+          "kind": "buffer"
+        },
+        {
+          "sourceId": "b",
+          "kind": "buffer"
+        },
+        {
+          "sourceId": "b",
+          "kind": "buffer"
+        },
+        {
+          "sourceId": "b",
+          "kind": "buffer"
+        },
+        {
+          "sourceId": "b",
+          "kind": "buffer"
+        },
+        {
+          "sourceId": "b",
+          "kind": "buffer"
+        },
+        {
+          "sourceId": "b",
+          "kind": "buffer"
+        },
+        {
+          "sourceId": "b",
+          "kind": "buffer"
+        },
+        {
+          "sourceId": "b",
+          "kind": "buffer"
+        },
+        {
+          "sourceId": "b",
+          "kind": "cancelled"
+        }
+      ]
+    },
+    "trace": {
+      "bytes": 328617,
+      "sha256": "938f5d349a094cb45e50c6347c97bafc36fe6c6ec1f0100907b20e83f1b030c1",
+      "resetEvents": [
+        {
+          "id": "a",
+          "at": 28577.612521,
+          "method": "reset",
+          "received": 0,
+          "metadata": 0
+        },
+        {
+          "id": "a",
+          "at": 29314.674013,
+          "method": "beginPlayback",
+          "v": 5700,
+          "nextVideo": 5700,
+          "received": 19456,
+          "metadata": 19456
+        },
+        {
+          "id": "b",
+          "at": 32949.96311,
+          "method": "reset",
+          "received": 0,
+          "metadata": 0
+        },
+        {
+          "id": "b",
+          "at": 93770.442796,
+          "method": "beginPlayback",
+          "v": 5511840,
+          "nextVideo": 5511840,
+          "received": 2945024,
+          "metadata": 2945024
+        },
+        {
+          "id": "a",
+          "at": 93865.955184,
+          "method": "reset",
+          "before": 3142976,
+          "v": 5910480,
+          "received": 3156992,
+          "metadata": 3156992
+        },
+        {
+          "id": "b",
+          "at": 104091.964442,
+          "method": "reset",
+          "before": 3435648,
+          "v": 6443220,
+          "received": 3440640,
+          "metadata": 3440640
+        }
+      ]
+    },
+    "status": "strict A/V failed; future-outside-retained correction is subsequent and not measured by this receipt"
+  },
+  "realThirtyToSixtyHostNegative": {
+    "requiredGateMs": 100,
+    "measuredMaxDriftMs": 100.66666666666623,
+    "passed": false,
+    "case": "real prewarmed 30fps mono source stays synchronized in a 60fps stereo program",
+    "logBytes": 947,
+    "logSha256": "749bfb358024cfae103c2fde68a7592bcb6a4d10a6b44829a7248a3053e7c7d6",
+    "disposition": "Retained as required exact-image Node case; no tolerance change. Host real-time result does not establish isolated image capacity."
+  },
+  "finalHostNamedNodeGate": {
+    "summary": {
+      "testsRun": 49,
+      "outcomes": [
+        {
+          "test": "returns handle immediately and retains normalized bytes before transport readiness",
+          "outcome": "passed"
+        },
+        {
+          "test": "already aborted never spawns and disposal is idempotent",
+          "outcome": "passed"
+        },
+        {
+          "test": "stderr rejects raw diagnostics and oversized/incomplete events without blocking control",
+          "outcome": "passed"
+        },
+        {
+          "test": "group cancellation kills a TERM-ignoring descendant after the leader exits",
+          "outcome": "passed"
+        },
+        {
+          "test": "original preparation expiry cannot renew on retry or takeover",
+          "outcome": "passed"
+        },
+        {
+          "test": "fresh process per reconnect with bounded exponential delays",
+          "outcome": "passed"
+        },
+        {
+          "test": "retained no-consumer backlog backpressures and readiness events are bounded",
+          "outcome": "passed"
+        },
+        {
+          "test": "disposal terminates the current retry rather than reusing a completed cleanup",
+          "outcome": "passed"
+        },
+        {
+          "test": "failed cleanup rejects disposal, stays occupied, and never retries after exit or abort",
+          "outcome": "passed"
+        },
+        {
+          "test": "decoded buffers keep the latest frame and cap audio at 250ms",
+          "outcome": "passed"
+        },
+        {
+          "test": "reconnect backs off to ten seconds",
+          "outcome": "passed"
+        },
+        {
+          "test": "unstarted input never claims decoded readiness and binds its identity",
+          "outcome": "passed"
+        },
+        {
+          "test": "renderer bounds active decoders and releases obsolete slots",
+          "outcome": "passed"
+        },
+        {
+          "test": "profiles preserve the existing worker encoding contracts",
+          "outcome": "passed"
+        },
+        {
+          "test": "decoded readiness expires, failure persists, and recovery resets silence evidence",
+          "outcome": "passed"
+        },
+        {
+          "test": "split PCM samples retain stereo alignment when the bounded tail overflows",
+          "outcome": "passed"
+        },
+        {
+          "test": "switch acknowledgements wait for encoded program progress",
+          "outcome": "passed"
+        },
+        {
+          "test": "overlapping reconciliation never leaves more than current and next inputs",
+          "outcome": "passed"
+        },
+        {
+          "test": "encoded acknowledgement retains source identity when a slot is replaced",
+          "outcome": "passed"
+        },
+        {
+          "test": "reconnect starts a new evidence epoch without retaining stale failure duration",
+          "outcome": "passed"
+        },
+        {
+          "test": "duplicate initial PTS cannot establish readiness at startup",
+          "outcome": "passed"
+        },
+        {
+          "test": "duplicate initial PTS cannot establish readiness after reconnect",
+          "outcome": "passed"
+        },
+        {
+          "test": "renderer accepts six video presets and rejects unsupported audio",
+          "outcome": "passed"
+        },
+        {
+          "test": "encoded snapshot retains revision when the same source and slot acquire a newer revision",
+          "outcome": "passed"
+        },
+        {
+          "test": "obsolete decoder pipes cannot supply replacement evidence, and stop is terminal until physical close",
+          "outcome": "passed"
+        },
+        {
+          "test": "raw arrivals without matched metadata cannot refresh decoded readiness",
+          "outcome": "passed"
+        },
+        {
+          "test": "unterminated decoder metadata pipe 2 is bounded and fails closed",
+          "outcome": "passed"
+        },
+        {
+          "test": "unterminated decoder metadata pipe 5 is bounded and fails closed",
+          "outcome": "passed"
+        },
+        {
+          "test": "split metadata records and raw-first callbacks retain exact frame/sample association",
+          "outcome": "passed"
+        },
+        {
+          "test": "renderer anchors only actual identity/hold/resume transitions, not repeated selection",
+          "outcome": "passed"
+        },
+        {
+          "test": "consuming all queued PCM does not revoke fresh matched decoder evidence",
+          "outcome": "passed"
+        },
+        {
+          "test": "measured prewarm backlog anchors audio to video rather than oldest retained PCM",
+          "outcome": "passed"
+        },
+        {
+          "test": "duplicated 30fps frames at 60fps and jitter preserve continuous PCM without repeated samples",
+          "outcome": "passed"
+        },
+        {
+          "test": "Cut resume reanchors, repeated reads do not, and decoder reset discards old timeline",
+          "outcome": "passed"
+        },
+        {
+          "test": "raw frame and PCM before metadata are associated without a third frame or stale promotion",
+          "outcome": "passed"
+        },
+        {
+          "test": "timestamp overlaps skip duplicate PCM and explicit gaps produce silence",
+          "outcome": "passed"
+        },
+        {
+          "test": "integer PTS remains sample accurate at a twelve-hour session timestamp",
+          "outcome": "passed"
+        },
+        {
+          "test": "overflow of retained media reanchors without increasing the 250ms bound",
+          "outcome": "passed"
+        },
+        {
+          "test": "missing timing and metadata overflow cannot publish unmatched media",
+          "outcome": "passed"
+        },
+        {
+          "test": "a temporary empty PCM range advances the existing clock and never replays late samples",
+          "outcome": "passed"
+        },
+        {
+          "test": "audio discontinuity beyond retained media discards old epoch and anchors to new matched frame",
+          "outcome": "passed"
+        },
+        {
+          "test": "real decoder normalizes 44100Hz mono before timestamping 48000Hz stereo PCM",
+          "outcome": "passed"
+        },
+        {
+          "test": "forward latest-frame skips do not reset an established continuous audio clock",
+          "outcome": "passed"
+        },
+        {
+          "test": "original timestamp marker proof case 0 retains every marker across gaps",
+          "outcome": "passed"
+        },
+        {
+          "test": "original timestamp marker proof case 1 retains every marker across gaps",
+          "outcome": "passed"
+        },
+        {
+          "test": "original timestamp marker proof case 2 retains every marker across gaps",
+          "outcome": "passed"
+        },
+        {
+          "test": "original timestamp marker proof case 3 retains every marker across gaps",
+          "outcome": "passed"
+        },
+        {
+          "test": "cursor beyond newly retained PCM reanchors only when the matched video is covered",
+          "outcome": "passed"
+        },
+        {
+          "test": "real prewarmed 30fps mono source stays synchronized in a 60fps stereo program",
+          "outcome": "failed"
+        }
+      ],
+      "passed": false
+    },
+    "sha256": "d895352f54d3e22a9f1d8afe95e4fbb85d07959308a856d23dc359a5dc095e42",
+    "status": "48 passed, 1 failed; actual realtime case remains required. The named summary does not establish which assertion failed in this final run."
+  }
+}

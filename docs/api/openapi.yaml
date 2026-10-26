@@ -6587,6 +6587,35 @@ components:
                     minLength: 2
                     maxLength: 128
                   - type: "null"
+              broadcastInput:
+                anyOf:
+                  - oneOf:
+                      - type: object
+                        properties:
+                          kind:
+                            type: string
+                            const: vrcdn
+                          streamId:
+                            type: string
+                            pattern: ^[a-zA-Z0-9_-]{2,128}$
+                        required:
+                          - kind
+                          - streamId
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          kind:
+                            type: string
+                            const: twitch
+                          channel:
+                            type: string
+                            pattern: ^[a-z0-9_]{3,25}$
+                        required:
+                          - kind
+                          - channel
+                        additionalProperties: false
+                    type: object
+                  - type: "null"
               personSlug:
                 type: string
                 minLength: 1
@@ -6655,6 +6684,35 @@ components:
               roleLabel:
                 type: string
                 maxLength: 48
+              broadcastInput:
+                anyOf:
+                  - oneOf:
+                      - type: object
+                        properties:
+                          kind:
+                            type: string
+                            const: vrcdn
+                          streamId:
+                            type: string
+                            pattern: ^[a-zA-Z0-9_-]{2,128}$
+                        required:
+                          - kind
+                          - streamId
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          kind:
+                            type: string
+                            const: twitch
+                          channel:
+                            type: string
+                            pattern: ^[a-z0-9_]{3,25}$
+                        required:
+                          - kind
+                          - channel
+                        additionalProperties: false
+                    type: object
+                  - type: "null"
               startAt:
                 type: integer
                 minimum: 0
@@ -6802,6 +6860,35 @@ components:
                   - type: string
                     minLength: 2
                     maxLength: 128
+                  - type: "null"
+              broadcastInput:
+                anyOf:
+                  - oneOf:
+                      - type: object
+                        properties:
+                          kind:
+                            type: string
+                            const: vrcdn
+                          streamId:
+                            type: string
+                            pattern: ^[a-zA-Z0-9_-]{2,128}$
+                        required:
+                          - kind
+                          - streamId
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          kind:
+                            type: string
+                            const: twitch
+                          channel:
+                            type: string
+                            pattern: ^[a-z0-9_]{3,25}$
+                        required:
+                          - kind
+                          - channel
+                        additionalProperties: false
+                    type: object
                   - type: "null"
               personSlug:
                 type: string

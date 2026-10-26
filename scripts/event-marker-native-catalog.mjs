@@ -1,0 +1,16 @@
+const must=(v,r)=>{if(!v)throw Error('marker_native_catalog_'+r);};
+/** Lossless finite dictionaries remove repeated spellings, never object facts.
+ * This entire JSON is ordinary fully charged runtime DATA, not executable code.
+ * Input objects must already be selected by the independent source review. */
+export function packNativeCatalog(objects) {
+ const strings=[],auditRefs=[],string=s=>{must(typeof s==='string','string');let i=strings.indexOf(s);if(i<0){i=strings.length;strings.push(s);}return i;},nullable=s=>s===null?-1:string(s),audit=r=>{if(!r)return -1;const key=JSON.stringify(r);let i=auditRefs.findIndex(v=>JSON.stringify(v)===key);if(i<0){i=auditRefs.length;auditRefs.push(r);}return i;};
+ const elfPatterns=[],pattern=e=>{const p=[e.type,nullable(e.interpreter),e.needed.map(string),nullable(e.rpath),nullable(e.runpath)];let i=elfPatterns.findIndex(v=>JSON.stringify(v)===JSON.stringify(p));if(i<0){i=elfPatterns.length;elfPatterns.push(p);}return i;};
+ const rows=objects.map(o=>{must(/^[0-9a-f]{64}$/.test(o.sha256),'sha256');return [o.id,o.semantic??null,o.partition==='critical'?0:1,string(o.path),o.aliases.map(string),o.links.map(l=>[string(l.path),string(l.target)]),o.bytes,Buffer.from(o.sha256,'hex').toString('base64'),[pattern(o.elf),nullable(o.elf.soname),o.elf.buildId],audit(o.provenanceRef),audit(o.sourceBuildRef)];});
+ const result={schema:'native-object-catalog-v1',digestEncoding:'sha256-base64',strings,auditRefs,elfPatterns,rows};expandNativeCatalog(result);return result;
+}
+export function expandNativeCatalog(catalog) {
+ must(catalog?.schema==='native-object-catalog-v1'&&Array.isArray(catalog.rows)&&catalog.rows.length>=9&&catalog.rows.length<=256&&Array.isArray(catalog.strings)&&catalog.strings.length<=16384&&catalog.strings.every(s=>typeof s==='string'&&Buffer.byteLength(s)<=4096)&&new Set(catalog.strings).size===catalog.strings.length&&Array.isArray(catalog.auditRefs)&&catalog.auditRefs.length<=256,'shape');
+ const string=i=>{must(Number.isSafeInteger(i)&&i>=0&&i<catalog.strings.length,'string_index');return catalog.strings[i];},nullable=i=>i===-1?null:string(i),audit=i=>{must(Number.isSafeInteger(i)&&i>=0&&i<catalog.auditRefs.length,'audit_index');return catalog.auditRefs[i];};
+ must(catalog.digestEncoding==='sha256-base64'&&Array.isArray(catalog.elfPatterns)&&catalog.elfPatterns.length<=256,'encoding');
+ return catalog.rows.map(r=>{must(Array.isArray(r)&&r.length===11&&[0,1].includes(r[2])&&Array.isArray(r[4])&&Array.isArray(r[5])&&Array.isArray(r[8])&&r[8].length===3,'row');const p=catalog.elfPatterns[r[8][0]],digest=Buffer.from(r[7],'base64');must(Array.isArray(p)&&p.length===5&&Array.isArray(p[2])&&digest.length===32&&digest.toString('base64')===r[7],'elf_digest');return {id:r[0],...(r[1]===null?{}:{semantic:r[1]}),partition:r[2]===0?'critical':'platform',path:string(r[3]),aliases:r[4].map(string),links:r[5].map(l=>{must(Array.isArray(l)&&l.length===2,'link');return {path:string(l[0]),target:string(l[1])};}),bytes:r[6],sha256:digest.toString('hex'),elf:{class:64,machine:62,type:p[0],interpreter:nullable(p[1]),needed:p[2].map(string),rpath:nullable(p[3]),runpath:nullable(p[4]),soname:nullable(r[8][1]),buildId:r[8][2]},provenanceRef:audit(r[9]),...(r[10]===-1?{}:{sourceBuildRef:audit(r[10])})};});
+}

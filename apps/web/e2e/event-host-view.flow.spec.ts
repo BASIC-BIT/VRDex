@@ -4,7 +4,7 @@ test('host links remain usable during slow and unavailable status checks @flow @
  await page.addInitScript(()=>{Object.defineProperty(navigator,'clipboard',{value:{writeText:async(value:string)=>{sessionStorage.setItem('copied',value)}}});});
  let release:()=>void=()=>{};
  const held=new Promise<void>(resolve=>{release=resolve});
- await page.route('**/host/status',async route=>{await held;await route.fulfill({json:{'vrcdn:dj-aurora':{state:'unavailable',observedAt:Date.now()}}});});
+ await page.route('**/host/status*',async route=>{await held;await route.fulfill({json:{'vrcdn:dj-aurora':{state:'unavailable',observedAt:Date.now()}}});});
  await page.goto(path);
  await expect(page.getByRole('heading',{name:'Host view'})).toBeVisible();
  await expect(page.getByRole('button',{name:'Copy PC',exact:true}).first()).toBeVisible();
@@ -37,7 +37,7 @@ test('status endpoint returns only public observations for an event with no publ
  expect(await result.json()).toEqual({});
 });
 test('source-live labels remain independent from scheduled and selected source @flow @fixture',async({page},info)=>{
- await page.route('**/host/status',route=>route.fulfill({json:{
+ await page.route('**/host/status*',route=>route.fulfill({json:{
   'vrcdn:dj-aurora':{state:'live',observedAt:Date.now()},
   'vrcdn:suggested-aurora':{state:'live',observedAt:Date.now()},
   'twitch:dj_aurora':{state:'offline',observedAt:Date.now()},
@@ -53,7 +53,7 @@ test('source-live labels remain independent from scheduled and selected source @
 
 test('preview is explicit, muted, singular and disposed on close @flow @fixture', async({page},info)=>{
  let mediaRequests=0;
- await page.route('**/host/status',route=>route.fulfill({json:{}}));
+ await page.route('**/host/status*',route=>route.fulfill({json:{}}));
  await page.route('https://stream.vrcdn.live/**',async route=>{
   mediaRequests++;
   await new Promise(resolve=>setTimeout(resolve,500));
@@ -82,7 +82,7 @@ test('preview is explicit, muted, singular and disposed on close @flow @fixture'
 
 for (const partial of [false,true]) test(`R8 ${partial?'partial':'unprobed'} statuses preserve controls @flow @fixture`,async({page},info)=>{
  await page.addInitScript(()=>{Object.defineProperty(navigator,'clipboard',{value:{writeText:async(value:string)=>{sessionStorage.setItem('copied',value)}}});});
- await page.route('**/host/status',route=>route.fulfill({json:partial?{
+ await page.route('**/host/status*',route=>route.fulfill({json:partial?{
   'vrcdn:dj-aurora':{state:'unavailable',observedAt:Date.now()},
   'twitch:dj_aurora':{state:'offline',observedAt:Date.now()},
   'vrcdn:suggested-aurora':{state:'live',observedAt:Date.now()-61000},
@@ -98,4 +98,17 @@ for (const partial of [false,true]) test(`R8 ${partial?'partial':'unprobed'} sta
  expect(await page.locator('video,audio,iframe').count()).toBe(0);
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
  await page.screenshot({path:info.outputPath(`r8-host-${partial?'partial':'unprobed'}.png`),fullPage:true});
+});
+
+test('host Twitch preview stays local and narrow layouts keep an external link @flow @fixture',async({page},info)=>{
+ await page.route('**/host/status*',route=>route.fulfill({json:{}}));
+ await page.route('https://player.twitch.tv/js/embed/v1.js',route=>route.fulfill({contentType:'application/javascript',body:`class Player{constructor(mount){this.h={};const f=document.createElement('iframe');f.width='400';f.height='300';mount.append(f);setTimeout(()=>this.h.ready?.(),0);}addEventListener(k,f){this.h[k]=f;}removeEventListener(k){delete this.h[k];}play(){}pause(){}setVolume(){}setMuted(){}}Object.assign(Player,{READY:'ready',PLAYING:'playing',PAUSE:'pause',OFFLINE:'offline',PLAYBACK_BLOCKED:'blocked'});window.Twitch={Player};`}));
+ await page.goto(path);await page.getByText('Other links',{exact:true}).first().click();
+ const twitch=page.getByRole('button',{name:'Copy Twitch',exact:true}).first().locator('..');
+ await twitch.getByRole('button',{name:'Preview',exact:true}).click();
+ const preview=page.getByRole('region',{name:'Preview Twitch'});await preview.scrollIntoViewIfNeeded();
+ const width=await preview.locator('[aria-label="Local preview player"]').evaluate(node=>node.getBoundingClientRect().width);
+ if(width<400){await expect(preview.getByRole('link',{name:'Open',exact:true})).toBeVisible();await expect(preview.locator('iframe')).toHaveCount(0);}else{await expect(preview.locator('iframe')).toBeVisible();await expect(preview.locator('[aria-label="Local preview player"]')).toHaveAttribute('inert','');}
+ await page.screenshot({path:info.outputPath('task8-host-twitch-preview.png')});
+ await preview.getByRole('button',{name:'Close preview',exact:true}).click();await expect(page.locator('iframe')).toHaveCount(0);
 });

@@ -3,7 +3,7 @@ import { spawn, execFileSync } from 'node:child_process';
 import { createWriteStream } from 'node:fs';
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { createEventWorker } from '../workers/restream/event-worker.mjs';
+import { createProofWorker as createEventWorker, syntheticInputs } from './event-proof-fixtures.mjs';
 import { createProgramRenderer } from '../workers/restream/program-renderer.mjs';
 import { verifyProgramPackets } from './event-proof-metrics.mjs';
 
@@ -36,7 +36,7 @@ function createWorker(number) {
             if (name === 'claimCommands') return { granted: true, commands };
             if (name === 'acknowledgeCommand') { assert.equal(args.outcome, 'succeeded'); commands = []; record('command-ack', { type: args.observedState, source: args.observedSourceId, sequence: args.sequence }); }
             return { accepted: true };
-        }, resolveSource: async source => `udp://127.0.0.1:${base + (source.id === 'b' ? 1 : 0)}?fifo_size=1024&overrun_nonfatal=1`, checkEnabled: async () => true,
+        }, inputs: syntheticInputs(async source => `udp://127.0.0.1:${base + (source.id === 'b' ? 1 : 0)}?fifo_size=1024&overrun_nonfatal=1`), checkEnabled: async () => true,
         outputs: { start: async () => {}, enqueue(chunk) { if (active) { assert(file.writableLength < 8 * 1024 * 1024); bytes += chunk.length; file.write(chunk); } }, getState: () => ({ publishing: active && bytes > 0 }), stopNow() { if (active) fences++; active = false; }, stop: async () => {} },
         metric(event) { if (event.event === 'event_worker_stopped') reason = event.reason; if (event.event === 'event_worker_authority_expired') authority = event.authority; } });
     const watchdog = setInterval(() => worker.watchdog(), 50), poll = setInterval(() => void worker.tick(), 250);
@@ -71,7 +71,9 @@ try {
     command('switch_hold'); await until(() => commands.length === 0);
     assert.equal(first.renderer.getState().renderedSourceId, undefined); record('operator-hold');
     command('set_automatic_mode'); await until(() => commands.length === 0);
-    await until(() => first.renderer.getState().renderedSourceId === 'a'); record('automatic-resumed');
+    await until(() => first.renderer.getState().renderedSourceId === 'b'); record('automatic-resumed');
+    command('switch_source','b');await until(()=>commands.length===0);
+    config.mode='manual';config.committedIntent={kind:'manual',sourceId:'b',revision:1};config.intentSequence=sequence;
     epoch = 2;
     await until(() => first.worker.getState().stopped, 4000);
     const fencedBytes = first.state().bytes;

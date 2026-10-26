@@ -7,7 +7,8 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { createEventWorker, checkHostedEnabled, bounded } from '../workers/restream/event-worker.mjs';
+import { checkHostedEnabled, bounded } from '../workers/restream/event-worker.mjs';
+import { createProofWorker as createEventWorker, createProofControl, syntheticInputs } from './event-proof-fixtures.mjs';
 import { createProgramRenderer } from '../workers/restream/program-renderer.mjs';
 import { createEventOutputs, parseOutputCredential } from '../workers/restream/output-sender.mjs';
 import { createSourceRelay, isPublicIPv4 } from '../workers/restream/source-relay.mjs';
@@ -183,7 +184,7 @@ export function createRehearsalControl({ compliance, beganAt, now = Date.now, ev
         slots: [{ slotKey: 'source-a', sourceId: 'basicbit1', startAt: beganAt - 1000, endAt: deadline, available: true }],
     };
     const acknowledged = new Set();
-    return async (name, args = {}) => {
+    return createProofControl(async (name, args = {}) => {
         const current = now();
         if (current >= deadline) return { granted: false, accepted: false };
         if (name === 'acquireSession' || name === 'renewSession') return { granted: true, epoch: 1, serverNow: current, expiresAt: Math.min(current + 30000, deadline), renewAfterMs: 10000, configuration };
@@ -203,7 +204,7 @@ export function createRehearsalControl({ compliance, beganAt, now = Date.now, ev
         }
         if (name === 'observeProgram' && evidence.observations.length < 256) evidence.observations.push({ elapsedMs: current - beganAt, live: args.state === 'live', hold: args.state === 'hold', publishing: args.publishing === true, outputMs: args.outputMs });
         return { accepted: true };
-    };
+    });
 }
 /** Only the CLI uses production defaults. Dependencies allow offline lifecycle tests. */
 export async function runRehearsal({ env = process.env, directory, signal, dependencies = {} } = {}) {
@@ -235,8 +236,7 @@ export async function runRehearsal({ env = process.env, directory, signal, depen
         });
         worker = deps.createEventWorker({ identity: { eventId: 'isolated-rehearsal', sessionId: 'isolated-rehearsal', workerId: 'isolated-rehearsal', epoch: 0 }, renderer, outputs, maxSessionMs: 180000,
             control: createRehearsalControl({ compliance, beganAt, evidence, now: deps.now, recoveryObserved: () => readiness.result().sourceRecoveryObserved }),
-            resolveSource: source => relay.resolveSource(source), retainSources: sources => relay.retainSources(sources),
-            checkEnabled: async () => {
+            inputs: syntheticInputs(undefined, relay), checkEnabled: async () => {
                 try { const enabled = await deps.checkHostedEnabled({ parameter: REHEARSAL_PARAMETER, region: 'us-east-1' }); switchFalseObserved ||= !enabled; return enabled; }
                 catch { switchUnavailable = true; throw Error('Dedicated switch unavailable'); }
             },

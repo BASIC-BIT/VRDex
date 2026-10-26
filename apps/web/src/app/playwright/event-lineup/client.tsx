@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { ConvexProvider, ConvexProviderWithAuth, type ConvexReactClient, useQuery } from "convex/react";
-import { getFunctionName, type FunctionReference } from "convex/server";
+import { getFunctionName, type FunctionReference, type FunctionReturnType } from "convex/server";
 import { api } from "@convex-generated-api";
 import { EventPublicPage, type PublicEvent } from "../../_components/event-public-page";
 import { EventEditorForm, type EditableEvent } from "../../events/event-editor-form";
@@ -29,6 +29,10 @@ const people = {
     outboundLinks: [{ source: "owner_authored", label: "Live", type: "vrcdn", url: "vrcdn:nova" }] },
 } satisfies Record<string, NonNullable<PublicEvent["slots"][number]["performer"]>>;
 const choices = { aurora: [stream("aurora")], lumen: [stream("lumen-main"), stream("lumen-visuals")], nova: [stream("nova")] };
+const broadcastChoices:Record<string,FunctionReturnType<typeof api.events.getPersonBroadcastInputChoices>>={
+ aurora:[{input:{kind:"vrcdn",streamId:"aurora"},key:"vrcdn:aurora",label:"aurora"},{input:{kind:"twitch",channel:"aurora"},key:"twitch:aurora",label:"aurora"}],
+ lumen:[{input:{kind:"vrcdn",streamId:"lumen-main"},key:"vrcdn:lumen-main",label:"lumen-main"},{input:{kind:"vrcdn",streamId:"lumen-visuals"},key:"vrcdn:lumen-visuals",label:"lumen-visuals"}],
+};
 const hiddenLinksProfile = {
   profileType: "person", fieldVisibility: { outboundLinks: "private" },
   outboundLinks: [{ type: "website", label: "Private fixture link", source: "owner_authored", url: "https://example.com/private" }],
@@ -90,6 +94,7 @@ function fixtureClient() {
     if (name === "worlds:getPublicBySlug") return event.worlds.find(world => world.slug === args.slug) ?? null;
     if (name === "events:getEditableBySlug") return event;
     if (name === "events:getPublicBySlug") return publicEvent ?? event;
+    if (name === "events:getPersonBroadcastInputChoices") return typeof args.personSlug === "string" ? broadcastChoices[args.personSlug] ?? empty : empty;
     if (name === "events:getPersonStreamChoices" && args.slug === localStorage.getItem("fixture-stream-defer-person")) return undefined;
     if (name === "events:getPersonStreamChoices") return event.slots.find(slot => slot.performer?.slug === args.slug)?.streamChoices ?? choices[args.slug as keyof typeof choices] ?? [];
     if (name === "search:searchUniversal") return Object.values(people).filter(person => person.slug.includes(String(args.query))).map(person => ({ slug: person.slug, title: person.displayName, routePath: `/${person.slug}`, imageUrl: "imageUrl" in person ? person.imageUrl : undefined }));
@@ -130,7 +135,7 @@ function fixtureClient() {
         streamChoices: choices[slot.personSlug as keyof typeof choices] ?? [],
         selectedStreamId: slot.selectedStreamId ?? undefined,
       }));
-      event = { ...event, ...args, slots,
+      event = { ...event, ...args, ...(typeof args.published === "boolean" ? { publicationState: args.published ? "published" : "draft_private" } : {}), slots,
         ...(args.lineup === undefined ? {} : { usesCanonicalLineup: true, lineup: (args.lineup as Array<Record<string, unknown>>).map(row => ({ ...row, key: row.clientKey, displayLabel: row.performerLabel, performer: people[row.personSlug as keyof typeof people] })) }),
       } as EditableEvent;
       // Real editor readback omits cleared optional timing fields.

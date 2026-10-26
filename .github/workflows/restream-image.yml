@@ -80,10 +80,7 @@ jobs:
           fi
 
           # Hash only fixed packaged paths on the runner, never inside the image.
-          sources=(
-            workers/restream/{hosted-worker,live-control,vrcdn-poc,output-sender,event-worker,source-relay,handoff-policy,input-supervisor,program-renderer}.mjs
-            scripts/{event-output-local-proof,event-proof-metrics,event-vrcdn-rehearsal,event-proof-runner}.mjs
-          )
+          mapfile -t sources < <(jq -r '.[]' workers/restream/packaging-manifest.json)
           for source in "${sources[@]}"; do
             test -f "$source" && test ! -L "$source"
           done
@@ -109,36 +106,44 @@ jobs:
           trap 'exit 130' INT
           trap 'exit 143' TERM
           container_id="$(docker create --platform linux/amd64 "$IMAGE_REFERENCE")"
-          for source in "${sources[@]}"; do
-            destination="$extraction_directory/$source"
-            mkdir -p "$(dirname "$destination")"
-            # Bound the whole tar stream before accepting any member. Never let
-            # docker cp recursively extract an image-controlled directory.
-            copy_archive="$extraction_directory/source.tar"
-            (ulimit -c 0; ulimit -f 10240; docker cp "$container_id:/app/$source" - | cat > "$copy_archive")
-            python3 - "$copy_archive" "$source" "$destination" <<'PYTHON'
+          python3 - "$container_id" "$extraction_directory" "${sources[@]}" <<'PYTHON'
           import os
           import pathlib
+          import subprocess
           import sys
           import tarfile
 
-          archive_path, source, destination = sys.argv[1:]
-          expected_size = os.path.getsize(source)
-          with tarfile.open(archive_path, mode="r:") as archive:
-              member = archive.next()
-              if (member is None or member.name != pathlib.Path(source).name
-                      or member.type not in (tarfile.REGTYPE, tarfile.AREGTYPE)
-                      or member.size != expected_size or archive.next() is not None):
-                  raise SystemExit("Expected exactly one regular source file with matching size")
-              with archive.extractfile(member) as stream:
-                  content = stream.read(expected_size + 1)
-              if len(content) != expected_size:
-                  raise SystemExit("Truncated source archive")
-          # The archive never chooses a host path. Write only after validation.
-          with open(destination, "xb") as output:
-              output.write(content)
+          container_id, extraction_directory, *sources = sys.argv[1:]
+          archive_path = pathlib.Path(extraction_directory) / "source.tar"
+          for source in sources:
+              destination = pathlib.Path(extraction_directory) / source
+              destination.parent.mkdir(parents=True, exist_ok=True)
+              # Bound the whole tar stream before accepting any member. Never let
+              # docker cp recursively extract an image-controlled directory.
+              copy = subprocess.run([
+                  "bash", "-c",
+                  'set -euo pipefail; ulimit -c 0; ulimit -f 10240; '
+                  'docker cp "$1:/app/$2" - | cat > "$3"',
+                  "copy-source", container_id, source, str(archive_path),
+              ])
+              if copy.returncode:
+                  # subprocess uses negative signal numbers; Bash uses 128+signal.
+                  raise SystemExit(copy.returncode if copy.returncode > 0 else 128 - copy.returncode)
+              expected_size = os.path.getsize(source)
+              with tarfile.open(archive_path, mode="r:") as archive:
+                  member = archive.next()
+                  if (member is None or member.name != pathlib.Path(source).name
+                          or member.type not in (tarfile.REGTYPE, tarfile.AREGTYPE)
+                          or member.size != expected_size or archive.next() is not None):
+                      raise SystemExit("Expected exactly one regular source file with matching size")
+                  with archive.extractfile(member) as stream:
+                      content = stream.read(expected_size + 1)
+                  if len(content) != expected_size:
+                      raise SystemExit("Truncated source archive")
+              # The archive never chooses a host path. Write only after validation.
+              with open(destination, "xb") as output:
+                  output.write(content)
           PYTHON
-          done
           (cd "$extraction_directory" && sha256sum "${sources[@]}") > provenance/actual-runtime.sha256
           diff -u provenance/expected-runtime.sha256 provenance/actual-runtime.sha256
           docker run --rm --platform linux/amd64 --entrypoint sh "$IMAGE_REFERENCE" \

@@ -70,6 +70,14 @@ const writeToolResourceScopes: Record<string, string> = {
   vrdex_event_intake_event_retract: "events:contribute",
   vrdex_event_create: "events:write",
   vrdex_event_update: "events:write",
+  vrdex_event_intake_draft_save: "events:contribute",
+  vrdex_event_intake_extract: "events:contribute",
+  vrdex_event_intake_publish: "events:contribute",
+  vrdex_event_intake_poster_upload_begin: "events:contribute",
+  vrdex_event_intake_poster_upload_complete: "events:contribute",
+  vrdex_event_intake_artwork_select: "events:contribute",
+  vrdex_event_intake_event_update: "events:contribute",
+  vrdex_event_intake_event_retract: "events:contribute",
   vrdex_profile_media_manage: "assets:write",
   vrdex_profile_media_submit: "assets:contribute",
   vrdex_profile_update: "profile:write",
@@ -123,7 +131,7 @@ const hostedOnlyWriteToolNames = new Set([
   "vrdex_media_contribution_place",
   "vrdex_media_contribution_propose_placement",
 ]);
-const localWriteToolNames = writeToolNames.filter((toolName) => !hostedOnlyWriteToolNames.has(toolName));
+const localWriteToolNames = writeToolNames.filter((toolName) => !hostedOnlyWriteToolNames.has(toolName) && !toolName.startsWith("vrdex_event_intake_"));
 // Reads, but of the caller's own inventory, so they advertise a scope pair the
 // way the writes do rather than the anonymous public-read pair.
 const contributionCollectionReadScopes = [
@@ -170,7 +178,7 @@ const hostedOnlyOwnedReadToolNames = new Set([
   "vrdex_media_submission_preview",
 ]);
 const localOwnedReadToolNames = ownedReadToolNames.filter(
-  (toolName) => !hostedOnlyOwnedReadToolNames.has(toolName),
+  (toolName) => !hostedOnlyOwnedReadToolNames.has(toolName) && !toolName.startsWith("vrdex_event_intake_"),
 );
 const localExpectedTools = [
   "vrdex_event_intake_draft_save", "vrdex_event_intake_draft_get", "vrdex_event_intake_extract",

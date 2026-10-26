@@ -1,0 +1,47 @@
+import { spawn } from 'node:child_process';
+import { readFile,mkdir,writeFile,mkdtemp,rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join,resolve } from 'node:path';
+import { createHash } from 'node:crypto';
+import { scanDockerSave,prepareCiCreate,installCiContext,nativeArtifact } from './event-marker-native-controller.mjs';
+const must=(v,r)=>{if(!v)throw Error('native_ci_'+r);},sha=b=>createHash('sha256').update(b).digest('hex');
+import { captureEngineObject,validateBindingInventory } from './event-marker-engine-readback.mjs';
+export { inspectEngineArchive,captureEngineObject,validateBindingInventory } from './event-marker-engine-readback.mjs';
+const ENGINE_CAP=8388608;
+/** Actual Docker stdout is consumed once under the original helper deadline.
+ * Export caps concern auxiliary archive bytes; Docker diagnostics still share
+ * the original 128KiB bound. No whole image archive or rootfs is retained. */
+export async function consumeDockerStream(args,{timeoutMs,signal,consume,spawnProcess=spawn,kill=(pid)=>process.kill(-pid,'SIGKILL')}={}) {
+ const child=spawnProcess('docker',args,{detached:true,stdio:['ignore','pipe','pipe']}),terminal={exitCode:null,signal:null,stdoutEOF:false,stderrEOF:false,error:null},stderr=[];let stderrBytes=0,aborted,rejectAbort,reaped=false;
+ const failed=new Promise((_,reject)=>{rejectAbort=reject;}),stop=error=>{if(aborted)return;aborted=error;try{if(!reaped)kill(child.pid);}catch(e){if(e.code!=='ESRCH')terminal.cleanupError=e.message;}rejectAbort(error);};
+ failed.catch(()=>{});const deadline=performance.now()+timeoutMs;
+ const abort=()=>stop(Error('native_ci_cancelled')),timer=setTimeout(()=>stop(Error('native_ci_deadline')),Math.max(0,timeoutMs-1000)),closed=new Promise(resolve=>child.once('close',(code,sig)=>{terminal.exitCode=code;terminal.signal=sig??null;reaped=true;resolve();}));
+ child.once('error',e=>{terminal.error=e.message;stop(e);});child.stdout.once('end',()=>{terminal.stdoutEOF=true;});child.stderr.once('end',()=>{terminal.stderrEOF=true;});child.stderr.on('data',b=>{stderrBytes+=b.length;if(stderrBytes>131072)stop(Error('native_ci_diagnostics'));else stderr.push(Buffer.from(b));});signal?.addEventListener('abort',abort,{once:true});if(signal?.aborted)abort();
+ async function* stream(){for await(const b of child.stdout){if(aborted)throw aborted;yield b;}await Promise.race([closed,failed]);}
+ try{const result=await Promise.race([consume(stream(),terminal),failed]);must(!aborted&&terminal.exitCode===0&&terminal.signal===null&&terminal.stdoutEOF&&terminal.stderrEOF&&!terminal.error,'stream_completion');must(performance.now()<deadline,'deadline');return {result,terminal,stderr:Buffer.concat(stderr)};}
+ catch(error){error=aborted??error;stop(error);child.stdout.destroy();child.stderr.destroy();let cleanupTimer;try{await Promise.race([closed,new Promise((_,reject)=>{cleanupTimer=setTimeout(()=>reject(Error('native_ci_unreaped')),Math.max(0,deadline-performance.now()));})]);}catch(cleanupError){error.cleanupError=cleanupError;}finally{clearTimeout(cleanupTimer);}error.nativeOwner={...terminal,reaped,closedBeforeDeadline:reaped&&performance.now()<deadline};throw error;}
+ finally{clearTimeout(timer);signal?.removeEventListener('abort',abort);}
+}
+/** The existing CI gate calls every method around its owned create/start/
+ * inspect/readback/removal. No bundle is an honest Unproven producer state;
+ * native transport tests retain their original command and assertion policy. */
+export function createCiNativeProducer({candidatePath='provenance/native-binding/K.json',directory='provenance/native-binding/ci-run',read=path=>readFile(path),write,stream=consumeDockerStream}={}) {
+ let startedAtUTC,prepared,candidate,imageFacts,control,contextDirectory,createdId,containerRaw,attached,cleanup,readbackRef,inventoryRef,nativeReceiptRef,preludeReceiptRef,state={kind:'Unproven',missing:['reviewed_candidate_bundle'],measurementAdmitted:false};
+ const retain=async(name,b)=>{if(write)return write(name,b);await mkdir(directory,{recursive:true});await writeFile(resolve(directory,name),b,{flag:'wx',mode:0o600});};
+ const checked=r=>{must(r.code===0&&r.signal===null&&r.failure===null,'docker');return Buffer.from(r.stdout);};
+ return {
+  async prepare({image,originalArguments,invoke,deadline,signal}){let bytes;try{bytes=await read(candidatePath);}catch(e){if(e.code==='ENOENT')return originalArguments;throw e;}must(bytes.length>0&&bytes.length<=196608&&JSON.parse(bytes).environmentClass==='ci','candidate');startedAtUTC=new Date().toISOString();candidate={bytes:Buffer.from(bytes),ref:nativeArtifact('audit','K',bytes)};control={deadline,signal};const inspect=checked(await invoke(['image','inspect',image]));
+   const scanned=await stream(['image','save',image],{timeoutMs:Math.max(1,deadline-performance.now()-20000),signal,consume:(chunks,terminal)=>scanDockerSave(chunks,{imageId:image,inspect,terminal,check:()=>{signal?.throwIfAborted();must(performance.now()<deadline-20000,'deadline');}})});imageFacts=scanned.result;imageFacts.originals.stderrUTF8=scanned.stderr.toString();
+   const k=JSON.parse(candidate.bytes),manifestBytes=await read('workers/restream/native-binding/runtime/manifest.json');must(sha(manifestBytes)===k.runtimeManifestSHA,'runtime_manifest');const manifest=JSON.parse(manifestBytes),entry=manifest.entries.find(e=>e.id===manifest.entrypoints.profile);must(entry&&/^[a-zA-Z0-9_.-]+$/.test(entry.relativePath),'profile');const profileBytes=await read('workers/restream/native-binding/runtime/'+entry.relativePath);must(profileBytes.length<=65536&&sha(profileBytes)===k.profileSHA,'profile');
+   const temp=await mkdtemp(join(tmpdir(),'vrdex-native-context-'));contextDirectory=temp;const workload={originalCommand:originalArguments.slice(originalArguments.indexOf(image)+1),entrypoint:'timeout',containerName:'native-ci',allocation:{}};
+   prepared=prepareCiCreate({candidate,imageFacts,workload,semanticEnvironment:JSON.parse(profileBytes).environment,nonce:temp.split('/').at(-1),deadline:Date.now()+Math.max(0,deadline-performance.now()),originalArguments,contextPath:temp+'/context.json'});await installCiContext(prepared.context,temp);
+   for(const [name,b] of [['K.json',candidate.bytes],['I.json',prepared.intent.bytes],['C.json',prepared.context.bytes],['Q.json',prepared.launch.bytes],['image.json',Buffer.from(JSON.stringify(imageFacts))]])await retain(name,b);state={kind:'Unproven',missing:['program_recording','independent_outer_join'],measurementAdmitted:false,contextSHA:prepared.context.ref.sha256};return JSON.parse(prepared.launch.bytes).args;
+  },created(id){createdId=id;},attached(result){attached=result;},inspected(bytes){containerRaw=Buffer.from(bytes);},
+  async readback({id,deadline,signal}){if(!prepared)return;let combined=0;const copies=[],charge=n=>{combined+=n;must(combined<=ENGINE_CAP,'readback_cap');};const copy=async(path,expected)=>{const request=['cp',id+':/tmp/event-capacity-ci-native/'+path,'-'],capture=await stream(request,{timeoutMs:Math.max(1,deadline-performance.now()-20000),signal,consume:chunks=>captureEngineObject(chunks,{...expected,path:path.split('/').at(-1)},charge)}),archive=capture.result.bytes,member=capture.result.members.files[0],body=archive.subarray(member.offset,member.offset+member.bytes),index=copies.length,ref=nativeArtifact('observation','engine-archive-'+index,archive),bodyRef=nativeArtifact('observation',path,body);await retain('engine-archive-'+index+'.tar',archive);await retain(path.replaceAll('/','--'),body);copies.push({path,request,archiveRef:ref,bodyRef,terminal:capture.terminal,stderrUTF8:capture.stderr.toString()});return {body,ref:bodyRef};};
+   const header=await copy('native-binding/inventory.json',{cap:65536});inventoryRef=header.ref;const inventory=validateBindingInventory(header.body),receipt=await copy('receipt.json',{cap:131072});nativeReceiptRef=receipt.ref;must(JSON.stringify(JSON.parse(receipt.body))===JSON.stringify(JSON.parse(attached.stdout)),'archive_receipt_binding');
+   for(const f of inventory.files){const read=await copy(f.path,{...f,cap:196608});if(f.path==='native-binding/prelude-receipt.json')preludeReceiptRef=read.ref;}
+   const readback=Buffer.from(JSON.stringify({schema:'native132-engine-readback-v1',combinedArchiveBytes:combined,inventoryRef,nativeReceiptRef,preludeReceiptRef,copies}));readbackRef=nativeArtifact('observation','readback',readback);await retain('readback.json',readback);
+  },
+  cleaned(value){cleanup=value;},async finish(report){try{if(prepared){const container=containerRaw??Buffer.from('null'),clean=Buffer.from(JSON.stringify(cleanup)),containerReadbackRef=nativeArtifact('observation','container-readback',container),cleanupRef=nativeArtifact('observation','cleanup',clean);await retain('container-readback.json',container);await retain('cleanup.json',clean);await retain('L.json',Buffer.from(JSON.stringify({schema:'native-outer-ledger-v1',domain:'native132',requestSHA:prepared.launch.ref.sha256,intentSHA:prepared.intent.ref.sha256,contextSHA:prepared.context.ref.sha256,imageConfigSHA:imageFacts.configSHA,createdId,nativeExit:attached?.code??null,nativeSignal:attached?.signal??null,startedAtUTC,containerReadbackRef,cleanupRef,readbackRef,inventoryRef,nativeReceiptRef,preludeReceiptRef,metadata:{kind:'local-notApplicable'},transportPassed:report.passed,measurementAdmitted:false})));}return state;}finally{if(contextDirectory)await rm(contextDirectory,{recursive:true,force:true});}},
+ };
+}

@@ -1,8 +1,53 @@
-import { v } from "convex/values";
+import { v, type Infer } from "convex/values";
 
 import { normalizeProfileInlineText } from "./_profileSubmissions";
 import { safeHttpsUrl } from "./_publicFields";
 import { parseVrcdnStreamLinks } from "./_vrcdnLinks";
+
+export const committedIntentValidator = v.union(
+  v.object({kind:v.literal("automatic")}),
+  v.object({kind:v.literal("manual"),sourceId:v.id("eventMediaSources"),revision:v.number()}),
+  v.object({kind:v.literal("slate")}),
+);
+export const workerSourceTargetValidator = v.object({sourceId:v.id("eventMediaSources"),revision:v.number(),slotKey:v.string()});
+export const controlTargetValidator = v.union(
+  v.object({kind:v.literal("source"),source:workerSourceTargetValidator,mode:v.union(v.literal("manual"),v.literal("automatic"))}),
+  v.object({kind:v.literal("slate"),mode:v.union(v.literal("slate"),v.literal("automatic"))}),
+);
+export const controlFailureValidator = v.union(v.literal("expired"),v.literal("source_unavailable"),v.literal("actor_revoked"));
+export const controlResultValidator = v.union(
+ v.object({kind:v.literal("ok"),intentSequence:v.optional(v.number()),preparationExpiresAt:v.optional(v.number()),duplicate:v.optional(v.boolean())}),
+ v.object({kind:v.literal("superseded")}),v.object({kind:v.literal("cancelled")}),
+ v.object({kind:v.literal("failed"),reason:controlFailureValidator}),
+ v.object({kind:v.literal("fenced"),reason:v.union(v.literal("lease"),v.literal("destination"),v.literal("stopped"))}),
+);
+export type CommittedIntent = Infer<typeof committedIntentValidator>;
+export type ControlTarget = Infer<typeof controlTargetValidator>;
+export type ControlResult = Infer<typeof controlResultValidator>;
+
+export const videoPresetValidator = v.union(
+  v.literal("480p30"), v.literal("480p60"),
+  v.literal("720p30"), v.literal("720p60"),
+  v.literal("1080p30"), v.literal("1080p60"),
+);
+export const workerAllocationValidator = v.object({cpuUnits:v.number(),memoryMiB:v.number(),evidenceId:v.string()});
+export const mediaSettingsValidator = v.object({
+  videoPreset: videoPresetValidator,
+  audioBitrateKbps: v.union(v.literal(160), v.literal(320)),
+});
+export const destinationProfileValidator = v.object({
+  videoPreset: videoPresetValidator,
+  width: v.number(), height: v.number(), frameRate: v.number(),
+  videoBitrateKbps: v.number(),
+  audioBitrateKbps: v.union(v.literal(160), v.literal(320)),
+  audioChannels: v.number(), audioSampleRateHz: v.number(),
+  keyframeIntervalSeconds: v.number(),
+});
+export const sessionDestinationProfilesValidator = v.array(v.object({
+  outputId: v.id("eventMediaOutputs"),
+  destination: v.union(v.literal("vrcdn"), v.literal("twitch")),
+  profile: destinationProfileValidator,
+}));
 
 const CONTROL_KEY_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const CONTROL_NOTE_MAX_LENGTH = 500;

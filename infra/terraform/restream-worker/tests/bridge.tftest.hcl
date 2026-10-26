@@ -208,8 +208,6 @@ run "enabled_dispatcher_permissions_and_runtime" {
       VRDEX_EVENT_MEDIA_ECS_TASK_ROLE_ARN       = "arn:aws:iam::079358094174:role/vrdex-restream-worker-task"
       VRDEX_EVENT_MEDIA_ECS_LOG_GROUP           = "/aws/ecs/vrdex-restream-worker"
       VRDEX_EVENT_MEDIA_ECS_TASK_FAMILY_PREFIX  = "vrdex-event-media-worker"
-      VRDEX_EVENT_MEDIA_ECS_CPU                 = "4096"
-      VRDEX_EVENT_MEDIA_ECS_MEMORY              = "8192"
       VRDEX_EVENT_MEDIA_ECS_SUBNETS             = "subnet-0123456789abcdef0"
       VRDEX_EVENT_MEDIA_ECS_SECURITY_GROUPS     = "sg-0123456789abcdef0"
       VRDEX_EVENT_MEDIA_ECS_ASSIGN_PUBLIC_IP    = "ENABLED"

@@ -1,0 +1,117 @@
+{
+  "schemaVersion": 1,
+  "capacityAccepted": false,
+  "runtimeFixQualified": false,
+  "baseCandidate": "ebb7d4df0a61fa5656c4a4e8dcc070da9b513e1c",
+  "scope": "Same immutable image, initial-A 20-second custom-buffer observation; controlled variant adds only readrate1 to both decoder inputs. Original 60-second functional workload and steady windows unchanged.",
+  "actualRuntime": {
+    "node": "22.23.4",
+    "python": "3.11.2",
+    "ffmpeg": "5.1.9"
+  },
+  "unpaced": {
+    "traceSha256": "408aebc102ffc728b617ceb785c2691a8b352c3ef9ce5013ad1bfcb17c81946f",
+    "takes": 601,
+    "rawSamples": 1018880,
+    "metadataSamples": 1018880,
+    "first29IntervalsWallMs": 964.399,
+    "first29IntervalsVideoMs": 1916.667,
+    "phaseErrorRangeMs": [-61.978, 183.333],
+    "reanchors": 5,
+    "reanchorSkippedSamples": 45600,
+    "zeroFilledSamples": 33594,
+    "partialTakes": 105,
+    "earlyProgramAudioMinusVideoMs": 130.666667,
+    "earlyPrimaryAudioMinusVideoMs": 130.666667,
+    "earlyOptionalAudioMinusVideoMs": 118.833333,
+    "originalSteadyReceiptPassed": true
+  },
+  "pacedControl": {
+    "traceSha256": "a053e4e70f0ef177802f0b6ab93564fdbe98c28b3b10c4c6dab34284a5c737ba",
+    "decoderBindings": 2,
+    "decoderTransforms": 2,
+    "takes": 600,
+    "rawSamples": 971776,
+    "metadataSamples": 971776,
+    "first29IntervalsWallMs": 966.548,
+    "first29IntervalsVideoMs": 983.333,
+    "phaseErrorRangeMs": [-22.656, 21.356],
+    "reanchors": 0,
+    "zeroFilledSamples": 0,
+    "copiedSamples": 960000,
+    "boundaryFragment": {
+      "selectedVideoSeconds": 0.118666667,
+      "audioCursorSeconds": 0.118666667,
+      "rawPulseEndSeconds": 0.116666667,
+      "firstProgramVisibleSeconds": 4.554667,
+      "paired": false,
+      "reason": "pulse-underway-at-selection; next-cycle beep is not a valid pair"
+    },
+    "firstCompleteProgramPairsSeconds": [
+      [5.454667, 5.45],
+      [6.454667, 6.452667],
+      [7.488, 7.486667],
+      [8.454667, 8.458],
+      [9.454667, 9.460667]
+    ],
+    "originalSteadyReceiptPassed": true
+  },
+  "priorNegative": {
+    "unwrapped8CpuPrimaryAvDriftMs": 145,
+    "unwrapped8CpuOptionalAvDriftMs": 133.167,
+    "causeRetrospectivelyProved": false
+  },
+  "limitations": [
+    "Instrumented control is not final candidate qualification or a universal shared-clock proof.",
+    "Steady metric excludes early transient; new proof must include actual first-A and Take pulses.",
+    "Initial partial pulse is not a missing full pulse or 895ms drift.",
+    "Pacing may preserve upstream compressed backlog; renderer internalDelay is not source-to-viewer latency.",
+    "Owned UTC source-to-viewer latency, full matrix/public/owned output and final image checks remain pending."
+  ],
+  "supportingArtifactHashes": {
+    "task-6-initiala-trace-causal-analysis.md": "adca8354fceff907598b26e9fc91870338021e7048e96609ad36b61ccd0fa571",
+    "task-6-initiala-trace-analysis.json": "28f991872ead38bd3f8ec56a4b072ee9c70461da1812c710051ee02b6e42775b",
+    "task-6-initiala-recording-marker-analysis.json": "2ab79d821b7017e64ba4c945ea77a00d9611aec6a2f6e32096aef65be9f96e9b",
+    "task-6-pacedinitiala-causal-comparison.md": "83b49ee29be822aa5c1dfa92258f57b8c6cd41f04449f851827194dd9ee9b801",
+    "task-6-pacedinitiala-causal-comparison.json": "c7d49213770fa50a3d2ad211129c2ab0547f3cfbc2275f2745b46cd711be8b0e",
+    "task-6-pacedinitiala-recording-marker-analysis.json": "64dcaee6538d567ddbde3aa490d8d55319c570c9b43685a750559a3164138531"
+  },
+  "candidateHostEvidence": {
+    "runtime": "Node24.19.0 / FFmpeg7.1.5; not actual image",
+    "initialUnpacedRed": {
+      "mediaMs": 1000,
+      "wallMs": 33.749834,
+      "sourceAheadMs": 966.250166
+    },
+    "focusedPacedGreen": true,
+    "completeTimingSuite": {
+      "tests": 28,
+      "passed": 26,
+      "failed": 2,
+      "skipped": 0,
+      "pacedSourceAheadMs": 436.85289766666995,
+      "startupFailure": "Missing same-cycle audio marker"
+    },
+    "earlierStartupCoverageFailures": [
+      {
+        "missingSamples": 841
+      },
+      {
+        "missingSamples": 16654,
+        "takes": 180,
+        "avDriftMs": 23.333333333332984
+      }
+    ],
+    "finalTargetedStartupFailure": "Program render clock exceeded its processing budget; overlapped network-isolated broad backend test run. Cause not asserted.",
+    "allNegativesRetained": true,
+    "requiredAssertionsWeakened": false,
+    "logHashes": {
+      "task-6-decoder-pacing-red.log": "bac005b6efc8393a515f47ad375f411d98eb8c3d1e86b18668f0bac317496447",
+      "task-6-decoder-pacing-green.log": "c51e023acaf0056126d8c90c88eaa96fac7be2d394127c20b67b27f891474f80",
+      "task-6-startup-real.log": "a2ec81857105f2f988371c7d4bdb671145721cde5aaedeebf2fb074c0e9b7889",
+      "task-6-startup-real-collection.log": "155a9a4517beca34f16f1793d0d0e2b59e92858034e60b219173df02354386b0",
+      "task-6-pacing-timing-full.log": "7cdc8d1c1cc65560e81c3ea67a1f4ff14135eb9911016bb5afe2f29ad2b964be",
+      "task-6-pacing-final-startup.log": "10dc5ad1d7ea8d07b709435604a0f2d95b2f5f9dce72ff0fcabef7c4d468e642"
+    }
+  }
+}

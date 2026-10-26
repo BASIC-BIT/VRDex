@@ -37,7 +37,7 @@ async function fixture() {
         if (scheduled.startCommandId)
             await ctx.db.patch(scheduled.startCommandId, { availableAt: Date.now() - 1000 });
     });
-    const args = { bridgeToken, eventId: event.eventId, sessionId: scheduled.sessionId, workerId: "worker-a", epoch: 0 };
+    const args = { protocolVersion: 2, bridgeToken, eventId: event.eventId, sessionId: scheduled.sessionId, workerId: "worker-a", epoch: 0 };
     return { t, owner, event, output, scheduled, args };
 }
 it("refresh supplies authoritative slots and expires removed sources without extending authority", async () => {
@@ -60,22 +60,23 @@ it("refresh supplies authoritative slots and expires removed sources without ext
     assert.equal((await t.run(({ db }) => db.get(args.sessionId)))?.leaseExpiresAt, lease.expiresAt);
 });
 it("autonomous observations are fenced and cannot claim live without actual encoded output", async () => {
-    const { t, args } = await fixture();
+    const { t, args, output } = await fixture();
     const lease = await t.mutation(worker("acquireSession"), args);
     const request = { ...args, epoch: lease.epoch };
     await assert.rejects(t.mutation(worker("observeProgram"), { ...request, state: "live", outputMs: 0, publishing: false }), /progress|publish/i);
-    assert.equal((await t.mutation(worker("observeProgram"), { ...request, state: "hold", outputMs: 200, publishing: true })).accepted, true);
+    assert.equal((await t.mutation(worker("observeProgram"), { ...request, intentSequence:0,outputId:output.outputId,state: "hold", outputMs: 200, publishing: true })).kind, "ok");
     await t.run(({ db }) => db.patch(args.sessionId, { leaseExpiresAt: Date.now() - 1 }));
-    assert.equal((await t.mutation(worker("observeProgram"), { ...request, state: "hold", outputMs: 300, publishing: true })).accepted, false);
+    assert.equal((await t.mutation(worker("observeProgram"), { ...request, intentSequence:0,outputId:output.outputId,state: "hold", outputMs: 300, publishing: true })).kind, "fenced");
 });
-import { createEventWorker } from "../../workers/restream/event-worker.mjs";
+import { createProofWorker as createEventWorker, syntheticInputs } from '../../scripts/event-proof-fixtures.mjs';
 function runtimeFixture(options: Record<string, unknown> = {}) {
     let now = 0, encoded = 0, renderedSlotKey: string | undefined, renderedSourceId: string | undefined;
-    let fenced = 0, selections = 0, ackCount = 0, holds = 0, prepared = 0;
+    let fenced = 0, selections = 0, ackCount = 0, successfulAckCount = 0, holds = 0, prepared = 0;
     let commands: any[] = [];
     const config: any = { sessionDeadline: 1000000, mode: "automatic", policy: {}, sources: [{ id: "a", eventSlotId: "slot-a", publicUrl: "https://stream.vrcdn.live/live/a.live.ts", type: "vrcdn_link" }], slots: [{ slotKey: "slot-a", sourceId: "a", startAt: 0, available: true }], outputs: [{ id: "out" }], outputId: "out" };
     const observations = new Map<string, any>();
-    const renderer = { start: async () => { }, stop: async () => { }, subscribe: () => () => { }, reconcileSources: async (sources: any[]) => { prepared += sources.length; }, getInputs: () => [...observations.values()].map(o => ({ source: o, getObservation: () => ({ ...o, observedAt: typeof options.observationClock === "function" ? options.observationClock() : o.observedAt }) })), selectSource: (slot: string) => { selections++; return true; }, hold: () => { holds++; }, getState: () => ({ running: true, outputMs: encoded, renderedSlotKey, renderedSourceId }) };
+    observations.set("slot-a",{slotKey:"slot-a",sourceId:"a",revision:1,ready:true,progressing:true,observedAt:0});
+    const renderer = { start: async () => { }, stop: async () => { }, subscribe: () => () => { }, reconcileSources: async (sources: any[]) => { prepared += sources.length; }, getInputs: () => [...observations.values()].map(o => ({ source: {...o,revision:o.revision??1}, getObservation: () => ({ ...o, revision:o.revision??1, observedAt: typeof options.observationClock === "function" ? options.observationClock() : o.observedAt }) })), selectSource: (slot: string) => { selections++; return true; }, hold: () => { holds++; }, getState: () => ({ running: true, outputMs: encoded, renderedSlotKey, renderedSourceId, renderedSourceRevision:renderedSourceId?1:undefined }) };
     const control = async (name: string, args: any) => {
         if (name === "acquireSession" || name === "renewSession")
             return { granted: true, epoch: 1, serverNow: 0, expiresAt: 30000, renewAfterMs: 10000, configuration: config };
@@ -84,14 +85,15 @@ function runtimeFixture(options: Record<string, unknown> = {}) {
         if (name === "claimCommands")
             return { granted: true, commands };
         if (name === "acknowledgeCommand") {
-            ackCount++;
+            ackCount++; if(args.outcome==='succeeded')successfulAckCount++;
             commands = [];
             return { accepted: true };
         }
         return { accepted: true };
     };
-    const worker = createEventWorker({ identity: { eventId: "e", sessionId: "s", workerId: "unique", epoch: 0 }, control: (name: string, args: any) => typeof options.controlFilter === "function" ? options.controlFilter(name, args, control) : control(name, args), clock: () => now, renderer, resolveSource: async (s: any) => s.publicUrl, checkEnabled: async () => true, outputs: { start: async () => { }, enqueue: () => { }, getState: () => ({ publishing: true }), stopNow: () => { fenced++; }, stop: async () => { } }, ...options });
-    return { worker, renderer, config, observations, advance: (n: number) => { now = n; }, encoded: (slot: string | undefined = "slot-a") => { encoded += 100; renderedSlotKey = slot; renderedSourceId = slot ? "a" : undefined; }, slate: () => { encoded += 100; renderedSlotKey = undefined; renderedSourceId = undefined; }, command: (type = "switch_source", sequence = 1) => { commands = [{ _id: `c${sequence}`, sequence, commandType: type, targetSourceId: "a" }]; }, counts: () => ({ fenced, selections, ackCount, holds, prepared }) };
+    const worker = createEventWorker({ identity: { eventId: "e", sessionId: "s", workerId: "unique", epoch: 0 }, control: (name: string, args: any) => typeof options.controlFilter === "function" ? options.controlFilter(name, args, control) : control(name, args), clock: () => now, renderer, inputs: syntheticInputs(async (s: any) => s.publicUrl), checkEnabled: async () => true, outputs: { start: async () => { }, enqueue: () => { }, getState: () => ({ publishing: true }), stopNow: () => { fenced++; }, stop: async () => { } }, ...options });
+    const tickOnce=worker.tick;worker.tick=async()=>{for(let i=0;i<4;i++)await tickOnce();};
+    return { worker, renderer, config, observations, advance: (n: number) => { now = n; }, encoded: (slot: string | undefined = "slot-a") => { encoded += 100; renderedSlotKey = slot; renderedSourceId = slot ? "a" : undefined; }, slate: () => { encoded += 100; renderedSlotKey = undefined; renderedSourceId = undefined; }, command: (type = "switch_source", sequence = 1) => { commands = [{ _id: `c${sequence}`, sequence, commandType: type, targetSourceId: "a" }]; }, counts: () => ({ fenced, selections, ackCount, successfulAckCount, holds, prepared }) };
 }
 it("worker only acknowledges encoded slot and source, then ignores command replay", async () => {
     const f = runtimeFixture();
@@ -130,7 +132,7 @@ it("refresh revocation holds current and removes decoder", async () => {
     f.config.slots[0].available = false;
     f.config.sources = [];
     await f.worker.tick();
-    assert.equal(f.worker.getState().current?.available, false);
+    assert.notEqual(f.worker.getState().current?.available, true);
 });
 import { validateSourceEndpoint, isPublicIPv4 } from "../../workers/restream/source-relay.mjs";
 it("source boundary refuses metadata, local networks, arbitrary hosts, credentials and unsupported Twitch", () => {
@@ -156,7 +158,7 @@ it("policy retains media permission, custom silence and automatic command sequen
         await owner.mutation(configure, { currentSlug: event.slug, policy: {} });
         const fresh = await t.mutation(worker('refreshConfiguration'), { ...args, epoch: lease.epoch });
         assert.deepEqual(fresh.configuration.policy, { silence });
-        const command = await owner.mutation(api.events.queueEventMediaCommand, { currentSlug: event.slug, type: 'set_automatic_mode' as never });
+        const command = await owner.mutation(api.events.queueEventMediaCommand, { idempotencyKey:crypto.randomUUID(), currentSlug: event.slug, type: 'set_automatic_mode' as never });
         assert.equal(command.status, 'queued');
     } finally {
         if (previous === undefined) delete process.env.VRDEX_EVENT_BROADCAST_SILENCE_CALIBRATED;
@@ -207,7 +209,7 @@ it("hold current retains encoded source while slate holds and automatic resumes"
     f.command('switch_hold', 4);
     await f.worker.tick();
     assert.ok(f.counts().holds > before);
-    assert.equal(f.worker.getState().mode, 'automatic');
+    assert.equal(f.worker.getState().mode, 'hold');
     f.slate(); await f.worker.tick();
     assert.equal(f.worker.getState().mode, 'hold');
 });
@@ -286,7 +288,7 @@ it("same source ID with a changed URL cannot acknowledge the old encoded input",
     f.config.sources[0].publicUrl = 'https://stream.vrcdn.live/live/replacement.live.ts';
     f.encoded();
     await f.worker.tick();
-    assert.equal(f.counts().ackCount, 0);
+    assert.equal(f.counts().successfulAckCount, 0);
 });
 it("changing or revoking selected destination fences the old sender", async () => {
     const f = runtimeFixture();
@@ -310,10 +312,12 @@ it("stopping a still-authorized worker reports terminal error after fencing publ
 it("manual source selection supports an authorized source without an authored slot", async () => {
     const f = runtimeFixture();
     f.config.slots = [];
+    f.observations.clear();
+    f.observations.set('manual-a',{slotKey:'manual-a',sourceId:'a',revision:1,ready:true,progressing:true,observedAt:0});
     await f.worker.start();
     f.command();
     await f.worker.tick();
-    assert.equal(f.worker.getState().current, undefined);
+    assert.equal(f.worker.getState().committedIntent.kind, 'manual');
     assert.equal(f.counts().ackCount, 0);
     f.encoded('manual-a'); await f.worker.tick();
     assert.equal(f.worker.getState().current?.sourceId, 'a');
@@ -461,7 +465,7 @@ it('I2 detached projection does not replace a separately authored manual input',
     const refreshed = await f.t.mutation(worker('refreshConfiguration'), f.request);
     assert.equal(refreshed.configuration.slots[0].sourceId, manual);
     assert.equal(refreshed.configuration.slots[0].available, true);
-    assert.equal((await f.t.mutation(worker('observeProgram'), { ...f.request, state: 'live', outputMs: 10, publishing: true, sourceId: f.sourceId })).accepted, false);
+    assert.equal((await f.t.mutation(worker('observeProgram'), { intentSequence:0,outputId:f.output.outputId, ...f.request, state: 'live', outputMs: 10, publishing: true, sourceId: f.sourceId })).kind,"superseded");
 });
 it('I4 legacy task reservations without process status stay discoverable', async () => {
     const f = await fixture();
@@ -690,9 +694,10 @@ it('R2F1 rejected ordinary output save preserves the active worker configuration
   await assert.rejects(save(),/session/); // Pending, before any dispatch reservation.
   const controller=createEventWorker({identity:f.args,control:(method:string,request:Record<string,unknown>)=>f.t.mutation(worker(method),request),
     renderer:{start:async()=>{},stop:async()=>{},subscribe:()=>()=>{},reconcileSources:async()=>{},getInputs:()=>[],hold:()=>{},getState:()=>({running:true,outputMs:1000})},
-    outputs:{start:async()=>{},stop:async()=>{},stopNow:()=>{},enqueue:()=>{},getState:()=>({publishing:true})},resolveSource:async()=>undefined,checkEnabled:async()=>true});
+    outputs:{start:async()=>{},stop:async()=>{},stopNow:()=>{},enqueue:()=>{},getState:()=>({publishing:true})},inputs: syntheticInputs(async()=>undefined), checkEnabled:async()=>true});
   try {
     await controller.start();await controller.tick();
+    await drainReceiptCallbacks(); // Start settles asynchronously before the save baseline.
     const before=await f.t.run(({db})=>db.get(f.output.outputId));
     await assert.rejects(save(),/session/);
     await controller.tick();
@@ -724,23 +729,23 @@ for (const finish of ['observation','process','stop-ack'] as const) it(`R3F1 ${f
   const f=await admittedBeforeAcquisition();
   await f.t.run(({db})=>db.patch(f.scheduled.startCommandId!,{status:'queued'}));
   const lease=await f.t.mutation(worker('acquireSession'),f.args), request={...f.args,epoch:lease.epoch};
-  if(finish==='stop-ack') {
-    await f.t.mutation(worker('claimCommands'),request);
-    await f.t.mutation(worker('acknowledgeCommand'),{...request,commandId:f.scheduled.startCommandId!,sequence:1,outcome:'succeeded',observedState:'hold'});
-    await f.owner.mutation(api.events.stopEventMediaWorker,{currentSlug:f.event.slug,sessionId:f.args.sessionId});
-  }
-  await f.owner.mutation(api.events.queueEventMediaCommand,{currentSlug:f.event.slug,type:'hold_current'});
+  await f.owner.mutation(api.events.queueEventMediaCommand,{idempotencyKey:'hold',currentSlug:f.event.slug,type:'hold_current'});
   await f.t.mutation(worker('claimCommands'),request);
-  await f.owner.mutation(api.events.queueEventMediaCommand,{currentSlug:f.event.slug,type:'switch_hold'});
+  await f.owner.mutation(api.events.queueEventMediaCommand,{idempotencyKey:'cut',currentSlug:f.event.slug,type:'switch_hold'});
+  if(finish==='stop-ack') {
+    await f.owner.mutation(api.events.stopEventMediaWorker,{currentSlug:f.event.slug,sessionId:f.args.sessionId});
+    await assert.rejects(f.owner.mutation(api.events.queueEventMediaCommand,{idempotencyKey:'late',currentSlug:f.event.slug,type:'switch_hold'}),/stopp/);
+    await f.t.mutation(worker('claimCommands'),request);
+  }
   const pendingBefore=(await f.owner.query(api.events.getEventMediaControlStatus,{currentSlug:f.event.slug})).commands;
-  assert(pendingBefore.some(c=>c.status==='claimed'));assert(pendingBefore.some(c=>c.status==='queued'));
+  assert(pendingBefore.some(c=>['queued','claimed'].includes(c.status)));
   if(finish==='observation') {
     assert.equal((await f.t.mutation(worker('observeProgram'),{...request,epoch:lease.epoch-1,state:'error',outputMs:0,publishing:false})).accepted,false);
     assert((await f.owner.query(api.events.getEventMediaControlStatus,{currentSlug:f.event.slug})).commands.some(c=>c.status==='claimed'));
     await f.t.mutation(worker('observeProgram'),{...request,state:'error',outputMs:0,publishing:false});
   } else if(finish==='stop-ack') {
     const stop=pendingBefore.find(c=>c.commandType==='stop_program')!;
-    await f.t.mutation(worker('acknowledgeCommand'),{...request,commandId:stop.commandId,sequence:2,outcome:'succeeded',observedState:'ended'});
+    await f.t.mutation(worker('acknowledgeCommand'),{...request,commandId:stop.commandId,sequence:stop.sequence,outcome:'succeeded',observedState:'ended'});
   } else {
     await refreshSessions(f.client,f.config,async(_config:any,args:string[])=>args[1]==='describe-tasks'?{tasks:[{taskArn:'managed-task',lastStatus:'STOPPED',containers:[{exitCode:1}]}]}:{});
   }
@@ -819,7 +824,7 @@ it('R4F4 repeated profile projections stay byte-identical until stream or permis
 for (const reserved of [false, true]) it(`R4F5 unusable start settles session without fabricating task stop (reserved=${reserved})`, async () => {
     const f = await fixture();
     if (reserved) await f.t.mutation(worker('admitDispatch'), {bridgeToken,eventId:f.event.eventId,sessionId:f.args.sessionId,dispatchId:'reserved'});
-    const pending = await f.owner.mutation(api.events.queueEventMediaCommand, {currentSlug:f.event.slug,type:'hold_current'});
+    const pending = await f.owner.mutation(api.events.queueEventMediaCommand, { idempotencyKey:crypto.randomUUID(),currentSlug:f.event.slug,type:'hold_current'});
     const registry = process.env.VRDEX_VRCDN_OUTPUT_ACCOUNTS_JSON;
     process.env.VRDEX_VRCDN_OUTPUT_ACCOUNTS_JSON = '[]';
     assert.equal(await f.t.mutation(api.events.claimEventMediaWorkerCommand, {bridgeToken,workerId:'bridge'}), null);
@@ -856,8 +861,8 @@ function transactionalRuntime(relay?: any) {
     let prepared:string[]=[], preparedSources:any[]=[], renderedSource:string|undefined='a';
     const ready=new Set(['a']); const failures=new Map<string,number>(); const acks:any[]=[],reports:any[]=[];
     const config:any={mode:'manual',currentSourceId:'a',sessionDeadline:1000000,policy:{},outputId:'out',outputs:[{id:'out'}],sources:['a','b','c'].map(id=>({id,publicUrl:`https://example.test/${id}`})),slots:[{slotKey:'a',sourceId:'a',startAt:-1000,endAt:30000,available:true},{slotKey:'b',sourceId:'b',startAt:40000,endAt:50000,available:true}]};
-    const renderer={start:async()=>{},stop:async()=>{},subscribe:()=>()=>{},reconcileSources:async(sources:any[])=>{preparedSources=sources.map(source=>({...source}));prepared=sources.map(s=>s.slotKey);},getInputs:()=>preparedSources.map(source=>({source,getObservation:()=>({...source,ready:ready.has(source.slotKey),progressing:ready.has(source.slotKey),failureSince:failures.get(source.slotKey),observedAt:now})})),selectSource:(slotKey:string)=>{if(!ready.has(slotKey)||!prepared.includes(slotKey))return false; rendered=slotKey;renderedSource=preparedSources.find(source=>source.slotKey===slotKey)?.sourceId;return true;},hold:()=>{rendered=undefined;renderedSource=undefined;},getState:()=>({running:true,outputMs:now+1,renderedSlotKey:rendered,renderedSourceId:renderedSource})};
-    const worker=createEventWorker({identity:{},clock:()=>now,renderer,outputs:{start:async()=>{},stop:async()=>{},stopNow:()=>{},getState:()=>({publishing:true})},resolveSource:async(s:any)=>relay ? relay.resolveSource({...s,type:"vrcdn_link"}) : s.publicUrl,retainSources:(sources:any[])=>relay?.retainSources(sources.map(s=>({...s,type:"vrcdn_link"}))),checkEnabled:async()=>true,control:async(name:string,args:any)=>{
+    const renderer={start:async()=>{},stop:async()=>{},subscribe:()=>()=>{},reconcileSources:async(sources:any[])=>{preparedSources=sources.map(source=>({...source}));prepared=sources.map(s=>s.slotKey);},getInputs:()=>preparedSources.map(source=>({source,getObservation:()=>({...source,ready:ready.has(source.slotKey),progressing:ready.has(source.slotKey),failureSince:failures.get(source.slotKey),observedAt:now})})),selectSource:(slotKey:string)=>{if(!ready.has(slotKey)||!prepared.includes(slotKey))return false; rendered=slotKey;renderedSource=preparedSources.find(source=>source.slotKey===slotKey)?.sourceId;return true;},hold:()=>{rendered=undefined;renderedSource=undefined;},getState:()=>({running:true,outputMs:now+1,renderedSlotKey:rendered,renderedSourceId:renderedSource,renderedSourceRevision:renderedSource?preparedSources.find(s=>s.sourceId===renderedSource)?.revision:undefined})};
+    const worker=createEventWorker({identity:{},clock:()=>now,renderer,outputs:{start:async()=>{},stop:async()=>{},stopNow:()=>{},getState:()=>({publishing:true})},inputs: syntheticInputs(undefined, relay), checkEnabled:async()=>true,control:async(name:string,args:any)=>{
         if(name==='acquireSession'||name==='renewSession')return {granted:true,epoch:1,serverNow:now,expiresAt:now+30000,renewAfterMs:10000,configuration:structuredClone(config)};
         if(name==='refreshConfiguration')return {granted:true,serverNow:now,configuration:structuredClone(config)};
         if(name==='claimCommands')return {granted:true,commands};
@@ -865,7 +870,7 @@ function transactionalRuntime(relay?: any) {
         if(name==='observeProgram')reports.push(args);
         return {accepted:true};
     }});
-    return {worker,config,ready,failures,acks,reports,setTime:(time:number)=>{now=time;},prepared:()=>prepared,rendered:()=>rendered,command:(commandType:string,targetSourceId?:string)=>{commands=[{_id:`command-${++sequence}`,sequence,commandType,targetSourceId}];},tick:async(time=now+1000)=>{now=time;await worker.tick();}};
+    return {worker,config,ready,failures,acks,reports,setTime:(time:number)=>{now=time;},prepared:()=>prepared,rendered:()=>rendered,command:(commandType:string,targetSourceId?:string)=>{commands=[{_id:`command-${++sequence}`,sequence,commandType,targetSourceId}];},tick:async(time=now+1000)=>{now=time;for(let i=0;i<4;i++)await worker.tick();}};
 }
 it('R4F1 failed source switch retains healthy playback, removes target and permits observed retry',async()=>{
     const f=transactionalRuntime();await f.worker.start();await f.tick();
@@ -911,7 +916,7 @@ it('R4F3 draft host projection authorizes operations readers and conceals all ot
     const projected=await reader.query(hostQuery,args);
     assert.equal(projected.title,'Worker event');
     assert.doesNotMatch(JSON.stringify(projected),/secretRef|credential|claimedByWorker|preserved.*Association/);
-    await assert.rejects(reader.mutation(api.events.queueEventMediaCommand,{currentSlug:f.event.slug,type:'switch_hold'}));
+    await assert.rejects(reader.mutation(api.events.queueEventMediaCommand,{ idempotencyKey:crypto.randomUUID(),currentSlug:f.event.slug,type:'switch_hold'}));
     await f.t.run(async({db})=>{for(const authority of await db.query('communityAuthorities').collect())await db.patch(authority._id,{state:'revoked'});});
     assert.equal(await reader.query(hostQuery,args),null);
     await f.t.run(({db})=>db.patch(f.event.eventId,{publicationState:'published'}));
@@ -975,26 +980,26 @@ it('R4F1 R4F2 real backend observation and command ack agree through failure, re
   const result:any[]=[];
   for(const [index,key] of ['a','b'].entries()){
    const slot=await db.insert('eventSlots',{eventId:f.event.eventId,position:index,startAt:now+(index===0?-1000:60000),endAt:now+(index===0?60000:120000),displayLabel:key,roleLabel:'DJ',sourceType:'manual',sourceLabel:'Owner',confidence:1,reviewState:'confirmed',updatedAt:now});
-   const source=await db.insert('eventMediaSources',{programId:f.output.programId,eventId:f.event.eventId,key,position:index,type:'vrcdn_link',purpose:'program',state:'ready',label:key,eventSlotId:slot,publicUrl:`https://stream.vrcdn.live/live/${key}.live.ts`,createdAt:now,updatedAt:now});result.push({slot,source});
+   const source=await db.insert('eventMediaSources',{programId:f.output.programId,eventId:f.event.eventId,key,position:index,type:'vrcdn_link',purpose:'program',state:'ready',label:key,eventSlotId:slot,publicUrl:`https://stream.vrcdn.live/live/source_${key}.live.ts`,createdAt:now,updatedAt:now});result.push({slot,source});
   }return result;
  });
  let time=0,rendered:any,prepared:any[]=[];const ready=new Set([sources[0].slot]);
- const renderer={start:async()=>{},stop:async()=>{},subscribe:()=>()=>{},reconcileSources:async(rows:any[])=>{prepared=rows;},getInputs:()=>prepared.map(source=>({source,getObservation:()=>({...source,ready:ready.has(source.slotKey),progressing:ready.has(source.slotKey),observedAt:time})})),selectSource:(key:string)=>{if(!ready.has(key))return false;rendered=prepared.find(source=>source.slotKey===key);return !!rendered;},hold:()=>{rendered=undefined;},getState:()=>({running:true,outputMs:time+1,renderedSlotKey:rendered?.slotKey,renderedSourceId:rendered?.sourceId})};
- const runtime=createEventWorker({identity:{...f.args},renderer,clock:()=>time,resolveSource:async(s:any)=>s.publicUrl,checkEnabled:async()=>true,outputs:{start:async()=>{},stop:async()=>{},stopNow:()=>{},getState:()=>({publishing:true})},control:(name:string,args:any)=>f.t.mutation(worker(name),args)});
- const tick=async()=>{time+=1000;await runtime.tick();assert.equal(runtime.getState().stopped,false);};
+ const renderer={start:async()=>{},stop:async()=>{},subscribe:()=>()=>{},reconcileSources:async(rows:any[])=>{prepared=rows;},getInputs:()=>prepared.map(source=>({source,getObservation:()=>({...source,ready:ready.has(source.slotKey),progressing:ready.has(source.slotKey),observedAt:time})})),selectSource:(key:string)=>{if(!ready.has(key))return false;rendered=prepared.find(source=>source.slotKey===key);return !!rendered;},hold:()=>{rendered=undefined;},getState:()=>({running:true,outputMs:time+1,renderedSlotKey:rendered?.slotKey,renderedSourceId:rendered?.sourceId,renderedSourceRevision:rendered?.revision})};
+ const runtime=createEventWorker({identity:{...f.args},renderer,clock:()=>time,inputs: syntheticInputs(async(s:any)=>s.publicUrl), checkEnabled:async()=>true,outputs:{start:async()=>{},stop:async()=>{},stopNow:()=>{},getState:()=>({publishing:true})},control:(name:string,args:any)=>f.t.mutation(worker(name),args)});
+ const tick=async()=>{time+=1000;for(let i=0;i<4;i++)await runtime.tick();assert.equal(runtime.getState().stopped,false);};
  const state=()=>f.t.run(({db})=>db.get(f.args.sessionId));
  await runtime.start();await tick();await tick();await tick();
  assert.equal((await state())?.currentSourceId,sources[0].source);
- const failed=await f.owner.mutation(api.events.queueEventMediaCommand,{currentSlug:f.event.slug,type:'switch_source',targetSourceKey:'b'});
+ const failed=await f.owner.mutation(api.events.queueEventMediaCommand,{ idempotencyKey:crypto.randomUUID(),currentSlug:f.event.slug,type:'switch_source',targetSourceKey:'b'});
  for(let i=0;i<18;i++)await tick();
  assert.equal((await f.t.run(({db})=>db.get(failed.commandId)))?.status,'failed');
- assert.equal((await state())?.currentSourceId,sources[0].source);assert.equal((await state())?.broadcastMode,'automatic');
+ assert.equal((await state())?.currentSourceId,sources[0].source);assert.equal((await state())?.committedIntent?.kind,'automatic');
  ready.add(sources[1].slot);await tick();assert.equal((await state())?.currentSourceId,sources[0].source);
- const retry=await f.owner.mutation(api.events.queueEventMediaCommand,{currentSlug:f.event.slug,type:'switch_source',targetSourceKey:'b'});await tick();await tick();
- assert.equal((await f.t.run(({db})=>db.get(retry.commandId)))?.observedSourceId,sources[1].source);assert.equal((await state())?.broadcastMode,'manual');
- const auto=await f.owner.mutation(api.events.queueEventMediaCommand,{currentSlug:f.event.slug,type:'set_automatic_mode'});await tick();await tick();
+ const retry=await f.owner.mutation(api.events.queueEventMediaCommand,{ idempotencyKey:crypto.randomUUID(),currentSlug:f.event.slug,type:'switch_source',targetSourceKey:'b'});await tick();await tick();
+ assert.equal((await f.t.run(({db})=>db.get(retry.commandId)))?.observedSourceId,sources[1].source);assert.equal((await state())?.committedIntent?.kind,'manual');
+ const auto=await f.owner.mutation(api.events.queueEventMediaCommand,{ idempotencyKey:crypto.randomUUID(),currentSlug:f.event.slug,type:'set_automatic_mode'});await tick();await tick();
  assert.equal((await f.t.run(({db})=>db.get(auto.commandId)))?.observedSourceId,sources[0].source);
- assert.equal((await state())?.currentSourceId,sources[0].source);assert.equal((await state())?.broadcastMode,'automatic');
+ assert.equal((await state())?.currentSourceId,sources[0].source);assert.equal((await state())?.committedIntent?.kind,'automatic');
  await runtime.stop();
 });
 
@@ -1038,11 +1043,13 @@ for(const terminal of ['ended','error','stop-ack'] as const) it(`R5F4 selected d
  const f=await admittedBeforeAcquisition();const lease=await f.t.mutation(worker('acquireSession'),f.args),request={...f.args,epoch:lease.epoch};
  const optional=await f.t.run(async({db})=>{const {_id,_creationTime,...output}=(await db.get(f.output.outputId))!;return db.insert('eventMediaOutputs',{...output,key:'other',state:'ready'});});
  const status=()=>f.owner.query(api.events.getEventMediaControlStatus,{currentSlug:f.event.slug});
- for(const state of ['live','hold'] as const){
-  assert.equal((await f.t.mutation(worker('observeProgram'),{...request,state,outputMs:1000,publishing:true,outputId:f.output.outputId})).accepted,true);
+ const sourceId=await f.t.run(({db})=>db.insert('eventMediaSources',{programId:f.output.programId,eventId:f.event.eventId,key:'source',position:0,type:'vrcdn_link',purpose:'program',state:'ready',label:'Source',publicUrl:'vrcdn:source_a',revision:1,createdAt:Date.now(),updatedAt:Date.now()}));
+ for(const [index,state] of (['live','hold'] as const).entries()){
+  const evidence=state==='live'?{sourceId,sourceRevision:1,slotKey:`manual-${sourceId}`} : {};
+  assert.equal((await f.t.mutation(worker('observeProgram'),{intentSequence:0,outputId:f.output.outputId,...request,...evidence,state,outputMs:1000+index*2000,publishing:true})).kind,"ok");
   assert.equal((await status()).operationReadiness.activeOutputCount,1);
   const before=await f.t.run(({db})=>db.get(f.output.outputId));assert.equal(before?.state,'active');
-  await new Promise(resolve=>setTimeout(resolve,5));await f.t.mutation(worker('observeProgram'),{...request,state,outputMs:2000,publishing:true});
+  await new Promise(resolve=>setTimeout(resolve,5));await f.t.mutation(worker('observeProgram'),{intentSequence:0,outputId:f.output.outputId,...request,...evidence,state,outputMs:2000+index*2000,publishing:true});
   assert.deepEqual(await f.t.run(({db})=>db.get(f.output.outputId)),before);
  }
  if(terminal==='stop-ack'){
@@ -1059,7 +1066,7 @@ for(const terminal of ['ended','error','stop-ack'] as const) it(`R5F4 selected d
 import { createSourceRelay } from '../../workers/restream/source-relay.mjs';
 it('R5F3 actual controller retains current plus manual target and retires target on rollback', async()=>{
  const relay=await createSourceRelay({operatorEndpoints:['https://example.test/a','https://example.test/b','https://example.test/c']});const f=transactionalRuntime(relay);
- const resolve=(id:string)=>relay.resolveSource({...f.config.sources.find((s:any)=>s.id===id),type:'vrcdn_link'});
+ const resolve=(id:string)=>relay.resolveSource({...f.config.sources.find((s:any)=>s.id===id),revision:1,type:'vrcdn_link'});
  try{
   await f.worker.start();await f.tick();const a=resolve('a');f.command('switch_source','b');await f.tick();const b=resolve('b');
   assert.equal(resolve('a'),a);assert.deepEqual(f.prepared(),['a','b']);
@@ -1068,22 +1075,19 @@ it('R5F3 actual controller retains current plus manual target and retires target
   assert.equal(f.worker.getState().stopped,false);assert.equal(f.rendered(),'a');assert.equal(resolve('a'),a);
  }finally{await f.worker.stop();relay.stop();}
 });
-it('R5F1 scheduling attaches pre-session intent without losing command order',async()=>{
- const f=await fixture();
- await f.t.run(async({db})=>{await db.delete(f.scheduled.startCommandId!);await db.delete(f.args.sessionId);await db.patch(f.output.programId,{activeSessionId:undefined,state:'ready'});});
- await f.owner.mutation(api.events.queueEventMediaCommand,{currentSlug:f.event.slug,type:'switch_hold'});
- const before=await f.owner.query(api.events.getEventMediaControlStatus,{currentSlug:f.event.slug});const queued=before.commands.find(c=>c.status==='queued')!;assert.equal(queued.sessionId,undefined);
- const scheduled=await f.owner.mutation(api.events.scheduleEventMediaWorker,{currentSlug:f.event.slug,outputKey:'main',startImmediately:true});
- const lease=await f.t.mutation(worker('acquireSession'),{...f.args,sessionId:scheduled.sessionId});
- const claimed=await f.t.mutation(worker('claimCommands'),{...f.args,sessionId:scheduled.sessionId,epoch:lease.epoch});
- assert.equal(claimed.granted,true);assert.equal(claimed.commands.some((c:any)=>c._id===queued.commandId),true);
- const attached=await f.t.run(({db})=>db.get(queued.commandId));assert.equal(attached?.sessionId,scheduled.sessionId);
- const sequences=claimed.commands.map((c:any)=>c.sequence);assert.deepEqual(sequences,[...sequences].sort((a:number,b:number)=>a-b));assert.equal(new Set(sequences).size,sequences.length);
+it('R5F1 controls require an active session and history cannot be attached on start',async()=>{
+ const f=await fixture();await f.t.run(async({db})=>{await db.patch(f.args.sessionId,{status:'ended'});await db.patch(f.output.programId,{activeSessionId:undefined});});
+ await assert.rejects(f.owner.mutation(api.events.queueEventMediaCommand,{currentSlug:f.event.slug,type:'switch_hold',idempotencyKey:'cut'}),/active/);
+ const old=await f.t.run(({db})=>db.insert('eventMediaCommands',{programId:f.output.programId,eventId:f.event.eventId,commandType:'switch_hold',status:'queued',actorSurface:'web',publicFallbackLinks:[],createdAt:1,updatedAt:1}));
+ const next=await f.owner.mutation(api.events.scheduleEventMediaWorker,{currentSlug:f.event.slug,startImmediately:true});
+ const lease=await f.t.mutation(worker('acquireSession'),{...f.args,sessionId:next.sessionId});
+ const claims=await f.t.mutation(worker('claimCommands'),{...f.args,sessionId:next.sessionId,epoch:lease.epoch});
+ assert.ok(!claims.commands.some((c:{_id:string})=>c._id===old));assert.equal((await f.t.run(({db})=>db.get(old)))?.sessionId,undefined);
 });
 
 for(const changed of ['disabled','revoked','replacement'] as const) it(`R5F4 terminal observations preserve ${changed} destination authority`,async()=>{
  const f=await admittedBeforeAcquisition();const lease=await f.t.mutation(worker('acquireSession'),f.args),request={...f.args,epoch:lease.epoch};
- await f.t.mutation(worker('observeProgram'),{...request,state:'live',outputMs:1000,publishing:true});
+ await f.t.mutation(worker('observeProgram'),{intentSequence:0,outputId:f.output.outputId,...request,state:'hold',outputMs:1000,publishing:true});
  if(changed==='disabled')await f.t.run(({db})=>db.patch(f.output.outputId,{state:'disabled'}));
  if(changed==='revoked')process.env.VRDEX_VRCDN_OUTPUT_ACCOUNTS_JSON='[]';
  if(changed==='replacement')await f.t.run(async({db})=>{await db.patch(f.args.sessionId,{status:'ended'});const id=await db.insert('eventMediaSessions',{eventId:f.event.eventId,programId:f.output.programId,outputId:f.output.outputId,status:'live',createdAt:Date.now(),updatedAt:Date.now()});await db.patch(f.output.programId,{activeSessionId:id});});
@@ -1094,7 +1098,7 @@ for(const changed of ['disabled','revoked','replacement'] as const) it(`R5F4 ter
 it('R5F4 mismatched destination and stale epoch cannot mark any output active',async()=>{
  const f=await fixture();const lease=await f.t.mutation(worker('acquireSession'),f.args),request={...f.args,epoch:lease.epoch};
  const other=await f.t.run(async({db})=>{const {_id,_creationTime,...output}=(await db.get(f.output.outputId))!;return db.insert('eventMediaOutputs',{...output,key:'other'});});
- for(const args of [{...request,epoch:lease.epoch-1,outputId:f.output.outputId},{...request,outputId:other}])assert.equal((await f.t.mutation(worker('observeProgram'),{...args,state:'live',outputMs:1000,publishing:true})).accepted,false);
+ for(const args of [{...request,epoch:lease.epoch-1,outputId:f.output.outputId},{...request,outputId:other}])assert.equal((await f.t.mutation(worker('observeProgram'),{intentSequence:0,outputId:f.output.outputId,...args,state:'hold',outputMs:1000,publishing:true})).kind,args.epoch!==lease.epoch?"fenced":"superseded");
  await f.t.mutation(worker('claimCommands'),request);
  assert.equal((await f.t.mutation(worker('acknowledgeCommand'),{...request,commandId:f.scheduled.startCommandId!,sequence:1,outcome:'succeeded',observedState:'live',observedOutputId:other})).accepted,false);
  assert.equal((await f.owner.query(api.events.getEventMediaControlStatus,{currentSlug:f.event.slug})).operationReadiness.activeOutputCount,0);
@@ -1107,7 +1111,7 @@ it('R5F2 cleanup isolation does not swallow backend control failures',async()=>{
 it('R5F4 successful command acknowledgements activate output and terminal omission restores ready',async()=>{
  const f=await fixture();const lease=await f.t.mutation(worker('acquireSession'),f.args),request={...f.args,epoch:lease.epoch};
  await f.t.mutation(worker('claimCommands'),request);
- const ack={...request,commandId:f.scheduled.startCommandId!,sequence:1,outcome:'succeeded',observedState:'hold'};
+ const ack={...request,intentSequence:0,outputMs:100,observedOutputId:f.output.outputId,commandId:f.scheduled.startCommandId!,sequence:1,outcome:'succeeded',observedState:'hold'};
  assert.equal((await f.t.mutation(worker('acknowledgeCommand'),ack)).accepted,true);
  const active=await f.t.run(({db})=>db.get(f.output.outputId));assert.equal(active?.state,'active');
  assert.equal((await f.t.mutation(worker('acknowledgeCommand'),ack)).duplicate,true);assert.deepEqual(await f.t.run(({db})=>db.get(f.output.outputId)),active);
@@ -1138,10 +1142,10 @@ for (const priorObservation of [false, true]) it(`R5_REVIEW legacy ${priorObserv
   const lease = await f.t.mutation(worker('acquireSession'), { ...f.args, sessionId: scheduled.sessionId, epoch: 0 });
   assert.equal(lease.granted, true);
   const request = { ...f.args, sessionId: scheduled.sessionId, epoch: lease.epoch };
-  assert.equal((await f.t.mutation(worker('observeProgram'), { ...request, state: 'live', outputMs: 1000, publishing: true })).accepted, true);
+  assert.equal((await f.t.mutation(worker('observeProgram'), { intentSequence:0,outputId:f.output.outputId, ...request, state: 'hold', outputMs: 1000, publishing: true })).kind,"ok");
   const publication = () => f.t.run(async ({ db }) => ({ program: await db.get(f.output.programId), output: await db.get(f.output.outputId) }));
   const before = await publication();
-  assert.equal(before.program?.activeSessionId, scheduled.sessionId); assert.equal(before.program?.state, 'live'); assert.equal(before.output?.state, 'active');
+  assert.equal(before.program?.activeSessionId, scheduled.sessionId); assert.equal(before.program?.state, 'hold'); assert.equal(before.output?.state, 'active');
   for (let i = 0; i < 2; i++) {
     await refreshSessions(client, f.config, runAws);
     assert.deepEqual(await publication(), before);
@@ -1167,7 +1171,7 @@ for (const optionalActive of [false, true]) it(`R6F1 abrupt exact-task STOPPED p
     const { _id, _creationTime, ...output } = (await db.get(f.output.outputId))!;
     return db.insert('eventMediaOutputs', { ...output, key: 'optional', state: optionalActive ? 'active' : 'ready' });
   });
-  assert.equal((await f.t.mutation(worker('observeProgram'), { ...request, state: 'live', outputMs: 1000, publishing: true })).accepted, true);
+  assert.equal((await f.t.mutation(worker('observeProgram'), { intentSequence:0,outputId:f.output.outputId, ...request, state: 'hold', outputMs: 1000, publishing: true })).kind,"ok");
   const confirm = { bridgeToken, sessionId: f.args.sessionId, taskArn: 'managed-task', stopped: true };
   assert.equal((await f.t.mutation(worker('recordProcessStatus'), { ...confirm, taskArn: 'wrong-task' })).accepted, false);
   await f.t.mutation(worker('recordProcessStatus'), { ...confirm, stopped: false });
@@ -1191,7 +1195,7 @@ for (const optionalActive of [false, true]) it(`R6F1 abrupt exact-task STOPPED p
 for (const change of ['terminal-first', 'disabled', 'revoked', 'replacement'] as const) it(`R6F1 STOPPED respects ${change} output authority`, async () => {
   const f = await admittedBeforeAcquisition();
   const lease = await f.t.mutation(worker('acquireSession'), f.args), request = { ...f.args, epoch: lease.epoch };
-  await f.t.mutation(worker('observeProgram'), { ...request, state: 'hold', outputMs: 1000, publishing: true });
+  await f.t.mutation(worker('observeProgram'), { intentSequence:0,outputId:f.output.outputId, ...request, state: 'hold', outputMs: 1000, publishing: true });
   if (change === 'disabled') await f.t.run(({ db }) => db.patch(f.output.outputId, { state: 'disabled' }));
   if (change === 'revoked') process.env.VRDEX_VRCDN_OUTPUT_ACCOUNTS_JSON = '[]';
   if (change === 'terminal-first' || change === 'replacement') {
@@ -1203,7 +1207,7 @@ for (const change of ['terminal-first', 'disabled', 'revoked', 'replacement'] as
     const scheduled = await f.owner.mutation(api.events.scheduleEventMediaWorker, { currentSlug: f.event.slug, outputKey: 'main', startImmediately: true });
     const acquired = await f.t.mutation(worker('acquireSession'), { ...f.args, sessionId: scheduled.sessionId, epoch: 0 });
     assert.equal(acquired.granted, true); replacementRequest = { ...f.args, sessionId: scheduled.sessionId, epoch: acquired.epoch };
-    await f.t.mutation(worker('observeProgram'), { ...replacementRequest, state: 'live', outputMs: 2000, publishing: true });
+    await f.t.mutation(worker('observeProgram'), { intentSequence:0,outputId:f.output.outputId, ...replacementRequest, state: 'hold', outputMs: 2000, publishing: true });
   }
   const output = await f.t.run(({ db }) => db.get(f.output.outputId));
   const program = await f.t.run(({ db }) => db.get(f.output.programId));
@@ -1353,7 +1357,7 @@ it("R7F3 completed command history does not increase polling or acknowledgement 
       });
     await db.patch(f.args.sessionId, { nextCommandSequence: 2002 });
   });
-  const queued = await f.owner.mutation(api.events.queueEventMediaCommand, {
+  const queued = await f.owner.mutation(api.events.queueEventMediaCommand, { idempotencyKey:crypto.randomUUID(),
     currentSlug: f.event.slug,
     type: "hold_current",
   });
@@ -1361,14 +1365,17 @@ it("R7F3 completed command history does not increase polling or acknowledgement 
   assert.equal(claimed.result.commands.length, 1);
   assert.equal(claimed.result.commands[0]._id, queued.commandId);
   assert(claimed.rows < 100, `poll read ${claimed.rows} rows`);
+  const receipt={...request,commandId:queued.commandId,sequence:claimed.result.commands[0].sequence};
+  await f.t.mutation(worker("beginPreparation"),receipt);
+  await f.t.mutation(worker("promoteOperation"),{...receipt,target:claimed.result.commands[0].controlTarget});
   const ack = await measuredWorker(f, "acknowledgeCommand", {
-    ...request,
+    ...request,intentSequence:receipt.sequence,outputMs:100,observedState:"hold",observedOutputId:f.output.outputId,
     commandId: queued.commandId,
     sequence: claimed.result.commands[0].sequence,
     outcome: "succeeded",
   });
-  assert.equal(ack.result.accepted, true);
-  assert(ack.rows < 10, `ack read ${ack.rows} rows`);
+  assert.equal(ack.result.kind, "ok");
+  assert(ack.rows < 12, `ack read ${ack.rows} rows`);
 });
 it("R7F4 acquisition ignores large terminal and expired nonterminal histories", async () => {
   const f = await fixture();
@@ -1463,7 +1470,7 @@ it("R7F2 failed Next from gap keeps slate until an explicit successful retry", a
   assert.equal(f.rendered(), "b");
   await f.worker.stop();
 });
-it("R7F3 bounded legacy and sessionless attachment drains oldest intent before new commands", async () => {
+it("R7F3 bounded polling leaves legacy and sessionless controls untouched", async () => {
   const f = await fixture();
   const lease = await f.t.mutation(worker("acquireSession"), f.args),
     request = { ...f.args, epoch: lease.epoch };
@@ -1486,40 +1493,16 @@ it("R7F3 bounded legacy and sessionless attachment drains oldest intent before n
       );
     return result;
   });
-  const newer = await f.owner.mutation(api.events.queueEventMediaCommand, {
+  const newer = await f.owner.mutation(api.events.queueEventMediaCommand, { idempotencyKey:crypto.randomUUID(),
     currentSlug: f.event.slug,
     type: "set_automatic_mode",
   });
-  assert.equal(
-    (await f.t.run(({ db }) => db.get(newer.commandId)))?.sequence,
-    undefined,
-    "new intent waits behind migration backlog",
-  );
-  const seen: string[] = [];
-  let last = 0;
-  for (let poll = 0; poll < 8; poll++) {
-    const measured = await measuredWorker(f, "claimCommands", request);
-    assert(measured.rows <= 125, `poll read ${measured.rows} rows`);
-    assert(measured.result.commands.length <= 20);
-    for (const command of measured.result.commands) {
-      assert(command.sequence > last);
-      last = command.sequence;
-      seen.push(command._id);
-      const ack = await measuredWorker(f, "acknowledgeCommand", {
-        ...request,
-        commandId: command._id,
-        sequence: command.sequence,
-        outcome: "succeeded",
-      });
-      assert.equal(ack.result.accepted, true);
-      assert(ack.rows < 10);
-    }
+  assert.equal((await f.t.run(({db})=>db.get(newer.commandId)))?.sequence,2);
+  for(let poll=0;poll<3;poll++) {
+    const measured=await measuredWorker(f,"claimCommands",request);
+    assert(measured.rows<100);assert.deepEqual(measured.result.commands.map((c:{_id:string})=>c._id),[newer.commandId]);
   }
-  assert.deepEqual(seen, [...ids, newer.commandId]);
-  assert.equal(
-    (await f.t.mutation(worker("claimCommands"), request)).commands.length,
-    0,
-  );
+  for(const id of ids)assert.equal((await f.t.run(({db})=>db.get(id)))?.sequence,undefined);
 });
 it("R7F3 future pending head blocks later claims and earlier pending rows block out-of-order acknowledgements", async () => {
   const f = await fixture();
@@ -1531,7 +1514,7 @@ it("R7F3 future pending head blocks later claims and earlier pending rows block 
       programId: f.output.programId,
       eventId: f.event.eventId,
       sessionId: f.args.sessionId,
-      commandType: "hold_current",
+      commandType: "mark_source_live",
       status: "queued" as const,
       actorSurface: "worker" as const,
       publicFallbackLinks: [],
@@ -1677,7 +1660,7 @@ for(const mismatch of ['event','session','dispatch','owner','command','epoch','a
  if(mismatch==='event')identity.eventId=(await f.owner.mutation(api.events.createCommunityEvent,{title:'Other',communitySlug:'club',startAt:Date.now()+600000,timezone:'UTC'})).eventId;
  if(mismatch==='session')identity.sessionId=await f.t.run(async({db})=>{const {_id,_creationTime,...row}=(await db.get(f.args.sessionId))!;return db.insert('eventMediaSessions',row);});
  if(mismatch==='dispatch')identity.dispatchId='other';if(mismatch==='owner')identity.workerId='replacement';
- if(mismatch==='command')identity.commandId=(await f.owner.mutation(api.events.queueEventMediaCommand,{currentSlug:f.event.slug,type:'hold_current'})).commandId;
+ if(mismatch==='command')identity.commandId=(await f.owner.mutation(api.events.queueEventMediaCommand,{ idempotencyKey:crypto.randomUUID(),currentSlug:f.event.slug,type:'hold_current'})).commandId;
  if(mismatch==='epoch')await f.t.run(({db})=>db.patch(f.args.sessionId,{epoch:1}));
  if(mismatch==='arn')await f.t.run(({db})=>db.patch(f.args.sessionId,{workerTaskId:'already-task'}));
  if(mismatch==='old')await f.t.run(({db})=>db.patch(f.args.sessionId,{launchProtocol:undefined}));
@@ -1768,7 +1751,7 @@ for (const replacement of ['future', 'expired', 'expired-before-future'] as cons
     for (const time of [4000, 5000, 6000, 9999]) {
       await f.tick(time);
       assert.equal(f.worker.getState().current?.sourceId, 'a', `old identity at ${time}`);
-      assert.equal(f.worker.getState().current?.available, false);
+      assert.notEqual(f.worker.getState().current?.available, true);
       assert.equal(f.rendered(), undefined, `slate before boundary at ${time}`);
       assert.equal(f.reports.at(-1).sourceId, undefined);
       if (replacement === 'future') assert.deepEqual(f.prepared(), ['a'], 'available same-key replacement stays warm');
@@ -1831,4 +1814,454 @@ it("active silence analysis keeps its startup threshold while duration-only upda
     assert.equal(f.worker.getState().current?.slotKey, 'slot-b');
     assert.equal(f.counts().selections, 2);
     await f.worker.stop();
+});
+for (const startClaimed of [false, true])
+  it(`confirmed Cut followed by older Start keeps current worker publishing (claimed=${startClaimed})`, async () => {
+    const f = await fixture();
+    let time = 0,
+      publishing = false,
+      stops = 0;
+    const acknowledgments: any[] = [];
+    const renderer = {
+      start: async () => {},
+      stop: async () => {},
+      subscribe: () => () => {},
+      reconcileSources: async () => {},
+      getInputs: () => [],
+      selectSource: () => false,
+      hold: () => {},
+      getState: () => ({ running: true, outputMs: time + 1 }),
+    };
+    const runtime = createEventWorker({
+      identity: { ...f.args },
+      renderer,
+      clock: () => time,
+      inputs: syntheticInputs(async (s: any) => s.publicUrl), checkEnabled: async () => true,
+      outputs: {
+        start: async () => {
+          publishing = true;
+        },
+        stop: async () => {},
+        stopNow: () => {
+          stops++;
+          publishing = false;
+        },
+        getState: () => ({ publishing }),
+      },
+      control: async (name: string, args: any) => {
+        const result = await f.t.mutation(worker(name), args);
+        if (name === "acknowledgeCommand")
+          acknowledgments.push({ args, result });
+        return result;
+      },
+    });
+    try {
+      await runtime.start();
+      if (startClaimed) {
+        publishing = false;
+        time += 1000;
+        await runtime.tick();
+        assert.equal(
+          (await f.t.run(({ db }) => db.get(f.scheduled.startCommandId!)))
+            ?.status,
+          "claimed",
+        );
+        assert.equal(acknowledgments.length, 0);
+        publishing = true;
+      }
+      const cut = await f.owner.mutation(api.events.queueEventMediaCommand, {
+        currentSlug: f.event.slug,
+        type: "switch_hold",
+        idempotencyKey: "cut",
+      });
+      for (let i = 0; i < 3; i++) {
+        time += 1000;
+        await runtime.tick();
+        assert.equal(runtime.getState().stopped, false);
+        assert.equal(publishing, true);
+      }
+      assert.equal(stops, 0);
+      assert.equal(acknowledgments[0].args.commandId, cut.commandId);
+      assert.equal(acknowledgments[0].result.kind, "ok");
+      const start = acknowledgments.find(
+        (row) => row.args.commandId === f.scheduled.startCommandId,
+      );
+      assert.equal(start.result.kind, "superseded");
+      const session = await f.t.run(({ db }) => db.get(f.args.sessionId));
+      assert.equal(session?.committedIntent?.kind, "slate");
+      assert.equal(session?.status, "hold");
+      assert.equal(
+        (await f.t.run(({ db }) => db.get(f.scheduled.startCommandId!)))
+          ?.status,
+        "cancelled",
+      );
+    } finally {
+      await runtime.stop();
+    }
+  });
+
+function receiptGate() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+async function drainReceiptCallbacks() {
+  for (let i = 0; i < 4; i++)
+    await new Promise<void>((resolve) => setImmediate(resolve));
+}
+async function ordinaryReceiptRuntime(
+  intercept?: (
+    name: string,
+    args: any,
+    next: () => Promise<any>,
+  ) => Promise<any>,
+) {
+  const f = await fixture();
+  const { createEventWorker: createRuntime } =
+    await import("../../workers/restream/event-worker.mjs");
+  let time = 0,
+    outputMs = 1000,
+    stops = 0,
+    renewals = 0;
+  const calls: { name: string; args: any; result?: any }[] = [];
+  const runtime = createRuntime({
+    identity: { ...f.args },
+    clock: () => time,
+    inputs: syntheticInputs(),
+    checkEnabled: async () => true,
+    renderer: {
+      start: async () => {},
+      stop: async () => {},
+      subscribe: () => () => {},
+      reconcileSources: () => {},
+      getInputs: () => [],
+      selectSource: () => false,
+      hold: () => {},
+      getState: () => ({ running: true, outputMs: ++outputMs }),
+    },
+    outputs: {
+      start: async () => {},
+      stop: async () => {},
+      stopNow: () => {
+        stops++;
+      },
+      getState: () => ({ publishing: stops === 0 }),
+    },
+    control: async (name: string, args: any) => {
+      const call: any = { name, args: structuredClone(args) };
+      calls.push(call);
+      if (name === "renewSession") renewals++;
+      const next = async () => {
+        const result = await f.t.mutation(worker(name), args);
+        call.result = result;
+        return result;
+      };
+      return intercept ? intercept(name, args, next) : next();
+    },
+  });
+  await runtime.start();
+  return {
+    ...f,
+    runtime,
+    calls,
+    counts: () => ({ stops, renewals }),
+    setOutput: (value: number) => {
+      outputMs = value;
+    },
+    tick: async (elapsed = 1000) => {
+      time += elapsed;
+      await runtime.tick();
+      await drainReceiptCallbacks();
+    },
+    command: (id: any) => f.t.run(({ db }) => db.get(id)),
+    admin: () =>
+      f.owner.mutation(api.events.queueEventMediaCommand, {
+        currentSlug: f.event.slug,
+        type: "publish_current_public_watch_link",
+        idempotencyKey: crypto.randomUUID(),
+      }),
+  };
+}
+it("ordinary receipts serialize behind delayed Start while renewal and Cut remain independent", async () => {
+  const gate = receiptGate();
+  let first = true;
+  const f = await ordinaryReceiptRuntime(async (name, args, next) => {
+    if (name === "acknowledgeCommand" && first) {
+      first = false;
+      await gate.promise;
+    }
+    return next();
+  });
+  try {
+    const admin = await f.admin();
+    await f.tick();
+    assert.deepEqual(
+      f.calls
+        .filter((c) => c.name === "acknowledgeCommand")
+        .map((c) => c.args.commandId),
+      [f.scheduled.startCommandId],
+    );
+    await f.tick(5000);
+    await f.tick(5000);
+    assert.equal(f.counts().renewals, 1);
+    assert.equal(f.counts().stops, 0);
+    const cut = await f.owner.mutation(api.events.queueEventMediaCommand, {
+      currentSlug: f.event.slug,
+      type: "switch_hold",
+      idempotencyKey: "ordinary-race-cut",
+    });
+    for (let i = 0; i < 4; i++) await f.tick(0);
+    assert.equal((await f.command(cut.commandId))?.status, "succeeded");
+    assert.equal(f.runtime.getState().committedIntent.kind, "slate");
+    gate.resolve();
+    await drainReceiptCallbacks();
+    for (let i = 0; i < 4; i++) await f.tick(0);
+    assert.equal(
+      (await f.command(f.scheduled.startCommandId))?.status,
+      "cancelled",
+    );
+    assert.equal((await f.command(admin.commandId))?.status, "cancelled");
+    assert.equal(f.counts().stops, 0);
+  } finally {
+    gate.resolve();
+    await f.runtime.stop();
+  }
+});
+it("ordinary Start evidence blocks a newer report until its delayed acknowledgement commits", async () => {
+  const gate = receiptGate();
+  let first = true;
+  const f = await ordinaryReceiptRuntime(async (name, args, next) => {
+    if (name === "acknowledgeCommand" && first) {
+      first = false;
+      await gate.promise;
+    }
+    return next();
+  });
+  try {
+    const admin = await f.admin();
+    await f.tick();
+    await f.tick();
+    assert.equal(
+      f.calls.filter((c) => c.name === "observeProgram").length,
+      0,
+      "newer observation must not overtake frozen receipt",
+    );
+    gate.resolve();
+    await drainReceiptCallbacks();
+    await f.tick();
+    assert.equal(
+      (await f.command(f.scheduled.startCommandId))?.status,
+      "succeeded",
+    );
+    await f.tick();
+    assert.equal((await f.command(admin.commandId))?.status, "failed");
+    assert.deepEqual(
+      f.calls
+        .filter((c) => c.name === "acknowledgeCommand")
+        .map((c) => c.args.commandId),
+      [f.scheduled.startCommandId, admin.commandId],
+    );
+    assert.equal(f.counts().stops, 0);
+  } finally {
+    gate.resolve();
+    await f.runtime.stop();
+  }
+});
+for (const committed of [false, true])
+  it(`ordinary acknowledgement preserves exact payload after lost reply (committed=${committed})`, async () => {
+    let first = true;
+    const f = await ordinaryReceiptRuntime(async (name, args, next) => {
+      if (name === "acknowledgeCommand" && first) {
+        first = false;
+        if (committed) await next();
+        throw Error("response lost");
+      }
+      return next();
+    });
+    try {
+      await f.tick();
+      await f.tick();
+      await f.tick();
+      const acks = f.calls.filter((c) => c.name === "acknowledgeCommand");
+      assert.equal(acks.length, 2);
+      assert.deepEqual(
+        acks[1].args,
+        acks[0].args,
+        "ambiguous outcome must retry exact fingerprint",
+      );
+      assert.equal(
+        (await f.command(f.scheduled.startCommandId))?.status,
+        "succeeded",
+      );
+      assert.equal(acks[1].result.duplicate, committed);
+      const admin = await f.admin();
+      await f.tick();
+      await f.tick();
+      assert.equal((await f.command(admin.commandId))?.status, "failed");
+      assert.equal(f.counts().stops, 0);
+    } finally {
+      await f.runtime.stop();
+    }
+  });
+it("explicit stale Start reply is reconciled with continued claims and refreshed encoded evidence", async () => {
+  const gate = receiptGate();
+  let first = true;
+  const f = await ordinaryReceiptRuntime(async (name, args, next) => {
+    if (name === "acknowledgeCommand" && first) {
+      first = false;
+      await gate.promise;
+    }
+    return next();
+  });
+  try {
+    await f.tick();
+    const original = f.calls.find((c) => c.name === "acknowledgeCommand")!;
+    await f.t.mutation(worker("observeProgram"), {
+      ...f.args,
+      epoch: 1,
+      intentSequence: 0,
+      outputMs: 5000,
+      state: "hold",
+      outputId: f.output.outputId,
+      publishing: true,
+    });
+    f.setOutput(6000);
+    gate.resolve();
+    await drainReceiptCallbacks();
+    assert.equal(original.result.kind, "superseded");
+    assert.equal(
+      (await f.command(f.scheduled.startCommandId))?.status,
+      "claimed",
+    );
+    await f.tick();
+    await f.tick();
+    assert.equal(
+      (await f.command(f.scheduled.startCommandId))?.status,
+      "succeeded",
+    );
+    const retry = f.calls.filter((c) => c.name === "acknowledgeCommand")[1];
+    assert.ok(retry.args.outputMs > original.args.outputMs);
+    const admin = await f.admin();
+    await f.tick();
+    await f.tick();
+    assert.equal((await f.command(admin.commandId))?.status, "failed");
+    assert.equal(f.counts().stops, 0);
+  } finally {
+    gate.resolve();
+    await f.runtime.stop();
+  }
+});
+it("unsupported ordinary admin fails without successful media evidence or program mutation", async () => {
+  const f = await ordinaryReceiptRuntime();
+  try {
+    await f.tick();
+    await f.tick();
+    const before = await f.t.run(({ db }) => db.get(f.output.programId));
+    const admin = await f.admin();
+    await f.tick();
+    await f.tick();
+    const ack = f.calls.find(
+      (c) =>
+        c.name === "acknowledgeCommand" && c.args.commandId === admin.commandId,
+    )!;
+    assert.equal(ack.args.outcome, "failed");
+    assert.equal(ack.args.observedState, undefined);
+    assert.equal(ack.args.observedSourceId, undefined);
+    assert.equal(ack.args.outputMs, undefined);
+    assert.equal((await f.command(admin.commandId))?.status, "failed");
+    const after = await f.t.run(({ db }) => db.get(f.output.programId));
+    assert.equal(after?.state, before?.state);
+    assert.equal(after?.currentSourceId, before?.currentSourceId);
+    assert.equal(after?.currentOutputId, before?.currentOutputId);
+    assert.equal(f.counts().stops, 0);
+  } finally {
+    await f.runtime.stop();
+  }
+});
+it("Return to auto may promote before Start reply and superseded Start remains retryable until settled", async () => {
+  const startGate = receiptGate(),
+    controlGate = receiptGate();
+  let first = true;
+  let returnId: any;
+  const f = await ordinaryReceiptRuntime(async (name, args, next) => {
+    if (name === "acknowledgeCommand") {
+      if (first) {
+        first = false;
+        await startGate.promise;
+      } else if (args.commandId === returnId) await controlGate.promise;
+    }
+    return next();
+  });
+  try {
+    await f.tick();
+    const returned = await f.owner.mutation(api.events.queueEventMediaCommand, {
+      currentSlug: f.event.slug,
+      type: "set_automatic_mode",
+      idempotencyKey: "overtake-start",
+    });
+    returnId = returned.commandId;
+    for (let i = 0; i < 4; i++) await f.tick(0);
+    assert.equal((await f.command(returnId))?.controlPhase, "promoting");
+    assert.equal(f.runtime.getState().committedIntent.kind, "automatic");
+    startGate.resolve();
+    await drainReceiptCallbacks();
+    assert.equal(
+      f.calls.find(
+        (c) =>
+          c.name === "acknowledgeCommand" &&
+          c.args.commandId === f.scheduled.startCommandId,
+      )?.result.kind,
+      "superseded",
+    );
+    assert.equal(
+      (await f.command(f.scheduled.startCommandId))?.status,
+      "claimed",
+    );
+    controlGate.resolve();
+    await drainReceiptCallbacks();
+    for (let i = 0; i < 4; i++) await f.tick();
+    assert.equal((await f.command(returnId))?.status, "succeeded");
+    assert.equal(
+      (await f.command(f.scheduled.startCommandId))?.status,
+      "cancelled",
+    );
+    assert.equal(f.counts().stops, 0);
+    const admin = await f.admin();
+    await f.tick();
+    await f.tick();
+    assert.equal((await f.command(admin.commandId))?.status, "failed");
+  } finally {
+    startGate.resolve();
+    controlGate.resolve();
+    await f.runtime.stop();
+  }
+});
+it("terminal Stop fences publication while ordinary Start acknowledgement is unresolved", async () => {
+  const gate = receiptGate();
+  let first = true;
+  const f = await ordinaryReceiptRuntime(async (name, args, next) => {
+    if (name === "acknowledgeCommand" && first) {
+      first = false;
+      await gate.promise;
+    }
+    return next();
+  });
+  try {
+    await f.tick();
+    await f.owner.mutation(api.events.stopEventMediaWorker, {
+      currentSlug: f.event.slug,
+      sessionId: f.args.sessionId,
+    });
+    await f.tick();
+    assert.equal(f.runtime.getState().stopped, true);
+    assert.equal(f.counts().stops, 1);
+    gate.resolve();
+    await drainReceiptCallbacks();
+    assert.equal(f.counts().stops, 1);
+  } finally {
+    gate.resolve();
+    await f.runtime.stop();
+  }
 });

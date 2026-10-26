@@ -6,12 +6,7 @@ import { pathToFileURL } from "node:url";
 
 import { ProgramController, ZmqCommandClient, sleep } from "./live-control.mjs";
 
-const QUALITY_PROFILES = {
-  "1080p60": { width: 1920, height: 1080, frameRate: 60, videoBitrateKbps: 3500 },
-  "1080p30": { width: 1920, height: 1080, frameRate: 30, videoBitrateKbps: 3000 },
-  "720p60": { width: 1280, height: 720, frameRate: 60, videoBitrateKbps: 2500 },
-  "720p30": { width: 1280, height: 720, frameRate: 30, videoBitrateKbps: 1800 },
-};
+import { VIDEO_PROFILES as QUALITY_PROFILES } from './broadcast-profiles.mjs';
 const POC_MODES = new Set(["source-pusher", "output-restream", "single-output-smoke"]);
 const SOURCE_KEYS = new Set(["source-a", "source-b"]);
 const X264_PRESETS = new Set(["ultrafast", "superfast", "veryfast", "faster", "fast"]);
