@@ -370,9 +370,9 @@ test("custom replacement preserves source identity and active settings stay sepa
  await page.getByRole('button',{name:'Remove Replacement',exact:true}).click();
  await expect(page.getByRole('article',{name:'Replacement',exact:true})).toHaveCount(0);
  await expect(page.getByRole('button',{name:'Remove Aurora',exact:true})).toHaveCount(0);
- await page.getByLabel('Resolution',{exact:true}).selectOption('1080');
- await page.getByLabel('Frame rate',{exact:true}).selectOption('60');
- await page.getByLabel('Audio bitrate',{exact:true}).selectOption('320');
+ await page.getByRole('combobox',{name:'Resolution',exact:true}).selectOption('1080');
+ await page.getByRole('combobox',{name:'Frame rate',exact:true}).selectOption('60');
+ await page.getByRole('combobox',{name:'Audio bitrate',exact:true}).selectOption('320');
  await page.getByRole('button',{name:'Save settings',exact:true}).click();
  await expect(page.getByText('Active',{exact:true}).first().locator('..')).toContainText('720p30');
  await expect(page.getByText('Next start',{exact:true}).locator('..')).toContainText('1080p60');
@@ -424,9 +424,9 @@ test.describe("Pixel 7 operator console", () => {
     await cancel.click();
     await expect(page.getByText(/^(Command pending|Preparing|Promoting)$/)).toHaveCount(0);
     await expect(page.getByText("Observed output", { exact: true }).locator("..")).toContainText("Aurora");
-    await page.getByLabel("Resolution", { exact: true }).selectOption("1080");
-    await page.getByLabel("Frame rate", { exact: true }).selectOption("60");
-    await page.getByLabel("Audio bitrate", { exact: true }).selectOption("320");
+    await page.getByRole("combobox", { name: "Resolution", exact: true }).selectOption("1080");
+    await page.getByRole("combobox", { name: "Frame rate", exact: true }).selectOption("60");
+    await page.getByRole("combobox", { name: "Audio bitrate", exact: true }).selectOption("320");
     await page.getByRole("button", { name: "Save settings", exact: true }).click();
     await expect(page.getByText("Active", { exact: true }).first().locator("..")).toContainText("720p30 · 160 kbps");
     await expect(page.getByText("Next start", { exact: true }).locator("..")).toContainText("1080p60 · 320 kbps");
