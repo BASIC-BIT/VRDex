@@ -101,6 +101,24 @@ test("dense 24-hour observations retain exact keyboard times and pointer details
   await page.screenshot({ path: testInfo.outputPath("public-population-dense.png"), fullPage: true });
 });
 
+for (const omission of ["telemetry", "populationSeries"] as const) test(`successful refresh removes previously visible ${omission}`, async ({ page }, testInfo) => {
+  await page.goto("/playwright-group-population");
+  await expect(page.getByRole("img", { name: "Population history" })).toBeVisible();
+  await expect(page.getByText("0 people", { exact: true })).toBeVisible();
+  await expect(page.locator(".population-history").locator("..")).toHaveAttribute("aria-busy", "false");
+  await page.route("**/api/v0/communities/*", async route => {
+    const response = await route.fetch();
+    const profile = await response.json();
+    if (omission === "telemetry") delete profile.telemetry;
+    else { delete profile.telemetry.populationSeries; delete profile.telemetry.currentPopulation; }
+    await route.fulfill({ response, json: profile });
+  });
+  await page.getByRole("button", { name: "Last 24 hours" }).click();
+  await expect(page.getByRole("img", { name: "Population history" })).toHaveCount(0);
+  await expect(page.getByText("0 people", { exact: true })).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath(`permission-refresh-${omission}.png`), fullPage: true });
+});
+
 test("empty, stale and managed-disabled population states remain usable at ordinary widths", async ({ page }, testInfo) => {
   for (const state of ["empty", "stale", "managed-disabled", "managed"]) {
     await page.goto(`/playwright-group-population-${state}`);

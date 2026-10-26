@@ -1,5 +1,5 @@
-import { readCollectionSubject, readIntegrationRollups, readLegacyRollupMapping, readManagedIntegration, saveManagedPublicationChoice } from "./_groupObservationPolicy";
-import { applyAdmissionRequired } from "./groupObservations";
+import { automaticAdmissionEnabled, readCollectionSubject, readIntegrationRollups, readLegacyRollupMapping, readManagedIntegration, saveManagedPublicationChoice } from "./_groupObservationPolicy";
+import { applyAdmissionRequired, hasAutomaticEnrollmentBacklog } from "./groupObservations";
 import { requireControlProof } from "./_externalControl";
 import { transitionCoverage } from "./_collectionCoverage";
 import { rejectConnectionOperations } from "./clubOperations";
@@ -908,6 +908,7 @@ export const claimDueAssignments = internalMutation({
       if (subject.kind === "automatic") {
         if (observationPolicy?.integrationId !== integration._id ||
           (observationPolicy.decision.kind !== "enabled" && integration.state !== "disconnecting")) continue;
+        if (integration.state === "connecting" && !automaticAdmissionEnabled(fleet, integration.vrchatGroupId)) continue;
       }
       const existing = await activeLeaseForIntegration(ctx, integration._id);
       if (existing && existing.expiresAt > now && existing.workerId !== args.workerId) continue;
@@ -1027,7 +1028,9 @@ export const reserveRequestBudget = internalMutation({
       .first();
     if (
       !account || account.state !== "ready" || account.killSwitchEnabled || integration.killSwitchEnabled ||
-      fleet?.killSwitchEnabled || (account.cooldownUntil ?? 0) > now
+      fleet?.killSwitchEnabled || (account.cooldownUntil ?? 0) > now ||
+      (readCollectionSubject(integration).kind === "automatic" && integration.state === "connecting" &&
+        !automaticAdmissionEnabled(fleet, integration.vrchatGroupId))
     ) {
       return { granted: false, retryAt: now + 60_000, reason: "unavailable" as const };
     }
@@ -2433,7 +2436,7 @@ export const recordCollectorHeartbeat = internalMutation({
       consecutiveControlFailures: failures,
       updatedAt: now,
     });
-    return { recorded: true };
+    return { recorded: true, automaticEnrollmentBacklog: await hasAutomaticEnrollmentBacklog(ctx.db, now) };
   },
 });
 

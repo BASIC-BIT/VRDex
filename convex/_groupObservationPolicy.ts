@@ -8,6 +8,12 @@ import { canReadProfile } from "./_profilePermissions";
 
 export type CollectionSubject = NonNullable<Doc<"communityVrchatIntegrations">["collectionScope"]>;
 
+export function automaticAdmissionEnabled(fleet: Doc<"collectorFleetSettings"> | null, groupId: string) {
+  return fleet?.automaticEnrollmentEnabled === true && !fleet.killSwitchEnabled &&
+    (fleet.automaticEnrollmentLimit ?? 0) > 0 && fleet.automaticEnrollmentScope !== undefined &&
+    (fleet.automaticEnrollmentScope.kind === "all_eligible" || fleet.automaticEnrollmentScope.vrchatGroupId === groupId);
+}
+
 export function readCollectionSubject(integration: Doc<"communityVrchatIntegrations">): CollectionSubject {
   const scope = integration.collectionScope;
   if (scope?.kind === "automatic") {

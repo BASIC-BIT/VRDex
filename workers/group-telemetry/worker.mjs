@@ -89,6 +89,7 @@ async function heartbeat() {
     event: "collector_heartbeat",
     releaseSha: runtimeMetadata.releaseSha,
     capabilities: runtimeMetadata.capabilities,
+    automaticEnrollmentBacklog: result.automaticEnrollmentBacklog === true ? 1 : 0,
   });
 }
 

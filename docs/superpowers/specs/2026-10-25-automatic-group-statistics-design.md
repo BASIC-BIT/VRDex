@@ -149,6 +149,8 @@ Physical names and exact helper decomposition remain builder choices where these
 
 ## Validation and rollout
 
+The [release review and evidence appendix](../../deployment/automatic-group-statistics-release.md) preserves the implementation decisions, exact proposed copy, local validation limits and separately authorized rollout sequence. It does not change this design's approval scope.
+
 Before implementation completion, prove:
 
 - Concurrent enrollment for duplicate links produces one assignment and one bot membership; contribution never creates owner or staff authority.

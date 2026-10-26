@@ -1,5 +1,7 @@
 # Community group telemetry backend
 
+Release gates, disabled defaults, ordered migration, rollback and source-only alert evidence are in the [automatic statistics release runbook](../deployment/automatic-group-statistics-release.md). Disabling admission also denies already allocated automatic connecting claims and provider budgets. Active collection and disconnect cleanup retain their existing authorization. Authenticated heartbeats expose a bounded backlog boolean for the existing worker log and SNS alarm path.
+
 ## Scope
 
 This backend implements the aggregate-only slice of [epic #176](https://github.com/BASIC-BIT/VRDex/issues/176). A VRDex-owned VRChat account observes a connected group's member count and visible group instances. It never accepts a customer's VRChat credentials and does not store instance user lists, usernames, or user IDs.

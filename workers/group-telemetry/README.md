@@ -51,6 +51,8 @@ leave the group, but cannot rejoin it or switch accounts. Account proof and
 destination jobs retain their separate authorization. Automatic enrollment stays
 disabled until separately authorized activation.
 
+The [automatic statistics release runbook](../../docs/deployment/automatic-group-statistics-release.md) records the required exact SHA, `automatic_group_aggregates_v1` capability, disabled admission defaults and rollback gates. A fresh capability-bearing heartbeat and matching claim request are both required for automatic dispatch. The heartbeat logs only a zero/one `automaticEnrollmentBacklog` signal; the sustained alarm uses the existing operator SNS email action. Live alarm delivery and provider acceptance require separate release proof.
+
 After proof checks and assigned telemetry polls, the worker claims at most one
 public profile-link destination lookup. It reads exact VRChat user IDs, group
 IDs, or group short codes, without joining groups or fetching member lists. The

@@ -4,6 +4,10 @@ Community telemetry shows how a VRChat group and its group instances change over
 
 ## Connect a group
 
+Automatic statistics use a public community's primary VRChat group link. Eligible public, free-join groups can receive aggregate statistics within the configured admission limits. Linking a group does not grant ownership or management rights. Automatic public statistics exclude names, worlds, individual instance rows and private instance links.
+
+Verified group operators can stop observation or adopt management. Stopping hides current and historical statistics immediately while membership cleanup completes. Resuming shows new history by default; publishing retained history requires an explicit choice. Automatic enrollment remains disabled until a separately approved rollout.
+
 An authorized community operator enters the immutable VRChat group ID and the group's join policy. VRDex assigns one of its own service accounts; it never asks for the operator's VRChat password or session cookie.
 
 - Free Join: the account attempts to join.
@@ -24,7 +28,7 @@ Operators can confirm which instance session belongs to an event. Time/world ove
 
 ## Public controls
 
-Everything is private by default. The club owner chooses which categories are public, available to all or selected staff roles, or owner-only. Existing public settings carry forward. The public telemetry surfaces are:
+Managed categories are private by default. The club owner chooses which categories are public, available to all or selected staff roles, or owner-only. Existing public settings carry forward. Automatic collection uses a fixed aggregate-only public policy, which adoption preserves until the verified operator explicitly saves managed publication settings. The managed public telemetry surfaces are:
 
 - current population
 - population history

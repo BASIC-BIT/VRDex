@@ -171,7 +171,7 @@ export const PublicStatisticsRangeInputSchema = z.object({
 }).superRefine(({ statisticsStartAt: start, statisticsEndAt: end }, ctx) => {
   if (start === undefined && end === undefined) return;
   if (start === undefined || end === undefined || start >= end || end - start > 86_400_000 || end > Date.now()) {
-    ctx.addIssue({ code: "custom", message: "Statistics require both bounds, ordered within the past 24 elapsed hours." });
+    ctx.addIssue({ code: "custom", message: "Supply both bounds, with end after start, no later than now, and at most 24 elapsed hours apart." });
   }
 });
 

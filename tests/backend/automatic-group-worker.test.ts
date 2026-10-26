@@ -39,6 +39,8 @@ it("automatic assignments require request capability and exact fresh worker hear
   await h.heartbeat("new-worker");
   assert.equal((await claim("worker")).assignments.length, 0);
   assert.equal((await claim("worker", [capability])).assignments.length, 0);
+  await h.t.mutation(ref("communityTelemetry:recordCollectorHeartbeat"), { collectorAccountId: h.collectorAccountId, workerId: "worker", workerKeyHash, releaseSha: "b".repeat(40), collectorVersion: "legacy", capabilities: ["telemetry_v1"], consecutiveControlFailures: 0, now: h.now });
+  assert.equal((await claim("worker", [capability])).assignments.length, 0);
   await h.heartbeat("worker", h.now - 120001);
   assert.equal((await claim("worker", [capability])).assignments.length, 0);
   await h.heartbeat();
@@ -46,6 +48,35 @@ it("automatic assignments require request capability and exact fresh worker hear
   assert.equal(result.collectionMode, "automatic");
   assert.equal(result.enabledFeatures, undefined);
   assert.equal(result.communityProfileId, undefined);
+});
+it("heartbeat reports only sustained actionable automatic backlog in the authorized scope", async () => {
+  const h = await setup();
+  const ids = await h.t.run(async ctx => {
+    const fleetId = await ctx.db.insert("collectorFleetSettings", { key: "global", killSwitchEnabled: false, globalRequestsPerMinute: 30, automaticEnrollmentEnabled: true, automaticEnrollmentLimit: 1, automaticEnrollmentScope: { kind: "pilot", vrchatGroupId: "grp_pending" }, updatedAt: h.now });
+    const profileId = await ctx.db.insert("profiles", { slug: "pending", displayName: "Pending", sortName: "pending", aliases: [], tags: [], claimState: "unclaimed", publicationState: "published", publicSurfacingState: "public", creationSource: "community", updatedAt: h.now, profileType: "community", community: { categoryTags: [] } });
+    await ctx.db.insert("profileExternalLinks", { profileId, assetType: "vrchat_group", assetExternalId: "grp_pending", linkRole: "primary", state: "active", createdAt: h.now, updatedAt: h.now });
+    for (let i = 0; i < 51; i++) await ctx.db.insert("vrchatGroupObservationPolicies", { vrchatGroupId: `outside-${i}`, decision: { kind: "enabled", at: h.now }, queuedAdmission: { priority: "automatic", queuedAt: 0, dueAt: 0 }, createdAt: 0, updatedAt: 0 });
+    const policyId = await ctx.db.insert("vrchatGroupObservationPolicies", { vrchatGroupId: "grp_pending", eligibleProfileId: profileId, decision: { kind: "enabled", at: h.now }, queuedAdmission: { priority: "automatic", queuedAt: h.now - 900001, dueAt: h.now + 60000, reason: "capacity" }, createdAt: h.now, updatedAt: h.now });
+    return { fleetId, policyId, profileId };
+  });
+  assert.equal((await h.heartbeat()).automaticEnrollmentBacklog, true);
+  for (const patch of [{ automaticEnrollmentEnabled: false }, { automaticEnrollmentEnabled: true, automaticEnrollmentLimit: 0 }, { automaticEnrollmentLimit: 1, automaticEnrollmentScope: undefined }]) {
+    await h.t.run(ctx => ctx.db.patch(ids.fleetId, patch));
+    assert.equal((await h.heartbeat()).automaticEnrollmentBacklog, false);
+  }
+  await h.t.run(ctx => ctx.db.patch(ids.fleetId, { automaticEnrollmentScope: { kind: "pilot", vrchatGroupId: "grp_pending" } }));
+  const original = await h.t.run(ctx => ctx.db.get(ids.policyId)); assert.ok(original);
+  for (const patch of [
+    { decision: { kind: "stopped" as const, reason: "opt_out", actor: "verified_operator" as const, at: h.now } },
+    { admissionRequired: true },
+    { eligibleProfileId: undefined },
+    { queuedAdmission: { priority: "automatic" as const, queuedAt: h.now, dueAt: h.now } },
+    { queuedAdmission: { priority: "automatic" as const, queuedAt: 0, dueAt: h.now, reason: "contributor_limit" } },
+    { queuedAdmission: { priority: "automatic" as const, queuedAt: 0, dueAt: h.now, reason: "automatic_limit" } },
+  ]) {
+    await h.t.run(ctx => ctx.db.patch(ids.policyId, { decision: original.decision, admissionRequired: undefined, eligibleProfileId: original.eligibleProfileId, queuedAdmission: original.queuedAdmission, ...patch }));
+    assert.equal((await h.heartbeat()).automaticEnrollmentBacklog, false);
+  }
 });
 it("automatic named scans and management mutations deny valid worker leases", async () => {
   const h = await setup();
@@ -55,6 +86,37 @@ it("automatic named scans and management mutations deny valid worker leases", as
   await assert.rejects(h.t.mutation(ref("clubConnection:recordAuthority"), {...h.worker, authority: {
     groupId: "grp_test", userId: "usr_bot", membershipStatus: "member", permissions: [], observedAt: h.now,
   }}), /Automatic operation denied/);
+});
+it("admission rollback blocks allocated joins but keeps existing collection and cleanup available", async () => {
+  const h = await setup();
+  await h.heartbeat();
+  const fleetId = await h.t.run(ctx => ctx.db.insert("collectorFleetSettings", { key: "global", killSwitchEnabled: false, globalRequestsPerMinute: 30, automaticEnrollmentEnabled: true, automaticEnrollmentLimit: 1, automaticEnrollmentScope: { kind: "pilot", vrchatGroupId: "grp_test" }, updatedAt: h.now }));
+  await h.t.run(ctx => ctx.db.patch(h.integrationId, { state: "connecting" }));
+  const reserve = () => h.t.mutation(ref("communityTelemetry:reserveRequestBudget"), { ...h.lease, requestCount: 1, now: h.now });
+  assert.equal((await reserve()).granted, true);
+  for (const patch of [
+    { automaticEnrollmentEnabled: false },
+    { automaticEnrollmentEnabled: true, automaticEnrollmentLimit: 0 },
+    { automaticEnrollmentLimit: 1, automaticEnrollmentScope: undefined },
+    { automaticEnrollmentScope: { kind: "pilot" as const, vrchatGroupId: "another-group" } },
+  ]) {
+    await h.t.run(ctx => ctx.db.patch(fleetId, patch));
+    assert.equal((await reserve()).granted, false);
+    assert.equal((await h.t.mutation(ref("communityTelemetry:claimDueAssignments"), { collectorAccountId: h.collectorAccountId, workerId: "worker", capabilities: [capability], now: h.now })).assignments.length, 0);
+  }
+  await h.t.run(ctx => ctx.db.patch(h.integrationId, { state: "active" }));
+  assert.equal((await reserve()).granted, true);
+  await h.t.run(async ctx => {
+    await ctx.db.patch(h.integrationId, { state: "disconnecting" });
+    await ctx.db.patch(h.policyId, { decision: { kind: "stopped", reason: "operator_opt_out", actor: "verified_operator", at: h.now } });
+    await ctx.db.insert("vrchatGroupMemberSnapshots", { vrchatGroupId: "grp_test", observedAt: h.now, memberCount: 42 });
+  });
+  assert.equal((await reserve()).granted, true);
+  const policy = await h.t.run(ctx => ctx.db.get(h.policyId));
+  await h.t.mutation(ref("communityTelemetry:recordMembershipResult"), { ...h.lease, state: "disconnected", groupVisibility: "public", joinPolicy: "free", now: h.now });
+  assert.deepEqual(await h.t.run(ctx => ctx.db.get(h.policyId)), policy);
+  assert.equal((await h.t.run(ctx => ctx.db.query("vrchatGroupMemberSnapshots").first()))?.memberCount, 42);
+  assert.equal((await h.t.run(ctx => ctx.db.get(h.integrationId)))?.state, "disconnected");
 });
 for (const operation of ["membership_scan_begin", "membership_scan_page", "membership_scan_resume", "membership_scan_finalize", "club_authority", "club_read_claim", "club_read_complete", "club_operation_claim", "club_operation_authorize", "club_operation_complete", "club_operation_reject", "club_operation_defer"])
 it(`real HTTP handler denies automatic ${operation} with a valid worker key`, async () => {

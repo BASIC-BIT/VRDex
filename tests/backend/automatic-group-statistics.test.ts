@@ -472,6 +472,18 @@ it("enrollment concurrent duplicate references allocate exactly one assignment a
   assert.equal((await t.mutation(admitEnrollment, { now: 201 })).admitted, 0);
   assert.equal((await t.run(ctx => ctx.db.query("vrchatGroupObservationPolicies").withIndex("by_vrchatGroupId", q => q.eq("vrchatGroupId", "group-c")).unique()))?.queuedAdmission?.reason, "capacity");
 });
+it("admission disablement leaves managed settings and group stops unchanged while queued work waits", async () => {
+  const { t, add } = await enrollmentFixture({ enabled: true });
+  const row = await add("rollback-queued");
+  await t.run(ctx => ctx.db.patch(row.linkId, { provenance: "control_association" }));
+  await t.mutation(reconcileEnrollment, { profileId: row.profileId, affectedGroupIds: [], now: 200 });
+  const managedId = await seed(t, "rollback-managed", { enabledFeatures: ["posts"], publicationPolicy: "managed_categories" });
+  const stoppedId = await t.run(ctx => ctx.db.insert("vrchatGroupObservationPolicies", { vrchatGroupId: "rollback-stopped", decision: { kind: "stopped", reason: "opt_out", actor: "verified_operator", at: 100 }, createdAt: 100, updatedAt: 100 }));
+  const before = await t.run(async ctx => [await ctx.db.get(managedId), await ctx.db.get(stoppedId)]);
+  await t.mutation(makeFunctionReference<"mutation">("communityTelemetry:configureFleet"), { killSwitchEnabled: false, globalRequestsPerMinute: 30, automaticEnrollmentEnabled: false, automaticEnrollmentLimit: 0, now: 201 });
+  assert.equal((await t.mutation(admitEnrollment, { now: 202 })).admitted, 0);
+  assert.deepEqual(await t.run(async ctx => [await ctx.db.get(managedId), await ctx.db.get(stoppedId)]), before);
+});
 it("candidate limit counts five immutable groups per contributor and repeat saves consume none", async () => {
   const { t, add, userId } = await enrollmentFixture();
   for (let i = 0; i < 6; i++) {

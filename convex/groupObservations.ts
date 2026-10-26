@@ -11,7 +11,7 @@ import { internalMutation, mutation, query } from "./_generated/server";
 import type { DatabaseReader, MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { canReadProfile } from "./_profilePermissions";
-import { readCollectionSubject, readPublicGroupId } from "./_groupObservationPolicy";
+import { automaticAdmissionEnabled, readCollectionSubject, readPublicGroupId } from "./_groupObservationPolicy";
 
 const DAY = 86_400_000;
 
@@ -152,6 +152,23 @@ async function eligibleReference(db: DatabaseReader, group: string, profileId: I
   return {kind: "eligible", contributorId, profileId: profile._id} as const;
 }
 
+export async function hasAutomaticEnrollmentBacklog(db: DatabaseReader, now: number) {
+  const fleet = await db.query("collectorFleetSettings").withIndex("by_key", q => q.eq("key", "global")).unique();
+  const scope = fleet?.automaticEnrollmentScope;
+  if (!scope || !automaticAdmissionEnabled(fleet, scope.kind === "pilot" ? scope.vrchatGroupId : "")) return false;
+  const candidates = scope.kind === "pilot"
+    ? [await db.query("vrchatGroupObservationPolicies").withIndex("by_vrchatGroupId", q => q.eq("vrchatGroupId", scope.vrchatGroupId)).unique()]
+    // shortcut: inspect the first 50 queue entries per heartbeat; add paged monitoring before expanding beyond this coverage.
+    : await db.query("vrchatGroupObservationPolicies").withIndex("by_queue_priority_dueAt", q => q.eq("queuedAdmission.priority", "automatic")).take(50);
+  for (const policy of candidates) {
+    const queue = policy?.queuedAdmission;
+    if (!policy || !queue || queue.priority !== "automatic" || policy.decision.kind !== "enabled" || policy.admissionRequired ||
+      queue.queuedAt > now - 15 * 60_000 || ["contributor_limit", "automatic_limit", "managed_policy"].includes(queue.reason ?? "")) continue;
+    if (await eligibleReference(db, policy.vrchatGroupId, policy.eligibleProfileId)) return true;
+  }
+  return false;
+}
+
 // A full page cannot establish absence; continue in a separate bounded mutation.
 async function references(db: DatabaseReader, group: string, hint?: Id<"profiles">) {
   const eligible = await eligibleReference(db, group, hint);
@@ -282,7 +299,7 @@ export const admitQueued = internalMutation({
         }
         const managed = await ctx.db.query("communityVrchatIntegrations").withIndex("by_vrchatGroupId", q => q.eq("vrchatGroupId", policy.vrchatGroupId)).take(101);
         if (managed.length > 100 || managed.some(row => readCollectionSubject(row).kind === "managed")) { await defer("managed_policy"); continue; }
-        if (!fleet?.automaticEnrollmentEnabled || !fleet.automaticEnrollmentScope || !(fleet.automaticEnrollmentLimit! > 0) || (fleet.automaticEnrollmentScope.kind === "pilot" && fleet.automaticEnrollmentScope.vrchatGroupId !== policy.vrchatGroupId)) { await defer("admission_disabled"); continue; }
+        if (!fleet || !automaticAdmissionEnabled(fleet, policy.vrchatGroupId)) { await defer("admission_disabled"); continue; }
         const active = await ctx.db.query("communityVrchatIntegrations").withIndex("by_collectionScope_kind_account", q => q.eq("collectionScope.kind", "automatic").gt("assignedCollectorAccountId", undefined)).take(fleet.automaticEnrollmentLimit!);
         if (active.length >= fleet.automaticEnrollmentLimit!) { await defer("automatic_limit"); continue; }
         if (policy.candidateCountedAt === undefined) {
