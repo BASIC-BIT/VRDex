@@ -25,7 +25,7 @@ export function SearchViewShell({
     <PageShell className={className}>
       <PageContainer className="gap-5" max="7xl">
         <PageNav>
-          <BrandLink />
+          <BrandLink variant="wordmark" />
           <Link className={cn(buttonVariants({ variant: "secondary" }), "ml-auto")} href="/submit">
             Add profile
           </Link>
@@ -36,7 +36,7 @@ export function SearchViewShell({
             <h1 className="text-3xl leading-none font-semibold tracking-[-0.045em] sm:text-5xl">
               {activeView === "standard" ? "Search results" : "Search VRDex"}
             </h1>
-            <p className="max-w-2xl text-sm leading-6 text-muted sm:text-base">{SEARCH_CONTEXT}</p>
+            {activeView === "dj" ? <p className="max-w-2xl text-sm leading-6 text-muted sm:text-base">{SEARCH_CONTEXT}</p> : null}
           </div>
           {activeView === "dj" ? (
             <Link className="w-fit text-sm font-medium text-accent-strong underline underline-offset-4" href={searchHref({ query })}>

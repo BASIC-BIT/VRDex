@@ -98,6 +98,15 @@ test("legacy discovery query redirects to search", async ({ page }) => {
   await expectSearchPage(page);
 });
 
+test("legacy root query and lookup URL keep the DJ lookup destination", async ({ page }) => {
+  for (const path of ["/?q=%20BASICBIT%20", "/lookup?q=BASICBIT"]) {
+    await page.goto(path);
+    await expect(page).toHaveURL(/\/search\?q=BASICBIT&view=dj$/);
+    await expect(page.getByLabel("DJ name")).toHaveValue("BASICBIT");
+    await expect(page.getByRole("navigation", { name: "Search view" })).toHaveCount(0);
+  }
+});
+
 test("legacy media contribution route rejects claimed profiles", async ({ page }) => {
   test.skip(isHostedRun, "The Playwright-only media contribution flag is local-only.");
 

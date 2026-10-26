@@ -35,6 +35,12 @@ implementation step; this approval records the asset choice.
 
 ## Provenance and verification
 
+Home and both search shells opt in to `BrandLink`'s `wordmark` variant. The SVG
+and license in `apps/web/public/brand/` are byte-for-byte copies of the canonical
+primary SVG and license here. Other pages retain the default text brand link.
+The shared dark media background keeps the approved pale lettering legible in
+both themes without recoloring the asset or changing its geometry.
+
 The [archived source script](../../planning/assets/wordmark-studies-2026-10-21.md#approved-source)
 reproduces the selected geometry and exports. The archive preserves all earlier
 studies and their original paths; its index includes extraction and checksum

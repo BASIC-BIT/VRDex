@@ -14,6 +14,26 @@ Current recommendation and first implementation for expanded public discovery, c
 - events, worlds, people, and communities participate in universal search through search documents
 - PostHog is the first-pass analytics target for discovery instrumentation when configured
 
+## Public web entry and compatibility
+
+Home `/` renders the shared public search control without fetching lookup or
+private data. New submissions use `/search?q=...`; a selected preview opens
+the entity's canonical person, community, event or world route. The overlay
+renders at most five suggestions, not a total match count. Full search keeps
+All, People, Communities, Events and Worlds filters in URL state and applies
+them server-side before the result limit. Empty input does not enumerate data.
+
+Nonempty old `/?q=...` bookmarks redirect to `/search?q=...&view=dj` after
+trimming. `/lookup`, `/lookup/suggest` and the legacy DJ view retain their
+permissions and bulk behavior. Public Home and standard search use only
+`/search/suggest` and the public projection, never private seed suggestions or
+lookup recents. `/discover?q=...` still redirects to standard search; the
+existing `/discovery` page remains reachable from Home navigation.
+
+The [approved first-slice scope](../superpowers/specs/2026-10-26-homepage-search-first-slice-design.md)
+defers exact genre filtering, timeline and favorites. Genre keyword search
+remains supported; there is no client-side exact genre filter.
+
 ## Search Documents
 
 `searchDocuments` is the universal search surface.

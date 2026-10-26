@@ -1,10 +1,132 @@
 import { expect, test, type Page } from "@playwright/test";
+import { readFile } from "node:fs/promises";
+import { expectHomePage, prepareVisualPage, waitForVisualReady } from "./public-routes";
+
+test("approved wordmark is exact and visible on Home and both search shells @flow", async ({ page, request }) => {
+  const canonical = await readFile("../../docs/brand/wordmark/vrdex-wordmark.svg");
+  const asset = await request.get("/brand/vrdex-wordmark.svg");
+  await expect(asset).toBeOK();
+  expect(await asset.body()).toEqual(canonical);
+  const license = await request.get("/brand/LICENSE-OpenSans.txt");
+  await expect(license).toBeOK();
+  expect(await license.body()).toEqual(await readFile("../../docs/brand/wordmark/LICENSE-OpenSans.txt"));
+  for (const route of ["/", "/search?q=BASICBIT", "/search?q=BASICBIT&view=dj"]) {
+    await page.goto(route);
+    const wordmark = page.getByRole("navigation").first().getByRole("img", { name: "VRDex", exact: true });
+    await expect(wordmark).toBeVisible();
+    await expect(wordmark).toHaveAttribute("src", "/brand/vrdex-wordmark.svg");
+    const box = await wordmark.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.width / box!.height).toBeCloseTo(469.002 / 132, 2);
+    const explanation = page.getByText("Search across public people, communities, worlds, and events.", { exact: true });
+    await expect(explanation).toHaveCount(route.includes("view=dj") ? 1 : 0);
+    await page.getByRole("button", { name: "Toggle color theme", exact: true }).click();
+    await expect(wordmark).toBeVisible();
+    await expect(wordmark.locator("..")).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    await wordmark.locator("..").click();
+    await expect(page).toHaveURL((url) => url.pathname === "/" && !url.search);
+  }
+  await page.goto("/discovery");
+  const discoveryBrand = page.getByRole("navigation").first().getByRole("link", { name: "VRDex", exact: true });
+  await expect(discoveryBrand).toHaveText("VRDex");
+  await expect(discoveryBrand.locator("img")).toHaveCount(0);
+});
+
+test("new Home submissions and old root bookmarks retain distinct destinations @flow", async ({ page }) => {
+  await page.goto("/");
+  await expectHomePage(page);
+  const input = page.getByRole("combobox", { name: /Search/i });
+  await input.fill("  BASICBIT  ");
+  await input.press("Enter");
+  await expect(page).toHaveURL(/\/search\?q=BASICBIT$/);
+  await expect(publicResultRow(page, "/basicbit")).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Search view" })).toHaveCount(0);
+  await page.goto("/?q=%20BASICBIT%20");
+  await expect(page).toHaveURL(/\/search\?q=BASICBIT&view=dj$/);
+  await expect(page.getByLabel("DJ name")).toHaveValue("BASICBIT");
+  await expect(page.getByRole("link", { name: "Website: basicbit.net", exact: true })).toBeVisible();
+});
+
+test("whitespace root query keeps Home and discovery reachable @flow", async ({ page }) => {
+  await page.goto("/?q=%20%20%20");
+  await expectHomePage(page);
+  await expect(page.getByRole("combobox", { name: /Search/i })).toHaveValue("");
+  await expect(page.getByRole("heading", { name: /My night|Upcoming events|Favorites|Timeline/i })).toHaveCount(0);
+  await page.getByRole("link", { name: "Discovery", exact: true }).click();
+  await expect(page).toHaveURL(/\/discovery$/);
+  await expect(page.getByRole("heading", { name: "Discover VR", exact: true })).toBeVisible();
+});
+
+test("Home search, filters, refresh and history keep URL and results aligned @flow", async ({ page }) => {
+  await page.goto("/");
+  const input = page.getByRole("combobox", { name: /Search/i });
+  await input.fill("Afterglow");
+  await input.press("Enter");
+  await expect(page).toHaveURL(/\/search\?q=Afterglow$/);
+  await expect(publicResultRow(page, "/playwright-afterglow-social")).toBeVisible();
+  await expect(publicResultRow(page, "/playwright-afterglow-social/events/playwright-afterglow-harbor-sessions")).toBeVisible();
+  await page.getByRole("link", { name: "Communities", exact: true }).click();
+  const assertCommunityState = async () => {
+    await expect(page).toHaveURL(/\/search\?q=Afterglow&type=community$/);
+    await expect(input).toHaveValue("Afterglow");
+    await expect(page.getByRole("link", { name: "Communities", exact: true })).toHaveAttribute("aria-current", "page");
+    await expect(publicResultRow(page, "/playwright-afterglow-social")).toBeVisible();
+    await expect(publicResultRow(page, "/playwright-afterglow-social/events/playwright-afterglow-harbor-sessions")).toHaveCount(0);
+  };
+  await assertCommunityState();
+  await page.reload();
+  await assertCommunityState();
+  await page.goBack();
+  await expect(page).toHaveURL(/\/search\?q=Afterglow$/);
+  await expect(input).toHaveValue("Afterglow");
+  await expect(page.getByRole("link", { name: "All", exact: true })).toHaveAttribute("aria-current", "page");
+  await expect(publicResultRow(page, "/playwright-afterglow-social/events/playwright-afterglow-harbor-sessions")).toBeVisible();
+  await page.goForward();
+  await assertCommunityState();
+});
+
+for (const destination of [
+  { query: "BASICBIT", name: /BASICBIT/, path: "/basicbit" },
+  { query: "Afterglow Social", name: /Afterglow Social/, path: "/playwright-afterglow-social" },
+  { query: "Afterglow Harbor Sessions", name: /Afterglow Harbor Sessions/, path: "/playwright-afterglow-social/events/playwright-afterglow-harbor-sessions" },
+  { query: "Neon Harbor", name: /Neon Harbor/, path: "/playwright-neon-harbor" },
+]) {
+  test(`Home preview opens canonical ${destination.path} @flow`, async ({ page, isMobile }) => {
+    await page.goto("/");
+    await page.getByRole("combobox", { name: /Search/i }).fill(destination.query);
+    const option = page.getByRole("option", { name: destination.name }).first();
+    await expect(option).toBeVisible();
+    if (isMobile) await option.tap();
+    else await option.click();
+    await expect(page).toHaveURL((url) => url.pathname === destination.path && !url.search);
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+  });
+}
+
+test("Home rest and five-option preview stay within the viewport @flow", async ({ page }, info) => {
+  await prepareVisualPage(page);
+  await page.addInitScript(() => localStorage.setItem("vrdex-theme", "dark"));
+  await page.goto("/");
+  await expectHomePage(page);
+  await waitForVisualReady(page);
+  await page.screenshot({ path: info.outputPath("home-rest.png"), fullPage: true });
+  const heading = page.getByRole("heading", { name: "DJs, clubs & events", exact: true });
+  const before = await heading.boundingBox();
+  const input = page.getByRole("combobox", { name: /Search/i });
+  await input.fill("playwright");
+  await expect(page.getByRole("option")).toHaveCount(5);
+  expect(await heading.boundingBox()).toEqual(before);
+  await expect(page.getByRole("link", { name: "View all results", exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath("home-preview.png"), fullPage: true });
+});
 
 function publicResultRow(page: Page, path: string) {
   return page.getByRole("region", { name: "Search results" }).locator(`a[href="${path}"]`).locator("..");
 }
 
 test("public result genres and Links disclose independently per person @flow", async ({ page }, info) => {
+  await prepareVisualPage(page);
   await page.addInitScript(() => localStorage.setItem("vrdex-theme", "dark"));
   await page.goto("/search?q=VRDJ");
   await expect(page.getByRole("heading", { name: "Search results", exact: true })).toBeVisible();
@@ -37,7 +159,9 @@ test("public result genres and Links disclose independently per person @flow", a
   await expect(page).toHaveURL(/\/basicbit$/, { timeout: 15_000 });
 });
 
-test("sparse public results omit empty disclosure controls @flow", async ({ page }) => {
+test("sparse public results omit empty disclosure controls @flow", async ({ page }, info) => {
+  await prepareVisualPage(page);
+  await page.addInitScript(() => localStorage.setItem("vrdex-theme", "dark"));
   await page.goto("/search?q=Sparse%20Import");
   const row = publicResultRow(page, "/playwright-sparse-import");
   await expect(row.getByRole("link", { name: /Sparse Import/ })).toBeVisible();
@@ -45,6 +169,25 @@ test("sparse public results omit empty disclosure controls @flow", async ({ page
   await expect(row.getByText("Links", { exact: true })).toHaveCount(0);
   await expect(row.locator("summary")).toHaveCount(0);
   await expect(row.getByText("No public links", { exact: true })).toHaveCount(0);
+  await waitForVisualReady(page);
+  await page.screenshot({ path: info.outputPath("public-results-sparse.png"), fullPage: true });
+});
+
+test("long public names and link destinations fit narrow results @flow", async ({ page, isMobile }, info) => {
+  await prepareVisualPage(page);
+  await page.addInitScript(() => localStorage.setItem("vrdex-theme", "dark"));
+  if (isMobile) await page.setViewportSize({ width: 360, height: 800 });
+  await page.goto("/search?q=Princess%20Starlight");
+  const row = publicResultRow(page, "/playwright-princess-starlight-interstellar-bassline");
+  await expect(row.getByRole("link", { name: /Princess Starlight Interstellar Bassline Orchestra/ })).toBeVisible();
+  await row.getByText("Links", { exact: true }).click();
+  await expect(row.getByRole("link", { name: "Website: website.example.invalid", exact: true })).toHaveAttribute(
+    "href", "https://website.example.invalid/playwright-princess-starlight-interstellar-bassline",
+  );
+  await waitForVisualReady(page);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath("public-results-long.png"), fullPage: true });
 });
 
 for (const outcome of ["clipboard", "fallback", "failure", "fallback throws"] as const) {
@@ -342,7 +485,7 @@ test("changing the entity filter invalidates the same visible query @flow", asyn
   await expect(page).toHaveURL(/\/search\?q=Afterglow&type=person$/);
 });
 
-test("empty input and private lookup recents never enumerate public suggestions @flow", async ({ page }) => {
+for (const entry of ["/", "/discovery"]) test(`${entry} empty input and private lookup recents never enumerate public suggestions @flow`, async ({ page }) => {
   const requests: string[] = [];
   const reads: string[] = [];
   await page.exposeFunction("recordPrivateRecentRead", (key: string) => reads.push(key));
@@ -366,7 +509,7 @@ test("empty input and private lookup recents never enumerate public suggestions 
     });
   });
   page.on("request", (request) => { if (request.url().includes("/suggest")) requests.push(request.url()); });
-  await page.goto("/discovery");
+  await page.goto(entry);
   const input = page.getByRole("combobox", { name: /Search/i });
   await input.focus();
   await input.fill("   ");
@@ -377,6 +520,54 @@ test("empty input and private lookup recents never enumerate public suggestions 
   await expect(page.getByRole("option", { name: /BASICBIT/ })).toBeVisible();
   expect(requests.every((url) => new URL(url).pathname === "/search/suggest")).toBe(true);
   expect(reads).toEqual([]);
+});
+
+test("Home and full search exclude private seed terms and nonpublic profile fields @flow", async ({ page, request }, info) => {
+  test.skip(Boolean(process.env.PLAYWRIGHT_BASE_URL), "Uses anonymous local Convex fixtures only.");
+  const headers = { "x-vrdex-e2e-token": process.env.VRDEX_E2E_BROWSER_TOKEN ?? "local-playwright-token" };
+  const runId = `playwright-home-privacy-${info.project.name}-${Date.now()}`;
+  const displayName = `Home Visibility ${info.project.name} ${Date.now()}`;
+  const privateTerm = `secret${Date.now()}`;
+  const suggestRequests: string[] = [];
+  page.on("request", (value) => { if (value.url().includes("/suggest")) suggestRequests.push(value.url()); });
+  try {
+    const created = await request.post("/api/e2e/profile-submissions", {
+      headers,
+      data: { runId, profileType: "person", displayName, aliases: [privateTerm], bio: privateTerm,
+        roleTags: [privateTerm], outboundLinks: [{ type: "website", url: "https://example.invalid/private" }],
+        fieldVisibility: { aliases: "private", bio: "unlisted", personRoleTags: "private", outboundLinks: "private" } },
+    });
+    await expect(created).toBeOK();
+    const { profilePath } = await created.json();
+    await page.goto("/");
+    const input = page.getByRole("combobox", { name: /Search/i });
+    const response = page.waitForResponse((value) => new URL(value.url()).pathname === "/search/suggest");
+    await input.fill(displayName);
+    const payload = await (await response).json();
+    expect(payload.results.some((value: { routePath: string }) => value.routePath === profilePath)).toBe(true);
+    expect(JSON.stringify(payload)).not.toContain(privateTerm);
+    expect(JSON.stringify(payload)).not.toContain("example.invalid/private");
+    await input.press("Enter");
+    const row = publicResultRow(page, profilePath);
+    await expect(row).toBeVisible();
+    await expect(row).not.toContainText(privateTerm);
+    await expect(row.getByText("Links", { exact: true })).toHaveCount(0);
+    for (const term of [privateTerm, "nwinn"]) {
+      await page.goto("/");
+      const suggested = page.waitForResponse((value) => new URL(value.url()).pathname === "/search/suggest");
+      await input.fill(term);
+      expect((await (await suggested).json()).results).toEqual([]);
+      await input.press("Enter");
+      await expect(publicResultRow(page, profilePath)).toHaveCount(0);
+      await expect(page.getByText("DJ Northstar", { exact: true })).toHaveCount(0);
+      await expect(page.getByText("No public results matched that search yet.", { exact: true })).toBeVisible();
+    }
+    expect(suggestRequests.length).toBeGreaterThan(0);
+    expect(suggestRequests.every((value) => new URL(value).pathname === "/search/suggest")).toBe(true);
+  } finally {
+    const cleanup = await request.delete("/api/e2e/profile-submissions", { headers, data: { runId } });
+    await expect(cleanup).toBeOK();
+  }
 });
 
 test("suggestion failure still permits explicit search @flow", async ({ page }) => {
@@ -437,6 +628,13 @@ test("clearing an in-flight request invalidates it before the same query is rety
 test("GET search remains usable without JavaScript @flow", async ({ browser, baseURL }) => {
   const context = await browser.newContext({ baseURL, javaScriptEnabled: false });
   const page = await context.newPage();
+  await page.goto("/");
+  await expectHomePage(page);
+  const homeInput = page.getByRole("combobox", { name: /Search/i });
+  await homeInput.fill("BASICBIT");
+  await homeInput.press("Enter");
+  await expect(page).toHaveURL(/\/search\?q=BASICBIT$/);
+  await expect(publicResultRow(page, "/basicbit")).toBeVisible();
   await page.goto("/search?q=basic&type=person");
   const input = page.getByRole("combobox", { name: /Search/i });
   await expect(input.locator("xpath=ancestor::form")).toHaveAttribute("action", "/search");

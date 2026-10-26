@@ -73,8 +73,10 @@ VRDex event authoring and publication must remain useful independently of
 external delivery. Automatic or bidirectional sync is not established by this
 design discussion.
 
-The [homepage and search design](../superpowers/specs/2026-10-21-homepage-search-schedule-design.md)
-records the retained search states and public homepage composition. Event
+The approved [Home/search first slice](../superpowers/specs/2026-10-26-homepage-search-first-slice-design.md)
+defines the shipped search-first entry. The earlier
+[homepage and search design](../superpowers/specs/2026-10-21-homepage-search-schedule-design.md)
+remains a broader reference for later timeline and discovery work. Event
 management needs its own design slice; mirror controls do not belong in public
 search or the homepage timetable.
 
@@ -105,9 +107,14 @@ Current recommendation:
 
 Locked decision:
 
-- For the current product stage, direct lookup is the root experience.
-- Preserve the event-oriented discovery surface at `/discovery` while its
-  content density, naming, and ranking mature.
+- `/` is the compact public search entry, headed `DJs, clubs & events`. New
+  submissions open `/search?q=...`, with at most five public preview options.
+- Nonempty legacy `/?q=...` bookmarks redirect to `/search?q=...&view=dj`.
+  `/lookup` and the legacy DJ view retain bulk lookup and authorized private
+  seed access. Public Home and standard search never use private lookup data.
+- Preserve the event-oriented discovery surface at `/discovery`, reachable from
+  Home navigation. Timeline, discovery composition and favorites remain later
+  slices; Home contains no placeholder modules.
 
 Current recommendation:
 
@@ -137,8 +144,8 @@ Current recommendation:
   each route has a clear job.
 - The root experience should stay selective about attention.
 - Search should handle direct lookup.
-- `/`, `/lookup`, and later operator tools should optimize for dense workflow
-  utility during the current stage.
+- `/` should keep public search direct and compact. `/lookup` and later
+  operator tools can optimize for dense workflow utility.
 - Event schedule/timeline views should optimize for "what is happening when."
 - Profile and community pages should optimize for canonical identity and
   owner-controlled presentation.

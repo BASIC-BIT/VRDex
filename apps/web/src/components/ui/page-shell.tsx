@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import { cva, type VariantProps } from "class-variance-authority";
 import type { ComponentPropsWithoutRef } from "react";
 
@@ -77,10 +78,25 @@ export function PageNav({
   );
 }
 
-export function BrandLink() {
+export function BrandLink({ variant = "text" }: { variant?: "text" | "wordmark" }) {
   return (
-    <Link className="font-mono uppercase text-muted" href="/">
-      VRDex
+    <Link
+      className={variant === "wordmark"
+        ? "inline-flex shrink-0 items-center rounded-control bg-media px-2 py-1 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent"
+        : "font-mono uppercase text-muted"}
+      href="/"
+    >
+      {variant === "wordmark" ? (
+        <Image
+          alt="VRDex"
+          className="h-auto w-[137px]"
+          height={132}
+          priority
+          src="/brand/vrdex-wordmark.svg"
+          unoptimized
+          width={469}
+        />
+      ) : "VRDex"}
     </Link>
   );
 }
