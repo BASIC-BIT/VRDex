@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "capacityAccepted": false,
+  "baseCandidate": "f27a812b73019a77882d94eb081c6f53bc6637ff",
+  "sourceReceiptSha256": "fbf80e481aa79265f2cf6a8313f9e6f2cb0cf23f2d4f070cba7208468a3ff514",
+  "original": {
+    "request": {
+      "settings": {
+        "videoPreset": "480p30",
+        "audioBitrateKbps": 160
+      },
+      "cpuUnits": 8192,
+      "memoryMiB": 16384,
+      "durationSeconds": 300,
+      "simulcastEnabled": false,
+      "outputDir": "/tmp/event-capacity-matrix1"
+    },
+    "steady": {
+      "durationMs": 300000.24571000005,
+      "dualDecodeMs": 300000.25728,
+      "readinessLosses": 0,
+      "samples": 300,
+      "maxSampleGapMs": 1002.1666910000204
+    },
+    "resources": {
+      "cpuP95Percent": 23.334635512324223,
+      "cpuP50Percent": 22.542467030855434,
+      "sampleCoverageMs": 299999.82046699995,
+      "memoryPeakBytes": 660754432,
+      "accounting": "whole-cgroup-including-fixtures-and-receivers"
+    },
+    "passed": false,
+    "failurePhase": "verify",
+    "failureCode": "capacity_limit"
+  },
+  "finding": "Final actual counter timestamp covered299999.82046699995ms; later wall time crossed300000.24571000005ms. Wall-clock loop termination did not guarantee full measured counter coverage.",
+  "correction": "Terminate only after last actual counter timestamp minus same initial counter timestamp reaches requested duration; retain every real cadence sample and check health before and after each read.",
+  "gatesUnchanged": true,
+  "originalNegativeStillRejected": true,
+  "runtimeChanged": false,
+  "test": {
+    "childProcesses": false,
+    "initialTimestamp": 123456.789,
+    "oldTerminationReadCount": 300,
+    "correctedReadCount": 301,
+    "finalCoverageMs": 301000,
+    "completeEndpointAvoidsExtraSample": true,
+    "postReadHealthFailureRejectsAdmission": true
+  },
+  "logHashes": {
+    "task-6-sample-endpoint-old-wall-reproduction.log": "6fde5c5a2e5b4e91b920aad53dc5cf758cd661fa559074d18de2762e5e99480f",
+    "task-6-sample-endpoint-checked.log": "24d29372ce0425dd22821146c9bfee4aaaea3508d9d608ff57469875c1dadbab"
+  }
+}

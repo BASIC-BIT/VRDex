@@ -26,7 +26,7 @@ export function createTwitchAdapter(request: Extract<PlaybackRequest, { kind: "t
   let ready = false;
   const pending = load().then(sdk => {
     if (disposed) return;
-    player = new sdk.Player(container, { width: "100%", height: 300, parent: [window.location.hostname], autoplay: false,
+    player = new sdk.Player(container, { width: "100%", height: 300, parent: [window.location.hostname], autoplay: false, muted,
       ...(request.channel ? { channel: request.channel } : request.video ? { video: request.video } : { collection: request.collection }) });
     const on = (event: string, callback: () => void) => { listeners.push([event, callback]); player!.addEventListener(event, callback); };
     on(sdk.Player.READY, () => { if (disposed) return; ready = true; player!.setVolume(volume); player!.setMuted(muted); if (!paused) player!.play(); });

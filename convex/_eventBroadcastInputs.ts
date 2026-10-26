@@ -12,6 +12,7 @@ export const EVENT_BROADCAST_MAX_OUTPUTS = 8;
 export { observedBroadcastStateValidator } from "./_eventMediaControl";
 
 export const workerSessionArgs = {
+  protocolVersion: v.optional(v.number()),
   bridgeToken: v.string(),
   eventId: v.id("events"),
   sessionId: v.id("eventMediaSessions"),
@@ -41,6 +42,10 @@ export async function allocateSessionCommandSequence(db: DatabaseWriter, session
   const latest = await db.query("eventMediaCommands")
     .withIndex("by_sessionId_sequence", q => q.eq("sessionId", sessionId)).order("desc").first();
   let next = Math.max(session.nextCommandSequence ?? 1, (latest?.sequence ?? 0) + 1);
+  if (session.controlProtocolVersion === 2) {
+    await db.patch(sessionId, { nextCommandSequence: next + (reserve ? 1 : 0) });
+    return next;
+  }
   const candidates = (await Promise.all((["queued", "claimed"] as const).flatMap(status => [
     db.query("eventMediaCommands").withIndex("by_session_scope_status_sequence", q =>
       q.eq("sessionId", sessionId).eq("eventId", session.eventId).eq("programId", session.programId).eq("status", status).eq("sequence", undefined)).take(EVENT_BROADCAST_COMMAND_BATCH + 1),
@@ -57,6 +62,7 @@ export async function allocateSessionCommandSequence(db: DatabaseWriter, session
 
 /** Terminal execution cannot leave intent pending for a session that cannot run. */
 export async function settleTerminalSessionCommands(db: DatabaseWriter, sessionId: Id<"eventMediaSessions">, state: "ended" | "error", now: number) {
+  await db.patch(sessionId, {pendingControlCommandId:undefined});
   for (const status of ["queued", "claimed"] as const) {
     const pending = await db.query("eventMediaCommands")
       .withIndex("by_sessionId_status_createdAt", q => q.eq("sessionId", sessionId).eq("status", status)).collect();

@@ -65,6 +65,13 @@ The first timeline is deliberately small:
 
 ## Automated Checks
 
+CI always builds the production worker image and runs the required 42 Python
+plus 90 Node transport cases in **Restream Local Checks**. The timing suite is
+owned by `tests/native`; full host MCP/script coverage continues separately.
+The older local vertical validation below remains selected by restream-related
+changes. See [native CI coverage](./event-broadcast-quality-capacity.md#required-native-ci-coverage)
+for the full command, isolation, receipt and cleanup requirements.
+
 The check command validates:
 
 - command timeline shape and ordering

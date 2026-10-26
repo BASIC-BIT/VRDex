@@ -107,6 +107,17 @@ jobs:
       - name: Run API contract verification
         run: pnpm verify:api-contracts
 
+      - name: Install script media test prerequisites
+        timeout-minutes: 5
+        run: |
+          # Keep the runner's official HTTPS fallbacks; Azure HTTP downloads can crawl.
+          if [[ -f /etc/apt/apt-mirrors.txt ]]; then
+            sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt
+          fi
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes ffmpeg
+          ffmpeg -version
+
       - name: Run MCP package verification
         run: pnpm verify:vrdex-mcp
 
@@ -190,6 +201,9 @@ jobs:
     name: Verify Backend Local
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      CONVEX_LOCAL_BACKEND_VERSION: precompiled-2026-09-28-5c7cb5b
+      MIGRATION_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || '' }}
 
     steps:
       - name: Checkout
@@ -207,11 +221,37 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Require fresh owned local migration state
+        run: node scripts/verify-event-broadcast-migration-local.mjs preflight
+
       - name: Verify backend bootstrap
         run: pnpm verify:backend:local
 
       - name: Check generated backend files
         run: git diff --exit-code -- convex/_generated
+
+      - name: Rehearse actual local event broadcast migration
+        id: migration
+        timeout-minutes: 6
+        run: node --import tsx scripts/verify-event-broadcast-migration-local.mjs run
+
+      - name: Check generated backend files after closure
+        if: ${{ always() && steps.migration.outcome != 'skipped' }}
+        run: git diff --exit-code -- convex/_generated
+
+      - name: Stage safe migration evidence and require completeness
+        id: migration-evidence
+        if: ${{ always() && steps.migration.outcome != 'skipped' }}
+        run: node scripts/verify-event-broadcast-migration-local.mjs check-artifacts
+
+      - name: Upload safe migration evidence
+        if: ${{ always() && steps.migration.outcome != 'skipped' && steps.migration-evidence.outputs.upload-path != '' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: event-broadcast-migration-local-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 7
+          if-no-files-found: error
+          path: ${{ steps.migration-evidence.outputs.upload-path }}
 
   restream-local-checks:
     name: Restream Local Checks
@@ -243,7 +283,7 @@ jobs:
             echo "enabled=false" >> "$GITHUB_OUTPUT"
             {
               echo "## Restream Local Checks"
-              echo "Skipped because no restream-relevant files changed."
+              echo "Optional gateway and host validation skipped; image build and native transport gate remain required."
             } >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
@@ -256,15 +296,23 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Setup pnpm
-        if: steps.changes.outputs.enabled == 'true'
         uses: pnpm/action-setup@v6
 
       - name: Setup Node.js
-        if: steps.changes.outputs.enabled == 'true'
         uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: pnpm
+
+      - name: Check native CI contracts
+        run: node --test .github/scripts/restream-native*.test.mjs
+
+      - name: Build hosted restream worker image
+        run: docker build -f workers/restream/Dockerfile -t vrdex-restream-worker:ci .
+
+      - name: Run required native transport gate
+        timeout-minutes: 7
+        run: node .github/scripts/restream-native.mjs
 
       - name: Install dependencies
         if: steps.changes.outputs.enabled == 'true'
@@ -288,10 +336,6 @@ jobs:
       - name: Test Discord Gateway
         if: steps.changes.outputs.enabled == 'true'
         run: pnpm test:discord-gateway
-
-      - name: Build hosted restream worker image
-        if: steps.changes.outputs.enabled == 'true'
-        run: docker build -f workers/restream/Dockerfile -t vrdex-restream-worker:ci .
 
       - name: Dry-run hosted restream worker image
         if: steps.changes.outputs.enabled == 'true'

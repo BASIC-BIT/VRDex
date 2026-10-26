@@ -9,7 +9,17 @@ import { eventBroadcastObservationFresh } from "@/lib/event-broadcast-observatio
 import { Button } from "@/components/ui/button";
 import { PageContainer, PageShell } from "@/components/ui/page-shell";
 import { ViewerLocalEventDateTime } from "./viewer-local-event-times";
-import { EventHostView } from "./event-host-view";
+import { operatorViewState } from "@/lib/event-operator-state";
+import {
+  EventOperatorSources,
+  type SourceAuthoring,
+} from "./event-operator-sources";
+import { EventOperatorDiagnostics } from "./event-operator-diagnostics";
+import {
+  EventStreamSettings,
+  type StreamSettings,
+} from "./event-stream-settings";
+import { NEW_PROGRAM_MEDIA_SETTINGS } from "../../../../../workers/restream/broadcast-profiles.mjs";
 import type { PublicEvent } from "./event-public-page";
 
 export type OperatorStatus = FunctionReturnType<
@@ -23,8 +33,6 @@ type Command =
   | "set_automatic_mode";
 export function EventOperatorView({
   currentSlug,
-  initialStatus,
-  event,
 }: {
   currentSlug: string;
   initialStatus: OperatorStatus;
@@ -38,15 +46,43 @@ export function EventOperatorView({
   const stop = useMutation(api.events.stopEventMediaWorker);
   const policy = useMutation(api.events.configureEventBroadcastPolicy);
   const configureTwitch = useMutation(api.events.configureTwitchOutput);
-  const current = status ?? initialStatus;
+  const cancel = useMutation(api.events.cancelEventMediaOperation);
+  const create = useMutation(api.eventMediaSources.create);
+  const replace = useMutation(api.eventMediaSources.replace);
+  const remove = useMutation(api.eventMediaSources.remove);
+  const settings = useMutation(api.eventMediaSettings.configure);
+  // A loading/rejected replacement subscription must never restore old authority.
+  const current = status;
+  if (!current) return null;
   return (
     <>
       <EventOperatorControls
+        key={current.eventId}
         status={current}
+        onCancel={(commandId) =>
+          cancel({
+            currentSlug,
+            commandId,
+            idempotencyKey: crypto.randomUUID(),
+          })
+        }
+        onCreate={(input) => create({ currentSlug, ...input })}
+        onReplace={(source, input) =>
+          replace({ currentSlug, sourceId: source.sourceId, ...input })
+        }
+        onRemove={(source) =>
+          remove({ currentSlug, sourceId: source.sourceId })
+        }
+        onSaveSettings={(input) => settings({ currentSlug, ...input })}
         title={current.eventTitle}
         onTwitch={(input) => configureTwitch({ currentSlug, ...input })}
         onCommand={(type, targetSourceKey) =>
-          queue({ currentSlug, type, targetSourceKey })
+          queue({
+            currentSlug,
+            type,
+            targetSourceKey,
+            idempotencyKey: crypto.randomUUID(),
+          })
         }
         onStart={(outputKey) =>
           start({ currentSlug, outputKey, startImmediately: true })
@@ -56,7 +92,6 @@ export function EventOperatorView({
           policy({ currentSlug, policy: { maxOverrunMs } })
         }
       />
-      {event ? <EventHostView event={event} /> : null}
     </>
   );
 }
@@ -82,6 +117,16 @@ type ControlsProps = {
     id: OperatorStatus["sessions"][number]["sessionId"],
   ) => Promise<unknown>;
   onPolicy: (maxOverrunMs?: number) => Promise<unknown>;
+  onCancel: (
+    id: OperatorStatus["commands"][number]["commandId"],
+  ) => Promise<unknown>;
+  onCreate: (input: SourceAuthoring) => Promise<unknown>;
+  onReplace: (
+    source: OperatorStatus["sources"][number],
+    input: SourceAuthoring,
+  ) => Promise<unknown>;
+  onRemove: (source: OperatorStatus["sources"][number]) => Promise<unknown>;
+  onSaveSettings: (input: StreamSettings) => Promise<unknown>;
 };
 export function EventOperatorControls({
   status,
@@ -91,10 +136,18 @@ export function EventOperatorControls({
   onStart,
   onStop,
   onPolicy,
+  onCancel,
+  onCreate,
+  onReplace,
+  onRemove,
+  onSaveSettings,
 }: ControlsProps) {
   const [busy, setBusy] = useState(false);
   const lock = useRef(false);
   const stopLock = useRef(false);
+  const cutLock = useRef(false);
+  const cancelLock = useRef(false);
+  const [cutBusy, setCutBusy] = useState(false);
   const [stopBusy, setStopBusy] = useState(false);
   const [twitchAccount, setTwitchAccount] = useState("");
   const [twitchLabel, setTwitchLabel] = useState("Twitch");
@@ -119,18 +172,8 @@ export function EventOperatorControls({
     );
     return () => clearInterval(timer);
   }, [status.serverNow]);
-  const session =
-    status.sessions.find(
-      (row) => row.sessionId === status.program?.activeSessionId,
-    ) ?? status.sessions[0];
-  const active = session && !["ended", "error"].includes(session.status);
-  const observationFresh = eventBroadcastObservationFresh({
-    serverNow: status.serverNow,
-    elapsedMs: elapsed,
-    leaseExpiresAt: session?.leaseExpiresAt,
-    observedAt: session?.programObservedAt,
-    status: session?.status,
-  });
+  const view = operatorViewState(status, elapsed, busy, stopBusy);
+  const { session, active, observationFresh } = view;
   const workerStatus = !session
     ? "Stopped"
     : ["ended", "error"].includes(session.status)
@@ -146,15 +189,26 @@ export function EventOperatorControls({
   const pending = sessionCommands.some((row) =>
     ["queued", "claimed"].includes(row.status),
   );
-  const sessionPending = sessionCommands.some((row) =>
-    row.sessionId !== undefined && row.sessionId === session?.sessionId &&
-    ["queued", "claimed"].includes(row.status),
+  const sessionPending = sessionCommands.some(
+    (row) =>
+      row.sessionId !== undefined &&
+      row.sessionId === session?.sessionId &&
+      ["queued", "claimed"].includes(row.status),
   );
-  const disabled = busy || pending || !status.canControl;
-  const sourceLabel = (id?: string) =>
-    status.sources.find((row) => row.sourceId === id)?.label ?? "Hold";
+  const disabled =
+    busy ||
+    Boolean(view.pending) ||
+    !status.canControl ||
+    stopBusy ||
+    session?.status === "stopping";
   async function submit(action: () => Promise<unknown>) {
-    if (lock.current || !status.canControl) return;
+    if (
+      lock.current ||
+      stopLock.current ||
+      !status.canControl ||
+      session?.status === "stopping"
+    )
+      return;
     lock.current = true;
     setBusy(true);
     setFailure(false);
@@ -182,20 +236,38 @@ export function EventOperatorControls({
       setConfirmStop(false);
     }
   }
-  const commanded = sessionCommands.find((row) =>
-    ["queued", "claimed"].includes(row.status),
-  );
-  const commandedLabel = commanded?.targetSourceId
-    ? sourceLabel(commanded.targetSourceId)
-    : commanded?.commandType === "switch_next"
-      ? "Next"
-      : commanded?.commandType === "switch_hold"
-        ? "Slate"
-        : commanded?.commandType === "hold_current"
-          ? "Hold current"
-          : commanded?.commandType === "set_automatic_mode"
-            ? "Automatic"
-            : "None";
+  async function cut() {
+    if (cutLock.current || stopLock.current || !view.canCut) return;
+    cutLock.current = true;
+    setCutBusy(true);
+    setFailure(false);
+    try {
+      await onCommand("switch_hold");
+    } catch {
+      setFailure(true);
+    } finally {
+      cutLock.current = false;
+      setCutBusy(false);
+    }
+  }
+  async function cancel() {
+    if (
+      cancelLock.current ||
+      stopLock.current ||
+      !view.canCancel ||
+      !view.pending
+    )
+      return;
+    cancelLock.current = true;
+    setFailure(false);
+    try {
+      await onCancel(view.pending.commandId);
+    } catch {
+      setFailure(true);
+    } finally {
+      cancelLock.current = false;
+    }
+  }
   return (
     <PageShell className="py-10">
       <PageContainer max="6xl">
@@ -225,20 +297,16 @@ export function EventOperatorControls({
               <dd>{status.nextSlot?.displayLabel ?? "None"}</dd>
             </div>
             <div>
-              <dt className="text-sm text-muted">Commanded source</dt>
-              <dd>{commandedLabel}</dd>
+              <dt className="text-sm text-muted">Desired source</dt>
+              <dd>{view.desired}</dd>
             </div>
             <div>
               <dt className="text-sm text-muted">Observed output</dt>
-              <dd>
-                {!observationFresh
-                  ? "Unknown"
-                  : session?.status === "hold"
-                    ? "Hold"
-                    : session?.currentSourceId
-                      ? sourceLabel(session.currentSourceId)
-                      : "Unknown"}
-              </dd>
+              <dd>{view.actual}</dd>
+            </div>
+            <div>
+              <dt className="text-sm text-muted">Pending source</dt>
+              <dd>{view.pendingLabel}</dd>
             </div>
             <div>
               <dt className="text-sm text-muted">Worker</dt>
@@ -281,10 +349,10 @@ export function EventOperatorControls({
             </Button>
             <Button
               variant="secondary"
-              disabled={disabled || !active}
-              onClick={() => submit(() => onCommand("switch_hold"))}
+              disabled={!view.canCut || cutBusy}
+              onClick={() => void cut()}
             >
-              Show slate
+              Cut to slate
             </Button>
             <Button
               variant="secondary"
@@ -299,7 +367,7 @@ export function EventOperatorControls({
                 stopBusy ||
                 !status.canControl ||
                 !active ||
-                session.status === "stopping"
+                session?.status === "stopping"
               }
               onClick={() => setConfirmStop(true)}
             >
@@ -326,36 +394,48 @@ export function EventOperatorControls({
           <p role="status">
             {failure
               ? "Command failed"
-              : busy || pending
-                ? "Command pending"
-                : ""}
+              : stopBusy || session?.status === "stopping"
+                ? "Stopping"
+                : view.pending?.phase === "preparing"
+                  ? "Preparing"
+                  : view.pending?.phase === "promoting"
+                    ? "Promoting"
+                    : busy || pending
+                      ? "Command pending"
+                      : ""}
           </p>
-          <section className="space-y-3">
-            <h2 className="text-xl font-semibold">Sources</h2>
-            {status.sources.map((source) => (
-              <div
-                key={source.sourceId}
-                className="flex items-center justify-between gap-4 border-b border-border py-3"
-              >
-                <span>{source.label}</span>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  disabled={
-                    disabled ||
-                    !active ||
-                    !source.hasPublicUrl ||
-                    !["ready", "active"].includes(source.state)
-                  }
-                  onClick={() =>
-                    submit(() => onCommand("switch_source", source.key))
-                  }
-                >
-                  Select {source.label}
-                </Button>
-              </div>
-            ))}
-          </section>
+          <EventOperatorSources
+            sources={status.sources}
+            control={{
+              status,
+              canTake: view.canTake,
+              canCancel: view.canCancel,
+              pending: view.pending ?? null,
+              now: status.serverNow + elapsed,
+            }}
+            canControl={
+              status.canControl && !stopBusy && session?.status !== "stopping"
+            }
+            onTake={(source) =>
+              void submit(() => onCommand("switch_source", source.key))
+            }
+            onCancel={() => void cancel()}
+            onCreate={onCreate}
+            onReplace={onReplace}
+            onRemove={onRemove}
+          />
+          <EventStreamSettings
+            settings={
+              status.program?.mediaSettings ?? NEW_PROGRAM_MEDIA_SETTINGS
+            }
+            activeSettings={active ? session?.mediaSettings : undefined}
+            canControl={status.canControl}
+            onSave={onSaveSettings}
+          />
+          <EventOperatorDiagnostics
+            session={session}
+            now={status.serverNow + elapsed}
+          />
           <section className="space-y-3">
             <h2 className="text-xl font-semibold">Destinations</h2>
             {status.outputs.map((output) => {
@@ -416,7 +496,14 @@ export function EventOperatorControls({
               </select>
             </label>
             <Button
-              disabled={busy || sessionPending || !status.canControl || Boolean(active) || status.outputConfigurationLocked || !outputKey}
+              disabled={
+                busy ||
+                sessionPending ||
+                !status.canControl ||
+                Boolean(active) ||
+                status.outputConfigurationLocked ||
+                !outputKey
+              }
               onClick={() => submit(() => onStart(outputKey))}
             >
               Start
@@ -574,7 +661,11 @@ export function EventOperatorControls({
                 key={command.commandId}
               >
                 <span>{command.commandType.replaceAll("_", " ")}</span>
-                <span>{command.status}</span>
+                <span>
+                  {command.controlOutcome === "superseded"
+                    ? "superseded"
+                    : command.status}
+                </span>
               </div>
             ))}
           </section>

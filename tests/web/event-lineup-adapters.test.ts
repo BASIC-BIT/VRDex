@@ -179,3 +179,29 @@ for (const order of [["eventDate", "timezone", "end"], ["eventDate", "end", "tim
   assert.equal(readIntakeInstant(fields, fields.end), Date.UTC(2026, 9, 16, 8));
   assert.deepEqual(fields.questions, ["keep source question"]);
 });
+
+test("timing an untimed row preserves a pending performer reset separately from omission", async () => {
+  const { timeUntimedLineupRow } = await import("../../apps/web/src/lib/calendar/event-lineup-adapters");
+  const original = { clientKey: "guest", position: 2, performerLabel: "Guest A", personSlug: "guest-a", roleLabel: "DJ", broadcastInput: { kind: "twitch", channel: "basic_bit" } as const };
+  const changedToB = { ...original, performerLabel: "Guest B", personSlug: "guest-b", broadcastInput: null };
+  const changedBackToA = { ...changedToB, performerLabel: original.performerLabel, personSlug: original.personSlug };
+  for (const broadcastInput of [changedBackToA.broadcastInput, original.broadcastInput, undefined]) {
+    const row = timeUntimedLineupRow({ row: { ...changedBackToA, broadcastInput }, offsetMinutes: "15", eventStartAt: 1000 });
+    assert.equal(row.startAtOverride, 901000);
+    assert.equal(row.id, original.clientKey);
+    assert.equal(row.personSlug, original.personSlug);
+    assert.deepEqual(row.broadcastInput, broadcastInput);
+    const serialized = JSON.parse(JSON.stringify(row));
+    assert.equal(Object.hasOwn(serialized, "broadcastInput"), broadcastInput !== undefined);
+    if (broadcastInput === null) assert.equal(serialized.broadcastInput, null);
+  }
+});
+
+
+test('broadcast selections and legacy streams survive reorder independently',()=>{
+ const rows:SlotFormRow[]=[{id:'a',position:0,offsetMinutes:'0',durationMinutes:'60',personSlug:'guest',displayLabel:'Guest',roleLabel:'DJ',selectedStreamId:'legacy',broadcastInput:{kind:'twitch',channel:'one'}},{id:'b',position:1,offsetMinutes:'60',durationMinutes:'60',personSlug:'other',displayLabel:'Other',roleLabel:'DJ',broadcastInput:null}];
+ const timings=readStaffLineupTimings(rows,1000);
+ const reordered=applyStaffLineupTimings(rows,[timings[1]!,timings[0]!],1000);
+ assert.deepEqual(reordered[1].broadcastInput,{kind:'twitch',channel:'one'});
+ assert.equal(reordered[1].selectedStreamId,'legacy');assert.equal(reordered[0].broadcastInput,null);
+});

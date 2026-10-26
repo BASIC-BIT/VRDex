@@ -61,3 +61,7 @@ __pycache__/
 # Scoped public media acceptance artifacts
 /apps/web/test-results-public-media*/
 /.cache/artifacts/public-media-*.png
+
+# Private CI migration ownership and explicit safe proof output
+/.migration-local-owner/
+/artifacts/event-broadcast-migration-local/

@@ -10,16 +10,24 @@ import ts from 'typescript';
 // substituted. No copied guard or request-building implementation.
 const webRequire = createRequire(path.resolve('apps/web/package.json'));
 function load(relative: string, dependencies: Record<string, unknown>) {
-  const source = readFileSync(path.resolve('apps/web/src', relative), 'utf8');
-  const { outputText } = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } });
+  const filename = path.resolve('apps/web/src', relative);
+  const source = readFileSync(filename, 'utf8');
+  const { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } });
   const exports: Record<string, any> = {};
   vm.runInNewContext(outputText, { exports, require: (name: string) => {
     if (name in dependencies) return dependencies[name];
+    if (name.startsWith('@/') || name.startsWith('.')) {
+      const target = name.startsWith('@/') ? path.resolve('apps/web/src', name.slice(2)) : path.resolve(path.dirname(filename),name);
+      for (const extension of ['', '.ts', '.tsx']) { try { readFileSync(target + extension); } catch { continue; }
+        if ((target + extension).endsWith('.mjs')) return webRequire(target + extension);
+        return load(path.relative(path.resolve('apps/web/src'),target+extension),dependencies);
+      }
+    }
     return webRequire(name);
   }, Date, setInterval, clearInterval, performance });
   return exports;
 }
-const api = { events: { getEventMediaControlStatus: 'status', scheduleEventMediaWorker: 'start', queueEventMediaCommand: 'queue', stopEventMediaWorker: 'stop', configureEventBroadcastPolicy: 'policy', configureTwitchOutput: 'twitch' } };
+const api = { eventMediaSources:{create:'create',replace:'replace',remove:'remove'},eventMediaSettings:{configure:'settings'}, events: { getEventMediaControlStatus: 'status', scheduleEventMediaWorker: 'start', queueEventMediaCommand: 'queue', stopEventMediaWorker: 'stop', configureEventBroadcastPolicy: 'policy', configureTwitchOutput: 'twitch', cancelEventMediaOperation:'cancel' } };
 function routeFixture({ token = 'jwt', authorized = true, eventPath = '/club/events/show', canControl = false } = {}) {
   const calls: string[] = [];
   const status = { eventPath, canControl };
@@ -50,7 +58,7 @@ it('F3 actual route denies anonymous, nonstaff and mismatched paths before fetch
 function operatorFixture() {
   const requests: Array<{ ref: string; args: any }> = [];
   const React = webRequire('react');
-  const status = { eventTitle: 'Show', eventPath: '/club/events/show', canControl: false, outputConfigurationLocked: false, serverNow: Date.now(), program: undefined, sessions: [], sources: [], outputs: [], commands: [], twitchAccounts: [] };
+  const status = { eventTitle: 'Show', eventPath: '/club/events/show', canControl: false, outputConfigurationLocked: false, serverNow: Date.now(), program: null, sessions: [], sources: [], outputs: [], commands: [], twitchAccounts: [] };
   const component = load('app/_components/event-operator-view.tsx', {
     'next/link': { default: (props: any) => React.createElement('a', props) },
     'convex/react': { useQuery: () => status, useMutation: (ref: string) => async (args: any) => { requests.push({ ref, args }); } },
@@ -66,7 +74,7 @@ function operatorFixture() {
 it('F2 actual operator view sends an explicit immediate request without client-clock schedule fields', async () => {
   const f = operatorFixture();
   const tree = f.component.EventOperatorView({ currentSlug: 'show', initialStatus: f.status });
-  await tree.props.children[0].props.onStart('primary');
+  await tree.props.children.props.onStart('primary');
   assert.equal(f.requests[0].ref, 'start');
   assert.equal(JSON.stringify(f.requests[0].args), JSON.stringify({ currentSlug: 'show', outputKey: 'primary', startImmediately: true }));
 });
@@ -74,7 +82,7 @@ it('F3 rendered read-only controls disable every broadcast mutation', () => {
   const f = operatorFixture();
   const { renderToStaticMarkup } = webRequire('react-dom/server');
   const html: string = renderToStaticMarkup(f.React.createElement(f.component.EventOperatorControls, { status: f.status }));
-  for (const label of ['Next', 'Hold current', 'Show slate', 'Return to auto', 'Stop', 'Start', 'Save policy']) {
+  for (const label of ['Next', 'Hold current', 'Cut to slate', 'Return to auto', 'Stop', 'Start', 'Save policy']) {
     assert.match(html, new RegExp(`<button[^>]*disabled=""[^>]*>${label}</button>`));
   }
   assert.match(html, /<fieldset[^>]*disabled=""/);
@@ -87,4 +95,16 @@ it('R2F1 terminal reserved output configuration stays disabled independently of 
   const { renderToStaticMarkup } = webRequire('react-dom/server');
   const html: string = renderToStaticMarkup(f.React.createElement(f.component.EventOperatorControls, { status: f.status }));
   assert.match(html, /<fieldset[^>]*disabled=""/);
+});
+
+it('an unresolved replacement subscription cannot restore initial permissions or private sources',()=>{
+ const React=webRequire('react');
+ const component=load('app/_components/event-operator-view.tsx',{
+  'convex/react':{useQuery:()=>undefined,useMutation:()=>async()=>{}},'@convex-generated-api':{api},
+  'next/link':{default:()=>null},'./event-host-view':{EventHostView:()=>null},
+  '@/components/ui/button':{Button:()=>null},'@/components/ui/page-shell':{PageContainer:()=>null,PageShell:()=>null},
+  './viewer-local-event-times':{ViewerLocalEventDateTime:()=>null},
+ });
+ const tree=component.EventOperatorView({currentSlug:'new-event',initialStatus:{canControl:true,sources:[{label:'Old private source'}]}});
+ assert.equal(tree,null);assert(React);
 });

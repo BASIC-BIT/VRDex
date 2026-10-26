@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM node:22-bookworm-slim
+FROM node:22-bookworm-slim@sha256:de170b39439eb0e5a3444ad7d60b015614a381e10fecae2e30ec9e735122f38d AS worker
 
 RUN --mount=type=secret,id=proxy_ca,target=/run/secrets/proxy_ca \
   if [ -f /run/secrets/proxy_ca ]; then printf 'Acquire::https::CaInfo "/run/secrets/proxy_ca";\n' > /etc/apt/apt.conf.d/99build-ca; fi \
@@ -9,21 +9,21 @@ RUN --mount=type=secret,id=proxy_ca,target=/run/secrets/proxy_ca \
 
 WORKDIR /app
 
-COPY workers/restream/hosted-worker.mjs \
-     workers/restream/live-control.mjs \
-     workers/restream/vrcdn-poc.mjs \
-     workers/restream/output-sender.mjs \
-     workers/restream/event-worker.mjs \
-     workers/restream/source-relay.mjs \
-     workers/restream/handoff-policy.mjs \
-     workers/restream/input-supervisor.mjs \
-     workers/restream/program-renderer.mjs workers/restream/
-
-COPY scripts/event-output-local-proof.mjs \
-     scripts/event-proof-metrics.mjs \
-     scripts/event-vrcdn-rehearsal.mjs \
-     scripts/event-proof-runner.mjs scripts/
+# One final filesystem layer: the source bind is read-only and is not copied
+# wholesale. The installer verifies locked binary wheels, installs offline,
+# copies required sources, and executes the actual-image smoke before cleanup.
+RUN --mount=type=bind,source=.,target=/source,readonly \
+    --mount=type=secret,id=proxy_ca,target=/run/secrets/proxy_ca \
+    python3 /source/workers/restream/install_twitch.py /source /app
 
 ENV NODE_ENV=production
 
 CMD ["node", "workers/restream/hosted-worker.mjs"]
+
+# Export only actual packaged bytes and installed private wheels. This target
+# avoids a second full VFS container snapshot or Docker-save staging.
+FROM scratch AS packaged-files
+COPY --from=worker /app /app
+COPY --from=worker /opt/twitch /opt/twitch
+
+FROM worker AS runtime

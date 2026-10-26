@@ -1,3 +1,4 @@
+import { buildConvexCliArgs } from "./convex-local-args.mjs";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -11,7 +12,6 @@ const repoEnvLocalPath = path.join(repoRoot, ".env.local");
 const webEnvLocalPath = path.join(repoRoot, "apps", "web", ".env.local");
 const args = process.argv.slice(2);
 const usesLocalDeployment = args.includes("--local");
-const isLocalDevCommand = args[0] === "dev" && usesLocalDeployment;
 const localDeploymentName = process.env.CONVEX_LOCAL_DEPLOYMENT_NAME || "anonymous-agent";
 const localCloudPort = process.env.CONVEX_LOCAL_CLOUD_PORT || "3210";
 const localSitePort = process.env.CONVEX_LOCAL_SITE_PORT || "3211";
@@ -23,29 +23,13 @@ const repoEnvLocalSnapshot = shouldRestoreRepoEnvLocal
     : null
   : undefined;
 
-function hasArg(name) {
-  return args.some((arg) => arg === name || arg.startsWith(`${name}=`));
-}
-
-function convexCliArgs() {
-  if (!isLocalDevCommand) {
-    return args;
-  }
-
-  const localFlags = [];
-
-  if (!hasArg("--local-cloud-port") && !hasArg("--local-site-port")) {
-    localFlags.push("--local-cloud-port", localCloudPort, "--local-site-port", localSitePort);
-  }
-
-  if (!hasArg("--local-force-upgrade") && (!process.stdin.isTTY || process.env.CI === "true")) {
-    localFlags.push("--local-force-upgrade");
-  }
-
-  return [args[0], ...localFlags, ...args.slice(1)];
-}
-
-const convexArgs = convexCliArgs();
+const convexArgs = buildConvexCliArgs(args, {
+  backendVersion: process.env.CONVEX_LOCAL_BACKEND_VERSION,
+  cloudPort: localCloudPort,
+  sitePort: localSitePort,
+  isTTY: process.stdin.isTTY,
+  ci: process.env.CI,
+});
 
 function syncPublicConvexUrl() {
   if (usesLocalDeployment) {

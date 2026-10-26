@@ -10,9 +10,9 @@ import { createSourceStatusReader } from '../../apps/web/src/lib/event-source-ob
 const webRequire=createRequire(path.resolve('apps/web/package.json'));
 function load(relative:string,dependencies:Record<string,unknown>,globals:Record<string,unknown>={}) {
  const source=readFileSync(path.resolve('apps/web/src',relative),'utf8');
- const {outputText}=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX}});
+ const {outputText}=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2020,module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX}});
  const exports:Record<string,any>={};
- vm.runInNewContext(outputText,{exports,require:(name:string)=>name in dependencies?dependencies[name]:name.startsWith('@/')?webRequire(path.resolve('apps/web/src',name.slice(2))):webRequire(name),Date,Response,AbortController,AbortSignal,setTimeout,clearTimeout,setInterval,clearInterval,...globals});
+ vm.runInNewContext(outputText,{exports,require:(name:string)=>name in dependencies?dependencies[name]:name.startsWith('@/')?webRequire(path.resolve('apps/web/src',name.slice(2))):webRequire(name),Date,Response,URL,AbortController,AbortSignal,setTimeout,clearTimeout,setInterval,clearInterval,...globals});
  return exports;
 }
 function roster() {
@@ -58,7 +58,7 @@ it('R3F4 actual host effect does not overlap requests and aborts on cleanup',asy
   react:React,'next/link':{default:()=>null},'convex/react':{},'@convex-generated-api':{api:{}},
   '@/components/ui/button':{},'@/components/ui/copy-value-row':{},'@/components/ui/page-shell':{},
   '@/lib/event-dj-target':{eventDjTarget},'@/lib/event-path':{publicEventPath:()=>'/club/events/show'},
-  './event-public-page':{eventLineupForDisplay:()=>[]},'./viewer-local-event-times':{},'./vrcdn-stream-player':{},
+  './event-operator-preview':{},'./event-public-page':{eventLineupForDisplay:()=>[]},'./viewer-local-event-times':{},'./vrcdn-stream-player':{},
  },{fetch:(_url:string,options:{signal:AbortSignal})=>{calls++;signal=options.signal;return new Promise(resolve=>{resolveFetch=resolve;});},setInterval:(callback:()=>void,ms:number)=>{intervals.push({callback,ms});return intervals.length;},clearInterval:()=>{},setTimeout:(callback:()=>void,ms:number)=>{timeouts.push({callback,ms});return timeouts.length;},clearTimeout:()=>{}});
  component.EventHostContent({event:roster()});const cleanup=effect!() as unknown as ()=>void;
  for(const timer of intervals.filter(timer=>timer.ms===30000))timer.callback();
@@ -138,7 +138,7 @@ it('R4F3 live host subscription retains authorized draft projection and withdraw
   'next/link':{default:()=>null},'convex/react':{useQuery:(ref:any,args:any)=>{queries.push(args);return ref===hostRef&&allowed?event:null;}},'@convex-generated-api':{api:{events:{getHostBySlug:hostRef,getPublicBySlug:publicRef}}},
   '@/components/ui/button':{},'@/components/ui/copy-value-row':{},'@/components/ui/page-shell':{},
   '@/lib/event-dj-target':{eventDjTarget},'@/lib/event-path':{publicEventPath:()=>'/club/events/show'},
-  './event-public-page':{eventLineupForDisplay:()=>[]},'./viewer-local-event-times':{},'./vrcdn-stream-player':{},
+  './event-operator-preview':{},'./event-public-page':{eventLineupForDisplay:()=>[]},'./viewer-local-event-times':{},'./vrcdn-stream-player':{},
  });
  assert.equal(component.EventHostView({event})?.props.event,event);
  assert.equal(JSON.stringify(queries[0]),JSON.stringify({slug:'show',communitySlug:'club'}));

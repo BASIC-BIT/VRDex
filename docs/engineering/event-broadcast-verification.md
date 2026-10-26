@@ -1,5 +1,14 @@
 # Event broadcast integration verification
 
+Status, October 24, 2026: the nine-task branch has source implementations for
+canonical VRCDN/Twitch inputs, six presets, protocol-2 durable intent, bounded
+current/candidate control, resource diagnostics and the persistent host player.
+Task 9 adds the pinned local-CLI argument seam and guarded migration rehearsal.
+Actual final-image capacity/admission, Task 7 real counter-failure media proof,
+Task 8 browser/visual/audio flows, real Convex migration and owned-provider/device
+gates remain open. No rollout or whole-flow acceptance is claimed.
+
+The previously deployed state and October 22 evidence below remain historical:
 Status: implementation and retained evidence through October 22, 2026. The
 persistent Lambda dispatcher is available in production, and the bounded
 decoded-silence proof passed. The backend policy deployed successfully and the
@@ -1071,3 +1080,30 @@ production/rehearsal versions 1/21. The rejected output secret is unchanged.
 `basicbit` output, two-account/independent-DJ, real Convex, live Twitch, musical
 silence, device and multi-hour capacity gates remain open. See the [October 22 record](event-broadcast-rehearsal.md#october-22-2026-diagnostic-session)
 for exact provenance, failed attempts, receipts and remaining gates.
+
+## October 24 Task 9 verification ledger
+
+The source-only checks exercise the actual argv builder and production migration
+handlers against Convex-test; they do not start a native backend. The local driver
+is import-safe and has bounded real-HTTP execution for ROOT. See the
+[rehearsal procedure](./event-broadcast-rehearsal.md#october-24-2026-task-9-source-prerequisites)
+for exact environment names, fixed scenarios, receipts and cleanup.
+
+Still required on final source: `pnpm typecheck:backend`, `pnpm test:backend`,
+`pnpm test:scripts`, `pnpm verify:api-contracts`, `pnpm typecheck:web`,
+`pnpm lint:web`, `pnpm test:web`, canonical local bindings generation and
+`pnpm check:backend:generated`. The last command starts a backend; it is not a
+static declaration comparison. ROOT must record native exits and source pins,
+then retain Python transport/input, exact-image, browser screenshots/video and
+VLM review evidence. Add `ci:browsers` and `ci:visuals` to the single implementation
+PR before its normal CI run. No PR or deployment readiness follows from this
+source ledger. Physical PC/Quest acceptance requires actual clients.
+
+Source verification used Node's child-free runner on three inspected files:
+`convex-local-args.test.mjs`, `local-event-broadcast-rehearsal.test.ts`, and
+`event-broadcast-migration-rehearsal.test.ts`: 18 tests passed, zero skipped.
+The driver test invokes production scheduling against the unchanged map and
+records the expected `Unproved broadcast configuration` failure with successful
+owned cleanup. That passing negative test does not validate the later lifecycle
+scenarios. The full in-memory lifecycle path runs when the production map actually
+admits the default profile; no test injects a production admission map.

@@ -4,7 +4,7 @@ import { mkdtemp, writeFile, appendFile, stat } from 'node:fs/promises';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { createProgramRenderer } from '../workers/restream/program-renderer.mjs';
 import { createEventOutputs } from '../workers/restream/output-sender.mjs';
-import { createEventWorker } from '../workers/restream/event-worker.mjs';
+import { createProofWorker as createEventWorker, syntheticInputs } from './event-proof-fixtures.mjs';
 import { verifyProgramPackets, processMetrics } from './event-proof-metrics.mjs';
 const directory = await mkdtemp(process.env.PROOF_DIRECTORY_PREFIX ?? '/tmp/event-output-proof-');
 const seconds = Number(process.env.PROOF_SECONDS ?? 60), base = Number(process.env.PROOF_PORT_BASE ?? 19561);
@@ -51,7 +51,7 @@ const worker = createEventWorker({ identity: { eventId: 'local-proof', sessionId
         if (name === 'claimCommands') return { granted: true, commands: [] };
         if (name === 'observeProgram') reports++;
         return { accepted: true };
-    }, resolveSource: async () => `udp://127.0.0.1:${base + 2}?fifo_size=1024&overrun_nonfatal=1`, checkEnabled: async () => true,
+    }, inputs: syntheticInputs(async () => `udp://127.0.0.1:${base + 2}?fifo_size=1024&overrun_nonfatal=1`), checkEnabled: async () => true,
     metric: event => { if (event.event === 'event_worker_stopped') stopReason = event.reason; if (event.event === 'event_worker_authority_expired') console.log(JSON.stringify(event)); } });
 let watchdog, poll, sampleCount = 0;
 console.log(JSON.stringify({ event: 'proof-start', directory, seconds, pid: process.pid, startedAt: new Date().toISOString() }));

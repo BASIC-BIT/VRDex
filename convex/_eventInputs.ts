@@ -1,3 +1,4 @@
+import { normalizeBroadcastInput, type BroadcastInputRef } from "./_eventBroadcastSources";
 import { normalizeProfileInlineText, sanitizeProfileTextList } from "./_profileSubmissions";
 import {
   sanitizeEventSlotInputs,
@@ -19,6 +20,7 @@ export const EVENT_PARTICIPANT_MAX_COUNT = 80;
 export const EVENT_PARTICIPANT_ROLE_MAX_LENGTH = 48;
 
 export type EventLineupInput = Array<{
+  broadcastInput?: BroadcastInputRef | null;
   selectedStreamId?: string | null;
   clientKey: string;
   position: number;
@@ -47,6 +49,7 @@ export function sanitizeEventLineupInput(input: EventLineupInput): EventLineupIn
     return {
       ...(entry.selectedStreamId === undefined ? {} : { selectedStreamId: entry.selectedStreamId }),
       clientKey, position: entry.position,
+      ...(entry.broadcastInput === undefined ? {} : { broadcastInput: entry.broadcastInput === null ? null : normalizeBroadcastInput(entry.broadcastInput) }),
       performerLabel: requireBoundedText(entry.performerLabel, "Performer name", 1, 120),
       ...optionalObjectField("personSlug", optionalBoundedText(entry.personSlug, "Person slug", 64)),
       ...optionalObjectField("roleLabel", optionalBoundedText(entry.roleLabel, "Role", EVENT_PARTICIPANT_ROLE_MAX_LENGTH)),

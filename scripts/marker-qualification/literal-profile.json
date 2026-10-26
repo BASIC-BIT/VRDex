@@ -1,0 +1,783 @@
+{
+  "schema": "source-marker-literal-profile-plan-v1-proposed",
+  "designOnly": true,
+  "literalCases": [
+    {
+      "id": "detector_offset",
+      "axes": {
+        "source": [
+          "a",
+          "b"
+        ],
+        "phase": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7
+        ],
+        "onsetOffset": "integers0..479",
+        "metadataRowSamples": [
+          480,
+          1024
+        ],
+        "noise": [
+          "none",
+          42,
+          43
+        ]
+      },
+      "expected": "correct source, exact unchanged metadata-block onset; all480 offsets (includes all48 residual-window alignments)"
+    },
+    {
+      "id": "mixture_literal",
+      "axes": {
+        "dominant": [
+          "a",
+          "b"
+        ],
+        "phase": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7
+        ],
+        "foreignPhase": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7
+        ],
+        "placementSamples": [
+          0,
+          1,
+          1439,
+          1440,
+          1441,
+          3359,
+          3360
+        ],
+        "ratio": [
+          0.25,
+          1
+        ],
+        "noise": [
+          "none",
+          42,
+          43
+        ]
+      },
+      "expected": "reject exactly1440sample mixture; full grid, no incidental-noise reliance"
+    },
+    {
+      "id": "foreign_literal",
+      "axes": {
+        "source": [
+          "a",
+          "b"
+        ],
+        "phase": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7
+        ],
+        "foreignPhase": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7
+        ],
+        "durationSamples": [
+          48,
+          96,
+          240,
+          480
+        ],
+        "placement": [
+          "prefix",
+          "interior",
+          "suffix"
+        ],
+        "noise": [
+          "none",
+          42,
+          43
+        ]
+      },
+      "expected": "reject original whole episode without onset shift"
+    },
+    {
+      "id": "minimum_loud_length",
+      "axes": {
+        "source": [
+          "a",
+          "b"
+        ],
+        "loudSamples": [
+          1439,
+          1440,
+          1441
+        ]
+      },
+      "expected": "1439 insufficient;1440/1441 satisfy length only and still require every fit/purity/continuity test; never force-positive ill-conditioned fit",
+      "construction": "one metadata row with exactly loudSamples then480 quiet samples; RMS row-reset blocks include final short tail; no overridden measured episode length"
+    },
+    {
+      "id": "byte_partition",
+      "axes": {
+        "chunkPattern": [
+          [
+            1
+          ],
+          [
+            2
+          ],
+          [
+            3
+          ],
+          [
+            479,
+            1
+          ],
+          [
+            1023,
+            1
+          ],
+          [
+            1,
+            4095,
+            17
+          ],
+          [
+            65536
+          ]
+        ],
+        "source": [
+          "a",
+          "b"
+        ]
+      },
+      "expected": "same sample counts/episodes/diagnostics as unsplit baseline; partial s16 byte carry never dropped"
+    },
+    {
+      "id": "signed_gate",
+      "axes": {
+        "offsetNumerator": [
+          -72015,
+          -72000,
+          -71985,
+          71985,
+          72000,
+          72015
+        ],
+        "context": [
+          "transition",
+          "steady"
+        ]
+      },
+      "expected": "only outside+-72000 fails; each numeric unit is1/720000s,15units=one48k sample"
+    },
+    {
+      "id": "half_period_fence",
+      "axes": {
+        "offsetNumerator": [
+          -360015,
+          -360000,
+          -359985,
+          359985,
+          360000,
+          360015
+        ],
+        "context": [
+          "transition",
+          "steady"
+        ]
+      },
+      "expected": "candidate only strictinside+-360000; full fence independent of acceptance gate; missing still fails"
+    },
+    {
+      "id": "steady_visual_edges",
+      "axes": {
+        "boundary": [
+          "left",
+          "right"
+        ],
+        "deltaVideoTicks": [
+          -1,
+          0,
+          1
+        ]
+      },
+      "expected": "strictinterior full flashes; equality excluded; fragments still require actual spans/source eligibility"
+    },
+    {
+      "id": "foreign_tail_end",
+      "axes": {
+        "endVsSelectionPlus100msSamples": [
+          -1,
+          0,
+          1
+        ],
+        "source": [
+          "a",
+          "b"
+        ],
+        "class": [
+          "previous_source",
+          "unknown"
+        ]
+      },
+      "expected": "previous-source conservativeexclusiveend<=boundary mayqualify onlyallotherconditions;onebeyondfails;unknownoverlapfails"
+    },
+    {
+      "id": "malformed",
+      "names": [
+        "metadata_gap",
+        "metadata_overlap",
+        "duplicate_pts",
+        "duplicate_index",
+        "fractional_pts",
+        "nan_pts",
+        "infinite_pts",
+        "zero_samples",
+        "negative_samples",
+        "nonnumeric_samples",
+        "pcm_short_byte",
+        "pcm_extra_byte",
+        "unmatched_eof",
+        "ill_conditioned_fit",
+        "nan_fit",
+        "duplicate_onset",
+        "missing_visual",
+        "duplicate_visual",
+        "unclosed_visual",
+        "overlap_visual",
+        "missing_watermark",
+        "inconsistent_watermark",
+        "duplicate_disposition",
+        "fragment_full_overlap",
+        "fragment_multiple_episode",
+        "carryin_null_with_episode"
+      ],
+      "expected": "fixed safe failure; no capacity verdict"
+    },
+    {
+      "id": "bounds",
+      "names": [
+        "episode_samples12000_pass12001_fail",
+        "episode_count4096_pass4097_fail",
+        "visual_count4096_pass4097_fail",
+        "watermark_count64_pass65_fail",
+        "candidate_count16_pass17_fail",
+        "fullflash_count256_pass257_fail",
+        "transition_count8_pass9_fail",
+        "steady_count8_pass9_fail",
+        "context_refs8192_pass8193_fail",
+        "residual_windows12000000_pass12000001_fail",
+        "local_windows1200000_pass1200001_fail",
+        "marker_bytes524288_pass524289_fail",
+        "inner_bytes1048576_pass1048577_fail",
+        "scratch_bytes65536_neverexceed"
+      ],
+      "expected": "below/equal only if semantic facts valid; excess fails before acceptance, never truncates"
+    },
+    {
+      "id": "metadata_short_tail",
+      "axes": {
+        "source": [
+          "a",
+          "b"
+        ],
+        "rowSamples": [
+          481,
+          527,
+          528,
+          719,
+          959
+        ]
+      },
+      "expected": "Exact Ruling38 per-case detector segmentation and full conservation; only the specified A/481 short episode is unknown/insufficient_samples; every specified long episode retains the correct source identity with reason none.",
+      "caseContracts": {
+        "a,481": {
+          "construction": {
+            "rate": 48000,
+            "channels": 1,
+            "phase": 0,
+            "amplitude": 0.65,
+            "noise": "none",
+            "toneRange": [
+              960,
+              5760
+            ],
+            "trailingQuietSamples": 1440,
+            "quantizer": "round(x*32768), clip to [-32768,32767]"
+          },
+          "metadataRows": 15,
+          "detectorBlocks": 29,
+          "samples": 7200,
+          "bytes": 14400,
+          "episodes": [
+            [
+              962,
+              1442,
+              1443,
+              2,
+              1,
+              "unknown",
+              "insufficient_samples"
+            ],
+            [
+              1443,
+              5771,
+              5772,
+              3,
+              9,
+              "a",
+              "none"
+            ]
+          ]
+        },
+        "a,527": {
+          "construction": {
+            "rate": 48000,
+            "channels": 1,
+            "phase": 0,
+            "amplitude": 0.65,
+            "noise": "none",
+            "toneRange": [
+              960,
+              5760
+            ],
+            "trailingQuietSamples": 1440,
+            "quantizer": "round(x*32768), clip to [-32768,32767]"
+          },
+          "metadataRows": 14,
+          "detectorBlocks": 27,
+          "samples": 7200,
+          "bytes": 14400,
+          "episodes": [
+            [
+              1007,
+              5797,
+              6277,
+              1,
+              11,
+              "a",
+              "none"
+            ]
+          ]
+        },
+        "a,528": {
+          "construction": {
+            "rate": 48000,
+            "channels": 1,
+            "phase": 0,
+            "amplitude": 0.65,
+            "noise": "none",
+            "toneRange": [
+              960,
+              5760
+            ],
+            "trailingQuietSamples": 1440,
+            "quantizer": "round(x*32768), clip to [-32768,32767]"
+          },
+          "metadataRows": 14,
+          "detectorBlocks": 27,
+          "samples": 7200,
+          "bytes": 14400,
+          "episodes": [
+            [
+              1008,
+              5760,
+              5808,
+              1,
+              10,
+              "a",
+              "none"
+            ]
+          ]
+        },
+        "a,719": {
+          "construction": {
+            "rate": 48000,
+            "channels": 1,
+            "phase": 0,
+            "amplitude": 0.65,
+            "noise": "none",
+            "toneRange": [
+              960,
+              5760
+            ],
+            "trailingQuietSamples": 1440,
+            "quantizer": "round(x*32768), clip to [-32768,32767]"
+          },
+          "metadataRows": 11,
+          "detectorBlocks": 21,
+          "samples": 7200,
+          "bytes": 14400,
+          "episodes": [
+            [
+              719,
+              5752,
+              6232,
+              1,
+              8,
+              "a",
+              "none"
+            ]
+          ]
+        },
+        "a,959": {
+          "construction": {
+            "rate": 48000,
+            "channels": 1,
+            "phase": 0,
+            "amplitude": 0.65,
+            "noise": "none",
+            "toneRange": [
+              960,
+              5760
+            ],
+            "trailingQuietSamples": 1440,
+            "quantizer": "round(x*32768), clip to [-32768,32767]"
+          },
+          "metadataRows": 8,
+          "detectorBlocks": 16,
+          "samples": 7200,
+          "bytes": 14400,
+          "episodes": [
+            [
+              959,
+              5754,
+              6234,
+              1,
+              6,
+              "a",
+              "none"
+            ]
+          ]
+        },
+        "b,481": {
+          "construction": {
+            "rate": 48000,
+            "channels": 1,
+            "phase": 0,
+            "amplitude": 0.65,
+            "noise": "none",
+            "toneRange": [
+              960,
+              5760
+            ],
+            "trailingQuietSamples": 1440,
+            "quantizer": "round(x*32768), clip to [-32768,32767]"
+          },
+          "metadataRows": 15,
+          "detectorBlocks": 29,
+          "samples": 7200,
+          "bytes": 14400,
+          "episodes": [
+            [
+              962,
+              5771,
+              5772,
+              2,
+              10,
+              "b",
+              "none"
+            ]
+          ]
+        },
+        "b,527": {
+          "construction": {
+            "rate": 48000,
+            "channels": 1,
+            "phase": 0,
+            "amplitude": 0.65,
+            "noise": "none",
+            "toneRange": [
+              960,
+              5760
+            ],
+            "trailingQuietSamples": 1440,
+            "quantizer": "round(x*32768), clip to [-32768,32767]"
+          },
+          "metadataRows": 14,
+          "detectorBlocks": 27,
+          "samples": 7200,
+          "bytes": 14400,
+          "episodes": [
+            [
+              1007,
+              5797,
+              6277,
+              1,
+              11,
+              "b",
+              "none"
+            ]
+          ]
+        },
+        "b,528": {
+          "construction": {
+            "rate": 48000,
+            "channels": 1,
+            "phase": 0,
+            "amplitude": 0.65,
+            "noise": "none",
+            "toneRange": [
+              960,
+              5760
+            ],
+            "trailingQuietSamples": 1440,
+            "quantizer": "round(x*32768), clip to [-32768,32767]"
+          },
+          "metadataRows": 14,
+          "detectorBlocks": 27,
+          "samples": 7200,
+          "bytes": 14400,
+          "episodes": [
+            [
+              1008,
+              5760,
+              5808,
+              1,
+              10,
+              "b",
+              "none"
+            ]
+          ]
+        },
+        "b,719": {
+          "construction": {
+            "rate": 48000,
+            "channels": 1,
+            "phase": 0,
+            "amplitude": 0.65,
+            "noise": "none",
+            "toneRange": [
+              960,
+              5760
+            ],
+            "trailingQuietSamples": 1440,
+            "quantizer": "round(x*32768), clip to [-32768,32767]"
+          },
+          "metadataRows": 11,
+          "detectorBlocks": 21,
+          "samples": 7200,
+          "bytes": 14400,
+          "episodes": [
+            [
+              719,
+              5752,
+              6232,
+              1,
+              8,
+              "b",
+              "none"
+            ]
+          ]
+        },
+        "b,959": {
+          "construction": {
+            "rate": 48000,
+            "channels": 1,
+            "phase": 0,
+            "amplitude": 0.65,
+            "noise": "none",
+            "toneRange": [
+              960,
+              5760
+            ],
+            "trailingQuietSamples": 1440,
+            "quantizer": "round(x*32768), clip to [-32768,32767]"
+          },
+          "metadataRows": 8,
+          "detectorBlocks": 16,
+          "samples": 7200,
+          "bytes": 14400,
+          "episodes": [
+            [
+              959,
+              5754,
+              6234,
+              1,
+              6,
+              "b",
+              "none"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "hidden105_literal",
+      "axes": {
+        "source": [
+          "a",
+          "b"
+        ],
+        "phase": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7
+        ],
+        "foreignPhase": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7
+        ],
+        "noise": [
+          "none",
+          42,
+          43
+        ]
+      },
+      "expected": "10ms foreign prefix starts visual+95ms; source carrier begins+105ms; reject with unchanged original onset"
+    },
+    {
+      "id": "phasejump_literal",
+      "axes": {
+        "source": [
+          "a",
+          "b"
+        ],
+        "phase": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7
+        ],
+        "jump": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7
+        ],
+        "noise": [
+          "none",
+          42,
+          43
+        ]
+      },
+      "expected": "whole-episode inconsistency rejected; no split/refit"
+    },
+    {
+      "id": "nonmarkers_literal",
+      "names": [
+        "silence",
+        "noise_seed42",
+        "noise_seed43",
+        "1000Hz"
+      ],
+      "expected": "no accepted source identity, required fullflash missing or unknown"
+    }
+  ],
+  "literalExecution": "Actual implementation functions required after release, not the design witness as substitute. Run these child-free in a separate qualification group under existing90s per-test/120s invocation caps. Stable IDs expand axes in insertion order; names arrays one assertion per entry. Exact expected conditions declared above; a failed required case is no skip/xfail. Save all failed IDs and named totals; do not print raw PCM. Partition ordered IDs into2048-case invocations, each90s work/120s hard. Group up to4 invocations in the same400s work/420s closure task, no children for literal groups.",
+  "profileBridge": {
+    "profiles": [
+      "480p30",
+      "480p60",
+      "720p30",
+      "720p60",
+      "1080p30",
+      "1080p60"
+    ],
+    "source": [
+      "a",
+      "b"
+    ],
+    "kbps": [
+      160,
+      320
+    ],
+    "path": [
+      "program",
+      "program_twitch"
+    ],
+    "phase": 0,
+    "sourceStereoSeeds": [
+      42,
+      43
+    ],
+    "seconds": 8,
+    "pulseCadenceSeconds": 1,
+    "pulseDurationSeconds": 0.1,
+    "pulseAmplitude": 0.65,
+    "noiseAmplitude": 0.12,
+    "expected": "all complete classified pulses correct; original signed measuredAV<=100ms; actual output profile/format/GOP; all six actual builders including1080p60superfast remain unchanged",
+    "logicalAssertions": 48,
+    "physicalInvocations": 24,
+    "workPerInvocationMs": 90000,
+    "artifactBytesPerInvocation": 33554432,
+    "sourceBaseline": "48k stereo raw waveform with original production42/43 channel noise, no compressed-source generation in this bridge",
+    "profileBitratesKbps": [
+      1000,
+      1500,
+      1800,
+      2500,
+      3000,
+      3500
+    ]
+  },
+  "compressedSourceBridge": {
+    "source": "actual12second1080p60createFixture with approvedfrequencyonlychange, AAC320/48kstereo and original42/43noise",
+    "kbps": [
+      160,
+      320
+    ],
+    "path": [
+      "program",
+      "program_twitch"
+    ],
+    "profile": "480p30",
+    "expected": "source complete PCM/PTS baseline; source-to-program and program-to-Twitch identities preserved; sourceAAC then program thenoptionalTwitch counted explicitly as2/3AACgenerations, additional to raw1/2masspaths",
+    "logicalAssertions": 8,
+    "physicalTasks": 2,
+    "workMs": 360000,
+    "artifactBytesPerTask": 67108864,
+    "sourceFixtureTimeoutMs": 180000,
+    "postFixtureBudgetMs": 180000,
+    "note": "One source fixture and both programbitrate branches per task, all localfiles. No provider/acquisition bypass; this is codec qualification, while actual manager/supervisor behavior remains separate required functional/matrix proof.",
+    "sourceIds": [
+      "a",
+      "b"
+    ]
+  }
+}

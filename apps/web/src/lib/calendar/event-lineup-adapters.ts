@@ -1,3 +1,4 @@
+import type { BroadcastInputRef, BroadcastInputChoice } from "../../../../../convex/_eventBroadcastSources";
 import type { PlaybackStream } from "../../../../../convex/_eventPlayback";
 import { resolveEventLocalTime, type EventIntakePatch, type EventIntakeLocalTime } from "../../../../../packages/api-contracts/src/event-intake";
 import { readIntakeEditorClock } from "./event-editor-time";
@@ -7,6 +8,8 @@ import { formatZonedDateTimeInput } from "./zoned-date-time";
 export type SlotFormRow = {
   position?: number;
   selectedStreamId?: string;
+  broadcastInput?: BroadcastInputRef | null;
+  broadcastInputChoices?: BroadcastInputChoice[];
   streamChoices?: PlaybackStream[];
   id: string;
   offsetMinutes: string;
@@ -19,6 +22,26 @@ export type SlotFormRow = {
   endAtOverride?: number;
   durationMsOverride?: number;
 };
+
+export type UntimedFormRow = {
+  clientKey: string;
+  position: number;
+  performerLabel: string;
+  personSlug: string;
+  roleLabel: string;
+  broadcastInput?: BroadcastInputRef | null;
+  broadcastInputChoices?: BroadcastInputChoice[];
+};
+
+export function timeUntimedLineupRow({ row, offsetMinutes, eventStartAt }: {
+  row: UntimedFormRow; offsetMinutes: string; eventStartAt: number;
+}): SlotFormRow {
+  return { id: row.clientKey, position: row.position, personSlug: row.personSlug,
+    displayLabel: row.performerLabel, roleLabel: row.roleLabel, offsetMinutes,
+    ...(row.broadcastInput === undefined ? {} : { broadcastInput: row.broadcastInput }),
+    broadcastInputChoices: row.broadcastInputChoices,
+    durationMinutes: "", startAtOverride: eventStartAt + Number(offsetMinutes) * 60_000 };
+}
 
 export function readStaffLineupTimings(rows: readonly SlotFormRow[], eventStartAt: number): LineupTimingRow[] {
   return rows.map(row => {

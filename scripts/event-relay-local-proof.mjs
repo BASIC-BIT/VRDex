@@ -4,7 +4,7 @@ import { createSourceRelay } from '../workers/restream/source-relay.mjs';
 import { spawn } from 'node:child_process';
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { createEventWorker } from '../workers/restream/event-worker.mjs';
+import { createProofWorker as createEventWorker, syntheticInputs } from './event-proof-fixtures.mjs';
 import { createProgramRenderer } from '../workers/restream/program-renderer.mjs';
 import { createEventOutputs } from '../workers/restream/output-sender.mjs';
 import { verifyProgramPackets } from './event-proof-metrics.mjs';
@@ -54,7 +54,7 @@ const outputs = createEventOutputs({ configuration,
 });
 let commands = [], sequence = 0, renewals = 0, watchdog;
 const worker = createEventWorker({ identity: { eventId: 'local', sessionId: 'command-proof', workerId: 'command-proof', epoch: 0 }, renderer, outputs,
-  resolveSource: source => relay.resolveSource(source), retainSources: sources => relay.retainSources(sources), checkEnabled: async () => true,
+  inputs: syntheticInputs(undefined, relay), checkEnabled: async () => true,
   control: async (name, args) => {
     if (name === 'acquireSession' || name === 'renewSession') { if (name === 'renewSession') renewals++; return { granted: true, epoch: 1, serverNow: Date.now(), expiresAt: Date.now() + 30000, renewAfterMs: 10000, configuration: structuredClone(configuration) }; }
     if (name === 'refreshConfiguration') return { granted: true, serverNow: Date.now(), configuration: structuredClone(configuration) };

@@ -5,7 +5,7 @@ function wave() {
   for (let i = 0; i < samples; i++) buffer.writeInt16LE(Math.round(Math.sin(i * Math.PI * 880 / 48000) * 1000), 44 + i * 2);
   return buffer;
 }
-test("retains the actual playing media node across route navigation and replaces only on Play @fixture", async ({ page }, testInfo) => {
+test("retains the actual playing media node across route navigation and replaces only on Play @flow @fixture", async ({ page }, testInfo) => {
   await page.route("**/retained-test.wav?*", route => route.fulfill({ contentType: "audio/wav", body: wave() }));
   await page.goto("/playwright/event-playback");
   await page.getByRole("button", { name: "Play Event a", exact: true }).click();
@@ -25,7 +25,7 @@ test("retains the actual playing media node across route navigation and replaces
   await page.getByRole("button", { name: "Close event playback" }).click(); await expect(video).toHaveCount(0);
 });
 
-test("visible Twitch SDK player handles blocked playback, real controls and iframe disposal @fixture", async ({ page }, testInfo) => {
+test("visible Twitch SDK player handles blocked playback, real controls and iframe disposal @flow @fixture", async ({ page }, testInfo) => {
   await page.route("https://player.twitch.tv/js/embed/v1.js", route => route.fulfill({ contentType: "application/javascript", body: `
     window.sdkCalls = []; window.sdkLoads = (window.sdkLoads || 0) + 1;
     class Player {
@@ -60,7 +60,7 @@ test("visible Twitch SDK player handles blocked playback, real controls and ifra
   await page.getByRole("button", { name: "Close event playback" }).click(); await expect(frame).toHaveCount(0);
 });
 
-test("explicit legacy/profile playback hands off both directions while browsing stays passive @fixture", async ({ page }) => {
+test("explicit legacy/profile playback hands off both directions while browsing stays passive @flow @fixture", async ({ page }) => {
   await page.route("**/retained-test.wav?*", route => route.fulfill({ contentType: "audio/wav", body: wave() }));
   await page.route("**/profile.live.ts", () => {});
   await page.route("**/preview.live.ts", () => {});
@@ -91,4 +91,124 @@ test("explicit legacy/profile playback hands off both directions while browsing 
   await page.getByRole("group", { name: "Event a controls" }).getByRole("button", { name: "Play", exact: true }).click();
   await expect(page.locator('video[aria-label="Profile"]')).toHaveCount(0);
   await page.getByRole("button", { name: "Close event playback" }).click();
+});
+
+test('operator preview retains rename ownership, gates replacements until Monitor, and close retains paused program @flow @fixture',async({page},info)=>{
+ await page.route('**/retained-test.wav?*',route=>route.fulfill({contentType:'audio/wav',body:wave()}));
+ await page.route('https://player.twitch.tv/js/embed/v1.js',route=>route.fulfill({contentType:'application/javascript',body:`
+ window.previewCalls=[];
+ class Player {
+  constructor(mount,options){this.handlers={};window.previewMuted=options.muted;window.previewCalls.push('initial:'+options.muted);const frame=document.createElement('iframe');frame.width='400';frame.height='300';frame.srcdoc='<button>Provider control</button>';mount.append(frame);setTimeout(()=>this.emit('ready'),0);}
+  addEventListener(event,callback){this.handlers[event]=callback;}removeEventListener(event){delete this.handlers[event];}emit(event){this.handlers[event]?.();}
+  play(){window.previewCalls.push('play');this.emit('playing');}pause(){window.previewCalls.push('pause');}
+  setMuted(value){window.previewMuted=value;window.previewCalls.push('muted:'+value);if(!value)window.programPausedAtUnmute=document.querySelector('[data-event-playback-mount] video')?.paused;}
+  setVolume(){}
+ }
+ Object.assign(Player,{READY:'ready',PLAYING:'playing',PAUSE:'pause',OFFLINE:'offline',PLAYBACK_BLOCKED:'blocked'});window.Twitch={Player};
+ `}));
+ await page.goto('/playwright/event-playback');
+ await page.getByRole('button',{name:'Play Event a',exact:true}).click();
+ const program=page.locator('[data-event-playback-mount] video');
+ await expect.poll(()=>program.evaluate(node=>(node as HTMLVideoElement).paused)).toBe(false);
+ const original=await program.elementHandle();
+ await page.getByRole('button',{name:'Operator preview',exact:true}).click();
+ const preview=page.getByRole('region',{name:/^Preview (Operator preview|Renamed preview)$/});
+ await preview.scrollIntoViewIfNeeded();
+ const availableWidth=await preview.locator('[aria-label="Local preview player"]').evaluate(node=>node.getBoundingClientRect().width);
+ if(info.project.name==='desktop-chromium')
+  expect(availableWidth, 'Desktop preview must exercise Monitor, focus and replacement assertions').toBeGreaterThanOrEqual(400);
+ if(availableWidth<400){
+  await expect(preview.getByRole('link',{name:'Open',exact:true})).toBeVisible();
+  await expect(preview.locator('iframe')).toHaveCount(0);
+  await expect(preview.getByRole('button',{name:'Monitor',exact:true})).toBeDisabled();
+ } else {
+  await expect(preview.locator('iframe')).toBeVisible();
+  await expect(preview.locator('[aria-label="Local preview player"]')).toHaveAttribute('inert','');
+  await expect(preview.locator('[aria-label="Local preview player"]')).toHaveCSS('pointer-events','none');
+  await expect.poll(()=>program.evaluate(node=>(node as HTMLVideoElement).paused)).toBe(false);
+  expect(await page.evaluate(()=>(window as unknown as {previewCalls:string[]}).previewCalls)).toContain('initial:true');
+  await preview.getByRole('button',{name:'Monitor',exact:true}).focus();await page.keyboard.press('Tab');
+  await expect(preview.getByRole('button',{name:'Close preview',exact:true})).toBeFocused();
+  await page.keyboard.press('Tab');
+  expect(await page.evaluate(()=>document.activeElement?.tagName)).not.toBe('IFRAME');
+  await preview.scrollIntoViewIfNeeded();
+  await expect(preview.locator('iframe')).toBeVisible();
+  await expect(preview.locator('[aria-label="Local preview player"]')).toHaveAttribute('inert','');
+  await expect(preview.locator('[aria-label="Local preview player"]')).toHaveCSS('pointer-events','none');
+  expect(await page.evaluate(()=>(window as unknown as {previewMuted:boolean}).previewMuted)).toBe(true);
+  await expect(preview.getByRole('button',{name:'Monitor',exact:true})).toBeEnabled();
+  await expect.poll(()=>program.evaluate(node=>(node as HTMLVideoElement).paused)).toBe(false);
+  await preview.getByRole('button',{name:'Monitor',exact:true}).click();
+  expect(await page.evaluate(()=>(window as unknown as {programPausedAtUnmute:boolean}).programPausedAtUnmute)).toBe(true);
+  await expect(preview.locator('[aria-label="Local preview player"]')).not.toHaveAttribute('inert','');
+  await page.screenshot({path:info.outputPath('task8-preview-monitor.png')});
+  const monitoredFrame = await preview.locator('iframe').elementHandle();
+  const callsBeforeRename = await page.evaluate(() => (window as unknown as { previewCalls: string[] }).previewCalls);
+  await page.getByRole('button', { name: 'Rename preview', exact: true }).click();
+  await expect(preview.getByRole('heading', { name: 'Renamed preview', exact: true })).toBeVisible();
+  expect(await preview.locator('iframe').evaluate((node, previous) => node === previous, monitoredFrame)).toBe(true);
+  expect(await page.evaluate(() => (window as unknown as { previewCalls: string[] }).previewCalls)).toEqual(callsBeforeRename);
+  await page.getByRole('group', { name: 'Event a controls' }).getByRole('button', { name: 'Play', exact: true }).click();
+  await expect(preview.locator('iframe')).toHaveCount(0);
+  await expect(preview.locator('[aria-label="Local preview player"]')).toHaveAttribute('inert', '');
+  await preview.getByRole('button', { name: 'Monitor', exact: true }).click();
+  await expect(preview.locator('iframe')).toBeVisible();
+  expect(await page.evaluate(() => (window as unknown as { programPausedAtUnmute: boolean }).programPausedAtUnmute)).toBe(true);
+  const callsBeforeReplace = await page.evaluate(() => (window as unknown as { previewCalls: string[] }).previewCalls.filter(call => call === 'muted:false').length);
+  await page.getByRole('button', { name: 'Replace preview', exact: true }).click();
+  await expect(preview.locator('iframe')).toBeVisible();
+  const playerMount = preview.locator('[aria-label="Local preview player"]');
+  await expect(playerMount).toHaveAttribute('inert', '');
+  await expect(playerMount).toHaveCSS('pointer-events', 'none');
+  expect(await page.evaluate(() => (window as unknown as { previewMuted: boolean }).previewMuted)).toBe(true);
+  expect(await page.evaluate(() => (window as unknown as { previewCalls: string[] }).previewCalls.filter(call => call === 'muted:false').length)).toBe(callsBeforeReplace);
+  await preview.getByRole('button', { name: 'Monitor', exact: true }).focus();
+  await page.keyboard.press('Tab');
+  await expect(preview.getByRole('button', { name: 'Close preview', exact: true })).toBeFocused();
+  await page.keyboard.press('Tab');
+  expect(await page.evaluate(() => document.activeElement?.tagName)).not.toBe('IFRAME');
+  await preview.scrollIntoViewIfNeeded();
+  await expect(preview.locator('iframe')).toBeVisible();
+  await expect(playerMount).toHaveAttribute('inert', '');
+  await expect(playerMount).toHaveCSS('pointer-events', 'none');
+  expect(await page.evaluate(() => (window as unknown as { previewMuted: boolean }).previewMuted)).toBe(true);
+  await expect(preview.getByRole('button', { name: 'Monitor', exact: true })).toBeEnabled();
+  await page.getByRole('group', { name: 'Event a controls' }).getByRole('button', { name: 'Play', exact: true }).click();
+  await expect.poll(() => program.evaluate(node => (node as HTMLVideoElement).paused)).toBe(false);
+  await expect(preview.locator('iframe')).toBeVisible();
+  expect(await page.evaluate(() => (window as unknown as { previewMuted: boolean }).previewMuted)).toBe(true);
+  await preview.getByRole('button', { name: 'Monitor', exact: true }).click();
+  expect(await page.evaluate(() => (window as unknown as { programPausedAtUnmute: boolean }).programPausedAtUnmute)).toBe(true);
+  const viewport=page.viewportSize()!;
+  await page.setViewportSize({width:399,height:viewport.height});
+  await expect(preview.locator('iframe')).toHaveCount(0);
+  await expect(preview.getByRole('link',{name:'Open',exact:true})).toBeVisible();
+  await expect.poll(()=>program.evaluate(node=>(node as HTMLVideoElement).paused)).toBe(true);
+  const unmuteCount=await page.evaluate(()=>(window as unknown as {previewCalls:string[]}).previewCalls.filter(call=>call==='muted:false').length);
+  await page.setViewportSize(viewport);await preview.scrollIntoViewIfNeeded();
+  await expect(preview.locator('iframe')).toBeVisible();
+  await expect(preview.locator('[aria-label="Local preview player"]')).toHaveAttribute('inert','');
+  expect(await page.evaluate(()=>(window as unknown as {previewCalls:string[]}).previewCalls.filter(call=>call==='muted:false').length)).toBe(unmuteCount);
+  await page.evaluate(()=>window.scrollTo(0,0));
+  await expect(preview.locator('iframe')).toHaveCount(0);
+  await preview.scrollIntoViewIfNeeded();await expect(preview.locator('iframe')).toBeVisible();
+ }
+ await preview.getByRole('button',{name:'Close preview',exact:true}).click();
+ await expect(preview).toHaveCount(0);
+ expect(await program.evaluate((node,old)=>node===old,original)).toBe(true);
+ if(availableWidth>=400)await expect.poll(()=>program.evaluate(node=>(node as HTMLVideoElement).paused)).toBe(true);
+ await page.getByRole('link',{name:'Other event',exact:true}).click();
+ expect(await program.evaluate((node,old)=>node===old,original)).toBe(true);
+});
+
+for(const width of [399,400])test(`operator Twitch fallback uses real available width at viewport ${width} @flow @fixture`,async({page},info)=>{
+ await page.setViewportSize({width,height:800});
+ let sdkLoads=0;await page.route('https://player.twitch.tv/js/embed/v1.js',route=>{sdkLoads++;return route.abort();});
+ await page.goto('/playwright/event-playback');
+ await page.getByRole('button',{name:'Operator preview',exact:true}).click();
+ const preview=page.getByRole('region',{name:'Preview Operator preview'});await preview.scrollIntoViewIfNeeded();
+ await expect(preview.getByRole('link',{name:'Open',exact:true})).toBeVisible();
+ await expect(preview.locator('iframe')).toHaveCount(0);expect(sdkLoads).toBe(0);
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+ await page.screenshot({path:info.outputPath(`task8-twitch-fallback-${width}.png`)});
 });
