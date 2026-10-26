@@ -10,6 +10,10 @@ bookmarks retain legacy DJ lookup behavior. The whole-home mockups below are
 broader reference for later timeline, discovery and favorites slices, not
 shipped Home behavior.
 
+The [October 26 timeline design draft](2026-10-26-home-timeline-design.md)
+records the later accepted prototype interactions and proposes the next slice.
+It replaces this document's earlier timeline recommendations only on approval.
+
 ## Review brief
 
 Give VRDex a homepage where visitors can find a person or community and see
