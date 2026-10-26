@@ -9,6 +9,20 @@ export const INSTANCE_CLOSE_MISSES = 2;
 export const MAX_INTERPOLATION_GAP_MS = 5 * 60_000;
 export const CURRENT_FRESHNESS_MS = 6 * 60_000;
 
+export const collectionScopeValidator = v.union(
+  v.object({ kind: v.literal("automatic") }),
+  v.object({ kind: v.literal("managed"), communityProfileId: v.id("profiles") }),
+);
+
+export const groupObservationDecisionValidator = v.union(
+  v.object({ kind: v.literal("enabled"), at: v.number() }),
+  v.object({
+    kind: v.literal("stopped"), reason: v.string(),
+    actor: v.union(v.literal("migration"), v.literal("verified_operator"), v.literal("moderation"), v.literal("provider"), v.literal("system")),
+    at: v.number(),
+  }),
+);
+
 export const collectorAccountStateValidator = v.union(
   v.literal("provisioning"),
   v.literal("ready"),

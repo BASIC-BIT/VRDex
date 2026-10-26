@@ -1,3 +1,4 @@
+import { readManagedIntegration } from "./_groupObservationPolicy";
 import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import {
@@ -415,12 +416,7 @@ async function readContext(ctx: QueryCtx, slug: string, individual: boolean) {
     )
   )
     throw new Error("You do not have access to this category.");
-  const integration = await ctx.db
-    .query("communityVrchatIntegrations")
-    .withIndex("by_communityProfileId", (q) =>
-      q.eq("communityProfileId", community._id),
-    )
-    .first();
+  const integration = await readManagedIntegration(ctx.db, community._id);
   if (
     !integration ||
     (actor.kind === "none" &&

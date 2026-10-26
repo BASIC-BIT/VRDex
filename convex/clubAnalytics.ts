@@ -1,3 +1,4 @@
+import { readManagedIntegration } from "./_groupObservationPolicy";
 import { membershipCoverage } from "./_collectionCoverage";
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
@@ -74,12 +75,7 @@ async function context(ctx: QueryCtx | MutationCtx, slug: string) {
   if (actor.kind === "none" || !actor.subject)
     throw new Error("You do not have access to this page.");
   const visibility = await readClubVisibility(ctx.db, community._id);
-  const integration = await ctx.db
-    .query("communityVrchatIntegrations")
-    .withIndex("by_communityProfileId", (q) =>
-      q.eq("communityProfileId", community._id),
-    )
-    .first();
+  const integration = await readManagedIntegration(ctx.db, community._id);
   return {
     community,
     actor,

@@ -14,6 +14,7 @@ const modules = {
   "../../convex/_communityAuthority.ts": () => import("../../convex/_communityAuthority"),
   "../../convex/_communityTelemetry.ts": () => import("../../convex/_communityTelemetry"),
   "../../convex/communityTelemetry.ts": () => import("../../convex/communityTelemetry"),
+  "../../convex/clubConnection.ts": () => import("../../convex/clubConnection"),
   "../../convex/clubAnalytics.ts": () => import("../../convex/clubAnalytics"),
   "../../convex/profiles.ts": () => import("../../convex/profiles"),
 };
@@ -1887,4 +1888,40 @@ describe("one-at-a-time integration claims", () => {
     });
     assert.deepEqual(fourth.assignments.map((assignment) => assignment.integrationId), [secondId]);
   });
+});
+
+it("preserves canonical group identity and history when a disconnected community connects a different group", async () => {
+  const t = convexTest({ schema, modules });
+  const communityProfileId = await seedCommunity(t);
+  const accountId = await registerAccount(t);
+  const oldGroup = "grp_00000000-0000-4000-8000-000000000001";
+  const newGroup = "grp_00000000-0000-4000-8000-000000000002";
+  const connect = (vrchatGroupId: string) => t.withIdentity(identity).mutation(api.communityTelemetry.connectGroup, {
+    communitySlug: "faceless", vrchatGroupId, groupVisibility: "public", joinPolicy: "free",
+  });
+  const oldId = await connect(oldGroup);
+  const history = await t.run(async ctx => {
+    await ctx.db.patch(oldId, { state: "disconnected", assignedCollectorAccountId: undefined });
+    await ctx.db.patch(accountId, { assignedGroupCount: 0 });
+    const policyId = await ctx.db.insert("vrchatGroupObservationPolicies", { vrchatGroupId: oldGroup, integrationId: oldId,
+      decision: { kind: "stopped", reason: "disconnected", actor: "migration", at: NOW }, createdAt: NOW, updatedAt: NOW });
+    const observationId = await ctx.db.insert("communityPopulationObservations", { integrationId: oldId, idempotencyKey: "relink-history", totalPopulation: 7,
+      activeInstanceCount: 1, worldDistribution: [], observedAt: NOW, source: "first_party", collectorVersion: "test", coverageState: "observed", fencingToken: 1 });
+    return { policyId, observationId };
+  });
+  const snapshot = () => t.run(async ctx => ({ integration: await ctx.db.get(oldId), policy: await ctx.db.get(history.policyId), observation: await ctx.db.get(history.observationId) }));
+  const before = await snapshot();
+  const newId = await connect(newGroup);
+  assert.notEqual(newId, oldId);
+  assert.deepEqual(await snapshot(), before);
+  assert.equal((await t.withIdentity(identity).query(api.communityTelemetry.getPrivateDashboard, { communitySlug: "faceless" }))?.integration.vrchatGroupId, newGroup);
+  assert.equal((await t.withIdentity(identity).query(api.clubConnection.get, { communityProfileId }))?.integrationId, newId);
+  assert.equal(await connect(newGroup), newId);
+  await t.run(async ctx => {
+    await ctx.db.patch(newId, { state: "disconnected", assignedCollectorAccountId: undefined });
+    await ctx.db.patch(accountId, { assignedGroupCount: 0 });
+  });
+  assert.equal((await t.withIdentity(identity).query(api.clubConnection.get, { communityProfileId }))?.integrationId, newId);
+  assert.equal(await connect(oldGroup), oldId);
+  assert.equal((await t.withIdentity(identity).query(api.clubConnection.get, { communityProfileId }))?.integrationId, oldId);
 });

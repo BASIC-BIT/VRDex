@@ -1,3 +1,4 @@
+import { readCollectionSubject, readManagedIntegration } from "./_groupObservationPolicy";
 import { v } from "convex/values";
 import {
   query,
@@ -60,12 +61,7 @@ export const get = query({
   ),
   handler: async (ctx, args) => {
     await access(ctx, args.communityProfileId);
-    const integration = await ctx.db
-      .query("communityVrchatIntegrations")
-      .withIndex("by_communityProfileId", (q) =>
-        q.eq("communityProfileId", args.communityProfileId),
-      )
-      .unique();
+    const integration = await readManagedIntegration(ctx.db, args.communityProfileId);
     if (!integration) return null;
     const account = integration.assignedCollectorAccountId
       ? await ctx.db.get(integration.assignedCollectorAccountId)
@@ -125,14 +121,10 @@ export const setFeature = mutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     await access(ctx, args.communityProfileId);
-    const integration = await ctx.db
-      .query("communityVrchatIntegrations")
-      .withIndex("by_communityProfileId", (q) =>
-        q.eq("communityProfileId", args.communityProfileId),
-      )
-      .unique();
+    const integration = await readManagedIntegration(ctx.db, args.communityProfileId);
     if (!integration) throw new Error("Connect a group first.");
     const enabledFeatures = enabledClubFeatures(integration);
+    readCollectionSubject(integration);
     await ctx.db.patch(integration._id, {
       enabledFeatures: FEATURES.filter((feature) =>
         feature === args.feature ? args.enabled : enabledFeatures.includes(feature),
@@ -236,6 +228,7 @@ export const recordAuthority = internalMutation({
     const previous = currentClubAuthority(integration, account, now);
     if (previous && previous.observedAt > args.authority.observedAt)
       return { recorded: false };
+    readCollectionSubject(integration);
     await ctx.db.patch(integration._id, {
       providerAuthority: {
         authority: {

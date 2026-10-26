@@ -1,3 +1,4 @@
+import { readManagedIntegration } from "./_groupObservationPolicy";
 import { readClubVisibility } from "./_clubAccess";
 import type { Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
@@ -25,9 +26,7 @@ export async function getPublicGroupMembership(
       .eq("profileId", communityProfileId).eq("assetType", "vrchat_group").eq("state", "active"))
     .take(100);
   const primaryGroupId = primary.find((link) => link.linkRole === "primary")?.assetExternalId;
-  const integration = await db.query("communityVrchatIntegrations")
-    .withIndex("by_communityProfileId", (q) => q.eq("communityProfileId", communityProfileId))
-    .first();
+  const integration = await readManagedIntegration(db, communityProfileId);
   const fallbackGroupId = !primaryGroupId && integration?.state !== "disconnected" &&
     integration?.state !== "disconnecting" ? integration?.vrchatGroupId : undefined;
   const removedFallback = fallbackGroupId ? (await db.query("profileExternalLinks")
@@ -208,10 +207,7 @@ export async function getPublicCommunityTelemetry(
   communityProfileId: Id<"profiles">,
   now: number,
 ) {
-  const integration = await db
-    .query("communityVrchatIntegrations")
-    .withIndex("by_communityProfileId", (query) => query.eq("communityProfileId", communityProfileId))
-    .first();
+  const integration = await readManagedIntegration(db, communityProfileId);
   if (!integration || (integration.enabledFeatures && !integration.enabledFeatures.includes("analytics"))) return null;
   const visibility = await readClubVisibility(db, communityProfileId);
   const links = await db.query("profileExternalLinks")

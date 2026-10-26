@@ -1,3 +1,4 @@
+import { readManagedIntegration } from "./_groupObservationPolicy";
 import schema from "./schema";
 import { categoryVisibility, clubVisibility, clubSubject } from "./_clubModel";
 import { ConvexError, v, type Infer } from "convex/values";
@@ -313,12 +314,7 @@ export const getWorkspace = query({
           .take(501)
       : [];
 
-    const connection = await ctx.db
-      .query("communityVrchatIntegrations")
-      .withIndex("by_communityProfileId", (q) =>
-        q.eq("communityProfileId", community._id),
-      )
-      .first();
+    const connection = await readManagedIntegration(ctx.db, community._id);
     const collector = connection?.assignedCollectorAccountId
       ? await ctx.db.get(connection.assignedCollectorAccountId)
       : null;

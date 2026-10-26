@@ -1,3 +1,4 @@
+import { collectionScopeValidator, groupObservationDecisionValidator } from "./_communityTelemetry";
 import { twitchSetupValidator, outputHealthValidator } from './_eventOutputSetup';
 import { observedBroadcastStateValidator } from "./_eventMediaControl";
 import { clubPermission, clubVisibility, clubSubject } from "./_clubModel";
@@ -1843,10 +1844,20 @@ export default defineSchema({
     checkpoint: v.optional(v.string()),
     updatedAt: v.number(),
   }).index("by_day", ["integrationId", "epochStartedAt", "day"]),
+  vrchatGroupObservationPolicies: defineTable({
+    vrchatGroupId: v.string(),
+    integrationId: v.optional(v.id("communityVrchatIntegrations")),
+    decision: groupObservationDecisionValidator,
+    queuedAdmission: v.optional(v.object({ queuedAt: v.number(), priority: v.union(v.literal("managed"), v.literal("automatic")) })),
+    publicHistoryStartAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_vrchatGroupId", ["vrchatGroupId"]),
   communityVrchatIntegrations: defineTable({
+    collectionScope: v.optional(collectionScopeValidator),
     enabledFeatures: v.optional(v.array(integrationFeature)),
     providerAuthority: v.optional(storedAuthority),
-    communityProfileId: v.id("profiles"),
+    communityProfileId: v.optional(v.id("profiles")),
     vrchatGroupId: v.string(),
     groupVisibility: vrchatGroupVisibilityValidator,
     joinPolicy: vrchatGroupJoinPolicyValidator,
@@ -1921,7 +1932,7 @@ export default defineSchema({
     .index("by_integrationId_observedAt", ["integrationId", "observedAt"]),
   instanceSessions: defineTable({
     integrationId: v.id("communityVrchatIntegrations"),
-    communityProfileId: v.id("profiles"),
+    communityProfileId: v.optional(v.id("profiles")),
     providerInstanceId: v.string(),
     providerLocation: v.string(),
     vrchatWorldId: v.string(),
@@ -2033,7 +2044,8 @@ export default defineSchema({
     computedAt: v.number(),
   }).index("by_eventId", ["eventId"]),
   communityTelemetryRollups: defineTable({
-    communityProfileId: v.id("profiles"),
+    integrationId: v.optional(v.id("communityVrchatIntegrations")),
+    communityProfileId: v.optional(v.id("profiles")),
     eventId: v.optional(v.id("events")),
     grain: v.union(v.literal("hour"), v.literal("day"), v.literal("event")),
     bucketStartAt: v.number(),
@@ -2049,6 +2061,8 @@ export default defineSchema({
     worldDistribution: v.array(v.object({ vrchatWorldId: v.string(), samples: v.number() })),
     computedAt: v.number(),
   })
+    .index("by_integrationId_grain_bucketStartAt", ["integrationId", "grain", "bucketStartAt"])
+    .index("by_integrationId_eventId_rollupVersion", ["integrationId", "eventId", "rollupVersion"])
     .index("by_communityProfileId_grain_bucketStartAt", ["communityProfileId", "grain", "bucketStartAt"])
     .index("by_eventId_rollupVersion", ["eventId", "rollupVersion"]),
   communityTelemetryAuditEvents: defineTable({

@@ -1,3 +1,5 @@
+import { readCollectionSubject } from "./_groupObservationPolicy";
+import { enabledClubFeatures } from "./_clubConnection";
 import { readClubVisibility } from "./_clubAccess";
 import { queueProfileLinkDestinations } from "./_profileLinkDestinationCache";
 import { Migrations } from "@convex-dev/migrations";
@@ -248,9 +250,65 @@ export const runAll = migrations.runner([
 export const backfillClubDataVisibility = migrations.define({
   table: "communityVrchatIntegrations",
   migrateOne: async (ctx, integration) => {
-    const saved = await ctx.db.query("communityDataVisibility").withIndex("by_communityProfileId", q => q.eq("communityProfileId", integration.communityProfileId)).unique();
+    const subject = readCollectionSubject(integration);
+    if (subject.kind !== "managed") return;
+    const saved = await ctx.db.query("communityDataVisibility").withIndex("by_communityProfileId", q => q.eq("communityProfileId", subject.communityProfileId)).unique();
     if (saved) return;
-    await ctx.db.insert("communityDataVisibility", {communityProfileId:integration.communityProfileId,categories:await readClubVisibility(ctx.db,integration.communityProfileId),updatedAt:Date.now()});
+    await ctx.db.insert("communityDataVisibility", {communityProfileId:subject.communityProfileId,categories:await readClubVisibility(ctx.db,subject.communityProfileId),updatedAt:Date.now()});
   },
 });
 export const runBackfillClubDataVisibility = migrations.runner(internal.migrations.backfillClubDataVisibility);
+
+// Run explicitly after review. Registration never changes membership, visibility or allocation.
+export const backfillGroupObservationPolicies = migrations.define({
+  table: "communityVrchatIntegrations",
+  batchSize: 50,
+  migrateOne: async (ctx, integration) => {
+    const subject = readCollectionSubject(integration);
+    if (subject.kind !== "managed") return;
+    if (!integration.collectionScope) await ctx.db.patch(integration._id, { collectionScope: subject });
+    const existing = await ctx.db.query("vrchatGroupObservationPolicies")
+      .withIndex("by_vrchatGroupId", q => q.eq("vrchatGroupId", integration.vrchatGroupId)).unique();
+    if (existing) return;
+    // shortcut: more than 100 duplicates require reconciliation instead of scanning an unbounded group.
+    const siblings = await ctx.db.query("communityVrchatIntegrations")
+      .withIndex("by_vrchatGroupId", q => q.eq("vrchatGroupId", integration.vrchatGroupId)).take(101);
+    const active = siblings.filter(row => row.state !== "disconnected");
+    const conflict = active.length > 1 || siblings.length > 100;
+    const canonical = conflict ? undefined : active[0] ?? siblings.sort((a, b) =>
+      b.createdAt - a.createdAt || b._id.localeCompare(a._id))[0];
+    const now = Date.now();
+    const reason = conflict ? "managed_conflict" : canonical?.state === "disconnected" || canonical?.state === "disconnecting"
+      ? "disconnected" : canonical?.state === "blocked" ? "blocked" : canonical?.killSwitchEnabled ? "kill_switch"
+      : canonical && !enabledClubFeatures(canonical).includes("analytics") ? "analytics_disabled" : undefined;
+    await ctx.db.insert("vrchatGroupObservationPolicies", {
+      vrchatGroupId: integration.vrchatGroupId,
+      ...(canonical ? { integrationId: canonical._id } : {}),
+      decision: reason ? { kind: "stopped", reason, actor: "migration", at: now } : { kind: "enabled", at: now },
+      createdAt: now, updatedAt: now,
+    });
+    if (conflict) await ctx.db.insert("communityTelemetryAuditEvents", {
+      action: "group_observation.reconciliation_required", result: "managed_conflict",
+      detail: integration.vrchatGroupId, createdAt: now,
+    });
+  },
+});
+
+export const backfillGroupTelemetryRollupIntegrations = migrations.define({
+  table: "communityTelemetryRollups",
+  batchSize: 50,
+  migrateOne: async (ctx, rollup) => {
+    if (rollup.integrationId || !rollup.communityProfileId) return;
+    const candidates = await ctx.db.query("communityVrchatIntegrations")
+      .withIndex("by_communityProfileId", q => q.eq("communityProfileId", rollup.communityProfileId)).take(2);
+    const integration = candidates.length === 1 ? candidates[0] : undefined;
+    if (!integration || readCollectionSubject(integration).kind !== "managed" ||
+        rollup.bucketStartAt < (integration.telemetryEpochStartedAt ?? integration.createdAt)) return;
+    return { integrationId: integration._id };
+  },
+});
+
+export const runBackfillGroupObservationPolicies = migrations.runner([
+  internal.migrations.backfillGroupObservationPolicies,
+  internal.migrations.backfillGroupTelemetryRollupIntegrations,
+]);
