@@ -1,8 +1,9 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { expectHomePage, prepareVisualPage, waitForVisualReady } from "./public-routes";
+import { test, waitForPublicSearchHydration } from "./public-search-fixture";
 
-test("approved wordmark is exact and visible on Home and both search shells @flow", async ({ page, request }) => {
+test("approved wordmark is exact and visible on Home and both search shells @flow @fixture", async ({ page, request }) => {
   const canonical = await readFile("../../docs/brand/wordmark/vrdex-wordmark.svg");
   const asset = await request.get("/brand/vrdex-wordmark.svg");
   await expect(asset).toBeOK();
@@ -32,7 +33,7 @@ test("approved wordmark is exact and visible on Home and both search shells @flo
   await expect(discoveryBrand.locator("img")).toHaveCount(0);
 });
 
-test("new Home submissions and old root bookmarks retain distinct destinations @flow", async ({ page }) => {
+test("new Home submissions and old root bookmarks retain distinct destinations @flow @fixture", async ({ page }) => {
   await page.goto("/");
   await expectHomePage(page);
   const input = page.getByRole("combobox", { name: /Search/i });
@@ -47,7 +48,7 @@ test("new Home submissions and old root bookmarks retain distinct destinations @
   await expect(page.getByRole("link", { name: "Website: basicbit.net", exact: true })).toBeVisible();
 });
 
-test("whitespace root query keeps Home and discovery reachable @flow", async ({ page }) => {
+test("whitespace root query keeps Home and discovery reachable @flow @fixture", async ({ page }) => {
   await page.goto("/?q=%20%20%20");
   await expectHomePage(page);
   await expect(page.getByRole("combobox", { name: /Search/i })).toHaveValue("");
@@ -57,8 +58,9 @@ test("whitespace root query keeps Home and discovery reachable @flow", async ({ 
   await expect(page.getByRole("heading", { name: "Discover VR", exact: true })).toBeVisible();
 });
 
-test("Home search, filters, refresh and history keep URL and results aligned @flow", async ({ page }) => {
+test("Home search, filters, refresh and history keep URL and results aligned @flow @fixture", async ({ page }) => {
   await page.goto("/");
+  await waitForPublicSearchHydration(page);
   const input = page.getByRole("combobox", { name: /Search/i });
   await input.fill("Afterglow");
   await input.press("Enter");
@@ -75,6 +77,7 @@ test("Home search, filters, refresh and history keep URL and results aligned @fl
   };
   await assertCommunityState();
   await page.reload();
+  await waitForPublicSearchHydration(page);
   await assertCommunityState();
   await page.goBack();
   await expect(page).toHaveURL(/\/search\?q=Afterglow$/);
@@ -91,7 +94,7 @@ for (const destination of [
   { query: "Afterglow Harbor Sessions", name: /Afterglow Harbor Sessions/, path: "/playwright-afterglow-social/events/playwright-afterglow-harbor-sessions" },
   { query: "Neon Harbor", name: /Neon Harbor/, path: "/playwright-neon-harbor" },
 ]) {
-  test(`Home preview opens canonical ${destination.path} @flow`, async ({ page, isMobile }) => {
+  test(`Home preview opens canonical ${destination.path} @flow @fixture`, async ({ page, isMobile }) => {
     await page.goto("/");
     await page.getByRole("combobox", { name: /Search/i }).fill(destination.query);
     const option = page.getByRole("option", { name: destination.name }).first();
@@ -103,7 +106,8 @@ for (const destination of [
   });
 }
 
-test("Home rest and five-option preview stay within the viewport @flow", async ({ page }, info) => {
+test("Home rest and five-option preview stay within the viewport @flow @fixture", async ({ page, createSearchProfiles }, info) => {
+  const { query } = await createSearchProfiles(8);
   await prepareVisualPage(page);
   await page.addInitScript(() => localStorage.setItem("vrdex-theme", "dark"));
   await page.goto("/");
@@ -113,7 +117,7 @@ test("Home rest and five-option preview stay within the viewport @flow", async (
   const heading = page.getByRole("heading", { name: "DJs, clubs & events", exact: true });
   const before = await heading.boundingBox();
   const input = page.getByRole("combobox", { name: /Search/i });
-  await input.fill("playwright");
+  await input.fill(query);
   await expect(page.getByRole("option")).toHaveCount(5);
   expect(await heading.boundingBox()).toEqual(before);
   await expect(page.getByRole("link", { name: "View all results", exact: true })).toBeVisible();
@@ -125,7 +129,7 @@ function publicResultRow(page: Page, path: string) {
   return page.getByRole("region", { name: "Search results" }).locator(`a[href="${path}"]`).locator("..");
 }
 
-test("public result genres and Links disclose independently per person @flow", async ({ page }, info) => {
+test("public result genres and Links disclose independently per person @flow @fixture", async ({ page }, info) => {
   await prepareVisualPage(page);
   await page.addInitScript(() => localStorage.setItem("vrdex-theme", "dark"));
   await page.goto("/search?q=VRDJ");
@@ -162,7 +166,7 @@ test("public result genres and Links disclose independently per person @flow", a
   await expect(page).toHaveURL(/\/basicbit$/, { timeout: 15_000 });
 });
 
-test("sparse public results omit empty disclosure controls @flow", async ({ page }, info) => {
+test("sparse public results omit empty disclosure controls @flow @fixture", async ({ page }, info) => {
   await prepareVisualPage(page);
   await page.addInitScript(() => localStorage.setItem("vrdex-theme", "dark"));
   await page.goto("/search?q=Sparse%20Import");
@@ -176,16 +180,18 @@ test("sparse public results omit empty disclosure controls @flow", async ({ page
   await page.screenshot({ path: info.outputPath("public-results-sparse.png"), fullPage: true });
 });
 
-test("long public names and link destinations fit narrow results @flow", async ({ page, isMobile }, info) => {
+test("long public names and link destinations fit narrow results @flow @fixture", async ({ page, isMobile, createSearchProfiles }, info) => {
+  const { query, profiles } = await createSearchProfiles(1);
+  const [profile] = profiles;
   await prepareVisualPage(page);
   await page.addInitScript(() => localStorage.setItem("vrdex-theme", "dark"));
   if (isMobile) await page.setViewportSize({ width: 360, height: 800 });
-  await page.goto("/search?q=Princess%20Starlight");
-  const row = publicResultRow(page, "/playwright-princess-starlight-interstellar-bassline");
+  await page.goto(`/search?q=${query}`);
+  const row = publicResultRow(page, profile.profilePath);
   await expect(row.getByRole("link", { name: /Princess Starlight Interstellar Bassline Orchestra/ })).toBeVisible();
   await row.getByText("Links", { exact: true }).click();
   await expect(row.getByRole("link", { name: "Website: website.example.invalid", exact: true })).toHaveAttribute(
-    "href", "https://website.example.invalid/playwright-princess-starlight-interstellar-bassline",
+    "href", profile.website,
   );
   await waitForVisualReady(page);
   await page.evaluate(() => window.scrollTo(0, 0));
@@ -194,7 +200,7 @@ test("long public names and link destinations fit narrow results @flow", async (
 });
 
 for (const outcome of ["clipboard", "fallback", "failure", "fallback throws"] as const) {
-  test(`public result ${outcome} copy preserves panels, focus and URL @flow`, async ({ page }) => {
+  test(`public result ${outcome} copy preserves panels, focus and URL @flow @fixture`, async ({ page }) => {
     const copied: string[] = [];
     const fallbacks: string[] = [];
     const errors: string[] = [];
@@ -242,7 +248,7 @@ for (const outcome of ["clipboard", "fallback", "failure", "fallback throws"] as
   });
 }
 
-test("overlapping public copies retain one reset timer and cancel it on unmount @flow", async ({ page }) => {
+test("overlapping public copies retain one reset timer and cancel it on unmount @flow @fixture", async ({ page }) => {
   await page.goto("/search?q=VRDJ");
   const row = publicResultRow(page, "/basicbit");
   await row.getByText("Links", { exact: true }).click();
@@ -299,7 +305,7 @@ test("overlapping public copies retain one reset timer and cancel it on unmount 
   expect(await page.evaluate(() => Reflect.get(window, "copyLifecycle").timers())).toEqual({ pending: 0, fired: 0 });
 });
 
-test("expanded public links agree with legacy provider formatting @flow", async ({ page }) => {
+test("expanded public links agree with legacy provider formatting @flow @fixture", async ({ page }) => {
   await page.goto("/search?q=BASICBIT");
   const row = publicResultRow(page, "/basicbit");
   await row.getByText("Links", { exact: true }).click();
@@ -313,7 +319,7 @@ test("expanded public links agree with legacy provider formatting @flow", async 
   await expect(legacy.getByRole("link", { name: "VRCDN preview", exact: true })).toHaveAttribute("href", preview!);
 });
 
-test("non-person public results retain canonical metadata and viewer-local event dates @flow", async ({ browser, baseURL }) => {
+test("non-person public results retain canonical metadata and viewer-local event dates @flow @fixture", async ({ browser, baseURL }) => {
   const context = await browser.newContext({ baseURL, timezoneId: "America/Los_Angeles" });
   const page = await context.newPage();
   await page.goto("/search?q=Afterglow");
@@ -339,15 +345,19 @@ test("non-person public results retain canonical metadata and viewer-local event
   await context.close();
 });
 
-test("public preview caps real eight-result responses without shifting layout @flow", async ({ page }, info) => {
+test("public preview caps real eight-result responses without shifting layout @flow @fixture", async ({ page, createSearchProfiles }, info) => {
+  const { query, profiles } = await createSearchProfiles(8);
   await page.addInitScript(() => localStorage.setItem("vrdex-theme", "dark"));
   await page.goto("/discovery");
   const input = page.getByRole("combobox", { name: /Search/i });
   const heading = page.getByRole("heading", { name: "Discover VR", exact: true });
   const before = await heading.boundingBox();
-  const response = page.waitForResponse((value) => value.url().includes("/search/suggest?q=playwright"));
-  await input.fill("playwright");
-  expect((await (await response).json()).results).toHaveLength(8);
+  const response = page.waitForResponse((value) => new URL(value.url()).pathname === "/search/suggest"
+    && new URL(value.url()).searchParams.get("q") === query);
+  await input.fill(query);
+  const payload = await (await response).json();
+  expect(payload.results).toHaveLength(8);
+  expect(payload.results.map((result: { routePath: string }) => result.routePath).sort()).toEqual(profiles.map((profile) => profile.profilePath).sort());
   await expect(page.getByRole("option")).toHaveCount(5);
   await expect(page.getByRole("listbox").getByRole("link", { name: "View all results" })).toHaveCount(0);
   await expect(page.getByRole("link", { name: "View all results", exact: true })).toBeVisible();
@@ -362,7 +372,7 @@ test("public preview caps real eight-result responses without shifting layout @f
   await page.screenshot({ path: info.outputPath("public-search-preview.png"), fullPage: true });
 });
 
-test("selected Enter opens the canonical public profile @flow", async ({ page }, info) => {
+test("selected Enter opens the canonical public profile @flow @fixture", async ({ page }, info) => {
   await page.addInitScript(() => localStorage.setItem("vrdex-theme", "dark"));
   await page.goto("/discovery");
   const input = page.getByRole("combobox", { name: /Search/i });
@@ -375,7 +385,7 @@ test("selected Enter opens the canonical public profile @flow", async ({ page },
   await expect(page).toHaveURL(/\/basicbit$/, { timeout: 15_000 });
 });
 
-for (const submit of ["Enter", "View all results"]) test(`unselected ${submit} preserves trimmed query and filter @flow`, async ({ page }) => {
+for (const submit of ["Enter", "View all results"]) test(`unselected ${submit} preserves trimmed query and filter @flow @fixture`, async ({ page }) => {
   await page.goto("/search?q=basic&type=person");
   const input = page.getByRole("combobox", { name: /Search/i });
   await input.fill("  Aurora  ");
@@ -390,7 +400,7 @@ for (const submit of ["Enter", "View all results"]) test(`unselected ${submit} p
   await expect(input).toHaveValue("Aurora");
 });
 
-test("clear, dismissal, focus, IME and pointer selection stay usable @flow", async ({ page, isMobile }) => {
+test("clear, dismissal, focus, IME and pointer selection stay usable @flow @fixture", async ({ page, isMobile }) => {
   await page.goto("/discovery");
   const input = page.getByRole("combobox", { name: /Search/i });
   await input.fill("basic");
@@ -427,7 +437,7 @@ test("clear, dismissal, focus, IME and pointer selection stay usable @flow", asy
   await expect(page).toHaveURL(/\/basicbit$/);
 });
 
-test("old query responses and cleared requests cannot restore stale options @flow", async ({ page }) => {
+test("old query responses and cleared requests cannot restore stale options @flow @fixture", async ({ page }) => {
   let releaseOld = () => {};
   const oldGate = new Promise<void>((resolve) => { releaseOld = resolve; });
   let sawOld = () => {};
@@ -456,7 +466,7 @@ test("old query responses and cleared requests cannot restore stale options @flo
   await expect(input).not.toHaveAttribute("aria-activedescendant");
 });
 
-test("changing the entity filter invalidates the same visible query @flow", async ({ page }) => {
+test("changing the entity filter invalidates the same visible query @flow @fixture", async ({ page }) => {
   let releaseFiltered = () => {};
   const filteredGate = new Promise<void>((resolve) => { releaseFiltered = resolve; });
   let sawFiltered = () => {};
@@ -488,7 +498,7 @@ test("changing the entity filter invalidates the same visible query @flow", asyn
   await expect(page).toHaveURL(/\/search\?q=Afterglow&type=person$/);
 });
 
-for (const entry of ["/", "/discovery"]) test(`${entry} empty input and private lookup recents never enumerate public suggestions @flow`, async ({ page }) => {
+for (const entry of ["/", "/discovery"]) test(`${entry} empty input and private lookup recents never enumerate public suggestions @flow @fixture`, async ({ page }) => {
   const requests: string[] = [];
   const reads: string[] = [];
   await page.exposeFunction("recordPrivateRecentRead", (key: string) => reads.push(key));
@@ -525,7 +535,7 @@ for (const entry of ["/", "/discovery"]) test(`${entry} empty input and private 
   expect(reads).toEqual([]);
 });
 
-test("Home and full search exclude private seed terms and nonpublic profile fields @flow", async ({ page, request }, info) => {
+test("Home and full search exclude private seed terms and nonpublic profile fields @flow @fixture", async ({ page, request }, info) => {
   test.skip(Boolean(process.env.PLAYWRIGHT_BASE_URL), "Uses anonymous local Convex fixtures only.");
   const headers = { "x-vrdex-e2e-token": process.env.VRDEX_E2E_BROWSER_TOKEN ?? "local-playwright-token" };
   const runId = `playwright-home-privacy-${info.project.name}-${Date.now()}`;
@@ -543,6 +553,7 @@ test("Home and full search exclude private seed terms and nonpublic profile fiel
     await expect(created).toBeOK();
     const { profilePath } = await created.json();
     await page.goto("/");
+    await waitForPublicSearchHydration(page);
     const input = page.getByRole("combobox", { name: /Search/i });
     const response = page.waitForResponse((value) => new URL(value.url()).pathname === "/search/suggest");
     await input.fill(displayName);
@@ -557,6 +568,7 @@ test("Home and full search exclude private seed terms and nonpublic profile fiel
     await expect(row.getByText("Links", { exact: true })).toHaveCount(0);
     for (const term of [privateTerm, "nwinn"]) {
       await page.goto("/");
+      await waitForPublicSearchHydration(page);
       const suggested = page.waitForResponse((value) => new URL(value.url()).pathname === "/search/suggest");
       await input.fill(term);
       expect((await (await suggested).json()).results).toEqual([]);
@@ -573,7 +585,7 @@ test("Home and full search exclude private seed terms and nonpublic profile fiel
   }
 });
 
-test("suggestion failure still permits explicit search @flow", async ({ page }) => {
+test("suggestion failure still permits explicit search @flow @fixture", async ({ page }) => {
   await page.route("**/search/suggest?**", (route) => route.fulfill({ status: 503, body: "<!doctype html>" }));
   await page.goto("/discovery");
   const input = page.getByRole("combobox", { name: /Search/i });
@@ -585,7 +597,7 @@ test("suggestion failure still permits explicit search @flow", async ({ page }) 
   await expect(page).toHaveURL(/\/search\?q=basic$/);
 });
 
-test("clearing an in-flight request invalidates it before the same query is retyped @flow", async ({ page }) => {
+test("clearing an in-flight request invalidates it before the same query is retyped @flow @fixture", async ({ page }) => {
   let releaseOld = () => {};
   const oldGate = new Promise<void>((resolve) => { releaseOld = resolve; });
   let sawOld = () => {};
@@ -628,7 +640,7 @@ test("clearing an in-flight request invalidates it before the same query is rety
   await expect(input).not.toHaveAttribute("aria-activedescendant");
 });
 
-test("GET search remains usable without JavaScript @flow", async ({ browser, baseURL }) => {
+test("GET search remains usable without JavaScript @flow @fixture", async ({ browser, baseURL }) => {
   const context = await browser.newContext({ baseURL, javaScriptEnabled: false });
   const page = await context.newPage();
   await page.goto("/");
