@@ -155,7 +155,10 @@ async function eligibleReference(db: DatabaseReader, group: string, profileId: I
 export async function hasAutomaticEnrollmentBacklog(db: DatabaseReader, now: number) {
   const fleet = await db.query("collectorFleetSettings").withIndex("by_key", q => q.eq("key", "global")).unique();
   const scope = fleet?.automaticEnrollmentScope;
-  if (!scope || !automaticAdmissionEnabled(fleet, scope.kind === "pilot" ? scope.vrchatGroupId : "")) return false;
+  if (!fleet || !scope || !automaticAdmissionEnabled(fleet, scope.kind === "pilot" ? scope.vrchatGroupId : "")) return false;
+  const limit = fleet.automaticEnrollmentLimit ?? 0;
+  const active = await db.query("communityVrchatIntegrations").withIndex("by_collectionScope_kind_account", q => q.eq("collectionScope.kind", "automatic").gt("assignedCollectorAccountId", undefined)).take(limit);
+  if (active.length >= limit) return false;
   const candidates = scope.kind === "pilot"
     ? [await db.query("vrchatGroupObservationPolicies").withIndex("by_vrchatGroupId", q => q.eq("vrchatGroupId", scope.vrchatGroupId)).unique()]
     // shortcut: inspect the first 50 queue entries per heartbeat; add paged monitoring before expanding beyond this coverage.
@@ -163,7 +166,14 @@ export async function hasAutomaticEnrollmentBacklog(db: DatabaseReader, now: num
   for (const policy of candidates) {
     const queue = policy?.queuedAdmission;
     if (!policy || !queue || queue.priority !== "automatic" || policy.decision.kind !== "enabled" || policy.admissionRequired ||
-      queue.queuedAt > now - 15 * 60_000 || ["contributor_limit", "automatic_limit", "managed_policy"].includes(queue.reason ?? "")) continue;
+      queue.queuedAt > now - 15 * 60_000 || queue.reason === "managed_policy") continue;
+    if (policy.candidateCountedAt === undefined) {
+      const quota = await readCandidateQuota(db, policy.candidateContributorId, now);
+      if (quota.admittedAt.length >= quota.limit) continue;
+      const admissions = quota.row?.admittedAt ?? [];
+      const lastBindingAdmissionAt = admissions[admissions.length - quota.limit];
+      if (lastBindingAdmissionAt !== undefined && lastBindingAdmissionAt + DAY > now - 15 * 60_000) continue;
+    }
     if (await eligibleReference(db, policy.vrchatGroupId, policy.eligibleProfileId)) return true;
   }
   return false;
@@ -184,11 +194,16 @@ async function references(db: DatabaseReader, group: string, hint?: Id<"profiles
   return {kind: "unknown", after: {at: last._creationTime, id: last._id}} as const;
 }
 
-async function candidateQuota(ctx: MutationCtx, contributorId: Id<"users"> | undefined, now: number) {
+async function readCandidateQuota(db: DatabaseReader, contributorId: Id<"users"> | undefined, now: number) {
   const key = contributorId ? `user:${contributorId}` : "system_backfill";
-  const row = await ctx.db.query("groupObservationCandidateLimits").withIndex("by_key", q => q.eq("key", key)).unique();
+  const row = await db.query("groupObservationCandidateLimits").withIndex("by_key", q => q.eq("key", key)).unique();
   const admittedAt = (row?.admittedAt ?? []).filter(at => at > now - DAY);
   const limit = contributorId ? 5 : 50;
+  return { key, row, admittedAt, limit };
+}
+
+async function candidateQuota(ctx: MutationCtx, contributorId: Id<"users"> | undefined, now: number) {
+  const { key, row, admittedAt, limit } = await readCandidateQuota(ctx.db, contributorId, now);
   if (admittedAt.length >= limit) return { allowed: false, dueAt: admittedAt[0]! + DAY };
   admittedAt.push(now);
   if (row) await ctx.db.patch(row._id, { admittedAt });

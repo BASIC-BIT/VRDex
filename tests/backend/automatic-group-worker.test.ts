@@ -49,18 +49,22 @@ it("automatic assignments require request capability and exact fresh worker hear
   assert.equal(result.enabledFeatures, undefined);
   assert.equal(result.communityProfileId, undefined);
 });
-it("heartbeat reports only sustained actionable automatic backlog in the authorized scope", async () => {
+async function backlogFixture() {
   const h = await setup();
   const ids = await h.t.run(async ctx => {
-    const fleetId = await ctx.db.insert("collectorFleetSettings", { key: "global", killSwitchEnabled: false, globalRequestsPerMinute: 30, automaticEnrollmentEnabled: true, automaticEnrollmentLimit: 1, automaticEnrollmentScope: { kind: "pilot", vrchatGroupId: "grp_pending" }, updatedAt: h.now });
+    const fleetId = await ctx.db.insert("collectorFleetSettings", { key: "global", killSwitchEnabled: false, globalRequestsPerMinute: 30, automaticEnrollmentEnabled: true, automaticEnrollmentLimit: 2, automaticEnrollmentScope: { kind: "pilot", vrchatGroupId: "grp_pending" }, updatedAt: h.now });
     const profileId = await ctx.db.insert("profiles", { slug: "pending", displayName: "Pending", sortName: "pending", aliases: [], tags: [], claimState: "unclaimed", publicationState: "published", publicSurfacingState: "public", creationSource: "community", updatedAt: h.now, profileType: "community", community: { categoryTags: [] } });
     await ctx.db.insert("profileExternalLinks", { profileId, assetType: "vrchat_group", assetExternalId: "grp_pending", linkRole: "primary", state: "active", createdAt: h.now, updatedAt: h.now });
     for (let i = 0; i < 51; i++) await ctx.db.insert("vrchatGroupObservationPolicies", { vrchatGroupId: `outside-${i}`, decision: { kind: "enabled", at: h.now }, queuedAdmission: { priority: "automatic", queuedAt: 0, dueAt: 0 }, createdAt: 0, updatedAt: 0 });
     const policyId = await ctx.db.insert("vrchatGroupObservationPolicies", { vrchatGroupId: "grp_pending", eligibleProfileId: profileId, decision: { kind: "enabled", at: h.now }, queuedAdmission: { priority: "automatic", queuedAt: h.now - 900001, dueAt: h.now + 60000, reason: "capacity" }, createdAt: h.now, updatedAt: h.now });
     return { fleetId, policyId, profileId };
   });
+  return { h, ids };
+}
+it("heartbeat reports only sustained actionable automatic backlog in the authorized scope", async () => {
+  const { h, ids } = await backlogFixture();
   assert.equal((await h.heartbeat()).automaticEnrollmentBacklog, true);
-  for (const patch of [{ automaticEnrollmentEnabled: false }, { automaticEnrollmentEnabled: true, automaticEnrollmentLimit: 0 }, { automaticEnrollmentLimit: 1, automaticEnrollmentScope: undefined }]) {
+  for (const patch of [{ automaticEnrollmentEnabled: false }, { automaticEnrollmentEnabled: true, automaticEnrollmentLimit: 0 }, { automaticEnrollmentLimit: 2, automaticEnrollmentScope: undefined }]) {
     await h.t.run(ctx => ctx.db.patch(ids.fleetId, patch));
     assert.equal((await h.heartbeat()).automaticEnrollmentBacklog, false);
   }
@@ -71,12 +75,40 @@ it("heartbeat reports only sustained actionable automatic backlog in the authori
     { admissionRequired: true },
     { eligibleProfileId: undefined },
     { queuedAdmission: { priority: "automatic" as const, queuedAt: h.now, dueAt: h.now } },
-    { queuedAdmission: { priority: "automatic" as const, queuedAt: 0, dueAt: h.now, reason: "contributor_limit" } },
-    { queuedAdmission: { priority: "automatic" as const, queuedAt: 0, dueAt: h.now, reason: "automatic_limit" } },
   ]) {
     await h.t.run(ctx => ctx.db.patch(ids.policyId, { decision: original.decision, admissionRequired: undefined, eligibleProfileId: original.eligibleProfileId, queuedAdmission: original.queuedAdmission, ...patch }));
     assert.equal((await h.heartbeat()).automaticEnrollmentBacklog, false);
   }
+});
+it("heartbeat observes expired contributor quota after grace without consuming quota or advancing admission", async () => {
+  const { h, ids } = await backlogFixture();
+  const quotaId = await h.t.run(async ctx => {
+    const contributorId = await ctx.db.insert("users", { clerkUserId: "quota-contributor" });
+    await ctx.db.patch(ids.policyId, { candidateContributorId: contributorId, queuedAdmission: { priority: "automatic", queuedAt: h.now - 900001, dueAt: h.now + 60000, reason: "contributor_limit" } });
+    return ctx.db.insert("groupObservationCandidateLimits", { key: `user:${contributorId}`, admittedAt: Array.from({ length: 5 }, () => h.now - 86400000 + 60000) });
+  });
+  const before = await h.t.run(async ctx => [await ctx.db.get(quotaId), await ctx.db.get(ids.policyId)]);
+  assert.equal((await h.heartbeat()).automaticEnrollmentBacklog, false);
+  assert.equal((await h.heartbeat("worker", h.now + 60001)).automaticEnrollmentBacklog, false);
+  assert.equal((await h.heartbeat("worker", h.now + 60000 + 900001)).automaticEnrollmentBacklog, true);
+  assert.equal((await h.heartbeat("worker", h.now + 60000 + 960001)).automaticEnrollmentBacklog, true);
+  assert.deepEqual(await h.t.run(async ctx => [await ctx.db.get(quotaId), await ctx.db.get(ids.policyId)]), before);
+});
+for (const release of ["occupancy", "authorized limit"] as const) it(`heartbeat observes a cleared automatic limit after ${release} changes without advancing admission`, async () => {
+  const { h, ids } = await backlogFixture();
+  await h.t.run(async ctx => {
+    await ctx.db.patch(ids.fleetId, { automaticEnrollmentLimit: 1 });
+    await ctx.db.patch(ids.policyId, { queuedAdmission: { priority: "automatic", queuedAt: h.now - 900001, dueAt: h.now + 60000, reason: "automatic_limit" } });
+  });
+  const policy = await h.t.run(ctx => ctx.db.get(ids.policyId));
+  assert.equal((await h.heartbeat()).automaticEnrollmentBacklog, false);
+  await h.t.run(async ctx => {
+    if (release === "occupancy") await ctx.db.patch(h.integrationId, { assignedCollectorAccountId: undefined });
+    else await ctx.db.patch(ids.fleetId, { automaticEnrollmentLimit: 2 });
+  });
+  assert.equal((await h.heartbeat()).automaticEnrollmentBacklog, true);
+  assert.deepEqual(await h.t.run(ctx => ctx.db.get(ids.policyId)), policy);
+  assert.equal(await h.t.run(ctx => ctx.db.query("groupObservationCandidateLimits").first()), null);
 });
 it("automatic named scans and management mutations deny valid worker leases", async () => {
   const h = await setup();
