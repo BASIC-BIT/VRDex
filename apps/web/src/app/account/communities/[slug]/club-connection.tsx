@@ -274,6 +274,7 @@ export function ClubConnection() {
     60_000,
   );
   const setFeature = useMutation(api.clubConnection.setFeature);
+  const setNamedMembership = useMutation(api.clubConnection.setNamedMembershipCollectionEnabled);
   const setRoles = useMutation(api.clubConnection.setProviderRoleAllowlist);
   return (
     <div className="grid gap-6">
@@ -288,7 +289,7 @@ export function ClubConnection() {
           data={data}
           connection={connection}
           authorityFresh={authorityFresh}
-          actions={{ setFeature, setRoles }}
+          actions={{ setFeature, setNamedMembership, setRoles }}
         />
       ) : null}
     </div>

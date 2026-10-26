@@ -15,14 +15,14 @@ test("slow collection claims the next integration with a fresh lease", async () 
   const claims = [];
   const phases = [];
   const sandbox = {
-    runtimeMetadata: { capabilities: ["automatic_group_aggregates_v1"] },
+    runtimeMetadata: { capabilities: ["automatic_group_aggregates_v2"] },
     Date: { now: () => now },
     stopping: false,
     control: {
       send: async (operation, args) => {
         assert.equal(operation, "claim");
         assert.equal(args.limit, 1);
-        assert.deepEqual(args.capabilities, ["automatic_group_aggregates_v1"]);
+        assert.deepEqual(args.capabilities, ["automatic_group_aggregates_v2"]);
         assert.equal(args.now, now);
         const assignment = {
           integrationId: `group-${++sequence}`,
@@ -58,7 +58,7 @@ for (const interruption of ["shutdown", "heartbeat failure"]) {
     const calls = [];
     const assignment = { integrationId: "group-a", fencingToken: 7 };
     const sandbox = {
-      runtimeMetadata: { capabilities: ["automatic_group_aggregates_v1"] },
+      runtimeMetadata: { capabilities: ["automatic_group_aggregates_v2"] },
       Date: { now: () => 1_000_000 },
       stopping: false,
       control: {

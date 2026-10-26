@@ -1868,6 +1868,8 @@ export default defineSchema({
     .index("by_queue_priority_dueAt", ["queuedAdmission.priority", "queuedAdmission.dueAt"]),
   communityVrchatIntegrations: defineTable({
     collectionScope: v.optional(collectionScopeValidator),
+    automaticAdmissionAttempt: v.optional(v.object({ collectorAccountId: v.id("collectorAccounts"), attemptedAt: v.number() })),
+    namedMembershipCollectionEnabled: v.optional(v.boolean()),
     publicationPolicy: v.optional(v.union(v.literal("automatic_aggregate"), v.literal("managed_categories"))),
     enabledFeatures: v.optional(v.array(integrationFeature)),
     providerAuthority: v.optional(storedAuthority),

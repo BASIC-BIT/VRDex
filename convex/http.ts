@@ -299,6 +299,7 @@ const telemetryWorker = httpAction(async (ctx, request) => {
       const result = await ctx.runMutation(functions.reserveRequestBudget, {
         ...common,
         requestCount: body.requestCount,
+        automaticRequest: body.automaticRequest,
         now,
       } as never);
       return json(result);

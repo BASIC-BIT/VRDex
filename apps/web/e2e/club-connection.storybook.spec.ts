@@ -1,5 +1,18 @@
 import { expect, test } from "@playwright/test";
 
+test("named membership history requires its own explicit toggle @storybook-visual", async ({ page }) => {
+  await page.goto("/iframe.html?id=clubs-workspace--connection-features-owner&viewMode=story");
+  const named = page.getByRole("checkbox", { name: "Named membership history", exact: true });
+  const analytics = page.getByRole("checkbox", { name: "Analytics", exact: true });
+  await expect(named).not.toBeChecked();
+  await analytics.uncheck(); await analytics.check();
+  await expect(named).not.toBeChecked();
+  await named.check(); await expect(named).toBeChecked();
+  await named.uncheck(); await expect(analytics).toBeChecked();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") await page.screenshot({ path: `../../.cache/artifacts/named-membership-history-${test.info().project.name}.png`, fullPage: true });
+});
+
 test("verified observation stop and resume default to new history @storybook-visual", async ({ page }) => {
   await page.goto("/iframe.html?id=clubs-workspace--observation-controls&viewMode=story");
   await page.getByRole("button", { name: "Stop", exact: true }).click();

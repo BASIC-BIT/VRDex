@@ -5,6 +5,7 @@ import { makeFunctionReference } from "convex/server";
 import schemaModule from "../../convex/schema";
 import { getPublicCommunityTelemetry, getPublicGroupMembership } from "../../convex/_communityTelemetryPublic";
 import { defaultClubVisibility } from "../../convex/_clubModel";
+import { VrchatClient } from "../../workers/group-telemetry/vrchat-client.mjs";
 const schema = (schemaModule as unknown as { default?: typeof schemaModule }).default ?? schemaModule;
 const modules = {
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
@@ -13,6 +14,7 @@ const modules = {
   "../../convex/groupMemberSnapshots.ts": () => import("../../convex/groupMemberSnapshots"),
   "../../convex/clubConnection.ts": () => import("../../convex/clubConnection"),
   "../../convex/clubStaff.ts": () => import("../../convex/clubStaff"),
+  "../../convex/clubMembership.ts": () => import("../../convex/clubMembership"),
 };
 const ref = (name: string) => makeFunctionReference<"mutation">(name);
 const GROUP = "grp_00000000-0000-4000-8000-000000000005";
@@ -64,6 +66,145 @@ it("adoption preserves identity, allocation, epoch, history and only enables ana
   assert.equal((await h.t.run(ctx => ctx.db.get(h.accountId)))?.assignedGroupCount, 1);
   assert.equal((await h.t.run(ctx => getPublicGroupMembership(ctx.db, h.duplicateId)))?.latest.value, 42);
   assert.equal((await h.t.run(ctx => ctx.db.query("communityAuthorities").collect())).length, 0);
+});
+
+it("adopted named history requires a separate exact-group opt-in independent of publication", async () => {
+  const h = await setup(); await h.adopt();
+  const scan = () => h.t.mutation(ref("clubMembership:beginScan"), { ...h.worker, integrationId: h.integrationId, fencingToken: 1, epochStartedAt: h.now - 86400000, groupId: GROUP, startAt: h.now - 1000, endAt: h.now - 100 });
+  await assert.rejects(scan(), /disabled/);
+  await h.owner.mutation(ref("communityTelemetry:setPublicMetric"), { communitySlug: "controls", metric: "groupMemberCount", enabled: true });
+  await assert.rejects(scan(), /disabled/);
+  const setNamed = (enabled: boolean) => h.owner.mutation(ref("clubConnection:setNamedMembershipCollectionEnabled"), { communityProfileId: h.profileId, enabled });
+  await h.t.run(ctx => ctx.db.patch(h.proofId, { state: "revoked" }));
+  await assert.rejects(setNamed(true), /CONTROL_NOT_VERIFIED/);
+  await setNamed(false);
+  await h.t.run(ctx => ctx.db.patch(h.proofId, { state: "active" }));
+  await setNamed(true);
+  assert.ok(await scan());
+});
+it("adopted aggregate analytics cannot be claimed by a v1 worker", async () => {
+  const h = await setup(); await h.adopt();
+  await h.t.mutation(ref("communityTelemetry:recordCollectorHeartbeat"), { ...h.worker, releaseSha: "a".repeat(40), collectorVersion: "old", capabilities: ["automatic_group_aggregates_v1"], consecutiveControlFailures: 0, now: h.now });
+  const claimed = await h.t.mutation(ref("communityTelemetry:claimDueAssignments"), { collectorAccountId: h.accountId, workerId: "worker", capabilities: ["automatic_group_aggregates_v1"] });
+  assert.equal(claimed.assignments.length, 0);
+});
+
+for (const reason of ["request", "invite", "private"]) it(`verified operator can onboard an admission-required ${reason} candidate`, async () => {
+  const h = await setup(); const epoch = h.now - 86400000;
+  await h.t.run(ctx => ctx.db.patch(h.integrationId, { state: "connecting" }));
+  await h.t.mutation(ref("communityTelemetry:recordAutomaticAdmissionRequired"), { ...h.worker, integrationId: h.integrationId, fencingToken: 1, epochStartedAt: epoch, reason });
+  await h.t.run(ctx => ctx.db.patch(h.proofId, { state: "revoked" }));
+  await assert.rejects(h.adopt(), /CONTROL_NOT_VERIFIED/);
+  await h.t.run(ctx => ctx.db.patch(h.proofId, { state: "active" }));
+  assert.equal(await h.owner.mutation(ref("communityTelemetry:connectGroup"), { communitySlug: "controls", vrchatGroupId: GROUP, groupVisibility: reason === "private" ? "private" : "public", joinPolicy: reason === "invite" ? "invite" : "request" }), h.integrationId);
+  const row = (await h.t.run(ctx => ctx.db.get(h.integrationId)))!;
+  assert.equal(row.state, reason === "invite" ? "awaiting_invite" : "connecting");
+  assert.equal(row.collectionScope?.kind, "managed");
+  assert.equal(row.telemetryEpochStartedAt, epoch);
+  assert.equal(row.namedMembershipCollectionEnabled, false);
+  assert.equal(row.publicationPolicy, "managed_categories");
+  assert.equal((await h.t.run(ctx => getPublicCommunityTelemetry(ctx.db, h.profileId, Date.now())))?.currentPopulation, undefined);
+  assert.equal(row.assignedCollectorAccountId, h.accountId);
+  assert.equal((await h.t.run(ctx => ctx.db.get(h.policyId)))?.admissionRequired, undefined);
+  await h.t.mutation(ref("communityTelemetry:recordCollectorHeartbeat"), { ...h.worker, releaseSha: "a".repeat(40), collectorVersion: "test", capabilities: ["automatic_group_aggregates_v2"], consecutiveControlFailures: 0 });
+  const assignment = (await h.t.mutation(ref("communityTelemetry:claimDueAssignments"), { collectorAccountId: h.accountId, workerId: "worker", capabilities: ["automatic_group_aggregates_v2"] })).assignments[0];
+  const lease = { integrationId: h.integrationId, collectorAccountId: h.accountId, workerId: "worker", fencingToken: assignment.fencingToken };
+  await h.t.mutation(ref("communityTelemetry:recordMembershipResult"), { ...lease, state: "active", groupVisibility: row.groupVisibility, joinPolicy: row.joinPolicy });
+  const provider = new VrchatClient({ authCookie: "test-cookie", userAgent: "test/1" });
+  const sent: string[] = [];
+  const metadata = { membershipStatus: "member", groupVisibility: row.groupVisibility, joinPolicy: row.joinPolicy, memberCount: 42 };
+  provider.getGroup = async () => { sent.push("metadata"); return metadata; };
+  provider.request = async () => { sent.push("instances"); return []; };
+  const read = () => provider.readAggregateSnapshot(GROUP, { authorizeRequest: async (automaticRequest: string) => (await h.t.mutation(ref("communityTelemetry:reserveRequestBudget"), { ...lease, automaticRequest, requestCount: 1 })).granted });
+  const snapshot = await read();
+  assert.ok(snapshot, "private managed collection does not depend on public audience or automatic admission eligibility");
+  assert.deepEqual(sent, ["metadata", "instances"]);
+  await h.t.mutation(ref("communityTelemetry:ingestAggregatePoll"), { ...lease, pollId: `managed-${reason}`, observedAt: snapshot.observedAt, collectorVersion: "test", source: "first_party", groupMemberCount: snapshot.group.memberCount, instances: snapshot.instances, nextPollAt: Date.now() + 60000 });
+  assert.equal((await h.t.run(ctx => getPublicCommunityTelemetry(ctx.db, h.profileId, Date.now())))?.currentPopulation, undefined);
+  assert.equal((await h.t.run(ctx => ctx.db.get(h.integrationId)))?.lastSuccessfulObservationAt, snapshot.observedAt);
+  provider.getGroup = async () => { sent.push("metadata"); await h.owner.mutation(ref("clubConnection:setFeature"), { communityProfileId: h.profileId, feature: "analytics", enabled: false }); return metadata; };
+  assert.equal(await read(), null, "analytics disable prevents the next unsent aggregate request");
+  assert.deepEqual(sent, ["metadata", "instances", "metadata"]);
+});
+
+it("anonymous movement honors stop, resume floor and adoption while private workspace retains access", async () => {
+  const h = await setup();
+  const startAt = h.now - 10000, endAt = h.now - 1000;
+  await h.t.run(async ctx => {
+    const visibility = (await ctx.db.query("communityDataVisibility").withIndex("by_communityProfileId", q => q.eq("communityProfileId", h.profileId)).unique())!;
+    await ctx.db.patch(visibility._id, { categories: { ...visibility.categories, membership_movement: { audience: "public", staffRoleIds: null } } });
+    for (let day = Math.floor(startAt / 86400000) * 86400000; day < endAt; day += 86400000) await ctx.db.insert("communityMembershipCoverage", { integrationId: h.integrationId, epochStartedAt: h.now - 86400000, day, intervals: [{ startAt, endAt }], updatedAt: h.now });
+    await ctx.db.insert("communityMembershipEvents", { integrationId: h.integrationId, epochStartedAt: h.now - 86400000, groupId: GROUP, auditId: "retained", eventType: "group.member.join", occurredAt: startAt + 1, receivedAt: h.now, verified: true });
+  });
+  await h.adopt();
+  const query = makeFunctionReference<"query">("clubMembership:getMovementBucket");
+  const args = { communitySlug: "controls", startAt, endAt };
+  const hidden = { joins: null, departures: null, complete: false };
+  assert.deepEqual(await h.t.query(query, args), hidden, "adoption is aggregate-only even with a preexisting public category");
+  await h.owner.mutation(ref("communityTelemetry:setPublicMetric"), { communitySlug: "controls", metric: "groupMemberGrowth", enabled: true });
+  assert.equal((await h.t.query(query, args)).joins, 1);
+  await h.owner.mutation(ref("clubConnection:setFeature"), { communityProfileId: h.profileId, feature: "posts", enabled: true });
+  await h.decision("stop");
+  assert.equal((await h.t.run(ctx => ctx.db.get(h.integrationId)))?.state, "active");
+  assert.deepEqual(await h.t.query(query, args), hidden);
+  assert.equal((await h.owner.query(query, args)).joins, 1);
+  await h.decision("resume");
+  assert.deepEqual(await h.t.query(query, args), hidden);
+  assert.deepEqual(await h.t.query(query, { ...args, endAt: Date.now() + 1 }), hidden, "coverage crossing the public floor does not republish retained counts");
+  assert.equal((await h.owner.query(query, args)).joins, 1);
+});
+
+it("adopted aggregate-only snapshot stops between metadata and instances while posts remain enabled", async () => {
+  const h = await setup(); await h.adopt();
+  await h.owner.mutation(ref("clubConnection:setFeature"), { communityProfileId: h.profileId, feature: "posts", enabled: true });
+  const provider = new VrchatClient({ authCookie: "test-cookie", userAgent: "test/1" });
+  const sent: string[] = [];
+  provider.getGroup = async () => {
+    sent.push("metadata"); await h.decision("stop");
+    return { membershipStatus: "member", joinPolicy: "free", groupVisibility: "public", memberCount: 42 };
+  };
+  provider.request = async () => { sent.push("instances"); return []; };
+  const read = () => provider.readAggregateSnapshot(GROUP, { authorizeRequest: async (automaticRequest: string) => (await h.t.mutation(ref("communityTelemetry:reserveRequestBudget"), { integrationId: h.integrationId, collectorAccountId: h.accountId, workerId: "worker", fencingToken: 1, automaticRequest, requestCount: 1 })).granted });
+  await assert.rejects(read(), /stale|unavailable/);
+  assert.deepEqual(sent, ["metadata"]);
+  assert.equal((await h.t.run(ctx => ctx.db.get(h.integrationId)))?.state, "active");
+  await h.t.mutation(ref("communityTelemetry:recordCollectorHeartbeat"), { ...h.worker, releaseSha: "a".repeat(40), collectorVersion: "test", capabilities: ["automatic_group_aggregates_v2"], consecutiveControlFailures: 0 });
+  const assignment = (await h.t.mutation(ref("communityTelemetry:claimDueAssignments"), { collectorAccountId: h.accountId, workerId: "worker", capabilities: ["automatic_group_aggregates_v2"] })).assignments[0];
+  assert.deepEqual(assignment?.enabledFeatures, ["posts"]);
+  const lease = { integrationId: h.integrationId, collectorAccountId: h.accountId, workerId: "worker", fencingToken: assignment.fencingToken, requestCount: 1 };
+  assert.equal((await h.t.mutation(ref("communityTelemetry:reserveRequestBudget"), { ...lease, automaticRequest: "instances" })).granted, false);
+  assert.equal((await h.t.mutation(ref("communityTelemetry:reserveRequestBudget"), lease)).granted, true);
+});
+
+it("automatic ingest produces scheduled canonical hour and day history across adoption", async () => {
+  const h = await setup();
+  const hourEnd = Math.floor(h.now / 3600000) * 3600000;
+  const firstAt = hourEnd - 120000;
+  for (const [index, population] of [10, 20].entries()) await h.t.mutation(ref("communityTelemetry:ingestAggregatePoll"), {
+    integrationId: h.integrationId, collectorAccountId: h.accountId, workerId: "worker", fencingToken: 1,
+    pollId: `rollup-${index}`, observedAt: firstAt + index * 60000, now: firstAt + index * 60000,
+    collectorVersion: "test", source: "first_party", groupMemberCount: 42 + index, nextPollAt: h.now,
+    instances: [{ providerInstanceId: "instance", providerLocation: "wrld_private:instance", vrchatWorldId: "wrld_private", population }],
+  });
+  assert.equal((await h.t.mutation(ref("communityTelemetry:scheduleTelemetryRollups"), { now: h.now })).scheduled, 2);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  await h.t.finishInProgressScheduledFunctions();
+  const rows = await h.t.run(ctx => ctx.db.query("communityTelemetryRollups").collect());
+  assert.deepEqual(rows.map(row => row.grain).sort(), ["day", "hour"]);
+  assert.ok(rows.every(row => row.integrationId === h.integrationId && row.communityProfileId === undefined));
+  const before = await h.t.run(ctx => getPublicCommunityTelemetry(ctx.db, h.profileId, h.now));
+  assert.equal(before?.populationHistory?.[0]?.peakConcurrency, 20);
+  assert.ok(!JSON.stringify(before).includes("wrld_private"));
+  assert.ok(!JSON.stringify(before).includes("instanceId"));
+  assert.equal(await h.t.run(ctx => ctx.db.query("eventInstanceAssociations").first()), null);
+  await assert.rejects(h.t.mutation(ref("communityTelemetry:recomputeRollup"), { integrationId: h.integrationId, grain: "event", bucketStartAt: firstAt, bucketEndAt: hourEnd }), /managed|Event/);
+  await h.adopt();
+  assert.deepEqual((await h.t.run(ctx => getPublicCommunityTelemetry(ctx.db, h.profileId, h.now)))?.populationHistory, before?.populationHistory);
+  await h.t.mutation(ref("communityTelemetry:scheduleTelemetryRollups"), { now: h.now });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  await h.t.finishInProgressScheduledFunctions();
+  assert.equal((await h.t.run(ctx => ctx.db.query("communityTelemetryRollups").collect())).length, 2);
+  assert.equal((await h.t.run(ctx => getPublicCommunityTelemetry(ctx.db, h.profileId, h.now)))?.populationHistory?.[0]?.peakConcurrency, 20);
 });
 for (const writer of ["legacy", "category"] as const) it(`adoption then ${writer} private save hides owner and duplicate membership`, async () => {
   const h = await setup(); await h.adopt();
@@ -131,18 +272,22 @@ it("stop survives duplicate reconciliation and revoked proofs cannot resume", as
   await assert.rejects(h.decision("resume", true), /CONTROL_NOT_VERIFIED/);
   assert.equal((await h.t.run(ctx => ctx.db.get(h.policyId)))?.decision.kind, "stopped");
 });
-it("resume after membership cleanup preserves the retained epoch on admission", async () => {
-  const h = await setup(); await h.adopt(); const before = await h.t.run(ctx => ctx.db.get(h.integrationId));
+for (const mode of ["automatic", "managed"]) for (const operatorStopped of [false, true]) it(`real cleanup and resume preserves epoch and independent kill switch (${mode}, kill=${operatorStopped})`, async () => {
+  const h = await setup(); if (mode === "managed") await h.adopt(); const before = await h.t.run(ctx => ctx.db.get(h.integrationId));
+  if (mode === "automatic") await h.t.mutation(ref("groupObservations:reconcileProfile"), { profileId: h.profileId, affectedGroupIds: [GROUP] });
+  await h.t.run(ctx => ctx.db.insert("collectorFleetSettings", { key: "global", killSwitchEnabled: false, globalRequestsPerMinute: 30, automaticEnrollmentEnabled: true, automaticEnrollmentLimit: 1, automaticEnrollmentScope: { kind: "pilot", vrchatGroupId: GROUP }, updatedAt: h.now }));
+  await h.t.mutation(ref("communityTelemetry:recordCollectorHeartbeat"), { ...h.worker, releaseSha: "a".repeat(40), collectorVersion: "test", capabilities: ["automatic_group_aggregates_v2"], consecutiveControlFailures: 0, now: h.now });
+  const claim = () => h.t.mutation(ref("communityTelemetry:claimDueAssignments"), { collectorAccountId: h.accountId, workerId: "worker", capabilities: ["automatic_group_aggregates_v2"] });
   await h.decision("stop");
-  await h.t.run(async ctx => {
-    await ctx.db.patch(h.integrationId, { state: "disconnected", assignedCollectorAccountId: undefined });
-    await ctx.db.patch(h.accountId, { assignedGroupCount: 0 });
-  });
+  const cleanup = (await claim()).assignments[0]; assert.equal(cleanup?.state, "disconnecting");
+  await h.t.mutation(ref("communityTelemetry:recordMembershipResult"), { integrationId: h.integrationId, collectorAccountId: h.accountId, workerId: "worker", fencingToken: cleanup.fencingToken, state: "disconnected", groupVisibility: "public", joinPolicy: "free" });
+  if (operatorStopped) await h.t.mutation(ref("communityTelemetry:setIntegrationKillSwitch"), { integrationId: h.integrationId, enabled: true, reason: "operator hold" });
   await h.decision("resume", true);
   await h.t.mutation(ref("groupObservations:admitQueued"), {});
   const after = await h.t.run(ctx => ctx.db.get(h.integrationId));
   assert.equal(after?.telemetryEpochStartedAt, before?.telemetryEpochStartedAt);
-  assert.equal(after?.assignedCollectorAccountId, h.accountId);
+  assert.equal((await claim()).assignments.length, operatorStopped ? 0 : 1);
+  assert.equal(after?.killSwitchEnabled, operatorStopped);
 });
 it("adoption role deletion that changes visibility requires verified publication choice", async () => {
   const h = await setup();

@@ -5,6 +5,7 @@ import { convexTest } from "convex-test";
 import { makeFunctionReference } from "convex/server";
 import schemaModule from "../../convex/schema";
 import httpModule from "../../convex/http";
+import { VrchatClient } from "../../workers/group-telemetry/vrchat-client.mjs";
 const schema = (schemaModule as unknown as {default?: typeof schemaModule}).default ?? schemaModule;
 const modules = {
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
@@ -18,7 +19,7 @@ const modules = {
 const ref = (name: string) => makeFunctionReference<"mutation">(name);
 const key = "automatic-worker-test-key-long-enough";
 const workerKeyHash = createHash("sha256").update(key).digest("hex");
-const capability = "automatic_group_aggregates_v1";
+const capability = "automatic_group_aggregates_v2";
 async function setup() {
   const t = convexTest({schema, modules}); const now = Date.now();
   const ids = await t.run(async ctx => {
@@ -124,7 +125,7 @@ it("admission rollback blocks allocated joins but keeps existing collection and 
   await h.heartbeat();
   const fleetId = await h.t.run(ctx => ctx.db.insert("collectorFleetSettings", { key: "global", killSwitchEnabled: false, globalRequestsPerMinute: 30, automaticEnrollmentEnabled: true, automaticEnrollmentLimit: 1, automaticEnrollmentScope: { kind: "pilot", vrchatGroupId: "grp_test" }, updatedAt: h.now }));
   await h.t.run(ctx => ctx.db.patch(h.integrationId, { state: "connecting" }));
-  const reserve = () => h.t.mutation(ref("communityTelemetry:reserveRequestBudget"), { ...h.lease, requestCount: 1, now: h.now });
+  const reserve = (automaticRequest = "metadata") => h.t.mutation(ref("communityTelemetry:reserveRequestBudget"), { ...h.lease, requestCount: 1, automaticRequest, now: h.now });
   assert.equal((await reserve()).granted, true);
   for (const patch of [
     { automaticEnrollmentEnabled: false },
@@ -143,7 +144,8 @@ it("admission rollback blocks allocated joins but keeps existing collection and 
     await ctx.db.patch(h.policyId, { decision: { kind: "stopped", reason: "operator_opt_out", actor: "verified_operator", at: h.now } });
     await ctx.db.insert("vrchatGroupMemberSnapshots", { vrchatGroupId: "grp_test", observedAt: h.now, memberCount: 42 });
   });
-  assert.equal((await reserve()).granted, true);
+  assert.equal((await reserve()).granted, false);
+  assert.equal((await reserve("leave")).granted, true);
   const policy = await h.t.run(ctx => ctx.db.get(h.policyId));
   await h.t.mutation(ref("communityTelemetry:recordMembershipResult"), { ...h.lease, state: "disconnected", groupVisibility: "public", joinPolicy: "free", now: h.now });
   assert.deepEqual(await h.t.run(ctx => ctx.db.get(h.policyId)), policy);
@@ -197,4 +199,78 @@ it("automatic account recovery verifies membership without reopening admission o
   const integration = await h.t.run(ctx => ctx.db.get(h.integrationId));
   assert.equal(integration?.state, "degraded");
   assert.equal(integration?.assignedCollectorAccountId, h.collectorAccountId);
+});
+
+for (const lostReply of [false, true]) for (const removed of [false, true]) it(`durable pre-join reservation recovers a real provider attempt on the same account (lostReply=${lostReply}, removed=${removed})`, async () => {
+  const h = await setup();
+  await h.t.run(async ctx => {
+    await ctx.db.patch(h.integrationId, { state: "connecting" });
+    await ctx.db.insert("collectorFleetSettings", { key: "global", killSwitchEnabled: false, globalRequestsPerMinute: 30, automaticEnrollmentEnabled: true, automaticEnrollmentLimit: 1, automaticEnrollmentScope: { kind: "pilot", vrchatGroupId: "grp_test" }, updatedAt: h.now });
+  });
+  const reserve = (automaticRequest: string) => h.t.mutation(ref("communityTelemetry:reserveRequestBudget"), { ...h.lease, automaticRequest, requestCount: 1, now: h.now });
+  let member = false, joins = 0;
+  const provider = new VrchatClient({ authCookie: "test-cookie", userAgent: "test/1" });
+  provider.getGroup = async () => ({ membershipStatus: member ? "member" : "none", joinPolicy: "free", groupVisibility: "public", memberCount: 42 });
+  provider.joinGroup = async () => { joins++; member = true; if (lostReply) throw new Error("join reply lost"); };
+  provider.request = async () => [];
+  const connect = () => provider.connectGroup("grp_test", { admissionMode: "automatic", authorizeRequest: async (operation: string) => (await reserve(operation)).granted });
+  if (lostReply) await assert.rejects(connect(), /reply lost/);
+  else assert.equal((await connect())?.state, "active");
+  assert.equal((await reserve("join")).granted, false, "a lost join reply cannot authorize a second join");
+  const counters = await h.t.run(ctx => ctx.db.query("collectorRequestBudgetCounters").collect());
+  assert.deepEqual(counters.map(row => row.requestCount), lostReply ? [2, 2, 2] : [3, 3, 3], "each request is charged once");
+  // Crash after the provider accepted join, before membership confirmation commits.
+  await h.t.mutation(ref("communityTelemetry:releaseLease"), h.lease);
+  await h.heartbeat();
+  const claim = await h.t.mutation(ref("communityTelemetry:claimDueAssignments"), { collectorAccountId: h.collectorAccountId, workerId: "worker", capabilities: [capability], now: h.now });
+  assert.equal(claim.assignments[0]?.state, "degraded");
+  assert.equal((await h.t.run(ctx => ctx.db.get(h.integrationId)))?.assignedCollectorAccountId, h.collectorAccountId);
+  member = !removed;
+  const recoveredLease = { ...h.lease, fencingToken: claim.assignments[0].fencingToken };
+  const read = () => provider.readAggregateSnapshot("grp_test", { admissionMode: "automatic", authorizeRequest: async (automaticRequest: string) => (await h.t.mutation(ref("communityTelemetry:reserveRequestBudget"), { ...recoveredLease, automaticRequest, requestCount: 1, now: h.now })).granted });
+  if (removed) {
+    await assert.rejects(read(), /membership/);
+    await h.t.mutation(ref("communityTelemetry:recordPollFailure"), { ...recoveredLease, statusClass: "403", coverageState: "degraded", nextPollAt: h.now + 60000, detail: "membership", collectorVersion: "test", now: h.now });
+    assert.equal((await h.t.run(ctx => ctx.db.get(h.policyId)))?.decision.kind, "stopped");
+  } else assert.ok(await read());
+  assert.equal(joins, 1);
+});
+
+it("v2 dispatch requires matching fresh request and heartbeat while legacy managed remains compatible", async () => {
+  for (const kind of ["automatic", "adopted", "legacy"]) for (const [request, heartbeat, age, allowed] of [
+    [capability, capability, 0, true], ["automatic_group_aggregates_v1", capability, 0, false],
+    [capability, "automatic_group_aggregates_v1", 0, false], [capability, capability, 120001, false],
+  ] as const) {
+    const h = await setup();
+    if (kind !== "automatic") await h.t.run(async ctx => {
+      const communityProfileId = await ctx.db.insert("profiles", { slug: "capability", displayName: "Club", sortName: "club", aliases: [], tags: [], claimState: "unclaimed", publicationState: "published", publicSurfacingState: "public", creationSource: "self", updatedAt: h.now, profileType: "community", community: { categoryTags: [] } });
+      await ctx.db.patch(h.integrationId, { communityProfileId, collectionScope: { kind: "managed", communityProfileId }, namedMembershipCollectionEnabled: kind === "adopted" ? false : undefined });
+    });
+    await h.t.mutation(ref("communityTelemetry:recordCollectorHeartbeat"), { collectorAccountId: h.collectorAccountId, workerId: "worker", workerKeyHash, releaseSha: "a".repeat(40), collectorVersion: "test", capabilities: [heartbeat], consecutiveControlFailures: 0, now: h.now - age });
+    assert.equal((await h.t.mutation(ref("communityTelemetry:claimDueAssignments"), { collectorAccountId: h.collectorAccountId, workerId: "worker", capabilities: [request], now: h.now })).assignments.length, kind === "legacy" || allowed ? 1 : 0, `${kind}/${request}/${heartbeat}/${age}`);
+  }
+});
+
+for (const transition of ["stop before join", "rollback before join", "stop before instances"]) it(`real request authorization prevents ${transition}`, async () => {
+  const h = await setup();
+  const connecting = transition !== "stop before instances";
+  const fleetId = await h.t.run(async ctx => {
+    await ctx.db.patch(h.integrationId, { state: connecting ? "connecting" : "active" });
+    return ctx.db.insert("collectorFleetSettings", { key: "global", killSwitchEnabled: false, globalRequestsPerMinute: 30, automaticEnrollmentEnabled: true, automaticEnrollmentLimit: 1, automaticEnrollmentScope: { kind: "pilot", vrchatGroupId: "grp_test" }, updatedAt: h.now });
+  });
+  const sent: string[] = [];
+  const provider = new VrchatClient({ authCookie: "test-cookie", userAgent: "test/1" });
+  provider.getGroup = async () => {
+    sent.push("metadata");
+    if (transition === "rollback before join") await h.t.run(ctx => ctx.db.patch(fleetId, { automaticEnrollmentEnabled: false }));
+    else await h.t.mutation(ref("communityTelemetry:recordPollFailure"), { ...h.lease, statusClass: "403", coverageState: "degraded", nextPollAt: h.now + 60000, detail: "membership", collectorVersion: "test", now: h.now });
+    return { membershipStatus: connecting ? "none" : "member", joinPolicy: "free", groupVisibility: "public", memberCount: 42 };
+  };
+  provider.joinGroup = async () => { sent.push("join"); };
+  provider.request = async () => { sent.push("instances"); return []; };
+  const options = { admissionMode: "automatic", authorizeRequest: async (automaticRequest: string) => (await h.t.mutation(ref("communityTelemetry:reserveRequestBudget"), { ...h.lease, automaticRequest, requestCount: 1, now: h.now })).granted };
+  const collect = () => connecting ? provider.connectGroup("grp_test", options) : provider.readAggregateSnapshot("grp_test", options);
+  if (transition === "rollback before join") assert.equal(await collect(), null);
+  else await assert.rejects(collect(), /stale|unavailable/);
+  assert.deepEqual(sent, ["metadata"]);
 });

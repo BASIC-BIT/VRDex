@@ -304,6 +304,7 @@ export const admitQueued = internalMutation({
       }
       const automatic = policy.queuedAdmission!.priority === "automatic";
       const existing = policy.integrationId ? await ctx.db.get(policy.integrationId) : null;
+      if (existing?.killSwitchEnabled) { await defer("integration_stopped"); continue; }
       if (existing?.assignedCollectorAccountId || existing && !["disconnected", "connecting", "awaiting_invite", "awaiting_approval"].includes(existing.state)) {
         await ctx.db.patch(policy._id, { queuedAdmission: undefined }); continue;
       }
@@ -328,7 +329,7 @@ export const admitQueued = internalMutation({
       const account = accounts.find(row => !row.killSwitchEnabled && (row.cooldownUntil ?? 0) <= now && row.assignedGroupCount < row.capacity - row.reservedHeadroom);
       if (!account) { await defer("capacity"); continue; }
       const integrationId = existing?._id ?? await ctx.db.insert("communityVrchatIntegrations", {
-        collectionScope: { kind: "automatic" }, publicationPolicy: "automatic_aggregate", enabledFeatures: ["analytics"],
+        collectionScope: { kind: "automatic" }, publicationPolicy: "automatic_aggregate", enabledFeatures: ["analytics"], namedMembershipCollectionEnabled: false,
         vrchatGroupId: policy.vrchatGroupId, groupVisibility: "unknown", joinPolicy: "unknown", state: "connecting",
         killSwitchEnabled: false, requestsPerMinute: 4, leaseGeneration: 0, publicMetrics: { currentPopulation: true, populationHistory: true, groupMemberCount: true, groupMemberGrowth: true, eventRecaps: false },
         consecutiveFailures: 0, createdAt: now, updatedAt: now,
@@ -378,7 +379,7 @@ export async function applyAdmissionRequired(ctx: MutationCtx, args: {
 }) {
     const now = args.now ?? Date.now();
     const integration = await ctx.db.get(args.integrationId);
-    if (!integration || readCollectionSubject(integration).kind !== "automatic" || integration.state !== "connecting" || integration.lastSuccessfulObservationAt !== undefined) return false;
+    if (!integration || readCollectionSubject(integration).kind !== "automatic" || integration.state !== "connecting" || integration.lastSuccessfulObservationAt !== undefined || integration.automaticAdmissionAttempt) return false;
     const policy = await ctx.db.query("vrchatGroupObservationPolicies").withIndex("by_vrchatGroupId", q => q.eq("vrchatGroupId", integration.vrchatGroupId)).unique();
     if (policy?.integrationId !== integration._id) return false;
     const account = integration.assignedCollectorAccountId ? await ctx.db.get(integration.assignedCollectorAccountId) : null;

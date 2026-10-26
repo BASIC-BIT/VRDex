@@ -13,6 +13,9 @@ export type ConnectionFeatures = NonNullable<
   FunctionReturnType<typeof api.clubConnection.get>
 >;
 type Actions = {
+  setNamedMembership: (
+    args: FunctionArgs<typeof api.clubConnection.setNamedMembershipCollectionEnabled>,
+  ) => Promise<unknown>;
   setFeature: (
     args: FunctionArgs<typeof api.clubConnection.setFeature>,
   ) => Promise<unknown>;
@@ -168,6 +171,25 @@ export function ClubConnectionFeatures({
               ) : null}
             </div>
           ))}
+          <div className="border-t border-border pt-4">
+            <CheckboxField
+              checked={connection.namedMembershipCollectionEnabled}
+              disabled={busy}
+              onChange={async (event) => {
+                setBusy(true);
+                setError(null);
+                try {
+                  await actions.setNamedMembership({ communityProfileId: data.community._id, enabled: event.target.checked });
+                } catch (cause) {
+                  setError(cause instanceof Error ? cause.message : "Unable to save features.");
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              Named membership history
+            </CheckboxField>
+          </div>
         </div>
         {error ? (
           <Notice className="mt-4" variant="error" role="alert">

@@ -23,6 +23,7 @@ function harness({
   ingestError,
   membershipState = "active",
   requestsPerMinute = 100,
+  namedMembershipCollectionEnabled,
 } = {}) {
   const calls = [];
   const failures = [];
@@ -111,11 +112,20 @@ function harness({
         requestsPerMinute,
         state: connection,
         enabledFeatures: features ?? undefined,
+        namedMembershipCollectionEnabled,
       });
       now += 60000;
     },
   };
 }
+test("adopted managed poll skips named history despite current audit permission", async () => {
+  const h = harness({ features: ["analytics"], namedMembershipCollectionEnabled: false });
+  h.sandbox.refreshClubAuthority = async () => ({ authority: { groupId: "grp_00000000-0000-0000-0000-000000000001", userId: "bot", membershipStatus: "member", permissions: ["*"], observedAt: 1000000 } });
+  h.sandbox.collectMembershipPage = async () => assert.fail("adoption must not dispatch named audit collection");
+  await h.pass();
+  assert.ok(h.calls.includes("ingest"));
+  assert.deepEqual(h.failures, []);
+});
 for (const feature of ["posts", "membership_management", "instances"])
   for (const state of [
     "active",

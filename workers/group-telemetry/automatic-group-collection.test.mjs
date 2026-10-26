@@ -144,7 +144,7 @@ for (const [joinPolicy, groupVisibility, membershipStatus] of [
   let joins = 0;
   client.getGroup = async () => ({joinPolicy, groupVisibility, membershipStatus});
   client.joinGroup = async () => { joins++; };
-  const result = await client.connectGroup("grp_00000000", { admissionMode: "automatic" });
+  const result = await client.connectGroup("grp_00000000", { admissionMode: "automatic", authorizeRequest: async () => true });
   assert.equal(joins, 0);
   assert.ok(result.admissionRequired);
 });
@@ -153,7 +153,7 @@ test("automatic free join confirms provider membership", async () => {
   let joins = 0, reads = 0;
   client.getGroup = async () => ({joinPolicy: "free", groupVisibility: "public", membershipStatus: reads++ ? "member" : "none"});
   client.joinGroup = async () => { joins++; };
-  assert.equal((await client.connectGroup("grp_00000000", {admissionMode: "automatic"})).state, "active");
+  assert.equal((await client.connectGroup("grp_00000000", {admissionMode: "automatic", authorizeRequest: async () => true})).state, "active");
   assert.equal(joins, 1); assert.equal(reads, 2);
 });
 
@@ -167,5 +167,47 @@ for (const status of [403, 404]) test(`automatic initial HTTP ${status} cannot e
   const client = new VrchatClient({authCookie: "test-cookie", userAgent: "test/1"});
   client.getGroup = async () => { throw new VrchatProviderError("unavailable", {status, category: "visibility"}); };
   client.joinGroup = async () => assert.fail("Unavailable group must not be joined");
-  assert.equal((await client.connectGroup("grp_00000000", {admissionMode: "automatic"})).admissionRequired, "invalid");
+  assert.equal((await client.connectGroup("grp_00000000", {admissionMode: "automatic", authorizeRequest: async () => true})).admissionRequired, "invalid");
+});
+
+for (const change of ["stop", "admission rollback"]) test(`automatic ${change} after metadata prevents the unsent join`, async () => {
+  const h = harness({ state: "connecting" });
+  let allowed = true;
+  const requests = [];
+  h.sandbox.control.send = async (op, args) => {
+    h.calls.push(op);
+    if (op === "budget") {
+      return { granted: allowed };
+    }
+    return { granted: true };
+  };
+  const client = new VrchatClient({ authCookie: "test-cookie", userAgent: "test/1" });
+  client.getGroup = async () => {
+    requests.push("metadata"); allowed = false;
+    return { joinPolicy: "free", groupVisibility: "public", membershipStatus: "none" };
+  };
+  client.joinGroup = async () => { requests.push("join"); };
+  h.sandbox.provider = client;
+  await h.pass();
+  assert.deepEqual(requests, ["metadata"]);
+  assert.ok(!h.calls.includes("ingest"));
+});
+
+test("automatic stop after metadata prevents the unsent instance request", async () => {
+  const h = harness(); let allowed = true; const requests = [];
+  h.sandbox.control.send = async (op, args) => {
+    h.calls.push(op);
+    if (op === "budget") return { granted: allowed };
+    return { granted: true };
+  };
+  const client = new VrchatClient({ authCookie: "test-cookie", userAgent: "test/1" });
+  client.getGroup = async () => {
+    requests.push("metadata"); allowed = false;
+    return { joinPolicy: "free", groupVisibility: "public", membershipStatus: "member" };
+  };
+  client.request = async () => { requests.push("instances"); return []; };
+  h.sandbox.provider = client;
+  await h.pass();
+  assert.deepEqual(requests, ["metadata"]);
+  assert.ok(!h.calls.includes("ingest"));
 });

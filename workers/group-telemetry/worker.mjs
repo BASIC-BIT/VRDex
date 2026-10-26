@@ -208,7 +208,7 @@ async function collect(assignment) {
     integrationBudget = new RequestBudget(assignment.requestsPerMinute);
     integrationBudgets.set(assignment.integrationId, integrationBudget);
   }
-  async function reserve(requestCost) {
+  async function reserve(requestCost, automaticRequest) {
     if (stopping || Date.now() >= deadline) return false;
     const reservedAt = Date.now();
     const localRetryAfterMs = Math.max(
@@ -226,6 +226,7 @@ async function collect(assignment) {
     const reservation = await control.send("budget", {
       ...lease,
       requestCount: requestCost,
+      ...(automaticRequest ? { automaticRequest } : {}),
       now: reservedAt,
     });
     if (!reservation.granted) return false;
@@ -262,7 +263,7 @@ async function collect(assignment) {
   try {
     if (stopping) return;
     if (assignment.state === "disconnecting") {
-      if (!(await reserve(1))) return;
+      if (!(await reserve(1, assignment.collectionMode === "automatic" ? "leave" : undefined))) return;
       await provider.leaveGroup(assignment.vrchatGroupId);
       await control.send("membership", {
         ...lease,
@@ -275,9 +276,10 @@ async function collect(assignment) {
       return;
     }
     if (assignment.collectionMode === "automatic") {
+      const authorizeRequest = (operation) => reserve(1, operation);
       if (assignment.state === "connecting") {
-        if (!(await reserve(3))) return;
-        const membership = await provider.connectGroup(assignment.vrchatGroupId, { admissionMode: "automatic" });
+        const membership = await provider.connectGroup(assignment.vrchatGroupId, { admissionMode: "automatic", authorizeRequest });
+        if (!membership) return;
         if (membership.admissionRequired) {
           await control.send("admission_required", { ...lease, epochStartedAt: assignment.epochStartedAt, reason: membership.admissionRequired });
           return;
@@ -287,8 +289,8 @@ async function collect(assignment) {
         if (membership.state !== "active") return;
       }
       phase = "analytics";
-      if (!(await reserve(2))) return;
-      const snapshot = await provider.readAggregateSnapshot(assignment.vrchatGroupId, { admissionMode: "automatic" });
+      const snapshot = await provider.readAggregateSnapshot(assignment.vrchatGroupId, { admissionMode: "automatic", authorizeRequest });
+      if (!snapshot) return;
       await control.send("ingest", { ...lease, pollId: pollId(assignment.integrationId, snapshot.observedAt),
         observedAt: snapshot.observedAt, collectorVersion: COLLECTOR_PROTOCOL_VERSION,
         groupMemberCount: snapshot.group.memberCount,
@@ -334,12 +336,15 @@ async function collect(assignment) {
       return;
     }
     phase = "analytics";
-    if (!(await reserve(2))) return;
+    const aggregateOnly = assignment.namedMembershipCollectionEnabled === false;
+    if (!aggregateOnly && !(await reserve(2))) return;
     let telemetryError;
     try {
       const snapshot = await provider.readAggregateSnapshot(
         assignment.vrchatGroupId,
+        aggregateOnly ? { authorizeRequest: (operation) => reserve(1, operation) } : undefined,
       );
+      if (!snapshot) return;
       const nextPollAt =
         snapshot.observedAt + randomPollDelayMs(snapshot.instances.length > 0);
       await control.send("ingest", {
@@ -384,7 +389,7 @@ async function collect(assignment) {
       shouldStop: () => stopping,
       deadline,
     });
-    await collectMembershipPage({
+    if (assignment.namedMembershipCollectionEnabled !== false) await collectMembershipPage({
       assignment,
       authority: refreshed.authority,
       provider: auditProvider,

@@ -262,6 +262,7 @@ function ConnectionFeatureFixture({
   const [connection, setConnection] = useState<ConnectionFeatures>(() => ({
     now: Date.now(),
     integrationId: "fixture-integration" as Id<"communityVrchatIntegrations">,
+    namedMembershipCollectionEnabled: false,
     enabledFeatures: [
       "analytics",
       "membership_management",
@@ -341,6 +342,9 @@ function ConnectionFeatureFixture({
               connection={connection}
               authorityFresh={!expired}
               actions={{
+                setNamedMembership: async ({ enabled }) => {
+                  setConnection(previous => ({ ...previous, namedMembershipCollectionEnabled: enabled }));
+                },
                 setFeature: async (args) => {
                   setConnection((previous) => {
                     const enabledFeatures = previous.enabledFeatures.filter(
