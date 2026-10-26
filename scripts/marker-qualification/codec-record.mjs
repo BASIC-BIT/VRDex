@@ -3,7 +3,7 @@ import { open } from 'node:fs/promises';
 import { startCapturedInvocation,retainCapture } from './invocation-capture.mjs';
 import { inventoryProgramTransport,reconcileProgramPopulation,reconcileProgramPacketRows,verifyProgramRecording } from '../event-marker-conservation.mjs';
 import { audioEpisodeRawRange,inspectProgramClock,assertProgramClock } from '../event-marker-clock.mjs';
-import { inspectAcquiredDependencies,createAcquisitionDeadline } from '../event-marker-native-binding.mjs';
+import { inspectAcquiredDependencies,createAcquisitionDeadline,readBounded } from '../event-marker-native-binding.mjs';
 import { constants } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { probe,decodeQualifiedMediaMarkerRecord } from '../event-capacity-media.mjs';
@@ -12,7 +12,7 @@ import { referenceDetector } from './detector-reference.mjs';
 import { assertEncodedFormat,assertDecodedCoverage,strictPacketFacts } from './media-facts.mjs';
 import { VIDEO_PROFILES } from '../../workers/restream/broadcast-profiles.mjs';
 import { retainProgramReplay,replayProgramRecording } from './program-replay.mjs';
-import { readFile } from 'node:fs/promises';
+import { programOriginalRole } from './program-originals.mjs';
 /** Decode exactly once; independent RMS detector sees the same original bytes
  * before classifier bounds can reject a fully captured long episode. */
 export async function readQualificationRecording(owner,file,{settings,path,frames,samples,activeBitrate=false,allowEpisodeBound=false,producerEvidence,store=producerEvidence?.store},io={}) {
@@ -69,7 +69,7 @@ export async function readQualificationRecording(owner,file,{settings,path,frame
  const coverage=assertDecodedCoverage(record,{frames,fps:profile.frameRate,samples});
  const local={record,format,coverage,observation,classificationFailure,assurance:clock.assurance,programProof:{projection:checkedProgram.projection}};
  const retained=await acquisition.run(()=>retainProgramReplay(store,{recordKey,settings,file,fileIdentity:original.fileIdentity,result:local},acquisition));
- const result=await acquisition.run(()=>replayProgramRecording(retained,{resolveOriginal:ref=>acquisition.run(()=>readFile(store.path(ref.name),{signal:acquisition.signal})),resolveImplementation:io.resolveImplementation}));
+ const result=await acquisition.run(()=>replayProgramRecording(retained,{resolveOriginal:ref=>acquisition.run(async()=>{const cap=ref.name===recordKey+'-program-originals.json'?196608:programOriginalRole(ref.name,recordKey)[1];if(!Number.isSafeInteger(ref.bytes)||ref.bytes<1||ref.bytes>cap)throw Error('marker_replay_reference');const bytes=await readBounded(store.path(ref.name),ref.bytes,acquisition);if(bytes.bindingIdentity.nlink!==1)throw Error('marker_replay_original_identity');return bytes;}),resolveImplementation:io.resolveImplementation}));
  Object.defineProperty(result,'material',{value:material});return result;
  }catch(error){
   if(failure){

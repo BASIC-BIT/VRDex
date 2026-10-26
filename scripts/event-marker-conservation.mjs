@@ -6,7 +6,7 @@ import { inspectAcquiredDependencies } from './event-marker-native-binding.mjs';
 import { verifyProgramConstruction } from './event-marker-source-ledger.mjs';
 import { verifyInvocationObservations } from './event-marker-runtime-observer.mjs';
 import { requireProgram,same,verifyProgramRecipe,verifyProgramNegotiation,verifyProgramCompletion } from './event-marker-program-guards.mjs';
-import { deriveEvidencePolicy,invocationAggregate } from './event-marker-evidence-policy.mjs';
+import { deriveEvidencePolicy,invocationAggregate,programResultLimits } from './event-marker-evidence-policy.mjs';
 const sha=b=>createHash('sha256').update(b).digest('hex');
 const fail=()=>{throw Error('marker_program_conservation');};
 const freeze=x=>{if(x&&typeof x==='object'){Object.values(x).forEach(freeze);Object.freeze(x);}return x;};
@@ -233,7 +233,7 @@ export function verifyProgramRecording({bytes,producer,decoder,capture,settings,
  const replay=replayProgramDemux(inventory,{fileIdentity,fps}),time=replayProgramTimestamps(replay,negotiated.decode,{...capture,fps});
  const probe=validateProbeOriginals(probes,inventory,replay,file);
  const pcm=Buffer.concat(capture.audioChunks),population=reconcileProgramPopulation({inventory,source:producer.source,feeds:producer.feeds,encoder:producer.encoder,decoder,videoRows:capture.videoRows,audioRows:capture.audioRows,rgbBytes:capture.rgb.length,pcmBytes:pcm.length,fps});
- const policy=deriveEvidencePolicy(eb,budget?.invocation);requireProgram(budget?.invocation?.kind==='mass'&&budget.policyId===policy.id&&budget.artifactCap===invocationAggregate('mass')&&budget.normalNumericCap===policy.normal&&budget.finalNumericCap===policy.final&&budget.failureReserve===65536&&Number.isSafeInteger(budget.numericBytes)&&Number.isSafeInteger(budget.reservedOuterBytes)&&budget.reservedOuterBytes>0&&budget.numericBytes+budget.reservedOuterBytes<=policy.normal&&Array.isArray(budget.uses)&&budget.uses.length>0,'G12','artifact_uses');
+ const policy=deriveEvidencePolicy(eb,budget?.invocation);requireProgram(budget?.invocation?.kind==='mass'&&budget.policyId===policy.id&&budget.artifactCap===invocationAggregate('mass')&&budget.normalNumericCap===policy.normal&&budget.finalNumericCap===policy.final&&budget.failureReserve===65536&&Number.isSafeInteger(budget.numericBytes)&&Number.isSafeInteger(budget.reservedOuterBytes)&&budget.reservedOuterBytes>0&&budget.reservedOuterBytes===eb.plans.outerReserveBytes&&budget.reservedOuterBytes<=programResultLimits(eb,budget.invocation).reservation&&budget.numericBytes+budget.reservedOuterBytes<=policy.normal&&Array.isArray(budget.uses)&&budget.uses.length>0,'G12','artifact_uses');
  const binding={pcmSHA256:sha(pcm),rgbSHA256:sha(capture.rgb),audioRowsSHA256:sha(JSON.stringify(capture.audioRows)),videoRowsSHA256:sha(JSON.stringify(capture.videoRows))};
  const data=freeze({file:inventory.file,population,fps,binding,packetOrderSHA256:sha(JSON.stringify(replay.packets)),time,probe,assurance:producer.encoder.binding.assurance,completion,runtime,budget});
  const handle=freeze({kind:'CheckedProgram',projection:{file:inventory.file,fps,samples:population.decodedSamples,frames:population.codedPictures,binding,packetOrderSHA256:data.packetOrderSHA256,completion,assurance:data.assurance}});checkedPrograms.set(handle,data);return handle;

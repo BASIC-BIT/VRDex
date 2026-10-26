@@ -5,6 +5,16 @@ No preset is admitted to a new production session until its checked-in evidence
 covers both audio settings and its frozen destination membership. Local media
 proofs are functional diagnostics, not Fargate capacity evidence.
 
+The scoped R94 PROGRAM result limit is 262144 UTF-8 bytes including LF, with
+196608 bytes independently available for other chargeable outer originals and
+458752 bytes maximum combined reservation. These fit inside the existing R90
+normal invocation budgets; native132 and all independent runtime, source,
+receipt, Engine and retrieval limits remain unchanged. Full-result source
+replay and simulated outer acceptance do not establish actual image/source
+correspondence, approval, native media correctness, memory fit or capacity.
+The [source qualification accounting](source-marker-qualification.md) describes
+the exact scope, mandatory amendment original and bounded resolver obligations.
+
 ## Required native CI coverage
 
 Every **Restream Local Checks** job builds the current production worker image

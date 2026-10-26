@@ -4,7 +4,7 @@ import { lstat,writeFile,readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { inspectAcquiredDependencies } from '../event-marker-native-binding.mjs';
-import { LEGACY_POLICY,deriveEvidencePolicy,invocationAggregate } from '../event-marker-evidence-policy.mjs';
+import { LEGACY_POLICY,deriveEvidencePolicy,invocationAggregate,programResultLimits,isProgramResultReference } from '../event-marker-evidence-policy.mjs';
 // Roles describe the retained evidence, never its file extension. Raw numeric
 // diagnostics remain numeric even when stored as opaque gzip/binary members.
 export const ARTIFACT_ROLES=Object.freeze({coded:'media',pcm:'media',rgb:'media',packet:'numeric',probe:'numeric',audioMetadata:'numeric',videoMetadata:'numeric',argv:'numeric',feed:'numeric',native:'numeric',progressVideo:'numeric',progressAudio:'numeric',stderr:'numeric',sourceProbe:'numeric',normalization:'numeric',sourceObservation:'numeric',observation:'numeric',results:'numeric',catalog:'numeric',runtimeBinding:'numeric',procMaps:'numeric'});
@@ -50,10 +50,10 @@ export function createArtifactStore(directory,{byteCap=134152192}={}) {
 /** One invocation's complete budget, including numeric observations and later
  * result shards. The fixed failure reserve is INSIDE both original caps. */
 export function createInvocationStore(store,invocation) {
- const aggregate=invocationAggregate(invocation.kind),reserve=65536,initial=new Set(store.entries.map(e=>e.name));let policy=LEGACY_POLICY,selection=null;
+ const aggregate=invocationAggregate(invocation.kind),reserve=65536,initial=new Set(store.entries.map(e=>e.name));let policy=LEGACY_POLICY,selection=null,selectedDependencies=null;
  const entries=()=>store.entries.filter(e=>!initial.has(e.name));
  let pendingBytes=0,pendingNumeric=0,pendingOperations=0,logicalBytes=0,negativeFinalization=false;
- const outerReservations=new Map();
+ const outerReservations=new Map(),resultWrites=new Set();
  const outerReserved=()=>[...outerReservations.values()].reduce((n,v)=>n+v,0);
  const dependencyUses=new Map(),physicalDependencies=new Set();
  const implementationAssets=new Map(),implementationUses=[];let implementationBytes=0;
@@ -94,10 +94,19 @@ export function createInvocationStore(store,invocation) {
   uses.add(recordKey);dependencyUses.set(key,uses);physicalDependencies.add(physical);
  }
  function checkFinal(shards){const size=shards.reduce((n,b)=>n+b.length,0),numericCap=negativeFinalization?policy.final:policy.normal,artifactCap=negativeFinalization?aggregate:aggregate-reserve,pending=negativeFinalization?0:outerReserved();if(pendingOperations||numbers()+size+pending>numericCap||total()+size+pending>artifactCap)throw Error('invocation_byte_cap');return {numericBytes:numbers()+size,artifactBytes:total()+size,numericCap,artifactCap:aggregate,failureReserveBytes:reserve};}
- function reserveProgramOuter(recordKey,bytes){if(!Number.isSafeInteger(bytes)||bytes<=0||outerReservations.has(recordKey)||!recordKey.startsWith(invocation.id+'-'))throw Error('invocation_byte_cap');const release=reserveWrite(recordKey,bytes,'runtimeBinding');outerReservations.set(recordKey,bytes);release();}
- async function writeProgramOuter(recordKey,name,bytes,control={}){const reserved=outerReservations.get(recordKey);if(!Number.isSafeInteger(reserved)||bytes.length>reserved)throw Error('invocation_byte_cap');outerReservations.set(recordKey,reserved-bytes.length);try{return await write(name,bytes,196608,'observation',control);}catch(error){outerReservations.set(recordKey,reserved);throw error;}}
- function checkProgramOuterFinal(recordKey,bytes){const reserved=outerReservations.get(recordKey);if(negativeFinalization||!Number.isSafeInteger(reserved)||bytes>reserved||pendingOperations||numbers()+outerReserved()>policy.normal||total()+outerReserved()>aggregate-reserve)throw Error('invocation_byte_cap');}
- function selectNativePolicy(binding){const deps=inspectAcquiredDependencies(binding);if(!deps||negativeFinalization||pendingOperations)throw Error('invocation_policy');const chosen=deriveEvidencePolicy(deps,invocation),identity=JSON.stringify([binding.candidateSHA,binding.profileSHA,chosen.id,invocation.id,invocation.kind]);if(selection&&selection!==identity||!selection&&numbers()+pendingNumeric>196608)throw Error('invocation_policy');policy=chosen;selection=identity;return chosen;}
+ function reserveProgramOuter(recordKey,bytes){const limits=programResultLimits(selectedDependencies,invocation);if(!Number.isSafeInteger(bytes)||bytes<=0||bytes>limits.reservation||selectedDependencies&&bytes!==selectedDependencies.plans.outerReserveBytes||outerReservations.has(recordKey)||!recordKey.startsWith(invocation.id+'-')||limits.result>196608&&recordKey!==invocation.id+'-program')throw Error('invocation_byte_cap');const release=reserveWrite(recordKey,bytes,'runtimeBinding');outerReservations.set(recordKey,bytes);release();}
+ async function writeProgramOuter(recordKey,name,bytes,control={}){
+  control.check?.();const reserved=outerReservations.get(recordKey),limits=programResultLimits(selectedDependencies,invocation);
+  if(!isProgramResultReference({name,role:'observation'},recordKey,invocation)||resultWrites.has(recordKey)||!Number.isSafeInteger(reserved)||!(bytes instanceof Uint8Array)||bytes.length<1||bytes.length>limits.result||bytes.length>reserved||bytes.at(-1)!==10)throw Error('invocation_byte_cap');
+  // An exact filename cannot relabel a runtime original as a result. Require
+  // its owned replay manifest and coded original before allowing retention.
+  const value=JSON.parse(Buffer.from(bytes).toString()),ref=value?.programProof?.replayRef,manifest=entries().find(e=>e.name===recordKey+'-program-originals.json'),coded=entries().find(e=>e.name===recordKey+'.ts');
+  if(!manifest||!coded||ref?.name!==manifest.name||ref.role!=='observation'||ref.bytes!==manifest.bytes||ref.sha256!==manifest.sha256||value.record?.recordingSha256!==coded.sha256||entries().some(e=>e.role==='runtimeBinding'&&e.bytes===bytes.length&&e.sha256===createHash('sha256').update(bytes).digest('hex')))throw Error('artifact_role');
+  resultWrites.add(recordKey);outerReservations.set(recordKey,reserved-bytes.length);
+  try{return await write(name,bytes,limits.result,'observation',control);}catch(error){outerReservations.set(recordKey,reserved);resultWrites.delete(recordKey);throw error;}
+ }
+ function checkProgramOuterFinal(recordKey,bytes){const reserved=outerReservations.get(recordKey);if(negativeFinalization||!Number.isSafeInteger(bytes)||bytes<0||bytes>programResultLimits(selectedDependencies,invocation).other||!Number.isSafeInteger(reserved)||bytes>reserved||pendingOperations||numbers()+outerReserved()>policy.normal||total()+outerReserved()>aggregate-reserve)throw Error('invocation_byte_cap');}
+ function selectNativePolicy(binding){const deps=inspectAcquiredDependencies(binding);if(!deps||negativeFinalization||pendingOperations)throw Error('invocation_policy');const chosen=deriveEvidencePolicy(deps,invocation),identity=JSON.stringify([binding.candidateSHA,binding.profileSHA,chosen.id,invocation.id,invocation.kind]);if(selection&&selection!==identity||!selection&&numbers()+pendingNumeric>196608)throw Error('invocation_policy');policy=chosen;selection=identity;selectedDependencies=deps;return chosen;}
  function registerImplementationAssets(files,recordKey,event){
   if(!recordKey.startsWith(invocation.id+'-')||!['encode','decode','prelude'].includes(event)||files.some(f=>f.kind!=='implementationCode'||!f.loaded||!Number.isSafeInteger(f.bytes)||f.bytes<=0||f.bytes>196608))throw Error('artifact_role');
   const unique=new Map(files.map(f=>[f.sha256+':'+f.bytes,f]));if(unique.size!==files.length||implementationUses.some(u=>u.recordKey===recordKey&&u.event===event))throw Error('artifact_role');

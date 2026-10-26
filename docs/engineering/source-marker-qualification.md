@@ -140,6 +140,48 @@ never renews per child, record or scene. Positive replay, results, receipts and
 the complete held outer reservation must fit both the normal numeric budget
 and existing normal aggregate budget. The failure allowance funds only negatives.
 
+The adopted R94 result allowance applies only to privately acquired R90
+PROGRAM dependencies with the matching reviewed profile, plans and intent,
+owned mass invocation, `root-program-v1` producer and `root-originals-v1`
+retrieval. The one exact `${recordKey}-result.json` observation may contain
+262144 UTF-8 bytes including its final LF. All other chargeable outer originals
+have an independent combined limit of 196608 bytes; their combined positive
+reservation with the result is at most 458752 bytes. These allocations remain
+inside the existing normal numeric and aggregate budgets. Native132, legacy,
+sourceClosed and unselected scopes keep their previous result and reservation
+limits. A second retained identity remains fully charged.
+
+The effective contract adds `resultSizing` with SHA-256
+`0a7214700021178996f717487ce09b513fa8ebfcb70dca6a2bed863abb7a5c3c`, preserving the
+three R85 base hashes. Both G0 and G12 require the complete 41830-byte audit
+original `program-result-sizing-r94-v1`. Its exact body is checked in at
+`tests/fixtures/program-result-sizing-r94-v1.txt` for source verification and
+is not a packaged runtime asset. Complete design, review, adoption and source
+audit originals still join through Root's proof/catalog/K and real A closure.
+Genuine Root-only audit bodies stay outside N/G/O while requiring full Root
+possession, hashing, storage and read work. Runtime DATA, descriptions, refs,
+observations and repeated logical uses retain their ordinary charges. A is
+ordinary outer data and cannot exceed 196608 bytes.
+
+Reviewed bundle preparation supplies its explicit `execution` and `workload`
+to G0. Selected R90 preparation requires the existing accepted original command;
+a domain, policy ID or synthesized command cannot select the larger reservation.
+Preparing K does not create privately acquired state or external approval. Real
+runtime acquisition independently validates the complete actual intent again.
+
+Raw result consumers use `replayProgramOriginal` with an owned bounded
+resolver. Declared reference checks precede reads; returned type and actual
+length checks precede extra copying and parsing. Resolver owners use
+`readBounded` with their original deadline, cancellation and file-identity
+checks, including Root's injected approval lookup. Direct object replay checks
+serialized size but cannot bound allocation already performed by its caller.
+From the pre-result manifest snapshot, acceptance requires
+`N + M + R + O <= 1572864` and
+`G + M + R + O <= invocationAggregate - 65536`; the result enters each equation
+once. Source-only simulated outer admission is not actual image, media,
+external approval, capacity or population-fit evidence. Larger valid semantic
+shapes can still exceed the hard result bound and fail closed.
+
 Bootstrap and each runtime original remain capped at 196608 bytes, profile and
 manifest at 65536 bytes each, with at most 256 runtime entries. Invocation
 aggregates remain 16MiB for mass/literal, 32MiB for association/profile and 64MiB

@@ -8,7 +8,7 @@ import { validateReceipt } from './event-marker-native132-receipt.mjs';
 import { artifactUseEntries } from './marker-qualification/artifacts.mjs';
 import { PROGRAM_SOURCE_CONTRACT } from './event-marker-program-guards.mjs';
 import { requireAuthorityMembership,producerSourcePaths } from './event-marker-authority-closure.mjs';
-import { validateExecution,validateExecutionCommand,deriveEvidencePolicy,invocationAggregate } from './event-marker-evidence-policy.mjs';
+import { validateExecution,validateExecutionCommand,deriveEvidencePolicy,invocationAggregate,programResultLimits,isProgramResultReference } from './event-marker-evidence-policy.mjs';
 const sha=b=>createHash('sha256').update(b).digest('hex'),json=v=>Buffer.from(JSON.stringify(v)),same=isDeepStrictEqual;
 const must=(v,r)=>{if(!v)throw Error('native_controller_'+r);};
 const hash=v=>typeof v==='string'&&/^[0-9a-f]{64}$/.test(v);
@@ -83,12 +83,18 @@ export function prepareCiCreate({candidate,imageFacts,workload,semanticEnvironme
 /** Independent outer acceptance reads originals through Root-owned resolvers.
  * The child supplies only its pending refs; no child approval field is read. */
 export async function verifyNativeOuterJoins({binding,manifest,budget,serialized,invocations,outerResolver,rootLedger}) {
- const originals=new Map(),get=async(id,cap=8388608)=>{if(originals.has(id)){const b=originals.get(id);must(b.length<=cap,'outer_original');return b;}const raw=await outerResolver(id);must(raw instanceof Uint8Array,'outer_original');const b=Buffer.from(raw);must(b.length>0&&b.length<=cap,'outer_original');originals.set(id,b);return b;};
- const documents={};for(const id of ['K','I','C','Q','L','image'])documents[id]=JSON.parse(await get(id,196608));const {K,I,C,Q,L,image}=documents;
+ const originals=new Map(),get=async(id,cap=8388608,expectedBytes)=>{
+  const lengthMatches=b=>b.byteLength>0&&b.byteLength<=cap&&(expectedBytes===undefined||b.byteLength===expectedBytes);
+  if(originals.has(id)){const b=originals.get(id);must(lengthMatches(b),'outer_original');return b;}
+  const raw=await outerResolver(id,{cap:expectedBytes??cap});
+  must(raw instanceof Uint8Array&&lengthMatches(raw),'outer_original');
+  const b=Buffer.from(raw);originals.set(id,b);return b;
+ };
+ const documents={};for(const id of ['K','I','C','Q','L','image'])documents[id]=JSON.parse(await get(id,id==='C'?4096:196608));const {K,I,C,Q,L,image}=documents;
  must(sha(originals.get('K'))===binding.candidateSHA&&sha(originals.get('I'))===binding.intentSHA&&sha(originals.get('C'))===binding.contextSHA&&K.profileSHA===binding.profileSHA&&K.runtimeManifestSHA===binding.manifestSHA&&K.observerClosureSHA===binding.observerClosureSHA&&same(K.sourceContract,PROGRAM_SOURCE_CONTRACT),'candidate_join');
  const {originals:imageOriginals,...imageProjection}=image;
  must(C.schema==='native-context-v1'&&C.intent.utf8===originals.get('I').toString()&&C.intent.sha256===sha(originals.get('I'))&&C.intent.bytes===originals.get('I').length&&originals.get('C').length<=4096&&I.candidateManifestSHA===sha(originals.get('K'))&&I.candidateManifestBytes===originals.get('K').length&&same(I.imageFacts,imageProjection),'intent_context_image');
- const sourceBodies=new Map();for(const ref of [...K.sourceFiles,...K.auditRefs]){const raw=await outerResolver(ref.id);must(raw instanceof Uint8Array&&raw.length===ref.bytes&&sha(raw)===ref.sha256,'candidate_member');sourceBodies.set(ref.id,raw);}
+ const sourceBodies=new Map();for(const ref of [...K.sourceFiles,...K.auditRefs]){const cap=inspectAcquiredDependencies(binding).closure.files.some(f=>f.path===ref.id)?196608:67108864;must(typeof ref.id==='string'&&ref.id.length>0&&Number.isSafeInteger(ref.bytes)&&ref.bytes>0&&ref.bytes<=cap&&hash(ref.sha256),'candidate_member');const raw=await outerResolver(ref.id,{cap:ref.bytes});must(raw instanceof Uint8Array&&raw.length===ref.bytes&&sha(raw)===ref.sha256,'candidate_member');sourceBodies.set(ref.id,raw);}
  requireAuthorityMembership(inspectAcquiredDependencies(binding),K.auditRefs);
  must(same(K.execution,I.execution),'execution_join');validateExecutionCommand(K.execution,I.workload.originalCommand);
  const packaging=JSON.parse(sourceBodies.get('workers/restream/packaging-manifest.json'));
@@ -99,16 +105,18 @@ export async function verifyNativeOuterJoins({binding,manifest,budget,serialized
  // hash-only registry never substitute for source possession.
  for(const observed of expandImplementationObservations(binding.implementation,inspectAcquiredDependencies(binding).closure)){const ref=K.sourceFiles.find(r=>r.id===observed.path);must(ref&&ref.imagePath==='/app/'+observed.path&&ref.kind===observed.kind&&ref.bytes===observed.bytes&&ref.sha256===observed.sha256,'image_source_member');}
  const codeAssets=inspectAcquiredDependencies(binding).closure.files.filter(f=>f.loaded&&f.kind==='implementationCode');for(const index of budget.implementationAssets){const asset=codeAssets[index],ref=asset&&K.sourceFiles.find(r=>r.id===asset.path);must(ref?.kind==='implementationCode'&&sourceBodies.get(asset.path)?.length===asset.bytes&&ref.sha256===asset.sha256,'implementation_possession');}
- const ledger=await rootLedger.lookup(binding.candidateSHA);must(ledger&&ledger.original instanceof Uint8Array&&typeof ledger.ledgerId==='string'&&ledger.ledgerId.length>0,'external_approval');const A=JSON.parse(ledger.original);
+ const ledger=await rootLedger.lookup(binding.candidateSHA,{cap:196608});must(ledger&&ledger.original instanceof Uint8Array&&ledger.original.byteLength>0&&ledger.original.byteLength<=196608&&typeof ledger.ledgerId==='string'&&ledger.ledgerId.length>0,'external_approval');if(ledger.ref)must(ledger.ref.bytes===ledger.original.byteLength&&hash(ledger.ref.sha256)&&sha(ledger.original)===ledger.ref.sha256,'external_approval');const A=JSON.parse(Buffer.from(ledger.original));
  must(A.schema==='native-root-approval-v1'&&A.decision==='approve-trustedStackMeasurement'&&A.candidateSHA===sha(originals.get('K'))&&A.profileSHA===binding.profileSHA&&A.environmentClass===K.environmentClass&&A.ledgerId===ledger.ledgerId&&A.recordId===ledger.recordId&&same(A.auditRefs,K.auditRefs)&&Number.isFinite(Date.parse(A.issuedAtUTC))&&Date.parse(A.issuedAtUTC)<=Date.parse(L.startedAtUTC),'root_approval');
- const readRef=async(ref,cap)=>{const id=ref?.id??ref?.name;must(typeof id==='string'&&hash(ref.sha256)&&Number.isSafeInteger(ref.bytes),'outer_reference');const b=await get(id,cap);must(b.length===ref.bytes&&sha(b)===ref.sha256,'outer_hash');return b;};
+ const readRef=async(ref,cap)=>{const id=ref?.id??ref?.name;must(typeof id==='string'&&id.length>0&&hash(ref.sha256)&&Number.isSafeInteger(ref.bytes)&&ref.bytes>0&&ref.bytes<=cap,'outer_reference');const b=await get(id,cap,ref.bytes);must(b.length===ref.bytes&&sha(b)===ref.sha256,'outer_hash');return b;};
  must(Q.schema==='native-launch-v1'&&Q.contextSHA===sha(originals.get('C'))&&Q.intentSHA===sha(originals.get('I'))&&L.schema==='native-outer-ledger-v1'&&L.requestSHA===sha(originals.get('Q'))&&L.contextSHA===sha(originals.get('C'))&&L.intentSHA===sha(originals.get('I'))&&L.imageConfigSHA===image.configSHA&&L.nativeExit===0&&L.nativeSignal===null,'launch_terminal');
- let domainNumeric=0,programReceipt,validatedArchiveIds=new Set();
+ const deps=inspectAcquiredDependencies(binding),limits=programResultLimits(deps,budget.invocation);
+ let domainNumeric=0,resultCharge=0,programReceipt,validatedArchiveIds=new Set();
  if(K.execution.domain==='program'){must(K.environmentClass==='ecs'&&L.domain==='program','domain');
  const terminal=JSON.parse(await readRef(L.receiptRef,65536));programReceipt=terminal;must(terminal.schema==='program-local-receipt-v1'&&terminal.assurance?.kind==='trustedStackMeasurement'&&terminal.assurance.pendingOuterJoin===true&&terminal.assurance.nativeBindingVerified===false&&terminal.assurance.loaderComplete===false&&terminal.cleanup?.closed===true&&terminal.cleanup.liveChildren===0&&terminal.cleanup.liveGroups===0,'inner_receipt');
  must(terminal.replayRef.sha256===L.artifactUseRef.sha256&&terminal.replayRef.bytes===L.artifactUseRef.bytes&&L.artifactUseRef.sha256===sha(Buffer.from(JSON.stringify(manifest)+'\n'))&&L.artifactUsesSHA===sha(json(manifest.budget.uses)),'artifact_uses');
  const metadataOriginals=[0,1].map(i=>artifactUseEntries(manifest.budget).find(r=>r.name===manifest.recordKey+'-metadata-'+i+'.json'));must(metadataOriginals.every(Boolean)&&same(metadataOriginals.map(r=>[r.bytes,r.sha256]),(terminal.metadata?.originals??[]).map(r=>[r.bytes,r.sha256])),'metadata_inventory');
- const resultOriginal=await readRef(terminal.resultRef,196608);must(resultOriginal.equals(Buffer.from(JSON.stringify(serialized)+'\n')),'result_original');
+ must(isProgramResultReference(terminal.resultRef,manifest.recordKey,budget.invocation)&&!artifactUseEntries(manifest.budget).some(r=>r.bytes===terminal.resultRef.bytes&&r.sha256===terminal.resultRef.sha256),'result_identity');
+ const resultOriginal=await readRef(terminal.resultRef,limits.result);resultCharge=resultOriginal.length;must(resultOriginal.equals(Buffer.from(JSON.stringify(serialized)+'\n')),'result_original');
  const readback=JSON.parse(await readRef(L.readbackRef,196608)),expected=[...artifactUseEntries(manifest.budget).map(({event,kind,...ref})=>ref),{...terminal.replayRef},terminal.resultRef,L.receiptRef],readbackEntry=f=>({name:f.name??f.id,bytes:f.bytes,sha256:f.sha256});
  await verifyRootOriginalReadback({readback,expected,terminal,I,K,Q,L,readRef});
  }else{must(K.environmentClass==='ci'&&L.domain==='native132','domain');const readback=await verifyNative132Readback({L,readRef,sourceBodies,binding,budget});domainNumeric=readback.combined;validatedArchiveIds=readback.archiveIds;}
@@ -127,7 +135,7 @@ export async function verifyNativeOuterJoins({binding,manifest,budget,serialized
  }
  // Only the exact archives validated by the native132 parser have already
  // entered domainNumeric, once per actual copy. PROGRAM has no exclusions.
- const policy=deriveEvidencePolicy(inspectAcquiredDependencies(binding),budget.invocation),charge=[...originals.entries()].filter(([id])=>!validatedArchiveIds.has(id)).reduce((n,[,b])=>n+b.length,0)+ledger.original.length;must(budget.policyId===policy.id&&budget.normalNumericCap===policy.normal&&budget.finalNumericCap===policy.final&&budget.failureReserve===policy.reserve&&budget.artifactCap===invocationAggregate(budget.invocation.kind)&&charge+domainNumeric<=budget.reservedOuterBytes&&budget.numericBytes+charge+domainNumeric<=policy.normal&&budget.artifactBytes+charge+domainNumeric<=budget.artifactCap-65536,'outer_budget');
+ const policy=deriveEvidencePolicy(inspectAcquiredDependencies(binding),budget.invocation),charge=[...originals.entries()].filter(([id])=>!validatedArchiveIds.has(id)).reduce((n,[,b])=>n+b.length,0)+ledger.original.length;must(budget.policyId===policy.id&&budget.normalNumericCap===policy.normal&&budget.finalNumericCap===policy.final&&budget.failureReserve===policy.reserve&&budget.artifactCap===invocationAggregate(budget.invocation.kind)&&Number.isSafeInteger(budget.reservedOuterBytes)&&budget.reservedOuterBytes===deps.plans.outerReserveBytes&&budget.reservedOuterBytes<=limits.reservation&&charge-resultCharge<=limits.other&&charge+domainNumeric<=budget.reservedOuterBytes&&budget.numericBytes+charge+domainNumeric<=policy.normal&&budget.artifactBytes+charge+domainNumeric<=budget.artifactCap-65536,'outer_budget');
  return {approvalRef:nativeArtifact('audit','A',ledger.original),...Object.fromEntries(['K','I','C','Q','L','image'].map(id=>[id,nativeArtifact(id==='K'?'audit':'observation',id,originals.get(id))])),chargedBytes:charge+domainNumeric,domainNumericBytes:domainNumeric,kind:K.execution.domain==='program'?'trustedStackMeasurement':'ValidatedNative132Transport',measurementAdmitted:K.execution.domain==='program',pendingOuterJoin:false,nativeBindingVerified:false,loaderComplete:false};
 }
 

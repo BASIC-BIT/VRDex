@@ -1,3 +1,4 @@
+import { programResultLimits } from './event-marker-evidence-policy.mjs';
 import { PROGRAM_SOURCE_CONTRACT } from './event-marker-program-contract.mjs';
 import { createHash } from 'node:crypto';
 import { diagnosticArguments } from './event-marker-native-capture.mjs';
@@ -29,6 +30,7 @@ export function validateProgramDependencies({profile,proof,closure,plans,nativeC
  check(same(profile.requiredGuards,PROGRAM_GUARDS)&&same(proof.contract,PROGRAM_SOURCE_CONTRACT),'guard_contract');
  check(proof.schema==='native-proof-descriptions-v2'&&proof.descriptions?.length===13,'guard_descriptions');
  for(const [i,d] of proof.descriptions.entries())check(d.guard===PROGRAM_GUARDS[i]&&ref(d.auditRef)&&d.auditRef.kind==='audit'&&Array.isArray(d.sourceRefs)&&d.sourceRefs.length>0&&d.sourceRefs.every(ref),'guard_description');
+ for(const guard of ['G0','G12']){const d=proof.descriptions.find(d=>d.guard===guard);check([d.auditRef,...d.sourceRefs].some(r=>r.kind==='audit'&&r.id==='program-result-sizing-r94-v1'&&r.bytes===41830&&r.sha256===PROGRAM_SOURCE_CONTRACT.resultSizing&&!r.range),'result_sizing_authority');}
  check(Array.isArray(profile.objects)&&profile.objects.length>=critical.length&&profile.objects.length<=256,'objects');
  const ids=new Set(),names=new Set();
  for(const object of profile.objects){
@@ -50,7 +52,7 @@ export function validateProgramDependencies({profile,proof,closure,plans,nativeC
  for(const required of ['scripts/event-marker-program-guards.mjs','scripts/event-marker-conservation.mjs','scripts/event-marker-clock.mjs','scripts/event-marker-native-binding.mjs','scripts/event-marker-runtime-observer.mjs','scripts/marker-qualification/codec-input.mjs','scripts/marker-qualification/marker-frame.mjs'])check(paths.has(required),'closure_missing');
  check(plans?.schema==='native-plans-v2'&&same(plans.domains,['externalFeed','externalCodedRecording'])&&plans.generator==='massFrames'&&plans.sourceRate===48000&&plans.sourceChannels===2,'plan');
  check(ref(plans.generatorAuditRef)&&plans.generatorAuditRef.kind==='audit','generator_audit');
- check(Number.isSafeInteger(plans.outerReserveBytes)&&plans.outerReserveBytes>0&&plans.outerReserveBytes<=196608,'outer_reserve');
+ check(Number.isSafeInteger(plans.outerReserveBytes)&&plans.outerReserveBytes>0&&plans.outerReserveBytes<=programResultLimits({profile,plans,intent},intent.execution?.invocation).reservation,'outer_reserve');
  check(!Object.hasOwn(profile,'verified')&&!Object.hasOwn(profile,'approved')&&!Object.hasOwn(proof,'verified'),'supplied_approval');
  return {profile,proof,closure,plans,manifest,guardsRef:{kind:'runtime',id:manifest.entrypoints.proofDescriptions,sha256:manifest.entries.find(e=>e.id===manifest.entrypoints.proofDescriptions).sha256,bytes:manifest.entries.find(e=>e.id===manifest.entrypoints.proofDescriptions).bytes}};
 }

@@ -272,7 +272,12 @@ for (const [path, exports] of Object.entries(expected)) test(`R93 whole DATA own
         assert.deepEqual(second[key], value.returns[key]);
       }
     } else {
-      assert.deepEqual(module[name], value);
+      if (path === 'scripts/event-marker-program-contract.mjs') {
+        // R93's three original operands stay exact; R94 explicitly adds one.
+        const {resultSizing,...base} = module[name];
+        assert.deepEqual(base,value);
+        assert.equal(resultSizing,'0a7214700021178996f717487ce09b513fa8ebfcb70dca6a2bed863abb7a5c3c');
+      } else assert.deepEqual(module[name], value);
       assertFrozenTree(module[name]);
     }
   }

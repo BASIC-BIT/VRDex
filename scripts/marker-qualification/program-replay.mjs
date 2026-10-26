@@ -14,13 +14,36 @@ import { packAudioEpisode } from '../event-marker-wire.mjs';
 import { verifyNativeOuterJoins } from '../event-marker-native-controller.mjs';
 import { validateImplementationCatalog } from '../event-marker-implementation-assets.mjs';
 import { artifactUseEntries } from './artifacts.mjs';
-import { checkProgramOriginalRoles,requireProgramFrontdoor } from './program-originals.mjs';
+import { checkProgramOriginalRoles,requireProgramFrontdoor,programOriginalRole } from './program-originals.mjs';
 import { constructTrainPcm } from './train-construction.mjs';
-import { deriveEvidencePolicy,invocationAggregate } from '../event-marker-evidence-policy.mjs';
+import { deriveEvidencePolicy,invocationAggregate,programResultLimits,isProgramResultReference } from '../event-marker-evidence-policy.mjs';
 import { assertEncodedFormat,assertDecodedCoverage,strictPacketFacts } from './media-facts.mjs';
 const sha=b=>createHash('sha256').update(b).digest('hex'),same=(a,b)=>JSON.stringify(a)===JSON.stringify(b),checked=new WeakMap();
 const must=(v,r)=>{if(!v)throw Error('marker_replay_'+r);};
 const decode=(entry,bytes)=>JSON.parse((entry.name.endsWith('.gz')?gunzipSync(bytes,{maxOutputLength:8388608}):bytes).toString());
+
+/** Resolver owners must bound acquisition (including EOF, identity, deadline
+ * and cancellation) before returning. These checks precede any extra copy. */
+async function readOriginal(ref,cap,resolveOriginal){
+ must(ref&&typeof ref.name==='string'&&/^[a-z0-9][a-z0-9._-]{0,159}$/.test(ref.name)&&Number.isSafeInteger(ref.bytes)&&ref.bytes>0&&ref.bytes<=cap&&/^[0-9a-f]{64}$/.test(ref.sha256),'reference');
+ const raw=await resolveOriginal(ref,{cap:ref.bytes});
+ must(raw instanceof Uint8Array&&raw.byteLength===ref.bytes&&raw.byteLength<=cap,'original_bytes');
+ must(!raw.bindingIdentity||raw.bindingIdentity.nlink===1&&raw.bindingIdentity.eof===true&&raw.bindingIdentity.bytes===ref.bytes,'original_identity');
+ must(sha(raw)===ref.sha256,'original_hash');return Buffer.from(raw);
+}
+/** Hard input bound only. Independent replay derives authority and actual cap. */
+export async function replayProgramOriginal(ref,options={}){
+ must(ref?.role==='observation'&&typeof ref.name==='string'&&ref.name.endsWith('-program-result.json')&&(!ref.id||ref.id===ref.name)&&(!ref.kind||ref.kind==='observation')&&typeof options.resolveOriginal==='function','reference');
+ const raw=await readOriginal(ref,262144,options.resolveOriginal);
+ must(raw.at(-1)===10,'original_eof');
+ const serialized=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(raw));
+ // Bind the actual input to the existing writer representation. Its raw size
+ // and identity then survive both the private scope check and outer join.
+ must(raw.equals(Buffer.from(JSON.stringify(serialized)+'\n')),'original_encoding');
+ const result=await replayProgramRecording(serialized,options);
+ const {manifest}=assertReplayedProgram(result);
+ must(isProgramResultReference(ref,manifest.recordKey,manifest.budget.invocation),'result_identity');return result;
+}
 
 export async function retainProgramReplay(store,{recordKey,settings,file,fileIdentity,result},control={}) {
  const budget=store.programBudget(recordKey);
@@ -45,12 +68,12 @@ function replayVisual(rgb,rows) {
  * media replay. Without actual A/K/I/C/Q/L this returns only local pending work. */
 export async function replayProgramRecording(serialized,{resolveOriginal,resolveImplementation=path=>readFile(path),outerResolver,rootLedger}={}) {
  must(serialized?.programProof?.replayRef&&typeof resolveOriginal==='function','originals_required');
- const readDirect=async ref=>{must(ref&&typeof ref.name==='string'&&Number.isSafeInteger(ref.bytes)&&ref.bytes>0&&ref.bytes<=67108864&&/^[0-9a-f]{64}$/.test(ref.sha256),'reference');const b=Buffer.from(await resolveOriginal(ref));must(b.length===ref.bytes&&sha(b)===ref.sha256,'original_hash');return b;};
- const ref=serialized.programProof.replayRef;must(ref.role==='observation'&&ref.bytes<=196608,'manifest_role');const manifest=decode(ref,await readDirect(ref));must(manifest.schema==='program-originals-v1'&&Array.isArray(manifest.budget?.uses)&&manifest.budget.uses.length<=4096,'manifest');
+ const readDirect=(ref,cap)=>readOriginal(ref,cap,resolveOriginal);
+ const ref=serialized.programProof.replayRef;must(ref.role==='observation'&&ref.bytes<=196608,'manifest_role');const manifest=decode(ref,await readDirect(ref,196608));must(manifest.schema==='program-originals-v1'&&Array.isArray(manifest.budget?.uses)&&manifest.budget.uses.length<=4096,'manifest');
  const uses=artifactUseEntries(manifest.budget),refs=uses.map(({event,kind,...ref})=>ref);
  checkProgramOriginalRoles(refs,manifest.recordKey,manifest.budget.invocation);
  const byName=new Map(),raws=new Map();let numeric=ref.bytes,total=ref.bytes;
- for(const r of refs){must(!byName.has(r.name)&&r.name!==ref.name,'duplicate_original');byName.set(r.name,r);const b=await readDirect(r);raws.set(r.name,b);total+=b.length;if(!['coded','pcm','rgb'].includes(r.role))numeric+=b.length;}
+ for(const r of refs){must(!byName.has(r.name)&&r.name!==ref.name,'duplicate_original');byName.set(r.name,r);const b=await readDirect(r,programOriginalRole(r.name,manifest.recordKey)[1]);raws.set(r.name,b);total+=b.length;if(!['coded','pcm','rgb'].includes(r.role))numeric+=b.length;}
  const budget=manifest.budget;
  must(!Object.hasOwn(serialized.programProof,'budget'),'serialized_budget');
  must(Array.isArray(budget.implementationAssets)&&Array.isArray(budget.implementationUses)&&budget.implementationAssets.length<=256,'implementation_ledger');
@@ -96,7 +119,10 @@ export async function replayProgramRecording(serialized,{resolveOriginal,resolve
   must(constructTrainPcm(requestBody.train,noiseBySeed).equals(inputPcm),'noise_construction');
   for(const i of [0,1]){const name=prefix+'-metadata-'+i+'.json',raw=original(name),owner=readJson(prefix+'-metadata-'+i+'-owner.json');must(owner.status===200&&owner.bodyEOF&&owner.elapsedMs>=0&&owner.elapsedMs<=2000&&owner.bytes===raw.length&&raw.length<=65536&&owner.ref.name===name&&owner.ref.sha256===sha(raw),'metadata_original');}
  }
- const policy=deriveEvidencePolicy(inspectAcquiredDependencies(encoder.binding),budget.invocation);must(budget.policyId===policy.id&&budget.normalNumericCap===policy.normal&&budget.finalNumericCap===policy.final&&numeric+budget.reservedOuterBytes<=policy.normal,'policy');
+ const deps=inspectAcquiredDependencies(encoder.binding),limits=programResultLimits(deps,budget.invocation);
+ must(Number.isSafeInteger(budget.reservedOuterBytes)&&budget.reservedOuterBytes>0&&budget.reservedOuterBytes===deps.plans.outerReserveBytes&&budget.reservedOuterBytes<=limits.reservation,'reservation');
+ must(Buffer.byteLength(JSON.stringify(serialized)+'\n')<=limits.result,'result_cap');
+ const policy=deriveEvidencePolicy(deps,budget.invocation);must(budget.policyId===policy.id&&budget.normalNumericCap===policy.normal&&budget.finalNumericCap===policy.final&&numeric+budget.reservedOuterBytes<=policy.normal,'policy');
  must(same(budget.dependencyUses,[...expectedDependencyUses].map(([id,recordings])=>({id,recordings}))),'dependency_events');
  const feed=kind=>{const f=readJson(`${prefix}-${kind}-feed-facts.json.gz`),compressed=original(f.trace.artifact.name);let at=0;return {...f,trace:{...f.trace,members:f.trace.members.map(m=>{const b=compressed.subarray(at,at+m.bytes);at+=m.bytes;return {...m,data:b.toString('base64')};})}};};
  const producer={file:{bytes:bytes.length,sha256:sha(bytes)},encoder,parameters,inputPcm,source:{...construction,parametersSHA256:sha(parameters),replay:sourceReplay.replay,sourceJoin:sourceReplay.sourceJoin,missing:[]},feeds:{video:feed('video'),audio:feed('audio')}};
