@@ -1,6 +1,6 @@
 # PR #388 independent whole-branch source review
 
-2026-10-26. Reviewer: the independent `final_authority_branch_review` agent. PR: <https://github.com/BASIC-BIT/VRDex/pull/388>.
+2026-10-26. Reviewer: the independent `final_authority_branch_review` agent. PR: [#388](https://github.com/BASIC-BIT/VRDex/pull/388).
 
 Reviewed baseline `db9abbcd59a30d206d85c0dcb2f407150e31dd9e` through HEAD `94f65f6ddfb57be28f43234ea9f31edb352c28ce` in `/workspace/VRDex`. This is a final review of the branch's SOURCE portion. It is not completion of Task 3, actual-image/native semantic approval, external prelaunch A, merge readiness, or capacity admission.
 

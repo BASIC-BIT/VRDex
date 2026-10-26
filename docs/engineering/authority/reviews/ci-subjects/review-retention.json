@@ -11,13 +11,13 @@
     },
     {
       "path": "docs/engineering/authority/reviews/rebaseline-whole-branch-source-review.md",
-      "bytes": 16257,
-      "sha256": "5cfd56effd3802652a88bc01ccdc616ec8b00587ad80ea5156e6e54b697ac43d"
+      "bytes": 16263,
+      "sha256": "f40bd93f4e823515663e4e0a115af679e0ea41770f3034bc7a37c40a2cbf9e08"
     },
     {
       "path": "docs/engineering/authority/reviews/rebaseline-ci-triage.md",
-      "bytes": 6030,
-      "sha256": "8b6fc4c67aed7177c36e5c0df5d4a08600b4bdf0481f910c75e9cbef7302f889"
+      "bytes": 6049,
+      "sha256": "f4b060d3615ae79a352cb5395509dbad2b84692c17c4e36e80196ab82a0da9ba"
     },
     {
       "path": "docs/engineering/authority/reviews/ci-subjects/migration-evidence-40398508442.zip",
@@ -40,6 +40,34 @@
       "path": "tests/scripts/event-marker-qualification-authority.test.mjs",
       "bytes": 1068,
       "sha256": "7811579f242ad6a49395eee96852968b96c3ce398592d41079751a9336e85b15"
+    }
+  ],
+  "presentationChanges": [
+    {
+      "path": "docs/engineering/authority/reviews/rebaseline-whole-branch-source-review.md",
+      "previousIdentity": {
+        "bytes": 16257,
+        "sha256": "5cfd56effd3802652a88bc01ccdc616ec8b00587ad80ea5156e6e54b697ac43d"
+      },
+      "previousCommit": "3f9f132e976c06207b7d10cfe7124fb4c1745273",
+      "previousRefs": [
+        "https://github.com/BASIC-BIT/VRDex/pull/388",
+        "https://github.com/BASIC-BIT/VRDex/actions/runs/40398508442"
+      ],
+      "explanation": "MDX-compatible link syntax only; substantive review unchanged"
+    },
+    {
+      "path": "docs/engineering/authority/reviews/rebaseline-ci-triage.md",
+      "previousIdentity": {
+        "bytes": 6030,
+        "sha256": "8b6fc4c67aed7177c36e5c0df5d4a08600b4bdf0481f910c75e9cbef7302f889"
+      },
+      "previousCommit": "3f9f132e976c06207b7d10cfe7124fb4c1745273",
+      "previousRefs": [
+        "https://github.com/BASIC-BIT/VRDex/pull/388",
+        "https://github.com/BASIC-BIT/VRDex/actions/runs/40398508442"
+      ],
+      "explanation": "MDX-compatible link syntax only; substantive review unchanged"
     }
   ]
 }

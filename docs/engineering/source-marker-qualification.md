@@ -303,10 +303,19 @@ Current source verification leaves conditional PROGRAM/native132, actual
 runtime/native fit, current-image correspondence and ordinary 42-Python/90-Node
 execution, external A, four paired canary captures, bulk qualification and
 capacity OPEN. Historical optional R93 differential skips remain unrun without
-their retained baseline. The empty production allocation map and its known host
-fixture failures remain OPEN; no allocation may be fabricated to make tests
-pass. Complete host-chain success must be reported separately from focused
-source checks. Source simulations establish neither native execution nor A.
+their retained baseline. The production allocation map remains empty pending
+measurements. Unit fixtures now supply explicit synthetic capacity through
+resolver dependencies; default production scheduling and bridge paths still
+reject unmeasured configurations.
+
+The [capacity fixture verification](authority/reviews/capacity-unit-test-seam-verification.md)
+records passing host checks at `032307dd`: backend 2019/2019, scripts 979 passes
+and six documented skips, MCP verification, Temporal runtime 14/14 and Temporal
+inference 7/7. Actual anonymous-local Convex analysis found exactly one public
+scheduling mutation and no factory or fixture endpoint. These checks resolve the
+earlier host fixture failures; they supply no native execution, measurement or A.
+The actual migration rehearsal's positive production admission remains blocked
+by the empty measured allocation map.
 
 Before any paid continuation, Root refreshes actual spend and reservations under
 the remaining $20 ceiling and $1 ancillary reserve; $1.53346 is an estimate.

@@ -1,7 +1,7 @@
 # PR #388 CI triage
 
-PR: <https://github.com/BASIC-BIT/VRDex/pull/388>
-Run: <https://github.com/BASIC-BIT/VRDex/actions/runs/40398508442>
+PR: [#388](https://github.com/BASIC-BIT/VRDex/pull/388)
+Run: [40398508442](https://github.com/BASIC-BIT/VRDex/actions/runs/40398508442)
 HEAD: 4e4ed7af635af8d72b2cee273d9de29ce381f080
 Baseline comparison: db9abbc (local existing commit; no fetch or checkout).
 
