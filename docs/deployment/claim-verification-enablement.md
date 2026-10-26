@@ -91,6 +91,21 @@ group-telemetry collector, which reads the target's bio or group description,
 looks for the one-time code, and reports only a boolean back through
 `proof_result`. Bio and description text is never returned, cached, or logged.
 
+Person checks make one authenticated `GET /profile/{targetExternalId}` request
+and require an object with the exact requested `id` and a string `bio`. They
+inspect only `bio`, with no `/users` fallback or second status request. Group
+checks retain `GET /groups/{targetExternalId}` and inspect `description` and
+`name`.
+
+A readable bio without the code, including an empty string, records
+`not_found`. A missing, null, non-string bio, invalid response envelope, or
+missing or mismatched identity throws `schema_drift`. The worker records
+`provider_unavailable` instead of sending a negative `proof_result`. The
+attempt stays pending with the same code and expiry and can settle on a later
+due check while still unexpired. Cooldown, expiry, collector binding, and
+ownership checks still apply. Expired or canceled attempts must restart through
+the normal claim flow. The browser's existing pending/queued copy is unchanged.
+
 This runs on the existing collector fleet and therefore inherits its gates:
 
 - `VRDEX_GROUP_TELEMETRY_ENABLED=true` on the worker,
@@ -128,6 +143,13 @@ not prove that claimants can use it. Runtime diagnostics are structured JSON. In
 `collector_auth_required`, `collector_control_plane_failure`, and
 `collector_worker_restart` carry bounded classifications without exception
 messages, proof material, provider payloads, target IDs, or credentials.
+
+Heartbeat/readiness checks and browser adapter tests do not establish successful
+bio access by the collector account. After a separately approved release, use
+the [controlled person-proof procedure](./group-telemetry-collector.md#controlled-person-proof-acceptance)
+to verify actual collector dispatch, a found result, normal backend settlement,
+and the claim page's reactive result. Live profile edits and ownership changes
+require separate authorization.
 
 ## Path 4: VRC Linking
 

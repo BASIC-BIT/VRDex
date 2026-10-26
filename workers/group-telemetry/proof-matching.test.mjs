@@ -21,13 +21,13 @@ it("the provider client reads the bound user or group and returns only a match",
       paths.push(path);
       return Response.json(path.includes("/groups/")
         ? { description: "VRDEX00001", bio: "VRDEX99999" }
-        : { bio: "bio: vrdex19825.", description: "VRDEX99999" });
+        : { id: "usr_fixture", bio: "bio: vrdex19825.", description: "VRDEX99999" });
     },
   });
   assert.equal(await client.findProofCode("vrchat_user", "usr_fixture", "VRDEX19825"), true);
   assert.equal(await client.findProofCode("vrchat_group", "grp_fixture", "VRDEX00001"), true);
   assert.equal(await client.findProofCode("vrchat_user", "usr_fixture", "VRDEX99999"), false);
-  assert.deepEqual(paths, ["/api/1/users/usr_fixture", "/api/1/groups/grp_fixture", "/api/1/users/usr_fixture"]);
+  assert.deepEqual(paths, ["/api/1/profile/usr_fixture", "/api/1/groups/grp_fixture", "/api/1/profile/usr_fixture"]);
 });
 
 describe("VRChat proof matching", () => {
@@ -76,7 +76,7 @@ describe("VRChat proof matching", () => {
 
   it("reads group descriptions and user bios from the right fields", () => {
     assert.deepEqual(proofSurfaceFields("vrchat_group"), ["description", "name"]);
-    assert.deepEqual(proofSurfaceFields("vrchat_user"), ["bio", "statusDescription"]);
+    assert.deepEqual(proofSurfaceFields("vrchat_user"), ["bio"]);
   });
 });
 
