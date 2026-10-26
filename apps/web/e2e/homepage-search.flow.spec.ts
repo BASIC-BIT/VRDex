@@ -99,8 +99,11 @@ for (const destination of [
     await page.getByRole("combobox", { name: /Search/i }).fill(destination.query);
     const option = page.getByRole("option", { name: destination.name }).first();
     await expect(option).toBeVisible();
-    if (isMobile) await option.tap();
-    else await option.click();
+    // The first profile navigation includes the local server's route compilation.
+    await Promise.all([
+      page.waitForURL((url) => url.pathname === destination.path && !url.search, { timeout: 15_000 }),
+      isMobile ? option.tap() : option.click(),
+    ]);
     await expect(page).toHaveURL((url) => url.pathname === destination.path && !url.search);
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
   });
