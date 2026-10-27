@@ -161,9 +161,9 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  min-width: 0;
   text-align: left;
   flex: 1;
+  min-width: min(100%, 100px);
   height: 100%;
   padding: 6px 8px;
 }

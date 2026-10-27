@@ -5,7 +5,7 @@ import type {
   TimelineEvent,
 } from "../../../../../../convex/_eventTimelineTypes";
 import { planSaveState } from "@/lib/timeline/plan-actions";
-import { scheduleGeometry } from "@/lib/timeline/geometry";
+import { scheduleGeometry, timeToX } from "@/lib/timeline/geometry";
 import type { TimelineSelection } from "./home-schedule";
 import styles from "./timeline.module.css";
 export type TimelineActions = {
@@ -25,15 +25,29 @@ export function isSaved(
 export function TimelineEventBar({
   event,
   origin,
+  visibleStartAt,
   top,
   ...actions
-}: TimelineActions & { event: TimelineEvent; origin: number; top: number }) {
+}: TimelineActions & {
+  event: TimelineEvent;
+  origin: number;
+  visibleStartAt: number;
+  top: number;
+}) {
   const geometry = scheduleGeometry({
     schedule: event.schedule,
     origin,
     pixelsPerHour: 100,
   });
   if (geometry?.kind !== "bar") return null;
+  const headerInset = Math.max(
+    0,
+    Math.min(
+      geometry.width,
+      timeToX({ instant: visibleStartAt, origin, pixelsPerHour: 100 }) -
+        geometry.x,
+    ),
+  );
   const reference: PlanReference = { kind: "event", eventId: event.id };
   const saved = isSaved(actions.plan, reference);
   const selected = actions.selection?.eventId === event.id;
@@ -44,7 +58,7 @@ export function TimelineEventBar({
       data-selected={selected}
       style={{ left: geometry.x, width: geometry.width, top }}
     >
-      <div className={styles.eventHeader}>
+      <div className={styles.eventHeader} style={{ marginLeft: headerInset }}>
         <button
           className={styles.eventOpen}
           aria-label={`Open ${event.title}`}

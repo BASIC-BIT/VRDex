@@ -138,7 +138,8 @@ function ScheduleContent({
     update?.flush();
   }, [cancelReplace]);
   const navigate = (changes: Partial<TimelineNavigation>, push = true) => {
-    cancelReplace();
+    if (push) flushReplace();
+    else cancelReplace();
     const next = { ...navigation, ...changes };
     const valid = normalizeTimelineAnchor(next.anchor);
     next.anchor = valid ?? Date.now() - HOUR;

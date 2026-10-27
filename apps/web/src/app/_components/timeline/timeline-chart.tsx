@@ -65,7 +65,10 @@ export function TimelineChart({
       origin,
       pixelsPerHour: 100,
     });
-    if (Math.abs(el.scrollLeft - target) > 1) el.scrollLeft = target;
+    if (Math.abs(el.scrollLeft - target) > 1) {
+      if (drag.current) drag.current.scroll += target - el.scrollLeft;
+      el.scrollLeft = target;
+    }
   }, [origin, range.startAt]);
   useLayoutEffect(() => {
     const el = scroller.current;
@@ -80,6 +83,15 @@ export function TimelineChart({
   const formatHour = new Intl.DateTimeFormat(undefined, {
     timeZone: range.timeZone,
     hour: "numeric",
+  });
+  const formatMinute = new Intl.DateTimeFormat(undefined, {
+    timeZone: range.timeZone,
+    minute: "numeric",
+  });
+  const formatHourMinute = new Intl.DateTimeFormat(undefined, {
+    timeZone: range.timeZone,
+    hour: "numeric",
+    minute: "2-digit",
   });
   const unknown = records.filter(
     (e) => e.schedule.kind !== "timed" && inRange(e, range),
@@ -158,7 +170,9 @@ export function TimelineChart({
           <div className={styles.hourAxis}>
             {Array.from({ length: 144 }, (_, i) => (
               <span key={i} style={{ left: i * 100 }}>
-                {formatHour.format(origin + i * HOUR)}
+                {Number(formatMinute.format(origin + i * HOUR)) === 0
+                  ? formatHour.format(origin + i * HOUR)
+                  : formatHourMinute.format(origin + i * HOUR)}
               </span>
             ))}
           </div>
@@ -180,6 +194,7 @@ export function TimelineChart({
                   key={event.id}
                   event={event}
                   origin={origin}
+                  visibleStartAt={range.startAt}
                   top={lane.lane * 94 + 8}
                   {...actions}
                 />
