@@ -1,5 +1,7 @@
 # Group telemetry collector operations
 
+Automatic group statistics have a separate [gated release runbook and exact-copy packet](automatic-group-statistics-release.md). Deploy the compatible control plane with admission disabled and limit zero, migrate managed records, then verify capability-aware workers before the public clients and approved pilot. The existing managed deployment gate does not authorize automatic enrollment.
+
 ## Deployment gate
 
 Do not enable fleet infrastructure until a VRDex-owned account and consenting test group complete the bounded provider proof in `scripts/prove-vrchat-group-telemetry.mjs`. Hosted provider-session storage is cleared by BASIC's 2026-07-27 risk decision, recorded in the bootstrap steps below — a product-owner acceptance of a known operating pattern, not a VRChat grant. The proof writes sanitized local evidence under ignored `artifacts/group-telemetry-proof/`; evidence and logs must never contain credentials or cookies. Local proof sessions are confined to the operator's operating-system credential vault. That cache is a deliberate bounded risk for VRDex-owned proof accounts, not a provider-approved exemption; stop proof traffic and clear it if VRChat objects.
@@ -223,7 +225,7 @@ aws logs filter-log-events --region us-east-1 --log-group-name /aws/ecs/vrdex-gr
 
 The worker checks its session at startup and then at jittered 8-12 minute intervals, including when no telemetry integrations or proofs are queued. A release readiness check that requires `vrchat_proof_v1` fails while the account is `auth_required`; that failure is correct and clears once the session is replaced and the account is back to `ready`.
 
-For account loss, quarantine the account before assigning groups elsewhere. Capacity allocation chooses only ready, non-cooled-down accounts with reserved headroom. The internal reassignment operation checks target headroom, releases the old lease, and opens an unknown coverage window before the replacement account joins. A quarantined account stays quarantined when credentials rotate; reconcile or remove its old VRChat group memberships before explicitly returning it to `ready`. For rollback, stop ECS, turn on the global kill switch, and leave stored history in place while the previous image/configuration is restored.
+For account loss, quarantine the account before assigning managed groups elsewhere. Capacity allocation chooses only ready, non-cooled-down accounts with reserved headroom. The internal reassignment operation checks target headroom, releases the old lease, and opens an unknown coverage window before the replacement account joins. Automatic groups reject reassignment and honor membership loss as a stop. A quarantined account stays quarantined when credentials rotate; reconcile or remove its old VRChat group memberships before explicitly returning it to `ready`. For automatic rollback, disable admission first, fence affected leases through group stops, suppress output and complete cleanup while retaining history. Follow the gated runbook before restoring an older image; legacy workers cannot receive automatic assignments. A global kill switch or stopping ECS pauses unrelated managed work too and requires its own operational decision.
 
 ## Cost and self-hosting
 

@@ -1,3 +1,5 @@
+import { PublicProfileReadInputSchema } from "../packages/api-contracts/src/schemas";
+import { parseProfileLinkDestination } from "./_profileLinkDestination";
 import { projectProfileLinkDestinations, queueProfileLinkDestinations } from "./_profileLinkDestinationCache";
 import { publicKitAvailable } from "./_mediaReview";
 import { ConvexError, type Infer, v } from "convex/values";
@@ -95,6 +97,7 @@ const apiProfileUpdateArgs = {
       categoryTags: v.optional(v.array(v.string())),
     }),
   ),
+  primaryGroupUrl: v.optional(nullableString),
   outboundLinks: v.optional(v.array(profileLinkInputValidator)),
   // No `expectedUpdatedAt` here. Every update mutation declares its own as
   // `v.number()`, so the guard is enforced by the validator rather than by a
@@ -130,6 +133,7 @@ function toApiOwnedProfileSummary(profile: Doc<"profiles">) {
     tags: profile.tags,
     // `source` dropped rather than echoed. The server assigns it from who is
     // writing, and returning it would invite a client to send it back.
+    primaryGroupUrl: profile.primaryGroupReference?.url,
     outboundLinks: (profile.outboundLinks ?? []).map((link) => ({
       type: link.type,
       url: link.url,
@@ -406,6 +410,7 @@ export const updateProfileForApiOwner = internalMutation({
       profile,
       input: args,
       subject: editSubject,
+      contributorUserId: args.ownerUserId,
       now,
     });
 
@@ -448,6 +453,8 @@ export const updateProfileForApiOwner = internalMutation({
 export const getPublicBySlug = query({
   args: {
     slug: v.string(),
+    statisticsStartAt: v.optional(v.number()),
+    statisticsEndAt: v.optional(v.number()),
     profileType: v.optional(profileType),
     now: v.optional(v.number()),
     includeTelemetry: v.optional(v.boolean()),
@@ -474,6 +481,10 @@ export const getPublicBySlug = query({
       return null;
     }
 
+    const parsed = PublicProfileReadInputSchema.safeParse({ ...args, profileType: profile.profileType });
+    if (!parsed.success) throw new ConvexError({ code: "STATISTICS_RANGE_INVALID", message: "Invalid statistics range. Ranges require a community profile." });
+    const range = args.statisticsStartAt !== undefined && args.statisticsEndAt !== undefined
+      ? { startAt: args.statisticsStartAt, endAt: args.statisticsEndAt } : undefined;
     const now = args.now ?? Date.now();
     const eventContext =
       profile.profileType === "person"
@@ -506,7 +517,7 @@ export const getPublicBySlug = query({
         ? publicProfile.bannerImageUrl
         : undefined;
     const telemetry = profile.profileType === "community" && args.includeTelemetry !== false
-      ? await getPublicCommunityTelemetry(ctx.db, profile._id, now)
+      ? await getPublicCommunityTelemetry(ctx.db, profile._id, now, range)
       : null;
     const groupMembership = profile.profileType === "community" && args.includeTelemetry !== false
       ? await getPublicGroupMembership(ctx.db, profile._id)
@@ -616,6 +627,7 @@ const communityProfileSubmissionArgs = {
       categoryTags: v.optional(v.array(v.string())),
     }),
   ),
+  primaryGroupUrl: v.optional(nullableString),
   outboundLinks: v.optional(v.array(profileLinkInputValidator)),
 };
 
@@ -642,6 +654,7 @@ export async function createCommunityProfileRecord(
   ctx: MutationCtx,
   args: CommunityProfileSubmissionInput,
   submitter: AuthSubject,
+  contributorUserId?: Id<"users">,
 ) {
   {
     // Community-submitted: the signed-in submitter is adding a profile for
@@ -671,7 +684,9 @@ export async function createCommunityProfileRecord(
       submitter,
     };
 
+    if (input.primaryGroupUrl && !contributorUserId) throw new Error("Authenticated contributor is required.");
     const sharedFields = {
+      ...(input.primaryGroupUrl && contributorUserId ? { primaryGroupReference: { url: input.primaryGroupUrl, key: parseProfileLinkDestination(input.primaryGroupUrl)!.key, contributorUserId } } : {}),
       slug,
       displayName: input.displayName,
       sortName: input.sortName,
@@ -796,9 +811,9 @@ export const submitCommunityProfile = mutation({
     assets: v.optional(v.array(profileAssetUploadInput)),
   },
   handler: async (ctx, args) => {
-    const { subject } = await requireActiveBrowserSessionSubject(ctx);
+    const { subject, user } = await requireActiveBrowserSessionSubject(ctx);
 
-    return await createCommunityProfileRecord(ctx, args, subject);
+    return await createCommunityProfileRecord(ctx, args, subject, user._id);
   },
 });
 
@@ -892,6 +907,7 @@ export const editableProfile = query({
       // so anything omitted here is dropped on the next save: a custom label
       // becomes the provider's default name, a VRCDN handle has to be re-derived,
       // and a copy-styled link turns into a button.
+      primaryGroupUrl: whenEditable("outboundLinks", profile.primaryGroupReference?.url ?? null),
       outboundLinks: whenEditable(
         "outboundLinks",
         await projectProfileLinkDestinations(ctx.db, (profile.outboundLinks ?? []).map((link) => ({
@@ -1056,6 +1072,7 @@ export const updateProfileFromBrowser = mutation({
       profile,
       input: args,
       subject: editSubject,
+      contributorUserId: user._id,
       now,
     });
 
@@ -1171,6 +1188,7 @@ export const updateProfileForMcpActor = internalMutation({
         profile,
         input: args,
         subject: authorization.editSubject,
+        contributorUserId: args.ownerUserId,
         now: Date.now(),
       });
 
@@ -1265,6 +1283,7 @@ export const submitCommunityProfileForMcpActor = internalMutation({
         ctx,
         args,
         apiOwnerAuthSubject(args.ownerUserId),
+        args.ownerUserId,
       );
     } catch (error) {
       throw asMcpProfileWriteError(error);
@@ -1393,6 +1412,7 @@ export const submitCommunityProfileForApiUser = internalMutation({
       ctx,
       args,
       apiOwnerAuthSubject(args.ownerUserId),
+      args.ownerUserId,
     );
     const now = Date.now();
     const result: McpProfileWriteResult = {

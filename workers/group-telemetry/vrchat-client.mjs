@@ -276,8 +276,32 @@ export class VrchatClient {
     }
   }
 
-  async connectGroup(groupId) {
-    let group = await this.getGroup(groupId);
+  async connectGroup(groupId, { admissionMode = "managed", authorizeRequest } = {}) {
+    if (admissionMode === "automatic" && !await authorizeRequest("metadata")) return null;
+    let group;
+    try {
+      group = await this.getGroup(groupId);
+    } catch (error) {
+      if (admissionMode === "automatic" && [403, 404].includes(error?.status)) return { admissionRequired: "invalid" };
+      throw error;
+    }
+    if (admissionMode === "automatic") {
+      const reason = group.groupVisibility !== "public" ? "private"
+        : group.joinPolicy === "request" || group.joinPolicy === "invite" ? group.joinPolicy
+        : group.joinPolicy !== "free" ? "invalid" : undefined;
+      if (reason) return { ...group, state: "blocked", admissionRequired: reason };
+      if (group.membershipStatus === "member") return { ...group, state: "active", transition: "already_member" };
+      if (["banned", "userblocked"].includes(group.membershipStatus))
+        throw new VrchatProviderError("Automatic group membership is unavailable.", { category: "membership", status: 403 });
+      if (["requested", "unknown"].includes(group.membershipStatus)) return { ...group, state: "blocked", admissionRequired: "invalid" };
+      if (!await authorizeRequest("join")) return null;
+      await this.joinGroup(groupId);
+      if (!await authorizeRequest("metadata")) return null;
+      group = await this.getGroup(groupId);
+      if (group.membershipStatus !== "member")
+        throw new VrchatProviderError("Automatic group membership was not confirmed.", { category: "membership", status: 403 });
+      return { ...group, state: "active", transition: "joined" };
+    }
     if (group.membershipStatus === "member") return { ...group, state: "active", transition: "already_member" };
     if (group.membershipStatus === "banned" || group.membershipStatus === "userblocked") return { ...group, state: "blocked", transition: group.membershipStatus };
     if (group.membershipStatus === "requested") return { ...group, state: "awaiting_approval", transition: "request_pending" };
@@ -297,9 +321,14 @@ export class VrchatClient {
     return { ...group, state: "connecting", transition: group.membershipStatus };
   }
 
-  async readAggregateSnapshot(groupId) {
-    const group = await this.getGroup(groupId, { maxAgeMs: this.groupCacheTtlMs });
+  async readAggregateSnapshot(groupId, { admissionMode = "managed", authorizeRequest } = {}) {
+    const guarded = admissionMode === "automatic" || authorizeRequest !== undefined;
+    if (guarded && !await authorizeRequest("metadata")) return null;
+    const group = await this.getGroup(groupId, { maxAgeMs: guarded ? 0 : this.groupCacheTtlMs });
+    if (admissionMode === "automatic" && (group.groupVisibility !== "public" || group.joinPolicy !== "free"))
+      throw new VrchatProviderError("Automatic group policy changed.", { category: "membership", status: 403 });
     if (group.membershipStatus !== "member") throw new VrchatProviderError(`Service account membership is ${group.membershipStatus}.`, { status: 403, category: "membership" });
+    if (guarded && !await authorizeRequest("instances")) return null;
     const rawInstances = await this.request(`/groups/${encodeURIComponent(groupId)}/instances`);
     if (!Array.isArray(rawInstances)) throw new VrchatProviderError("Group instance response is malformed.", { category: "schema_drift" });
     const instances = rawInstances.map((item) => {

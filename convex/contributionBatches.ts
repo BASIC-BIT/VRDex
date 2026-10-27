@@ -547,7 +547,7 @@ export const submit = internalMutation({
             issuer: "vrdex:api",
             subject: String(args.actorUserId),
             tokenIdentifier: `api:${args.actorUserId}`,
-          })
+          }, args.actorUserId)
         ).profileId;
       if (input.kind === "profile_links") {
         const targetId = ctx.db.normalizeId("profiles", input.profileId),

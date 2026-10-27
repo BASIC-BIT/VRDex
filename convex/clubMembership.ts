@@ -1,3 +1,5 @@
+import { readCollectionSubject, readManagedIntegration, resolveGroupObservationPolicy } from "./_groupObservationPolicy";
+import { assertAutomaticOperationAllowed } from "./_communityTelemetry";
 import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import {
@@ -126,6 +128,8 @@ async function active(
       args.epochStartedAt
   )
     throw new Error("Inactive membership collection scope.");
+  assertAutomaticOperationAllowed({collectionMode: readCollectionSubject(integration).kind, operation: "membership_scan"});
+  if (integration.namedMembershipCollectionEnabled === false) throw new Error("Named membership collection is disabled.");
   return integration;
 }
 export const beginScan = internalMutation({
@@ -415,12 +419,7 @@ async function readContext(ctx: QueryCtx, slug: string, individual: boolean) {
     )
   )
     throw new Error("You do not have access to this category.");
-  const integration = await ctx.db
-    .query("communityVrchatIntegrations")
-    .withIndex("by_communityProfileId", (q) =>
-      q.eq("communityProfileId", community._id),
-    )
-    .first();
+  const integration = await readManagedIntegration(ctx.db, community._id);
   if (
     !integration ||
     (actor.kind === "none" &&
@@ -430,8 +429,15 @@ async function readContext(ctx: QueryCtx, slug: string, individual: boolean) {
           !integration.enabledFeatures.includes("analytics"))))
   )
     return null;
+  let historyStartAt = integration.telemetryEpochStartedAt ?? integration.createdAt;
+  if (actor.kind === "none") {
+    const policy = await resolveGroupObservationPolicy(ctx.db, { vrchatGroupId: integration.vrchatGroupId, profileId: community._id, now: Date.now() });
+    if (policy.kind !== "managed" || policy.integration._id !== integration._id || policy.categories.membership_movement.audience !== "public") return null;
+    historyStartAt = Math.max(historyStartAt, policy.historyStartAt);
+  }
   return {
     integrationId: integration._id,
+    historyStartAt,
     epochStartedAt:
       integration.telemetryEpochStartedAt ?? integration.createdAt,
   };
@@ -447,7 +453,7 @@ export const getMovementBucket = query({
     checkedMembershipRange(args.startAt, args.endAt, 25 * 3600_000);
     const state = await readContext(ctx, args.communitySlug, false);
     const unknown = { joins: null, departures: null, complete: false };
-    if (!state) return unknown;
+    if (!state || args.startAt < state.historyStartAt) return unknown;
     const intervals = [];
     for (
       let day = Math.floor(args.startAt / DAY_MS) * DAY_MS;
@@ -463,7 +469,7 @@ export const getMovementBucket = query({
             .eq("day", day),
         )
         .unique();
-      intervals.push(...(coverage?.intervals ?? []));
+      intervals.push(...(coverage?.intervals ?? []).map(interval => ({ startAt: Math.max(interval.startAt, state.historyStartAt), endAt: interval.endAt })));
     }
     if (
       !mergeCoverage(intervals).some(

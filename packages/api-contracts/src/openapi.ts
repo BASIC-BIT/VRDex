@@ -50,6 +50,7 @@ import {
   PublicProfileAssetsResponseSchema,
   PublicProfileLogosResponseSchema,
   PublicProfileSchema,
+  PublicStatisticsRangeInputSchema,
   PublicSearchResponseSchema,
   PublicWorldEventsResponseSchema,
   PublicWorldSchema,
@@ -672,6 +673,7 @@ export const openApiSource = {
         summary: "Get a public profile",
         requestParams: {
           path: SlugPathParamsSchema,
+          query: PublicStatisticsRangeInputSchema,
         },
         responses: {
           "200": {
@@ -1043,6 +1045,7 @@ export const openApiSource = {
         summary: "Get a public person profile",
         requestParams: {
           path: SlugPathParamsSchema,
+          query: PublicStatisticsRangeInputSchema,
         },
         responses: {
           "200": {
@@ -1077,6 +1080,7 @@ export const openApiSource = {
         summary: "Get a public community profile",
         requestParams: {
           path: SlugPathParamsSchema,
+          query: PublicStatisticsRangeInputSchema,
         },
         responses: {
           "200": {

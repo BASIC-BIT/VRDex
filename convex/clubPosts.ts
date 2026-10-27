@@ -1,3 +1,4 @@
+import { readManagedIntegration } from "./_groupObservationPolicy";
 import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import {
@@ -20,12 +21,7 @@ async function access(
   const actor = await resolveClubActor(ctx, communityProfileId);
   requireClubPermission(actor, "publish_posts");
   if (!actor.subject) throw new Error("Sign in required.");
-  const integration = await ctx.db
-    .query("communityVrchatIntegrations")
-    .withIndex("by_communityProfileId", (q) =>
-      q.eq("communityProfileId", communityProfileId),
-    )
-    .unique();
+  const integration = await readManagedIntegration(ctx.db, communityProfileId);
   if (!integration || !enabledClubFeatures(integration).includes("posts"))
     throw new Error("Posts are disabled.");
   return actor;

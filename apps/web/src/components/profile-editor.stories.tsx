@@ -131,3 +131,10 @@ export const DestinationEditor: Story = {
   </form>,
 };
 
+
+export const PrimaryGroup: Story = {render: () => (
+  <form className="mx-auto grid max-w-2xl gap-6" onSubmit={event => event.preventDefault()}>
+    <ProfileFields profileType="community" editableFields={["outboundLinks"]} defaults={{displayName: "Example Community", primaryGroupUrl: "https://vrc.group/TEST.1234", links: [{type: "vrchat_profile", url: "https://vrc.group/TEST.1234", label: "VRChat"}]}} />
+    <Button type="submit">Save changes</Button>
+  </form>
+)};

@@ -1,3 +1,4 @@
+import { readManagedIntegration } from "./_groupObservationPolicy";
 import { v } from "convex/values";
 import { internalMutation, type MutationCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
@@ -130,17 +131,13 @@ export const seedAnalytics = internalMutation({
     analyticsGuard(args.secret);
     await fixture(ctx, args.runId, args.profileId);
     if (
-      await ctx.db
-        .query("communityVrchatIntegrations")
-        .withIndex("by_communityProfileId", (q) =>
-          q.eq("communityProfileId", args.profileId),
-        )
-        .first()
+      await readManagedIntegration(ctx.db, args.profileId)
     )
       throw new Error("Fixture already has an integration.");
     const marker = `e2e-analytics:${args.runId}`;
     const startAt = Date.UTC(2026, 8, 8, 12);
     const integrationId = await ctx.db.insert("communityVrchatIntegrations", {
+      collectionScope: { kind: "managed", communityProfileId: args.profileId },
       communityProfileId: args.profileId,
       vrchatGroupId: marker,
       groupVisibility: "public",
@@ -214,12 +211,7 @@ export const cleanupAnalytics = internalMutation({
   handler: async (ctx, args) => {
     analyticsGuard(args.secret);
     await fixture(ctx, args.runId, args.profileId);
-    const integration = await ctx.db
-      .query("communityVrchatIntegrations")
-      .withIndex("by_communityProfileId", (q) =>
-        q.eq("communityProfileId", args.profileId),
-      )
-      .unique();
+    const integration = await readManagedIntegration(ctx.db, args.profileId);
     if (!integration) return null;
     const marker = `e2e-analytics:${args.runId}`;
     if (
@@ -325,12 +317,7 @@ export const cleanup = internalMutation({
     guard(args.secret);
     if (!(await ctx.db.get(args.profileId))) return null;
     await fixture(ctx, args.runId, args.profileId);
-    const integration = await ctx.db
-      .query("communityVrchatIntegrations")
-      .withIndex("by_communityProfileId", (q) =>
-        q.eq("communityProfileId", args.profileId),
-      )
-      .first();
+    const integration = await readManagedIntegration(ctx.db, args.profileId);
     const event = await ctx.db
       .query("events")
       .withIndex("by_communityProfileId_startAt", (q) =>

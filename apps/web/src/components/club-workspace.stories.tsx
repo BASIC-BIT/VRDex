@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { ConvexProviderWithAuth, ConvexReactClient } from "convex/react";
-import { ClubConnectionView } from "@/app/account/communities/[slug]/club-connection";
+import { ClubConnectionView, GroupObservationControls } from "@/app/account/communities/[slug]/club-connection";
 import {
   ClubConnectionFeatures,
   type ConnectionFeatures,
@@ -228,6 +228,28 @@ function ReconnectFixture() {
 }
 export const Reconnect: Story = { render: () => <ReconnectFixture /> };
 
+function ObservationControlsFixture({ denied = false }: { denied?: boolean }) {
+  const [stopped, setStopped] = useState(false);
+  const [submitted, setSubmitted] = useState("");
+  const adopted: WorkspaceData = { ...data, integration: {
+    _id: "fixture-integration" as Id<"communityVrchatIntegrations">, _creationTime: now,
+    communityProfileId: data.community._id, collectionScope: { kind: "managed", communityProfileId: data.community._id },
+    publicationPolicy: "automatic_aggregate", enabledFeatures: ["analytics"],
+    vrchatGroupId: "grp_00000000-0000-4000-8000-000000000005", collector: null,
+    groupVisibility: "public", joinPolicy: "free", state: "active", killSwitchEnabled: false,
+    requestsPerMinute: 4, leaseGeneration: 1, consecutiveFailures: 0, createdAt: now, updatedAt: now,
+    publicMetrics: { currentPopulation: true, populationHistory: true, groupMemberCount: true, groupMemberGrowth: true, eventRecaps: false },
+  } };
+  return <PageShell><PageContainer max="7xl">
+    <ClubConnectionView data={adopted} connect={noop} disconnect={noop}
+      renderObservationControls={vrchatGroupId => <GroupObservationControls vrchatGroupId={vrchatGroupId} stopped={stopped} canManage={!denied}
+        setDecision={async input => { setSubmitted(JSON.stringify(input)); setStopped(input.decision === "stop"); }} />} />
+    <output className="sr-only" aria-label="Submitted observation decision">{submitted}</output>
+  </PageContainer></PageShell>;
+}
+export const ObservationControls: Story = { render: () => <ObservationControlsFixture /> };
+export const ObservationControlsDenied: Story = { render: () => <ObservationControlsFixture denied /> };
+
 function ConnectionFeatureFixture({
   staff = false,
   expired = false,
@@ -240,6 +262,7 @@ function ConnectionFeatureFixture({
   const [connection, setConnection] = useState<ConnectionFeatures>(() => ({
     now: Date.now(),
     integrationId: "fixture-integration" as Id<"communityVrchatIntegrations">,
+    namedMembershipCollectionEnabled: false,
     enabledFeatures: [
       "analytics",
       "membership_management",
@@ -319,6 +342,9 @@ function ConnectionFeatureFixture({
               connection={connection}
               authorityFresh={!expired}
               actions={{
+                setNamedMembership: async ({ enabled }) => {
+                  setConnection(previous => ({ ...previous, namedMembershipCollectionEnabled: enabled }));
+                },
                 setFeature: async (args) => {
                   setConnection((previous) => {
                     const enabledFeatures = previous.enabledFeatures.filter(

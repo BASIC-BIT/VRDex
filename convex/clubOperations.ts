@@ -1,3 +1,5 @@
+import { readCollectionSubject, readManagedIntegration } from "./_groupObservationPolicy";
+import { assertAutomaticOperationAllowed } from "./_communityTelemetry";
 import { v, convexToJson } from "convex/values";
 import { internal } from "./_generated/api";
 import { recordClubOperationFailure } from "./_clubNotifications";
@@ -136,6 +138,7 @@ async function binding(ctx: MutationCtx, args: Worker) {
     integration.assignedCollectorAccountId !== account._id
   )
     return null;
+  assertAutomaticOperationAllowed({collectionMode: readCollectionSubject(integration).kind, operation: "club_operation"});
   const lease = await ctx.db
     .query("collectorAccountLeases")
     .withIndex("by_integrationId_state", (q) =>
@@ -385,12 +388,7 @@ export async function enqueueClubOperations(
       throw new Error("Request ID already used.");
     return prior.map((j) => j._id);
   }
-  const integration = await ctx.db
-    .query("communityVrchatIntegrations")
-    .withIndex("by_communityProfileId", (q) =>
-      q.eq("communityProfileId", args.communityProfileId),
-    )
-    .unique();
+  const integration = await readManagedIntegration(ctx.db, args.communityProfileId);
   if (!integration || !["active", "degraded"].includes(integration.state))
     throw new Error("Group connection unavailable.");
   const bulk = new Set([
@@ -479,6 +477,7 @@ export async function enqueueClubOperations(
       }),
     );
   }
+  readCollectionSubject(integration);
   await ctx.db.patch(integration._id, {
     nextPollAt: Math.min(integration.nextPollAt ?? dueAt, dueAt),
   });
@@ -586,6 +585,7 @@ export const edit = mutation({
       revision: job.revision + 1,
       updatedAt: now,
     });
+    readCollectionSubject(integration);
     await ctx.db.patch(integration._id, {
       nextPollAt: Math.min(integration.nextPollAt ?? dueAt, dueAt),
     });
@@ -1067,6 +1067,7 @@ export const deferClaim = internalMutation({
       code: args.code,
       updatedAt: now,
     });
+    readCollectionSubject(bound.integration);
     await ctx.db.patch(bound.integration._id, {
       nextPollAt: Math.min(bound.integration.nextPollAt ?? retryAt, retryAt),
     });
@@ -1172,6 +1173,8 @@ export const complete = internalMutation({
     // are historical evidence, but the reporting worker key must still be current.
     // Recheck it in this transaction to close rotations after HTTP authentication.
     const account = await ctx.db.get(args.collectorAccountId);
+    const integration = await ctx.db.get(args.integrationId);
+    if (integration) assertAutomaticOperationAllowed({collectionMode: readCollectionSubject(integration).kind, operation: "club_operation_complete"});
     const job = await ctx.db.get(args.operationId);
     if (
       !account ||

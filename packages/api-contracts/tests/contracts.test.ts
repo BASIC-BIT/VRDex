@@ -1278,3 +1278,9 @@ describe("@vrdex/api-contracts", () => {
     assert.equal(oauthScopes?.["public:read"], "public:read");
   });
 });
+
+it("profile updates preserve omitted, selected and cleared primary directory groups", () => {
+  assert.equal("primaryGroupUrl" in ApiProfileUpdateRequestSchema.parse({expectedUpdatedAt: 100, displayName: "Example"}), false);
+  assert.equal(ApiProfileUpdateRequestSchema.parse({expectedUpdatedAt: 100, primaryGroupUrl: null}).primaryGroupUrl, null);
+  assert.equal(ApiProfileUpdateRequestSchema.parse({expectedUpdatedAt: 100, primaryGroupUrl: "https://vrc.group/TEST.1234"}).primaryGroupUrl, "https://vrc.group/TEST.1234");
+});

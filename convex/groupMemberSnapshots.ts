@@ -1,7 +1,6 @@
 import { v } from "convex/values";
 import { internalMutation } from "./_generated/server";
-import { canReadProfile } from "./_profilePermissions";
-import { readClubVisibility } from "./_clubAccess";
+import { resolveGroupObservationPolicy } from "./_groupObservationPolicy";
 import { recordGroupMemberObservation } from "./_groupMemberSnapshots";
 import type { DatabaseReader } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
@@ -21,6 +20,18 @@ async function authorized(db: DatabaseReader,
     !fleet?.killSwitchEnabled;
 }
 
+
+async function samplerPolicy(db: DatabaseReader, link: { profileId: Id<"profiles">; assetExternalId: string }, now: number) {
+  const policy = await resolveGroupObservationPolicy(db, { profileId: link.profileId, vrchatGroupId: link.assetExternalId, now });
+  if (policy.kind === "hidden" || policy.kind === "managed" && policy.categories.group_size.audience !== "public") return { allowed: false, freshUntil: 0, hasAssignment: false };
+  const integration = policy.integration;
+  const account = integration?.assignedCollectorAccountId ? await db.get(integration.assignedCollectorAccountId) : null;
+  const freshUntil = integration?.state === "active" && !integration.killSwitchEnabled &&
+    account?.state === "ready" && !account.killSwitchEnabled && (account.cooldownUntil ?? 0) <= now && integration.lastSuccessfulObservationAt !== undefined
+    ? integration.lastSuccessfulObservationAt + 6 * 60_000 : 0;
+  return { allowed: true, freshUntil, hasAssignment: !!integration };
+}
+
 export const claim = internalMutation({
   args: { worker: workerValidator, now: v.optional(v.number()) },
   returns: v.union(v.null(), v.object({
@@ -34,17 +45,16 @@ export const claim = internalMutation({
       ctx.db.query("profileExternalLinks").withIndex("by_assetType_state_linkRole_nextMemberPollAt", q => q.eq("assetType", "vrchat_group").eq("state", "active").eq("linkRole", "primary").gte("nextMemberPollAt", 0).lte("nextMemberPollAt", now)).take(30),
     ]);
     for (const link of [...neverPolled, ...due]) {
-      const profile = await ctx.db.get(link.profileId);
-      const eligible = profile?.profileType === "community" && canReadProfile("public", profile) &&
-        (await readClubVisibility(ctx.db, link.profileId)).group_size.audience === "public";
-      if (!eligible) {
-        await ctx.db.patch(link._id, { nextMemberPollAt: now + DAY });
+      const policy = await samplerPolicy(ctx.db, link, now);
+      if (!policy.allowed || policy.freshUntil > now) {
+        await ctx.db.patch(link._id, { nextMemberPollAt: policy.freshUntil > now ? policy.freshUntil : now + DAY });
         continue;
       }
       let metadata = await ctx.db.query("vrchatGroupMemberMetadata")
         .withIndex("by_vrchatGroupId", q => q.eq("vrchatGroupId", link.assetExternalId)).unique();
-      if (metadata?.lastObservedAt && metadata.lastObservedAt > now - DAY) {
-        await ctx.db.patch(link._id, { nextMemberPollAt: metadata.lastObservedAt + DAY });
+      const lastStandalone = policy.hasAssignment ? metadata?.lastStandaloneObservedAt : metadata?.lastObservedAt;
+      if (lastStandalone && lastStandalone > now - DAY) {
+        await ctx.db.patch(link._id, { nextMemberPollAt: lastStandalone + DAY });
         continue;
       }
       if (metadata?.retryAfterAt && metadata.retryAfterAt > now) {
@@ -84,6 +94,7 @@ export const complete = internalMutation({
     const link = await ctx.db.get(args.linkId);
     if (!link || link.memberPollLeaseToken !== args.leaseToken || link.memberPollWorkerId !== args.worker.workerId ||
       (link.nextMemberPollAt ?? 0) <= now || link.state !== "active" || link.linkRole !== "primary") return false;
+    if (!(await samplerPolicy(ctx.db, link, now)).allowed) return false;
     const metadata = await ctx.db.query("vrchatGroupMemberMetadata")
       .withIndex("by_vrchatGroupId", q => q.eq("vrchatGroupId", link.assetExternalId)).unique();
     if (!metadata || metadata.claimToken !== args.leaseToken) return false;
@@ -100,6 +111,7 @@ export const complete = internalMutation({
     }
     await ctx.db.patch(metadata._id, {
       claimToken: undefined, claimExpiresAt: undefined,
+      ...(args.memberCount !== undefined ? { lastStandaloneObservedAt: args.observedAt } : {}),
       retryAfterAt: args.memberCount === undefined ? now + 15 * 60_000 : undefined,
     });
     await ctx.db.patch(link._id, {
@@ -123,5 +135,20 @@ export const release = internalMutation({
     await ctx.db.patch(metadata._id, { claimToken: undefined, claimExpiresAt: undefined });
     await ctx.db.patch(link._id, { memberPollLeaseToken: undefined, memberPollWorkerId: undefined, nextMemberPollAt: undefined });
     return true;
+  },
+});
+
+export const authorize = internalMutation({
+  args: { worker: workerValidator, linkId: v.id("profileExternalLinks"), leaseToken: v.string(), now: v.optional(v.number()) },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const now = args.now ?? Date.now();
+    if (!await authorized(ctx.db, args.worker, now)) return false;
+    const link = await ctx.db.get(args.linkId);
+    if (!link || link.state !== "active" || link.linkRole !== "primary" || link.memberPollWorkerId !== args.worker.workerId || link.memberPollLeaseToken !== args.leaseToken || (link.nextMemberPollAt ?? 0) <= now) return false;
+    const policy = await samplerPolicy(ctx.db, link, now);
+    const metadata = await ctx.db.query("vrchatGroupMemberMetadata")
+      .withIndex("by_vrchatGroupId", q => q.eq("vrchatGroupId", link.assetExternalId)).unique();
+    return policy.allowed && policy.freshUntil <= now && metadata?.claimToken === args.leaseToken;
   },
 });

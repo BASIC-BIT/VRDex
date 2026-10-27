@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { it } from "node:test";
 import httpModule from "../../convex/http";
 
-it("forwards connected group creation time through the worker HTTP ingest route", async () => {
+it("forwards current group eligibility and creation time through the worker HTTP ingest route", async () => {
   const router = (httpModule as unknown as { default?: typeof httpModule }).default ?? httpModule;
   const [handler] = router.lookup("/telemetry/worker", "POST")!;
   const action = handler as unknown as { _handler: (ctx: unknown, request: Request) => Promise<Response> };
@@ -26,10 +26,13 @@ it("forwards connected group creation time through the worker HTTP ingest route"
     body: JSON.stringify({
       operation: "ingest", workerId: "worker", vrchatUserId,
       integrationId: "integration", fencingToken: 1, pollId: "poll", observedAt: 100_000,
+      groupVisibility: "private", joinPolicy: "invite",
       collectorVersion: "test", groupMemberCount: 42, groupCreatedAt: 1_000,
       instances: [], nextPollAt: 200_000,
     }),
   }));
   assert.equal(response.status, 200);
   assert.equal(ingested?.groupCreatedAt, 1_000);
+  assert.equal(ingested?.groupVisibility, "private");
+  assert.equal(ingested?.joinPolicy, "invite");
 });

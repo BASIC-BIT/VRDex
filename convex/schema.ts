@@ -1,3 +1,4 @@
+import { collectionScopeValidator, groupObservationDecisionValidator } from "./_communityTelemetry";
 import { resourceSnapshotValidator, computeRuntimeValidator } from "./_eventBroadcastResources";
 import {committedIntentValidator,controlTargetValidator,controlFailureValidator} from "./_eventMediaControl";
 import { broadcastInputValidator } from "./_eventBroadcastSources";
@@ -654,6 +655,7 @@ const fieldVisibility = v.object({
 });
 
 const sharedProfileFields = {
+  primaryGroupReference: v.optional(v.object({ url: v.string(), key: v.string(), contributorUserId: v.id("users") })),
   slug: v.string(),
   displayName: v.string(),
   sortName: v.string(),
@@ -1774,7 +1776,13 @@ export default defineSchema({
     acceptedBySubject:v.optional(clubSubject),acceptedAt:v.optional(v.number()),revokedAt:v.optional(v.number()),revokedBySubject:v.optional(clubSubject),
   }).index("by_tokenHash",["tokenHash"]).index("by_communityProfileId_state",["communityProfileId","state"]),
   communityActionLog:defineTable({communityProfileId:v.id("profiles"),actorSubject:clubSubject,action:v.string(),details:v.record(v.string(),v.union(v.string(),v.array(v.string()),v.null())),targetSubject:v.optional(clubSubject),roleId:v.optional(v.id("communityRoles")),createdAt:v.number()}).index("by_communityProfileId_createdAt",["communityProfileId","createdAt"]),
+  groupObservationCandidateLimits: defineTable({
+    key: v.string(), admittedAt: v.array(v.number()),
+  }).index("by_key", ["key"]),
   collectorFleetSettings: defineTable({
+    automaticEnrollmentEnabled: v.optional(v.boolean()),
+    automaticEnrollmentLimit: v.optional(v.number()),
+    automaticEnrollmentScope: v.optional(v.union(v.object({ kind: v.literal("pilot"), vrchatGroupId: v.string() }), v.object({ kind: v.literal("all_eligible") }))),
     destinationWorkDueAt: v.optional(v.number()),
     key: v.literal("global"),
     killSwitchEnabled: v.boolean(),
@@ -1886,10 +1894,29 @@ export default defineSchema({
     checkpoint: v.optional(v.string()),
     updatedAt: v.number(),
   }).index("by_day", ["integrationId", "epochStartedAt", "day"]),
+  vrchatGroupObservationPolicies: defineTable({
+    vrchatGroupId: v.string(),
+    integrationId: v.optional(v.id("communityVrchatIntegrations")),
+    decision: groupObservationDecisionValidator,
+    eligibleProfileId: v.optional(v.id("profiles")),
+    referenceRevision: v.optional(v.number()),
+    candidateContributorId: v.optional(v.id("users")),
+    candidateCountedAt: v.optional(v.number()),
+    admissionRequired: v.optional(v.boolean()),
+    queuedAdmission: v.optional(v.object({ queuedAt: v.number(), dueAt: v.optional(v.number()), reason: v.optional(v.string()), priority: v.union(v.literal("managed"), v.literal("automatic")) })),
+    publicHistoryStartAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_vrchatGroupId", ["vrchatGroupId"])
+    .index("by_queue_priority_dueAt", ["queuedAdmission.priority", "queuedAdmission.dueAt"]),
   communityVrchatIntegrations: defineTable({
+    collectionScope: v.optional(collectionScopeValidator),
+    automaticAdmissionAttempt: v.optional(v.object({ collectorAccountId: v.id("collectorAccounts"), attemptedAt: v.number() })),
+    namedMembershipCollectionEnabled: v.optional(v.boolean()),
+    publicationPolicy: v.optional(v.union(v.literal("automatic_aggregate"), v.literal("managed_categories"))),
     enabledFeatures: v.optional(v.array(integrationFeature)),
     providerAuthority: v.optional(storedAuthority),
-    communityProfileId: v.id("profiles"),
+    communityProfileId: v.optional(v.id("profiles")),
     vrchatGroupId: v.string(),
     groupVisibility: vrchatGroupVisibilityValidator,
     joinPolicy: vrchatGroupJoinPolicyValidator,
@@ -1911,10 +1938,12 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_communityProfileId", ["communityProfileId"])
+    .index("by_collectionScope_kind_account", ["collectionScope.kind", "assignedCollectorAccountId"])
     .index("by_vrchatGroupId", ["vrchatGroupId"])
     .index("by_assignedCollectorAccountId_state", ["assignedCollectorAccountId", "state"])
     .index("by_state_nextPollAt", ["state", "nextPollAt"]),
   vrchatGroupMemberMetadata: defineTable({
+    lastStandaloneObservedAt: v.optional(v.number()),
     vrchatGroupId: v.string(),
     groupCreatedAt: v.optional(v.number()),
     lastObservedAt: v.optional(v.number()),
@@ -1964,7 +1993,7 @@ export default defineSchema({
     .index("by_integrationId_observedAt", ["integrationId", "observedAt"]),
   instanceSessions: defineTable({
     integrationId: v.id("communityVrchatIntegrations"),
-    communityProfileId: v.id("profiles"),
+    communityProfileId: v.optional(v.id("profiles")),
     providerInstanceId: v.string(),
     providerLocation: v.string(),
     vrchatWorldId: v.string(),
@@ -2076,7 +2105,8 @@ export default defineSchema({
     computedAt: v.number(),
   }).index("by_eventId", ["eventId"]),
   communityTelemetryRollups: defineTable({
-    communityProfileId: v.id("profiles"),
+    integrationId: v.optional(v.id("communityVrchatIntegrations")),
+    communityProfileId: v.optional(v.id("profiles")),
     eventId: v.optional(v.id("events")),
     grain: v.union(v.literal("hour"), v.literal("day"), v.literal("event")),
     bucketStartAt: v.number(),
@@ -2092,9 +2122,13 @@ export default defineSchema({
     worldDistribution: v.array(v.object({ vrchatWorldId: v.string(), samples: v.number() })),
     computedAt: v.number(),
   })
+    .index("by_integrationId_grain_bucketStartAt", ["integrationId", "grain", "bucketStartAt"])
+    .index("by_integrationId_eventId_rollupVersion", ["integrationId", "eventId", "rollupVersion"])
+    .index("by_communityProfileId_integrationId_grain_bucketStartAt", ["communityProfileId", "integrationId", "grain", "bucketStartAt"])
     .index("by_communityProfileId_grain_bucketStartAt", ["communityProfileId", "grain", "bucketStartAt"])
     .index("by_eventId_rollupVersion", ["eventId", "rollupVersion"]),
   communityTelemetryAuditEvents: defineTable({
+    rollupId: v.optional(v.id("communityTelemetryRollups")),
     communityProfileId: v.optional(v.id("profiles")),
     integrationId: v.optional(v.id("communityVrchatIntegrations")),
     collectorAccountId: v.optional(v.id("collectorAccounts")),
@@ -2105,6 +2139,7 @@ export default defineSchema({
     detail: v.optional(v.string()),
     createdAt: v.number(),
   })
+    .index("by_rollupId_action", ["rollupId", "action"])
     .index("by_communityProfileId_createdAt", ["communityProfileId", "createdAt"])
     .index("by_collectorAccountId_createdAt", ["collectorAccountId", "createdAt"]),
   profileOwners: defineTable({
@@ -2927,6 +2962,7 @@ export default defineSchema({
   // community may hold several Discord guilds and VRChat groups (one marked
   // `primary`), and one guild may back several community profiles.
   profileExternalLinks: defineTable({
+    provenance: v.optional(v.union(v.literal("directory_reference"), v.literal("control_association"))),
     profileId: v.id("profiles"),
     assetType: externalAssetType,
     assetExternalId: v.string(),

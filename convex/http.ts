@@ -105,6 +105,7 @@ const telemetryWorker = httpAction(async (ctx, request) => {
       const result = await ctx.runMutation(functions.claimDueAssignments, {
         collectorAccountId: collectorAccountId as never,
         workerId: body.workerId,
+        capabilities: Array.isArray(body.capabilities) ? body.capabilities as never : undefined,
         limit: typeof body.limit === "number" ? body.limit : undefined,
         now,
       });
@@ -217,10 +218,11 @@ const telemetryWorker = httpAction(async (ctx, request) => {
       } as never);
       return json(result);
     }
-    if (body.operation === "group_member_claim" || body.operation === "group_member_complete" || body.operation === "group_member_release") {
+    if (body.operation === "group_member_authorize" || body.operation === "group_member_claim" || body.operation === "group_member_complete" || body.operation === "group_member_release") {
       const worker = { collectorAccountId: collectorAccountId as never, workerId: body.workerId, workerKeyHash: presentedHash };
       if (body.operation === "group_member_claim") return json(await ctx.runMutation(internal.groupMemberSnapshots.claim, { worker, now }));
       if (typeof body.linkId !== "string" || typeof body.leaseToken !== "string") return json({ error: "invalid_request" }, 400);
+      if (body.operation === "group_member_authorize") return json(await ctx.runMutation(internal.groupMemberSnapshots.authorize, { worker, linkId: body.linkId as never, leaseToken: body.leaseToken, now }));
       if (body.operation === "group_member_release") return json(await ctx.runMutation(internal.groupMemberSnapshots.release, { worker, linkId: body.linkId as never, leaseToken: body.leaseToken }));
       return json(await ctx.runMutation(internal.groupMemberSnapshots.complete, {
         worker, linkId: body.linkId as never, leaseToken: body.leaseToken,
@@ -235,6 +237,12 @@ const telemetryWorker = httpAction(async (ctx, request) => {
     };
     if (typeof body.integrationId !== "string" || typeof body.fencingToken !== "number") {
       return json({ error: "invalid_lease" }, 400);
+    }
+    await ctx.runQuery(functions.assertWorkerTargetOperation, {integrationId: common.integrationId, operation: body.operation});
+    if (body.operation === "admission_required") {
+      return json(await ctx.runMutation(functions.recordAutomaticAdmissionRequired, {
+        ...common, workerKeyHash: presentedHash, epochStartedAt: body.epochStartedAt, reason: body.reason, now,
+      } as never));
     }
     if (body.operation === "club_authority") {
       return json(await ctx.runMutation(internal.clubConnection.recordAuthority, {
@@ -291,6 +299,7 @@ const telemetryWorker = httpAction(async (ctx, request) => {
       const result = await ctx.runMutation(functions.reserveRequestBudget, {
         ...common,
         requestCount: body.requestCount,
+        automaticRequest: body.automaticRequest,
         now,
       } as never);
       return json(result);
@@ -311,6 +320,7 @@ const telemetryWorker = httpAction(async (ctx, request) => {
         collectorVersion: body.collectorVersion,
         source: "first_party",
         groupMemberCount: body.groupMemberCount,
+        groupVisibility: body.groupVisibility, joinPolicy: body.joinPolicy,
         groupCreatedAt: body.groupCreatedAt,
         instances: body.instances,
         nextPollAt: body.nextPollAt,
@@ -338,6 +348,7 @@ const telemetryWorker = httpAction(async (ctx, request) => {
     }
     return json({ error: "unknown_operation" }, 400);
   } catch (error) {
+    if (error instanceof Error && error.message.includes("Automatic operation denied")) return json({error: "automatic_operation_denied"}, 403);
     const message = error instanceof Error && /stale|unavailable/i.test(error.message) ? "stale_lease" : "operation_failed";
     return json({ error: message }, message === "stale_lease" ? 409 : 500);
   }

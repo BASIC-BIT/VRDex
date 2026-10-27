@@ -10,7 +10,7 @@ import { parseVrcdnStreamLinks } from "../../../../../convex/_vrcdnLinks";
 import { useId, useRef, useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
-import { CheckboxField, Field, FieldText, Input, Textarea } from "@/components/ui/field";
+import { CheckboxField, Field, FieldText, Input, Select, Textarea } from "@/components/ui/field";
 import {
   PROFILE_LINK_MAX_COUNT,
   PROFILE_LINK_TYPE_LABELS,
@@ -151,7 +151,7 @@ function AliasFields({ defaults }: { defaults: string[] }) {
   );
 }
 
-function LinkRow({ link, onRemove }: { link?: PositionedProfileLink; onRemove: () => void }) {
+function LinkRow({ link, onRemove, onUrlChange }: { link?: PositionedProfileLink; onRemove: () => void; onUrlChange: (url: string) => void }) {
   const [url, setUrl] = useState(link?.url ?? "");
   const unchanged = link !== undefined && profileLinkDestinationKey({ type: link.type, url }) === profileLinkDestinationKey(link);
   const type = unchanged ? link.type : detectProfileLinkType(url);
@@ -184,6 +184,7 @@ function LinkRow({ link, onRemove }: { link?: PositionedProfileLink; onRemove: (
               setCustomLabel(nextCustom ? nextLabel : "");
               setLabelMode(nextCustom ? "custom" : "automatic");
               setUrl(next);
+              onUrlChange(next);
             }} />
         </Field>
         {target ? (
@@ -403,9 +404,11 @@ export function ProfileFields({
   // Stable ids rather than indices: the row inputs are uncontrolled, so keying
   // by index would shift the surviving rows' DOM values when one is removed.
   const linkRowSeq = useRef(rows.length);
-  const [linkRows, setLinkRows] = useState<Array<{ id: number; link?: PositionedProfileLink }>>(() =>
-    rows.map((link, index) => ({ id: index, link })),
+  const [linkRows, setLinkRows] = useState<Array<{ id: number; link?: PositionedProfileLink; url: string }>>(() =>
+    rows.map((link, index) => ({ id: index, link, url: link.url })),
   );
+  const [primaryGroupUrl, setPrimaryGroupUrl] = useState(defaults.primaryGroupUrl ?? "");
+  const groupUrls = [...new Set(linkRows.map(row => row.url).filter(url => parseProfileLinkDestination(url)?.kind === "vrchat_group"))];
   const filledStreamFields = showStreamFields
     ? (streamValues.vrcdn.trim() === "" ? 0 : 1) + (streamValues.twitch.trim() === "" ? 0 : 1)
     : 0;
@@ -413,10 +416,11 @@ export function ProfileFields({
 
   function addLinkRow() {
     linkRowSeq.current += 1;
-    setLinkRows((current) => [...current, { id: linkRowSeq.current }]);
+    setLinkRows((current) => [...current, { id: linkRowSeq.current, url: "" }]);
   }
 
   function removeLinkRow(rowId: number) {
+    if (linkRows.find(row => row.id === rowId)?.url === primaryGroupUrl) setPrimaryGroupUrl("");
     setLinkRows((current) => current.filter((row) => row.id !== rowId));
   }
 
@@ -531,9 +535,21 @@ export function ProfileFields({
         <FieldGroup field="outboundLinks">
           <div className="grid gap-3">
             <span className="text-sm font-medium">Links</span>
+            {profileType === "community" ? (
+              <Field>
+                Primary group
+                <Select name="primaryGroupUrl" value={groupUrls.includes(primaryGroupUrl) ? primaryGroupUrl : ""} onChange={event => setPrimaryGroupUrl(event.target.value)}>
+                  <option value="">None</option>
+                  {groupUrls.map(url => <option key={url} value={url}>{url}</option>)}
+                </Select>
+              </Field>
+            ) : null}
 
             {linkRows.map((row) => (
-              <LinkRow key={row.id} link={row.link} onRemove={() => removeLinkRow(row.id)} />
+              <LinkRow key={row.id} link={row.link} onRemove={() => removeLinkRow(row.id)} onUrlChange={url => {
+                if (row.url === primaryGroupUrl) setPrimaryGroupUrl("");
+                setLinkRows(current => current.map(candidate => candidate.id === row.id ? { ...candidate, url } : candidate));
+              }} />
             ))}
 
             {!atLinkCap ? (

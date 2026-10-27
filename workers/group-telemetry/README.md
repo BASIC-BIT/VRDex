@@ -34,12 +34,32 @@ Required environment after the real-provider and explicit provider-approval depl
 
 Optional `VRDEX_GROUP_TELEMETRY_REQUESTS_PER_MINUTE` defaults to 30. Global, account, and integration kill switches in the control plane stop claims. ECS desired count is the live infrastructure stop; the SSM value prevents a disabled task revision from starting and is re-read when tasks restart.
 
-The worker reports `telemetry_v1`, `vrchat_proof_v1`, and `profile_link_destinations_v1` capabilities with its
+The worker reports `telemetry_v1`, `vrchat_proof_v1`, `profile_link_destinations_v1`, and `automatic_group_aggregates_v2` capabilities with its
 release SHA on startup and a bounded heartbeat. It separately polls the proof
 queue so the control plane can prove that the proof protocol, not merely the
 process, is live. Logs are JSON with fixed event names and bounded fields; they
 never include proof codes, provider target IDs, provider bodies, exception
 messages, session material, or worker credentials.
+
+Automatic assignments require the capability in both the claim request and a
+fresh heartbeat from that exact worker/account. They validate public/free-join
+policy before admission and collect aggregates only, without authority refresh,
+club operations, provider-read jobs, or named membership scans. A restricted
+initial target releases its allocation as admission-required. Membership loss
+after admission persists a group stop and fences pending polls; cleanup can
+leave the group, but cannot rejoin it or switch accounts. Account proof and
+destination jobs retain their separate authorization. Automatic enrollment stays
+disabled until separately authorized activation.
+
+Automatic metadata, join, confirmation, instance and leave requests each reserve
+one request immediately before transport. The join reservation durably records
+the account and attempt time. Recovery after a lost response verifies membership
+with that same account and stops if absent. It never repeats the uncertain join.
+V2 is also required for adopted managed assignments with named history disabled.
+The independent `namedMembershipCollectionEnabled` choice guards audit dispatch;
+an Analytics or publication change cannot enable it.
+
+The [automatic statistics release runbook](../../docs/deployment/automatic-group-statistics-release.md) records the required exact SHA, `automatic_group_aggregates_v2` capability, disabled admission defaults and rollback gates. A fresh capability-bearing heartbeat and matching claim request are both required for automatic dispatch. The heartbeat logs only a zero/one `automaticEnrollmentBacklog` signal; the sustained alarm uses the existing operator SNS email action. Live alarm delivery and provider acceptance require separate release proof.
 
 After proof checks and assigned telemetry polls, the worker claims at most one
 public profile-link destination lookup. It reads exact VRChat user IDs, group

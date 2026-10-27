@@ -9,6 +9,28 @@ export const INSTANCE_CLOSE_MISSES = 2;
 export const MAX_INTERPOLATION_GAP_MS = 5 * 60_000;
 export const CURRENT_FRESHNESS_MS = 6 * 60_000;
 
+/** Target authority is separate from account proof and destination jobs. */
+export function assertAutomaticOperationAllowed(input: { collectionMode: "automatic" | "managed"; operation: string }) {
+  if (input.collectionMode === "automatic" && ![
+    "budget", "admission_required", "ingest", "heartbeat", "membership", "failure", "defer", "release",
+  ].includes(input.operation)) throw new Error("Automatic operation denied.");
+}
+
+export const collectionScopeValidator = v.union(
+  v.object({ kind: v.literal("automatic") }),
+  v.object({ kind: v.literal("managed"), communityProfileId: v.id("profiles") }),
+);
+
+export const groupObservationDecisionValidator = v.union(
+  v.object({ kind: v.literal("enabled"), at: v.number() }),
+  v.object({ kind: v.literal("admission_blocked"), reason: v.literal("analytics_disabled"), actor: v.union(v.literal("migration"), v.literal("verified_operator"), v.literal("moderation")), at: v.number() }),
+  v.object({
+    kind: v.literal("stopped"), reason: v.string(),
+    actor: v.union(v.literal("migration"), v.literal("verified_operator"), v.literal("moderation"), v.literal("provider"), v.literal("system")),
+    at: v.number(),
+  }),
+);
+
 export const collectorAccountStateValidator = v.union(
   v.literal("provisioning"),
   v.literal("ready"),

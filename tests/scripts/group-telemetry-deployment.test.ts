@@ -216,6 +216,20 @@ describe("group telemetry release workflow", () => {
     assert.match(worker, /async function pauseWithHeartbeats/);
     assert.match(worker, /await pauseWithHeartbeats\(retryAfterMs\)/);
   });
+  it("wires sustained enrollment backlog to the existing operator email topic", async () => {
+    const source = await readFile("infra/terraform/group-telemetry-collector/main.tf", "utf8");
+    const variables = await readFile("infra/terraform/group-telemetry-collector/variables.tf", "utf8");
+    assert.match(source, /resource "aws_cloudwatch_log_metric_filter" "automatic_enrollment_backlog"/);
+    const alarm = source.split('resource "aws_cloudwatch_metric_alarm" "automatic_enrollment_backlog"')[1]?.split('resource "')[0] ?? "";
+    assert.match(alarm, /alarm_actions\s+= aws_sns_topic.alerts\[\*\].arn/);
+    assert.match(alarm, /evaluation_periods\s+= 3/);
+    assert.match(alarm, /period\s+= 60/);
+    assert.match(source, /protocol\s+= "email"/);
+    assert.match(variables.split('variable "budget_alert_email"')[1] ?? "", /default\s*=\s*"basic@basicbit.net"/);
+    assert.match(source, /endpoint\s+= var.budget_alert_email/);
+    const worker = await readFile("workers/group-telemetry/worker.mjs", "utf8");
+    assert.match(worker, /automaticEnrollmentBacklog: result.automaticEnrollmentBacklog === true \? 1 : 0/);
+  });
 
   it("keeps the claim dashboard to a funnel and terminal outcomes", async () => {
     const source = await readFile("infra/terraform/posthog/main.tf", "utf8");
@@ -227,6 +241,11 @@ describe("group telemetry release workflow", () => {
 });
 
 describe("group telemetry post-deploy verification", () => {
+  it("rejects a healthy legacy worker when no heartbeat matches the required automatic capability", () => {
+    assert.throws(() => assertHeartbeat({ healthy: true, freshCollectorCount: 1, matchingReleaseCount: 0 }), /release and capabilities/);
+    assert.deepEqual(assertHeartbeat({ healthy: true, freshCollectorCount: 1, matchingReleaseCount: 1 }), { freshCollectorCount: 1, matchingReleaseCount: 1 });
+  });
+
   it("requires exact stable ECS task identity and digest", () => {
     const result = assertEcsDeployment({
       expectedDigest: digest,

@@ -56,6 +56,7 @@ export function toPublicProfile(profile: Doc<"profiles">) {
     updatedAt: profile.updatedAt,
     ...optionalField("source", source),
     outboundLinks: publicProfileOutboundLinks(profile, "profile_page"),
+    ...optionalField("primaryGroupUrl", visibleProfileField(profile, "outboundLinks", profile.primaryGroupReference?.url, "profile_page")),
     ...optionalField(
       "headline",
       visibleProfileField(profile, "headline", profile.headline, "profile_page"),

@@ -1,3 +1,8 @@
+import { readCollectionSubject, readManagedIntegration } from "./_groupObservationPolicy";
+import { requireActiveBrowserSessionSubject } from "./_browserSessionAuthority";
+import { requireControlProof } from "./_externalControl";
+import { reconcileStoppedIntegration } from "./groupObservations";
+import { assertAutomaticOperationAllowed } from "./_communityTelemetry";
 import { v } from "convex/values";
 import {
   query,
@@ -39,6 +44,7 @@ export const get = query({
       now: v.number(),
       integrationId: v.id("communityVrchatIntegrations"),
       enabledFeatures: v.array(integrationFeature),
+      namedMembershipCollectionEnabled: v.boolean(),
       authority: v.union(v.null(), ownMemberAuthority),
       features: v.array(
         v.object({
@@ -60,12 +66,7 @@ export const get = query({
   ),
   handler: async (ctx, args) => {
     await access(ctx, args.communityProfileId);
-    const integration = await ctx.db
-      .query("communityVrchatIntegrations")
-      .withIndex("by_communityProfileId", (q) =>
-        q.eq("communityProfileId", args.communityProfileId),
-      )
-      .unique();
+    const integration = await readManagedIntegration(ctx.db, args.communityProfileId);
     if (!integration) return null;
     const account = integration.assignedCollectorAccountId
       ? await ctx.db.get(integration.assignedCollectorAccountId)
@@ -87,6 +88,7 @@ export const get = query({
       now,
       integrationId: integration._id,
       enabledFeatures,
+      namedMembershipCollectionEnabled: integration.namedMembershipCollectionEnabled ?? true,
       authority,
       features: FEATURES.map((feature) => {
         const missingPermissions = FEATURE_BASELINE[feature].filter(
@@ -125,20 +127,46 @@ export const setFeature = mutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     await access(ctx, args.communityProfileId);
-    const integration = await ctx.db
-      .query("communityVrchatIntegrations")
-      .withIndex("by_communityProfileId", (q) =>
-        q.eq("communityProfileId", args.communityProfileId),
-      )
-      .unique();
+    const integration = await readManagedIntegration(ctx.db, args.communityProfileId);
     if (!integration) throw new Error("Connect a group first.");
     const enabledFeatures = enabledClubFeatures(integration);
+    readCollectionSubject(integration);
     await ctx.db.patch(integration._id, {
       enabledFeatures: FEATURES.filter((feature) =>
         feature === args.feature ? args.enabled : enabledFeatures.includes(feature),
       ),
       updatedAt: Date.now(),
     });
+    if (args.feature === "analytics" && args.enabled) {
+      const policy = await ctx.db.query("vrchatGroupObservationPolicies")
+        .withIndex("by_vrchatGroupId", q => q.eq("vrchatGroupId", integration.vrchatGroupId)).unique();
+      if (policy?.decision.kind === "admission_blocked" && policy.decision.reason === "analytics_disabled") {
+        if (policy.integrationId !== integration._id) throw new Error("Group connections require reconciliation.");
+        const now = Date.now();
+        await ctx.db.patch(policy._id, {
+          decision: { kind: "enabled", at: now }, updatedAt: now,
+          ...(!integration.assignedCollectorAccountId && ["disconnected", "connecting", "awaiting_invite", "awaiting_approval"].includes(integration.state)
+            ? { queuedAdmission: { priority: "managed", queuedAt: now, dueAt: now } } : {}),
+        });
+      }
+    }
+    const updated = await ctx.db.get(integration._id);
+    if (updated) await reconcileStoppedIntegration(ctx, updated, Date.now());
+    return null;
+  },
+});
+export const setNamedMembershipCollectionEnabled = mutation({
+  args: { communityProfileId: v.id("profiles"), enabled: v.boolean() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await access(ctx, args.communityProfileId);
+    const integration = await readManagedIntegration(ctx.db, args.communityProfileId);
+    if (!integration) throw new Error("Connect a group first.");
+    const { userId, subject } = await requireActiveBrowserSessionSubject(ctx);
+    const now = Date.now();
+    if (args.enabled) await requireControlProof(ctx.db, userId, "vrchat_group", integration.vrchatGroupId, "manager", now);
+    await ctx.db.patch(integration._id, { namedMembershipCollectionEnabled: args.enabled, updatedAt: now });
+    await ctx.db.insert("communityTelemetryAuditEvents", { integrationId: integration._id, communityProfileId: args.communityProfileId, actor: subject, action: "membership_collection.setting", result: args.enabled ? "enabled" : "disabled", createdAt: now });
     return null;
   },
 });
@@ -219,6 +247,7 @@ export const recordAuthority = internalMutation({
       args.authority.membershipStatus.length > 64
     )
       return { recorded: false };
+    assertAutomaticOperationAllowed({collectionMode: readCollectionSubject(integration).kind, operation: "club_authority"});
     const lease = await ctx.db
       .query("collectorAccountLeases")
       .withIndex("by_integrationId_state", (q) =>
@@ -236,6 +265,7 @@ export const recordAuthority = internalMutation({
     const previous = currentClubAuthority(integration, account, now);
     if (previous && previous.observedAt > args.authority.observedAt)
       return { recorded: false };
+    readCollectionSubject(integration);
     await ctx.db.patch(integration._id, {
       providerAuthority: {
         authority: {

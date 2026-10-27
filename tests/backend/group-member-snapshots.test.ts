@@ -7,6 +7,7 @@ import schemaModule from "../../convex/schema";
 
 const schema = (schemaModule as unknown as { default?: typeof schemaModule }).default ?? schemaModule;
 const modules = {
+  "../../convex/groupObservations.ts": () => import("../../convex/groupObservations"),
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
   "../../convex/groupMemberSnapshots.ts": () => import("../../convex/groupMemberSnapshots"),
 };
@@ -149,3 +150,61 @@ it("private visibility is not claimed and shared groups reuse a fresh point", as
     .withIndex("by_vrchatGroupId_observedAt", q => q.eq("vrchatGroupId", GROUP)).collect());
   assert.equal(rows.length, 1);
 });
+it("member sampler honors group stops after a lease was claimed", async () => {
+  const { t, worker } = await fixture();
+  const lease = (await t.mutation(internal.groupMemberSnapshots.claim, { worker, now: NOW }))!;
+  await t.run(ctx => ctx.db.insert("vrchatGroupObservationPolicies", { vrchatGroupId: GROUP, decision: { kind: "stopped", reason: "operator", actor: "verified_operator", at: NOW }, createdAt: NOW, updatedAt: NOW }));
+  assert.equal(await t.mutation(internal.groupMemberSnapshots.complete, { worker, ...{linkId: lease.linkId, leaseToken: lease.leaseToken}, memberCount: 1, observedAt: NOW, now: NOW }), false);
+});
+it("member sampler resumes when aggregate observations exceed six minutes", async () => {
+  const {t, worker} = await fixture();
+  await t.run(async ctx => {
+    const integrationId = await ctx.db.insert("communityVrchatIntegrations", {collectionScope: {kind: "automatic"}, publicationPolicy: "automatic_aggregate", vrchatGroupId: GROUP, groupVisibility: "public", joinPolicy: "free", state: "active", assignedCollectorAccountId: worker.collectorAccountId, killSwitchEnabled: false, requestsPerMinute: 4, leaseGeneration: 1, publicMetrics: {currentPopulation: true, populationHistory: true, groupMemberCount: true, groupMemberGrowth: true, eventRecaps: false}, consecutiveFailures: 0, lastSuccessfulObservationAt: NOW, createdAt: NOW, updatedAt: NOW});
+    await ctx.db.insert("vrchatGroupObservationPolicies", {vrchatGroupId: GROUP, integrationId, decision: {kind: "enabled", at: NOW}, createdAt: NOW, updatedAt: NOW});
+    await ctx.db.insert("vrchatGroupMemberMetadata", {vrchatGroupId: GROUP, lastObservedAt: NOW, updatedAt: NOW});
+  });
+  assert.equal(await t.mutation(internal.groupMemberSnapshots.claim, {worker, now: NOW}), null);
+  assert.ok(await t.mutation(internal.groupMemberSnapshots.claim, {worker, now: NOW + 6 * 60_000 + 1}));
+});
+
+for (const change of ["clear", "relink"] as const) {
+  it(`member sampler rejects a superseded directory selection before reconciliation (${change})`, async () => {
+    const { t, worker, profileId } = await fixture();
+    const { applyApiProfileUpdate } = await import("../../convex/_profileUpdates");
+    const { sanitizeCommunitySubmissionProfileInput } = await import("../../convex/_profileSubmissions");
+    const url = "https://vrc.group/OLD.1234";
+    const other = "https://vrc.group/NEW.1234";
+    const userId = await t.run(async ctx => {
+      const userId = await ctx.db.insert("users", { clerkUserId: "directory-editor" });
+      const sanitized = sanitizeCommunitySubmissionProfileInput({
+        profileType: "community", displayName: "Test Club",
+        outboundLinks: [{ type: "vrchat_profile", url }, { type: "vrchat_profile", url: other }],
+      }, { linkSource: "community_submitted" });
+      await ctx.db.patch(profileId, { claimState: "unclaimed", outboundLinks: sanitized.outboundLinks,
+        primaryGroupReference: { url, key: "vrchat_group:OLD.1234", contributorUserId: userId } });
+      const link = (await ctx.db.query("profileExternalLinks").first())!;
+      await ctx.db.patch(link._id, { provenance: "directory_reference", linkedByUserId: userId });
+      for (const [locator, entityId] of [["OLD.1234", GROUP], ["NEW.1234", "grp_22222222-2222-2222-2222-222222222222"]]) {
+        await ctx.db.insert("profileLinkDestinations", { key: `vrchat_group:${locator}`, locator,
+          kind: "vrchat_group", provider: "vrchat", status: "resolved", entityId });
+        await ctx.db.insert("profileLinkDestinationReferences", { key: `vrchat_group:${locator}`, profileId });
+      }
+      return userId;
+    });
+    const lease = (await t.mutation(internal.groupMemberSnapshots.claim, { worker, now: NOW }))!;
+    assert.ok(lease);
+    const authorization = { worker, linkId: lease.linkId, leaseToken: lease.leaseToken, now: NOW + 1 };
+    assert.equal(await t.mutation(internal.groupMemberSnapshots.authorize, authorization), true);
+    await t.run(async ctx => applyApiProfileUpdate(ctx, {
+      profile: (await ctx.db.get(profileId))!, input: { primaryGroupUrl: change === "clear" ? null : other },
+      subject: "community_submitter", contributorUserId: userId, now: NOW + 1,
+    }));
+    assert.equal((await t.run(ctx => ctx.db.get(lease.linkId)))?.state, "active");
+    assert.equal(await t.mutation(internal.groupMemberSnapshots.authorize, authorization), false);
+    assert.equal(await t.mutation(internal.groupMemberSnapshots.complete, {
+      ...authorization, memberCount: 42, observedAt: NOW + 1,
+    }), false);
+    await t.run(ctx => ctx.db.patch(lease.linkId, { nextMemberPollAt: undefined }));
+    assert.equal(await t.mutation(internal.groupMemberSnapshots.claim, { worker, now: NOW + 5 * 60_000 + 1 }), null);
+  });
+}

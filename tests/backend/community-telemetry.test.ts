@@ -14,6 +14,7 @@ const modules = {
   "../../convex/_communityAuthority.ts": () => import("../../convex/_communityAuthority"),
   "../../convex/_communityTelemetry.ts": () => import("../../convex/_communityTelemetry"),
   "../../convex/communityTelemetry.ts": () => import("../../convex/communityTelemetry"),
+  "../../convex/clubConnection.ts": () => import("../../convex/clubConnection"),
   "../../convex/clubAnalytics.ts": () => import("../../convex/clubAnalytics"),
   "../../convex/profiles.ts": () => import("../../convex/profiles"),
 };
@@ -972,7 +973,8 @@ describe("community telemetry control plane", () => {
     const staleSessions = await t.run(async ctx => {
       const {_id, _creationTime, ...session} = (await ctx.db.get(seeded.sessions[0]!))!;
       const {_id: integrationId, _creationTime: integrationCreation, ...integration} = (await ctx.db.get(session.integrationId))!;
-      const oldIntegration = await ctx.db.insert("communityVrchatIntegrations", {...integration, communityProfileId:otherCommunity});
+      const oldIntegration = await ctx.db.insert("communityVrchatIntegrations", {...integration, communityProfileId:otherCommunity,
+        collectionScope: { kind: "managed", communityProfileId: otherCommunity }, state: "disconnected" });
       const previousConnection = await ctx.db.insert("instanceSessions", {...session,integrationId:oldIntegration});
       const previousEpoch = await ctx.db.insert("instanceSessions", {...session,openedAt:(integration.telemetryEpochStartedAt??integration.createdAt)-1});
       return [previousConnection,previousEpoch];
@@ -1449,15 +1451,12 @@ describe("community telemetry control plane", () => {
       joinPolicy: "free",
     });
     const claimAt = Date.now() + 1_000;
-    await assert.rejects(
-      t.withIdentity(identity).mutation(api.communityTelemetry.connectGroup, {
-        communitySlug: "second-community",
-        vrchatGroupId: "grp_00000000-0000-4000-8000-000000000002",
-        groupVisibility: "public",
-        joinPolicy: "free",
-      }),
-      /reserved capacity/,
-    );
+    const queuedId = await t.withIdentity(identity).mutation(api.communityTelemetry.connectGroup, {
+      communitySlug: "second-community", vrchatGroupId: "grp_00000000-0000-4000-8000-000000000002",
+      groupVisibility: "public", joinPolicy: "free",
+    });
+    assert.equal((await t.run(ctx => ctx.db.get(queuedId)))?.assignedCollectorAccountId, undefined);
+    assert.equal((await t.run(ctx => ctx.db.get(accountId)))?.assignedGroupCount, 1);
     await t.mutation(internal.communityTelemetry.setIntegrationKillSwitch, {
       integrationId, enabled: true, reason: "test", now: claimAt,
     });
@@ -1682,10 +1681,10 @@ describe("community telemetry control plane", () => {
         joinPolicy: "request",
       }),
     ]);
-    assert.equal(connections.filter((result) => result.status === "fulfilled").length, 1);
-    assert.equal(connections.filter((result) => result.status === "rejected").length, 1);
-    const fulfilled = connections.find((result): result is PromiseFulfilledResult<Id<"communityVrchatIntegrations">> => result.status === "fulfilled")!;
-    const integrationId = fulfilled.value;
+    assert.equal(connections.filter((result) => result.status === "fulfilled").length, 2);
+    const allocated = await t.run(ctx => ctx.db.query("communityVrchatIntegrations").filter(q => q.neq(q.field("assignedCollectorAccountId"), undefined)).collect());
+    assert.equal(allocated.length, 1);
+    const integrationId = allocated[0]!._id;
     const claimAt = Date.now() + 1_000;
     const firstClaim = await t.mutation(internal.communityTelemetry.claimDueAssignments, {
       collectorAccountId: firstAccountId,
@@ -1887,4 +1886,41 @@ describe("one-at-a-time integration claims", () => {
     });
     assert.deepEqual(fourth.assignments.map((assignment) => assignment.integrationId), [secondId]);
   });
+});
+
+it("preserves canonical group identity and history when a disconnected community connects a different group", async () => {
+  const t = convexTest({ schema, modules });
+  const communityProfileId = await seedCommunity(t);
+  const accountId = await registerAccount(t);
+  const oldGroup = "grp_00000000-0000-4000-8000-000000000001";
+  const newGroup = "grp_00000000-0000-4000-8000-000000000002";
+  const connect = (vrchatGroupId: string) => t.withIdentity(identity).mutation(api.communityTelemetry.connectGroup, {
+    communitySlug: "faceless", vrchatGroupId, groupVisibility: "public", joinPolicy: "free",
+  });
+  const oldId = await connect(oldGroup);
+  const history = await t.run(async ctx => {
+    await ctx.db.patch(oldId, { state: "disconnected", assignedCollectorAccountId: undefined });
+    await ctx.db.patch(accountId, { assignedGroupCount: 0 });
+    const policyId = (await ctx.db.query("vrchatGroupObservationPolicies").withIndex("by_vrchatGroupId", q => q.eq("vrchatGroupId", oldGroup)).unique())!._id;
+    await ctx.db.patch(policyId, {decision: {kind: "stopped", reason: "disconnected", actor: "migration", at: NOW}});
+    const observationId = await ctx.db.insert("communityPopulationObservations", { integrationId: oldId, idempotencyKey: "relink-history", totalPopulation: 7,
+      activeInstanceCount: 1, worldDistribution: [], observedAt: NOW, source: "first_party", collectorVersion: "test", coverageState: "observed", fencingToken: 1 });
+    return { policyId, observationId };
+  });
+  const snapshot = () => t.run(async ctx => ({ integration: await ctx.db.get(oldId), policy: await ctx.db.get(history.policyId), observation: await ctx.db.get(history.observationId) }));
+  const before = await snapshot();
+  const newId = await connect(newGroup);
+  assert.notEqual(newId, oldId);
+  assert.deepEqual(await snapshot(), before);
+  assert.equal((await t.withIdentity(identity).query(api.communityTelemetry.getPrivateDashboard, { communitySlug: "faceless" }))?.integration.vrchatGroupId, newGroup);
+  assert.equal((await t.withIdentity(identity).query(api.clubConnection.get, { communityProfileId }))?.integrationId, newId);
+  assert.equal(await connect(newGroup), newId);
+  await t.run(async ctx => {
+    await ctx.db.patch(newId, { state: "disconnected", assignedCollectorAccountId: undefined });
+    await ctx.db.patch(accountId, { assignedGroupCount: 0 });
+  });
+  assert.equal((await t.withIdentity(identity).query(api.clubConnection.get, { communityProfileId }))?.integrationId, newId);
+  await assert.rejects(connect(oldGroup), /stopped.*Resume/);
+  assert.deepEqual(await snapshot(), before);
+  assert.equal((await t.withIdentity(identity).query(api.clubConnection.get, { communityProfileId }))?.integrationId, newId);
 });

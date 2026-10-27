@@ -716,3 +716,13 @@ describe("profile fields payload", () => {
     );
   });
 });
+
+it("primary group is explicit, survives serialization, and is omitted for hidden links and people", () => {
+  const url = "https://vrc.group/TEST.1234";
+  const fields = formData([["displayName", "Community"], ["primaryGroupUrl", url]], ["outboundLinks"]);
+  assert.equal(profileFieldsPayload(fields, "community").primaryGroupUrl, url);
+  assert.equal(profileFieldsPayload(fields, "person").primaryGroupUrl, undefined);
+  assert.equal(profileFieldsPayload(formData([["primaryGroupUrl", url]]), "community").primaryGroupUrl, undefined);
+  assert.equal(profileFieldsPayload(formData([["primaryGroupUrl", ""]], ["outboundLinks"]), "community").primaryGroupUrl, null);
+  assert.equal(profileFieldsPayload(formData([], ["outboundLinks"]), "community").primaryGroupUrl, undefined);
+});

@@ -1,3 +1,5 @@
+import { readCollectionSubject, readManagedIntegration } from "./_groupObservationPolicy";
+import { assertAutomaticOperationAllowed } from "./_communityTelemetry";
 import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import {
@@ -58,12 +60,7 @@ export const context = query({
         ].some((p) => actor.permissions.some((held) => held === p)))
     )
       throw new Error("You do not have access to this page.");
-    const integration = await ctx.db
-      .query("communityVrchatIntegrations")
-      .withIndex("by_communityProfileId", (q) =>
-        q.eq("communityProfileId", args.communityProfileId),
-      )
-      .unique();
+    const integration = await readManagedIntegration(ctx.db, args.communityProfileId);
     if (!integration)
       return {
         enabledFeatures: [],
@@ -205,10 +202,7 @@ type WorkerArgs = {
   epochStartedAt: number;
 };
 async function integrationFor(ctx: QueryCtx | MutationCtx, id: Id<"profiles">) {
-  const integration = await ctx.db
-    .query("communityVrchatIntegrations")
-    .withIndex("by_communityProfileId", (q) => q.eq("communityProfileId", id))
-    .unique();
+  const integration = await readManagedIntegration(ctx.db, id);
   if (
     !integration ||
     !["active", "degraded"].includes(integration.state) ||
@@ -260,6 +254,7 @@ async function checkWorker(ctx: MutationCtx, args: WorkerArgs) {
       (integration.telemetryEpochStartedAt ?? integration.createdAt)
   )
     throw new Error("Invalid worker lease.");
+  assertAutomaticOperationAllowed({collectionMode: readCollectionSubject(integration).kind, operation: "club_read"});
   const lease = await ctx.db
     .query("collectorAccountLeases")
     .withIndex("by_integrationId_state", (q) =>
@@ -344,10 +339,12 @@ export const request = mutation({
       .order("desc")
       .first();
     if (existing && existing.state !== "failed") {
-      if (existing.state === "pending")
+      if (existing.state === "pending") {
+        readCollectionSubject(integration);
         await ctx.db.patch(integration._id, {
           nextPollAt: Math.min(integration.nextPollAt ?? now, now),
         });
+      }
       return existing._id;
     }
     const recent = await ctx.db
@@ -371,6 +368,7 @@ export const request = mutation({
       createdAt: now,
       expiresAt: now + READ_RETENTION_MS,
     });
+    readCollectionSubject(integration);
     await ctx.db.patch(integration._id, {
       nextPollAt: Math.min(integration.nextPollAt ?? now, now),
     });
