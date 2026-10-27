@@ -53,7 +53,6 @@ export const test = base.extend<{
           process.env.CONVEX_URL ??
           "http://127.0.0.1:3210",
         async (blockAfterCleanupFailure) => {
-          let created = false;
           try {
             const response = await request.post("/api/e2e/home-timeline", {
               headers,
@@ -73,7 +72,6 @@ export const test = base.extend<{
                     },
             });
             await expect(response).toBeOK();
-            created = true;
             const value: unknown = await response.json();
             if (
               !value ||
@@ -103,24 +101,14 @@ export const test = base.extend<{
               });
               await expect(cleanup).toBeOK();
               const counts: unknown = await cleanup.json();
-              // A rejected create mutation is atomic and can leave no records.
-              if (
-                !created &&
-                counts &&
-                typeof counts === "object" &&
-                "events" in counts &&
-                counts.events === 0
-              ) {
-                expect(counts).toEqual({ events: 0, profiles: 0, slots: 0 });
-              } else
-                expect(counts).toEqual({
-                  events: 8,
-                  profiles: timelineScenario === "detail" ? 3 : 2,
-                  slots: timelineScenario === "detail" ? 87 : 8,
-                  ...(timelineScenario === "detail"
-                    ? { lineupEntries: 2 }
-                    : {}),
-                });
+              // A disconnected POST can commit after DELETE reads zero. Only
+              // exact owned cleanup proves the attempted create is cleared.
+              expect(counts).toEqual({
+                events: 8,
+                profiles: timelineScenario === "detail" ? 3 : 2,
+                slots: timelineScenario === "detail" ? 87 : 8,
+                ...(timelineScenario === "detail" ? { lineupEntries: 2 } : {}),
+              });
             } catch (error) {
               blockAfterCleanupFailure();
               throw error;

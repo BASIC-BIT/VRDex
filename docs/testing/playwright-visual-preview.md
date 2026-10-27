@@ -415,8 +415,9 @@ An interrupted worker leaves a lease in the OS temporary directory; acquisition
 times out with its path rather than deleting another run's records. Clean the
 interrupted run through the gated helper before removing that lease.
 Failed cleanup preserves a marker with the owning run ID and fails waiting
-fixtures immediately. Setup failures with no records and test failures followed
-by verified cleanup release the lease normally. Only fixture setup/teardown has
+fixtures immediately. Zero-count cleanup after an attempted create also blocks:
+a disconnected POST can still commit after DELETE reads zero. Test failures
+followed by exact owned cleanup release normally. Only fixture setup/teardown has
 a 150-second budget to include the bounded 120-second lease wait; test bodies
 keep their existing timeout.
 
