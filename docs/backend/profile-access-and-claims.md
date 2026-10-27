@@ -255,6 +255,20 @@ direct lookup. Managers retain their full list. Profile claim state and trust
 labels are unchanged, so a `claimed_unverified` person can have a verified
 VRChat connection.
 
+Public Links compose stored outbound links with the common `verifiedConnections`
+array. Exact VRChat identity matches retain their supplied label and order; a
+verified account or group missing from the outbound list appends once. Public
+Links, account Connections, and account status use `Verified VRChat account` or
+`Verified VRChat group`, with the proof date rendered in UTC, such as
+`25 Oct 2026`. Revocation removes the dated mark without deleting stored links.
+
+A newly completed proof announces `VRChat account verified.` or
+`VRChat group verified.` and names the completed target, even when the profile
+remains `claimed_unverified`. Authorized claim context and adapter responses
+carry the successful target and timestamp. The initial query snapshot does not
+replay a completion announcement. Connection-only additions emit no ownership
+completion event; other analytics outcomes still follow profile claim state.
+
 Crossing `revalidateAfter` or becoming stale preserves the historical date.
 New attachments and privileged actions still require fresh proof through
 `requireControlProof`. Revocation of all qualifying proofs, owner removal or

@@ -7,7 +7,7 @@ import { usePostHog } from "posthog-js/react";
 import { VrcdnStreamPlayer } from "./vrcdn-stream-player";
 import { ProfileDestinationArtwork } from "./profile-destination-artwork";
 import { buttonVariants } from "@/components/ui/button";
-import { VerifiedTrustMark } from "@/components/ui/verified-trust-mark";
+import { ConnectionVerification } from "@/components/ui/connection-verification";
 import { SectionHeading } from "@/components/ui/card";
 import { CopyValueRow } from "@/components/ui/copy-value-row";
 import { cn } from "@/lib/cn";
@@ -34,7 +34,7 @@ export type ProfileVrcdnStream = {
 };
 
 type ProfileVrcdnLink = {
-  verified?: boolean;
+  verifiedAt?: number;
   href: string;
   key: string;
   label: string;
@@ -195,7 +195,7 @@ export function ProfileVrcdnStreams({
               <div className="mt-4 flex flex-wrap gap-2">
                 {links.map((link) => (
                   <a
-                    className={cn(buttonVariants({ variant: "secondary" }), "max-w-full justify-start gap-3 text-left")}
+                    className={cn(buttonVariants({ variant: "secondary" }), "h-auto max-w-full justify-start gap-3 whitespace-normal py-3 text-left")}
                     href={link.href}
                     key={link.key}
                     rel="noreferrer"
@@ -204,9 +204,8 @@ export function ProfileVrcdnStreams({
                     {link.kind ? <ProfileDestinationArtwork kind={link.kind} src={link.artworkUrl} /> : null}
                     <span className="min-w-0 [overflow-wrap:anywhere]">
                       <span className="block">{link.label}</span>
-                      {link.platform ? <span className="mt-0.5 block text-xs font-normal text-muted">{link.platform}</span> : null}
+                      {link.verifiedAt !== undefined ? <ConnectionVerification at={link.verifiedAt} group={link.kind === "vrchat_group"} /> : link.platform ? <span className="mt-0.5 block text-xs font-normal text-muted">{link.platform}</span> : null}
                     </span>
-                    {link.verified ? <VerifiedTrustMark label="Verified VRChat connection" /> : null}
                     <ExternalLink aria-hidden="true" className="size-3.5 shrink-0" />
                   </a>
                 ))}

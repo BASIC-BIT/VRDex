@@ -20,6 +20,53 @@ const schema = (
 ).default ?? schemaModule;
 
 describe("profile claim lifecycle", () => {
+  it("exposes a completed proof target only to its claimant", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const clerkUserId = newClerkUserId();
+    const otherClerkUserId = newClerkUserId();
+    const targetExternalId = "usr_11111111-2222-3333-4444-555555555555";
+    const seeded = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", { clerkUserId, email: "completed-target@example.test", emailVerificationTime: now });
+      await ctx.db.insert("users", { clerkUserId: otherClerkUserId, email: "other-target@example.test", emailVerificationTime: now });
+      const profileId = await ctx.db.insert("profiles", {
+        profileType: "person", slug: "completed-target", displayName: "Completed target", sortName: "completed target",
+        aliases: [], tags: [], claimState: "claimed_unverified", publicationState: "published",
+        publicSurfacingState: "public", creationSource: "self", person: { roleTags: [] }, updatedAt: now,
+      });
+      await ctx.db.insert("profileOwners", { profileId, userId, roleKey: "owner", state: "active", grantedAt: now, updatedAt: now });
+      return await ctx.db.insert("profileVerificationAttempts", {
+        profileId, userId, method: "vrchat_user_proof", targetType: "vrchat_user", targetExternalId,
+        proofCode: "VRDEX19825", state: "pending", createdAt: now, updatedAt: now, expiresAt: now + 60_000,
+        analyticsJourneyId: "11111111-1111-4111-8111-111111111111",
+      });
+    });
+    const claimant = t.withIdentity(clerkTestIdentity(clerkUserId, "completed-target@example.test"));
+    assert.equal((await claimant.query(api.profileClaims.getClaimJourneyContext, { profileSlug: "completed-target" }))?.lastVerifiedProof, null);
+    const result = await t.mutation(internal.profileClaims.recordVrchatProofVerification, {
+      attemptId: seeded, evidenceSource: "vrchat_api", evidenceSummary: "Synthetic settlement.",
+    });
+    const context = await claimant.query(api.profileClaims.getClaimJourneyContext, { profileSlug: "completed-target" });
+    assert.equal(context?.verified, false);
+    assert.equal(context?.lastVerifiedProof?.targetExternalId, targetExternalId);
+    assert.equal(context?.lastVerifiedProof?.targetType, "vrchat_user");
+    assert.equal(context?.lastVerifiedProof?.analyticsJourneyId, "11111111-1111-4111-8111-111111111111");
+    assert.equal(result.completedTarget?.targetExternalId, targetExternalId);
+    assert.equal(result.completedTarget?.at, context?.lastVerifiedProof?.at);
+    const replay = await claimant.action(api.profileClaims.verifyVrchatProofViaAdapter, { attemptId: seeded });
+    assert.ok("completedTarget" in replay);
+    assert.deepEqual(replay.completedTarget, result.completedTarget);
+    assert.equal(context?.lastVerifiedProof?.connectionOnly, true);
+    const events = await t.run(ctx => ctx.db.query("claimAnalyticsOutbox").collect());
+    assert.deepEqual(events.filter(event => event.event === "claim_resolved").map(event => ({
+      outcome: event.outcome, connectionOnly: event.connectionOnly,
+    })), [{ outcome: "claimed_unverified", connectionOnly: true }]);
+    for (const viewer of [t, t.withIdentity(clerkTestIdentity(otherClerkUserId, "other-target@example.test"))]) {
+      const other = await viewer.query(api.profileClaims.getClaimJourneyContext, { profileSlug: "completed-target" });
+      assert.equal(other?.lastVerifiedProof, null);
+    }
+  });
+
   it("reports collector-backed proof as queued only after a fresh proof poll", async () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
@@ -512,7 +559,7 @@ describe("profile claim lifecycle", () => {
   it("reports the settled outcome instead of failing a replayed proof", async () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
-    const { attemptId, profileId } = await t.run(async (ctx) => {
+    const { attemptId, profileId, clerkUserId } = await t.run(async (ctx) => {
       const clerkUserId8 = newClerkUserId();
       const userId = await ctx.db.insert("users", {
         clerkUserId: clerkUserId8,
@@ -540,13 +587,14 @@ describe("profile claim lifecycle", () => {
         targetType: "vrchat_user",
         targetExternalId: "usr_5e7adcef-c7f4-4df1-b4e6-e86fb529ac08",
         proofCode: "VRDEX-ONE-TIME",
+        analyticsJourneyId: "22222222-2222-4222-8222-222222222222",
         state: "pending",
         createdAt: now,
         updatedAt: now,
         expiresAt: now + 60_000,
       });
 
-      return { attemptId, profileId };
+      return { attemptId, profileId, clerkUserId: clerkUserId8 };
     });
 
     const first = await t.mutation(internal.profileClaims.recordVrchatProofVerification, {
@@ -578,6 +626,29 @@ describe("profile claim lifecycle", () => {
     );
     assert.equal(owners.length, 1);
     assert.equal(owners[0]?.state, "active");
+    const claimant = t.withIdentity(clerkTestIdentity(clerkUserId, "proof-replay@example.test"));
+    const second = await claimant.mutation(api.profileClaims.startVrchatProof, {
+      profileSlug: "proof-replay", targetType: "vrchat_user",
+      targetExternalId: "usr_11111111-2222-3333-4444-555555555555",
+      analyticsJourneyId: "33333333-3333-4333-8333-333333333333",
+    });
+    const connected = await t.mutation(internal.profileClaims.recordVrchatProofVerification, {
+      attemptId: second.attemptId, evidenceSource: "vrchat_api", evidenceSummary: "Synthetic second connection.",
+    });
+    assert.equal(first.claimState, "claimed_unverified");
+    assert.equal(first.connectionOnly, false);
+    assert.equal(connected.claimState, "claimed_unverified");
+    assert.equal(connected.connectionOnly, true);
+    const events = await t.run(ctx => ctx.db.query("claimAnalyticsOutbox").collect());
+    assert.deepEqual(events.filter(event => event.event === "claim_resolved").map(event => ({
+      outcome: event.outcome, connectionOnly: event.connectionOnly,
+    })), [
+      { outcome: "claimed_unverified", connectionOnly: false },
+      { outcome: "claimed_unverified", connectionOnly: true },
+    ]);
+    const claims = await t.run(ctx => ctx.db.query("profileClaimRequests").collect());
+    assert.equal(claims.length, 1);
+
   });
 
   it("cancels only the pending record shown in the journey", async () => {

@@ -1,30 +1,36 @@
 import { expect, test } from "@playwright/test";
 
 test("background connection completion replaces the queued message @fixture", async ({ page }, testInfo) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
   await page.goto("/playwright/claim?completion=background");
   await expect(page.getByText("VRDEX19825", { exact: true })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath("short-claim-code.png"), fullPage: true });
   await page.getByRole("button", { name: "I've added it - check now" }).click();
   await expect(page.getByText(/We are checking VRChat for your code/)).toBeVisible();
   await page.getByRole("button", { name: "Simulate collector completion" }).click();
-  await expect(page.getByText("That account or group is now connected to this profile.")).toBeVisible();
+  await expect(page.getByText("VRChat account verified.")).toBeVisible();
+  await expect(page.getByText("BASICBIT", { exact: true }).last()).toBeVisible();
+  await expect(page.locator("time").first()).toHaveText("25 Oct 2026");
+  await expect(page.getByRole("link", { name: "Connections", exact: true })).toBeVisible();
+  expect(errors).toEqual([]);
   await page.screenshot({ path: testInfo.outputPath("claim-completed.png"), fullPage: true });
   await expect(page.getByText(/We are checking VRChat for your code/)).toHaveCount(0);
-  await expect(page.getByRole("status").filter({ hasText: "That account or group is now connected" })).toBeFocused();
+  await expect(page.getByRole("status").filter({ hasText: "VRChat account verified." })).toBeFocused();
 });
 
 test("returning after completion does not replay a new-connection announcement @fixture", async ({ page }) => {
   await page.goto("/playwright/claim?completion=returned");
   await expect(page.getByText("You already manage this profile.")).toBeVisible();
-  await expect(page.getByText("That account or group is now connected to this profile.")).toHaveCount(0);
+  await expect(page.getByText("VRChat account verified.")).toHaveCount(0);
   await expect(page.getByText(/We are checking VRChat for your code/)).toHaveCount(0);
 });
 
 test("checking a remaining proof restores its feedback after another proof completes @fixture", async ({ page }) => {
   await page.goto("/playwright/claim?completion=remaining");
   await page.getByRole("button", { name: "Simulate collector completion" }).click();
-  await expect(page.getByText("That account or group is now connected to this profile.")).toBeVisible();
+  await expect(page.getByText("VRChat account verified.")).toBeVisible();
   await page.getByRole("button", { name: "I've added it - check now" }).click();
   await expect(page.getByText(/We are checking VRChat for your code/)).toBeVisible();
-  await expect(page.getByText("That account or group is now connected to this profile.")).toHaveCount(0);
+  await expect(page.getByText("VRChat account verified.")).toHaveCount(0);
 });

@@ -32,7 +32,11 @@ export function ClaimFlowPreview({
         initialAnalyticsJourneyId="00000000-0000-4000-8000-000000000001"
         reservedAnalyticsJourneyId="00000000-0000-4000-8000-000000000002"
         previewContext={{
-          hasVerifiedVrchatConnection: completionScenario === "connected-unverified",
+          verifiedConnections: completed || completionScenario === "connected-unverified" ? [{
+            assetType: "vrchat_user", assetExternalId: "usr_11111111-2222-3333-4444-555555555555",
+            url: "https://vrchat.com/home/user/usr_11111111-2222-3333-4444-555555555555",
+            displayName: "BASICBIT", verifiedAt: Date.UTC(2026, 9, 25), linkRole: "primary",
+          }] : [],
           viewerContextKey: "preview",
           emailVerified: true,
           // `hasDiscord` is a VRDex verification watermark, and only the
@@ -50,18 +54,18 @@ export function ClaimFlowPreview({
           // affordance would unlock nothing visible.
           vrclinkingConfigured,
           ownership: privateProfile || completionDemo || completionScenario === "connected-unverified" ? "viewer" : "available",
-          verified: privateProfile || completionDemo,
+          verified: privateProfile,
           pendingClaimRequest: null,
           pendingProof: completionDemo && (!completed || completionScenario === "remaining") ? {
             id: "fixture-proof" as Id<"profileVerificationAttempts">,
             targetType: "vrchat_user",
-            targetExternalId: "usr_fixture",
+            targetExternalId: "usr_11111111-2222-3333-4444-555555555555",
             proofCode: "VRDEX19825",
             expiresAt: 4_000_000_000_000,
             expired: false,
             analyticsJourneyId: "00000000-0000-4000-8000-000000000001",
           } : null,
-          lastVerifiedProof: completed ? { at: 1, connectionOnly: true, targetType: "vrchat_user" } : null,
+          lastVerifiedProof: completed ? { at: Date.UTC(2026, 9, 25), connectionOnly: true, targetType: "vrchat_user", targetExternalId: "usr_11111111-2222-3333-4444-555555555555" } : null,
         }}
         profile={{
           displayName: "BASICBIT",

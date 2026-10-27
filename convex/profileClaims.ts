@@ -149,7 +149,11 @@ type DiscordCommunityClaimAdapterContext = {
   discordUserId: string;
 };
 type VerifyAdapterResult =
-  | { state: Doc<"profileVerificationAttempts">["state"] }
+  | { state: Doc<"profileVerificationAttempts">["state"]; completedTarget?: {
+      targetType: Doc<"profileVerificationAttempts">["targetType"];
+      targetExternalId: string;
+      at?: number;
+    } }
   | { state: "unavailable" }
   // No adapter configured for this target: the collector fleet reads it on its
   // own schedule, so nothing was checked just now. Distinct from `pending`,
@@ -165,6 +169,11 @@ type VerifyAdapterResult =
       // reconstructs. A missing claim request is one symptom of it, but a proof
       // replayed after the collector already settled it has no request either.
       connectionOnly: boolean;
+      completedTarget: {
+        targetType: Doc<"profileVerificationAttempts">["targetType"];
+        targetExternalId: string;
+        at?: number;
+      };
     };
 type DiscordAdminAdapterResult =
   | {
@@ -498,6 +507,7 @@ export const getClaimJourneyContext = query({
               // long after the page that started it — and the completion event
               // is attributed from it.
               targetType: settledProof.targetType,
+              targetExternalId: settledProof.targetExternalId,
               analyticsJourneyId: settledProof.analyticsJourneyId,
             },
       pendingProof: proof
@@ -1542,6 +1552,7 @@ export const recordVrchatProofVerification = internalMutation({
           profileId: settled._id,
           claimState: settled.claimState,
           connectionOnly: attempt.connectionOnly === true,
+          completedTarget: { targetType: attempt.targetType, targetExternalId: attempt.targetExternalId, at: attempt.verifiedAt },
         };
       }
 
@@ -1746,6 +1757,7 @@ export const recordVrchatProofVerification = internalMutation({
       profileId: profile._id,
       claimState: updatedProfile?.claimState ?? profile.claimState,
       connectionOnly,
+      completedTarget: { targetType: attempt.targetType, targetExternalId: attempt.targetExternalId, at: now },
     };
   },
 });
@@ -1848,7 +1860,14 @@ export const verifyVrchatProofViaAdapter = action({
     }
 
     if (attemptContext.attempt.state !== "pending") {
-      return { state: attemptContext.attempt.state };
+      return {
+        state: attemptContext.attempt.state,
+        ...(attemptContext.attempt.state === "verified" ? { completedTarget: {
+          targetType: attemptContext.attempt.targetType,
+          targetExternalId: attemptContext.attempt.targetExternalId,
+          at: attemptContext.attempt.verifiedAt,
+        } } : {}),
+      };
     }
 
     // An attempt that is already expired is expired regardless of whether the

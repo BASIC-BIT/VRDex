@@ -580,7 +580,7 @@ test("verified email account can complete VRChat adapter claims @flow", async ({
       .or(page.getByRole("button", { name: "I've added it — check now" }))
       .or(page.getByRole("button", { name: "Check proof now" }))
       .click();
-    await expect(page.getByText(/This profile is yours|Ownership (verified|confirmed)/i)).toBeVisible(hostedActionExpectOptions);
+    await expect(page.getByText(/VRChat account verified\.|This profile is yours|Ownership (verified|confirmed)/i)).toBeVisible(hostedActionExpectOptions);
 
     await gotoFlowPage(page, `/${vrchatPersonSlug}`);
     await expect(page.getByRole("heading", { name: `Playwright VRChat Proof ${runSuffix}` })).toBeVisible(hostedActionExpectOptions);
@@ -657,7 +657,7 @@ test("two Clerk users keep VRChat claim fixtures isolated @flow", async ({ brows
     await first.reload();
     await expect(first.getByText(firstCode, { exact: true })).toBeVisible(hostedActionExpectOptions);
     await first.getByRole("button", { name: "I've added it - check now", exact: true }).click();
-    await expect(first.getByText(/This profile is yours|Ownership (verified|confirmed)/i)).toBeVisible(hostedActionExpectOptions);
+    await expect(first.getByText(/VRChat account verified\.|This profile is yours|Ownership (verified|confirmed)/i)).toBeVisible(hostedActionExpectOptions);
     await second.reload();
     await expect(second.getByText("This profile already has an owner.", { exact: true })).toBeVisible(hostedActionExpectOptions);
     await expect(second.getByRole("button", { name: "Create proof code" })).toHaveCount(0);
@@ -775,4 +775,45 @@ test("E2E auth helper stays gated without the browser token @flow", async ({ req
     data: "{not-json",
   });
   expect(malformedDeleteResponse.status()).toBe(400);
+});
+
+test("reactive query saves a dated VRChat account and a second connection without reclaiming @flow", async ({ page, request }, testInfo) => {
+  test.setTimeout(150_000);
+  test.skip(clerkTestAuth.available === false, clerkTestAuth.available === false ? clerkTestAuth.reason : "");
+  if (process.env.VRDEX_ENABLE_E2E_ADAPTER_HELPERS !== "true") throw new Error("Requires the isolated synthetic proof adapter.");
+  const e2eToken = e2eBrowserToken();
+  const runId = e2eRunId(testInfo);
+  let account: ClerkTestAccount | undefined;
+  let slug: string | undefined;
+  try {
+    account = await createSignedInClerkAccount(page, `connection-${runId.slice(-30)}`);
+    slug = await createE2eProfile({ request, e2eToken, runId, profileType: "person", displayName: `Connection ${runId.slice(-24)}` });
+    const ids = ["usr_e2e00000-0000-4000-8000-000000000001", "usr_e2e00000-0000-4000-8000-000000000002"];
+    // Uses the real authenticated reactive query and gated adapter settlement.
+    // This is synthetic proof, not a live VRChat provider check.
+    for (const [index, id] of ids.entries()) {
+      await gotoFlowPage(page, `/claim/${slug}`);
+      await page.getByLabel("VRChat profile URL or user ID").fill(id);
+      await page.getByRole("button", { name: "Create proof code", exact: true }).click();
+      await expect(page.getByText(id, { exact: true })).toBeVisible(hostedActionExpectOptions);
+      await page.getByRole("button", { name: "I've added it - check now", exact: true }).click();
+      const completion = page.getByRole("status").filter({ hasText: "VRChat account verified." });
+      await expect(completion).toBeVisible(hostedActionExpectOptions);
+      await expect(completion.getByText(id, { exact: true })).toBeVisible();
+      const date = completion.locator("time");
+      await expect(date).toHaveAttribute("datetime", /^\d{4}-\d{2}-\d{2}T/);
+      const isoDate = await date.getAttribute("datetime");
+      await completion.getByRole("link", { name: "Connections", exact: true }).click();
+      await expect(page.getByText(id, { exact: true })).toBeVisible(hostedActionExpectOptions);
+      await expect(page.locator(`time[datetime="${isoDate}"]`)).toHaveCount(1);
+      await expect(page.getByText("Verified VRChat account", { exact: true })).toHaveCount(index + 1);
+      await gotoFlowPage(page, `/claim/${slug}`);
+      await expect(page.getByText("You already manage this profile.", { exact: true })).toBeVisible(hostedActionExpectOptions);
+      await expect(page.getByText("VRChat account verified.", { exact: true })).toHaveCount(0);
+      await expect(page.getByText("Verified VRChat account", { exact: true })).toHaveCount(index + 1);
+    }
+    await captureRouteScreenshot(page, testInfo, "returned-dated-connections");
+  } finally {
+    await cleanupAuthAndProfiles(request, e2eToken, account, slug ? [slug] : [], runId);
+  }
 });

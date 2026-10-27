@@ -12,10 +12,12 @@ import { api } from "@convex-generated-api";
 import type { Id } from "../../../../../../convex/_generated/dataModel";
 import { buttonVariants, Button } from "@/components/ui/button";
 import { CopyValueRow } from "@/components/ui/copy-value-row";
+import { ViewerLocalEventDateTime } from "../../_components/viewer-local-event-times";
 import { ProfileAvatarImage } from "@/components/ui/profile-avatar-image";
 import { Field, FieldText, Input, Select } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
-import { ProfileVerificationStatus } from "../../account/profile-verification-status";
+import type { PublicVerifiedConnection } from "@vrdex/api-contracts";
+import { ProfileVerificationStatus, verifiedVrchatConnections } from "../../account/profile-verification-status";
 import type { AvatarAppearance } from "@/lib/avatar-appearance";
 import { captureProductEvent, type ClaimAnalyticsMethod } from "@/lib/posthog";
 import { claimErrorMessage, claimFailureOutcome } from "@/lib/claim-errors";
@@ -45,12 +47,14 @@ type ClaimProfile = {
   profileType: ProfileType;
   slug: string;
 };
+type CompletedTarget = { targetType: "vrclinking" | "vrchat_user" | "vrchat_group"; targetExternalId: string; at?: number };
+
 type Status =
   | { kind: "idle" }
   | { kind: "working"; message: string }
   | { kind: "notice"; message: string }
   | { kind: "error"; message: string }
-  | { kind: "complete"; message: string; verified: boolean };
+  | { kind: "complete"; message: string; verified: boolean; completedTarget?: CompletedTarget };
 
 // Claim failures arrive as structured ConvexError codes; matching on message
 // text no longer works because Convex redacts plain Error messages in
@@ -104,7 +108,7 @@ type ClaimFlowProps = {
   reservedAnalyticsJourneyId: string;
   discordVerify?: DiscordVerifyStatus;
   previewContext?: {
-    hasVerifiedVrchatConnection?: boolean;
+    verifiedConnections?: PublicVerifiedConnection[];
     viewerContextKey?: string | null;
     emailVerified: boolean;
     hasDiscord: boolean;
@@ -117,6 +121,7 @@ type ClaimFlowProps = {
       at: number;
       connectionOnly: boolean;
       targetType: "vrclinking" | "vrchat_user" | "vrchat_group";
+      targetExternalId: string;
       analyticsJourneyId?: string;
     } | null;
   };
@@ -181,10 +186,8 @@ export function ClaimFlowContent({
     api.profileConnections.listProfileConnections,
     !previewContext && context?.ownership === "viewer" ? { profileSlug: profile.slug } : "skip",
   );
-  const hasVerifiedVrchatConnection = previewContext
-    ? previewContext.hasVerifiedVrchatConnection === true
-    : connectionResult?.connections.some((connection) => connection.verified &&
-        (connection.assetType === "vrchat_user" || connection.assetType === "vrchat_group")) === true;
+  const verifiedConnections = previewContext?.verifiedConnections ?? verifiedVrchatConnections(connectionResult);
+  const hasVerifiedVrchatConnection = verifiedConnections.length > 0;
   const manageableGuilds = useQuery(
     api.discordVerification.getManageableGuilds,
     previewContext ? "skip" : {},
@@ -239,6 +242,7 @@ export function ClaimFlowContent({
       connectionOnly: boolean;
       method: ClaimAnalyticsMethod;
       journeyId?: string;
+      completedTarget: CompletedTarget;
     } | null
   >(null);
   const activeCollectorCompletion = collectorCompletion;
@@ -404,6 +408,16 @@ export function ClaimFlowContent({
     if (status.kind === "complete" || activeCollectorCompletion !== null) completionRef.current?.focus();
   }, [status, activeCollectorCompletion]);
 
+  const completedTarget = status.kind === "complete" ? status.completedTarget : activeCollectorCompletion?.completedTarget;
+  const completionConnection: PublicVerifiedConnection | undefined = completedTarget?.at === undefined ? undefined : {
+    assetType: completedTarget.targetType === "vrchat_group" ? "vrchat_group" : "vrchat_user",
+    assetExternalId: completedTarget.targetExternalId,
+    url: `https://vrchat.com/home/${completedTarget.targetType === "vrchat_group" ? "group" : "user"}/${completedTarget.targetExternalId}`,
+    displayName: verifiedConnections.find(connection => connection.assetExternalId === completedTarget.targetExternalId)?.displayName,
+    verifiedAt: completedTarget.at,
+    linkRole: "secondary",
+  };
+
   const observedContext = context ?? null;
 
   // The backend reports the verification as a fact; this only notices that it
@@ -432,12 +446,14 @@ export function ClaimFlowContent({
     // Only an advance counts, and only one observed on this page: arriving at a
     // profile whose proof completed earlier must not replay the announcement.
     if (
+      observedContext?.lastVerifiedProof &&
       previous !== null &&
       previous.viewerContextKey === viewerContextKey &&
       verifiedProofAt !== null &&
       (previous.at === null || verifiedProofAt > previous.at)
     ) {
       setCollectorCompletion({
+        completedTarget: observedContext.lastVerifiedProof,
         verified: observedContext?.verified === true,
         connectionOnly: observedContext?.lastVerifiedProof?.connectionOnly === true,
         method:
@@ -645,24 +661,12 @@ export function ClaimFlowContent({
       captureMethodSelection(journeyId, proofMethod);
       const result = await verifyVrchat({ attemptId });
       if ("claimState" in result) {
-        // Proving control of the target does not by itself establish that the
-        // target is the one this listing represents, so report the state the
-        // claim actually reached.
         const verified = result.claimState === "claimed_verified";
-        // The backend classifies a proof that changed no ownership — an existing
-        // owner proving another account or group — as connection-only. Reading
-        // it as a fresh claim announced ownership the profile never changed
-        // hands over, and counted a connection addition in the claim funnel.
-        const connectionOnly = result.connectionOnly === true;
-
         setStatus({
           kind: "complete",
-          message: connectionOnly
-            ? "That account is now connected to this profile."
-            : verified
-              ? "Verified. This profile is yours."
-              : "This profile is yours. You can manage it now.",
+          message: result.completedTarget.targetType === "vrchat_group" ? "VRChat group verified." : "VRChat account verified.",
           verified,
+          completedTarget: result.completedTarget,
         });
         // No `claim_completed` here. This same verification advances
         // `lastVerifiedProof`, so the observer below emits it — from the
@@ -671,17 +675,13 @@ export function ClaimFlowContent({
         // adapter-resolved claim twice, and PostHog has no dedupe key to
         // collapse them.
       } else if (result.state === "verified") {
-        // The collector fleet resolves attempts on its own schedule, so it may
-        // have landed the verdict between render and this click. Reporting the
-        // stale "we could not find the code yet" for an attempt that already
-        // succeeded told users their completed claim had failed.
-        //
-        // Deliberately no `complete` status here: the action returns only the
-        // attempt state, so this branch cannot tell a verified listing from one
-        // the backend left `claimed_unverified`, and a `complete` status takes
-        // precedence over the observer that does know. Clear the working state
-        // and let `lastVerifiedProof` report the real outcome.
-        setStatus({ kind: "idle" });
+        const completedTarget = result.completedTarget;
+        if (completedTarget) {
+          setStatus({ kind: "complete", completedTarget, verified: context?.verified === true,
+            message: completedTarget.targetType === "vrchat_group" ? "VRChat group verified." : "VRChat account verified." });
+        } else {
+          setStatus({ kind: "idle" });
+        }
       } else if (result.state === "failed") {
         // A lost ownership race and a listing that stopped being claimable both
         // settle as `failed`, and neither is a negative attestation — the match
@@ -947,13 +947,14 @@ export function ClaimFlowContent({
                     {status.kind === "complete"
                       ? status.message
                       : activeCollectorCompletion !== null
-                        ? activeCollectorCompletion.connectionOnly
-                          ? "That account or group is now connected to this profile."
-                          : activeCollectorCompletion.verified
-                            ? "Verified. This profile is yours."
-                            : "This profile is yours. You can manage it now."
+                        ? activeCollectorCompletion.completedTarget.targetType === "vrchat_group"
+                          ? "VRChat group verified."
+                          : "VRChat account verified."
                         : "You already manage this profile."}
                   </p>
+                  {completionConnection ? <div className="mt-3 flex flex-wrap items-center gap-3">
+                    <ProfileVerificationStatus slug={profile.slug} connections={[completionConnection]} showVerifyAction={false} />
+                  </div> : null}
                   <div className="mt-3 flex flex-wrap gap-2">
                     <Link className={buttonVariants({ variant: "primary" })} href={completionPath}>
                       {profile.hasPublicProfile ? "View profile" : "Manage profile"}
@@ -979,7 +980,7 @@ export function ClaimFlowContent({
           <Notice className="mt-8">
             <p className="font-semibold">You already manage this profile.</p>
             <div className="mt-3 flex flex-wrap items-center gap-3">
-              <ProfileVerificationStatus slug={profile.slug} verified={hasVerifiedVrchatConnection} showVerifyAction={false} />
+              <ProfileVerificationStatus slug={profile.slug} connections={verifiedConnections} showVerifyAction={false} />
             </div>
           </Notice>
         ) : null}
@@ -1054,10 +1055,7 @@ export function ClaimFlowContent({
                   <div className="flex flex-wrap gap-x-2">
                     <dt>Code expires</dt>
                     <dd className="text-foreground">
-                      {new Date(context.pendingProof.expiresAt).toLocaleString(undefined, {
-                        dateStyle: "medium",
-                        timeStyle: "short",
-                      })}
+                      <ViewerLocalEventDateTime timestamp={context.pendingProof.expiresAt} />
                     </dd>
                   </div>
                 </dl>
