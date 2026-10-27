@@ -3,6 +3,7 @@ import { it } from "node:test";
 import { convexTest } from "convex-test";
 import { api } from "../../convex/_generated/api";
 import schemaModule from "../../convex/schema";
+import { getPublicEventBySlug } from "../../convex/_eventPublic";
 const schema =
   (schemaModule as unknown as { default?: typeof schemaModule }).default ??
   schemaModule;
@@ -175,4 +176,26 @@ it("the bounded prefetch scenario authors earlier and long ongoing events under 
   } finally {
     process.env = original;
   }
+});
+
+it("detail scenario owns and exactly cleans dense slots, hidden person and untimed lineup", async()=>{
+  const original={...process.env};
+  try {
+    Object.assign(process.env,{CONVEX_CLOUD_URL:"http://127.0.0.1:3210",VRDEX_ENABLE_E2E_HELPERS:"true",VRDEX_E2E_CONVEX_SECRET:"test-secret",VERCEL_ENV:"development"});
+    const t=convexTest({schema,modules});
+    const args={secret:"test-secret",runId:"playwright-timeline-detail000",startAt:Date.UTC(2026,9,26,21)};
+    const result=await t.mutation(api.e2eHomeTimeline.create,{...args,scenario:"detail"});
+    assert.equal(result.slotIds.length,87);assert.equal(result.profileIds.length,3);
+    const row=await t.run(ctx=>ctx.db.get(result.eventIds[3]));
+    assert.equal(row?.posterImageUrl,"/api/e2e/fixture-assets/fixture-orbit-timeline-poster");
+    const canonical = await t.run(async ({db})=>getPublicEventBySlug(db,await db.get(result.eventIds[3])));
+    assert.equal(canonical?.slots.length,80);
+    assert.ok(!canonical?.lineup.some(entry=>entry.key === result.slotIds[86]));
+    let cursor:string|undefined;const rows=[];
+    do {const page=await t.query(api.eventTimeline.listPublicRoster,{eventId:result.eventIds[3],range:{startAt:0,endAt:1,timeZone:"UTC"},detail:true,cursor});if(page.detail?.kind === "available") rows.push(...page.detail.rows);cursor=page.cursor??undefined;}while(cursor);
+    assert.equal(rows.filter(row=>row.kind === "slot").length,81);
+    assert.equal(rows.filter(row=>row.kind === "lineup").length,2);
+    assert.ok(!JSON.stringify(rows).includes("SECRET")); assert.ok(!JSON.stringify(rows).includes(result.profileIds[2]));
+    assert.deepEqual(await t.mutation(api.e2eHomeTimeline.cleanup,{secret:args.secret,runId:args.runId}),{events:8,profiles:3,slots:87,lineupEntries:2});
+  }finally{process.env=original;}
 });

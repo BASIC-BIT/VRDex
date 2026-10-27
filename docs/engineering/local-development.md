@@ -168,6 +168,22 @@ The backend independently requires a deployment-owned loopback
 `CONVEX_CLOUD_URL`, enablement and the secret. Convex's bundle `NODE_ENV` is not a
 deployment discriminator, including for local development. No hosted fixture
 path or production override exists. The only state-change operations cancel or
-hide one of the run's eight fixture events after verifying ownership. Reuse
-this helper for subsequent Home integration checks; do not seed public-query
-responses or add unrelated records manually.
+hide one of the run's eight fixture events after verifying ownership. The optional
+`detail` scenario authors 81 timed slots on one event, two untimed entries and
+one hidden person for continuation/privacy checks. It cleans exactly eight
+events, three profiles, 87 slots and two lineup entries. Default and prefetch
+runs still clean eight events, two profiles and eight slots. Reuse this helper
+for subsequent Home integration checks; do not seed public-query responses or
+add unrelated records manually.
+
+The schedule's nonmodal detail panel reads canonical event poster/prose through
+`events.getPublicBySlug`. `eventTimeline.listPublicRoster` accepts optional
+`detail: true` for the complete mixed lineup and eligible favorite IDs, with
+80 candidates per page and mode-bound cursors. The panel automatically reads
+at most ten pages, then exposes More. Normal chart payloads and range filtering
+are unchanged. Detail pages allow public cancelled events and recheck public
+host/performer eligibility on every page. Authored rows remain intact; eligible
+participant-only fallbacks deduplicate against represented people. Selected sets
+can additionally resolve through the existing bounded saved-reference query.
+Detail/roster requests ignore superseded selections; focus and 60-second roster
+refreshes revalidate independently of the three-window chart cache.

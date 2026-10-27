@@ -9,7 +9,7 @@ export type TimelineFixture = {
 };
 export const test = base.extend<{
   timelineFixture: TimelineFixture;
-  timelineScenario: "default" | "prefetch";
+  timelineScenario: "default" | "prefetch" | "detail";
 }>({
   timelineScenario: ["default", { option: true }],
   timelineFixture: async ({ request, baseURL, timelineScenario }, provide) => {
@@ -30,7 +30,13 @@ export const test = base.extend<{
         data:
           timelineScenario === "prefetch"
             ? { runId, startAt: Date.UTC(2026, 9, 26), scenario: "prefetch" }
-            : { runId, startAt: TIMELINE_NOW - 30 * 60000 },
+            : {
+                runId,
+                startAt: TIMELINE_NOW - 30 * 60000,
+                ...(timelineScenario === "detail"
+                  ? { scenario: "detail" }
+                  : {}),
+              },
       });
       await expect(response).toBeOK();
       const value: unknown = await response.json();
@@ -62,8 +68,9 @@ export const test = base.extend<{
       await expect(cleanup).toBeOK();
       expect(await cleanup.json()).toEqual({
         events: 8,
-        profiles: 2,
-        slots: 8,
+        profiles: timelineScenario === "detail" ? 3 : 2,
+        slots: timelineScenario === "detail" ? 87 : 8,
+        ...(timelineScenario === "detail" ? { lineupEntries: 2 } : {}),
       });
     }
   },

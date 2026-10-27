@@ -48,16 +48,18 @@ export const listPublic = query({
 });
 
 export const listPublicRoster = query({
-  args: { eventId: v.string(), range: rangeValidator, cursor: v.optional(v.string()) },
+  args: { eventId: v.string(), range: rangeValidator, cursor: v.optional(v.string()), detail: v.optional(v.literal(true)) },
   handler: async (ctx, args): Promise<TimelineRosterPage> => {
     validateTimelineRange(args.range);
     const eventId = ctx.db.normalizeId("events", args.eventId);
     if (eventId === null) throw new Error("Invalid timeline event ID");
-    const scope = `roster:${eventId}`;
+    const scope = `${args.detail ? "detail-roster" : "roster"}:${eventId}`;
     const state = readTimelineCursor(args.cursor, scope, args.range, rosterPhases, "slots");
     const event = await ctx.db.get(eventId);
     const empty: TimelineRosterPage = { items: [], performers: [], cursor: null, complete: true };
-    if (event === null || await timelineEventIdentity(ctx.db, event, { includeHostImage: false }) === null) return empty;
+    const identity = event === null ? null : await timelineEventIdentity(ctx.db, event, { includeHostImage: false, includeCancelled: args.detail });
+    if (identity === null || event === null) return args.detail ? {...empty, detail: {kind: "unavailable"}} : empty;
+    const rows: import("./_eventTimelineTypes").TimelineDetailRow[] = [];
     const options = { numItems: 80, cursor: state.databaseCursor, maximumRowsRead: 80 };
     const items: TimelineRosterPage["items"] = [];
     const people = new Map<string, TimelineRosterPage["performers"][number]>();
@@ -71,7 +73,11 @@ export const listPublicRoster = query({
           const slot = await timelineSlot(ctx.db, row);
           if (slot === null) continue;
           if (slot.performer !== undefined) people.set(slot.performer.id, slot.performer);
-          if (overlapsTimeline(slot.schedule, args.range)) items.push(slot);
+          if (args.detail || overlapsTimeline(slot.schedule, args.range)) items.push(slot);
+          if (args.detail) rows.push({kind: "slot", key: slot.id, position: row.position, displayLabel: slot.displayLabel,
+            roleLabel: row.roleLabel || undefined, startAt: slot.schedule.startAt,
+            ...(slot.schedule.kind === "timed" ? {endAt: slot.schedule.endAt} : {}),
+            ...(slot.performer ? {performer: slot.performer} : {})});
         }
         break;
       }
@@ -81,6 +87,8 @@ export const listPublicRoster = query({
         for (const row of page.page) {
           const person = await timelinePerformer(ctx.db, row.personProfileId);
           if (person !== undefined) people.set(person.id, person);
+          if (args.detail) rows.push({kind: "lineup", key: row._id, position: row.position, displayLabel: row.performerLabel,
+            roleLabel: row.roleLabel, ...(person ? {performer: person} : {})});
         }
         break;
       }
@@ -91,6 +99,8 @@ export const listPublicRoster = query({
           if (row.confirmationState !== "confirmed") continue;
           const person = await timelinePerformer(ctx.db, row.personProfileId);
           if (person !== undefined) people.set(person.id, person);
+          if (args.detail && person) rows.push({kind: "participant", key: row._id, position: 0, displayLabel: person.displayName,
+            roleLabel: row.roleLabel || undefined, performer: person});
         }
         break;
       }
@@ -99,7 +109,7 @@ export const listPublicRoster = query({
     const cursor = continuation.isDone
       ? next === null ? null : encodeTimelineCursor(scope, args.range, { phase: next, databaseCursor: null })
       : encodeTimelineCursor(scope, args.range, { phase: state.phase, databaseCursor: continuation.continueCursor });
-    return { items, performers: [...people.values()], cursor, complete: cursor === null };
+    return { items, performers: [...people.values()], cursor, complete: cursor === null, ...(args.detail ? {detail: {kind: "available" as const, host: identity.host, rows}} : {}) };
   },
 });
 

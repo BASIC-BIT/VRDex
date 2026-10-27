@@ -280,3 +280,35 @@ it("continues past ineligible participant pages and deduplicates public identiti
   assert.equal(pages, 4);
   assert.deepEqual(performers.map(person => person.id), [ids.eligible]);
 });
+
+it("detail roster continues 81+ mixed rows without range truncation and binds cursor mode", async () => {
+  const t = setup();
+  const ids = await t.run(async ({db}) => {
+    const person = await db.insert("profiles", personBase);
+    const hidden = await db.insert("profiles", {...personBase, slug: "secret", displayName: "SECRET", publicSurfacingState: "suppressed"});
+    const eventId = await db.insert("events", {...eventBase, eventStatus: "cancelled"});
+    const slots = [];
+    for (let i=0;i<81;i++) slots.push(await db.insert("eventSlots", {...slotBase, eventId, position:i, startAt: startAt + 200*hour + i*hour, endAt: startAt + 201*hour + i*hour, personProfileId: person}));
+    const manual = await db.insert("eventLineupEntries", {eventId, clientKey:"manual", position: 82, performerLabel: "Manual guest", updatedAt: 1});
+    await db.insert("eventLineupEntries", {eventId, clientKey:"hidden", position: 83, performerLabel: "Authored label", personProfileId: hidden, updatedAt: 1});
+    return {eventId, person, hidden, slots, manual};
+  });
+  const first = await t.query(roster, {eventId: ids.eventId, range, detail: true});
+  assert.equal(first.detail?.kind, "available"); assert.equal(first.items.length, 80); assert.equal(first.complete, false);
+  await assert.rejects(t.query(roster, {eventId: ids.eventId, range, cursor: first.cursor ?? undefined}), /cursor/);
+  const normal = await t.query(roster, {eventId: ids.eventId, range});
+  assert.equal(normal.items.length, 0); assert.equal(normal.detail, undefined);
+  const rows = [...(first.detail?.kind === "available" ? first.detail.rows : [])];
+  let cursor = first.cursor;
+  while(cursor) { const page = await t.query(roster, {eventId: ids.eventId, range, detail:true, cursor}); if(page.detail?.kind === "available") rows.push(...page.detail.rows); cursor=page.cursor; }
+  assert.ok(rows.some(row => row.key === ids.slots[80]));
+  assert.ok(rows.some(row => row.key === ids.manual && row.displayLabel === "Manual guest" && row.startAt === undefined));
+  assert.ok(!JSON.stringify(rows).includes(ids.hidden)); assert.ok(!JSON.stringify(rows).includes("SECRET"));
+  assert.ok(rows.some(row=> row.displayLabel === "Authored label" && row.performer === undefined));
+  await t.run(async ({db}) => { await db.patch(ids.eventId, {eventStatus:"scheduled"}); });
+  const chart = await t.query(roster, {eventId:ids.eventId, range});
+  await assert.rejects(t.query(roster, {eventId:ids.eventId, range, detail:true, cursor:chart.cursor ?? undefined}), /cursor/);
+  await t.run(async ({db}) => { await db.patch(ids.eventId, {publicationState:"draft_private"}); });
+  const revoked = await t.query(roster, {eventId:ids.eventId, range, detail:true});
+  assert.deepEqual(revoked.detail, {kind:"unavailable"}); assert.deepEqual(revoked.items, []);
+});

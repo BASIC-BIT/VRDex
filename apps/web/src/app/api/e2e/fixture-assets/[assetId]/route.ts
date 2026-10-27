@@ -22,6 +22,10 @@ type FixtureAsset = {
 };
 
 const fixtureAssets: Record<string, FixtureAsset> = {
+  "fixture-orbit-timeline-poster": {
+    title: "ORBIT", subtitle: "Aurora / Neon Harbor", initials: "O",
+    width: 900, height: 1200, from: "#16111f", to: "#453023", accent: "#e6b879",
+  },
   "fixture-aurora-profile-image-raster": {
     title: "DJ Aurora",
     subtitle: "Raster profile image",

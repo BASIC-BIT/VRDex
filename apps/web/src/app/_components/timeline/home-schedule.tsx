@@ -24,6 +24,8 @@ import { TimelineAgenda } from "./timeline-agenda";
 import { TimelineNight } from "./timeline-night";
 import { type TimelineActions } from "./timeline-event-bar";
 import styles from "./timeline.module.css";
+import { EventDetailPanel } from "./event-detail-panel";
+import type { PreferenceAction } from "@/lib/timeline/preferences";
 export type TimelineSelection = {
   eventId: string;
   slug: string;
@@ -81,6 +83,7 @@ function ScheduleContent({
   const [now, setNow] = useState(runtime.now);
   const [width, setWidth] = useState(1000);
   const [selection, setSelection] = useState<TimelineSelection | null>(null);
+  const invoker = useRef<HTMLElement | null>(null);
   const [limit, setLimit] = useState(false);
   const preference = useTimelinePreferences();
   const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -143,8 +146,31 @@ function ScheduleContent({
     };
   }, [cancelReplace]);
   const onSelect = (next: TimelineSelection) => {
+    invoker.current =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
     setSelection(next);
     onSelectionChange?.(next);
+  };
+  const onClose = () => {
+    setSelection(null);
+    onSelectionChange?.(null);
+    const target = invoker.current?.isConnected
+      ? invoker.current
+      : document.getElementById("schedule-heading");
+    target?.focus({ preventScroll: true });
+  };
+  const onPreferenceAction = (action: PreferenceAction) => {
+    const result =
+      action.type === "add-plan"
+        ? preference.addPlan(action.reference)
+        : action.type === "remove-plan"
+          ? preference.removePlan(action.reference)
+          : action.type === "add-favorite"
+            ? preference.addFavorite(action.profileId)
+            : preference.removeFavorite(action.profileId);
+    setLimit(result.outcome === "limit");
   };
   const onSave = (reference: PlanReference) => {
     const action = togglePlanAction(preference.preferences.plan, reference);
@@ -237,6 +263,12 @@ function ScheduleContent({
           {...actions}
         />
       )}
+      <EventDetailPanel
+        selection={selection}
+        onClose={onClose}
+        preferences={preference.preferences}
+        onPreferenceAction={onPreferenceAction}
+      />
       <div
         className={styles.status}
         role="status"

@@ -1,3 +1,4 @@
+import type { PublicEvent } from "./_eventPublic";
 export type TimelineRange = { startAt: number; endAt: number; timeZone: string };
 export type PlanReference =
   | { kind: "event"; eventId: string }
@@ -29,7 +30,11 @@ export type TimelineEvent = {
 };
 export type TimelineEventIdentity = Omit<TimelineEvent, "slots" | "performers" | "rosterCursor">;
 export type TimelinePage = { items: TimelineEvent[]; cursor: string | null; complete: boolean };
-export type TimelineRosterPage = { items: TimelineSlot[]; performers: TimelinePerson[]; cursor: string | null; complete: boolean };
+export type TimelineDetailRow = Pick<PublicEvent["lineup"][number], "key" | "position" | "displayLabel" | "roleLabel" | "startAt" | "endAt"> & {
+  kind: "slot" | "lineup" | "participant";
+  performer?: TimelinePerson;
+};
+export type TimelineRosterPage = { detail?: { kind: "unavailable" } | { kind: "available"; host?: TimelineEventIdentity["host"]; rows: TimelineDetailRow[] }; items: TimelineSlot[]; performers: TimelinePerson[]; cursor: string | null; complete: boolean };
 type AvailableSaved = { kind: "available"; event: TimelineEventIdentity; status: TimelineEventIdentity["status"] };
 export type SavedResolution =
   | { reference: PlanReference; kind: "unavailable" }

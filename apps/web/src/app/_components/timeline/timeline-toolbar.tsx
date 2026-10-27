@@ -32,7 +32,9 @@ export function TimelineToolbar({
   return (
     <>
       <div className={styles.heading}>
-        <h2 id="schedule-heading">Schedule</h2>
+        <h2 id="schedule-heading" tabIndex={-1}>
+          Schedule
+        </h2>
         <div className={styles.metadata}>
           <span>
             <Globe2 aria-label="Timezone" size={13} />

@@ -64,7 +64,11 @@ async function handle(
     !Number.isSafeInteger(body.startAt)
   )
     return NextResponse.json({ error: "Invalid start" }, { status: 400 });
-  if ("scenario" in body && body.scenario !== "prefetch")
+  if (
+    "scenario" in body &&
+    body.scenario !== "prefetch" &&
+    body.scenario !== "detail"
+  )
     return NextResponse.json(
       { error: "Invalid fixture scenario" },
       { status: 400 },
@@ -74,7 +78,8 @@ async function handle(
       secret: gate.secret,
       runId: body.runId,
       startAt: body.startAt,
-      ...("scenario" in body && body.scenario === "prefetch"
+      ...("scenario" in body &&
+      (body.scenario === "prefetch" || body.scenario === "detail")
         ? { scenario: body.scenario }
         : {}),
     }),

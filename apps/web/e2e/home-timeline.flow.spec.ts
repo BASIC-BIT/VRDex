@@ -20,6 +20,146 @@ test.describe("continuous schedule @flow @fixture", () => {
       { timeout: 20000 },
     );
   });
+  test("nonmodal detail panel keeps browsing, poster and independent planning", async ({
+    page,
+    timelineFixture,
+    isMobile,
+  }, info) => {
+    const chart = page.getByRole("region", { name: "Timeline chart" });
+    const width = await chart.evaluate((el) => el.clientWidth);
+    const open = page
+      .getByTestId(`event-${timelineFixture.eventIds[3]}`)
+      .getByRole("button", {
+        name: "Open ORBIT: Interstellar Bassline Orchestra",
+        exact: true,
+      });
+    await open.focus();
+    const beforeOpen = await page.evaluate(() => ({
+      y: window.scrollY,
+      x: document.querySelector('[aria-label="Timeline chart"]')?.scrollLeft,
+    }));
+    await open.press("Enter");
+    const panel = page.getByRole("region", {
+      name: "Event details",
+      exact: true,
+    });
+    await expect(panel).toBeVisible();
+    await expect(
+      panel.getByRole("heading", {
+        name: "ORBIT: Interstellar Bassline Orchestra",
+        exact: true,
+      }),
+    ).toBeVisible();
+    const poster = panel.getByRole("img", {
+      name: "ORBIT: Interstellar Bassline Orchestra poster",
+    });
+    await expect(poster).toBeVisible();
+    await expect
+      .poll(() =>
+        poster.evaluate(
+          (el) =>
+            el instanceof HTMLImageElement &&
+            el.complete &&
+            el.naturalWidth > 0,
+        ),
+      )
+      .toBe(true);
+    expect(await poster.evaluate((el) => getComputedStyle(el).objectFit)).toBe(
+      "contain",
+    );
+    expect(await chart.evaluate((el) => el.clientWidth)).toBe(width);
+    expect(
+      await page.evaluate(() => ({
+        y: window.scrollY,
+        x: document.querySelector('[aria-label="Timeline chart"]')?.scrollLeft,
+      })),
+    ).toEqual(beforeOpen);
+    expect(await page.locator("audio, video, iframe").count()).toBe(0);
+    expect(await page.getByRole("dialog").count()).toBe(0);
+    const initial = await chart.evaluate((el) => el.scrollLeft);
+    await chart.focus();
+    await chart.press("ArrowRight");
+    await expect
+      .poll(() => chart.evaluate((el) => el.scrollLeft))
+      .not.toBe(initial);
+    await expect(panel).toBeVisible();
+    if (isMobile) {
+      const box = await panel.boundingBox();
+      expect(box?.height).toBeLessThanOrEqual(
+        (page.viewportSize()?.height ?? 0) / 2 + 1,
+      );
+      await panel.getByRole("button", { name: "Expand", exact: true }).click();
+      await expect(
+        panel.getByRole("button", { name: "Collapse", exact: true }),
+      ).toBeVisible();
+      expect((await panel.boundingBox())?.height).toBeGreaterThan(
+        (box?.height ?? 0) + 100,
+      );
+      await page.screenshot({ path: info.outputPath("detail-expanded.png") });
+      await panel
+        .getByRole("button", { name: "Collapse", exact: true })
+        .click();
+    }
+    await panel
+      .getByRole("button", {
+        name: "Add ORBIT: Interstellar Bassline Orchestra to My night",
+        exact: true,
+      })
+      .click();
+    const included = panel.getByRole("button", {
+      name: "Aurora: Included in ORBIT: Interstellar Bassline Orchestra",
+      exact: true,
+    });
+    await expect(included).toBeDisabled();
+    await panel
+      .getByRole("button", { name: "Favorite Aurora", exact: true })
+      .first()
+      .click();
+    await expect(
+      panel
+        .getByRole("button", { name: "Unfavorite Aurora", exact: true })
+        .first(),
+    ).toBeVisible();
+    await panel
+      .getByRole("button", {
+        name: "Remove ORBIT: Interstellar Bassline Orchestra from My night",
+        exact: true,
+      })
+      .click();
+    await expect(
+      panel.getByRole("button", {
+        name: "Add Aurora to My night",
+        exact: true,
+      }),
+    ).toBeEnabled();
+    const scroll = panel.getByTestId("event-detail-scroll");
+    await scroll.evaluate((el) => {
+      el.scrollTop = el.scrollHeight;
+    });
+    await expect
+      .poll(() => scroll.evaluate((el) => el.scrollTop))
+      .toBeGreaterThan(0);
+    await scroll.evaluate((el) => {
+      el.scrollTop = 0;
+    });
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.screenshot({ path: info.outputPath("detail-panel.png") });
+    await panel.getByRole("button", { name: "Close", exact: true }).click();
+    await expect(panel).toHaveCount(0);
+    await expect(open).toBeFocused();
+    await open.press("Enter");
+    await expect(panel).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(panel).toHaveCount(0);
+    await expect(open).toBeFocused();
+    await open.click();
+    const href = `/${timelineFixture.runId}-community/events/${timelineFixture.runId}-3`;
+    await expect(
+      panel.getByRole("link", { name: "Open event", exact: true }),
+    ).toHaveAttribute("href", href);
+    await panel.getByRole("link", { name: "Open event", exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(href + "$"));
+  });
   test("real bars, shared Agenda, saves, favorites and usable public search", async ({
     page,
     timelineFixture,
@@ -308,6 +448,176 @@ test.describe("continuous schedule @flow @fixture", () => {
         exact: true,
       }),
     ).toBeEnabled();
+  });
+  test("detail replacement, hostless navigation and vanished-invoker focus", async ({
+    page,
+    timelineFixture,
+  }) => {
+    const panel = page.getByRole("region", {
+      name: "Event details",
+      exact: true,
+    });
+    await page.getByRole("button", { name: "Agenda", exact: true }).click();
+    await page
+      .getByRole("button", {
+        name: "Open ORBIT: Interstellar Bassline Orchestra",
+        exact: true,
+      })
+      .click();
+    await expect(
+      panel.getByRole("heading", {
+        name: "ORBIT: Interstellar Bassline Orchestra",
+        exact: true,
+      }),
+    ).toBeVisible();
+    const other = page.getByRole("button", {
+      name: "Open Low Tide",
+      exact: true,
+    });
+    await other.focus();
+    await other.press("Enter");
+    await expect(
+      panel.getByRole("heading", { name: "Low Tide", exact: true }),
+    ).toBeVisible();
+    await expect(
+      panel.getByRole("heading", {
+        name: "ORBIT: Interstellar Bassline Orchestra",
+        exact: true,
+      }),
+    ).toHaveCount(0);
+    await expect(
+      panel.getByRole("link", { name: "Open event", exact: true }),
+    ).toHaveCount(0);
+    await page.getByLabel("Schedule date", { exact: true }).fill("2026-11-02");
+    await expect(other).toHaveCount(0);
+    await expect(
+      panel.getByRole("heading", { name: "Low Tide", exact: true }),
+    ).toBeVisible();
+    await panel.getByRole("button", { name: "Close", exact: true }).click();
+    await expect(
+      page.getByRole("heading", { name: "Schedule", exact: true }),
+    ).toBeFocused();
+    await expect(page.getByLabel("Schedule date", { exact: true })).toHaveValue(
+      "2026-11-02",
+    );
+    void timelineFixture;
+  });
+  test.describe("dense detail roster", () => {
+    test.use({ timelineScenario: "detail" });
+    test("selected later-page set stays accessible, favorites resolve outside cache, and revocation closes detail", async ({
+      page,
+      request,
+      timelineFixture,
+    }, info) => {
+      await page.getByRole("button", { name: "Agenda", exact: true }).click();
+      const later = page.getByRole("button", {
+        name: "Open Later-page guest at ORBIT: Interstellar Bassline Orchestra",
+        exact: true,
+      });
+      await later.focus();
+      const beforeSelection = await page.evaluate(() => window.scrollY);
+      await later.press("Enter");
+      const panel = page.getByRole("region", {
+        name: "Event details",
+        exact: true,
+      });
+      const row = panel.locator('[data-selected="true"]');
+      await expect(row).toHaveAttribute(
+        "data-slot-id",
+        timelineFixture.slotIds[86],
+      );
+      await expect(row).toBeInViewport();
+      expect(await page.evaluate(() => window.scrollY)).toBe(beforeSelection);
+      const firstSet = page.getByRole("button", {
+        name: "Open Aurora at ORBIT: Interstellar Bassline Orchestra",
+        exact: true,
+      });
+      await firstSet.focus();
+      const beforeSameEvent = await page.evaluate(() => window.scrollY);
+      await firstSet.press("Enter");
+      await expect(row).toHaveAttribute(
+        "data-slot-id",
+        timelineFixture.slotIds[6],
+      );
+      await expect(row).toBeInViewport();
+      expect(await page.evaluate(() => window.scrollY)).toBe(beforeSameEvent);
+      await later.focus();
+      await later.press("Enter");
+      await expect(row).toHaveAttribute(
+        "data-slot-id",
+        timelineFixture.slotIds[86],
+      );
+      await expect(row).toBeInViewport();
+      expect(
+        await page.evaluate(
+          () =>
+            JSON.parse(
+              localStorage.getItem("vrdex.timeline.preferences.v1") ?? "null",
+            )?.plan ?? [],
+        ),
+      ).toEqual([]);
+      await expect(
+        panel.getByText("Manual guest", { exact: true }),
+      ).toHaveCount(1);
+      await expect(
+        panel.getByText("Untimed Aurora", { exact: true }),
+      ).toHaveCount(1);
+      await expect(
+        panel.getByText("SECRET PERSON", { exact: true }),
+      ).toHaveCount(0);
+      expect(await panel.innerHTML()).not.toContain(
+        timelineFixture.profileIds[2],
+      );
+      const manual = panel
+        .getByRole("listitem")
+        .filter({ has: page.getByText("Manual guest", { exact: true }) });
+      await expect(
+        manual.getByRole("button", { name: /Favorite/ }),
+      ).toHaveCount(0);
+      await page.screenshot({
+        path: info.outputPath("detail-selected-later.png"),
+      });
+      await row
+        .getByRole("button", {
+          name: "Add Later-page guest to My night",
+          exact: true,
+        })
+        .click();
+      await panel.getByRole("button", { name: "Close", exact: true }).click();
+      await page
+        .getByLabel("Schedule date", { exact: true })
+        .fill("2026-11-04");
+      await expect(
+        page.getByText("No events in this range", { exact: true }),
+      ).toBeVisible();
+      const saved = page
+        .getByRole("region", { name: "My night", exact: true })
+        .getByRole("button", { name: /^Later-page guest/ });
+      await saved.click();
+      await expect(row).toBeInViewport();
+      await row
+        .getByRole("button", { name: "Favorite Aurora", exact: true })
+        .click();
+      await expect(
+        row.getByRole("button", { name: "Unfavorite Aurora", exact: true }),
+      ).toBeVisible();
+      expect(
+        await page.evaluate(
+          () =>
+            JSON.parse(
+              localStorage.getItem("vrdex.timeline.preferences.v1") ?? "null",
+            ).favoriteProfileIds,
+        ),
+      ).toEqual([timelineFixture.profileIds[1]]);
+      await changeTimelineFixture(request, timelineFixture, 3, "hidden");
+      await expect(panel).toHaveCount(0);
+      await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+      await expect(
+        page
+          .getByRole("region", { name: "My night", exact: true })
+          .getByText("Unavailable", { exact: true }),
+      ).toBeVisible();
+    });
   });
   test.describe("prefetch row stability", () => {
     test.use({ timelineScenario: "prefetch" });

@@ -32,7 +32,7 @@ export const create = mutation({
     secret: v.string(),
     runId: v.string(),
     startAt: v.number(),
-    scenario: v.optional(v.literal("prefetch")),
+    scenario: v.optional(v.union(v.literal("prefetch"), v.literal("detail"))),
   },
   handler: async (ctx, args) => {
     guard(args.secret, args.runId);
@@ -51,7 +51,9 @@ export const create = mutation({
       )
         throw Error("Fixture run already exists");
     const profiles: Id<"profiles">[] = [];
-    for (const kind of ["community", "person"] as const) {
+    for (const kind of args.scenario === "detail"
+      ? (["community", "person", "hidden"] as const)
+      : (["community", "person"] as const)) {
       const slug = `${args.runId}-${kind}`;
       if (
         await ctx.db
@@ -63,9 +65,14 @@ export const create = mutation({
       profiles.push(
         await ctx.db.insert("profiles", {
           slug,
-          displayName: kind === "person" ? "Aurora" : "Prism Collective",
+          displayName:
+            kind === "hidden"
+              ? "SECRET PERSON"
+              : kind === "person"
+                ? "Aurora"
+                : "Prism Collective",
           sortName: kind,
-          ...(kind === "person"
+          ...(kind !== "community"
             ? { profileType: "person" as const, person: { roleTags: ["DJ"] } }
             : {
                 profileType: "community" as const,
@@ -76,7 +83,7 @@ export const create = mutation({
           claimState: "unclaimed",
           creationSource: "community",
           publicationState: "published",
-          publicSurfacingState: "public",
+          publicSurfacingState: kind === "hidden" ? "suppressed" : "public",
           updatedAt: Date.now(),
           sourceAttribution: {
             submittedAt: Date.now(),
@@ -113,6 +120,10 @@ export const create = mutation({
         slug: `${args.runId}-${i}`,
         title: titles[i],
         sortTitle: titles[i].toLowerCase(),
+        posterImageUrl: "/api/e2e/fixture-assets/fixture-orbit-timeline-poster",
+        venueLabel: "Orbital Station",
+        summary:
+          "A night of deep rhythms beneath the orbital lights.\n\nHosted by Prism Collective, with sets from Aurora and Neon Harbor.",
         communityProfileId: i === 4 ? undefined : profiles[0],
         startAt: i === 7 ? undefined : startAt,
         endAt: i >= 6 ? undefined : startAt + duration * h,
@@ -129,15 +140,31 @@ export const create = mutation({
       });
       eventIds.push(id);
       if (i < 4)
-        for (let j = 0; j < 2; j++)
+        for (
+          let j = 0;
+          j < (args.scenario === "detail" && i === 3 ? 81 : 2);
+          j++
+        )
           slotIds.push(
             await ctx.db.insert("eventSlots", {
               eventId: id,
               position: j,
-              personProfileId: profiles[1],
-              startAt: startAt + j * h,
-              endAt: startAt + (j + 1) * h,
-              displayLabel: j === 0 ? "Aurora" : "Neon Harbor",
+              personProfileId:
+                j === 79
+                  ? profiles[2]
+                  : j > 1 && j < 80
+                    ? undefined
+                    : profiles[1],
+              startAt: startAt + (j > 1 ? j * 60000 : j * h),
+              endAt: startAt + (j > 1 ? (j + 1) * 60000 : (j + 1) * h),
+              displayLabel:
+                j === 80
+                  ? "Later-page guest"
+                  : j > 1
+                    ? `Guest ${j + 1}`
+                    : j === 0
+                      ? "Aurora"
+                      : "Neon Harbor",
               roleLabel: "DJ",
               sourceType: "community",
               sourceLabel: args.runId,
@@ -147,6 +174,17 @@ export const create = mutation({
             }),
           );
     }
+    if (args.scenario === "detail")
+      for (let i = 0; i < 2; i++) {
+        await ctx.db.insert("eventLineupEntries", {
+          eventId: eventIds[3],
+          clientKey: `${args.runId}-lineup-${i}`,
+          position: 81 + i,
+          performerLabel: i === 0 ? "Untimed Aurora" : "Manual guest",
+          personProfileId: i === 0 ? profiles[1] : undefined,
+          updatedAt: Date.now(),
+        });
+      }
     return { runId: args.runId, eventIds, slotIds, profileIds: profiles };
   },
 });
@@ -155,6 +193,7 @@ export const cleanup = mutation({
   handler: async (ctx, args) => {
     guard(args.secret, args.runId);
     const count = { events: 0, profiles: 0, slots: 0 };
+    let lineupEntries = 0;
     for (let i = 0; i < 8; i++) {
       const e = await ctx.db
         .query("events")
@@ -173,10 +212,20 @@ export const cleanup = mutation({
         await ctx.db.delete(slot._id);
         count.slots++;
       }
+      const lineup = await ctx.db
+        .query("eventLineupEntries")
+        .withIndex("by_eventId_position", (q) => q.eq("eventId", e._id))
+        .collect();
+      for (const row of lineup) {
+        if (!row.clientKey.startsWith(`${args.runId}-lineup-`))
+          throw Error("Fixture lineup ownership mismatch");
+        await ctx.db.delete(row._id);
+        lineupEntries++;
+      }
       await ctx.db.delete(e._id);
       count.events++;
     }
-    for (const kind of ["community", "person"]) {
+    for (const kind of ["community", "person", "hidden"]) {
       const p = await ctx.db
         .query("profiles")
         .withIndex("by_slug", (q) => q.eq("slug", `${args.runId}-${kind}`))
@@ -189,7 +238,7 @@ export const cleanup = mutation({
       await ctx.db.delete(p._id);
       count.profiles++;
     }
-    return count;
+    return { ...count, ...(lineupEntries > 0 ? { lineupEntries } : {}) };
   },
 });
 
