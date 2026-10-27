@@ -5,6 +5,10 @@ No preset is admitted to a new production session until its checked-in evidence
 covers both audio settings and its frozen destination membership. Local media
 proofs are functional diagnostics, not Fargate capacity evidence.
 
+The [retained codec diagnostic checkpoint](authority/reviews/codec-diagnostic/README.md)
+records the reviewed CodeBuild setup fixes and the current child cgroup mapping
+blocker. That run completed image loading but produced no encoding measurements.
+
 The scoped R94 PROGRAM result limit is 262144 UTF-8 bytes including LF, with
 196608 bytes independently available for other chargeable outer originals and
 458752 bytes maximum combined reservation. These fit inside the existing R90
