@@ -1,13 +1,16 @@
 "use client";
 import { useConvex } from "convex/react";
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { api } from "@convex-generated-api";
 import type { CanonicalEvent } from "@/lib/timeline/event-detail";
 import {
   createDetailRosterController,
   type DetailRosterState,
 } from "@/lib/timeline/detail-roster";
-import type { TimelineDetailRow } from "../../../../../../convex/_eventTimelineTypes";
+import {
+  createSelectedSetController,
+  type SelectedSetState,
+} from "@/lib/timeline/selected-set";
 const detailRange = { startAt: 0, endAt: 1, timeZone: "UTC" }; // Cursor scope only; detail mode reads the whole authored roster.
 export function useEventRoster(event: CanonicalEvent | null, slotId?: string) {
   const client = useConvex();
@@ -43,58 +46,45 @@ export function useEventRoster(event: CanonicalEvent | null, slotId?: string) {
       controller.dispose();
     };
   }, [controller, event]);
-  const [selected, setSelected] = useState<{
-    event: CanonicalEvent;
-    slotId: string;
-    row: TimelineDetailRow;
-  } | null>(null);
-  useEffect(() => {
-    if (!client || !event || !slotId) return;
-    let generation = 0;
-    const refresh = () => {
-      const token = ++generation;
-      // Resolves a selected set even beyond the bounded automatic roster budget.
-      void client
-        .query(api.eventTimeline.resolveSaved, {
-          references: [{ kind: "set", eventId: event.id, slotId }],
-        })
-        .then((results) => {
-          if (token !== generation) return;
-          const result = results[0];
-          if (result?.kind !== "available" || !result.slot) {
-            setSelected(null);
-            return;
-          }
-          const slot = result.slot;
-          setSelected({
-            event,
-            slotId,
-            row: {
-              kind: "slot",
-              key: slot.id,
-              position: Number.MAX_SAFE_INTEGER,
-              displayLabel: slot.displayLabel,
-              startAt: slot.schedule.startAt,
-              ...(slot.schedule.kind === "timed"
-                ? { endAt: slot.schedule.endAt }
-                : {}),
-              performer: slot.performer,
-            },
-          });
-        })
-        .catch(() => {
-          if (token === generation) setSelected(null);
+  const selectedController = useMemo(
+    () =>
+      createSelectedSetController((reference) => {
+        if (!client || !event)
+          return Promise.reject(Error("Backend unavailable"));
+        return client.query(api.eventTimeline.resolveSaved, {
+          references: [reference],
         });
+      }),
+    [client, event],
+  );
+  const selectedSnapshot = useSyncExternalStore(
+    selectedController.subscribe,
+    selectedController.getSnapshot,
+    selectedController.getSnapshot,
+  );
+  useEffect(() => {
+    void selectedController.select(
+      event && slotId ? { kind: "set", eventId: event.id, slotId } : null,
+      true,
+    );
+    const refresh = () => {
+      void selectedController.retry();
     };
-    refresh();
     window.addEventListener("focus", refresh);
     const timer = window.setInterval(refresh, 60_000);
     return () => {
-      generation++;
+      selectedController.dispose();
       window.removeEventListener("focus", refresh);
       clearInterval(timer);
     };
-  }, [client, event, slotId]);
+  }, [selectedController, event, slotId]);
+  // Do not expose the previous slot before the selection effect commits.
+  const selectedRead: SelectedSetState =
+    selectedSnapshot.kind !== "idle" &&
+    selectedSnapshot.reference.eventId === event?.id &&
+    selectedSnapshot.reference.slotId === slotId
+      ? selectedSnapshot
+      : { kind: "idle" };
   const state: DetailRosterState =
     snapshot.eventId === event?.id
       ? snapshot
@@ -103,9 +93,8 @@ export function useEventRoster(event: CanonicalEvent | null, slotId?: string) {
     state,
     more: controller.more,
     retry: controller.refresh,
-    selected:
-      selected?.event === event && selected?.slotId === slotId
-        ? selected?.row
-        : undefined,
+    selectedRead,
+    retrySelected: selectedController.retry,
+    selected: selectedRead.kind === "available" ? selectedRead.row : undefined,
   };
 }

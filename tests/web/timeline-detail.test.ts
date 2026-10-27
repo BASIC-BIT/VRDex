@@ -215,3 +215,112 @@ it("partial roster failure retains explicit incompleteness and Retry starts clea
     assert.equal(ready.rows.length, 2);
   }
 });
+
+import { createSelectedSetController } from "../../apps/web/src/lib/timeline/selected-set";
+import type { SavedResolution } from "../../convex/_eventTimelineTypes";
+const selectedReference = {
+  kind: "set",
+  eventId: "event",
+  slotId: "slot-801",
+} as const;
+const selectedResult = (reference = selectedReference): SavedResolution[] => [
+  {
+    kind: "available",
+    reference,
+    status: "scheduled",
+    event: {
+      id: reference.eventId,
+      slug: "night",
+      title: "Night",
+      status: "scheduled",
+      schedule: { kind: "timed", startAt: 1, endAt: 2 },
+    },
+    slot: {
+      id: reference.slotId,
+      eventId: reference.eventId,
+      displayLabel: "Later set",
+      schedule: { kind: "timed", startAt: 1, endAt: 2 },
+    },
+  },
+];
+it("failed selected read beyond automatic roster budget retries independently of usable lineup", async () => {
+  let pages = 0,
+    reads = 0;
+  const roster = createDetailRosterController(async () =>
+    rosterPage(String(++pages), String(pages)),
+  );
+  await roster.select("event");
+  const lineup = roster.getSnapshot();
+  assert.equal(pages, 10);
+  const selected = createSelectedSetController(async () => {
+    if (++reads === 1) throw Error("transport failed");
+    return selectedResult();
+  });
+  await selected.select(selectedReference);
+  assert.equal(selected.getSnapshot().kind, "error");
+  assert.equal("row" in selected.getSnapshot(), false);
+  await selected.retry();
+  const ready = selected.getSnapshot();
+  assert.equal(ready.kind, "available");
+  if (ready.kind === "available") assert.equal(ready.row.key, "slot-801");
+  assert.equal(reads, 2);
+  assert.equal(pages, 10);
+  assert.equal(roster.getSnapshot(), lineup);
+});
+it("selected failure clears prior metadata while unavailable remains distinct", async () => {
+  let mode = "available";
+  const selected = createSelectedSetController(async () => {
+    if (mode === "error") throw Error("offline");
+    return mode === "available"
+      ? selectedResult()
+      : [{ kind: "unavailable", reference: selectedReference }];
+  });
+  await selected.select(selectedReference);
+  assert.equal(selected.getSnapshot().kind, "available");
+  mode = "error";
+  await selected.retry();
+  assert.equal(selected.getSnapshot().kind, "error");
+  assert.equal("row" in selected.getSnapshot(), false);
+  mode = "unavailable";
+  await selected.retry();
+  assert.equal(selected.getSnapshot().kind, "unavailable");
+  assert.equal("row" in selected.getSnapshot(), false);
+});
+it("selected retries ignore stale selections and close during pending resolution", async () => {
+  const pending: Array<{
+    resolve(value: SavedResolution[]): void;
+    reject(error: unknown): void;
+  }> = [];
+  const selected = createSelectedSetController(
+    () => new Promise((resolve, reject) => pending.push({ resolve, reject })),
+  );
+  const first = selected.select(selectedReference);
+  const second = selected.select({ ...selectedReference, slotId: "other" });
+  pending[0].reject(Error("stale"));
+  await first;
+  assert.equal(selected.getSnapshot().kind, "loading");
+  await selected.select(null);
+  pending[1].resolve(selectedResult());
+  await second;
+  assert.deepEqual(selected.getSnapshot(), { kind: "idle" });
+});
+it("disposed selected read never publishes its delayed successful metadata", async () => {
+  let resolve: (value: SavedResolution[]) => void = () => {};
+  const selected = createSelectedSetController(
+    () =>
+      new Promise((finish) => {
+        resolve = finish;
+      }),
+  );
+  let publications = 0;
+  selected.subscribe(() => {
+    publications++;
+  });
+  const pending = selected.select(selectedReference);
+  assert.equal(publications, 1);
+  selected.dispose();
+  resolve(selectedResult());
+  await pending;
+  assert.equal(publications, 1);
+  assert.equal("row" in selected.getSnapshot(), false);
+});

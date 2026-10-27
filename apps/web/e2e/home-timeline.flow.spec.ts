@@ -504,6 +504,133 @@ test.describe("continuous schedule @flow @fixture", () => {
   });
   test.describe("dense detail roster", () => {
     test.use({ timelineScenario: "detail" });
+    test("selected-read transport failure offers independent Retry without dropping usable lineup", async ({
+      page,
+      timelineFixture,
+    }, info) => {
+      const record = (value: unknown): value is Record<string, unknown> =>
+        typeof value === "object" && value !== null && !Array.isArray(value);
+      const failures = new Map<number, "selected" | "continuation">();
+      let failSelected = true,
+        selectedRequests = 0,
+        detailRequests = 0;
+      await page.routeWebSocket("**/api/**/sync", (socket) => {
+        const server = socket.connectToServer();
+        socket.onMessage((message) => {
+          const payload: unknown = JSON.parse(String(message));
+          if (
+            record(payload) &&
+            payload.type === "ModifyQuerySet" &&
+            Array.isArray(payload.modifications)
+          ) {
+            for (const modification of payload.modifications) {
+              if (
+                !record(modification) ||
+                modification.type !== "Add" ||
+                typeof modification.queryId !== "number" ||
+                !Array.isArray(modification.args)
+              )
+                continue;
+              const args: unknown = modification.args[0];
+              if (!record(args)) continue;
+              if (
+                modification.udfPath === "eventTimeline:listPublicRoster" &&
+                args.detail === true &&
+                args.eventId === timelineFixture.eventIds[3]
+              ) {
+                detailRequests++;
+                if (typeof args.cursor === "string")
+                  failures.set(modification.queryId, "continuation");
+              }
+              if (
+                modification.udfPath === "eventTimeline:resolveSaved" &&
+                Array.isArray(args.references)
+              ) {
+                const ref: unknown = args.references[0];
+                if (record(ref) && ref.slotId === timelineFixture.slotIds[86]) {
+                  selectedRequests++;
+                  if (failSelected)
+                    failures.set(modification.queryId, "selected");
+                }
+              }
+            }
+          }
+          server.send(message);
+        });
+        server.onMessage((message) => {
+          const payload: unknown = JSON.parse(String(message));
+          if (
+            record(payload) &&
+            payload.type === "Transition" &&
+            Array.isArray(payload.modifications)
+          ) {
+            payload.modifications = payload.modifications.map(
+              (modification: unknown) => {
+                if (
+                  !record(modification) ||
+                  modification.type !== "QueryUpdated" ||
+                  typeof modification.queryId !== "number"
+                )
+                  return modification;
+                const failure = failures.get(modification.queryId);
+                if (!failure) return modification;
+                if (failure === "selected") failSelected = false;
+                return {
+                  type: "QueryFailed",
+                  queryId: modification.queryId,
+                  errorMessage: "Injected transport failure",
+                  errorData: null,
+                  logLines: [],
+                  journal: modification.journal,
+                };
+              },
+            );
+            socket.send(JSON.stringify(payload));
+          } else socket.send(message);
+        });
+      });
+      await page.reload();
+      await expect(page.getByLabel("Schedule data state")).toHaveAttribute(
+        "data-state",
+        "ready",
+      );
+      await page.getByRole("button", { name: "Agenda", exact: true }).click();
+      await page
+        .getByRole("button", {
+          name: "Open Later-page guest at ORBIT: Interstellar Bassline Orchestra",
+          exact: true,
+        })
+        .click();
+      const panel = page.getByRole("region", {
+        name: "Event details",
+        exact: true,
+      });
+      const rows = panel.getByRole("listitem");
+      await expect(rows).toHaveCount(80);
+      await expect(panel.locator('[data-selected="true"]')).toHaveCount(0);
+      const retry = panel.getByRole("button", {
+        name: "Retry selected set",
+        exact: true,
+      });
+      await expect(retry).toBeInViewport();
+      await page.screenshot({
+        path: info.outputPath("selected-retry-error.png"),
+      });
+      expect(selectedRequests).toBe(1);
+      expect(detailRequests).toBe(2);
+      await retry.click();
+      await expect(panel.locator('[data-selected="true"]')).toHaveAttribute(
+        "data-slot-id",
+        timelineFixture.slotIds[86],
+      );
+      await expect(panel.locator('[data-selected="true"]')).toBeInViewport();
+      await expect(rows).toHaveCount(81);
+      await expect(retry).toHaveCount(0);
+      expect(selectedRequests).toBe(2);
+      expect(detailRequests).toBe(2);
+      await page.screenshot({ path: info.outputPath("selected-retry.png") });
+    });
+
     test("selected later-page set stays accessible, favorites resolve outside cache, and revocation closes detail", async ({
       page,
       request,

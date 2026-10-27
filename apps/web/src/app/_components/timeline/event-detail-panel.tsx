@@ -87,6 +87,28 @@ export function EventDetailPanel({
             </Button>
           </div>
         ) : null}
+        {event &&
+        selection.slotId &&
+        !rows.some((row) => row.key === selection.slotId) &&
+        (roster.selectedRead.kind === "error" ||
+          roster.selectedRead.kind === "unavailable") ? (
+          <div role="status" className={styles.notice}>
+            {roster.selectedRead.kind === "error" ? (
+              <>
+                Events unavailable{" "}
+                <Button
+                  size="sm"
+                  aria-label="Retry selected set"
+                  onClick={() => void roster.retrySelected()}
+                >
+                  Retry
+                </Button>
+              </>
+            ) : (
+              "Unavailable"
+            )}
+          </div>
+        ) : null}
         {event ? (
           <EventDetailContent
             event={event}
