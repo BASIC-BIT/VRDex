@@ -407,6 +407,19 @@ at October 26, 2026 21:30 UTC; configured browser timezone is UTC. Every case ow
 and exactly cleans its records through the gated helper. The default, prefetch
 and detail scenarios share that ownership boundary.
 
+Timeline fixtures hold a local cross-process lease for their backend from creation
+through exact owned cleanup. Unique IDs protect writes, but fixed-date public
+queries see every concurrent run, so the timeline fixture lifetime is exclusive
+across files, workers and desktop/mobile projects. Other tests remain parallel.
+An interrupted worker leaves a lease in the OS temporary directory; acquisition
+times out with its path rather than deleting another run's records. Clean the
+interrupted run through the gated helper before removing that lease.
+Failed cleanup preserves a marker with the owning run ID and fails waiting
+fixtures immediately. Setup failures with no records and test failures followed
+by verified cleanup release the lease normally. Only fixture setup/teardown has
+a 150-second budget to include the bounded 120-second lease wait; test bodies
+keep their existing timeout.
+
 `home-timeline-time-regressions.flow.spec.ts` covers fractional CSS zoom panning,
 date navigation and Back restoration, plus event and selected-set details with a
 New York URL timezone in a UTC browser. Its rollback case uses the same guarded
@@ -428,5 +441,5 @@ and mobile images before updating committed baselines. Keep unrelated route
 baselines unchanged.
 
 ```bash
-pnpm --filter web exec playwright test home-timeline.flow.spec.ts home-timeline-time-regressions.flow.spec.ts home-timeline.visual.spec.ts homepage-search.flow.spec.ts --workers=1
+pnpm --filter web exec playwright test home-timeline.flow.spec.ts home-timeline-time-regressions.flow.spec.ts home-timeline.visual.spec.ts homepage-search.flow.spec.ts --workers=2
 ```

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { test as base, expect } from "@playwright/test";
+import { withTimelineFixtureLease } from "./home-timeline-lease";
 export const TIMELINE_NOW = Date.UTC(2026, 9, 26, 21, 30);
 export type TimelineFixture = {
   runId: string;
@@ -31,68 +32,106 @@ export const test = base.extend<{
       );
     await provide(page);
   },
-  timelineFixture: async ({ request, baseURL, timelineScenario, timelineStartAt }, provide) => {
-    if (
-      !["127.0.0.1", "localhost", "[::1]"].includes(
-        new URL(baseURL ?? "").hostname,
-      )
-    )
-      throw Error("Timeline fixtures require loopback");
-    const headers = {
-      "x-vrdex-e2e-token":
-        process.env.VRDEX_E2E_BROWSER_TOKEN ?? "local-playwright-token",
-    };
-    const runId = `playwright-timeline-${randomUUID()}`;
-    try {
-      const response = await request.post("/api/e2e/home-timeline", {
-        headers,
-        data:
-          timelineScenario === "prefetch"
-            ? { runId, startAt: Date.UTC(2026, 9, 26), scenario: "prefetch" }
-            : {
-                runId,
-                startAt: timelineStartAt,
-                ...(timelineScenario === "detail"
-                  ? { scenario: "detail" }
-                  : {}),
-              },
-      });
-      await expect(response).toBeOK();
-      const value: unknown = await response.json();
+  timelineFixture: [
+    async (
+      { request, baseURL, timelineScenario, timelineStartAt },
+      provide,
+    ) => {
       if (
-        !value ||
-        typeof value !== "object" ||
-        !("eventIds" in value) ||
-        !Array.isArray(value.eventIds) ||
-        !value.eventIds.every((id) => typeof id === "string") ||
-        !("slotIds" in value) ||
-        !Array.isArray(value.slotIds) ||
-        !value.slotIds.every((id) => typeof id === "string") ||
-        !("profileIds" in value) ||
-        !Array.isArray(value.profileIds) ||
-        !value.profileIds.every((id) => typeof id === "string")
+        !["127.0.0.1", "localhost", "[::1]"].includes(
+          new URL(baseURL ?? "").hostname,
+        )
       )
-        throw Error("Invalid timeline fixture result");
-      await provide({
-        runId,
-        eventIds: value.eventIds,
-        slotIds: value.slotIds,
-        profileIds: value.profileIds,
-      });
-    } finally {
-      const cleanup = await request.delete("/api/e2e/home-timeline", {
-        headers,
-        data: { runId },
-      });
-      await expect(cleanup).toBeOK();
-      expect(await cleanup.json()).toEqual({
-        events: 8,
-        profiles: timelineScenario === "detail" ? 3 : 2,
-        slots: timelineScenario === "detail" ? 87 : 8,
-        ...(timelineScenario === "detail" ? { lineupEntries: 2 } : {}),
-      });
-    }
-  },
+        throw Error("Timeline fixtures require loopback");
+      const headers = {
+        "x-vrdex-e2e-token":
+          process.env.VRDEX_E2E_BROWSER_TOKEN ?? "local-playwright-token",
+      };
+      const runId = `playwright-timeline-${randomUUID()}`;
+      await withTimelineFixtureLease(
+        process.env.PLAYWRIGHT_CONVEX_URL ??
+          process.env.CONVEX_URL ??
+          "http://127.0.0.1:3210",
+        async (blockAfterCleanupFailure) => {
+          let created = false;
+          try {
+            const response = await request.post("/api/e2e/home-timeline", {
+              headers,
+              data:
+                timelineScenario === "prefetch"
+                  ? {
+                      runId,
+                      startAt: Date.UTC(2026, 9, 26),
+                      scenario: "prefetch",
+                    }
+                  : {
+                      runId,
+                      startAt: timelineStartAt,
+                      ...(timelineScenario === "detail"
+                        ? { scenario: "detail" }
+                        : {}),
+                    },
+            });
+            await expect(response).toBeOK();
+            created = true;
+            const value: unknown = await response.json();
+            if (
+              !value ||
+              typeof value !== "object" ||
+              !("eventIds" in value) ||
+              !Array.isArray(value.eventIds) ||
+              !value.eventIds.every((id) => typeof id === "string") ||
+              !("slotIds" in value) ||
+              !Array.isArray(value.slotIds) ||
+              !value.slotIds.every((id) => typeof id === "string") ||
+              !("profileIds" in value) ||
+              !Array.isArray(value.profileIds) ||
+              !value.profileIds.every((id) => typeof id === "string")
+            )
+              throw Error("Invalid timeline fixture result");
+            await provide({
+              runId,
+              eventIds: value.eventIds,
+              slotIds: value.slotIds,
+              profileIds: value.profileIds,
+            });
+          } finally {
+            try {
+              const cleanup = await request.delete("/api/e2e/home-timeline", {
+                headers,
+                data: { runId },
+              });
+              await expect(cleanup).toBeOK();
+              const counts: unknown = await cleanup.json();
+              // A rejected create mutation is atomic and can leave no records.
+              if (
+                !created &&
+                counts &&
+                typeof counts === "object" &&
+                "events" in counts &&
+                counts.events === 0
+              ) {
+                expect(counts).toEqual({ events: 0, profiles: 0, slots: 0 });
+              } else
+                expect(counts).toEqual({
+                  events: 8,
+                  profiles: timelineScenario === "detail" ? 3 : 2,
+                  slots: timelineScenario === "detail" ? 87 : 8,
+                  ...(timelineScenario === "detail"
+                    ? { lineupEntries: 2 }
+                    : {}),
+                });
+            } catch (error) {
+              blockAfterCleanupFailure();
+              throw error;
+            }
+          }
+        },
+        { runId },
+      );
+    },
+    { timeout: 150_000 },
+  ],
 });
 
 export async function changeTimelineFixture(
