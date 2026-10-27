@@ -28,7 +28,12 @@ const titles = [
   "Day Gathering",
 ];
 export const create = mutation({
-  args: { secret: v.string(), runId: v.string(), startAt: v.number() },
+  args: {
+    secret: v.string(),
+    runId: v.string(),
+    startAt: v.number(),
+    scenario: v.optional(v.literal("prefetch")),
+  },
   handler: async (ctx, args) => {
     guard(args.secret, args.runId);
     if (
@@ -87,14 +92,30 @@ export const create = mutation({
     const eventIds: Id<"events">[] = [],
       slotIds: Id<"eventSlots">[] = [];
     for (let i = 0; i < 8; i++) {
-      const startAt = args.startAt + [-2, 2, -1, 0, 0.5, 1.5, 1, 0][i] * h;
+      const offset =
+        args.scenario === "prefetch"
+          ? i === 0
+            ? -4
+            : i === 1
+              ? -2
+              : 24 + i * 4
+          : [-2, 2, -1, 0, 0.5, 1.5, 1, 0][i];
+      const startAt = args.startAt + offset * h;
+      const duration =
+        args.scenario === "prefetch" && i < 2
+          ? i === 0
+            ? 3
+            : 22
+          : i === 0
+            ? 2.5
+            : 4;
       const id = await ctx.db.insert("events", {
         slug: `${args.runId}-${i}`,
         title: titles[i],
         sortTitle: titles[i].toLowerCase(),
         communityProfileId: i === 4 ? undefined : profiles[0],
         startAt: i === 7 ? undefined : startAt,
-        endAt: i >= 6 ? undefined : startAt + (i === 0 ? 2.5 : 4) * h,
+        endAt: i >= 6 ? undefined : startAt + duration * h,
         scheduleKind: i === 7 ? "date_only" : "timed",
         eventDate:
           i === 7

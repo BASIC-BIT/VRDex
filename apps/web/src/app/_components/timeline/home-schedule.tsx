@@ -219,6 +219,7 @@ function ScheduleContent({
       {navigation.view === "timeline" ? (
         <TimelineChart
           records={data.records}
+          lanes={data.eventLanes}
           saved={data.saved}
           range={range}
           now={now}

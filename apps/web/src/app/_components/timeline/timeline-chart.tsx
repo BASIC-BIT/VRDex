@@ -6,7 +6,7 @@ import type {
   TimelineRange,
 } from "../../../../../../convex/_eventTimelineTypes";
 import { localDayBands, timeToX } from "@/lib/timeline/geometry";
-import { packEvents } from "@/lib/timeline/packing";
+import type { EventLane } from "@/lib/timeline/packing";
 import { HOUR, inRange } from "@/lib/timeline/window-cache";
 import { TimelineEventBar, type TimelineActions } from "./timeline-event-bar";
 import { TimelineAgenda } from "./timeline-agenda";
@@ -14,6 +14,7 @@ import { TimelineNight, nightLayout } from "./timeline-night";
 import styles from "./timeline.module.css";
 export function TimelineChart({
   records,
+  lanes,
   saved,
   range,
   now,
@@ -24,6 +25,7 @@ export function TimelineChart({
   ...actions
 }: TimelineActions & {
   records: TimelineEvent[];
+  lanes: ReadonlyArray<EventLane>;
   saved: SavedResolution[];
   range: TimelineRange;
   now: number;
@@ -44,7 +46,6 @@ export function TimelineChart({
     endAt: origin + 144 * HOUR,
     timeZone: range.timeZone,
   };
-  const lanes = packEvents({ events: records });
   const visibleSaved = saved.filter(
     (s) =>
       s.kind === "available" &&

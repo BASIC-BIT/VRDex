@@ -242,11 +242,9 @@ test.describe("continuous schedule @flow @fixture", () => {
   }, info) => {
     const title = "ORBIT: Interstellar Bassline Orchestra";
     await page.getByRole("button", { name: "Agenda", exact: true }).click();
-    const article = page
-      .locator("article")
-      .filter({
-        has: page.getByRole("button", { name: `Open ${title}`, exact: true }),
-      });
+    const article = page.locator("article").filter({
+      has: page.getByRole("button", { name: `Open ${title}`, exact: true }),
+    });
     await article
       .getByRole("button", { name: `Add ${title} to My night`, exact: true })
       .click();
@@ -310,5 +308,70 @@ test.describe("continuous schedule @flow @fixture", () => {
         exact: true,
       }),
     ).toBeEnabled();
+  });
+  test.describe("prefetch row stability", () => {
+    test.use({ timelineScenario: "prefetch" });
+    test("ordinary panning across the six-hour threshold preserves an unchanged ongoing row", async ({
+      page,
+      timelineFixture,
+    }, info) => {
+      const h = 3_600_000,
+        boundary = Date.UTC(2026, 9, 26);
+      await page.goto(`/playwright/home-timeline?at=${boundary + 3 * h}`);
+      await expect(page.getByLabel("Schedule data state")).toHaveAttribute(
+        "data-state",
+        "ready",
+      );
+      const earlier = page.getByTestId(`event-${timelineFixture.eventIds[0]}`);
+      const ongoing = page.getByTestId(`event-${timelineFixture.eventIds[1]}`);
+      await expect(earlier).toHaveCount(1);
+      await expect(ongoing).toBeVisible();
+      const initialTop = await ongoing.evaluate((el) => el.style.top);
+      expect(initialTop).toBe("102px");
+      const chart = page.getByRole("region", { name: "Timeline chart" });
+      await chart.evaluate((el) => {
+        el.scrollLeft += 400;
+      });
+      // The previous-window-only record disappearing witnesses the real query/window transition.
+      await expect(earlier).toHaveCount(0);
+      await expect(page.getByLabel("Schedule data state")).toHaveAttribute(
+        "data-state",
+        "ready",
+      );
+      await expect(ongoing).toBeVisible();
+      await expect
+        .poll(() => ongoing.evaluate((el) => el.style.top))
+        .toBe(initialTop);
+      await chart.evaluate((el) => {
+        el.scrollLeft -= 400;
+      });
+      await expect(earlier).toHaveCount(1);
+      await expect
+        .poll(() => ongoing.evaluate((el) => el.style.top))
+        .toBe(initialTop);
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await page.screenshot({
+        path: info.outputPath("schedule-stable-row.png"),
+        fullPage: true,
+      });
+      // Starting without the neighbor also preserves the established row when
+      // panning back loads that earlier window for the first time.
+      await page.goto(`/playwright/home-timeline?at=${boundary + 7 * h}`);
+      await expect(page.getByLabel("Schedule data state")).toHaveAttribute(
+        "data-state",
+        "ready",
+      );
+      await expect(earlier).toHaveCount(0);
+      await expect
+        .poll(() => ongoing.evaluate((el) => el.style.top))
+        .toBe("8px");
+      await chart.evaluate((el) => {
+        el.scrollLeft -= 400;
+      });
+      await expect(earlier).toHaveCount(1);
+      await expect
+        .poll(() => ongoing.evaluate((el) => el.style.top))
+        .toBe("8px");
+    });
   });
 });

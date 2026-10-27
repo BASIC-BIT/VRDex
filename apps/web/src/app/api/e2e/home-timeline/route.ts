@@ -64,11 +64,19 @@ async function handle(
     !Number.isSafeInteger(body.startAt)
   )
     return NextResponse.json({ error: "Invalid start" }, { status: 400 });
+  if ("scenario" in body && body.scenario !== "prefetch")
+    return NextResponse.json(
+      { error: "Invalid fixture scenario" },
+      { status: 400 },
+    );
   return NextResponse.json(
     await gate.client.mutation(api.e2eHomeTimeline.create, {
       secret: gate.secret,
       runId: body.runId,
       startAt: body.startAt,
+      ...("scenario" in body && body.scenario === "prefetch"
+        ? { scenario: body.scenario }
+        : {}),
     }),
   );
 }

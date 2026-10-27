@@ -136,3 +136,43 @@ it("only changes owned event state and saved reads drop hidden content", async (
     process.env = original;
   }
 });
+
+it("the bounded prefetch scenario authors earlier and long ongoing events under normal public reads", async () => {
+  const original = { ...process.env };
+  try {
+    Object.assign(process.env, {
+      CONVEX_CLOUD_URL: "http://127.0.0.1:3210",
+      VRDEX_ENABLE_E2E_HELPERS: "true",
+      VRDEX_E2E_CONVEX_SECRET: "test-secret",
+      NODE_ENV: "production",
+      VERCEL_ENV: "development",
+    });
+    const t = convexTest({ schema, modules }),
+      startAt = Date.UTC(2026, 9, 26);
+    const fixture = await t.mutation(api.e2eHomeTimeline.create, {
+      secret: "test-secret",
+      runId: "playwright-timeline-prefetch",
+      startAt,
+      scenario: "prefetch",
+    });
+    const earlier = await t.run((ctx) => ctx.db.get(fixture.eventIds[0]));
+    const ongoing = await t.run((ctx) => ctx.db.get(fixture.eventIds[1]));
+    assert.equal(earlier?.startAt, startAt - 4 * 3600000);
+    assert.equal(earlier?.endAt, startAt - 3600000);
+    assert.equal(ongoing?.startAt, startAt - 2 * 3600000);
+    assert.equal(ongoing?.endAt, startAt + 20 * 3600000);
+    const saved = await t.query(api.eventTimeline.resolveSaved, {
+      references: [{ kind: "event", eventId: fixture.eventIds[1] }],
+    });
+    assert.equal(saved[0]?.kind, "available");
+    assert.deepEqual(
+      await t.mutation(api.e2eHomeTimeline.cleanup, {
+        secret: "test-secret",
+        runId: "playwright-timeline-prefetch",
+      }),
+      { events: 8, profiles: 2, slots: 8 },
+    );
+  } finally {
+    process.env = original;
+  }
+});

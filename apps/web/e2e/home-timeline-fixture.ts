@@ -7,8 +7,12 @@ export type TimelineFixture = {
   slotIds: string[];
   profileIds: string[];
 };
-export const test = base.extend<{ timelineFixture: TimelineFixture }>({
-  timelineFixture: async ({ request, baseURL }, provide) => {
+export const test = base.extend<{
+  timelineFixture: TimelineFixture;
+  timelineScenario: "default" | "prefetch";
+}>({
+  timelineScenario: ["default", { option: true }],
+  timelineFixture: async ({ request, baseURL, timelineScenario }, provide) => {
     if (
       !["127.0.0.1", "localhost", "[::1]"].includes(
         new URL(baseURL ?? "").hostname,
@@ -23,7 +27,10 @@ export const test = base.extend<{ timelineFixture: TimelineFixture }>({
     try {
       const response = await request.post("/api/e2e/home-timeline", {
         headers,
-        data: { runId, startAt: TIMELINE_NOW - 30 * 60000 },
+        data:
+          timelineScenario === "prefetch"
+            ? { runId, startAt: Date.UTC(2026, 9, 26), scenario: "prefetch" }
+            : { runId, startAt: TIMELINE_NOW - 30 * 60000 },
       });
       await expect(response).toBeOK();
       const value: unknown = await response.json();

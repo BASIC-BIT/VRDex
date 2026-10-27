@@ -187,8 +187,8 @@ it("evicts distant windows and refresh rechecks current data", async () => {
       [],
     );
   const before = calls;
-  await c.setViewport({...range,startAt:60*h,endAt:68*h},false,[]);
-  assert.equal(calls,before,"the other retained window is reused");
+  await c.setViewport({ ...range, startAt: 60 * h, endAt: 68 * h }, false, []);
+  assert.equal(calls, before, "the other retained window is reused");
   await c.setViewport(range, false, []);
   assert.equal(calls, before + 1);
   await c.refresh();
@@ -319,5 +319,199 @@ it("a failed refresh keeps prior records with error until retry finishes fresh c
   assert.deepEqual(
     c.getSnapshot().records.map((e) => e.id),
     ["fresh"],
+  );
+});
+
+it("expired favorite/filter reads retain readable matching records on failure", async (t) => {
+  let now = 1_000,
+    fail = false;
+  t.mock.method(Date, "now", () => now);
+  const a = {
+    ...event("a"),
+    host: { id: "first", slug: "first", displayName: "First" },
+  };
+  const b = {
+    ...event("b"),
+    host: { id: "second", slug: "second", displayName: "Second" },
+  };
+  const c = createTimelineController(
+    transport(async () => {
+      if (fail) throw Error("offline");
+      return page([a, b]);
+    }),
+  );
+  await c.setViewport(range, true, ["first"]);
+  now += 60_001;
+  fail = true;
+  await c.setViewport(range, true, ["second"]);
+  assert.equal(c.getSnapshot().kind, "error");
+  assert.deepEqual(
+    c.getSnapshot().records.map((e) => e.id),
+    ["b"],
+  );
+  fail = false;
+  await c.retry();
+  assert.equal(c.getSnapshot().kind, "ready");
+  assert.deepEqual(
+    c.getSnapshot().records.map((e) => e.id),
+    ["b"],
+  );
+});
+
+it("cache hits do not renew expiry and a timestamp of zero can expire", async (t) => {
+  let now = 0,
+    calls = 0,
+    fail = false;
+  t.mock.method(Date, "now", () => now);
+  const c = createTimelineController(
+    transport(async () => {
+      calls++;
+      if (fail) throw Error("offline");
+      return page([event("readable")]);
+    }),
+  );
+  await c.setViewport(range, false, []);
+  now = 30_000;
+  await c.setViewport(range, false, ["new-favorite"]);
+  assert.equal(calls, 1);
+  now = 60_001;
+  fail = true;
+  await c.setViewport(range, false, ["another-favorite"]);
+  assert.equal(calls, 2);
+  assert.equal(c.getSnapshot().kind, "error");
+  assert.deepEqual(
+    c.getSnapshot().records.map((e) => e.id),
+    ["readable"],
+  );
+});
+
+it("a filter/navigation update superseding refresh preserves the readable window and discards its late response", async () => {
+  let mode: "initial" | "pending" | "failed" = "initial";
+  let release: ((value: TimelinePage) => void) | undefined;
+  const a = {
+    ...event("a"),
+    host: { id: "first", slug: "first", displayName: "First" },
+  };
+  const b = {
+    ...event("b"),
+    host: { id: "second", slug: "second", displayName: "Second" },
+  };
+  const c = createTimelineController(
+    transport(async () => {
+      if (mode === "initial") return page([a, b]);
+      if (mode === "failed") throw Error("offline");
+      return new Promise((resolve) => {
+        release = resolve;
+      });
+    }),
+  );
+  await c.setViewport(range, true, ["first"]);
+  mode = "pending";
+  const refresh = c.refresh();
+  mode = "failed";
+  await c.setViewport({ ...range, startAt: 13 * h, endAt: 21 * h }, true, [
+    "second",
+  ]);
+  release?.(page([event("obsolete")]));
+  await refresh;
+  assert.equal(c.getSnapshot().kind, "error");
+  assert.deepEqual(
+    c.getSnapshot().records.map((e) => e.id),
+    ["b"],
+  );
+});
+
+it("expired partial replacement stays readable through More and drops revoked records only at completion", async (t) => {
+  let now = 1_000,
+    expired = false;
+  t.mock.method(Date, "now", () => now);
+  const c = createTimelineController(
+    transport(async ({ cursor }) =>
+      !expired
+        ? page([event("old")])
+        : Number(cursor ?? 0) < 10
+          ? {
+              items: [],
+              cursor: String(Number(cursor ?? 0) + 1),
+              complete: false,
+            }
+          : page([event("fresh")]),
+    ),
+  );
+  await c.setViewport(range, false, []);
+  now += 60_001;
+  expired = true;
+  await c.setViewport(range, false, ["changed"]);
+  assert.equal(c.getSnapshot().kind, "partial");
+  assert.deepEqual(
+    c.getSnapshot().records.map((e) => e.id),
+    ["old"],
+  );
+  await c.loadMore();
+  assert.equal(c.getSnapshot().kind, "ready");
+  assert.deepEqual(
+    c.getSnapshot().records.map((e) => e.id),
+    ["fresh"],
+  );
+});
+
+it("published event lanes remain frozen when crossing the six-hour prefetch threshold", async () => {
+  const earlier = {
+    ...event("earlier"),
+    schedule: { kind: "timed" as const, startAt: -4 * h, endAt: -h },
+  };
+  const ongoing = {
+    ...event("ongoing"),
+    schedule: { kind: "timed" as const, startAt: -2 * h, endAt: 20 * h },
+  };
+  const c = createTimelineController(
+    transport(async ({ range }) =>
+      page(range.startAt < 0 ? [earlier, ongoing] : [ongoing]),
+    ),
+  );
+  await c.setViewport({ ...range, startAt: 3 * h, endAt: 11 * h }, false, []);
+  assert.equal(
+    c.getSnapshot().eventLanes.find((l) => l.eventId === "ongoing")?.lane,
+    1,
+  );
+  await c.setViewport({ ...range, startAt: 7 * h, endAt: 15 * h }, false, []);
+  assert.deepEqual(
+    c.getSnapshot().records.map((e) => e.id),
+    ["ongoing"],
+  );
+  assert.equal(
+    c.getSnapshot().eventLanes.find((l) => l.eventId === "ongoing")?.lane,
+    1,
+  );
+  await c.setViewport({ ...range, startAt: 3 * h, endAt: 11 * h }, false, []);
+  assert.equal(
+    c.getSnapshot().eventLanes.find((l) => l.eventId === "ongoing")?.lane,
+    1,
+  );
+});
+
+it("including an earlier prefetch window does not repack an established ongoing row", async () => {
+  const earlier = {
+    ...event("earlier"),
+    schedule: { kind: "timed" as const, startAt: -4 * h, endAt: -h },
+  };
+  const ongoing = {
+    ...event("ongoing"),
+    schedule: { kind: "timed" as const, startAt: -2 * h, endAt: 20 * h },
+  };
+  const c = createTimelineController(
+    transport(async ({ range }) =>
+      page(range.startAt < 0 ? [earlier, ongoing] : [ongoing]),
+    ),
+  );
+  await c.setViewport({ ...range, startAt: 7 * h, endAt: 15 * h }, false, []);
+  assert.equal(
+    c.getSnapshot().eventLanes.find((l) => l.eventId === "ongoing")?.lane,
+    0,
+  );
+  await c.setViewport({ ...range, startAt: 3 * h, endAt: 11 * h }, false, []);
+  assert.equal(
+    c.getSnapshot().eventLanes.find((l) => l.eventId === "ongoing")?.lane,
+    0,
   );
 });

@@ -58,3 +58,48 @@ export function packPlan({ items }: { items: ReadonlyArray<TimedItem> }): PlanLa
   }
   return assignLanes(sorted, 0).map(assignment => ({ ...assignment, overlapping: conflicts.has(assignment.key) }));
 }
+
+type EventSchedule = Pick<TimelineEvent, "id" | "schedule">;
+function sameSchedule(a: TimelineSchedule, b: TimelineSchedule): boolean {
+  switch (a.kind) {
+    case "timed":
+      return (
+        b.kind === "timed" && a.startAt === b.startAt && a.endAt === b.endAt
+      );
+    case "open_end":
+      return b.kind === "open_end" && a.startAt === b.startAt;
+    case "date_only":
+      return b.kind === "date_only" && a.eventDate === b.eventDate;
+  }
+}
+/** Preserve established rows; initial prepends and authored edits can repack. */
+export function reconcileEventLanes({
+  events,
+  previousEvents,
+  previous,
+  allowPrepend = true,
+}: {
+  events: ReadonlyArray<EventSchedule>;
+  previousEvents: ReadonlyArray<EventSchedule>;
+  previous: ReadonlyArray<EventLane>;
+  allowPrepend?: boolean;
+}): EventLane[] {
+  const priorById = new Map(
+    previousEvents.map((event) => [event.id, event.schedule]),
+  );
+  const firstPriorStart = Math.min(
+    ...previousEvents.flatMap((event) =>
+      event.schedule.kind === "timed" ? [event.schedule.startAt] : [],
+    ),
+  );
+  const mustRepack = events.some((event) => {
+    const prior = priorById.get(event.id);
+    if (prior) return !sameSchedule(prior, event.schedule);
+    return (
+      allowPrepend &&
+      event.schedule.kind === "timed" &&
+      event.schedule.startAt < firstPriorStart
+    );
+  });
+  return packEvents({ events, previous: mustRepack ? [] : previous });
+}

@@ -6,6 +6,7 @@ import type {
   TimelineRange,
   TimelineRosterPage,
 } from "../../../../../convex/_eventTimelineTypes";
+import { reconcileEventLanes, type EventLane } from "./packing";
 export const HOUR = 3_600_000;
 const WINDOW = 48 * HOUR;
 const PAGE_BUDGET = 10;
@@ -23,6 +24,7 @@ export type TimelineTransport = {
   resolve(args: { references: PlanReference[] }): Promise<SavedResolution[]>;
 };
 type Data = {
+  eventLanes: EventLane[];
   records: TimelineEvent[];
   slotCoverage: Record<string, "partial" | "complete">;
   saved: SavedResolution[];
@@ -40,7 +42,8 @@ type WindowEntry = {
   records: Map<string, TimelineEvent>;
   cursor?: string;
   complete: boolean;
-  updatedAt: number;
+  updatedAt: number | null;
+  retained?: Map<string, TimelineEvent>;
 };
 export function windowsForRange(range: TimelineRange): TimelineRange[] {
   const start = Math.floor(range.startAt / WINDOW) * WINDOW;
@@ -101,11 +104,14 @@ export function createTimelineController(transport: TimelineTransport) {
   let state: TimelineDataState = {
     kind: "loading",
     records: [],
+    eventLanes: [],
     slotCoverage: {},
     saved: [],
     savedState: "ready",
   };
-  let refreshing = false;
+  let layoutEvents: Array<Pick<TimelineEvent, "id" | "schedule">> = [];
+  let layoutLanes: EventLane[] = [];
+  let layoutEstablished = false;
   let generation = 0;
   let savedGeneration = 0;
   let viewport: TimelineRange | null = null;
@@ -125,8 +131,10 @@ export function createTimelineController(transport: TimelineTransport) {
     const records = new Map<string, TimelineEvent>();
     const slotCoverage: Data["slotCoverage"] = {};
     if (viewport)
-      for (const r of windowsForRange(viewport))
-        for (const event of cache.get(key(r))?.records.values() ?? []) {
+      for (const r of windowsForRange(viewport)) {
+        const entry = cache.get(key(r));
+        for (const event of (entry?.retained ?? entry?.records)?.values() ??
+          []) {
           const prior = records.get(event.id);
           records.set(
             event.id,
@@ -147,6 +155,7 @@ export function createTimelineController(transport: TimelineTransport) {
               ? "complete"
               : "partial";
         }
+      }
     const visible = sortEvents(
       [...records.values()].filter(
         (e) =>
@@ -155,18 +164,33 @@ export function createTimelineController(transport: TimelineTransport) {
           e.performers.some((p) => favorites.has(p.id)),
       ),
     );
+    // Filters and prefetch inclusion/removal must not move remaining rows.
+    // Track layout for bounded cached windows, including currently hidden ones.
+    const layoutRecords = byId([
+      ...[...cache.values()].flatMap((entry) => [
+        ...(entry.retained ?? entry.records).values(),
+      ]),
+      ...records.values(),
+    ]);
+    layoutLanes = reconcileEventLanes({
+      events: layoutRecords,
+      previousEvents: layoutEvents,
+      previous: layoutLanes,
+      allowPrepend: !layoutEstablished,
+    });
+    layoutEvents = layoutRecords.map(({ id, schedule }) => ({ id, schedule }));
+    if (status.kind === "ready") layoutEstablished = true;
+    const visibleIds = new Set(visible.map((event) => event.id));
+    const eventLanes = layoutLanes.filter((lane) =>
+      visibleIds.has(lane.eventId),
+    );
     const data = {
-      // Publish refreshed chart content atomically. Replacing an early starts
-      // phase would temporarily unmount ongoing bars and their focused controls.
-      records: refreshing && status.kind !== "ready" ? state.records : visible,
-      slotCoverage:
-        refreshing && status.kind !== "ready"
-          ? state.slotCoverage
-          : slotCoverage,
+      records: visible,
+      eventLanes,
+      slotCoverage,
       saved: state.saved,
       savedState: state.savedState,
     };
-    if (status.kind === "ready") refreshing = false;
     switch (status.kind) {
       case "partial":
         emit({ ...data, kind: "partial", more: true });
@@ -187,7 +211,7 @@ export function createTimelineController(transport: TimelineTransport) {
           range: r,
           records: new Map(),
           complete: false,
-          updatedAt: 0,
+          updatedAt: null,
         });
     // Prefer the current viewport and its prefetch windows; retain at most three.
     const needed = new Set(ranges.map(key));
@@ -197,6 +221,15 @@ export function createTimelineController(transport: TimelineTransport) {
       const e = cache.get(key(r));
       return e ? [e] : [];
     });
+  }
+  function invalidate(entry: WindowEntry) {
+    // Keep the last readable version until this window's entire replacement is
+    // complete. A new generation can continue the draft without erasing it.
+    entry.retained ??= new Map(entry.records);
+    entry.records = new Map();
+    entry.cursor = undefined;
+    entry.complete = false;
+    entry.updatedAt = null;
   }
   async function run(token: number) {
     let pages = 0;
@@ -228,7 +261,11 @@ export function createTimelineController(transport: TimelineTransport) {
                       ...event.performers,
                     ]),
                   }
-                : event,
+                : {
+                    ...event,
+                    slots: [...event.slots],
+                    performers: [...event.performers],
+                  },
             );
           }
           entry.cursor = result.cursor ?? undefined;
@@ -261,8 +298,10 @@ export function createTimelineController(transport: TimelineTransport) {
         if (
           entry.complete &&
           [...entry.records.values()].every((e) => e.rosterCursor === null)
-        )
-          entry.updatedAt = Date.now();
+        ) {
+          entry.updatedAt ??= Date.now();
+          entry.retained = undefined;
+        }
       }
       if (token !== generation) return;
       publish({
@@ -316,15 +355,13 @@ export function createTimelineController(transport: TimelineTransport) {
       only: boolean,
       ids: ReadonlyArray<string>,
     ) {
-      refreshing = false;
       viewport = range;
       favoritesOnly = only;
       favorites = new Set(ids);
       const token = ++generation;
-      // Expired entries are fetched afresh; loading retains records until replacement.
-      for (const e of entries())
-        if (e.updatedAt && Date.now() - e.updatedAt >= 60_000)
-          cache.delete(key(e.range));
+      for (const entry of entries())
+        if (entry.updatedAt !== null && Date.now() - entry.updatedAt >= 60_000)
+          invalidate(entry);
       publish({ kind: "loading" });
       await run(token);
     },
@@ -340,9 +377,8 @@ export function createTimelineController(transport: TimelineTransport) {
     },
     async refresh() {
       const token = ++generation;
-      refreshing = true;
-      emit({ ...state, kind: "loading" });
-      cache.clear();
+      for (const entry of cache.values()) invalidate(entry);
+      publish({ kind: "loading" });
       await Promise.all([run(token), setPlan(plan)]);
     },
     setPlan,
