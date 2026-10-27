@@ -1,6 +1,7 @@
 import { v, type Infer } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { seedImportAuthSubjectValidator } from "./_seedImportValidators";
+import { destinationGroupMetadataValidator } from "./_profileLinkDestination";
 
 const common = {
   authorizedAt: v.number(), actor: seedImportAuthSubjectValidator, reason: v.string(),
@@ -30,7 +31,14 @@ export const statisticsAdmissionValidator = v.union(
   v.object({...common, ...invite, ...revoked}),
 );
 export type StatisticsAdmission = Infer<typeof statisticsAdmissionValidator>;
-export type StatisticsAdmissionView = StatisticsAdmission;
+export const statisticsAdmissionViewValidator = v.object({
+  eligible: v.boolean(), blockReason: v.optional(v.string()),
+  vrchatGroupId: v.optional(v.string()), groupMetadata: v.optional(destinationGroupMetadataValidator), metadataObservedAt: v.optional(v.number()),
+  bot: v.optional(v.object({collectorAccountId:v.id("collectorAccounts"), accountAlias:v.string(), vrchatUserId:v.string(), profileUrl:v.string()})),
+  integrationId:v.optional(v.id("communityVrchatIntegrations")), state:v.optional(v.string()),
+  statisticsAdmission:v.optional(statisticsAdmissionValidator), nextPollAt:v.optional(v.number()),
+});
+export type StatisticsAdmissionView = Infer<typeof statisticsAdmissionViewValidator>;
 
 /** Semantic checks beyond the stored shape, shared by admission write boundaries. */
 export function assertStatisticsAdmission(admission: StatisticsAdmission): void {
