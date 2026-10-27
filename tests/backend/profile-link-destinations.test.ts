@@ -351,3 +351,34 @@ it("a live legacy lease blocks visits until it expires without losing cached bra
   assert.notEqual(job.leaseToken,"old-lease");
   assert.equal((await t.run(ctx=>ctx.db.query("profileLinkDestinations").first()))?.name,"Legacy cache");
 });
+
+it("accepted group metadata is server-stamped and a legacy result clears prior metadata", async () => {
+ const {t} = await fixture();
+ const groupId = "grp_00000000-0000-4000-8000-000000000088";
+ const groupKey = `vrchat_group:${groupId}`;
+ const accountId = await t.run(ctx => ctx.db.insert("collectorAccounts", {vrchatUserId:"usr_test",accountAlias:"test",state:"ready",capacity:100,reservedHeadroom:10,assignedGroupCount:0,requestsPerMinute:10,secretRef:"test",workerKeyHash:"key",credentialGeneration:1,killSwitchEnabled:false,createdAt:1,updatedAt:1}));
+ const worker = {collectorAccountId:String(accountId),workerId:"metadata",workerKeyHash:"key"};
+ const id = await t.run(ctx => ctx.db.insert("profileLinkDestinations", {key:groupKey,kind:"vrchat_group",locator:groupId,provider:"vrchat",status:"pending",leaseToken:"token",leaseExpiresAt:Date.now()+60000,leaseWorker:worker}));
+ const result = {status:"resolved" as const,entityId:groupId,displayName:"Public",groupMetadata:{visibility:"public" as const,joinPolicy:"request" as const}};
+ const before = Date.now();
+ assert.equal((await t.mutation(internal.profileLinkDestinations.recordResult,{key:groupKey,leaseToken:"token",worker,result})).accepted,true);
+ let row = (await t.run(ctx => ctx.db.get(id)))!;
+ assert.deepEqual(row.groupMetadata,{visibility:"public",joinPolicy:"request"});
+ assert.ok(row.observedAt! >= before && row.observedAt! <= Date.now());
+ await t.run(ctx => ctx.db.patch(id,{leaseToken:"legacy",leaseExpiresAt:Date.now()+60000,leaseWorker:worker}));
+ await t.mutation(internal.profileLinkDestinations.recordResult,{key:groupKey,leaseToken:"legacy",worker,result:{status:"resolved",entityId:groupId,displayName:"Legacy"}});
+ row = (await t.run(ctx => ctx.db.get(id)))!;
+ assert.equal(row.groupMetadata,undefined);
+ await t.run(ctx => ctx.db.patch(id,{leaseToken:"private",leaseExpiresAt:Date.now()+60000,leaseWorker:worker}));
+ await t.mutation(internal.profileLinkDestinations.recordResult,{key:groupKey,leaseToken:"private",worker,result:{status:"inaccessible",groupMetadata:{visibility:"private",joinPolicy:"invite"}}});
+ row = (await t.run(ctx => ctx.db.get(id)))!;
+ assert.deepEqual(row.groupMetadata,{visibility:"private",joinPolicy:"invite"});
+ assert.equal(row.name,undefined);
+});
+it("non-group destinations never acquire group metadata", async () => {
+ const {t,save,claim} = await fixture();
+ await save([{type:"discord",url:invite}]);
+ const job = await claim();
+ await t.mutation(internal.profileLinkDestinations.recordResult,{key,leaseToken:job.leaseToken,result:{status:"resolved",entityId:"123456789012345678",displayName:"Guild",groupMetadata:{visibility:"public",joinPolicy:"request"}}});
+ assert.equal((await t.run(ctx => ctx.db.query("profileLinkDestinations").withIndex("by_key",q=>q.eq("key",key)).unique()))!.groupMetadata,undefined);
+});

@@ -1,3 +1,5 @@
+import { statisticsAdmissionValidator } from "./_groupAdmission";
+import { destinationGroupMetadataValidator } from "./_profileLinkDestination";
 import { collectionScopeValidator, groupObservationDecisionValidator } from "./_communityTelemetry";
 import { resourceSnapshotValidator, computeRuntimeValidator } from "./_eventBroadcastResources";
 import {committedIntentValidator,controlTargetValidator,controlFailureValidator} from "./_eventMediaControl";
@@ -730,6 +732,7 @@ export default defineSchema({
   ...contributionTables,
   profileLinkDestinationReferences: defineTable({ key: v.string(), profileId: v.id("profiles") }).index("by_key_profile", ["key", "profileId"]).index("by_profile", ["profileId"]),
   profileLinkDestinations: defineTable({
+    groupMetadata: v.optional(destinationGroupMetadataValidator),
     key: v.string(),
     kind: v.union(v.literal("vrchat_user"), v.literal("vrchat_group"), v.literal("discord_guild")),
     locator: v.string(),
@@ -1910,6 +1913,7 @@ export default defineSchema({
   }).index("by_vrchatGroupId", ["vrchatGroupId"])
     .index("by_queue_priority_dueAt", ["queuedAdmission.priority", "queuedAdmission.dueAt"]),
   communityVrchatIntegrations: defineTable({
+    statisticsAdmission: v.optional(statisticsAdmissionValidator),
     collectionScope: v.optional(collectionScopeValidator),
     automaticAdmissionAttempt: v.optional(v.object({ collectorAccountId: v.id("collectorAccounts"), attemptedAt: v.number() })),
     namedMembershipCollectionEnabled: v.optional(v.boolean()),
