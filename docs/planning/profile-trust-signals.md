@@ -2,6 +2,12 @@
 
 ## Status
 
+On October 26, 2026, BASIC selected a focused connection-verification design
+before any profile-state retirement. The
+[focused design for review](../superpowers/specs/2026-10-27-connection-verification-design.md)
+reuses the existing states and records the updated source review. That scope
+selection does not adopt this broader proposal or approve the new design.
+
 **Proposed, not adopted.** Nothing here is in force. The current recommendation
 remains the profile-level `claimed_verified` model in
 [`profile-claim-journey.md`](./profile-claim-journey.md), including
