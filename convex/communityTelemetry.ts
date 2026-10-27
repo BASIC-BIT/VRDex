@@ -1621,8 +1621,10 @@ export const ingestAggregatePoll = internalMutation({
       args.source,
       args.collectorVersion,
     );
+    const aggregateOnly = !!integration.statisticsAdmission && readCollectionSubject(integration).kind === "automatic";
+    const detailedInstances = aggregateOnly ? [] : args.instances;
     const worlds = new Map<string, { population: number; instanceCount: number }>();
-    for (const item of args.instances) {
+    for (const item of detailedInstances) {
       const current = worlds.get(item.vrchatWorldId) ?? { population: 0, instanceCount: 0 };
       current.population += Math.max(0, Math.floor(item.population));
       current.instanceCount += 1;
@@ -1670,7 +1672,7 @@ export const ingestAggregatePoll = internalMutation({
     });
     const seen = new Set<string>();
     const epochStartedAt = integration.telemetryEpochStartedAt ?? integration.createdAt;
-    for (const item of args.instances) {
+    for (const item of detailedInstances) {
       seen.add(item.providerLocation);
       let session = await ctx.db
         .query("instanceSessions")
@@ -1727,7 +1729,7 @@ export const ingestAggregatePoll = internalMutation({
         fencingToken: args.fencingToken,
       });
     }
-    const openSessions = await ctx.db
+    const openSessions = aggregateOnly ? [] : await ctx.db
       .query("instanceSessions")
       .withIndex("by_integrationId_state", (q) => q.eq("integrationId", integration._id).eq("state", "open"))
       .collect();

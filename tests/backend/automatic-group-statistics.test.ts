@@ -249,6 +249,69 @@ async function publicPolicyFixture() {
   return { t, integrationId, integration, ownerId, duplicateId };
 }
 
+for (const joinPolicy of ["request", "invite"] as const) {
+  it(`explicit ${joinPolicy} publication requires an active matching confirmed grant`, async () => {
+    const s = await publicPolicyFixture();
+    await s.t.run(async ctx => {
+      const accountId = await ctx.db.insert("collectorAccounts", {
+        vrchatUserId: "usr_secret_bot", accountAlias: "secret-bot", state: "ready", capacity: 100,
+        reservedHeadroom: 10, assignedGroupCount: 1, requestsPerMinute: 10, secretRef: "test",
+        workerKeyHash: "test", credentialGeneration: 1, killSwitchEnabled: false, createdAt: 1, updatedAt: 1,
+      });
+      await ctx.db.patch(s.integrationId, {
+        communityProfileId: undefined, collectionScope: { kind: "automatic" },
+        publicationPolicy: "automatic_aggregate", joinPolicy, assignedCollectorAccountId: accountId,
+        statisticsAdmission: { authorizedAt: 90, actor: { tokenIdentifier: "test|admin", issuer: "test", subject: "admin" },
+          reason: "secret internal reason", collectorAccountId: accountId, joinPolicy,
+          epochStartedAt: 90, phase: "active", membershipOrigin: "admission" },
+        statisticsAdmissionInspection: { admissionAt: 90, fencingToken: 1, observedAt: 200, membership: "member" },
+      });
+      await ctx.db.insert("vrchatGroupObservationPolicies", {
+        vrchatGroupId: s.integration.vrchatGroupId, integrationId: s.integrationId,
+        decision: { kind: "enabled", at: 90 }, publicHistoryStartAt: 90, createdAt: 90, updatedAt: 90,
+      });
+      await ctx.db.insert("communityPopulationObservations", {
+        integrationId: s.integrationId, idempotencyKey: "manual", totalPopulation: 20, activeInstanceCount: 2,
+        worldDistribution: [{ vrchatWorldId: "wrld_private", population: 20, instanceCount: 2 }], observedAt: 200,
+        source: "first_party", collectorVersion: "test", coverageState: "observed", fencingToken: 1,
+      });
+    });
+    const read = () => s.t.run(ctx => getPublicCommunityTelemetry(ctx.db, s.duplicateId, 201));
+    const output = await read();
+    assert.equal(output?.publicationPolicy, "automatic_aggregate");
+    assert.equal(output?.currentPopulation?.value, 20);
+    assert.equal(output?.currentPopulation?.activeInstanceCount, 2);
+    for (const secret of ["wrld_private", "private-instance", "usr_private-user", "usr_secret_bot", "secret internal reason", "private-location"]) {
+      assert.equal(JSON.stringify(output).includes(secret), false);
+    }
+    await s.t.run(ctx => ctx.db.patch(s.duplicateId, { slug: `renamed-${joinPolicy}` }));
+    assert.deepEqual(await read(), output);
+    const row = await s.t.run(ctx => ctx.db.get(s.integrationId));
+    assert.ok(row?.statisticsAdmission);
+    for (const patch of [
+      { statisticsAdmission: { ...row.statisticsAdmission, phase: "pending" } },
+      { statisticsAdmission: { ...row.statisticsAdmission, phase: "ended" } },
+      { statisticsAdmission: { ...row.statisticsAdmission, phase: "paused" } },
+      { statisticsAdmission: { ...row.statisticsAdmission, revokedAt: 201 } },
+      { telemetryEpochStartedAt: 91 },
+      { assignedCollectorAccountId: undefined },
+      { statisticsAdmissionInspection: { admissionAt: 89, fencingToken: 1, observedAt: 200, membership: "member" } },
+      { statisticsAdmissionInspection: { admissionAt: 90, fencingToken: 1, observedAt: 200, membership: "requested" } },
+      { groupVisibility: "private" },
+      { groupVisibility: "unknown" },
+      { joinPolicy: "free" },
+    ] satisfies Partial<Doc<"communityVrchatIntegrations">>[]) {
+      await s.t.run(ctx => ctx.db.patch(s.integrationId, patch));
+      assert.equal(await read(), null);
+      assert.equal(await s.t.run(ctx => getPublicGroupMembership(ctx.db, s.duplicateId)), null);
+      const { _id, _creationTime, ...values } = row;
+      await s.t.run(ctx => ctx.db.replace(s.integrationId, values));
+    }
+    await s.t.run(ctx => ctx.db.patch(s.duplicateId, { publicSurfacingState: "suppressed" }));
+    assert.equal(await read(), null);
+  });
+}
+
 it("duplicate privacy applies managed categories, analytics disablement and disconnect to public profiles", async () => {
   const s = await publicPolicyFixture();
   await s.t.run(ctx => ctx.db.insert("communityDataVisibility", {

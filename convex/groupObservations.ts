@@ -132,16 +132,26 @@ export const cancelStatisticsAdmission = mutation({
     const grant = row?.statisticsAdmission;
     if (!row || !grant || grant.authorizedAt !== args.admissionAt || grant.revokedAt !== undefined)
       return null;
-    const leases = await ctx.db.query("collectorAccountLeases").withIndex("by_integrationId_state", q => q.eq("integrationId", row._id).eq("state", "active")).take(101);
-    if (leases.length > 100)
-      throw new Error("Integration leases require reconciliation.");
-    for (const lease of leases)
-      await ctx.db.patch(lease._id, { state: "released", releasedAt: now, updatedAt: now });
-    await ctx.db.patch(row._id, { statisticsAdmission: { ...grant, revokedAt: now, phase: row.assignedCollectorAccountId ? "cleanup_pending" : "cancelled" }, leaseGeneration: row.leaseGeneration + 1, state: readCollectionSubject(row).kind === "managed" ? row.state : row.assignedCollectorAccountId ? "disconnecting" : "disconnected", nextPollAt: row.assignedCollectorAccountId ? now : undefined, updatedAt: now });
+    await revokeStatisticsAdmission(ctx, row, now);
     await ctx.db.insert("communityTelemetryAuditEvents", { integrationId: row._id, actor: subject, action: "statistics_admission.cancel", result: "revoked", createdAt: now });
     return null;
   },
 });
+
+async function revokeStatisticsAdmission(ctx: MutationCtx, row: Doc<"communityVrchatIntegrations">, now: number) {
+  const grant = row.statisticsAdmission;
+  if (!grant || grant.revokedAt !== undefined) return;
+  const leases = await ctx.db.query("collectorAccountLeases")
+    .withIndex("by_integrationId_state", q => q.eq("integrationId", row._id).eq("state", "active")).take(101);
+  if (leases.length > 100) throw new Error("Integration leases require reconciliation.");
+  for (const lease of leases) await ctx.db.patch(lease._id, { state: "released", releasedAt: now, updatedAt: now });
+  await ctx.db.patch(row._id, {
+    statisticsAdmission: { ...grant, revokedAt: now, phase: row.assignedCollectorAccountId ? "cleanup_pending" : "cancelled" },
+    leaseGeneration: row.leaseGeneration + 1,
+    state: readCollectionSubject(row).kind === "managed" ? row.state : row.assignedCollectorAccountId ? "disconnecting" : "disconnected",
+    nextPollAt: row.assignedCollectorAccountId ? now : undefined, updatedAt: now,
+  });
+}
 
 export const checkStatisticsAdmission = mutation({
   args: { integrationId: v.id("communityVrchatIntegrations"), admissionAt: v.number() }, returns: v.null(),
@@ -167,7 +177,12 @@ function groupId(value: string) {
 export async function reconcileStoppedIntegration(ctx: MutationCtx, integration: Doc<"communityVrchatIntegrations">, now: number) {
   const policy = await ctx.db.query("vrchatGroupObservationPolicies")
     .withIndex("by_vrchatGroupId", q => q.eq("vrchatGroupId", integration.vrchatGroupId)).unique();
-  if (policy?.decision.kind !== "stopped" || ["disconnected", "disconnecting"].includes(integration.state)) return;
+  if (policy?.decision.kind !== "stopped") return;
+  if (integration.statisticsAdmission && readCollectionSubject(integration).kind === "automatic") {
+    await revokeStatisticsAdmission(ctx, integration, now);
+    return;
+  }
+  if (["disconnected", "disconnecting"].includes(integration.state)) return;
   if (readCollectionSubject(integration).kind === "managed" && enabledClubFeatures(integration).some(feature => feature !== "analytics")) return;
   await ctx.db.patch(integration._id, {
     state: integration.assignedCollectorAccountId ? "disconnecting" : "disconnected",
@@ -215,6 +230,7 @@ async function changeObservationDecision(ctx: MutationCtx, input: {
       await reconcileStoppedIntegration(ctx, { ...integration, leaseGeneration: integration.leaseGeneration + 1 }, now);
       await transitionCoverage(ctx, integration._id, "unknown", now, "first_party", "observation-decision", "observation_stopped");
     } else if (integration._id === canonical?._id) {
+      if (integration.statisticsAdmission && readCollectionSubject(integration).kind === "automatic") continue;
       const scope = readCollectionSubject(integration);
       if (["disconnected", "disconnecting"].includes(integration.state)) {
         await ctx.db.patch(integration._id, { state: integration.assignedCollectorAccountId ? "degraded" : "disconnected", disconnectedAt: undefined, nextPollAt: now });
@@ -368,7 +384,9 @@ async function reconcileGroup(ctx: MutationCtx, group: string, now: number, hint
   if (reference.kind === "none") {
     if (policy?.queuedAdmission) await ctx.db.patch(policy._id, { queuedAdmission: undefined, updatedAt: now });
     const integration = policy?.integrationId ? await ctx.db.get(policy.integrationId) : null;
-    if (integration && readCollectionSubject(integration).kind === "automatic" && !["disconnected", "disconnecting"].includes(integration.state)) {
+    if (integration?.statisticsAdmission && readCollectionSubject(integration).kind === "automatic") {
+      await revokeStatisticsAdmission(ctx, integration, now);
+    } else if (integration && readCollectionSubject(integration).kind === "automatic" && !["disconnected", "disconnecting"].includes(integration.state)) {
       await ctx.db.patch(integration._id, { state: integration.assignedCollectorAccountId ? "disconnecting" : "disconnected", nextPollAt: integration.assignedCollectorAccountId ? now : undefined, leaseGeneration: integration.leaseGeneration + 1, updatedAt: now });
     }
     return;
@@ -377,7 +395,7 @@ async function reconcileGroup(ctx: MutationCtx, group: string, now: number, hint
   if (policy && (policy.decision.kind !== "enabled" || policy.admissionRequired)) return;
   if (policy?.integrationId) {
     const integration = await ctx.db.get(policy.integrationId);
-    if (!integration || integration.state !== "disconnected") return;
+    if (!integration || integration.statisticsAdmission || integration.state !== "disconnected") return;
   }
   if (!policy) {
     const actor = reference.contributorId;
@@ -447,6 +465,10 @@ export const admitQueued = internalMutation({
       }
       const automatic = policy.queuedAdmission!.priority === "automatic";
       const existing = policy.integrationId ? await ctx.db.get(policy.integrationId) : null;
+      if (automatic && existing?.statisticsAdmission) {
+        await ctx.db.patch(policy._id, { queuedAdmission: undefined, updatedAt: now });
+        continue;
+      }
       if (existing?.killSwitchEnabled) { await defer("integration_stopped"); continue; }
       if (existing?.assignedCollectorAccountId || existing && !["disconnected", "connecting", "awaiting_invite", "awaiting_approval"].includes(existing.state)) {
         await ctx.db.patch(policy._id, { queuedAdmission: undefined }); continue;
@@ -592,7 +614,9 @@ export const scanReferences = internalMutation({
     const now = Date.now();
     await ctx.db.patch(policy._id, {queuedAdmission: undefined, eligibleProfileId: undefined, updatedAt: now});
     const integration = policy.integrationId ? await ctx.db.get(policy.integrationId) : null;
-    if (integration && readCollectionSubject(integration).kind === "automatic" && !["disconnecting", "disconnected"].includes(integration.state)) await ctx.db.patch(integration._id, {state: integration.assignedCollectorAccountId ? "disconnecting" : "disconnected", nextPollAt: integration.assignedCollectorAccountId ? now : undefined, leaseGeneration: integration.leaseGeneration + 1, updatedAt: now});
+    if (integration?.statisticsAdmission && readCollectionSubject(integration).kind === "automatic") {
+      await revokeStatisticsAdmission(ctx, integration, now);
+    } else if (integration && readCollectionSubject(integration).kind === "automatic" && !["disconnecting", "disconnected"].includes(integration.state)) await ctx.db.patch(integration._id, {state: integration.assignedCollectorAccountId ? "disconnecting" : "disconnected", nextPollAt: integration.assignedCollectorAccountId ? now : undefined, leaseGeneration: integration.leaseGeneration + 1, updatedAt: now});
     return null;
   },
 });

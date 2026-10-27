@@ -5,7 +5,7 @@ import { makeFunctionReference } from "convex/server";
 import schemaModule from "../../convex/schema";
 import type { Doc } from "../../convex/_generated/dataModel";
 const schema = (schemaModule as unknown as {default?: typeof schemaModule}).default ?? schemaModule;
-const modules = { "../../convex/communityTelemetry.ts": () => import("../../convex/communityTelemetry"), "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"), "../../convex/groupObservations.ts": () => import("../../convex/groupObservations") };
+const modules = { "../../convex/communityTelemetry.ts": () => import("../../convex/communityTelemetry"), "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"), "../../convex/groupObservations.ts": () => import("../../convex/groupObservations"), "../../convex/groupMemberSnapshots.ts": () => import("../../convex/groupMemberSnapshots") };
 async function fixture() {
  const t = convexTest({schema, modules});
  const row = await t.run(async ctx => {
@@ -45,6 +45,68 @@ async function adminFixture() {
  const args = {profileId:ids.profileId,expectedVrchatGroupId:GROUP,expectedCollectorAccountId:row.assignedCollectorAccountId!,expectedMetadataObservedAt:now,reason:" Public statistics "};
  return {t,admin,now,...ids,accountId:row.assignedCollectorAccountId!,args,admit:()=>admin.mutation(command("admitStatistics"),args)};
 }
+for (const trigger of ["stop", "orphan"] as const) {
+  it(`${trigger} revokes and fences explicit membership before provenance cleanup`, async () => {
+    const h = await adminFixture();
+    const result = await h.admit();
+    await h.t.run(async ctx => {
+      const row = await ctx.db.get(result.integrationId);
+      assert.ok(row?.statisticsAdmission);
+      await ctx.db.patch(row._id, {
+        statisticsAdmission: { ...row.statisticsAdmission, membershipOrigin: "admission",
+          operation: { kind: "request", startedAt: h.now, outcome: "uncertain" } },
+      });
+    });
+    if (trigger === "stop") {
+      await h.admin.mutation(command("setObservationDecision"), { vrchatGroupId: GROUP, decision: "stop" });
+    } else {
+      await h.t.run(ctx => ctx.db.patch(h.profileId, { publicSurfacingState: "suppressed" }));
+      await h.t.mutation(command("reconcileRegisteredGroup"), { vrchatGroupId: GROUP });
+    }
+    const row = await h.t.run(ctx => ctx.db.get(result.integrationId));
+    assert.ok(row?.statisticsAdmission);
+    assert.equal(row.statisticsAdmission.phase, "cleanup_pending");
+    assert.ok(row.statisticsAdmission.revokedAt !== undefined);
+    assert.ok(row.leaseGeneration > 0);
+    assert.equal(row.state, "disconnecting");
+    assert.equal(row.statisticsAdmission.operation?.outcome, "uncertain");
+    assert.equal((await h.t.run(ctx => ctx.db.get(h.accountId)))?.assignedGroupCount, 1);
+    if (trigger === "stop") {
+      await h.admin.mutation(command("setObservationDecision"), { vrchatGroupId: GROUP, decision: "resume" });
+      assert.equal((await h.t.run(ctx => ctx.db.get(result.integrationId)))?.state, "disconnecting");
+    }
+  });
+}
+
+it("two admissions from the same preview reserve a single slot and attempt", async () => {
+  const h = await adminFixture();
+  await h.t.run(ctx => ctx.db.patch(h.fleetId, { automaticEnrollmentLimit: 1 }));
+  const [first, second] = await Promise.all([h.admit(), h.admit()]);
+  assert.deepEqual(first, second);
+  assert.equal((await h.t.run(ctx => ctx.db.get(h.accountId)))?.assignedGroupCount, 1);
+  const events = await h.t.run(ctx => ctx.db.query("communityTelemetryAuditEvents").collect());
+  assert.equal(events.filter(event => event.action === "statistics_admission.authorize").length, 1);
+});
+
+it("automatic queue reconciliation cannot reassign a terminal manual admission", async () => {
+  const h = await adminFixture();
+  const result = await h.admit();
+  await h.t.run(async ctx => {
+    const row = await ctx.db.get(result.integrationId);
+    assert.ok(row?.statisticsAdmission);
+    await ctx.db.patch(row._id, { state: "disconnected", assignedCollectorAccountId: undefined,
+      statisticsAdmission: { ...row.statisticsAdmission, phase: "cancelled", revokedAt: h.now } });
+    await ctx.db.patch(h.accountId, { assignedGroupCount: 0 });
+    await ctx.db.patch(h.fleetId, { automaticEnrollmentEnabled: true, automaticEnrollmentScope: { kind: "all_eligible" } });
+    const policy = await ctx.db.query("vrchatGroupObservationPolicies").unique();
+    assert.ok(policy);
+    await ctx.db.patch(policy._id, { queuedAdmission: { priority: "automatic", queuedAt: h.now, dueAt: h.now } });
+  });
+  const before = await h.t.run(ctx => ctx.db.get(result.integrationId));
+  assert.equal((await h.t.mutation(command("admitQueued"), {})).admitted, 0);
+  await h.t.mutation(command("reconcileRegisteredGroup"), { vrchatGroupId: GROUP });
+  assert.deepEqual(await h.t.run(ctx => ctx.db.get(result.integrationId)), before);
+});
 it("admission is super-admin only, including a claimed community owner", async () => {
  const h = await adminFixture();
  assert.equal(await h.t.query(preview,{profileId:h.profileId}),null);
@@ -189,6 +251,101 @@ async function workerFixture() {
  const reserve=(automaticRequest:string,extra={})=>h.t.mutation(telemetry("reserveRequestBudget"),{...lease,requestCount:1,automaticRequest,statisticsAdmissionAt:admitted.admissionAt,...extra});
  return {...h,...admitted,assignment,lease,inspect,reserve,heartbeat};
 }
+it("inspection timestamps do not become successful aggregate observations", async () => {
+  const h = await workerFixture();
+  await h.inspect("member");
+  const row = await h.t.run(ctx => ctx.db.get(h.integrationId));
+  assert.equal(row?.statisticsAdmission?.phase, "active");
+  assert.equal(row?.lastSuccessfulObservationAt, undefined);
+});
+
+it("group stop fences both a pending admission poll and an independent member sample", async () => {
+  const h = await workerFixture();
+  await h.inspect("member");
+  const claim = await h.t.mutation(makeFunctionReference<"mutation">("groupMemberSnapshots:claim"), {
+    worker: { collectorAccountId: h.accountId, workerId: "sampler", workerKeyHash: "test" },
+  });
+  assert.ok(claim);
+  await h.admin.mutation(command("setObservationDecision"), { vrchatGroupId: GROUP, decision: "stop" });
+  await assert.rejects(h.inspect("member"), /stale|lease/i);
+  assert.equal(await h.t.mutation(makeFunctionReference<"mutation">("groupMemberSnapshots:complete"), {
+    worker: { collectorAccountId: h.accountId, workerId: "sampler", workerKeyHash: "test" },
+    linkId: claim.linkId, leaseToken: claim.leaseToken, memberCount: 42, observedAt: Date.now(),
+  }), false);
+});
+
+for (const trigger of ["stop", "orphan"] as const) {
+  it(`${trigger} keeps provenance cleanup claimable until acknowledged leave`, async () => {
+    const h = await workerFixture();
+    await h.inspect("absent");
+    assert.equal((await h.reserve("request_join")).granted, true);
+    await h.inspect("member");
+    if (trigger === "stop") {
+      await h.admin.mutation(command("setObservationDecision"), { vrchatGroupId: GROUP, decision: "stop" });
+    } else {
+      await h.t.run(ctx => ctx.db.patch(h.profileId, { publicSurfacingState: "suppressed" }));
+      await h.t.mutation(command("reconcileRegisteredGroup"), { vrchatGroupId: GROUP });
+    }
+    const claim = await h.t.mutation(telemetry("claimDueAssignments"), {
+      collectorAccountId: h.accountId, workerId: "worker", capabilities: explicitCapabilities,
+    });
+    assert.equal(claim.assignments.length, 1);
+    assert.equal(claim.assignments[0].statisticsAdmission.revoked, true);
+    h.lease.fencingToken = claim.assignments[0].fencingToken;
+    assert.equal((await h.reserve("metadata")).granted, true);
+    await h.inspect("member");
+    assert.equal((await h.reserve("instances")).granted, false);
+    assert.equal((await h.reserve("leave")).granted, true);
+    assert.equal((await h.t.mutation(telemetry("recordStatisticsAdmissionCleanup"), {
+      ...h.lease, admissionAt: h.admissionAt,
+    })).accepted, true);
+    assert.equal((await h.t.run(ctx => ctx.db.get(h.integrationId)))?.statisticsAdmission?.phase, "cancelled");
+    assert.equal((await h.t.run(ctx => ctx.db.get(h.accountId)))?.assignedGroupCount, 0);
+  });
+}
+
+it("a destination visibility change suppresses fresh manual totals and retained membership", async () => {
+  const h = await workerFixture();
+  await h.inspect("member");
+  const { getPublicCommunityTelemetry, getPublicGroupMembership } = await import("../../convex/_communityTelemetryPublic");
+  const read = () => h.t.run(ctx => getPublicCommunityTelemetry(ctx.db, h.profileId, Date.now()));
+  assert.equal((await read())?.publicationPolicy, "automatic_aggregate");
+  for (const visibility of ["private", "unknown"] as const) {
+    await h.t.run(ctx => ctx.db.patch(h.destinationId, { groupMetadata: { visibility, joinPolicy: "request" } }));
+    assert.equal(await read(), null);
+    assert.equal(await h.t.run(ctx => getPublicGroupMembership(ctx.db, h.profileId)), null);
+  }
+});
+
+it("manual aggregate ingestion persists totals without instance or world details", async () => {
+  const h = await workerFixture();
+  await h.inspect("member");
+  const now = Date.now();
+  const providerInstanceId = "private-instance~group(grp_00000000-0000-4000-8000-000000000005)~groupAccessType(members)";
+  const vrchatWorldId = "wrld_private-world";
+  await h.t.mutation(telemetry("ingestAggregatePoll"), {
+    ...h.lease, pollId: "manual-totals", observedAt: now, collectorVersion: "test", source: "first_party",
+    groupMemberCount: 42, groupVisibility: "public", joinPolicy: "request", nextPollAt: now + 180000,
+    instances: [{ providerInstanceId, providerLocation: `${vrchatWorldId}:${providerInstanceId}`, vrchatWorldId, population: 12 }],
+  });
+  const stored = await h.t.run(async ctx => ({
+    population: await ctx.db.query("communityPopulationObservations").collect(),
+    sessions: await ctx.db.query("instanceSessions").collect(),
+    instances: await ctx.db.query("instancePopulationObservations").collect(),
+  }));
+  assert.equal(stored.population[0]?.totalPopulation, 12);
+  assert.equal(stored.population[0]?.activeInstanceCount, 1);
+  assert.deepEqual(stored.population[0]?.worldDistribution, []);
+  assert.deepEqual(stored.sessions, []);
+  assert.deepEqual(stored.instances, []);
+  for (const secret of [providerInstanceId, vrchatWorldId, "usr_test", "Public statistics"]) {
+    assert.equal(JSON.stringify(stored).includes(secret), false);
+  }
+  const { getPublicCommunityTelemetry } = await import("../../convex/_communityTelemetryPublic");
+  const output = await h.t.run(ctx => getPublicCommunityTelemetry(ctx.db, h.profileId, now + 1));
+  assert.equal(output?.currentPopulation?.value, 12);
+  assert.equal(output?.currentPopulation?.activeInstanceCount, 1);
+});
 it("explicit backend persists one request before transport with automatic enrollment disabled",async()=>{
  const h=await workerFixture(); assert.equal(h.assignment.statisticsAdmission.admissionAt,h.admissionAt);
  assert.equal((await h.reserve("request_join")).granted,false);
@@ -323,6 +480,13 @@ it("adopted grant history does not require explicit capability for managed dispa
   const adopted = await h.t.run(ctx => ctx.db.get(h.integrationId));
   assert.equal(adopted?.collectionScope?.kind, "managed");
   assert.equal(adopted?.statisticsAdmission?.authorizedAt, h.admissionAt);
+  assert.equal(adopted?.publicationPolicy, "automatic_aggregate");
+  assert.equal(adopted?.namedMembershipCollectionEnabled, false);
+  const { getPublicCommunityTelemetry } = await import("../../convex/_communityTelemetryPublic");
+  const publicOutput = await h.t.run(ctx => getPublicCommunityTelemetry(ctx.db, h.profileId, Date.now()));
+  assert.equal(publicOutput?.publicationPolicy, "automatic_aggregate");
+  assert.equal("instanceHistory" in publicOutput!, false);
+  assert.equal("membershipHistory" in publicOutput!, false);
   await h.t.run(ctx => ctx.db.patch(h.integrationId, { nextPollAt: 0 }));
   await h.t.mutation(telemetry("recordCollectorHeartbeat"), {
     collectorAccountId: h.accountId, workerId: "worker", workerKeyHash: "test",

@@ -7,6 +7,7 @@ import type { ClubVisibility } from "./_clubModel";
 import { canReadProfile } from "./_profilePermissions";
 import { visibleProfileList } from "./_profileFieldVisibility";
 import { parseProfileLinkDestination } from "./_profileLinkDestination";
+import { admissionMatches } from "./_groupAdmission";
 
 export type CollectionSubject = NonNullable<Doc<"communityVrchatIntegrations">["collectionScope"]>;
 
@@ -141,6 +142,18 @@ export async function resolveGroupObservationPolicy(
   }
   const integration = managing ?? canonical;
   if (integration) {
+    const grant = integration.statisticsAdmission;
+    if (grant) {
+      if (grant.phase !== "active" || !admissionMatches(integration, grant.authorizedAt, grant.collectorAccountId) ||
+        integration.statisticsAdmissionInspection?.admissionAt !== grant.authorizedAt ||
+        integration.statisticsAdmissionInspection.membership !== "member" || integration.joinPolicy !== grant.joinPolicy)
+        return { kind: "hidden" };
+      const selected = profile.primaryGroupReference;
+      const destination = selected ? await db.query("profileLinkDestinations")
+        .withIndex("by_key", q => q.eq("key", selected.key)).unique() : null;
+      if (selected && (destination?.groupMetadata?.visibility !== "public" || destination.groupMetadata.joinPolicy !== grant.joinPolicy))
+        return { kind: "hidden" };
+    }
     const links = await db.query("profileExternalLinks")
       .withIndex("by_profileId_assetType_state", q => q.eq("profileId", input.profileId)
         .eq("assetType", "vrchat_group").eq("state", "active")).take(101);
@@ -150,7 +163,7 @@ export async function resolveGroupObservationPolicy(
     }
     if (!registry || registry.decision.kind !== "enabled" ||
       !links.some(link => link.linkRole === "primary" && link.assetExternalId === input.vrchatGroupId) ||
-      integration.groupVisibility !== "public" || integration.joinPolicy !== "free" ||
+      integration.groupVisibility !== "public" || (!grant && integration.joinPolicy !== "free") ||
       !["active", "degraded"].includes(integration.state) || integration.killSwitchEnabled) return { kind: "hidden" };
     return { kind: "automatic_aggregate", integration, historyStartAt };
   }
