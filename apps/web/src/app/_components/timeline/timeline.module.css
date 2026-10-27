@@ -1,0 +1,527 @@
+.schedule {
+  margin: 2rem 0;
+  padding-top: 1.8rem;
+  border-top: 1px solid var(--border);
+  min-width: 0;
+  width: 100%;
+  color: var(--foreground);
+}
+.heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+.heading h2,
+.schedule > h2 {
+  font-size: 1.45rem;
+  font-weight: 600;
+  letter-spacing: -0.035em;
+}
+.metadata {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+.metadata span {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+}
+.toolbar button,
+.navigation button {
+  gap: 0.45rem;
+  font-size: 0.75rem;
+  min-height: 36px;
+}
+.views {
+  display: flex;
+  gap: 0.3rem;
+}
+.schedule button[aria-pressed="true"] {
+  color: var(--accent);
+  background-color: var(--accent-muted);
+}
+.navigation {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  padding: 0.7rem 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.navigation > div {
+  display: flex;
+  gap: 0.3rem;
+}
+.navigation input {
+  color-scheme: dark;
+  color: var(--foreground);
+  font-size: 0.8rem;
+  min-width: 0;
+  width: 140px;
+  border: 0;
+  background: transparent;
+}
+.scroller {
+  width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  touch-action: pan-x pan-y;
+  border: 1px solid var(--border);
+  border-radius: 0 0 6px 6px;
+  background: var(--canvas-muted);
+  scrollbar-color: var(--border-strong) var(--surface);
+}
+.scroller:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.canvas {
+  position: relative;
+  user-select: none;
+}
+.dayAxis {
+  height: 32px;
+  position: relative;
+  background: var(--surface-elevated);
+  border-bottom: 1px solid var(--border);
+}
+.dayAxis > div {
+  position: absolute;
+  height: 32px;
+  border-left: 1px solid var(--border-strong);
+  padding: 8px 12px;
+  color: var(--muted);
+  font-size: 0.65rem;
+}
+.dayAxis span {
+  position: sticky;
+  left: 12px;
+}
+.hourAxis {
+  position: relative;
+  height: 40px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.hourAxis > span {
+  position: absolute;
+  padding: 12px 8px;
+  font-size: 0.65rem;
+  color: var(--muted);
+}
+.lanes {
+  position: relative;
+  background-image:
+    linear-gradient(to right, var(--border) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--border) 1px, transparent 1px);
+  background-size:
+    100px 100%,
+    100% 94px;
+}
+.event {
+  position: absolute;
+  height: 78px;
+  border: 1px solid var(--border-strong);
+  border-left: 3px solid var(--accent);
+  border-radius: 5px;
+  background: var(--surface-elevated);
+  overflow: hidden;
+}
+.event:nth-child(3n + 2) {
+  border-left-color: #b3a1cf;
+}
+.event:nth-child(3n) {
+  border-left-color: #b9bd8f;
+}
+.event[data-selected="true"] {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.eventHeader {
+  height: 44px;
+  display: flex;
+  align-items: center;
+  background: color-mix(in srgb, var(--foreground) 5%, var(--surface-elevated));
+  position: relative;
+}
+.eventOpen {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  text-align: left;
+  flex: 1;
+  height: 100%;
+  padding: 6px 8px;
+}
+.logo,
+.logoFallback {
+  height: 30px;
+  width: 30px;
+  flex-shrink: 0;
+  object-fit: contain;
+}
+.logoFallback {
+  display: grid;
+  place-items: center;
+  border-radius: 4px;
+  color: var(--accent);
+  background: var(--accent-muted);
+  font-weight: 600;
+}
+.identity {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.identity strong {
+  font-size: 0.72rem;
+  font-weight: 600;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.identity small {
+  font-size: 0.58rem;
+  color: var(--muted);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.favorite {
+  padding: 6px;
+  color: var(--muted);
+}
+.favorite[aria-pressed="true"],
+.agendaFavorite[aria-pressed="true"] {
+  color: var(--warning) !important;
+}
+.add {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  background: var(--surface-strong);
+  color: var(--accent);
+  border-radius: 3px;
+  margin-right: 4px;
+}
+.event .add {
+  opacity: 0;
+}
+.event:hover .add,
+.event:focus-within .add {
+  opacity: 1;
+}
+.setTrack {
+  position: relative;
+  height: 32px;
+}
+.set {
+  display: flex;
+  align-items: center;
+  position: absolute;
+  height: 32px;
+  border-top: 1px solid var(--border-strong);
+  border-right: 1px solid var(--border-strong);
+}
+.set > button:first-child {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  padding: 5px 8px;
+  min-width: 0;
+  flex: 1;
+  height: 100%;
+  font-size: 0.65rem;
+  text-align: left;
+}
+.set > button:first-child span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.set[data-favorite="true"] {
+  color: var(--warning);
+}
+.now {
+  position: absolute;
+  top: 70px;
+  width: 1px;
+  background: var(--accent);
+  pointer-events: none;
+  z-index: 2;
+}
+.now:before {
+  content: "";
+  position: absolute;
+  top: -3px;
+  left: -3px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.now > span {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: -26px;
+  font-size: 0.6rem;
+  font-weight: 600;
+  padding: 2px 5px;
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  color: var(--accent);
+  background: var(--surface-strong);
+  white-space: nowrap;
+}
+.markers {
+  position: relative;
+  height: 32px;
+  border-top: 1px solid var(--border);
+}
+.marker {
+  position: absolute;
+  top: 0;
+  height: 32px;
+  border-left: 2px dotted var(--warning);
+  color: var(--warning);
+  font-size: 0.65rem;
+  padding: 4px;
+  white-space: nowrap;
+}
+.night {
+  color: color-mix(in srgb, var(--foreground) 85%, #9270be);
+  background: color-mix(in srgb, #9270be 9%, var(--canvas-muted));
+}
+.nightHeading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid #665080;
+}
+.nightHeading h3 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.nightLanes {
+  position: relative;
+  background-image: linear-gradient(
+    to right,
+    var(--border) 1px,
+    transparent 1px
+  );
+  background-size: 100px 100%;
+}
+.nightBar {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 8px;
+  height: 35px;
+  border: 1px solid #9474bd;
+  border-radius: 4px;
+  background: #493756;
+  color: #eee3fc;
+  font-size: 0.68rem;
+  text-align: left;
+}
+.nightBar span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.savedList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid #665080;
+  border-top: 0;
+}
+.savedList > div {
+  display: flex;
+  gap: 0.45rem;
+  align-items: center;
+  font-size: 0.7rem;
+}
+.savedList small {
+  display: block;
+  font-size: 0.6rem;
+  color: var(--muted);
+}
+.savedList button {
+  text-align: left;
+  min-height: 28px;
+}
+.overlap {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.agenda {
+  border: 1px solid var(--border);
+  border-top: 0;
+  border-radius: 0 0 6px 6px;
+}
+.agenda article {
+  padding: 1rem;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+.agendaHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 0.8rem;
+}
+.agendaTitle {
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-align: left;
+}
+.agenda p,
+.agenda small {
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+.agendaFavorite {
+  margin-top: 0.4rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.7rem;
+  color: var(--muted);
+  min-height: 32px;
+}
+.agenda ul {
+  margin-top: 0.5rem;
+}
+.agenda li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  border-top: 1px solid var(--border);
+  padding: 0.6rem 0;
+  font-size: 0.8rem;
+}
+.agenda li small {
+  display: block;
+}
+.agenda button {
+  min-height: 32px;
+}
+.performer {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-right: 1rem;
+  font-size: 0.7rem;
+}
+.performer button {
+  min-width: 32px;
+}
+.status {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  min-height: 40px;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.loading {
+  min-height: 400px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+.schedule button {
+  cursor: pointer;
+}
+.schedule button:focus-visible,
+.schedule input:focus-visible,
+.schedule a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+@media (max-width: 600px) {
+  .schedule {
+    margin-top: 1.25rem;
+    padding-top: 1.5rem;
+  }
+  .metadata {
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.35rem;
+    font-size: 0.6rem;
+  }
+  .heading {
+    margin-bottom: 1rem;
+  }
+  .toolbar button {
+    padding: 8px;
+    font-size: 0.68rem;
+  }
+  .navigation {
+    padding: 0.6rem;
+    flex-wrap: wrap;
+  }
+  .navigation input {
+    flex: 1;
+  }
+  .navigation > div {
+    margin-left: auto;
+  }
+  .navigation button {
+    padding: 6px 8px;
+    font-size: 0.65rem;
+  }
+  .agendaHeader {
+    align-items: center;
+  }
+  .agendaHeader > button {
+    width: 38px;
+    padding: 8px;
+    flex-shrink: 0;
+  }
+  .agendaHeader > button span {
+    display: none;
+  }
+  .agenda button,
+  .savedList button {
+    min-height: 44px;
+  }
+}
+@media (hover: none) {
+  .event .add {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .schedule *,
+  .schedule *:before {
+    scroll-behavior: auto !important;
+    transition: none !important;
+  }
+}

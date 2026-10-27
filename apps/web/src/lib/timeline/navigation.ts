@@ -9,7 +9,9 @@ type SearchParams = { get(name: string): string | null; toString(): string };
 function readAnchor(value: string | null): number | null {
   if (value === null || !/^-?\d+$/.test(value)) return null;
   const instant = Number(value);
-  return Number.isSafeInteger(instant) && Math.abs(instant) <= 8_640_000_000_000_000 ? instant : null;
+  // Leave a year of padding for timezone conversion, prefetch and date navigation.
+  return Number.isSafeInteger(instant) && instant >= Date.parse("0002-01-01T00:00:00Z")
+    && instant < Date.parse("9999-01-01T00:00:00Z") ? instant : null;
 }
 
 function readTimeZone(value: string | null): string | null {

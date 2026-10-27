@@ -54,3 +54,10 @@ describe("timeline navigation", () => {
     assert.equal(previous.searchParams.get("q"), "aurora");
   });
 });
+
+it("rejects navigation outside safe four-digit calendar years, including range padding", () => {
+  for (const value of [Date.UTC(10000,0,1), Date.UTC(9999,11,31), Date.parse("0001-01-01T00:00:00Z")]) {
+    assert.equal(readTimelineNavigation(new URLSearchParams({at:String(value)})).anchor,null);
+  }
+  assert.equal(readTimelineNavigation(new URLSearchParams({at:String(Date.UTC(2026,9,26))})).anchor,Date.UTC(2026,9,26));
+});

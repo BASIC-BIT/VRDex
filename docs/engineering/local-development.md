@@ -145,3 +145,29 @@ and exit status independently. `pnpm check:backend:generated` starts a backend;
 run canonical generation first and account for its reviewed generated diff.
 The [migration rehearsal](./event-broadcast-rehearsal.md#october-24-2026-task-9-source-prerequisites)
 requires its own isolated state and temporary local bindings.
+
+## Home timeline component fixtures
+
+The continuous schedule is available for component integration at
+`/playwright/home-timeline` when `VRDEX_ENABLE_PLAYWRIGHT_FIXTURES=true` in a
+nonproduction web process. Home integration follows separately. This route
+mounts the real schedule and compact public search and uses ordinary public
+Convex queries.
+
+Run its local desktop/mobile flows with:
+
+```bash
+pnpm --filter web exec playwright test home-timeline.flow.spec.ts --workers=1
+```
+
+`e2e/home-timeline-fixture.ts` creates a unique run through
+`/api/e2e/home-timeline` and removes that exact run in fixture teardown. The
+route requires loopback web and backend targets, the existing E2E browser token,
+helper enablement and Convex secret; production web builds always refuse it.
+The backend independently requires a deployment-owned loopback
+`CONVEX_CLOUD_URL`, enablement and the secret. Convex's bundle `NODE_ENV` is not a
+deployment discriminator, including for local development. No hosted fixture
+path or production override exists. The only state-change operations cancel or
+hide one of the run's eight fixture events after verifying ownership. Reuse
+this helper for subsequent Home integration checks; do not seed public-query
+responses or add unrelated records manually.
