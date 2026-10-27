@@ -1914,6 +1914,7 @@ export default defineSchema({
     .index("by_queue_priority_dueAt", ["queuedAdmission.priority", "queuedAdmission.dueAt"]),
   communityVrchatIntegrations: defineTable({
     statisticsAdmission: v.optional(statisticsAdmissionValidator),
+    statisticsAdmissionInspection: v.optional(v.object({ admissionAt: v.number(), fencingToken: v.number(), observedAt: v.number(), membership: v.union(v.literal("member"), v.literal("requested"), v.literal("invited"), v.literal("absent"), v.literal("banned")) })),
     collectionScope: v.optional(collectionScopeValidator),
     automaticAdmissionAttempt: v.optional(v.object({ collectorAccountId: v.id("collectorAccounts"), attemptedAt: v.number() })),
     namedMembershipCollectionEnabled: v.optional(v.boolean()),

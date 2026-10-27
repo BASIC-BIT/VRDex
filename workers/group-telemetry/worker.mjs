@@ -227,6 +227,7 @@ async function collect(assignment) {
       ...lease,
       requestCount: requestCost,
       ...(automaticRequest ? { automaticRequest } : {}),
+      ...(assignment.statisticsAdmission ? {statisticsAdmissionAt: assignment.statisticsAdmission.admissionAt} : {}),
       now: reservedAt,
     });
     if (!reservation.granted) return false;
@@ -262,6 +263,32 @@ async function collect(assignment) {
   }
   try {
     if (stopping) return;
+    if (assignment.statisticsAdmission) {
+      const grant = assignment.statisticsAdmission;
+      const authorizeRequest = operation => reserve(1, operation);
+      const options = {admissionMode: "explicit", joinPolicy: grant.joinPolicy, admissionAt: grant.admissionAt, revoked: grant.revoked,
+        authorizeRequest, recordInspection: inspection => control.send("admission_inspection", {...lease, admissionAt: grant.admissionAt, ...inspection})};
+      const membership = await provider.connectGroup(assignment.vrchatGroupId, options);
+      if (!membership) return;
+      if (grant.revoked) {
+        if (membership.membership === "member" && await authorizeRequest("leave")) {
+          // Only an acknowledged provider leave completes cleanup; a lost reply stays pending.
+          await provider.leaveGroup(assignment.vrchatGroupId, {requireConfirmation: true});
+          await control.send("admission_cleanup", {...lease, admissionAt: grant.admissionAt});
+        }
+        return;
+      }
+      if (membership.state !== "active") return;
+      phase = "analytics";
+      const snapshot = await provider.readAggregateSnapshot(assignment.vrchatGroupId, options);
+      if (!snapshot) return;
+      await control.send("ingest", {...lease, pollId: pollId(assignment.integrationId, snapshot.observedAt), observedAt: snapshot.observedAt,
+        collectorVersion: COLLECTOR_PROTOCOL_VERSION, groupMemberCount: snapshot.group.memberCount, groupVisibility: snapshot.group.groupVisibility,
+        joinPolicy: snapshot.group.joinPolicy, ...(snapshot.group.groupCreatedAt === undefined ? {} : {groupCreatedAt: snapshot.group.groupCreatedAt}),
+        instances: snapshot.instances, nextPollAt: snapshot.observedAt + randomPollDelayMs(snapshot.instances.length > 0)});
+      attempts.delete(assignment.integrationId);
+      return;
+    }
     if (assignment.state === "disconnecting") {
       if (!(await reserve(1, assignment.collectionMode === "automatic" ? "leave" : undefined))) return;
       await provider.leaveGroup(assignment.vrchatGroupId);

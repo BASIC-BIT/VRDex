@@ -5,7 +5,7 @@ import { makeFunctionReference } from "convex/server";
 import schemaModule from "../../convex/schema";
 import type { Doc } from "../../convex/_generated/dataModel";
 const schema = (schemaModule as unknown as {default?: typeof schemaModule}).default ?? schemaModule;
-const modules = { "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"), "../../convex/groupObservations.ts": () => import("../../convex/groupObservations") };
+const modules = { "../../convex/communityTelemetry.ts": () => import("../../convex/communityTelemetry"), "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"), "../../convex/groupObservations.ts": () => import("../../convex/groupObservations") };
 async function fixture() {
  const t = convexTest({schema, modules});
  const row = await t.run(async ctx => {
@@ -173,4 +173,136 @@ it("the helper rejects contradictory policy and phase combinations", async () =>
  assert.throws(() => assertStatisticsAdmission({...grant,phase:"cleanup_pending"}), /admission/i);
  assert.throws(() => assertStatisticsAdmission({...grant,reason:"   "}), /reason/i);
  assert.throws(() => assertStatisticsAdmission({...grant,reason:"x".repeat(501)}), /reason/i);
+});
+
+const telemetry = (name: string) => makeFunctionReference<"mutation">(`communityTelemetry:${name}`);
+const explicitCapabilities = ["automatic_group_aggregates_v2", "explicit_group_statistics_admission_v1"];
+async function workerFixture() {
+ const h=await adminFixture(); const admitted=await h.admit();
+ const heartbeat=()=>h.t.mutation(telemetry("recordCollectorHeartbeat"),{collectorAccountId:h.accountId,workerId:"worker",workerKeyHash:"test",releaseSha:"a".repeat(40),collectorVersion:"test",capabilities:explicitCapabilities,consecutiveControlFailures:0});
+ await heartbeat();
+ const claimed=await h.t.mutation(telemetry("claimDueAssignments"),{collectorAccountId:h.accountId,workerId:"worker",capabilities:explicitCapabilities});
+ assert.equal(claimed.assignments.length,1);
+ const assignment=claimed.assignments[0];
+ const lease={integrationId:admitted.integrationId,collectorAccountId:h.accountId,workerId:"worker",fencingToken:assignment.fencingToken};
+ const inspect=(membership:string,extra={})=>h.t.mutation(telemetry("recordStatisticsAdmissionInspection"),{...lease,admissionAt:admitted.admissionAt,membership,visibility:"public",joinPolicy:"request",...extra});
+ const reserve=(automaticRequest:string,extra={})=>h.t.mutation(telemetry("reserveRequestBudget"),{...lease,requestCount:1,automaticRequest,statisticsAdmissionAt:admitted.admissionAt,...extra});
+ return {...h,...admitted,assignment,lease,inspect,reserve,heartbeat};
+}
+it("explicit backend persists one request before transport with automatic enrollment disabled",async()=>{
+ const h=await workerFixture(); assert.equal(h.assignment.statisticsAdmission.admissionAt,h.admissionAt);
+ assert.equal((await h.reserve("request_join")).granted,false);
+ assert.equal((await h.inspect("absent")).accepted,true);
+ assert.equal((await h.reserve("join")).granted,false);
+ assert.equal((await h.reserve("request_join")).granted,true);
+ const row=(await h.t.run(ctx=>ctx.db.get(h.integrationId)))!;
+ assert.equal(row.statisticsAdmission?.operation?.outcome,"uncertain"); assert.equal(row.statisticsAdmission?.membershipOrigin,"admission");
+ assert.equal((await h.reserve("request_join")).granted,false);
+ await h.inspect("absent"); assert.equal((await h.reserve("request_join")).granted,false);
+ await h.inspect("requested"); await h.inspect("member");
+ assert.equal((await h.t.run(ctx=>ctx.db.get(h.integrationId)))?.statisticsAdmission?.phase,"active");
+});
+it("legacy v2 workers cannot claim cancelled explicit cleanup",async()=>{
+ const h=await adminFixture(); const admitted=await h.admit(); await h.admin.mutation(command("cancelStatisticsAdmission"),admitted);
+ await h.t.mutation(telemetry("recordCollectorHeartbeat"),{collectorAccountId:h.accountId,workerId:"worker",workerKeyHash:"test",releaseSha:"a".repeat(40),collectorVersion:"test",capabilities:["automatic_group_aggregates_v2"],consecutiveControlFailures:0});
+ const result=await h.t.mutation(telemetry("claimDueAssignments"),{collectorAccountId:h.accountId,workerId:"worker",capabilities:["automatic_group_aggregates_v2"]}); assert.equal(result.assignments.length,0);
+});
+
+for (const bad of ["private", "unknown", "policy", "foreign_grant", "foreign_fence", "expired", "budget", "revoked", "foreign_account", "stale_inspection"] as const) it(`explicit backend rejects ${bad} before a write`,async()=>{
+ const h=await workerFixture();
+ if(bad==="foreign_grant") {assert.equal((await h.inspect("absent",{admissionAt:h.admissionAt+1})).accepted,false);return;}
+ if(bad==="foreign_fence") {await assert.rejects(h.inspect("absent",{fencingToken:h.lease.fencingToken+1}),/stale/);return;}
+ await h.inspect("absent",bad==="private"?{visibility:"private"}:bad==="unknown"?{visibility:"unknown"}:bad==="policy"?{joinPolicy:"free"}:{});
+ if(bad==="expired") await h.t.run(async ctx=>{const lease=await ctx.db.query("collectorAccountLeases").first();await ctx.db.patch(lease!._id,{expiresAt:1});});
+ if(bad==="budget") await h.t.run(ctx=>ctx.db.patch(h.accountId,{requestsPerMinute:0}));
+ if(bad==="revoked") await h.admin.mutation(command("cancelStatisticsAdmission"),{integrationId:h.integrationId,admissionAt:h.admissionAt});
+ if(bad==="stale_inspection") await h.t.run(async ctx=>{const row=(await ctx.db.get(h.integrationId))!;await ctx.db.patch(row._id,{statisticsAdmissionInspection:{...row.statisticsAdmissionInspection!,observedAt:1}});});
+ if(bad==="foreign_account") await h.t.run(ctx=>ctx.db.patch(h.integrationId,{assignedCollectorAccountId:undefined}));
+ if(["expired","revoked","foreign_account"].includes(bad)) await assert.rejects(h.reserve("request_join"),/stale/);
+ else assert.equal((await h.reserve("request_join")).granted,false);
+ const row=(await h.t.run(ctx=>ctx.db.get(h.integrationId)))!;assert.equal(row.statisticsAdmission?.operation,undefined);
+});
+it("existing request is preexisting and its disappearance ends authority",async()=>{
+ const h=await workerFixture(); await h.inspect("requested");
+ assert.equal((await h.reserve("request_join")).granted,false);
+ await h.inspect("absent"); const row=(await h.t.run(ctx=>ctx.db.get(h.integrationId)))!;
+ assert.equal(row.statisticsAdmission?.membershipOrigin,"preexisting");assert.equal(row.statisticsAdmission?.phase,"ended");
+ assert.equal((await h.reserve("request_join")).granted,false);
+});
+it("invite reservation requires an exact fresh invitation and never repeats",async()=>{
+ const h=await workerFixture(); await h.t.run(async ctx=>{const row=(await ctx.db.get(h.integrationId))!;await ctx.db.patch(row._id,{joinPolicy:"invite",statisticsAdmission:{...row.statisticsAdmission!,joinPolicy:"invite",operation:undefined}});});
+ await h.inspect("absent",{joinPolicy:"invite"}); assert.equal((await h.reserve("accept_invite")).granted,false);
+ await h.inspect("invited",{joinPolicy:"invite"}); assert.equal((await h.reserve("request_join")).granted,false); assert.equal((await h.reserve("accept_invite")).granted,true);
+ await h.inspect("invited",{joinPolicy:"invite"}); assert.equal((await h.reserve("accept_invite")).granted,false);
+});
+async function cancelAndReclaim(h: Awaited<ReturnType<typeof workerFixture>>) {
+ await h.admin.mutation(command("cancelStatisticsAdmission"),{integrationId:h.integrationId,admissionAt:h.admissionAt});
+ const claim=await h.t.mutation(telemetry("claimDueAssignments"),{collectorAccountId:h.accountId,workerId:"worker",capabilities:explicitCapabilities});
+ assert.equal(claim.assignments.length,1); h.lease.fencingToken=claim.assignments[0].fencingToken;
+ assert.equal(claim.assignments[0].statisticsAdmission.revoked,true);
+}
+for(const status of ["requested","member","absent"] as const) it(`cancel preserves preexisting ${status} without leaving`,async()=>{
+ const h=await workerFixture(); if(status!=="absent") await h.inspect(status);
+ await cancelAndReclaim(h); await h.inspect(status);
+ const row=(await h.t.run(ctx=>ctx.db.get(h.integrationId)))!;assert.equal(row.statisticsAdmission?.phase,"cancelled");assert.equal(row.assignedCollectorAccountId,undefined);
+ assert.equal((await h.t.run(ctx=>ctx.db.get(h.accountId)))?.assignedGroupCount,0);
+});
+it("lost request and late approval retain capacity until acknowledged leave, never retry",async()=>{
+ const h=await workerFixture();await h.inspect("absent");await h.reserve("request_join");
+ await cancelAndReclaim(h);await h.inspect("absent");
+ assert.equal((await h.t.run(ctx=>ctx.db.get(h.accountId)))?.assignedGroupCount,1);
+ assert.equal((await h.reserve("request_join")).granted,false);assert.equal((await h.reserve("withdraw_request")).granted,false);
+ await h.inspect("requested");assert.equal((await h.reserve("withdraw_request")).granted,false);
+ await h.inspect("member");assert.equal((await h.reserve("leave")).granted,true);
+ assert.equal((await h.reserve("leave")).granted,false);
+ await h.inspect("absent"); assert.equal((await h.t.run(ctx=>ctx.db.get(h.integrationId)))?.statisticsAdmission?.phase,"cleanup_pending");
+ assert.equal((await h.t.run(ctx=>ctx.db.get(h.accountId)))?.assignedGroupCount,1);
+ assert.equal((await h.t.mutation(telemetry("recordStatisticsAdmissionCleanup"),{...h.lease,admissionAt:h.admissionAt})).accepted,true);
+ assert.equal((await h.t.run(ctx=>ctx.db.get(h.accountId)))?.assignedGroupCount,0);
+ await assert.rejects(h.t.mutation(telemetry("recordStatisticsAdmissionCleanup"),{...h.lease,admissionAt:h.admissionAt}),/stale/);
+});
+it("managed adoption before cleanup write preserves membership and reservation",async()=>{
+ const h=await workerFixture();await h.inspect("absent");await h.reserve("request_join");await cancelAndReclaim(h);
+ await h.t.run(ctx=>ctx.db.patch(h.integrationId,{collectionScope:{kind:"managed",communityProfileId:h.profileId},communityProfileId:h.profileId,state:"active"}));
+ assert.equal((await h.reserve("leave")).granted,false);
+ await h.inspect("member"); const row=(await h.t.run(ctx=>ctx.db.get(h.integrationId)))!;
+ assert.equal(row.statisticsAdmission?.phase,"cancelled"); assert.equal(row.state,"active");assert.equal(row.assignedCollectorAccountId,h.accountId);
+ assert.equal((await h.t.run(ctx=>ctx.db.get(h.accountId)))?.assignedGroupCount,1);
+});
+
+it("reserved uncertain leave blocks managed adoption before any membership write can race it",async()=>{
+ const h=await workerFixture();await h.inspect("absent");await h.reserve("request_join");await cancelAndReclaim(h);await h.inspect("member");await h.reserve("leave");
+ await assert.rejects(h.admin.mutation(telemetry("connectGroup"),{communitySlug:"admission",vrchatGroupId:GROUP,groupVisibility:"public",joinPolicy:"request"}),/cleanup must be reconciled/);
+ assert.equal((await h.t.run(ctx=>ctx.db.get(h.integrationId)))?.collectionScope?.kind,"automatic");
+});
+
+for(const stop of ["headroom","managed_priority","limit","account_stop","fleet_stop","cooldown"] as const) it(`explicit request honors ${stop} at write time`,async()=>{
+ const h=await workerFixture();await h.inspect("absent");
+ await h.t.run(async ctx=>{
+  if(stop==="headroom")await ctx.db.patch(h.accountId,{reservedHeadroom:100});
+  if(stop==="managed_priority")await ctx.db.insert("vrchatGroupObservationPolicies",{vrchatGroupId:"grp_priority",decision:{kind:"enabled",at:1},queuedAdmission:{priority:"managed",queuedAt:1,dueAt:1},createdAt:1,updatedAt:1});
+  if(stop==="limit")await ctx.db.patch(h.fleetId,{automaticEnrollmentLimit:0});
+  if(stop==="account_stop")await ctx.db.patch(h.accountId,{killSwitchEnabled:true});
+  if(stop==="fleet_stop")await ctx.db.patch(h.fleetId,{killSwitchEnabled:true});
+  if(stop==="cooldown")await ctx.db.patch(h.accountId,{cooldownUntil:Date.now()+60000});
+ });
+ assert.equal((await h.reserve("request_join")).granted,false);assert.equal((await h.t.run(ctx=>ctx.db.get(h.integrationId)))?.statisticsAdmission?.operation,undefined);
+});
+
+it("group stop cannot be undone by a live admission inspection",async()=>{
+ const h=await workerFixture();await h.t.run(ctx=>ctx.db.patch(h.integrationId,{state:"disconnecting"}));
+ assert.equal((await h.inspect("member")).accepted,false);assert.equal((await h.reserve("metadata")).granted,false);
+});
+it("cleanup membership failure retains cleanup responsibility",async()=>{
+ const h=await workerFixture();await h.inspect("absent");await h.reserve("request_join");await cancelAndReclaim(h);
+ await h.t.mutation(telemetry("recordPollFailure"),{...h.lease,statusClass:"membership",coverageState:"degraded",nextPollAt:Date.now()+60000,detail:"membership",collectorVersion:"test"});
+ const row=(await h.t.run(ctx=>ctx.db.get(h.integrationId)))!;assert.equal(row.statisticsAdmission?.phase,"cleanup_pending");assert.equal(row.state,"disconnecting");assert.equal(row.assignedCollectorAccountId,h.accountId);
+});
+
+for(const phase of ["paused","ended"] as const) it(`${phase} status checks inspect without restoring collection or writes`,async()=>{
+ const h=await workerFixture();await h.t.run(async ctx=>{const row=(await ctx.db.get(h.integrationId))!;await ctx.db.patch(row._id,{statisticsAdmission:{...row.statisticsAdmission!,phase},state:"degraded",nextPollAt:Date.now()+600000,lastClaimedAt:0});});
+ await h.admin.mutation(command("checkStatisticsAdmission"),{integrationId:h.integrationId,admissionAt:h.admissionAt});
+ const claim=await h.t.mutation(telemetry("claimDueAssignments"),{collectorAccountId:h.accountId,workerId:"worker",capabilities:explicitCapabilities});assert.equal(claim.assignments.length,1);h.lease.fencingToken=claim.assignments[0].fencingToken;
+ assert.equal((await h.reserve("metadata")).granted,true);assert.equal((await h.inspect("member")).accepted,false);
+ assert.equal((await h.reserve("instances")).granted,false);assert.equal((await h.reserve("request_join")).granted,false);assert.equal((await h.t.run(ctx=>ctx.db.get(h.integrationId)))?.statisticsAdmission?.phase,phase);
 });

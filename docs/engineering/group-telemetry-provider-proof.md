@@ -35,3 +35,15 @@ The four-hour run used the original memory-only interactive session and finished
    sessions and the fleet are enabled. The stop condition below still applies.
 
 The local operating-system vault cache is a deliberate, bounded risk for VRDex-owned proof accounts. It is not evidence of a provider exemption. If VRChat objects to this use, stop proof traffic and clear the saved local session.
+
+## Explicit statistics admission: cleanup contract (2026-10-27)
+
+The connected provider schema identifies `cancelGroupRequest` as authenticated `DELETE /groups/{groupId}/requests`, with the group path parameter and no body. The [API reference](https://vrchat.community/reference/cancel-group-request), re-read on October 27, documents cancellation of the current account's join request and a 200 response. This confirms the request shape, not live account behavior. Its examples do not establish ordering against approval or an earlier in-flight join, read-after-write consistency, or recovery after a lost response.
+
+The local provider implementation uses `POST /groups/{groupId}/join` for requests and accepting an exact observed invitation. The explicit path budgets uncached metadata reads, records normalized inspections, then reserves one write transactionally. Missing membership or unknown metadata cannot authorize a write. Backend attempt, account, epoch, lease, capability, policy and budget guards remain authoritative.
+
+No withdrawal transport is implemented. A cancelled pending request stays `cleanup_pending`, retains capacity and cannot retry or switch accounts. Operators must inspect the assigned account's request in the provider UI, withdraw it manually if still pending, and reconcile any later approval before considering capacity release. A single absent read cannot prove that an earlier uncertain write is finished; this implementation has no administrative override that silently releases that reservation.
+
+Only membership created under the grant may be left. A successful acknowledged leave completes cleanup; 404, a lost reply or later absence alone does not. Pre-existing and managed memberships are preserved. Managed adoption before leave reservation prevents cleanup; adoption after an uncertain leave reservation fails with `Membership cleanup must be reconciled before adoption.` No compensating rejoin is attempted.
+
+These lifecycle rules are covered by fake-transport and backend tests. Live request, invitation, withdrawal and racing-cleanup behavior remains unverified. No provider membership operation was executed for this change.

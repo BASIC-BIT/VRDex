@@ -1,3 +1,4 @@
+import { admissionMatches, type StatisticsAdmission } from "./_groupAdmission";
 import { isManagedIntegrationSession, automaticAdmissionEnabled, readCollectionSubject, readIntegrationRollups, readLegacyRollupMapping, readManagedIntegration, saveManagedPublicationChoice } from "./_groupObservationPolicy";
 import { applyAdmissionRequired, hasAutomaticEnrollmentBacklog } from "./groupObservations";
 import { requireControlProof } from "./_externalControl";
@@ -585,6 +586,8 @@ export const connectGroup = mutation({
     if (registry?.decision.kind === "stopped") throw new Error("Group observation is stopped. Resume before connecting.");
     const automatic = duplicates.find(row => row._id === registry?.integrationId && readCollectionSubject(row).kind === "automatic");
     if (automatic && registry) {
+      if (automatic.statisticsAdmission?.operation?.kind === "leave" && automatic.statisticsAdmission.operation.outcome === "uncertain")
+        throw new Error("Membership cleanup must be reconciled before adoption.");
       const { userId } = await requireActiveBrowserSessionSubject(ctx);
       await requireControlProof(ctx.db, userId, "vrchat_group", vrchatGroupId, "manager", now);
       const current = await readManagedIntegration(ctx.db, profile._id);
@@ -790,6 +793,7 @@ export const recordMembershipResult = internalMutation({
     const integration = await ctx.db.get(args.integrationId);
     if (!integration) throw new Error("Integration was not found.");
     const subject = readCollectionSubject(integration);
+    if (integration.statisticsAdmission && subject.kind === "automatic") throw new Error("Explicit admission requires inspection.");
     if (args.state === "disconnected") {
       for (const state of ["pending", "claimed"] as const)
         await rejectConnectionOperations(ctx, {
@@ -873,6 +877,7 @@ export const claimDueAssignments = internalMutation({
     const automaticCapable = args.capabilities?.includes("automatic_group_aggregates_v2") === true &&
       heartbeat !== null && heartbeat.heartbeatAt <= now && heartbeat.heartbeatAt >= now - WORKER_HEARTBEAT_FRESHNESS_MS &&
       heartbeat.capabilities.includes("automatic_group_aggregates_v2");
+    const explicitCapable = automaticCapable && args.capabilities?.includes("explicit_group_statistics_admission_v1") === true && heartbeat?.capabilities.includes("explicit_group_statistics_admission_v1") === true;
     const candidates = await ctx.db
       .query("communityVrchatIntegrations")
       .withIndex("by_assignedCollectorAccountId_state", (q) =>
@@ -896,6 +901,7 @@ export const claimDueAssignments = internalMutation({
       .filter(
         (integration) =>
           ((readCollectionSubject(integration).kind === "managed" && integration.namedMembershipCollectionEnabled !== false) || automaticCapable) &&
+          (!integration.statisticsAdmission || explicitCapable) &&
           !integration.killSwitchEnabled &&
           (integration.nextPollAt ?? 0) <= now &&
           (integration.backoffUntil ?? 0) <= now,
@@ -913,13 +919,17 @@ export const claimDueAssignments = internalMutation({
     for (const integration of due) {
       if (claimed.length >= limit) break;
       const subject = readCollectionSubject(integration);
+      if (subject.kind === "managed" && integration.statisticsAdmission?.revokedAt !== undefined && integration.statisticsAdmission.phase === "cleanup_pending") {
+        await ctx.db.patch(integration._id, {statisticsAdmission: {...integration.statisticsAdmission, revokedAt: integration.statisticsAdmission.revokedAt, phase: "cancelled"}});
+      }
       const observationPolicy = await ctx.db.query("vrchatGroupObservationPolicies")
         .withIndex("by_vrchatGroupId", q => q.eq("vrchatGroupId", integration.vrchatGroupId)).unique();
       if (subject.kind === "automatic") {
         if (observationPolicy?.integrationId !== integration._id ||
           (observationPolicy.decision.kind !== "enabled" && integration.state !== "disconnecting")) continue;
         if (integration.automaticAdmissionAttempt && integration.automaticAdmissionAttempt.collectorAccountId !== account._id) continue;
-        if (integration.state === "connecting" && !integration.automaticAdmissionAttempt && !automaticAdmissionEnabled(fleet, integration.vrchatGroupId)) continue;
+        if (integration.statisticsAdmission && !admissionMatches(integration, integration.statisticsAdmission.authorizedAt, account._id) && !cleanupAdmissionMatches(integration, integration.statisticsAdmission.authorizedAt, account._id) && !inspectionOnlyAdmissionMatches(integration, integration.statisticsAdmission.authorizedAt, account._id)) continue;
+        if (!integration.statisticsAdmission && integration.state === "connecting" && !integration.automaticAdmissionAttempt && !automaticAdmissionEnabled(fleet, integration.vrchatGroupId)) continue;
       }
       const state = subject.kind === "automatic" && integration.state === "connecting" && integration.automaticAdmissionAttempt
         ? "degraded" as const : integration.state;
@@ -958,6 +968,7 @@ export const claimDueAssignments = internalMutation({
         epochStartedAt: integration.telemetryEpochStartedAt ?? integration.createdAt,
         collectionMode: subject.kind,
         publicationPolicy: integration.publicationPolicy ?? "managed_categories",
+        ...(integration.statisticsAdmission && subject.kind === "automatic" ? { statisticsAdmission: { admissionAt: integration.statisticsAdmission.authorizedAt, joinPolicy: integration.statisticsAdmission.joinPolicy, revoked: integration.statisticsAdmission.revokedAt !== undefined } } : {}),
         ...(subject.kind === "managed" ? { namedMembershipCollectionEnabled: integration.namedMembershipCollectionEnabled ?? true, enabledFeatures: (integration.enabledFeatures ?? ["analytics"]).filter(feature => feature !== "analytics" || observationPolicy?.decision.kind !== "stopped") } : {}),
         vrchatGroupId: integration.vrchatGroupId,
         joinPolicy: integration.joinPolicy,
@@ -1018,6 +1029,94 @@ async function stopAutomaticCollection(ctx: MutationCtx, integration: Doc<"commu
   await audit(ctx, {integrationId: integration._id, action: "automatic_collection.stopped", result: "provider_membership_lost", now});
 }
 
+function inspectionOnlyAdmissionMatches(integration: Doc<"communityVrchatIntegrations">, admissionAt: number, accountId: Id<"collectorAccounts">): boolean {
+  const grant = integration.statisticsAdmission;
+  return grant !== undefined && grant.authorizedAt === admissionAt && grant.revokedAt === undefined && (grant.phase === "paused" || grant.phase === "ended") &&
+    grant.collectorAccountId === accountId && integration.assignedCollectorAccountId === accountId &&
+    grant.epochStartedAt === (integration.telemetryEpochStartedAt ?? integration.createdAt);
+}
+function cleanupAdmissionMatches(integration: Doc<"communityVrchatIntegrations">, admissionAt: number, accountId: Id<"collectorAccounts">): boolean {
+  const grant = integration.statisticsAdmission;
+  return grant !== undefined && grant.authorizedAt === admissionAt && grant.revokedAt !== undefined && grant.phase === "cleanup_pending" &&
+    grant.collectorAccountId === accountId && integration.assignedCollectorAccountId === accountId &&
+    grant.epochStartedAt === (integration.telemetryEpochStartedAt ?? integration.createdAt);
+}
+async function explicitWorkerCapable(ctx: MutationCtx, collectorAccountId: Id<"collectorAccounts">, workerId: string, now: number) {
+  const heartbeat = await ctx.db.query("collectorWorkerHeartbeats").withIndex("by_collectorAccountId_workerId", q => q.eq("collectorAccountId", collectorAccountId).eq("workerId", workerId)).unique();
+  return heartbeat !== null && heartbeat.heartbeatAt <= now && heartbeat.heartbeatAt >= now - WORKER_HEARTBEAT_FRESHNESS_MS &&
+    heartbeat.capabilities.includes("automatic_group_aggregates_v2") && heartbeat.capabilities.includes("explicit_group_statistics_admission_v1");
+}
+async function finishAdmissionCleanup(ctx: MutationCtx, integration: Doc<"communityVrchatIntegrations">, now: number) {
+  const grant = integration.statisticsAdmission;
+  if (!grant || grant.revokedAt === undefined) return;
+  const managed = readCollectionSubject(integration).kind === "managed";
+  if (!managed && integration.assignedCollectorAccountId) {
+    const account = await ctx.db.get(integration.assignedCollectorAccountId);
+    if (account) await ctx.db.patch(account._id, {assignedGroupCount: Math.max(0, account.assignedGroupCount - 1), updatedAt: now});
+  }
+  const lease = await activeLeaseForIntegration(ctx, integration._id);
+  if (lease) await ctx.db.patch(lease._id, {state: "released", releasedAt: now, updatedAt: now});
+  await ctx.db.patch(integration._id, { statisticsAdmission: {...grant, phase: "cancelled", revokedAt: grant.revokedAt}, statisticsAdmissionInspection: undefined,
+    ...(!managed ? {state: "disconnected" as const, assignedCollectorAccountId: undefined, nextPollAt: undefined, disconnectedAt: now} : {}), updatedAt: now });
+  await audit(ctx, {integrationId: integration._id, action: "statistics_admission.cleanup", result: managed ? "managed_preserved" : "complete", now});
+}
+export const recordStatisticsAdmissionInspection = internalMutation({
+  args: { integrationId: v.id("communityVrchatIntegrations"), collectorAccountId: v.id("collectorAccounts"), workerId: v.string(), fencingToken: v.number(), admissionAt: v.number(),
+    membership: v.union(v.literal("member"), v.literal("requested"), v.literal("invited"), v.literal("absent"), v.literal("banned")),
+    visibility: vrchatGroupVisibilityValidator, joinPolicy: vrchatGroupJoinPolicyValidator },
+  returns: v.object({accepted: v.boolean()}),
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    await assertLease(ctx, args.integrationId, args.collectorAccountId, args.workerId, args.fencingToken, now);
+    const row = await ctx.db.get(args.integrationId);
+    if (!row?.statisticsAdmission || !await explicitWorkerCapable(ctx, args.collectorAccountId, args.workerId, now)) return {accepted: false};
+    const account = await ctx.db.get(args.collectorAccountId);
+    const fleet = await ctx.db.query("collectorFleetSettings").withIndex("by_key", q => q.eq("key", "global")).unique();
+    if (!account || account.state !== "ready" || account.killSwitchEnabled || row.killSwitchEnabled || fleet?.killSwitchEnabled || (account.cooldownUntil ?? 0) > now) return {accepted: false};
+    const cleanup = cleanupAdmissionMatches(row, args.admissionAt, args.collectorAccountId);
+    const inspectOnly = inspectionOnlyAdmissionMatches(row, args.admissionAt, args.collectorAccountId);
+    if (!cleanup && ((!inspectOnly && !admissionMatches(row, args.admissionAt, args.collectorAccountId)) || row.state === "disconnecting")) return {accepted: false};
+    const grant = row.statisticsAdmission;
+    let next: StatisticsAdmission = {...grant, lastCheckedAt: now};
+    if (grant.membershipOrigin === "unknown" && ["member", "requested"].includes(args.membership)) next = {...next, membershipOrigin: "preexisting"};
+    if (grant.operation && ["request", "accept_invite"].includes(grant.operation.kind) &&
+        (args.membership === "member" || (grant.operation.kind === "request" && args.membership === "requested")))
+      next = next.joinPolicy === "request" ? {...next, operation: {kind: "request", startedAt: grant.operation.startedAt, outcome: "confirmed"}}
+        : {...next, operation: {kind: "accept_invite", startedAt: grant.operation.startedAt, outcome: "confirmed"}};
+    if (cleanup) {
+      if (readCollectionSubject(row).kind === "managed" || next.membershipOrigin === "preexisting" ||
+          (next.membershipOrigin === "unknown" && !next.operation)) {
+        await finishAdmissionCleanup(ctx, {...row, statisticsAdmission: next}, now);
+        return {accepted: false};
+      }
+      // An absent read cannot settle a lost or in-flight write, including a leave.
+    } else if (inspectOnly) {
+      // Inspection never reactivates a paused or ended grant.
+    } else if (args.visibility !== "public" || args.joinPolicy !== grant.joinPolicy) next = {...next, phase: "paused"};
+    else if (args.membership === "banned" || (args.membership === "absent" && (grant.phase === "active" || row.statisticsAdmissionInspection?.membership === "requested"))) next = {...next, phase: "ended"};
+    else if (args.membership === "member") next = {...next, phase: "active"};
+    const state = cleanup ? "disconnecting" : next.phase === "paused" || next.phase === "ended" ? "degraded"
+      : args.membership === "member" ? "active" : args.membership === "requested" ? "awaiting_approval" : args.membership === "invited" || grant.joinPolicy === "invite" ? "awaiting_invite" : "connecting";
+    await ctx.db.patch(row._id, {statisticsAdmission: next, statisticsAdmissionInspection: {admissionAt: args.admissionAt, fencingToken: args.fencingToken, observedAt: now, membership: args.membership},
+      groupVisibility: args.visibility, joinPolicy: args.joinPolicy, state, nextPollAt: now + 180_000, updatedAt: now});
+    await audit(ctx, {integrationId: row._id, workerId: args.workerId, action: "statistics_admission.inspection", result: args.membership, now});
+    return {accepted: cleanup || next.phase === "active" || next.phase === "pending"};
+  },
+});
+export const recordStatisticsAdmissionCleanup = internalMutation({
+  args: {integrationId: v.id("communityVrchatIntegrations"), collectorAccountId: v.id("collectorAccounts"), workerId: v.string(), fencingToken: v.number(), admissionAt: v.number()},
+  returns: v.object({accepted: v.boolean()}),
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    await assertLease(ctx, args.integrationId, args.collectorAccountId, args.workerId, args.fencingToken, now);
+    const row = await ctx.db.get(args.integrationId);
+    if (!row || !cleanupAdmissionMatches(row, args.admissionAt, args.collectorAccountId) || !await explicitWorkerCapable(ctx, args.collectorAccountId, args.workerId, now) ||
+        row.statisticsAdmission?.membershipOrigin !== "admission" || row.statisticsAdmission.operation?.kind !== "leave") return {accepted: false};
+    await finishAdmissionCleanup(ctx, {...row, statisticsAdmission: {...row.statisticsAdmission, operation: {kind: "leave", startedAt: row.statisticsAdmission.operation.startedAt, outcome: "confirmed"}}}, now);
+    return {accepted: true};
+  },
+});
+
 export const reserveRequestBudget = internalMutation({
   args: {
     integrationId: v.id("communityVrchatIntegrations"),
@@ -1025,7 +1124,8 @@ export const reserveRequestBudget = internalMutation({
     workerId: v.string(),
     fencingToken: v.number(),
     requestCount: v.number(),
-    automaticRequest: v.optional(v.union(v.literal("metadata"), v.literal("join"), v.literal("instances"), v.literal("leave"))),
+    automaticRequest: v.optional(v.union(v.literal("metadata"), v.literal("join"), v.literal("instances"), v.literal("leave"), v.literal("request_join"), v.literal("accept_invite"), v.literal("withdraw_request"))),
+    statisticsAdmissionAt: v.optional(v.number()),
     now: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
@@ -1045,13 +1145,51 @@ export const reserveRequestBudget = internalMutation({
     if (
       !account || account.state !== "ready" || account.killSwitchEnabled || integration.killSwitchEnabled ||
       fleet?.killSwitchEnabled || (account.cooldownUntil ?? 0) > now ||
-      (readCollectionSubject(integration).kind === "automatic" && integration.state === "connecting" &&
+      (readCollectionSubject(integration).kind === "automatic" && !integration.statisticsAdmission && integration.state === "connecting" &&
         !automaticAdmissionEnabled(fleet, integration.vrchatGroupId))
     ) {
       return { granted: false, retryAt: now + 60_000, reason: "unavailable" as const };
     }
 
-    if (readCollectionSubject(integration).kind === "automatic") {
+    const grant = readCollectionSubject(integration).kind === "automatic" ? integration.statisticsAdmission : undefined;
+    if (grant) {
+      const denied = { granted: false, retryAt: now + 60_000, reason: "unavailable" as const };
+      const operation = args.automaticRequest;
+      if (args.statisticsAdmissionAt !== grant.authorizedAt || requestCount !== 1 || !operation ||
+          !await explicitWorkerCapable(ctx, account._id, args.workerId, now)) return denied;
+      const cleanup = cleanupAdmissionMatches(integration, grant.authorizedAt, account._id);
+      const active = admissionMatches(integration, grant.authorizedAt, account._id);
+      const inspectOnly = inspectionOnlyAdmissionMatches(integration, grant.authorizedAt, account._id);
+      if (!cleanup && ((!active && !(inspectOnly && operation === "metadata")) || integration.state === "disconnecting")) return denied;
+      const inspection = integration.statisticsAdmissionInspection;
+      const fresh = inspection?.admissionAt === grant.authorizedAt && inspection.fencingToken === args.fencingToken &&
+        inspection.observedAt <= now && inspection.observedAt >= now - CURRENT_FRESHNESS_MS;
+      if (operation !== "metadata") {
+        if (!fresh) return denied;
+        if (cleanup) {
+          if (operation !== "leave" || readCollectionSubject(integration).kind !== "automatic" ||
+              grant.membershipOrigin !== "admission" || inspection?.membership !== "member" ||
+              grant.operation?.kind === "leave" || grant.operation?.outcome !== "confirmed") return denied;
+        } else {
+          if (integration.groupVisibility !== "public" || integration.joinPolicy !== grant.joinPolicy || integration.state === "disconnecting") return denied;
+          if (operation === "instances") { if (grant.phase !== "active" || inspection?.membership !== "member") return denied; }
+          else if (operation === "request_join") { if (grant.joinPolicy !== "request" || grant.operation || inspection?.membership !== "absent" || grant.phase !== "pending") return denied; }
+          else if (operation === "accept_invite") { if (grant.joinPolicy !== "invite" || grant.operation || inspection?.membership !== "invited" || grant.phase !== "pending") return denied; }
+          else return denied;
+          if (operation === "request_join" || operation === "accept_invite") {
+            const managedDue = await ctx.db.query("vrchatGroupObservationPolicies").withIndex("by_queue_priority_dueAt", q => q.eq("queuedAdmission.priority", "managed").lte("queuedAdmission.dueAt", now)).first();
+            const limit = fleet?.automaticEnrollmentLimit;
+            if (managedDue || account.assignedGroupCount > account.capacity - account.reservedHeadroom ||
+                limit === undefined || !Number.isInteger(limit) || limit < 1 || limit > 50) return denied;
+            const occupied = await ctx.db.query("communityVrchatIntegrations").withIndex("by_collectionScope_kind_account", q => q.eq("collectionScope.kind", "automatic").gt("assignedCollectorAccountId", undefined)).take(51);
+            if (occupied.length > limit) return denied;
+          }
+        }
+      }
+    } else if (args.statisticsAdmissionAt !== undefined || ["request_join", "accept_invite", "withdraw_request"].includes(args.automaticRequest ?? "")) {
+      return { granted: false, retryAt: now + 60_000, reason: "unavailable" as const };
+    }
+    if (!grant && readCollectionSubject(integration).kind === "automatic") {
       const operation = args.automaticRequest;
       if (requestCount !== 1 || !operation ||
         (operation === "leave" ? integration.state !== "disconnecting" : !["connecting", "active", "degraded"].includes(integration.state)) ||
@@ -1060,7 +1198,7 @@ export const reserveRequestBudget = internalMutation({
         (integration.automaticAdmissionAttempt && integration.automaticAdmissionAttempt.collectorAccountId !== account._id))
         return { granted: false, retryAt: now + 60_000, reason: "unavailable" as const };
     }
-    if (args.automaticRequest && args.automaticRequest !== "leave") {
+    if (args.automaticRequest && args.automaticRequest !== "leave" && !(grant?.revokedAt !== undefined && args.automaticRequest === "metadata")) {
       const policy = await ctx.db.query("vrchatGroupObservationPolicies")
         .withIndex("by_vrchatGroupId", q => q.eq("vrchatGroupId", integration.vrchatGroupId)).unique();
       if (!(integration.enabledFeatures ?? ["analytics"]).includes("analytics") ||
@@ -1098,6 +1236,13 @@ export const reserveRequestBudget = internalMutation({
     if (readCollectionSubject(integration).kind === "automatic" && args.automaticRequest === "join") {
       // The request may succeed even if its response or the later confirmation is lost.
       await ctx.db.patch(integration._id, { automaticAdmissionAttempt: { collectorAccountId: account._id, attemptedAt: now } });
+    }
+    if (grant && ["request_join", "accept_invite", "leave"].includes(args.automaticRequest ?? "")) {
+      const next: StatisticsAdmission = args.automaticRequest === "leave" ? {...grant, operation: {kind: "leave", startedAt: now, outcome: "uncertain"}}
+        : grant.joinPolicy === "request" ? {...grant, membershipOrigin: "admission", operation: {kind: "request", startedAt: now, outcome: "uncertain"}}
+        : {...grant, membershipOrigin: "admission", operation: {kind: "accept_invite", startedAt: now, outcome: "uncertain"}};
+      await ctx.db.patch(integration._id, {statisticsAdmission: next});
+      await audit(ctx, {integrationId: integration._id, workerId: args.workerId, action: "statistics_admission.operation", result: args.automaticRequest!, now});
     }
     return { granted: true, retryAt: undefined, reason: undefined };
   },
@@ -1424,6 +1569,10 @@ export const ingestAggregatePoll = internalMutation({
     await assertLease(ctx, args.integrationId, args.collectorAccountId, args.workerId, args.fencingToken, now);
     const integration = await ctx.db.get(args.integrationId);
     if (!integration) throw new Error("Integration was not found.");
+    if (integration.statisticsAdmission && readCollectionSubject(integration).kind === "automatic" &&
+        (!admissionMatches(integration, integration.statisticsAdmission.authorizedAt, args.collectorAccountId) || integration.statisticsAdmission.phase !== "active" ||
+         args.groupVisibility !== "public" || args.joinPolicy !== integration.statisticsAdmission.joinPolicy ||
+         !await explicitWorkerCapable(ctx, args.collectorAccountId, args.workerId, now))) throw new Error("Explicit admission is stale or unavailable.");
     if (readCollectionSubject(integration).kind === "automatic" && !["active", "degraded"].includes(integration.state))
       throw new Error("Automatic collection is stale or unavailable.");
     if (integration.enabledFeatures && !integration.enabledFeatures.includes("analytics")) {
@@ -1631,7 +1780,11 @@ export const recordPollFailure = internalMutation({
     if (!integration) throw new Error("Integration was not found.");
     if (readCollectionSubject(integration).kind === "automatic" &&
       (args.detail === "membership" || args.statusClass === "membership")) {
-      await stopAutomaticCollection(ctx, integration, now);
+      if (integration.statisticsAdmission?.revokedAt !== undefined) {
+        await ctx.db.patch(integration._id, {state: "disconnecting", nextPollAt: now + 180_000, updatedAt: now});
+      } else if (integration.statisticsAdmission) {
+        await ctx.db.patch(integration._id, {statisticsAdmission: {...integration.statisticsAdmission, phase: "paused"}, state: "degraded", nextPollAt: undefined, leaseGeneration: integration.leaseGeneration + 1, updatedAt: now});
+      } else await stopAutomaticCollection(ctx, integration, now);
       return;
     }
     const failures = integration.consecutiveFailures + 1;

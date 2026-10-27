@@ -459,7 +459,7 @@ describe("group telemetry metrics and safety helpers", () => {
       {
         releaseSha: "a".repeat(40),
         collectorVersion: "git-a1b2c3d4e5f6",
-        capabilities: ["telemetry_v1", "vrchat_proof_v1", "profile_link_destinations_v1", "automatic_group_aggregates_v2"],
+        capabilities: ["telemetry_v1", "vrchat_proof_v1", "profile_link_destinations_v1", "automatic_group_aggregates_v2", "explicit_group_statistics_admission_v1"],
       },
     );
     assert.throws(() => collectorRuntimeMetadata({}), /exact Git SHA/);
@@ -525,4 +525,29 @@ describe("group telemetry metrics and safety helpers", () => {
     assert.doesNotMatch(redacted, /abc123|hunter2/);
     assert.match(redacted, /redacted/);
   });
+});
+
+// Exercise the authenticated HTTP projection without a provider or Convex deployment.
+for (const fields of [
+  {operation:"budget",automaticRequest:"request_join",statisticsAdmissionAt:"1"},
+  {operation:"budget",automaticRequest:"arbitrary"},
+  {operation:"admission_inspection",admissionAt:1,membership:"raw",visibility:"public",joinPolicy:"request"},
+  {operation:"admission_inspection",admissionAt:1,membership:"member",visibility:"public"},
+  {operation:"admission_cleanup",admissionAt:-1},
+]) it(`manual worker HTTP rejects malformed ${JSON.stringify(fields)}`,async()=>{
+ const {createHash}=await import("node:crypto"); const imported=await import("../../convex/http");
+ const mod=imported.default; const router=(mod as unknown as {default?:typeof mod}).default??mod;
+ const [handler]=router.lookup("/telemetry/worker","POST")!;
+ const action=handler as unknown as {_handler:(ctx:unknown,request:Request)=>Promise<Response>};
+ const key="test-worker-key-longer-than-thirty-two";
+ let mutations=0;
+ const result=await action._handler({runQuery:async()=>({enabled:true,vrchatUserId:"usr_bot",workerKeyHash:createHash("sha256").update(key).digest("hex")}),runMutation:async()=>{mutations++;}},new Request("https://test/telemetry/worker",{method:"POST",headers:{authorization:`Bearer ${key}`,"x-vrdex-collector-account":"account"},body:JSON.stringify({vrchatUserId:"usr_bot",workerId:"worker",integrationId:"integration",fencingToken:1,...fields})}));
+ assert.equal(result.status,400); assert.equal(mutations,0);
+});
+it("manual worker HTTP projects normalized inspection only",async()=>{
+ const {createHash}=await import("node:crypto"); const imported=await import("../../convex/http");const mod=imported.default;const router=(mod as unknown as {default?:typeof mod}).default??mod;
+ const [handler]=router.lookup("/telemetry/worker","POST")!;const action=handler as unknown as {_handler:(ctx:unknown,request:Request)=>Promise<Response>};
+ const key="test-worker-key-longer-than-thirty-two";let sent:Record<string,unknown>|undefined;
+ const response=await action._handler({runQuery:async()=>({enabled:true,vrchatUserId:"usr_bot",workerKeyHash:createHash("sha256").update(key).digest("hex")}),runMutation:async(_ref:unknown,args:Record<string,unknown>)=>{sent=args;return {accepted:true};}},new Request("https://test/telemetry/worker",{method:"POST",headers:{authorization:`Bearer ${key}`,"x-vrdex-collector-account":"account"},body:JSON.stringify({vrchatUserId:"usr_bot",operation:"admission_inspection",workerId:"worker",integrationId:"integration",fencingToken:1,admissionAt:1,membership:"invited",visibility:"public",joinPolicy:"invite",raw:{users:["sensitive"]},observedAt:123})}));
+ assert.equal(response.status,200); assert.equal(sent?.raw,undefined); assert.equal(sent?.observedAt,undefined); assert.equal(sent?.membership,"invited");
 });
