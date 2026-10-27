@@ -147,6 +147,8 @@ async function revokeStatisticsAdmission(ctx: MutationCtx, row: Doc<"communityVr
   for (const lease of leases) await ctx.db.patch(lease._id, { state: "released", releasedAt: now, updatedAt: now });
   await ctx.db.patch(row._id, {
     statisticsAdmission: { ...grant, revokedAt: now, phase: row.assignedCollectorAccountId ? "cleanup_pending" : "cancelled" },
+    // A later verified managed publication choice may supersede cancellation.
+    publicationPolicy: "automatic_aggregate",
     leaseGeneration: row.leaseGeneration + 1,
     state: readCollectionSubject(row).kind === "managed" ? row.state : row.assignedCollectorAccountId ? "disconnecting" : "disconnected",
     nextPollAt: row.assignedCollectorAccountId ? now : undefined, updatedAt: now,
@@ -323,7 +325,10 @@ export async function statisticsAdmissionDiagnostics(db: DatabaseReader, now: nu
     const inspectedAt = grant.lastCheckedAt;
     const age = Math.max(0, now - (inspectedAt ?? grant.authorizedAt));
     const externalWait = grant.phase === "pending" && inspectedAt !== undefined && age <= CURRENT_FRESHNESS_MS && row.consecutiveFailures === 0 &&
-      (grant.joinPolicy === "invite" || grant.operation?.kind === "request");
+      (grant.joinPolicy === "invite" || grant.operation?.kind === "request" ||
+        row.statisticsAdmissionInspection?.admissionAt === grant.authorizedAt &&
+        row.statisticsAdmissionInspection.membership === "requested" &&
+        now - row.statisticsAdmissionInspection.observedAt <= CURRENT_FRESHNESS_MS);
     if (externalWait) { result.externalWaiting++; continue; }
     if (grant.phase === "cancelled" || grant.phase === "ended" || grant.phase === "paused") continue;
     const dueAt = Math.max(row.nextPollAt ?? 0, row.backoffUntil ?? 0, account?.cooldownUntil ?? 0);

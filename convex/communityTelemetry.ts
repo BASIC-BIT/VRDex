@@ -1098,6 +1098,7 @@ export const recordStatisticsAdmissionInspection = internalMutation({
     const state = cleanup ? "disconnecting" : next.phase === "paused" || next.phase === "ended" ? "degraded"
       : args.membership === "member" ? "active" : args.membership === "requested" ? "awaiting_approval" : args.membership === "invited" || grant.joinPolicy === "invite" ? "awaiting_invite" : "connecting";
     await ctx.db.patch(row._id, {statisticsAdmission: next, statisticsAdmissionInspection: {admissionAt: args.admissionAt, fencingToken: args.fencingToken, observedAt: now, membership: args.membership},
+      ...(next.phase === "pending" && args.membership !== "member" ? {consecutiveFailures: 0, backoffUntil: undefined} : {}),
       groupVisibility: args.visibility, joinPolicy: args.joinPolicy, state, nextPollAt: now + 180_000, updatedAt: now});
     await audit(ctx, {integrationId: row._id, workerId: args.workerId, action: "statistics_admission.inspection", result: args.membership, now});
     return {accepted: cleanup || next.phase === "active" || next.phase === "pending"};

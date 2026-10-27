@@ -12,7 +12,7 @@ const accountId = "fixture-account" as Id<"collectorAccounts">;
 const integrationId = "fixture-integration" as Id<"communityVrchatIntegrations">;
 const initial: StatisticsAdmissionView = { eligible: true, groupName: "Afterglow VRChat Group", vrchatGroupId: "grp_00000000-0000-4000-8000-000000000005", groupMetadata: { visibility: "public", joinPolicy: "request" }, metadataObservedAt: Date.now(), bot: { collectorAccountId: accountId, accountAlias: "Collector One", vrchatUserId: "usr_00000000-0000-4000-8000-000000000005", profileUrl: "https://vrchat.com/home/user/usr_00000000-0000-4000-8000-000000000005" } };
 function grant(view: StatisticsAdmissionView, phase: "pending" | "paused" | "ended" = "pending"): StatisticsAdmissionView {
-  return { ...view, integrationId, statisticsAdmission: { authorizedAt: Date.now(), actor: { tokenIdentifier: "fixture|admin", issuer: "fixture", subject: "admin" }, reason: "Public aggregate statistics", collectorAccountId: accountId, epochStartedAt: Date.now(), joinPolicy: view.groupMetadata?.joinPolicy === "invite" ? "invite" : "request", phase, membershipOrigin: "admission", lastCheckedAt: Date.now() } };
+  return { ...view, integrationId, statisticsAdmission: { authorizedAt: Date.now(), actor: { tokenIdentifier: "fixture|admin", issuer: "fixture", subject: "admin" }, reason: "Public aggregate statistics", collectorAccountId: accountId, epochStartedAt: Date.now(), phase, membershipOrigin: "admission", lastCheckedAt: Date.now(), ...(view.groupMetadata?.joinPolicy === "invite" ? { joinPolicy: "invite" } : { joinPolicy: "request", operation: { kind: "request", startedAt: Date.now(), outcome: "confirmed" } }) } };
 }
 export function AdmissionPreview() {
   const [view, setView] = useState<StatisticsAdmissionView | null>(null);
@@ -42,7 +42,7 @@ export function AdmissionPreview() {
       sessionStorage.setItem(`admission-${state}`, "pending"); setView(v => v && grant(v));
     },
     check: async () => { setCalls(c => [...c, "check"]); },
-    cancel: async () => { setCalls(c => [...c, "cancel"]); setView(v => v?.statisticsAdmission ? { ...v, eligible: false, blockReason: "cleanup_required", statisticsAdmission: { ...v.statisticsAdmission, phase: "cleanup_pending", revokedAt: Date.now(), operation: { kind: "withdraw_request", startedAt: Date.now(), outcome: "uncertain" }, joinPolicy: "request" } } : v); },
+    cancel: async () => { setCalls(c => [...c, "cancel"]); setView(v => v?.statisticsAdmission ? { ...v, eligible: false, blockReason: "cleanup_required", statisticsAdmission: { ...v.statisticsAdmission, phase: "cleanup_pending", revokedAt: Date.now() } } : v); },
     refresh: async () => { setCalls(c => [...c, "refresh"]); },
   };
   const current = useRef({ view, actions });

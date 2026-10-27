@@ -57,7 +57,17 @@ export function GroupStatisticsAdmissionPanel({ profileId, view, actions }: {
   const title = useId();
   useEffect(() => {
     if (review && !dialog.current?.open) dialog.current?.showModal();
-    else if (!review && dialog.current?.open) { dialog.current.close(); (trigger.current ?? section.current?.querySelector<HTMLButtonElement>("[data-admission-check]"))?.focus(); }
+    else if (!review && dialog.current?.open) {
+      const previousTrigger = trigger.current;
+      dialog.current.close();
+      // The subscribed view may replace the trigger after the mutation resolves.
+      const frame = requestAnimationFrame(() => {
+        if (document.activeElement === document.body || document.activeElement === previousTrigger || dialog.current?.contains(document.activeElement)) {
+          (trigger.current ?? section.current?.querySelector<HTMLButtonElement>("[data-admission-check]"))?.focus();
+        }
+      });
+      return () => cancelAnimationFrame(frame);
+    }
   }, [review]);
   if (!view) return null;
   const grant = view.statisticsAdmission;
@@ -97,7 +107,7 @@ export function GroupStatisticsAdmissionPanel({ profileId, view, actions }: {
     </dl>
     {grant?.phase === "pending" && grant.joinPolicy === "invite" ? <p className="mt-4 text-sm">Ask a group admin to invite the displayed bot as an ordinary member.</p> : null}
     {ongoing ? <p className="mt-4 text-sm text-muted">{grant.phase === "cleanup_pending" ? "Statistics are hidden. Capacity stays reserved until cleanup is confirmed." : grant.phase === "pending" ? "Collection starts after membership is confirmed." : "Aggregate statistics only."}</p> : null}
-    {grant?.phase === "cleanup_pending" && grant.operation?.outcome === "uncertain" ? <p className="mt-3 text-sm">Inspect the assigned bot in VRChat. Withdraw a remaining request manually. An uncertain operation requires operator reconciliation before capacity can be released.</p> : null}
+    {grant?.phase === "cleanup_pending" && (grant.operation?.outcome === "uncertain" || grant.operation?.kind === "request") ? <p className="mt-3 text-sm">Inspect the assigned bot in VRChat. Withdraw a remaining request manually. Cleanup requires operator reconciliation before capacity can be released.</p> : null}
     {!ongoing && view.blockReason ? <p className="mt-4 text-sm text-muted">{blocks[view.blockReason] ?? "Admission unavailable"}</p> : null}
     <div className="mt-5 flex flex-wrap gap-2">
       {!ongoing ? <><button ref={trigger} className={buttonVariants()} disabled={!view.eligible || stale || !bot || busy} onClick={() => { setReview(view); setError(""); }}>{view.groupMetadata?.joinPolicy === "invite" ? "Assign bot" : "Request to join"}</button><Button variant="secondary" disabled={busy} onClick={() => void run(actions.refresh)}>Refresh metadata</Button></> : null}

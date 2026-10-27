@@ -125,7 +125,8 @@ export async function resolveGroupObservationPolicy(
   if (liveManaged.length > 1) return { kind: "hidden" };
   const managing = liveManaged[0] ?? managed.sort((a, b) => b.createdAt - a.createdAt || b._id.localeCompare(a._id))[0];
   const canonical = registry?.integrationId ? await db.get(registry.integrationId) : null;
-  if (canonical?.statisticsAdmission?.revokedAt !== undefined) return { kind: "hidden" };
+  if (canonical?.statisticsAdmission?.revokedAt !== undefined &&
+      (readCollectionSubject(canonical).kind !== "managed" || canonical.publicationPolicy !== "managed_categories")) return { kind: "hidden" };
   if (registry?.integrationId && (!canonical || canonical.vrchatGroupId !== input.vrchatGroupId)) return { kind: "hidden" };
   if (managing) {
     if (canonical && canonical._id !== managing._id) return { kind: "hidden" };

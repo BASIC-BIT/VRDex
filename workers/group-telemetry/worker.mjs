@@ -279,7 +279,10 @@ async function collect(assignment) {
         }
         return;
       }
-      if (membership.state !== "active") return;
+      if (membership.state !== "active") {
+        attempts.delete(assignment.integrationId);
+        return;
+      }
       phase = "analytics";
       const snapshot = await provider.readAggregateSnapshot(assignment.vrchatGroupId, options);
       if (!snapshot) return;

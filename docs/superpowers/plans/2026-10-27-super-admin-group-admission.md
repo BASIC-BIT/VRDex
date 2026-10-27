@@ -8,7 +8,7 @@
 
 **Tech Stack:** Existing Node 24, pnpm 10.15.1, TypeScript, Convex, Next.js, Node test runner, convex-test and Playwright. No new dependencies or services.
 
-**Spec:** [Approved super-admin admission design](../specs/2026-10-27-super-admin-group-admission-design.md), approved October 27, 2026. The [automatic statistics design](../specs/2026-10-25-automatic-group-statistics-design.md) still governs aggregate privacy. This plan awaits review. Source implementation, merge, deployment and live admission are separate actions.
+**Spec:** [Approved super-admin admission design](../specs/2026-10-27-super-admin-group-admission-design.md), approved October 27, 2026. The [automatic statistics design](../specs/2026-10-25-automatic-group-statistics-design.md) still governs aggregate privacy. BASIC approved execution on October 27, 2026. Local implementation is complete with review fixes in progress. Release, live-provider acceptance and incomplete broad-suite gates remain separate; source implementation does not authorize merge or deployment.
 
 ## Review brief
 

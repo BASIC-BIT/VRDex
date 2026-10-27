@@ -36,15 +36,60 @@ import {runInNewContext} from "node:vm";
 import {RequestBudget,failureDisposition} from "./runtime.mjs";
 const source=readFileSync(new URL("./worker.mjs",import.meta.url),"utf8").replaceAll("\r\n","\n");
 const collectSource=source.slice(source.indexOf("async function collect(assignment)"),source.indexOf("/**\n * Hands back",source.indexOf("async function collect(assignment)")));
-function workerHarness({revoked=false,membership="member",leaveAllowed=true,leaveLost=false}={}) {
- const calls=[];const sandbox={Date,RequestBudget,failureDisposition,stopping:false,integrationBudgets:new Map(),attempts:new Map(),accountBudget:new RequestBudget(100),COLLECTOR_PROTOCOL_VERSION:"test",randomPollDelayMs:()=>60000,pollId:()=>"poll",logEvent:()=>{},collectorAuthRequiredEvent:()=>({}),
- control:{send:async(op,args)=>{calls.push({op,args});if(op==="budget")return {granted:args.automaticRequest!=="leave"||leaveAllowed};return {accepted:true};}},
- provider:{connectGroup:async(_id,options)=>{assert.equal(options.admissionMode,"explicit");await options.authorizeRequest("metadata");await options.recordInspection({membership,visibility:"public",joinPolicy:"request"});return {membership,state:membership==="member"?"active":"awaiting_approval"};},leaveGroup:async()=>{calls.push({op:"leave"});if(leaveLost)throw new VrchatProviderError("lost",{category:"timeout"});},readAggregateSnapshot:async()=>{calls.push({op:"aggregate"});return {observedAt:Date.now(),group:{memberCount:1,groupVisibility:"public",joinPolicy:"request"},instances:[]};}}};
- runInNewContext(`${collectSource};globalThis.collect=collect;`,sandbox);
- return {calls,run:()=>sandbox.collect({integrationId:"integration",vrchatGroupId:"grp_test",fencingToken:2,requestsPerMinute:100,collectionMode:"automatic",state:revoked?"disconnecting":"connecting",statisticsAdmission:{admissionAt:1,joinPolicy:"request",revoked}})};
+function workerHarness({ revoked = false, membership = "member", leaveAllowed = true, leaveLost = false } = {}) {
+  const calls = [];
+  const sandbox = {
+    Date, RequestBudget, failureDisposition, stopping: false,
+    integrationBudgets: new Map(), attempts: new Map(), accountBudget: new RequestBudget(100),
+    COLLECTOR_PROTOCOL_VERSION: "test", randomPollDelayMs: () => 60000, pollId: () => "poll",
+    logEvent: () => {}, collectorAuthRequiredEvent: () => ({}),
+    control: { send: async (op, args) => {
+      calls.push({ op, args });
+      if (op === "budget") return { granted: args.automaticRequest !== "leave" || leaveAllowed };
+      return { accepted: true };
+    } },
+    provider: {
+      connectGroup: async (_id, options) => {
+        assert.equal(options.admissionMode, "explicit");
+        await options.authorizeRequest("metadata");
+        await options.recordInspection({ membership, visibility: "public", joinPolicy: "request" });
+        return { membership, state: membership === "member" ? "active" : "awaiting_approval" };
+      },
+      leaveGroup: async () => {
+        calls.push({ op: "leave" });
+        if (leaveLost) throw new VrchatProviderError("lost", { category: "timeout" });
+      },
+      readAggregateSnapshot: async () => {
+        calls.push({ op: "aggregate" });
+        return { observedAt: Date.now(), group: { memberCount: 1, groupVisibility: "public", joinPolicy: "request" }, instances: [] };
+      },
+    },
+  };
+  runInNewContext(`${collectSource};globalThis.collect=collect;`, sandbox);
+  return {
+    calls, attempts: sandbox.attempts, provider: sandbox.provider,
+    run: () => sandbox.collect({
+      integrationId: "integration", vrchatGroupId: "grp_test", fencingToken: 2, requestsPerMinute: 100,
+      collectionMode: "automatic", state: revoked ? "disconnecting" : "connecting",
+      statisticsAdmission: { admissionAt: 1, joinPolicy: "request", revoked },
+    }),
+  };
 }
 test("manual worker waits for provider membership before aggregates",async()=>{const h=workerHarness({membership:"requested"});await h.run();assert.equal(h.calls.some(c=>c.op==="aggregate"),false);assert.equal(h.calls.find(c=>c.op==="budget").args.statisticsAdmissionAt,1);});
 test("manual worker collects confirmed member without management",async()=>{const h=workerHarness();await h.run();assert.ok(h.calls.some(c=>c.op==="ingest"));assert.equal(h.calls.some(c=>c.op.startsWith("club_")),false);});
 test("manual cleanup reservation refusal preserves membership",async()=>{const h=workerHarness({revoked:true,leaveAllowed:false});await h.run();assert.equal(h.calls.some(c=>c.op==="leave"),false);});
 test("manual cleanup acknowledges only a successful leave",async()=>{const h=workerHarness({revoked:true});await h.run();assert.ok(h.calls.findIndex(c=>c.op==="leave")<h.calls.findIndex(c=>c.op==="admission_cleanup"));});
 test("manual cleanup lost leave never reports completion",async()=>{const h=workerHarness({revoked:true,leaveLost:true});await h.run();assert.equal(h.calls.some(c=>c.op==="admission_cleanup"),false);assert.ok(h.calls.some(c=>c.op==="failure"));});
+
+test("healthy pending checks reset local retries while aggregate failures remain consecutive", async () => {
+  const pending = workerHarness({ membership: "requested" });
+  pending.attempts.set("integration", 3);
+  await pending.run();
+  assert.equal(pending.attempts.has("integration"), false);
+  const active = workerHarness();
+  active.provider.readAggregateSnapshot = async () => { throw new VrchatProviderError("failed", { category: "timeout" }); };
+  for (let i = 1; i <= 3; i++) {
+    await active.run();
+    assert.equal(active.attempts.get("integration"), i);
+  }
+});

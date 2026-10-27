@@ -61,13 +61,13 @@ it("profile statistics protocol parity preserves safe DTO, rejects ranges and ne
       const stdio=(await send("tools/call",args)).result;
       assert.deepEqual(stdio.structuredContent,hostedAutomatic,JSON.stringify(stdio));
       for(const bad of [{slug:"range",statisticsStartAt:100},{slug:"range",profileType:"person",statisticsStartAt:100,statisticsEndAt:200}]) {const r=await send("tools/call",{name:args.name,arguments:bad});assert.ok(r.error||r.result.isError);}
-      for (const admissionState of ["pending", "revoked", "mismatched_epoch", "mismatched_account", "private", "unreadable", "ended", "stopped"]) {
+      { // The backend owns lifecycle policy; transports must omit its suppressed DTO.
         stopped = true;
         const restHidden = await (await profiles(request("profiles/range"), context("range"))).json();
         const hostedHidden = (await hostedCall(args.arguments)).result.structuredContent;
         const stdioHidden = (await send("tools/call", args)).result.structuredContent;
         for (const output of [restHidden, hostedHidden, stdioHidden]) {
-          assert.equal(output.telemetry, undefined, admissionState);
+          assert.equal(output.telemetry, undefined);
           for (const secret of ["private-instance", "usr_private-user", "usr_secret_bot", "secret internal reason", "private-location"]) {
             assert.equal(JSON.stringify(output).includes(secret), false);
           }

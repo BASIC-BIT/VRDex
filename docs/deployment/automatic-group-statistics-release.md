@@ -186,7 +186,7 @@ Status: proposed. This packet does not record copy approval. Utility labels use 
 - `Collection starts after membership is confirmed.`
 - `Aggregate statistics only.`
 - `Statistics are hidden. Capacity stays reserved until cleanup is confirmed.`
-- `Inspect the assigned bot in VRChat. Withdraw a remaining request manually. An uncertain operation requires operator reconciliation before capacity can be released.`
+- `Inspect the assigned bot in VRChat. Withdraw a remaining request manually. Cleanup requires operator reconciliation before capacity can be released.`
 - `Refresh required. Review the current group and bot.`
 - `Could not copy bot ID.`
 - `Unable to save admission.`
@@ -194,3 +194,5 @@ Status: proposed. This packet does not record copy approval. Utility labels use 
 Utility/status labels: `Group statistics`, `Group`, `Visibility / join policy`, `Join policy`, `Metadata checked`, `Assigned bot`, `Authorized`, `Last inspection`, `Reason`, `Not yet`, `Unavailable`, `Unknown`, `Not admitted`, `Waiting for approval`, `Waiting for invitation`, `Collecting`, `Paused`, `Ended`, `Cleanup pending`, `Cancelled`, `Copy bot ID`, `Bot ID copied`, `Open bot profile`, `Request to join`, `Assign bot`, `Refresh metadata`, `Check status`, `Cancel admission`, `Confirm request`, `Confirm assignment`, `Back`.
 
 Blocked-state labels: `Public primary group required`, `Public request or invite group required`, `Refresh metadata required`, `Conflicting connection`, `Statistics stopped`, `Cleanup required`, `Collector unavailable`, `No capacity`, `Managed groups waiting`, `No bot capacity`, `Admission unavailable`. Backend validation errors remain visible beside the affected controls. Their existing exact strings are defined in `convex/groupObservations.ts`.
+
+Cancellation of an adopted admission hides output immediately, including a prior managed publication choice. A later authorized managed publication save can restore managed output; the canonical group stop and history boundary still apply. The retained admission grant is unchanged. Fresh successful pending inspections reset inspection failures; active aggregate failures remain consecutive. Confirmed outstanding requests require the same manual withdrawal and operator reconciliation guidance as uncertain cleanup.

@@ -404,19 +404,28 @@ for(const status of ["requested","member","absent"] as const) it(`cancel preserv
  const row=(await h.t.run(ctx=>ctx.db.get(h.integrationId)))!;assert.equal(row.statisticsAdmission?.phase,"cancelled");assert.equal(row.assignedCollectorAccountId,undefined);
  assert.equal((await h.t.run(ctx=>ctx.db.get(h.accountId)))?.assignedGroupCount,0);
 });
-it("lost request and late approval retain capacity until acknowledged leave, never retry",async()=>{
- const h=await workerFixture();await h.inspect("absent");await h.reserve("request_join");
- await cancelAndReclaim(h);await h.inspect("absent");
- assert.equal((await h.t.run(ctx=>ctx.db.get(h.accountId)))?.assignedGroupCount,1);
- assert.equal((await h.reserve("request_join")).granted,false);assert.equal((await h.reserve("withdraw_request")).granted,false);
- await h.inspect("requested");assert.equal((await h.reserve("withdraw_request")).granted,false);
- await h.inspect("member");assert.equal((await h.reserve("leave")).granted,true);
- assert.equal((await h.reserve("leave")).granted,false);
- await h.inspect("absent"); assert.equal((await h.t.run(ctx=>ctx.db.get(h.integrationId)))?.statisticsAdmission?.phase,"cleanup_pending");
- assert.equal((await h.t.run(ctx=>ctx.db.get(h.accountId)))?.assignedGroupCount,1);
- assert.equal((await h.t.mutation(telemetry("recordStatisticsAdmissionCleanup"),{...h.lease,admissionAt:h.admissionAt})).accepted,true);
- assert.equal((await h.t.run(ctx=>ctx.db.get(h.accountId)))?.assignedGroupCount,0);
- await assert.rejects(h.t.mutation(telemetry("recordStatisticsAdmissionCleanup"),{...h.lease,admissionAt:h.admissionAt}),/stale/);
+it("lost request and late approval retain capacity until acknowledged leave, never retry", async () => {
+  const h = await workerFixture();
+  await h.inspect("absent");
+  await h.reserve("request_join");
+  await cancelAndReclaim(h);
+  await h.inspect("absent");
+  assert.equal((await h.t.run(ctx => ctx.db.get(h.accountId)))?.assignedGroupCount, 1);
+  assert.equal((await h.reserve("request_join")).granted, false);
+  assert.equal((await h.reserve("withdraw_request")).granted, false);
+
+  await h.inspect("requested");
+  assert.equal((await h.reserve("withdraw_request")).granted, false);
+  await h.inspect("member");
+  assert.equal((await h.reserve("leave")).granted, true);
+  assert.equal((await h.reserve("leave")).granted, false);
+
+  await h.inspect("absent");
+  assert.equal((await h.t.run(ctx => ctx.db.get(h.integrationId)))?.statisticsAdmission?.phase, "cleanup_pending");
+  assert.equal((await h.t.run(ctx => ctx.db.get(h.accountId)))?.assignedGroupCount, 1);
+  assert.equal((await h.t.mutation(telemetry("recordStatisticsAdmissionCleanup"), { ...h.lease, admissionAt: h.admissionAt })).accepted, true);
+  assert.equal((await h.t.run(ctx => ctx.db.get(h.accountId)))?.assignedGroupCount, 0);
+  await assert.rejects(h.t.mutation(telemetry("recordStatisticsAdmissionCleanup"), { ...h.lease, admissionAt: h.admissionAt }), /stale/);
 });
 it("managed adoption before cleanup write preserves membership and reservation",async()=>{
  const h=await workerFixture();await h.inspect("absent");await h.reserve("request_join");await cancelAndReclaim(h);
@@ -528,4 +537,76 @@ it("admin preview includes the resolved primary group name", async () => {
  const view = await h.admin.query(makeFunctionReference<"query">("groupObservations:getStatisticsAdmission"), {profileId:h.profileId});
  assert.equal(view.groupName, "Admission group");
  assert.equal(view.vrchatGroupId, GROUP);
+});
+
+for (const priorChoice of [false, true]) it(`cancelled adopted admission requires a subsequent managed publication choice (prior=${priorChoice})`, async () => {
+  const h = await workerFixture();
+  await h.inspect("member");
+  await h.t.run(ctx => ctx.db.insert("externalControlProofs", {
+    userId: h.userId, assetType: "vrchat_group", assetExternalId: GROUP,
+    controlLevel: "manager", state: "active", evidenceSource: "manual",
+    verifiedAt: h.now, createdAt: h.now, updatedAt: h.now,
+  }));
+  await h.admin.mutation(telemetry("connectGroup"), {
+    communitySlug: "admission", vrchatGroupId: GROUP, groupVisibility: "public", joinPolicy: "request",
+  });
+  const publish = () => h.admin.mutation(telemetry("setPublicMetric"), {
+    communitySlug: "admission", metric: "currentPopulation", enabled: true,
+  });
+  const { resolveGroupObservationPolicy } = await import("../../convex/_groupObservationPolicy");
+  const policy = () => h.t.run(ctx => resolveGroupObservationPolicy(ctx.db, {
+    vrchatGroupId: GROUP, profileId: h.profileId, now: Date.now(),
+  }));
+  const historyStartAt = h.now - 1000;
+  await h.t.run(async ctx => {
+    const registry = await ctx.db.query("vrchatGroupObservationPolicies").unique();
+    assert.ok(registry);
+    await ctx.db.patch(registry._id, { publicHistoryStartAt: historyStartAt });
+  });
+  if (priorChoice) await publish();
+  await h.admin.mutation(command("cancelStatisticsAdmission"), { integrationId: h.integrationId, admissionAt: h.admissionAt });
+  const cancelled = await h.t.run(ctx => ctx.db.get(h.integrationId));
+  assert.equal((await policy()).kind, "hidden");
+  await publish();
+  const published = await policy();
+  assert.equal(published.kind, "managed");
+  assert.ok(published.kind === "managed");
+  assert.equal(published.historyStartAt, historyStartAt);
+  assert.equal(published.integration.namedMembershipCollectionEnabled, false);
+  assert.deepEqual((await h.t.run(ctx => ctx.db.get(h.integrationId)))?.statisticsAdmission, cancelled?.statisticsAdmission);
+  await h.admin.mutation(command("setObservationDecision"), { vrchatGroupId: GROUP, decision: "stop" });
+  await assert.rejects(publish(), /disconnecting or disconnected/);
+  assert.equal((await policy()).kind, "hidden");
+});
+
+for (const membership of ["requested", "absent", "member"] as const) it(`successful ${membership} inspection recovers only non-collecting pending failures`, async () => {
+  const h = await workerFixture();
+  if (membership === "absent") await h.t.run(async ctx => {
+    const row = await ctx.db.get(h.integrationId);
+    assert.ok(row?.statisticsAdmission);
+    await ctx.db.patch(row._id, { joinPolicy: "invite", statisticsAdmission: { ...row.statisticsAdmission, joinPolicy: "invite" } });
+  });
+  if (membership === "member") await h.inspect("member");
+  for (let i = 0; i < 3; i++) {
+    await h.t.mutation(telemetry("recordPollFailure"), { ...h.lease, statusClass: "500", coverageState: "degraded", nextPollAt: Date.now() + 60000, collectorVersion: "test" });
+  }
+  await h.inspect(membership, membership === "absent" ? { joinPolicy: "invite" } : {});
+  const row = await h.t.run(ctx => ctx.db.get(h.integrationId));
+  assert.equal(row?.consecutiveFailures, membership === "member" ? 3 : 0);
+  const { statisticsAdmissionDiagnostics } = await import("../../convex/groupObservations");
+  const diagnostics = await h.t.run(ctx => statisticsAdmissionDiagnostics(ctx.db, Date.now()));
+  assert.equal(diagnostics.externalWaiting, membership === "member" ? 0 : 1);
+  assert.equal(diagnostics.processingBacklog, membership === "member" ? 1 : 0);
+  if (membership === "requested") {
+    assert.equal(row?.statisticsAdmission?.operation, undefined);
+    assert.ok(row?.statisticsAdmissionInspection);
+    for (const inspection of [
+      { ...row.statisticsAdmissionInspection, admissionAt: h.admissionAt - 1 },
+      { ...row.statisticsAdmissionInspection, observedAt: Date.now() - 24 * 60 * 60_000 },
+    ]) {
+      await h.t.run(ctx => ctx.db.patch(h.integrationId, { statisticsAdmissionInspection: inspection }));
+      const stale = await h.t.run(ctx => statisticsAdmissionDiagnostics(ctx.db, Date.now()));
+      assert.equal(stale.externalWaiting, 0);
+    }
+  }
 });
