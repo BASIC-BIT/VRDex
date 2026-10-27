@@ -10,8 +10,10 @@ proof must remain understandable when the profile's stored state is
 BASIC selected a focused connection-verification fix. This design retains the
 existing profile states, ownership checks, claim authorization, and search
 ranking. The broader [trust-signals proposal](../../planning/profile-trust-signals.md)
-remains unadopted. This document is a design for approval, not implementation
-or release authorization.
+remains unadopted. BASIC approved this design on October 27, 2026, including
+the candidate copy and publication rule. Implementation follows review of the
+[implementation plan](../plans/2026-10-27-connection-verification.md).
+Design approval is not release authorization.
 
 The recommendation reuses stored evidence. A claimant with a successful proof
 does not need to prove again just to make the connection display correctly.
@@ -25,8 +27,7 @@ manually saved outbound link becomes visible under the profile's existing
 want an account proof kept private use that setting; introducing separate
 per-connection publication controls is deferred.
 
-Approval covers the rules below and the candidate copy. The implementation
-plan follows design approval.
+Approval covers the rules below and the copy specified in this document.
 
 ## Decision status and approaches
 
@@ -42,9 +43,9 @@ public additions in this slice expose only VRChat users and groups. Discord
 guilds retain their existing management UI and gain consistent proof handling;
 this work does not add their identifiers to public profile responses.
 
-Builder choices proposed here include the public field name
+Approved design choices include the public field name
 `verifiedConnections`, date formatting, and reusing the existing Links area.
-They do not imply BASIC already approved their exact wording.
+The approval applies to the exact wording listed below.
 
 ## Experience
 
@@ -105,7 +106,7 @@ does not turn an unavailable provider read into failure or automatically
 restart a completed proof. The existing pages settle navigation and recovery,
 so reference-flow research is unnecessary for this slice.
 
-### Candidate copy for BASIC's approval
+### Approved copy
 
 Use the existing checkmark component beside the account, not the profile name.
 Proposed visible status: `Verified`, followed by a date such as `25 Oct 2026`.
@@ -117,7 +118,7 @@ Proposed successful group-proof sentence: `VRChat group verified.`
 Ownership completion stays a separate existing statement. Do not describe this
 as verification of a person's real-world identity. Display a calendar date in
 UTC consistently across server and client, avoiding a one-day hydration
-disagreement. These strings are candidates, not approved shipping copy.
+disagreement. BASIC approved these strings with the design on October 27, 2026.
 
 ## Verification rule
 
@@ -313,8 +314,8 @@ outdated: those pages already consult connection verification, and public
 VRChat outbound links already support verified marks. The remaining gaps are
 the common proof rule, dated/public representation, missing-link handling,
 and completion paths still coupled to profile trust state. This focused
-design supersedes only those connection-related implementation notes if
-approved. The larger migration remains a separate proposal.
+design supersedes only those connection-related implementation notes. The
+larger migration remains a separate proposal.
 
 An independent Superpowers builder check reported "nothing important left"
 before planning. This is a completeness check, not design approval. An unslop
