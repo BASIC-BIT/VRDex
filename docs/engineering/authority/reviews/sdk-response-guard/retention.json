@@ -1,0 +1,10 @@
+{
+  "archive": "reviewed-source.zip",
+  "bytes": 866942,
+  "sha256": "f603eb520c2ad502e972228d9ebf74b4e0aa4bb4c238745f529fd7d25c8a749d",
+  "members": 193,
+  "sourceBytes": 2518723,
+  "manifestSHA256": "7d3ec56623bc10aa2a2a0323411deac8c3b166772d2b36f54fb1bfeeff715802",
+  "qualification": "none; source/fake-fixture correction only",
+  "universalSDKSupport": false
+}
