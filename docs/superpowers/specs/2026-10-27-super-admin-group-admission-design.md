@@ -1,6 +1,6 @@
 # Super-admin admission for public group statistics
 
-Status: scope and approach confirmed by BASIC on October 27, 2026. Written design proposed for approval. No implementation or live admission authorized by this document.
+Status: written design approved by BASIC on October 27, 2026. [Implementation plan](../plans/2026-10-27-super-admin-group-admission.md) prepared for review. No implementation or live admission authorized by this document.
 
 ## Review brief
 
@@ -10,14 +10,14 @@ The selected separate statistics-admission action lives in the community profile
 
 Request-to-join sends one explicitly authorized request. Invite-only assigns a bot and shows its profile so a group administrator can invite it. Collection starts only after provider-confirmed membership. Public output uses the same conservative aggregates, including counts from members-only instances visible to the bot. It excludes individual identities, instance rows, worlds and private links. Aggregate activity can still reveal that a small gathering exists, the tradeoff already accepted for automatic statistics.
 
-### Decisions for approval
+### Approved decisions
 
 - Publish conservative aggregates after confirmed membership and fresh public visibility, despite the restricted join policy.
 - Hold one assigned bot while pending. No automatic repeat request after rejection, removal, ban or an uncertain result.
 - Keep pending admission until cancellation or an observed terminal outcome. Show age and last successful check. Reserve capacity while pending; no silent expiry.
 - Cancellation hides output and fences work immediately; cleanup reports its actual provider outcome, including uncertain request withdrawal.
 
-These lifecycle details are proposals. The public-only scope, two admission branches and separate statistics approach are confirmed by BASIC.
+These lifecycle details, the public-only scope, two admission branches and separate statistics approach are approved by BASIC.
 
 ## Approaches
 
