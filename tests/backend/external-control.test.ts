@@ -633,6 +633,11 @@ describe("Discord guild proof reconciliation", () => {
           evidenceSource: "discord_oauth",
           now,
         });
+        if (guildId === "222") {
+          const proof = await getActiveControlProof(ctx.db, seeded.userId, "discord_guild", guildId);
+          assert.ok(proof);
+          await ctx.db.patch(proof._id, { state: "stale" });
+        }
       }
       // An unrelated asset type must survive reconciliation untouched.
       await recordExternalControlProof(ctx.db, {
@@ -656,6 +661,10 @@ describe("Discord guild proof reconciliation", () => {
         await getActiveControlProof(ctx.db, seeded.userId, "discord_guild", "222"),
         null,
       );
+      const removed = await ctx.db.query("externalControlProofs")
+        .withIndex("by_userId_assetType_assetExternalId", q => q.eq("userId", seeded.userId).eq("assetType", "discord_guild").eq("assetExternalId", "222"))
+        .first();
+      assert.equal(removed?.state, "revoked");
       assert.notEqual(
         await getActiveControlProof(ctx.db, seeded.userId, "vrchat_user", "usr_keep"),
         null,
@@ -691,6 +700,15 @@ describe("Discord guild proof reconciliation", () => {
       ]);
     }
 
+    await t.run(async (ctx) => {
+      const rows = await ctx.db.query("externalControlProofs")
+        .withIndex("by_userId_assetType_assetExternalId", q => q.eq("userId", seeded.userId).eq("assetType", "discord_guild").eq("assetExternalId", "999"))
+        .collect();
+      for (const proof of rows) {
+        if (proof.evidenceSubjectId === "discord-subject-b") await ctx.db.patch(proof._id, { state: "stale" });
+      }
+    });
+
     // B loses access. A still runs the server, so the guild must stay proved.
     await recordGuilds(asUser, "discord-subject-b", []);
 
@@ -702,6 +720,7 @@ describe("Discord guild proof reconciliation", () => {
         )
         .collect();
       assert.equal(rows.length, 2);
+      assert.equal(rows.find(row => row.evidenceSubjectId === "discord-subject-b")?.state, "revoked");
       assert.deepEqual(
         rows.filter((row) => row.state === "active").map((row) => row.evidenceSubjectId),
         ["discord-subject-a"],
@@ -880,24 +899,91 @@ describe("Discord guild proof reconciliation", () => {
       );
     });
 
+    // Stale evidence still supports display, so a complete read must revoke it.
+    await t.run(async (ctx) => {
+      const proofs = await ctx.db.query("externalControlProofs")
+        .withIndex("by_userId_assetType_assetExternalId", q => q.eq("userId", seeded.userId).eq("assetType", "discord_guild"))
+        .collect();
+      for (const proof of proofs) await ctx.db.patch(proof._id, { state: "stale" });
+    });
+
     // The same identity re-verifying without guild 111 is still authoritative
     // about its own guilds, so that one does get revoked.
-    await recordGuilds(t.withIdentity(seeded.identity), "discord-subject-a", []);
+    const reconciled = await recordGuilds(t.withIdentity(seeded.identity), "discord-subject-a", []);
+    assert.equal(reconciled.revoked, 1);
 
     await t.run(async (ctx) => {
       assert.equal(
         await getActiveControlProof(ctx.db, seeded.userId, "discord_guild", "111"),
         null,
       );
-      assert.notEqual(
-        await getActiveControlProof(ctx.db, seeded.userId, "discord_guild", "222"),
-        null,
-      );
+      const proofs = await ctx.db.query("externalControlProofs")
+        .withIndex("by_userId_assetType_assetExternalId", q => q.eq("userId", seeded.userId).eq("assetType", "discord_guild"))
+        .collect();
+      assert.equal(proofs.find(proof => proof.assetExternalId === "111")?.state, "revoked");
+      assert.equal(proofs.find(proof => proof.assetExternalId === "222")?.state, "stale");
     });
   });
 });
 
 describe("Discord verification state backlog", () => {
+  it("preserves evidence when provider guild reads fail or remain incomplete", async (test) => {
+    const previous = { ...process.env };
+    process.env.AUTH_DISCORD_ID = "discord-client-test";
+    process.env.AUTH_DISCORD_SECRET = "test-only-secret";
+    process.env.SITE_URL = "https://vrdex.example.test";
+    process.env.DISCORD_API_BASE_URL = "https://discord.example.test/api/v10";
+    try {
+      for (const failure of ["http error", "malformed", "incomplete", "unreadable permissions"]) {
+        const t = convexTest({ schema, modules });
+        const now = Date.now();
+        const seeded = await t.run(async (ctx) => {
+          const userId = await ctx.db.insert("users", { clerkUserId: newClerkUserId(), email: "provider-failure@example.test", emailVerificationTime: now });
+          const proofId = await recordExternalControlProof(ctx.db, {
+            userId, assetType: "discord_guild", assetExternalId: "12345678901234567", controlLevel: "owner",
+            evidenceSource: "discord_oauth", evidenceSubjectId: "22345678901234567", now,
+          });
+          await ctx.db.patch(proofId, { state: "stale" });
+          return { proofId, identity: await webSessionIdentity(ctx as never, userId) };
+        });
+        let guildReads = 0;
+        const fetchMock = test.mock.method(globalThis, "fetch", async (input: string | URL | Request) => {
+          const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+          if (url.endsWith("/oauth2/token")) return Response.json({ access_token: "test-only-token" });
+          if (url.endsWith("/oauth2/token/revoke")) return Response.json({});
+          if (url.endsWith("/users/@me")) return Response.json({ id: "22345678901234567" });
+          assert.ok(url.includes("/users/@me/guilds?"), url);
+          guildReads += 1;
+          if (failure === "http error") return Response.json({}, { status: 503 });
+          if (failure === "malformed") return Response.json({ error: "missing list" });
+          if (failure === "unreadable permissions") return Response.json([{ id: "32345678901234567" }]);
+          if (guildReads === 1) return Response.json(Array.from({ length: 200 }, (_, index) => ({ id: String(32345678901234567n + BigInt(index)), owner: true })));
+          return Response.json({}, { status: 503 });
+        });
+        try {
+          const asUser = t.withIdentity(seeded.identity);
+          const { state } = await asUser.mutation(internal.discordVerification.createVerificationState, { returnTo: "/claim/provider-failure" });
+          const result = await asUser.action(api.discordVerification.completeGuildVerification, { code: "test-only-code", state });
+          assert.equal(result.status, "failed", failure);
+          await t.run(async (ctx) => {
+            assert.equal((await ctx.db.get(seeded.proofId))?.state, "stale", failure);
+            assert.equal((await ctx.db.query("externalControlProofs").collect()).length, 1, failure);
+            const watermark = await ctx.db.query("discordVerificationWatermarks").first();
+            assert.equal(watermark?.appliedGeneration, 0, failure);
+          });
+          assert.equal(guildReads, failure === "incomplete" ? 2 : 1);
+        } finally {
+          fetchMock.mock.restore();
+        }
+      }
+    } finally {
+      for (const key of ["AUTH_DISCORD_ID", "AUTH_DISCORD_SECRET", "SITE_URL", "DISCORD_API_BASE_URL"]) {
+        if (previous[key] === undefined) delete process.env[key];
+        else process.env[key] = previous[key];
+      }
+    }
+  });
+
   it("does not record a verification start when OAuth configuration is invalid", async () => {
     const previousClientId = process.env.AUTH_DISCORD_ID;
     const previousSiteUrl = process.env.SITE_URL;
@@ -2163,9 +2249,8 @@ describe("claiming a community with a verified guild", () => {
     assert.equal(afterAll?.connections[0]?.verified, false);
   });
 
-  // The link deliberately outlives its proof, so losing control of a server does
-  // not silently detach it. The "Verified" label must not outlive it too.
-  it("stops reporting a connection as verified once its proof lapses", async () => {
+  // Historical display survives expiry; privileged actions still need fresh proof.
+  it("keeps historical verification after expiry but removes it on revocation", async () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
     const seeded = await t.run(async (ctx) => {
@@ -2207,8 +2292,9 @@ describe("claiming a community with a verified guild", () => {
     for (const lapse of [
       // Revoked by OAuth reconciliation...
       { state: "revoked" as const },
-      // ...and overdue but not yet swept.
+      // Overdue evidence still records when control was proved.
       { state: "active" as const, revalidateAfter: now - 1 },
+      { state: "stale" as const, revalidateAfter: now - 1 },
     ]) {
       await t.run(async (ctx) => {
         const proofs = await ctx.db
@@ -2226,9 +2312,12 @@ describe("claiming a community with a verified guild", () => {
       const connections = await asUser.query(api.profileConnections.listProfileConnections, {
         profileSlug: "lapsing-connection",
       });
-      // The link survives; only the label changes.
       assert.equal(connections?.connections.length, 1);
-      assert.equal(connections?.connections[0]?.verified, false);
+      assert.equal(connections?.connections[0]?.verified, lapse.state !== "revoked");
+      assert.equal(connections?.connections[0]?.verifiedAt, lapse.state === "revoked" ? undefined : now);
+      await t.run(async (ctx) => {
+        await assert.rejects(requireControlProof(ctx.db, seeded.userId, "discord_guild", "888", "manager"), /CONTROL_NOT_VERIFIED/);
+      });
     }
 
     // Re-verifying must refresh the row the link already points at. Inserting a

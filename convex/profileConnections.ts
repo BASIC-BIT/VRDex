@@ -17,7 +17,6 @@ import {
   type ExternalControlLevel,
   MINIMUM_COMMUNITY_CONTROL_LEVEL,
   externalControlLevelRank,
-  getActiveControlProof,
   getActiveProfileLinks,
   linkProfileToAsset,
   removeProfileLink,
@@ -25,6 +24,8 @@ import {
 } from "./_externalControl";
 import { approveProfileClaimForUser, getActiveProfileOwner, userOwnsProfile } from "./_profileOwnership";
 import { canReadProfile } from "./_profilePermissions";
+import { isProfileFieldVisible } from "./_profileFieldVisibility";
+import { getProfileConnectionVerifications } from "./_profileConnectionVerification";
 import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 import { normalizeVrchatTargetId } from "./_vrchatIdentity";
 import { createProfileSearchDocument, upsertSearchDocument } from "./_searchDocuments";
@@ -110,56 +111,16 @@ export const listProfileConnections = query({
       return null;
     }
 
-    const links = await getActiveProfileLinks(ctx.db, profile._id);
-    // A link deliberately outlives its proof: losing control of a server should
-    // not silently detach it from the profile. The "Verified" label must not
-    // outlive it too, so read through to the proof rather than treating the
-    // presence of a reference as proof of anything.
-    const now = Date.now();
-    const proofs = await Promise.all(
-      links.map((link) =>
-        link.verifiedByProofId === undefined ? null : ctx.db.get(link.verifiedByProofId),
-      ),
-    );
-    // Proofs are per verifying identity, so the row a link points at is not the
-    // only one that can vouch for it. When a user holds proofs through two
-    // Discord logins and reconciliation revokes the one the link happens to
-    // reference, the other stays deliberately active — reporting the connection
-    // unverified on the strength of the referenced row alone told the owner they
-    // had lost something they still hold, with no way to rebind it because the
-    // asset is already attached.
-    const liveProofs = await Promise.all(
-      links.map(async (link, index) => {
-        const referenced = proofs[index];
-
-        if (referenced === null || referenced === undefined) {
-          return null;
-        }
-
-        const alternative = await getActiveControlProof(
-          ctx.db,
-          referenced.userId,
-          link.assetType,
-          link.assetExternalId,
-          now,
-        );
-
-        // `getActiveControlProof` returns the strongest *active* row, which can
-        // still be past its revalidation window — the sweeper marks those stale
-        // in batches. Apply the same expiry rule the referenced proof gets, or
-        // this would report an overdue proof as live.
-        return alternative !== null &&
-          (alternative.revalidateAfter === undefined || alternative.revalidateAfter > now)
-          ? alternative
-          : null;
-      }),
-    );
+    const links = isManager || isProfileFieldVisible(profile, "outboundLinks", "profile_page")
+      ? await getActiveProfileLinks(ctx.db, profile._id)
+      : [];
+    const verifications = await getProfileConnectionVerifications(ctx.db, profile._id, links);
 
     return {
       isManager,
       connections: links
-        .map((link, index) => {
-          const proof = proofs[index];
+        .map((link) => {
+          const verifiedAt = verifications.get(link._id);
 
           return {
             id: link._id,
@@ -167,11 +128,8 @@ export const listProfileConnections = query({
             assetExternalId: link.assetExternalId,
             assetDisplayName: link.assetDisplayName,
             linkRole: link.linkRole,
-            verified:
-              (proof != null &&
-                proof.state === "active" &&
-                (proof.revalidateAfter === undefined || proof.revalidateAfter > now)) ||
-              liveProofs[index] != null,
+            verified: verifiedAt !== undefined,
+            ...(verifiedAt !== undefined ? { verifiedAt } : {}),
             ...(isManager ? { createdAt: link.createdAt } : {}),
           };
         })
