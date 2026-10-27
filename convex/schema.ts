@@ -1247,6 +1247,7 @@ export default defineSchema({
     .index("by_contributorUserId", ["contributorUserId"])
     .index("by_communityProfileId_eventDate", ["communityProfileId", "eventDate"])
     .index("by_publicationState_sortAt", ["publicationState", "sortAt"])
+    .index("by_publicationState_eventStatus_eventDate", ["publicationState", "eventStatus", "eventDate"])
     .index("by_publicationState_eventStatus_sortAt", ["publicationState", "eventStatus", "sortAt"])
     .index("by_communityProfileId_sortAt", ["communityProfileId", "sortAt"])
     .index("by_communityProfileId_publicationState_eventStatus_sortAt", ["communityProfileId", "publicationState", "eventStatus", "sortAt"])

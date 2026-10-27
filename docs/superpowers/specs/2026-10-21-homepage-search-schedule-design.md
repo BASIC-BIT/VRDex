@@ -3,12 +3,17 @@
 ## Supersession note
 
 The approved [October 26 Home/search first slice](2026-10-26-homepage-search-first-slice-design.md)
-governs the current delivery. Home now contains compact public search and
-brand/account navigation, with `/discovery` reachable. Standard search has
-readable genres and individual link disclosures. Nonempty old root-query
-bookmarks retain legacy DJ lookup behavior. The whole-home mockups below are
-broader reference for later timeline, discovery and favorites slices, not
-shipped Home behavior.
+delivered compact public search and brand/account navigation in PR #387.
+Standard search has readable genres and individual link disclosures; nonempty
+old root-query bookmarks retain legacy DJ lookup behavior.
+
+The approved [October 26 timeline design](2026-10-26-home-timeline-design.md)
+supersedes this draft's date tabs, row assignment and selection behavior.
+Its implementation adds continuous Schedule, Agenda, nonmodal event details,
+browser-local My night and private favorites below Home search. Publication and
+CI remain tracked in the [execution plan](../plans/2026-10-26-home-timeline.md).
+The broader discovery composition below remains historical reference, not an
+additional delivered Home section.
 
 ## Review brief
 

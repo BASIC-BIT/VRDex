@@ -495,7 +495,22 @@ export function toPublicEvent(record: PublicEventRecord): PublicEvent | null {
   };
 }
 
-async function getPublishedCommunity(db: DatabaseReader, event: Doc<"events">) {
+export function isPublicEventPerformer(profile: Doc<"profiles"> | null): profile is Doc<"profiles"> {
+  return profile !== null && profile.profileType === "person" && canReadProfile("public", profile);
+}
+
+function publicEventCommunityImage(community: Doc<"profiles">, media: Awaited<ReturnType<typeof getPublicProfileMediaKit>>) {
+  const image = media.compactDisplay === "logo"
+    ? media.primaryLogo?.imageUrl ?? media.profileImage?.imageUrl
+    : media.profileImage?.imageUrl ?? media.primaryLogo?.imageUrl;
+  return image ?? publicProfileCardImage(community, media.automaticAvatarImageUrl);
+}
+
+export async function getPublicEventCommunityImage(db: DatabaseReader, community: Doc<"profiles">) {
+  return publicEventCommunityImage(community, await getPublicProfileMediaKit(db, community, { surface: "discovery" }));
+}
+
+export async function getPublishedCommunity(db: DatabaseReader, event: Doc<"events">) {
   if (event.communityProfileId === undefined) {
     return undefined;
   }
@@ -571,11 +586,7 @@ async function getPublicEventParticipantRecords(
     associations.map(async (association) => {
       const profile = await loadRosterProfile(db, association.personProfileId, options);
 
-      if (
-        profile === null ||
-        profile.profileType !== "person" ||
-        !canReadProfile("public", profile)
-      ) {
+      if (!isPublicEventPerformer(profile)) {
         return null;
       }
 
@@ -621,11 +632,7 @@ async function getPublicEventSlotRecords(
 
       const profile = await loadRosterProfile(db, slot.personProfileId, options);
 
-      if (
-        profile === null ||
-        profile.profileType !== "person" ||
-        !canReadProfile("public", profile)
-      ) {
+      if (!isPublicEventPerformer(profile)) {
         return { slot };
       }
 
@@ -657,7 +664,7 @@ async function getPublicEventLineupRecords(db: DatabaseReader, event: Doc<"event
   return Promise.all(entries.map(async entry => {
     if (entry.personProfileId === undefined) return { entry };
     const profile = await loadRosterProfile(db, entry.personProfileId, options);
-    if (profile === null || profile.profileType !== "person" || !canReadProfile("public", profile)) return { entry };
+    if (!isPublicEventPerformer(profile)) return { entry };
     if (options.includeMediaKit === false) return { entry, profile, imageUrl: publicProfileCardImage(profile) };
     const mediaKit = await loadRosterMediaKit(db, profile, options);
     return { entry, profile,
@@ -764,11 +771,8 @@ async function getPublicEventRecord(
   const communityMediaKit = community === undefined
     ? undefined
     : await getPublicProfileMediaKit(db, community, { surface: "discovery" });
-  const communityProfileImageUrl = communityMediaKit?.profileImage?.imageUrl;
-  const communityLogoImageUrl = communityMediaKit?.primaryLogo?.imageUrl;
-  const communityImageUrl = communityMediaKit?.compactDisplay === "logo"
-    ? communityLogoImageUrl ?? communityProfileImageUrl
-    : communityProfileImageUrl ?? communityLogoImageUrl;
+  const communityImageUrl = community === undefined || communityMediaKit === undefined
+    ? undefined : publicEventCommunityImage(community, communityMediaKit);
 
   return {
     event,
@@ -778,11 +782,7 @@ async function getPublicEventRecord(
     lineupEntries,
     ...media,
     ...optionalField("community", community),
-    ...optionalField(
-      "communityImageUrl",
-      communityImageUrl ?? (community === undefined ? undefined
-        : publicProfileCardImage(community, communityMediaKit?.automaticAvatarImageUrl)),
-    ),
+    ...optionalField("communityImageUrl", communityImageUrl),
     ...optionalField("communityAvatarAppearance", communityMediaKit?.avatarAppearance),
   };
 }

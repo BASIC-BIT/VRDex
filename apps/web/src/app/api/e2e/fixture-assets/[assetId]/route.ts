@@ -22,6 +22,10 @@ type FixtureAsset = {
 };
 
 const fixtureAssets: Record<string, FixtureAsset> = {
+  "fixture-orbit-timeline-poster": {
+    title: "ORBIT", subtitle: "Aurora / Neon Harbor", initials: "O",
+    width: 900, height: 1200, from: "#16111f", to: "#453023", accent: "#e6b879",
+  },
   "fixture-aurora-profile-image-raster": {
     title: "DJ Aurora",
     subtitle: "Raster profile image",
@@ -169,6 +173,12 @@ export async function GET(_request: Request, { params }: FixtureAssetRouteProps)
   }
 
   const assetId = (await params).assetId;
+  if (assetId === "fixture-prism-timeline-logo") {
+    // Original local fixture artwork: 120 x 60, transparent around both prisms.
+    return new NextResponse('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="60" viewBox="0 0 120 60"><path d="M8 52L34 8l26 44H8z" fill="#7297ba" fill-opacity=".22" stroke="#9cc5e4" stroke-width="5"/><path d="M53 52L79 8l26 44H53z" fill="none" stroke="#c6b2e7" stroke-width="5"/><path d="M82 36h30" stroke="#9cc5e4" stroke-width="5"/></svg>', {
+      headers: { "Cache-Control": "no-store", "Content-Type": "image/svg+xml; charset=utf-8" },
+    });
+  }
   const asset = fixtureAssets[assetId];
   if (!asset) {
     return fixtureError("Unknown fixture asset.", 404);

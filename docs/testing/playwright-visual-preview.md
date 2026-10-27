@@ -395,3 +395,52 @@ screenshots, video, and reports, and prints only one of:
 output as an artifact.
 
 Current hosted mutation target: `https://staging.vrdex.net`, backed by the shared Convex development deployment. The deployed health workflow run `26695304658` passed `staging-mutation` after the Vercel staging custom domain was configured.
+
+## Home timeline evidence
+
+`home-timeline.flow.spec.ts` runs the real Home composition with unique run-owned
+local public events and profiles. `home-timeline.visual.spec.ts` compares desktop
+and mobile snapshots for ordinary browsing (long title, missing logo and original
+transparent 120×60 community artwork), selected poster, overlapping purple My
+night, empty range, failed range and the 81-slot detail fixture. The clock is fixed
+at October 26, 2026 21:30 UTC; configured browser timezone is UTC. Every case owns
+and exactly cleans its records through the gated helper. The default, prefetch
+and detail scenarios share that ownership boundary.
+
+Timeline fixtures hold a local cross-process lease for their backend from creation
+through exact owned cleanup. Unique IDs protect writes, but fixed-date public
+queries see every concurrent run, so the timeline fixture lifetime is exclusive
+across files, workers and desktop/mobile projects. Other tests remain parallel.
+An interrupted worker leaves a lease in the OS temporary directory; acquisition
+times out with its path rather than deleting another run's records. Clean the
+interrupted run through the gated helper before removing that lease.
+Failed cleanup preserves a marker with the owning run ID and fails waiting
+fixtures immediately. Zero-count cleanup after an attempted create also blocks:
+a disconnected POST can still commit after DELETE reads zero. Test failures
+followed by exact owned cleanup release normally. Only fixture setup/teardown has
+a 150-second budget to include the bounded 120-second lease wait; test bodies
+keep their existing timeout.
+
+`home-timeline-time-regressions.flow.spec.ts` covers fractional CSS zoom panning,
+date navigation and Back restoration, plus event and selected-set details with a
+New York URL timezone in a UTC browser. Its rollback case uses the same guarded
+fixture creator with a November 1, 2026 start instant; it checks both occurrences
+of 1:30 AM and a set crossing the offset change. Timeline detail set times include
+UTC offsets; the shared time components retain their existing defaults elsewhere.
+
+The logo's run-specific HTTPS `.invalid` URL passes through the real canonical
+public host projection. Only that exact image request is served original artwork
+bytes from the gated local fixture-assets route. Public query responses remain
+real. Failure cases replace selected transport results with errors; they never
+invent successful event data. No hosted writes or production admission changes
+are involved. All timeline cases carry `@fixture`, excluded by hosted selection.
+
+Existing Home snapshots keep their shared January 1, 2025 clock and wait for a
+settled schedule before capture. Timeline images use the existing screenshot
+threshold (0.2) and maximum pixel-difference ratio (0.002). Review actual desktop
+and mobile images before updating committed baselines. Keep unrelated route
+baselines unchanged.
+
+```bash
+pnpm --filter web exec playwright test home-timeline.flow.spec.ts home-timeline-time-regressions.flow.spec.ts home-timeline.visual.spec.ts homepage-search.flow.spec.ts --workers=2
+```

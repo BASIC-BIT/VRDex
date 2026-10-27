@@ -182,6 +182,9 @@ export async function prepareVisualPage(page: Page, options?: { freezeClock?: bo
 
 export async function waitForVisualReady(page: Page) {
   await page.waitForLoadState("domcontentloaded");
+  if (new URL(page.url()).pathname === "/" && await page.locator("[data-home-schedule]").count()) {
+    await expect(page.getByLabel("Schedule data state")).toHaveAttribute("data-state", /^(ready|error)$/, { timeout: 20000 });
+  }
   await page.evaluate(async () => {
     if (document.fonts?.ready) {
       await document.fonts.ready;

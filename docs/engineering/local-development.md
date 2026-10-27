@@ -42,7 +42,10 @@ to `/search?q=BASICBIT&view=dj`. Whitespace-only root queries stay on public
 Home. `/lookup/suggest`, legacy bulk lookup and permission-scoped private seed
 access remain unchanged. Public Home/search do not read lookup recents or
 request private suggestions. `/discover?q=aurora` redirects to standard search.
-Timeline, favorites and the later discovery composition are not part of Home.
+Home also includes the continuous Schedule, Agenda, nonmodal event details,
+browser-local My night and private DJ/club favorites. No sign-in is required.
+Without JavaScript, the interactive schedule is hidden and GET search and
+Discovery remain usable. The later discovery composition is separate work.
 
 Scripts refuse to run on the `main` branch. Work on a branch or a worktree;
 the guard prints the command to create one.
@@ -145,3 +148,44 @@ and exit status independently. `pnpm check:backend:generated` starts a backend;
 run canonical generation first and account for its reviewed generated diff.
 The [migration rehearsal](./event-broadcast-rehearsal.md#october-24-2026-task-9-source-prerequisites)
 requires its own isolated state and temporary local bindings.
+
+## Home timeline component fixtures
+
+Home mounts the continuous schedule below compact public search using ordinary
+public Convex queries. The gated `/playwright/home-timeline` route reuses that
+exact Home composition when `VRDEX_ENABLE_PLAYWRIGHT_FIXTURES=true` in a
+nonproduction web process. The browser suite exercises actual `/`.
+
+Run its local desktop/mobile flows with:
+
+```bash
+pnpm --filter web exec playwright test home-timeline.flow.spec.ts --workers=1
+```
+
+`e2e/home-timeline-fixture.ts` creates a unique run through
+`/api/e2e/home-timeline` and removes that exact run in fixture teardown. The
+route requires loopback web and backend targets, the existing E2E browser token,
+helper enablement and Convex secret; production web builds always refuse it.
+The backend independently requires a deployment-owned loopback
+`CONVEX_CLOUD_URL`, enablement and the secret. Convex's bundle `NODE_ENV` is not a
+deployment discriminator, including for local development. No hosted fixture
+path or production override exists. State-change operations cancel or hide one of the run's eight fixture events,
+or recreate its first slot with a new stable ID, after verifying ownership. The optional
+`detail` scenario authors 81 timed slots on one event, two untimed entries and
+one hidden person for continuation/privacy checks. It cleans exactly eight
+events, three profiles, 87 slots and two lineup entries. Default and prefetch
+runs still clean eight events, two profiles and eight slots. Reuse this helper
+for Home checks; do not seed public-query responses or
+add unrelated records manually.
+
+The schedule's nonmodal detail panel reads canonical event poster/prose through
+`events.getPublicBySlug`. `eventTimeline.listPublicRoster` accepts optional
+`detail: true` for the complete mixed lineup and eligible favorite IDs, with
+80 candidates per page and mode-bound cursors. The panel automatically reads
+at most ten pages, then exposes More. Normal chart payloads and range filtering
+are unchanged. Detail pages allow public cancelled events and recheck public
+host/performer eligibility on every page. Authored rows remain intact; eligible
+participant-only fallbacks deduplicate against represented people. Selected sets
+can additionally resolve through the existing bounded saved-reference query.
+Detail/roster requests ignore superseded selections; focus and 60-second roster
+refreshes revalidate independently of the three-window chart cache.

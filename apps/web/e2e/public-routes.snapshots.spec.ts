@@ -12,6 +12,9 @@ for (const route of capturedRoutes) {
     await page.goto(route.path);
     await route.expectPage(page);
     await waitForVisualReady(page);
+    if (route.name === "home") {
+      expect(await page.getByLabel("Schedule date", { exact: true }).evaluate(element => getComputedStyle(element).colorScheme)).toBe("light");
+    }
     if (route.name === "person-profile") {
       await page.locator('article[id^="media-"] img').evaluateAll(async images => {
         await Promise.all(images.map(async image => {

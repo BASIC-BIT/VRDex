@@ -4,8 +4,12 @@
 
 Broader direction from the July 9, 2026 product-design pass. The approved
 [October 26 Home/search first slice](../superpowers/specs/2026-10-26-homepage-search-first-slice-design.md)
-supersedes the former root-lookup decision. The timeline, favorites and later
-discovery composition remain reference direction, not shipped Home behavior.
+supersedes the former root-lookup decision. The approved
+[Home timeline slice](../superpowers/specs/2026-10-26-home-timeline-design.md)
+adds the continuous Schedule, Agenda, event details, browser-local My night and
+private DJ/club favorites. This slice is implemented locally; publication and CI
+are tracked in its [execution plan](../superpowers/plans/2026-10-26-home-timeline.md).
+The later discovery composition remains reference direction.
 
 This document captures homepage, discovery, event-calendar, privacy,
 personalization, and design-system implications that should not live only in
@@ -98,7 +102,8 @@ Locked decision:
   approved `DJs, clubs & events` heading. It submits to standard `/search` and
   shows at most five public preview options in an overlay.
 - The richer event-oriented surface remains at `/discovery`, reachable through
-  Home navigation. Home has no timeline, My night or favorites placeholders.
+  Home navigation. Home adds a continuous Schedule below search, with Agenda,
+  nonmodal details, browser-local My night and private favorites.
 - Nonempty old `/?q=...` bookmarks keep the legacy DJ lookup destination.
   Empty or whitespace-only root queries render public Home without lookup data.
 
@@ -107,14 +112,14 @@ Current recommendation:
 - The long-term discovery surface should include a timeline-style view of
   events happening today.
 - The homepage should lead with utility, not explanatory product copy.
-- Keep public search as the current root while later schedule and discovery
-  slices gain real data contracts.
-- A "today / tonight / soon" event schedule should be the strongest first data
-  module when public event data exists.
+- Keep compact public search above the continuous schedule. Later discovery
+  composition remains separate work.
+- The approved Schedule uses one continuous axis, with Now and date navigation;
+  it does not split events into today/tonight/soon tabs.
 - The value is the time-oriented view of what is happening when, not simply a
   list of event cards.
-- The first shippable pass can be list-like if needed, but the target should be
-  a proper schedule surface with set times where available.
+- Timeline and accessible Agenda share current public records and authored set
+  times. Missing endpoints never become invented intervals.
 - The schedule can link to a full-screen or full-page focused view.
 - Community, world, and people modules should feel connected to real activity,
   not randomly advertised.
