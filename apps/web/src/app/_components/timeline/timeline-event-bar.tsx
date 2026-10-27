@@ -4,6 +4,7 @@ import type {
   PlanReference,
   TimelineEvent,
 } from "../../../../../../convex/_eventTimelineTypes";
+import { planSaveState } from "@/lib/timeline/plan-actions";
 import { scheduleGeometry } from "@/lib/timeline/geometry";
 import type { TimelineSelection } from "./home-schedule";
 import styles from "./timeline.module.css";
@@ -19,12 +20,7 @@ export function isSaved(
   plan: ReadonlyArray<PlanReference>,
   reference: PlanReference,
 ) {
-  return plan.some(
-    (p) =>
-      p.eventId === reference.eventId &&
-      (p.kind === "event" ||
-        (reference.kind === "set" && p.slotId === reference.slotId)),
-  );
+  return planSaveState(plan, reference) !== "unsaved";
 }
 export function TimelineEventBar({
   event,
@@ -111,7 +107,9 @@ export function TimelineEventBar({
             eventId: event.id,
             slotId: slot.id,
           };
-          const included = isSaved(actions.plan, ref);
+          const setState = planSaveState(actions.plan, ref);
+          const included = setState === "included";
+          const setSaved = setState !== "unsaved";
           return (
             <div
               className={styles.set}
@@ -140,11 +138,24 @@ export function TimelineEventBar({
                 <span>{slot.displayLabel}</span>
               </button>
               <button
-                className={styles.add}
-                aria-label={`${included ? "Remove" : "Add"} ${slot.displayLabel} ${included ? "from" : "to"} My night`}
-                onClick={() => actions.onSave(ref)}
+                className={included ? styles.included : styles.add}
+                disabled={included}
+                aria-label={
+                  included
+                    ? `${slot.displayLabel}: Included in ${event.title}`
+                    : `${setSaved ? "Remove" : "Add"} ${slot.displayLabel} ${setSaved ? "from" : "to"} My night`
+                }
+                onClick={() => {
+                  if (!included) actions.onSave(ref);
+                }}
               >
-                {included ? <Check size={12} /> : <Plus size={12} />}
+                {included ? (
+                  "Included"
+                ) : setSaved ? (
+                  <Check size={12} />
+                ) : (
+                  <Plus size={12} />
+                )}
               </button>
             </div>
           );

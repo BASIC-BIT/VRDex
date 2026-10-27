@@ -235,4 +235,80 @@ test.describe("continuous schedule @flow @fixture", () => {
       page.getByLabel("Timeline chart", { exact: true }),
     ).toBeVisible();
   });
+  test("included sets cannot remove their whole-event save", async ({
+    page,
+    timelineFixture,
+    isMobile,
+  }, info) => {
+    const title = "ORBIT: Interstellar Bassline Orchestra";
+    await page.getByRole("button", { name: "Agenda", exact: true }).click();
+    const article = page
+      .locator("article")
+      .filter({
+        has: page.getByRole("button", { name: `Open ${title}`, exact: true }),
+      });
+    await article
+      .getByRole("button", { name: `Add ${title} to My night`, exact: true })
+      .click();
+    const included = article.getByRole("button", {
+      name: `Aurora: Included in ${title}`,
+      exact: true,
+    });
+    await expect(included).toBeDisabled();
+    await expect(included).toHaveText("Included");
+    // Dispatching click also checks the React callback guard, beyond native disabled behavior.
+    await included.dispatchEvent("click");
+    await expect(
+      page.getByRole("heading", { name: "My night", exact: true }),
+    ).toBeVisible();
+    expect(
+      await page.evaluate(
+        () =>
+          JSON.parse(
+            localStorage.getItem("vrdex.timeline.preferences.v1") ?? "null",
+          ).plan,
+      ),
+    ).toEqual([{ kind: "event", eventId: timelineFixture.eventIds[3] }]);
+    await page.getByRole("button", { name: "Timeline", exact: true }).click();
+    const bar = page.getByTestId(`event-${timelineFixture.eventIds[3]}`);
+    const chartIncluded = bar.getByRole("button", {
+      name: `Aurora: Included in ${title}`,
+      exact: true,
+    });
+    await expect(chartIncluded).toBeDisabled();
+    await expect(chartIncluded).toHaveText("Included");
+    if (!isMobile) {
+      await chartIncluded.dispatchEvent("click");
+    }
+    await page.getByRole("button", { name: "Agenda", exact: true }).click();
+    await expect(included).toBeDisabled();
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.screenshot({
+      path: info.outputPath("schedule-included.png"),
+      fullPage: true,
+    });
+    const remove = article.getByRole("button", {
+      name: `Remove ${title} from My night`,
+      exact: true,
+    });
+    if (isMobile) await remove.tap();
+    else await remove.click();
+    await expect(
+      page.getByRole("heading", { name: "My night", exact: true }),
+    ).toHaveCount(0);
+    expect(
+      await page.evaluate(
+        () =>
+          JSON.parse(
+            localStorage.getItem("vrdex.timeline.preferences.v1") ?? "null",
+          ).plan,
+      ),
+    ).toEqual([]);
+    await expect(
+      article.getByRole("button", {
+        name: "Add Aurora to My night",
+        exact: true,
+      }),
+    ).toBeEnabled();
+  });
 });

@@ -525,3 +525,13 @@
     transition: none !important;
   }
 }
+
+.included {
+  flex-shrink: 0;
+  padding: 0 4px;
+  color: var(--muted);
+  font-size: 0.55rem;
+}
+.schedule button:disabled {
+  cursor: default;
+}

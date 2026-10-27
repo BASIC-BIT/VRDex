@@ -3,6 +3,7 @@ import type {
   TimelineEvent,
   TimelineSchedule,
 } from "../../../../../../convex/_eventTimelineTypes";
+import { planSaveState } from "@/lib/timeline/plan-actions";
 import { Button } from "@/components/ui/button";
 import { isSaved, type TimelineActions } from "./timeline-event-bar";
 import styles from "./timeline.module.css";
@@ -82,7 +83,9 @@ export function TimelineAgenda({
                   eventId: event.id,
                   slotId: slot.id,
                 };
-                const included = isSaved(actions.plan, reference);
+                const setState = planSaveState(actions.plan, reference);
+                const included = setState === "included";
+                const setSaved = setState !== "unsaved";
                 return (
                   <li key={slot.id}>
                     <div>
@@ -102,10 +105,23 @@ export function TimelineAgenda({
                     </div>
                     <Button
                       size="sm"
-                      aria-label={`${included ? "Remove" : "Add"} ${slot.displayLabel} ${included ? "from" : "to"} My night`}
-                      onClick={() => actions.onSave(reference)}
+                      disabled={included}
+                      aria-label={
+                        included
+                          ? `${slot.displayLabel}: Included in ${event.title}`
+                          : `${setSaved ? "Remove" : "Add"} ${slot.displayLabel} ${setSaved ? "from" : "to"} My night`
+                      }
+                      onClick={() => {
+                        if (!included) actions.onSave(reference);
+                      }}
                     >
-                      {included ? <Check size={14} /> : <Plus size={14} />}
+                      {included ? (
+                        "Included"
+                      ) : setSaved ? (
+                        <Check size={14} />
+                      ) : (
+                        <Plus size={14} />
+                      )}
                     </Button>
                   </li>
                 );

@@ -14,6 +14,7 @@ import {
   timelineNavigationHref,
   type TimelineNavigation,
 } from "@/lib/timeline/navigation";
+import { togglePlanAction } from "@/lib/timeline/plan-actions";
 import { HOUR, inRange } from "@/lib/timeline/window-cache";
 import { useTimelinePreferences } from "./use-timeline-preferences";
 import { useTimelineData } from "./use-timeline-data";
@@ -21,7 +22,7 @@ import { TimelineToolbar } from "./timeline-toolbar";
 import { TimelineChart } from "./timeline-chart";
 import { TimelineAgenda } from "./timeline-agenda";
 import { TimelineNight } from "./timeline-night";
-import { isSaved, type TimelineActions } from "./timeline-event-bar";
+import { type TimelineActions } from "./timeline-event-bar";
 import styles from "./timeline.module.css";
 export type TimelineSelection = {
   eventId: string;
@@ -146,13 +147,12 @@ function ScheduleContent({
     onSelectionChange?.(next);
   };
   const onSave = (reference: PlanReference) => {
-    // A set included by a whole event removes that event's save, never a no-op set.
-    const existing = preference.preferences.plan.find(
-      (p) => p.eventId === reference.eventId && p.kind === "event",
-    );
-    const result = isSaved(preference.preferences.plan, reference)
-      ? preference.removePlan(existing ?? reference)
-      : preference.addPlan(reference);
+    const action = togglePlanAction(preference.preferences.plan, reference);
+    if (!action) return;
+    const result =
+      action.type === "remove-plan"
+        ? preference.removePlan(action.reference)
+        : preference.addPlan(action.reference);
     setLimit(result.outcome === "limit");
   };
   const actions: TimelineActions = {
