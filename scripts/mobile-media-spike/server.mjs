@@ -10,7 +10,7 @@ import { startProofServer } from "../event-playback-proof.mjs";
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
-const { build } = createRequire(require.resolve("tsx"))("esbuild");
+const { build, stop: stopBuildService } = createRequire(require.resolve("tsx"))("esbuild");
 const media = await mkdtemp(path.join(tmpdir(), "vrdex-mobile-media-"));
 const children = [];
 let fixture;
@@ -30,8 +30,8 @@ async function close() {
 }
 for (const signal of ["SIGINT", "SIGTERM"]) process.once(signal, () => void close());
 try {
-  await build({ entryPoints: [path.join(directory, "client.ts")], nodePaths: [path.resolve(directory, "../../apps/web/node_modules")], bundle: true, platform: "browser", outfile: path.join(media, "client.js") });
-  fixture = await startProofServer();
+  await build({ entryPoints: [path.join(directory, "client.ts")], nodePaths: [path.resolve(directory, "../../apps/web/node_modules")], bundle: true, platform: "browser", outfile: path.join(media, "client.js") }).finally(() => stopBuildService());
+  fixture = await startProofServer({ lifetimeMs: null });
   for (const audioOnly of [false, true]) {
     const name = audioOnly ? "audio" : "video";
     const child = spawn(process.env.FFMPEG_PATH || "ffmpeg", ["-hide_banner", "-loglevel", "error", "-re", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=25", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
