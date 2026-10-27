@@ -36,7 +36,7 @@ async function adminFixture() {
   await ctx.db.insert("profileOwners", {profileId,userId,roleKey:"owner",state:"active",grantedAt:now,updatedAt:now});
   await ctx.db.insert("profileExternalLinks", {profileId,assetType:"vrchat_group",assetExternalId:GROUP,linkRole:"primary",state:"active",provenance:"directory_reference",createdAt:now,updatedAt:now});
   await ctx.db.insert("profileLinkDestinationReferences", {key,profileId});
-  const destinationId = await ctx.db.insert("profileLinkDestinations", {key,kind:"vrchat_group",locator:GROUP,provider:"vrchat",status:"resolved",entityId:GROUP,observedAt:now,groupMetadata:{visibility:"public",joinPolicy:"request"}});
+  const destinationId = await ctx.db.insert("profileLinkDestinations", {key,kind:"vrchat_group",locator:GROUP,provider:"vrchat",status:"resolved",entityId:GROUP,name:"Admission group",observedAt:now,groupMetadata:{visibility:"public",joinPolicy:"request"}});
   const fleetId = await ctx.db.insert("collectorFleetSettings", {key:"global",killSwitchEnabled:false,globalRequestsPerMinute:30,automaticEnrollmentEnabled:false,automaticEnrollmentLimit:50,updatedAt:now});
   await ctx.db.delete(row._id);
   return {userId,grantId,profileId,destinationId,fleetId};
@@ -501,4 +501,31 @@ it("adopted grant history does not require explicit capability for managed dispa
   assert.equal(claimed.assignments[0].collectionMode, "managed");
   assert.equal(claimed.assignments[0].statisticsAdmission, undefined);
   assert.deepEqual((await h.t.run(ctx => ctx.db.get(h.integrationId)))?.statisticsAdmission, adopted?.statisticsAdmission);
+});
+
+it("manual admission processing and cleanup backlog alarm independently of free enrollment", async () => {
+ const h = await adminFixture(); const admitted = await h.admit();
+ const now = h.now + 16 * 60_000;
+ const heartbeat = () => h.t.mutation(telemetry("recordCollectorHeartbeat"), { collectorAccountId: h.accountId, workerId: "old-v2-worker", workerKeyHash: "test", releaseSha: "a".repeat(40), collectorVersion: "test", capabilities: ["automatic_group_aggregates_v2"], consecutiveControlFailures: 0, now });
+ const first = await heartbeat();
+ assert.equal(first.automaticEnrollmentBacklog, true, "healthy v2 cannot inspect manual grants, even with free enrollment disabled");
+ await h.t.run(async ctx => { const row = await ctx.db.get(admitted.integrationId); assert.ok(row?.statisticsAdmission); await ctx.db.patch(row._id, { statisticsAdmission: { ...row.statisticsAdmission, lastCheckedAt: now, operation: {kind:"request",startedAt:h.now,outcome:"confirmed"} }, nextPollAt: now + 60_000 }); });
+ const waiting = await heartbeat(); assert.equal(waiting.automaticEnrollmentBacklog, false, "fresh external approval wait is not failure");
+ assert.equal(waiting.statisticsAdmissionDiagnostics.externalWaiting, 1);
+ await h.t.run(async ctx => { const row = await ctx.db.get(admitted.integrationId); assert.ok(row?.statisticsAdmission); await ctx.db.patch(row._id, {statisticsAdmission: {...row.statisticsAdmission, phase:"cleanup_pending",revokedAt:h.now},nextPollAt:h.now,consecutiveFailures:1}); });
+ const cleanup = await heartbeat(); assert.equal(cleanup.automaticEnrollmentBacklog, true, "overdue cleanup remains actionable");
+ await h.t.run(ctx => ctx.db.patch(admitted.integrationId, {nextPollAt: now + 180_000}));
+ assert.equal((await heartbeat()).automaticEnrollmentBacklog, true, "unresolved cleanup is actionable despite regular inspection pacing");
+ await h.t.run(async ctx => { const row = await ctx.db.get(admitted.integrationId); assert.ok(row?.statisticsAdmission); await ctx.db.patch(row._id, {statisticsAdmission:{...row.statisticsAdmission,phase:"pending",revokedAt:undefined},consecutiveFailures:3,nextPollAt:now+180_000}); });
+ assert.equal((await heartbeat()).automaticEnrollmentBacklog, true, "repeated processing errors cannot hide behind their next retry time");
+ assert.equal(cleanup.statisticsAdmissionDiagnostics.processingBacklog, 1);
+ assert.ok(!JSON.stringify(cleanup.statisticsAdmissionDiagnostics).includes(GROUP));
+});
+
+
+it("admin preview includes the resolved primary group name", async () => {
+ const h = await adminFixture();
+ const view = await h.admin.query(makeFunctionReference<"query">("groupObservations:getStatisticsAdmission"), {profileId:h.profileId});
+ assert.equal(view.groupName, "Admission group");
+ assert.equal(view.vrchatGroupId, GROUP);
 });

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { Id } from "../../../../../convex/_generated/dataModel";
 import { ExternalLink } from "lucide-react";
 import { profileLinkPresentation, type ProfileLinkDestinationMetadata } from "../../../../../convex/_profileLinkPresentation";
 import { parseProfileLinkDestination } from "../../../../../convex/_profileLinkDestination";
@@ -676,7 +677,7 @@ export function ProfilePublicPage({ profile, mediaKitGalleryEnabled, embedded = 
           return content ? <Fragment key={section}>{content}</Fragment> : null;
         })}
 
-        {!embedded ? <ProfilePrivateRecord profilePath={profileBasePath} slug={profile.slug} /> : null}
+        {!embedded ? <ProfilePrivateRecord profilePath={profileBasePath} slug={profile.slug} community={!isPerson} profileId={profile.id as Id<"profiles"> | undefined} /> : null}
       </PageContainer>
     </Shell>
   );

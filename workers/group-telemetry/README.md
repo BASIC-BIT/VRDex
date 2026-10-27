@@ -91,3 +91,9 @@ Both halves of the deployment gate are now cleared: BASIC accepted durable servi
 Recovery after a 401 is the same path: re-run the login bootstrap with `--fresh-login`, re-run the transfer, then re-register the account so the credential generation increments and the task restarts.
 
 Explicit public request/invite statistics assignments require both aggregate v2 and explicit-admission capabilities in a fresh matching worker heartbeat. They remain automatic, analytics-only assignments. The worker inspects the same account on every pass, reserves each membership write before transport and never retries an uncertain write. Cancellation preserves pre-existing membership and retains uncertain cleanup capacity. See the [cleanup contract and manual recovery limits](../../docs/engineering/group-telemetry-provider-proof.md#explicit-statistics-admission-cleanup-contract-2026-10-27).
+
+## Explicit admission operations
+
+The Operator flow can assign an existing collector to one public request or invite group. The backend must be deployed first. Manual admission requires `automatic_group_aggregates_v2` and `explicit_group_statistics_admission_v1` on the same fresh worker heartbeat and claim. Metadata and membership are inspected before collection or membership writes. An uncertain operation allows inspection only, never another write.
+
+Heartbeat diagnostics report bounded admission phase/count/age data without identity fields. Fresh approval/invitation waits are expected. Never-inspected or overdue work, repeated processing failures and unresolved cleanup feed the existing actionable backlog alarm. See the [collector runbook](../../docs/deployment/group-telemetry-collector.md#explicit-admission-compatibility-and-alarms) for exact-head readiness, email-action proof and rollback.

@@ -61,7 +61,7 @@ async function statisticsAdmissionPreview(db: DatabaseReader, profileId: Id<"pro
     blockReason = "managed_priority";
   else if (!account || !live && !accountHasAdmissionCapacity(account, now))
     blockReason = "account_capacity";
-  return { eligible: blockReason === undefined, blockReason, vrchatGroupId: group ?? undefined, groupMetadata: metadata, metadataObservedAt: observedAt,
+  return { eligible: blockReason === undefined, blockReason, vrchatGroupId: group ?? undefined, groupName: destination?.name, groupMetadata: metadata, metadataObservedAt: observedAt,
     bot: account ? { collectorAccountId: account._id, accountAlias: account.accountAlias, vrchatUserId: account.vrchatUserId, profileUrl: `https://vrchat.com/home/user/${account.vrchatUserId}` } : undefined,
     integrationId: canonical?._id, state: canonical?.state, statisticsAdmission: canonical?.statisticsAdmission, nextPollAt: canonical?.nextPollAt };
 }
@@ -309,6 +309,31 @@ async function eligibleReference(db: DatabaseReader, group: string, profileId: I
   const contributorId = selected && destination?.status === "resolved" && destination.entityId === group
     ? selected.contributorUserId : link.provenance ? link.linkedByUserId : undefined;
   return {kind: "eligible", contributorId, profileId: profile._id} as const;
+}
+
+export async function statisticsAdmissionDiagnostics(db: DatabaseReader, now: number) {
+  // The global admission ceiling is 50. This index excludes unassigned historical rows.
+  const rows = await db.query("communityVrchatIntegrations").withIndex("by_collectionScope_kind_account", q => q.eq("collectionScope.kind", "automatic").gt("assignedCollectorAccountId", undefined)).take(50);
+  const result = { pending: 0, active: 0, paused: 0, ended: 0, cleanup_pending: 0, cancelled: 0, externalWaiting: 0, processingBacklog: 0, oldestProcessingAgeMs: 0 };
+  for (const row of rows) {
+    const grant = row.statisticsAdmission;
+    if (!grant) continue;
+    result[grant.phase]++;
+    const account = row.assignedCollectorAccountId ? await db.get(row.assignedCollectorAccountId) : null;
+    const inspectedAt = grant.lastCheckedAt;
+    const age = Math.max(0, now - (inspectedAt ?? grant.authorizedAt));
+    const externalWait = grant.phase === "pending" && inspectedAt !== undefined && age <= CURRENT_FRESHNESS_MS && row.consecutiveFailures === 0 &&
+      (grant.joinPolicy === "invite" || grant.operation?.kind === "request");
+    if (externalWait) { result.externalWaiting++; continue; }
+    if (grant.phase === "cancelled" || grant.phase === "ended" || grant.phase === "paused") continue;
+    const dueAt = Math.max(row.nextPollAt ?? 0, row.backoffUntil ?? 0, account?.cooldownUntil ?? 0);
+    const processingAge = Math.max(0, now - (grant.phase === "cleanup_pending" ? grant.revokedAt : grant.phase === "active" ? row.lastSuccessfulObservationAt ?? grant.authorizedAt : grant.authorizedAt));
+    if (row.consecutiveFailures >= 3 || processingAge >= 15 * 60_000 && (grant.phase === "cleanup_pending" || dueAt <= now)) {
+      result.processingBacklog++;
+      result.oldestProcessingAgeMs = Math.max(result.oldestProcessingAgeMs, processingAge);
+    }
+  }
+  return result;
 }
 
 export async function hasAutomaticEnrollmentBacklog(db: DatabaseReader, now: number) {

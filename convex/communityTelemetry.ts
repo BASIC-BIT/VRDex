@@ -1,6 +1,6 @@
 import { admissionMatches, type StatisticsAdmission } from "./_groupAdmission";
 import { isManagedIntegrationSession, automaticAdmissionEnabled, readCollectionSubject, readIntegrationRollups, readLegacyRollupMapping, readManagedIntegration, saveManagedPublicationChoice } from "./_groupObservationPolicy";
-import { applyAdmissionRequired, hasAutomaticEnrollmentBacklog } from "./groupObservations";
+import { applyAdmissionRequired, hasAutomaticEnrollmentBacklog, statisticsAdmissionDiagnostics } from "./groupObservations";
 import { requireControlProof } from "./_externalControl";
 import { transitionCoverage } from "./_collectionCoverage";
 import { rejectConnectionOperations } from "./clubOperations";
@@ -2643,7 +2643,8 @@ export const recordCollectorHeartbeat = internalMutation({
       consecutiveControlFailures: failures,
       updatedAt: now,
     });
-    return { recorded: true, automaticEnrollmentBacklog: await hasAutomaticEnrollmentBacklog(ctx.db, now) };
+    const diagnostics = await statisticsAdmissionDiagnostics(ctx.db, now);
+    return { recorded: true, automaticEnrollmentBacklog: diagnostics.processingBacklog > 0 || await hasAutomaticEnrollmentBacklog(ctx.db, now), statisticsAdmissionDiagnostics: diagnostics };
   },
 });
 

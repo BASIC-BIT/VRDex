@@ -47,3 +47,9 @@ No withdrawal transport is implemented. A cancelled pending request stays `clean
 Only membership created under the grant may be left. A successful acknowledged leave completes cleanup; 404, a lost reply or later absence alone does not. Pre-existing and managed memberships are preserved. Managed adoption before leave reservation prevents cleanup; adoption after an uncertain leave reservation fails with `Membership cleanup must be reconciled before adoption.` No compensating rejoin is attempted.
 
 These lifecycle rules are covered by fake-transport and backend tests. Live request, invitation, withdrawal and racing-cleanup behavior remains unverified. No provider membership operation was executed for this change.
+
+## Explicit admission proof boundary
+
+Local fixtures cover request confirmation, invite assignment, exact account/group review, duplicate submission, reload, cancellation, cleanup and super-admin-only visibility. They do not prove VRChat request, invitation, withdrawal or leave behavior. Provider proof remains UNKNOWN.
+
+Before live proof, obtain separate authorization for a public request test group, a public invite test group and the exact existing collector account. Record the approved source SHA, worker image SHA, fresh exact-head capability readiness and pre-existing membership provenance. Prove one persisted request attempt, provider-confirmed membership before collection, and one invitation accepted only when delivered to the assigned bot. Record sanitized timestamps and outcomes. Test cancellation, lost replies, manual withdrawal where unresolved, and retained-capacity release only after confirmed cleanup. Do not infer consent for Homie Hub or any invitation from plan approval. No private-group or named-member proof belongs in this aggregate flow.

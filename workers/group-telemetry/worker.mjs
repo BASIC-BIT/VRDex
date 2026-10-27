@@ -90,6 +90,7 @@ async function heartbeat() {
     releaseSha: runtimeMetadata.releaseSha,
     capabilities: runtimeMetadata.capabilities,
     automaticEnrollmentBacklog: result.automaticEnrollmentBacklog === true ? 1 : 0,
+    statisticsAdmissionDiagnostics: result.statisticsAdmissionDiagnostics,
   });
 }
 
