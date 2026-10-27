@@ -901,7 +901,7 @@ export const claimDueAssignments = internalMutation({
       .filter(
         (integration) =>
           ((readCollectionSubject(integration).kind === "managed" && integration.namedMembershipCollectionEnabled !== false) || automaticCapable) &&
-          (!integration.statisticsAdmission || explicitCapable) &&
+          (readCollectionSubject(integration).kind !== "automatic" || !integration.statisticsAdmission || explicitCapable) &&
           !integration.killSwitchEnabled &&
           (integration.nextPollAt ?? 0) <= now &&
           (integration.backoffUntil ?? 0) <= now,

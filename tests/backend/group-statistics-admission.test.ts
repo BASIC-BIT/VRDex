@@ -306,3 +306,35 @@ for(const phase of ["paused","ended"] as const) it(`${phase} status checks inspe
  assert.equal((await h.reserve("metadata")).granted,true);assert.equal((await h.inspect("member")).accepted,false);
  assert.equal((await h.reserve("instances")).granted,false);assert.equal((await h.reserve("request_join")).granted,false);assert.equal((await h.t.run(ctx=>ctx.db.get(h.integrationId)))?.statisticsAdmission?.phase,phase);
 });
+it("adopted grant history does not require explicit capability for managed dispatch", async () => {
+  const h = await workerFixture();
+  await h.inspect("member");
+  await h.t.run(async ctx => {
+    await ctx.db.insert("externalControlProofs", {
+      userId: h.userId, assetType: "vrchat_group", assetExternalId: GROUP,
+      controlLevel: "manager", state: "active", evidenceSource: "manual",
+      verifiedAt: h.now, createdAt: h.now, updatedAt: h.now,
+    });
+  });
+  await h.admin.mutation(telemetry("connectGroup"), {
+    communitySlug: "admission", vrchatGroupId: GROUP,
+    groupVisibility: "public", joinPolicy: "request",
+  });
+  const adopted = await h.t.run(ctx => ctx.db.get(h.integrationId));
+  assert.equal(adopted?.collectionScope?.kind, "managed");
+  assert.equal(adopted?.statisticsAdmission?.authorizedAt, h.admissionAt);
+  await h.t.run(ctx => ctx.db.patch(h.integrationId, { nextPollAt: 0 }));
+  await h.t.mutation(telemetry("recordCollectorHeartbeat"), {
+    collectorAccountId: h.accountId, workerId: "worker", workerKeyHash: "test",
+    releaseSha: "a".repeat(40), collectorVersion: "legacy-v2",
+    capabilities: ["automatic_group_aggregates_v2"], consecutiveControlFailures: 0,
+  });
+  const claimed = await h.t.mutation(telemetry("claimDueAssignments"), {
+    collectorAccountId: h.accountId, workerId: "worker",
+    capabilities: ["automatic_group_aggregates_v2"],
+  });
+  assert.equal(claimed.assignments.length, 1);
+  assert.equal(claimed.assignments[0].collectionMode, "managed");
+  assert.equal(claimed.assignments[0].statisticsAdmission, undefined);
+  assert.deepEqual((await h.t.run(ctx => ctx.db.get(h.integrationId)))?.statisticsAdmission, adopted?.statisticsAdmission);
+});
