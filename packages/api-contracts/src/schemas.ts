@@ -282,6 +282,25 @@ export const PublicGroupMembershipSchema = z.object({
   })).max(500),
 }).meta({ description: "Timestamped observed membership for the primary linked VRChat group." });
 
+export const PublicVerifiedConnectionSchema = z.object({
+  assetType: z.enum(["vrchat_user", "vrchat_group"]),
+  assetExternalId: z.string().regex(/^(usr|grp)_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/),
+  url: absoluteUrl,
+  displayName: z.string().optional(),
+  verifiedAt: timestampMs,
+  linkRole: z.enum(["primary", "secondary"]),
+}).strict().refine(connection => {
+  const route = connection.assetType === "vrchat_user" ? "user" : "group";
+  const prefix = connection.assetType === "vrchat_user" ? "usr_" : "grp_";
+  return connection.assetExternalId.startsWith(prefix) &&
+    connection.url === `https://vrchat.com/home/${route}/${connection.assetExternalId}`;
+}, "URL must match the asset's canonical HTTPS VRChat route.").meta({
+  description: "A dated verified VRChat connection, subject to outboundLinks visibility. It does not change the profile trust label.",
+  id: "PublicVerifiedConnection",
+});
+
+export type PublicVerifiedConnection = z.infer<typeof PublicVerifiedConnectionSchema>;
+
 export const PublicProfileSchema = z
   .object({
     aliases: z.array(z.string()).optional(),
@@ -304,6 +323,7 @@ export const PublicProfileSchema = z
     tags: z.array(z.string()).optional(),
     telemetry: PublicCommunityTelemetrySchema.optional(),
     trustLabel: TrustLabelSchema,
+    verifiedConnections: z.array(PublicVerifiedConnectionSchema).optional(),
     upcomingEvents: z.array(z.unknown()).optional(),
     /**
      * The profile's current revision, to send back as `expectedUpdatedAt`.

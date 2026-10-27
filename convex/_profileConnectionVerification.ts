@@ -1,7 +1,36 @@
-import { MINIMUM_COMMUNITY_CONTROL_LEVEL, meetsControlLevel } from "./_externalControl";
+import type { PublicVerifiedConnection } from "../packages/api-contracts/src/schemas";
+import { getActiveProfileLinks, MINIMUM_COMMUNITY_CONTROL_LEVEL, meetsControlLevel } from "./_externalControl";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
 import { getActiveProfileOwner } from "./_profileOwnership";
+import { isProfileFieldVisible, type ProfileVisibilitySurface } from "./_profileFieldVisibility";
+
+export async function getPublicVerifiedConnections(
+  db: DatabaseReader,
+  profile: Doc<"profiles">,
+  surface: ProfileVisibilitySurface,
+): Promise<PublicVerifiedConnection[]> {
+  if (!isProfileFieldVisible(profile, "outboundLinks", surface)) return [];
+  const links = await getActiveProfileLinks(db, profile._id);
+  const verifications = await getProfileConnectionVerifications(db, profile._id, links);
+  return links.flatMap((link): PublicVerifiedConnection[] => {
+    const verifiedAt = verifications.get(link._id);
+    if (link.assetType === "discord_guild" || verifiedAt === undefined) return [];
+    const route = link.assetType === "vrchat_user" ? "user" : "group";
+    return [{
+      assetType: link.assetType,
+      assetExternalId: link.assetExternalId,
+      url: `https://vrchat.com/home/${route}/${link.assetExternalId}`,
+      ...(link.assetDisplayName !== undefined ? { displayName: link.assetDisplayName } : {}),
+      verifiedAt,
+      linkRole: link.linkRole,
+    }];
+  }).sort((left, right) =>
+    left.linkRole === right.linkRole
+      ? left.assetExternalId.localeCompare(right.assetExternalId)
+      : left.linkRole === "primary" ? -1 : 1,
+  );
+}
 
 /** Historical display evidence is separate from fresh proof required to act. */
 export async function getProfileConnectionVerifications(

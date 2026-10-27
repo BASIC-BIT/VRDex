@@ -4,13 +4,14 @@ import { convexTest } from "convex-test";
 
 import { api } from "../../convex/_generated/api";
 import type { Doc } from "../../convex/_generated/dataModel";
-import { getProfileConnectionVerifications } from "../../convex/_profileConnectionVerification";
+import { getProfileConnectionVerifications, getPublicVerifiedConnections } from "../../convex/_profileConnectionVerification";
 import schemaModule from "../../convex/schema";
 import { newClerkUserId } from "./_clerkTestIdentity";
 
 const modules = {
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
   "../../convex/profileConnections.ts": () => import("../../convex/profileConnections"),
+  "../../convex/profiles.ts": () => import("../../convex/profiles"),
 };
 const schema = (schemaModule as unknown as { default?: typeof schemaModule }).default ?? schemaModule;
 const verifiedAt = Date.UTC(2026, 9, 25);
@@ -211,4 +212,69 @@ it("private connections stay visible to the manager and unlisted connections fol
   assert.equal(managed?.connections[0]?.verifiedAt, verifiedAt);
   await f.t.run(async (ctx) => ctx.db.patch(f.profileId, { fieldVisibility: { outboundLinks: "unlisted" } }));
   assert.equal((await f.read())?.connections[0]?.verifiedAt, verifiedAt);
+});
+
+it("public readers expose the same dated VRChat connection", async () => {
+  for (const profileType of ["person", "community"] as const) {
+    const f = await fixture(profileType);
+    const assetType = profileType === "person" ? "vrchat_user" : "vrchat_group";
+    const externalId = profileType === "person" ? assetExternalId : "grp_11111111-1111-1111-1111-111111111111";
+    const route = profileType === "person" ? "user" : "group";
+    await f.t.run(async ctx => {
+      await ctx.db.patch(f.linkId, { assetType, assetExternalId: externalId, assetDisplayName: "Exact VRChat name" });
+      await ctx.db.patch(f.proofId, { assetType, assetExternalId: externalId, controlLevel: profileType === "person" ? "self" : "owner" });
+    });
+    const readPublic = () => f.t.query(api.profiles.getPublicBySlug, { slug: "connection-person", includeTelemetry: false });
+    const expected = {
+      assetType, assetExternalId: externalId, displayName: "Exact VRChat name",
+      url: `https://vrchat.com/home/${route}/${externalId}`, verifiedAt, linkRole: "primary",
+    };
+    const result = await readPublic();
+    assert.deepEqual(result?.verifiedConnections, [expected]);
+    assert.deepEqual(result?.outboundLinks, []);
+    assert.equal(result?.trustLabel, "claimed_unverified");
+    assert.deepEqual(Object.keys(result!.verifiedConnections[0]!).sort(), ["assetExternalId", "assetType", "displayName", "linkRole", "url", "verifiedAt"]);
+
+    const secondaryIds = [externalId.replace("11111111", "33333333"), externalId.replace("11111111", "22222222")];
+    await f.t.run(async ctx => {
+      const link = await ctx.db.get(f.linkId);
+      assert.ok(link);
+      const { _id, _creationTime, ...fields } = link;
+      for (const id of secondaryIds) {
+        const proofId = await ctx.db.insert("externalControlProofs", { ...f.proof, assetType, assetExternalId: id, controlLevel: profileType === "person" ? "self" : "owner" });
+        await ctx.db.insert("profileExternalLinks", { ...fields, assetExternalId: id, assetDisplayName: undefined, linkRole: "secondary", verifiedByProofId: proofId });
+      }
+      const discordProofId = await ctx.db.insert("externalControlProofs", { ...f.proof, assetType: "discord_guild", assetExternalId: "12345678901234567", controlLevel: "owner" });
+      await ctx.db.insert("profileExternalLinks", { ...fields, assetType: "discord_guild", assetExternalId: "12345678901234567", verifiedByProofId: discordProofId });
+      await ctx.db.insert("profileExternalLinks", { ...fields, provenance: "directory_reference" });
+    });
+    const ordered = (await readPublic())?.verifiedConnections;
+    assert.deepEqual(ordered, [expected, ...secondaryIds.toSorted().map(id => ({ assetType, assetExternalId: id, url: `https://vrchat.com/home/${route}/${id}`, verifiedAt, linkRole: "secondary" }))]);
+
+    for (const visibility of ["private", "unlisted"] as const) {
+      await f.t.run(async ctx => ctx.db.patch(f.profileId, { fieldVisibility: { outboundLinks: visibility } }));
+      assert.deepEqual((await readPublic())?.verifiedConnections, visibility === "private" ? [] : ordered);
+      await f.t.run(async ctx => {
+        const profile = await ctx.db.get(f.profileId);
+        assert.ok(profile);
+        assert.deepEqual(await getPublicVerifiedConnections(ctx.db, profile, "discovery"), []);
+      });
+    }
+    const storedLinks = [{ label: "Custom link", url: "https://example.test/custom", type: "website", source: "owner_authored" }] satisfies NonNullable<Doc<"profiles">["outboundLinks"]>;
+    await f.t.run(async ctx => ctx.db.patch(f.profileId, { fieldVisibility: undefined, outboundLinks: storedLinks }));
+    await readPublic();
+    await f.t.run(async ctx => assert.deepEqual((await ctx.db.get(f.profileId))?.outboundLinks, storedLinks));
+    await f.t.run(async ctx => ctx.db.patch(f.profileId, { publicSurfacingState: "suppressed" }));
+    assert.equal(await readPublic(), null);
+    await f.t.run(async ctx => {
+      await ctx.db.patch(f.profileId, { publicSurfacingState: "public" });
+      for (const proof of await ctx.db.query("externalControlProofs").collect()) await ctx.db.patch(proof._id, { state: "revoked" });
+    });
+    assert.deepEqual((await readPublic())?.verifiedConnections, []);
+    await f.t.run(async ctx => {
+      await ctx.db.patch(f.proofId, { state: "stale" });
+      await ctx.db.delete(f.ownerId);
+    });
+    assert.deepEqual((await readPublic())?.verifiedConnections, []);
+  }
 });
