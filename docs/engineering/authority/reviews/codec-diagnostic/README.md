@@ -1,5 +1,9 @@
 # Retained codec diagnostic checkpoint
 
+This is the historical storage checkpoint. The subsequent
+[complete twelve-case matrix](matrix/README.md) records completed encoding
+measurements and the reviewed follow-up fixes.
+
 2026-10-27. This checkpoint fixes test setup and preserves a real CodeBuild
 result. It contains no completed encoding measurements and admits no production
 allocation.
