@@ -114,9 +114,10 @@ describe("@vrdex/api-contracts", () => {
     assert.equal(PublicProfileSchema.parse(profile).verifiedConnections, undefined);
     const connection = { assetType: "vrchat_user", assetExternalId: "usr_11111111-1111-1111-1111-111111111111", url: "https://vrchat.com/home/user/usr_11111111-1111-1111-1111-111111111111", displayName: "Exact account", verifiedAt: 1792886400000, linkRole: "primary" };
     assert.deepEqual(PublicProfileSchema.parse({ ...profile, verifiedConnections: [connection] }).verifiedConnections, [connection]);
+    assert.equal(PublicProfileSchema.safeParse({ ...profile, verifiedConnections: [{ ...connection, verifiedAt: 8_640_000_000_000_000 }] }).success, true);
     for (const invalid of [
       { ...connection, assetType: "discord_guild" },
-      ...[NaN, Infinity, -1, 1.5, "25 Oct 2026"].map(verifiedAt => ({ ...connection, verifiedAt })),
+      ...[NaN, Infinity, -1, 1.5, "25 Oct 2026", 8_640_000_000_000_001, Number.MAX_SAFE_INTEGER].map(verifiedAt => ({ ...connection, verifiedAt })),
       { ...connection, assetType: "vrchat_group" },
       { ...connection, assetType: "vrchat_group", url: connection.url.replace("/user/", "/group/") },
       { ...connection, assetExternalId: "usr_invalid", url: "https://vrchat.com/home/user/usr_invalid" },

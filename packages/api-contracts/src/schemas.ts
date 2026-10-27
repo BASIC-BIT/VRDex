@@ -287,7 +287,7 @@ export const PublicVerifiedConnectionSchema = z.object({
   assetExternalId: z.string().regex(/^(usr|grp)_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/),
   url: absoluteUrl,
   displayName: z.string().optional(),
-  verifiedAt: timestampMs,
+  verifiedAt: timestampMs.max(8_640_000_000_000_000),
   linkRole: z.enum(["primary", "secondary"]),
 }).strict().refine(connection => {
   const route = connection.assetType === "vrchat_user" ? "user" : "group";
