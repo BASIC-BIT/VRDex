@@ -116,6 +116,21 @@ Automatic lineup transitions remain outside this experiment.
   child processes. The spike explicitly stops esbuild after bundling so its
   helper is reaped before the long-running media server starts.
 
+## Successful continuous reprobe, 2026-10-27
+
+The retry ran from 14:32:34 to 14:43:34 America/Indianapolis, with output saved
+independently of the tool connection. The [recorded evidence](./probe-evidence.json)
+contains 22 thirty-second samples over 660 seconds: playback advanced in every
+sample, remained unpaused at readyState 4, and reported no media error. Final
+media time was 661.97 seconds. Chromium PiP after the cutoff, both native HLS
+modes, download of 146 log entries, and restart playback passed with zero page
+errors. Both shutdowns removed their media directories and all tracked child
+processes. Overall result: PASS.
+
+This replaces the missing continuous desktop evidence from the interrupted
+probe. It does not establish audible output, physical-phone background playback,
+screen-lock behavior, or VRCDN provider HLS availability.
+
 Recommendation: first validate direct element playback with PiP and Media
 Session on phones. If MPEG-TS cannot survive suspension but native HLS can,
 prefer a provider HLS endpoint; evaluate a relay's cost and latency only if
