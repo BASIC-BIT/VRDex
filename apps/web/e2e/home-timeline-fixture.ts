@@ -10,8 +10,10 @@ export type TimelineFixture = {
 export const test = base.extend<{
   timelineFixture: TimelineFixture;
   timelineScenario: "default" | "prefetch" | "detail";
+  timelineStartAt: number;
 }>({
   timelineScenario: ["default", { option: true }],
+  timelineStartAt: [TIMELINE_NOW - 30 * 60000, { option: true }],
   page: async ({ page, timelineFixture, request }, provide) => {
     // Only the run-owned image URL is bridged to original local artwork.
     // Public event/profile query responses always come from the real backend.
@@ -29,7 +31,7 @@ export const test = base.extend<{
       );
     await provide(page);
   },
-  timelineFixture: async ({ request, baseURL, timelineScenario }, provide) => {
+  timelineFixture: async ({ request, baseURL, timelineScenario, timelineStartAt }, provide) => {
     if (
       !["127.0.0.1", "localhost", "[::1]"].includes(
         new URL(baseURL ?? "").hostname,
@@ -49,7 +51,7 @@ export const test = base.extend<{
             ? { runId, startAt: Date.UTC(2026, 9, 26), scenario: "prefetch" }
             : {
                 runId,
-                startAt: TIMELINE_NOW - 30 * 60000,
+                startAt: timelineStartAt,
                 ...(timelineScenario === "detail"
                   ? { scenario: "detail" }
                   : {}),

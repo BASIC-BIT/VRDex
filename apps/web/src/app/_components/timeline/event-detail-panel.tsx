@@ -11,10 +11,12 @@ import {
 import styles from "./event-detail.module.css";
 export function EventDetailPanel({
   selection,
+  timeZone,
   onClose,
   ...preferences
 }: {
   selection: TimelineSelection | null;
+  timeZone: string;
   onClose(): void;
 } & DetailPreferenceProps) {
   const detail = useEventDetail({ slug: selection?.slug ?? null });
@@ -112,6 +114,7 @@ export function EventDetailPanel({
         {event ? (
           <EventDetailContent
             event={event}
+            timeZone={timeZone}
             rows={selected ? [selected, ...rows] : rows}
             host={
               roster.state.kind === "available" ? roster.state.host : undefined

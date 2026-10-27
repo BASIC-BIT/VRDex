@@ -14,6 +14,11 @@ function readAnchor(value: string | null): number | null {
     && instant < Date.parse("9999-01-01T00:00:00Z") ? instant : null;
 }
 
+/** Scroll geometry can produce fractional milliseconds; URLs remain integer-only. */
+export function normalizeTimelineAnchor(anchor: number | null): number | null {
+  return anchor === null ? null : readAnchor(String(Math.round(anchor)));
+}
+
 function readTimeZone(value: string | null): string | null {
   if (!value || /^[+-]/.test(value)) return null;
   try {
@@ -39,8 +44,9 @@ export function timelineNavigationHref({ pathname, searchParams, state }: {
   state: TimelineNavigation;
 }): string {
   const params = new URLSearchParams(searchParams.toString());
-  if (state.anchor === null) params.delete("at");
-  else params.set("at", String(state.anchor));
+  const anchor = normalizeTimelineAnchor(state.anchor);
+  if (anchor === null) params.delete("at");
+  else params.set("at", String(anchor));
   if (state.timeZone === null) params.delete("tz");
   else params.set("tz", state.timeZone);
   if (state.view === "timeline") params.delete("scheduleView");

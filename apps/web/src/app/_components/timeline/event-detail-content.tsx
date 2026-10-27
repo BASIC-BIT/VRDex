@@ -91,12 +91,14 @@ export function EventDetailContent({
   rows,
   host,
   slotId,
+  timeZone,
   ...preferences
 }: {
   event: CanonicalEvent;
   rows: ReadonlyArray<TimelineDetailRow>;
   host?: TimelineEventIdentity["host"];
   slotId?: string;
+  timeZone: string;
 } & DetailPreferenceProps) {
   const selected = useRef<HTMLLIElement | null>(null);
   const selectedIndex = rows.findIndex((row) => row.key === slotId);
@@ -137,6 +139,7 @@ export function EventDetailContent({
         </div>
         <p className={styles.time}>
           <ViewerLocalEventDateTime
+            timeZone={timeZone}
             timestamp={event.startAt}
             eventDate={event.eventDate}
             scheduleKind={event.scheduleKind}
@@ -144,7 +147,7 @@ export function EventDetailContent({
           {event.endAt !== undefined ? (
             <>
               {" "}
-              - <ViewerLocalEventDateTime timestamp={event.endAt} />
+              - <ViewerLocalEventDateTime timestamp={event.endAt} timeZone={timeZone} />
             </>
           ) : event.scheduleKind !== "date_only" ? (
             " · Time TBA"
@@ -195,6 +198,8 @@ export function EventDetailContent({
                   ) : null}
                   {row.startAt !== undefined ? (
                     <ViewerLocalEventTimeRange
+                      timeZone={timeZone}
+                      showOffset
                       startAt={row.startAt}
                       endAt={row.endAt}
                       className={styles.meta}

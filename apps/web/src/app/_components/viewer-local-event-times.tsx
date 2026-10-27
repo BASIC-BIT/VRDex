@@ -8,12 +8,16 @@ import { formatCalendarDate } from "@/lib/calendar/zoned-date-time";
 type ViewerLocalEventTimesProps = {
   timestamp: number;
   className?: string;
+  timeZone?: string;
+  showOffset?: boolean;
 };
 
 type ViewerLocalEventTimeRangeProps = {
   className?: string;
   endAt?: number;
   startAt: number;
+  timeZone?: string;
+  showOffset?: boolean;
 };
 
 const dateTimeOptions: Intl.DateTimeFormatOptions = {
@@ -54,16 +58,16 @@ function getServerTimeZone(): string | null {
   return "UTC";
 }
 
-function useViewerTimeZone(): string {
+function useViewerTimeZone(explicitTimeZone?: string): string {
   const timeZone = useSyncExternalStore(subscribeToTimeZone, getBrowserTimeZone, getServerTimeZone);
 
-  return timeZone ?? "UTC";
+  return explicitTimeZone ?? timeZone ?? "UTC";
 }
 
-export function ViewerLocalEventDateTime({ className, timestamp, eventDate, scheduleKind }: {
-  className?: string; timestamp?: number; eventDate?: string; scheduleKind?: "timed" | "date_only";
+export function ViewerLocalEventDateTime({ className, timestamp, eventDate, scheduleKind, timeZone: explicitTimeZone }: {
+  className?: string; timestamp?: number; eventDate?: string; scheduleKind?: "timed" | "date_only"; timeZone?: string;
 }) {
-  const timeZone = useViewerTimeZone();
+  const timeZone = useViewerTimeZone(explicitTimeZone);
 
   if (scheduleKind === "date_only" && eventDate !== undefined) {
     return <time className={className} dateTime={eventDate}>{formatCalendarDate(eventDate)} · Time TBA</time>;
@@ -77,24 +81,24 @@ export function ViewerLocalEventDateTime({ className, timestamp, eventDate, sche
   );
 }
 
-export function ViewerLocalEventTime({ className, timestamp }: ViewerLocalEventTimesProps) {
-  const timeZone = useViewerTimeZone();
+export function ViewerLocalEventTime({ className, timestamp, timeZone: explicitTimeZone, showOffset = false }: ViewerLocalEventTimesProps) {
+  const timeZone = useViewerTimeZone(explicitTimeZone);
 
   return (
     <time className={className} dateTime={new Date(timestamp).toISOString()}>
-      {formatTimestamp(timestamp, timeZone, timeOptions)}
+      {formatTimestamp(timestamp, timeZone, showOffset ? { ...timeOptions, timeZoneName: "shortOffset" } : timeOptions)}
     </time>
   );
 }
 
-export function ViewerLocalEventTimeRange({ className, endAt, startAt }: ViewerLocalEventTimeRangeProps) {
+export function ViewerLocalEventTimeRange({ className, endAt, startAt, timeZone, showOffset }: ViewerLocalEventTimeRangeProps) {
   return (
     <span className={cn(className)}>
-      <ViewerLocalEventTime timestamp={startAt} />
+      <ViewerLocalEventTime timestamp={startAt} timeZone={timeZone} showOffset={showOffset} />
       {endAt === undefined ? null : (
         <>
           {" - "}
-          <ViewerLocalEventTime timestamp={endAt} />
+          <ViewerLocalEventTime timestamp={endAt} timeZone={timeZone} showOffset={showOffset} />
         </>
       )}
     </span>

@@ -407,6 +407,13 @@ at October 26, 2026 21:30 UTC; configured browser timezone is UTC. Every case ow
 and exactly cleans its records through the gated helper. The default, prefetch
 and detail scenarios share that ownership boundary.
 
+`home-timeline-time-regressions.flow.spec.ts` covers fractional CSS zoom panning,
+date navigation and Back restoration, plus event and selected-set details with a
+New York URL timezone in a UTC browser. Its rollback case uses the same guarded
+fixture creator with a November 1, 2026 start instant; it checks both occurrences
+of 1:30 AM and a set crossing the offset change. Timeline detail set times include
+UTC offsets; the shared time components retain their existing defaults elsewhere.
+
 The logo's run-specific HTTPS `.invalid` URL passes through the real canonical
 public host projection. Only that exact image request is served original artwork
 bytes from the gated local fixture-assets route. Public query responses remain
@@ -421,5 +428,5 @@ and mobile images before updating committed baselines. Keep unrelated route
 baselines unchanged.
 
 ```bash
-pnpm --filter web exec playwright test home-timeline.flow.spec.ts home-timeline.visual.spec.ts homepage-search.flow.spec.ts --workers=1
+pnpm --filter web exec playwright test home-timeline.flow.spec.ts home-timeline-time-regressions.flow.spec.ts home-timeline.visual.spec.ts homepage-search.flow.spec.ts --workers=1
 ```

@@ -4,6 +4,24 @@ import { describe, it } from "node:test";
 import { readTimelineNavigation, timelineNavigationHref } from "../../apps/web/src/lib/timeline/navigation";
 
 describe("timeline navigation", () => {
+  it("rounds internally computed subpixel anchors before URL validation", () => {
+    for (const [anchor, expected] of [[1792972828792.9688, 1792972828793], [1792972828792.25, 1792972828792], [-1.75, -2]]) {
+      const href = timelineNavigationHref({ pathname: "/", searchParams: new URLSearchParams(), state: {
+        anchor, timeZone: "UTC", view: "timeline", favoritesOnly: false,
+      } });
+      assert.equal(readTimelineNavigation(new URL(href, "https://vrdex.test").searchParams).anchor, expected);
+    }
+  });
+
+  it("does not serialize unsafe internal anchors as valid navigation", () => {
+    for (const anchor of [NaN, Infinity, -Infinity, Date.UTC(10000, 0, 1), Date.parse("0001-01-01T00:00:00Z")]) {
+      const href = timelineNavigationHref({ pathname: "/", searchParams: new URLSearchParams(), state: {
+        anchor, timeZone: "UTC", view: "timeline", favoritesOnly: false,
+      } });
+      assert.equal(new URL(href, "https://vrdex.test").searchParams.get("at"), null);
+    }
+  });
+
   it("defaults to timeline without guessing an anchor or viewer timezone", () => {
     assert.deepEqual(readTimelineNavigation(new URLSearchParams()), {
       anchor: null, timeZone: null, view: "timeline", favoritesOnly: false,

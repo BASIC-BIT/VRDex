@@ -11,6 +11,7 @@ import {
 } from "@/lib/calendar/zoned-date-time";
 import {
   readTimelineNavigation,
+  normalizeTimelineAnchor,
   timelineNavigationHref,
   type TimelineNavigation,
 } from "@/lib/timeline/navigation";
@@ -139,9 +140,7 @@ function ScheduleContent({
   const navigate = (changes: Partial<TimelineNavigation>, push = true) => {
     cancelReplace();
     const next = { ...navigation, ...changes };
-    const valid = readTimelineNavigation(
-      new URLSearchParams({ at: String(next.anchor) }),
-    ).anchor;
+    const valid = normalizeTimelineAnchor(next.anchor);
     next.anchor = valid ?? Date.now() - HOUR;
     setNavigation(next);
     if (push) writeUrl(next, true);
@@ -318,6 +317,7 @@ function ScheduleContent({
       )}
       <EventDetailPanel
         selection={selection}
+        timeZone={timeZone}
         onClose={onClose}
         preferences={preference.preferences}
         onPreferenceAction={onPreferenceAction}
