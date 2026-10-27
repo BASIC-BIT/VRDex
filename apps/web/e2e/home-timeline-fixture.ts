@@ -12,6 +12,23 @@ export const test = base.extend<{
   timelineScenario: "default" | "prefetch" | "detail";
 }>({
   timelineScenario: ["default", { option: true }],
+  page: async ({ page, timelineFixture, request }, provide) => {
+    // Only the run-owned image URL is bridged to original local artwork.
+    // Public event/profile query responses always come from the real backend.
+    await page
+      .context()
+      .route(
+        `https://timeline-artwork.invalid/${timelineFixture.runId}/prism.svg`,
+        async (route) => {
+          const artwork = await request.get(
+            "/api/e2e/fixture-assets/fixture-prism-timeline-logo",
+          );
+          await expect(artwork).toBeOK();
+          await route.fulfill({ response: artwork });
+        },
+      );
+    await provide(page);
+  },
   timelineFixture: async ({ request, baseURL, timelineScenario }, provide) => {
     if (
       !["127.0.0.1", "localhost", "[::1]"].includes(
@@ -80,7 +97,7 @@ export async function changeTimelineFixture(
   request: import("@playwright/test").APIRequestContext,
   fixture: TimelineFixture,
   eventIndex: number,
-  state: "cancelled" | "hidden",
+  state: "cancelled" | "hidden" | "recreate-slot",
 ) {
   const result = await request.patch("/api/e2e/home-timeline", {
     headers: {

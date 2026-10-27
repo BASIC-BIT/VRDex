@@ -61,3 +61,16 @@ it("rejects navigation outside safe four-digit calendar years, including range p
   }
   assert.equal(readTimelineNavigation(new URLSearchParams({at:String(Date.UTC(2026,9,26))})).anchor,Date.UTC(2026,9,26));
 });
+
+it("rejects encoded fixed offsets while accepting named zones and UTC", () => {
+  for (const query of ["tz=%2B02%3A00", "tz=-05%3A00"]) {
+    assert.equal(
+      readTimelineNavigation(new URLSearchParams(query)).timeZone,
+      null,
+    );
+  }
+  assert.equal(
+    readTimelineNavigation(new URLSearchParams("tz=UTC")).timeZone,
+    "UTC",
+  );
+});

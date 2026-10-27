@@ -15,7 +15,7 @@ function readAnchor(value: string | null): number | null {
 }
 
 function readTimeZone(value: string | null): string | null {
-  if (!value) return null;
+  if (!value || /^[+-]/.test(value)) return null;
   try {
     new Intl.DateTimeFormat("en", { timeZone: value });
     return value;

@@ -395,3 +395,31 @@ screenshots, video, and reports, and prints only one of:
 output as an artifact.
 
 Current hosted mutation target: `https://staging.vrdex.net`, backed by the shared Convex development deployment. The deployed health workflow run `26695304658` passed `staging-mutation` after the Vercel staging custom domain was configured.
+
+## Home timeline evidence
+
+`home-timeline.flow.spec.ts` runs the real Home composition with unique run-owned
+local public events and profiles. `home-timeline.visual.spec.ts` compares desktop
+and mobile snapshots for ordinary browsing (long title, missing logo and original
+transparent 120×60 community artwork), selected poster, overlapping purple My
+night, empty range, failed range and the 81-slot detail fixture. The clock is fixed
+at October 26, 2026 21:30 UTC; configured browser timezone is UTC. Every case owns
+and exactly cleans its records through the gated helper. The default, prefetch
+and detail scenarios share that ownership boundary.
+
+The logo's run-specific HTTPS `.invalid` URL passes through the real canonical
+public host projection. Only that exact image request is served original artwork
+bytes from the gated local fixture-assets route. Public query responses remain
+real. Failure cases replace selected transport results with errors; they never
+invent successful event data. No hosted writes or production admission changes
+are involved. All timeline cases carry `@fixture`, excluded by hosted selection.
+
+Existing Home snapshots keep their shared January 1, 2025 clock and wait for a
+settled schedule before capture. Timeline images use the existing screenshot
+threshold (0.2) and maximum pixel-difference ratio (0.002). Review actual desktop
+and mobile images before updating committed baselines. Keep unrelated route
+baselines unchanged.
+
+```bash
+pnpm --filter web exec playwright test home-timeline.flow.spec.ts home-timeline.visual.spec.ts homepage-search.flow.spec.ts --workers=1
+```

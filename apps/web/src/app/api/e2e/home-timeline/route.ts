@@ -37,7 +37,7 @@ async function handle(
       body.eventIndex < 0 ||
       body.eventIndex > 7 ||
       !("state" in body) ||
-      (body.state !== "cancelled" && body.state !== "hidden")
+      (body.state !== "cancelled" && body.state !== "hidden" && body.state !== "recreate-slot")
     )
       return NextResponse.json(
         { error: "Invalid fixture event" },

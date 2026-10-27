@@ -10,7 +10,7 @@ test.describe("continuous schedule @flow @fixture", () => {
     void timelineFixture;
     await page.emulateMedia({ colorScheme: "dark" });
     await page.clock.setFixedTime(TIMELINE_NOW);
-    await page.goto("/playwright/home-timeline");
+    await page.goto("/");
     await expect(
       page.getByRole("heading", { name: "Schedule", exact: true }),
     ).toBeVisible();
@@ -20,6 +20,290 @@ test.describe("continuous schedule @flow @fixture", () => {
       { timeout: 20000 },
     );
   });
+  test("favorites synchronize across tabs and saves survive reload without public snapshots", async ({
+    page,
+    timelineFixture,
+  }) => {
+    await expect(
+      page.getByRole("heading", { name: "My night", exact: true }),
+    ).toHaveCount(0);
+    await page.getByRole("button", { name: "Agenda", exact: true }).click();
+    const other = await page.context().newPage();
+    try {
+      await other.clock.setFixedTime(TIMELINE_NOW);
+      await other.goto("/?scheduleView=agenda");
+      await expect(other.getByLabel("Schedule data state")).toHaveAttribute(
+        "data-state",
+        "ready",
+      );
+      await page
+        .getByRole("button", { name: "Favorite Prism Collective", exact: true })
+        .first()
+        .click();
+      await expect(
+        other
+          .getByRole("button", {
+            name: "Unfavorite Prism Collective",
+            exact: true,
+          })
+          .first(),
+      ).toBeVisible();
+      await other
+        .getByRole("button", {
+          name: "Unfavorite Prism Collective",
+          exact: true,
+        })
+        .first()
+        .click();
+      await expect(
+        page
+          .getByRole("button", {
+            name: "Favorite Prism Collective",
+            exact: true,
+          })
+          .first(),
+      ).toBeVisible();
+      await page
+        .getByRole("button", { name: "Favorite Aurora", exact: true })
+        .first()
+        .click();
+      await page
+        .getByRole("button", { name: "Favorites only", exact: true })
+        .click();
+      await expect(
+        page.getByRole("button", { name: "Open Low Tide", exact: true }),
+      ).toHaveCount(0);
+      await expect(
+        page.getByRole("button", {
+          name: "Open ORBIT: Interstellar Bassline Orchestra",
+          exact: true,
+        }),
+      ).toBeVisible();
+      await expect(
+        page.getByRole("button", {
+          name: "Open Neon Harbor at ORBIT: Interstellar Bassline Orchestra",
+          exact: true,
+        }),
+      ).toBeVisible();
+      await page
+        .getByRole("button", { name: "Favorites only", exact: true })
+        .click();
+      await page
+        .getByRole("button", { name: "Unfavorite Aurora", exact: true })
+        .first()
+        .click();
+      await page
+        .getByRole("button", { name: "Add Low Tide to My night", exact: true })
+        .click();
+      await page.reload();
+      await expect(
+        page
+          .getByRole("region", { name: "My night", exact: true })
+          .getByText("Low Tide", { exact: false }),
+      ).toBeVisible();
+      expect(
+        await page.evaluate(() =>
+          JSON.parse(
+            localStorage.getItem("vrdex.timeline.preferences.v1") ?? "null",
+          ),
+        ),
+      ).toEqual({
+        version: 1,
+        plan: [{ kind: "event", eventId: timelineFixture.eventIds[4] }],
+        favoriteProfileIds: [],
+      });
+    } finally {
+      await other.close();
+    }
+  });
+  test("blocked storage retains usable session saves with Not saved", async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      const get = Storage.prototype.getItem,
+        set = Storage.prototype.setItem;
+      Storage.prototype.getItem = function (key) {
+        if (key === "vrdex.timeline.preferences.v1")
+          throw new DOMException("Blocked", "SecurityError");
+        return get.call(this, key);
+      };
+      Storage.prototype.setItem = function (key, value) {
+        if (key === "vrdex.timeline.preferences.v1")
+          throw new DOMException("Blocked", "SecurityError");
+        return set.call(this, key, value);
+      };
+    });
+    await page.reload();
+    await expect(page.getByLabel("Schedule data state")).toHaveAttribute(
+      "data-state",
+      "ready",
+    );
+    await page.getByRole("button", { name: "Agenda", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Add Low Tide to My night", exact: true })
+      .click();
+    await expect(page.getByText("Not saved", { exact: true })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "My night", exact: true }),
+    ).toBeVisible();
+    await page
+      .getByRole("region", { name: "My night", exact: true })
+      .getByRole("button", {
+        name: "Remove Low Tide from My night",
+        exact: true,
+      })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: "My night", exact: true }),
+    ).toHaveCount(0);
+  });
+  test("overlapping sets survive together, whole-event replacement is explicit, and recreated slots stay unavailable", async ({
+    page,
+    request,
+    timelineFixture,
+  }) => {
+    await page.getByRole("button", { name: "Agenda", exact: true }).click();
+    const orbit = page.locator("article").filter({
+      has: page.getByRole("button", {
+        name: "Open ORBIT: Interstellar Bassline Orchestra",
+        exact: true,
+      }),
+    });
+    const glass = page.locator("article").filter({
+      has: page.getByRole("button", {
+        name: "Open Glasshouse Sessions",
+        exact: true,
+      }),
+    });
+    await orbit
+      .getByRole("button", { name: "Add Aurora to My night", exact: true })
+      .click();
+    await glass
+      .getByRole("button", { name: "Add Neon Harbor to My night", exact: true })
+      .click();
+    const night = page.getByRole("region", { name: "My night", exact: true });
+    await expect(night.getByText("Overlap", { exact: true })).toHaveCount(2);
+    await changeTimelineFixture(request, timelineFixture, 3, "recreate-slot");
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await expect(night.getByText("Unavailable", { exact: true })).toBeVisible();
+    await expect(night.getByText("Aurora", { exact: true })).toHaveCount(0);
+    await night
+      .getByRole("button", {
+        name: "Remove unavailable item from My night",
+        exact: true,
+      })
+      .click();
+    await orbit
+      .getByRole("button", { name: "Add Aurora to My night", exact: true })
+      .click();
+    await orbit
+      .getByRole("button", { name: "Add Neon Harbor to My night", exact: true })
+      .click();
+    await orbit
+      .getByRole("button", {
+        name: "Add ORBIT: Interstellar Bassline Orchestra to My night",
+        exact: true,
+      })
+      .click();
+    const plan = await page.evaluate(
+      () =>
+        JSON.parse(
+          localStorage.getItem("vrdex.timeline.preferences.v1") ?? "null",
+        ).plan,
+    );
+    expect(plan).toEqual([
+      {
+        kind: "set",
+        eventId: timelineFixture.eventIds[2],
+        slotId: timelineFixture.slotIds[5],
+      },
+      { kind: "event", eventId: timelineFixture.eventIds[3] },
+    ]);
+  });
+  for (const departure of ["submit", "suggestion", "discovery"] as const) {
+    test(`pending pan cannot overwrite ${departure} navigation`, async ({
+      page,
+    }) => {
+      await waitForPublicSearchHydration(page);
+      const input = page.getByRole("combobox", { name: "Search VRDex" });
+      if (departure !== "discovery") {
+        await input.fill("BASICBIT");
+        await expect(
+          page.getByRole("option", { name: /BASICBIT/ }).first(),
+        ).toBeVisible();
+      }
+      const destination =
+        departure === "discovery"
+          ? "/discovery"
+          : departure === "suggestion"
+            ? "/basicbit"
+            : "/search";
+      let release!: () => void;
+      const barrier = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let started!: () => void;
+      const requested = new Promise<void>((resolve) => {
+        started = resolve;
+      });
+      await page.route(
+        (url) => url.pathname === destination,
+        async (route) => {
+          started();
+          await barrier;
+          await route.continue();
+        },
+      );
+      await page.clock.install({ time: TIMELINE_NOW });
+      await page.clock.pauseAt(TIMELINE_NOW + 1000);
+      const expectedAnchor = TIMELINE_NOW - 3_600_000 + 1.2 * 3_600_000;
+      const expectedScroll = await page
+        .getByRole("region", { name: "Timeline chart" })
+        .evaluate((element) => element.scrollLeft + 120);
+      // Pan and depart in one browser task: no waits between user actions.
+      await page.evaluate((departure) => {
+        const chart = document.querySelector('[aria-label="Timeline chart"]');
+        if (!chart) throw Error("Missing chart");
+        chart.scrollLeft += 120;
+        chart.dispatchEvent(new Event("scroll"));
+        if (departure === "submit")
+          document.querySelector("form")?.requestSubmit();
+        else if (departure === "suggestion")
+          document.querySelector<HTMLButtonElement>('[role="option"]')?.click();
+        else
+          document
+            .querySelector<HTMLAnchorElement>('a[href="/discovery"]')
+            ?.click();
+      }, departure);
+      await requested;
+      try {
+        await page.clock.runFor(500);
+        expect(new URL(page.url()).searchParams.get("at")).toBe(
+          String(expectedAnchor),
+        );
+      } finally {
+        release();
+      }
+      await expect(page).toHaveURL(
+        departure === "submit"
+          ? /\/search\?q=BASICBIT$/
+          : new RegExp(destination + "$"),
+      );
+      await page.clock.resume();
+      await page.goBack();
+      await expect(page.getByLabel("Schedule data state")).toHaveAttribute(
+        "data-state",
+        "ready",
+      );
+      expect(new URL(page.url()).searchParams.get("at")).toBe(
+        String(expectedAnchor),
+      );
+      const chart = page.getByRole("region", { name: "Timeline chart" });
+      await expect
+        .poll(() => chart.evaluate((element) => element.scrollLeft))
+        .toBe(expectedScroll);
+    });
+  }
   test("nonmodal detail panel keeps browsing, poster and independent planning", async ({
     page,
     timelineFixture,
@@ -330,6 +614,22 @@ test.describe("continuous schedule @flow @fixture", () => {
     await changeTimelineFixture(request, timelineFixture, 3, "cancelled");
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
     await expect(night.getByText("Cancelled", { exact: true })).toBeVisible();
+    await night
+      .getByRole("button", {
+        name: "ORBIT: Interstellar Bassline Orchestra Cancelled",
+        exact: true,
+      })
+      .click();
+    const cancelledPanel = page.getByRole("region", {
+      name: "Event details",
+      exact: true,
+    });
+    await expect(
+      cancelledPanel.getByText("Cancelled", { exact: true }),
+    ).toBeVisible();
+    await cancelledPanel
+      .getByRole("button", { name: "Close", exact: true })
+      .click();
     await changeTimelineFixture(request, timelineFixture, 3, "hidden");
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
     await expect(night.getByText("Unavailable", { exact: true })).toBeVisible();
@@ -367,7 +667,7 @@ test.describe("continuous schedule @flow @fixture", () => {
   test("unsupported query dates fall back to the useful Now range", async ({
     page,
   }) => {
-    await page.goto("/playwright/home-timeline?at=253402300800000");
+    await page.goto("/?at=253402300800000&tz=%2B02%3A00");
     await expect(page.getByLabel("Schedule date", { exact: true })).toHaveValue(
       "2026-10-26",
     );
@@ -754,7 +1054,7 @@ test.describe("continuous schedule @flow @fixture", () => {
     }, info) => {
       const h = 3_600_000,
         boundary = Date.UTC(2026, 9, 26);
-      await page.goto(`/playwright/home-timeline?at=${boundary + 3 * h}`);
+      await page.goto(`/?at=${boundary + 3 * h}`);
       await expect(page.getByLabel("Schedule data state")).toHaveAttribute(
         "data-state",
         "ready",
@@ -793,7 +1093,7 @@ test.describe("continuous schedule @flow @fixture", () => {
       });
       // Starting without the neighbor also preserves the established row when
       // panning back loads that earlier window for the first time.
-      await page.goto(`/playwright/home-timeline?at=${boundary + 7 * h}`);
+      await page.goto(`/?at=${boundary + 7 * h}`);
       await expect(page.getByLabel("Schedule data state")).toHaveAttribute(
         "data-state",
         "ready",

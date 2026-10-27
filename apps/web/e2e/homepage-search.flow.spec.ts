@@ -648,6 +648,8 @@ test("GET search remains usable without JavaScript @flow @fixture", async ({ bro
   const page = await context.newPage();
   await page.goto("/");
   await expectHomePage(page);
+  await expect(page.getByRole("region", { name: "Schedule", exact: true })).toBeHidden();
+  await expect(page.getByRole("link", { name: "Discovery", exact: true })).toBeVisible();
   const homeInput = page.getByRole("combobox", { name: /Search/i });
   await homeInput.fill("BASICBIT");
   await homeInput.press("Enter");

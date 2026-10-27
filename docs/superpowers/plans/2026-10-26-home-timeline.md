@@ -10,6 +10,32 @@
 
 **Spec:** [Approved Home timeline design](../specs/2026-10-26-home-timeline-design.md), approved by BASIC on October 26, 2026.
 
+## Execution status
+
+Tasks 1–5 are implemented and task-reviewed on `codex/home-timeline`. Task 6
+mounts the shared schedule on actual Home, preserves search and no-JS behavior,
+flushes pending pan state before departure for correct Back restoration, and
+adds real-fixture persistence, slot-identity and visual evidence. The branch
+includes the clean merge of upstream main `3571211`; unrelated telemetry work
+was not rewritten.
+
+Local verification passed 909 web tests and 2,158 backend tests, with zero
+failures or skips. The combined desktop/mobile timeline, Home-search and visual
+run passed 110/110; affected public-event, lookup/search and Home baseline
+comparisons passed 26/26. Both browser runs had zero skipped or flaky tests.
+Web lint, both typechecks, generated-code drift and Markdown lint passed.
+The default production build failed fetching Google Fonts through Turbopack's
+TLS connection. The documented `pnpm build:web --webpack` fallback passed,
+including TypeScript and 27/27 static pages; default Turbopack validation remains
+environment-limited. No application fonts or TLS policy changed. New timeline
+and affected Home images were directly inspected against the accepted study,
+with unchanged screenshot tolerances.
+
+Task 6 review, whole-branch review, publication and hosted CI remain pending.
+No PR has been created and no push or merge is included in this execution.
+The controller owns the review/publication sequence and `ci:browsers` plus
+`ci:visuals` selection. The task checklists below retain the original plan.
+
 ## Global constraints
 
 - Preserve compact public search, its GET submission, legacy root query redirects, `/lookup`, `/search?view=dj` and `/discovery`.
@@ -211,4 +237,4 @@ from them. Slot continuation is explicit because existing public previews cap
 associations and cannot establish completeness. No account-sync or discovery
 redesign project is folded into this slice.
 
-Implementation has not started. Review this plan before subagent execution.
+Implementation status and remaining review/publication gates are recorded above.

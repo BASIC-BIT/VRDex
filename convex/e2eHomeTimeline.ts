@@ -78,6 +78,11 @@ export const create = mutation({
                 profileType: "community" as const,
                 community: { categoryTags: [] },
               }),
+          ...(kind === "community"
+            ? {
+                avatarImageUrl: `https://timeline-artwork.invalid/${args.runId}/prism.svg`,
+              }
+            : {}),
           aliases: [],
           tags: [],
           claimState: "unclaimed",
@@ -247,7 +252,11 @@ export const changeState = mutation({
     secret: v.string(),
     runId: v.string(),
     eventIndex: v.number(),
-    state: v.union(v.literal("cancelled"), v.literal("hidden")),
+    state: v.union(
+      v.literal("cancelled"),
+      v.literal("hidden"),
+      v.literal("recreate-slot"),
+    ),
   },
   handler: async (ctx, args) => {
     guard(args.secret, args.runId);
@@ -265,6 +274,19 @@ export const changeState = mutation({
       .unique();
     if (!event || event.sourceLabel !== args.runId)
       throw Error("Fixture ownership mismatch");
+    if (args.state === "recreate-slot") {
+      const slot = await ctx.db
+        .query("eventSlots")
+        .withIndex("by_eventId", (q) => q.eq("eventId", event._id))
+        .first();
+      if (!slot || slot.sourceLabel !== args.runId)
+        throw Error("Fixture slot ownership mismatch");
+      const { _id, _creationTime, ...fields } = slot;
+      void _creationTime;
+      await ctx.db.delete(_id);
+      await ctx.db.insert("eventSlots", fields);
+      return;
+    }
     await ctx.db.patch(
       event._id,
       args.state === "cancelled"

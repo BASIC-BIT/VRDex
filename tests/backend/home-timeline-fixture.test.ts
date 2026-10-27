@@ -57,6 +57,10 @@ it("rejects hosted/production/disabled/wrong-secret fixtures and cleans only the
       },
     });
     assert.ok(result.items.some((e) => e.id === one.eventIds[3]));
+    assert.equal(
+      result.items.find((e) => e.id === one.eventIds[3])?.host?.imageUrl,
+      `https://timeline-artwork.invalid/${args.runId}/prism.svg`,
+    );
     assert.deepEqual(
       await t.mutation(api.e2eHomeTimeline.cleanup, {
         secret: args.secret,
@@ -114,6 +118,34 @@ it("only changes owned event state and saved reads drop hidden content", async (
     await t.run((ctx) => ctx.db.patch(id, { sourceLabel: "foreign" }));
     await assert.rejects(t.mutation(api.e2eHomeTimeline.changeState, change));
     await t.run((ctx) => ctx.db.patch(id, { sourceLabel: args.runId }));
+    const oldSlot = fixture.slotIds[6];
+    await t.mutation(api.e2eHomeTimeline.changeState, {
+      ...change,
+      state: "recreate-slot",
+    });
+    assert.deepEqual(
+      await t.query(api.eventTimeline.resolveSaved, {
+        references: [{ kind: "set", eventId: id, slotId: oldSlot }],
+      }),
+      [
+        {
+          kind: "unavailable",
+          reference: { kind: "set", eventId: id, slotId: oldSlot },
+        },
+      ],
+    );
+    const replacement = await t.run((ctx) =>
+      ctx.db
+        .query("eventSlots")
+        .withIndex("by_eventId", (q) => q.eq("eventId", id))
+        .collect(),
+    );
+    assert.equal(replacement.length, 2);
+    assert.ok(
+      replacement.some(
+        (row) => row.displayLabel === "Aurora" && row._id !== oldSlot,
+      ),
+    );
     await t.mutation(api.e2eHomeTimeline.changeState, change);
     const cancelled = await t.query(api.eventTimeline.resolveSaved, {
       references: [{ kind: "event", eventId: id }],

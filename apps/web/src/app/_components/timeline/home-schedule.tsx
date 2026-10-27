@@ -58,15 +58,29 @@ export function HomeSchedule({
     });
     return () => cancelAnimationFrame(frame);
   }, []);
-  return runtime ? (
-    <ScheduleContent runtime={runtime} onSelectionChange={onSelectionChange} />
-  ) : (
-    <section className={styles.schedule} aria-label="Schedule">
-      <h2>Schedule</h2>
-      <div className={styles.loading} role="status">
-        Loading events
-      </div>
-    </section>
+  return (
+    <>
+      <noscript>
+        <style>{`[data-home-schedule] { display: none !important; }`}</style>
+      </noscript>
+      {runtime ? (
+        <ScheduleContent
+          runtime={runtime}
+          onSelectionChange={onSelectionChange}
+        />
+      ) : (
+        <section
+          data-home-schedule
+          className={styles.schedule}
+          aria-label="Schedule"
+        >
+          <h2>Schedule</h2>
+          <div className={styles.loading} role="status">
+            Loading events
+          </div>
+        </section>
+      )}
+    </>
   );
 }
 function ScheduleContent({
@@ -86,7 +100,10 @@ function ScheduleContent({
   const invoker = useRef<HTMLElement | null>(null);
   const [limit, setLimit] = useState(false);
   const preference = useTimelinePreferences();
-  const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pending = useRef<{
+    timer: ReturnType<typeof setTimeout>;
+    flush: () => void;
+  } | null>(null);
   const timeZone = navigation.timeZone ?? runtime.timeZone;
   const anchor = navigation.anchor ?? now - HOUR;
   const range: TimelineRange = {
@@ -102,7 +119,7 @@ function ScheduleContent({
   });
   const cancelReplace = useCallback(() => {
     if (pending.current !== null) {
-      clearTimeout(pending.current);
+      clearTimeout(pending.current.timer);
       pending.current = null;
     }
   }, []);
@@ -114,6 +131,11 @@ function ScheduleContent({
     });
     window.history[push ? "pushState" : "replaceState"](null, "", href);
   }, []);
+  const flushReplace = useCallback(() => {
+    const update = pending.current;
+    cancelReplace();
+    update?.flush();
+  }, [cancelReplace]);
   const navigate = (changes: Partial<TimelineNavigation>, push = true) => {
     cancelReplace();
     const next = { ...navigation, ...changes };
@@ -123,11 +145,15 @@ function ScheduleContent({
     next.anchor = valid ?? Date.now() - HOUR;
     setNavigation(next);
     if (push) writeUrl(next, true);
-    else
-      pending.current = setTimeout(() => {
-        writeUrl(next, false);
+    else {
+      const pageUrl = window.location.href;
+      const flush = () => {
+        // A departure outside our input handlers must never rewrite its destination.
+        if (window.location.href === pageUrl) writeUrl(next, false);
         pending.current = null;
-      }, 300);
+      };
+      pending.current = { timer: setTimeout(flush, 300), flush };
+    }
   };
   useEffect(() => {
     const pop = () => {
@@ -137,14 +163,37 @@ function ScheduleContent({
       );
       setNavigation({ ...parsed, anchor: parsed.anchor ?? Date.now() - HOUR });
     };
+    // Next can keep Home mounted while a destination loads. Flush before its
+    // delegated handlers navigate so Back restores the last viewed anchor.
+    const click = (event: MouseEvent) => {
+      if (
+        event.target instanceof Element &&
+        event.target.closest('a[href], [role="option"]')
+      )
+        flushReplace();
+    };
+    const key = (event: KeyboardEvent) => {
+      if (
+        event.key === "Enter" &&
+        event.target instanceof Element &&
+        event.target.closest("form")
+      )
+        flushReplace();
+    };
+    document.addEventListener("click", click, true);
+    document.addEventListener("submit", flushReplace, true);
+    document.addEventListener("keydown", key, true);
     const clock = setInterval(() => setNow(Date.now()), 60_000);
     window.addEventListener("popstate", pop);
     return () => {
       cancelReplace();
       clearInterval(clock);
       window.removeEventListener("popstate", pop);
+      document.removeEventListener("click", click, true);
+      document.removeEventListener("submit", flushReplace, true);
+      document.removeEventListener("keydown", key, true);
     };
-  }, [cancelReplace]);
+  }, [cancelReplace, flushReplace]);
   const onSelect = (next: TimelineSelection) => {
     invoker.current =
       document.activeElement instanceof HTMLElement
@@ -210,7 +259,11 @@ function ScheduleContent({
   };
   const visible = data.records.filter((event) => inRange(event, range));
   return (
-    <section className={styles.schedule} aria-labelledby="schedule-heading">
+    <section
+      data-home-schedule
+      className={styles.schedule}
+      aria-labelledby="schedule-heading"
+    >
       <TimelineToolbar
         navigation={navigation}
         timeZone={timeZone}

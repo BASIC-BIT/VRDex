@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { HomeSchedule } from "./timeline/home-schedule";
 
 import { PublicSearchControl } from "./public-search-control";
 import { buttonVariants } from "@/components/ui/button";
@@ -23,6 +24,7 @@ export function HomeSearchPage() {
           </h1>
           <PublicSearchControl action="/search" surface="home" tone="default" />
         </header>
+        <HomeSchedule />
       </PageContainer>
     </PageShell>
   );
