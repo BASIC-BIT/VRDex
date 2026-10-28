@@ -105,7 +105,6 @@ function ScheduleContent({
       notifySelection(selection);
     }
   }, [selection]);
-  const [limit, setLimit] = useState(false);
   const preference = useTimelinePreferences();
   const pending = useRef<{
     timer: ReturnType<typeof setTimeout>;
@@ -209,11 +208,7 @@ function ScheduleContent({
   const onSave = (reference: PlanReference) => {
     const action = togglePlanAction(preference.preferences.plan, reference);
     if (!action) return;
-    const result =
-      action.type === "remove-plan"
-        ? preference.removePlan(action.reference)
-        : preference.addPlan(action.reference);
-    setLimit(result.outcome === "limit");
+    browse.onPreferenceAction(action);
   };
   const actions: TimelineActions = {
     selection,
@@ -222,12 +217,10 @@ function ScheduleContent({
     onSelect,
     onSave,
     onFavorite: (profileId) => {
-      const result = preference.preferences.favoriteProfileIds.includes(
+      browse.onPreferenceAction({
+        type: preference.preferences.favoriteProfileIds.includes(profileId) ? "remove-favorite" : "add-favorite",
         profileId,
-      )
-        ? preference.removeFavorite(profileId)
-        : preference.addFavorite(profileId);
-      setLimit(result.outcome === "limit");
+      });
     },
   };
   const nextSaved = () => {
@@ -330,7 +323,6 @@ function ScheduleContent({
             ? "No favorites in this range"
             : "No events in this range")}
         {preference.persistence === "session" && <span>Not saved</span>}
-        {limit && <span>Limit reached</span>}
         {data.savedState === "loading" && <span>Loading events</span>}
         {data.savedState === "error" && (
           <>

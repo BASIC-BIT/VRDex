@@ -45,7 +45,9 @@ request private suggestions. `/discover?q=aurora` redirects to standard search.
 Home also includes the continuous Schedule, Agenda, nonmodal event details,
 browser-local My night and private DJ/club favorites. No sign-in is required.
 Without JavaScript, the interactive schedule is hidden and GET search and
-Discovery remain usable. The later discovery composition is separate work.
+Discovery remain usable. Home also shows poster-led event and club
+recommendations below Schedule, using public musical identity and browser-local
+favorites. Discovery reaches future dates independently of the Schedule window.
 
 Scripts refuse to run on the `main` branch. Work on a branch or a worktree;
 the guard prints the command to create one.
@@ -159,7 +161,7 @@ nonproduction web process. The browser suite exercises actual `/`.
 Run its local desktop/mobile flows with:
 
 ```bash
-pnpm --filter web exec playwright test home-timeline.flow.spec.ts --workers=1
+pnpm --filter web exec playwright test home-timeline.flow.spec.ts home-discovery.flow.spec.ts --workers=1
 ```
 
 `e2e/home-timeline-fixture.ts` creates a unique run through
@@ -174,7 +176,12 @@ or recreate its first slot with a new stable ID, after verifying ownership. The 
 `detail` scenario authors 81 timed slots on one event, two untimed entries and
 one hidden person for continuation/privacy checks. It cleans exactly eight
 events, three profiles, 87 slots and two lineup entries. Default and prefetch
-runs still clean eight events, two profiles and eight slots. Reuse this helper
+runs still clean eight events, two profiles and eight slots. The `discovery`
+scenario authors two events seven and forty days away, four public profiles
+(two clubs and two DJs) with exact public genre assignments, and two confirmed
+slots. It cleans exactly two events, four profiles and two slots. The shared
+backend-origin lease covers each complete run through verified cleanup; future
+dates must not bypass it. Reuse this helper
 for Home checks; do not seed public-query responses or
 add unrelated records manually.
 

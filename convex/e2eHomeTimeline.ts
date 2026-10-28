@@ -32,7 +32,13 @@ export const create = mutation({
     secret: v.string(),
     runId: v.string(),
     startAt: v.number(),
-    scenario: v.optional(v.union(v.literal("prefetch"), v.literal("detail"))),
+    scenario: v.optional(
+      v.union(
+        v.literal("prefetch"),
+        v.literal("detail"),
+        v.literal("discovery"),
+      ),
+    ),
   },
   handler: async (ctx, args) => {
     guard(args.secret, args.runId);
@@ -50,6 +56,104 @@ export const create = mutation({
           .first()
       )
         throw Error("Fixture run already exists");
+    if (args.scenario === "discovery") {
+      const profileIds: Id<"profiles">[] = [];
+      const kinds = ["community", "person", "community2", "person2"];
+      for (const [index, kind] of kinds.entries()) {
+        const community = kind.startsWith("community");
+        profileIds.push(
+          await ctx.db.insert("profiles", {
+            slug: `${args.runId}-${kind}`,
+            displayName: [
+              "Prism Collective",
+              "Aurora",
+              "Tidal Society",
+              "Nori",
+            ][index],
+            sortName: kind,
+            ...(community
+              ? {
+                  profileType: "community" as const,
+                  community: { categoryTags: [] },
+                }
+              : {
+                  profileType: "person" as const,
+                  person: { roleTags: ["DJ"] },
+                }),
+            ...(community
+              ? {
+                  avatarImageUrl: `https://timeline-artwork.invalid/${args.runId}/prism.svg`,
+                }
+              : {}),
+            genres: [
+              {
+                slug: "fixture-liquid",
+                displayName: "Liquid DnB",
+                source: "owner_selected",
+                confidence: "high",
+                explicit: true,
+              },
+            ],
+            aliases: [],
+            tags: [],
+            claimState: "unclaimed",
+            creationSource: "community",
+            publicationState: "published",
+            publicSurfacingState: "public",
+            updatedAt: Date.now(),
+            sourceAttribution: {
+              submittedAt: Date.now(),
+              submitter: {
+                tokenIdentifier: `e2e:${args.runId}`,
+                issuer: "vrdex:e2e",
+                subject: args.runId,
+              },
+            },
+          }),
+        );
+      }
+      const eventIds: Id<"events">[] = [],
+        slotIds: Id<"eventSlots">[] = [];
+      for (let i = 0; i < 2; i++) {
+        const startAt = args.startAt + (i === 0 ? 24 * 7 : 24 * 40) * h;
+        const eventId = await ctx.db.insert("events", {
+          slug: `${args.runId}-${i}`,
+          title: i === 0 ? "ORBIT" : "Low Tide",
+          sortTitle: i === 0 ? "orbit" : "low tide",
+          posterImageUrl:
+            i === 0
+              ? "/api/e2e/fixture-assets/fixture-orbit-timeline-poster"
+              : "/api/e2e/fixture-assets/fixture-low-tide-discovery-poster",
+          communityProfileId: profileIds[i * 2],
+          startAt,
+          endAt: startAt + 4 * h,
+          scheduleKind: "timed",
+          eventStatus: "scheduled",
+          publicationState: "published",
+          sourceType: "community",
+          sourceLabel: args.runId,
+          updatedAt: Date.now(),
+        });
+        eventIds.push(eventId);
+        slotIds.push(
+          await ctx.db.insert("eventSlots", {
+            eventId,
+            position: 0,
+            personProfileId: profileIds[i * 2 + 1],
+            startAt,
+            endAt: startAt + h,
+            displayLabel: i === 0 ? "Aurora" : "Nori",
+            roleLabel: "DJ",
+            sourceType: "community",
+            sourceLabel: args.runId,
+            confidence: 1,
+            reviewState: "confirmed",
+            updatedAt: Date.now(),
+          }),
+        );
+      }
+      return { runId: args.runId, eventIds, slotIds, profileIds };
+    }
     const profiles: Id<"profiles">[] = [];
     for (const kind of args.scenario === "detail"
       ? (["community", "person", "hidden"] as const)
@@ -230,7 +334,13 @@ export const cleanup = mutation({
       await ctx.db.delete(e._id);
       count.events++;
     }
-    for (const kind of ["community", "person", "hidden"]) {
+    for (const kind of [
+      "community",
+      "person",
+      "hidden",
+      "community2",
+      "person2",
+    ]) {
       const p = await ctx.db
         .query("profiles")
         .withIndex("by_slug", (q) => q.eq("slug", `${args.runId}-${kind}`))

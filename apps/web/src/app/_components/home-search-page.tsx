@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { HomeBrowseProvider } from "./home-browse-provider";
+import { HomeDiscovery } from "./discovery/home-discovery";
 import { HomeSchedule } from "./timeline/home-schedule";
 
 import { PublicSearchControl } from "./public-search-control";
@@ -24,7 +26,10 @@ export function HomeSearchPage() {
           </h1>
           <PublicSearchControl action="/search" surface="home" tone="default" />
         </header>
-        <HomeSchedule />
+        <HomeBrowseProvider>
+          <HomeSchedule />
+          <HomeDiscovery />
+        </HomeBrowseProvider>
       </PageContainer>
     </PageShell>
   );

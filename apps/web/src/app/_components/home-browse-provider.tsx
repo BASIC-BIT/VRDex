@@ -11,6 +11,7 @@ type BrowseActions = {
   selection: TimelineSelection | null;
   selectEvent(selection: TimelineSelection, invoker: HTMLElement | null): void;
   closeEvent(): void;
+  onPreferenceAction(action: PreferenceAction): void;
   setDisplayTimeZone(zone: string): void;
   registerBeforeTimeZoneChange(flush: () => void): () => void;
 };
@@ -65,13 +66,14 @@ export function HomeBrowseProvider({ children }: { children: ReactNode }) {
     beforeTimeZoneChange.current.add(flush);
     return () => { beforeTimeZoneChange.current.delete(flush); };
   }, []);
-  const value = useMemo<HomeBrowse>(() => ({ ...runtime, selection, selectEvent, closeEvent, setDisplayTimeZone, registerBeforeTimeZoneChange }), [runtime, selection, selectEvent, closeEvent, setDisplayTimeZone, registerBeforeTimeZoneChange]);
-  const onPreferenceAction = (action: PreferenceAction) => {
-    const result = action.type === "add-plan" ? preference.addPlan(action.reference)
-      : action.type === "remove-plan" ? preference.removePlan(action.reference)
-        : action.type === "add-favorite" ? preference.addFavorite(action.profileId) : preference.removeFavorite(action.profileId);
+  const { addPlan, removePlan, addFavorite, removeFavorite } = preference;
+  const onPreferenceAction = useCallback((action: PreferenceAction) => {
+    const result = action.type === "add-plan" ? addPlan(action.reference)
+      : action.type === "remove-plan" ? removePlan(action.reference)
+        : action.type === "add-favorite" ? addFavorite(action.profileId) : removeFavorite(action.profileId);
     setLimit(result.outcome === "limit");
-  };
+  }, [addPlan, removePlan, addFavorite, removeFavorite]);
+  const value = useMemo<HomeBrowse>(() => ({ ...runtime, selection, selectEvent, closeEvent, onPreferenceAction, setDisplayTimeZone, registerBeforeTimeZoneChange }), [runtime, selection, selectEvent, closeEvent, onPreferenceAction, setDisplayTimeZone, registerBeforeTimeZoneChange]);
   return <HomeBrowseContext.Provider value={value}>
     {children}
     {runtime.kind === "ready" && <EventDetailPanel selection={selection} timeZone={runtime.timeZone} onClose={closeEvent} preferences={preference.preferences} onPreferenceAction={onPreferenceAction} />}

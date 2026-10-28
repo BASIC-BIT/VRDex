@@ -10,7 +10,7 @@ export type TimelineFixture = {
 };
 export const test = base.extend<{
   timelineFixture: TimelineFixture;
-  timelineScenario: "default" | "prefetch" | "detail";
+  timelineScenario: "default" | "prefetch" | "detail" | "discovery";
   timelineStartAt: number;
 }>({
   timelineScenario: ["default", { option: true }],
@@ -18,16 +18,20 @@ export const test = base.extend<{
   page: async ({ page, timelineFixture, request }, provide) => {
     // Only the run-owned image URL is bridged to original local artwork.
     // Public event/profile query responses always come from the real backend.
+    const artwork = await request.get(
+      "/api/e2e/fixture-assets/fixture-prism-timeline-logo",
+    );
+    await expect(artwork).toBeOK();
+    const artworkBody = await artwork.body();
     await page
       .context()
       .route(
         `https://timeline-artwork.invalid/${timelineFixture.runId}/prism.svg`,
         async (route) => {
-          const artwork = await request.get(
-            "/api/e2e/fixture-assets/fixture-prism-timeline-logo",
-          );
-          await expect(artwork).toBeOK();
-          await route.fulfill({ response: artwork });
+          await route.fulfill({
+            body: artworkBody,
+            contentType: "image/svg+xml",
+          });
         },
       );
     await provide(page);
@@ -66,8 +70,9 @@ export const test = base.extend<{
                   : {
                       runId,
                       startAt: timelineStartAt,
-                      ...(timelineScenario === "detail"
-                        ? { scenario: "detail" }
+                      ...(timelineScenario === "detail" ||
+                      timelineScenario === "discovery"
+                        ? { scenario: timelineScenario }
                         : {}),
                     },
             });
@@ -104,9 +109,19 @@ export const test = base.extend<{
               // A disconnected POST can commit after DELETE reads zero. Only
               // exact owned cleanup proves the attempted create is cleared.
               expect(counts).toEqual({
-                events: 8,
-                profiles: timelineScenario === "detail" ? 3 : 2,
-                slots: timelineScenario === "detail" ? 87 : 8,
+                events: timelineScenario === "discovery" ? 2 : 8,
+                profiles:
+                  timelineScenario === "discovery"
+                    ? 4
+                    : timelineScenario === "detail"
+                      ? 3
+                      : 2,
+                slots:
+                  timelineScenario === "discovery"
+                    ? 2
+                    : timelineScenario === "detail"
+                      ? 87
+                      : 8,
                 ...(timelineScenario === "detail" ? { lineupEntries: 2 } : {}),
               });
             } catch (error) {
