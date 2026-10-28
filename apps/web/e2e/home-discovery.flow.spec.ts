@@ -219,4 +219,66 @@ test.describe("Home discovery @flow @fixture", () => {
       0,
     );
   });
+  test("a native Schedule add rejection stays in view and a discovery removal clears it", async ({
+    page,
+    timelineFixture,
+    isMobile,
+  }, info) => {
+    await page.addInitScript(({ eventIds, profileIds }) => {
+      localStorage.setItem(
+        "vrdex.timeline.preferences.v1",
+        JSON.stringify({
+          version: 1,
+          plan: [
+            { kind: "event", eventId: eventIds[1] },
+            ...Array.from({ length: 199 }, (_, i) => ({
+              kind: "event",
+              eventId: `missing-${i}`,
+            })),
+          ],
+          favoriteProfileIds: profileIds.slice(0, 2),
+        }),
+      );
+    }, timelineFixture);
+    // The actual discovery fixture's ORBIT is seven days after the fixed clock.
+    await page.goto(`/?at=${TIMELINE_NOW + 7 * 24 * 3_600_000 - 3_600_000}`);
+    await expect(page.getByLabel("Schedule data state")).toHaveAttribute(
+      "data-state",
+      "ready",
+      { timeout: 20000 },
+    );
+    const bar = page.getByTestId(`event-${timelineFixture.eventIds[0]}`);
+    await expect(
+      bar.getByRole("button", { name: "Open Aurora at ORBIT", exact: true }),
+    ).toBeVisible();
+    // Touch uses the existing Agenda actions; chart Add controls are hover-only.
+    if (isMobile)
+      await page.getByRole("button", { name: "Agenda", exact: true }).click();
+    const schedule = page.getByRole("region", { name: "Schedule", exact: true });
+    const add = schedule.getByRole("button", {
+      name: "Add ORBIT to My night",
+      exact: true,
+    });
+    await add.click();
+    const warning = page.getByText("Limit reached", { exact: true });
+    await expect(warning).toHaveCount(1);
+    await expect(warning).toBeInViewport({ ratio: 1 });
+    await expect(add).toBeVisible();
+    await page.screenshot({ path: info.outputPath("native-schedule-limit.png") });
+    const discover = page.getByRole("region", {
+      name: "Discover",
+      exact: true,
+    });
+    await discover
+      .getByRole("button", { name: "Remove Low Tide from My night", exact: true })
+      .click();
+    await expect(warning).toHaveCount(0);
+    await add.click();
+    await expect(
+      schedule
+        .getByRole("button", { name: "Remove ORBIT from My night", exact: true })
+        .last(),
+    ).toBeVisible();
+    await expect(warning).toHaveCount(0);
+  });
 });

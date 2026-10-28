@@ -185,6 +185,18 @@ dates must not bypass it. Reuse this helper
 for Home checks; do not seed public-query responses or
 add unrelated records manually.
 
+`eventTimeline.listPublic` pages event identities only. Its compatible
+`TimelineEvent` shape starts with empty `slots` and `performers` and an initial
+roster cursor bound to the event, range and chart mode. Native Convex shares the
+single-pagination limit with nested queries, so the existing window controller
+hydrates all roster phases through separate `listPublicRoster` client calls.
+Each roster call reads at most 80 candidates and rechecks public eligibility.
+An event's lineup remains partial until its roster cursor is exhausted; event
+page completion alone does not establish complete lineup or favorite coverage.
+This adds one client roster request per event per fetched window compared with
+inline first-page hydration. The ten-page roster budget still applies, with
+More for remaining pages.
+
 The schedule's nonmodal detail panel reads canonical event poster/prose through
 `events.getPublicBySlug`. `eventTimeline.listPublicRoster` accepts optional
 `detail: true` for the complete mixed lineup and eligible favorite IDs, with
