@@ -92,6 +92,7 @@ import type * as _previewPersistence from "../_previewPersistence.js";
 import type * as _profileAppearance from "../_profileAppearance.js";
 import type * as _profileAssets from "../_profileAssets.js";
 import type * as _profileClaimCreation from "../_profileClaimCreation.js";
+import type * as _profileConnectionVerification from "../_profileConnectionVerification.js";
 import type * as _profileFieldVisibility from "../_profileFieldVisibility.js";
 import type * as _profileImageFallback from "../_profileImageFallback.js";
 import type * as _profileLinkDestination from "../_profileLinkDestination.js";
@@ -306,6 +307,7 @@ declare const fullApi: ApiFromModules<{
   _profileAppearance: typeof _profileAppearance;
   _profileAssets: typeof _profileAssets;
   _profileClaimCreation: typeof _profileClaimCreation;
+  _profileConnectionVerification: typeof _profileConnectionVerification;
   _profileFieldVisibility: typeof _profileFieldVisibility;
   _profileImageFallback: typeof _profileImageFallback;
   _profileLinkDestination: typeof _profileLinkDestination;
