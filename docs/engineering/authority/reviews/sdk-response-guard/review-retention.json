@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "verdicts": {
+    "spec": "PASS",
+    "quality": "PASS"
+  },
+  "reviewSHA256": "3a2036b979e151b637a698cff2919a3310e0d7908547f905f799bf0cffacab9b",
+  "archiveSHA256": "f603eb520c2ad502e972228d9ebf74b4e0aa4bb4c238745f529fd7d25c8a749d",
+  "scope": "retained source/generated-fixture evidence; no SDK/native/capacity approval",
+  "sourceReviewSHA256": "44a34a7a1de5f4e5576fd4258ccb3c7e86093897b54b530693aec0993fa64626"
+}

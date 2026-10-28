@@ -1,0 +1,46 @@
+{
+  "schema": "capacity-fixture-review-retention-v1",
+  "sourceCommits": {
+    "scheduler": "dc249a52a9463d7f38be2db8a2935bba202a20c8",
+    "bridge": "b6b338a664630c9fa4237e43932ef2b36cbbc372",
+    "fixtureFix": "032307dd76ed56a977c7b6458fc5df8587f1f775"
+  },
+  "archives": [
+    {
+      "path": "docs/engineering/authority/reviews/capacity-fixtures/host-verification.zip",
+      "bytes": 1217523,
+      "sha256": "7427eb2533d623991f42311a23a1a2af06ee7db7bd23869206dc1807bbd16dba",
+      "members": 29
+    },
+    {
+      "path": "docs/engineering/authority/reviews/capacity-fixtures/source-subjects.zip",
+      "bytes": 127784,
+      "sha256": "f59f8241fa2b5583ada93a915abcb65ba0c6612662c56fe27ddfe5212710332b",
+      "members": 31
+    },
+    {
+      "path": "docs/engineering/authority/reviews/capacity-fixtures/local-api-evidence.zip",
+      "bytes": 52759,
+      "sha256": "e63bf233233e95890f731a23c12d935489690317a171c3a3680ece7fc65c33b8",
+      "members": 8
+    }
+  ],
+  "reviews": [
+    {
+      "path": "docs/engineering/authority/reviews/capacity-unit-test-seam-scheduler-review.md",
+      "bytes": 9467,
+      "sha256": "3c04e8245c362d606c92f266ddabce4147e72d1ee5ce21abacef1c896367fa69"
+    },
+    {
+      "path": "docs/engineering/authority/reviews/capacity-unit-test-seam-bridge-review.md",
+      "bytes": 7258,
+      "sha256": "b0bdc55647fcddf49378af342f57fdf0288cb836d9296751e9e4cfb6a0aac17b"
+    },
+    {
+      "path": "docs/engineering/authority/reviews/capacity-unit-test-seam-fixture-fix-review.md",
+      "bytes": 6026,
+      "sha256": "38acdedabe30374e9a0a0fb8aa9a26cc8201d29d713348ac8c42918337028965"
+    }
+  ],
+  "scope": "Source tests and anonymous-local API only; actual production admission and native/capacity gates remain open."
+}

@@ -1,4 +1,5 @@
-import { loadFixtureEvents } from "../fixtures/event-modules";
+import { fixtureCapacityResolver } from "../scripts/_event-allocation-fixture.mjs";
+import { loadEventsWithFixtureCapacity } from "./_eventCapacityFixture";
 import { bindVrcdnTestAccount } from "./_eventOutputAccountFixture";
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -13,14 +14,14 @@ const worker = (name: string) => makeFunctionReference<"mutation">(`eventMediaWo
 const settingsMutation = makeFunctionReference<"mutation">("eventMediaSettings:configure");
 const modules = {
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
-  "../../convex/events.ts": loadFixtureEvents,
+  "../../convex/events.ts": loadEventsWithFixtureCapacity,
   "../../convex/eventMediaWorker.ts": () => import("../../convex/eventMediaWorker"),
   "../../convex/eventMediaSettings.ts": () => import("../../convex/eventMediaSettings"),
   "../../convex/eventMediaSources.ts": () => import("../../convex/eventMediaSources"),
 };
 const bridgeToken = "settings-test-credential";
 process.env.VRDEX_EVENT_MEDIA_BRIDGE_TOKEN = bridgeToken;
-async function setupFixture(eventsLoader = loadFixtureEvents) {
+async function setupFixture(eventsLoader = loadEventsWithFixtureCapacity) {
   const t = convexTest({ schema, modules: { ...modules, "../../convex/events.ts": eventsLoader } });
   const subject = newClerkUserId();
   await t.run(async ({ db }) => {
@@ -76,7 +77,7 @@ test("settings require media authority, preserve active snapshots, and apply at 
   const lease = await t.mutation(worker("acquireSession"),workerArgs);
   const original = await t.run(ctx => ctx.db.get(scheduled.sessionId));
   assert.equal(original!.controlProtocolVersion,2);
-  assert.deepEqual(original!.allocation, {cpuUnits:4096,memoryMiB:8192,evidenceId:"unit-test-synthetic-capacity-v1"});
+  assert.deepEqual(original!.allocation, fixtureCapacityResolver({videoPreset:'1080p60',simulcastEnabled:false}));
   assert.deepEqual(lease.configuration.allocation, original!.allocation);
   assert.deepEqual(original!.mediaSettings,{videoPreset:"1080p60",audioBitrateKbps:320});
   assert.equal(original!.destinationProfiles![0]!.profile.frameRate,60);
@@ -147,7 +148,7 @@ test("synthetic scheduling does not open the production capacity registry", asyn
   const { scheduled } = await synthetic.schedule();
   const stored = await synthetic.t.run(ctx => ctx.db.get(scheduled.sessionId));
   assert.deepEqual(stored!.allocation, {
-    cpuUnits: 4096, memoryMiB: 8192, evidenceId: "unit-test-synthetic-capacity-v1",
+    cpuUnits: 4096, memoryMiB: 8192, evidenceId: "fixture-capacity-v1",
   });
   const production = await setupFixture(() => import("../../convex/events"));
   const snapshot = () => production.t.run(async ({ db }) => ({

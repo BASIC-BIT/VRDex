@@ -1,4 +1,5 @@
 import { resolveWorkerAllocation, validateMeasuredSnapshot } from '../workers/restream/broadcast-capacity.mjs';
+/** @typedef {import("../workers/restream/broadcast-capacity.mjs").CapacityResolver} CapacityResolver */
 import { validateAllocationSnapshot } from '../workers/restream/worker-allocation.mjs';
 import { pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
@@ -301,6 +302,7 @@ export function taskDefinitionFor(command, config, resolve = resolveWorkerAlloca
   };
 }
 
+/** @param {CapacityResolver} resolveAllocation */
 async function registerTaskDefinition(command, config, runAws, resolveAllocation) {
   return runAws(config, ["ecs", "register-task-definition", "--cli-input-json", JSON.stringify(taskDefinitionFor(command, config, resolveAllocation))]);
 }
@@ -359,6 +361,7 @@ async function cleanupLosingDefinition(client, config, command, taskDefinitionAr
     console.warn(JSON.stringify({ event: "event_media_unused_definition_manual_cleanup", sessionId: command.session.sessionId, ...(recorded?.accepted === true ? { taskDefinitionArn } : {}) }));
   }
 }
+/** @param {CapacityResolver} resolveAllocation */
 async function startCommand(command, client, config, runAws, isDraining, resolveAllocation) {
   command.dispatchId = command.session.dispatchId ?? randomUUID();
   const identity = { bridgeToken: config.bridgeToken, eventId: command.eventId, sessionId: command.session.sessionId, dispatchId: command.dispatchId, commandId: command.commandId, workerId: config.workerId };
@@ -469,7 +472,8 @@ async function recordClaimedCommandError(command, error, client, config) {
   );
 }
 
-export async function claimAndProcess(client, config, runAws = aws, isDraining = () => false, resolveAllocation = resolveWorkerAllocation) {
+/** @param {{resolveAllocation?: CapacityResolver}} [dependencies] */
+export async function claimAndProcess(client, config, runAws = aws, isDraining = () => false, {resolveAllocation = resolveWorkerAllocation} = {}) {
   if (isDraining()) return false;
   const command = await client.mutation(convexApi.claimEventMediaWorkerCommand, {
     bridgeToken: config.bridgeToken,
@@ -607,11 +611,11 @@ export async function refreshSessions(client, config, runAws = aws, draining = f
 }
 
 export async function runBridge(client, config, runAws = aws, {
-  resolveAllocation = resolveWorkerAllocation,
   wallClock = Date.now,
   monotonicClock = () => performance.now(),
   signals = process,
   wait = (ms, signal) => sleep(ms, undefined, { signal }),
+  resolveAllocation = resolveWorkerAllocation,
 } = {}) {
   // Anchor the absolute deadline once. Wall clock changes cannot extend this
   // process, and a retry uses the same absolute environment deadline.
@@ -632,7 +636,7 @@ export async function runBridge(client, config, runAws = aws, {
   signals.on("SIGINT", requestDrain);
   try {
     while (true) {
-      if (!isDraining()) await claimAndProcess(client, config, runAws, isDraining, resolveAllocation);
+      if (!isDraining()) await claimAndProcess(client, config, runAws, isDraining, {resolveAllocation});
       const refreshDraining = isDraining();
       const remaining = await refreshSessions(client, config, runAws, refreshDraining);
       if (isDraining()) {
