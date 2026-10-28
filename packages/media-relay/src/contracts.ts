@@ -244,3 +244,21 @@ export function snapshotObjectKey(snapshot: RenditionSnapshot) {
   if (!last) throw Error("Empty snapshot");
   return `${snapshot.streamKey}/epochs/${snapshot.epoch}/snapshots/${snapshot.rendition}-${last.sequence}.json`;
 }
+
+/** Gateway-only control read. Every result is resolved at server time; never browser supplied time. */
+export const GatewayAuthorizationSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("denied") }),
+  z.strictObject({
+    kind: z.literal("unavailable"),
+    reason: SourceTerminalReasonSchema,
+  }),
+  z.strictObject({
+    kind: z.literal("active"),
+    grant: PlaybackGrantSchema,
+    state: z.enum(["queued", "starting", "ready", "recovering"]),
+    epoch: positiveInteger.nullable(),
+    leaseExpiresAt: measurement.nullable(),
+    snapshot: PublishedSnapshotSchema.nullable(),
+  }),
+]);
+export type GatewayAuthorization = z.infer<typeof GatewayAuthorizationSchema>;

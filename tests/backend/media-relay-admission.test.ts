@@ -540,3 +540,145 @@ it("unsupported terminal result reaches existing playback grants and only new Pl
     }),
   );
 });
+
+it("external gateway query authenticates its own scope and rechecks grant context, epoch, expiry and unsupported without mutating admission", async () => {
+  const h = await fixture();
+  process.env.MEDIA_RELAY_GATEWAY_TOKEN = "gateway-only-token";
+  process.env.MEDIA_RELAY_WORKER_TOKEN = "worker-only-token";
+  const gateway = makeFunctionReference<"query">(
+    "mediaRelayWorker:readGateway",
+  );
+  const grantId = preparing(await h.play()).grantId;
+  const args = {
+    credential: "gateway-only-token",
+    grantId,
+    rendition: "video",
+  };
+  await assert.rejects(
+    h.t.query(gateway, { ...args, credential: "worker-only-token" }),
+  );
+  const queued = await h.t.query(gateway, args);
+  assert.equal(queued.kind, "active");
+  assert.equal(queued.snapshot, null);
+  await h.t.run(async (ctx) => {
+    const row = await ctx.db.query("mediaRelaySources").first();
+    assert.ok(row);
+    await ctx.db.patch(row._id, {
+      state: "ready",
+      epoch: 3,
+      leaseExpiresAt: Date.now() + 30000,
+    });
+  });
+  const ready = await h.t.query(gateway, args);
+  assert.equal(ready.epoch, 3);
+  assert.ok(ready.leaseExpiresAt > Date.now());
+  assert.equal(ready.snapshot, null);
+  await h.t.run(async (ctx) => {
+    const row = await ctx.db.query("mediaRelaySources").first();
+    assert.ok(row);
+    const now = Date.now();
+    await ctx.db.patch(row._id, {
+      leaseExpiresAt: now - 1,
+      snapshots: {
+        video: {
+          streamKey: "vrcdn/Alpha/1",
+          epoch: 3,
+          rendition: "video",
+          targetDurationSeconds: 2,
+          sequence: 0,
+          discontinuitySequence: 0,
+          generatedAt: now,
+          segments: [
+            {
+              sequence: 0,
+              objectKey: "vrcdn/Alpha/1/epochs/3/attempt-1-abc/video-0.ts",
+              durationSeconds: 2,
+              programDateTime: now,
+              discontinuity: false,
+            },
+          ],
+        },
+      },
+    });
+  });
+  assert.equal(
+    (await h.t.query(gateway, args)).snapshot,
+    null,
+    "expired server lease must not expose an authoritative media pointer",
+  );
+  const sourceId = await h.t.run(async (ctx) => {
+    const source = await ctx.db.query("mediaRelaySources").first();
+    assert.ok(source);
+    await ctx.db.patch(source._id, {
+      state: "unavailable",
+      terminalReason: "unsupported",
+    });
+    return source._id;
+  });
+  assert.deepEqual(await h.t.query(gateway, args), {
+    kind: "unavailable",
+    reason: "unsupported",
+  });
+  assert.deepEqual(await h.t.query(gateway, args), {
+    kind: "unavailable",
+    reason: "unsupported",
+  });
+  await h.t.run(async (ctx) => {
+    const source = await ctx.db.get(sourceId);
+    assert.equal(source?.state, "unavailable");
+    assert.equal(source?.admissionRevision, undefined);
+    await ctx.db.patch(h.profileId, { publicationState: "draft_private" });
+  });
+  assert.deepEqual(await h.t.query(gateway, args), { kind: "denied" });
+  await h.t.run(async (ctx) => {
+    await ctx.db.patch(h.profileId, { publicationState: "published" });
+    const row = await ctx.db.query("mediaRelayGrants").first();
+    assert.ok(row);
+    await ctx.db.patch(row._id, { expiresAt: Date.now() });
+  });
+  assert.deepEqual(await h.t.query(gateway, args), { kind: "denied" });
+  process.env.MEDIA_RELAY_GATEWAY_TOKEN = "worker-only-token";
+  await assert.rejects(
+    h.t.query(gateway, { ...args, credential: "worker-only-token" }),
+  );
+});
+
+it("gateway credentials cannot register workers even when misconfigured to the same token", async () => {
+  const h = await fixture();
+  process.env.MEDIA_RELAY_GATEWAY_TOKEN = "same-token";
+  process.env.MEDIA_RELAY_WORKER_TOKEN = "same-token";
+  process.env.MEDIA_RELAY_WORKERS = JSON.stringify([
+    {
+      workerId: "one",
+      workerEpoch: 1,
+      allocation: {
+        cpuUnits: 1024,
+        memoryMiB: 2048,
+        evidenceId: "test-proof-1",
+      },
+      maxSources: 2,
+      draining: false,
+    },
+  ]);
+  const register = makeFunctionReference<"mutation">(
+    "mediaRelayWorker:registerWorker",
+  );
+  await assert.rejects(
+    h.t.mutation(register, {
+      credential: "same-token",
+      observation: {
+        workerId: "one",
+        workerEpoch: 1,
+        observedAt: Date.now(),
+        allocation: {
+          cpuUnits: 1024,
+          memoryMiB: 2048,
+          evidenceId: "test-proof-1",
+        },
+        activeJobs: 0,
+        resources: null,
+        jobs: [],
+      },
+    }),
+  );
+});

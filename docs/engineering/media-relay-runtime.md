@@ -166,3 +166,12 @@ terminal acknowledgment using Convex's local test runtime.
 These are local proofs. Provider storage behavior, deployed credentials, capacity,
 production cleanup throughput, actual VRCDN profiles and physical-phone playback
 remain later validation gates. No resources are provisioned by this runtime work.
+
+## Native gateway integration
+
+The [native playlist gateway](media-relay-gateway.md) supplies the concrete
+`demand.read({streamKeys, signal})` adapter and the API Gateway v2 handler
+boundary. An empty discovery batch still probes demand storage health. Gateway
+control reads use the separately authenticated `mediaRelayWorker:readGateway`
+public query; its grant/current-epoch/snapshot metadata is validated before
+immutable storage access. Task 7 binds provider SDKs to these explicit contracts.

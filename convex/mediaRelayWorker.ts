@@ -1,5 +1,7 @@
+import { resolveRelayGrant } from "./mediaRelayPlayback";
+import { GatewayAuthorizationSchema } from "../packages/media-relay/src/contracts";
 import { v } from "convex/values";
-import { mutation } from "./_generated/server";
+import { mutation, query } from "./_generated/server";
 import {
   PublishedSnapshotSchema,
   continuityAfter,
@@ -310,5 +312,53 @@ export const commitSnapshot = mutation({
         : {}),
     });
     return null;
+  },
+});
+
+// Gateway token has read-only playback scope and cannot be reused as worker authority.
+export const readGateway = query({
+  args: {
+    credential: v.string(),
+    grantId: v.string(),
+    rendition: v.union(v.literal("video"), v.literal("audio")),
+  },
+  handler: async (ctx, args) => {
+    const expected = process.env.MEDIA_RELAY_GATEWAY_TOKEN;
+    if (
+      !expected ||
+      expected === process.env.MEDIA_RELAY_WORKER_TOKEN ||
+      args.credential !== expected
+    )
+      throw Error("Gateway authentication denied");
+    const resolved = await resolveRelayGrant(ctx.db, args.grantId, Date.now());
+    if (resolved.kind === "denied")
+      return GatewayAuthorizationSchema.parse({ kind: "denied" });
+    const row = await ctx.db
+      .query("mediaRelaySources")
+      .withIndex("by_streamKey", (q) =>
+        q.eq("streamKey", resolved.grant.streamKey),
+      )
+      .unique();
+    if (
+      !row ||
+      row.state === "stopped" ||
+      row.state === "unavailable" ||
+      row.state === "draining"
+    )
+      return GatewayAuthorizationSchema.parse({
+        kind: "unavailable",
+        reason: row?.terminalReason ?? "unavailable",
+      });
+    return GatewayAuthorizationSchema.parse({
+      kind: "active",
+      grant: resolved.grant,
+      state: row.state,
+      epoch: row.epoch ?? null,
+      leaseExpiresAt: row.leaseExpiresAt ?? null,
+      snapshot:
+        (row.leaseExpiresAt ?? 0) > Date.now()
+          ? (row.snapshots?.[args.rendition] ?? null)
+          : null,
+    });
   },
 });

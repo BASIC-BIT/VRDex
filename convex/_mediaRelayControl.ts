@@ -15,7 +15,11 @@ export function authenticateWorker(
   workerEpoch: number,
 ) {
   const expected = process.env.MEDIA_RELAY_WORKER_TOKEN;
-  if (!expected || credential !== expected)
+  if (
+    !expected ||
+    expected === process.env.MEDIA_RELAY_GATEWAY_TOKEN ||
+    credential !== expected
+  )
     throw Error("Relay deployment authentication denied");
   const bindings = WorkerBindingsSchema.parse(
     JSON.parse(process.env.MEDIA_RELAY_WORKERS ?? "null"),
