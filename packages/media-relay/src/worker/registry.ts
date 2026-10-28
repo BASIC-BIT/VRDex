@@ -151,6 +151,13 @@ function slot(root: AbortSignal, timeoutMs: number) {
     };
     root.addEventListener("abort", cancel, { once: true });
     const timer = setTimeout(cancel, timeoutMs);
+    // Physical settlement precedes consumers: discovery must not see a settled
+    // observation as busy merely because a later finally microtask has not run.
+    const release = () => {
+      busy = false;
+      clearTimeout(timer);
+      root.removeEventListener("abort", cancel);
+    };
     void Promise.resolve()
       .then(() => {
         abort.signal.throwIfAborted();
@@ -158,12 +165,14 @@ function slot(root: AbortSignal, timeoutMs: number) {
       })
       .then(
         (value) => {
+          release();
           if (!finished && !abort.signal.aborted) {
             finished = true;
             success(value);
           }
         },
         () => {
+          release();
           if (!finished) {
             finished = true;
             failure();
@@ -172,11 +181,6 @@ function slot(root: AbortSignal, timeoutMs: number) {
       )
       .catch(() => {
         failure();
-      })
-      .finally(() => {
-        busy = false;
-        clearTimeout(timer);
-        root.removeEventListener("abort", cancel);
       });
   };
   return Object.assign(run, { isIdle: () => !busy });

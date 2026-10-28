@@ -1,8 +1,9 @@
 # Task 6 report
 
 Status: DONE_WITH_CONCERNS. Gateway implementation and its focused checks pass.
-A pre-existing Task 5 registry regression was found and reproduced against an
-untouched HEAD archive; it is described below and is not hidden by this status.
+A pre-existing Task 5 registry regression was found, reproduced against an
+untouched HEAD archive, and corrected in the separate follow-up below. Remaining
+concerns are provider binding, capacity and physical-phone validation.
 
 ## Delivered
 
@@ -108,7 +109,7 @@ No broad repository suite or real-media packaging suite was rerun. Existing
 Convex module exports are picked up by the generic generated API module; no new
 module/table required regeneration or hosted codegen.
 
-## Inherited failure and remaining limits
+## Inherited failure discovery and remaining limits
 
 `a terminal source now owned elsewhere frees its local slot after cleanup`
 (`packages/media-relay/tests/registry.test.ts:285`) fails `1 !== 2`. The isolated
@@ -117,9 +118,10 @@ HEAD` of the package/runtime into `/tmp/vrdex-task6-baseline-ZViCHf`, with symli
 to installed dependencies, reproduces the identical failure. The archive's first
 run lacked the package-level zod dependency link; after adding that link the test
 executed and failed identically. Task 6 does not modify registry or its fixture.
-The likely interaction is Task 5's new `observe.isIdle()` removal guard with
-repeated immediately-rejected observations. The coordinator was notified for a
-focused Task 5 follow-up; this report does not claim the registry suite is green.
+The initial suspected interaction was Task 5's new `observe.isIdle()` removal
+guard with repeated immediately-rejected observations. The coordinator requested
+a narrow correction within Task 6; the fix and final green registry results are
+recorded below. The historical 19/20 result remains above for completeness.
 
 Provider SDK bindings/security policy remain Task 7. Local crypto verifies the
 CloudFront signature algorithm, not deployed distribution policy. The gateway
@@ -129,3 +131,41 @@ so aggregate DynamoDB throughput depends on deployment concurrency. A lost
 request or failed store never invents freshness. Existing signed segment URLs
 retain their lifetime after grant revocation; future manifests are denied.
 Physical-phone behavior and production capacity remain unverified.
+
+## Follow-up: inherited registry physical-slot ordering correction
+
+Gateway commit: `c09cfe4`. The controller requested a separate narrow correction
+commit instead of leaving the reproduced baseline regression unresolved.
+
+Root cause: `slot()` released its `busy` flag in a trailing `.finally()` after
+success/failure callbacks. A source observation could be physically settled and
+rejected while a concurrent discovery callback still saw `observe.isIdle()` as
+false. Repeated rejected observations occupied that same microtask window on
+each reconciliation, permanently retaining the terminal job's source slot.
+
+The correction releases physical capacity and removes its timer/abort listener
+inside the work's fulfillment/rejection callback, before invoking consumers.
+No control protocol changed and the `job.observe.isIdle()` removal guard remains.
+Timeout/cancel callbacks do not release capacity: an unresolved adapter continues
+to quarantine the job until actual fulfillment/rejection. Thus both a settled
+rejection and an actually pending ignored cancellation are distinguished.
+
+Existing baseline failure supplied RED: isolated
+`--test-name-pattern='terminal source now owned elsewhere'` returned `1 !== 2`
+in both the working tree and untouched archive. After the correction:
+
+- `node --import tsx --test --test-name-pattern='terminal source now owned elsewhere|disappearing terminal job' packages/media-relay/tests/registry.test.ts`:
+  **2 tests, 2 pass, 0 fail**, exit 0. This includes the Task 5 pending-observation
+  quarantine regression as well as the formerly failing settled-rejection case.
+- `node --import tsx --test packages/media-relay/tests/registry.test.ts packages/media-relay/tests/demand.test.ts`:
+  **21 tests, 21 pass, 0 fail**, exit 0, including registry lifecycle/recovery,
+  lost-Close idle shutdown, empty-batch outage accounting and the real adapter
+  outage-grace integration.
+- `pnpm --filter @vrdex/media-relay typecheck`: exit 0, no diagnostics.
+- `git diff --check`: exit 0.
+
+These commands again activated the prepared environment; test commands used
+local process permission without provider calls. No broad/media suite was
+rerun. Self-review checked cancellation still retains `busy` until physical
+settlement, callback-triggered follow-up work cannot be overwritten by an old
+trailing finally, and all existing cleanup/idle guards remain intact.

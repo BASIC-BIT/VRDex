@@ -175,3 +175,9 @@ boundary. An empty discovery batch still probes demand storage health. Gateway
 control reads use the separately authenticated `mediaRelayWorker:readGateway`
 public query; its grant/current-epoch/snapshot metadata is validated before
 immutable storage access. Task 7 binds provider SDKs to these explicit contracts.
+
+Physical operation slots release capacity when their underlying promise settles,
+before invoking result consumers. Timeout or cancellation alone does not release
+a slot. This lets discovery retire a terminal job after an already-settled
+rejected observation, while keeping a noncooperative pending observation
+quarantined. Job removal continues to require an idle observation channel.
