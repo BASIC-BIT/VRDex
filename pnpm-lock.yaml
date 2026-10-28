@@ -156,6 +156,9 @@ importers:
       fast-xml-parser:
         specifier: 5.7.3
         version: 5.7.3
+      hls.js:
+        specifier: 1.6.16
+        version: 1.6.16
       lucide-react:
         specifier: ^1.24.0
         version: 1.24.0(react@19.2.3)
@@ -9328,6 +9331,9 @@ packages:
 
   obliterator@1.6.1:
     resolution: {integrity: sha512-9WXswnqINnnhOG/5SLimUlzuU1hFJUc8zkwyD59Sd+dPOMf05PmnYG/d6Q7HZ+KmgkZJa1PxRso6QdM3sTNHig==}
+
+  hls.js@1.6.16:
+    resolution: {integrity: sha512-VSIRpLfRwlAAdGL4wiTucx2ScRipo0ed1FBatWkyt832jC4CReKstga6yIhYVwGu9LOBjuX9wzmRMeQdBJtzEA==}
 
 snapshots:
 
@@ -20895,3 +20901,5 @@ snapshots:
       obliterator: 1.6.1
 
   obliterator@1.6.1: {}
+
+  hls.js@1.6.16: {}

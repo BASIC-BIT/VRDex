@@ -682,3 +682,117 @@ it("gateway credentials cannot register workers even when misconfigured to the s
     }),
   );
 });
+
+it("refresh extends only a near-expiry authorized grant, retaining ID and source without restarting", async () => {
+  const h = await fixture();
+  const admitted = preparing(await h.play());
+  const refresh = makeFunctionReference<"mutation">(
+    "mediaRelayPlayback:refreshPlayback",
+  );
+  const read = () =>
+    h.t.run(async (ctx) => ({
+      grant: await ctx.db.query("mediaRelayGrants").first(),
+      source: await ctx.db.query("mediaRelaySources").first(),
+    }));
+  const original = await read();
+  await h.t.mutation(refresh, { grantId: admitted.grantId });
+  assert.deepEqual(await read(), original);
+  await h.t.run(async (ctx) => {
+    assert.ok(original.grant);
+    await ctx.db.patch(original.grant._id, { expiresAt: Date.now() + 1000 });
+  });
+  await h.t.mutation(refresh, { grantId: admitted.grantId });
+  const renewed = await read();
+  assert.equal(renewed.grant?.grantId, admitted.grantId);
+  assert.ok(
+    (renewed.grant?.expiresAt ?? 0) >
+      Date.now() + RELAY_POLICY.grantLifetimeMs - 10000,
+  );
+  assert.deepEqual(renewed.source, original.source);
+  await h.t.mutation(release, { grantId: admitted.grantId });
+  assert.equal(
+    AdmissionSchema.parse(
+      await h.t.mutation(refresh, { grantId: admitted.grantId }),
+    ).kind,
+    "unavailable",
+  );
+});
+it("refresh refuses exact expiry and revoked context but allows valid post-window event continuation", async () => {
+  const h = await fixture();
+  const refresh = makeFunctionReference<"mutation">(
+    "mediaRelayPlayback:refreshPlayback",
+  );
+  const admitted = preparing(
+    await h.t.mutation(open, {
+      context: h.eventContext,
+      streamId: "Alpha",
+      preferredMode: "video",
+    }),
+  );
+  await h.t.run(async (ctx) => {
+    await ctx.db.patch(h.eventId, { endAt: Date.now() - 1 });
+    const row = await ctx.db.query("mediaRelayGrants").first();
+    assert.ok(row);
+    await ctx.db.patch(row._id, { expiresAt: Date.now() + 1000 });
+  });
+  assert.equal(
+    AdmissionSchema.parse(
+      await h.t.mutation(refresh, { grantId: admitted.grantId }),
+    ).kind,
+    "preparing",
+  );
+  await h.t.run(async (ctx) => {
+    const row = await ctx.db.query("mediaRelayGrants").first();
+    assert.ok(row);
+    await ctx.db.patch(row._id, { expiresAt: Date.now() });
+  });
+  assert.equal(
+    AdmissionSchema.parse(
+      await h.t.mutation(refresh, { grantId: admitted.grantId }),
+    ).kind,
+    "unavailable",
+  );
+  const profile = preparing(await h.play());
+  await h.t.run(async (ctx) => {
+    await ctx.db.patch(h.profileId, { publicationState: "draft_private" });
+  });
+  assert.equal(
+    AdmissionSchema.parse(
+      await h.t.mutation(refresh, { grantId: profile.grantId }),
+    ).kind,
+    "unavailable",
+  );
+});
+it("refresh keeps stable rendition URLs and accepts metadata-only edits", async () => {
+  const h = await fixture();
+  process.env.MEDIA_RELAY_PLAYBACK_ORIGIN = "https://playback.example";
+  const admitted = preparing(await h.play());
+  await h.t.run(async (ctx) => {
+    const source = await ctx.db.query("mediaRelaySources").first();
+    assert.ok(source);
+    await ctx.db.patch(source._id, { state: "ready" });
+  });
+  const before = AdmissionSchema.parse(
+    await h.t.query(get, { grantId: admitted.grantId }),
+  );
+  assert.equal(before.kind, "ready");
+  if (before.kind !== "ready") return;
+  await h.t.run(async (ctx) => {
+    await ctx.db.patch(h.profileId, { displayName: "Renamed DJ" });
+    const row = await ctx.db.query("mediaRelayGrants").first();
+    assert.ok(row);
+    await ctx.db.patch(row._id, { expiresAt: Date.now() + 1000 });
+  });
+  const after = AdmissionSchema.parse(
+    await h.t.mutation(
+      makeFunctionReference<"mutation">("mediaRelayPlayback:refreshPlayback"),
+      { grantId: admitted.grantId },
+    ),
+  );
+  assert.equal(after.kind, "ready");
+  if (after.kind !== "ready") return;
+  assert.equal(after.metadata.displayName, "Renamed DJ");
+  assert.equal(after.videoPlaylist, before.videoPlaylist);
+  assert.equal(after.audioPlaylist, before.audioPlaylist);
+  assert.equal(after.grant.contextRevision, before.grant.contextRevision);
+});

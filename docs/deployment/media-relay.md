@@ -179,3 +179,44 @@ state backend are externally owned and require their separate retention/deletion
 procedures. Local-only cleanup: `docker --host=unix:///var/run/docker.sock image rm
 vrdex-media-relay:task7` after the named fixture container is absent, then remove
 only the generated `/tmp/vrdex-relay-package` directory if no longer needed.
+
+## Browser rollout and retained playback
+
+`NEXT_PUBLIC_MEDIA_RELAY_ENABLED=false` is the web build default. Only an explicit
+`true` build selects relay admission; deploy the backend functions and gateway
+before enabling it. No relay RPC runs on page mount. A viewer's Play opens a
+profile or event capability, polling the returned grant only during startup.
+Both renditions use that same grant. All eligible VRCDN sources use this transport
+when released; there is no owner opt-in. Task 9 must complete native performer
+sequence integration before release; the interim enabled sequence path blocks
+rather than loading legacy Web Audio.
+
+The single root `EventPlaybackOwner` retains profile/event playback across routes.
+The default mode is video. Audio preference uses `vrdex.playback-mode` in local
+storage, with a memory fallback when storage is denied. Restoring preference never
+autoplays. Native HLS is preferred; browsers without native HLS use the directly
+declared, lazily imported `hls.js` MSE adapter. Neither native current rendition
+connects to Web Audio. Switching unloads the inactive playlist, preserves the
+media nodes and grant, and closes PiP when selecting audio. Returning to video
+does not request PiP. Physical-phone behavior remains a release gate.
+
+Rollback to the disabled client retains the saved preference. Audio selection is
+blocked without loading full video; the viewer can deliberately select Video and
+Play to use legacy foreground playback. Legacy playback has no background support
+guarantee. Utility controls use existing approved labels; final visual verification
+belongs with the integrated native lineup/player acceptance.
+
+`mediaRelayPlayback:refreshPlayback({grantId})` only renews an existing, unexpired,
+unreleased, still-authorized capability. Server time governs expiry. The mutation
+is an indexed bounded read and extends to twelve hours only within the last hour;
+concurrent refreshes serialize and subsequent calls are no-ops for eleven hours.
+It preserves the grant ID and playlist URLs and never creates or restarts a
+source. The browser invokes it once per minute while visible and on foreground
+return, with a single in-flight request. Native playlist activity, not this timer,
+sustains worker demand. Context revocation is still enforced by the gateway.
+
+Expiry is exact: a grant cannot refresh at or after `expiresAt`. A deliberate new
+Play then uses ordinary admission rules. Valid grants may continue an event after
+its start window, but an expired background session may be unable to start that
+event again after its window closes. An independently public profile can still
+admit its stream. No unconditional Resume guarantee is implied.

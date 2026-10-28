@@ -243,3 +243,26 @@ export const resolveGrant = internalQuery({
   args: { grantId: v.string(), now: v.number() },
   handler: (ctx, args) => resolveRelayGrant(ctx.db, args.grantId, args.now),
 });
+
+/** Foreground renewal of an existing capability. Never admits or restarts a source. */
+export const refreshPlayback = mutation({
+  args: { grantId: v.string() },
+  handler: async (ctx, args): Promise<Admission> => {
+    const now = Date.now();
+    const resolved = await resolveRelayGrant(ctx.db, args.grantId, now);
+    if (resolved.kind === "denied")
+      return { kind: "unavailable", reason: "unavailable" };
+    // At most one effective extension per eleven hours. OCC serializes concurrent refreshes.
+    if (resolved.grant.expiresAt - now <= 60 * 60 * 1000) {
+      const row = await ctx.db
+        .query("mediaRelayGrants")
+        .withIndex("by_grantId", (q) => q.eq("grantId", args.grantId))
+        .unique();
+      if (row)
+        await ctx.db.patch(row._id, {
+          expiresAt: now + RELAY_POLICY.grantLifetimeMs,
+        });
+    }
+    return playback(ctx.db, args.grantId, now);
+  },
+});

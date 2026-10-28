@@ -36,7 +36,7 @@ export function EventCompactPlayer({ owner, state, mount }: { owner: EventPlayba
       const tooSmall = bounds.width < 400 || bounds.height < 472;
       setLimited(tooSmall);
       if (twitch && tooSmall && (mount.current?.childElementCount || owner.getSnapshot().status !== "paused")) owner.suspend();
-      const slot = Array.from(document.querySelectorAll<HTMLElement>("[data-event-playback-inline]")).find(node => node.dataset.eventPlaybackInline === request.eventId);
+      const slot = Array.from(document.querySelectorAll<HTMLElement>("[data-event-playback-inline]")).find(node => node.dataset.eventPlaybackInline === ("profileId" in request ? `profile:${request.profileId}:${request.sourceId}` : request.eventId));
       const box = slot?.getBoundingClientRect();
       const inline = box && box.top >= bounds.top && box.bottom <= bounds.top + bounds.height && box.left >= bounds.left && box.right <= bounds.left + bounds.width && (!twitch || box.width >= 400);
       const next = inline ? { top: box.top, left: box.left, width: box.width } : undefined;
@@ -95,6 +95,7 @@ export function EventCompactPlayer({ owner, state, mount }: { owner: EventPlayba
           onToggleFullscreen={() => { if (document.fullscreenElement) void document.exitFullscreen().catch(() => {}); else void shell.current?.requestFullscreen?.().catch(() => {}); }} /></div>}
         <div className="flex min-h-[52px] shrink-0 items-center gap-2 border-t border-white/10 px-3">
           <Link aria-label={`Return to ${request.title}`} href={request.href} className="flex min-w-0 flex-1 items-center gap-2 py-2 text-sm font-medium hover:underline"><span className="min-w-0 truncate">{request.title}{source && <span className="block truncate text-xs font-normal text-white/65">{source}</span>}</span><ArrowUpRight aria-hidden className="size-4 shrink-0" /></Link>
+          {request.kind !== "twitch" && <button type="button" className="min-h-11 px-2 text-sm" onClick={()=>void owner.setMode(state.mode === "audio" ? "video" : "audio")}>{state.mode === "audio" ? "Video" : "Audio"}</button>}
           <button type="button" className="flex size-11 shrink-0 items-center justify-center rounded-control hover:bg-white/10" aria-label="Close event playback" onClick={() => owner.close()}><X aria-hidden className="size-5" /></button>
         </div>
         {request.kind === "performer_sequence" && <div className="flex min-h-14 shrink-0 items-center gap-2 border-t border-white/10 px-3 py-2 text-xs">
@@ -105,7 +106,7 @@ export function EventCompactPlayer({ owner, state, mount }: { owner: EventPlayba
           {state.lineup?.following ? <span>Following lineup</span> : <button type="button" onClick={() => owner.live()}>Return to live</button>}
           {state.lineup?.nextPlaybackBlocked && <button type="button" aria-label="Enable next performer playback" onClick={() => owner.retryNextPlayback()}>Enable playback</button>}
         </div>}
-        {(state.status === "unavailable" || fallback) && <div className="flex min-h-11 items-center justify-between gap-3 border-t border-white/10 px-3 text-sm"><span role="status">{fallback ? "External playback" : "Stream unavailable"}</span>{request.kind === "twitch" && request.sourceId.startsWith("https://") && <a href={request.sourceId} target="_blank" rel="noreferrer" className="py-3 underline">Open stream</a>}</div>}
+        {(state.status === "unavailable" || fallback) && <div className="flex min-h-11 items-center justify-between gap-3 border-t border-white/10 px-3 text-sm"><span role="status">{fallback ? "External playback" : state.unavailableReason === "unsupported" ? "Unsupported" : "Stream unavailable"}</span>{request.kind === "twitch" && request.sourceId.startsWith("https://") && <a href={request.sourceId} target="_blank" rel="noreferrer" className="py-3 underline">Open stream</a>}</div>}
         {state.status === "blocked" && <button type="button" className="min-h-11 px-3 text-sm underline" onClick={() => void owner.play(request)}>Enable playback</button>}
       </>}
     </section>

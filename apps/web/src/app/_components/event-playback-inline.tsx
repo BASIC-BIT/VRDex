@@ -6,7 +6,7 @@ import { isInScheduledWatchWindow, useCurrentTimestamp } from "./event-watch-sur
 import { WatchPlayPoster } from "./vrcdn-stream-player";
 
 /** Presentation-only. There is deliberately no video, iframe, or transport mount here. */
-export function EventPlaybackInline({ owner, request }: { owner: EventPlaybackOwner; request: PlaybackRequest }) {
+export function EventPlaybackInline({ owner, request }: { owner: EventPlaybackOwner; request: Extract<PlaybackRequest,{eventId:string}> }) {
   const state = useEventPlaybackSnapshot(owner);
   const active = state.request?.eventId === request.eventId;
   const now = useCurrentTimestamp();

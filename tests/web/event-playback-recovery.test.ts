@@ -110,3 +110,8 @@ test("Twitch provider Play can recover autoplay denial while explicit pause and 
     assert.equal(player.callbacks.size, 0);
   } finally { owner.close(); fixture.restore(); }
 });
+test('legacy rollback preserves audio preference without loading full video, and explicit Video permits playback',async()=>{
+ const {createRetainedPlaybackAdapter}=await import('../../apps/web/src/lib/event-playback-adapters');const fixture=dom();
+ try{const audio=createRetainedPlaybackAdapter(request,fixture.mount,()=>{},{mode:'audio'});assert.equal(await audio.play(),false);assert.equal(fixture.nodes.length,0);audio.dispose();
+ const video=createRetainedPlaybackAdapter(request,fixture.mount,()=>{},{mode:'video'});assert.equal(await video.play(),true);assert.equal(fixture.nodes.length,1);video.dispose();}finally{fixture.restore();}
+});
