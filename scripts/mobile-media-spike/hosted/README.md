@@ -182,3 +182,16 @@ the layout. The stable page URL and original relay deadline are unchanged.
 
 In the managed cloud shell, `NODE_USE_ENV_PROXY=1` is required for the build's
 Node fetch to use the configured proxy; keep system CA trust enabled.
+
+Now Playing branding was subsequently requested explicitly: the live title is
+`BASICBIT - VRDex`, and artwork uses a separate `/dj-now-playing.png` derivative.
+FFmpeg composites the exact approved transparent wordmark at 160 pixels wide,
+18 pixels from the lower-right edges, preserving its proportions and the portrait.
+The original `/dj-artwork.png` stays untouched and remains the page/profile image.
+The derivative uses a different URL to avoid reusing cached unbranded artwork.
+The 512-by-477 composite was rendered and visually inspected locally.
+
+Standalone deployments must additionally upload the canonical
+`docs/brand/wordmark/vrdex-wordmark.png` as root `vrdex-wordmark.png` alongside
+the five source files listed above. Repository builds read the canonical asset
+directly. Do not substitute a generated or redrawn wordmark.
