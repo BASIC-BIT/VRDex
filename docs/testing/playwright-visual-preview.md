@@ -288,6 +288,11 @@ These must be the **development** instance backing the hosted target, not produc
 
 The `Playwright Data Flow` job also runs the dated-connection claim regression
 against the current PR's local Next and Convex servers for same-repository PRs.
+It runs before the broad flow suite so that the auth startup and test receive
+the available job budget. Local Next and Playwright both use `localhost`; Next
+normalizes loopback IP URLs to that host, and Clerk preserves it in its middleware
+rewrite. Mixing `127.0.0.1` as the browser origin with that rewrite causes Next
+to proxy the request back to itself. The isolated Convex URL remains unchanged.
 It reuses those development keys and repository variable
 `VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN`. The issuer/key precheck rejects a
 production publishable key or mismatched issuer; the step rejects a missing or

@@ -572,15 +572,6 @@ jobs:
         working-directory: apps/web
         run: pnpm exec playwright install --with-deps chromium
 
-      - name: Run mutation-backed profile submission flow
-        id: flow
-        env:
-          PLAYWRIGHT_RECORD_VIDEO: "true"
-          VRDEX_ENABLE_E2E_HELPERS: "true"
-          VRDEX_E2E_BROWSER_TOKEN: local-playwright-token
-          VRDEX_E2E_CONVEX_SECRET: local-convex-e2e-secret
-        run: pnpm --filter web exec playwright test --grep @flow --project=desktop-chromium --workers=1
-
       - name: Run current-branch signed-in claim regression
         id: claim-auth
         if: github.event.pull_request.head.repo.fork == false
@@ -616,6 +607,15 @@ jobs:
           }
           console.log("Current-branch signed-in claim coverage:", stats);
           NODE
+
+      - name: Run mutation-backed profile submission flow
+        id: flow
+        env:
+          PLAYWRIGHT_RECORD_VIDEO: "true"
+          VRDEX_ENABLE_E2E_HELPERS: "true"
+          VRDEX_E2E_BROWSER_TOKEN: local-playwright-token
+          VRDEX_E2E_CONVEX_SECRET: local-convex-e2e-secret
+        run: pnpm --filter web exec playwright test --grep @flow --project=desktop-chromium --workers=1
 
       - name: Write data-flow summary
         if: always()

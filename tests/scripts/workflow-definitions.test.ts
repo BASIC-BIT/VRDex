@@ -219,6 +219,7 @@ describe("optional browser and visual evidence contract", () => {
     assert.equal(claim.env.CLERK_JWT_ISSUER_DOMAIN, "${{ vars.VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN }}");
     assert.ok(claim.run.includes("check-clerk-issuer-match.mjs"));
     assert.ok(claim.run.includes("auth-claim.flow.spec.ts"));
+    assert.ok(steps.indexOf(claim) < steps.findIndex((step: { id?: string }) => step.id === "flow"), "Run narrow auth before the broad suite consumes the job budget");
     assert.ok(claim.run.includes("stats.expected !== 1") && claim.run.includes("stats.skipped !== 0"), "Skipped coverage must fail");
     const upload = steps.find((step: { id?: string }) => step.id === "upload");
     assert.ok(upload.with.path.includes(claim.env.PLAYWRIGHT_OUTPUT_DIR));
