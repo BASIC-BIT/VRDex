@@ -73,6 +73,7 @@ import type * as _eventTimeline from "../_eventTimeline.js";
 import type * as _eventTimelineTypes from "../_eventTimelineTypes.js";
 import type * as _externalControl from "../_externalControl.js";
 import type * as _globalSlugs from "../_globalSlugs.js";
+import type * as _groupAdmission from "../_groupAdmission.js";
 import type * as _groupMemberSnapshots from "../_groupMemberSnapshots.js";
 import type * as _groupObservationPolicy from "../_groupObservationPolicy.js";
 import type * as _groupPopulationSeries from "../_groupPopulationSeries.js";
@@ -287,6 +288,7 @@ declare const fullApi: ApiFromModules<{
   _eventTimelineTypes: typeof _eventTimelineTypes;
   _externalControl: typeof _externalControl;
   _globalSlugs: typeof _globalSlugs;
+  _groupAdmission: typeof _groupAdmission;
   _groupMemberSnapshots: typeof _groupMemberSnapshots;
   _groupObservationPolicy: typeof _groupObservationPolicy;
   _groupPopulationSeries: typeof _groupPopulationSeries;
