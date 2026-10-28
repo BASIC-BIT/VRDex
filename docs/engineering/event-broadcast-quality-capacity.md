@@ -520,3 +520,14 @@ manifest has 88 source entries after the encoded-fixture regression; that static
 inventory claim. ROOT must reconcile the completed manifest with actual image
 bytes and the accepted map before recording deployment readiness. Task 9 changes
 no worker runtime, proof package or capacity-map bytes.
+
+## October 28 current-image smoke
+
+The [current-image smoke](authority/reviews/current-image-smoke/README.md)
+verified all 134 packaged source files, all 132 native transport contracts on
+Fargate, two real 1080p Twitch inputs scaled to 720p30, and manual take/cut/return
+with advancing encoded output. The successful private recording is about
+20 seconds long. Owned VRCDN `basicbit1` publishing/playback passed its codec
+smoke; `basicbit` publication was rejected, leaving the two-account relay blocked.
+These results preserve the empty production allocation table and all remaining
+capacity, source-marker, automatic handoff and device acceptance requirements.
