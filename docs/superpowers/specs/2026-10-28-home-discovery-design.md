@@ -1,9 +1,67 @@
 # Home discovery
 
-Status: proposed design, awaiting BASIC's approval. Event-led selection was
-chosen in conversation on October 28, 2026. The two-event/two-club composition
-is already approved visual direction. Detailed defaults below are the author's
-recommendations, not previously approved requirements.
+Status: superseded draft, not approved for implementation. The correction below
+records BASIC's October 28 feedback. The earlier selection and ranking details
+remain historical context only and must not be implemented as requirements.
+
+## Corrected direction
+
+Locked direction from BASIC: discovery is for visually finding interesting
+upcoming events, distinct from the timeline's job of planning tonight. A cool
+poster, a genre the visitor wants to hear, or a recognizable DJ can make an
+event interesting. Discovery should mix familiar connections and new things,
+as a recommendation feed does. The two-event/two-club visual composition remains
+approved direction.
+
+Withdraw the seven-day cutoff, ongoing-first/soonest-first ordering, the rule
+that favorites cannot affect ranking, and the requirement that every club card
+justify its placement with its next event. Those were author proposals that
+duplicate the timeline and do not serve this purpose.
+
+Current recommendation for the next design pass:
+
+- Lead with posters. Keep date/title legible but let artwork, readable genres
+  and recognizable lineup names supply the reasons to open an event. Highlight
+  favorited performers subtly using the existing preference state.
+- Blend events connected to favorite DJs/clubs with unfamiliar events connected
+  through public genre assignments. Include variety rather than filling both
+  spots with the same club or repeatedly showing the same familiar records.
+- With only two event cards, initially aim for one familiar connection and one
+  discovery when candidates support both. This is an author-proposed starting
+  heuristic, not a user-selected ratio or a permanent slot assignment. Sparse
+  signals should fall back to varied public upcoming events without pretending
+  to know the viewer's taste.
+- Reach beyond this week. A date further away does not by itself make an event
+  less worthy of discovery. The practical candidate horizon and retrieval
+  budgets still need design; do not replace the withdrawn seven-day cutoff with
+  another arbitrary fixed value without explaining the choice.
+- Show clubs through their artwork, name and public musical identity. Select
+  a mixture of existing connections and relevant unfamiliar communities. Do not
+  fabricate community genres from the genres of their booked performers.
+- Reuse the single nonmodal event panel, favorites and My night actions. The
+  section does not follow timeline pan/date/favorites-only controls.
+- Do not rank poster aesthetics with an invented quality score. The poster is
+  something the visitor judges visually. Artwork availability may affect card
+  composition without becoming a claim about event quality.
+
+Existing code provides browser-local favorite profile IDs and My night picks.
+It does not provide explicit listener genre preferences or an engagement-trained
+recommendation model. The next design must define how musical affinity is
+derived, how public performer/genre identity is retrieved without unbounded
+roster reads, and how new visitors get varied results. A public DJ's genre
+assignment can be evidence for a proposed affinity rule; it must not silently
+become a direct event or community genre assignment.
+
+Candidate retrieval must span the chosen future horizon before ranking, rather
+than reranking the first chronological page. Define bounded pagination/sampling,
+stable rotation and diversity, signal strength and missing-data fallback before
+writing an execution plan. A simple explainable blend is a suitable first
+implementation; collecting click/dwell histories or training a model would be
+additional scope, not something already authorized by this design discussion.
+
+The historical sections below preserve usable panel, accessibility, privacy and
+state ideas, but their selection contract and copy inventory require revision
+and a fresh builder check before design approval.
 
 ## Intent and scope
 
