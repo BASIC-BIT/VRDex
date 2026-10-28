@@ -19,6 +19,21 @@ const modules = {
 };
 const ref = (name: string) => makeFunctionReference<"mutation">(name);
 const GROUP = "grp_00000000-0000-4000-8000-000000000005";
+
+it("cancelling a statistics grant hides retained membership and telemetry immediately", async () => {
+  const h = await setup();
+  await h.t.run(async ctx => {
+    await ctx.db.insert("accountFeatureGrants", {userId:h.userId,feature:"super_admin",state:"active",grantedBy:{tokenIdentifier:"test|admin",issuer:"test",subject:"admin"},grantedAt:h.now,updatedAt:h.now});
+    const row = (await ctx.db.get(h.integrationId))!;
+    await ctx.db.patch(row._id, {joinPolicy:"request",statisticsAdmissionInspection:{admissionAt:h.now,fencingToken:row.leaseGeneration,observedAt:h.now,membership:"member"},statisticsAdmission:{authorizedAt:h.now,actor:{tokenIdentifier:"test|admin",issuer:"test",subject:"admin"},reason:"Statistics",collectorAccountId:h.accountId,epochStartedAt:row.telemetryEpochStartedAt!,joinPolicy:"request",phase:"active",membershipOrigin:"admission"}});
+  });
+  assert.ok(await h.t.run(ctx => getPublicGroupMembership(ctx.db,h.profileId)));
+  await h.owner.mutation(ref("groupObservations:cancelStatisticsAdmission"),{integrationId:h.integrationId,admissionAt:h.now});
+  assert.equal(await h.t.run(ctx => getPublicGroupMembership(ctx.db,h.profileId)),null);
+  assert.equal(await h.t.run(ctx => getPublicCommunityTelemetry(ctx.db,h.profileId,h.now)),null);
+  assert.equal((await h.t.run(ctx => ctx.db.query("vrchatGroupMemberSnapshots").collect())).length,1);
+  assert.equal((await h.t.run(ctx => ctx.db.get(h.policyId)))?.decision.kind,"enabled");
+});
 async function setup() {
   const t = convexTest({ schema, modules });
   const now = Date.now();

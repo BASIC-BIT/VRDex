@@ -34,7 +34,7 @@ Required environment after the real-provider and explicit provider-approval depl
 
 Optional `VRDEX_GROUP_TELEMETRY_REQUESTS_PER_MINUTE` defaults to 30. Global, account, and integration kill switches in the control plane stop claims. ECS desired count is the live infrastructure stop; the SSM value prevents a disabled task revision from starting and is re-read when tasks restart.
 
-The worker reports `telemetry_v1`, `vrchat_proof_v1`, `profile_link_destinations_v1`, and `automatic_group_aggregates_v2` capabilities with its
+The worker reports `telemetry_v1`, `vrchat_proof_v1`, `profile_link_destinations_v1`, `automatic_group_aggregates_v2`, and `explicit_group_statistics_admission_v1` capabilities with its
 release SHA on startup and a bounded heartbeat. It separately polls the proof
 queue so the control plane can prove that the proof protocol, not merely the
 process, is live. Logs are JSON with fixed event names and bounded fields; they
@@ -89,3 +89,11 @@ The worker exits on any authenticated provider 401, from a session check or a re
 Both halves of the deployment gate are now cleared: BASIC accepted durable service-account sessions as an operating pattern on 2026-07-27, and the vault-to-AWS transfer command ships. The fleet is enabled. Passwords and TOTP seeds are never worker inputs or vault records.
 
 Recovery after a 401 is the same path: re-run the login bootstrap with `--fresh-login`, re-run the transfer, then re-register the account so the credential generation increments and the task restarts.
+
+Explicit public request/invite statistics assignments require both aggregate v2 and explicit-admission capabilities in a fresh matching worker heartbeat. They remain automatic, analytics-only assignments. The worker inspects the same account on every pass, reserves each membership write before transport and never retries an uncertain write. Cancellation preserves pre-existing membership and retains uncertain cleanup capacity. See the [cleanup contract and manual recovery limits](../../docs/engineering/group-telemetry-provider-proof.md#explicit-statistics-admission-cleanup-contract-2026-10-27).
+
+## Explicit admission operations
+
+The Operator flow can assign an existing collector to one public request or invite group. The backend must be deployed first. Manual admission requires `automatic_group_aggregates_v2` and `explicit_group_statistics_admission_v1` on the same fresh worker heartbeat and claim. Metadata and membership are inspected before collection or membership writes. An uncertain operation allows inspection only, never another write.
+
+Heartbeat diagnostics report bounded admission phase/count/age data without identity fields. Fresh approval/invitation waits are expected. Never-inspected or overdue work, repeated processing failures and unresolved cleanup feed the existing actionable backlog alarm. See the [collector runbook](../../docs/deployment/group-telemetry-collector.md#explicit-admission-compatibility-and-alarms) for exact-head readiness, email-action proof and rollback.

@@ -154,3 +154,45 @@ The following appendix preserves every ledger `Ruling` entry in source order. Co
 22. Add `automatic_group_aggregates_v2` to distinguish workers that enforce per-request authorization and the named-history choice. Require v2 in both the claim request and the exact worker/account's fresh heartbeat for automatic and explicitly aggregate-only managed assignments. Retain v1 for diagnostics and unchanged legacy managed work. Update release, rollback and readiness metadata together. Cost if wrong: protected assignments wait for a compatible worker rather than dispatching to a worker that can collect named records. Existing deployments are not presumed upgraded.
 
 23. Preserve explicit aggregate request authorization across live settings changes. A snapshot that began with named collection disabled still requires current analytics and canonical observation policy after named collection is enabled. The request discriminator, not the mutable named-history flag, selects that guard. Keep generic management budgets separate. This closes the scoped review's remaining I1 transition bypass without new architecture or UI. Cost if wrong: a settings change could permit an unsent aggregate request after analytics was disabled.
+
+## Super-admin admission release gate
+
+The community profile now hosts Group statistics controls for an authorized super admin, including when it is unclaimed and the withheld-profile query returns null. Direct public links and search both reach the same profile. No owner claim or connection setup is required.
+
+```mermaid
+flowchart TD
+  A[Direct link or search] --> B[Public community profile]
+  B --> C[Operator view: Group statistics]
+  C --> D[Refresh metadata and review assigned bot]
+  D --> E{Public join policy}
+  E -->|Request| F[Confirm one request and reason]
+  E -->|Invite| G[Confirm assignment and copy bot ID]
+  F --> H[Persistent approval or invitation wait]
+  G --> H
+  H --> I[Membership confirmed: collecting]
+  H --> J[Cancel: output hidden and cleanup pending]
+  D -->|Stale metadata or no capacity| D
+```
+
+Local browser fixtures render the actual public profile and private-record host with a null withheld seed record. Fixture reads and mutations replace network calls and record submissions. Desktop/mobile screenshots cover confirmation, invitation waiting and cleanup. This is UI/source evidence, not a live provider or production acceptance result. Add `ci:browsers` and `ci:visuals` if a PR is authorized later.
+
+Shipping requires BASIC's exact-copy review below, backend-first compatibility, the approved exact-head worker readiness proof, separately authorized public request/invite groups and collector accounts, and working alarm email delivery. Rollback must revoke grants before removing compatible workers and retain capacity while cleanup remains uncertain. See the [collector runbook](group-telemetry-collector.md#explicit-admission-compatibility-and-alarms) and [provider proof](../engineering/group-telemetry-provider-proof.md#explicit-admission-proof-boundary). No deployment, production configuration, push, merge or live membership operation is authorized by this document.
+
+### Exact admission copy for BASIC review
+
+Status: proposed. This packet does not record copy approval. Utility labels use the existing style. New explanatory and fallback sentences are verbatim:
+
+- `Ask a group admin to invite the displayed bot as an ordinary member.`
+- `Collection starts after membership is confirmed.`
+- `Aggregate statistics only.`
+- `Statistics are hidden. Capacity stays reserved until cleanup is confirmed.`
+- `Inspect the assigned bot in VRChat. Withdraw a remaining request manually. Cleanup requires operator reconciliation before capacity can be released.`
+- `Refresh required. Review the current group and bot.`
+- `Could not copy bot ID.`
+- `Unable to save admission.`
+
+Utility/status labels: `Group statistics`, `Group`, `Visibility / join policy`, `Join policy`, `Metadata checked`, `Assigned bot`, `Authorized`, `Last inspection`, `Reason`, `Not yet`, `Unavailable`, `Unknown`, `Not admitted`, `Waiting for approval`, `Waiting for invitation`, `Collecting`, `Paused`, `Ended`, `Cleanup pending`, `Cancelled`, `Copy bot ID`, `Bot ID copied`, `Open bot profile`, `Request to join`, `Assign bot`, `Refresh metadata`, `Check status`, `Cancel admission`, `Confirm request`, `Confirm assignment`, `Back`.
+
+Blocked-state labels: `Public primary group required`, `Public request or invite group required`, `Refresh metadata required`, `Conflicting connection`, `Statistics stopped`, `Cleanup required`, `Collector unavailable`, `No capacity`, `Managed groups waiting`, `No bot capacity`, `Admission unavailable`. Backend validation errors remain visible beside the affected controls. Their existing exact strings are defined in `convex/groupObservations.ts`.
+
+Cancellation of an adopted admission hides output immediately, including a prior managed publication choice. A later authorized managed publication save can restore managed output; the canonical group stop and history boundary still apply. The retained admission grant is unchanged. Fresh successful pending inspections reset inspection failures; active aggregate failures remain consecutive. Confirmed outstanding requests require the same manual withdrawal and operator reconciliation guidance as uncertain cleanup.

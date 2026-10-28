@@ -47,6 +47,40 @@ async function setup() {
   return { t, now, firstId, secondId, owner, read };
 }
 
+it("a revoked canonical admission suppresses shared member history for every duplicate", async () => {
+  const s = await setup();
+  await s.t.run(async ctx => {
+    const accountId = await ctx.db.insert("collectorAccounts", {
+      vrchatUserId: "usr_secret_bot", accountAlias: "secret-bot", state: "ready", capacity: 100,
+      reservedHeadroom: 10, assignedGroupCount: 1, requestsPerMinute: 10, secretRef: "test",
+      workerKeyHash: "test", credentialGeneration: 1, killSwitchEnabled: false, createdAt: 1, updatedAt: 1,
+    });
+    const integrationId = await ctx.db.insert("communityVrchatIntegrations", {
+      collectionScope: { kind: "automatic" }, publicationPolicy: "automatic_aggregate",
+      vrchatGroupId: groupA, groupVisibility: "public", joinPolicy: "request", state: "disconnecting",
+      assignedCollectorAccountId: accountId, killSwitchEnabled: false, requestsPerMinute: 4, leaseGeneration: 1,
+      telemetryEpochStartedAt: s.now, enabledFeatures: ["analytics"], namedMembershipCollectionEnabled: false,
+      publicMetrics: { currentPopulation: true, populationHistory: true, groupMemberCount: true, groupMemberGrowth: true, eventRecaps: false },
+      statisticsAdmission: { authorizedAt: s.now, actor: { tokenIdentifier: "test|admin", issuer: "test", subject: "admin" },
+        reason: "secret reason", collectorAccountId: accountId, joinPolicy: "request", epochStartedAt: s.now,
+        phase: "cleanup_pending", revokedAt: s.now, membershipOrigin: "admission" },
+      consecutiveFailures: 0, createdAt: s.now, updatedAt: s.now,
+    });
+    await ctx.db.insert("vrchatGroupObservationPolicies", {
+      vrchatGroupId: groupA, integrationId, decision: { kind: "enabled", at: s.now }, createdAt: s.now, updatedAt: s.now,
+    });
+    await ctx.db.insert("vrchatGroupMemberSnapshots", { vrchatGroupId: groupA, memberCount: 42, observedAt: s.now });
+  });
+  for (const slug of ["first-group", "second-group"]) {
+    const output = await s.read(slug);
+    assert.equal(output?.groupMembership, undefined);
+    assert.equal(output?.telemetry, undefined);
+    for (const secret of ["usr_secret_bot", "secret reason", "private-instance", "private-location", "usr_private-user"]) {
+      assert.equal(JSON.stringify(output).includes(secret), false);
+    }
+  }
+});
+
 it("shares group observations while applying Group size visibility per profile", async () => {
   const s = await setup();
   await s.t.run(async (ctx) => {

@@ -188,3 +188,7 @@ No additional open architecture decision is required from BASIC. The builder may
 - Topical parent: `docs/planning/community-group-telemetry.md`. That document links this approved amendment. Its operator-only/public-off behavior remains the current implementation until the approved change is built and released.
 - [VRChat Creator Guidelines, API Usage / Bots](https://hello.vrchat.com/creator-guidelines#api-usage-bots), checked October 25, 2026: unsupported mutable API, identifying User-Agent, caching, metered requests, randomized polling and error backoff. Existing service-account/session posture remains an independent operating decision.
 - No live provider, deployment, queue-count capability or admission-capacity verification was performed for this design.
+
+## Proposed admission extension
+
+The [super-admin admission design](2026-10-27-super-admin-group-admission-design.md) proposes aggregate-only admission for public request-to-join and public invite-only groups. BASIC selected its scope and separate statistics flow on October 27; written design approval is pending. Automatic free-join behavior remains unchanged.

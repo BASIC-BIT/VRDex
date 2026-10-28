@@ -239,6 +239,13 @@ const telemetryWorker = httpAction(async (ctx, request) => {
       return json({ error: "invalid_lease" }, 400);
     }
     await ctx.runQuery(functions.assertWorkerTargetOperation, {integrationId: common.integrationId, operation: body.operation});
+    if (body.operation === "admission_inspection" || body.operation === "admission_cleanup") {
+      if (!Number.isSafeInteger(body.admissionAt) || Number(body.admissionAt) <= 0) return json({error: "invalid_request"}, 400);
+      if (body.operation === "admission_cleanup") return json(await ctx.runMutation(functions.recordStatisticsAdmissionCleanup, {...common, admissionAt: body.admissionAt} as never));
+      if (!["member", "requested", "invited", "absent", "banned"].includes(String(body.membership)) ||
+          !["public", "private", "unknown"].includes(String(body.visibility)) || !["free", "request", "invite", "unknown"].includes(String(body.joinPolicy))) return json({error: "invalid_request"}, 400);
+      return json(await ctx.runMutation(functions.recordStatisticsAdmissionInspection, {...common, admissionAt: body.admissionAt, membership: body.membership, visibility: body.visibility, joinPolicy: body.joinPolicy} as never));
+    }
     if (body.operation === "admission_required") {
       return json(await ctx.runMutation(functions.recordAutomaticAdmissionRequired, {
         ...common, workerKeyHash: presentedHash, epochStartedAt: body.epochStartedAt, reason: body.reason, now,
@@ -296,10 +303,13 @@ const telemetryWorker = httpAction(async (ctx, request) => {
       return json(await ctx.runMutation(internal.clubMembership.ingestBatch, {...scope,scanId:body.scanId,pageNumber:body.pageNumber,events:body.events,exhausted:body.exhausted,sourceCount:body.sourceCount,rawAuditIds:body.rawAuditIds,phase:body.phase} as never));
     }
     if (body.operation === "budget") {
+      if (body.statisticsAdmissionAt !== undefined && (!Number.isSafeInteger(body.statisticsAdmissionAt) || Number(body.statisticsAdmissionAt) <= 0)) return json({error: "invalid_request"}, 400);
+      if (body.automaticRequest !== undefined && !["metadata", "join", "instances", "leave", "request_join", "accept_invite", "withdraw_request"].includes(String(body.automaticRequest))) return json({error: "invalid_request"}, 400);
       const result = await ctx.runMutation(functions.reserveRequestBudget, {
         ...common,
         requestCount: body.requestCount,
         automaticRequest: body.automaticRequest,
+        statisticsAdmissionAt: body.statisticsAdmissionAt,
         now,
       } as never);
       return json(result);

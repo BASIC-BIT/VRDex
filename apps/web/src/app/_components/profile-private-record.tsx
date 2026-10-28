@@ -6,6 +6,8 @@ import { api } from "@convex-generated-api";
 
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
+import type { Id } from "../../../../../convex/_generated/dataModel";
+import { GroupStatisticsAdmission } from "./group-statistics-admission";
 
 /**
  * What this profile holds that its page does not show, for the two viewers
@@ -184,6 +186,8 @@ export function ProfileHistory({ history }: {
 }
 
 export function ProfilePrivateRecord(props: {
+  profileId?: Id<"profiles">;
+  community?: boolean;
   profilePath: string;
   slug: string;
 }) {
@@ -195,5 +199,5 @@ export function ProfilePrivateRecord(props: {
     return null;
   }
 
-  return <WithheldProfileRecord {...props} />;
+  return <><WithheldProfileRecord {...props} />{props.community && props.profileId ? <GroupStatisticsAdmission profileId={props.profileId} /> : null}</>;
 }

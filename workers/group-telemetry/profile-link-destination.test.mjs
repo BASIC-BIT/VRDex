@@ -19,12 +19,12 @@ test("public group resolver fetches exactly one ID and projects no private accou
     return { id, name: "Group name", privacy: "default", iconUrl: artwork, myMember: { roleIds: ["private"] } };
   } });
   assert.deepEqual(paths, [`/groups/${id}`]);
-  assert.deepEqual(result, { status: "resolved", entityId: id, displayName: "Group name", artworkSourceUrl: artwork, artworkType: "group_icon" });
+  assert.deepEqual(result, { status: "resolved", entityId: id, displayName: "Group name", artworkSourceUrl: artwork, artworkType: "group_icon", groupMetadata: { visibility: "public", joinPolicy: "unknown" } });
 });
 
 test("private or unknown-privacy groups cannot publish names or artwork", async () => {
   for (const privacy of ["private", "unknown", undefined]) {
-    assert.deepEqual(await resolveProfileLinkDestination(group, { requestVrchat: async () => ({ id, name: "Private", privacy, iconUrl: artwork }) }), { status: "inaccessible" });
+    assert.deepEqual(await resolveProfileLinkDestination(group, { requestVrchat: async () => ({ id, name: "Private", privacy, iconUrl: artwork }) }), { status: "inaccessible", groupMetadata: { visibility: privacy === "private" ? "private" : "unknown", joinPolicy: "unknown" } });
   }
 });
 
@@ -254,5 +254,13 @@ test("temporary icon metadata failures preserve cached results and propagate acc
     await assert.rejects(resolveProfileLinkDestination({ kind: "vrchat_user", locator: userId }, {
       requestVrchat: async path => { if (path === `/users/${userId}`) return modernUser; throw error; },
     }), value => value === error);
+  }
+});
+
+ test("group metadata normalizes provider policies and unknown fields without raw payloads", async () => {
+  for (const [joinState, expected] of [["open", "free"], ["request", "request"], ["invite", "invite"], ["closed", "invite"], [undefined, "unknown"], ["new_policy", "unknown"]]) {
+    const result = await resolveProfileLinkDestination(group, { requestVrchat: async () => ({ id, name: "Group", privacy: "default", joinState, memberIds: ["secret"] }) });
+    assert.equal(result.groupMetadata.joinPolicy, expected);
+    assert.deepEqual(result.groupMetadata, { visibility: "public", joinPolicy: expected });
   }
 });

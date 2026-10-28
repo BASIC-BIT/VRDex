@@ -153,10 +153,14 @@ export async function resolveProfileLinkDestination(target, { requestVrchat, fet
     if (!(isGroup ? GROUP_ID : USER_ID).test(id)) return { status: "invalid" };
     const entity = record(await requestVrchat(`/${isGroup ? "groups" : "users"}/${encodeURIComponent(id)}`));
     if (typeof entity.id !== "string" || entity.id.toLowerCase() !== id.toLowerCase()) return { status: "transient" };
-    if (isGroup && entity.privacy !== "default") return { status: "inaccessible" };
+    const groupMetadata = isGroup ? {
+      visibility: entity.privacy === "default" ? "public" : entity.privacy === "private" ? "private" : "unknown",
+      joinPolicy: entity.joinState === "open" ? "free" : entity.joinState === "request" ? "request" : entity.joinState === "invite" || entity.joinState === "closed" ? "invite" : "unknown",
+    } : undefined;
+    if (isGroup && groupMetadata.visibility !== "public") return { status: "inaccessible", groupMetadata };
     const displayName = name(isGroup ? entity.name : entity.displayName);
     if (!displayName) return { status: "transient" };
     const artworkSourceUrl = isGroup ? allowedDestinationArtworkUrl(entity.iconUrl, target.kind) : await personArtwork(entity, requestVrchat);
-    return { status: "resolved", entityId: entity.id.toLowerCase(), displayName, ...(artworkSourceUrl ? { artworkSourceUrl, artworkType: isGroup ? "group_icon" : "user_icon" } : {}) };
+    return { status: "resolved", entityId: entity.id.toLowerCase(), displayName, ...(groupMetadata ? { groupMetadata } : {}), ...(artworkSourceUrl ? { artworkSourceUrl, artworkType: isGroup ? "group_icon" : "user_icon" } : {}) };
   } catch (error) { return providerFailure(error); }
 }

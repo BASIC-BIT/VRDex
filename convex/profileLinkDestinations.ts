@@ -2,7 +2,7 @@ import { makeFunctionReference } from "convex/server";
 import { allowedDestinationArtworkUrl } from "../workers/group-telemetry/profile-link-destination.mjs";
 import { canReadProfile } from "./_profilePermissions";
 import { visibleProfileList } from "./_profileFieldVisibility";
-import { parseProfileLinkDestination } from "./_profileLinkDestination";
+import { destinationGroupMetadataValidator, parseProfileLinkDestination } from "./_profileLinkDestination";
 import { v } from "convex/values";
 import { automaticProfileImage, hasDestinationArtwork } from "./_profileImageFallback";
 import { internalMutation, mutation, query } from "./_generated/server";
@@ -81,7 +81,7 @@ export const claimPending = internalMutation({
 export const recordResult = internalMutation({
   args: {
     key: v.string(), leaseToken: v.string(), worker: v.optional(workerValidator),
-    result: v.object({status: v.union(v.literal("resolved"), v.literal("invalid"), v.literal("inaccessible"), v.literal("transient")), entityId: v.optional(v.string()), displayName: v.optional(v.string()), artworkSourceUrl: v.optional(v.string()), artworkType: v.optional(v.union(v.literal("profile_picture"), v.literal("user_icon"),v.literal("group_icon"),v.literal("server_icon"))), retryAfterMs: v.optional(v.number())}),
+    result: v.object({groupMetadata: v.optional(destinationGroupMetadataValidator), status: v.union(v.literal("resolved"), v.literal("invalid"), v.literal("inaccessible"), v.literal("transient")), entityId: v.optional(v.string()), displayName: v.optional(v.string()), artworkSourceUrl: v.optional(v.string()), artworkType: v.optional(v.union(v.literal("profile_picture"), v.literal("user_icon"),v.literal("group_icon"),v.literal("server_icon"))), retryAfterMs: v.optional(v.number())}),
   },
   handler: async (ctx, args) => {
     const row = await ctx.db.query("profileLinkDestinations").withIndex("by_key", q => q.eq("key", args.key)).unique();
@@ -114,6 +114,7 @@ export const recordResult = internalMutation({
         name: result.status === "resolved" ? result.displayName!.trim().slice(0, 120) : undefined,
         artworkSourceUrl: result.status === "resolved" ? allowedDestinationArtworkUrl(result.artworkSourceUrl, row.kind) : undefined,
         artworkType: result.status === "resolved" ? result.artworkType : undefined,
+        groupMetadata: row.kind === "vrchat_group" ? result.groupMetadata : undefined,
         observedAt: now,
       }),
     });

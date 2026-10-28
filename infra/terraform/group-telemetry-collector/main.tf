@@ -378,7 +378,7 @@ resource "aws_cloudwatch_metric_alarm" "automatic_enrollment_backlog" {
   alarm_name          = "${var.name_prefix}-automatic-enrollment-backlog"
   alarm_actions       = aws_sns_topic.alerts[*].arn
   ok_actions          = aws_sns_topic.alerts[*].arn
-  alarm_description   = "Eligible automatic admission waited at least 15 minutes for three consecutive minutes. Inspect queue, capacity and worker capability; do not increase capacity automatically."
+  alarm_description   = "Automatic admission or explicit statistics processing/cleanup waited at least 15 minutes for three consecutive minutes. Inspect queue, capacity and worker capability; do not increase capacity automatically."
   namespace           = local.observability_namespace
   metric_name         = aws_cloudwatch_log_metric_filter.automatic_enrollment_backlog.metric_transformation[0].name
   comparison_operator = "GreaterThanOrEqualToThreshold"
