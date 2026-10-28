@@ -51,7 +51,7 @@ document.querySelector("#start").addEventListener("click", async () => {
   pip.disabled = active !== video || !(document.pictureInPictureEnabled || typeof video.webkitSetPresentationMode === "function");
   if ("mediaSession" in navigator) {
     navigator.mediaSession.metadata = new MediaMetadata(liveDj
-      ? { title: "BASICBIT", artist: "", album: "", artwork: [{ src: new URL("/dj-artwork.png", location.href).href, type: "image/png" }] }
+      ? { title: "BASICBIT - VRDex", artist: "", album: "", artwork: [{ src: new URL("/dj-artwork.png", location.href).href, type: "image/png" }] }
       : { title: "Mobile playback test", artist: active === audio ? "Audio sample" : "Video sample", artwork: [] });
     record("now-playing-metadata", { title: navigator.mediaSession.metadata.title, artwork: navigator.mediaSession.metadata.artwork.map(image => image.src) });
     for (const [action, handler] of [["play", () => active.play().catch(() => { record("play-rejected"); message("Tap Play to resume."); })], ["pause", () => active.pause()]]) {

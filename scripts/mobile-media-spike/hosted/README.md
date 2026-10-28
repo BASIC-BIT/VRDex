@@ -167,7 +167,7 @@ checkout will need a fetch/reset or clean reconciliation when it returns.
 ## DJ name and artwork metadata
 
 BASIC requested DJ name and artwork for iPhone Now Playing. Live modes now set
-Media Session title `BASICBIT` and the public profile's original PNG artwork
+Media Session title `BASICBIT - VRDex` and the public profile's original PNG artwork
 (`ph7655gnxqkh55h6w2mysagt9n8djr7w`). The build fetches the public asset, verifies
 PNG bytes and a 5-MB bound, and publishes `/dj-artwork.png` on the same origin.
 No stream re-encode or custom Live Activity is involved. Prerecorded modes keep
