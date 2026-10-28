@@ -582,6 +582,7 @@ export function createRelayRegistry(options: RegistryOptions) {
             !job.attempt &&
             job.publisher.isIdle() &&
             job.renew.isIdle() &&
+            job.observe.isIdle() &&
             job.initialize.isIdle()
           ) {
             job.watchdog.stop();

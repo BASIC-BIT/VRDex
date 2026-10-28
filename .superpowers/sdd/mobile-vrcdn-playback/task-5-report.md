@@ -186,3 +186,60 @@ mutation ran.
   denying new work.
 - Local results do not establish hosted VRCDN profile compatibility, production
   provider behavior/capacity, or physical-phone playback.
+
+## Review fix round 1: observation quarantine
+
+Review base: `774221f`. Addressed the Important finding in
+`task-5-review.md`: job deletion now also requires `job.observe.isIdle()`.
+A timed-out observation that ignores cancellation retains its physical slot and
+therefore the source's bounded job reservation. Source disappearance or admission
+revision changes cannot bypass that guard. No other runtime behavior changed.
+
+Added regression in `packages/media-relay/tests/registry.test.ts` with
+`maxSources: 1`. The first observation ignores its aborted signal and remains
+physically pending. Its source becomes terminal and disappears from discovery;
+three replacement reconciliations must admit no replacement. Settling the
+observation then permits the replacement source. The test releases the pending
+operation and stops its registry in `finally`.
+
+Commands activated `/workspace/vrdex-env.sh`; the focused test used additional
+network permission, preserving proxy/CA environment.
+
+RED command:
+
+```text
+node --conditions=import --import tsx --test --test-name-pattern='disappearing terminal job' packages/media-relay/tests/registry.test.ts
+```
+
+Observed output before the fix (exit 1):
+
+```text
+✖ disappearing terminal job retains its slot while an observation ignores cancellation
+AssertionError [ERR_ASSERTION]: pending observation must retain the only job slot
+2 !== 1
+ℹ tests 1
+ℹ pass 0
+ℹ fail 1
+```
+
+GREEN: the identical command after the one-line guard change exited 0:
+
+```text
+✔ disappearing terminal job retains its slot while an observation ignores cancellation
+ℹ tests 1
+ℹ pass 1
+ℹ fail 0
+```
+
+`pnpm --filter @vrdex/media-relay typecheck` emitted its normal
+`tsc --noEmit --project tsconfig.json` invocation with no diagnostics and exited 0.
+`git diff --check` produced no output and exited 0. No broad or real-media suite
+was rerun for this isolated job-retirement guard.
+
+Self-review: all per-job physical channels now participate in removal: attempt
+cleanup, publisher lanes, renewal, observation and initialization. The existing
+slot retains `busy` until physical settlement, independently of timeout/abort.
+The new guard neither delays synchronous fencing nor interferes with bounded
+shutdown; a permanently stalled adapter conservatively retains capacity as
+intended. The regression proves both retained capacity and release after actual
+settlement. Existing provider/phone limitations remain unchanged.

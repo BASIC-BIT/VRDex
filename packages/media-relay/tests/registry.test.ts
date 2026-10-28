@@ -306,3 +306,77 @@ test("unsupported packager failure preserves an explicit terminal reason in cont
     await h.registry.stop();
   }
 });
+
+test("disappearing terminal job retains its slot while an observation ignores cancellation", async () => {
+  const h = harness({
+    binding: {
+      workerId: "one",
+      workerEpoch: 1,
+      allocation: {
+        cpuUnits: 1024,
+        memoryMiB: 2048,
+        evidenceId: "test-proof-1",
+      },
+      maxSources: 1,
+      draining: false,
+    },
+    limits: { operationTimeoutMs: 20 },
+  });
+  let release = () => {};
+  const blocked = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let pendingObservations = 0;
+  let firstSignal: AbortSignal | undefined;
+  h.control.observe = async ({ signal }) => {
+    if (firstSignal) return;
+    firstSignal = signal;
+    pendingObservations++;
+    try {
+      await blocked;
+    } finally {
+      pendingObservations--;
+    }
+  };
+  try {
+    await h.tick();
+    await h.tick(1000);
+    assert.equal(pendingObservations, 1);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    assert.equal(firstSignal?.aborted, true);
+    const first = h.attempts[0];
+    assert(first);
+    first.onFailure({ kind: "unsupported", message: "codec" });
+    await flush();
+    const bravo = parseSourceDescriptor({
+      ...source,
+      streamId: "Bravo",
+      streamKey: "vrcdn/Bravo/1",
+    });
+    h.setSources([{ source: bravo, state: "queued", admissionRevision: 0 }]);
+    for (let i = 0; i < 3; i++) {
+      await h.tick(1000);
+      assert.equal(
+        h.attempts.length,
+        1,
+        "pending observation must retain the only job slot",
+      );
+      assert.equal(pendingObservations, 1);
+    }
+    release();
+    await flush();
+    await h.tick(1000);
+    await h.tick(1000);
+    assert.equal(pendingObservations, 0);
+    assert.equal(
+      h.attempts.length,
+      2,
+      "settled observation permits replacement admission",
+    );
+    assert.equal(h.attempts[1]?.source.streamKey, bravo.streamKey);
+  } finally {
+    release();
+    await flush();
+    await h.registry.stop();
+  }
+});
