@@ -31,6 +31,7 @@ export function ConnectionsPanelPreview({ community = false }: { community?: boo
                   assetDisplayName: "Afterglow Social",
                   linkRole: "primary",
                   verified: true,
+                  verifiedAt: Date.UTC(2026, 9, 25),
                 },
                 {
                   id: "playwright-group-link",
@@ -39,6 +40,7 @@ export function ConnectionsPanelPreview({ community = false }: { community?: boo
                   assetDisplayName: "Afterglow Harbor",
                   linkRole: "secondary",
                   verified: true,
+                  verifiedAt: Date.UTC(2026, 9, 25),
                 },
               ]
             : [
@@ -49,6 +51,7 @@ export function ConnectionsPanelPreview({ community = false }: { community?: boo
                   assetDisplayName: "BASICBIT",
                   linkRole: "primary",
                   verified: true,
+                  verifiedAt: Date.UTC(2026, 9, 25),
                 },
               ],
           available: community

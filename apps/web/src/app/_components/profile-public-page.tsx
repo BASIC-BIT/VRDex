@@ -1,6 +1,8 @@
+import type { PublicVerifiedConnection } from "@vrdex/api-contracts";
+import { mergeVerifiedVrchatLinks, isVerifiedVrchatLink } from "@/lib/profile-link-verification";
 import Link from "next/link";
 import { ExternalLink } from "lucide-react";
-import { profileLinkPresentation, type ProfileLinkDestinationMetadata } from "../../../../../convex/_profileLinkPresentation";
+import { profileLinkHasCustomLabel, profileLinkPresentation, type ProfileLinkDestinationMetadata } from "../../../../../convex/_profileLinkPresentation";
 import { parseProfileLinkDestination } from "../../../../../convex/_profileLinkDestination";
 import { Fragment, type CSSProperties, type ReactNode } from "react";
 
@@ -148,8 +150,8 @@ type PublicProfileBase = {
     label: string;
     submittedAt?: number;
   };
+  verifiedConnections?: PublicVerifiedConnection[];
   outboundLinks: Array<{
-    verified?: boolean;
     type: ProfileLinkType;
     label: string;
     labelMode?: "automatic" | "custom";
@@ -380,18 +382,20 @@ export function ProfilePublicPage({ profile, mediaKitGalleryEnabled, embedded = 
           (item): item is string => Boolean(item),
         ),
   );
-  const validLinks = profile.outboundLinks
+  const visibleLinks = mergeVerifiedVrchatLinks(profile.outboundLinks, profile.verifiedConnections ?? [])
+    .map(link => ({ ...link, type: link.type ?? "website", source: link.source ?? "owner_authored" }));
+  const validLinks = visibleLinks
     // VRCDN resolved before the HTTPS filter, because its stored value is an
     // identifier rather than an address and `safeHttpsUrl` drops it. Filtering
     // first took the stream back out of `vrcdnStreams` below, which is the whole
     // watch and copy surface for a creator whose only link is their stream.
     .map((link) => ({ link, href: vrcdnPlaybackHref(link.url) ?? safeHttpsUrl(link.url) }))
     .filter(
-      (item): item is { link: (typeof profile.outboundLinks)[number]; href: string } =>
+      (item): item is { link: (typeof visibleLinks)[number]; href: string } =>
         item.href !== null && item.href !== undefined,
     );
   // Use the same channel for the live probe and the rendered link.
-  const selectedTwitchLink = twitchLinkForLiveClaim(profile.outboundLinks);
+  const selectedTwitchLink = twitchLinkForLiveClaim(visibleLinks);
   const twitchLink =
     (selectedTwitchLink && validLinks.find(({ link }) => link === selectedTwitchLink)) ??
     validLinks.find(({ link }) => link.type === "twitch" && twitchLoginFromUrl(link.url));
@@ -400,7 +404,7 @@ export function ProfilePublicPage({ profile, mediaKitGalleryEnabled, embedded = 
       return [];
     }
 
-    const handle = item.link.handle ?? item.link.label.replace(/^Discord\s*:?\s*/i, "").trim();
+    const handle = ("handle" in item.link && typeof item.link.handle === "string" ? item.link.handle : undefined) ?? item.link.label.replace(/^Discord\s*:?\s*/i, "").trim();
     return handle && handle.toLowerCase() !== "discord" ? [{ handle, item }] : [];
   });
   const vrcdnStreams = validLinks.flatMap((item) => {
@@ -637,12 +641,17 @@ export function ProfilePublicPage({ profile, mediaKitGalleryEnabled, embedded = 
             key: item.link.url,
           }))}
           initialLiveStates={profile.vrcdnLive}
-          links={creatorLinks.map(({ link, href }) => ({
-            href,
-            key: `${link.type}-${link.url}`,
-            ...profileLinkPresentation(link),
-            verified: link.verified === true,
-          }))}
+          links={creatorLinks.map(({ link, href }) => {
+            const connection = link.verifiedAt === undefined ? undefined : profile.verifiedConnections?.find(connection =>
+              isVerifiedVrchatLink(link.url, [{ ...connection, verified: true }]));
+            const display = profileLinkPresentation(link, connection?.assetExternalId);
+            return {
+              href, key: `${link.type}-${link.url}`, ...display,
+              label: connection && !profileLinkHasCustomLabel(link)
+                ? connection.displayName || display.label : display.label,
+              verifiedAt: link.verifiedAt,
+            };
+          })}
           profileSlug={profile.slug}
           streams={vrcdnStreams.map(({ item, label, stream }) => ({
             claimable: true,

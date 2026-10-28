@@ -109,6 +109,29 @@ function hasLegacySchemaId(value: unknown, insideNamedSchemaMap = false): boolea
 }
 
 describe("@vrdex/api-contracts", () => {
+  it("accepts old profiles and validates dated canonical VRChat connections", () => {
+    const profile = { displayName: "Person", id: "profile_person", profileType: "person", slug: "person", trustLabel: "claimed_unverified", updatedAt: 10 };
+    assert.equal(PublicProfileSchema.parse(profile).verifiedConnections, undefined);
+    const connection = { assetType: "vrchat_user", assetExternalId: "usr_11111111-1111-1111-1111-111111111111", url: "https://vrchat.com/home/user/usr_11111111-1111-1111-1111-111111111111", displayName: "Exact account", verifiedAt: 1792886400000, linkRole: "primary" };
+    assert.deepEqual(PublicProfileSchema.parse({ ...profile, verifiedConnections: [connection] }).verifiedConnections, [connection]);
+    assert.equal(PublicProfileSchema.safeParse({ ...profile, verifiedConnections: [{ ...connection, verifiedAt: 8_640_000_000_000_000 }] }).success, true);
+    for (const invalid of [
+      { ...connection, assetType: "discord_guild" },
+      ...[NaN, Infinity, -1, 1.5, "25 Oct 2026", 8_640_000_000_000_001, Number.MAX_SAFE_INTEGER].map(verifiedAt => ({ ...connection, verifiedAt })),
+      { ...connection, assetType: "vrchat_group" },
+      { ...connection, assetType: "vrchat_group", url: connection.url.replace("/user/", "/group/") },
+      { ...connection, assetExternalId: "usr_invalid", url: "https://vrchat.com/home/user/usr_invalid" },
+      { ...connection, assetExternalId: "usr_other" },
+      { ...connection, url: connection.url.replace("vrchat.com", "vrchat.com.evil.test") },
+      { ...connection, url: connection.url + "?query=1" },
+      { ...connection, url: connection.url + "#hash" },
+      { ...connection, url: connection.url.replace("https:", "http:") },
+      { ...connection, subject: "internal-subject" },
+    ]) assert.equal(PublicProfileSchema.safeParse({ ...profile, verifiedConnections: [invalid] }).success, false, JSON.stringify(invalid));
+    const group = { ...connection, assetType: "vrchat_group", assetExternalId: "grp_11111111-1111-1111-1111-111111111111", url: "https://vrchat.com/home/group/grp_11111111-1111-1111-1111-111111111111", linkRole: "secondary" };
+    assert.deepEqual(PublicProfileSchema.parse({ ...profile, verifiedConnections: [group] }).verifiedConnections, [group]);
+  });
+
   it("parses public profiles while preserving future response fields", () => {
     const profile = PublicProfileSchema.parse({
       avatarImageUrl: "/api/v0/profiles/vrdex/assets/avatar/file",

@@ -8,7 +8,7 @@ const repoRoot = path.resolve(configDir, "..", "..");
 const parsedPort = Number(process.env.PLAYWRIGHT_TEST_PORT);
 const port = Number.isFinite(parsedPort) ? parsedPort : 3002;
 const hostedBaseURL = process.env.PLAYWRIGHT_BASE_URL?.trim().replace(/\/+$/, "");
-const baseURL = hostedBaseURL || `http://127.0.0.1:${port}`;
+const baseURL = hostedBaseURL || `http://localhost:${port}`;
 const convexUrl = process.env.PLAYWRIGHT_CONVEX_URL ?? "http://127.0.0.1:3210";
 const convexPort = Number(new URL(convexUrl).port) || 3210;
 const reuseNextServer = process.env.PLAYWRIGHT_REUSE_SERVER === "true";
@@ -147,7 +147,7 @@ export default defineConfig({
       ? []
       : [
           {
-            command: `node ../../scripts/sync-convex-local-env.mjs && node ../../scripts/run-next-with-convex-local-admin.mjs dev --webpack --hostname 127.0.0.1 --port ${port}`,
+            command: `node ../../scripts/sync-convex-local-env.mjs && node ../../scripts/run-next-with-convex-local-admin.mjs dev --webpack --hostname localhost --port ${port}`,
             cwd: configDir,
             url: baseURL,
             reuseExistingServer: reuseNextServer,

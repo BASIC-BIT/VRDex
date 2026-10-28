@@ -72,7 +72,7 @@ test("visible Twitch SDK player handles blocked playback, real controls and ifra
   const frame = page.locator("[data-event-playback-mount] iframe"); await expect(frame).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath("twitch-player.png") });
   const box = await frame.boundingBox(); expect(box!.width).toBeGreaterThanOrEqual(400); expect(box!.height).toBeGreaterThanOrEqual(300);
-  expect(await page.evaluate(() => (window as unknown as { sdkOptions: { parent: string[] } }).sdkOptions.parent)).toEqual(["127.0.0.1"]);
+  expect(await page.evaluate(() => (window as unknown as { sdkOptions: { parent: string[] } }).sdkOptions.parent)).toEqual([new URL(page.url()).hostname]);
   await page.getByRole("button", { name: "Enable playback", exact: true }).click();
   await page.getByRole("slider", { name: "Volume", exact: true }).fill("0.3");
   expect(await page.evaluate(() => (window as unknown as { sdkCalls: string[] }).sdkCalls)).toContain("volume:0.3");

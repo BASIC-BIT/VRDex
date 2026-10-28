@@ -86,6 +86,7 @@ async function handleFixtureRequest(request: IncomingMessage, response: ServerRe
         currentPopulation: { value: 42, activeInstanceCount: 2, observedAt: 1798761600000, coverage: "observed" },
       },
       trustLabel: "claimed_verified",
+      verifiedConnections: [{ assetType: "vrchat_group", assetExternalId: "grp_11111111-1111-1111-1111-111111111111", url: "https://vrchat.com/home/group/grp_11111111-1111-1111-1111-111111111111", displayName: "Exact group", verifiedAt: 1792886400000, linkRole: "primary" }],
       updatedAt: 1798761600000,
     });
 
@@ -231,6 +232,7 @@ test("calls public API routes with bearer credentials and validates schemas", as
     assert.equal(search.ok, true);
     assert.equal(profile.ok, true);
     assert.equal(profile.ok ? profile.data.telemetry?.currentPopulation?.value : undefined, 42);
+    assert.deepEqual(profile.ok ? profile.data.verifiedConnections : undefined, [{ assetType: "vrchat_group", assetExternalId: "grp_11111111-1111-1111-1111-111111111111", url: "https://vrchat.com/home/group/grp_11111111-1111-1111-1111-111111111111", displayName: "Exact group", verifiedAt: 1792886400000, linkRole: "primary" }]);
     assert.equal(event.ok, true);
     assert.equal(upcoming.ok, true);
     assert.equal(world.ok, true);

@@ -434,9 +434,8 @@ export const recordGuildControlProofs = internalMutation({
 
     // The OAuth response is the complete list of guilds this user can manage,
     // so a previously proved guild missing from it is positive evidence that
-    // control was lost. Leaving those rows active would let someone who just
-    // demonstrated they no longer manage a server keep claiming with it until
-    // the 30-day window lapsed.
+    // control was lost. Revoke stale evidence too, because it still supports
+    // historical display. Active evidence must also stop authorizing claims.
     //
     // "Complete" only holds for the Discord identity that authorized this
     // round-trip, though. One VRDex user may manage servers through more than
@@ -447,7 +446,7 @@ export const recordGuildControlProofs = internalMutation({
     const manageable = new Set(args.guilds.map((guild) => guild.id));
     const revoked = discordProofs.filter(
       (proof) =>
-        proof.state === "active" &&
+        (proof.state === "active" || proof.state === "stale") &&
         (proof.evidenceSubjectId === undefined ||
           proof.evidenceSubjectId === args.discordUserId) &&
         !manageable.has(proof.assetExternalId),

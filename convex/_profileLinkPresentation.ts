@@ -31,7 +31,7 @@ export function profileLinkHasCustomLabel(link: PresentableLink): boolean {
   return !generic.includes(label);
 }
 
-export function profileLinkPresentation(link: PresentableLink) {
+export function profileLinkPresentation(link: PresentableLink, fallbackLabel?: string) {
   const target = parseProfileLinkDestination(link);
   if (!target) return { label: link.label ?? link.type };
   const metadata = link.destination?.targetKey === target.key && link.destination.kind === target.kind
@@ -42,7 +42,7 @@ export function profileLinkPresentation(link: PresentableLink) {
   const shortIdentifier = identifier.length > 12 ? `${identifier.slice(0, 4)}…${identifier.slice(-4)}` : identifier;
   return {
     label: profileLinkHasCustomLabel(link) && link.label?.trim()
-      ? link.label.trim() : usable?.name || `${platform} ${shortIdentifier}`,
+      ? link.label.trim() : usable?.name || fallbackLabel || `${platform} ${shortIdentifier}`,
     platform,
     kind: target.kind,
     artworkUrl: usable?.artworkUrl,

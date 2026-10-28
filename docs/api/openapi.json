@@ -15699,6 +15699,12 @@
             ],
             "description": "The public trust and claim state shown for the profile."
           },
+          "verifiedConnections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PublicVerifiedConnection"
+            }
+          },
           "upcomingEvents": {
             "type": "array",
             "items": {}
@@ -15723,6 +15729,50 @@
         ],
         "additionalProperties": {},
         "description": "Public profile response. Unknown fields are preserved while the API is still stabilizing."
+      },
+      "PublicVerifiedConnection": {
+        "type": "object",
+        "properties": {
+          "assetType": {
+            "type": "string",
+            "enum": [
+              "vrchat_user",
+              "vrchat_group"
+            ]
+          },
+          "assetExternalId": {
+            "type": "string",
+            "pattern": "^(usr|grp)_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "verifiedAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8640000000000000
+          },
+          "linkRole": {
+            "type": "string",
+            "enum": [
+              "primary",
+              "secondary"
+            ]
+          }
+        },
+        "required": [
+          "assetType",
+          "assetExternalId",
+          "url",
+          "verifiedAt",
+          "linkRole"
+        ],
+        "additionalProperties": false,
+        "description": "A dated verified VRChat connection, subject to outboundLinks visibility. It does not change the profile trust label."
       },
       "ApiProfileWriteResponse": {
         "type": "object",
