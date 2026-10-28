@@ -85,6 +85,8 @@ import type * as _mcpToolEvents from "../_mcpToolEvents.js";
 import type * as _mcpWriteReceipts from "../_mcpWriteReceipts.js";
 import type * as _mediaCleanupUrl from "../_mediaCleanupUrl.js";
 import type * as _mediaContributionCommands from "../_mediaContributionCommands.js";
+import type * as _mediaRelayAuthorization from "../_mediaRelayAuthorization.js";
+import type * as _mediaRelayTables from "../_mediaRelayTables.js";
 import type * as _mediaReview from "../_mediaReview.js";
 import type * as _mediaSubmissionCleanup from "../_mediaSubmissionCleanup.js";
 import type * as _oauth from "../_oauth.js";
@@ -188,6 +190,7 @@ import type * as localEventBroadcastRehearsal from "../localEventBroadcastRehear
 import type * as localFixtures from "../localFixtures.js";
 import type * as mcpToolEvents from "../mcpToolEvents.js";
 import type * as mediaKitPublicationMigration from "../mediaKitPublicationMigration.js";
+import type * as mediaRelayPlayback from "../mediaRelayPlayback.js";
 import type * as migrations from "../migrations.js";
 import type * as oauthApps from "../oauthApps.js";
 import type * as oauthConsentTransactions from "../oauthConsentTransactions.js";
@@ -301,6 +304,8 @@ declare const fullApi: ApiFromModules<{
   _mcpWriteReceipts: typeof _mcpWriteReceipts;
   _mediaCleanupUrl: typeof _mediaCleanupUrl;
   _mediaContributionCommands: typeof _mediaContributionCommands;
+  _mediaRelayAuthorization: typeof _mediaRelayAuthorization;
+  _mediaRelayTables: typeof _mediaRelayTables;
   _mediaReview: typeof _mediaReview;
   _mediaSubmissionCleanup: typeof _mediaSubmissionCleanup;
   _oauth: typeof _oauth;
@@ -404,6 +409,7 @@ declare const fullApi: ApiFromModules<{
   localFixtures: typeof localFixtures;
   mcpToolEvents: typeof mcpToolEvents;
   mediaKitPublicationMigration: typeof mediaKitPublicationMigration;
+  mediaRelayPlayback: typeof mediaRelayPlayback;
   migrations: typeof migrations;
   oauthApps: typeof oauthApps;
   oauthConsentTransactions: typeof oauthConsentTransactions;

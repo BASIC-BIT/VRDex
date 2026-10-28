@@ -1,3 +1,4 @@
+import { mediaRelayTables } from "./_mediaRelayTables";
 import { statisticsAdmissionValidator } from "./_groupAdmission";
 import { destinationGroupMetadataValidator } from "./_profileLinkDestination";
 import { collectionScopeValidator, groupObservationDecisionValidator } from "./_communityTelemetry";
@@ -716,6 +717,7 @@ const sharedProfileFields = {
 };
 
 export default defineSchema({
+  ...mediaRelayTables,
   clubProviderReadRequests: defineTable({
     communityProfileId: v.id("profiles"), integrationId: v.id("communityVrchatIntegrations"),
     subject: clubSubject, params: providerReadParams, requestKey: v.string(),
