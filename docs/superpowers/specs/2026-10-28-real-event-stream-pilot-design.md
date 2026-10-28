@@ -6,8 +6,12 @@ Status: proposed execution design. Planning only; no provider or deployment sett
 
 Get BASIC able to try real VRCDN and Twitch DJ inputs through one stable VRCDN
 program URL as soon as practical, then start and operate the same experience
-through the existing event website. BITRATE is the working target; its selected
-event, rehearsal date, participants and device availability are execution inputs.
+through the existing event website. BASIC's intended first trial is a test event
+tonight, October 28, 2026, in America/Indianapolis time. The first sequence is
+BASIC's VRCDN input, a Twitch streamer, then BASIC's same input again. Exact start
+time, event identity, source links and device availability remain execution inputs.
+The Twitch streamer is not selected yet; establish permission to relay that feed
+before publishing it through the program output.
 
 Both providers means **inputs** for the first trial. The initial output is VRCDN,
 720p30 H.264 with AAC320, one worker and no Twitch simulcast. This is the builder's
