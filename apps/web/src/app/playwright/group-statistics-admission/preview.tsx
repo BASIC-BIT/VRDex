@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ConvexProvider, type ConvexReactClient } from "convex/react";
+import { ConvexProviderWithAuth, type ConvexReactClient } from "convex/react";
 import { getFunctionName, type FunctionReference } from "convex/server";
 import type { Id } from "../../../../../../convex/_generated/dataModel";
 import type { StatisticsAdmissionView } from "../../../../../../convex/_groupAdmission";
@@ -10,6 +10,7 @@ import { ProfilePublicPage } from "../../_components/profile-public-page";
 const profileId = "fixture-profile" as Id<"profiles">;
 const accountId = "fixture-account" as Id<"collectorAccounts">;
 const integrationId = "fixture-integration" as Id<"communityVrchatIntegrations">;
+const fetchAccessToken = async () => "fixture-token";
 const initial: StatisticsAdmissionView = { eligible: true, groupName: "Afterglow VRChat Group", vrchatGroupId: "grp_00000000-0000-4000-8000-000000000005", groupMetadata: { visibility: "public", joinPolicy: "request" }, metadataObservedAt: Date.now(), bot: { collectorAccountId: accountId, accountAlias: "Collector One", vrchatUserId: "usr_00000000-0000-4000-8000-000000000005", profileUrl: "https://vrchat.com/home/user/usr_00000000-0000-4000-8000-000000000005" } };
 function grant(view: StatisticsAdmissionView, phase: "pending" | "paused" | "ended" = "pending"): StatisticsAdmissionView {
   return { ...view, integrationId, statisticsAdmission: { authorizedAt: Date.now(), actor: { tokenIdentifier: "fixture|admin", issuer: "fixture", subject: "admin" }, reason: "Public aggregate statistics", collectorAccountId: accountId, epochStartedAt: Date.now(), phase, membershipOrigin: "admission", lastCheckedAt: Date.now(), ...(view.groupMetadata?.joinPolicy === "invite" ? { joinPolicy: "invite" } : { joinPolicy: "request", operation: { kind: "request", startedAt: Date.now(), outcome: "confirmed" } }) } };
@@ -50,10 +51,13 @@ export function AdmissionPreview() {
   const listeners = useMemo(() => new Set<() => void>(), []);
   useEffect(() => { for (const listener of listeners) listener(); }, [view, listeners]);
   const client = useMemo(() => ({
+    setAuth(_fetch: unknown, onChange: (authenticated: boolean) => void) { onChange(true); },
+    clearAuth() {},
     watchQuery(query: FunctionReference<"query">) {
       const name = getFunctionName(query);
+      if (name === "groupObservations:getStatisticsAdmission" && new URLSearchParams(location.search).get("state") === "signed-out") throw new Error("Signed-out visitors must not query admission");
       return { localQueryResult: () => {
-        if (name === "seedAccess:withheldProfileRecord") return null;
+        if (name === "seedAccess:withheldProfileRecord" || name === "accounts:viewer") return null;
         if (name === "groupObservations:getStatisticsAdmission") return current.current.view;
         throw new Error(`Unexpected fixture query: ${name}`);
       }, onUpdate: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; }, journal: () => undefined };
@@ -68,5 +72,6 @@ export function AdmissionPreview() {
       }
     },
   }) as unknown as ConvexReactClient, [listeners]);
-  return <ConvexProvider client={client}><ProfilePublicPage mediaKitGalleryEnabled={false} profile={{ id: profileId, slug: "afterglow-social", displayName: "Afterglow Social", profileType: "community", community: { categoryTags: [] }, trustLabel: "unclaimed", aliases: [], tags: [], genres: [], outboundLinks: [], worldCredits: [], upcomingEvents: [], hostedEvents: [] }} /><output data-testid="calls" className="sr-only">{calls.join(",")}</output></ConvexProvider>;
+  const useFixtureAuth = () => ({ isLoading: false, isAuthenticated: state !== "" && state !== "signed-out", fetchAccessToken });
+  return <ConvexProviderWithAuth client={client} useAuth={useFixtureAuth}><ProfilePublicPage mediaKitGalleryEnabled={false} profile={{ id: profileId, slug: "afterglow-social", displayName: "Afterglow Social", profileType: "community", community: { categoryTags: [] }, trustLabel: "unclaimed", aliases: [], tags: [], genres: [], outboundLinks: [], worldCredits: [], upcomingEvents: [], hostedEvents: [] }} /><output data-testid="calls" className="sr-only">{calls.join(",")}</output></ConvexProviderWithAuth>;
 }

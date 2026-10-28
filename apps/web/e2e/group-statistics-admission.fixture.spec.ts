@@ -59,6 +59,9 @@ test("invite assignment exposes a fixed profile link and reports clipboard failu
 });
 
 test("non-admin absence, capacity and lifecycle blocks", async ({ page }) => {
+  await page.goto(`${route}?state=signed-out`);
+  await expect(page.getByRole("heading", { name: "Afterglow Social" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Group statistics" })).toHaveCount(0);
   await page.goto(`${route}?state=non-admin`);
   await expect(page.getByRole("heading", { name: "Group statistics" })).toHaveCount(0);
   for (const state of ["no-capacity", "paused", "ended", "cleanup_pending"]) {

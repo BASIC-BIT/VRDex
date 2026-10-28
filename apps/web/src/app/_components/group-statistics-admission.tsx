@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import type { FunctionArgs } from "convex/server";
 import { api } from "@convex-generated-api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
@@ -126,7 +126,8 @@ export function GroupStatisticsAdmissionPanel({ profileId, view, actions }: {
 }
 
 export function GroupStatisticsAdmission({ profileId }: { profileId: Id<"profiles"> }) {
-  const view = useQuery(api.groupObservations.getStatisticsAdmission, { profileId });
+  const { isAuthenticated } = useConvexAuth();
+  const view = useQuery(api.groupObservations.getStatisticsAdmission, isAuthenticated ? { profileId } : "skip");
   const admit = useMutation(api.groupObservations.admitStatistics);
   const cancel = useMutation(api.groupObservations.cancelStatisticsAdmission);
   const check = useMutation(api.groupObservations.checkStatisticsAdmission);
