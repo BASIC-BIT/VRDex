@@ -25,7 +25,7 @@ test("direct unclaimed community entry confirms the exact request once @visual",
   await expect(dialog.getByText(bot, { exact: true })).toBeVisible();
   await expect(dialog.getByRole("button", { name: "Confirm request" })).toBeDisabled();
   await dialog.getByLabel("Reason").fill("Aggregate statistics for this public community");
-  await page.screenshot({ path: path.join(evidence, `${info.project.name}-request-confirmation.png`), fullPage: true });
+  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") await page.screenshot({ path: path.join(evidence, `${info.project.name}-request-confirmation.png`), fullPage: true });
   await dialog.getByRole("button", { name: "Confirm request" }).dblclick();
   await expect(page.getByText("Waiting for approval", { exact: true })).toBeVisible();
   await expect(page.getByTestId("calls")).toHaveText("admit");
@@ -39,7 +39,7 @@ test("direct unclaimed community entry confirms the exact request once @visual",
   await expect(page.getByText("Inspect the assigned bot in VRChat. Withdraw a remaining request manually. Cleanup requires operator reconciliation before capacity can be released.", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Request to join", exact: true })).toHaveCount(0);
   await page.evaluate(() => window.scrollTo(0, 0));
-  await page.screenshot({ path: path.join(evidence, `${info.project.name}-cleanup-pending.png`), fullPage: true });
+  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") await page.screenshot({ path: path.join(evidence, `${info.project.name}-cleanup-pending.png`), fullPage: true });
 });
 
 test("invite assignment exposes a fixed profile link and reports clipboard failure @visual", async ({ page }, info) => {
@@ -54,7 +54,7 @@ test("invite assignment exposes a fixed profile link and reports clipboard failu
   await page.getByRole("button", { name: "Copy bot ID" }).click();
   await expect(page.getByRole("region", { name: "Operator view: Group statistics" }).getByRole("alert")).toHaveText("Could not copy bot ID.");
   await page.evaluate(() => window.scrollTo(0, 0));
-  await page.screenshot({ path: path.join(evidence, `${info.project.name}-invite-waiting.png`), fullPage: true });
+  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") await page.screenshot({ path: path.join(evidence, `${info.project.name}-invite-waiting.png`), fullPage: true });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
 });
 
