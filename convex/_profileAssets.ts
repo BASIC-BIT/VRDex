@@ -10,6 +10,8 @@ import {
   type ProfileVisibilitySurface,
 } from "./_profileFieldVisibility";
 import { canReadProfile } from "./_profilePermissions";
+import { visibleProfileField } from "./_profileFieldVisibility";
+import { optionalField, safeHttpsUrl } from "./_publicFields";
 import { userOwnsProfile } from "./_profileOwnership";
 
 export const PROFILE_ASSET_UPLOAD_MAX_BYTES = 12 * 1024 * 1024;
@@ -674,6 +676,41 @@ function placedAssets(
     .filter((item) => item.placement === placement)
     .map((item) => assetsById.get(item.assetId))
     .filter((asset): asset is Doc<"profileAssets"> => asset !== undefined);
+}
+
+/** Bounded discovery artwork: only each first authored identity/banner placement. */
+export async function getPublicProfileCompactImages(db: DatabaseReader, profile: Doc<"profiles">): Promise<{
+  imageUrl?: string; logoImageUrl?: string; bannerImageUrl?: string;
+}> {
+  if (!canReadProfile("public", profile)) return {};
+  const surface = "discovery";
+  const firstPlacement = (placement: "profile_image" | "primary_logo" | "banner") =>
+    db.query("profileAssetPlacements").withIndex("by_profileId_placement_state_position", q =>
+      q.eq("profileId", profile._id).eq("placement", placement).eq("state", "active")).first();
+  const [avatar, logo, banner, preference] = await Promise.all([
+    firstPlacement("profile_image"), firstPlacement("primary_logo"), firstPlacement("banner"),
+    getProfileAssetDisplayPreference(db, profile._id),
+  ]);
+  const assets = new Map<Id<"profileAssets">, Promise<Doc<"profileAssets"> | null>>();
+  async function image(placement: Doc<"profileAssetPlacements"> | null, field: "avatarImageUrl" | "bannerImageUrl" | "mediaKit") {
+    if (placement === null || !isProfileFieldVisible(profile, field, surface)) return undefined;
+    let pending = assets.get(placement.assetId);
+    if (pending === undefined) { pending = db.get(placement.assetId); assets.set(placement.assetId, pending); }
+    const asset = await pending;
+    return asset !== null && asset.profileId === profile._id && asset.state === "active" &&
+      asset.visibility === "public" && asset.moderatorSuppressedAt === undefined && asset.retiredAt === undefined
+      ? publicProfileAssetImageUrl(profile.slug, asset._id) : undefined;
+  }
+  const [profileImage, logoImageUrl, placedBanner] = await Promise.all([
+    image(avatar, "avatarImageUrl"), image(logo, "mediaKit"), image(banner, "bannerImageUrl"),
+  ]);
+  const compact = preference?.compactDisplay === "logo" || (!profileImage && logoImageUrl)
+    ? logoImageUrl ?? profileImage : profileImage ?? logoImageUrl;
+  const automatic = compact === undefined
+    ? await automaticProfileImage(db, profile, surface, avatar !== null || logo !== null) : undefined;
+  const imageUrl = compact ?? safeHttpsUrl(visibleProfileField(profile, "avatarImageUrl", profile.avatarImageUrl, surface)) ?? automatic;
+  const bannerImageUrl = placedBanner ?? safeHttpsUrl(visibleProfileField(profile, "bannerImageUrl", profile.bannerImageUrl, surface));
+  return { ...optionalField("imageUrl", imageUrl), ...optionalField("logoImageUrl", logoImageUrl), ...optionalField("bannerImageUrl", bannerImageUrl) };
 }
 
 export async function getPublicProfileMediaKit(
