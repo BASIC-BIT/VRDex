@@ -9,7 +9,7 @@ let active = video;
 let run;
 const runs = [];
 function record(event) {
-  const entry = { event, at: new Date().toISOString(), mode: active === audio ? "audio" : "video", time: active.currentTime, paused: active.paused, ended: active.ended, readyState: active.readyState, visibility: document.visibilityState, error: active.error?.message ?? null };
+  const entry = { event, at: new Date().toISOString(), mode: run?.mode ?? mode.value, time: active.currentTime, paused: active.paused, ended: active.ended, readyState: active.readyState, visibility: document.visibilityState, error: active.error?.message ?? null };
   run?.events.push(entry);
   document.querySelector("#events").textContent = JSON.stringify(run?.events.slice(-20) ?? [], null, 2);
 }
@@ -34,10 +34,10 @@ document.querySelector("#start").addEventListener("click", async () => {
   release();
   active = mode.value === "audio" ? audio : video;
   audio.hidden = active !== audio; video.hidden = active !== video;
-  run = { startedAt: new Date().toISOString(), mode: mode.value, sample: "prerecorded-synthetic-hls", durationSeconds: 2100, notes: "", events: [] };
+  run = { startedAt: new Date().toISOString(), mode: mode.value, sample: mode.value === "live" ? "vrcdn-basicbit-live-mp4" : "prerecorded-synthetic-hls", durationSeconds: mode.value === "live" ? null : 2100, notes: "", events: [] };
   runs.push(run); document.querySelector("#notes").value = ""; record("start");
-  if (!active.canPlayType("application/vnd.apple.mpegurl")) { message("Native HLS is unavailable in this browser. Try Safari on iPhone or Chrome on Android."); record("native-hls-unavailable"); return; }
-  active.src = `/media/${mode.value}.m3u8`;
+  if (mode.value !== "live" && !active.canPlayType("application/vnd.apple.mpegurl")) { message("Native HLS is unavailable in this browser. Try Safari on iPhone or Chrome on Android."); record("native-hls-unavailable"); return; }
+  active.src = mode.value === "live" ? "https://stream.vrcdn.live/live/basicbit.live.mp4" : `/media/${mode.value}.m3u8`;
   stop.disabled = false;
   pip.disabled = active !== video || !(document.pictureInPictureEnabled || typeof video.webkitSetPresentationMode === "function");
   if ("mediaSession" in navigator) {
@@ -62,7 +62,7 @@ window.addEventListener("pageshow", () => record("pageshow"));
 setInterval(() => { if (run) record("sample"); }, 5000);
 document.querySelector("#save").addEventListener("click", () => {
   if (run) { run.notes = document.querySelector("#notes").value; record("export"); }
-  const evidence = { userAgent: navigator.userAgent, secure: isSecureContext, savedAt: new Date().toISOString(), limitation: "Prerecorded media; timestamps do not prove audible output or live VRCDN support.", runs };
+  const evidence = { userAgent: navigator.userAgent, secure: isSecureContext, savedAt: new Date().toISOString(), limitation: "HLS modes are prerecorded; live mode uses basicbit direct MP4. Timestamps do not prove audible output or phone background support.", runs };
   const url = URL.createObjectURL(new Blob([JSON.stringify(evidence, null, 2)], { type: "application/json" }));
   const link = document.createElement("a"); link.href = url; link.download = "mobile-playback-log.json"; link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);

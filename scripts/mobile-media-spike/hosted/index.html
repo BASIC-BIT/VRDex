@@ -6,9 +6,9 @@
 </style></head>
 <body><main>
 <h1>Mobile playback test</h1>
-<p>35-minute prerecorded samples. This tests phone playback, not a live VRCDN stream.</p>
+<p>Compare the prerecorded HLS samples with the live basicbit stream.</p>
 <label for="mode">Playback mode</label>
-<select id="mode"><option value="video">HLS video</option><option value="audio">HLS audio only</option></select>
+<select id="mode"><option value="live">VRCDN live video</option><option value="video">HLS video</option><option value="audio">HLS audio only</option></select>
 <div class="buttons"><button id="start">Start test</button><button id="pip" disabled>Picture in picture</button><button id="stop" disabled>Stop</button></div>
 <video id="video" controls playsinline aria-label="Video test"></video>
 <audio id="audio" controls aria-label="Audio test" hidden></audio>
@@ -16,7 +16,7 @@
 <ol class="steps"><li>Start a test. For video, enter Picture in picture.</li><li>Switch apps and check that sound continues.</li><li>Lock your phone for 15–30 minutes and listen.</li><li>Return here and save the log before starting another test.</li></ol>
 <label for="notes">What happened?</label><textarea id="notes" rows="3" style="width:100%;font:inherit;background:#202b3b;color:white;padding:12px" placeholder="Phone, OS version, any silence or interruption"></textarea>
 <div class="buttons"><button id="save">Save log</button></div>
-<small>Logs stay on this device until you save them. The page cannot tell whether you heard sound while the phone was locked. Samples end after 35 minutes.</small>
+<small>Logs stay on this device until you save them. The page cannot tell whether you heard sound while the phone was locked. HLS samples end after 35 minutes. Live video requires basicbit to be broadcasting.</small>
 <details><summary>Playback events</summary><pre id="events"></pre></details>
 <script src="/client.js"></script>
 </main></body></html>

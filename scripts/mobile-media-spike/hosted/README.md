@@ -56,3 +56,18 @@ proves mobile playback. Prefer direct provider delivery if verified; consider
 a relay only if those paths cannot satisfy background playback. Keep existing
 lineup behavior unchanged and do not enable hosted restream infrastructure as
 part of this probe.
+
+### Active basicbit check
+
+BASIC enabled `basicbit` for a follow-up on October 28. Direct `.live.mp4`
+returned HTTP 200 and actual fragmented MP4 bytes. A bounded 2,031,616-byte
+capture decoded as H.264 High video and AAC LC audio in FFprobe. Both HLS
+manifest variants still returned 404. MPEG-TS timed out in that check, so no
+successful MPEG-TS result is claimed. The MP4 response had no observed CORS
+header; the test uses a plain native video element without crossOrigin or Web
+Audio processing. The production lineup's Web Audio path is not covered.
+
+The hosted page now has `VRCDN live video`, pointing directly to the public
+basicbit `.live.mp4` endpoint without a proxy. Its logs distinguish live MP4
+from synthetic HLS. Repeat PiP, app switching and screen-lock checks on iPhone
+Safari before choosing a production transport. The broadcaster must stay live.
