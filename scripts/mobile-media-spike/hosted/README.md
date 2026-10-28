@@ -144,3 +144,22 @@ its lineup logic remain unchanged.
 Choose `Live HLS relay` on the phone page while BASIC's source is broadcasting.
 Repeat PiP, app switching, screen lock and Save log. This experiment does not
 establish a production relay design, permanent uptime or Android acceptance.
+
+## Live video feedback and audio-only test
+
+BASIC reported the live HLS relay working on iPhone Safari. Exact device model,
+iOS version, durations and exported logs were not provided. Live audio-only
+acceptance is a separate pending test.
+
+The same relay now emits an audio-only HLS rendition at `/audio/index.m3u8`
+from the same single upstream connection, with AAC stream copy and no video
+track. The phone page offers `Live HLS audio only`, uses a native audio element,
+and disables PiP for that mode. The stable Vercel path is
+`/relay/audio/index.m3u8`. Health returned eight fresh segments; FFprobe
+identified AAC audio only, and a four-second FFmpeg decode exited 0 with no
+errors. The relay restart retained the original 2026-10-28T20:42:45Z deadline
+via `RELAY_EXPIRES_AT`; the sandbox hard timeout was not extended.
+
+During this update the workspace went unavailable. Deployed source was
+recovered through the Vercel connector and committed through GitHub; the local
+checkout will need a fetch/reset or clean reconciliation when it returns.
