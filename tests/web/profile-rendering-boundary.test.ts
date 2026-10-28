@@ -2,6 +2,41 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { it } from "node:test";
 
+it("preserves verified connection label precedence through the public page", async () => {
+  const { execFileSync } = await import("node:child_process");
+  execFileSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", `
+    import assert from "node:assert/strict";
+    import React from "./apps/web/node_modules/react/index.js";
+    import { renderToStaticMarkup } from "./apps/web/node_modules/react-dom/server.node.js";
+    import { ProfilePublicPage } from "./apps/web/src/app/_components/profile-public-page.tsx";
+    const id = "usr_11111111-2222-3333-4444-555555555555";
+    const url = "https://vrchat.com/home/user/" + id;
+    const connection = { assetType: "vrchat_user", assetExternalId: id, url, verifiedAt: Date.UTC(2026, 9, 25), linkRole: "primary" };
+    const link = { type: "vrchat_profile", url, label: "VRChat", labelMode: "automatic", source: "owner_authored",
+      destination: { targetKey: "vrchat_user:" + id, kind: "vrchat_user", status: "resolved", name: "Resolved account" } };
+    const profile = { slug: "example", displayName: "Example", profileType: "person", trustLabel: "claimed_unverified",
+      aliases: [], tags: [], genres: [], person: { roleTags: [] }, worldCredits: [], upcomingEvents: [], hostedEvents: [] };
+    const render = (outbound = link, connections = [connection, connection]) => renderToStaticMarkup(React.createElement(ProfilePublicPage, {
+      profile: { ...profile, outboundLinks: [outbound], verifiedConnections: connections }, mediaKitGalleryEnabled: false, embedded: true,
+    }));
+    const named = render();
+    assert.match(named, />Resolved account</);
+    assert.equal(named.split('href="' + url + '"').length - 1, 1);
+    assert.match(named, /Verified VRChat account/);
+    assert.match(render(link, [{ ...connection, displayName: "Connection account" }]), />Connection account</);
+    assert.match(render({ ...link, label: "My account", labelMode: "custom" }, [{ ...connection, displayName: "Connection account" }]), />My account</);
+    for (const destination of [undefined, { ...link.destination, targetKey: "vrchat_user:other" },
+      { ...link.destination, kind: "vrchat_group" }, { ...link.destination, status: "invalid" }]) {
+      const fallback = render({ ...link, destination });
+      assert.ok(fallback.includes('>' + id + '<'));
+      assert.doesNotMatch(fallback, />Resolved account</);
+    }
+    const revoked = render(link, []);
+    assert.match(revoked, />Resolved account</);
+    assert.doesNotMatch(revoked, /Verified VRChat account|<time /);
+  `], { cwd: process.cwd(), env: { ...process.env, TSX_TSCONFIG_PATH: "apps/web/tsconfig.json" }, stdio: "pipe" });
+});
+
 it("keeps server-only media-kit configuration out of the client-compatible profile renderer", () => {
   const renderer = readFileSync(new URL("../../apps/web/src/app/_components/profile-public-page.tsx", import.meta.url), "utf8");
   assert.doesNotMatch(renderer, /process\.env\.(VRDEX_PROFILE_MEDIA_KIT_ENABLED|VRDEX_ENABLE_PLAYWRIGHT_FIXTURES)/);

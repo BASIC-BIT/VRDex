@@ -642,13 +642,13 @@ export function ProfilePublicPage({ profile, mediaKitGalleryEnabled, embedded = 
           }))}
           initialLiveStates={profile.vrcdnLive}
           links={creatorLinks.map(({ link, href }) => {
-            const display = profileLinkPresentation(link);
             const connection = link.verifiedAt === undefined ? undefined : profile.verifiedConnections?.find(connection =>
               isVerifiedVrchatLink(link.url, [{ ...connection, verified: true }]));
+            const display = profileLinkPresentation(link, connection?.assetExternalId);
             return {
               href, key: `${link.type}-${link.url}`, ...display,
               label: connection && !profileLinkHasCustomLabel(link)
-                ? connection.displayName || connection.assetExternalId : display.label,
+                ? connection.displayName || display.label : display.label,
               verifiedAt: link.verifiedAt,
             };
           })}
