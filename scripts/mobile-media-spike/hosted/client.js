@@ -34,6 +34,8 @@ document.querySelector("#start").addEventListener("click", async () => {
   release();
   active = ["audio", "relay-audio"].includes(mode.value) ? audio : video;
   audio.hidden = active !== audio; video.hidden = active !== video;
+  const liveDj = ["live", "relay", "relay-audio"].includes(mode.value);
+  document.querySelector("#dj").hidden = !liveDj;
   run = { startedAt: new Date().toISOString(), mode: mode.value, sample: mode.value.startsWith("relay") ? `vrcdn-basicbit-live-hls-${mode.value}` : mode.value === "live" ? "vrcdn-basicbit-live-mp4" : "prerecorded-synthetic-hls", durationSeconds: ["live", "relay", "relay-audio"].includes(mode.value) ? null : 2100, notes: "", events: [] };
   runs.push(run); document.querySelector("#notes").value = ""; record("start");
   if (mode.value !== "live" && !active.canPlayType("application/vnd.apple.mpegurl")) { message("Native HLS is unavailable in this browser. Try Safari on iPhone or Chrome on Android."); record("native-hls-unavailable"); return; }
@@ -48,7 +50,10 @@ document.querySelector("#start").addEventListener("click", async () => {
   stop.disabled = false;
   pip.disabled = active !== video || !(document.pictureInPictureEnabled || typeof video.webkitSetPresentationMode === "function");
   if ("mediaSession" in navigator) {
-    navigator.mediaSession.metadata = new MediaMetadata({ title: "Mobile playback test", artist: active === audio ? "Audio stream" : "Video stream" });
+    navigator.mediaSession.metadata = new MediaMetadata(liveDj
+      ? { title: "BASICBIT", artist: "", album: "", artwork: [{ src: new URL("/dj-artwork.png", location.href).href, type: "image/png" }] }
+      : { title: "Mobile playback test", artist: active === audio ? "Audio sample" : "Video sample", artwork: [] });
+    record("now-playing-metadata", { title: navigator.mediaSession.metadata.title, artwork: navigator.mediaSession.metadata.artwork.map(image => image.src) });
     for (const [action, handler] of [["play", () => active.play().catch(() => { record("play-rejected"); message("Tap Play to resume."); })], ["pause", () => active.pause()]]) {
       try { navigator.mediaSession.setActionHandler(action, handler); } catch { record(`unsupported-action:${action}`); }
     }

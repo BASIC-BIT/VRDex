@@ -163,3 +163,22 @@ via `RELAY_EXPIRES_AT`; the sandbox hard timeout was not extended.
 During this update the workspace went unavailable. Deployed source was
 recovered through the Vercel connector and committed through GitHub; the local
 checkout will need a fetch/reset or clean reconciliation when it returns.
+
+## DJ name and artwork metadata
+
+BASIC requested DJ name and artwork for iPhone Now Playing. Live modes now set
+Media Session title `BASICBIT` and the public profile's original PNG artwork
+(`ph7655gnxqkh55h6w2mysagt9n8djr7w`). The build fetches the public asset, verifies
+PNG bytes and a 5-MB bound, and publishes `/dj-artwork.png` on the same origin.
+No stream re-encode or custom Live Activity is involved. Prerecorded modes keep
+test labels without DJ artwork to avoid attributing synthetic samples to a set.
+
+Chromium verified advancing audio playback using a prerecorded HLS fixture,
+the actual Media Session title/artwork URL, successful image loading and audio
+mode PiP disabled. The 390-pixel page screenshot was inspected. The deployed
+artwork returned HTTP 200 with image/png and 512,388 bytes. Actual Island and
+lock-screen presentation remains for the iPhone tester to confirm; iOS controls
+the layout. The stable page URL and original relay deadline are unchanged.
+
+In the managed cloud shell, `NODE_USE_ENV_PROXY=1` is required for the build's
+Node fetch to use the configured proxy; keep system CA trust enabled.

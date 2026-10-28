@@ -14,6 +14,12 @@ if (!process.env.FFMPEG_PATH) {
 await rm(output, { recursive: true, force: true });
 await mkdir(path.join(output, "media"), { recursive: true });
 for (const file of ["index.html", "client.js", "vercel.json"]) await copyFile(path.join(here, file), path.join(output, file));
+// Owner's public VRDex profile image. Preserve the original PNG bytes.
+const artwork = await fetch("https://vrdex.net/api/v0/profiles/basicbit/assets/ph7655gnxqkh55h6w2mysagt9n8djr7w/file?download=1", { signal: AbortSignal.timeout(15000) });
+if (!artwork.ok) throw new Error(`Artwork fetch failed: ${artwork.status}`);
+const image = new Uint8Array(await artwork.arrayBuffer());
+if (image.length > 5_000_000 || ![137,80,78,71,13,10,26,10].every((byte, i) => image[i] === byte)) throw new Error("Expected a bounded PNG profile image");
+await writeFile(path.join(output, "dj-artwork.png"), image);
 for (const audioOnly of [false, true]) {
   const name = audioOnly ? "audio" : "video";
   const args = ["-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "color=c=0x263446:s=320x180:r=2", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=32000,volume=0.15", "-t", "2100",
