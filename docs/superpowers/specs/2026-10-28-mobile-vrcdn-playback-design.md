@@ -1,6 +1,6 @@
 # VRCDN mobile playback and shared HLS relay design
 
-Status: design draft for BASIC's review. Architecture and product choices below
+Status: approved by BASIC in chat on 2026-10-28. Architecture and product choices below
 are distinguished from proposed implementation defaults. This document authorizes
 no production deployment, permanent relay, new paid resources or spending level.
 
