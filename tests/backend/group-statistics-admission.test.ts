@@ -26,6 +26,51 @@ it("legacy integrations do not acquire explicit authority", async () => {
 const GROUP = "grp_00000000-0000-4000-8000-000000000005";
 const command = (name: string) => makeFunctionReference<"mutation">(`groupObservations:${name}`);
 const preview = makeFunctionReference<"query">("groupObservations:getStatisticsAdmission");
+it("super-admin refresh queues stale admission metadata without bypassing retries or leases", async () => {
+  const h = await adminFixture();
+  const refresh = command("refreshStatisticsMetadata");
+  await assert.rejects(h.t.mutation(refresh, { profileId: h.profileId }));
+  for (const guard of ["fresh", "retry", "lease", "queued", "stale"] as const) {
+    await h.t.run(ctx => ctx.db.patch(h.destinationId, {
+      observedAt: guard === "fresh" ? h.now : h.now - 360_001,
+      retryEligibleAt: guard === "retry" ? h.now + 60_000 : undefined,
+      leaseExpiresAt: guard === "lease" ? h.now + 60_000 : undefined,
+      workDueAt: guard === "queued" ? h.now + 60_000 : undefined,
+    }));
+    const before = await h.t.run(ctx => ctx.db.get(h.destinationId));
+    await h.admin.mutation(refresh, { profileId: h.profileId });
+    const after = await h.t.run(ctx => ctx.db.get(h.destinationId));
+    if (guard === "stale") assert.ok(after?.workDueAt !== undefined && after.workDueAt <= Date.now());
+    else assert.deepEqual(after, before);
+  }
+  await h.t.run(ctx => ctx.db.patch(h.profileId, { publicSurfacingState: "suppressed" }));
+  await assert.rejects(h.admin.mutation(refresh, { profileId: h.profileId }));
+});
+
+for (const unsafe of [undefined, "attempt", "observation", "grant"] as const) {
+  it(`admission reuses only safely blocked automatic candidates (${unsafe ?? "safe"})`, async () => {
+    const h = await adminFixture();
+    const integrationId = await h.t.run(async ctx => {
+      const { _id, _creationTime, ...fields } = (await fixture()).row;
+      const id = await ctx.db.insert("communityVrchatIntegrations", { ...fields, vrchatGroupId: GROUP, assignedCollectorAccountId: h.accountId });
+      await ctx.db.patch(h.accountId, { assignedGroupCount: 1 });
+      await ctx.db.insert("vrchatGroupObservationPolicies", { vrchatGroupId: GROUP, integrationId: id, eligibleProfileId: h.profileId, decision: { kind: "enabled", at: h.now }, createdAt: h.now, updatedAt: h.now });
+      return id;
+    });
+    assert.equal(await h.t.mutation(command("recordAdmissionRequired"), { integrationId, reason: "request" }), true);
+    await h.t.run(ctx => ctx.db.patch(integrationId, {
+      ...(unsafe === "attempt" ? { automaticAdmissionAttempt: { collectorAccountId: h.accountId, attemptedAt: h.now } } : {}),
+      ...(unsafe === "observation" ? { lastSuccessfulObservationAt: h.now } : {}),
+      ...(unsafe === "grant" ? { statisticsAdmission: { authorizedAt: h.now, actor: { subject: "admin", issuer: "test", tokenIdentifier: "test|admin" }, reason: "old", collectorAccountId: h.accountId, joinPolicy: "request", epochStartedAt: h.now, phase: "ended", membershipOrigin: "unknown" } } : {}),
+    }));
+    if (unsafe) await assert.rejects(h.admit(), /cleanup_required/);
+    else {
+      assert.equal((await h.admin.query(preview, { profileId: h.profileId }))?.eligible, true);
+      assert.equal((await h.admit()).integrationId, integrationId);
+      assert.equal((await h.t.run(ctx => ctx.db.get(h.accountId)))?.assignedGroupCount, 1);
+    }
+  });
+}
 async function adminFixture() {
  const {t,row} = await fixture(); const now = Date.now();
  const ids = await t.run(async ctx => {

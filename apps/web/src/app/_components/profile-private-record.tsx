@@ -199,5 +199,5 @@ export function ProfilePrivateRecord(props: {
     return null;
   }
 
-  return <><WithheldProfileRecord {...props} />{props.community && props.profileId ? <GroupStatisticsAdmission profileId={props.profileId} slug={props.slug} /> : null}</>;
+  return <><WithheldProfileRecord {...props} />{props.community && props.profileId ? <GroupStatisticsAdmission profileId={props.profileId} /> : null}</>;
 }

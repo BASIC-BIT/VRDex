@@ -14,6 +14,7 @@ import { canReadProfile } from "./_profilePermissions";
 import { automaticAdmissionEnabled, readCollectionSubject, readPublicGroupId } from "./_groupObservationPolicy";
 import { CURRENT_FRESHNESS_MS } from "./_communityTelemetry";
 import { admissionMatches, statisticsAdmissionViewValidator, type StatisticsAdmissionView } from "./_groupAdmission";
+import { syncDestinationQueue } from "./_profileLinkDestinationCache";
 
 const DAY = 86_400_000;
 
@@ -37,6 +38,9 @@ async function statisticsAdmissionPreview(db: DatabaseReader, profileId: Id<"pro
   const assigned = canonical?.assignedCollectorAccountId ? await db.get(canonical.assignedCollectorAccountId) : null;
   const account = assigned ?? accounts.find(row => accountHasAdmissionCapacity(row, now));
   const live = canonical?.statisticsAdmission && admissionMatches(canonical, canonical.statisticsAdmission.authorizedAt, canonical.statisticsAdmission.collectorAccountId);
+  const blockedBeforeMembership = canonical?.state === "blocked" && policy?.admissionRequired === true &&
+    !canonical.assignedCollectorAccountId && !canonical.statisticsAdmission && !canonical.statisticsAdmissionInspection &&
+    !canonical.automaticAdmissionAttempt && canonical.lastSuccessfulObservationAt === undefined;
   const limit = fleet?.automaticEnrollmentLimit;
   const reserved = await db.query("communityVrchatIntegrations").withIndex("by_collectionScope_kind_account", q => q.eq("collectionScope.kind", "automatic").gt("assignedCollectorAccountId", undefined)).take(50);
   const managedDue = await db.query("vrchatGroupObservationPolicies").withIndex("by_queue_priority_dueAt", q => q.eq("queuedAdmission.priority", "managed").lte("queuedAdmission.dueAt", now)).first();
@@ -51,7 +55,7 @@ async function statisticsAdmissionPreview(db: DatabaseReader, profileId: Id<"pro
     blockReason = "conflicting_integration";
   else if (policy && policy.decision.kind !== "enabled" || canonical?.killSwitchEnabled)
     blockReason = "observation_stopped";
-  else if (!live && canonical && (canonical.assignedCollectorAccountId || canonical.state !== "disconnected" || canonical.statisticsAdmission && (canonical.statisticsAdmission.phase !== "cancelled" || canonical.statisticsAdmission.operation?.outcome === "uncertain")))
+  else if (!live && canonical && !blockedBeforeMembership && (canonical.assignedCollectorAccountId || canonical.state !== "disconnected" || canonical.statisticsAdmission && (canonical.statisticsAdmission.phase !== "cancelled" || canonical.statisticsAdmission.operation?.outcome === "uncertain")))
     blockReason = "cleanup_required";
   else if (!fleet || fleet.killSwitchEnabled || !Number.isInteger(limit) || !limit || limit < 1 || limit > 50 || fleet.globalRequestsPerMinute <= 0)
     blockReason = "fleet_unavailable";
@@ -80,6 +84,28 @@ export const getStatisticsAdmission = query({
     if (!session || !(await getAccountFeatureAccess(ctx.db, session.userId)).superAdmin)
       return null;
     return statisticsAdmissionPreview(ctx.db, args.profileId, Date.now());
+  },
+});
+
+export const refreshStatisticsMetadata = mutation({
+  args: { profileId: v.id("profiles") }, returns: v.null(),
+  handler: async (ctx, args) => {
+    await requireStatisticsAdmin(ctx);
+    const profile = await ctx.db.get(args.profileId);
+    const group = await readPublicGroupId(ctx.db, args.profileId);
+    const key = profile?.primaryGroupReference?.key;
+    if (!group || !key || !await eligibleReference(ctx.db, group, args.profileId))
+      throw new Error("Public primary group required.");
+    const destination = await ctx.db.query("profileLinkDestinations").withIndex("by_key", q => q.eq("key", key)).unique();
+    if (!destination || destination.kind !== "vrchat_group" || destination.entityId !== group)
+      throw new Error("Public primary group required.");
+    const now = Date.now();
+    if (destination.workDueAt !== undefined || (destination.leaseExpiresAt ?? 0) > now ||
+      (destination.retryEligibleAt ?? 0) > now || (destination.observedAt !== undefined && now - destination.observedAt <= CURRENT_FRESHNESS_MS))
+      return null;
+    await ctx.db.patch(destination._id, { workDueAt: now });
+    await syncDestinationQueue(ctx, "vrchat", now);
+    return null;
   },
 });
 

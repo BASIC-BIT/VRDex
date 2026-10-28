@@ -63,7 +63,7 @@ export function AdmissionPreview() {
         case "groupObservations:admitStatistics": return current.current.actions.admit(args);
         case "groupObservations:checkStatisticsAdmission": return current.current.actions.check({ integrationId, admissionAt: current.current.view?.statisticsAdmission?.authorizedAt ?? 0 });
         case "groupObservations:cancelStatisticsAdmission": return current.current.actions.cancel({ integrationId, admissionAt: current.current.view?.statisticsAdmission?.authorizedAt ?? 0 });
-        case "profileLinkDestinations:requestForProfile": return current.current.actions.refresh();
+        case "groupObservations:refreshStatisticsMetadata": return current.current.actions.refresh();
         default: throw new Error("Unexpected fixture mutation");
       }
     },

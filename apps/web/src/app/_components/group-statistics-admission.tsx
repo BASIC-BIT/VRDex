@@ -125,11 +125,11 @@ export function GroupStatisticsAdmissionPanel({ profileId, view, actions }: {
   </section>;
 }
 
-export function GroupStatisticsAdmission({ profileId, slug }: { profileId: Id<"profiles">; slug: string }) {
+export function GroupStatisticsAdmission({ profileId }: { profileId: Id<"profiles"> }) {
   const view = useQuery(api.groupObservations.getStatisticsAdmission, { profileId });
   const admit = useMutation(api.groupObservations.admitStatistics);
   const cancel = useMutation(api.groupObservations.cancelStatisticsAdmission);
   const check = useMutation(api.groupObservations.checkStatisticsAdmission);
-  const refresh = useMutation(api.profileLinkDestinations.requestForProfile);
-  return <GroupStatisticsAdmissionPanel profileId={profileId} view={view} actions={{ admit, cancel, check, refresh: () => refresh({ slug }) }} />;
+  const refresh = useMutation(api.groupObservations.refreshStatisticsMetadata);
+  return <GroupStatisticsAdmissionPanel profileId={profileId} view={view} actions={{ admit, cancel, check, refresh: () => refresh({ profileId }) }} />;
 }
