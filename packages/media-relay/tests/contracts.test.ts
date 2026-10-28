@@ -178,6 +178,7 @@ test("protocol objects are strict and validate numeric boundaries", () => {
 });
 test("shared policy pins approved runtime budgets", () => {
   assert.deepEqual(RELAY_POLICY, {
+    objectRetentionMs: 600000,
     idleGraceMs: 180000,
     sourceRecoveryBudgetMs: 30000,
     grantLifetimeMs: 43200000,

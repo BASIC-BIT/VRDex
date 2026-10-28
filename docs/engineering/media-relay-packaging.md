@@ -72,3 +72,8 @@ runs real FFmpeg/FFprobe, and decodes both renditions. Source security and teard
 coverage lives in `source-acquisition.test.ts` and the existing
 `tests/backend/event-broadcast-relay.test.ts`. These checks establish local media
 behavior, not physical-phone playback or hosted-provider compatibility.
+
+The [shared runtime](./media-relay-runtime.md) now composes this single-attempt
+boundary with lease fencing, bounded publication and source recovery. Continuity
+is validated as a complete strict two-rendition shape before any resources are
+created, and each registry attempt receives its own fixed continuity baseline.

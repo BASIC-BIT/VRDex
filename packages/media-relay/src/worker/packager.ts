@@ -10,6 +10,7 @@ import {
 import {
   parseSourceDescriptor,
   RenditionSnapshotSchema,
+  PackagerContinuitySchema,
   type SourceDescriptor,
   type PlaybackMode,
   type Segment,
@@ -134,10 +135,8 @@ export function createPackager({
       video: { nextSequence: 0, discontinuitySequence: 0 },
       audio: { nextSequence: 0, discontinuitySequence: 0 },
     };
-    for (const entry of Object.values(continuity))
-      for (const value of Object.values(entry))
-        if (!Number.isSafeInteger(value) || value < 0)
-          throw Error("Invalid packager continuity");
+    if (!PackagerContinuitySchema.safeParse(continuity).success)
+      throw Error("Invalid packager continuity");
     if (options.signal.aborted) throw options.signal.reason ?? Error("Aborted");
     await mkdir(options.directory, { recursive: true });
     const directory = await mkdtemp(

@@ -96,7 +96,10 @@ async function playback(
     )
     .unique();
   if (!source || ["stopped", "draining", "unavailable"].includes(source.state))
-    return { kind: "unavailable", reason: "unavailable" };
+    return {
+      kind: "unavailable",
+      reason: source?.terminalReason ?? "unavailable",
+    };
   // Delivery origin is server configuration, never caller-controlled.
   const origin = process.env.MEDIA_RELAY_PLAYBACK_ORIGIN;
   if (source.state !== "ready" || !origin)
@@ -187,7 +190,14 @@ export const openPlayback = mutation({
       if (count >= config.sources)
         return { kind: "capacityLimited", retryAfterMs: 1000 };
       if (source)
-        await ctx.db.patch(source._id, { state: "queued", updatedAt: now });
+        await ctx.db.patch(source._id, {
+          state: "queued",
+          updatedAt: now,
+          progressAt: undefined,
+          recoveryStartedAt: undefined,
+          terminalReason: undefined,
+          admissionRevision: (source.admissionRevision ?? 0) + 1,
+        });
       else
         await ctx.db.insert("mediaRelaySources", {
           streamKey,

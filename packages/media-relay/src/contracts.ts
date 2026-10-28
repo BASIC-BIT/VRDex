@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { RELAY_POLICY } from "./policy";
 
 const opaqueId = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 const reserved = new Set([
@@ -157,6 +158,11 @@ export const ResourceSnapshotSchema = z.strictObject({
   cpuUsagePercent: measurement.optional(),
   memoryUsedBytes: integer.optional(),
 });
+export const SourceTerminalReasonSchema = z.enum([
+  "unsupported",
+  "unavailable",
+]);
+export type SourceTerminalReason = z.infer<typeof SourceTerminalReasonSchema>;
 export const SourceStateSchema = z.enum([
   "queued",
   "starting",
@@ -187,3 +193,54 @@ export type WorkerObservation = z.infer<typeof WorkerObservationSchema>;
 export type WorkerAllocation = z.infer<typeof WorkerAllocationSchema>;
 export type ResourceSnapshot = z.infer<typeof ResourceSnapshotSchema>;
 export type SourceState = z.infer<typeof SourceStateSchema>;
+
+const continuityEntry = z.strictObject({
+  nextSequence: integer,
+  discontinuitySequence: integer,
+});
+export const PackagerContinuitySchema = z.strictObject({
+  video: continuityEntry,
+  audio: continuityEntry,
+});
+export type RelayContinuity = z.infer<typeof PackagerContinuitySchema>;
+/** Bounded immutable manifest metadata accepted at the control-plane commit boundary. */
+export const PublishedSnapshotSchema = RenditionSnapshotSchema.extend({
+  segments: z
+    .array(SegmentSchema)
+    .min(1)
+    .max(RELAY_POLICY.rollingWindowSegments),
+}).superRefine((s, ctx) => {
+  const prefix = `${s.streamKey}/epochs/${s.epoch}/`;
+  if (
+    s.segments[0]?.sequence !== s.sequence ||
+    s.segments.some(
+      (segment, i) =>
+        segment.sequence !== s.sequence + i ||
+        !segment.objectKey.startsWith(prefix) ||
+        !/^attempt-[0-9]+-[A-Za-z0-9_-]+\/(video|audio)-[0-9]+\.ts$/.test(
+          segment.objectKey.slice(prefix.length),
+        ) ||
+        !segment.objectKey.endsWith(`/${s.rendition}-${segment.sequence}.ts`) ||
+        segment.durationSeconds > s.targetDurationSeconds,
+    )
+  )
+    ctx.addIssue({
+      code: "custom",
+      message: "Invalid published segment window",
+    });
+});
+export function continuityAfter(snapshot: RenditionSnapshot) {
+  const last = snapshot.segments[snapshot.segments.length - 1];
+  if (!last) throw Error("Empty snapshot");
+  return {
+    nextSequence: last.sequence + 1,
+    discontinuitySequence:
+      snapshot.discontinuitySequence +
+      snapshot.segments.filter((s) => s.discontinuity).length,
+  };
+}
+export function snapshotObjectKey(snapshot: RenditionSnapshot) {
+  const last = snapshot.segments[snapshot.segments.length - 1];
+  if (!last) throw Error("Empty snapshot");
+  return `${snapshot.streamKey}/epochs/${snapshot.epoch}/snapshots/${snapshot.rendition}-${last.sequence}.json`;
+}

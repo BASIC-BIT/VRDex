@@ -38,14 +38,26 @@ export const mediaRelayTables = {
     ),
     // Epoch survives release; ownership exists only while a lease is held.
     epoch: v.optional(v.number()),
-    owner: v.optional(v.object({ workerId: v.string(), workerEpoch: v.number() })),
+    owner: v.optional(
+      v.object({ workerId: v.string(), workerEpoch: v.number() }),
+    ),
     leaseExpiresAt: v.optional(v.number()),
     progressAt: v.optional(v.number()),
+    terminalReason: v.optional(
+      v.union(v.literal("unsupported"), v.literal("unavailable")),
+    ),
+    admissionRevision: v.optional(v.number()),
+    recoveryStartedAt: v.optional(v.number()),
+    // Validated bounded snapshots; references point only to immutable epoch objects.
+    snapshots: v.optional(
+      v.object({ video: v.optional(v.any()), audio: v.optional(v.any()) }),
+    ),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_streamKey", ["streamKey"])
     .index("by_state", ["state"])
+    .index("by_state_lease", ["state", "leaseExpiresAt"])
     .index("by_owner", ["owner.workerId", "leaseExpiresAt"]),
   mediaRelayGrants: defineTable({
     grantId: v.string(),

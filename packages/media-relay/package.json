@@ -6,7 +6,10 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./worker/packager": "./src/worker/packager.ts"
+    "./worker/packager": "./src/worker/packager.ts",
+    "./worker/registry": "./src/worker/registry.ts",
+    "./worker/publisher": "./src/worker/publisher.ts",
+    "./worker/main": "./src/worker/main.ts"
   },
   "scripts": {
     "test": "node --import tsx --test tests/**/*.test.ts",

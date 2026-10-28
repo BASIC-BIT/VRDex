@@ -8,6 +8,8 @@ const schema =
   (schemaModule as unknown as { default?: typeof schemaModule }).default ??
   schemaModule;
 const modules = {
+  "../../convex/mediaRelayWorker.ts": () =>
+    import("../../convex/mediaRelayWorker"),
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
   "../../convex/mediaRelayPlayback.ts": () =>
     import("../../convex/mediaRelayPlayback"),
@@ -467,5 +469,74 @@ it("restored public source can revalidate an unexpired grant while explicit rele
     (await h.t.query(resolve, { grantId: grant.grantId, now: Date.now() }))
       .kind,
     "denied",
+  );
+});
+
+it("unsupported terminal result reaches existing playback grants and only new Play clears it", async () => {
+  const h = await fixture();
+  const grant = preparing(await h.play());
+  const allocation = {
+    cpuUnits: 1024,
+    memoryMiB: 2048,
+    evidenceId: "test-proof-1",
+  };
+  process.env.MEDIA_RELAY_WORKER_TOKEN = "relay-test-credential";
+  process.env.MEDIA_RELAY_WORKERS = JSON.stringify([
+    {
+      workerId: "one",
+      workerEpoch: 1,
+      allocation,
+      maxSources: 2,
+      draining: false,
+    },
+  ]);
+  const call = (name: string, args: Record<string, unknown>) =>
+    h.t.mutation(
+      makeFunctionReference<"mutation">(`mediaRelayWorker:${name}`),
+      { credential: "relay-test-credential", ...args },
+    );
+  await call("registerWorker", {
+    observation: {
+      workerId: "one",
+      workerEpoch: 1,
+      allocation,
+      observedAt: Date.now(),
+      activeJobs: 0,
+      resources: null,
+      jobs: [],
+    },
+  });
+  const identity = {
+    workerId: "one",
+    workerEpoch: 1,
+    streamKey: "vrcdn/Alpha/1",
+  };
+  const lease = await call("claimSource", identity);
+  await call("observeSource", {
+    ...identity,
+    epoch: lease.epoch,
+    state: "unavailable",
+    progressAt: 0,
+    terminalReason: "unsupported",
+  });
+  assert.deepEqual(await h.t.query(get, { grantId: grant.grantId }), {
+    kind: "unavailable",
+    reason: "unsupported",
+  });
+  assert.deepEqual(await h.t.query(get, { grantId: grant.grantId }), {
+    kind: "unavailable",
+    reason: "unsupported",
+  });
+  preparing(await h.play());
+  const row = await h.t.run((ctx) => ctx.db.query("mediaRelaySources").first());
+  assert.equal(row?.terminalReason, undefined);
+  await assert.rejects(
+    call("observeSource", {
+      ...identity,
+      epoch: lease.epoch,
+      state: "unavailable",
+      progressAt: 0,
+      terminalReason: "unsupported",
+    }),
   );
 });

@@ -280,3 +280,189 @@ it("lease expiry is exclusive and an expired owner cannot renew or release", asy
   await assert.rejects(h.call("releaseSource", args));
   assert.equal(OwnershipLeaseSchema.parse(await h.claim("two")).epoch, 2);
 });
+
+it("publication is transactional with ownership and monotonic output, and takeover preserves continuity", async (test) => {
+  let now = 100000;
+  test.mock.method(Date, "now", () => now);
+  const h = await fixture();
+  const l = OwnershipLeaseSchema.parse(await h.claim("one"));
+  const args = {
+    workerId: "one",
+    workerEpoch: 1,
+    streamKey: l.streamKey,
+    epoch: l.epoch,
+  };
+  const snapshot = {
+    streamKey: l.streamKey,
+    epoch: 1,
+    rendition: "video",
+    targetDurationSeconds: 2,
+    sequence: 4,
+    discontinuitySequence: 2,
+    generatedAt: now,
+    segments: [
+      {
+        sequence: 4,
+        objectKey: "vrcdn/Alpha/1/epochs/1/attempt-1-abc/video-4.ts",
+        durationSeconds: 2,
+        programDateTime: now,
+        discontinuity: true,
+      },
+    ],
+  };
+  await h.call("commitSnapshot", {
+    ...args,
+    snapshot,
+    objectKey: "vrcdn/Alpha/1/epochs/1/snapshots/video-4.json",
+  });
+  await assert.rejects(
+    h.call("commitSnapshot", {
+      ...args,
+      snapshot,
+      objectKey: "vrcdn/Alpha/1/epochs/1/snapshots/video-4.json",
+    }),
+  );
+  await assert.rejects(
+    h.call("commitSnapshot", {
+      ...args,
+      snapshot: { ...snapshot, generatedAt: now - 20000 },
+      objectKey: "bad",
+    }),
+  );
+  await h.call("commitSnapshot", {
+    ...args,
+    snapshot: {
+      ...snapshot,
+      rendition: "audio",
+      segments: [
+        {
+          ...snapshot.segments[0],
+          objectKey: "vrcdn/Alpha/1/epochs/1/attempt-1-abc/audio-4.ts",
+        },
+      ],
+    },
+    objectKey: "vrcdn/Alpha/1/epochs/1/snapshots/audio-4.json",
+  });
+  now = 130000;
+  const next = OwnershipLeaseSchema.parse(await h.claim("two"));
+  await assert.rejects(
+    h.call("commitSnapshot", {
+      ...args,
+      snapshot,
+      objectKey: "vrcdn/Alpha/1/epochs/1/snapshots/video-4.json",
+    }),
+  );
+  const session = await h.call("readSource", {
+    workerId: "two",
+    workerEpoch: 1,
+    streamKey: l.streamKey,
+    epoch: next.epoch,
+  });
+  assert.equal(session.continuity.video.nextSequence, 5);
+  assert.equal(session.continuity.video.discontinuitySequence, 3);
+  assert.equal(session.progressAt, 100000);
+  assert.equal(session.recoveryStartedAt, 100000);
+});
+it("service discovery is bounded, rejects browser credentials and omits terminal/unowned active sources", async () => {
+  const h = await fixture();
+  await h.claim("one");
+  const args = { workerId: "two", workerEpoch: 1 };
+  const list = await h.call("listSources", args);
+  assert.equal(list.length, 2);
+  assert(
+    !list.some(
+      (r: { source: { streamId: string } }) => r.source.streamId === "Alpha",
+    ),
+  );
+  await assert.rejects(
+    h.call("listSources", { ...args, credential: "browser" }),
+  );
+});
+
+it("expired exact-owner cleanup acknowledges only terminal state without advancing progress", async (test) => {
+  let now = 100000;
+  test.mock.method(Date, "now", () => now);
+  const h = await fixture();
+  const l = OwnershipLeaseSchema.parse(await h.claim("one"));
+  const args = {
+    workerId: "one",
+    workerEpoch: 1,
+    streamKey: l.streamKey,
+    epoch: l.epoch,
+  };
+  await h.call("observeSource", {
+    ...args,
+    state: "ready",
+    progressAt: 100000,
+  });
+  now = 130000;
+  await assert.rejects(
+    h.call("observeSource", { ...args, state: "ready", progressAt: 130000 }),
+  );
+  await assert.rejects(
+    h.call("observeSource", {
+      ...args,
+      state: "unavailable",
+      progressAt: 130000,
+    }),
+  );
+  await h.call("observeSource", {
+    ...args,
+    state: "unavailable",
+    progressAt: 100000,
+    terminalReason: "unsupported",
+  });
+  const rows = await h.t.run((ctx) =>
+    ctx.db.query("mediaRelaySources").collect(),
+  );
+  const row = rows.find((r) => r.streamKey === l.streamKey);
+  assert.equal(row?.progressAt, 100000);
+  assert.equal(row?.state, "unavailable");
+  assert.equal(row?.terminalReason, "unsupported");
+  assert.equal(row?.owner, undefined);
+});
+it("expired cleanup racing takeover cannot overwrite a newer owner", async (test) => {
+  let now = 100000;
+  test.mock.method(Date, "now", () => now);
+  const h = await fixture();
+  const l = OwnershipLeaseSchema.parse(await h.claim("one"));
+  now = 130000;
+  const cleanup = {
+    workerId: "one",
+    workerEpoch: 1,
+    streamKey: l.streamKey,
+    epoch: l.epoch,
+    state: "unavailable",
+    progressAt: 0,
+  };
+  const results = await Promise.allSettled([
+    h.claim("two"),
+    h.call("observeSource", cleanup),
+  ]);
+  assert.equal(results.filter((r) => r.status === "fulfilled").length, 1);
+  const rows = await h.t.run((ctx) =>
+    ctx.db.query("mediaRelaySources").collect(),
+  );
+  const row = rows.find((r) => r.streamKey === l.streamKey);
+  assert(row);
+  if (row.owner) {
+    assert.equal(row.owner.workerId, "two");
+    assert.equal(row.epoch, 2);
+    await assert.rejects(h.call("observeSource", cleanup));
+  } else assert.equal(row.state, "unavailable");
+});
+
+it("bounded discovery skips live leases without starving a later expired source", async () => {
+  const h = await fixture();
+  await h.claim("one", "Alpha");
+  await h.claim("one", "Bravo");
+  await h.t.run(async (ctx) => {
+    for (const row of await ctx.db.query("mediaRelaySources").collect())
+      await ctx.db.patch(row._id, { state: "ready" });
+  });
+  const rows = await h.call("listSources", { workerId: "two", workerEpoch: 1 });
+  assert.deepEqual(
+    rows.map((r: { source: { streamId: string } }) => r.source.streamId),
+    ["Charlie"],
+  );
+});

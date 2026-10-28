@@ -1,6 +1,7 @@
 import type { RenditionSnapshot } from "./contracts";
 
 export const RELAY_POLICY = Object.freeze({
+  objectRetentionMs: 600000,
   idleGraceMs: 180000,
   sourceRecoveryBudgetMs: 30000,
   grantLifetimeMs: 43200000,
