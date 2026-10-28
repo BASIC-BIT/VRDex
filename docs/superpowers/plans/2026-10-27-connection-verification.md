@@ -15,9 +15,9 @@ and use proof settlement rather than profile trust for connection completion.
 
 **Spec:** [Approved connection-verification design](../specs/2026-10-27-connection-verification-design.md).
 BASIC approved the design, wording, and publication rule on October 27, 2026.
-This plan awaits review before implementation. Recommend subagent-driven
-execution with one implementer at a time, independent task reviews, then a
-whole-branch review. The tasks share interfaces and should run in order.
+BASIC approved this plan and subagent implementation. Execution used one
+implementer at a time, independent task reviews, then a whole-branch review.
+The tasks share interfaces and run in order.
 
 ## Global constraints
 
@@ -297,5 +297,19 @@ Design commit: `5e1fee33d`. Reviewed source base:
 `352f4b26503120137180820a9269ebdbe9ea5a8e`. Worktree:
 `C:/Users/steve/.codex/worktrees/vrchat-person-proof-design/VRDex`, branch
 `codex/connection-verification-design`. Refresh affected source before coding.
-The implementation plan has been self-reviewed and edited with unslop. Product
-code, implementation tests, and runtime acceptance have not been executed.
+The implementation plan was self-reviewed and edited with unslop.
+
+## Execution status
+
+Tasks 1-3 are implemented with independent reviews. Review fixes cover the
+JavaScript date boundary, successful collector-race responses, and preservation
+of resolved destination names. Scoped backend checks, 927 web tests, 14
+desktop/mobile browser fixtures, API/MCP package tests, typechecks, lint, and
+OpenAPI checks passed. A claim-expiry hydration error found during visual
+inspection was corrected using the existing date component.
+
+Four authenticated browser tests skipped because local Clerk test credentials
+were unavailable. The broad backend run reported a failure in unchanged media
+encoder code and stalled in a Twitch-input test; its baseline runtime status
+is unknown. Neither gap is a passing result. Hosted CI, merge readiness, and
+production acceptance remain separate. No merge or deployment was performed.
