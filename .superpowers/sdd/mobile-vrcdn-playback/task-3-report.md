@@ -86,8 +86,13 @@ started by this task.
 - `pnpm exec markdownlint-cli2 docs/engineering/media-relay-admission.md`: passed;
   repository configuration expanded the lint command to 262 Markdown files.
 - `pnpm exec prettier --write ...`: unavailable (no prettier executable); no files
-  were changed by that failed formatting command. TypeScript printer formatted the
-  new TypeScript modules instead.
+  were changed by that failed formatting command. Final `pnpm dlx prettier --write`
+  on the six new TypeScript implementation/test modules succeeded, restoring the
+  repository two-space style. This was a formatting-only follow-up.
+
+The first commit hook reported an ignored `.superpowers` restaging warning after
+Markdown lint passed; the explicitly force-added report was included in the
+successful commit and the working tree was clean.
 
 ## Self-review and limitations
 
