@@ -24,7 +24,7 @@ for (const media of [video, audio]) {
     if (media !== active) return;
     record(event);
     if (event === "playing") { message("Playing"); if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "playing"; }
-    if (event === "pause") { message("Paused"); if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "paused"; }
+    if (event === "pause" && !media.error) { message("Paused"); if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "paused"; }
     if (event === "ended") message("Sample finished");
     if (event === "error") message(`Playback failed (media error ${media.error?.code ?? "unknown"}). Save the log.`);
   });
