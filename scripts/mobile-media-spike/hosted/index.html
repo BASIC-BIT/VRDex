@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Mobile playback test</title>
+<style>
+:root{color-scheme:dark;font:16px system-ui}*{box-sizing:border-box}body{margin:0;background:#11151c;color:#eef1f7}main{max-width:640px;padding:28px 20px;margin:auto}h1{font-size:28px;margin:0 0 12px}p{color:#bbc4d4;line-height:1.5}label{display:block;margin:24px 0 8px}select,button{font:inherit;min-height:48px;border:1px solid #53637c;border-radius:5px;padding:10px 14px;background:#202b3b;color:#fff}select{width:100%}.buttons{display:flex;gap:10px;flex-wrap:wrap;margin:14px 0}button{cursor:pointer}button:disabled{opacity:.45;cursor:default}#start{background:#c7dcff;color:#10203a;font-weight:650}video{width:100%;background:#000;border-radius:5px}audio{width:100%;margin:20px 0}[hidden]{display:none!important}#status{padding:12px;background:#202b3b;border-radius:5px;overflow-wrap:anywhere}.steps{padding-left:22px;color:#bbc4d4;line-height:1.6}details{margin:20px 0}pre{font-size:11px;white-space:pre-wrap;max-height:260px;overflow:auto}small{color:#bbc4d4}
+</style></head>
+<body><main>
+<h1>Mobile playback test</h1>
+<p>35-minute prerecorded samples. This tests phone playback, not a live VRCDN stream.</p>
+<label for="mode">Playback mode</label>
+<select id="mode"><option value="video">HLS video</option><option value="audio">HLS audio only</option></select>
+<div class="buttons"><button id="start">Start test</button><button id="pip" disabled>Picture in picture</button><button id="stop" disabled>Stop</button></div>
+<video id="video" controls playsinline aria-label="Video test"></video>
+<audio id="audio" controls aria-label="Audio test" hidden></audio>
+<p id="status" role="status" aria-live="polite">Ready</p>
+<ol class="steps"><li>Start a test. For video, enter Picture in picture.</li><li>Switch apps and check that sound continues.</li><li>Lock your phone for 15–30 minutes and listen.</li><li>Return here and save the log before starting another test.</li></ol>
+<label for="notes">What happened?</label><textarea id="notes" rows="3" style="width:100%;font:inherit;background:#202b3b;color:white;padding:12px" placeholder="Phone, OS version, any silence or interruption"></textarea>
+<div class="buttons"><button id="save">Save log</button></div>
+<small>Logs stay on this device until you save them. The page cannot tell whether you heard sound while the phone was locked. Samples end after 35 minutes.</small>
+<details><summary>Playback events</summary><pre id="events"></pre></details>
+<script src="/client.js"></script>
+</main></body></html>
