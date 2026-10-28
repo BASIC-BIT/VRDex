@@ -32,3 +32,27 @@ audible output, live VRCDN delivery or production lineup/Web Audio behavior.
 
 Vercel's default project authentication is retained. Use a deployment-scoped
 shareable URL for phone access where available; do not disable project protection.
+
+## Physical-device feedback, 2026-10-28
+
+BASIC reported that both hosted modes worked as expected and identified the
+device/browser as iPhone Safari. This is user-reported acceptance of the hosted
+prerecorded HLS video/PiP and audio tests. Exact iPhone model, iOS version, test
+durations and exported logs were not supplied. Do not infer Android acceptance,
+live stream behavior or a measured 30-minute result from this feedback.
+
+Bounded public GET checks of `basicbit` and `basicbit1` on the same date returned
+401 for `.live.ts` and `.live.mp4`, and 404 for both `.m3u8` and `.live.m3u8`.
+Those IDs did not provide a working public feed during the check. This cannot
+establish which formats an active broadcast supports.
+
+Next prerequisite: a known-active public VRCDN stream ID or playback/preview
+link, with no ingest credential. Compare the working MPEG-TS response against
+HLS manifests and direct MP4. For HLS, validate that referenced media loads and
+the live playlist advances, then repeat the iPhone test on that live source.
+For MP4, inspect whether it is a Safari-compatible stream before considering
+it as another direct playback path. Neither URL suffix nor HTTP status alone
+proves mobile playback. Prefer direct provider delivery if verified; consider
+a relay only if those paths cannot satisfy background playback. Keep existing
+lineup behavior unchanged and do not enable hosted restream infrastructure as
+part of this probe.
