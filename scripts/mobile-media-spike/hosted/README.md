@@ -83,3 +83,26 @@ error codes, network state, metadata/loading events and play rejection details,
 and reports a 15-second startup timeout. It no longer labels every rejected
 play attempt as an autoplay problem. Further direct-MP4 changes require the
 phone evidence; no relay is provisioned by this diagnostic update.
+
+### Safari rejection and bounded HLS packaging check
+
+BASIC confirmed media error 4 on iPhone Safari and successful playback in a
+desktop browser. Error 4 identifies source rejection; it does not uniquely
+identify range handling, codecs or container timing as the cause. Direct MP4
+therefore remains failed for the target phone/browser.
+
+A subsequent bounded public MP4 capture returned HTTP 200 and 3,997,696 bytes.
+Stopping capture mid-fragment caused an initial packaging error; retaining only
+complete MP4 boxes through the last complete `mdat` removed 1,952 trailing bytes.
+FFmpeg stream-copy packaging then exited 0 and generated about nine seconds of
+HLS (three 2-second segments, an initial 2.983-second segment and a final short
+segment). A two-second decode of that playlist exited 0. Both packaging and
+decode reported initial non-monotonic timestamp warnings. No codec re-encode
+was used. This proves bounded packaging feasibility, not continuous relay health,
+timestamp correctness across reconnects, audible quality or live iPhone acceptance.
+
+Current recommendation: evaluate a small live HLS packaging relay, preserving
+the original audio/video codecs where possible and explicitly checking timestamp
+handling and reconnects. Vercel can host the test UI, but a continuous media origin
+is required for the relay. No live relay or paid infrastructure was provisioned
+by these checks, and no production player/lineup behavior changed.
