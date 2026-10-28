@@ -156,3 +156,132 @@ compute cost until explicitly stopped. Drain/stop-before-start replacement may
 exceed30-second recovery. Existing ECR/network/state/secrets and Convex are external
 cost/ownership inputs. The pinned Node base still installs distro FFmpeg at build
 time; a release should retain its exact built image digest, not rebuild for rollback.
+
+## Review fix round 1: I1, initialized non-root scratch volume
+
+Base: `c9922a7`. Fixed Important I1 from `task-7-review.md`. The prior tmpfs
+fixture did not establish ECS bind-volume ownership; its successful result did
+not cover this deployment path. Minor M1 is explicitly deferred to Task 11 by
+the controller and is unchanged in this round.
+
+The Dockerfile now creates `/var/lib/media-relay`, sets owner `node:node` and
+mode `0750`, and declares `VOLUME ["/var/lib/media-relay"]`. The ECS scratch
+mount uses that exact initialized path. The enabled entrypoint and image fixture
+share exported `WORKER_SCRATCH_DIRECTORY`. `USER node` and ECS
+`readonlyRootFilesystem=true` remain in place. The fixture requires UID 1000,
+volume owner 1000 and mode `0750` before creating source resources. Its documented
+command now mounts a fresh anonymous volume, with no writable tmpfs.
+
+### Observed RED
+
+Against the original image, the following command exited 1. The fresh volume
+had root ownership and Node could not create a directory:
+
+```bash
+source /workspace/vrdex-env.sh
+env -u DOCKER_HOST -u DOCKER_CONTEXT -u DOCKER_TLS -u DOCKER_TLS_VERIFY -u DOCKER_CERT_PATH docker --host=unix:///var/run/docker.sock run --rm --read-only --mount type=volume,dst=/var/lib/media-relay vrdex-media-relay:task7 node --input-type=module -e 'import{mkdir,stat}from"node:fs/promises";const s=await stat("/var/lib/media-relay");console.log(JSON.stringify({uid:process.getuid(),owner:s.uid,mode:(s.mode&511).toString(8)}));await mkdir("/var/lib/media-relay/jobs");'
+```
+
+```text
+{"uid":1000,"owner":0,"mode":"755"}
+Error: EACCES: permission denied, mkdir '/var/lib/media-relay/jobs'
+```
+
+The focused Terraform assertion also observed RED (exit 1, 5 passed/1 failed):
+
+```text
+terraform -chdir=infra/terraform/media-relay test -no-color
+local.worker_scratch_mount.containerPath is "/tmp"
+Non-root workers require the initialized image scratch volume, with read-only root retained.
+```
+
+An initial attempt to inspect the entire JSON container definition in a mock plan
+was unknown because it also contains computed provider outputs. The final
+assertion checks the actual mount local consumed by that definition; it failed
+on `/tmp` before changing it to the initialized volume path. No apply was used.
+
+### Observed GREEN and actual image proof
+
+After the fix, the identical volume-creation command exited 0 and printed:
+
+```text
+{"uid":1000,"owner":1000,"mode":"750"}
+```
+
+Commands below all exited 0. Socket/container commands used supported additional
+network permission, retained Docker config/proxy, and used only the local daemon.
+The same CA secret mount and pinned Node base were retained.
+
+```bash
+source /workspace/vrdex-env.sh
+pnpm --filter @vrdex/media-relay typecheck
+/tmp/vrdex-relay-tools/terraform -chdir=infra/terraform/media-relay fmt -check -recursive
+/tmp/vrdex-relay-tools/terraform -chdir=infra/terraform/media-relay validate -no-color
+/tmp/vrdex-relay-tools/terraform -chdir=infra/terraform/media-relay test -no-color
+node scripts/package-media-relay.mjs /tmp/vrdex-relay-package
+BUILDX_CONFIG=/tmp/vrdex-relay-buildx env -u DOCKER_HOST -u DOCKER_CONTEXT -u DOCKER_TLS -u DOCKER_TLS_VERIFY -u DOCKER_CERT_PATH docker --host=unix:///var/run/docker.sock build --secret id=proxy_ca,src=/etc/ssl/certs/ca-certificates.crt -f workers/media-relay/Dockerfile -t vrdex-media-relay:task7 /tmp/vrdex-relay-package
+env -u DOCKER_HOST -u DOCKER_CONTEXT -u DOCKER_TLS -u DOCKER_TLS_VERIFY -u DOCKER_CERT_PATH docker --host=unix:///var/run/docker.sock run --rm --name vrdex-relay-task7-fix1-smoke --cpus 1 --memory 2g --pids-limit 128 --read-only --mount type=volume,dst=/var/lib/media-relay --mount type=bind,src=/workspace/VRDex/workers/media-relay/smoke.mjs,dst=/smoke.mjs,readonly vrdex-media-relay:task7 node /smoke.mjs
+```
+
+Terraform: **6 passed, 0 failed**, configuration valid, formatting clean.
+Actual packaged-image proof output:
+
+```json
+{
+  "proof": "actual-image",
+  "scratch": { "path": "/var/lib/media-relay", "uid": 1000, "mode": "750" },
+  "maximumSources": 2,
+  "committedSnapshots": 32,
+  "objects": 64,
+  "allocation": {
+    "cpuUnits": 1024,
+    "memoryMiB": 2048,
+    "evidenceId": "synthetic-image-only"
+  },
+  "resources": {
+    "sampleSequence": 2,
+    "windowMs": 1221.756104,
+    "sampleAgeMs": 1000.9092039999998,
+    "cpuUsagePercent": 40.898097285053545,
+    "memoryUsedBytes": 73031680
+  },
+  "drain": true,
+  "term": true,
+  "killedChild": true,
+  "reapedChildren": 3
+}
+```
+
+This repeats real generated-MP4 packaging, two sources, drain refusal, owned-child
+SIGKILL recovery, SIGTERM, zero attempt directories, zero live source connections
+and three reaped child PIDs on the new volume. The named container was absent after
+`--rm`. A separate no-network, read-only-root run confirmed disabled boot, volume
+ownership and the bundled worker hash against `/app/manifest.json`:
+
+```text
+{"workerSha256":"263a22a2e6c56830c4064e0e1c91e7c0cbb4a607bcc9d0554a0d7f891daa403f","scratch":"/var/lib/media-relay","owner":1000,"disabled":true}
+```
+
+### Replacement artifact/source identities
+
+These supersede the earlier image and worker identities above; gateway bytes are
+unchanged. Fresh build/proof logs are `/tmp/vrdex-relay-fix1-build.log` and
+`/tmp/vrdex-relay-fix1-image-proof.log`.
+
+- Image: `sha256:b4e31094bf1667d871f43a92dca7e7a75c4fd81f03315df7e8d000d4573656b6`,
+  695,476,823 bytes, user `node`, declared volume `/var/lib/media-relay`.
+- Worker SHA256: `263a22a2e6c56830c4064e0e1c91e7c0cbb4a607bcc9d0554a0d7f891daa403f`,
+  3,381,821 bytes.
+- Gateway SHA256: `74dc01d38f3268cd9ffd6d35769955d05c9c4f0aa76fed07d0e887c2d5056bc7`.
+- Gateway ZIP base64 SHA256: `AYobdIyfb/DiKTNeG8OZ5r4TD9En1qiwpYtq9GN/07k=`.
+- Dockerfile SHA256: `c4971168f5002345208ad0a9fb1bd867e1324e08393451e59df894a5a195006a`.
+- Terraform main SHA256: `efd518d26ecf1bb2ed79842c7317d0e6e498fec2a526e6ea32a6e636cd836950`.
+- Worker entrypoint source SHA256: `78b6f3ea6e85561212305f3b2d45ffe7a50f14236287a1f182975ddf22e5056a`.
+- Fixture source SHA256: `6004c36e7f6f573efc54e07ae1f7dc9031c9338ae39c2f685754bfcfbe440d73`.
+
+Self-review: initialization precedes `VOLUME`, all three deployment paths match,
+volume ownership is tested before media starts, and root stays read-only/non-root.
+Only this deployment defect and its proof/docs changed. No broad suite, provider
+mutation or apply ran. Local Docker copy-up behavior now matches the documented
+ECS initialization mechanism; actual Fargate deployment remains untested. Prior
+capacity/cost/live-provider/phone gates and deferred M1 remain unchanged.

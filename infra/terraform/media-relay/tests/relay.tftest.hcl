@@ -79,6 +79,11 @@ CONFIG
 }
 
 run "enabled_private_scoped" {
+  assert {
+    condition     = local.worker_scratch_mount.containerPath == "/var/lib/media-relay" && !local.worker_scratch_mount.readOnly
+    error_message = "Non-root workers require the initialized image scratch volume, with read-only root retained."
+  }
+
   override_resource {
     target = aws_s3_bucket.media[0]
     values = { arn = "arn:aws:s3:::synthetic-relay", id = "synthetic-relay", bucket_regional_domain_name = "synthetic-relay.s3.us-east-1.amazonaws.com" }

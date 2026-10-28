@@ -3,6 +3,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import {
   mkdtemp,
+  stat,
   readFile,
   readdir,
   rm,
@@ -13,12 +14,25 @@ import { createServer, request } from "node:http";
 import { once } from "node:events";
 import { setTimeout as delay } from "node:timers/promises";
 import {
+  WORKER_SCRATCH_DIRECTORY,
   startRelayWorker,
   createPackager,
   createSourceRelay,
 } from "/app/worker.mjs";
+const scratch = await stat(WORKER_SCRATCH_DIRECTORY);
+assert.equal(process.getuid(), 1000, "fixture must use the image node user");
+assert.equal(
+  scratch.uid,
+  process.getuid(),
+  "volume ownership must be initialized by the image",
+);
+assert.equal(
+  scratch.mode & 0o777,
+  0o750,
+  "volume must retain image permissions",
+);
 const run = promisify(execFile),
-  directory = await mkdtemp("/tmp/relay-image-");
+  directory = await mkdtemp(`${WORKER_SCRATCH_DIRECTORY}/relay-image-`);
 let worker, server;
 const objects = new Map(),
   snapshots = [],
@@ -235,6 +249,11 @@ try {
   process.stdout.write(
     JSON.stringify({
       proof: "actual-image",
+      scratch: {
+        path: WORKER_SCRATCH_DIRECTORY,
+        uid: scratch.uid,
+        mode: (scratch.mode & 0o777).toString(8),
+      },
       maximumSources: maximum,
       committedSnapshots: snapshots.length,
       objects: objects.size,

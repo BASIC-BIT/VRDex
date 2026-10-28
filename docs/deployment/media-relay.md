@@ -111,7 +111,9 @@ are additional costs outside this module. No numeric production budget is claime
 Use the repo's prepared Node 24/pnpm tools. Runtime reuses the reviewed Node 22
 bookworm digest from the event worker; the new image installs only FFmpeg and CA
 certificates. It runs as `node`, keeps the root filesystem read-only under ECS,
-and mounts scratch storage. No event sources are copied. Build source hashes and
+and mounts `/var/lib/media-relay` scratch storage. The Dockerfile initializes that
+directory as `node:node` with mode `0750`, then declares the matching `VOLUME`.
+The ECS mount uses the same path so volume initialization retains ownership. No event sources are copied. Build source hashes and
 bundle hashes are recorded in `manifest.json`; esbuild metadata inventories imports.
 
 ```bash
@@ -122,14 +124,16 @@ node scripts/package-media-relay.mjs /tmp/vrdex-relay-package
 /tmp/vrdex-relay-tools/terraform -chdir=infra/terraform/media-relay validate
 /tmp/vrdex-relay-tools/terraform -chdir=infra/terraform/media-relay test
 BUILDX_CONFIG=/tmp/vrdex-relay-buildx env -u DOCKER_HOST -u DOCKER_CONTEXT -u DOCKER_TLS -u DOCKER_TLS_VERIFY -u DOCKER_CERT_PATH docker --host=unix:///var/run/docker.sock build --secret id=proxy_ca,src=/etc/ssl/certs/ca-certificates.crt -f workers/media-relay/Dockerfile -t vrdex-media-relay:task7 /tmp/vrdex-relay-package
-env -u DOCKER_HOST -u DOCKER_CONTEXT -u DOCKER_TLS -u DOCKER_TLS_VERIFY -u DOCKER_CERT_PATH docker --host=unix:///var/run/docker.sock run --rm --name vrdex-relay-task7-smoke --cpus 1 --memory 2g --pids-limit 128 --read-only --tmpfs /tmp:rw,nosuid,exec,size=256m --mount type=bind,src=/workspace/VRDex/workers/media-relay/smoke.mjs,dst=/smoke.mjs,readonly vrdex-media-relay:task7 node /smoke.mjs
+env -u DOCKER_HOST -u DOCKER_CONTEXT -u DOCKER_TLS -u DOCKER_TLS_VERIFY -u DOCKER_CERT_PATH docker --host=unix:///var/run/docker.sock run --rm --name vrdex-relay-task7-smoke --cpus 1 --memory 2g --pids-limit 128 --read-only --mount type=volume,dst=/var/lib/media-relay --mount type=bind,src=/workspace/VRDex/workers/media-relay/smoke.mjs,dst=/smoke.mjs,readonly vrdex-media-relay:task7 node /smoke.mjs
 ```
 
 The synthetic fixture mounts separately and exercises exports from the actual
 image bundle. It generates local MP4, uses bounded control/object/demand fixtures,
 checks two simultaneous sources, real aggregate cgroup observations, publication,
 drain refusal, killed-child recovery, SIGTERM and owned-child cleanup. The fixture
-requires executable scratch only for its PID-recording FFmpeg wrapper. No provider
+uses a fresh anonymous volume with image-initialized ownership, asserts UID 1000
+and mode `0750`, and uses the same exported scratch path as the enabled entrypoint.
+It keeps the root filesystem read-only and supplies no writable tmpfs. No provider
 credentials or source are used. `BUILDX_CONFIG` redirects only local buildx state;
 Docker config/registry credentials/proxy remain unchanged and the CA is a build
 secret mount, never an image layer. Use supported additional network permission

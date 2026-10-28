@@ -7,6 +7,8 @@ RUN --mount=type=secret,id=proxy_ca,target=/run/secrets/proxy_ca \
     && rm -rf /var/lib/apt/lists/* /etc/apt/apt.conf.d/99build-ca
 WORKDIR /app
 COPY --chmod=0444 worker.mjs manifest.json ./
+RUN mkdir -p /var/lib/media-relay && chown node:node /var/lib/media-relay && chmod 0750 /var/lib/media-relay
+VOLUME ["/var/lib/media-relay"]
 ENV NODE_ENV=production
 USER node
 CMD ["node", "worker.mjs"]

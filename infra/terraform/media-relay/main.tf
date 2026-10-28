@@ -1,7 +1,8 @@
 locals {
-  count   = var.enabled ? 1 : 0
-  workers = var.enabled && var.release != null ? { for index, w in var.release.workers : tostring(index) => w } : {}
-  release = var.release
+  worker_scratch_mount = { sourceVolume = "scratch", containerPath = "/var/lib/media-relay", readOnly = false }
+  count                = var.enabled ? 1 : 0
+  workers              = var.enabled && var.release != null ? { for index, w in var.release.workers : tostring(index) => w } : {}
+  release              = var.release
   common = var.enabled ? {
     version            = 1, enabled = true, region = var.region, controlUrl = var.release.control_url,
     bucket             = aws_s3_bucket.media[0].id, demandTable = aws_dynamodb_table.demand[0].name,
@@ -173,7 +174,7 @@ resource "aws_ecs_task_definition" "worker" {
   execution_role_arn       = aws_iam_role.execution[0].arn
   container_definitions = jsonencode([{ name = "relay", image = var.release.image, essential = true, readonlyRootFilesystem = true, stopTimeout = 30,
     linuxParameters  = { initProcessEnabled = true },
-    mountPoints      = [{ sourceVolume = "scratch", containerPath = "/tmp", readOnly = false }],
+    mountPoints      = [local.worker_scratch_mount],
     environment      = [{ name = "MEDIA_RELAY_CONFIG", value = jsonencode(merge(local.common, { credentialRef = var.release.worker_secret_arn, binding = each.value })) }],
     logConfiguration = { logDriver = "awslogs", options = { "awslogs-group" = aws_cloudwatch_log_group.worker[0].name, "awslogs-region" = var.region, "awslogs-stream-prefix" = "slot-${each.key}" } }
   }])

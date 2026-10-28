@@ -11,17 +11,17 @@ import { createAwsStorage } from "../providers/aws-storage";
 import { createAwsDemand } from "../providers/aws-demand";
 import { createDemand } from "../gateway/demand";
 import { startRelayWorker } from "./main";
+export const WORKER_SCRATCH_DIRECTORY = "/var/lib/media-relay";
 export async function bootWorker(env: NodeJS.ProcessEnv = process.env) {
   const config = parseDeployment(env);
   if (!config.enabled) return undefined;
-  if (!config.binding)
-    throw Error("Missing verified worker binding");
+  if (!config.binding) throw Error("Missing verified worker binding");
   const credential = await readSecret(config.region, config.credentialRef);
   const s3 = new S3Client({ region: config.region, maxAttempts: 1 });
   const dynamo = new DynamoDBClient({ region: config.region, maxAttempts: 1 });
   const worker = startRelayWorker({
     binding: config.binding,
-    directory: "/tmp/media-relay",
+    directory: WORKER_SCRATCH_DIRECTORY,
     control: createConvexControl(
       createControlRpc({ url: config.controlUrl, credential }),
       config.binding,
