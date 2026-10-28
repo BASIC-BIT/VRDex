@@ -296,3 +296,54 @@ test("rapid toggle rejects a late old-mode play event while the new mode remains
     f.restore();
   }
 });
+
+test("queued playing event cannot report playback while the selected element is already paused", async () => {
+  const f = dom();
+  const states: string[] = [];
+  try {
+    const adapter = createNativeHlsAdapter({
+      grant,
+      mode: "video",
+      mount: f.mount,
+      notify: (state) => {
+        if (state.status) states.push(state.status);
+      },
+    });
+    await adapter.play();
+    states.length = 0;
+    f.nodes[0].paused = true;
+    f.nodes[0].dispatchEvent(new Event("playing"));
+    assert.equal(states.includes("playing"), false);
+    adapter.dispose();
+  } finally {
+    f.restore();
+  }
+});
+test("genuine native play event resumes after native pause while a late playing event alone stays fenced", async () => {
+  const f = dom();
+  const states: string[] = [];
+  try {
+    const adapter = createNativeHlsAdapter({
+      grant,
+      mode: "video",
+      mount: f.mount,
+      notify: (state) => {
+        if (state.status) states.push(state.status);
+      },
+    });
+    await adapter.play();
+    adapter.pause();
+    f.nodes[0].paused = false;
+    f.nodes[0].dispatchEvent(new Event("playing"));
+    assert.equal(f.nodes[0].paused, true);
+    states.length = 0;
+    f.nodes[0].paused = false;
+    f.nodes[0].dispatchEvent(new Event("play"));
+    f.nodes[0].dispatchEvent(new Event("playing"));
+    assert.equal(f.nodes[0].paused, false);
+    assert.deepEqual(states, ["playing"]);
+    adapter.dispose();
+  } finally {
+    f.restore();
+  }
+});

@@ -38,8 +38,17 @@ export function createNativeHlsAdapter({
   }
   show();
   for (const node of [video, audio]) {
+    const playIntent = () => {
+      // Native/OS Resume emits a new play event. A queued playing event alone
+      // cannot revive an explicit pause or a superseded rendition.
+      if (!disposed && node === nodes[mode] && !node.paused && !intent) {
+        intent = true;
+        version++;
+        players.get(node)?.startLoad();
+      }
+    };
     const playing = () => {
-      if (disposed || !intent || node !== nodes[mode]) {
+      if (disposed || !intent || node !== nodes[mode] || node.paused) {
         node.pause();
         return;
       }
@@ -55,11 +64,13 @@ export function createNativeHlsAdapter({
     const error = () => {
       if (!disposed && node === nodes[mode]) notify({ status: "unavailable" });
     };
+    node.addEventListener("play", playIntent);
     node.addEventListener("playing", playing);
     node.addEventListener("pause", pause);
     node.addEventListener("ended", pause);
     node.addEventListener("error", error);
     listeners.push(() => {
+      node.removeEventListener("play", playIntent);
       node.removeEventListener("playing", playing);
       node.removeEventListener("pause", pause);
       node.removeEventListener("ended", pause);

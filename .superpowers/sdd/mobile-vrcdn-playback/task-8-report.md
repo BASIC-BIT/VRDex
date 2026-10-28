@@ -143,3 +143,21 @@ All commands activated `/workspace/vrdex-env.sh`. No broad repo suite ran.
   remain acceptance gates. Synthetic media DOM tests establish lifecycle logic,
   not physical-phone behavior. No hosted mutation, deployment/apply, public tunnel,
   credential provisioning, resource enablement or security posture change ran.
+
+## Final native-event race correction
+
+Controller requested one final event-notification review after commit `617e24e`.
+Two focused tests observed RED: a queued `playing` notification could report
+playing while its selected element was already paused, and a genuine native/OS
+Resume after native pause was overly fenced. The adapter now checks `node.paused`
+alongside disposed/current/desired state, and a new native `play` event on the
+current nonpaused element records fresh intent. A late `playing` event alone
+cannot recreate that intent; old-mode events remain fenced and disposal removes
+both listeners. This preserves native Resume without trusting stale completions.
+
+Exact added tests are `queued playing event cannot report playback while the
+selected element is already paused` and `genuine native play event resumes after
+native pause while a late playing event alone stays fenced` in the native adapter
+suite. Both failed before the fix and passed after. Focused native-adapter plus
+owner rerun: **20/20 passed**, including late-play promise, rapid mode toggle and
+close/pause intent fences. No broader suite reran for this event-listener change.
