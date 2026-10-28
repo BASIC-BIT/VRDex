@@ -20,6 +20,9 @@ importers:
       '@convex-dev/migrations':
         specifier: ^0.3.4
         version: 0.3.4(convex@1.32.0(react@19.2.3))
+      '@vrdex/media-relay':
+        specifier: workspace:*
+        version: link:packages/media-relay
       '@vrdex/temporal-runtime':
         specifier: workspace:*
         version: link:packages/temporal-runtime
@@ -135,6 +138,9 @@ importers:
       '@vrdex/api-contracts':
         specifier: workspace:*
         version: link:../../packages/api-contracts
+      '@vrdex/media-relay':
+        specifier: workspace:*
+        version: link:../../packages/media-relay
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -229,6 +235,22 @@ importers:
       zod-openapi:
         specifier: ^5.4.6
         version: 5.4.6(zod@4.3.6)
+    devDependencies:
+      '@types/node':
+        specifier: ^24
+        version: 24.13.2
+      tsx:
+        specifier: ^4.22.1
+        version: 4.22.1
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
+  packages/media-relay:
+    dependencies:
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
     devDependencies:
       '@types/node':
         specifier: ^24
