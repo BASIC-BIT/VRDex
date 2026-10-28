@@ -7,6 +7,7 @@ import { useState, type FormEvent } from "react";
 import { api } from "@convex-generated-api";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Field, FieldText, Input, Select } from "@/components/ui/field";
+import { ConnectionVerification } from "@/components/ui/connection-verification";
 import { Notice } from "@/components/ui/notice";
 import { claimErrorMessage } from "@/lib/claim-errors";
 
@@ -38,6 +39,7 @@ export type ConnectionsPreview = {
     assetDisplayName?: string;
     linkRole: "primary" | "secondary";
     verified: boolean;
+    verifiedAt?: number;
   }[];
   available: {
     assetType: AssetType;
@@ -259,8 +261,11 @@ export function ConnectionsPanel({
                   <p className="mt-1 text-sm text-muted">
                     {ASSET_LABELS[connection.assetType as AssetType]}
                     {connection.linkRole === "primary" ? " · Primary" : ""}
-                    {connection.verified ? " · Verified" : ""}
+                    {connection.verified && connection.assetType === "discord_guild" ? " · Verified" : ""}
                   </p>
+                  {connection.verified && connection.verifiedAt !== undefined && connection.assetType !== "discord_guild" ? (
+                    <ConnectionVerification at={connection.verifiedAt} group={connection.assetType === "vrchat_group"} />
+                  ) : null}
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {connection.linkRole === "primary" ? null : (

@@ -782,6 +782,13 @@ function profileToMcpDocument(profile: PublicProfile): McpDocumentFetchResponse 
   );
   addMcpDocumentLine(lines, "Source", formatSource(profile.source));
   addMcpDocumentLine(lines, "Links", formatOutboundLinks(profile.outboundLinks));
+  for (const connection of profile.verifiedConnections ?? []) {
+    const name = connection.displayName === undefined
+      ? connection.assetExternalId
+      : `${connection.displayName} (${connection.assetExternalId})`;
+    const date = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }).format(connection.verifiedAt);
+    addMcpDocumentLine(lines, connection.assetType === "vrchat_user" ? "Verified VRChat account" : "Verified VRChat group", `${name}, ${connection.url}, verified ${date}`);
+  }
 
   return {
     id: `profile:${profile.profileType}:${encodeMcpDocumentIdPart(profile.slug)}`,

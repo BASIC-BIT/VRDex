@@ -232,6 +232,53 @@ Historical codes are never reused for the same target, even after cancellation
 or expiry. No new account-wide cooldown or daily limit applies. VRCLinking keeps
 its existing format and limits.
 
+### Dated connection verification
+
+`getProfileConnectionVerifications` projects historical connection evidence for
+the current active owner. A link must be active and reference a proof for that
+owner and the exact asset type and ID. Explicit `directory_reference` links do
+not qualify. Legacy links without provenance and operator-authored links can
+qualify through an attached proof, regardless of who authored the association.
+
+The selector uses the latest valid `verifiedAt` from qualifying active or stale
+proofs for the same owner and asset, with proof ID lexical order breaking date
+ties. Dates must be finite, non-negative, and no later than the query time.
+VRChat user proofs require `self`; groups and guilds require the existing
+community control minimum, excluding `self`. A revoked referenced proof may use
+another qualifying proof only if the reference still matches the owner and
+asset. Missing, dangling, or mismatched references fail closed.
+
+`listProfileConnections` derives `verified` and optional `verifiedAt` from this
+selector. Non-manager reads honor `outboundLinks` visibility on `profile_page`:
+private connections are withheld, and unlisted connections remain readable by
+direct lookup. Managers retain their full list. Profile claim state and trust
+labels are unchanged, so a `claimed_unverified` person can have a verified
+VRChat connection.
+
+Public Links compose stored outbound links with the common `verifiedConnections`
+array. Exact VRChat identity matches retain their supplied label and order; a
+verified account or group missing from the outbound list appends once. Public
+Links, account Connections, and account status use `Verified VRChat account` or
+`Verified VRChat group`, with the proof date rendered in UTC, such as
+`25 Oct 2026`. Revocation removes the dated mark without deleting stored links.
+
+A newly completed proof announces `VRChat account verified.` or
+`VRChat group verified.` and names the completed target, even when the profile
+remains `claimed_unverified`. Authorized claim context and adapter responses
+carry the successful target and timestamp. The initial query snapshot does not
+replay a completion announcement. Connection-only additions emit no ownership
+completion event; other analytics outcomes still follow profile claim state.
+
+Crossing `revalidateAfter` or becoming stale preserves the historical date.
+New attachments and privileged actions still require fresh proof through
+`requireControlProof`. Revocation of all qualifying proofs, owner removal or
+replacement, or link removal ends the connection mark. Complete Discord OAuth
+guild reconciliation revokes both active and stale evidence for that subject,
+including legacy subjectless evidence. Another subject's proof survives.
+Failed or incomplete provider reads do not reconcile an empty guild list.
+
+### Proof readers
+
 Proof reading has two paths, chosen by target type:
 
 - **VRChat user and group proofs** are read by the collector fleet. `VRCHAT_PROOF_ADAPTER_URL` is optional; with no adapter configured, `profileClaims:verifyVrchatProofViaAdapter` returns `queued` and `communityTelemetry:claimPendingProofChecks` hands the attempt to a collector, which reads the target's bio or group description with the service-account session and reports the verdict back. See `docs/deployment/claim-verification-enablement.md`.

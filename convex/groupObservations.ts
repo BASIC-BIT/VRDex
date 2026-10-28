@@ -1,5 +1,5 @@
 import { linkProfileToAsset, requireControlProof } from "./_externalControl";
-import { requireActiveBrowserSessionSubject } from "./_browserSessionAuthority";
+import { activeBrowserSessionOrNull, requireActiveBrowserSessionSubject } from "./_browserSessionAuthority";
 import { getAccountFeatureAccess } from "./_accountFeatures";
 import { normalizeVrchatTargetId } from "./_vrchatIdentity";
 import { enabledClubFeatures } from "./_clubConnection";
@@ -12,8 +12,189 @@ import type { DatabaseReader, MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { canReadProfile } from "./_profilePermissions";
 import { automaticAdmissionEnabled, readCollectionSubject, readPublicGroupId } from "./_groupObservationPolicy";
+import { CURRENT_FRESHNESS_MS } from "./_communityTelemetry";
+import { admissionMatches, statisticsAdmissionViewValidator, type StatisticsAdmissionView } from "./_groupAdmission";
+import { syncDestinationQueue } from "./_profileLinkDestinationCache";
 
 const DAY = 86_400_000;
+
+function accountHasAdmissionCapacity(account: Doc<"collectorAccounts">, now: number) {
+  return account.state === "ready" && !account.killSwitchEnabled && (account.cooldownUntil ?? 0) <= now &&
+    account.assignedGroupCount < account.capacity - account.reservedHeadroom;
+}
+
+async function statisticsAdmissionPreview(db: DatabaseReader, profileId: Id<"profiles">, now: number): Promise<StatisticsAdmissionView> {
+  const profile = await db.get(profileId);
+  const group = await readPublicGroupId(db, profileId);
+  const selected = profile?.primaryGroupReference;
+  const destination = selected ? await db.query("profileLinkDestinations").withIndex("by_key", q => q.eq("key", selected.key)).unique() : null;
+  const metadata = destination?.groupMetadata;
+  const observedAt = destination?.observedAt;
+  const rows = group ? await db.query("communityVrchatIntegrations").withIndex("by_vrchatGroupId", q => q.eq("vrchatGroupId", group)).take(101) : [];
+  const policy = group ? await db.query("vrchatGroupObservationPolicies").withIndex("by_vrchatGroupId", q => q.eq("vrchatGroupId", group)).unique() : null;
+  const canonical = policy?.integrationId ? rows.find(row => row._id === policy.integrationId) : rows.length === 1 ? rows[0] : undefined;
+  const fleet = await db.query("collectorFleetSettings").withIndex("by_key", q => q.eq("key", "global")).unique();
+  const accounts = await db.query("collectorAccounts").withIndex("by_state_assignedGroupCount", q => q.eq("state", "ready")).take(100);
+  const assigned = canonical?.assignedCollectorAccountId ? await db.get(canonical.assignedCollectorAccountId) : null;
+  const account = assigned ?? accounts.find(row => accountHasAdmissionCapacity(row, now));
+  const live = canonical?.statisticsAdmission && admissionMatches(canonical, canonical.statisticsAdmission.authorizedAt, canonical.statisticsAdmission.collectorAccountId);
+  const blockedBeforeMembership = canonical?.state === "blocked" && policy?.admissionRequired === true &&
+    !canonical.assignedCollectorAccountId && !canonical.statisticsAdmission && !canonical.statisticsAdmissionInspection &&
+    !canonical.automaticAdmissionAttempt && canonical.lastSuccessfulObservationAt === undefined;
+  const limit = fleet?.automaticEnrollmentLimit;
+  const reserved = await db.query("communityVrchatIntegrations").withIndex("by_collectionScope_kind_account", q => q.eq("collectionScope.kind", "automatic").gt("assignedCollectorAccountId", undefined)).take(50);
+  const managedDue = await db.query("vrchatGroupObservationPolicies").withIndex("by_queue_priority_dueAt", q => q.eq("queuedAdmission.priority", "managed").lte("queuedAdmission.dueAt", now)).first();
+  let blockReason: string | undefined;
+  if (!group || !selected || profile?.profileType !== "community" || !canReadProfile("public", profile) || !await eligibleReference(db, group, profileId) || destination?.kind !== "vrchat_group" || destination.status !== "resolved" || destination.entityId !== group)
+    blockReason = "public_primary_reference_required";
+  else if (!metadata || metadata.visibility !== "public" || !["request", "invite"].includes(metadata.joinPolicy))
+    blockReason = "public_request_or_invite_required";
+  else if (observedAt === undefined || !Number.isFinite(observedAt) || observedAt > now || now - observedAt > CURRENT_FRESHNESS_MS)
+    blockReason = "metadata_refresh_required";
+  else if (rows.length > 100 || policy?.integrationId && !canonical || rows.some(row => readCollectionSubject(row).kind !== "automatic" || row._id !== canonical?._id && row.state !== "disconnected"))
+    blockReason = "conflicting_integration";
+  else if (policy && policy.decision.kind !== "enabled" || canonical?.killSwitchEnabled)
+    blockReason = "observation_stopped";
+  else if (!live && canonical && !blockedBeforeMembership && (canonical.assignedCollectorAccountId || canonical.state !== "disconnected" || canonical.statisticsAdmission && (canonical.statisticsAdmission.phase !== "cancelled" || canonical.statisticsAdmission.operation?.outcome === "uncertain")))
+    blockReason = "cleanup_required";
+  else if (!fleet || fleet.killSwitchEnabled || !Number.isInteger(limit) || !limit || limit < 1 || limit > 50 || fleet.globalRequestsPerMinute <= 0)
+    blockReason = "fleet_unavailable";
+  else if (!live && reserved.length >= limit)
+    blockReason = "automatic_limit";
+  else if (!live && managedDue)
+    blockReason = "managed_priority";
+  else if (!account || !live && !accountHasAdmissionCapacity(account, now))
+    blockReason = "account_capacity";
+  return { eligible: blockReason === undefined, blockReason, vrchatGroupId: group ?? undefined, groupName: destination?.name, groupMetadata: metadata, metadataObservedAt: observedAt,
+    bot: account ? { collectorAccountId: account._id, accountAlias: account.accountAlias, vrchatUserId: account.vrchatUserId, profileUrl: `https://vrchat.com/home/user/${account.vrchatUserId}` } : undefined,
+    integrationId: canonical?._id, state: canonical?.state, statisticsAdmission: canonical?.statisticsAdmission, nextPollAt: canonical?.nextPollAt };
+}
+
+async function requireStatisticsAdmin(ctx: MutationCtx) {
+  const session = await requireActiveBrowserSessionSubject(ctx);
+  if (!(await getAccountFeatureAccess(ctx.db, session.userId)).superAdmin)
+    throw new Error("Super-admin access is required.");
+  return session;
+}
+
+export const getStatisticsAdmission = query({
+  args: { profileId: v.id("profiles") }, returns: v.union(v.null(), statisticsAdmissionViewValidator),
+  handler: async (ctx, args) => {
+    const session = await activeBrowserSessionOrNull(ctx);
+    if (!session || !(await getAccountFeatureAccess(ctx.db, session.userId)).superAdmin)
+      return null;
+    return statisticsAdmissionPreview(ctx.db, args.profileId, Date.now());
+  },
+});
+
+export const refreshStatisticsMetadata = mutation({
+  args: { profileId: v.id("profiles") }, returns: v.null(),
+  handler: async (ctx, args) => {
+    await requireStatisticsAdmin(ctx);
+    const profile = await ctx.db.get(args.profileId);
+    const group = await readPublicGroupId(ctx.db, args.profileId);
+    const key = profile?.primaryGroupReference?.key;
+    if (!group || !key || !await eligibleReference(ctx.db, group, args.profileId))
+      throw new Error("Public primary group required.");
+    const destination = await ctx.db.query("profileLinkDestinations").withIndex("by_key", q => q.eq("key", key)).unique();
+    if (!destination || destination.kind !== "vrchat_group" || destination.entityId !== group)
+      throw new Error("Public primary group required.");
+    const now = Date.now();
+    if (destination.workDueAt !== undefined || (destination.leaseExpiresAt ?? 0) > now ||
+      (destination.retryEligibleAt ?? 0) > now || (destination.observedAt !== undefined && now - destination.observedAt <= CURRENT_FRESHNESS_MS))
+      return null;
+    await ctx.db.patch(destination._id, { workDueAt: now });
+    await syncDestinationQueue(ctx, "vrchat", now);
+    return null;
+  },
+});
+
+export const admitStatistics = mutation({
+  args: { profileId: v.id("profiles"), expectedVrchatGroupId: v.string(), expectedCollectorAccountId: v.id("collectorAccounts"), expectedMetadataObservedAt: v.number(), reason: v.string() },
+  returns: v.object({ integrationId: v.id("communityVrchatIntegrations"), admissionAt: v.number() }),
+  handler: async (ctx, args) => {
+    const { subject } = await requireStatisticsAdmin(ctx);
+    const now = Date.now();
+    const reason = args.reason.trim();
+    if (!reason || reason.length > 500)
+      throw new Error("Admission reason must contain 1 to 500 characters.");
+    const view = await statisticsAdmissionPreview(ctx.db, args.profileId, now);
+    if (!view.eligible || !view.bot || view.vrchatGroupId !== args.expectedVrchatGroupId || view.bot.collectorAccountId !== args.expectedCollectorAccountId || view.metadataObservedAt !== args.expectedMetadataObservedAt)
+      throw new Error(`Refresh required: ${view.blockReason ?? "preview_changed"}.`);
+    const existing = view.integrationId ? await ctx.db.get(view.integrationId) : null;
+    if (existing?.statisticsAdmission && admissionMatches(existing, existing.statisticsAdmission.authorizedAt, args.expectedCollectorAccountId))
+      return { integrationId: existing._id, admissionAt: existing.statisticsAdmission.authorizedAt };
+    const account = await ctx.db.get(args.expectedCollectorAccountId);
+    if (!account) throw new Error("Refresh required: account unavailable.");
+    const admissionAt = Math.max(now, (existing?.statisticsAdmission?.authorizedAt ?? 0) + 1, (existing?.telemetryEpochStartedAt ?? 0) + 1);
+    const joinPolicy = view.groupMetadata?.joinPolicy;
+    if (joinPolicy !== "request" && joinPolicy !== "invite")
+      throw new Error("Refresh required: join policy changed.");
+    const integrationId = existing?._id ?? await ctx.db.insert("communityVrchatIntegrations", {
+      collectionScope: { kind: "automatic" }, publicationPolicy: "automatic_aggregate", enabledFeatures: ["analytics"], namedMembershipCollectionEnabled: false,
+      vrchatGroupId: args.expectedVrchatGroupId, groupVisibility: "public", joinPolicy, state: "connecting", killSwitchEnabled: false, requestsPerMinute: 4, leaseGeneration: 0,
+      publicMetrics: { currentPopulation: true, populationHistory: true, groupMemberCount: true, groupMemberGrowth: true, eventRecaps: false }, consecutiveFailures: 0, createdAt: now, updatedAt: now,
+    });
+    await ctx.db.patch(integrationId, { statisticsAdmission: { authorizedAt: admissionAt, actor: subject, reason, collectorAccountId: account._id, joinPolicy, epochStartedAt: admissionAt, phase: "pending", membershipOrigin: "unknown" },
+      collectionScope: { kind: "automatic" }, publicationPolicy: "automatic_aggregate", enabledFeatures: ["analytics"], namedMembershipCollectionEnabled: false,
+      assignedCollectorAccountId: account._id, groupVisibility: "public", joinPolicy, state: "connecting", telemetryEpochStartedAt: admissionAt, nextPollAt: now, disconnectedAt: undefined, backoffUntil: undefined, automaticAdmissionAttempt: undefined, updatedAt: now });
+    await ctx.db.patch(account._id, { assignedGroupCount: account.assignedGroupCount + 1, updatedAt: now });
+    const policy = await ctx.db.query("vrchatGroupObservationPolicies").withIndex("by_vrchatGroupId", q => q.eq("vrchatGroupId", args.expectedVrchatGroupId)).unique();
+    if (policy)
+      await ctx.db.patch(policy._id, { integrationId, eligibleProfileId: args.profileId, queuedAdmission: undefined, publicHistoryStartAt: admissionAt, updatedAt: now });
+    else
+      await ctx.db.insert("vrchatGroupObservationPolicies", { vrchatGroupId: args.expectedVrchatGroupId, integrationId, eligibleProfileId: args.profileId, decision: { kind: "enabled", at: now }, publicHistoryStartAt: admissionAt, createdAt: now, updatedAt: now });
+    await ctx.db.insert("communityTelemetryAuditEvents", { integrationId, actor: subject, action: "statistics_admission.authorize", result: "pending", detail: reason, createdAt: now });
+    return { integrationId, admissionAt };
+  },
+});
+
+export const cancelStatisticsAdmission = mutation({
+  args: { integrationId: v.id("communityVrchatIntegrations"), admissionAt: v.number() }, returns: v.null(),
+  handler: async (ctx, args) => {
+    const { subject } = await requireStatisticsAdmin(ctx);
+    const now = Date.now();
+    const row = await ctx.db.get(args.integrationId);
+    const grant = row?.statisticsAdmission;
+    if (!row || !grant || grant.authorizedAt !== args.admissionAt || grant.revokedAt !== undefined)
+      return null;
+    await revokeStatisticsAdmission(ctx, row, now);
+    await ctx.db.insert("communityTelemetryAuditEvents", { integrationId: row._id, actor: subject, action: "statistics_admission.cancel", result: "revoked", createdAt: now });
+    return null;
+  },
+});
+
+async function revokeStatisticsAdmission(ctx: MutationCtx, row: Doc<"communityVrchatIntegrations">, now: number) {
+  const grant = row.statisticsAdmission;
+  if (!grant || grant.revokedAt !== undefined) return;
+  const leases = await ctx.db.query("collectorAccountLeases")
+    .withIndex("by_integrationId_state", q => q.eq("integrationId", row._id).eq("state", "active")).take(101);
+  if (leases.length > 100) throw new Error("Integration leases require reconciliation.");
+  for (const lease of leases) await ctx.db.patch(lease._id, { state: "released", releasedAt: now, updatedAt: now });
+  await ctx.db.patch(row._id, {
+    statisticsAdmission: { ...grant, revokedAt: now, phase: row.assignedCollectorAccountId ? "cleanup_pending" : "cancelled" },
+    // A later verified managed publication choice may supersede cancellation.
+    publicationPolicy: "automatic_aggregate",
+    leaseGeneration: row.leaseGeneration + 1,
+    state: readCollectionSubject(row).kind === "managed" ? row.state : row.assignedCollectorAccountId ? "disconnecting" : "disconnected",
+    nextPollAt: row.assignedCollectorAccountId ? now : undefined, updatedAt: now,
+  });
+}
+
+export const checkStatisticsAdmission = mutation({
+  args: { integrationId: v.id("communityVrchatIntegrations"), admissionAt: v.number() }, returns: v.null(),
+  handler: async (ctx, args) => {
+    await requireStatisticsAdmin(ctx);
+    const row = await ctx.db.get(args.integrationId);
+    const grant = row?.statisticsAdmission;
+    if (!row || !grant || grant.authorizedAt !== args.admissionAt || grant.phase === "cancelled" || !row.assignedCollectorAccountId)
+      return null;
+    const account = await ctx.db.get(row.assignedCollectorAccountId);
+    const now = Date.now();
+    await ctx.db.patch(row._id, { nextPollAt: Math.max(now, row.backoffUntil ?? 0, account?.cooldownUntil ?? 0, (row.lastClaimedAt ?? 0) + 60000, (row.lastAttemptAt ?? 0) + 60000), updatedAt: now });
+    return null;
+  },
+});
 
 function groupId(value: string) {
   const id = normalizeVrchatTargetId(value, "vrchat_group");
@@ -24,7 +205,12 @@ function groupId(value: string) {
 export async function reconcileStoppedIntegration(ctx: MutationCtx, integration: Doc<"communityVrchatIntegrations">, now: number) {
   const policy = await ctx.db.query("vrchatGroupObservationPolicies")
     .withIndex("by_vrchatGroupId", q => q.eq("vrchatGroupId", integration.vrchatGroupId)).unique();
-  if (policy?.decision.kind !== "stopped" || ["disconnected", "disconnecting"].includes(integration.state)) return;
+  if (policy?.decision.kind !== "stopped") return;
+  if (integration.statisticsAdmission && readCollectionSubject(integration).kind === "automatic") {
+    await revokeStatisticsAdmission(ctx, integration, now);
+    return;
+  }
+  if (["disconnected", "disconnecting"].includes(integration.state)) return;
   if (readCollectionSubject(integration).kind === "managed" && enabledClubFeatures(integration).some(feature => feature !== "analytics")) return;
   await ctx.db.patch(integration._id, {
     state: integration.assignedCollectorAccountId ? "disconnecting" : "disconnected",
@@ -72,6 +258,7 @@ async function changeObservationDecision(ctx: MutationCtx, input: {
       await reconcileStoppedIntegration(ctx, { ...integration, leaseGeneration: integration.leaseGeneration + 1 }, now);
       await transitionCoverage(ctx, integration._id, "unknown", now, "first_party", "observation-decision", "observation_stopped");
     } else if (integration._id === canonical?._id) {
+      if (integration.statisticsAdmission && readCollectionSubject(integration).kind === "automatic") continue;
       const scope = readCollectionSubject(integration);
       if (["disconnected", "disconnecting"].includes(integration.state)) {
         await ctx.db.patch(integration._id, { state: integration.assignedCollectorAccountId ? "degraded" : "disconnected", disconnectedAt: undefined, nextPollAt: now });
@@ -152,6 +339,34 @@ async function eligibleReference(db: DatabaseReader, group: string, profileId: I
   return {kind: "eligible", contributorId, profileId: profile._id} as const;
 }
 
+export async function statisticsAdmissionDiagnostics(db: DatabaseReader, now: number) {
+  // The global admission ceiling is 50. This index excludes unassigned historical rows.
+  const rows = await db.query("communityVrchatIntegrations").withIndex("by_collectionScope_kind_account", q => q.eq("collectionScope.kind", "automatic").gt("assignedCollectorAccountId", undefined)).take(50);
+  const result = { pending: 0, active: 0, paused: 0, ended: 0, cleanup_pending: 0, cancelled: 0, externalWaiting: 0, processingBacklog: 0, oldestProcessingAgeMs: 0 };
+  for (const row of rows) {
+    const grant = row.statisticsAdmission;
+    if (!grant) continue;
+    result[grant.phase]++;
+    const account = row.assignedCollectorAccountId ? await db.get(row.assignedCollectorAccountId) : null;
+    const inspectedAt = grant.lastCheckedAt;
+    const age = Math.max(0, now - (inspectedAt ?? grant.authorizedAt));
+    const externalWait = grant.phase === "pending" && inspectedAt !== undefined && age <= CURRENT_FRESHNESS_MS && row.consecutiveFailures === 0 &&
+      (grant.joinPolicy === "invite" || grant.operation?.kind === "request" ||
+        row.statisticsAdmissionInspection?.admissionAt === grant.authorizedAt &&
+        row.statisticsAdmissionInspection.membership === "requested" &&
+        now - row.statisticsAdmissionInspection.observedAt <= CURRENT_FRESHNESS_MS);
+    if (externalWait) { result.externalWaiting++; continue; }
+    if (grant.phase === "cancelled" || grant.phase === "ended" || grant.phase === "paused") continue;
+    const dueAt = Math.max(row.nextPollAt ?? 0, row.backoffUntil ?? 0, account?.cooldownUntil ?? 0);
+    const processingAge = Math.max(0, now - (grant.phase === "cleanup_pending" ? grant.revokedAt : grant.phase === "active" ? row.lastSuccessfulObservationAt ?? grant.authorizedAt : grant.authorizedAt));
+    if (row.consecutiveFailures >= 3 || processingAge >= 15 * 60_000 && (grant.phase === "cleanup_pending" || dueAt <= now)) {
+      result.processingBacklog++;
+      result.oldestProcessingAgeMs = Math.max(result.oldestProcessingAgeMs, processingAge);
+    }
+  }
+  return result;
+}
+
 export async function hasAutomaticEnrollmentBacklog(db: DatabaseReader, now: number) {
   const fleet = await db.query("collectorFleetSettings").withIndex("by_key", q => q.eq("key", "global")).unique();
   const scope = fleet?.automaticEnrollmentScope;
@@ -225,7 +440,9 @@ async function reconcileGroup(ctx: MutationCtx, group: string, now: number, hint
   if (reference.kind === "none") {
     if (policy?.queuedAdmission) await ctx.db.patch(policy._id, { queuedAdmission: undefined, updatedAt: now });
     const integration = policy?.integrationId ? await ctx.db.get(policy.integrationId) : null;
-    if (integration && readCollectionSubject(integration).kind === "automatic" && !["disconnected", "disconnecting"].includes(integration.state)) {
+    if (integration?.statisticsAdmission && readCollectionSubject(integration).kind === "automatic") {
+      await revokeStatisticsAdmission(ctx, integration, now);
+    } else if (integration && readCollectionSubject(integration).kind === "automatic" && !["disconnected", "disconnecting"].includes(integration.state)) {
       await ctx.db.patch(integration._id, { state: integration.assignedCollectorAccountId ? "disconnecting" : "disconnected", nextPollAt: integration.assignedCollectorAccountId ? now : undefined, leaseGeneration: integration.leaseGeneration + 1, updatedAt: now });
     }
     return;
@@ -234,7 +451,7 @@ async function reconcileGroup(ctx: MutationCtx, group: string, now: number, hint
   if (policy && (policy.decision.kind !== "enabled" || policy.admissionRequired)) return;
   if (policy?.integrationId) {
     const integration = await ctx.db.get(policy.integrationId);
-    if (!integration || integration.state !== "disconnected") return;
+    if (!integration || integration.statisticsAdmission || integration.state !== "disconnected") return;
   }
   if (!policy) {
     const actor = reference.contributorId;
@@ -304,6 +521,10 @@ export const admitQueued = internalMutation({
       }
       const automatic = policy.queuedAdmission!.priority === "automatic";
       const existing = policy.integrationId ? await ctx.db.get(policy.integrationId) : null;
+      if (automatic && existing?.statisticsAdmission) {
+        await ctx.db.patch(policy._id, { queuedAdmission: undefined, updatedAt: now });
+        continue;
+      }
       if (existing?.killSwitchEnabled) { await defer("integration_stopped"); continue; }
       if (existing?.assignedCollectorAccountId || existing && !["disconnected", "connecting", "awaiting_invite", "awaiting_approval"].includes(existing.state)) {
         await ctx.db.patch(policy._id, { queuedAdmission: undefined }); continue;
@@ -326,7 +547,7 @@ export const admitQueued = internalMutation({
       } else if (!existing || readCollectionSubject(existing).kind !== "managed") { await defer("managed_assignment_missing"); continue; }
       if (fleet?.killSwitchEnabled) { await defer("fleet_stopped"); continue; }
       const accounts = await ctx.db.query("collectorAccounts").withIndex("by_state_assignedGroupCount", q => q.eq("state", "ready")).take(100);
-      const account = accounts.find(row => !row.killSwitchEnabled && (row.cooldownUntil ?? 0) <= now && row.assignedGroupCount < row.capacity - row.reservedHeadroom);
+      const account = accounts.find(row => accountHasAdmissionCapacity(row, now));
       if (!account) { await defer("capacity"); continue; }
       const integrationId = existing?._id ?? await ctx.db.insert("communityVrchatIntegrations", {
         collectionScope: { kind: "automatic" }, publicationPolicy: "automatic_aggregate", enabledFeatures: ["analytics"], namedMembershipCollectionEnabled: false,
@@ -449,7 +670,9 @@ export const scanReferences = internalMutation({
     const now = Date.now();
     await ctx.db.patch(policy._id, {queuedAdmission: undefined, eligibleProfileId: undefined, updatedAt: now});
     const integration = policy.integrationId ? await ctx.db.get(policy.integrationId) : null;
-    if (integration && readCollectionSubject(integration).kind === "automatic" && !["disconnecting", "disconnected"].includes(integration.state)) await ctx.db.patch(integration._id, {state: integration.assignedCollectorAccountId ? "disconnecting" : "disconnected", nextPollAt: integration.assignedCollectorAccountId ? now : undefined, leaseGeneration: integration.leaseGeneration + 1, updatedAt: now});
+    if (integration?.statisticsAdmission && readCollectionSubject(integration).kind === "automatic") {
+      await revokeStatisticsAdmission(ctx, integration, now);
+    } else if (integration && readCollectionSubject(integration).kind === "automatic" && !["disconnecting", "disconnected"].includes(integration.state)) await ctx.db.patch(integration._id, {state: integration.assignedCollectorAccountId ? "disconnecting" : "disconnected", nextPollAt: integration.assignedCollectorAccountId ? now : undefined, leaseGeneration: integration.leaseGeneration + 1, updatedAt: now});
     return null;
   },
 });

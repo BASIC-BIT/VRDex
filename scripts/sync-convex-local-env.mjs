@@ -10,6 +10,7 @@ const repoRoot = path.resolve(scriptDir, "..");
 const convexHome = path.join(repoRoot, ".convex-home");
 const convexTmp = path.join(repoRoot, ".convex-tmp");
 const localConvexEnvNames = [
+  "CLERK_JWT_ISSUER_DOMAIN",
   "SITE_URL",
   "VRDEX_ENABLE_E2E_HELPERS",
   "VRDEX_ENABLE_E2E_AUTH_HELPERS",

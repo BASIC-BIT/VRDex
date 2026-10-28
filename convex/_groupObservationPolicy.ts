@@ -7,6 +7,7 @@ import type { ClubVisibility } from "./_clubModel";
 import { canReadProfile } from "./_profilePermissions";
 import { visibleProfileList } from "./_profileFieldVisibility";
 import { parseProfileLinkDestination } from "./_profileLinkDestination";
+import { admissionMatches } from "./_groupAdmission";
 
 export type CollectionSubject = NonNullable<Doc<"communityVrchatIntegrations">["collectionScope"]>;
 
@@ -124,6 +125,8 @@ export async function resolveGroupObservationPolicy(
   if (liveManaged.length > 1) return { kind: "hidden" };
   const managing = liveManaged[0] ?? managed.sort((a, b) => b.createdAt - a.createdAt || b._id.localeCompare(a._id))[0];
   const canonical = registry?.integrationId ? await db.get(registry.integrationId) : null;
+  if (canonical?.statisticsAdmission?.revokedAt !== undefined &&
+      (readCollectionSubject(canonical).kind !== "managed" || canonical.publicationPolicy !== "managed_categories")) return { kind: "hidden" };
   if (registry?.integrationId && (!canonical || canonical.vrchatGroupId !== input.vrchatGroupId)) return { kind: "hidden" };
   if (managing) {
     if (canonical && canonical._id !== managing._id) return { kind: "hidden" };
@@ -140,6 +143,18 @@ export async function resolveGroupObservationPolicy(
   }
   const integration = managing ?? canonical;
   if (integration) {
+    const grant = integration.statisticsAdmission;
+    if (grant) {
+      if (grant.phase !== "active" || !admissionMatches(integration, grant.authorizedAt, grant.collectorAccountId) ||
+        integration.statisticsAdmissionInspection?.admissionAt !== grant.authorizedAt ||
+        integration.statisticsAdmissionInspection.membership !== "member" || integration.joinPolicy !== grant.joinPolicy)
+        return { kind: "hidden" };
+      const selected = profile.primaryGroupReference;
+      const destination = selected ? await db.query("profileLinkDestinations")
+        .withIndex("by_key", q => q.eq("key", selected.key)).unique() : null;
+      if (selected && (destination?.groupMetadata?.visibility !== "public" || destination.groupMetadata.joinPolicy !== grant.joinPolicy))
+        return { kind: "hidden" };
+    }
     const links = await db.query("profileExternalLinks")
       .withIndex("by_profileId_assetType_state", q => q.eq("profileId", input.profileId)
         .eq("assetType", "vrchat_group").eq("state", "active")).take(101);
@@ -149,7 +164,7 @@ export async function resolveGroupObservationPolicy(
     }
     if (!registry || registry.decision.kind !== "enabled" ||
       !links.some(link => link.linkRole === "primary" && link.assetExternalId === input.vrchatGroupId) ||
-      integration.groupVisibility !== "public" || integration.joinPolicy !== "free" ||
+      integration.groupVisibility !== "public" || (!grant && integration.joinPolicy !== "free") ||
       !["active", "degraded"].includes(integration.state) || integration.killSwitchEnabled) return { kind: "hidden" };
     return { kind: "automatic_aggregate", integration, historyStartAt };
   }

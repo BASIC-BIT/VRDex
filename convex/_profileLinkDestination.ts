@@ -1,3 +1,10 @@
+import { v } from "convex/values";
+import { vrchatGroupVisibilityValidator, vrchatGroupJoinPolicyValidator } from "./_communityTelemetry";
+export const destinationGroupMetadataValidator = v.object({
+  visibility: vrchatGroupVisibilityValidator,
+  joinPolicy: vrchatGroupJoinPolicyValidator,
+});
+
 export type ProfileLinkDestination = {
   kind: "vrchat_user" | "vrchat_group" | "discord_guild";
   locator: string;

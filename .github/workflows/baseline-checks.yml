@@ -572,6 +572,42 @@ jobs:
         working-directory: apps/web
         run: pnpm exec playwright install --with-deps chromium
 
+      - name: Run current-branch signed-in claim regression
+        id: claim-auth
+        if: github.event.pull_request.head.repo.fork == false
+        env:
+          PLAYWRIGHT_RECORD_VIDEO: "true"
+          PLAYWRIGHT_OUTPUT_DIR: test-results-claim-auth
+          PLAYWRIGHT_HTML_REPORT_DIR: playwright-report-claim-auth
+          PLAYWRIGHT_JSON_REPORT_FILE: playwright-artifacts/results-claim-auth.json
+          VRDEX_ENABLE_E2E_HELPERS: "true"
+          VRDEX_ENABLE_E2E_AUTH_HELPERS: "true"
+          VRDEX_ENABLE_E2E_ADAPTER_HELPERS: "true"
+          VRDEX_ENABLE_E2E_CLERK_AUTH: "true"
+          VRDEX_E2E_BROWSER_TOKEN: local-playwright-token
+          VRDEX_E2E_CONVEX_SECRET: local-convex-e2e-secret
+          # Reuse the retained development tenant with this runner's isolated
+          # local backend. The issuer/key check rejects production or mismatch.
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.VRDEX_HOSTED_E2E_CLERK_PUBLISHABLE_KEY }}
+          CLERK_SECRET_KEY: ${{ secrets.VRDEX_HOSTED_E2E_CLERK_SECRET_KEY }}
+          CLERK_JWT_ISSUER_DOMAIN: ${{ vars.VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN }}
+          VRDEX_E2E_RUN_ID: local-claim-pr-${{ github.event.pull_request.number }}-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          case "$CLERK_SECRET_KEY" in
+            sk_test_*) ;;
+            *) echo "::error::The current-branch claim regression requires the retained Clerk development secret key."; exit 1 ;;
+          esac
+          node scripts/check-clerk-issuer-match.mjs --issuer "$CLERK_JWT_ISSUER_DOMAIN" --publishable-key "$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY"
+          pnpm --filter web exec playwright test auth-claim.flow.spec.ts --grep "reactive query saves a dated VRChat account" --project=desktop-chromium --workers=1
+          node --input-type=module <<'NODE'
+          import { readFileSync } from "node:fs";
+          const { stats } = JSON.parse(readFileSync("apps/web/playwright-artifacts/results-claim-auth.json", "utf8"));
+          if (stats.expected !== 1 || stats.skipped !== 0 || stats.unexpected !== 0) {
+            throw new Error("The current-branch signed-in claim regression did not execute and pass exactly once.");
+          }
+          console.log("Current-branch signed-in claim coverage:", stats);
+          NODE
+
       - name: Run mutation-backed profile submission flow
         id: flow
         env:
@@ -585,6 +621,7 @@ jobs:
         if: always()
         env:
           FLOW_OUTCOME: ${{ steps.flow.outcome }}
+          CLAIM_AUTH_OUTCOME: ${{ steps.claim-auth.outcome }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           mkdir -p apps/web/playwright-artifacts
@@ -592,6 +629,9 @@ jobs:
           ## Playwright data-flow preview
 
           Outcome: ${FLOW_OUTCOME}
+
+          Current-branch signed-in claim regression: ${CLAIM_AUTH_OUTCOME:-not run}
+          Forks do not receive development keys. A skipped regression is not acceptance.
 
           Captured flow:
           - test-gated profile submission form
@@ -616,6 +656,8 @@ jobs:
             apps/web/playwright-report
             apps/web/test-results
             apps/web/playwright-artifacts
+            apps/web/playwright-report-claim-auth
+            apps/web/test-results-claim-auth
 
   playwright-hosted-data-flow:
     name: Playwright Hosted Data Flow

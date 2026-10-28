@@ -143,6 +143,27 @@ Output:
 - public links and events where allowed
 - no private or suppressed fields
 
+`verifiedConnections` contains dated VRChat user and group connections. New
+backend responses always include an array, possibly empty. Older responses may
+omit it. Hosted `vrdex_get_profile` and standalone stdio preserve the same field.
+Each entry contains only `assetType` (`vrchat_user` or `vrchat_group`),
+`assetExternalId`, canonical HTTPS VRChat `url`, optional `displayName`,
+`verifiedAt` in Unix milliseconds, and `linkRole` (`primary` or `secondary`).
+Primary connections come first, then connections sort by external ID.
+
+The connection requires an active profile owner, an active control association,
+an exactly bound attached proof, and qualifying non-revoked owner evidence.
+Active and stale evidence can support this historical date; it does not establish
+fresh control or alter `trustLabel`. Directory references and Discord connections
+are excluded. Stored outbound links are unchanged, and a stored outbound row is
+not required.
+
+Connections follow `outboundLinks` field visibility. Private fields return an
+empty array. Unlisted fields appear on profile reads but are excluded from
+discovery projections. Hidden profiles retain the existing public-read refusal.
+The hosted `fetch` profile document names each account or group, its external ID,
+canonical URL, and proof date in UTC, for example `25 Oct 2026`.
+
 ### `vrdex_get_profile_media`
 
 Read an image's public details, uploader attribution and publication history.

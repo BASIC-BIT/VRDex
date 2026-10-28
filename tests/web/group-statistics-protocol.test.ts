@@ -59,12 +59,25 @@ it("profile statistics protocol parity preserves safe DTO, rejects ranges and ne
       child.stdin.write(JSON.stringify({jsonrpc:"2.0",method:"notifications/initialized"})+"\\n");
       const args={name:"vrdex_get_profile",arguments:{slug:"range",statisticsStartAt:100,statisticsEndAt:200}};
       const stdio=(await send("tools/call",args)).result;
-      assert.deepEqual(stdio.structuredContent,hostedAutomatic);
+      assert.deepEqual(stdio.structuredContent,hostedAutomatic,JSON.stringify(stdio));
       for(const bad of [{slug:"range",statisticsStartAt:100},{slug:"range",profileType:"person",statisticsStartAt:100,statisticsEndAt:200}]) {const r=await send("tools/call",{name:args.name,arguments:bad});assert.ok(r.error||r.result.isError);}
-      stopped=true;
-      assert.equal((await (await profiles(request("profiles/range"),context("range"))).json()).telemetry,undefined);
-      assert.equal((await hostedCall(args.arguments)).result.structuredContent.telemetry,undefined);
-      assert.equal((await send("tools/call",args)).result.structuredContent.telemetry,undefined);
+      { // The backend owns lifecycle policy; transports must omit its suppressed DTO.
+        stopped = true;
+        const restHidden = await (await profiles(request("profiles/range"), context("range"))).json();
+        const hostedHidden = (await hostedCall(args.arguments)).result.structuredContent;
+        const stdioHidden = (await send("tools/call", args)).result.structuredContent;
+        for (const output of [restHidden, hostedHidden, stdioHidden]) {
+          assert.equal(output.telemetry, undefined);
+          for (const secret of ["private-instance", "usr_private-user", "usr_secret_bot", "secret internal reason", "private-location"]) {
+            assert.equal(JSON.stringify(output).includes(secret), false);
+          }
+        }
+      }
+      for (const output of [restAutomatic, hostedAutomatic, stdio.structuredContent]) {
+        for (const secret of ["private-instance", "usr_private-user", "usr_secret_bot", "secret internal reason", "private-location"]) {
+          assert.equal(JSON.stringify(output).includes(secret), false);
+        }
+      }
       assert.ok(calls.filter(c=>c.slug==="range").every(c=>c.statisticsStartAt===100&&c.statisticsEndAt===200));
       assert.doesNotMatch(JSON.stringify(stdio),/worldDistribution|instanceHistory|eventRecaps|providerLocation|targetUser/);
       console.log("protocol parity passed");

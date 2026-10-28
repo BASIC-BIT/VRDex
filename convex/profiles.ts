@@ -42,6 +42,7 @@ import {
 } from "./_profilePermissions";
 import { profileLinkInputValidator } from "./_profileLinks";
 import { toPublicProfile } from "./_profilePublic";
+import { getPublicVerifiedConnections } from "./_profileConnectionVerification";
 import { toPublicProfileShareCard } from "./_profileShareCard";
 import {
   createProfileSlugBase,
@@ -530,6 +531,7 @@ export const getPublicBySlug = query({
 
     return {
       ...publicProfile,
+      verifiedConnections: await getPublicVerifiedConnections(ctx.db, profile, "profile_page"),
       appearance,
       mediaKit,
       avatarImageUrl: profile.profileType === "community"

@@ -59,7 +59,7 @@ test("metadata reaches the control plane with its lease and only after a shared 
   assert.equal(result.key, job.key);
   assert.equal(result.leaseToken, job.leaseToken);
   assert.equal(result.workerId, "worker-id");
-  assert.deepEqual(result.result, { status: "resolved", entityId: groupId, displayName: "Sloth's Group" });
+  assert.deepEqual(result.result, { status: "resolved", entityId: groupId, displayName: "Sloth's Group", groupMetadata: { visibility: "public", joinPolicy: "unknown" } });
   assert.equal(run.requests[providerIndex].init.redirect, "error");
   assert.equal(run.accountBudget.remaining(), 29);
   assert.equal(run.metadataBudget.remaining(), 14);

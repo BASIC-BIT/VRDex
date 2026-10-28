@@ -103,7 +103,16 @@ it("isolates two claimants and grants a competing VRChat proof to exactly one us
   assert.equal((await t.mutation(internal.communityTelemetry.recordProofCheckResult, { ...verdict, attemptId: a.attemptId })).state, "verified");
   assert.equal((await t.mutation(internal.communityTelemetry.recordProofCheckResult, { ...verdict, attemptId: bRetry.attemptId })).state, "already_owned");
   assert.equal((await t.mutation(internal.communityTelemetry.recordProofCheckResult, { ...verdict, attemptId: a.attemptId })).state, "not_pending");
-  assert.deepEqual(await asA.action(api.profileClaims.verifyVrchatProofViaAdapter, { attemptId: a.attemptId }), { state: "verified" });
+  const savedAttempt = await t.run(ctx => ctx.db.get(a.attemptId));
+  assert.ok(savedAttempt?.verifiedAt !== undefined);
+  assert.deepEqual(await asA.action(api.profileClaims.verifyVrchatProofViaAdapter, { attemptId: a.attemptId }), {
+    state: "verified",
+    completedTarget: {
+      targetType: target.targetType,
+      targetExternalId: target.targetExternalId,
+      at: savedAttempt.verifiedAt,
+    },
+  });
   await assert.rejects(asB.mutation(api.profileClaims.startVrchatProof, target), /PROFILE_ALREADY_OWNED/);
 
   await t.run(async (ctx) => {

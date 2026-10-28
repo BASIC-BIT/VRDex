@@ -228,6 +228,8 @@ describe("group telemetry release workflow", () => {
     assert.match(variables.split('variable "budget_alert_email"')[1] ?? "", /default\s*=\s*"basic@basicbit.net"/);
     assert.match(source, /endpoint\s+= var.budget_alert_email/);
     const worker = await readFile("workers/group-telemetry/worker.mjs", "utf8");
+    assert.match(alarm, /explicit statistics processing\/cleanup/);
+    assert.match(worker, /statisticsAdmissionDiagnostics: result.statisticsAdmissionDiagnostics/);
     assert.match(worker, /automaticEnrollmentBacklog: result.automaticEnrollmentBacklog === true \? 1 : 0/);
   });
 

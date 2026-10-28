@@ -14,6 +14,30 @@ function runMcpProbe(script: string) {
     },
   });
 }
+it("hosted profile reads preserve dated connections and name them in fetched documents", () => {
+  const output = runMcpProbe(`
+    import assert from "node:assert/strict";
+    import { getFunctionName } from "convex/server";
+    import { createVrdexMcpHandler } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+    const connection = { assetType: "vrchat_user", assetExternalId: "usr_11111111-1111-1111-1111-111111111111", url: "https://vrchat.com/home/user/usr_11111111-1111-1111-1111-111111111111", displayName: "Exact account", verifiedAt: 1792886400000, linkRole: "primary" };
+    const handler = createVrdexMcpHandler({convex:{query:async(ref,args)=>{
+      assert.equal(getFunctionName(ref), "profiles:getPublicBySlug");
+      assert.equal(args.slug, "person");
+      return { id:"profile_person", displayName:"Person", profileType:"person", slug:"person", trustLabel:"claimed_unverified", updatedAt:10, verifiedConnections:[connection] };
+    }}});
+    async function call(name,args){const r=await handler.fetch(new Request("https://app.example.test/mcp",{method:"POST",headers:{accept:"application/json, text/event-stream","content-type":"application/json"},body:JSON.stringify({jsonrpc:"2.0",id:1,method:"tools/call",params:{name,arguments:args}})}));const body=await r.text();return JSON.parse(body.split(/\\r?\\n/).find(l=>l.startsWith("data: "))?.slice(6)??body).result;}
+    const result = await call("vrdex_get_profile", {slug:"person",profileType:"person"});
+    assert.notEqual(result.isError,true);
+    assert.deepEqual(result.structuredContent.verifiedConnections,[connection]);
+    const fetched = await call("fetch", {id:"profile:person:person"});
+    assert.notEqual(fetched.isError,true);
+    const text = JSON.parse(fetched.content[0].text).text;
+    assert.ok(text.includes("Verified VRChat account: Exact account (usr_11111111-1111-1111-1111-111111111111), https://vrchat.com/home/user/usr_11111111-1111-1111-1111-111111111111, verified 25 Oct 2026"),text);
+    assert.equal(result.structuredContent.trustLabel,"claimed_unverified");
+    await handler.close(); console.log("dated connections passed");
+  `);
+  assert.match(output, /dated connections passed/);
+});
 it("public media protocol lists a strict anonymous read and refuses revoked visibility", () => {
   const output = runMcpProbe(`
     import assert from "node:assert/strict";

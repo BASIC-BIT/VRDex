@@ -149,7 +149,11 @@ type DiscordCommunityClaimAdapterContext = {
   discordUserId: string;
 };
 type VerifyAdapterResult =
-  | { state: Doc<"profileVerificationAttempts">["state"] }
+  | { state: Doc<"profileVerificationAttempts">["state"]; completedTarget?: {
+      targetType: Doc<"profileVerificationAttempts">["targetType"];
+      targetExternalId: string;
+      at?: number;
+    } }
   | { state: "unavailable" }
   // No adapter configured for this target: the collector fleet reads it on its
   // own schedule, so nothing was checked just now. Distinct from `pending`,
@@ -165,6 +169,11 @@ type VerifyAdapterResult =
       // reconstructs. A missing claim request is one symptom of it, but a proof
       // replayed after the collector already settled it has no request either.
       connectionOnly: boolean;
+      completedTarget: {
+        targetType: Doc<"profileVerificationAttempts">["targetType"];
+        targetExternalId: string;
+        at?: number;
+      };
     };
 type DiscordAdminAdapterResult =
   | {
@@ -498,6 +507,7 @@ export const getClaimJourneyContext = query({
               // long after the page that started it — and the completion event
               // is attributed from it.
               targetType: settledProof.targetType,
+              targetExternalId: settledProof.targetExternalId,
               analyticsJourneyId: settledProof.analyticsJourneyId,
             },
       pendingProof: proof
@@ -1542,6 +1552,7 @@ export const recordVrchatProofVerification = internalMutation({
           profileId: settled._id,
           claimState: settled.claimState,
           connectionOnly: attempt.connectionOnly === true,
+          completedTarget: { targetType: attempt.targetType, targetExternalId: attempt.targetExternalId, at: attempt.verifiedAt },
         };
       }
 
@@ -1746,6 +1757,7 @@ export const recordVrchatProofVerification = internalMutation({
       profileId: profile._id,
       claimState: updatedProfile?.claimState ?? profile.claimState,
       connectionOnly,
+      completedTarget: { targetType: attempt.targetType, targetExternalId: attempt.targetExternalId, at: now },
     };
   },
 });
@@ -1847,8 +1859,44 @@ export const verifyVrchatProofViaAdapter = action({
       throw claimError("PROOF_NOT_FOUND");
     }
 
+    /**
+     * The attempt's current state when the collector settled it mid-call,
+     * otherwise the caller's own outcome.
+     *
+     * A configured `VRCHAT_PROOF_ADAPTER_URL` does not stop the collector fleet
+     * polling the same attempts, so it can grant ownership while this request
+     * is in flight. Reporting the adapter's answer from the pre-call snapshot
+     * then told the claimant the check had failed for a claim that had already
+     * succeeded — an error and a `claim_failed` event beside the completion the
+     * observer was showing.
+     */
+    const settledOr = async <T extends string>(fallback: T) => {
+      const settled = (await ctx.runQuery(internal.profileClaims.getVerificationAttemptForAdapter, {
+        attemptId: args.attemptId,
+      })) as { attempt: Doc<"profileVerificationAttempts"> } | null;
+
+      return {
+        state:
+          settled === null || settled.attempt.state === "pending"
+            ? fallback
+            : settled.attempt.state,
+        ...(settled?.attempt.state === "verified" ? { completedTarget: {
+          targetType: settled.attempt.targetType,
+          targetExternalId: settled.attempt.targetExternalId,
+          at: settled.attempt.verifiedAt,
+        } } : {}),
+      };
+    };
+
     if (attemptContext.attempt.state !== "pending") {
-      return { state: attemptContext.attempt.state };
+      return {
+        state: attemptContext.attempt.state,
+        ...(attemptContext.attempt.state === "verified" ? { completedTarget: {
+          targetType: attemptContext.attempt.targetType,
+          targetExternalId: attemptContext.attempt.targetExternalId,
+          at: attemptContext.attempt.verifiedAt,
+        } } : {}),
+      };
     }
 
     // An attempt that is already expired is expired regardless of whether the
@@ -1856,13 +1904,13 @@ export const verifyVrchatProofViaAdapter = action({
     // reading a delegated credential. Expiry *during* verification is still
     // handled after the fetch below.
     if (attemptContext.attempt.expiresAt <= Date.now()) {
-      await ctx.runMutation(internal.profileClaims.recordVrchatProofFailure, {
+      const failure = await ctx.runMutation(internal.profileClaims.recordVrchatProofFailure, {
         attemptId: args.attemptId,
         evidenceSource: proofEvidenceSourceForTarget(attemptContext.attempt.targetType),
         evidenceSummary: "The proof attempt expired before adapter verification started.",
       });
 
-      return { state: "expired" as const };
+      return failure.state === "verified" ? await settledOr("pending" as const) : { state: "expired" as const };
     }
 
     const adapterUrl = proofAdapterUrl(attemptContext.attempt.targetType);
@@ -1898,6 +1946,7 @@ export const verifyVrchatProofViaAdapter = action({
       // A denial can mean "too soon" or "already settled". Only the first is
       // pending; reporting the second as pending contradicts the completion the
       // observer is showing.
+      if (reservation.state === "verified") return await settledOr("pending" as const);
       return {
         state:
           reservation.state === null || reservation.state === "pending"
@@ -1976,30 +2025,6 @@ export const verifyVrchatProofViaAdapter = action({
       }),
     };
 
-    /**
-     * The attempt's current state when the collector settled it mid-call,
-     * otherwise the caller's own outcome.
-     *
-     * A configured `VRCHAT_PROOF_ADAPTER_URL` does not stop the collector fleet
-     * polling the same attempts, so it can grant ownership while this request
-     * is in flight. Reporting the adapter's answer from the pre-call snapshot
-     * then told the claimant the check had failed for a claim that had already
-     * succeeded — an error and a `claim_failed` event beside the completion the
-     * observer was showing.
-     */
-    const settledOr = async <T extends string>(fallback: T) => {
-      const settled = (await ctx.runQuery(internal.profileClaims.getVerificationAttemptForAdapter, {
-        attemptId: args.attemptId,
-      })) as { attempt: Doc<"profileVerificationAttempts"> } | null;
-
-      return {
-        state:
-          settled === null || settled.attempt.state === "pending"
-            ? fallback
-            : settled.attempt.state,
-      };
-    };
-
     // A refused connection, a DNS failure, or a deadline that fires mid-request
     // is "we could not ask", which is exactly what `unavailable` reports. Left
     // to throw, the claimant saw a generic failure for a question the adapter
@@ -2043,7 +2068,7 @@ export const verifyVrchatProofViaAdapter = action({
         evidenceSummary: "The proof attempt expired before adapter verification completed.",
       })) as { state: Doc<"profileVerificationAttempts">["state"] };
 
-      return { state: failure.state };
+      return failure.state === "verified" ? await settledOr("pending" as const) : { state: failure.state };
     }
 
     // A 200 with an empty, truncated, or non-JSON body is not a verdict.
