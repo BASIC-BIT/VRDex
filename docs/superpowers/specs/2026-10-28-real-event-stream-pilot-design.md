@@ -10,8 +10,8 @@ through the existing event website. BASIC's intended first trial is a test event
 tonight, October 28, 2026, in America/Indianapolis time. The first sequence is
 BASIC's VRCDN input, a Twitch streamer, then BASIC's same input again. Exact start
 time, event identity, source links and device availability remain execution inputs.
-The Twitch streamer is not selected yet; establish permission to relay that feed
-before publishing it through the program output.
+BASIC selected `https://www.twitch.tv/djmorsecode`. Confirm availability before
+launch and establish relay permission before publishing that feed to viewers.
 
 Both providers means **inputs** for the first trial. The initial output is VRCDN,
 720p30 H.264 with AAC320, one worker and no Twitch simulcast. This is the builder's
@@ -80,13 +80,16 @@ adds no public Start bypass, experimental admission flag or second website conso
 
 Reserve the known-working `basicbit1` account as the sole program output. Never
 also ingest that output as an upstream source. Use `basicbit` as a read-only VRCDN
-input only after BASIC identifies and authorizes its currently observed 720p60
-feed. Its rejected publication credential does not itself prevent playback.
+input. BASIC confirmed this is their existing VRDex link and selected it for the
+trial. Use `https://stream.vrcdn.live/live/basicbit.live.ts` and preflight fresh
+playback before launch. Its rejected publication credential does not itself
+prevent playback.
 If that feed is unsuitable, use a consenting DJ's independent VRCDN feed or repair
 the controlled source account. Identify an existing publisher before replacement;
 do not rotate keys or disconnect an unidentified publisher speculatively.
 
-Use a consenting event DJ's canonical Twitch channel. The public channels used in
+Use the selected Twitch channel `https://www.twitch.tv/djmorsecode`, subject to
+relay permission and live readiness. The public channels used in
 private diagnostics are not assumed authorized for republication. Configure the
 existing event output/source attestations and owner/community account grants.
 Keep ingest secrets in the existing secret store; map references explicitly to
