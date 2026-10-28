@@ -106,3 +106,41 @@ the original audio/video codecs where possible and explicitly checking timestamp
 handling and reconnects. Vercel can host the test UI, but a continuous media origin
 is required for the relay. No live relay or paid infrastructure was provisioned
 by these checks, and no production player/lineup behavior changed.
+
+## Bounded live relay experiment
+
+BASIC authorized a live relay test and requested a persistent page URL.
+Bookmark `https://vrdex-mobile-playback-test.vercel.app`; this is the project's
+stable production alias, not a per-deployment or expiring share URL. Default
+Vercel authentication remains enabled, so an owner login may be needed once.
+The separate test project is the only production target changed here.
+
+On October 28 a non-persistent one-vCPU/2-GB Vercel Sandbox was created for
+this test, with a two-hour hard timeout and port 8080 exposed. Sandbox name:
+`vrcdn-mobile-hls-test`, session `sbx_OTnJWcfBUqheyLPJR3oTrtd5vmF8`.
+Its public origin is `https://sb-3ff8cher6fix.vercel.run`. The checked-in rewrite
+maps `/relay/` on the stable test-page origin to this temporary origin.
+The page URL persists; live relay availability does not.
+
+The sandbox runs `scripts/mobile-media-spike/live-relay.mjs` with Node and system
+FFmpeg (installed via `apt-get update` and `apt-get install ffmpeg`). Input is
+fixed to public `basicbit.live.mp4`. No credentials or arbitrary URL forwarding.
+It stream-copies into a rolling eight-segment HLS playlist, with stale/unready
+playlists returning 503, and bounded reconnect attempts. The relay process
+also stops after 110 minutes, clears its files and terminates FFmpeg.
+For this session its process deadline is 2026-10-28T20:42:45Z (16:42 Indianapolis),
+before the sandbox's hard timeout. No automatic extension or permanent hosting
+has been configured. To stop early, use Vercel Sandbox stop-session on the
+session ID above; normal signal shutdown of the relay also cleans up FFmpeg.
+
+Verification: public health returned ready with eight fresh segments; two
+playlist reads six seconds apart differed; all referenced segments downloaded;
+a four-second decode of the captured playlist exited 0. Decoder output still
+included non-monotonic DTS warnings, so timestamp/long-duration audio quality
+and phone acceptance remain open. The stable Vercel `/relay/health.json` route
+also returned HTTP 200 with `Cache-Control: no-store`. Production VRDex and
+its lineup logic remain unchanged.
+
+Choose `Live HLS relay` on the phone page while BASIC's source is broadcasting.
+Repeat PiP, app switching, screen lock and Save log. This experiment does not
+establish a production relay design, permanent uptime or Android acceptance.

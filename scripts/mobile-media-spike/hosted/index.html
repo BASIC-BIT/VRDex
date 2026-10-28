@@ -6,9 +6,9 @@
 </style></head>
 <body><main>
 <h1>Mobile playback test</h1>
-<p>Compare the prerecorded HLS samples with the live basicbit stream.</p>
+<p>Test the live basicbit HLS relay, or compare prerecorded samples.</p>
 <label for="mode">Playback mode</label>
-<select id="mode"><option value="live">VRCDN live video</option><option value="video">HLS video</option><option value="audio">HLS audio only</option></select>
+<select id="mode"><option value="relay">Live HLS relay</option><option value="live">Direct live MP4</option><option value="video">HLS video</option><option value="audio">HLS audio only</option></select>
 <div class="buttons"><button id="start">Start test</button><button id="pip" disabled>Picture in picture</button><button id="stop" disabled>Stop</button></div>
 <video id="video" controls playsinline aria-label="Video test"></video>
 <audio id="audio" controls aria-label="Audio test" hidden></audio>
