@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useRef, useState } from "react";
 import type {
   PlanReference,
   TimelineRange,
@@ -25,40 +25,38 @@ import { TimelineAgenda } from "./timeline-agenda";
 import { TimelineNight } from "./timeline-night";
 import { type TimelineActions } from "./timeline-event-bar";
 import styles from "./timeline.module.css";
-import { EventDetailPanel } from "./event-detail-panel";
-import type { PreferenceAction } from "@/lib/timeline/preferences";
-export type TimelineSelection = {
-  eventId: string;
-  slug: string;
-  slotId?: string;
-};
+import { HomeBrowseProvider, useHomeBrowse, useOptionalHomeBrowse, type TimelineSelection } from "../home-browse-provider";
+export type { TimelineSelection } from "../home-browse-provider";
 type Runtime = {
   now: number;
   navigation: TimelineNavigation;
   timeZone: string;
   hour12: boolean;
 };
-export function HomeSchedule({
+export function HomeSchedule(props: { onSelectionChange?: (selection: TimelineSelection | null) => void } = {}) {
+  const browse = useOptionalHomeBrowse();
+  return browse ? <HomeScheduleContent {...props} /> : <HomeBrowseProvider><HomeScheduleContent {...props} /></HomeBrowseProvider>;
+}
+function HomeScheduleContent({
   onSelectionChange,
 }: { onSelectionChange?: (selection: TimelineSelection | null) => void } = {}) {
+  const browse = useHomeBrowse();
   const [runtime, setRuntime] = useState<Runtime | null>(null);
   useEffect(() => {
+    if (browse.kind !== "ready") return;
     const frame = requestAnimationFrame(() => {
-      const browser = new Intl.DateTimeFormat(undefined, {
-        hour: "numeric",
-      }).resolvedOptions();
       const navigation = readTimelineNavigation(
         new URLSearchParams(window.location.search),
       );
       setRuntime({
         now: Date.now(),
         navigation,
-        timeZone: navigation.timeZone ?? browser.timeZone,
-        hour12: browser.hour12 ?? false,
+        timeZone: browse.timeZone,
+        hour12: browse.hour12,
       });
     });
     return () => cancelAnimationFrame(frame);
-  }, []);
+  }, [browse.kind, browse.timeZone, browse.hour12]);
   return (
     <>
       <noscript>
@@ -97,15 +95,23 @@ function ScheduleContent({
   });
   const [now, setNow] = useState(runtime.now);
   const [width, setWidth] = useState(1000);
-  const [selection, setSelection] = useState<TimelineSelection | null>(null);
-  const invoker = useRef<HTMLElement | null>(null);
+  const browse = useHomeBrowse();
+  const { selection, registerBeforeTimeZoneChange, setDisplayTimeZone } = browse;
+  const notifySelection = useEffectEvent((value: TimelineSelection | null) => onSelectionChange?.(value));
+  const lastSelection = useRef(selection);
+  useEffect(() => {
+    if (lastSelection.current !== selection) {
+      lastSelection.current = selection;
+      notifySelection(selection);
+    }
+  }, [selection]);
   const [limit, setLimit] = useState(false);
   const preference = useTimelinePreferences();
   const pending = useRef<{
     timer: ReturnType<typeof setTimeout>;
     flush: () => void;
   } | null>(null);
-  const timeZone = navigation.timeZone ?? runtime.timeZone;
+  const timeZone = browse.timeZone ?? runtime.timeZone;
   const anchor = navigation.anchor ?? now - HOUR;
   const range: TimelineRange = {
     startAt: anchor,
@@ -137,10 +143,12 @@ function ScheduleContent({
     cancelReplace();
     update?.flush();
   }, [cancelReplace]);
+  useEffect(() => registerBeforeTimeZoneChange(flushReplace), [registerBeforeTimeZoneChange, flushReplace]);
   const navigate = (changes: Partial<TimelineNavigation>, push = true) => {
     if (push) flushReplace();
     else cancelReplace();
-    const next = { ...navigation, ...changes };
+    const next = { ...navigation, timeZone, ...changes };
+    if (changes.timeZone) setDisplayTimeZone(changes.timeZone);
     const valid = normalizeTimelineAnchor(next.anchor);
     next.anchor = valid ?? Date.now() - HOUR;
     setNavigation(next);
@@ -162,6 +170,7 @@ function ScheduleContent({
         new URLSearchParams(window.location.search),
       );
       setNavigation({ ...parsed, anchor: parsed.anchor ?? Date.now() - HOUR });
+      setDisplayTimeZone(parsed.timeZone ?? new Intl.DateTimeFormat().resolvedOptions().timeZone);
     };
     // Next can keep Home mounted while a destination loads. Flush before its
     // delegated handlers navigate so Back restores the last viewed anchor.
@@ -193,33 +202,9 @@ function ScheduleContent({
       document.removeEventListener("submit", flushReplace, true);
       document.removeEventListener("keydown", key, true);
     };
-  }, [cancelReplace, flushReplace]);
+  }, [cancelReplace, flushReplace, setDisplayTimeZone]);
   const onSelect = (next: TimelineSelection) => {
-    invoker.current =
-      document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : null;
-    setSelection(next);
-    onSelectionChange?.(next);
-  };
-  const onClose = () => {
-    setSelection(null);
-    onSelectionChange?.(null);
-    const target = invoker.current?.isConnected
-      ? invoker.current
-      : document.getElementById("schedule-heading");
-    target?.focus({ preventScroll: true });
-  };
-  const onPreferenceAction = (action: PreferenceAction) => {
-    const result =
-      action.type === "add-plan"
-        ? preference.addPlan(action.reference)
-        : action.type === "remove-plan"
-          ? preference.removePlan(action.reference)
-          : action.type === "add-favorite"
-            ? preference.addFavorite(action.profileId)
-            : preference.removeFavorite(action.profileId);
-    setLimit(result.outcome === "limit");
+    browse.selectEvent(next, document.activeElement instanceof HTMLElement ? document.activeElement : null);
   };
   const onSave = (reference: PlanReference) => {
     const action = togglePlanAction(preference.preferences.plan, reference);
@@ -316,13 +301,6 @@ function ScheduleContent({
           {...actions}
         />
       )}
-      <EventDetailPanel
-        selection={selection}
-        timeZone={timeZone}
-        onClose={onClose}
-        preferences={preference.preferences}
-        onPreferenceAction={onPreferenceAction}
-      />
       <div
         className={styles.status}
         role="status"

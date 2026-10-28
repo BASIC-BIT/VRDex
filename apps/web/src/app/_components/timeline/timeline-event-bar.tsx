@@ -6,7 +6,7 @@ import type {
 } from "../../../../../../convex/_eventTimelineTypes";
 import { planSaveState } from "@/lib/timeline/plan-actions";
 import { scheduleGeometry, timeToX } from "@/lib/timeline/geometry";
-import type { TimelineSelection } from "./home-schedule";
+import type { TimelineSelection } from "../home-browse-provider";
 import styles from "./timeline.module.css";
 export type TimelineActions = {
   selection: TimelineSelection | null;
