@@ -7,6 +7,7 @@ import { ConvexError, type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader, MutationCtx } from "./_generated/server";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import { primaryGroupSelection } from "./_groupObservationPolicy";
 import {
   findMcpWriteReceipt,
   type McpProfileWriteResult,
@@ -761,9 +762,12 @@ export async function createCommunityProfileRecord(
       };
     }
 
+    const selection = primaryGroupSelection({ ...sharedFields, profileType: "community", primaryGroupSelectionDisabled: input.primaryGroupUrl === null });
     const profileId = await ctx.db.insert("profiles", {
       ...sharedFields,
       profileType: "community",
+      primaryGroupReference: selection ? { ...selection, contributorUserId } : undefined,
+      primaryGroupSelectionDisabled: input.primaryGroupUrl === null,
       community: input.community,
     });
     const shortLink = await ensureShortLinkForTarget(

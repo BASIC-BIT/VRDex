@@ -75,6 +75,7 @@ import type * as _externalControl from "../_externalControl.js";
 import type * as _globalSlugs from "../_globalSlugs.js";
 import type * as _groupAdmission from "../_groupAdmission.js";
 import type * as _groupMemberSnapshots from "../_groupMemberSnapshots.js";
+import type * as _groupObservationMonitoring from "../_groupObservationMonitoring.js";
 import type * as _groupObservationPolicy from "../_groupObservationPolicy.js";
 import type * as _groupPopulationSeries from "../_groupPopulationSeries.js";
 import type * as _identity from "../_identity.js";
@@ -291,6 +292,7 @@ declare const fullApi: ApiFromModules<{
   _globalSlugs: typeof _globalSlugs;
   _groupAdmission: typeof _groupAdmission;
   _groupMemberSnapshots: typeof _groupMemberSnapshots;
+  _groupObservationMonitoring: typeof _groupObservationMonitoring;
   _groupObservationPolicy: typeof _groupObservationPolicy;
   _groupPopulationSeries: typeof _groupPopulationSeries;
   _identity: typeof _identity;

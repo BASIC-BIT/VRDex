@@ -1,4 +1,5 @@
 import { parseProfileLinkDestination } from "./_profileLinkDestination";
+import { primaryGroupSelection } from "./_groupObservationPolicy";
 import { queueProfileLinkDestinations } from "./_profileLinkDestinationCache";
 import { ConvexError } from "convex/values";
 
@@ -787,15 +788,26 @@ export async function applyApiProfileUpdate(
     requireEditableFields(options.profile, ["outboundLinks"], options.subject ?? "claimed_owner");
     const links = (sanitized.patch.outboundLinks ?? options.profile.outboundLinks ?? []) as NonNullable<Doc<"profiles">["outboundLinks"]>;
     const previous = options.profile.primaryGroupReference;
+    if (options.input.primaryGroupUrl !== undefined) {
+      sanitized.patch.primaryGroupSelectionDisabled = options.input.primaryGroupUrl === null;
+      if (sanitized.patch.primaryGroupSelectionDisabled !== options.profile.primaryGroupSelectionDisabled)
+        addChangedField(sanitized.changedFields, "outboundLinks");
+    }
     const selected = options.input.primaryGroupUrl !== undefined ? options.input.primaryGroupUrl
       : previous && links.some(link => parseProfileLinkDestination(link)?.key === previous.key) ? previous.url : null;
     const url = sanitizePrimaryGroupUrl(selected, options.profile.profileType, links);
-    if (url !== previous?.url) {
+    if (url !== previous?.url || options.input.primaryGroupUrl !== undefined && previous?.inferred) {
       if (url && !options.contributorUserId) throw new Error("Authenticated contributor is required.");
       sanitized.patch.primaryGroupReference = url && options.contributorUserId
         ? { url, key: parseProfileLinkDestination(url)!.key, contributorUserId: options.contributorUserId } : undefined;
       addChangedField(sanitized.changedFields, "outboundLinks");
     }
+  }
+  if (options.input.outboundLinks !== undefined && options.input.primaryGroupUrl === undefined &&
+    (!options.profile.primaryGroupReference || options.profile.primaryGroupReference.inferred)) {
+    const selection = primaryGroupSelection({ ...options.profile, ...sanitized.patch });
+    sanitized.patch.primaryGroupReference = selection
+      ? { ...selection, contributorUserId: options.contributorUserId ?? selection.contributorUserId } : undefined;
   }
   return await persistProfileUpdate(ctx, options, sanitized);
 }

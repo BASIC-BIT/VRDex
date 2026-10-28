@@ -500,6 +500,71 @@ it("enrollment directory contribution resolves only an explicit primary and pres
 const enrollmentModules = { ...modules, "../../convex/groupObservations.ts": () => import("../../convex/groupObservations") };
 const reconcileEnrollment = makeFunctionReference<"mutation">("groupObservations:reconcileProfile");
 const admitEnrollment = makeFunctionReference<"mutation">("groupObservations:admitQueued");
+
+it("enrollment discovers a sole resolved public group link without a separate primary selection", async () => {
+  const t = convexTest({ schema, modules: enrollmentModules });
+  const { createCommunityProfileRecord } = await import("../../convex/profiles");
+  const userId = await t.run(ctx => ctx.db.insert("users", { clerkUserId: "ordinary-link-contributor" }));
+  const url = "https://vrc.group/ONLY.1234";
+  const created = await t.run(ctx => createCommunityProfileRecord(ctx, {
+    profileType: "community", displayName: "Ordinary group link", outboundLinks: [{ type: "vrchat_profile", url }],
+  }, { issuer: "test", subject: String(userId), tokenIdentifier: String(userId) }, userId));
+  const initial = await t.run(ctx => ctx.db.get(created.profileId));
+  assert.equal(initial?.primaryGroupReference?.contributorUserId, userId, "new implicit selections retain the contributor quota");
+  // Reproduce an existing directory profile created before implicit selection.
+  await t.run(ctx => ctx.db.patch(created.profileId, { primaryGroupReference: undefined }));
+  await t.run(async ctx => {
+    const destination = await ctx.db.query("profileLinkDestinations").withIndex("by_key", q => q.eq("key", "vrchat_group:ONLY.1234")).unique();
+    assert.ok(destination);
+    await ctx.db.patch(destination._id, { status: "resolved", entityId: "grp_11111111-1111-1111-1111-111111111111" });
+  });
+  const { scheduleGroupReconciliation } = await import("../../convex/groupObservations");
+  await t.run(async ctx => {
+    const before = await ctx.db.system.query("_scheduled_functions").collect();
+    await scheduleGroupReconciliation(ctx, created.profileId);
+    const after = await ctx.db.system.query("_scheduled_functions").collect();
+    assert.equal(after.length, before.length + 1, "legacy sole links must trigger reconciliation too");
+  });
+  await t.mutation(reconcileEnrollment, { profileId: created.profileId, affectedGroupIds: [] });
+  const policies = await t.run(ctx => ctx.db.query("vrchatGroupObservationPolicies").collect());
+  assert.equal(policies.length, 1, "an ordinary public group link must become a candidate");
+  assert.equal(policies[0]?.queuedAdmission?.priority, "automatic");
+  const { readPublicGroupId } = await import("../../convex/_groupObservationPolicy");
+  assert.equal(await t.run(ctx => readPublicGroupId(ctx.db, created.profileId)), policies[0]?.vrchatGroupId);
+  const { applyApiProfileUpdate } = await import("../../convex/_profileUpdates");
+  await t.run(async ctx => applyApiProfileUpdate(ctx, {
+    profile: (await ctx.db.get(created.profileId))!, subject: "community_submitter", contributorUserId: userId,
+    input: { outboundLinks: [{ type: "vrchat_profile", url }, { type: "vrchat_profile", url: "https://vrc.group/OTHER.1234" }] }, now: 200,
+  }));
+  assert.equal(await t.run(ctx => readPublicGroupId(ctx.db, created.profileId)), null, "a second group invalidates the inference before reconciliation");
+  await t.mutation(reconcileEnrollment, { profileId: created.profileId, affectedGroupIds: [] });
+  assert.equal((await t.run(ctx => ctx.db.query("vrchatGroupObservationPolicies").first()))?.queuedAdmission, undefined);
+});
+
+it("implicit group selection respects hidden links, explicit clears and explicit same-link promotion", async () => {
+  const { primaryGroupSelection } = await import("../../convex/_groupObservationPolicy");
+  const t = convexTest({ schema, modules: enrollmentModules });
+  const { createCommunityProfileRecord } = await import("../../convex/profiles");
+  const { applyApiProfileUpdate } = await import("../../convex/_profileUpdates");
+  const userId = await t.run(ctx => ctx.db.insert("users", { clerkUserId: "implicit-controls" }));
+  const url = "https://vrc.group/ONLY.1234";
+  const created = await t.run(ctx => createCommunityProfileRecord(ctx, {
+    profileType: "community", displayName: "Implicit controls", outboundLinks: [{ type: "vrchat_profile", url }],
+  }, { issuer: "test", subject: String(userId), tokenIdentifier: String(userId) }, userId));
+  const read = async () => (await t.run(ctx => ctx.db.get(created.profileId)))!;
+  const initial = await read();
+  assert.equal(primaryGroupSelection({ ...initial, fieldVisibility: { outboundLinks: "private" } }), undefined);
+  await t.run(async ctx => applyApiProfileUpdate(ctx, { profile: (await ctx.db.get(created.profileId))!,
+    subject: "community_submitter", contributorUserId: userId, input: { primaryGroupUrl: url }, now: 200 }));
+  assert.equal((await read()).primaryGroupReference?.inferred, undefined, "explicitly choosing the same link promotes it");
+  await t.run(async ctx => applyApiProfileUpdate(ctx, { profile: (await ctx.db.get(created.profileId))!,
+    subject: "community_submitter", contributorUserId: userId, input: { primaryGroupUrl: null }, now: 201 }));
+  assert.equal(primaryGroupSelection(await read()), undefined, "an explicit clear cannot be inferred back");
+  await t.run(ctx => ctx.db.patch(created.profileId, { primaryGroupSelectionDisabled: undefined }));
+  await t.run(async ctx => applyApiProfileUpdate(ctx, { profile: (await ctx.db.get(created.profileId))!,
+    subject: "community_submitter", contributorUserId: userId, input: { primaryGroupUrl: null }, now: 202 }));
+  assert.equal((await read()).primaryGroupSelectionDisabled, true, "clearing before reconciliation must persist too");
+});
 async function enrollmentFixture(options: { enabled?: boolean; capacity?: number } = {}) {
   const t = convexTest({ schema, modules: enrollmentModules });
   const ids = await t.run(async ctx => {
@@ -743,6 +808,8 @@ it("enrollment reconciliation does not undo authenticated removal or control-pri
     await t.run(async ctx => {
       if (action === "remove") await removeProfileLink(ctx, created.profileId, "vrchat_group", "original-group", 201);
       else await linkProfileToAsset(ctx, {profileId: created.profileId, assetType: "vrchat_group", assetExternalId: "operator-group", linkRole: "primary", now: 201});
+      // Existing removals predate the explicit inference-disable marker.
+      await ctx.db.patch(created.profileId, {primaryGroupSelectionDisabled: undefined});
     });
     await t.mutation(reconcileEnrollment, {profileId: created.profileId, affectedGroupIds: ["original-group"], now: 202});
     const links = await t.run(ctx => ctx.db.query("profileExternalLinks").withIndex("by_profileId_assetType_state", q => q.eq("profileId", created.profileId).eq("assetType", "vrchat_group").eq("state", "active")).collect());
