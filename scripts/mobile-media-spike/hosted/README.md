@@ -71,3 +71,15 @@ The hosted page now has `VRCDN live video`, pointing directly to the public
 basicbit `.live.mp4` endpoint without a proxy. Its logs distinguish live MP4
 from synthetic HLS. Repeat PiP, app switching and screen-lock checks on iPhone
 Safari before choosing a production transport. The broadcaster must stay live.
+
+BASIC subsequently reported that direct live MP4 did not play on iPhone Safari.
+This invalidates direct-MP4 phone acceptance despite server/FFmpeg readability.
+Bounded normal and Safari-user-agent range probes showed that a `bytes=0-1`
+request received HTTP 200 with chunked MP4 instead of partial content. That is a
+candidate Safari compatibility issue, not a confirmed root cause without the
+phone's error log. A saved capture played in Chromium; it is a finite local-file
+check rather than evidence for live HTTP playback. The page now records media
+error codes, network state, metadata/loading events and play rejection details,
+and reports a 15-second startup timeout. It no longer labels every rejected
+play attempt as an autoplay problem. Further direct-MP4 changes require the
+phone evidence; no relay is provisioned by this diagnostic update.

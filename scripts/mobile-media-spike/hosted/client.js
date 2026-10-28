@@ -8,8 +8,8 @@ const stop = document.querySelector("#stop");
 let active = video;
 let run;
 const runs = [];
-function record(event) {
-  const entry = { event, at: new Date().toISOString(), mode: run?.mode ?? mode.value, time: active.currentTime, paused: active.paused, ended: active.ended, readyState: active.readyState, visibility: document.visibilityState, error: active.error?.message ?? null };
+function record(event, detail = null) {
+  const entry = { event, detail, at: new Date().toISOString(), mode: run?.mode ?? mode.value, time: active.currentTime, paused: active.paused, ended: active.ended, readyState: active.readyState, networkState: active.networkState, visibility: document.visibilityState, errorCode: active.error?.code ?? null, error: active.error?.message ?? null };
   run?.events.push(entry);
   document.querySelector("#events").textContent = JSON.stringify(run?.events.slice(-20) ?? [], null, 2);
 }
@@ -20,13 +20,13 @@ function release() {
   if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "none";
 }
 for (const media of [video, audio]) {
-  for (const event of ["playing", "pause", "waiting", "stalled", "ended", "error", "enterpictureinpicture", "leavepictureinpicture", "webkitpresentationmodechanged"]) media.addEventListener(event, () => {
+  for (const event of ["loadstart", "loadedmetadata", "canplay", "abort", "playing", "pause", "waiting", "stalled", "ended", "error", "enterpictureinpicture", "leavepictureinpicture", "webkitpresentationmodechanged"]) media.addEventListener(event, () => {
     if (media !== active) return;
     record(event);
     if (event === "playing") { message("Playing"); if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "playing"; }
     if (event === "pause") { message("Paused"); if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "paused"; }
     if (event === "ended") message("Sample finished");
-    if (event === "error") message("Playback failed. Save the log.");
+    if (event === "error") message(`Playback failed (media error ${media.error?.code ?? "unknown"}). Save the log.`);
   });
 }
 document.querySelector("#start").addEventListener("click", async () => {
@@ -38,6 +38,13 @@ document.querySelector("#start").addEventListener("click", async () => {
   runs.push(run); document.querySelector("#notes").value = ""; record("start");
   if (mode.value !== "live" && !active.canPlayType("application/vnd.apple.mpegurl")) { message("Native HLS is unavailable in this browser. Try Safari on iPhone or Chrome on Android."); record("native-hls-unavailable"); return; }
   active.src = mode.value === "live" ? "https://stream.vrcdn.live/live/basicbit.live.mp4" : `/media/${mode.value}.m3u8`;
+  message("Connecting");
+  const thisRun = run;
+  setTimeout(() => {
+    if (run === thisRun && active.currentTime === 0 && !active.error && !stop.disabled) {
+      record("startup-timeout"); message("No playback after 15 seconds. Save the log.");
+    }
+  }, 15000);
   stop.disabled = false;
   pip.disabled = active !== video || !(document.pictureInPictureEnabled || typeof video.webkitSetPresentationMode === "function");
   if ("mediaSession" in navigator) {
@@ -46,7 +53,13 @@ document.querySelector("#start").addEventListener("click", async () => {
       try { navigator.mediaSession.setActionHandler(action, handler); } catch { record(`unsupported-action:${action}`); }
     }
   }
-  try { await active.play(); } catch { record("play-rejected"); message("Tap Play in the media controls to start."); }
+  try { await active.play(); } catch (error) {
+    if (run !== thisRun) return;
+    record("play-rejected", { name: error.name, message: error.message });
+    if (active.error) message(`Playback failed (media error ${active.error.code}). Save the log.`);
+    else if (error.name === "NotAllowedError") message("Tap Play in the media controls to start.");
+    else message(`Playback rejected (${error.name}). Save the log.`);
+  }
 });
 pip.addEventListener("click", async () => {
   try {
