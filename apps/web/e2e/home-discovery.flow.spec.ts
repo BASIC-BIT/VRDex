@@ -74,12 +74,10 @@ test.describe("Home discovery @flow @fixture", () => {
     if (isMobile) {
       await expect(save).toHaveCSS("opacity", "1");
       await expect(
-        events
-          .nth(1)
-          .getByRole("button", {
-            name: "Add Low Tide to My night",
-            exact: true,
-          }),
+        events.nth(1).getByRole("button", {
+          name: "Add Low Tide to My night",
+          exact: true,
+        }),
       ).toHaveCSS("opacity", "1");
       await save.tap();
     } else await save.click();
@@ -124,12 +122,10 @@ test.describe("Home discovery @flow @fixture", () => {
     await page.evaluate(() => window.scrollTo(0, 0));
     if (isMobile)
       await expect(
-        events
-          .nth(1)
-          .getByRole("button", {
-            name: "Add Low Tide to My night",
-            exact: true,
-          }),
+        events.nth(1).getByRole("button", {
+          name: "Add Low Tide to My night",
+          exact: true,
+        }),
       ).toHaveCSS("opacity", "1");
     await page.screenshot({
       path: info.outputPath("home-discovery.png"),
@@ -139,7 +135,8 @@ test.describe("Home discovery @flow @fixture", () => {
   test("a successful Schedule removal clears a panel capacity warning", async ({
     page,
     timelineFixture,
-  }) => {
+    isMobile,
+  }, info) => {
     await page.addInitScript(({ eventIds, profileIds }) => {
       localStorage.setItem(
         "vrdex.timeline.preferences.v1",
@@ -177,14 +174,47 @@ test.describe("Home discovery @flow @fixture", () => {
     await panel
       .getByRole("button", { name: "Add Low Tide to My night", exact: true })
       .click();
-    await expect(page.getByText("Limit reached", { exact: true })).toHaveCount(
-      1,
+    const warning = page.getByText("Limit reached", { exact: true });
+    await expect(warning).toHaveCount(1);
+    await expect(warning).toBeInViewport({ ratio: 1 });
+    await expect(warning).toHaveCSS("position", "fixed");
+    await expect(warning).toHaveCSS("pointer-events", "none");
+    if (isMobile) {
+      const warningBounds = await warning.boundingBox();
+      const navigationBounds = await page
+        .getByRole("navigation")
+        .first()
+        .boundingBox();
+      expect(warningBounds).not.toBeNull();
+      expect(navigationBounds).not.toBeNull();
+      if (warningBounds && navigationBounds)
+        expect(warningBounds.y).toBeGreaterThanOrEqual(
+          navigationBounds.y + navigationBounds.height + 4,
+        );
+    }
+    expect(
+      await warning.evaluate((element) =>
+        Number(getComputedStyle(element).zIndex),
+      ),
+    ).toBeGreaterThan(
+      await panel.evaluate((element) =>
+        Number(getComputedStyle(element).zIndex),
+      ),
     );
-    await panel.getByRole("button", { name: "Close", exact: true }).click();
-    await page
+    await page.screenshot({ path: info.outputPath("panel-limit.png") });
+    await panel.getByRole("button", { name: "Close", exact: true }).focus();
+    await panel
+      .getByRole("button", { name: "Close", exact: true })
+      .press("Enter");
+    const remove = page
       .getByRole("region", { name: "My night", exact: true })
-      .getByRole("button", { name: "Remove ORBIT from My night", exact: true })
-      .click();
+      .getByRole("button", { name: "Remove ORBIT from My night", exact: true });
+    await remove.scrollIntoViewIfNeeded();
+    await expect(warning).toBeInViewport({ ratio: 1 });
+    await page.screenshot({
+      path: info.outputPath("schedule-shared-limit.png"),
+    });
+    await remove.click();
     await expect(page.getByText("Limit reached", { exact: true })).toHaveCount(
       0,
     );

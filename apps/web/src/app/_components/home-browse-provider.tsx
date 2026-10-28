@@ -4,6 +4,7 @@ import { readTimelineNavigation } from "@/lib/timeline/navigation";
 import { EventDetailPanel } from "./timeline/event-detail-panel";
 import { useTimelinePreferences } from "./timeline/use-timeline-preferences";
 import type { PreferenceAction } from "@/lib/timeline/preferences";
+import styles from "./home-browse.module.css";
 
 export type TimelineSelection = { eventId: string; slug: string; slotId?: string };
 type Runtime = { kind: "booting"; timeZone: null; hour12: null } | { kind: "ready"; timeZone: string; hour12: boolean };
@@ -77,6 +78,6 @@ export function HomeBrowseProvider({ children }: { children: ReactNode }) {
   return <HomeBrowseContext.Provider value={value}>
     {children}
     {runtime.kind === "ready" && <EventDetailPanel selection={selection} timeZone={runtime.timeZone} onClose={closeEvent} preferences={preference.preferences} onPreferenceAction={onPreferenceAction} />}
-    {limit && <span role="status">Limit reached</span>}
+    {limit && <span className={styles.actionStatus} role="status">Limit reached</span>}
   </HomeBrowseContext.Provider>;
 }
