@@ -74,8 +74,11 @@ test("current zero expires without a reload @visual", async ({ page }) => {
 test("a failed range read keeps the last successful range and existing control can retry @visual", async ({ page }) => {
   await page.goto("/playwright-group-population");
   await expect(page.getByRole("img", { name: "Population history" })).toBeVisible();
+  await expect(page.locator(".population-history").locator("..")).toHaveAttribute("aria-busy", "false");
   await page.route("**/api/v0/communities/*?statisticsStartAt=*", route => route.fulfill({ status: 503, contentType: "application/json", body: "{}" }));
+  const failedRead = page.waitForResponse(response => response.url().includes("statisticsStartAt=") && response.status() === 503);
   await page.getByLabel("Inspect day").fill("2026-10-20");
+  await failedRead;
   await expect(page.getByRole("alert").filter({ hasText: "Profile read failed" })).toBeVisible();
   await expect(page.getByRole("img", { name: "Population history" })).toBeVisible();
   await expect(page.getByLabel("Inspect day")).toHaveValue("");

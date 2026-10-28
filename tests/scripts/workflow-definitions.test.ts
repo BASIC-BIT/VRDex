@@ -205,6 +205,25 @@ describe("optional browser and visual evidence contract", () => {
     const account = workflow.jobs["playwright-hosted-data-flow"].steps.find((step: { name?: string }) => step.name === "Run signed-in account assertions and selected captures");
     assert.equal(account.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS, "${{ needs.visual-selection.outputs.visuals }}");
   });
+  it("requires real current-branch claim coverage on a local backend without exposing keys to forks", () => {
+    const steps = workflow.jobs["playwright-data-flow"].steps;
+    const claim = steps.find((step: { id?: string }) => step.id === "claim-auth");
+    assert.ok(claim, "The current-branch signed-in claim regression must have a CI execution target");
+    assert.equal(claim.if, "github.event.pull_request.head.repo.fork == false");
+    assert.equal(claim.env.PLAYWRIGHT_BASE_URL, undefined, "Do not route the new contract to stale hosted staging");
+    assert.equal(claim.env.VRDEX_ENABLE_E2E_CLERK_AUTH, "true");
+    assert.equal(claim.env.VRDEX_ENABLE_E2E_AUTH_HELPERS, "true");
+    assert.equal(claim.env.VRDEX_ENABLE_E2E_ADAPTER_HELPERS, "true");
+    assert.equal(claim.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY, "${{ secrets.VRDEX_HOSTED_E2E_CLERK_PUBLISHABLE_KEY }}");
+    assert.equal(claim.env.CLERK_SECRET_KEY, "${{ secrets.VRDEX_HOSTED_E2E_CLERK_SECRET_KEY }}");
+    assert.equal(claim.env.CLERK_JWT_ISSUER_DOMAIN, "${{ vars.VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN }}");
+    assert.ok(claim.run.includes("check-clerk-issuer-match.mjs"));
+    assert.ok(claim.run.includes("auth-claim.flow.spec.ts"));
+    assert.ok(claim.run.includes("stats.expected !== 1") && claim.run.includes("stats.skipped !== 0"), "Skipped coverage must fail");
+    const upload = steps.find((step: { id?: string }) => step.id === "upload");
+    assert.ok(upload.with.path.includes(claim.env.PLAYWRIGHT_OUTPUT_DIR));
+    assert.ok(upload.with.path.includes(claim.env.PLAYWRIGHT_HTML_REPORT_DIR));
+  });
   it("keeps existing functional diagnostic captures independent of review selection", () => {
     for (const name of ["playwright-public-smoke", "playwright-data-flow", "playwright-hosted-data-flow"]) {
       assert.equal(workflow.jobs[name].env?.PLAYWRIGHT_CAPTURE_SCREENSHOTS, undefined, name);

@@ -286,6 +286,21 @@ It also requires Clerk credentials in the runner, which are repository settings 
 
 These must be the **development** instance backing the hosted target, not production. `clerkSetup()` rejects a production secret key outright, and `apps/web/scripts/check-vercel-env.mjs` already requires `pk_test`/`sk_test` on every non-production Vercel build, so the correct pair is the one the target itself runs on.
 
+The `Playwright Data Flow` job also runs the dated-connection claim regression
+against the current PR's local Next and Convex servers for same-repository PRs.
+It reuses those development keys and repository variable
+`VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN`. The issuer/key precheck rejects a
+production publishable key or mismatched issuer; the step rejects a missing or
+production secret key. The local environment sync applies the explicit issuer
+override supported by `convex/auth.config.ts`. No hosted backend is changed.
+This step requires exactly one passing, non-skipped test in its separate JSON
+report and retains separate browser artifacts. Forks receive no keys.
+
+The hosted copy of this regression uses the existing deployment revision check.
+When staging serves another revision, it reports inapplicable before creating
+fixtures. That result is not signed-in acceptance for the PR; the current-branch
+local step must execute and pass the strict completion/date assertions.
+
 **Owner:** BASIC (repository owner) holds the Clerk dashboard and GitHub repository-settings access for both. There is no shared or team-held copy.
 
 **What the secret key can do:** create, read, and delete users on the staging Clerk development instance, and mint sign-in tickets for them. It cannot touch the production tenant — a separate instance with separate keys — and it is never placed on a deployment, only in the Actions runner.

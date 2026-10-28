@@ -779,6 +779,10 @@ test("E2E auth helper stays gated without the browser token @flow", async ({ req
 
 test("reactive query saves a dated VRChat account and a second connection without reclaiming @flow", async ({ page, request }, testInfo) => {
   test.setTimeout(150_000);
+  test.skip(
+    !(await hostedTargetRunsCurrentRevision(request)),
+    "Inapplicable to a hosted target serving another revision. Current-branch signed-in coverage runs in Playwright Data Flow; this skip is not acceptance.",
+  );
   test.skip(clerkTestAuth.available === false, clerkTestAuth.available === false ? clerkTestAuth.reason : "");
   if (process.env.VRDEX_ENABLE_E2E_ADAPTER_HELPERS !== "true") throw new Error("Requires the isolated synthetic proof adapter.");
   const e2eToken = e2eBrowserToken();

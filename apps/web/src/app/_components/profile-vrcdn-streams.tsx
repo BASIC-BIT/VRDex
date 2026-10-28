@@ -195,7 +195,7 @@ export function ProfileVrcdnStreams({
               <div className="mt-4 flex flex-wrap gap-2">
                 {links.map((link) => (
                   <a
-                    className={cn(buttonVariants({ variant: "secondary" }), "h-auto max-w-full justify-start gap-3 whitespace-normal py-3 text-left")}
+                    className={cn(buttonVariants({ variant: "secondary" }), "max-w-full justify-start gap-3 whitespace-normal text-left")}
                     href={link.href}
                     key={link.key}
                     rel="noreferrer"
