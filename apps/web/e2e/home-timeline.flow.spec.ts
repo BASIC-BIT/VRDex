@@ -1013,7 +1013,7 @@ test.describe("continuous schedule @flow @fixture", () => {
       await panel.getByRole("button", { name: "Close", exact: true }).click();
       await page
         .getByLabel("Schedule date", { exact: true })
-        .fill("2026-11-04");
+        .fill("2036-11-04");
       await expect(
         page.getByText("No events in this range", { exact: true }),
       ).toBeVisible();

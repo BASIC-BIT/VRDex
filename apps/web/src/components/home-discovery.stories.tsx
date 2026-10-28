@@ -192,3 +192,31 @@ export const MissingPublicGenres: Story = {
     },
   },
 };
+export const LongCustomLabels: Story = {
+  args: {
+    snapshot: {
+      ...available,
+      events: events.map((event) => ({
+        ...event,
+        title: "ORBIT: Interstellar Bassline Orchestra Beyond the Horizon",
+      })),
+      clubs: clubs.map((club) => ({
+        ...club,
+        displayName: "The Society for Exceptionally Long Musical Journeys",
+        genres: [
+          { ...genre, displayLabel: "Deep journeys across the spectrum" },
+        ],
+      })),
+      eventSignals: eventSignals.map((signal) => ({
+        ...signal,
+        performers: signal.performers.map((performer) => ({
+          ...performer,
+          displayName: "An Exceptionally Long Public Performer Name",
+          genres: [
+            { ...genre, displayLabel: "Deep journeys across the spectrum" },
+          ],
+        })),
+      })),
+    },
+  },
+};

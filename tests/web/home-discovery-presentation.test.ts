@@ -24,13 +24,13 @@ test("static discovery cards preserve attribution, sparse evidence and canonical
     const preferences = { version: 1, plan: [], favoriteProfileIds: ['favorite'] };
     const event = { id: 'event', slug: 'event', href: '/club/events/event', title: 'ORBIT', host: { id: 'club', slug: 'club', displayName: 'Prism' }, schedule: { kind: 'date_only', eventDate: '2026-12-05' } };
     const person = (id, name, genres = []) => ({ id, slug: id, displayName: name, profileType: 'person', genres });
-    const genre = { slug: 'liquid', displayName: 'Liquid DnB' };
+    const genre = { slug: 'liquid', displayName: 'Liquid DnB', displayLabel: '  Deep liquid  ' };
     const signal = { eventId: 'event', performers: [person('first', 'First'), person('favorite', 'Aurora', [genre]), person('third', 'Third'), person('fourth', 'Fourth')], manualLabels: ['Manual'], coverage: 'partial' };
     const props = { event, signal, preferences, timeZone: 'Pacific/Honolulu', hour12: true, onSelect() {}, onSave() {} };
     const markup = renderToStaticMarkup(React.createElement(DiscoveryEventCard, props));
     assert.match(markup, /href="\\/club\\/events\\/event"/);
     assert.match(markup, /2026-12-05/);
-    assert.match(markup.replace(/<[^>]+>/g, ""), /Aurora: Liquid DnB/);
+    assert.match(markup.replace(/<[^>]+>/g, ""), /Aurora: Deep liquid/);
     assert.ok(markup.indexOf('>Aurora<') < markup.indexOf('>First<'));
     assert.ok(!markup.includes('>Fourth<'));
     assert.ok(!markup.includes('Manual'));
@@ -44,6 +44,9 @@ test("static discovery cards preserve attribution, sparse evidence and canonical
     assert.match(clubMarkup, /contained/);
     assert.ok(!clubMarkup.includes('Liquid DnB'));
     assert.ok(!/upcoming|next event/i.test(clubMarkup));
+    const customClub = renderToStaticMarkup(React.createElement(DiscoveryClubCard, { club: { ...club, genres: [genre] }, preferences, onFavorite() {} }));
+    assert.match(customClub, /Deep liquid/);
+    assert.ok(!customClub.includes('Liquid DnB'));
     const coverage = { events: [{ complete: false }], clubs: [{ complete: false }], signals: [], candidateCount: 0, favoriteCount: 0 };
     const base = { snapshot: { kind: 'available', events: [], clubs: [], eventSignals: [], favoriteProfiles: [], coverage, refreshing: false }, preferences, timeZone: 'UTC', hour12: false, onSelect() {}, onSave() {}, onFavorite() {}, retry() {} };
     const partial = renderToStaticMarkup(React.createElement(HomeDiscoveryView, base));

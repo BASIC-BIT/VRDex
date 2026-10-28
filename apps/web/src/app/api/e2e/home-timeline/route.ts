@@ -39,7 +39,8 @@ async function handle(
       !("state" in body) ||
       (body.state !== "cancelled" &&
         body.state !== "hidden" &&
-        body.state !== "recreate-slot")
+        body.state !== "recreate-slot" &&
+        body.state !== "suppress-host")
     )
       return NextResponse.json(
         { error: "Invalid fixture event" },
@@ -70,7 +71,10 @@ async function handle(
     "scenario" in body &&
     body.scenario !== "prefetch" &&
     body.scenario !== "detail" &&
-    body.scenario !== "discovery"
+    body.scenario !== "discovery" &&
+    body.scenario !== "discovery-dense" &&
+    body.scenario !== "discovery-sparse" &&
+    body.scenario !== "timeline-visual"
   )
     return NextResponse.json(
       { error: "Invalid fixture scenario" },
@@ -84,7 +88,10 @@ async function handle(
       ...("scenario" in body &&
       (body.scenario === "prefetch" ||
         body.scenario === "detail" ||
-        body.scenario === "discovery")
+        body.scenario === "discovery" ||
+        body.scenario === "discovery-dense" ||
+        body.scenario === "discovery-sparse" ||
+        body.scenario === "timeline-visual")
         ? { scenario: body.scenario }
         : {}),
     }),

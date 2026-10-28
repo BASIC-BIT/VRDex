@@ -161,7 +161,7 @@ nonproduction web process. The browser suite exercises actual `/`.
 Run its local desktop/mobile flows with:
 
 ```bash
-pnpm --filter web exec playwright test home-timeline.flow.spec.ts home-discovery.flow.spec.ts --workers=1
+pnpm --filter web exec playwright test home-timeline.flow.spec.ts home-discovery.flow.spec.ts --workers=2
 ```
 
 `e2e/home-timeline-fixture.ts` creates a unique run through
@@ -171,15 +171,26 @@ helper enablement and Convex secret; production web builds always refuse it.
 The backend independently requires a deployment-owned loopback
 `CONVEX_CLOUD_URL`, enablement and the secret. Convex's bundle `NODE_ENV` is not a
 deployment discriminator, including for local development. No hosted fixture
-path or production override exists. State-change operations cancel or hide one of the run's eight fixture events,
-or recreate its first slot with a new stable ID, after verifying ownership. The optional
+path or production override exists. State-change operations cancel or hide a run-owned fixture event, suppress its
+owned host, or recreate its first slot with a new stable ID, after verifying
+ownership. The optional
 `detail` scenario authors 81 timed slots on one event, two untimed entries and
 one hidden person for continuation/privacy checks. It cleans exactly eight
 events, three profiles, 87 slots and two lineup entries. Default and prefetch
 runs still clean eight events, two profiles and eight slots. The `discovery`
 scenario authors two events seven and forty days away, four public profiles
 (two clubs and two DJs) with exact public genre assignments, and two confirmed
-slots. It cleans exactly two events, four profiles and two slots. The shared
+slots. It cleans exactly two events, four profiles and two slots.
+`discovery-sparse` owns one event, four profiles and one slot. The bounded
+`discovery-dense` scenario owns 246 events, eight profiles and five slots. Its
+240 near-term events sit on day five, alongside day-seven/day-forty examples,
+a day-120 match, a repeated host and private/suppressed variants. Its extra
+public club has no event; custom public genre labels retain exact slug identity.
+The `timeline-visual` scenario adds two score-separated future recommendations
+to the original eight Schedule events. It owns ten events, five profiles and ten
+slots. Only its new DJ/club IDs are favorites, preserving original Schedule
+geometry and favorite emphasis. The derived profile slugs stay within the
+canonical 64-character limit. The shared
 backend-origin lease covers each complete run through verified cleanup; future
 dates must not bypass it. Reuse this helper
 for Home checks; do not seed public-query responses or

@@ -2,6 +2,7 @@
 
 import { Check, Plus, Star } from "lucide-react";
 import type { MouseEvent } from "react";
+import { publicSearchGenreLabel } from "@/lib/public-search-genres";
 import { EntityImage } from "@/components/ui/entity-image";
 import { discoveryEventGenres } from "@/lib/discovery/recommendations";
 import type { DiscoverySnapshot } from "@/lib/discovery/controller";
@@ -137,7 +138,7 @@ export function DiscoveryEventCard({
                   :{" "}
                   {genres
                     .filter((entry) => entry.performer.id === performer.id)
-                    .map((entry) => entry.genre.displayName)
+                    .map((entry) => publicSearchGenreLabel(entry.genre))
                     .join(" · ")}
                 </span>
               )}

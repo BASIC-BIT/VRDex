@@ -464,3 +464,88 @@ baselines unchanged.
 ```bash
 pnpm --filter web exec playwright test home-timeline.flow.spec.ts home-timeline-time-regressions.flow.spec.ts home-timeline.visual.spec.ts homepage-search.flow.spec.ts --workers=2
 ```
+
+## Home discovery evidence
+
+`home-discovery.flow.spec.ts` mounts actual Home with the local backend. It
+checks one inspector across Schedule and Discover, independent card/panel
+saves and favorites, whole-event Included semantics, native modified event
+links, club profile navigation, keyboard/touch actions, Back/reload persistence,
+fractional-offset time, focus after a ranked invoker disappears, and live
+publication/host suppression. A failed public refresh removes obsolete cards;
+Retry can restore only currently eligible public data. Failure injection changes
+transport success into an error, never fabricates successful query results.
+The preference initializer runs once per fresh storage key and preserves later
+actions across navigation. The existing timeline regression files retain pending
+pan/Back and DST coverage.
+
+`home-discovery.visual.spec.ts` compares actual mixed and sparse Home on desktop
+and mobile. Cold-start captures retain the ordinary local public pool without
+fixing its arbitrary equal-score order; they are review images, not deterministic
+ranking baselines. Sparse uses an October 2036 clock to exclude permanent 2026
+local seed events while keeping all public query/ranking code real. Mixed uses
+October 26, 2026. Run-owned IDs feed a test-only session seed that fixes visual
+ties; no production ranking input or whole-card mask is changed. Full-page
+captures start at the top so sticky mobile navigation does not cover Discover.
+
+`home-discovery-states.storybook.spec.ts` captures ten deterministic presentation
+states with the existing Storybook configuration: mixed, cold start, sparse,
+complete empty, partial, failed, loading, missing artwork, missing public genres,
+and long names/custom genre labels. These are explicitly visual-only fixtures,
+not evidence of backend admission, privacy or actions. Live privacy and actions
+are covered by the actual Home flows. Both capture suites preserve threshold
+0.2 and maximum pixel difference ratio 0.002.
+
+The dense local scenario contains 240 near-term events and a day-120 match.
+The normal benchmark observes individual `homeDiscovery:*` additions in Convex
+`ModifyQuerySet` frames and pending protocol revalidations, retaining only counts
+and elapsed times. Cold first responses use at most three concurrent logical
+reads. Favorite changes can synchronously reuse cached first values and still
+register more than three wire revalidations together; the warm rebuild records
+that separate burst, repeated argument/journal counts and latency. The logical
+first-value bound is not a strict backend or wire concurrency limit. It also
+checks unmount cleanup and Back recreation. Its shared-load
+benchmark moves Schedule to day five, keeps roster loading active, and measures
+search input, Schedule toolbar and independent inspector interactions without
+waiting for Schedule readiness. It records Schedule's eventual state/delay
+separately. These are local measurements, not a latency SLA. Backend fixture
+unit instrumentation records query calls and returned rows; physical database
+billing/read counts are not inferred from WebSocket counts.
+
+On unexpected Home failures, fixture diagnostics attach browser errors,
+failed request paths and document visibility/focus. For local anonymous bootstrap
+investigation, `VRDEX_E2E_BOOT_DIAGNOSTICS=true` also records exception locations
+and a narrow source excerpt after a fault. It retains no auth or WebSocket frames
+and enables the debugger only after an exception, preserving normal startup.
+
+The existing timeline full-page baselines also include Discover. Their
+`timeline-visual` scenario retains the original eight Schedule events and adds
+two future events with score-separated public genre evidence. Its ten events,
+five profiles and ten slots share one atomic run. Favorite IDs belong only to
+the new DJ/club, so existing Schedule emphasis and My night actions stay intact.
+Snapshots explicitly await those real public cards and their images. The dense
+saved-set flow navigates to November 2036 for its empty outside-cache range;
+the previous November 2026 date can contain the ordinary rolling local seed.
+
+The fixed-date backend-origin lease remains exclusive only around owned fixture
+lifetimes, through exact cleanup. The selected suite still uses two workers;
+there is no blanket serialization. Both sparse and dense scenarios use the same
+loopback-only helper boundary and cleanup ownership checks.
+
+```bash
+pnpm --filter web exec playwright test home-discovery.flow.spec.ts home-discovery.visual.spec.ts home-timeline.flow.spec.ts home-timeline-review.flow.spec.ts home-timeline-time-regressions.flow.spec.ts home-timeline.visual.spec.ts homepage-search.flow.spec.ts --project=desktop-chromium --project=mobile-chromium --workers=2
+pnpm --filter web exec playwright test home-discovery-states.storybook.spec.ts --config playwright.storybook.config.mjs --workers=2
+```
+
+The existing light Home snapshot uses the same owned visual scenario with a
+January 1, 2025 clock and January 6 fixture start, keeping its empty Schedule
+while future recommendations span separate bands. Only Home is scoped to that
+fixture; other public route snapshots retain their existing setup.
+
+A bounded read-only Home smoke can use the documented `PLAYWRIGHT_BASE_URL`
+and `PLAYWRIGHT_SKIP_WEBSERVERS` options against a locally served production
+build without enabling production fixture admission. The Task 5b investigation
+checked cold load, Browse/Back, reload, live cards, enhanced inspector/focus and
+search on both devices, rejecting page errors and creating no backend records.
+That diagnostic source is retained with its evidence rather than registered as
+an unleased automatic fixture case in CI.

@@ -1,6 +1,7 @@
 "use client";
 
 import { Star } from "lucide-react";
+import { publicSearchGenreLabel } from "@/lib/public-search-genres";
 import { EntityImage } from "@/components/ui/entity-image";
 import type { DiscoverySnapshot } from "@/lib/discovery/controller";
 import type { TimelinePreferences } from "@/lib/timeline/preferences";
@@ -55,7 +56,7 @@ export function DiscoveryClubCard({
             aria-label={`${club.displayName} genres`}
           >
             {club.genres.slice(0, 3).map((genre) => (
-              <li key={genre.slug}>{genre.displayName}</li>
+              <li key={genre.slug}>{publicSearchGenreLabel(genre)}</li>
             ))}
           </ul>
         )}

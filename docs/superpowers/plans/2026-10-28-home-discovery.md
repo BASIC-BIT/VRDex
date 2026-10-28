@@ -10,6 +10,44 @@
 
 **Spec:** [Approved corrected discovery design](../specs/2026-10-28-home-discovery-design.md), approved by BASIC on October 28, 2026. The defaults below make that direction executable and are explicitly subject to plan review.
 
+## Execution status
+
+Tasks 1–4 and the native Schedule pagination repair are implemented and
+independently task-reviewed. Task 5b adds actual desktop/mobile integration,
+privacy, navigation, focus, density and visual evidence on the approved base.
+
+Real isolated Node suites passed 959 web cases and 2,280 backend cases, with no
+failures or skips. The requested seven-file browser command ran 162 cases with
+two workers: 159 passed, two failed a newly incorrect warm-wire measurement
+assertion, and one fixture POST reset its connection before UI assertions. The
+corrected affected scopes passed 4/4. The retained aggregate records all 162
+cases with passing latest evidence; it does not claim one 162/162 command.
+Storybook comparisons passed 20/20. The two affected light Home baselines and
+two read-only built-app Home cold/warm smokes also passed on both devices.
+No screenshot tolerance or blanket worker-serialization change was made.
+
+Web lint, both typechecks, generated-code drift, Markdown lint, docs build and
+Storybook build passed. The default web build reproduced the documented
+Turbopack TLS failure fetching IBM Plex Mono and Space Grotesk from Google
+Fonts. The existing webpack fallback built successfully and supplied the
+production artifact for the actual local Home smokes. An intermittent dev
+bootstrap parse error observed during visual checks remains disclosed; it did
+not recur in the later selected gate or built-app smoke, and its source was not
+identified or claimed fixed.
+
+Dense native discovery produced usable cards in about 0.29–0.32 seconds cold and
+1.09–1.17 seconds with 240 events loading in Schedule. Favorite reranking took
+about 108ms, with 21 re-registrations and up to 19 concurrent wire revalidations.
+The controller's three logical first-value reads are a separate bound. Schedule
+reached partial after 22.9 seconds on desktop and was still loading after the
+25-second mobile observation. These are local samples, not latency guarantees.
+See the [testing guide](../../testing/playwright-visual-preview.md#home-discovery-evidence)
+for fixture ownership, capture scope and metric definitions.
+
+Task 5b self-review and implementation are complete. Independent task and
+whole-branch review, PR publication and selected CI remain controller-owned.
+BASIC performs the merge. The original task steps remain below for traceability.
+
 ## Global constraints
 
 - Two event cards and two similarly sized club cards, with sparse results allowed. Posters lead; familiar names and readable genres support decisions.
@@ -113,11 +151,11 @@ Backend modules own eligibility and bounded public joins. `apps/web/src/lib/disc
 
 **Interfaces:** Local fixture data supplies a favorite DJ event, unfamiliar genre match, near-term nonmatch, day-120 event, club without events, repeated hosts and private/suppressed variants. Reuse the existing fixed-date cross-worker lease helper and exact run-owned cleanup. Extend fixture payloads via a discriminated scenario rather than inventing a production-accessible seeding endpoint.
 
-- [ ] **Step 1:** Add and run failing browser assertions for Schedule-to-discovery panel replacement, discovery-to-Schedule replacement, favorite/save synchronization, whole-event Included semantics, club profile navigation, modified-click/native links, keyboard/touch controls, focus after the invoking card disappears, Back with a pending pan, fractional-offset display and no-JS Browse. Fixture tests must prove local-only gating, exact cleanup and blocked lease after ambiguous creation/cleanup.
-- [ ] **Step 2:** Implement only remaining integration fixes and fixture support. Keep a selected detail open while recommendation cards refresh; a truly unavailable event closes through the existing safe path. Do not alter screenshot tolerances, serialize the whole suite or weaken admission/visibility rules to fix fixtures.
-- [ ] **Step 3:** Capture actual desktop/mobile screenshots for mixed recommendations, cold start, sparse, complete-empty, partial, failed and missing-artwork states. Inspect images directly with VLM review against the approved composition. Verify proportional logos, poster handling, long names, subtle favorite emphasis, controls, mobile panel overlap and focus rings. Correct UI issues and repeat only affected checks.
-- [ ] **Step 4:** Run `pnpm test:web`, `pnpm test:backend`, `pnpm lint:web`, both typechecks, generated-code drift, Markdown lint and `pnpm build:web`. Use the documented build fallback only if the documented environment limitation reproduces, and report the exact limitation. Run `pnpm --filter web exec playwright test home-discovery.flow.spec.ts home-discovery.visual.spec.ts home-timeline.flow.spec.ts home-timeline-review.flow.spec.ts home-timeline-time-regressions.flow.spec.ts home-timeline.visual.spec.ts homepage-search.flow.spec.ts --project=desktop-chromium --project=mobile-chromium --workers=2`. New discovery cases must have no intentional skips; preserve existing unrelated baselines.
-- [ ] **Step 5:** Record dense-fixture query counts/read bounds and time until usable discovery alongside responsive search/Schedule. Confirm early rendering and bounded watchers/request concurrency. If a cost issue requires new projection tables, services or a materially different ranking contract, report it before expanding scope. Finish source/docs drift review and commit as `test: verify mixed Home discovery across desktop and mobile`.
+- [x] **Step 1:** Add and run failing browser assertions for Schedule-to-discovery panel replacement, discovery-to-Schedule replacement, favorite/save synchronization, whole-event Included semantics, club profile navigation, modified-click/native links, keyboard/touch controls, focus after the invoking card disappears, Back with a pending pan, fractional-offset display and no-JS Browse. Fixture tests must prove local-only gating, exact cleanup and blocked lease after ambiguous creation/cleanup.
+- [x] **Step 2:** Implement only remaining integration fixes and fixture support. Keep a selected detail open while recommendation cards refresh; a truly unavailable event closes through the existing safe path. Do not alter screenshot tolerances, serialize the whole suite or weaken admission/visibility rules to fix fixtures.
+- [x] **Step 3:** Capture actual desktop/mobile screenshots for mixed recommendations, cold start, sparse, complete-empty, partial, failed and missing-artwork states. Inspect images directly with VLM review against the approved composition. Verify proportional logos, poster handling, long names, subtle favorite emphasis, controls, mobile panel overlap and focus rings. Correct UI issues and repeat only affected checks.
+- [x] **Step 4:** Run `pnpm test:web`, `pnpm test:backend`, `pnpm lint:web`, both typechecks, generated-code drift, Markdown lint and `pnpm build:web`. Use the documented build fallback only if the documented environment limitation reproduces, and report the exact limitation. Run `pnpm --filter web exec playwright test home-discovery.flow.spec.ts home-discovery.visual.spec.ts home-timeline.flow.spec.ts home-timeline-review.flow.spec.ts home-timeline-time-regressions.flow.spec.ts home-timeline.visual.spec.ts homepage-search.flow.spec.ts --project=desktop-chromium --project=mobile-chromium --workers=2`. New discovery cases must have no intentional skips; preserve existing unrelated baselines.
+- [x] **Step 5:** Record dense-fixture query counts/read bounds and time until usable discovery alongside responsive search/Schedule. Confirm early rendering and bounded watchers/request concurrency. If a cost issue requires new projection tables, services or a materially different ranking contract, report it before expanding scope. Finish source/docs drift review and commit as `test: verify mixed Home discovery across desktop and mobile`.
 - [ ] **Step 6:** Request whole-branch review, address findings, and publish a draft PR with `ci:browsers` and `ci:visuals` before a normal UI CI run. Disposition/reply and resolve every addressed review thread before follow-up pushes. Iterate until selected checks pass, then report PR readiness with the URL and evidence. BASIC performs the merge.
 
 ## Execution setup and handoff
