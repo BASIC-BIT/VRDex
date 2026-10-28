@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { convexTest } from "convex-test";
+import { getFunctionName } from "convex/server";
+import { verifyVrchatProofViaAdapter } from "../../convex/profileClaims";
 
 import { api, internal } from "../../convex/_generated/api";
 import schemaModule from "../../convex/schema";
@@ -66,6 +68,82 @@ describe("profile claim lifecycle", () => {
       assert.equal(other?.lastVerifiedProof, null);
     }
   });
+
+  for (const race of ["reservation", "negative", "unavailable", "malformed", "expiry", "initial-expiry"] as const) {
+    it(`returns the saved completed target when the collector wins the ${race} race`, async (test) => {
+      const t = convexTest({ schema, modules });
+      const now = Date.now();
+      const clerkUserId = newClerkUserId();
+      const targetExternalId = "usr_11111111-2222-3333-4444-555555555555";
+      const attemptId = await t.run(async ctx => {
+        const userId = await ctx.db.insert("users", { clerkUserId, email: "race@example.test", emailVerificationTime: now });
+        const profileId = await ctx.db.insert("profiles", {
+          profileType: "person", slug: "target-race", displayName: "Target race", sortName: "target race",
+          aliases: [], tags: [], claimState: "unclaimed", publicationState: "published",
+          publicSurfacingState: "public", creationSource: "self", person: { roleTags: [] }, updatedAt: now,
+        });
+        return await ctx.db.insert("profileVerificationAttempts", {
+          profileId, userId, method: "vrchat_user_proof", targetType: "vrchat_user", targetExternalId,
+          proofCode: "VRDEX19825", state: "pending", createdAt: now, updatedAt: now, expiresAt: now + 60_000,
+        });
+      });
+      let settlements = 0;
+      async function settle() {
+        settlements += 1;
+        return await t.mutation(internal.profileClaims.recordVrchatProofVerification, {
+          attemptId, evidenceSource: "vrchat_api", evidenceSummary: "Synthetic collector race.",
+        });
+      }
+      const originalAdapterToken = process.env.VRCHAT_PROOF_ADAPTER_BEARER_TOKEN;
+      process.env.VRCHAT_PROOF_ADAPTER_BEARER_TOKEN = "synthetic-test-token";
+      const originalAdapterUrl = process.env.VRCHAT_PROOF_ADAPTER_URL;
+      process.env.VRCHAT_PROOF_ADAPTER_URL = "https://adapter.example.test/verify";
+      test.mock.method(globalThis, "fetch", async () => {
+        assert.ok(race !== "reservation" && race !== "initial-expiry", "A refused reservation or expired snapshot must not call the adapter");
+        await settle();
+        if (race === "expiry") test.mock.method(Date, "now", () => now + 120_000);
+        if (race === "unavailable") throw new Error("Synthetic connection failure");
+        return new Response(JSON.stringify(race === "malformed" ? {} : { verified: false }), { status: 200 });
+      });
+      try {
+        const claimant = t.withIdentity(clerkTestIdentity(clerkUserId, "race@example.test"));
+        // Only control the inter-transaction timing. The action, authenticated
+        // queries, reservation, collector settlement and expiry mutation are real.
+        const result = await claimant.action(async ctx => {
+          const runQuery: typeof ctx.runQuery = async (reference, ...args) => {
+            const value = await ctx.runQuery(reference, ...args);
+            if (race === "initial-expiry" && settlements === 0 && getFunctionName(reference) === "profileClaims:getVerificationAttemptForAdapter") {
+              await settle();
+              test.mock.method(Date, "now", () => now + 120_000);
+            }
+            return value;
+          };
+          const runMutation: typeof ctx.runMutation = async (reference, ...args) => {
+            if (race === "reservation" && getFunctionName(reference) === "profileClaims:reserveAdapterCheck") await settle();
+            return await ctx.runMutation(reference, ...args);
+          };
+          if (!("_handler" in verifyVrchatProofViaAdapter) || typeof verifyVrchatProofViaAdapter._handler !== "function") {
+            throw new Error("Registered action handler unavailable");
+          }
+          return await verifyVrchatProofViaAdapter._handler({ ...ctx, runMutation, runQuery }, { attemptId });
+        });
+        const saved = await t.run(ctx => ctx.db.get(attemptId));
+        assert.equal(settlements, 1);
+        assert.equal(saved?.state, "verified");
+        assert.deepEqual(result, { state: "verified", completedTarget: {
+          targetType: "vrchat_user", targetExternalId, at: saved?.verifiedAt,
+        } });
+        assert.equal(saved?.lastCheckOutcome, undefined);
+        await assert.rejects(t.action(api.profileClaims.verifyVrchatProofViaAdapter, { attemptId }));
+      } finally {
+        test.mock.restoreAll();
+        if (originalAdapterToken === undefined) delete process.env.VRCHAT_PROOF_ADAPTER_BEARER_TOKEN;
+        else process.env.VRCHAT_PROOF_ADAPTER_BEARER_TOKEN = originalAdapterToken;
+        if (originalAdapterUrl === undefined) delete process.env.VRCHAT_PROOF_ADAPTER_URL;
+        else process.env.VRCHAT_PROOF_ADAPTER_URL = originalAdapterUrl;
+      }
+    });
+  }
 
   it("reports collector-backed proof as queued only after a fresh proof poll", async () => {
     const t = convexTest({ schema, modules });
