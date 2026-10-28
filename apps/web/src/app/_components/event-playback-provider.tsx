@@ -57,6 +57,10 @@ export function EventPlaybackProvider({ children }: { children: ReactNode }) {
                 }),
               get: (grantId) =>
                 client.query(api.mediaRelayPlayback.getPlayback, { grantId }),
+              restart: (grantId) =>
+                client.mutation(api.mediaRelayPlayback.restartPlayback, {
+                  grantId,
+                }),
               refresh: (grantId) =>
                 client.mutation(api.mediaRelayPlayback.refreshPlayback, {
                   grantId,

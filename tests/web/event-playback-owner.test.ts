@@ -234,3 +234,30 @@ test("new owner restores mode across DJ/route replacement without autoplay", asy
   owner.close();
   writePlaybackMode(undefined, "video");
 });
+
+test("retained retry clears the previous unsupported reason before later native errors", async () => {
+  let notify: import("../../apps/web/src/lib/event-playback-owner").AdapterNotify =
+    () => {};
+  const owner = new EventPlaybackOwner((_request, changed) => {
+    notify = changed;
+    return {
+      async play() {
+        return true;
+      },
+      async retry() {
+        return true;
+      },
+      pause() {},
+      setVolume() {},
+      setMuted() {},
+      update() {},
+      dispose() {},
+    };
+  });
+  await owner.play(request());
+  notify({ status: "unavailable", unavailableReason: "unsupported" });
+  await owner.play(request());
+  notify({ status: "unavailable" });
+  assert.equal(owner.getSnapshot().unavailableReason, undefined);
+  owner.close();
+});

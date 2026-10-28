@@ -18,6 +18,7 @@ export type RelayPlaybackClient = {
   ): Promise<unknown>;
   get(id: string): Promise<unknown>;
   refresh(id: string): Promise<unknown>;
+  restart(id: string): Promise<unknown>;
   release(id: string): Promise<unknown>;
 };
 export function relayPlaybackEnabled() {
@@ -155,6 +156,23 @@ export function createRelayPlaybackAdapter({
   }
   return {
     play,
+    async retry() {
+      // Recreate media without surrendering the continuation capability.
+      native?.dispose();
+      native = undefined;
+      intent = true;
+      const token = ++version;
+      if (!grantId) return play();
+      const result = AdmissionSchema.parse(await client.restart(grantId));
+      if (disposed || !intent || token !== version) return false;
+      if (result.kind === "unavailable" && result.reason === "expired") {
+        release(grantId);
+        grantId = undefined;
+        return play();
+      }
+      admission = Promise.resolve(result);
+      return play();
+    },
     pause() {
       intent = false;
       version++;

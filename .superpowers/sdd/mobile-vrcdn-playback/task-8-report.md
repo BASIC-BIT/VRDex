@@ -161,3 +161,125 @@ native pause while a late playing event alone stays fenced` in the native adapte
 suite. Both failed before the fix and passed after. Focused native-adapter plus
 owner rerun: **20/20 passed**, including late-play promise, rapid mode toggle and
 close/pause intent fences. No broader suite reran for this event-listener change.
+
+## Review fix round 1: retain valid post-window retry authority
+
+Review base: `5d91839`. Addressed Important 1 from `task-8-review.md`.
+The review correctly identified that retaining the owner's started boolean did
+not preserve server authorization: disposing the relay adapter released the
+valid grant, and a subsequent fresh event admission failed after calendar end.
+
+The owner now calls an adapter's optional explicit `retry()` instead of disposing
+that adapter on unavailable playback. Relay retry recreates only native media,
+retains its grant, and calls `restartPlayback({grantId})` on that deliberate
+viewer action. Healthy native-only retry returns the same admission with no
+restart charge. Stopped/unavailable sources are queued under the original
+unexpired, unreleased, context-current grant. Identity, issuedAt, expiry and
+playlist URLs are preserved. Unsupported stays explicit Unsupported; no retry
+transcode or automatic restart is introduced. Actual expired capability returns
+an explicit expired result and the client uses ordinary new admission, including
+the event new-start window. Released/revoked grants cannot restart. Close and
+Pause fence pending restart completions, and Close still releases the grant.
+
+The controller approved the narrow storage addition before implementation:
+`mediaRelayRestartRate` is one indexed global row containing successful terminal
+restart timestamps. The common quota helper sums recent issued grants plus
+restart timestamps for both open and restart operations. Successful restart
+prunes the rolling sixty-second history; the configured per-minute limit is at
+most 10,000, bounding row growth. Transactional reads/writes serialize different
+sources competing for the final slot. Duplicate retries of a now-queued source
+are read-only and do not spend another restart. Source-cap checks are shared;
+existing grants consume no additional grant slot, but lowered grant caps still
+bound terminal restarts. No poll/get/foreground refresh can enqueue a source.
+
+Self-review also found that retaining an adapter could retain an old Unsupported
+reason across a successful retry and later unrelated native error. A focused
+RED/GREEN regression now clears the prior reason when deliberate loading begins.
+Minor 2 (readable storage with denied writes) remains deferred to Task 9 as
+instructed; this round does not change mode storage.
+
+### Exact RED/GREEN evidence
+
+Commands below activated `/workspace/vrdex-env.sh` and used authorized additional
+network permission for tsx, preserving proxy/CA settings.
+
+Initial integration RED:
+
+```text
+node --conditions=import --import tsx --test --test-name-pattern='owner retry retains' tests/backend/media-relay-admission.test.ts
+✖ owner retry retains a valid post-window grant through native failure and terminal source restart
+AssertionError: actual 'unavailable', expected 'playing'
+ℹ tests 1
+ℹ pass 0
+ℹ fail 1
+```
+
+This regression uses the actual owner and relay client against real convex-test
+backend handlers. Only native media and worker readiness are fixtures. It first
+plays within the event window, then ends the event, recreates failed native media
+and recovers stopped/unavailable sources with the same grant. The unavailable
+case invokes actual foreground refresh before deliberate Retry. It verifies one
+grant, one initial open, no release before Close, and native recreation. Finally
+it expires the grant and proves ordinary fresh event admission is denied.
+
+The initial endpoint/quota RED command was:
+
+```text
+node --conditions=import --import tsx --test --test-name-pattern='explicit restart|shared rolling|restart keeps' tests/backend/media-relay-admission.test.ts
+ℹ tests 3
+ℹ pass 0
+ℹ fail 3
+Error: Expected a Convex function exported from module "mediaRelayPlayback" as `restartPlayback`, but there is no such export.
+```
+
+After implementation, all four original new cases passed:
+
+```text
+node --conditions=import --import tsx --test --test-name-pattern='owner retry retains|explicit restart|shared rolling|restart keeps' tests/backend/media-relay-admission.test.ts
+ℹ tests 4
+ℹ pass 4
+ℹ fail 0
+```
+
+Additional coverage verifies two different terminal sources concurrently compete
+for one remaining admission slot, exact rolling cutoff pruning, source capacity,
+no additional grant slot, unsupported/expired/released/revoked denial, and
+get/refresh non-restart behavior. A relay client regression proves the delayed
+restart reply cannot recreate media after Close and never releases a valid grant
+before explicit disposal.
+
+Self-review RED command and output:
+
+```text
+node --import tsx --test --test-name-pattern='retained retry clears' tests/web/event-playback-owner.test.ts
+✖ retained retry clears the previous unsupported reason before later native errors
+AssertionError: actual 'unsupported', expected undefined
+ℹ tests 1
+ℹ pass 0
+ℹ fail 1
+```
+
+Covering GREEN verification:
+
+```text
+node --conditions=import --import tsx --test tests/backend/media-relay-admission.test.ts tests/backend/media-relay-control.test.ts
+ℹ tests 36
+ℹ pass 36
+ℹ fail 0
+node --import tsx --test tests/web/event-playback-owner.test.ts tests/web/relay-playback-adapter.test.ts tests/web/native-hls-adapter.test.ts tests/web/event-playback-recovery.test.ts tests/web/event-playback-revalidation.test.ts
+ℹ tests 36
+ℹ pass 36
+ℹ fail 0
+```
+
+The strengthened actual-refresh/expired-owner integration case additionally
+reran alone and passed 1/1. `pnpm typecheck:web` and
+`pnpm exec tsc --noEmit --project convex/tsconfig.json` exited 0.
+`git diff --check` exited 0. No broad suite, UI/native device run or hosted
+operation was needed for this scoped recovery correction.
+
+Task 9 interface note: restart accepts only the exact original grant identity;
+it cannot swap event/slot context or create another performer grant. Whether
+preparing/promoting a different authorized slot after event end needs a scoped
+same-event continuation admission proof remains a separate Task 9 controller
+ruling. This fix supplies no broad event-window bypass.

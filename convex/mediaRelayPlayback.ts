@@ -41,6 +41,55 @@ function admissionConfig() {
     perMinute,
   };
 }
+async function admissionQuota(
+  db: DatabaseReader,
+  now: number,
+  config: ReturnType<typeof admissionConfig>,
+  continuing = false,
+) {
+  const recent = await db
+    .query("mediaRelayGrants")
+    .withIndex("by_issuedAt", (q) => q.gt("issuedAt", now - 60000))
+    .take(config.perMinute);
+  const rate = await db
+    .query("mediaRelayRestartRate")
+    .withIndex("by_key", (q) => q.eq("key", "global"))
+    .unique();
+  const attempts = (rate?.attempts ?? []).filter((at) => at > now - 60000);
+  const active = await db
+    .query("mediaRelayGrants")
+    .withIndex("by_releasedAt_expiresAt", (q) =>
+      q.eq("releasedAt", undefined).gt("expiresAt", now),
+    )
+    .take(config.grants + (continuing ? 1 : 0));
+  return {
+    rate,
+    attempts,
+    limited:
+      recent.length + attempts.length >= config.perMinute ||
+      (continuing
+        ? active.length > config.grants
+        : active.length >= config.grants),
+  };
+}
+async function sourceCapacityAvailable(db: DatabaseReader, limit: number) {
+  let count = 0;
+  for (const state of [
+    "queued",
+    "starting",
+    "ready",
+    "recovering",
+    "draining",
+  ] as const) {
+    count += (
+      await db
+        .query("mediaRelaySources")
+        .withIndex("by_state", (q) => q.eq("state", state))
+        .take(limit)
+    ).length;
+  }
+  return count < limit;
+}
 export async function resolveRelayGrant(
   db: DatabaseReader,
   grantId: string,
@@ -150,17 +199,7 @@ export const openPlayback = mutation({
     );
     if (!authorized) return { kind: "unavailable", reason: "unavailable" };
     // Bounded indexed reads, matching existing quota conventions. OCC serializes concurrent admissions.
-    const recent = await ctx.db
-      .query("mediaRelayGrants")
-      .withIndex("by_issuedAt", (q) => q.gt("issuedAt", now - 60000))
-      .take(config.perMinute);
-    const active = await ctx.db
-      .query("mediaRelayGrants")
-      .withIndex("by_releasedAt_expiresAt", (q) =>
-        q.eq("releasedAt", undefined).gt("expiresAt", now),
-      )
-      .take(config.grants);
-    if (recent.length >= config.perMinute || active.length >= config.grants)
+    if ((await admissionQuota(ctx.db, now, config)).limited)
       return { kind: "capacityLimited", retryAfterMs: 60000 };
     const streamKey = streamKeyFor(streamId.data);
     const source = await ctx.db
@@ -172,22 +211,7 @@ export const openPlayback = mutation({
       source.state === "stopped" ||
       source.state === "unavailable"
     ) {
-      let count = 0;
-      for (const state of [
-        "queued",
-        "starting",
-        "ready",
-        "recovering",
-        "draining",
-      ] as const) {
-        count += (
-          await ctx.db
-            .query("mediaRelaySources")
-            .withIndex("by_state", (q) => q.eq("state", state))
-            .take(config.sources)
-        ).length;
-      }
-      if (count >= config.sources)
+      if (!(await sourceCapacityAvailable(ctx.db, config.sources)))
         return { kind: "capacityLimited", retryAfterMs: 1000 };
       if (source)
         await ctx.db.patch(source._id, {
@@ -263,6 +287,57 @@ export const refreshPlayback = mutation({
           expiresAt: now + RELAY_POLICY.grantLifetimeMs,
         });
     }
+    return playback(ctx.db, args.grantId, now);
+  },
+});
+
+/** Deliberate retry only. Retains a current capability; reads/refresh never call this. */
+export const restartPlayback = mutation({
+  args: { grantId: v.string() },
+  handler: async (ctx, args): Promise<Admission> => {
+    const now = Date.now();
+    const config = admissionConfig();
+    const resolved = await resolveRelayGrant(ctx.db, args.grantId, now);
+    if (resolved.kind === "denied") {
+      const row = await ctx.db
+        .query("mediaRelayGrants")
+        .withIndex("by_grantId", (q) => q.eq("grantId", args.grantId))
+        .unique();
+      return {
+        kind: "unavailable",
+        reason:
+          row && row.releasedAt === undefined && now >= row.expiresAt
+            ? "expired"
+            : "unavailable",
+      };
+    }
+    const source = await ctx.db
+      .query("mediaRelaySources")
+      .withIndex("by_streamKey", (q) =>
+        q.eq("streamKey", resolved.grant.streamKey),
+      )
+      .unique();
+    if (!source) return { kind: "unavailable", reason: "unavailable" };
+    if (source.terminalReason === "unsupported")
+      return { kind: "unavailable", reason: "unsupported" };
+    if (source.state !== "stopped" && source.state !== "unavailable")
+      return playback(ctx.db, args.grantId, now);
+    const quota = await admissionQuota(ctx.db, now, config, true);
+    if (quota.limited) return { kind: "capacityLimited", retryAfterMs: 60000 };
+    if (!(await sourceCapacityAvailable(ctx.db, config.sources)))
+      return { kind: "capacityLimited", retryAfterMs: 1000 };
+    const attempts = [...quota.attempts, now];
+    if (quota.rate) await ctx.db.patch(quota.rate._id, { attempts });
+    else
+      await ctx.db.insert("mediaRelayRestartRate", { key: "global", attempts });
+    await ctx.db.patch(source._id, {
+      state: "queued",
+      updatedAt: now,
+      progressAt: undefined,
+      recoveryStartedAt: undefined,
+      terminalReason: undefined,
+      admissionRevision: (source.admissionRevision ?? 0) + 1,
+    });
     return playback(ctx.db, args.grantId, now);
   },
 });

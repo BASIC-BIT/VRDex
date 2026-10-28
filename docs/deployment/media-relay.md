@@ -220,3 +220,19 @@ Play then uses ordinary admission rules. Valid grants may continue an event afte
 its start window, but an expired background session may be unable to start that
 event again after its window closes. An independently public profile can still
 admit its stream. No unconditional Resume guarantee is implied.
+
+Deliberate Retry of an unexpired event capability uses
+`mediaRelayPlayback:restartPlayback({grantId})`. It reauthorizes that exact grant
+and context, retaining ID, issue time and playlist URLs across native-player
+recreation. A healthy source needs no restart charge; a stopped/unavailable source
+can be queued only under the existing source and admission limits. Terminal
+unsupported remains Unsupported. Released/revoked capabilities cannot restart;
+actual expiry sends deliberate Play back through ordinary new-start admission.
+Neither playlist/read polling nor foreground refresh invokes this operation.
+
+Successful terminal restarts share the rolling admission-per-minute budget with
+new grants. A single indexed `mediaRelayRestartRate` row stores their timestamps,
+prunes entries outside sixty seconds on the next successful restart, and is
+bounded by the configured maximum of 10,000 admissions. Both new admission and
+restart check recent issued grants plus this history transactionally. Concurrent
+retries of an already-queued source do not consume another restart or grant slot.

@@ -15,6 +15,11 @@ export const relayContextValidator = v.union(
   }),
 );
 export const mediaRelayTables = {
+  // One bounded rolling minute of successful explicit restarts; no grant identity changes.
+  mediaRelayRestartRate: defineTable({
+    key: v.literal("global"),
+    attempts: v.array(v.number()),
+  }).index("by_key", ["key"]),
   mediaRelayWorkers: defineTable({
     workerId: v.string(),
     workerEpoch: v.number(),

@@ -32,6 +32,7 @@ test("admission occurs only on Play and pending admission is released after Clos
       release: async (id) => {
         released = id;
       },
+      restart: async () => ({ kind: "unavailable", reason: "unavailable" }),
       refresh: async () => ({ kind: "unavailable", reason: "unavailable" }),
     },
   });
@@ -82,6 +83,7 @@ test("ready grant is reused for mode changes and metadata updates, paused admiss
       },
       get: async () => ready,
       release: async () => {},
+      restart: async () => ({ kind: "unavailable", reason: "unavailable" }),
       refresh: async () => ready,
     },
     createNative: ({ mode }) => {
@@ -126,6 +128,7 @@ test("foreground grant refresh is inactive while hidden and stops after cleanup"
     calls = 0;
   const stop = retainForegroundGrant(
     {
+      restart: async () => ({ kind: "unavailable", reason: "unavailable" }),
       refresh: async () => {
         calls++;
       },
@@ -180,6 +183,7 @@ test("deliberate resume after capability expiry uses ordinary admission again", 
       },
       get: async () => ({ kind: "unavailable", reason: "unavailable" }),
       release: async () => {},
+      restart: async () => ({ kind: "unavailable", reason: "unavailable" }),
       refresh: async () => ready,
     },
     createNative: () => ({
@@ -215,6 +219,7 @@ test("unsupported admission remains explicit and never creates a media transport
       open: async () => ({ kind: "unavailable", reason: "unsupported" }),
       get: async () => ({ kind: "unavailable", reason: "unsupported" }),
       release: async () => {},
+      restart: async () => ({ kind: "unavailable", reason: "unavailable" }),
       refresh: async () => ({ kind: "unavailable", reason: "unsupported" }),
     },
     createNative: () => {
@@ -228,4 +233,77 @@ test("unsupported admission remains explicit and never creates a media transport
     { status: "unavailable", unavailableReason: "unsupported" },
   ]);
   adapter.dispose();
+});
+
+test("explicit retry retains its grant and Close fences a delayed restart reply", async () => {
+  let releaseId = "",
+    opened = 0;
+  let settle: (value: unknown) => void = () => {};
+  const ready: Admission = {
+    kind: "ready",
+    grant: {
+      id: "retained",
+      streamKey: "vrcdn/DJ/1",
+      context: { kind: "profile", profileId: "profile", linkId: "DJ" },
+      contextRevision: 1,
+      issuedAt: 1,
+      expiresAt: 9999999999999,
+      renditions: ["video", "audio"],
+    },
+    videoPlaylist: "https://media/video.m3u8",
+    audioPlaylist: "https://media/audio.m3u8",
+    metadata: {
+      displayName: "DJ",
+      artworkAssetId: null,
+      artworkRevision: null,
+    },
+  };
+  let created = 0;
+  const restarts: string[] = [];
+  const adapter = createRelayPlaybackAdapter({
+    request,
+    mode: "video",
+    mount: {} as HTMLElement,
+    notify() {},
+    client: {
+      open: async () => {
+        opened++;
+        return ready;
+      },
+      get: async () => ready,
+      refresh: async () => ready,
+      restart: (id) => {
+        restarts.push(id);
+        return new Promise((resolve) => {
+          settle = resolve;
+        });
+      },
+      release: async (id) => {
+        releaseId = id;
+      },
+    },
+    createNative: () => {
+      created++;
+      return {
+        async play() {
+          return true;
+        },
+        pause() {},
+        setVolume() {},
+        setMuted() {},
+        update() {},
+        dispose() {},
+      };
+    },
+  });
+  await adapter.play();
+  const pending = adapter.retry!();
+  assert.equal(releaseId, "");
+  assert.deepEqual(restarts, ["retained"]);
+  adapter.dispose();
+  settle(ready);
+  assert.equal(await pending, false);
+  assert.equal(created, 1);
+  assert.equal(opened, 1);
+  assert.equal(releaseId, "retained");
 });

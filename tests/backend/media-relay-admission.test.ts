@@ -796,3 +796,354 @@ it("refresh keeps stable rendition URLs and accepts metadata-only edits", async 
   assert.equal(after.audioPlaylist, before.audioPlaylist);
   assert.equal(after.grant.contextRevision, before.grant.contextRevision);
 });
+
+it("owner retry retains a valid post-window grant through native failure and terminal source restart", async () => {
+  const { EventPlaybackOwner } =
+    await import("../../apps/web/src/lib/event-playback-owner");
+  const { createRelayPlaybackAdapter } =
+    await import("../../apps/web/src/lib/relay-playback-adapter");
+  const h = await fixture();
+  process.env.MEDIA_RELAY_PLAYBACK_ORIGIN = "https://playback.example";
+  let opens = 0,
+    releases = 0,
+    created = 0;
+  let notifyNative: (state: { status: "unavailable" }) => void = () => {};
+  const restart = makeFunctionReference<"mutation">(
+    "mediaRelayPlayback:restartPlayback",
+  );
+  const request = {
+    kind: "vrcdn",
+    eventId: h.eventId,
+    eventSlug: "show",
+    title: "Show",
+    href: "/show",
+    startAt: Date.now() - 1000,
+    sourceId: "Alpha",
+    src: "https://legacy",
+    transport: "mpegts",
+  } as const;
+  const owner = new EventPlaybackOwner((request, notify, mode) => {
+    assert.equal(request.kind, "vrcdn");
+    if (request.kind !== "vrcdn") throw Error("fixture");
+    return createRelayPlaybackAdapter({
+      request,
+      notify,
+      mode,
+      mount: {} as HTMLElement,
+      client: {
+        open: async (context, streamId, preferredMode) => {
+          opens++;
+          const result = await h.t.mutation(open, {
+            context,
+            streamId,
+            preferredMode,
+          });
+          await h.t.run(async (ctx) => {
+            const source = await ctx.db.query("mediaRelaySources").first();
+            assert.ok(source);
+            await ctx.db.patch(source._id, { state: "ready" });
+          });
+          return result;
+        },
+        get: async (grantId) => {
+          await h.t.run(async (ctx) => {
+            const source = await ctx.db.query("mediaRelaySources").first();
+            assert.ok(source);
+            if (source.state === "queued")
+              await ctx.db.patch(source._id, { state: "ready" });
+          });
+          return h.t.query(get, { grantId });
+        },
+        restart: (grantId) => h.t.mutation(restart, { grantId }),
+        refresh: (grantId) =>
+          h.t.mutation(
+            makeFunctionReference<"mutation">(
+              "mediaRelayPlayback:refreshPlayback",
+            ),
+            { grantId },
+          ),
+        release: async (grantId) => {
+          releases++;
+          await h.t.mutation(release, { grantId });
+        },
+      },
+      createNative: ({ notify }) => {
+        created++;
+        notifyNative = notify;
+        return {
+          async play() {
+            return true;
+          },
+          pause() {},
+          setVolume() {},
+          setMuted() {},
+          update() {},
+          dispose() {},
+        };
+      },
+    });
+  });
+  try {
+    await owner.play(request);
+    assert.equal(owner.getSnapshot().status, "playing");
+    const before = await h.t.run((ctx) =>
+      ctx.db.query("mediaRelayGrants").collect(),
+    );
+    assert.equal(before.length, 1);
+    await h.t.run((ctx) => ctx.db.patch(h.eventId, { endAt: Date.now() - 1 }));
+    owner.update({ ...request, endAt: 1 });
+    notifyNative({ status: "unavailable" });
+    await owner.play({ ...request, endAt: 1 });
+    assert.equal(owner.getSnapshot().status, "playing");
+    assert.equal(opens, 1);
+    assert.equal(releases, 0);
+    assert.equal(created, 2);
+    for (const state of ["stopped", "unavailable"] as const) {
+      await h.t.run(async (ctx) => {
+        const source = await ctx.db.query("mediaRelaySources").first();
+        assert.ok(source);
+        await ctx.db.patch(source._id, {
+          state,
+          terminalReason: state === "unavailable" ? "unavailable" : undefined,
+        });
+      });
+      if (state === "unavailable") await owner.refresh();
+      else notifyNative({ status: "unavailable" });
+      assert.equal(owner.getSnapshot().status, "unavailable");
+      await owner.play({ ...request, endAt: 1 });
+      assert.equal(owner.getSnapshot().status, "playing");
+    }
+    const after = await h.t.run((ctx) =>
+      ctx.db.query("mediaRelayGrants").collect(),
+    );
+    assert.deepEqual(after, before);
+    assert.equal(opens, 1);
+    assert.equal(releases, 0);
+    assert.equal(created, 4);
+    await h.t.run(async (ctx) => {
+      await ctx.db.patch(before[0]._id, { expiresAt: Date.now() });
+    });
+    notifyNative({ status: "unavailable" });
+    await owner.play({ ...request, endAt: 1 });
+    assert.equal(owner.getSnapshot().status, "unavailable");
+    assert.equal(
+      opens,
+      2,
+      "actual expiry returns to fresh admission and its event-window gate",
+    );
+    assert.equal(
+      (await h.t.run((ctx) => ctx.db.query("mediaRelayGrants").collect()))
+        .length,
+      1,
+    );
+  } finally {
+    owner.close();
+  }
+});
+it("explicit restart reauthorizes capabilities and refuses unsupported without changing grants or sources", async () => {
+  const restart = makeFunctionReference<"mutation">(
+    "mediaRelayPlayback:restartPlayback",
+  );
+  for (const denial of [
+    "expired",
+    "released",
+    "revoked",
+    "unsupported",
+  ] as const) {
+    const h = await fixture();
+    const admitted = preparing(await h.play());
+    await h.t.run(async (ctx) => {
+      const row = await ctx.db.query("mediaRelayGrants").first();
+      const source = await ctx.db.query("mediaRelaySources").first();
+      assert.ok(row && source);
+      await ctx.db.patch(source._id, {
+        state: "unavailable",
+        terminalReason:
+          denial === "unsupported" ? "unsupported" : "unavailable",
+      });
+      if (denial === "expired")
+        await ctx.db.patch(row._id, { expiresAt: Date.now() });
+      if (denial === "released")
+        await ctx.db.patch(row._id, { releasedAt: Date.now() });
+      if (denial === "revoked")
+        await ctx.db.patch(h.profileId, { publicationState: "draft_private" });
+    });
+    const before = await h.t.run((ctx) =>
+      ctx.db.query("mediaRelaySources").collect(),
+    );
+    const result = AdmissionSchema.parse(
+      await h.t.mutation(restart, { grantId: admitted.grantId }),
+    );
+    assert.equal(result.kind, "unavailable");
+    if (result.kind === "unavailable")
+      assert.equal(
+        result.reason,
+        denial === "unsupported"
+          ? "unsupported"
+          : denial === "expired"
+            ? "expired"
+            : "unavailable",
+      );
+    assert.deepEqual(
+      await h.t.run((ctx) => ctx.db.query("mediaRelaySources").collect()),
+      before,
+    );
+  }
+});
+it("shared rolling admission quota bounds concurrent restarts and fresh opens without consuming another grant slot", async () => {
+  const h = await fixture();
+  const admitted = preparing(await h.play());
+  const restart = makeFunctionReference<"mutation">(
+    "mediaRelayPlayback:restartPlayback",
+  );
+  process.env.MEDIA_RELAY_ADMISSIONS_PER_MINUTE = "2";
+  process.env.MEDIA_RELAY_MAX_GRANTS = "1";
+  const terminal = () =>
+    h.t.run(async (ctx) => {
+      const source = await ctx.db.query("mediaRelaySources").first();
+      assert.ok(source);
+      await ctx.db.patch(source._id, { state: "stopped" });
+    });
+  await terminal();
+  const results = await Promise.all([
+    h.t.mutation(restart, { grantId: admitted.grantId }),
+    h.t.mutation(restart, { grantId: admitted.grantId }),
+  ]);
+  assert.equal(
+    results.every(
+      (result) => AdmissionSchema.parse(result).kind === "preparing",
+    ),
+    true,
+  );
+  const rate = await h.t.run((ctx) =>
+    ctx.db.query("mediaRelayRestartRate").unique(),
+  );
+  assert.equal(rate?.attempts.length, 1);
+  assert.equal(
+    (await h.t.run((ctx) => ctx.db.query("mediaRelayGrants").collect())).length,
+    1,
+  );
+  await terminal();
+  assert.equal(
+    AdmissionSchema.parse(
+      await h.t.mutation(restart, { grantId: admitted.grantId }),
+    ).kind,
+    "capacityLimited",
+  );
+  process.env.MEDIA_RELAY_MAX_GRANTS = "10";
+  assert.equal(AdmissionSchema.parse(await h.play()).kind, "capacityLimited");
+  // Exact rolling cutoff is expired history, not a permanent counter.
+  await h.t.run(async (ctx) => {
+    assert.ok(rate);
+    await ctx.db.patch(rate._id, { attempts: [Date.now() - 60000] });
+  });
+  assert.equal(
+    AdmissionSchema.parse(
+      await h.t.mutation(restart, { grantId: admitted.grantId }),
+    ).kind,
+    "preparing",
+  );
+  assert.equal(
+    (await h.t.run((ctx) => ctx.db.query("mediaRelayRestartRate").unique()))
+      ?.attempts.length,
+    1,
+  );
+});
+it("restart keeps source capacity and context-current checks while get/refresh cannot restart", async () => {
+  const h = await fixture();
+  const admitted = preparing(await h.play());
+  const restart = makeFunctionReference<"mutation">(
+    "mediaRelayPlayback:restartPlayback",
+  );
+  await h.t.run(async (ctx) => {
+    const source = await ctx.db.query("mediaRelaySources").first();
+    assert.ok(source);
+    await ctx.db.patch(source._id, { state: "stopped" });
+    await ctx.db.insert("mediaRelaySources", {
+      streamKey: "vrcdn/Other/1",
+      streamId: "Other",
+      inputFormat: "vrcdn_fmp4",
+      packagingVersion: 1,
+      state: "ready",
+      createdAt: 1,
+      updatedAt: 1,
+    });
+  });
+  process.env.MEDIA_RELAY_MAX_SOURCES = "1";
+  assert.equal(
+    AdmissionSchema.parse(await h.t.query(get, { grantId: admitted.grantId }))
+      .kind,
+    "unavailable",
+  );
+  assert.equal(
+    AdmissionSchema.parse(
+      await h.t.mutation(
+        makeFunctionReference<"mutation">("mediaRelayPlayback:refreshPlayback"),
+        { grantId: admitted.grantId },
+      ),
+    ).kind,
+    "unavailable",
+  );
+  assert.equal(
+    AdmissionSchema.parse(
+      await h.t.mutation(restart, { grantId: admitted.grantId }),
+    ).kind,
+    "capacityLimited",
+  );
+  await h.t.run((ctx) => ctx.db.patch(h.profileId, { outboundLinks: [] }));
+  assert.equal(
+    AdmissionSchema.parse(
+      await h.t.mutation(restart, { grantId: admitted.grantId }),
+    ).kind,
+    "unavailable",
+  );
+  assert.equal(
+    await h.t.run((ctx) => ctx.db.query("mediaRelayRestartRate").unique()),
+    null,
+  );
+});
+it("concurrent terminal restarts for different sources share the final admission-rate slot", async () => {
+  const h = await fixture();
+  const first = preparing(await h.play());
+  await h.t.run((ctx) =>
+    ctx.db.patch(h.profileId, {
+      outboundLinks: [
+        {
+          type: "vrcdn",
+          url: "vrcdn:Alpha",
+          label: "A",
+          source: "owner_authored",
+        },
+        {
+          type: "vrcdn",
+          url: "vrcdn:Beta",
+          label: "B",
+          source: "owner_authored",
+        },
+      ],
+    }),
+  );
+  const second = preparing(
+    await h.play({ ...h.context, linkId: "Beta" }, "Beta"),
+  );
+  await h.t.run(async (ctx) => {
+    for (const source of await ctx.db.query("mediaRelaySources").collect())
+      await ctx.db.patch(source._id, { state: "stopped" });
+  });
+  process.env.MEDIA_RELAY_ADMISSIONS_PER_MINUTE = "3";
+  const restart = makeFunctionReference<"mutation">(
+    "mediaRelayPlayback:restartPlayback",
+  );
+  const results = await Promise.all(
+    [first, second].map(({ grantId }) => h.t.mutation(restart, { grantId })),
+  );
+  assert.deepEqual(
+    results.map((result) => AdmissionSchema.parse(result).kind).sort(),
+    ["capacityLimited", "preparing"],
+  );
+  assert.equal(
+    (await h.t.run((ctx) => ctx.db.query("mediaRelayRestartRate").unique()))
+      ?.attempts.length,
+    1,
+  );
+});

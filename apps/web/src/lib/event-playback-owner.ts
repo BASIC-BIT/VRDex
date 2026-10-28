@@ -76,6 +76,7 @@ export type PlaybackAdapter = {
   update(request: PlaybackRequest): void;
   dispose(): void;
   refresh?(): Promise<void>;
+  retry?(): Promise<boolean>;
   setMode?(mode: PlaybackMode): Promise<boolean>;
   manual?(key: string): void;
   live?(): void;
@@ -171,7 +172,7 @@ export class EventPlaybackOwner {
       ["playing", "loading"].includes(this.state.status)
     )
       return;
-    if (!same || !this.adapter || this.unavailable) {
+    if (!same || !this.adapter || (this.unavailable && !this.adapter.retry)) {
       const continuing = same && this.started;
       this.release();
       this.started = Boolean(continuing);
@@ -207,11 +208,16 @@ export class EventPlaybackOwner {
       }
     }
     const attempt = ++this.attempt;
-    this.emit({ status: "loading" });
+    this.emit({ status: "loading", unavailableReason: undefined });
     try {
-      const accepted = await this.adapter!.play();
+      const accepted = await (this.unavailable && this.adapter!.retry
+        ? this.adapter!.retry()
+        : this.adapter!.play());
       if (attempt === this.attempt && this.state.status === "loading") {
-        if (accepted) this.started = true;
+        if (accepted) {
+          this.started = true;
+          this.unavailable = false;
+        }
         this.emit({ status: accepted ? "playing" : "blocked" });
       }
     } catch {
