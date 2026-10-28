@@ -138,3 +138,10 @@ access; already-issued segment URLs retain their signed lifetime.
 
 Local verification does not establish deployed provider behavior, capacity or
 physical-phone playback.
+
+## Deployment binding
+
+Concrete abortable Convex, S3, DynamoDB and secret adapters, runnable worker and
+Lambda entrypoints, packaging and disabled infrastructure are documented in
+[relay deployment](../deployment/media-relay.md). Provider capacity and physical-phone
+release checks remain unmeasured; local fixtures are not production approval.

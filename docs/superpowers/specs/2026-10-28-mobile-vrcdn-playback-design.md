@@ -377,3 +377,15 @@ A read-only builder review identified the native-lineup observation boundary and
 cold-start gesture requirement as planning blockers. Both are explicitly resolved
 above; the reviewer then reported no important questions left. This is a design
 completeness check, not implementation verification or approval by BASIC.
+
+### Task 7 deployment recommendation: fixed authenticated slots
+
+Current recommendation, controller approved during implementation: the initial
+isolated deployment uses one ECS service per explicitly configured worker ID and
+epoch, with one task and stop-before-start replacement. Each worker still shares
+multiple sources. Warm minimum must equal maximum; dynamic autoscaling requires
+verified task enrollment because the current control plane authenticates an exact
+predeclared binding. Aggregate measured slot capacity must leave spare capacity
+above the global source cap. The deployment runbook documents staged drain and
+replacement; cold ECS replacement is not established to fit the thirty-second
+recovery budget. See [relay deployment](../../deployment/media-relay.md).

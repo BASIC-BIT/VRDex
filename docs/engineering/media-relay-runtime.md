@@ -181,3 +181,10 @@ before invoking result consumers. Timeout or cancellation alone does not release
 a slot. This lets discovery retire a terminal job after an already-settled
 rejected observation, while keeping a noncooperative pending observation
 quarantined. Job removal continues to require an idle observation channel.
+
+## Deployment binding
+
+Concrete abortable Convex, S3, DynamoDB and secret adapters, runnable worker and
+Lambda entrypoints, packaging and disabled infrastructure are documented in
+[relay deployment](../deployment/media-relay.md). Provider capacity and physical-phone
+release checks remain unmeasured; local fixtures are not production approval.

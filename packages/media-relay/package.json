@@ -13,13 +13,22 @@
     "./gateway/handler": "./src/gateway/handler.ts",
     "./gateway/demand": "./src/gateway/demand.ts",
     "./gateway/signing": "./src/gateway/signing.ts",
-    "./gateway/playlist": "./src/gateway/playlist.ts"
+    "./gateway/playlist": "./src/gateway/playlist.ts",
+    "./worker/entrypoint": "./src/worker/entrypoint.ts",
+    "./gateway/entrypoint": "./src/gateway/entrypoint.ts",
+    "./providers/config": "./src/providers/config.ts",
+    "./providers/convex-control": "./src/providers/convex-control.ts",
+    "./providers/aws-demand": "./src/providers/aws-demand.ts",
+    "./providers/aws-storage": "./src/providers/aws-storage.ts"
   },
   "scripts": {
     "test": "node --import tsx --test tests/**/*.test.ts",
     "typecheck": "tsc --noEmit --project tsconfig.json"
   },
   "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1159.0",
+    "@aws-sdk/client-s3": "^3.1068.0",
+    "@aws-sdk/client-secrets-manager": "^3.1096.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
