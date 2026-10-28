@@ -15,6 +15,13 @@ export const relayContextValidator = v.union(
   }),
 );
 export const mediaRelayTables = {
+  mediaRelayWorkers: defineTable({
+    workerId: v.string(),
+    workerEpoch: v.number(),
+    observedAt: v.number(),
+    registeredAt: v.number(),
+    observation: v.any(),
+  }).index("by_workerId", ["workerId"]),
   mediaRelaySources: defineTable({
     streamKey: v.string(),
     streamId: v.string(),
@@ -29,11 +36,17 @@ export const mediaRelayTables = {
       v.literal("stopped"),
       v.literal("unavailable"),
     ),
+    // Epoch survives release; ownership exists only while a lease is held.
+    epoch: v.optional(v.number()),
+    owner: v.optional(v.object({ workerId: v.string(), workerEpoch: v.number() })),
+    leaseExpiresAt: v.optional(v.number()),
+    progressAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_streamKey", ["streamKey"])
-    .index("by_state", ["state"]),
+    .index("by_state", ["state"])
+    .index("by_owner", ["owner.workerId", "leaseExpiresAt"]),
   mediaRelayGrants: defineTable({
     grantId: v.string(),
     streamKey: v.string(),

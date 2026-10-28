@@ -80,3 +80,48 @@ grants as well as new admissions. These variables contain no credentials;
 recreation means restoring reviewed operator configuration, and no key rotation
 is required. Grant handles are server-generated cryptographic UUIDs and must be
 treated as bearer capabilities rather than logged or exposed in page data.
+
+## Shared worker ownership
+
+`mediaRelayWorker` exposes deployment-authenticated worker RPCs: `registerWorker`,
+`claimSource`, `renewSource`, `observeSource`, and `releaseSource`. Every call
+requires `credential`; source calls also carry `workerId`, `workerEpoch`, and
+`streamKey`, with `epoch` on owner-only calls. Registration accepts the shared
+`WorkerObservation` schema. These are service RPCs, not browser authorization.
+The event bridge credential is never accepted as relay configuration.
+
+The operator must provision these Convex backend release inputs before workers
+can register. No values or credentials are created by this change:
+
+| Variable | Requirement |
+| --- | --- |
+| `MEDIA_RELAY_WORKER_TOKEN` | Separate secret for the relay deployment. Distribute only to that deployment and the backend. Rotate by replacing both; old callers then fail closed and local leases fence. |
+| `MEDIA_RELAY_WORKERS` | JSON array of unique worker bindings: `{workerId, workerEpoch, allocation: {cpuUnits, memoryMiB, evidenceId}, maxSources, draining}`. Epochs are positive integers, `maxSources` is 1–1,000, and `draining` is required. Restore from reviewed deployment configuration. |
+
+A trusted deployment provisioner must verify the worker identity, allocation,
+and evidence before writing bindings. Worker self-reported metadata cannot grant
+capacity. Increment workerEpoch on process replacement; stale registration cannot
+replace newer identity. Allocation must match the provisioned binding exactly.
+Resource samples may be null; observed job counts never control admission.
+Missing credentials or bindings fail closed. Disabling `MEDIA_RELAY_ENABLED` denies claims and renewals while still allowing
+observations and release. Draining bindings deny new claims but preserve renewals
+for existing owners; explicit source draining stops that source from renewing. An operator must not reuse one deployment secret with
+untrusted workers: it authorizes all identities explicitly bound to that deployment.
+
+Claims consume existing admitted source rows and count live leases transactionally
+against per-worker capacity. Source epochs survive release and strictly increase
+on every successful claim. Queued rows have no owner; starting, ready, recovering,
+and draining may hold a lease. Expired ownership is retained only as a tombstone
+until takeover or later lifecycle cleanup. Stopped and unavailable observations
+clear ownership; a failure affects only that source. Release returns a source to
+queued, or stops a draining source. Grant rows are independent and untouched.
+
+Leases last 30,000 ms with renewal requested every 10,000 ms. Each source epoch
+owns a separate `createLeaseWatchdog({clock, fence})`; the clock must be monotonic.
+`accept(lease, sentAt)` anchors authority at the request start and subtracts a
+250 ms safety tick. `check()` returns whether authority currently exists. The
+independent 250 ms interval fences without awaiting renewal or cleanup. `fence`
+must synchronously disable publication, then start asynchronous cleanup. Stop is
+latched: a delayed response cannot revive a fenced watchdog. A replacement epoch
+needs a new watchdog. The timer cannot protect against a blocked JavaScript event
+loop; media output integration must respect the synchronous fence before cleanup.
