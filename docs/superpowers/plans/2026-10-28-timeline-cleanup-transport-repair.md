@@ -68,7 +68,7 @@ The exact reason the original socket closed, and whether deletion committed befo
 
 **Interfaces:** Consume the exported `test` fixture and `withTimelineFixtureLease<T>(backendUrl, run, options)` exactly as the existing failed-create test does. No new application interface or exported helper is needed.
 
-- [ ] **Step 1: Write the failing recovery tests.** Follow `timeline-fixture-create-failure.test.ts`: run a temporary Playwright spec importing the real fixture, point it at a disposable Node HTTP server, and use a unique backend origin and lease. Return realistic synthetic create arrays. Capture POST/DELETE counts, request run IDs, child exit code and output. Do not substitute a mock cleanup function for the fixture.
+- [x] **Step 1: Write the failing recovery tests.** Follow `timeline-fixture-create-failure.test.ts`: run a temporary Playwright spec importing the real fixture, point it at a disposable Node HTTP server, and use a unique backend origin and lease. Return realistic synthetic create arrays. Capture POST/DELETE counts, request run IDs, child exit code and output. Do not substitute a mock cleanup function for the fixture.
 
   Table-drive the review-focus cases, including both default and detail counts. The essential assertions are:
 
@@ -94,21 +94,21 @@ The exact reason the original socket closed, and whether deletion committed befo
 
   In the lost-acknowledgement case, atomically clear the synthetic records before destroying the first DELETE response. Return zero counts on retry. In the pre-commit case, destroy that response before changing the synthetic records. Include malformed JSON and a valid JSON count mismatch as separate parameter rows.
 
-- [ ] **Step 2: Run the red test.**
+- [x] **Step 2: Run the red test.**
 
   Run `node --import tsx --test tests/web/timeline-fixture-cleanup-retry.test.ts`.
 
   Expected: reset-before-commit cases fail because the fixture makes only one DELETE attempt. Negative cases must expose their intended failure boundary. Save the exact failing assertion and output.
 
-- [ ] **Step 3: Add `maxRetries: 1` to the cleanup DELETE options.** Keep its URL, headers and `{ runId }` body unchanged. Preserve the existing HTTP, JSON and exact-count checks and `blockAfterCleanupFailure()` path. Add no retry loop or new error classifier.
+- [x] **Step 3: Add `maxRetries: 1` to the cleanup DELETE options.** Keep its URL, headers and `{ runId }` body unchanged. Preserve the existing HTTP, JSON and exact-count checks and `blockAfterCleanupFailure()` path. Add no retry loop or new error classifier.
 
-- [ ] **Step 4: Run the boundary tests.**
+- [x] **Step 4: Run the boundary tests.**
 
   Run `node --import tsx --test tests/web/timeline-fixture-cleanup-retry.test.ts tests/web/timeline-fixture-create-failure.test.ts tests/web/timeline-fixture-lease.test.ts tests/web/timeline-fixture-boundary.test.ts`.
 
   Expected: every test passes. Successful recovery releases its lease; each negative case proves the next fixture remains blocked. The existing late-create test must still observe the late records and reject the next fixture.
 
-- [ ] **Step 5: Document the exact behavior.** Add one short paragraph to "Home timeline evidence": one cleanup-only reset retry, unchanged count validation, and continued blocking when the response is ambiguous. Do not describe socket closure as a confirmed Next bug or claim that all cleanup failures recover.
+- [x] **Step 5: Document the exact behavior.** Add one short paragraph to "Home timeline evidence": one cleanup-only reset retry, unchanged count validation, and continued blocking when the response is ambiguous. Do not describe socket closure as a confirmed Next bug or claim that all cleanup failures recover.
 
 - [ ] **Step 6: Run real local browser verification.**
 
@@ -116,17 +116,23 @@ The exact reason the original socket closed, and whether deletion committed befo
 
   Expected: all selected timeline comparisons pass without baseline updates, cleanup errors or retained leases. Preserve the reports. This confirms integration; the disposable-server tests prove reset recovery deterministically.
 
-- [ ] **Step 7: Run lint and whitespace checks, then commit.**
+- [x] **Step 7: Run lint and whitespace checks, then commit.**
 
-  Run `pnpm lint:web`, `pnpm lint:md` and `git diff --check`. Review the generated-file diff after local Convex runs and retain no unrelated template churn. Commit the fixture option, its regression file and documentation as one scoped change.
+  Run `pnpm lint:web`, `pnpm lint:markdown` and `git diff --check`. Review the generated-file diff after local Convex runs and retain no unrelated template churn. Commit the fixture option, its regression file and documentation as one scoped change.
 
 ## Publication and acceptance
 
-- [ ] Review the complete diff, including every negative cleanup case. Publish a follow-up PR with `ci:browsers` and `ci:visuals` selected.
+- [x] Review the complete diff, including every negative cleanup case. Publish a follow-up PR with `ci:browsers` and `ci:visuals` selected.
 - [ ] Require terminal acceptable checks for the exact pushed head, including the full image-diff lane. A skipped lane is not acceptance.
 - [ ] If the cleanup failure repeats, inspect its first error and counts before changing code or retrying the workflow. Preserve the blocked lease. A zero-count replay requires the deferred receipt design, not relaxed assertions.
 - [ ] After the latest commit is at least 30 minutes old, refresh checks, ordinary comments, inline threads, formal reviews, mutable AI summaries and mergeability. Address valid feedback and refresh again before reporting merge-ready. Every new commit restarts that window.
 - [ ] Merge remains a separate action. This test-only change needs no product deployment or production verification mutation.
+
+## Implementation status
+
+Implemented in `d1d1fc6604a1c0c818e772ecdb0909910e8a5fed`. The boundary suite passed 19 tests after the recorded failing run. Web and Markdown lint passed. Task and whole-branch reviews found no scoped code defect. [Draft PR #394](https://github.com/BASIC-BIT/VRDex/pull/394) contains the repair.
+
+Step 6 remains open. The repeated local browser run failed all 24 cases because the unchanged timeline query raised Convex's multiple-pagination error. The broad web suite recorded 879 passes and three failures, including an owned stalled MCP child that was stopped. Screenshot acceptance, full-suite success and merge readiness remain unproven. No baseline, runtime or backend change was made. The lint command above uses the existing `lint:markdown` script; the earlier `lint:md` name did not exist.
 
 ## Evidence appendix
 
