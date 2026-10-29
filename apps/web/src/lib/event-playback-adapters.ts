@@ -1,3 +1,4 @@
+import { createNativeLineupAdapter } from "./native-lineup-adapter";
 import type { PlaybackMode } from "./playback-mode";
 import {
   createRelayPlaybackAdapter,
@@ -181,10 +182,8 @@ export function createRetainedPlaybackAdapter(
       mode,
       client: relay,
     });
-  if (
-    (relay && request.kind === "performer_sequence") ||
-    (mode === "audio" && request.kind !== "twitch")
-  )
+  if (relay && request.kind === "performer_sequence") return createNativeLineupAdapter({ request, mount, notify, mode, client: relay });
+  if (mode === "audio" && request.kind !== "twitch")
     return {
       async play() {
         return false;

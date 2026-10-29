@@ -15,6 +15,7 @@ import {
   streamKeyFor,
   RELAY_POLICY,
   type Admission,
+  type PlaybackRebind,
 } from "../packages/media-relay/src";
 
 function positiveBounded(value: string | undefined, max: number): number {
@@ -181,6 +182,7 @@ export const openPlayback = mutation({
     context: relayContextValidator,
     streamId: v.string(),
     preferredMode: v.union(v.literal("audio"), v.literal("video")),
+    continuationGrantId: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<Admission> => {
     const config = admissionConfig();
@@ -190,13 +192,17 @@ export const openPlayback = mutation({
     if (!context.success || !streamId.success)
       return { kind: "unavailable", reason: "unsupported" };
     const now = Date.now();
-    const authorized = await authorizeRelayContext(
-      ctx.db,
-      context.data,
-      streamId.data,
-      now,
-      false,
-    );
+    let continuing = false;
+    if (args.continuationGrantId) {
+      const proof = await resolveRelayGrant(ctx.db, args.continuationGrantId, now);
+      if (proof.kind !== "valid" || proof.grant.context.kind !== "event" || context.data.kind !== "event" || proof.grant.context.eventId !== context.data.eventId)
+        return { kind: "unavailable", reason: "unavailable" };
+      const eventId = ctx.db.normalizeId("events", context.data.eventId);
+      const event = eventId ? await ctx.db.get(eventId) : null;
+      if (event?.watchMode !== "performer_sequence") return { kind: "unavailable", reason: "unavailable" };
+      continuing = true;
+    }
+    const authorized = await authorizeRelayContext(ctx.db, context.data, streamId.data, now, continuing);
     if (!authorized) return { kind: "unavailable", reason: "unavailable" };
     // Bounded indexed reads, matching existing quota conventions. OCC serializes concurrent admissions.
     if ((await admissionQuota(ctx.db, now, config)).limited)
@@ -339,5 +345,28 @@ export const restartPlayback = mutation({
       admissionRevision: (source.admissionRevision ?? 0) + 1,
     });
     return playback(ctx.db, args.grantId, now);
+  },
+});
+
+/** Identity-only advancement for consecutive slots of the exact same native source. */
+export const rebindPlayback = mutation({
+  args: { grantId: v.string(), selectedSourceId: v.string(), expectedSelectedSourceId: v.string(), expectedContextRevision: v.number() },
+  handler: async (ctx, args): Promise<PlaybackRebind> => {
+    const now = Date.now();
+    const denied = { kind: "denied" } as const;
+    const resolved = await resolveRelayGrant(ctx.db, args.grantId, now);
+    if (resolved.kind !== "valid" || resolved.grant.context.kind !== "event" || resolved.grant.context.selectedSourceId !== args.expectedSelectedSourceId || resolved.grant.contextRevision !== args.expectedContextRevision) return denied;
+    const context = resolved.grant.context;
+    const eventId = ctx.db.normalizeId("events", context.eventId);
+    const event = eventId ? await ctx.db.get(eventId) : null;
+    if (event?.watchMode !== "performer_sequence") return denied;
+    const streamId = resolved.grant.streamKey.split("/")[1];
+    const target = { ...context, selectedSourceId: args.selectedSourceId };
+    const authorized = await authorizeRelayContext(ctx.db, target, streamId, now, true);
+    if (!authorized || streamKeyFor(streamId) !== resolved.grant.streamKey) return denied;
+    const row = await ctx.db.query("mediaRelayGrants").withIndex("by_grantId", q => q.eq("grantId", args.grantId)).unique();
+    if (!row) return denied;
+    await ctx.db.patch(row._id, { context: target, contextRevision: authorized.contextRevision });
+    return { kind: "rebound", grant: { ...resolved.grant, context: target, contextRevision: authorized.contextRevision }, metadata: authorized.metadata };
   },
 });

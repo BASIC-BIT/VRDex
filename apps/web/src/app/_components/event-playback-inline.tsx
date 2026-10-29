@@ -13,7 +13,7 @@ export function EventPlaybackInline({ owner, request }: { owner: EventPlaybackOw
   useEffect(() => { owner.update(request); }, [owner, request]);
   if (!active && !isInScheduledWatchWindow({ ...request, now })) return null;
   return <div className="overflow-hidden rounded-card border border-border bg-media text-white" data-event-playback-inline={request.eventId}>
-    {active ? <div aria-hidden="true"><div className={request.kind === "twitch" ? "h-[300px]" : "aspect-video"} /><div className="h-[104px]" />{request.kind === "performer_sequence" && <div className="h-14" />}{(state.status === "blocked" || state.status === "unavailable") && <div className="h-11" />}</div> : <>
+    {active ? <div aria-hidden="true"><div className={request.kind === "twitch" ? "h-[300px]" : "aspect-video"} /><div className={request.kind === "twitch" ? "h-[104px]" : "h-[152px]"} />{request.kind === "performer_sequence" && <div className="h-14" />}{(state.status === "blocked" || state.status === "unavailable") && <div className="h-11" />}</div> : <>
       <button type="button" aria-label={`Play ${request.title}`} className="block w-full" onClick={() => {
         void owner.play(request);
         requestAnimationFrame(() => document.querySelector<HTMLElement>("[data-event-id] button")?.focus({ preventScroll: true }));

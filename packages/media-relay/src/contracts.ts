@@ -92,6 +92,12 @@ export const PlaybackGrantSchema = z
   })
   .refine((grant) => grant.expiresAt > grant.issuedAt);
 export type PlaybackGrant = z.infer<typeof PlaybackGrantSchema>;
+/** Identity-only rebind does not assert source/rendition readiness. */
+export const PlaybackRebindSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("rebound"), grant: PlaybackGrantSchema, metadata: DjMetadataSchema }),
+  z.strictObject({ kind: z.literal("denied") }),
+]);
+export type PlaybackRebind = z.infer<typeof PlaybackRebindSchema>;
 const playlist = z.string().min(1).max(4096);
 export const AdmissionSchema = z.discriminatedUnion("kind", [
   z.strictObject({

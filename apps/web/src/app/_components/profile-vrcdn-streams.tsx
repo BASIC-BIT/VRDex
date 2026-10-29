@@ -1,5 +1,6 @@
 "use client";
 
+import type { PlaybackStatus } from "@/lib/event-playback-owner";
 import { ExternalLink } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { usePostHog } from "posthog-js/react";
@@ -93,6 +94,7 @@ export function ProfileVrcdnStreams({
   const [activePlaybackStreamIds, setActivePlaybackStreamIds] = useState<Set<string>>(
     () => new Set(),
   );
+  const [retained, setRetained] = useState<{ streamId: string; status: PlaybackStatus }>();
   const conflictEpisodesRef = useRef(new Set<string>());
 
   useEffect(() => {
@@ -179,6 +181,7 @@ export function ProfileVrcdnStreams({
       const state=playback.getSnapshot();
       const active=state.request;
       const streamId=active && "profileId" in active && active.profileId===profileId ? active.sourceId : undefined;
+      setRetained(previous => previous?.streamId === streamId && previous?.status === state.status ? previous : streamId ? { streamId, status: state.status } : undefined);
       setActivePlaybackStreamIds(previous=>{
         const next=streamId && state.status==="playing" ? streamId : undefined;
         if(previous.size===(next?1:0) && (!next || previous.has(next)))return previous;
@@ -233,7 +236,7 @@ export function ProfileVrcdnStreams({
             const live = claimable && lifecycle?.presentation === "live";
             const playbackActive = activePlaybackStreamIds.has(streamId);
             const showPlayer = claimable && (
-              live || lifecycle?.status === "pending_offline" || playbackActive
+              live || lifecycle?.status === "pending_offline" || playbackActive || retained?.streamId === streamId
             );
             const title = streams.length > 1 ? `${label} ${streamId}` : label;
 
@@ -259,9 +262,9 @@ export function ProfileVrcdnStreams({
                 </div>
                 {showPlayer ? (
                   <div className="mt-4 overflow-hidden rounded-control border border-border">
-                    <div data-event-playback-inline={`profile:${profileId}:${streamId}`} className="aspect-video">
-                      <button type="button" aria-label={`Play ${title}`} className="block w-full" disabled={!playback || !profileId}
-                        onClick={()=>{if(playback && profileId)void playback.play({kind:"vrcdn",profileId,profileSlug,title:`${displayName ?? profileSlug} - VRDex`,href:`/${profileSlug}`,sourceId:streamId,src:directVideoUrl??questUrl,transport:directVideoUrl?"video":"mpegts"});}}><WatchPlayPoster /></button>
+                    <div data-event-playback-inline={`profile:${profileId}:${streamId}`}>
+                      {retained?.streamId === streamId ? <div aria-hidden="true"><div className="aspect-video" /><div className="h-[152px]" />{(retained.status === "blocked" || retained.status === "unavailable") && <div className="h-11" />}</div> : <button type="button" aria-label={`Play ${title}`} className="block w-full" disabled={!playback || !profileId}
+                        onClick={()=>{if(playback && profileId)void playback.play({kind:"vrcdn",profileId,profileSlug,title:`${displayName ?? profileSlug} - VRDex`,href:`/${profileSlug}`,sourceId:streamId,src:directVideoUrl??questUrl,transport:directVideoUrl?"video":"mpegts"});}}><WatchPlayPoster /></button>}
                     </div>
                   </div>
                 ) : null}

@@ -1,6 +1,7 @@
+import { mediaVolumeSettable } from "./media-element-controls";
 import type { Admission, PlaybackMode } from "@vrdex/media-relay";
 import type Hls from "hls.js";
-import type { AdapterNotify, PlaybackAdapter } from "./event-playback-owner";
+import type { AdapterNotify } from "./event-playback-owner";
 export type ReadyPlayback = Extract<Admission, { kind: "ready" }>;
 /** Native media is never connected to Web Audio. Only the selected rendition loads. */
 export function createNativeHlsAdapter({
@@ -9,23 +10,27 @@ export function createNativeHlsAdapter({
   mount,
   notify,
   loadHls = () => import("hls.js"),
-  hardwareVolume = typeof navigator !== "undefined" &&
-    /iPhone|iPad|iPod/.test(navigator.userAgent),
+  onNativePause, onNativePlay,
+  hardwareVolume,
 }: {
   grant: ReadyPlayback;
   mode: PlaybackMode;
   mount: HTMLElement;
   notify: AdapterNotify;
   loadHls?: () => Promise<typeof import("hls.js")>;
+  onNativePause?: () => void;
+  onNativePlay?: () => void;
   hardwareVolume?: boolean;
-}): PlaybackAdapter {
+}) {
   const video = document.createElement("video");
   video.playsInline = true;
   video.className = "aspect-video w-full object-contain";
+  const volumeSettable = hardwareVolume === undefined ? mediaVolumeSettable(video) : !hardwareVolume;
   const audio = document.createElement("audio");
   audio.hidden = true;
   const nodes = { video, audio };
   mount.append(video, audio);
+  video.title = audio.title = `${grant.metadata.displayName} - VRDex`;
   let mode = initialMode,
     disposed = false,
     intent = false,
@@ -45,6 +50,7 @@ export function createNativeHlsAdapter({
         intent = true;
         version++;
         players.get(node)?.startLoad();
+        onNativePlay?.();
       }
     };
     const playing = () => {
@@ -54,11 +60,13 @@ export function createNativeHlsAdapter({
       }
       notify({ status: "playing" });
     };
-    const pause = () => {
+    const pause = (event: Event) => {
       if (!disposed && node === nodes[mode] && node.paused) {
+        const nativePause = intent && event.type === "pause" && !node.ended;
         intent = false;
         version++;
         notify({ status: "paused" });
+        if (nativePause) onNativePause?.();
       }
     };
     const error = () => {
@@ -134,9 +142,10 @@ export function createNativeHlsAdapter({
     for (const player of players.values()) player.stopLoad();
   }
   return {
+    get media(): HTMLMediaElement { return nodes[mode]; },
     play,
     pause,
-    async setMode(next) {
+    async setMode(next: PlaybackMode) {
       if (next === mode) return intent;
       const resume = intent;
       const old = nodes[mode];
@@ -159,20 +168,18 @@ export function createNativeHlsAdapter({
       }
       return resume ? play() : true;
     },
-    setVolume(value) {
-      if (!hardwareVolume) {
+    setVolume(value: number) {
+      if (volumeSettable) {
         video.volume = value;
         audio.volume = value;
       }
     },
-    setMuted(value) {
+    setMuted(value: boolean) {
       video.muted = value;
       audio.muted = value;
     },
-    update(request) {
-      video.title = request.title;
-      audio.title = request.title;
-    },
+    update() {},
+    setMetadata(metadata: ReadyPlayback["metadata"]) { video.title = audio.title = `${metadata.displayName} - VRDex`; },
     dispose() {
       if (disposed) return;
       disposed = true;

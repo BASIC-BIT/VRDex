@@ -8,7 +8,7 @@ mutation, so concurrent admissions reuse one queued source.
 
 ## Public caller contract
 
-`openPlayback({context, streamId, preferredMode})` returns the shared
+`openPlayback({context, streamId, preferredMode, continuationGrantId?})` returns the shared
 `packages/media-relay` Admission contract. A preparing result includes the opaque
 `grantId` to pass to `getPlayback({grantId})`. `releasePlayback({grantId})` is
 idempotent and releases only that grant. A grant permits both video and audio
@@ -47,6 +47,61 @@ revalidate a still-unexpired grant. Explicit release remains latched across any
 restore. The revision is not a permanent revocation tombstone. Live
 metadata reads public selected artwork IDs/revisions without changing original
 assets. Missing asset-backed artwork is represented by null handles.
+
+## Foreground lineup continuation
+
+A started performer sequence may pass its current `continuationGrantId` when
+admitting another slot after the event window. The server resolves the original
+unexpired, unreleased grant against current source policy and revision. Both
+contexts must belong to the same event, whose current mode must be
+`performer_sequence`. The target public slot, performer and canonical stream are
+independently authorized. Different streams receive distinct grants and ordinary
+source, grant and rolling admission quotas still apply. Profile, other-event,
+expired, released and revoked proofs fail. Revoking the original slot removes its
+continuation authority even if the event itself remains public.
+
+Consecutive slots using the exact same stream retain the established native node
+and playlist. `rebindPlayback({grantId, selectedSourceId,
+expectedSelectedSourceId, expectedContextRevision})` reauthorizes both the original
+and target slot in the same performer-sequence event. The target must resolve the
+same canonical stream key. The expected context fields provide compare-and-swap
+protection against stale identity updates. A successful `PlaybackRebindSchema`
+result contains `kind: rebound`, the updated grant and authoritative metadata.
+It does not assert media readiness. A denial contains `kind: denied`.
+
+This narrow identity-only operation changes the existing grant's context and
+revision, preserving its ID, issue time, expiry, URLs, source row and media node.
+It does not admit, restart or renew a source and does not extend the grant. This
+is the exception to otherwise distinct per-context grants, needed to preserve
+existing same-stream lineup behavior. Client rebinding is serialized and fenced
+against current ownership, viewer intent and Close. A denied rebind pauses and
+exposes the existing explicit retry policy; it never claims the new identity.
+Metadata-only edits use ordinary refresh and do not need a rebind.
+
+The native lineup uses the existing foreground coordinator and boundary/failure
+policy. Prepared playback is element-muted and owns no public current metadata.
+Promotion mutes the old current before unmuting and playing the prepared source.
+A blocked promotion retains the old identity and existing Enable playback gesture.
+Decoded progress and media readiness are observed directly. Native audio level is
+`unavailable`; native media never connects to Web Audio. Silence handoff remains
+disabled. Hidden documents do not prepare, change lineup identity or hand off.
+The admitted current may keep playing while hidden, and a healthy overrun is not
+cut merely because its authored interval or the event calendar ends.
+
+The retained owner publishes `PlaybackSnapshot.metadata` only from an installed
+current admission, successful same-stream identity rebind or current metadata
+refresh. Its `lineup.current` remains the actual retained source identity during
+overtime, rather than the scheduled slot. Prepared metadata never enters that
+snapshot. Now Playing consumers must use this current metadata seam and must not
+infer a performer from the clock or scheduled selection.
+
+Shared controls offer Video, Audio only and supported picture-in-picture actions.
+Mode preference persists in browser storage with a same-session memory override
+when writes fail. Restoring a preference does not start playback. Audio mode uses
+currently authorized profile artwork, with an icon when no asset is selected,
+and remains selected across performer changes. Phone-sized browser screenshots
+and synthetic desktop HLS playback do not establish physical iPhone/Safari,
+lock-screen, background or hardware-volume behavior.
 
 ## Server configuration
 

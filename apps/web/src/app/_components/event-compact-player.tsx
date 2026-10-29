@@ -1,7 +1,10 @@
 "use client";
 
+import { mediaVolumeSettable, pictureInPictureState, togglePictureInPicture } from "@/lib/media-element-controls";
+import { playbackArtwork } from "@/lib/playback-metadata";
+import Image from "next/image";
 import Link from "next/link";
-import { ArrowUpRight, X } from "lucide-react";
+import { ArrowUpRight, X, Music2 } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { VrcdnPlayerControls } from "@/components/media/vrcdn-player-controls";
 import type { EventPlaybackOwner, PlaybackSnapshot } from "@/lib/event-playback-owner";
@@ -14,13 +17,13 @@ export function EventCompactPlayer({ owner, state, mount }: { owner: EventPlayba
   const shell = useRef<HTMLElement>(null);
   const [placement, setPlacement] = useState<Placement>();
   const [fullscreen, setFullscreen] = useState(false);
+  const [pip, setPip] = useState({ supported: false, active: false });
   const [limited, setLimited] = useState(false);
   const [height, setHeight] = useState(0);
   const [viewport, setViewport] = useState<{ width: number; height: number; top: number; left: number }>();
   const [volumeSettable] = useState(() => {
     if (typeof document === "undefined") return true;
-    const probe = document.createElement("video"); probe.volume = 0.5;
-    return probe.volume === 0.5;
+    return mediaVolumeSettable(document.createElement("video"));
   });
   const request = state.request;
   const twitch = request?.kind === "twitch";
@@ -38,7 +41,7 @@ export function EventCompactPlayer({ owner, state, mount }: { owner: EventPlayba
       if (twitch && tooSmall && (mount.current?.childElementCount || owner.getSnapshot().status !== "paused")) owner.suspend();
       const slot = Array.from(document.querySelectorAll<HTMLElement>("[data-event-playback-inline]")).find(node => node.dataset.eventPlaybackInline === ("profileId" in request ? `profile:${request.profileId}:${request.sourceId}` : request.eventId));
       const box = slot?.getBoundingClientRect();
-      const inline = box && box.top >= bounds.top && box.bottom <= bounds.top + bounds.height && box.left >= bounds.left && box.right <= bounds.left + bounds.width && (!twitch || box.width >= 400);
+      const inline = box && box.top >= bounds.top && box.bottom <= bounds.top + bounds.height && box.left >= bounds.left && box.right <= bounds.left + bounds.width && box.width >= (twitch ? 400 : 280);
       const next = inline ? { top: box.top, left: box.left, width: box.width } : undefined;
       // Keep the last compact clearance even after returning inline. Removing it
       // near the document end clamps scroll and can oscillate between placements.
@@ -72,6 +75,13 @@ export function EventCompactPlayer({ owner, state, mount }: { owner: EventPlayba
       void document.exitFullscreen().catch(() => {});
     }
   }, [request, fullscreen]);
+  useEffect(() => {
+    const video = mount.current?.querySelector<HTMLVideoElement>("video");
+    const sync = () => setPip(pictureInPictureState(video ?? null));
+    sync();
+    video?.addEventListener("enterpictureinpicture", sync); video?.addEventListener("leavepictureinpicture", sync); video?.addEventListener("webkitpresentationmodechanged", sync);
+    return () => { video?.removeEventListener("enterpictureinpicture", sync); video?.removeEventListener("leavepictureinpicture", sync); video?.removeEventListener("webkitpresentationmodechanged", sync); };
+  }, [mount, state.status, state.mode, state.lineup]);
   const compact = !placement;
   const fallback = twitch && limited;
   const visibleWidth = viewport ? `${viewport.width}px` : "100vw";
@@ -83,19 +93,25 @@ export function EventCompactPlayer({ owner, state, mount }: { owner: EventPlayba
     bottom: `calc(${bottomOffset} + max(12px, env(safe-area-inset-bottom)))`,
   };
   const source = request?.kind === "performer_sequence" ? request.event.slots.find(slot => slot.key === state.lineup?.current)?.label : request?.kind === "twitch" ? request.channel ?? request.video ?? request.collection : request?.kind === "vrcdn" ? request.sourceId : undefined;
+  const artwork = playbackArtwork(state);
   return <>
     <div aria-hidden="true" style={{ height: request ? height + 24 : 0, paddingBottom: request ? "env(safe-area-inset-bottom)" : 0 }} />
     <section ref={shell} aria-label="Event playback" hidden={!request} data-event-id={request?.eventId} data-presentation={compact ? "compact" : "inline"}
       className={`event-retained-player fixed z-50 overflow-hidden rounded-card ${twitch ? "" : "border border-border"} bg-media text-white shadow-panel`} style={style}>
-      <div ref={mount} data-event-playback-mount className={fallback ? "" : "event-retained-media"} style={twitch && !fallback ? { minHeight: 300 } : undefined} />
+      <div ref={mount} hidden={state.mode === "audio" && !twitch} data-event-playback-mount className={fallback ? "" : "event-retained-media"} style={twitch && !fallback ? { minHeight: 300 } : undefined} />
+      {request && state.mode === "audio" && request.kind !== "twitch" && <div className="flex aspect-video flex-col items-center justify-center gap-3 bg-media p-4 text-center">
+        {artwork ? <Image unoptimized width={96} height={96} src={artwork} alt="" className="size-24 rounded-control object-contain" /> : <span aria-hidden="true" className="flex size-24 items-center justify-center rounded-control bg-white/5 text-white/60"><Music2 className="size-8" /></span>}
+        {state.metadata?.displayName && <span className="text-sm font-medium">{state.metadata.displayName}</span>}
+      </div>}
       {request && <>
-        {!fallback && <div className="relative h-[52px] shrink-0"><VrcdnPlayerControls label={request.title} connected={state.status === "playing" && (request.kind !== "performer_sequence" || Boolean(state.lineup?.connected))} paused={state.status !== "playing" && state.status !== "loading"} fullscreen={fullscreen} volume={state.volume} muted={state.muted} volumeSettable={volumeSettable}
+        {!fallback && <div className={`relative ${request.kind === "twitch" ? "h-[52px]" : "h-[100px]"} shrink-0`}><VrcdnPlayerControls mode={request.kind !== "twitch" ? state.mode : undefined} onModeChange={value => void owner.setMode(value)} pipSupported={pip.supported} pipActive={pip.active}
+          onTogglePip={() => { const media = owner.media; if (media instanceof HTMLVideoElement && state.mode === "video") void togglePictureInPicture(media).catch(() => {}); }}
+          label={request.title} connected={state.status === "playing" && (request.kind !== "performer_sequence" || Boolean(state.lineup?.connected))} paused={state.status !== "playing" && state.status !== "loading"} fullscreen={fullscreen} volume={state.volume} muted={state.muted} volumeSettable={volumeSettable}
           onTogglePlay={() => state.status === "playing" || state.status === "loading" ? owner.pause() : void owner.play(request)}
           onToggleMute={() => owner.setMuted(!state.muted)} onVolumeChange={value => owner.setVolume(value)}
           onToggleFullscreen={() => { if (document.fullscreenElement) void document.exitFullscreen().catch(() => {}); else void shell.current?.requestFullscreen?.().catch(() => {}); }} /></div>}
         <div className="flex min-h-[52px] shrink-0 items-center gap-2 border-t border-white/10 px-3">
           <Link aria-label={`Return to ${request.title}`} href={request.href} className="flex min-w-0 flex-1 items-center gap-2 py-2 text-sm font-medium hover:underline"><span className="min-w-0 truncate">{request.title}{source && <span className="block truncate text-xs font-normal text-white/65">{source}</span>}</span><ArrowUpRight aria-hidden className="size-4 shrink-0" /></Link>
-          {request.kind !== "twitch" && <button type="button" className="min-h-11 px-2 text-sm" onClick={()=>void owner.setMode(state.mode === "audio" ? "video" : "audio")}>{state.mode === "audio" ? "Video" : "Audio"}</button>}
           <button type="button" className="flex size-11 shrink-0 items-center justify-center rounded-control hover:bg-white/10" aria-label="Close event playback" onClick={() => owner.close()}><X aria-hidden className="size-5" /></button>
         </div>
         {request.kind === "performer_sequence" && <div className="flex min-h-14 shrink-0 items-center gap-2 border-t border-white/10 px-3 py-2 text-xs">

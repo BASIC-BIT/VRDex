@@ -28,3 +28,9 @@ test("defaults to video, persists audio across readers and survives denied stora
   writePlaybackMode(denied, "video");
   assert.equal(readPlaybackMode(denied), "video");
 });
+test("readable stale storage cannot overwrite a denied-write session preference", () => {
+  const storage = { getItem: () => "video", setItem() { throw Error("quota"); } };
+  writePlaybackMode(storage, "audio");
+  assert.equal(readPlaybackMode(storage), "audio");
+  writePlaybackMode({ getItem: () => "video", setItem() {} }, "video");
+});

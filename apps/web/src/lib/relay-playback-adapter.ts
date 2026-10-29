@@ -15,7 +15,9 @@ export type RelayPlaybackClient = {
     context: PublicContext,
     streamId: string,
     mode: PlaybackMode,
+    continuationGrantId?: string,
   ): Promise<unknown>;
+  rebind?(id: string, selectedSourceId: string, expectedSelectedSourceId: string, expectedContextRevision: number): Promise<unknown>;
   get(id: string): Promise<unknown>;
   refresh(id: string): Promise<unknown>;
   restart(id: string): Promise<unknown>;
@@ -114,6 +116,7 @@ export function createRelayPlaybackAdapter({
       if (disposed || !intent || token !== version) return false;
       if (result.kind === "ready") {
         expiresAt = result.grant.expiresAt;
+        notify({ metadata: result.metadata });
         native = createNative({
           grant: result,
           mode,
@@ -155,6 +158,7 @@ export function createRelayPlaybackAdapter({
     return false;
   }
   return {
+    get media() { return native?.media; },
     play,
     async retry() {
       // Recreate media without surrendering the continuation capability.
@@ -189,7 +193,7 @@ export function createRelayPlaybackAdapter({
       const token = version;
       const result = AdmissionSchema.parse(await client.refresh(grantId));
       if (disposed || token !== version) return;
-      if (result.kind === "ready") expiresAt = result.grant.expiresAt;
+      if (result.kind === "ready") { expiresAt = result.grant.expiresAt; native?.setMetadata?.(result.metadata); notify({ metadata: result.metadata }); }
       if (result.kind === "unavailable") {
         native?.pause();
         notify({

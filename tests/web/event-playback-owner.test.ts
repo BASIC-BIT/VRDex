@@ -261,3 +261,10 @@ test("retained retry clears the previous unsupported reason before later native 
   assert.equal(owner.getSnapshot().unavailableReason, undefined);
   owner.close();
 });
+test("source replacement and revocation clear authoritative current metadata", async () => {
+  const owner = new EventPlaybackOwner((_request, notify) => ({ async play() { notify({ metadata: { displayName: "DJ A", artworkAssetId: null, artworkRevision: null } }); return true; }, pause() {}, setVolume() {}, setMuted() {}, update() {}, dispose() {} }));
+  await owner.play(request()); assert.equal(owner.getSnapshot().metadata?.displayName, "DJ A");
+  owner.update(request("a", "https://stream/replacement")); assert.equal(owner.getSnapshot().metadata, undefined);
+  await owner.play(request("a", "https://stream/replacement")); owner.revalidate(null, owner.generation); assert.equal(owner.getSnapshot().metadata, undefined);
+  owner.close();
+});

@@ -3,7 +3,7 @@ import { it } from "node:test";
 import { convexTest } from "convex-test";
 import { makeFunctionReference } from "convex/server";
 import schemaModule from "../../convex/schema";
-import { AdmissionSchema, RELAY_POLICY } from "../../packages/media-relay/src";
+import { AdmissionSchema, PlaybackRebindSchema, RELAY_POLICY } from "../../packages/media-relay/src";
 const schema =
   (schemaModule as unknown as { default?: typeof schemaModule }).default ??
   schemaModule;
@@ -1146,4 +1146,86 @@ it("concurrent terminal restarts for different sources share the final admission
       ?.attempts.length,
     1,
   );
+});
+
+const rebind = makeFunctionReference<"mutation">("mediaRelayPlayback:rebindPlayback");
+async function sequenceFixture() {
+  const h = await fixture();
+  const slots = await h.t.run(async ctx => {
+    await ctx.db.patch(h.eventId, { watchMode: "performer_sequence" });
+    await ctx.db.patch(h.profileId, { outboundLinks: ["Alpha", "Beta"].map(id => ({ type: "vrcdn", url: `vrcdn:${id}`, label: "Live", source: "owner_authored" })) });
+    const slot = (position: number, selectedStreamId: string) => ctx.db.insert("eventSlots", { eventId: h.eventId, personProfileId: h.profileId, selectedStreamId, position, startAt: Date.now() - 1000 + position * 1000, displayLabel: "DJ", roleLabel: "DJ", sourceType: "manual", sourceLabel: "test", confidence: 1, reviewState: "confirmed", updatedAt: 1 });
+    return { a: await slot(0, "Alpha"), b: await slot(1, "Beta"), same: await slot(2, "Alpha") };
+  });
+  const context = (selectedSourceId: string) => ({ ...h.eventContext, selectedSourceId });
+  const first = preparing(await h.t.mutation(open, { context: context(slots.a), streamId: "Alpha", preferredMode: "audio" }));
+  const end = () => h.t.run(ctx => ctx.db.patch(h.eventId, { endAt: Date.now() - 1 }));
+  const openNext = (proof = first.grantId, eventId = h.eventId, selectedSourceId = slots.b, streamId = "Beta") => h.t.mutation(open, { context: { kind: "event", eventId, selectedSourceId }, streamId, preferredMode: "audio", continuationGrantId: proof });
+  return { ...h, slots, context, first, end, openNext };
+}
+it("same-event postwindow continuation admits an independently authorized slot with a distinct bounded grant", async () => {
+  const h = await sequenceFixture(); await h.end();
+  assert.equal(AdmissionSchema.parse(await h.t.mutation(open, { context: h.context(h.slots.b), streamId: "Beta", preferredMode: "audio" })).kind, "unavailable");
+  const next = preparing(await h.openNext()); assert.notEqual(next.grantId, h.first.grantId);
+  const rows = await h.t.run(ctx => ctx.db.query("mediaRelayGrants").collect()); assert.equal(rows.length, 2);
+  process.env.MEDIA_RELAY_MAX_GRANTS = "2";
+  assert.equal(AdmissionSchema.parse(await h.openNext()).kind, "capacityLimited");
+});
+for (const invalid of ["expired", "released", "revoked", "profile", "other-event", "event-stream", "target-revoked"] as const) it(`continuation denies ${invalid} authority`, async () => {
+  const h = await sequenceFixture();
+  let proof = h.first.grantId;
+  if (invalid === "profile") proof = preparing(await h.play()).grantId;
+  if (invalid === "expired") await h.t.run(async ctx => { const row = await ctx.db.query("mediaRelayGrants").withIndex("by_grantId", q => q.eq("grantId", proof)).unique(); await ctx.db.patch(row!._id, { expiresAt: Date.now() }); });
+  if (invalid === "released") await h.t.mutation(release, { grantId: proof });
+  if (invalid === "revoked") await h.t.run(ctx => ctx.db.patch(h.slots.a, { selectedStreamId: "Beta" }));
+  if (invalid === "target-revoked") await h.t.run(ctx => ctx.db.patch(h.slots.b, { selectedStreamId: "Alpha" }));
+  if (invalid === "event-stream") await h.t.run(ctx => ctx.db.patch(h.eventId, { watchMode: "event_stream" }));
+  await h.end();
+  const eventId = invalid === "other-event" ? await h.t.run(async ctx => { const e = await ctx.db.get(h.eventId); const { _id, _creationTime, ...fields } = e!; return ctx.db.insert("events", { ...fields, slug: "other" }); }) : h.eventId;
+  assert.equal(AdmissionSchema.parse(await h.openNext(proof, eventId)).kind, "unavailable");
+});
+it("same-stream postwindow identity rebind retains capability, source and URL with CAS", async () => {
+  const h = await sequenceFixture(); process.env.MEDIA_RELAY_PLAYBACK_ORIGIN = "https://media.example";
+  await h.t.run(async ctx => { const source = await ctx.db.query("mediaRelaySources").withIndex("by_streamKey", q => q.eq("streamKey", "vrcdn/Alpha/1")).unique(); await ctx.db.patch(source!._id, { state: "ready" }); });
+  const before = AdmissionSchema.parse(await h.t.query(get, { grantId: h.first.grantId })); assert.equal(before.kind, "ready"); if (before.kind !== "ready") return;
+  await h.end();
+  const args = { grantId: before.grant.id, selectedSourceId: h.slots.same, expectedSelectedSourceId: h.slots.a, expectedContextRevision: before.grant.contextRevision };
+  const after = PlaybackRebindSchema.parse(await h.t.mutation(rebind, args)); assert.equal(after.kind, "rebound"); if (after.kind !== "rebound") return;
+  assert.equal(after.grant.id, before.grant.id); assert.equal(after.grant.issuedAt, before.grant.issuedAt); assert.equal(after.grant.expiresAt, before.grant.expiresAt); const playback = AdmissionSchema.parse(await h.t.query(get, { grantId: after.grant.id })); assert.equal(playback.kind, "ready"); if (playback.kind === "ready") assert.equal(playback.videoPlaylist, before.videoPlaylist);
+  assert.deepEqual(after.grant.context, h.context(h.slots.same));
+  assert.equal(PlaybackRebindSchema.parse(await h.t.mutation(rebind, { ...args, selectedSourceId: h.slots.a })).kind, "denied", "stale old-context write must fail");
+  assert.equal((await h.t.run(ctx => ctx.db.query("mediaRelayGrants").collect())).length, 1);
+  assert.equal((await h.t.run(ctx => ctx.db.query("mediaRelaySources").collect())).length, 1);
+});
+for (const invalid of ["different-stream", "revoked", "released", "expired", "profile", "stale-revision"] as const) it(`identity rebind denies ${invalid}`, async () => {
+  const h = await sequenceFixture();
+  let grantId = h.first.grantId;
+  if (invalid === "profile") grantId = preparing(await h.play()).grantId;
+  const row = await h.t.run(ctx => ctx.db.query("mediaRelayGrants").withIndex("by_grantId", q => q.eq("grantId", grantId)).unique());
+  if (invalid === "revoked") await h.t.run(ctx => ctx.db.patch(h.slots.a, { selectedStreamId: "Beta" }));
+  if (invalid === "released") await h.t.mutation(release, { grantId });
+  if (invalid === "expired") await h.t.run(ctx => ctx.db.patch(row!._id, { expiresAt: Date.now() }));
+  await h.end();
+  assert.equal(PlaybackRebindSchema.parse(await h.t.mutation(rebind, { grantId, selectedSourceId: invalid === "different-stream" ? h.slots.b : h.slots.same, expectedSelectedSourceId: h.slots.a, expectedContextRevision: row!.contextRevision + (invalid === "stale-revision" ? 1 : 0) })).kind, "denied");
+});
+it("identity-only rebind never asserts source readiness or queues an unavailable source", async () => {
+  const h = await sequenceFixture();
+  const before = await h.t.run(async ctx => {
+    const grant = await ctx.db.query("mediaRelayGrants").withIndex("by_grantId", q => q.eq("grantId", h.first.grantId)).unique();
+    const source = await ctx.db.query("mediaRelaySources").withIndex("by_streamKey", q => q.eq("streamKey", "vrcdn/Alpha/1")).unique();
+    await ctx.db.patch(source!._id, { state: "unavailable" }); return { grant, sourceId: source!._id };
+  });
+  await h.end();
+  const rebound = PlaybackRebindSchema.parse(await h.t.mutation(rebind, { grantId: h.first.grantId, selectedSourceId: h.slots.same, expectedSelectedSourceId: h.slots.a, expectedContextRevision: before.grant!.contextRevision }));
+  assert.equal(rebound.kind, "rebound");
+  assert.equal((await h.t.run(ctx => ctx.db.get(before.sourceId)))?.state, "unavailable");
+  assert.equal(AdmissionSchema.parse(await h.t.query(get, { grantId: h.first.grantId })).kind, "unavailable");
+});
+it("continuation preserves ordinary rolling admission and source-capacity quotas", async () => {
+  const h = await sequenceFixture(); await h.end();
+  process.env.MEDIA_RELAY_ADMISSIONS_PER_MINUTE = "1";
+  assert.equal(AdmissionSchema.parse(await h.openNext()).kind, "capacityLimited");
+  process.env.MEDIA_RELAY_ADMISSIONS_PER_MINUTE = "100"; process.env.MEDIA_RELAY_MAX_SOURCES = "1";
+  assert.equal(AdmissionSchema.parse(await h.openNext()).kind, "capacityLimited");
+  assert.equal((await h.t.run(ctx => ctx.db.query("mediaRelayGrants").collect())).length, 1);
 });

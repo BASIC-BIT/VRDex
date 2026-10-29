@@ -1,3 +1,4 @@
+import type { DjMetadata } from "@vrdex/media-relay";
 import { foregroundPlayback } from "./foreground-playback";
 import type { LineupEvent, LineupSnapshot } from "./event-lineup-runtime";
 import { isInScheduledWatchWindow } from "../../../../convex/_eventRuntime";
@@ -67,6 +68,7 @@ export type PlaybackSnapshot = {
   volume: number;
   muted: boolean;
   lineup?: LineupSnapshot;
+  metadata?: DjMetadata;
 };
 export type PlaybackAdapter = {
   play(): Promise<boolean>;
@@ -75,16 +77,18 @@ export type PlaybackAdapter = {
   setMuted(value: boolean): void;
   update(request: PlaybackRequest): void;
   dispose(): void;
+  readonly media?: HTMLMediaElement;
   refresh?(): Promise<void>;
   retry?(): Promise<boolean>;
   setMode?(mode: PlaybackMode): Promise<boolean>;
+  setMetadata?(metadata: DjMetadata): void;
   manual?(key: string): void;
   live?(): void;
   retryNextPlayback?(): void;
 };
 export type AdapterNotify = (
   state: Partial<
-    Pick<PlaybackSnapshot, "status" | "lineup" | "unavailableReason">
+    Pick<PlaybackSnapshot, "status" | "lineup" | "unavailableReason" | "metadata">
   >,
 ) => void;
 export function playbackContextKey(request: PlaybackRequest): string {
@@ -181,6 +185,7 @@ export class EventPlaybackOwner {
         request,
         status: "loading",
         lineup: undefined,
+        metadata: undefined,
         unavailableReason: undefined,
       });
       try {
@@ -275,7 +280,7 @@ export class EventPlaybackOwner {
   close() {
     foregroundPlayback.release(this);
     this.release();
-    this.emit({ request: undefined, status: "idle", lineup: undefined });
+    this.emit({ request: undefined, status: "idle", lineup: undefined, metadata: undefined });
   }
   update(request: PlaybackRequest) {
     if (
@@ -285,7 +290,7 @@ export class EventPlaybackOwner {
       return;
     if (playbackSourceKey(request) !== playbackSourceKey(this.state.request)) {
       this.release();
-      this.emit({ request, status: "paused", lineup: undefined });
+      this.emit({ request, status: "paused", lineup: undefined, metadata: undefined });
       return;
     }
     this.adapter?.update(request);
@@ -304,9 +309,11 @@ export class EventPlaybackOwner {
         status: "unavailable",
         request: undefined,
         lineup: undefined,
+        metadata: undefined,
       });
     } else this.update(request);
   }
+  get media() { return this.adapter?.media; }
   async refresh() {
     await this.adapter?.refresh?.();
   }
