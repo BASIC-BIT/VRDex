@@ -510,12 +510,21 @@ export async function getPublicEventCommunityImage(db: DatabaseReader, community
   return publicEventCommunityImage(community, await getPublicProfileMediaKit(db, community, { surface: "discovery" }));
 }
 
-export async function getPublishedCommunity(db: DatabaseReader, event: Doc<"events">) {
+export async function getPublishedCommunity(
+  db: DatabaseReader,
+  event: Doc<"events">,
+  profileCache?: Map<Id<"profiles">, Promise<Doc<"profiles"> | null>>,
+) {
   if (event.communityProfileId === undefined) {
     return undefined;
   }
 
-  const community = await db.get(event.communityProfileId);
+  let pending = profileCache?.get(event.communityProfileId);
+  if (pending === undefined) {
+    pending = db.get(event.communityProfileId);
+    profileCache?.set(event.communityProfileId, pending);
+  }
+  const community = await pending;
 
   if (
     community === null ||

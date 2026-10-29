@@ -1,0 +1,260 @@
+.discovery {
+  border-top: 1px solid var(--border);
+  margin-top: 1.5rem;
+  padding-top: 1.8rem;
+  padding-bottom: 2.5rem;
+  min-width: 0;
+}
+.heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+.heading h2 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: -0.035em;
+}
+.browse {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.browse:hover {
+  color: var(--accent);
+}
+.groups {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.5rem;
+}
+.groups > div {
+  min-width: 0;
+}
+.groupHeading {
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin-bottom: 0.85rem;
+}
+.cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  align-items: start;
+}
+.card {
+  min-width: 0;
+}
+.artwork,
+.clubArtwork {
+  position: relative;
+  display: block;
+  aspect-ratio: 3 / 4;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  background: var(--surface-strong);
+}
+.artworkLink {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.poster {
+  width: 100%;
+  height: 100%;
+  font-size: 2.5rem;
+  background: radial-gradient(
+    ellipse at 30% 25%,
+    var(--surface-elevated),
+    var(--canvas-muted)
+  );
+}
+.artwork:has(a:focus-visible),
+.clubLink:focus-visible .clubArtwork {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.save,
+.favorite {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  flex-shrink: 0;
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+.save {
+  position: absolute;
+  right: 0.65rem;
+  bottom: 0.65rem;
+  color: #e4d7ff;
+  background: #302640;
+  border: 1px solid #70588e;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.card:hover .save,
+.card:focus-within .save,
+.save[data-saved="true"] {
+  opacity: 1;
+}
+.save:hover {
+  background: #443359;
+}
+.favorite {
+  border: 1px solid transparent;
+  color: var(--muted);
+  margin-left: auto;
+}
+.favorite:hover {
+  background: var(--surface-elevated);
+  color: var(--warning);
+}
+.favorite[aria-pressed="true"] {
+  color: var(--warning);
+}
+.favorite[aria-pressed="true"] svg,
+.performers [data-favorite="true"] svg {
+  fill: currentColor;
+}
+.date {
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.5;
+  margin-top: 0.8rem;
+}
+.name {
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.4;
+  margin-top: 0.35rem;
+  overflow-wrap: anywhere;
+}
+.name a:hover,
+.host:hover,
+.performers a:hover,
+.genres a:hover {
+  color: var(--accent);
+}
+.host {
+  display: inline-block;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.5;
+  margin-top: 0.25rem;
+}
+.performers {
+  display: grid;
+  gap: 0.2rem;
+  margin: 0.65rem 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+.performers a {
+  display: inline-flex;
+  gap: 0.3rem;
+  align-items: center;
+}
+.performers [data-favorite="true"] {
+  color: var(--warning);
+}
+.performerGenres {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+.genres {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.6rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.6;
+}
+.clubArtwork {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(
+    ellipse at 45% 40%,
+    var(--surface-elevated),
+    var(--canvas-muted)
+  );
+}
+.clubArtwork::after {
+  content: "";
+  position: absolute;
+  width: 130%;
+  height: 80%;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  transform: rotate(-35deg);
+  pointer-events: none;
+}
+.clubBackdrop {
+  position: absolute;
+  inset: 0;
+  opacity: 0.3;
+  width: 100%;
+  height: 100%;
+}
+.clubLogo {
+  width: 68%;
+  height: 45%;
+  font-size: 2.5rem;
+  z-index: 1;
+  background: transparent;
+}
+.contained {
+  object-fit: contain;
+}
+.clubLink > .name {
+  margin-top: 0.85rem;
+}
+.clubFooter {
+  display: flex;
+  gap: 0.4rem;
+  align-items: start;
+  margin-top: 0.55rem;
+}
+.status {
+  color: var(--muted);
+  font-size: 0.85rem;
+  padding: 1.5rem 0;
+}
+.status button {
+  color: var(--accent);
+  margin-left: 0.65rem;
+  cursor: pointer;
+}
+@media (max-width: 760px) {
+  .groups {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2rem;
+  }
+  .cards {
+    gap: 0.8rem;
+  }
+  .name {
+    font-size: 0.95rem;
+  }
+}
+@media (hover: none), (pointer: coarse), (max-width: 760px) {
+  .save {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .save {
+    transition: none;
+  }
+}
