@@ -227,6 +227,7 @@ it("detail scenario owns and exactly cleans dense slots, hidden person and untim
     do {const page=await t.query(api.eventTimeline.listPublicRoster,{eventId:result.eventIds[3],range:{startAt:0,endAt:1,timeZone:"UTC"},detail:true,cursor});if(page.detail?.kind === "available") rows.push(...page.detail.rows);cursor=page.cursor??undefined;}while(cursor);
     assert.equal(rows.filter(row=>row.kind === "slot").length,81);
     assert.equal(rows.filter(row=>row.kind === "lineup").length,2);
+    assert.equal(rows.find(row=>row.displayLabel === "Manual guest")?.roleLabel,"Host");
     assert.ok(!JSON.stringify(rows).includes("SECRET")); assert.ok(!JSON.stringify(rows).includes(result.profileIds[2]));
     assert.deepEqual(await t.mutation(api.e2eHomeTimeline.cleanup,{secret:args.secret,runId:args.runId}),{events:8,profiles:3,slots:87,lineupEntries:2});
   }finally{process.env=original;}

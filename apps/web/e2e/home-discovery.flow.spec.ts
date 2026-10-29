@@ -264,7 +264,7 @@ test.describe("Home discovery @flow @fixture", () => {
       exact: true,
     });
     await panel
-      .getByRole("button", { name: "Add Low Tide to My night", exact: true })
+      .getByRole("button", { name: "Interested: Low Tide", exact: true })
       .click();
     const warning = page.getByText("Limit reached", { exact: true });
     await expect(warning).toHaveCount(1);
@@ -425,7 +425,7 @@ test.describe("Home discovery @flow @fixture", () => {
       panel.getByRole("heading", { name: "ORBIT", exact: true }),
     ).toBeVisible();
     await panel
-      .getByRole("button", { name: "Add ORBIT to My night", exact: true })
+      .getByRole("button", { name: "Interested: ORBIT", exact: true })
       .click();
     await expect(
       discover.getByRole("button", {
@@ -435,12 +435,12 @@ test.describe("Home discovery @flow @fixture", () => {
     ).toHaveAttribute("aria-pressed", "true");
     await expect(
       panel.getByRole("button", {
-        name: "Aurora: Included in ORBIT",
+        name: "Included with event: Aurora",
         exact: true,
       }),
     ).toBeDisabled();
     await panel
-      .getByRole("button", { name: "Unfavorite Aurora", exact: true })
+      .getByRole("button", { name: "Remove favorite: Aurora", exact: true })
       .click();
     await expect(
       discover.getByRole("link", { name: "Aurora", exact: true }),
@@ -453,12 +453,12 @@ test.describe("Home discovery @flow @fixture", () => {
     await openSchedule();
     await expect(
       panel.getByRole("button", {
-        name: "Favorite Prism Collective",
+        name: "Favorite: Prism Collective",
         exact: true,
       }),
     ).toBeVisible();
     await panel
-      .getByRole("button", { name: "Favorite Prism Collective", exact: true })
+      .getByRole("button", { name: "Favorite: Prism Collective", exact: true })
       .click();
     await expect(
       discover.getByRole("button", {
@@ -875,7 +875,7 @@ test.describe("dense Home discovery @flow @fixture", () => {
     const favoriteStart = performance.now();
     await panel
       .getByRole("button", {
-        name: "Favorite An Exceptionally Long Public Performer Name",
+        name: "Favorite: An Exceptionally Long Public Performer Name",
         exact: true,
       })
       .click();
@@ -883,6 +883,8 @@ test.describe("dense Home discovery @flow @fixture", () => {
     await expect(
       discover.getByRole("link", { name: "Open Low Tide", exact: true }),
     ).toBeVisible();
+    await expect(panel.getByText("Loading events", { exact: true })).toHaveCount(0);
+    await page.screenshot({ path: info.outputPath("detail-short-content.png") });
     const afterFavorite = queries.result();
     // Cached first values complete logical reads before wire revalidation.
     // Preserve the cold bound; report the warm protocol burst separately.

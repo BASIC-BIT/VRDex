@@ -463,6 +463,7 @@ export const create = mutation({
           clientKey: `${args.runId}-lineup-${i}`,
           position: 81 + i,
           performerLabel: i === 0 ? "Untimed Aurora" : "Manual guest",
+          roleLabel: i === 1 ? "Host" : undefined,
           personProfileId: i === 0 ? profiles[1] : undefined,
           updatedAt: Date.now(),
         });

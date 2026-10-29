@@ -1,7 +1,8 @@
 "use client";
 import Image from "next/image";
 import { useEffect, useRef } from "react";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { FavoriteButton } from "@/components/ui/favorite-button";
+import { InterestButton } from "@/components/ui/interest-button";
 import { safeImageUrl } from "@/lib/safe-image";
 import { publicEventPath } from "@/lib/event-path";
 import { planSaveState, togglePlanAction } from "@/lib/timeline/plan-actions";
@@ -29,36 +30,20 @@ function Save({
   label,
   preferences,
   onPreferenceAction,
-  eventTitle,
 }: {
   reference: PlanReference;
   label: string;
-  eventTitle: string;
 } & DetailPreferenceProps) {
   const state = planSaveState(preferences.plan, reference);
   return (
-    <Button
-      size="sm"
-      variant="secondary"
-      disabled={state === "included"}
-      aria-label={
-        state === "included"
-          ? `${label}: Included in ${eventTitle}`
-          : state === "saved"
-            ? `Remove ${label} from My night`
-            : `Add ${label} to My night`
-      }
-      onClick={() => {
+    <InterestButton
+      label={label}
+      state={state}
+      onToggle={() => {
         const action = togglePlanAction(preferences.plan, reference);
         if (action) onPreferenceAction(action);
       }}
-    >
-      {state === "included"
-        ? "Included"
-        : state === "saved"
-          ? "Remove from My night"
-          : "Add to My night"}
-    </Button>
+    />
   );
 }
 function Favorite({
@@ -70,20 +55,16 @@ function Favorite({
 } & DetailPreferenceProps) {
   const saved = preferences.favoriteProfileIds.includes(person.id);
   return (
-    <Button
-      size="sm"
-      variant="ghost"
-      aria-label={`${saved ? "Unfavorite" : "Favorite"} ${person.displayName}`}
-      aria-pressed={saved}
-      onClick={() =>
+    <FavoriteButton
+      label={person.displayName}
+      pressed={saved}
+      onToggle={() =>
         onPreferenceAction({
           type: saved ? "remove-favorite" : "add-favorite",
           profileId: person.id,
         })
       }
-    >
-      {saved ? "Unfavorite" : "Favorite"}
-    </Button>
+    />
   );
 }
 export function EventDetailContent({
@@ -127,7 +108,7 @@ export function EventDetailContent({
         </div>
       ) : null}
       <div className={styles.content}>
-        <h3>{event.title}</h3>
+        <h3>{href ? <a href={href}>{event.title}</a> : event.title}</h3>
         {event.status === "cancelled" ? <span>Cancelled</span> : null}
         <div className={styles.identity}>
           {event.communitySlug ? (
@@ -140,6 +121,7 @@ export function EventDetailContent({
         <p className={styles.time}>
           <ViewerLocalEventDateTime
             timeZone={timeZone}
+            showTimeZone={false}
             timestamp={event.startAt}
             eventDate={event.eventDate}
             scheduleKind={event.scheduleKind}
@@ -147,11 +129,19 @@ export function EventDetailContent({
           {event.endAt !== undefined ? (
             <>
               {" "}
-              - <ViewerLocalEventDateTime timestamp={event.endAt} timeZone={timeZone} />
+              -{" "}
+              <ViewerLocalEventDateTime
+                timestamp={event.endAt}
+                timeZone={timeZone}
+                showTimeZone={false}
+              />
             </>
           ) : event.scheduleKind !== "date_only" ? (
             " · Time TBA"
           ) : null}
+        </p>
+        <p className={styles.meta} aria-label="Timezone and hour format">
+          {timeZone.replaceAll("_", " ")} · 12h
         </p>
         {event.venueLabel ? <p>{event.venueLabel}</p> : null}
         {event.worlds.map((world) => (
@@ -166,17 +156,8 @@ export function EventDetailContent({
           <Save
             reference={{ kind: "event", eventId: event.id }}
             label={event.title}
-            eventTitle={event.title}
             {...preferences}
           />
-          {href ? (
-            <a
-              href={href}
-              className={buttonVariants({ size: "sm", variant: "secondary" })}
-            >
-              Open event
-            </a>
-          ) : null}
         </div>
         {rows.length > 0 ? (
           <ol className={styles.lineup} aria-label="Lineup">
@@ -193,13 +174,14 @@ export function EventDetailContent({
                   ) : (
                     <span>{row.displayLabel}</span>
                   )}
-                  {row.roleLabel ? (
+                  {row.roleLabel &&
+                  row.roleLabel.trim().toUpperCase() !== "DJ" ? (
                     <span className={styles.meta}>{row.roleLabel}</span>
                   ) : null}
                   {row.startAt !== undefined ? (
                     <ViewerLocalEventTimeRange
                       timeZone={timeZone}
-                      showOffset
+                      showTimeZone={false}
                       startAt={row.startAt}
                       endAt={row.endAt}
                       className={styles.meta}
@@ -218,7 +200,6 @@ export function EventDetailContent({
                         slotId: row.key,
                       }}
                       label={row.displayLabel}
-                      eventTitle={event.title}
                       {...preferences}
                     />
                   ) : null}
