@@ -3,7 +3,7 @@ import { it } from "node:test";
 import sharp from "sharp";
 import { createHash } from "node:crypto";
 import { validatePosterBytes } from "../../apps/web/src/lib/server/event-poster-storage";
-import { extractEventIntake } from "../../apps/web/src/lib/server/event-intake-agent";
+import { extractEventIntake } from "../../packages/event-intake-agent/src/index";
 import { classifyEventIntakeForPublication } from "../../apps/web/src/lib/server/event-intake-spam";
 const blank = () => ({ event: { title: null, communitySlug: null, eventDate: null, start: null, end: null, startDate: null, endDate: null, timezone: null, venueLabel: null, summary: null, sourceUrl: null }, lineup: [], evidence: [], questions: [] });
 const response = (value: unknown) => new Response(JSON.stringify({ status: "completed", output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify(value) }] }] }));
@@ -116,7 +116,7 @@ it("requires evaluated threshold before blocking and shadow never blocks",async(
 
 it("compares fixture-fed Time plan execution with the deterministic all-instants resolver offline",async()=>{
  const { readFile }=await import("node:fs/promises");
- const {resolveIntakeLocalTime}=await import("../../apps/web/src/lib/server/event-intake-agent");
+ const {resolveIntakeLocalTime}=await import("../../packages/event-intake-agent/src/index");
  const {executeTemporalPlanPlannerOutput,parseTemporalPlanPlannerOutput,parseCalendarContext,createDeterministicTemporalToolImplementations}=await import("../../packages/temporal-runtime/src/index");
  const manifest=JSON.parse(await readFile(new URL("../fixtures/event-intake/manifest.json",import.meta.url),"utf8"));
  const rows=[];
