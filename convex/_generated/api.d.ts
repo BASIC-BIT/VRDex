@@ -53,6 +53,7 @@ import type * as _eventBroadcastResources from "../_eventBroadcastResources.js";
 import type * as _eventBroadcastSources from "../_eventBroadcastSources.js";
 import type * as _eventCalendarImports from "../_eventCalendarImports.js";
 import type * as _eventCandidateApply from "../_eventCandidateApply.js";
+import type * as _eventConnectorModel from "../_eventConnectorModel.js";
 import type * as _eventConnectors from "../_eventConnectors.js";
 import type * as _eventContributionPreflight from "../_eventContributionPreflight.js";
 import type * as _eventContributorLock from "../_eventContributorLock.js";
@@ -283,6 +284,7 @@ declare const fullApi: ApiFromModules<{
   _eventBroadcastSources: typeof _eventBroadcastSources;
   _eventCalendarImports: typeof _eventCalendarImports;
   _eventCandidateApply: typeof _eventCandidateApply;
+  _eventConnectorModel: typeof _eventConnectorModel;
   _eventConnectors: typeof _eventConnectors;
   _eventContributionPreflight: typeof _eventContributionPreflight;
   _eventContributorLock: typeof _eventContributorLock;

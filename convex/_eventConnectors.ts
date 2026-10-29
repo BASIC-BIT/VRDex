@@ -6,6 +6,7 @@ import { resolveClubSubject } from "./_clubAccess";
 import type { ClubPermission } from "./_clubModel";
 import type { AuthSubject } from "./_communityAuthority";
 import { userOwnsProfile } from "./_profileOwnership";
+import { allowedDirections, type ConnectorDirection, type ConnectorKind } from "./_eventConnectorModel";
 import { UpdateEventContributionSchema, type EventIntakeFields } from "../packages/api-contracts/src/event-intake";
 
 export const connectorKind = v.union(
@@ -28,8 +29,10 @@ export const syncJobKind = v.union(
 );
 export const syncJobState = v.union(v.literal("pending"), v.literal("running"), v.literal("done"), v.literal("failed"));
 
-export type ConnectorKind = Infer<typeof connectorKind>;
-export type ConnectorDirection = Infer<typeof connectorDirection>;
+// The literal unions live in _eventConnectorModel for the web client; this fails typecheck if the validators drift from them.
+export { allowedDirections, type ConnectorDirection, type ConnectorKind };
+type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+export const validatorsMatchModel: Same<ConnectorKind, Infer<typeof connectorKind>> & Same<ConnectorDirection, Infer<typeof connectorDirection>> = true;
 export type ConnectorMode = Infer<typeof connectorMode>;
 export type ConnectorState = Infer<typeof connectorState>;
 export type SyncJobKind = Infer<typeof syncJobKind>;
@@ -39,15 +42,6 @@ export function connectorsEnabled(): boolean {
 }
 
 export const DISCORD_ID = /^\d{17,20}$/;
-
-const ALL_DIRECTIONS: ReadonlyArray<ConnectorDirection> = ["import", "export", "bidirectional", "off"];
-// "off" stays allowed for every kind: it is how a staffer pauses a connector without removing it.
-export function allowedDirections(kind: ConnectorKind): ReadonlyArray<ConnectorDirection> {
-  if (kind === "discord_announcements") return ["import", "off"];
-  if (kind === "discord_board") return ["export", "off"];
-  if (kind === "notion") return ["off"];
-  return ALL_DIRECTIONS;
-}
 
 export async function userAuthSubject(db: DatabaseReader, userId: Id<"users">): Promise<AuthSubject | null> {
   const subject = (await db.get(userId))?.clerkUserId;
