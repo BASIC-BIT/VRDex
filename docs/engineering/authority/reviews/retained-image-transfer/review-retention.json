@@ -1,0 +1,29 @@
+{
+  "scope": "reviewed transport preparation checkpoint; real SDK support and capacity remain open",
+  "review": {
+    "path": "retention-review.txt",
+    "sha256": "4a5beee4a1ae70fab2b4f3da8178f1b7e93412f2e625ecef7cefb15e2234811c"
+  },
+  "subjects": [
+    {
+      "path": "README.md",
+      "bytes": 1317,
+      "sha256": "5e6b553d1572686177a8dfbdd9d47495a52d403aee39212eb66ffbddf93075b5"
+    },
+    {
+      "path": "retention-review.txt",
+      "bytes": 4807,
+      "sha256": "4a5beee4a1ae70fab2b4f3da8178f1b7e93412f2e625ecef7cefb15e2234811c"
+    },
+    {
+      "path": "retention.json",
+      "bytes": 17466,
+      "sha256": "ee8a12324973744aa291f2d47ff0ae8b1397f3812e0ed6bc9338e9c0bca14551"
+    },
+    {
+      "path": "transport-checkpoint.zip",
+      "bytes": 293083,
+      "sha256": "d87b1fb703a63109aff49b2c67e0ef8249f2faf2e0d82a3e7f3ba5ecd4d217bd"
+    }
+  ]
+}

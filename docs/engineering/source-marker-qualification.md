@@ -151,9 +151,10 @@ inside the existing normal numeric and aggregate budgets. Native132, legacy,
 sourceClosed and unselected scopes keep their previous result and reservation
 limits. A second retained identity remains fully charged.
 
-The effective contract adds `resultSizing` with SHA-256
-`0a7214700021178996f717487ce09b513fa8ebfcb70dca6a2bed863abb7a5c3c`, preserving the
-three R85 base hashes. Both G0 and G12 require the complete 41830-byte audit
+The historical R94 contract added `resultSizing` with SHA-256
+`0a7214700021178996f717487ce09b513fa8ebfcb70dca6a2bed863abb7a5c3c` while retaining
+the three historical R85 hashes. The adopted successor below replaces those
+unavailable authority premises. Both G0 and G12 still require the complete 41830-byte audit
 original `program-result-sizing-r94-v1`. Its exact body is checked in at
 `tests/fixtures/program-result-sizing-r94-v1.txt` for source verification and
 is not a packaged runtime asset. Complete design, review, adoption and source
@@ -231,6 +232,109 @@ local deletion, under the frozen384MiB high-water/two-copy allowance. No script
 here deletes those objects or writes a production map.
 
 ## Conditional native binding and single PROGRAM source path
+
+### Adopted authority and reset recovery
+
+The historical R85 design, guards and native-pins originals are historically
+unavailable; equivalence is not established. The
+[recovery assessment](./authority/reviews/recovery-assessment.md) and
+[finite superseding amendment](./authority/program-authority-rebaseline-v1.md)
+enumerate the historical R85/R94 and R76/R81/R83/R87/R90/R91/R93 original gaps.
+They remain historical gaps. The amendment replaces only its named current
+eligibility premises. Genuine R94 remains byte-identical, with its original
+status language and all result/accounting limits. Any additional missing
+normative original requires a recorded independent disposition before complete
+current closure can be claimed.
+
+The [five-row identity table](./authority/program-authority-identities-v1.json)
+identifies complete Git-retained design, guards, pins, R94 result sizing and
+authority-rebaseline originals. The operative DATA contract has exactly
+`design`, `guards`, `pins`, `resultSizing` and `authorityRebaseline`; old, mixed,
+missing or extra contracts fail. The
+[exact-body disposition](./authority/reviews/rebaseline-exact-body-review.md)
+and [Root adoption](./authority/reviews/rebaseline-adoption.md) identify the
+reviewed successor subjects. The
+[implementation review](./authority/reviews/rebaseline-implementation-review.md)
+and [source verification](./authority/reviews/rebaseline-verification.md) record
+their own exact subjects and limits. No source record is external prelaunch A.
+
+After a reset, recover these exact tracked bodies and dispositions from their
+recorded commits. Recompute complete byte lengths and SHA-256 against the
+identity table, then compare the DATA contract and ordered references. Do not
+regenerate authority from hashes, substitute generic audit bytes, or fall back
+to historical constants. An edited subject needs fresh identity, review and
+explicit adoption before use.
+
+G0/G12 require all five whole originals, and G1–G11 require the whole adopted
+guards original alongside their existing operands. Mandatory references require
+exact kind, ID, length and hash, with no `range` property. Candidate creation,
+both launch producers and independent outer replay enforce catalog membership.
+Replay reopens and hashes complete source/audit originals and requires A's exact
+K audit set. Catalog uniqueness does not erase repeated logical-use charges.
+Materialization validates all five checked-in bodies before any output write and
+returns their bytes separately from packaged runtime files. Its pending K does
+not attest substantive reviews or external approval.
+
+Root must place genuine complete disposition, adoption, implementation and
+semantic-review operands in the existing proof/source/catalog/K closure and
+exact A audit set. Optional K attachments alone are insufficient. Candidate
+image/source/native reviews stay outside runtime and must establish actual
+image/config/layers, native ELF/aliases, provider/source/Node/FFmpeg, wheel and
+runtime correspondence. A source/runtime change requires a rebuilt and
+reobserved image before final K and A. The 134-entry package manifest, 139-path
+builder source closure and native132 identity inventory remain unchanged;
+manifest-listed injected runtime files are counted and checked separately.
+
+Actual preparation remains OPEN. The baseline correspondence inventory covers
+`/app` and `/opt/twitch`; it lacks complete critical-native, loader/alias,
+running `/proc` view and source/build/provider-provenance observations. The
+private builder still pins revision `db9abbcd` and its 139-source tree, with no
+runtime-input channel. Changed-source preparation and a bounded, separately
+counted manifest-listed runtime channel require separate review. The current
+`validateExecutionCommand` admits only the single-PROGRAM collector or CI
+native132, and selected R83 binds one owned invocation. The group collector uses
+a different command and four frozen canary invocations. Single-PROGRAM K/I/context
+and R83/R94 selection cannot authorize that four-capture canary. Its command,
+context and replay boundary needs a later bounded design before execution;
+canary remains OPEN. This preparation gap permits no implicit widening of
+commands, selection, caps or scope, and supplies no source change or new framework.
+
+Current source verification leaves conditional PROGRAM/native132, actual
+runtime/native fit, current-image correspondence and ordinary 42-Python/90-Node
+execution, external A, four paired canary captures, bulk qualification and
+capacity OPEN. Historical optional R93 differential skips remain unrun without
+their retained baseline. The production allocation map remains empty pending
+measurements. Unit fixtures now supply explicit synthetic capacity through
+resolver dependencies; default production scheduling and bridge paths still
+reject unmeasured configurations.
+
+The [capacity fixture verification](authority/reviews/capacity-unit-test-seam-verification.md)
+records passing host checks at `032307dd`: backend 2019/2019, scripts 979 passes
+and six documented skips, MCP verification, Temporal runtime 14/14 and Temporal
+inference 7/7. Actual anonymous-local Convex analysis found exactly one public
+scheduling mutation and no factory or fixture endpoint. These checks resolve the
+earlier host fixture failures; they supply no native execution, measurement or A.
+The actual migration rehearsal's positive production admission remains blocked
+by the empty measured allocation map. Incoming main `0a7231acf3eb59c5107360536a615a1f6773a19b`
+adds a separate explicit `migration-admission-blocked` baseline CI lane. That lane
+requires historical migration, exact production-capacity rejection, no admission
+writes and owned cleanup; it rejects whole-flow receipts, and whole-flow
+acceptance rejects its receipt. Its success establishes neither positive
+admission nor PROGRAM/native132, measured capacity or external A. The current
+[rehearsal documentation](event-broadcast-rehearsal.md#october-24-2026-task-9-source-prerequisites)
+describes both scopes. The earlier verification above remains historical evidence
+for its recorded source, and integration requires fresh source and execution
+evidence for the resolved merge.
+
+Before any paid continuation, Root refreshes actual spend and reservations under
+the remaining $20 ceiling and $1 ancillary reserve; $1.53346 is an estimate.
+Only exact A's bounded conditional step may run. After the separate canary
+preparation gates close, `canary-000` must retain
+all four frozen paired captures, native terminal/cleanup and two-read originals
+before bulk acceptance. No retry, promotion or expanded workload is authorized.
+Evidence, deadline, cleanup or budget failure leaves affected IDs OPEN.
+
+### Conditional source path
 
 The checked-in source supports a conditional `trustedStackMeasurement` path
 under an explicitly reviewed platform/vendor premise. Both

@@ -1,0 +1,1292 @@
+{
+  "scope": "reviewed diagnostic helper and two closed negative trials; no real SDK source archive",
+  "archive": {
+    "bytes": 554036,
+    "sha256": "ae0e7303b89970f4e8dd220ee1f4b457aa554e7ccde3fefd2e25eb0b91d7f913",
+    "memberCount": 210
+  },
+  "members": [
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/README.md",
+      "member": "reviewed-helper/README.md",
+      "bytes": 18346,
+      "sha256": "3bb1882ea328fc0da5286163035be7ff5baceb654a80d48fc2c9c086516ea695"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/fixtures/archive.base64",
+      "member": "reviewed-helper/fixtures/archive.base64",
+      "bytes": 12657,
+      "sha256": "a891a8a3af23bd03a306414a46a1b27ae10912781542d48b6d062a2ed3ea7f42"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/fixtures/buildspec.yml",
+      "member": "reviewed-helper/fixtures/buildspec.yml",
+      "bytes": 12171,
+      "sha256": "3b7ad02e0ea2e0fad7b8233dca68981c34754180f02d29839bade6e591b80642"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/fixtures/capture.json",
+      "member": "reviewed-helper/fixtures/capture.json",
+      "bytes": 28760,
+      "sha256": "66de7c0a616cc50a0975621ee99f5c32729ab0b088e537bae6cc4233daf483b8"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/fixtures/example-result.json",
+      "member": "reviewed-helper/fixtures/example-result.json",
+      "bytes": 458,
+      "sha256": "a69b8f5e5e5ce130bd59f4b0ae5168c4c4b54819920a3e349c9fc71562dd75b5"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/fixtures/expected.json",
+      "member": "reviewed-helper/fixtures/expected.json",
+      "bytes": 269,
+      "sha256": "7980ac9edde2ecdae405dd77bfd32efd5b913abae51c3f8221d0f6b73ddfa49c"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/fixtures/generated-sources/base64.py",
+      "member": "reviewed-helper/fixtures/generated-sources/base64.py",
+      "bytes": 41,
+      "sha256": "5ab82d0a76ef80ac9ba547415eb56f7fc7cfb30419c6dd4cacc3378212db0615"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/fixtures/generated-sources/boto3/session.py",
+      "member": "reviewed-helper/fixtures/generated-sources/boto3/session.py",
+      "bytes": 48,
+      "sha256": "4fa7b9c745750cfab498aa412eabf8ee5c3187b7fb27e3c3cf5d59c260436e1e"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/fixtures/generated-sources/botocore/args.py",
+      "member": "reviewed-helper/fixtures/generated-sources/botocore/args.py",
+      "bytes": 48,
+      "sha256": "c95eb386c54c394f875ae9e299f0888fe55dac9869262b0700bb78282fcb28a0"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/fixtures/generated-sources/botocore/auth.py",
+      "member": "reviewed-helper/fixtures/generated-sources/botocore/auth.py",
+      "bytes": 48,
+      "sha256": "d851a4b2f9bd862e1b7cb7b36867ecdfa8270a6a040915e7586912fd8b50909c"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/fixtures/generated-sources/botocore/awsrequest.py",
+      "member": "reviewed-helper/fixtures/generated-sources/botocore/awsrequest.py",
+      "bytes": 54,
+      "sha256": "e2791afe60836a85816b2846c822fd8c0397d4dec9fb445724cb91cfe7290402"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/fixtures/generated-sources/botocore/client.py",
+      "member": "reviewed-helper/fixtures/generated-sources/botocore/client.py",
+      "bytes": 50,
+      "sha256": "5582fc3dcbe90b806d33345bdb8d33b16fbcc339490013fd9822ea190269de8d"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/fixtures/generated-sources/botocore/compat.py",
+      "member": "reviewed-helper/fixtures/generated-sources/botocore/compat.py",
+      "bytes": 50,
+      "sha256": "b17f93d7d84ef33d5ccca4e2c0043819683bed8ea58a84932d428a8c8fd8c4d1"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/fixtures/generated-sources/botocore/compress.py",
+      "member": "reviewed-helper/fixtures/generated-sources/botocore/compress.py",
+      "bytes": 52,
+      "sha256": "36c04ae4dd37c3dd5a3555da404870c7d7a36de4ed985d10a00895c2bf2a02d0"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/fixtures/generated-sources/botocore/config.py",
+      "member": "reviewed-helper/fixtures/generated-sources/botocore/config.py",
+      "bytes": 50,
+      "sha256": "f8ce7224391c02472fd0125797b709babf96cb264841287e208c296458209b1b"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/fixtures/generated-sources/botocore/endpoint.py",
+      "member": "reviewed-helper/fixtures/generated-sources/botocore/endpoint.py",
+      "bytes": 52,
+      "sha256": "099c285414da846c682441506c02a088ff23eeabfa940ec1d7a5dade0ddb4675"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/fixtures/generated-sources/botocore/handlers.py",
+      "member": "reviewed-helper/fixtures/generated-sources/botocore/handlers.py",
+      "bytes": 52,
+      "sha256": "e4e34f9e76c3d3f01b7927efb4ee4c241aa84e5ceb13bc4330a5ed76d5e563dd"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/fixtures/generated-sources/botocore/hooks.py",
+      "member": "reviewed-helper/fixtures/generated-sources/botocore/hooks.py",
+      "bytes": 49,
+      "sha256": "2b804230e87359cdc8e302c176f7ee721ac6a50aa3cc1b19ccdd9f6770b966ca"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/fixtures/generated-sources/botocore/httpchecksum.py",
+      "member": "reviewed-helper/fixtures/generated-sources/botocore/httpchecksum.py",
+      "bytes": 56,
+      "sha256": "03adcdf8cff9cba41e3b1353275938f4219306fb99d0e03c801cc82638fca433"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/fixtures/generated-sources/botocore/httpsession.py",
+      "member": "reviewed-helper/fixtures/generated-sources/botocore/httpsession.py",
+      "bytes": 55,
+      "sha256": "81ff17e15337ea884b3a72b1293c12527096d7c8950bfe1de94e193e3f8534ab"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/fixtures/generated-sources/botocore/model.py",
+      "member": "reviewed-helper/fixtures/generated-sources/botocore/model.py",
+      "bytes": 49,
+      "sha256": "316e427b48d0be2a9c5c762c33e3c46a89f9b350f1e2c69591620914b71ab9d1"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/fixtures/generated-sources/botocore/parsers.py",
+      "member": "reviewed-helper/fixtures/generated-sources/botocore/parsers.py",
+      "bytes": 51,
+      "sha256": "dede7028c27e67e210746a2931c1c6251ee52c5a49425d8e5ee9d956bd3a0ede"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/fixtures/generated-sources/botocore/response.py",
+      "member": "reviewed-helper/fixtures/generated-sources/botocore/response.py",
+      "bytes": 52,
+      "sha256": "da85778d9355d2fbb5e4e9902a13faf3fc16a40d0eac5c8f3699262660764a9e"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/fixtures/generated-sources/botocore/serialize.py",
+      "member": "reviewed-helper/fixtures/generated-sources/botocore/serialize.py",
+      "bytes": 53,
+      "sha256": "145b430d012452363a9f24e7b73403cb15968534c232bf40d02cb385febc470b"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/fixtures/generated-sources/botocore/session.py",
+      "member": "reviewed-helper/fixtures/generated-sources/botocore/session.py",
+      "bytes": 51,
+      "sha256": "f9df911991e041ae381b8fa0bb9414c29e593dd9e7fbefb824f2c5555ef8da6b"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/fixtures/generated-sources/botocore/signers.py",
+      "member": "reviewed-helper/fixtures/generated-sources/botocore/signers.py",
+      "bytes": 51,
+      "sha256": "43a57f2a2ebcd1ea34f66eab7f38ff88df052531c40659711448ff5bf57a0b3d"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/fixtures/generated-sources/botocore/utils.py",
+      "member": "reviewed-helper/fixtures/generated-sources/botocore/utils.py",
+      "bytes": 49,
+      "sha256": "a75361955cf109cb909874c50886a6c034cc74b8832231d6f7c87fa8993cb6a5"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/fixtures/generated-sources/botocore/validate.py",
+      "member": "reviewed-helper/fixtures/generated-sources/botocore/validate.py",
+      "bytes": 52,
+      "sha256": "c1750b9d6d186501a0f5337541b25317cb54fb5c3e694ac31231d82da58df2e9"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/fixtures/generated-sources/http/client.py",
+      "member": "reviewed-helper/fixtures/generated-sources/http/client.py",
+      "bytes": 46,
+      "sha256": "45ce39a6e3f8883bb23ceb56a41b216478e6f9b5fbeb6ada419c6c6ce3354800"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/fixtures/generated-sources/json/encoder.py",
+      "member": "reviewed-helper/fixtures/generated-sources/json/encoder.py",
+      "bytes": 47,
+      "sha256": "01431ddb4d8d92849ba814f2b7164baccfebb3a59451a8ecd2b01ce90fd6512e"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/fixtures/generated-sources/socket.py",
+      "member": "reviewed-helper/fixtures/generated-sources/socket.py",
+      "bytes": 41,
+      "sha256": "a4a99a93653938a83b862cab57b4e4243f0d826f13e324f64e553703d8135d1f"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/fixtures/generated-sources/ssl.py",
+      "member": "reviewed-helper/fixtures/generated-sources/ssl.py",
+      "bytes": 38,
+      "sha256": "7bb9152f6d1cc9119c071cd2ec6e2b0331804900adcbef3c19a683ce14e698c8"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/fixtures/generated-sources/urllib/request.py",
+      "member": "reviewed-helper/fixtures/generated-sources/urllib/request.py",
+      "bytes": 49,
+      "sha256": "f9c7f117dd651e66cf63c9be4e4903522854765382b85784073933c0f325c50e"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/fixtures/generated-sources/urllib3/_request_methods.py",
+      "member": "reviewed-helper/fixtures/generated-sources/urllib3/_request_methods.py",
+      "bytes": 59,
+      "sha256": "bdd488d9aa17612702ed413b0475f3168f4104f463d758c1b1c17fe6fa693680"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/fixtures/generated-sources/urllib3/connection.py",
+      "member": "reviewed-helper/fixtures/generated-sources/urllib3/connection.py",
+      "bytes": 53,
+      "sha256": "c7252a3bdf224ffbfdfbf8dae8a5d1ebc0e8190e87824069326227357b0b6d9b"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/fixtures/generated-sources/urllib3/connectionpool.py",
+      "member": "reviewed-helper/fixtures/generated-sources/urllib3/connectionpool.py",
+      "bytes": 57,
+      "sha256": "5e6c67cc343d5ff8e753b84916677de37b2e95a0efa92f798c0325c181320b46"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/fixtures/generated-sources/urllib3/poolmanager.py",
+      "member": "reviewed-helper/fixtures/generated-sources/urllib3/poolmanager.py",
+      "bytes": 54,
+      "sha256": "074e19eb46d0dddb755dbb457271ae24893d556f9dcacdb75f41f5294bbebd66"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/fixtures/generated-sources/urllib3/response.py",
+      "member": "reviewed-helper/fixtures/generated-sources/urllib3/response.py",
+      "bytes": 51,
+      "sha256": "630531e84197083fdff0036f64ea6d069b2e682da9002b63b573aa1654de7a16"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/fixtures/generated-sources/urllib3/util/request.py",
+      "member": "reviewed-helper/fixtures/generated-sources/urllib3/util/request.py",
+      "bytes": 55,
+      "sha256": "462030fce5f8084106fcc8a22200bbe2d0bbc55688dfaf227a1c1b15c192308e"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/fixtures/generated-sources/urllib3/util/retry.py",
+      "member": "reviewed-helper/fixtures/generated-sources/urllib3/util/retry.py",
+      "bytes": 53,
+      "sha256": "c96c9f587be670365fbbe9074eab5ab0068c1fba8e879c98884683d20868aec9"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/fixtures/generated-sources/urllib3/util/ssl_.py",
+      "member": "reviewed-helper/fixtures/generated-sources/urllib3/util/ssl_.py",
+      "bytes": 52,
+      "sha256": "48991d0bc19819c6a0a196062cb39559777a2198100e0dc80040435b7cc55092"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/fixtures/generated-sources/urllib3/util/timeout.py",
+      "member": "reviewed-helper/fixtures/generated-sources/urllib3/util/timeout.py",
+      "bytes": 55,
+      "sha256": "4f3118bc2af30b8b10d36288dd71e4e7771cbe1beb8e7026aa4fda1d38d12fd9"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/fixtures/generated-sources/urllib3/util/url.py",
+      "member": "reviewed-helper/fixtures/generated-sources/urllib3/util/url.py",
+      "bytes": 51,
+      "sha256": "76cf13f33ad3807a23d6fd59101b27347daa27f6d3428fbcbb67cff9f0e906e0"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/fixtures/metadata.json",
+      "member": "reviewed-helper/fixtures/metadata.json",
+      "bytes": 10041,
+      "sha256": "81190e2038ba02e3c364be33161da3fff999e2e0aa348df8746ae8a5f7d1769f"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/fixtures/owned.json",
+      "member": "reviewed-helper/fixtures/owned.json",
+      "bytes": 307,
+      "sha256": "46afe4c2e16c3e4b3222e3e50e3d4e94f67ee37e17ab7e01cf14db08494b6992"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/fixtures/packet.json",
+      "member": "reviewed-helper/fixtures/packet.json",
+      "bytes": 28387,
+      "sha256": "3f3193aecc1791b49fb79bcc1766542b5d82f01279e7697416553cd6dced7bef"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/freeze.py",
+      "member": "reviewed-helper/freeze.py",
+      "bytes": 4390,
+      "sha256": "b838fe73bcf00476e3e7e84698fbb1a7ffc81d8e408c8c12afd569155197689e"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/green-attempt-1.exit",
+      "member": "reviewed-helper/green-attempt-1.exit",
+      "bytes": 2,
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/green-attempt-1.log",
+      "member": "reviewed-helper/green-attempt-1.log",
+      "bytes": 4290,
+      "sha256": "acca930836cda2757dbb92a91e11b3d8ec04e1bdb5e380662a2ae0a4a50b0783"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/green-attempt-2.exit",
+      "member": "reviewed-helper/green-attempt-2.exit",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/green-attempt-2.log",
+      "member": "reviewed-helper/green-attempt-2.log",
+      "bytes": 2697,
+      "sha256": "ebbb3866e8b082831e9ee666aa534fc2d7bbebffb6aa75ec99192c4c26b6b7ea"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/green-attempt-3.exit",
+      "member": "reviewed-helper/green-attempt-3.exit",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/green-attempt-3.log",
+      "member": "reviewed-helper/green-attempt-3.log",
+      "bytes": 3607,
+      "sha256": "6259e6ab1d4d2d918c235fae97c07f4c53e23ae935a7db6631813a1298442b86"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/green-attempt-4.exit",
+      "member": "reviewed-helper/green-attempt-4.exit",
+      "bytes": 2,
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/green-attempt-4.log",
+      "member": "reviewed-helper/green-attempt-4.log",
+      "bytes": 5050,
+      "sha256": "9df8aa254f19542e5dec92d5047017af0d14f189ff63f06455a89e78c4dcd2c0"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/green-attempt-5.exit",
+      "member": "reviewed-helper/green-attempt-5.exit",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/green-attempt-5.log",
+      "member": "reviewed-helper/green-attempt-5.log",
+      "bytes": 4167,
+      "sha256": "dc36b1fa38010f5f48c838d026428e6147eb894e6fa74b96dd7da0dc7a63bb00"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/green-attempt-6.exit",
+      "member": "reviewed-helper/green-attempt-6.exit",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/green-attempt-6.log",
+      "member": "reviewed-helper/green-attempt-6.log",
+      "bytes": 4421,
+      "sha256": "597212583ce43603c97fff8889038ce5a281286b1b13eea8720f550881a2fd42"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/green.exit",
+      "member": "reviewed-helper/green.exit",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/green.log",
+      "member": "reviewed-helper/green.log",
+      "bytes": 4421,
+      "sha256": "e10a6d73dcddb16f4484270b182542d9e36331ea815d6456202bb93a4758fa84"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/inspect_sdk.py",
+      "member": "reviewed-helper/inspect_sdk.py",
+      "bytes": 27557,
+      "sha256": "3041afb0a4e347fba039d3f20d22c4679a5b3805399bdff6ef5c951d9fa85931"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/offline-freeze-check.log",
+      "member": "reviewed-helper/offline-freeze-check.log",
+      "bytes": 207,
+      "sha256": "ccd9357207dac2eeb6a6be2514c1a68e5dc3f9d0b616edcd2a08e1c1de6d1fd5"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/packet-accounting.log",
+      "member": "reviewed-helper/packet-accounting.log",
+      "bytes": 3554,
+      "sha256": "83b3142b5702f9b544ac22c4094dddaeb7fa6c95b60540e9b96f8cb38e484239"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/packet.py",
+      "member": "reviewed-helper/packet.py",
+      "bytes": 5855,
+      "sha256": "b8fcb7333efae211447c51f6855502ed49ee263988ccf0153f5054a10aae3093"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/red-hardening.exit",
+      "member": "reviewed-helper/red-hardening.exit",
+      "bytes": 2,
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/red-hardening.log",
+      "member": "reviewed-helper/red-hardening.log",
+      "bytes": 8149,
+      "sha256": "5de940736f3ac663d51bd16912971400e05990784393cb928c0a691adeaaaa2b"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/red-model-budget.exit",
+      "member": "reviewed-helper/red-model-budget.exit",
+      "bytes": 2,
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/red-model-budget.log",
+      "member": "reviewed-helper/red-model-budget.log",
+      "bytes": 5587,
+      "sha256": "b8122c797a93bb02e8c74fb6b05f83e04d4af99082813c62660a53d88bfa3755"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/red.exit",
+      "member": "reviewed-helper/red.exit",
+      "bytes": 2,
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/red.log",
+      "member": "reviewed-helper/red.log",
+      "bytes": 26892,
+      "sha256": "e8d4c69b8de71f1f0cdfa46c1a70bed7278a4cc70ac5f921ce0b630b2c6a6f1e"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/round1-green-attempt1.exit",
+      "member": "reviewed-helper/round1-green-attempt1.exit",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/round1-green-attempt1.log",
+      "member": "reviewed-helper/round1-green-attempt1.log",
+      "bytes": 5899,
+      "sha256": "5c3d75e6b0d9913d0d05385f76678343f93f585369cd27499d83d954b4d500ce"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/round1-green.exit",
+      "member": "reviewed-helper/round1-green.exit",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/round1-green.log",
+      "member": "reviewed-helper/round1-green.log",
+      "bytes": 5899,
+      "sha256": "6e67b3f626c5b2fc5e7a22acfcc44d3454c62843e56f6ba880c5962b59a6b695"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/round1-offline-freeze-check.log",
+      "member": "reviewed-helper/round1-offline-freeze-check.log",
+      "bytes": 351,
+      "sha256": "1c80e68fbe2389456b014d70f30354a21684c86c9dae6a57551feba3c31b506f"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/round1-packet-accounting.log",
+      "member": "reviewed-helper/round1-packet-accounting.log",
+      "bytes": 3836,
+      "sha256": "93649bb2832132c7879722c4e17908490b0f86273a8c69b716270c9a0db30396"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/round1-preservation-proof.json",
+      "member": "reviewed-helper/round1-preservation-proof.json",
+      "bytes": 10529,
+      "sha256": "98ae3100b1e9e597df4d408c16282e59c138d70c7adf5c5f748911f30764a346"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/round1-red.exit",
+      "member": "reviewed-helper/round1-red.exit",
+      "bytes": 2,
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/round1-red.log",
+      "member": "reviewed-helper/round1-red.log",
+      "bytes": 13302,
+      "sha256": "2dd60317d101ce7ee5d1711af8f85f425bc255c44ac566ef11fab60c3c4d4294"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/test-command.txt",
+      "member": "reviewed-helper/test-command.txt",
+      "bytes": 484,
+      "sha256": "7f0997933abe4143d6eff1deb6454642c4b74c6bbcb2836b56bf07aa83996f0d"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/test_hardening.py",
+      "member": "reviewed-helper/test_hardening.py",
+      "bytes": 7244,
+      "sha256": "c0461dc262483459bb95dfe534f41cb3c117ee858062453d66ddf982dc023887"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/test_inspection.py",
+      "member": "reviewed-helper/test_inspection.py",
+      "bytes": 12879,
+      "sha256": "f1946cc5bd5d99cad25609eb0ad7ce792a85805a57fa68e7abc32883e12dab10"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/test_runtime.py",
+      "member": "reviewed-helper/test_runtime.py",
+      "bytes": 9692,
+      "sha256": "f2b416864aafabca719bf594fd476630e31388d5322d35cc00ae424ff63c9742"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/verify.py",
+      "member": "reviewed-helper/verify.py",
+      "bytes": 13360,
+      "sha256": "e5025cdf3e9c9388a1fc9bc8cca5fd878e89aa87b3a7d6b8ec258e4112ddc854"
+    },
+    {
+      "source": "/workspace/scratch/sdk-inspection-live-7c9c3e3d216f43a0aed0e1cb39ca8544/actual-negative-cleanup.json",
+      "member": "preparation-negative/actual-negative-cleanup.json",
+      "bytes": 5770,
+      "sha256": "1c8ca95455cabf5511392204a22e12c421b2faff8a97dabc3fcbf952ece0a646"
+    },
+    {
+      "source": "/workspace/scratch/sdk-inspection-live-7c9c3e3d216f43a0aed0e1cb39ca8544/actual-packet.json",
+      "member": "preparation-negative/actual-packet.json",
+      "bytes": 16293,
+      "sha256": "a882d0f045d29b58a190e10a0f1d590872cd86a55edc389cf25c8db063c6abb4"
+    },
+    {
+      "source": "/workspace/scratch/sdk-inspection-live-7c9c3e3d216f43a0aed0e1cb39ca8544/actual-preflight-corrected.json",
+      "member": "preparation-negative/actual-preflight-corrected.json",
+      "bytes": 5002,
+      "sha256": "ccc312954840de68ddda2f9eac14ace048a97ed47ed9905c31bf50c8df347367"
+    },
+    {
+      "source": "/workspace/scratch/sdk-inspection-live-7c9c3e3d216f43a0aed0e1cb39ca8544/actual-preflight.json",
+      "member": "preparation-negative/actual-preflight.json",
+      "bytes": 258,
+      "sha256": "cd2a8067135f42c3ecfc2575dce081c2c2a34cc4688ecaf0d4d16546a0611df1"
+    },
+    {
+      "source": "/workspace/scratch/sdk-inspection-live-7c9c3e3d216f43a0aed0e1cb39ca8544/actual-project-recovery.json",
+      "member": "preparation-negative/actual-project-recovery.json",
+      "bytes": 302,
+      "sha256": "f8258bdb6b5c1009b2d664a62eb3e328b3a78836ca72ffbd6af878a3408aa9bd"
+    },
+    {
+      "source": "/workspace/scratch/sdk-inspection-live-7c9c3e3d216f43a0aed0e1cb39ca8544/actual-provisioning.json",
+      "member": "preparation-negative/actual-provisioning.json",
+      "bytes": 20534,
+      "sha256": "ede7a9c72749fdc0ac164501b4b221d03e0f270ceaf343c2ed17efd741dfe752"
+    },
+    {
+      "source": "/workspace/scratch/sdk-inspection-live-7c9c3e3d216f43a0aed0e1cb39ca8544/ledger.json",
+      "member": "preparation-negative/ledger.json",
+      "bytes": 2607,
+      "sha256": "fb69ea18543e43529fa61f6da1931216eef1f592fc3f1fde7857165458f6adbb"
+    },
+    {
+      "source": "/workspace/scratch/sdk-inspection-live-7c9c3e3d216f43a0aed0e1cb39ca8544/owned-template.json",
+      "member": "preparation-negative/owned-template.json",
+      "bytes": 344,
+      "sha256": "c2eb5e9c9aebd81a32e6191cdb033a6ec6b9f1de4961cfcd941a452a130db9f5"
+    },
+    {
+      "source": "/workspace/scratch/sdk-inspection-live-7c9c3e3d216f43a0aed0e1cb39ca8544/owned.json",
+      "member": "preparation-negative/owned.json",
+      "bytes": 378,
+      "sha256": "4f7abedf0fc300d5d30be64e90d10fd37f7a902a804c01d7e9a49863681fd06b"
+    },
+    {
+      "source": "/workspace/scratch/sdk-inspection-live-7c9c3e3d216f43a0aed0e1cb39ca8544/closure-refs.json",
+      "member": "preparation-negative/closure-refs.json",
+      "bytes": 1490,
+      "sha256": "a2cf124ef961767b05470785f5ecc4ba0365decf1f5cebcb33cf6a86458954e7"
+    },
+    {
+      "source": "/workspace/scratch/sdk-inspection-live-402208ae9464427cae31a61ff81b07c5/actual-cleanup.json",
+      "member": "runtime-negative/actual-cleanup.json",
+      "bytes": 5915,
+      "sha256": "0b970e610e08aaadbd3af8aabbf5e5af6413c1056ec03155aecad92bd6aefcb5"
+    },
+    {
+      "source": "/workspace/scratch/sdk-inspection-live-402208ae9464427cae31a61ff81b07c5/actual-packet.json",
+      "member": "runtime-negative/actual-packet.json",
+      "bytes": 16293,
+      "sha256": "97f6f6c8fec6ef12dd472a650348786ffed9e309fb5100a0de39f5eef39ce476"
+    },
+    {
+      "source": "/workspace/scratch/sdk-inspection-live-402208ae9464427cae31a61ff81b07c5/actual-preflight.json",
+      "member": "runtime-negative/actual-preflight.json",
+      "bytes": 4948,
+      "sha256": "cfc8d9e265b7afafb03be298682f64660276aa294be4c39cca775ede86b64057"
+    },
+    {
+      "source": "/workspace/scratch/sdk-inspection-live-402208ae9464427cae31a61ff81b07c5/actual-project-start.json",
+      "member": "runtime-negative/actual-project-start.json",
+      "bytes": 44119,
+      "sha256": "da822307f29cb910c8ebe926ef04ac4bb165e30df569f1cbad07a8384431c926"
+    },
+    {
+      "source": "/workspace/scratch/sdk-inspection-live-402208ae9464427cae31a61ff81b07c5/actual-setup.json",
+      "member": "runtime-negative/actual-setup.json",
+      "bytes": 5769,
+      "sha256": "61f92effa2acc31fcc0e93a926edc55f844d3bc5ac880b7e1450e06f6d968d00"
+    },
+    {
+      "source": "/workspace/scratch/sdk-inspection-live-402208ae9464427cae31a61ff81b07c5/describe-after.json",
+      "member": "runtime-negative/describe-after.json",
+      "bytes": 882,
+      "sha256": "2fce517ba754bea5597799b68e18c7daef8baa62a1a691df5eb3ae67ad75f454"
+    },
+    {
+      "source": "/workspace/scratch/sdk-inspection-live-402208ae9464427cae31a61ff81b07c5/describe-before.json",
+      "member": "runtime-negative/describe-before.json",
+      "bytes": 882,
+      "sha256": "aea27fcc421bb09911a8c5bc845181f6af5413cae01344e9ff12c6977e0fa4fe"
+    },
+    {
+      "source": "/workspace/scratch/sdk-inspection-live-402208ae9464427cae31a61ff81b07c5/expected.json",
+      "member": "runtime-negative/expected.json",
+      "bytes": 676,
+      "sha256": "4024a406e545471f209e2740cc21232ce4ccf9e77421e86f86972c828a36360f"
+    },
+    {
+      "source": "/workspace/scratch/sdk-inspection-live-402208ae9464427cae31a61ff81b07c5/ledger.json",
+      "member": "runtime-negative/ledger.json",
+      "bytes": 3323,
+      "sha256": "483db250379c0f8c2995c63419c8cc4049bb6894bafe5d741de8d0774adbcb91"
+    },
+    {
+      "source": "/workspace/scratch/sdk-inspection-live-402208ae9464427cae31a61ff81b07c5/log-read-receipts.json",
+      "member": "runtime-negative/log-read-receipts.json",
+      "bytes": 2189,
+      "sha256": "5a0d9fc50ced8e6f0ba535ce88a7d865f3fdd86057c25587ffbb3774e3dc7a1e"
+    },
+    {
+      "source": "/workspace/scratch/sdk-inspection-live-402208ae9464427cae31a61ff81b07c5/negative-verification.json",
+      "member": "runtime-negative/negative-verification.json",
+      "bytes": 899,
+      "sha256": "0f05c79289ca90949761d302b4d78b7f4a1b101aef2a3fbbbe73b5f72a764807"
+    },
+    {
+      "source": "/workspace/scratch/sdk-inspection-live-402208ae9464427cae31a61ff81b07c5/owned-template.json",
+      "member": "runtime-negative/owned-template.json",
+      "bytes": 344,
+      "sha256": "47b9f44871d091a16e8c07d8f0b02d7ae35ae80175d34cf3f0edd03ac3ed28c9"
+    },
+    {
+      "source": "/workspace/scratch/sdk-inspection-live-402208ae9464427cae31a61ff81b07c5/owned.json",
+      "member": "runtime-negative/owned.json",
+      "bytes": 378,
+      "sha256": "a1b885c33f4c2740746308829aeac882d874f05df36a0285d36b393ff25bc719"
+    },
+    {
+      "source": "/workspace/scratch/sdk-inspection-live-402208ae9464427cae31a61ff81b07c5/read-1-page-1.json",
+      "member": "runtime-negative/read-1-page-1.json",
+      "bytes": 20391,
+      "sha256": "caedab9b9c14489018a612a5b4b979fbf55e5dad5956eb5c33bd0d9c8f98ec08"
+    },
+    {
+      "source": "/workspace/scratch/sdk-inspection-live-402208ae9464427cae31a61ff81b07c5/read-1-page-2.json",
+      "member": "runtime-negative/read-1-page-2.json",
+      "bytes": 533,
+      "sha256": "e6ce49cdbd0377e675bc238cc84be8ad805e01e94a550ee92b840e9090b4e077"
+    },
+    {
+      "source": "/workspace/scratch/sdk-inspection-live-402208ae9464427cae31a61ff81b07c5/read-1-page-3.json",
+      "member": "runtime-negative/read-1-page-3.json",
+      "bytes": 533,
+      "sha256": "5476ed124522e71de48d03b5687985e3f98ceaab7a4fb89e59fe62afa9e300d8"
+    },
+    {
+      "source": "/workspace/scratch/sdk-inspection-live-402208ae9464427cae31a61ff81b07c5/read-2-page-1.json",
+      "member": "runtime-negative/read-2-page-1.json",
+      "bytes": 20391,
+      "sha256": "caedab9b9c14489018a612a5b4b979fbf55e5dad5956eb5c33bd0d9c8f98ec08"
+    },
+    {
+      "source": "/workspace/scratch/sdk-inspection-live-402208ae9464427cae31a61ff81b07c5/read-2-page-2.json",
+      "member": "runtime-negative/read-2-page-2.json",
+      "bytes": 533,
+      "sha256": "e6ce49cdbd0377e675bc238cc84be8ad805e01e94a550ee92b840e9090b4e077"
+    },
+    {
+      "source": "/workspace/scratch/sdk-inspection-live-402208ae9464427cae31a61ff81b07c5/read-2-page-3.json",
+      "member": "runtime-negative/read-2-page-3.json",
+      "bytes": 533,
+      "sha256": "5476ed124522e71de48d03b5687985e3f98ceaab7a4fb89e59fe62afa9e300d8"
+    },
+    {
+      "source": "/workspace/scratch/sdk-inspection-live-402208ae9464427cae31a61ff81b07c5/status-01.json",
+      "member": "runtime-negative/status-01.json",
+      "bytes": 18891,
+      "sha256": "acb53fbda2e10d5506a15ef8b40e28cd005232bd348caef07de979c4640d965a"
+    },
+    {
+      "source": "/workspace/scratch/sdk-inspection-live-402208ae9464427cae31a61ff81b07c5/closure-refs.json",
+      "member": "runtime-negative/closure-refs.json",
+      "bytes": 3163,
+      "sha256": "fdf9fff7e38f78880e9526d9932e3b301f9c4a78cf7ddbd3ee16dc7bedb866ca"
+    },
+    {
+      "source": "/workspace/VRDex/.superpowers/sdd/managed-sdk-inspection/task-1-brief.md",
+      "member": "reviews/task-1-brief.md",
+      "bytes": 5068,
+      "sha256": "564d99c1b2c9c0dffdfe7c5a21e5a3b44352c763c19405bbf13e492d03471749"
+    },
+    {
+      "source": "/workspace/VRDex/.superpowers/sdd/managed-sdk-inspection/task-1-report.md",
+      "member": "reviews/task-1-report.md",
+      "bytes": 38932,
+      "sha256": "e38dd4350ccd8bbaacceb6d3ef240d5672a4e9b6e17be07cc7767e5acd5d373e"
+    },
+    {
+      "source": "/workspace/VRDex/.superpowers/sdd/managed-sdk-inspection/task-1-review.md",
+      "member": "reviews/task-1-review.md",
+      "bytes": 12600,
+      "sha256": "3e456a690ab6149d51045d0db9f397277ee4c7fb7cce770c6426d787bb61b306"
+    },
+    {
+      "source": "/workspace/VRDex/.superpowers/sdd/managed-sdk-inspection/task-1-round1-review.md",
+      "member": "reviews/task-1-round1-review.md",
+      "bytes": 7212,
+      "sha256": "65b5e7984e5f328ec0906cf174deb0f9dbf00752586b3161e395e5bb8b3bf429"
+    },
+    {
+      "source": "/workspace/VRDex/.superpowers/sdd/managed-sdk-inspection/root-rulings.md",
+      "member": "reviews/root-rulings.md",
+      "bytes": 6389,
+      "sha256": "9e65bc212eb5ad0069f9d4f86c57e9f0392fba2a62e225b616842498c86faeb0"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/inventory.json",
+      "member": "reviewed-helper/inventory.json",
+      "bytes": 11216,
+      "sha256": "887c89bded871804b11a1def0b291f1143ff03abc988b7a283944714be8d5674"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/round1-freeze.json",
+      "member": "reviewed-helper/round1-freeze.json",
+      "bytes": 1130,
+      "sha256": "43f347d1bf974b58cc7c558e54d3f85826b9ca89f8e646de491f32099854bab0"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/round1-scoped-fix.diff",
+      "member": "reviewed-helper/round1-scoped-fix.diff",
+      "bytes": 165709,
+      "sha256": "226ee911bce8904b43df0b03e553e927e90dfa71930325cd1c263c7555b7f4e3"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/full-new-files.diff",
+      "member": "reviewed-helper/full-new-files.diff",
+      "bytes": 327252,
+      "sha256": "f4586b50207d7c822e21c2d7913488661458c76bcd1f668f8753300ddc851b4d"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection-design.md",
+      "member": "design/managed-sdk-inspection-design.md",
+      "bytes": 16180,
+      "sha256": "5251e913aaf88bd9cfac0dc8c2e61c34c348fe890de4e3d69ed4fa124b80b0be"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection-design-review.md",
+      "member": "design/managed-sdk-inspection-design-review.md",
+      "bytes": 5136,
+      "sha256": "3fef7b7c0679c67bcb427a111fcb1a7da7ad7c5084774643ddbb3e3ac5b92972"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection-provisioning-followup.md",
+      "member": "design/managed-sdk-inspection-provisioning-followup.md",
+      "bytes": 4393,
+      "sha256": "ef3f9d17ec730fdc6c4d2be351add49b29c841c600ff376f7fd0781574232b51"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection-provisioning-followup-review.md",
+      "member": "design/managed-sdk-inspection-provisioning-followup-review.md",
+      "bytes": 5499,
+      "sha256": "3f28142c04295d76934f4fd3b274ccf6271ec96848c95586f2a3e344c9da7e93"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection-stream-observation-assessment.md",
+      "member": "design/managed-sdk-inspection-stream-observation-assessment.md",
+      "bytes": 7797,
+      "sha256": "37c191911bef41dff67a802a41f801b05009d3536b47dc57a53090352c969117"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/README.md",
+      "member": "original-helper/README.md",
+      "bytes": 16325,
+      "sha256": "4183520cabd5110722b281d5760de0390e06b4a3ba86527cea2aa93c58483fc9"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/fixtures/archive.base64",
+      "member": "original-helper/fixtures/archive.base64",
+      "bytes": 12657,
+      "sha256": "a891a8a3af23bd03a306414a46a1b27ae10912781542d48b6d062a2ed3ea7f42"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/fixtures/buildspec.yml",
+      "member": "original-helper/fixtures/buildspec.yml",
+      "bytes": 11535,
+      "sha256": "81206e9b4145e0842d7c904f2dd76d4af6cc99f3fcd5142d743bee291e05177e"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/fixtures/capture.json",
+      "member": "original-helper/fixtures/capture.json",
+      "bytes": 28760,
+      "sha256": "66de7c0a616cc50a0975621ee99f5c32729ab0b088e537bae6cc4233daf483b8"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/fixtures/example-result.json",
+      "member": "original-helper/fixtures/example-result.json",
+      "bytes": 458,
+      "sha256": "a69b8f5e5e5ce130bd59f4b0ae5168c4c4b54819920a3e349c9fc71562dd75b5"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/fixtures/expected.json",
+      "member": "original-helper/fixtures/expected.json",
+      "bytes": 269,
+      "sha256": "7980ac9edde2ecdae405dd77bfd32efd5b913abae51c3f8221d0f6b73ddfa49c"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/fixtures/generated-sources/base64.py",
+      "member": "original-helper/fixtures/generated-sources/base64.py",
+      "bytes": 41,
+      "sha256": "5ab82d0a76ef80ac9ba547415eb56f7fc7cfb30419c6dd4cacc3378212db0615"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/fixtures/generated-sources/boto3/session.py",
+      "member": "original-helper/fixtures/generated-sources/boto3/session.py",
+      "bytes": 48,
+      "sha256": "4fa7b9c745750cfab498aa412eabf8ee5c3187b7fb27e3c3cf5d59c260436e1e"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/fixtures/generated-sources/botocore/args.py",
+      "member": "original-helper/fixtures/generated-sources/botocore/args.py",
+      "bytes": 48,
+      "sha256": "c95eb386c54c394f875ae9e299f0888fe55dac9869262b0700bb78282fcb28a0"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/fixtures/generated-sources/botocore/auth.py",
+      "member": "original-helper/fixtures/generated-sources/botocore/auth.py",
+      "bytes": 48,
+      "sha256": "d851a4b2f9bd862e1b7cb7b36867ecdfa8270a6a040915e7586912fd8b50909c"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/fixtures/generated-sources/botocore/awsrequest.py",
+      "member": "original-helper/fixtures/generated-sources/botocore/awsrequest.py",
+      "bytes": 54,
+      "sha256": "e2791afe60836a85816b2846c822fd8c0397d4dec9fb445724cb91cfe7290402"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/fixtures/generated-sources/botocore/client.py",
+      "member": "original-helper/fixtures/generated-sources/botocore/client.py",
+      "bytes": 50,
+      "sha256": "5582fc3dcbe90b806d33345bdb8d33b16fbcc339490013fd9822ea190269de8d"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/fixtures/generated-sources/botocore/compat.py",
+      "member": "original-helper/fixtures/generated-sources/botocore/compat.py",
+      "bytes": 50,
+      "sha256": "b17f93d7d84ef33d5ccca4e2c0043819683bed8ea58a84932d428a8c8fd8c4d1"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/fixtures/generated-sources/botocore/compress.py",
+      "member": "original-helper/fixtures/generated-sources/botocore/compress.py",
+      "bytes": 52,
+      "sha256": "36c04ae4dd37c3dd5a3555da404870c7d7a36de4ed985d10a00895c2bf2a02d0"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/fixtures/generated-sources/botocore/config.py",
+      "member": "original-helper/fixtures/generated-sources/botocore/config.py",
+      "bytes": 50,
+      "sha256": "f8ce7224391c02472fd0125797b709babf96cb264841287e208c296458209b1b"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/fixtures/generated-sources/botocore/endpoint.py",
+      "member": "original-helper/fixtures/generated-sources/botocore/endpoint.py",
+      "bytes": 52,
+      "sha256": "099c285414da846c682441506c02a088ff23eeabfa940ec1d7a5dade0ddb4675"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/fixtures/generated-sources/botocore/handlers.py",
+      "member": "original-helper/fixtures/generated-sources/botocore/handlers.py",
+      "bytes": 52,
+      "sha256": "e4e34f9e76c3d3f01b7927efb4ee4c241aa84e5ceb13bc4330a5ed76d5e563dd"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/fixtures/generated-sources/botocore/hooks.py",
+      "member": "original-helper/fixtures/generated-sources/botocore/hooks.py",
+      "bytes": 49,
+      "sha256": "2b804230e87359cdc8e302c176f7ee721ac6a50aa3cc1b19ccdd9f6770b966ca"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/fixtures/generated-sources/botocore/httpchecksum.py",
+      "member": "original-helper/fixtures/generated-sources/botocore/httpchecksum.py",
+      "bytes": 56,
+      "sha256": "03adcdf8cff9cba41e3b1353275938f4219306fb99d0e03c801cc82638fca433"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/fixtures/generated-sources/botocore/httpsession.py",
+      "member": "original-helper/fixtures/generated-sources/botocore/httpsession.py",
+      "bytes": 55,
+      "sha256": "81ff17e15337ea884b3a72b1293c12527096d7c8950bfe1de94e193e3f8534ab"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/fixtures/generated-sources/botocore/model.py",
+      "member": "original-helper/fixtures/generated-sources/botocore/model.py",
+      "bytes": 49,
+      "sha256": "316e427b48d0be2a9c5c762c33e3c46a89f9b350f1e2c69591620914b71ab9d1"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/fixtures/generated-sources/botocore/parsers.py",
+      "member": "original-helper/fixtures/generated-sources/botocore/parsers.py",
+      "bytes": 51,
+      "sha256": "dede7028c27e67e210746a2931c1c6251ee52c5a49425d8e5ee9d956bd3a0ede"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/fixtures/generated-sources/botocore/response.py",
+      "member": "original-helper/fixtures/generated-sources/botocore/response.py",
+      "bytes": 52,
+      "sha256": "da85778d9355d2fbb5e4e9902a13faf3fc16a40d0eac5c8f3699262660764a9e"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/fixtures/generated-sources/botocore/serialize.py",
+      "member": "original-helper/fixtures/generated-sources/botocore/serialize.py",
+      "bytes": 53,
+      "sha256": "145b430d012452363a9f24e7b73403cb15968534c232bf40d02cb385febc470b"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/fixtures/generated-sources/botocore/session.py",
+      "member": "original-helper/fixtures/generated-sources/botocore/session.py",
+      "bytes": 51,
+      "sha256": "f9df911991e041ae381b8fa0bb9414c29e593dd9e7fbefb824f2c5555ef8da6b"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/fixtures/generated-sources/botocore/signers.py",
+      "member": "original-helper/fixtures/generated-sources/botocore/signers.py",
+      "bytes": 51,
+      "sha256": "43a57f2a2ebcd1ea34f66eab7f38ff88df052531c40659711448ff5bf57a0b3d"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/fixtures/generated-sources/botocore/utils.py",
+      "member": "original-helper/fixtures/generated-sources/botocore/utils.py",
+      "bytes": 49,
+      "sha256": "a75361955cf109cb909874c50886a6c034cc74b8832231d6f7c87fa8993cb6a5"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/fixtures/generated-sources/botocore/validate.py",
+      "member": "original-helper/fixtures/generated-sources/botocore/validate.py",
+      "bytes": 52,
+      "sha256": "c1750b9d6d186501a0f5337541b25317cb54fb5c3e694ac31231d82da58df2e9"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/fixtures/generated-sources/http/client.py",
+      "member": "original-helper/fixtures/generated-sources/http/client.py",
+      "bytes": 46,
+      "sha256": "45ce39a6e3f8883bb23ceb56a41b216478e6f9b5fbeb6ada419c6c6ce3354800"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/fixtures/generated-sources/json/encoder.py",
+      "member": "original-helper/fixtures/generated-sources/json/encoder.py",
+      "bytes": 47,
+      "sha256": "01431ddb4d8d92849ba814f2b7164baccfebb3a59451a8ecd2b01ce90fd6512e"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/fixtures/generated-sources/socket.py",
+      "member": "original-helper/fixtures/generated-sources/socket.py",
+      "bytes": 41,
+      "sha256": "a4a99a93653938a83b862cab57b4e4243f0d826f13e324f64e553703d8135d1f"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/fixtures/generated-sources/ssl.py",
+      "member": "original-helper/fixtures/generated-sources/ssl.py",
+      "bytes": 38,
+      "sha256": "7bb9152f6d1cc9119c071cd2ec6e2b0331804900adcbef3c19a683ce14e698c8"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/fixtures/generated-sources/urllib/request.py",
+      "member": "original-helper/fixtures/generated-sources/urllib/request.py",
+      "bytes": 49,
+      "sha256": "f9c7f117dd651e66cf63c9be4e4903522854765382b85784073933c0f325c50e"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/fixtures/generated-sources/urllib3/_request_methods.py",
+      "member": "original-helper/fixtures/generated-sources/urllib3/_request_methods.py",
+      "bytes": 59,
+      "sha256": "bdd488d9aa17612702ed413b0475f3168f4104f463d758c1b1c17fe6fa693680"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/fixtures/generated-sources/urllib3/connection.py",
+      "member": "original-helper/fixtures/generated-sources/urllib3/connection.py",
+      "bytes": 53,
+      "sha256": "c7252a3bdf224ffbfdfbf8dae8a5d1ebc0e8190e87824069326227357b0b6d9b"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/fixtures/generated-sources/urllib3/connectionpool.py",
+      "member": "original-helper/fixtures/generated-sources/urllib3/connectionpool.py",
+      "bytes": 57,
+      "sha256": "5e6c67cc343d5ff8e753b84916677de37b2e95a0efa92f798c0325c181320b46"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/fixtures/generated-sources/urllib3/poolmanager.py",
+      "member": "original-helper/fixtures/generated-sources/urllib3/poolmanager.py",
+      "bytes": 54,
+      "sha256": "074e19eb46d0dddb755dbb457271ae24893d556f9dcacdb75f41f5294bbebd66"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/fixtures/generated-sources/urllib3/response.py",
+      "member": "original-helper/fixtures/generated-sources/urllib3/response.py",
+      "bytes": 51,
+      "sha256": "630531e84197083fdff0036f64ea6d069b2e682da9002b63b573aa1654de7a16"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/fixtures/generated-sources/urllib3/util/request.py",
+      "member": "original-helper/fixtures/generated-sources/urllib3/util/request.py",
+      "bytes": 55,
+      "sha256": "462030fce5f8084106fcc8a22200bbe2d0bbc55688dfaf227a1c1b15c192308e"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/fixtures/generated-sources/urllib3/util/retry.py",
+      "member": "original-helper/fixtures/generated-sources/urllib3/util/retry.py",
+      "bytes": 53,
+      "sha256": "c96c9f587be670365fbbe9074eab5ab0068c1fba8e879c98884683d20868aec9"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/fixtures/generated-sources/urllib3/util/ssl_.py",
+      "member": "original-helper/fixtures/generated-sources/urllib3/util/ssl_.py",
+      "bytes": 52,
+      "sha256": "48991d0bc19819c6a0a196062cb39559777a2198100e0dc80040435b7cc55092"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/fixtures/generated-sources/urllib3/util/timeout.py",
+      "member": "original-helper/fixtures/generated-sources/urllib3/util/timeout.py",
+      "bytes": 55,
+      "sha256": "4f3118bc2af30b8b10d36288dd71e4e7771cbe1beb8e7026aa4fda1d38d12fd9"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/fixtures/generated-sources/urllib3/util/url.py",
+      "member": "original-helper/fixtures/generated-sources/urllib3/util/url.py",
+      "bytes": 51,
+      "sha256": "76cf13f33ad3807a23d6fd59101b27347daa27f6d3428fbcbb67cff9f0e906e0"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/fixtures/metadata.json",
+      "member": "original-helper/fixtures/metadata.json",
+      "bytes": 10041,
+      "sha256": "81190e2038ba02e3c364be33161da3fff999e2e0aa348df8746ae8a5f7d1769f"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/fixtures/owned.json",
+      "member": "original-helper/fixtures/owned.json",
+      "bytes": 307,
+      "sha256": "46afe4c2e16c3e4b3222e3e50e3d4e94f67ee37e17ab7e01cf14db08494b6992"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/fixtures/packet.json",
+      "member": "original-helper/fixtures/packet.json",
+      "bytes": 26940,
+      "sha256": "03d3451fe7cb92f526abb2b8b7d2214629261d12dcce850fb869f404a2ef0d75"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/freeze.py",
+      "member": "original-helper/freeze.py",
+      "bytes": 4251,
+      "sha256": "97a93c1b9741c48107137f7a2895f381c274c2290e4b14297c2f3f7197802076"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/green-attempt-1.exit",
+      "member": "original-helper/green-attempt-1.exit",
+      "bytes": 2,
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/green-attempt-1.log",
+      "member": "original-helper/green-attempt-1.log",
+      "bytes": 4290,
+      "sha256": "acca930836cda2757dbb92a91e11b3d8ec04e1bdb5e380662a2ae0a4a50b0783"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/green-attempt-2.exit",
+      "member": "original-helper/green-attempt-2.exit",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/green-attempt-2.log",
+      "member": "original-helper/green-attempt-2.log",
+      "bytes": 2697,
+      "sha256": "ebbb3866e8b082831e9ee666aa534fc2d7bbebffb6aa75ec99192c4c26b6b7ea"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/green-attempt-3.exit",
+      "member": "original-helper/green-attempt-3.exit",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/green-attempt-3.log",
+      "member": "original-helper/green-attempt-3.log",
+      "bytes": 3607,
+      "sha256": "6259e6ab1d4d2d918c235fae97c07f4c53e23ae935a7db6631813a1298442b86"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/green-attempt-4.exit",
+      "member": "original-helper/green-attempt-4.exit",
+      "bytes": 2,
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/green-attempt-4.log",
+      "member": "original-helper/green-attempt-4.log",
+      "bytes": 5050,
+      "sha256": "9df8aa254f19542e5dec92d5047017af0d14f189ff63f06455a89e78c4dcd2c0"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/green-attempt-5.exit",
+      "member": "original-helper/green-attempt-5.exit",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/green-attempt-5.log",
+      "member": "original-helper/green-attempt-5.log",
+      "bytes": 4167,
+      "sha256": "dc36b1fa38010f5f48c838d026428e6147eb894e6fa74b96dd7da0dc7a63bb00"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/green-attempt-6.exit",
+      "member": "original-helper/green-attempt-6.exit",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/green-attempt-6.log",
+      "member": "original-helper/green-attempt-6.log",
+      "bytes": 4421,
+      "sha256": "597212583ce43603c97fff8889038ce5a281286b1b13eea8720f550881a2fd42"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/green.exit",
+      "member": "original-helper/green.exit",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/green.log",
+      "member": "original-helper/green.log",
+      "bytes": 4421,
+      "sha256": "e10a6d73dcddb16f4484270b182542d9e36331ea815d6456202bb93a4758fa84"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/inspect_sdk.py",
+      "member": "original-helper/inspect_sdk.py",
+      "bytes": 25583,
+      "sha256": "c8c48bca85972b414623cf61a1af7ec09f83996b43ac42e8b15e33784c5f1691"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/offline-freeze-check.log",
+      "member": "original-helper/offline-freeze-check.log",
+      "bytes": 207,
+      "sha256": "ccd9357207dac2eeb6a6be2514c1a68e5dc3f9d0b616edcd2a08e1c1de6d1fd5"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/packet-accounting.log",
+      "member": "original-helper/packet-accounting.log",
+      "bytes": 3554,
+      "sha256": "83b3142b5702f9b544ac22c4094dddaeb7fa6c95b60540e9b96f8cb38e484239"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/packet.py",
+      "member": "original-helper/packet.py",
+      "bytes": 5681,
+      "sha256": "3858e85dd1546790247bb15cc96a03aaa035b850f672f65e45ed1ddbea7b49ab"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/red-hardening.exit",
+      "member": "original-helper/red-hardening.exit",
+      "bytes": 2,
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/red-hardening.log",
+      "member": "original-helper/red-hardening.log",
+      "bytes": 8149,
+      "sha256": "5de940736f3ac663d51bd16912971400e05990784393cb928c0a691adeaaaa2b"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/red-model-budget.exit",
+      "member": "original-helper/red-model-budget.exit",
+      "bytes": 2,
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/red-model-budget.log",
+      "member": "original-helper/red-model-budget.log",
+      "bytes": 5587,
+      "sha256": "b8122c797a93bb02e8c74fb6b05f83e04d4af99082813c62660a53d88bfa3755"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/red.exit",
+      "member": "original-helper/red.exit",
+      "bytes": 2,
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/red.log",
+      "member": "original-helper/red.log",
+      "bytes": 26892,
+      "sha256": "e8d4c69b8de71f1f0cdfa46c1a70bed7278a4cc70ac5f921ce0b630b2c6a6f1e"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/test-command.txt",
+      "member": "original-helper/test-command.txt",
+      "bytes": 212,
+      "sha256": "2a0b9744b798126328e9570c3248c85c64cc79ff958dab29aeba660c6824ff1b"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/test_hardening.py",
+      "member": "original-helper/test_hardening.py",
+      "bytes": 4673,
+      "sha256": "481a18b1cf8b06367be80c7d2aab26908714976d897fb543aebf5a8ada999464"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/test_inspection.py",
+      "member": "original-helper/test_inspection.py",
+      "bytes": 12188,
+      "sha256": "79aa28e6793a9bdb90d6b1aab7885165f5edf96a2e5eeb0c34b77c10741da9a3"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/test_runtime.py",
+      "member": "original-helper/test_runtime.py",
+      "bytes": 6176,
+      "sha256": "c5daf0cb1e7d803ab61f5a710859615a8f7d485bb2446480caaec93dcc1e8955"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/verify.py",
+      "member": "original-helper/verify.py",
+      "bytes": 13360,
+      "sha256": "e5025cdf3e9c9388a1fc9bc8cca5fd878e89aa87b3a7d6b8ec258e4112ddc854"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/inventory.json",
+      "member": "original-helper/inventory.json",
+      "bytes": 10058,
+      "sha256": "a35a610d23023d24572706588e69e1ea35055168a9ee639f0d20e7ddafde9831"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/full-new-files.diff",
+      "member": "original-helper/full-new-files.diff",
+      "bytes": 271759,
+      "sha256": "65d1ce171837dba6bd3f3dc31a48e7e00e3fed2f657691191ab9d6f5c7f1e57f"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/freeze-summary.json",
+      "member": "original-helper/freeze-summary.json",
+      "bytes": 383,
+      "sha256": "540238ee72117661f3e1bb30b6ee3aadf76cf181c04cac1d639df1489e5eb5ea"
+    },
+    {
+      "source": "/workspace/scratch/managed-sdk-inspection/preserved-round0/task-1-report.md",
+      "member": "original-helper/task-1-report.md",
+      "bytes": 11709,
+      "sha256": "44997ed57197a22387eb019dd221292208f634523a95544f090dd37ae13e2872"
+    }
+  ],
+  "screening": {
+    "patterns": [
+      "private-key",
+      "aws-access-key",
+      "github-token",
+      "signed-url"
+    ],
+    "findings": [],
+    "preservedSubjects": 80
+  },
+  "exclusions": [
+    "No real SDK archive exists or is claimed",
+    "No credentials/env/image/native bodies or arbitrary snapshots",
+    "Future unreviewed capture amendment/implementation excluded"
+  ],
+  "limitations": [
+    "53 generated tests and scoped review pass are local evidence only",
+    "First preparation ended without project/build; second build yielded model_shape negative, zero archive",
+    "Original verifier stream_observation rejection and later metadata-lag assessment remain distinct",
+    "Both temporary namespaces closed; actual compute estimate0.005USD, not an invoice",
+    "SDK support/image/native/capacity/production admission remain open"
+  ]
+}

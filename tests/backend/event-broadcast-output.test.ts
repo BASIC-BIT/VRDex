@@ -1,5 +1,4 @@
-import { resolveSyntheticAllocation } from "../fixtures/event-capacity.mjs";
-import { allocatedSession } from '../scripts/_event-allocation-fixture.mjs';
+import { allocatedSession, fixtureCapacityResolver } from '../scripts/_event-allocation-fixture.mjs';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { spawnSync } from 'node:child_process';
@@ -152,7 +151,7 @@ test('disabled optional destinations are never started and bridge binds each ena
     await outputs.stop();
     const { taskDefinitionFor } = await import('../../scripts/event-media-ecs-bridge.mjs');
     const command = { commandId: 'c', eventId: 'e', program: { programId: 'p' }, session: allocatedSession({sessionId:'s',primary:'main',optional:'t'}), output: { outputId: 'main', credentialRef: 'ref-main', playbackLinks: [] }, optionalOutputs: [{ outputId: 't', credentialRef: 'ref-twitch' }] };
-    const definition = taskDefinitionFor(command, { baseEnvironment: {}, secretRefMap: { 'ref-main': 'arn:main', 'ref-twitch': 'arn:twitch' }, outputSecretEnvName: 'VRDEX_EVENT_MEDIA_OUTPUT_INGEST_SECRET_JSON', workerTokenSecretArn: 'arn:token' }, resolveSyntheticAllocation);
+    const definition = taskDefinitionFor(command, { baseEnvironment: {}, secretRefMap: { 'ref-main': 'arn:main', 'ref-twitch': 'arn:twitch' }, outputSecretEnvName: 'VRDEX_EVENT_MEDIA_OUTPUT_INGEST_SECRET_JSON', workerTokenSecretArn: 'arn:token' }, fixtureCapacityResolver);
     const container = definition.containerDefinitions[0];
     assert.ok(!container.secrets.some((s: any) => s.valueFrom === 'arn:twitch'));
     const bindings = JSON.parse(container.environment.find((e: any) => e.name === 'VRDEX_EVENT_MEDIA_OPTIONAL_SECRET_ARNS_JSON').value);
@@ -193,7 +192,7 @@ test('unsupported VRCDN profile settings are a setup fault rather than silently 
 test('legacy selected-output secret environment alias also reaches the actual event CLI', async () => {
     const { taskDefinitionFor } = await import('../../scripts/event-media-ecs-bridge.mjs');
     const command = { commandId: 'c', eventId: 'e', program: { programId: 'p' }, session: allocatedSession({sessionId:'s',primary:'main'}), output: { outputId: 'main', credentialRef: 'ref-main', playbackLinks: [] } };
-    const definition = taskDefinitionFor(command, { baseEnvironment: {}, secretRefMap: { 'ref-main': 'arn:main' }, outputSecretEnvName: 'LEGACY_OUTPUT_SECRET', workerTokenSecretArn: 'arn:token' }, resolveSyntheticAllocation);
+    const definition = taskDefinitionFor(command, { baseEnvironment: {}, secretRefMap: { 'ref-main': 'arn:main' }, outputSecretEnvName: 'LEGACY_OUTPUT_SECRET', workerTokenSecretArn: 'arn:token' }, fixtureCapacityResolver);
     const secrets = definition.containerDefinitions[0].secrets;
     assert.ok(secrets.some((s: any) => s.name === 'LEGACY_OUTPUT_SECRET' && s.valueFrom === 'arn:main'));
     assert.ok(secrets.some((s: any) => s.name === 'VRDEX_EVENT_MEDIA_OUTPUT_INGEST_SECRET_JSON' && s.valueFrom === 'arn:main'));

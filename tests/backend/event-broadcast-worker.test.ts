@@ -1,4 +1,5 @@
-import { loadFixtureEvents } from "../fixtures/event-modules";
+import { fixtureCapacityResolver } from "../scripts/_event-allocation-fixture.mjs";
+import { loadEventsWithFixtureCapacity } from "./_eventCapacityFixture";
 import { bindVrcdnTestAccount } from "./_eventOutputAccountFixture";
 import assert from "node:assert/strict";
 import { it } from "node:test";
@@ -13,7 +14,7 @@ const schema = (schemaModule as unknown as {
 const worker = (name: string) => makeFunctionReference<"mutation">(`eventMediaWorker:${name}`);
 const modules = {
     "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
-    "../../convex/events.ts": loadFixtureEvents,
+    "../../convex/events.ts": loadEventsWithFixtureCapacity,
     "../../convex/eventMediaWorker.ts": () => import("../../convex/eventMediaWorker"),
 };
 const bridgeToken = "worker-test-only-credential";
@@ -474,9 +475,7 @@ it('I4 legacy task reservations without process status stay discoverable', async
     const sessions = await f.t.query(api.events.listEventMediaWorkerBridgeSessions, { bridgeToken, workerId: 'bridge' });
     assert.equal(sessions[0]?.workerTaskId, 'legacy-task');
 });
-import { claimAndProcess as processClaim } from '../../scripts/event-media-ecs-bridge.mjs';
-import { resolveSyntheticAllocation } from '../fixtures/event-capacity.mjs';
-const claimAndProcess = (...args: Parameters<typeof processClaim>) => processClaim(args[0], { region: "us-east-1", ...args[1] }, args[2], args[3], resolveSyntheticAllocation);
+import { claimAndProcess } from '../../scripts/event-media-ecs-bridge.mjs';
 async function admittedBeforeAcquisition() {
     const f = await fixture();
     await f.t.mutation(worker('admitDispatch'), { bridgeToken, eventId: f.event.eventId, sessionId: f.args.sessionId, dispatchId: 'managed' });
@@ -614,16 +613,16 @@ else if (command === 'run-task') {
         if (getFunctionName(ref) === 'eventMediaWorker:recordDispatchedTask') throw Error('registration response lost');
         return result;
     } };
-    const config = { bridgeToken, workerId: 'bridge', redactValues: [], awsCommand: cli, secretRefMap: {'event-media/vrcdn/main':'test-secret'}, baseEnvironment: {}, subnets: [], securityGroups: [] };
+    const config = { bridgeToken, workerId: 'bridge', region: 'us-east-1', redactValues: [], awsCommand: cli, secretRefMap: {'event-media/vrcdn/main':'test-secret'}, baseEnvironment: {}, subnets: [], securityGroups: [] };
     try {
-        await claimAndProcess(client, config);
+        await claimAndProcess(client, config, undefined, () => false, { resolveAllocation: fixtureCapacityResolver });
         const session = await f.t.run(({db}) => db.get(f.args.sessionId));
         assert.ok(session?.dispatchId);
         assert.equal(session.dispatchStopConfirmedAt, undefined);
         assert.equal(session.workerTaskId, failure === 'registration-response' ? 'task' : undefined);
         assert.equal((await f.t.run(({db}) => db.get(f.scheduled.startCommandId!)))?.status, 'claimed');
         await assert.rejects(f.owner.mutation(api.events.scheduleEventMediaWorker, { currentSlug: f.event.slug }), /in progress/);
-        assert.equal(await claimAndProcess(client, config), false);
+        assert.equal(await claimAndProcess(client, config, undefined, () => false, { resolveAllocation: fixtureCapacityResolver }), false);
     } finally { await rm(dir, {recursive:true, force:true}); }
 });
 for (const response of [{}, {granted: undefined}, {granted: 'yes'}, null]) it(`F1 malformed admission ${JSON.stringify(response)} retains claimed start`, async () => {
@@ -1646,7 +1645,7 @@ for(const first of ['marker','release','concurrent'])it(`R8 prelaunch ${first} h
 });
 for(const failure of ['config','register'])it(`R8 actual bridge ${failure} failure releases provably unlaunched admission`,async()=>{
  const f=await fixture();const calls:string[]=[];
- await claimAndProcess({mutation:(ref:any,args:any)=>f.t.mutation(ref,args)},{bridgeToken,workerId:'bridge',redactValues:[],secretRefMap:failure==='config'?{}:{'event-media/vrcdn/main':'test-secret'},baseEnvironment:{}},async(_config:any,args:string[])=>{calls.push(args[1]);throw Error('synthetic registration failure');});
+ await claimAndProcess({mutation:(ref:any,args:any)=>f.t.mutation(ref,args)},{bridgeToken,workerId:'bridge',region:'us-east-1',redactValues:[],secretRefMap:failure==='config'?{}:{'event-media/vrcdn/main':'test-secret'},baseEnvironment:{}},async(_config:any,args:string[])=>{calls.push(args[1]);throw Error('synthetic registration failure');}, () => false, { resolveAllocation: fixtureCapacityResolver });
  const session=await f.t.run(({db})=>db.get(f.args.sessionId));assert.equal(session?.dispatchId,undefined);assert.equal(session?.status,'error');assert.equal(session?.dispatchStopConfirmedAt,undefined);assert(!calls.includes('run-task'));assert.equal(calls.includes('register-task-definition'),failure==='register');
  const next=await f.owner.mutation(api.events.scheduleEventMediaWorker,{currentSlug:f.event.slug});assert.equal((await f.t.mutation(worker('admitDispatch'),{bridgeToken,eventId:f.event.eventId,sessionId:next.sessionId,dispatchId:'replacement'})).granted,true);
 });
@@ -1688,19 +1687,19 @@ for(const loss of ['before','after','malformed','unknown','run','record'])it(`R8
   if(name==='eventMediaWorker:recordDispatchedTask'&&loss==='record'){await f.t.mutation(ref,args);throw Error('record response lost');}
   return f.t.mutation(ref,args);
  }};
- await claimAndProcess(client,{bridgeToken,workerId:'bridge',redactValues:[],secretRefMap:{'event-media/vrcdn/main':'test-secret'},baseEnvironment:{}},async(_config:any,args:string[])=>{
+ await claimAndProcess(client,{bridgeToken,workerId:'bridge',region:'us-east-1',redactValues:[],secretRefMap:{'event-media/vrcdn/main':'test-secret'},baseEnvironment:{}},async(_config:any,args:string[])=>{
   if(args[1]==='register-task-definition')return {taskDefinition:{taskDefinitionArn:'definition'}};
   assert.equal(args[1],'run-task');runs++;if(loss==='run')throw Error('RunTask response unknown');return {tasks:[{taskArn:'task'}]};
- });
+ }, () => false, { resolveAllocation: fixtureCapacityResolver });
  const session=await f.t.run(({db})=>db.get(f.args.sessionId));assert.ok(session?.dispatchId);assert.equal(releases,0);assert.equal(runs,['run','record'].includes(loss)?1:0);assert.equal(session?.workerTaskId,loss==='record'?'task':undefined);
 });
 it('R8 Stop before marker releases and durable cleanup retries without capacity leak',async()=>{
  const f=await fixture();let cleanup=0;
  const client={mutation:(ref:any,args:any)=>f.t.mutation(ref,args),query:(ref:any,args:any)=>f.t.query(ref,args)};
- await claimAndProcess(client,{bridgeToken,workerId:'bridge',redactValues:[],secretRefMap:{'event-media/vrcdn/main':'test-secret'},baseEnvironment:{}},async(_config:any,args:string[])=>{
+ await claimAndProcess(client,{bridgeToken,workerId:'bridge',region:'us-east-1',redactValues:[],secretRefMap:{'event-media/vrcdn/main':'test-secret'},baseEnvironment:{}},async(_config:any,args:string[])=>{
   if(args[1]==='register-task-definition'){await f.owner.mutation(api.events.stopEventMediaWorker,{currentSlug:f.event.slug,sessionId:f.args.sessionId});return {taskDefinition:{taskDefinitionArn:'unused-definition'}};}
   assert.equal(args[1],'deregister-task-definition');cleanup++;throw Error('cleanup unavailable');
- });
+ }, () => false, { resolveAllocation: fixtureCapacityResolver });
  const session=await f.t.run(({db})=>db.get(f.args.sessionId));assert.equal(session?.dispatchId,undefined);assert.equal(session?.workerTaskCleanupPending,true);assert.equal(cleanup,1);
  await refreshSessions(client,{bridgeToken,workerId:'bridge'},async(_config:any,args:string[])=>{assert.equal(args[1],'deregister-task-definition');cleanup++;return {};});
  assert.equal(cleanup,2);assert.equal((await f.t.run(({db})=>db.get(f.args.sessionId)))?.workerTaskCleanupPending,false);
@@ -1709,7 +1708,7 @@ it('R8 Stop before marker releases and durable cleanup retries without capacity 
 it('R8 reclaimed competing bridges issue exactly one RunTask and never overwrite winner definition',async()=>{
  const f=await fixture();let calls=0,firstRelease:()=>void=()=>{};const firstHeld=new Promise<void>(resolve=>{firstRelease=resolve;});let firstRegistered:()=>void=()=>{};const registered=new Promise<void>(resolve=>{firstRegistered=resolve;});const deregistered:string[]=[];
  const client={mutation:(ref:any,args:any)=>f.t.mutation(ref,args)};
- const config={bridgeToken,workerId:'first',redactValues:[],secretRefMap:{'event-media/vrcdn/main':'test-secret'},baseEnvironment:{}};
+ const config={bridgeToken,workerId:'first',region:'us-east-1',redactValues:[],secretRefMap:{'event-media/vrcdn/main':'test-secret'},baseEnvironment:{}};
  const runAws=async(_config:any,args:string[])=>{
   if(args[1]==='register-task-definition'){
    if(_config.workerId==='first'){firstRegistered();await firstHeld;return {taskDefinition:{taskDefinitionArn:'arn:aws:ecs:us-east-1:123456789012:task-definition/unused:1'}};}
@@ -1718,17 +1717,22 @@ it('R8 reclaimed competing bridges issue exactly one RunTask and never overwrite
   if(args[1]==='deregister-task-definition'){deregistered.push(args.at(-1)!);throw Error('unused cleanup failure');}
   assert.equal(args[1],'run-task');calls++;return {tasks:[{taskArn:'winner-task'}]};
  };
- const first=claimAndProcess(client,config,runAws);await registered;
- await f.t.run(({db})=>db.patch(f.scheduled.startCommandId!,{status:'queued'}));
- await claimAndProcess(client,{...config,workerId:'second'},runAws);
- firstRelease();await first;
+ const first=claimAndProcess(client,config,runAws, () => false, { resolveAllocation: fixtureCapacityResolver });
+ try {
+  await Promise.race([registered, first.then(() => { throw Error('First bridge finished before task registration.'); })]);
+  await f.t.run(({db})=>db.patch(f.scheduled.startCommandId!,{status:'queued'}));
+  await claimAndProcess(client,{...config,workerId:'second'},runAws, () => false, { resolveAllocation: fixtureCapacityResolver });
+ } finally {
+  firstRelease();
+  await first;
+ }
  const session=await f.t.run(({db})=>db.get(f.args.sessionId));assert.equal(calls,1);assert.equal(session?.workerTaskDefinitionArn,'winner-definition');assert.equal(session?.workerTaskId,'winner-task');assert.deepEqual(deregistered,['arn:aws:ecs:us-east-1:123456789012:task-definition/unused:1']);
  const audits=await f.t.run(({db})=>db.query('eventMediaAuditEvents').collect());assert(audits.some(a=>a.action==='worker_unused_definition_manual_cleanup'&&a.privateSummary==='arn:aws:ecs:us-east-1:123456789012:task-definition/unused:1'));
 });
 it('R8 duplicate marker with same definition never deregisters winner',async()=>{
  const f=await fixture();let releases=0,runs=0;
  const client={mutation:async(ref:any,args:any)=>{if(getFunctionName(ref)==='eventMediaWorker:markLaunchAttempt'){await f.t.mutation(ref,args);return f.t.mutation(ref,args);}return f.t.mutation(ref,args);}};
- await claimAndProcess(client,{bridgeToken,workerId:'bridge',redactValues:[],secretRefMap:{'event-media/vrcdn/main':'test-secret'},baseEnvironment:{}},async(_config:any,args:string[])=>{if(args[1]==='register-task-definition')return {taskDefinition:{taskDefinitionArn:'winner-definition'}};if(args[1]==='deregister-task-definition')releases++;else runs++;return {};});
+ await claimAndProcess(client,{bridgeToken,workerId:'bridge',region:'us-east-1',redactValues:[],secretRefMap:{'event-media/vrcdn/main':'test-secret'},baseEnvironment:{}},async(_config:any,args:string[])=>{if(args[1]==='register-task-definition')return {taskDefinition:{taskDefinitionArn:'winner-definition'}};if(args[1]==='deregister-task-definition')releases++;else runs++;return {};}, () => false, { resolveAllocation: fixtureCapacityResolver });
  assert.equal(releases,0);assert.equal(runs,0);assert.equal((await f.t.run(({db})=>db.get(f.args.sessionId)))?.workerTaskDefinitionArn,'winner-definition');
 });
 it('R8 unused-definition audit refuses arbitrary provider text and winner ARN',async()=>{

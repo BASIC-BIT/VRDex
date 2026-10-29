@@ -1,0 +1,88 @@
+{
+  "sourceCommit": "f8996d1eea480ee19a95fac0024f7b83b13d80b2",
+  "baseCommit": "dc854914839f9f31e31b3945277cfbe18f753e3c",
+  "reviewedFiles": [
+    {
+      "path": "scripts/event-marker-authority-closure.mjs",
+      "bytes": 3375,
+      "sha256": "fc9c6929fe9109e5fb86ba96ba76ba5c7e2a15c32a07cf0ba44dc4886abcd75c"
+    },
+    {
+      "path": "scripts/event-marker-native-bundle.mjs",
+      "bytes": 5868,
+      "sha256": "e00863de92a78ca72db940e5bbdacbea483d42dfed62d7cddfe77efee659ead7"
+    },
+    {
+      "path": "scripts/event-marker-native-controller.mjs",
+      "bytes": 32291,
+      "sha256": "95da66f50ae2786ae259d0497bca2f49fc5e95398e2dabd22dbe407dc860f4c4"
+    },
+    {
+      "path": "scripts/event-marker-program-contract.mjs",
+      "bytes": 1595,
+      "sha256": "b2ef0b6fea572c0264cca5c86c10c3d75e9940c0fe5c7c3b220e216dc7aaf2f4"
+    },
+    {
+      "path": "scripts/event-marker-program-guards.mjs",
+      "bytes": 18088,
+      "sha256": "12487df7446486731e7574537262b6098cb30efb2e2cf04ca2d3494426ca6648"
+    },
+    {
+      "path": "tests/fixtures/marker-positive-program.mjs",
+      "bytes": 18724,
+      "sha256": "d0c362346c2751ef3570dc72cc355a35e21c1ea9ff281ec0b9cdf505ea0bf809"
+    },
+    {
+      "path": "tests/scripts/event-marker-data-separation.test.mjs",
+      "bytes": 33759,
+      "sha256": "c55d6c7d6628cd792ad8862393a451b822444856db6bfbbaaff8afcf1ded6e59"
+    },
+    {
+      "path": "tests/scripts/event-marker-native-controller.test.mjs",
+      "bytes": 23109,
+      "sha256": "7e42b6d511daf8f7448fffb3085ca8f4e36261305730e5c1b9d918e6ffcbe4bb"
+    },
+    {
+      "path": "tests/scripts/event-marker-positive-program-fix1.test.mjs",
+      "bytes": 19544,
+      "sha256": "31b20188742092290df6fc0a158ff8659ff8b8dc37dbf43eb24951f28727f7fe"
+    },
+    {
+      "path": "tests/scripts/event-marker-program-authority.test.mjs",
+      "bytes": 11660,
+      "sha256": "8c3a314f059280e7b5b36cc28b4838dac37a1669268909e18efab4c39b164bde"
+    },
+    {
+      "path": "tests/scripts/event-marker-program-result-sizing.test.mjs",
+      "bytes": 27116,
+      "sha256": "c4edb931bfd6375a30da31fbfff5a45c641d2d55aec1051d0ab84a7a94da8fb2"
+    }
+  ],
+  "committedBytesMatchReviewedFiles": true,
+  "method": "Root independently reopened each committed source/test blob and working file after the normal hook and checked its full byte length and SHA-256 against the reviewed revised sheet.",
+  "originalArtifacts": [
+    {
+      "id": "task-2-reviewed-worktree-hashes.json",
+      "bytes": 2082,
+      "sha256": "05d988ccd89c9312e3bfe5ef3d0a0d3ec03f52961e19f7bee015711463bd3db4"
+    },
+    {
+      "id": "task-2-review-package.diff",
+      "bytes": 103447,
+      "sha256": "38bc966b70a690a8ebf7155b802f19f0eb8d6e98c38c7ce7ff96add830b8a1c5"
+    },
+    {
+      "id": "task-2-fix1-worktree-hashes.json",
+      "bytes": 2275,
+      "sha256": "8d754d6001854f9f1a204165d5c15af1d2f83edfb329c4a48832ae990e46903b"
+    },
+    {
+      "id": "task-2-fix1.diff",
+      "bytes": 6410,
+      "sha256": "21b06c776275405a327646f7962163d80e10d82cd40a58ad5b111ba2dd307850"
+    }
+  ],
+  "externalA": false,
+  "actualImageApproval": false,
+  "capacityAccepted": false
+}

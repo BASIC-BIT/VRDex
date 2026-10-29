@@ -1,0 +1,26 @@
+{
+  "scope": "53-test diagnostic helper and two closed negative trials; no real SDK archive or support",
+  "subjects": [
+    {
+      "path": "README.md",
+      "bytes": 1670,
+      "sha256": "fb189ff21d59cff5197e09f1b85b86fce980ba97cc6de39e868206a74fc202b5"
+    },
+    {
+      "path": "retention-review.txt",
+      "bytes": 3158,
+      "sha256": "0ab8fb64eab93d7f216fc62a551402bcdbbca44800fd02b83d1338ebfeff069d"
+    },
+    {
+      "path": "retention.json",
+      "bytes": 60278,
+      "sha256": "72892947b0657f3a38d2ef1742e0aea2f5b6dcda9074f124b683b816a928a8c5"
+    },
+    {
+      "path": "sdk-inspection-checkpoint.zip",
+      "bytes": 554036,
+      "sha256": "ae0e7303b89970f4e8dd220ee1f4b457aa554e7ccde3fefd2e25eb0b91d7f913"
+    }
+  ],
+  "review": "retention-review.txt"
+}

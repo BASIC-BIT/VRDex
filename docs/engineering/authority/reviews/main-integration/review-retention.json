@@ -1,0 +1,34 @@
+{
+  "review": {
+    "path": "retention-review.md",
+    "bytes": 2245,
+    "sha256": "c775caca77ca3fbe7ac2e928d84ef2893746de6115bfa72f63d89f96dd0f081f"
+  },
+  "reviewedSubjects": [
+    {
+      "path": "docs/engineering/authority/reviews/main-integration/README.md",
+      "bytes": 1799,
+      "sha256": "0646d29bb45779da3dc019c45f83510c2c8d222ad1964cb8d73df4e70ec23ec3"
+    },
+    {
+      "path": "docs/engineering/authority/reviews/main-integration/candidate-original-refs.json",
+      "bytes": 21140,
+      "sha256": "a1f12e739c93bd3287610b53676a7f930f142b47e897838b6622f81eb23b42fe"
+    },
+    {
+      "path": "docs/engineering/authority/reviews/main-integration/integration-evidence.zip",
+      "bytes": 1690862,
+      "sha256": "57981d1db84865d76bf3d4779022a0bc6786439d60379749ac1cc1e74b4e3728"
+    },
+    {
+      "path": "docs/engineering/authority/reviews/main-integration/retention.json",
+      "bytes": 12459,
+      "sha256": "7fec7f3768eff8f0eb912ea0215d6b125819ba081b4246ee9b5d4f3d882f7411"
+    },
+    {
+      "path": "docs/engineering/authority/reviews/main-integration/screening.json",
+      "bytes": 249,
+      "sha256": "9997cbb65f011a4408e4f772703f4494da86b84dede85c77d4f00f36223e35c3"
+    }
+  ]
+}

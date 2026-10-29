@@ -1,5 +1,6 @@
 import { programResultLimits } from './event-marker-evidence-policy.mjs';
-import { PROGRAM_SOURCE_CONTRACT } from './event-marker-program-contract.mjs';
+import { isFullAuthorityReference } from './event-marker-authority-closure.mjs';
+import { PROGRAM_SOURCE_CONTRACT,PROGRAM_AUTHORITY_REFS } from './event-marker-program-contract.mjs';
 import { createHash } from 'node:crypto';
 import { diagnosticArguments } from './event-marker-native-capture.mjs';
 import { parseNativeStatistics,parseNativeProgress } from './event-marker-native-observations.mjs';
@@ -30,7 +31,7 @@ export function validateProgramDependencies({profile,proof,closure,plans,nativeC
  check(same(profile.requiredGuards,PROGRAM_GUARDS)&&same(proof.contract,PROGRAM_SOURCE_CONTRACT),'guard_contract');
  check(proof.schema==='native-proof-descriptions-v2'&&proof.descriptions?.length===13,'guard_descriptions');
  for(const [i,d] of proof.descriptions.entries())check(d.guard===PROGRAM_GUARDS[i]&&ref(d.auditRef)&&d.auditRef.kind==='audit'&&Array.isArray(d.sourceRefs)&&d.sourceRefs.length>0&&d.sourceRefs.every(ref),'guard_description');
- for(const guard of ['G0','G12']){const d=proof.descriptions.find(d=>d.guard===guard);check([d.auditRef,...d.sourceRefs].some(r=>r.kind==='audit'&&r.id==='program-result-sizing-r94-v1'&&r.bytes===41830&&r.sha256===PROGRAM_SOURCE_CONTRACT.resultSizing&&!r.range),'result_sizing_authority');}
+ for(const description of proof.descriptions){const required=['G0','G12'].includes(description.guard)?PROGRAM_AUTHORITY_REFS:PROGRAM_AUTHORITY_REFS.filter(r=>r.key==='guards');for(const expected of required)check([description.auditRef,...description.sourceRefs].some(actual=>isFullAuthorityReference(actual,expected)),expected.key==='resultSizing'?'result_sizing_authority':'program_authority');}
  check(Array.isArray(profile.objects)&&profile.objects.length>=critical.length&&profile.objects.length<=256,'objects');
  const ids=new Set(),names=new Set();
  for(const object of profile.objects){
