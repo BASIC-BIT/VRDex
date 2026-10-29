@@ -1172,6 +1172,7 @@ export default defineSchema({
     createdAt: v.number(), updatedAt: v.number(), expiresAt: v.number(),
   }).index("by_actor_updatedAt", ["actorUserId", "updatedAt"])
     .index("by_actor_expiresAt", ["actorUserId", "expiresAt"])
+    .index("by_actor_connector_expiresAt", ["actorUserId", "connectorId", "expiresAt"])
     .index("by_expiresAt", ["expiresAt"]),
   eventContributionReceipts: defineTable({
     actorUserId: v.id("users"), draftId: v.id("eventIntakeDrafts"), draftVersion: v.number(),
@@ -1180,6 +1181,7 @@ export default defineSchema({
     // Set on connector-driven publishes, which skip and do not count toward the actor's own caps.
     connectorId: v.optional(v.id("eventConnectors")),
   }).index("by_actor_createdAt", ["actorUserId", "createdAt"])
+    .index("by_actor_connector_createdAt", ["actorUserId", "connectorId", "createdAt"])
     .index("by_community_createdAt", ["communityProfileId", "createdAt"])
     .index("by_eventId", ["eventId"]),
   eventIntakePublishRequests: defineTable({
@@ -1187,7 +1189,8 @@ export default defineSchema({
     draftVersion: v.number(), receiptId: v.id("eventContributionReceipts"), createdAt: v.number(),
     connectorId: v.optional(v.id("eventConnectors")),
   }).index("by_actor_key", ["actorUserId", "idempotencyKey"])
-    .index("by_actor_createdAt", ["actorUserId", "createdAt"]),
+    .index("by_actor_createdAt", ["actorUserId", "createdAt"])
+    .index("by_actor_connector_createdAt", ["actorUserId", "connectorId", "createdAt"]),
   eventConnectors: defineTable({
     communityProfileId: v.id("profiles"), kind: connectorKind, direction: connectorDirection, mode: connectorMode,
     authorityUserId: v.id("users"), credentialId: v.optional(v.id("connectorCredentials")), target: connectorTarget,

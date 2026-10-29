@@ -96,8 +96,7 @@ export async function preflightEventContribution(db: DatabaseReader, actorUserId
   const since = now - 86_400_000;
   if (!options.skipAccountQuota) {
     // Connector-driven receipts count toward the community cap only, never the authority's own.
-    const actorRecent = await db.query("eventContributionReceipts").withIndex("by_actor_createdAt", q => q.eq("actorUserId", actorUserId).gte("createdAt", since))
-      .filter(q => q.eq(q.field("connectorId"), undefined)).take(INTAKE_ACCOUNT_DAILY_LIMIT);
+    const actorRecent = await db.query("eventContributionReceipts").withIndex("by_actor_connector_createdAt", q => q.eq("actorUserId", actorUserId).eq("connectorId", undefined).gte("createdAt", since)).take(INTAKE_ACCOUNT_DAILY_LIMIT);
     if (actorRecent.length >= INTAKE_ACCOUNT_DAILY_LIMIT) throw new ConvexError({ code: "ACCOUNT_QUOTA" });
   }
   const targetRecent = await db.query("eventContributionReceipts").withIndex("by_community_createdAt", q => q.eq("communityProfileId", community._id).gte("createdAt", since)).take(INTAKE_TARGET_DAILY_LIMIT);

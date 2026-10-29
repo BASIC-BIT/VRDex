@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { beforeEach, it } from "node:test";
 import { internal } from "../../convex/_generated/api";
 import { publishIntakeDraft, saveIntakeDraft } from "../../convex/_eventIntake";
+import type { Id } from "../../convex/_generated/dataModel";
 import { connectorFixture } from "./_eventConnectorFixture";
 
 beforeEach(test => test.mock.timers.enable({ apis: ["setTimeout"] }));
@@ -54,6 +55,27 @@ it("connector writes do not use up the authority's own caps", async () => {
   const personal = await f.t.run(ctx => saveIntakeDraft(ctx.db, f.users.integrator, { patch: fields("Personal") }));
   const published = await f.t.run(ctx => publishIntakeDraft(ctx, f.users.integrator, { draftId: personal.draftId, expectedVersion: personal.version, idempotencyKey: "personal" }));
   assert.equal(published.createdEvent, true);
+  // Legacy rows without connectorId still count: one personal receipt plus nine legacy ones reach the cap.
+  await fillReceipts(f, 9, "actor");
+  const blocked = await f.t.run(ctx => saveIntakeDraft(ctx.db, f.users.integrator, { patch: fields("Kilo") }));
+  await assert.rejects(f.t.run(ctx => publishIntakeDraft(ctx, f.users.integrator, { draftId: blocked.draftId, expectedVersion: blocked.version, idempotencyKey: "blocked" })), /ACCOUNT_QUOTA/);
+});
+
+it("connector publish requires the draft's own active connector", async () => {
+  const f = await connectorFixture();
+  const connectorId = await f.insertConnector();
+  const other = await f.insertConnector({ target: { calendarId: "other@example.com" } });
+  const paused = await f.insertConnector({ target: { calendarId: "paused@example.com" }, state: "paused" });
+  const publish = (draft: { draftId: Id<"eventIntakeDrafts">; version: number }, id: Id<"eventConnectors">) =>
+    f.t.run(ctx => publishIntakeDraft(ctx, f.users.integrator, { draftId: draft.draftId, expectedVersion: draft.version, idempotencyKey: `k-${draft.draftId}-${id}` }, Date.now(), "system", { connectorId: id }));
+  const personal = await f.t.run(ctx => saveIntakeDraft(ctx.db, f.users.integrator, { patch: fields("Personal") }));
+  await assert.rejects(publish(personal, connectorId), /CONNECTOR_DRAFT_MISMATCH/);
+  const owned = await f.t.run(ctx => saveIntakeDraft(ctx.db, f.users.integrator, { patch: fields("Owned") }, Date.now(), { connectorId }));
+  await assert.rejects(publish(owned, other), /CONNECTOR_DRAFT_MISMATCH/);
+  const held = await f.t.run(ctx => saveIntakeDraft(ctx.db, f.users.integrator, { patch: fields("Held") }, Date.now(), { connectorId: paused }));
+  await assert.rejects(publish(held, paused), /CONNECTOR_DRAFT_MISMATCH/);
+  await assert.rejects(f.t.mutation(internal.eventIntakeSources.authorizeExtraction, { actorUserId: f.users.integrator, draftId: held.draftId, connectorId: paused }), /CONNECTOR_DRAFT_MISMATCH/);
+  assert.equal((await publish(owned, connectorId)).createdEvent, true);
 });
 
 it("connector extraction skips the 20 per day reservation only for its own drafts", async () => {

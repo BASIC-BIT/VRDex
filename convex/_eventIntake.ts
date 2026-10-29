@@ -75,8 +75,7 @@ export async function saveIntakeDraft(db: DatabaseWriter, actorUserId: Id<"users
   if (!draft && !hasMeaningfulInput(fields)) throw new Error("A draft needs at least one meaningful field.");
   if (JSON.stringify(fields).length > 48_000) throw new Error("Draft exceeds storage limit.");
   if (!draft && !options.connectorDriven && !options.connectorId) {
-    const active = await db.query("eventIntakeDrafts").withIndex("by_actor_expiresAt", q => q.eq("actorUserId", actorUserId).gt("expiresAt", now))
-      .filter(q => q.eq(q.field("connectorId"), undefined)).take(EVENT_INTAKE_DRAFT_LIMIT);
+    const active = await db.query("eventIntakeDrafts").withIndex("by_actor_connector_expiresAt", q => q.eq("actorUserId", actorUserId).eq("connectorId", undefined).gt("expiresAt", now)).take(EVENT_INTAKE_DRAFT_LIMIT);
     if (active.length >= EVENT_INTAKE_DRAFT_LIMIT) throw new ConvexError({ code: "DRAFT_QUOTA" });
   }
   const version = (draft?.version ?? 0) + 1;
@@ -119,12 +118,11 @@ export async function publishIntakeDraft(ctx: Pick<MutationCtx, "db" | "schedule
   const prior = await replayIntakePublication(db, actorUserId, args);
   if (prior) return { ...prior, createdEvent: false };
   if (!connectorId) {
-    const recentRequests = await db.query("eventIntakePublishRequests").withIndex("by_actor_createdAt", q => q.eq("actorUserId", actorUserId).gte("createdAt", now - 86_400_000))
-      .filter(q => q.eq(q.field("connectorId"), undefined)).take(100);
+    const recentRequests = await db.query("eventIntakePublishRequests").withIndex("by_actor_connector_createdAt", q => q.eq("actorUserId", actorUserId).eq("connectorId", undefined).gte("createdAt", now - 86_400_000)).take(100);
     if (recentRequests.length >= 100) throw new ConvexError({ code: "REQUEST_QUOTA" });
   }
   const draft = await getActorIntakeDraft(db, actorUserId, args.draftId, now);
-  if (connectorId && draft.connectorId !== connectorId) throw new Error("CONNECTOR_DRAFT_MISMATCH");
+  if (connectorId && (draft.connectorId !== connectorId || (await db.get(connectorId))?.state !== "active")) throw new Error("CONNECTOR_DRAFT_MISMATCH");
   if (draft.version !== args.expectedVersion) throw new ConvexError({ code: "VERSION_CONFLICT" });
   if (draft.artworkIntentSourceId) throw new Error("ARTWORK_NOT_READY");
   if (draft.fields.posterSourceId && !draft.artworkAssetId) throw new Error("ARTWORK_NOT_READY");
