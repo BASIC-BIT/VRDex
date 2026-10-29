@@ -11,6 +11,21 @@ import { admissionMatches } from "./_groupAdmission";
 
 export type CollectionSubject = NonNullable<Doc<"communityVrchatIntegrations">["collectionScope"]>;
 
+/** A sole public group link needs no separate primary-selection step. */
+export function primaryGroupSelection(profile: Pick<Doc<"profiles">, "profileType" | "fieldVisibility" | "outboundLinks" | "primaryGroupReference" | "primaryGroupSelectionDisabled" | "inferredGroupContributorUserId">) {
+  const selected = profile.primaryGroupReference;
+  if (selected && !selected.inferred) return selected;
+  if (profile.profileType !== "community" || profile.primaryGroupSelectionDisabled) return undefined;
+  const groups = new Map<string, string>();
+  for (const link of visibleProfileList(profile, "outboundLinks", profile.outboundLinks ?? [], "profile_page")) {
+    const target = parseProfileLinkDestination(link);
+    if (target?.kind === "vrchat_group") groups.set(target.key, link.url);
+  }
+  if (groups.size !== 1) return undefined;
+  const [key, url] = groups.entries().next().value!;
+  return { key, url, inferred: true, contributorUserId: selected?.contributorUserId ?? profile.inferredGroupContributorUserId };
+}
+
 export function automaticAdmissionEnabled(fleet: Doc<"collectorFleetSettings"> | null, groupId: string) {
   return fleet?.automaticEnrollmentEnabled === true && !fleet.killSwitchEnabled &&
     (fleet.automaticEnrollmentLimit ?? 0) > 0 && fleet.automaticEnrollmentScope !== undefined &&
@@ -77,7 +92,7 @@ export async function readPublicGroupId(db: DatabaseReader, profileId: Id<"profi
     const link = primary[0]!;
     if (link.provenance === "directory_reference") {
       const profile = await db.get(profileId);
-      const selected = profile?.primaryGroupReference;
+      const selected = profile && primaryGroupSelection(profile);
       if (!profile || !selected || !visibleProfileList(profile, "outboundLinks", profile.outboundLinks ?? [], "profile_page")
         .some(outbound => parseProfileLinkDestination(outbound)?.key === selected.key)) return null;
       const reference = await db.query("profileLinkDestinationReferences")

@@ -203,6 +203,8 @@ backend-origin lease covers each complete run through verified cleanup; future
 dates must not bypass it. Reuse this helper
 for Home checks; do not seed public-query responses or
 add unrelated records manually.
+Cleanup retries one connection reset. HTTP errors or unconfirmed cleanup counts
+still preserve the blocking lease.
 
 `eventTimeline.listPublic` pages event identities only. Its compatible
 `TimelineEvent` shape starts with empty `slots` and `performers` and an initial

@@ -414,6 +414,7 @@ export const configureFleet = internalMutation({
       automaticEnrollmentEnabled: args.automaticEnrollmentEnabled ?? existing?.automaticEnrollmentEnabled ?? false,
       automaticEnrollmentLimit: args.automaticEnrollmentLimit ?? existing?.automaticEnrollmentLimit ?? 0,
       automaticEnrollmentScope: args.automaticEnrollmentScope ?? existing?.automaticEnrollmentScope,
+      admissionMonitoringStartedAt: undefined,
       updatedAt: now,
     };
     if (existing) await ctx.db.patch(existing._id, values);
@@ -2645,7 +2646,7 @@ export const recordCollectorHeartbeat = internalMutation({
       updatedAt: now,
     });
     const diagnostics = await statisticsAdmissionDiagnostics(ctx.db, now);
-    return { recorded: true, automaticEnrollmentBacklog: diagnostics.processingBacklog > 0 || await hasAutomaticEnrollmentBacklog(ctx.db, now), statisticsAdmissionDiagnostics: diagnostics };
+    return { recorded: true, automaticEnrollmentBacklog: ("monitoringIncomplete" in diagnostics && diagnostics.monitoringIncomplete === true) || diagnostics.processingBacklog > 0 || await hasAutomaticEnrollmentBacklog(ctx.db, now), statisticsAdmissionDiagnostics: diagnostics };
   },
 });
 

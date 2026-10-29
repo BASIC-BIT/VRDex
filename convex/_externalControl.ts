@@ -330,7 +330,7 @@ export async function linkProfileToAsset(
   if (options.assetType === "vrchat_group") await scheduleGroupReconciliation(ctx, options.profileId, [options.assetExternalId]);
   if (options.assetType === "vrchat_group" && options.linkRole === "primary" && options.provenance !== "directory_reference") {
     const profile = await db.get(options.profileId);
-    if (profile?.primaryGroupReference) await db.patch(profile._id, {primaryGroupReference: undefined, updatedAt: options.now});
+    if (profile) await db.patch(profile._id, {primaryGroupReference: undefined, primaryGroupSelectionDisabled: true, updatedAt: options.now});
   }
   // A removed link is reused, not superseded, so re-attaching an asset restores
   // the row — and with it whoever originally put the association on record.
@@ -453,9 +453,9 @@ export async function removeProfileLink(
     const profile = await db.get(profileId);
     const reference = profile?.primaryGroupReference;
     const destination = reference ? await db.query("profileLinkDestinations").withIndex("by_key", q => q.eq("key", reference.key)).unique() : null;
-    if (profile && destination?.entityId === assetExternalId) await db.patch(profile._id, {primaryGroupReference: undefined, updatedAt: now});
+    if (profile && (destination?.entityId === assetExternalId || link.linkRole === "primary")) await db.patch(profile._id, {primaryGroupReference: undefined, primaryGroupSelectionDisabled: true, updatedAt: now});
   }
-  await db.patch(link._id, { state: "removed", removedAt: now, updatedAt: now });
+  await db.patch(link._id, { state: "removed", removedByReconciliation: undefined, removedAt: now, updatedAt: now });
 
   // Keep exactly one primary when the removed link held that role.
   if (link.linkRole === "primary") {
