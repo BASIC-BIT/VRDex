@@ -8,6 +8,9 @@ import { classifyEventIntakeForPublication } from "../../apps/web/src/lib/server
 const blank = () => ({ event: { title: null, communitySlug: null, eventDate: null, start: null, end: null, startDate: null, endDate: null, timezone: null, venueLabel: null, summary: null, sourceUrl: null }, lineup: [], evidence: [], questions: [], decision: { kind: "new" as const } });
 const response = (value: unknown) => new Response(JSON.stringify({ status: "completed", output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify(value) }] }] }));
 const base = { authorize: async () => ({ actorUserId: "actor", version: 1 }), search_people: async () => [], search_communities: async () => [], apiKey: "test", enabled: true, model: "fixture", fetchImplementation: async () => response(blank()) };
+const toolCall = (name: string, args: unknown, id = name) => new Response(JSON.stringify({ status: "completed", output: [{ type: "function_call", name, call_id: id, arguments: JSON.stringify(args) }] }));
+const rows = [{ slug: "friday-night", title: "Friday Night", eventDate: "2026-11-06", start: "21:00", lineupSummary: "DJ A, DJ B" }];
+const discord = { trigger: "discord" as const, communitySlug: "club", connectorId: "connector" };
 it("validates decoded PNG/JPEG/WebP, size, MIME, digest and decoding", async () => {
  for (const format of ["png", "jpeg", "webp"] as const) {
   const body = await sharp({create:{width:8,height:8,channels:3,background:"blue"}}).toFormat(format).toBuffer();
@@ -35,10 +38,10 @@ it("rejects invented IDs, preserves DST ambiguity and treats source instructions
  assert.equal(request.store,false);assert.equal(request.parallel_tool_calls,false);assert.match(String(request.instructions),/untrusted/i);
  assert.equal((request.tools as {name:string}[]).some(t=>/publish|create|mutate/.test(t.name)),false);
 });
-it("caps the loop at three tools and four model turns", async () => {
+it("caps the loop at five tools and six model turns", async () => {
  let turns=0,calls=0;
  const result=await extractEventIntake({draftId:"draft",sourceText:"Night"},{...base,search_people:async()=>{calls++;return[];},fetchImplementation:async()=>{turns++;return new Response(JSON.stringify({status:"completed",output:[{type:"function_call",name:"search_people",call_id:String(turns),arguments:JSON.stringify({query:"DJ",limit:5})}]}));}});
- assert.equal(calls,3);assert.equal(turns,4);assert.ok(result.questions.length);
+ assert.equal(calls,5);assert.equal(turns,6);assert.ok(result.questions.length);
 });
 it("defaults spam off and flags outages with draft/version binding", async () => {
  const draft={_id:"draft",version:2,fields:{title:"Night"}};
@@ -238,4 +241,59 @@ it("defaults decision to new without run context, even when the model answers up
   assert.deepEqual(result.decision, { kind: "new" });
   const unavailable = await extractEventIntake({ draftId: "draft", sourceText: "Night" }, { ...base, apiKey: "" });
   assert.deepEqual(unavailable.decision, { kind: "new" });
+});
+it("offers list_events and get_event and the decision rules only with run context", async () => {
+  const seen: { tools: string[]; instructions: string }[] = [];
+  const deps = { ...base, list_events: async () => rows, get_event: async () => null, fetchImplementation: async (_url: unknown, init: RequestInit) => {
+    const body = JSON.parse(String(init.body)); seen.push({ tools: body.tools.map((t: { name: string }) => t.name), instructions: body.instructions }); return response(blank());
+  } };
+  await extractEventIntake({ draftId: "draft", sourceText: "Night" }, deps);
+  await extractEventIntake({ draftId: "draft", sourceText: "Night", context: discord }, deps);
+  assert.deepEqual(seen[0]!.tools, ["search_people", "search_communities", "resolve_local_time"]);
+  assert.deepEqual(seen[1]!.tools, ["search_people", "search_communities", "resolve_local_time", "list_events", "get_event"]);
+  assert.doesNotMatch(seen[0]!.instructions, /list_events/);
+  assert.match(seen[1]!.instructions, /may only come from list_events/);
+});
+it("accepts an update slug only when list_events returned it in this run", async () => {
+  const update = { ...blank(), decision: { kind: "update", slug: "friday-night" } };
+  const invented = await extractEventIntake({ draftId: "draft", sourceText: "Friday moves to 22:00", context: discord }, { ...base, list_events: async () => rows, fetchImplementation: async () => response(update) });
+  assert.deepEqual(invented.decision, { kind: "new" });
+  assert.ok(invented.questions.some(q => q.fieldPath === "decision.slug" && q.reason === "unresolved_event"));
+  let limit = 0, turn = 0;
+  const listed = await extractEventIntake({ draftId: "draft", sourceText: "Friday moves to 22:00", context: discord }, { ...base, list_events: async (n: number) => { limit = n; return rows; }, fetchImplementation: async () => ++turn === 1 ? toolCall("list_events", { limit: 40 }) : response(update) });
+  assert.equal(limit, 40);
+  assert.deepEqual(listed.decision, { kind: "update", slug: "friday-night" });
+});
+it("keeps not_event with run context", async () => {
+  const result = await extractEventIntake({ draftId: "draft", sourceText: "anyone around tonight?", context: discord }, { ...base, fetchImplementation: async () => response({ ...blank(), decision: { kind: "not_event", reason: "chatter" } }) });
+  assert.deepEqual(result.decision, { kind: "not_event", reason: "chatter" });
+});
+it("rejects list_events limits outside 1 to 40 before the callback", async () => {
+  let lookups = 0;
+  for (const limit of [0, 41, 2.5]) {
+    const result = await extractEventIntake({ draftId: "draft", sourceText: "x", context: discord }, { ...base, list_events: async () => { lookups++; return rows; }, fetchImplementation: async () => toolCall("list_events", { limit }) });
+    assert.equal(result.questions[0]?.reason, "invalid_tool");
+  }
+  assert.equal(lookups, 0);
+});
+it("serves get_event only for slugs list_events returned", async () => {
+  const asked: string[] = []; const outputs: string[] = []; let turn = 0;
+  const script = [toolCall("get_event", { slug: "unlisted" }, "a"), toolCall("list_events", { limit: 5 }, "b"), toolCall("get_event", { slug: "friday-night" }, "c")];
+  await extractEventIntake({ draftId: "draft", sourceText: "Friday", context: discord }, { ...base, list_events: async () => rows,
+    get_event: async (slug: string) => { asked.push(slug); return { title: "Friday Night", eventDate: "2026-11-06" }; },
+    fetchImplementation: async (_url: unknown, init: RequestInit) => {
+      const input = JSON.parse(String(init.body)).input; const last = input[input.length - 1];
+      if (last?.type === "function_call_output") outputs.push(last.output);
+      return script[turn++] ?? response(blank());
+    } });
+  assert.deepEqual(asked, ["friday-night"]);
+  assert.match(outputs[0]!, /unlisted_event/);
+  assert.match(outputs[2]!, /Friday Night/);
+});
+it("tells the agent which events these messages already produced", async () => {
+  let content: { type: string; text?: string }[] = [];
+  await extractEventIntake({ draftId: "draft", sourceText: "Night", context: { ...discord, priorEvents: [{ sourceMessageId: "123456789012345678", eventSlug: "friday-night" }] } }, { ...base, fetchImplementation: async (_url: unknown, init: RequestInit) => { content = JSON.parse(String(init.body)).input[0].content; return response(blank()); } });
+  assert.equal(content[0]!.text, "Night");
+  assert.match(content[1]!.text!, /123456789012345678/);
+  assert.match(content[1]!.text!, /friday-night/);
 });
