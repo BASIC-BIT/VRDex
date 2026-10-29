@@ -84,11 +84,12 @@ export function carriedFields(kind: ConnectorKind): ReadonlyArray<IntakeKey> {
 }
 
 const position = (row: unknown) => (row && typeof row === "object" && typeof (row as { position?: unknown }).position === "number" ? (row as { position: number }).position : 0);
-// Canonical form for hashing: blanks drop, keys sort, lineup rows sort by position, clientKey and zero dayOffset drop.
+// Canonical form for hashing: blanks drop, keys sort, lineup rows sort by position and renumber from 0, clientKey and zero dayOffset drop.
 export function canonicalIntakeValue(value: unknown): unknown {
   if (value === null || value === undefined) return undefined;
   if (typeof value === "string") return value.trim() || undefined;
-  if (Array.isArray(value)) return [...value].sort((a, b) => position(a) - position(b)).map(row => canonicalIntakeValue(row));
+  if (Array.isArray(value)) return [...value].sort((a, b) => position(a) - position(b))
+    .map((row, index) => canonicalIntakeValue(row && typeof row === "object" && "position" in row ? { ...row, position: index } : row));
   if (typeof value === "object") {
     const { clientKey: _clientKey, dayOffset, ...rest } = value as Record<string, unknown>;
     const out: Record<string, unknown> = Object.fromEntries(Object.keys(rest).sort().flatMap(key => {
@@ -106,6 +107,8 @@ export function carriedFieldsHash(kind: ConnectorKind, fields: EventIntakeFields
   const dateOnly = fields.timeTba === true;
   const pairs = [...carriedFields(kind)].sort().flatMap(key => {
     if (dateOnly && (key === "start" || key === "end" || key === "doors" || key === "timezone")) return [];
+    // Only a true timeTba is meaningful; false and absent both mean a timed event.
+    if (key === "timeTba" && !dateOnly) return [];
     const item = canonicalIntakeValue(fields[key]);
     return item === undefined ? [] : [[key, item]];
   });

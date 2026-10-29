@@ -21,11 +21,22 @@ it("carried hash is stable across key order and zero day offsets and ignores unc
   assert.equal(carriedFieldsHash("google_calendar", base), carriedFieldsHash("google_calendar", same));
   assert.notEqual(carriedFieldsHash("google_calendar", base), carriedFieldsHash("google_calendar", { ...base, title: "Other" }));
   assert.equal(carriedFieldsHash("vrchat_calendar", base), carriedFieldsHash("vrchat_calendar", { ...base, venueLabel: "Changed" }));
+  assert.equal(carriedFieldsHash("google_calendar", base), carriedFieldsHash("google_calendar", { ...base, timeTba: false }));
+});
+
+it("lineup hashes by order, not by raw position numbers", () => {
+  const lineup = (first: number, second: number) => ({ title: "Night Flight", lineup: [{ clientKey: "b", position: second, performerLabel: "Second" }, { clientKey: "a", position: first, performerLabel: "First" }] });
+  assert.equal(carriedFieldsHash("discord_board", lineup(1, 2)), carriedFieldsHash("discord_board", lineup(0, 1)));
+  assert.notEqual(carriedFieldsHash("discord_board", lineup(1, 2)), carriedFieldsHash("discord_board", lineup(2, 1)));
 });
 
 it("date-only fields hash without their time and timezone", () => {
   const dated = { title: "All Day", eventDate: "2027-05-01", timeTba: true };
-  assert.equal(carriedFieldsHash("google_calendar", { ...dated, timezone: "UTC", start: { time: "20:00" } }), carriedFieldsHash("google_calendar", { ...dated, timezone: "", start: null }));
+  const timed = { timezone: "UTC", start: { time: "20:00" }, end: { time: "23:00" }, doors: { time: "19:30" } };
+  for (const kind of ["google_calendar", "discord_board"] as const) {
+    assert.equal(carriedFieldsHash(kind, { ...dated, ...timed }), carriedFieldsHash(kind, { ...dated, timezone: "", start: null, end: null, doors: null }));
+    assert.equal(carriedFieldsHash(kind, { ...dated, ...timed }), carriedFieldsHash(kind, { ...dated, timezone: "Europe/Berlin", start: { time: "21:00" }, end: { time: "02:00", dayOffset: 1 }, doors: { time: "20:30" } }));
+  }
   assert.notEqual(carriedFieldsHash("google_calendar", dated), carriedFieldsHash("google_calendar", { ...dated, timeTba: false, timezone: "UTC", start: { time: "20:00" } }));
 });
 
