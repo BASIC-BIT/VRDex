@@ -340,6 +340,8 @@ The `recover event sync jobs` cron runs every five minutes. It fails running job
 
 Kinds register their `SyncKindHandler` in `convex/eventSyncKinds/index.ts`; the types live in `convex/eventSyncKinds/types.ts`.
 
+Imports update existing events through `internal.events.patchCommunityEventFieldsAsStaff`, a field-level patch in the intake field shape. It admits community owners, `manage_events` or `manage_integrations` staff, and super admins, and throws `VERSION_CONFLICT` before writing when `expectedUpdatedAt` is stale. Each patched field is compared with the canonical record (`correctionFields`), and only the fields that differ go through the same owner update path the API and MCP use, so unpatched fields, including the lineup, stay as they are. A start, date, or time zone change keeps the end and doors at their local wall times. A patch with no differing field writes nothing, enqueues nothing, and returns `changed: false`; a real change is audited with the staff user and the `system` surface.
+
 ## Event Operations Panel
 
 The private operator command roster is separate from the public event page. It reads canonical event, slot, participant, world, and media-control records, then presents an event-running view for authorized staff.

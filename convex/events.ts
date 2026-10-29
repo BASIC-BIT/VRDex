@@ -32,7 +32,7 @@ import {
 import { requireUser } from "./_identity";
 import { contributorStaffLock } from "./_eventContributorLock";
 import { replaceEventLineup } from "./_eventLineup";
-import { eventContributionFingerprint } from "./_eventContributionPreflight";
+import { eventContributionFingerprint, normalizeIntakePublication } from "./_eventContributionPreflight";
 import { activeBrowserSessionSubjectOrNull, requireActiveBrowserSessionSubject } from "./_browserSessionAuthority";
 import {
   apiWriteAuditActorKindValidator,
@@ -94,6 +94,8 @@ import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 import { reindexEventSearchDocument } from "./_searchDocuments";
 import { ensureShortLinkForTarget } from "./_shortLinks";
 import { enqueueEventSync } from "./_eventSync";
+import { EventIntakeUpdatePatchSchema, canonicalIntakeValue, eventIntakeUpdatePatchValidator, userHasCommunityPermission } from "./_eventConnectors";
+import { correctionFields } from "./eventCorrections";
 import { getVrcdnOutputAccount, listPublicVrcdnOutputAccounts } from "./_vrcdnOutputAccounts";
 import { getWorldBySlug, validateWorldSlug } from "./_worldSlugs";
 
@@ -1064,7 +1066,24 @@ async function updateCommunityEventForApiOwnerRecord(
     throw new Error("You do not have permission to update this event.");
   }
 
-  const currentCommunity = await db.get(communityProfileId);
+  const { community, result } = await applyOwnerEventUpdate(ctx, event, args, {
+    kind: "api_owner", ownerUserId: args.ownerUserId, actorSurface: args.actorSurface ?? "api",
+  });
+  return { community, event, result };
+}
+
+type OwnerEventUpdateAuthority =
+  | { kind: "api_owner"; ownerUserId: Id<"users">; actorSurface: "api" | "mcp" }
+  | { kind: "staff"; actorUserId: Id<"users"> };
+
+async function applyOwnerEventUpdate(
+  ctx: MutationCtx,
+  event: Doc<"events">,
+  args: EventDraftUpdateInput,
+  authority: OwnerEventUpdateAuthority,
+) {
+  const {db}=ctx;
+  const currentCommunity = event.communityProfileId === undefined ? null : await db.get(event.communityProfileId);
 
   if (currentCommunity === null) {
     throw new Error("Event community was not found.");
@@ -1109,21 +1128,28 @@ async function updateCommunityEventForApiOwnerRecord(
       mediaLinks: event.mediaLinks ?? [],
     }),
   );
-  const community = await requireApiOwnedPublishedCommunity(db, input.communitySlug, args.ownerUserId);
+  let community: Doc<"profiles">;
+  if (authority.kind === "api_owner") {
+    community = await requireApiOwnedPublishedCommunity(db, input.communitySlug, authority.ownerUserId);
+  } else {
+    if (input.communitySlug !== currentCommunity.slug) throw new Error("Staff updates cannot move an event to another community.");
+    community = currentCommunity;
+  }
   const world = updateFields.has("worldSlug")
     ? await getPublishedWorldBySlug(db, input.worldSlug)
     : await linkedPublishedEventWorld(db, event._id);
   const result = await updateCommunityEventRecord(ctx, { event, input, community, world, updateFields });
   await recordEventAuditEvent(db, {
     eventId: event._id,
-    actor: apiOwnerAuthSubject(args.ownerUserId),
-    actorSurface: args.actorSurface ?? "api",
+    ...(authority.kind === "api_owner"
+      ? { actor: apiOwnerAuthSubject(authority.ownerUserId), actorSurface: authority.actorSurface }
+      : { actorUserId: authority.actorUserId, actorSurface: "system" as const }),
     action: "updated",
     changedFields: [...updateFields],
     now: Date.now(),
   });
 
-  return { community, event, result };
+  return { community, result };
 }
 
 export const listCommunityManagedEventsForApiOwner = internalQuery({
@@ -3224,6 +3250,67 @@ export const updateCommunityEventForMcpOwner = internalMutation({
 
     return result;
   },
+});
+
+const STAFF_SCHEDULE_KEYS = ["eventDate", "timeTba", "timezone", "start"] as const;
+
+// Field-level: only the patch keys that differ from the canonical record reach the owner update path.
+export async function patchCommunityEventFieldsAsStaffRecord(
+  ctx: MutationCtx,
+  args: { actorUserId: Id<"users">; slug: string; expectedUpdatedAt: number; patch: unknown },
+): Promise<{ eventId: Id<"events">; updatedAt: number; changed: boolean }> {
+  const { db } = ctx;
+  const event = await getEventBySlug(db, args.slug);
+  const community = event?.communityProfileId === undefined ? null : await db.get(event.communityProfileId);
+  if (event === null || community === null) throw new ConvexError({ code: "EVENT_NOT_FOUND" });
+  if (!await userHasCommunityPermission(db, community._id, args.actorUserId, ["manage_events", "manage_integrations"])) {
+    throw new ConvexError({ code: "EVENT_STAFF_REQUIRED" });
+  }
+  if (args.expectedUpdatedAt !== event.updatedAt) throw new ConvexError({ code: "VERSION_CONFLICT" });
+  const parsed = EventIntakeUpdatePatchSchema.parse(args.patch);
+  const current = await correctionFields(db, event);
+  const same = (key: keyof typeof parsed) =>
+    JSON.stringify(canonicalIntakeValue(parsed[key])) === JSON.stringify(canonicalIntakeValue(current[key]));
+  const patch = Object.fromEntries(Object.entries(parsed).filter(([key]) => !same(key as keyof typeof parsed))) as typeof parsed;
+  const has = (key: keyof typeof parsed) => Object.prototype.hasOwnProperty.call(patch, key);
+  if (Object.keys(patch).length === 0) return { eventId: event._id, updatedAt: event.updatedAt, changed: false };
+
+  const touchesSchedule = STAFF_SCHEDULE_KEYS.some(has);
+  const touchesTimes = touchesSchedule || has("end") || has("doors");
+  const update: EventDraftUpdateInput = {};
+  if (touchesTimes || has("lineup")) {
+    // Normalize the schedule subset only: unrelated legacy data (doors, unlabeled lineup) must not block the patch.
+    const dateOnly = (patch.timeTba ?? current.timeTba) === true;
+    const n = normalizeIntakePublication({
+      communitySlug: community.slug, title: patch.title ?? current.title, eventDate: current.eventDate,
+      timeTba: current.timeTba, timezone: current.timezone,
+      ...(dateOnly ? {} : { start: current.start, ...(touchesTimes ? { end: current.end, doors: current.doors } : {}) }),
+      ...Object.fromEntries([...STAFF_SCHEDULE_KEYS, "end", "doors", "lineup"].filter(key => has(key as keyof typeof parsed)).map(key => [key, patch[key as keyof typeof parsed]])),
+    });
+    if (touchesSchedule) {
+      Object.assign(update, n.schedule.scheduleKind === "date_only"
+        ? { scheduleKind: "date_only", eventDate: n.schedule.eventDate, timezone: null }
+        : { scheduleKind: "timed", eventDate: n.schedule.eventDate, startAt: n.schedule.startAt, timezone: n.fields.timezone });
+    }
+    if (touchesSchedule || has("end")) update.endAt = n.endAt ?? null;
+    if (touchesSchedule || has("doors")) update.doorsOpenAt = n.doorsOpenAt ?? null;
+    if (has("lineup")) update.lineup = n.lineup;
+  }
+  if (patch.title) update.title = patch.title;
+  if (has("venueLabel")) update.venueLabel = patch.venueLabel ?? "";
+  if (has("summary")) update.summary = patch.summary || null;
+  if (has("sourceUrl")) update.sourceUrl = patch.sourceUrl || null;
+  if (has("worldSlug")) update.worldSlug = patch.worldSlug || null;
+  if (Object.keys(update).length === 0) return { eventId: event._id, updatedAt: event.updatedAt, changed: false };
+
+  await applyOwnerEventUpdate(ctx, event, update, { kind: "staff", actorUserId: args.actorUserId });
+  const stored = (await db.get(event._id))!;
+  return { eventId: event._id, updatedAt: stored.updatedAt, changed: true };
+}
+
+export const patchCommunityEventFieldsAsStaff = internalMutation({
+  args: { actorUserId: v.id("users"), slug: v.string(), expectedUpdatedAt: v.number(), patch: eventIntakeUpdatePatchValidator },
+  handler: (ctx, args) => patchCommunityEventFieldsAsStaffRecord(ctx, args),
 });
 
 export const updateCommunityEvent = mutation({
