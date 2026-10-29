@@ -1,5 +1,4 @@
 import { v } from "convex/values";
-import { api } from "./_generated/api";
 import { query } from "./_generated/server";
 import { encodeTimelineCursor, overlapsTimeline, readTimelineCursor, timelineDateBounds, timelineEventIdentity, timelineLimit, timelinePerformer, timelineSchedule, timelineSlot, validateTimelineRange } from "./_eventTimeline";
 import type { EventPhase, RosterPhase } from "./_eventTimeline";
@@ -12,7 +11,7 @@ const referenceValidator = v.union(
 );
 const eventPhases: readonly EventPhase[] = ["starts", "ongoing", "dates"];
 const rosterPhases: readonly RosterPhase[] = ["slots", "lineup", "participants"];
-// Each nested query has its own single pagination context. No full-detail projection is loaded.
+// Event and roster pages must be separate requests, including nested queries.
 
 export const listPublic = query({
   args: { range: rangeValidator, cursor: v.optional(v.string()), limit: v.optional(v.number()) },
@@ -36,8 +35,8 @@ export const listPublic = query({
         : schedule.kind === "date_only" || (state.phase === "ongoing" && schedule.startAt >= args.range.startAt)) continue;
       const identity = await timelineEventIdentity(ctx.db, event);
       if (identity === null) continue;
-      const roster = await ctx.runQuery(api.eventTimeline.listPublicRoster, { eventId: event._id, range: args.range });
-      items.push({ ...identity, slots: roster.items, performers: roster.performers, rosterCursor: roster.cursor });
+      items.push({ ...identity, slots: [], performers: [], rosterCursor:
+        encodeTimelineCursor(`roster:${event._id}`, args.range, { phase: "slots", databaseCursor: null }) });
     }
     const next = state.phase === "starts" ? "ongoing" : state.phase === "ongoing" ? "dates" : null;
     const cursor = page.isDone

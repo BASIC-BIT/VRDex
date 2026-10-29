@@ -178,6 +178,11 @@ runs still clean eight events, two profiles and eight slots. Reuse this helper
 for Home checks; do not seed public-query responses or
 add unrelated records manually.
 
+Timeline event pages return identity records with an initial roster cursor.
+The existing window cache loads roster pages in separate client requests before
+reporting the window ready. Convex permits only one paginated query per request,
+including nested queries, so event pages must not load roster pages themselves.
+
 The schedule's nonmodal detail panel reads canonical event poster/prose through
 `events.getPublicBySlug`. `eventTimeline.listPublicRoster` accepts optional
 `detail: true` for the complete mixed lineup and eligible favorite IDs, with
