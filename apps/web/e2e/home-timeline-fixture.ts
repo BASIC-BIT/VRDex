@@ -96,6 +96,7 @@ export const test = base.extend<{
           } finally {
             try {
               const cleanup = await request.delete("/api/e2e/home-timeline", {
+                maxRetries: 1,
                 headers,
                 data: { runId },
               });
