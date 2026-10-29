@@ -710,11 +710,12 @@ test.describe("continuous schedule @flow @fixture", () => {
     await page.getByRole("button", { name: "Timeline", exact: true }).click();
     const bar = page.getByTestId(`event-${timelineFixture.eventIds[3]}`);
     const chartIncluded = bar.getByRole("button", {
-      name: `Aurora: Included in ${title}`,
+      name: `Included with event: Aurora at ${title}`,
       exact: true,
+      includeHidden: true,
     });
     await expect(chartIncluded).toBeDisabled();
-    await expect(chartIncluded).toHaveText("Included");
+    await expect(chartIncluded).toHaveAttribute("title", "Included with event");
     if (!isMobile) {
       await chartIncluded.dispatchEvent("click");
     }

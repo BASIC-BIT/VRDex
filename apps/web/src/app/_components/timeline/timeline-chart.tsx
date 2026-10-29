@@ -46,15 +46,18 @@ export function TimelineChart({
     endAt: origin + 144 * HOUR,
     timeZone: range.timeZone,
   };
-  const visibleSaved = saved.filter(
-    (s) =>
-      s.kind === "available" &&
-      s.status !== "cancelled" &&
-      inRange({ schedule: s.slot?.schedule ?? s.event.schedule }, range),
-  );
+  const visibleSaved = saved.filter((item) => {
+    if (item.kind !== "available" || item.status === "cancelled") return false;
+    const schedule = item.slot?.schedule ?? item.event.schedule;
+    return (
+      schedule.kind === "timed" &&
+      schedule.endAt > now &&
+      inRange({ schedule }, range)
+    );
+  });
   const nightLanes = nightLayout(visibleSaved);
   const nightHeight = nightLanes.length
-    ? (Math.max(...nightLanes.map((l) => l.lane)) + 1) * 42
+    ? (Math.max(...nightLanes.map((l) => l.lane)) + 1) * 50
     : 0;
   const height = Math.max(1, ...lanes.map((l) => l.lane + 1)) * 94;
   useLayoutEffect(() => {
@@ -182,8 +185,10 @@ export function TimelineChart({
               range={range}
               origin={origin}
               onNext={onNext}
-              onSave={actions.onSave}
-              onSelect={actions.onSelect}
+              records={records}
+              slotCoverage={slotCoverage}
+              now={now}
+              {...actions}
             />
           )}
           <div className={styles.lanes} style={{ height }}>

@@ -269,8 +269,9 @@ function ScheduleContent({
           saved={data.saved}
           range={range}
           onNext={nextSaved}
-          onSelect={onSelect}
-          onSave={onSave}
+          fallbackOnly={navigation.view === "timeline"}
+          now={now}
+          {...actions}
         />
       )}
       {navigation.view === "timeline" ? (

@@ -1,5 +1,7 @@
 import Image from "next/image";
-import { BookmarkCheck, Check, Plus, Star } from "lucide-react";
+import { BookmarkCheck, Star } from "lucide-react";
+import { FavoriteButton } from "@/components/ui/favorite-button";
+import { InterestButton } from "@/components/ui/interest-button";
 import type {
   PlanReference,
   TimelineEvent,
@@ -88,24 +90,23 @@ export function TimelineEventBar({
           {saved && <BookmarkCheck size={14} aria-label="Saved" />}
         </button>
         {event.host && (
-          <button
-            className={styles.favorite}
-            aria-label={`${actions.favoriteProfileIds.includes(event.host.id) ? "Unfavorite" : "Favorite"} ${event.host.displayName}`}
-            aria-pressed={actions.favoriteProfileIds.includes(event.host.id)}
-            onClick={() => {
+          <FavoriteButton
+            label={event.host.displayName}
+            pressed={actions.favoriteProfileIds.includes(event.host.id)}
+            onToggle={() => {
               if (event.host) actions.onFavorite(event.host.id);
             }}
-          >
-            <Star size={13} />
-          </button>
+            size="compact"
+            className={styles.headerAction}
+          />
         )}
-        <button
-          className={styles.add}
-          aria-label={`${saved ? "Remove" : "Add"} ${event.title} ${saved ? "from" : "to"} My night`}
-          onClick={() => actions.onSave(reference)}
-        >
-          {saved ? <Check size={14} /> : <Plus size={14} />}
-        </button>
+        <InterestButton
+          label={event.title}
+          state={planSaveState(actions.plan, reference)}
+          onToggle={() => actions.onSave(reference)}
+          size="compact"
+          className={styles.headerAction}
+        />
       </div>
       <div className={styles.setTrack}>
         {event.slots.map((slot) => {
@@ -122,8 +123,6 @@ export function TimelineEventBar({
             slotId: slot.id,
           };
           const setState = planSaveState(actions.plan, ref);
-          const included = setState === "included";
-          const setSaved = setState !== "unsaved";
           return (
             <div
               className={styles.set}
@@ -135,6 +134,8 @@ export function TimelineEventBar({
               }
             >
               <button
+                className={styles.setOpen}
+                title={slot.displayLabel}
                 aria-label={`Open ${slot.displayLabel} at ${event.title}`}
                 aria-pressed={actions.selection?.slotId === slot.id}
                 onClick={() =>
@@ -151,26 +152,26 @@ export function TimelineEventBar({
                   )}
                 <span>{slot.displayLabel}</span>
               </button>
-              <button
-                className={included ? styles.included : styles.add}
-                disabled={included}
-                aria-label={
-                  included
-                    ? `${slot.displayLabel}: Included in ${event.title}`
-                    : `${setSaved ? "Remove" : "Add"} ${slot.displayLabel} ${setSaved ? "from" : "to"} My night`
-                }
-                onClick={() => {
-                  if (!included) actions.onSave(ref);
-                }}
-              >
-                {included ? (
-                  "Included"
-                ) : setSaved ? (
-                  <Check size={12} />
-                ) : (
-                  <Plus size={12} />
-                )}
-              </button>
+              {slot.performer && (
+                <FavoriteButton
+                  label={slot.performer.displayName}
+                  pressed={actions.favoriteProfileIds.includes(
+                    slot.performer.id,
+                  )}
+                  onToggle={() => {
+                    if (slot.performer) actions.onFavorite(slot.performer.id);
+                  }}
+                  size="compact"
+                  className={styles.setAction}
+                />
+              )}
+              <InterestButton
+                label={`${slot.displayLabel} at ${event.title}`}
+                state={setState}
+                onToggle={() => actions.onSave(ref)}
+                size="compact"
+                className={styles.setAction}
+              />
             </div>
           );
         })}

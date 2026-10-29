@@ -46,7 +46,8 @@
   display: flex;
   gap: 0.3rem;
 }
-.schedule button[aria-pressed="true"] {
+.toolbar button[aria-pressed="true"],
+.navigation button[aria-pressed="true"] {
   color: var(--accent);
   background-color: var(--accent-muted);
 }
@@ -333,23 +334,116 @@
 }
 .nightBar {
   position: absolute;
+  height: 44px;
+  box-shadow: inset 0 0 0 1px #9474bd;
+  border-radius: 4px;
+  background: color-mix(in srgb, #9270be 18%, var(--surface-elevated));
+  color: var(--foreground);
+  overflow: hidden;
+  font-size: 0.65rem;
+  container-type: inline-size;
+}
+.nightLabel {
+  position: sticky;
+  left: 0;
+  width: 88px;
+  height: 22px;
+  margin-bottom: -22px;
+  overflow: visible;
+  z-index: 1;
+  padding: 3px 8px;
+  font-size: 0.7rem;
+  line-height: 16px;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.nightHeader {
+  display: flex;
+  height: 22px;
+  align-items: center;
+  background: color-mix(in srgb, #9270be 12%, var(--surface-elevated));
+}
+.nightOpen {
   display: flex;
   align-items: center;
   gap: 5px;
-  padding: 8px;
-  height: 35px;
-  border: 1px solid #9474bd;
-  border-radius: 4px;
-  background: #493756;
-  color: #eee3fc;
-  font-size: 0.68rem;
+  min-width: 0;
+  flex: 1;
+  height: 100%;
+  padding: 0 5px;
   text-align: left;
 }
-.nightBar span {
+.nightOpen strong,
+.nightSet span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  flex: 1;
+}
+.nightOpen strong {
+  min-width: 0;
+}
+.nightOpen > svg {
+  flex-shrink: 0;
+}
+.nightClub {
+  display: inline-flex;
+  flex-shrink: 0;
+  gap: 2px;
+  align-items: center;
+}
+.nightClub img {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
+.nightLogo {
+  width: 16px;
+  height: 16px;
+  text-align: center;
+  color: var(--accent);
+}
+.gold {
+  color: #f2c56b;
+  fill: currentColor;
+  flex-shrink: 0;
+}
+.partial {
+  color: var(--muted);
+  font-size: 0.55rem;
+  white-space: nowrap;
+  margin-left: auto;
+}
+.nightTrack {
+  position: relative;
+  height: 22px;
+}
+.nightSet {
+  display: flex;
+  position: absolute;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 5px;
+  border-top: 1px solid color-mix(in srgb, #9474bd 40%, transparent);
+  border-right: 1px solid color-mix(in srgb, #9474bd 40%, transparent);
+  overflow: hidden;
+  text-align: left;
+}
+.nightHeader .nightInterest {
+  min-height: 20px;
+  height: 20px;
+  min-width: 20px;
+  padding: 1px;
+  background: transparent;
+}
+.nightInterest svg {
+  width: 16px;
+  height: 16px;
+}
+@container (max-width: 72px) {
+  .nightHeader .nightInterest {
+    display: none;
+  }
 }
 .savedList {
   display: flex;
@@ -534,4 +628,60 @@
 }
 .schedule button:disabled {
   cursor: default;
+}
+
+.headerAction {
+  background: transparent;
+  margin-right: 3px;
+}
+.set:hover,
+.set:focus-within {
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface-elevated));
+}
+.event .set .setAction {
+  position: absolute;
+  top: 3px;
+  pointer-events: none;
+  opacity: 0;
+  background: transparent;
+}
+.set > .setAction:last-child {
+  right: 0;
+}
+.set > .setAction:nth-last-child(2) {
+  right: 24px;
+}
+.event .set:hover .setAction,
+.event .set:focus-within .setAction {
+  pointer-events: auto;
+  opacity: 1;
+}
+.set:hover .setOpen,
+.set:focus-within .setOpen {
+  width: calc(100% - 48px);
+  flex: none;
+  padding-right: 8px;
+}
+.set .setAction:hover,
+.set .setAction:focus-visible {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.setOpen {
+  overflow: hidden;
+  width: 100%;
+}
+.set[data-favorite="true"] > button:first-child > svg {
+  fill: currentColor;
+  flex-shrink: 0;
+}
+@media (hover: none) {
+  .set .setAction {
+    display: none;
+  }
+  .set:hover .setOpen,
+  .set:focus-within .setOpen {
+    width: 100%;
+    flex: 1;
+    padding-right: 8px;
+  }
 }
