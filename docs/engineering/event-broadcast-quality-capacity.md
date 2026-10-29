@@ -5,6 +5,11 @@ No preset is admitted to a new production session until its checked-in evidence
 covers both audio settings and its frozen destination membership. Local media
 proofs are functional diagnostics, not Fargate capacity evidence.
 
+The [retained codec matrix](authority/reviews/codec-diagnostic/matrix/README.md)
+records twelve completed synthetic encodes, the reviewed CodeBuild setup fixes,
+and cleanup evidence. These baseline-image measurements do not admit production
+settings or replace current-image Fargate and live-provider qualification.
+
 The scoped R94 PROGRAM result limit is 262144 UTF-8 bytes including LF, with
 196608 bytes independently available for other chargeable outer originals and
 458752 bytes maximum combined reservation. These fit inside the existing R90
@@ -72,14 +77,28 @@ need fresh execution evidence.
 
 ## Synthetic unit fixtures
 
-Backend and dispatcher unit tests bind an explicit resolver from
-`tests/fixtures/event-capacity.mjs` through handler construction and runtime
-dependencies. Its `unit-test-synthetic-capacity-v1` allocation is nonproduction
-fixture data, not a measured receipt. The test module loader replaces only the
-scheduling mutation; all remaining handlers, validators and lifecycle assertions
+Backend and dispatcher unit tests bind explicit nonproduction resolvers through
+handler construction and runtime dependencies. The shared branch fixture in
+`tests/scripts/_event-allocation-fixture.mjs` uses `fixture-capacity-v1` with
+4096 CPU units and 8192 MiB. Its loader is
+`tests/backend/_eventCapacityFixture.ts:loadEventsWithFixtureCapacity`.
+The separate migration protocol unit fixture uses
+`tests/fixtures/event-capacity.mjs`, `unit-test-synthetic-capacity-v1`, and
+`tests/fixtures/event-modules.ts:loadFixtureEvents`, with the same resource values.
+Each frozen snapshot is checked against its own resolver and evidence identity.
+Neither fixture is measured evidence. Both module loaders replace only the
+scheduling mutation; the remaining handlers, validators and lifecycle assertions
 run unchanged. Public scheduling and default dispatcher entrypoints still use the
 empty production registry and reject these fixtures. No environment variable,
 client field or database fixture can populate the measured registry.
+
+The baseline CI migration lane explicitly selects `run-admission-blocked` and
+requires `migration-admission-blocked` evidence: historical migration, exact
+production capacity rejection, unchanged owned admission rows and cleanup. Its
+passing receipt does not establish successful whole-flow admission, native
+execution, measured capacity or external A. Default `run` continues to require
+`whole-flow` evidence and remains blocked by the empty production map. See the
+[local rehearsal scope](event-broadcast-rehearsal.md#october-24-2026-task-9-source-prerequisites).
 
 ## Session authority
 
@@ -501,3 +520,14 @@ manifest has 88 source entries after the encoded-fixture regression; that static
 inventory claim. ROOT must reconcile the completed manifest with actual image
 bytes and the accepted map before recording deployment readiness. Task 9 changes
 no worker runtime, proof package or capacity-map bytes.
+
+## October 28 current-image smoke
+
+The [current-image smoke](authority/reviews/current-image-smoke/README.md)
+verified all 134 packaged source files, all 132 native transport contracts on
+Fargate, two real 1080p Twitch inputs scaled to 720p30, and manual take/cut/return
+with advancing encoded output. The successful private recording is about
+20 seconds long. Owned VRCDN `basicbit1` publishing/playback passed its codec
+smoke; `basicbit` publication was rejected, leaving the two-account relay blocked.
+These results preserve the empty production allocation table and all remaining
+capacity, source-marker, automatic handoff and device acceptance requirements.

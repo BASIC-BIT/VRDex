@@ -3748,7 +3748,7 @@ export const configureTwitchOutput = mutation({
 });
 
 /** Bind capacity authority at construction; public callers cannot override it. */
-export function createScheduleEventMediaWorker(resolveAllocation = resolveWorkerAllocation) {
+export function createScheduleEventMediaWorker(resolveAllocation: typeof resolveWorkerAllocation) {
   return mutation({
   args: eventMediaWorkerScheduleArgs,
   handler: async (ctx, args) => {
@@ -3909,10 +3909,10 @@ export function createScheduleEventMediaWorker(resolveAllocation = resolveWorker
       ...(startCommandId === undefined ? {} : { startCommandId }),
     };
   },
-});
+  });
 }
 
-export const scheduleEventMediaWorker = createScheduleEventMediaWorker();
+export const scheduleEventMediaWorker = createScheduleEventMediaWorker(resolveWorkerAllocation);
 
 export const recordEventMediaWorkerTaskStatus = mutation({
   args: eventMediaWorkerTaskStatusArgs,

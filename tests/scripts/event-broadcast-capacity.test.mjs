@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   VIDEO_PROFILES,
-  resolveDestinationProfile,
 } from "../../workers/restream/broadcast-profiles.mjs";
 import {
   createCapacityResolver,
@@ -13,35 +12,15 @@ import {
   validateAllocationSnapshot,
   validateTaskMetadata,
 } from "../../workers/restream/worker-allocation.mjs";
+import { allocatedSession, fixtureCapacityResolver as resolve } from "./_event-allocation-fixture.mjs";
 import { taskDefinitionFor } from "../../scripts/event-media-ecs-bridge.mjs";
 const allocation = {
   cpuUnits: 4096,
   memoryMiB: 8192,
   evidenceId: "fixture-capacity-v1",
 };
-const fixture = Object.fromEntries(
-  Object.keys(VIDEO_PROFILES).flatMap((p) =>
-    [false, true].map((s) => [`${p}:${s}`, allocation]),
-  ),
-);
-const resolve = createCapacityResolver(fixture);
 function snapshot(videoPreset = "1080p60", simulcastEnabled = true) {
-  const mediaSettings = { videoPreset, audioBitrateKbps: 320 };
-  return {
-    mediaSettings,
-    allocation,
-    outputId: "primary",
-    destinationProfiles: ["vrcdn", ...(simulcastEnabled ? ["twitch"] : [])].map(
-      (destination) => ({
-        outputId: destination === "vrcdn" ? "primary" : "optional",
-        destination,
-        profile: resolveDestinationProfile({
-          settings: mediaSettings,
-          destination,
-        }),
-      }),
-    ),
-  };
+  return allocatedSession({ videoPreset, ...(simulcastEnabled ? { optional: "optional" } : {}) });
 }
 for (const p of Object.keys(VIDEO_PROFILES))
   for (const s of [false, true])
@@ -70,16 +49,14 @@ for (const p of Object.keys(VIDEO_PROFILES))
         validateAllocationSnapshot(session),
       );
     });
-test("production is unavailable until independently measured evidence lands", () => {
-  assert.throws(
-    () =>
-      resolveWorkerAllocation({
-        videoPreset: "720p30",
-        simulcastEnabled: false,
-      }),
-    /unproved/i,
-  );
-});
+for (const videoPreset of Object.keys(VIDEO_PROFILES))
+  for (const simulcastEnabled of [false, true])
+    test(`production ${videoPreset}/${simulcastEnabled} is unavailable until independently measured evidence lands`, () => {
+      assert.throws(
+        () => resolveWorkerAllocation({ videoPreset, simulcastEnabled }),
+        /unproved/i,
+      );
+    });
 test("strict measured map and profile validation", () => {
   for (const input of [
     { videoPreset: "bogus", simulcastEnabled: false },

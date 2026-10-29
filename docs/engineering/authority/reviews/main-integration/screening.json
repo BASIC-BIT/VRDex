@@ -1,0 +1,14 @@
+{
+  "allowlistMembers": 70,
+  "uncompressedBytes": 7650110,
+  "patterns": [
+    "private-key",
+    "github-token",
+    "aws-access-key",
+    "signed-download-url",
+    "authorization-value",
+    "jwt"
+  ],
+  "findings": [],
+  "status": "screened"
+}

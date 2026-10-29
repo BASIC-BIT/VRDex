@@ -1,6 +1,4 @@
-import { loadFixtureEvents } from "../fixtures/event-modules.ts";
-import { resolveSyntheticAllocation } from "../fixtures/event-capacity.mjs";
-import { allocatedSession } from './_event-allocation-fixture.mjs';
+import { allocatedSession, fixtureCapacityResolver } from './_event-allocation-fixture.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { EventEmitter } from 'node:events';
@@ -9,13 +7,14 @@ import { getFunctionName, makeFunctionReference } from 'convex/server';
 import schemaModule from '../../convex/schema.ts';
 import { api } from '../../convex/_generated/api.js';
 import { bindVrcdnTestAccount } from '../backend/_eventOutputAccountFixture.ts';
+import { loadEventsWithFixtureCapacity } from '../backend/_eventCapacityFixture.ts';
 import { newClerkUserId } from '../backend/_clerkTestIdentity.ts';
 import * as bridge from '../../scripts/event-media-ecs-bridge.mjs';
 
 const schema = schemaModule.default ?? schemaModule;
 const bridgeToken = 'lifecycle-test-token';
 const worker = name => makeFunctionReference(`eventMediaWorker:${name}`);
-const config = { region: 'us-east-1', bridgeToken, workerId: 'lifecycle-bridge', cluster: 'test', pollMs: 1000, redactValues: [], secretRefMap: {}, baseEnvironment: {} };
+const config = { bridgeToken, workerId: 'lifecycle-bridge', region: 'us-east-1', cluster: 'test', pollMs: 1000, redactValues: [], secretRefMap: {}, baseEnvironment: {} };
 
 test('optional drain epoch config accepts unsigned safe integers and preserves unbounded startup when absent', () => {
   const environment = {
@@ -60,7 +59,7 @@ async function fixture() {
   process.env.VRDEX_EVENT_BROADCAST_MAX_CONCURRENT = '1';
   const t = convexTest({ schema, modules: {
     '../../convex/_generated/api.ts': () => import('../../convex/_generated/api.js'),
-    '../../convex/events.ts': loadFixtureEvents,
+    '../../convex/events.ts': loadEventsWithFixtureCapacity,
     '../../convex/eventMediaWorker.ts': () => import('../../convex/eventMediaWorker.ts'),
   } });
   const subject = newClerkUserId();
@@ -84,6 +83,36 @@ async function fixture() {
   return { t, client, event, output, scheduled, session, admit, register };
 }
 
+
+test('default bridge releases rejected synthetic snapshot without launch', async t => {
+  const command = { commandId: 'command', commandType: 'start_program', eventId: 'event', program: { programId: 'program' }, session: allocatedSession({ sessionId: 'rejected-session' }) };
+  const mutations = [], awsCalls = [], errors = [];
+  t.mock.method(console, 'error', value => errors.push(JSON.parse(value)));
+  const client = { mutation: async (ref, args) => {
+    const name = getFunctionName(ref);
+    mutations.push({ name, args });
+    if (name === 'events:claimEventMediaWorkerCommand') return command;
+    if (name === 'eventMediaWorker:admitDispatch') return { granted: true };
+    return { accepted: true };
+  } };
+  assert.equal(await bridge.claimAndProcess(client, config, async (_config, args) => {
+    awsCalls.push(args);
+    throw Error('rejected capacity must not reach AWS');
+  }), true);
+  assert.deepEqual(awsCalls, []);
+  assert.equal(typeof command.dispatchId, 'string');
+  assert.deepEqual(mutations.map(call => call.name), [
+    'events:claimEventMediaWorkerCommand',
+    'eventMediaWorker:admitDispatch',
+    'eventMediaWorker:releaseUnlaunchedDispatch',
+  ]);
+  assert.deepEqual(mutations[2].args, {
+    bridgeToken, eventId: 'event', sessionId: 'rejected-session',
+    dispatchId: command.dispatchId, commandId: 'command', workerId: config.workerId,
+  });
+  assert.deepEqual(errors, [{ event: 'event_media_ecs_dispatch_failed', sessionId: 'rejected-session' }]);
+});
+
 test('RunTask propagates the ownership tags from its registered task definition', async () => {
   const command = { commandId: 'command', commandType: 'start_program', eventId: 'event', program: { programId: 'program' }, session: allocatedSession() };
   const calls = [];
@@ -97,7 +126,14 @@ test('RunTask propagates the ownership tags from its registered task definition'
     calls.push(args);
     if (args[1] === 'register-task-definition') return { taskDefinition: { taskDefinitionArn: 'definition' } };
     return { tasks: [{ taskArn: 'task' }] };
-  }, undefined, resolveSyntheticAllocation);
+  }, () => false, { resolveAllocation: fixtureCapacityResolver });
+  const registration = calls.find(args => args[1] === 'register-task-definition');
+  assert.ok(registration, 'start must register its task definition');
+  const definition = JSON.parse(registration[registration.indexOf('--cli-input-json') + 1]);
+  assert.equal(definition.cpu, '4096');
+  assert.equal(definition.memory, '8192');
+  assert.equal(definition.containerDefinitions[0].cpu, 4096);
+  assert.equal(definition.containerDefinitions[0].memory, 8192);
   const args = calls.find(args => args[1] === 'run-task');
   assert.ok(args, 'start must reach actual RunTask');
   assert.equal(args[args.indexOf('--propagate-tags') + 1], 'TASK_DEFINITION');
@@ -128,7 +164,7 @@ test('deadline drain stops a late worker and releases capacity only after exact 
     assert.equal(typeof (await f.session()).dispatchStopConfirmedAt, 'number');
     cleanup++;
     return {};
-  }, { wallClock: () => 1000, monotonicClock: () => monotonic, signals: new EventEmitter(), wait: async () => {
+  }, { resolveAllocation: fixtureCapacityResolver, wallClock: () => 1000, monotonicClock: () => monotonic, signals: new EventEmitter(), wait: async () => {
     waits++;
     assert.ok(waits < 5, 'drain must finish after confirmed cleanup');
     if (waits === 1) {
@@ -170,7 +206,7 @@ for (const failure of ['unknown-arn', 'missing-task', 'cleanup-provider', 'clean
     if (args[1] === 'describe-tasks') return { tasks: failure === 'missing-task' ? [] : [{ taskArn: 'managed-task', lastStatus: 'STOPPED' }] };
     if (failure === 'cleanup-provider') throw Error('cleanup provider unavailable');
     return {};
-  }, { wallClock: () => 2, monotonicClock: () => 100, signals: new EventEmitter(), wait: async () => {
+  }, { resolveAllocation: fixtureCapacityResolver, wallClock: () => 2, monotonicClock: () => 100, signals: new EventEmitter(), wait: async () => {
     waits++;
     throw Error('test drain remains pending');
   } }), /control failure|test drain remains pending/);
@@ -184,7 +220,7 @@ test('the same expired absolute deadline never claims after a process retry', as
   let claims = 0;
   const client = { query: async () => [], mutation: async () => { claims++; return null; } };
   for (const wallNow of [1000, 90000]) {
-    await bridge.runBridge(client, { ...config, drainAtMs: 1000 }, async () => { throw Error('no tasks expected'); }, { wallClock: () => wallNow, monotonicClock: () => 50, signals: new EventEmitter() });
+    await bridge.runBridge(client, { ...config, drainAtMs: 1000 }, async () => { throw Error('no tasks expected'); }, { resolveAllocation: fixtureCapacityResolver, wallClock: () => wallNow, monotonicClock: () => 50, signals: new EventEmitter() });
   }
   assert.equal(claims, 0);
 });
@@ -193,7 +229,7 @@ test('deadline is monotonic after startup even if wall clock moves backwards', a
   assert.equal(typeof bridge.runBridge, 'function');
   let monotonic = 0, wall = 100, claims = 0, waits = 0;
   await bridge.runBridge({ query: async () => [], mutation: async () => { claims++; return null; } }, { ...config, drainAtMs: 200 }, async () => ({}), {
-    wallClock: () => wall, monotonicClock: () => monotonic, signals: new EventEmitter(), wait: async ms => {
+    resolveAllocation: fixtureCapacityResolver, wallClock: () => wall, monotonicClock: () => monotonic, signals: new EventEmitter(), wait: async ms => {
       assert.equal(ms, 100, 'sleep must wake at deadline before the next full poll');
       assert.equal(waits++, 0);
       monotonic = 100;
@@ -237,7 +273,7 @@ test('drain observes a worker that stops after five seconds and acknowledges cle
       assert.equal((await f.session()).dispatchStopConfirmedAt, undefined);
     } else assert.equal(args[1], 'deregister-task-definition');
     return {};
-  }, { resolveAllocation: resolveSyntheticAllocation, wallClock: () => 0, monotonicClock: () => now, signals: new EventEmitter(), wait: async ms => {
+  }, { resolveAllocation: fixtureCapacityResolver, wallClock: () => 0, monotonicClock: () => now, signals: new EventEmitter(), wait: async ms => {
     waits.push(ms);
     advance(ms);
   } });
@@ -256,7 +292,7 @@ test('ambiguous reservations retain a positive bounded drain retry cadence', asy
   await f.admit();
   const waits = [];
   await assert.rejects(bridge.runBridge(f.client, { ...config, pollMs: 30000, drainAtMs: 0 }, async () => { throw Error('no exact task ARN'); }, {
-    wallClock: () => 0, monotonicClock: () => 0, signals: new EventEmitter(), wait: async ms => {
+    resolveAllocation: fixtureCapacityResolver, wallClock: () => 0, monotonicClock: () => 0, signals: new EventEmitter(), wait: async ms => {
       waits.push(ms);
       if (waits.length === 3) throw Error('test bounded pending drain');
     },
@@ -301,7 +337,7 @@ for (const trigger of ['SIGTERM', 'SIGINT', 'deadline', 'deadline-at-sleep']) te
       stopped = true;
     }
     return {};
-  }, { signals, wallClock: () => 0, monotonicClock: () => {
+  }, { resolveAllocation: fixtureCapacityResolver, signals, wallClock: () => 0, monotonicClock: () => {
     // The first clock read after ordinary refresh still precedes the deadline.
     // The next read, while selecting the sleep duration, reaches it.
     if (observeDeadline && postObservationClockReads++ > 0) now = 100;
@@ -349,7 +385,7 @@ for (const signal of ['SIGTERM', 'SIGINT']) test(`${signal} wakes idle sleep and
       stopped = true;
     }
     return {};
-  }, { signals, wait: async (ms, signalController) => {
+  }, { resolveAllocation: fixtureCapacityResolver, signals, wait: async (ms, signalController) => {
     if (waits++ > 0) {
       assert.equal(ms, 1000, 'drain uses the shorter reconciliation cadence');
       return;
@@ -369,7 +405,7 @@ test('unset drain epoch preserves one-pass legacy --once behavior', async () => 
   let claims = 0, queries = 0;
   const signals = new EventEmitter();
   await bridge.runBridge({ mutation: async () => { claims++; return null; }, query: async () => { queries++; return []; } }, { ...config, once: true }, async () => ({}), {
-    signals, wait: async () => { throw Error('--once must not wait'); },
+    resolveAllocation: fixtureCapacityResolver, signals, wait: async () => { throw Error('--once must not wait'); },
   });
   assert.equal(claims, 1);
   assert.equal(queries, 1);
@@ -394,7 +430,7 @@ for (const boundary of ['claim', 'admission', 'registration']) test(`crossing de
     }
     if (args[1] === 'run-task') { launched = true; return { tasks: [{ taskArn: 'managed-task' }] }; }
     return {};
-  }, { resolveAllocation: resolveSyntheticAllocation, wallClock: () => 0, monotonicClock: () => now, signals: new EventEmitter(), wait: async () => { throw Error('ambiguous launch marker remains pending'); } });
+  }, { resolveAllocation: fixtureCapacityResolver, wallClock: () => 0, monotonicClock: () => now, signals: new EventEmitter(), wait: async () => { throw Error('ambiguous launch marker remains pending'); } });
   await pending;
   assert.equal(launched, false);
   const session = await f.session();
@@ -406,7 +442,7 @@ for (const boundary of ['claim', 'admission', 'registration']) test(`crossing de
 test('accepted launch marker finishes task registration then immediately drains if the deadline arrives in flight', async () => {
   assert.equal(typeof bridge.runBridge, 'function');
   const f = await fixture();
-  let now = 0, stopped = false;
+  let now = 0, stopped = false, waits = 0;
   const calls = [];
   const client = { ...f.client, mutation: async (ref, args) => {
     const result = await f.client.mutation(ref, args);
@@ -420,7 +456,9 @@ test('accepted launch marker finishes task registration then immediately drains 
     if (args[1] === 'describe-tasks') return { tasks: [{ taskArn: 'managed-task', lastStatus: stopped ? 'STOPPED' : 'RUNNING' }] };
     if (args[1] === 'stop-task') stopped = true;
     return {};
-  }, { resolveAllocation: resolveSyntheticAllocation, wallClock: () => 0, monotonicClock: () => now, signals: new EventEmitter(), wait: async () => {} });
+  }, { resolveAllocation: fixtureCapacityResolver, wallClock: () => 0, monotonicClock: () => now, signals: new EventEmitter(), wait: async () => {
+    assert.ok(++waits < 5, 'accepted launch must reach its marker and finish draining');
+  } });
   assert.deepEqual(calls, ['register-task-definition', 'run-task', 'describe-tasks', 'stop-task', 'describe-tasks', 'deregister-task-definition']);
   assert.equal((await f.session()).workerTaskCleanupPending, false);
 });

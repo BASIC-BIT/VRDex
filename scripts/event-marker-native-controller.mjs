@@ -7,7 +7,7 @@ import { inspectEngineArchive,validateBindingInventory } from './event-marker-en
 import { validateReceipt } from './event-marker-native132-receipt.mjs';
 import { artifactUseEntries } from './marker-qualification/artifacts.mjs';
 import { PROGRAM_SOURCE_CONTRACT } from './event-marker-program-guards.mjs';
-import { requireAuthorityMembership,producerSourcePaths } from './event-marker-authority-closure.mjs';
+import { requireAuthorityMembership,requireMandatoryAuthorityMembership,producerSourcePaths } from './event-marker-authority-closure.mjs';
 import { validateExecution,validateExecutionCommand,deriveEvidencePolicy,invocationAggregate,programResultLimits,isProgramResultReference } from './event-marker-evidence-policy.mjs';
 const sha=b=>createHash('sha256').update(b).digest('hex'),json=v=>Buffer.from(JSON.stringify(v)),same=isDeepStrictEqual;
 const must=(v,r)=>{if(!v)throw Error('native_controller_'+r);};
@@ -19,6 +19,7 @@ export const nativeJsonArtifact=(kind,id,value)=>{const bytes=json(value);return
  * approval, context, launch or receipt references. A is only in Root's ledger. */
 export function makeNativeCandidate({sourceFiles,auditRefs,profileSHA,runtimeManifestSHA,observerClosureSHA,controller,environmentClass,execution}) {
  must(['ci','ecs'].includes(environmentClass)&&[profileSHA,runtimeManifestSHA,observerClosureSHA].every(hash)&&Array.isArray(sourceFiles)&&sourceFiles.length>0&&Array.isArray(auditRefs)&&auditRefs.length>0,'candidate');
+ requireMandatoryAuthorityMembership(auditRefs);
  const refs=[...sourceFiles,...auditRefs];must(refs.every(r=>r&&typeof r.id==='string'&&hash(r.sha256)&&Number.isSafeInteger(r.bytes)&&r.bytes>0&&['implementationCode','runtimeData','audit'].includes(r.kind))&&new Set(refs.map(r=>r.id)).size===refs.length,'candidate_references');
  must(sourceFiles.every(r=>['implementationCode','runtimeData'].includes(r.kind)&&(r.imagePath==='/app/'+r.id||r.imagePath===null))&&auditRefs.every(r=>r.kind==='audit'),'candidate_roles');
  must(sourceFiles.some(r=>r.id===controller.id&&r.sha256===controller.sha256),'controller');
@@ -63,6 +64,7 @@ export async function scanDockerSave(chunks,{imageId,inspect,terminal,check=()=>
 
 export function makeNativeIntent({candidate,imageFacts,workload,semanticEnvironment,nonce,deadline,transport}) {
  const k=JSON.parse(candidate.bytes);must(candidate.ref.sha256===sha(candidate.bytes)&&k.schema==='native-candidate-v1'&&same(k.sourceContract,PROGRAM_SOURCE_CONTRACT),'candidate_hash');
+ requireMandatoryAuthorityMembership(k.auditRefs);
  must(typeof nonce==='string'&&nonce.length>0&&Buffer.byteLength(nonce)<=128&&Number.isFinite(deadline)&&Array.isArray(workload.originalCommand)&&workload.originalCommand.every(v=>typeof v==='string')&&hash(imageFacts.configSHA)&&hash(imageFacts.diffIdsSHA)&&Number.isSafeInteger(imageFacts.configBytes)&&imageFacts.configBytes>0,'intent');
  must(!Object.keys(semanticEnvironment).some(k=>/^(?:LD_|DYLD_|VRDEX_NATIVE_BINDING_CONTEXT)/.test(k)||['NODE_OPTIONS','NODE_PATH'].includes(k))&&Object.values(semanticEnvironment).every(v=>typeof v==='string'),'environment');
  if(k.execution)validateExecutionCommand(k.execution,workload.originalCommand);
@@ -94,8 +96,8 @@ export async function verifyNativeOuterJoins({binding,manifest,budget,serialized
  must(sha(originals.get('K'))===binding.candidateSHA&&sha(originals.get('I'))===binding.intentSHA&&sha(originals.get('C'))===binding.contextSHA&&K.profileSHA===binding.profileSHA&&K.runtimeManifestSHA===binding.manifestSHA&&K.observerClosureSHA===binding.observerClosureSHA&&same(K.sourceContract,PROGRAM_SOURCE_CONTRACT),'candidate_join');
  const {originals:imageOriginals,...imageProjection}=image;
  must(C.schema==='native-context-v1'&&C.intent.utf8===originals.get('I').toString()&&C.intent.sha256===sha(originals.get('I'))&&C.intent.bytes===originals.get('I').length&&originals.get('C').length<=4096&&I.candidateManifestSHA===sha(originals.get('K'))&&I.candidateManifestBytes===originals.get('K').length&&same(I.imageFacts,imageProjection),'intent_context_image');
- const sourceBodies=new Map();for(const ref of [...K.sourceFiles,...K.auditRefs]){const cap=inspectAcquiredDependencies(binding).closure.files.some(f=>f.path===ref.id)?196608:67108864;must(typeof ref.id==='string'&&ref.id.length>0&&Number.isSafeInteger(ref.bytes)&&ref.bytes>0&&ref.bytes<=cap&&hash(ref.sha256),'candidate_member');const raw=await outerResolver(ref.id,{cap:ref.bytes});must(raw instanceof Uint8Array&&raw.length===ref.bytes&&sha(raw)===ref.sha256,'candidate_member');sourceBodies.set(ref.id,raw);}
  requireAuthorityMembership(inspectAcquiredDependencies(binding),K.auditRefs);
+ const sourceBodies=new Map();for(const ref of [...K.sourceFiles,...K.auditRefs]){const cap=inspectAcquiredDependencies(binding).closure.files.some(f=>f.path===ref.id)?196608:67108864;must(typeof ref.id==='string'&&ref.id.length>0&&Number.isSafeInteger(ref.bytes)&&ref.bytes>0&&ref.bytes<=cap&&hash(ref.sha256),'candidate_member');const raw=await outerResolver(ref.id,{cap:ref.bytes});must(raw instanceof Uint8Array&&raw.length===ref.bytes&&sha(raw)===ref.sha256,'candidate_member');sourceBodies.set(ref.id,raw);}
  must(same(K.execution,I.execution),'execution_join');validateExecutionCommand(K.execution,I.workload.originalCommand);
  const packaging=JSON.parse(sourceBodies.get('workers/restream/packaging-manifest.json'));
  for(const path of producerSourcePaths(K.execution,packaging))must(K.sourceFiles.some(f=>f.id===path)&&sourceBodies.has(path),'producer_closure');

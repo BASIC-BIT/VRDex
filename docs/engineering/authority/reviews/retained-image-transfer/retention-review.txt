@@ -1,0 +1,35 @@
+# Transport checkpoint retention review
+
+2026-10-27. **SPEC: PASS. QUALITY: PASS.** The proposed checkpoint is suitable for durable Git retention within its stated preparation-only scope. No blocking retention or claim-scope gap was found. This reviews packaging and evidence claims, not a new implementation, provider observation or launch decision.
+
+## Pinned review subjects
+
+| Subject | Bytes | SHA256 |
+| --- | ---: | --- |
+| `transport-checkpoint.zip` | 293083 | `d87b1fb703a63109aff49b2c67e0ef8249f2faf2e0d82a3e7f3ba5ecd4d217bd` |
+| `retention.json` | 17466 | `ee8a12324973744aa291f2d47ff0ae8b1397f3812e0ed6bc9338e9c0bca14551` |
+| `README.md` | 1317 | `5e6b553d1572686177a8dfbdd9d47495a52d403aee39212eb66ffbddf93075b5` |
+
+The archive retains the prior scoped review SHA256 `4a78ab25efa041a2ea572e1d2a403ad66d1c31604d90f7ebbc362f459aa7d278`, appended implementation report `f590a513ac1e26fd77d92fc8fb398bbb26ee854c29e5a477b9ed6eee3bf11e56`, correction diff `e9eba6a6d1156019ae3784d80e26ed1a68a487b60ab329d25c63fae4cc4cf2f9` and corrected subject inventory `d93647fdaaca99cfed4b058e56091716bb5979915b7c2b9fb6fc335488a4171f`. The retention manifest pins every individual archive member.
+
+## SPEC verification
+
+Independently verified the archive's complete byte length/hash and every member's bytes/hash against the explicit58-member allowlist. No missing, extra or duplicate members were present. Names are relative without traversal; entries are not symlinks or encrypted. The archive expands to800415 bytes. The19 corrected subjects and28 preserved originals also match their retained inventories. The remaining11 members are the corrected inventory/diff, task/review/custody records and design/review documents listed by Root.
+
+Both nested ZIPs contain exactly `buildspec.yml`, `input.json` and `transport.py`, with no duplicate or additional members. Each file matches its corresponding retained original or corrected subject. Both inputs explicitly mark the generated fixture and use `private-fixture-bucket`. The base64 ZIP embedded in each retained full diff decodes exactly to its corresponding reviewed fixture ZIP. This provides source-packet evidence without introducing a second unidentified archive payload.
+
+The58-member scope contains the helper, tests, generated fixture metadata/source packets, logs, review records and designs. It is not a broad workspace snapshot. No environment/credential files, actual image layers, native corpus bodies or live provider evidence are included. All56 non-ZIP members and all nested packet members decode as text. Independent pattern screening of those bytes found no private-key block, AWS access-key identifier, GitHub token or signed-URL signature. This agrees with Root's supplied screening result.
+
+## QUALITY and claims
+
+The adjacent README accurately distinguishes the62 generated fixture tests and scoped finding-resolution pass from actual transport capability. It states that no managed SDK reader profile has been established and that the real preflight stops before image reads. It identifies nested packets as fixtures that must not be launched, and claims no actual transfer, native-runtime or capacity result.
+
+The retained custody ruling accepts a design only and explicitly blocks bucket creation, image staging and ECR creation while SDK support is absent. It preserves the need for a separately reviewed, concretely bounded source-inspection diagnostic before further action. The README's planned diagnostic and unprovisioned storage wording are consistent with that ruling. Current PR/production-allocation and provisioning status remain Root-supplied context; this retention review made no external status checks.
+
+The original failing review and historical implementation remain distinguishable from corrected subjects and the scoped pass. Retaining both supports reconstruction of the three findings and their dispositions without misrepresenting historical behavior as the current implementation. The pinned archive preserves the reviewed version even if separate private diagnostic work continues.
+
+## Remaining gaps and limits
+
+No retention correction is required for these pinned subjects. Real SDK support, a reviewed source-inspection implementation/allocation, actual immutable custody, fresh cost/readiness facts and any later transport/provider/runtime observations remain unfinished. The checkpoint supplies no launch, spend, production admission, capacity, native or qualification approval.
+
+Only archive/data verification and this review file were performed. No helper source was changed or broadly re-reviewed; no tests were rerun; no provider/network/corpus operations or subagents were used. This pass covers the proposed bytes, not an assertion that they have already been copied into Git, committed or pushed.
