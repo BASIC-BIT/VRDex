@@ -188,3 +188,6 @@ Concrete abortable Convex, S3, DynamoDB and secret adapters, runnable worker and
 Lambda entrypoints, packaging and disabled infrastructure are documented in
 [relay deployment](../deployment/media-relay.md). Provider capacity and physical-phone
 release checks remain unmeasured; local fixtures are not production approval.
+
+Current-player identity, OS controls and authorized image derivatives are covered
+in [Now Playing metadata and artwork](now-playing-metadata.md).

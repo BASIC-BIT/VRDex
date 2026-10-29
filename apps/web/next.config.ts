@@ -31,6 +31,9 @@ const nextConfig: NextConfig = {
     ];
   },
   outputFileTracingRoot: workspaceRoot,
+  outputFileTracingIncludes: {
+    "/api/v0/profiles/*/assets/*/file": ["../../docs/brand/wordmark/vrdex-wordmark.png"],
+  },
   transpilePackages: ["@vrdex/api-contracts", "@vrdex/media-relay"],
   skipTrailingSlashRedirect: true,
   turbopack: {

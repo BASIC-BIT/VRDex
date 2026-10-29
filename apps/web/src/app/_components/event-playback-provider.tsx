@@ -21,7 +21,7 @@ import {
   relayPlaybackEnabled,
   retainForegroundGrant,
 } from "@/lib/relay-playback-adapter";
-import { playbackArtwork } from "@/lib/playback-metadata";
+import { retainNowPlaying } from "@/lib/now-playing";
 import { EventCompactPlayer } from "./event-compact-player";
 
 const Context = createContext<EventPlaybackOwner | null>(null);
@@ -111,22 +111,7 @@ export function EventPlaybackProvider({ children }: { children: ReactNode }) {
       () => document.visibilityState === "visible",
     );
   }, [owner, generation, active]);
-  const metadata = state.metadata;
-  const artwork = playbackArtwork(state);
-  useEffect(() => {
-    if (!("mediaSession" in navigator)) return;
-    navigator.mediaSession.metadata = metadata ? new MediaMetadata({
-      title: `${metadata.displayName} - VRDex`,
-      ...(artwork ? { artwork: [{ src: new URL(artwork, location.origin).href }] } : {}),
-    }) : null;
-    return () => { navigator.mediaSession.metadata = null; };
-  }, [metadata, artwork]);
-  useEffect(() => {
-    if (!("mediaSession" in navigator)) return;
-    navigator.mediaSession.setActionHandler("play", () => { const request = owner.getSnapshot().request; if (request) void owner.play(request); });
-    navigator.mediaSession.setActionHandler("pause", () => owner.pause());
-    return () => { navigator.mediaSession.setActionHandler("play", null); navigator.mediaSession.setActionHandler("pause", null); };
-  }, [owner]);
+  useEffect(() => retainNowPlaying(owner), [owner]);
   return (
     <Context.Provider value={owner}>
       {children}

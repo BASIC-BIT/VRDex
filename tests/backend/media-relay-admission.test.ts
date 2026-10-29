@@ -160,6 +160,9 @@ it("event removal revokes only its grant; metadata edits preserve source and gra
   });
   assert.equal(valid.kind, "valid");
   assert.equal(valid.metadata.displayName, "New DJ");
+  const neutral = await h.t.query(resolve, { grantId: event.grantId, now: Date.now() });
+  assert.equal(neutral.kind, "valid");
+  assert.deepEqual(neutral.metadata, { displayName: "Show", artworkAssetId: null, artworkRevision: null });
   await h.t.run((ctx) => ctx.db.patch(h.eventId, { mediaLinks: [] }));
   assert.equal(
     (await h.t.query(resolve, { grantId: event.grantId, now: Date.now() }))
