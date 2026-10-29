@@ -90,5 +90,6 @@ export function useHomeDiscovery() {
   const snapshot = state.key === contextKey ? state.snapshot : loading;
   const retry = useCallback(() => controller.current?.retry(), []);
   const setFocusedClub = useCallback((profileId: string | null) => controller.current?.setFocusedClub(profileId), []);
-  return { ...snapshot, sectionRef, retry, setFocusedClub };
+  const setFocusedEvent = useCallback((eventId: string | null) => controller.current?.setFocusedEvent(eventId), []);
+  return { ...snapshot, sectionRef, retry, setFocusedClub, setFocusedEvent };
 }

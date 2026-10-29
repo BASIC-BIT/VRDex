@@ -17,11 +17,11 @@ function harness(synchronous = false) {
     const finish = () => { if (pending) { active--; pending = false; } };
     const request = { method, args, closed: false, send(data: unknown) { finish(); next(data as T); }, fail() { finish(); error(new Error("offline")); } };
     requests.push(request);
-    const deliver = () => { if (!request.closed) request.send(value()); };
+    const deliver = () => { if (!request.closed && !(method === "profiles" && state.holdProfiles) && !(method === "events" && state.holdEvents)) request.send(value()); };
     if (synchronous) deliver(); else queueMicrotask(deliver);
     return () => { finish(); request.closed = true; };
   } });
-  const state = { events: (args: DiscoveryEventRequest) => ({ items: [] as DiscoveryEventCandidate[], cursor: null as string | null, complete: true }), profiles: (ids: string[]): DiscoveryProfileSignal[] => ids.map(id => ({ id, slug: id, displayName: id, profileType: "community", genres: [] } satisfies DiscoveryProfileSignal)), signals: (ids: string[]) => ids.map(signal) };
+  const state = { holdProfiles: false, holdEvents: false, events: (args: DiscoveryEventRequest) => ({ items: [] as DiscoveryEventCandidate[], cursor: null as string | null, complete: true }), profiles: (ids: string[]): DiscoveryProfileSignal[] => ids.map(id => ({ id, slug: id, displayName: id, profileType: "community", genres: [] } satisfies DiscoveryProfileSignal)), signals: (ids: string[]) => ids.map(signal) };
   const transport: DiscoveryTransport = {
     listEvents: args => query("events", args, () => state.events(args)),
     listClubs: args => query("clubs", args, () => ({ items: [], cursor: null, complete: true })),
@@ -354,4 +354,149 @@ test("blurDuringPendingFavoritesKeepsTheNormalRetainedSourceUntilReady", async (
   c.setFocusedClub("club"); c.setFavorites(["next"]); c.setFocusedClub(null);
   assert.equal(watch?.closed, false);
   await settle(); assert.equal(watch?.closed, true); c.dispose();
+});
+
+
+async function heldFavoriteRefresh(nextEvents: DiscoveryEventCandidate[] = []) {
+  const h = harness(); h.state.events = () => ({ items: [event("public")], cursor: null, complete: true });
+  const c = createDiscoveryController({ transport: h.transport, concurrency: 3 });
+  c.setContext(context); await settle();
+  const original = h.requests.find(r => r.method === "signals")!;
+  h.state.holdProfiles = true; c.setFavorites(["pending"]);
+  const favorite = h.requests.find(r => r.method === "profiles")!;
+  h.state.events = () => ({ items: nextEvents, cursor: null, complete: true });
+  c.refresh(); await settle();
+  return { h, c, original, favorite };
+}
+
+test("completedCandidateSampleDepartureKeepsDisplayedSourceUntilFavoriteCommit", async () => {
+  const { h, c, original, favorite } = await heldFavoriteRefresh();
+  const waiting = c.getSnapshot(); assert.equal(waiting.kind, "available");
+  if (waiting.kind === "available") { assert.deepEqual(waiting.events.map(e => e.id), ["public"]); assert.deepEqual(waiting.eligibleEventIds, ["public"]); }
+  assert.equal(original.closed, false, "ordinary sample departure must not retire the displayed source");
+  favorite.send({ items: h.state.profiles(["pending"]) }); await settle();
+  const replacement = c.getSnapshot(); assert.equal(replacement.kind, "available");
+  if (replacement.kind === "available") { assert.deepEqual(replacement.events, []); assert.deepEqual(replacement.eligibleEventIds, []); }
+  assert.equal(original.closed, true);
+  original.send({ items: [signal("public")] }); original.fail(); await settle(); assert.equal(c.getSnapshot(), replacement);
+  c.dispose(); assert.ok(h.requests.every(r => r.closed));
+});
+
+test("explicitPublicSignalRejectionClearsEligibilityBeforeHeldFavoritesResolve", async () => {
+  const h = harness(); h.state.events = () => ({ items: [event("public"), event("kept")], cursor: null, complete: true });
+  const c = createDiscoveryController({ transport: h.transport, concurrency: 3 }); c.setContext(context); await settle();
+  h.state.holdProfiles = true; c.setFavorites(["pending"]);
+  h.state.signals = ids => ids.filter(id => id !== "public").map(signal); c.refresh(); await settle();
+  const waiting = c.getSnapshot(); assert.equal(waiting.kind, "available");
+  if (waiting.kind === "available") { assert.deepEqual(waiting.events.map(e => e.id), ["kept"]); assert.deepEqual(waiting.eligibleEventIds, ["kept"]); }
+  const projected = c.getSnapshotAt(now + 60000); if (projected.kind === "available") assert.deepEqual(projected.events.map(e => e.id), ["kept"]);
+  c.dispose(); assert.ok(h.requests.every(r => r.closed));
+});
+
+test("lateRetainedRevocationAndErrorStillClearAfterCandidateCompletion", async () => {
+  for (const failure of [false, true]) {
+    const { h, c, original } = await heldFavoriteRefresh();
+    if (failure) original.fail(); else original.send({ items: [] });
+    assert.equal(c.getSnapshot().kind, failure ? "error" : "loading");
+    assert.equal(original.closed, true); c.dispose(); assert.ok(h.requests.every(r => r.closed));
+  }
+});
+
+test("minuteExpiryRemainsIndependentOfHeldFavoritesAfterCandidateCompletion", async () => {
+  const { h, c, original } = await heldFavoriteRefresh();
+  const before = h.requests.length;
+  const expired = c.getSnapshotAt(now + 2 * 86400000); assert.equal(expired.kind, "available");
+  if (expired.kind === "available") { assert.deepEqual(expired.events, []); assert.deepEqual(expired.eligibleEventIds, []); }
+  assert.equal(h.requests.length, before); assert.equal(original.closed, false);
+  c.dispose(); assert.ok(h.requests.every(r => r.closed));
+});
+
+test("repeatedCandidateCompletionRetainsOnlyTheCommittedSourceAndLatestPool", async () => {
+  const { h, c, original, favorite } = await heldFavoriteRefresh([event("intermediate")]);
+  const intermediate = h.requests.filter(r => r.method === "signals").at(-1)!;
+  h.state.events = () => ({ items: [event("latest")], cursor: null, complete: true }); c.refresh(); await settle();
+  assert.equal(original.closed, false); assert.equal(intermediate.closed, true);
+  favorite.send({ items: h.state.profiles(["pending"]) }); await settle();
+  const snapshot = c.getSnapshot(); assert.equal(snapshot.kind, "available");
+  if (snapshot.kind === "available") assert.deepEqual(snapshot.events.map(e => e.id), ["latest"]);
+  assert.equal(original.closed, true); assert.ok(h.peak() <= 3);
+  c.dispose(); assert.ok(h.requests.every(r => r.closed));
+});
+
+test("heldFavoriteCandidateCompletionSourcesCloseOnContextChangeOrDispose", async () => {
+  for (const dispose of [false, true]) {
+    const { h, c, original, favorite } = await heldFavoriteRefresh([event("new")]);
+    assert.equal(original.closed, false);
+    if (dispose) c.dispose(); else c.setContext({ ...context, timeZone: "Asia/Kathmandu" });
+    assert.equal(original.closed, true); assert.equal(favorite.closed, true);
+    original.send({ items: [signal("public")] }); favorite.send({ items: h.state.profiles(["pending"]) }); await settle();
+    assert.equal(c.getSnapshot().kind, "loading"); c.dispose(); assert.ok(h.requests.every(r => r.closed));
+  }
+});
+
+test("focusedEventSampleDeparturePinsOneTrustedGenerationUntilBlur", async () => {
+  const h = harness(); h.state.events = () => ({ items: [event("public")], cursor: null, complete: true });
+  const c = createDiscoveryController({ transport: h.transport, concurrency: 3 }); c.setContext(context); await settle();
+  const original = h.requests.find(r => r.method === "signals")!;
+  c.setFocusedEvent("public"); h.state.events = () => ({ items: [event("new")], cursor: null, complete: true }); c.refresh(); await settle();
+  const replacement = c.getSnapshot(); assert.equal(replacement.kind, "available");
+  if (replacement.kind === "available") { assert.deepEqual(replacement.events.map(e => e.id), ["new"]); assert.deepEqual(new Set(replacement.eligibleEventIds), new Set(["new", "public"])); }
+  assert.equal(original.closed, false);
+  assert.equal(h.requests.filter(r => !r.closed).length, 38);
+  const firstReplacement = h.requests.filter(r => r.method === "signals").at(-1)!;
+  h.state.events = () => ({ items: [event("latest")], cursor: null, complete: true }); c.refresh(); await settle();
+  assert.equal(original.closed, false); assert.equal(firstReplacement.closed, true);
+  assert.equal(h.requests.filter(r => !r.closed).length, 38);
+  const registrations = h.requests.length; c.setFocusedEvent(null);
+  assert.equal(original.closed, true); assert.equal(h.requests.length, registrations);
+  assert.equal(h.requests.filter(r => !r.closed).length, 19);
+  const blurred = c.getSnapshot(); if (blurred.kind === "available") assert.deepEqual(blurred.eligibleEventIds, ["latest"]);
+  c.dispose(); assert.ok(h.requests.every(r => r.closed));
+});
+
+test("focusedCandidatePinStillClearsOnRejectionRevocationErrorExpiryAndDisposal", async () => {
+  for (const reason of ["rejection", "revocation", "error", "expiry", "dispose", "context", "reappearance"] as const) {
+    const h = harness(); h.state.events = () => ({ items: [event("public")], cursor: null, complete: true });
+    const c = createDiscoveryController({ transport: h.transport, concurrency: 3 }); c.setContext(context); await settle();
+    const original = h.requests.find(r => r.method === "signals")!;
+    c.setFocusedEvent("public"); h.state.events = () => ({ items: [], cursor: null, complete: true }); c.refresh(); await settle();
+    assert.equal(original.closed, false);
+    if (reason === "revocation") { original.send({ items: [] }); assert.equal(c.getSnapshot().kind, "loading"); }
+    else if (reason === "error") { original.fail(); assert.equal(c.getSnapshot().kind, "error"); }
+    else if (reason === "expiry") { const snapshot = c.getSnapshotAt(now + 2 * 86400000); if (snapshot.kind === "available") assert.deepEqual(snapshot.eligibleEventIds, []); }
+    else if (reason === "context") c.setContext({ ...context, timeZone: "Asia/Kathmandu" });
+    else if (reason === "dispose") c.dispose();
+    else {
+      h.state.events = () => ({ items: [event("public")], cursor: null, complete: true });
+      h.state.signals = ids => reason === "rejection" ? [] : ids.map(signal);
+      h.state.holdProfiles = reason === "rejection"; if (reason === "rejection") c.setFavorites(["pending"]);
+      c.refresh(); await settle();
+      const snapshot = c.getSnapshot(); if (snapshot.kind === "available") assert.deepEqual(snapshot.eligibleEventIds, reason === "rejection" ? [] : ["public"]);
+    }
+    assert.equal(original.closed, true, reason); c.dispose(); assert.ok(h.requests.every(r => r.closed));
+  }
+});
+
+
+test("heldFavoriteCompletionTransfersDisplayedSourceToFocusedPinWithoutNewReads", async () => {
+  const { h, c, original, favorite } = await heldFavoriteRefresh([event("new")]);
+  c.setFocusedEvent("public"); const registrations = h.requests.length;
+  favorite.send({ items: h.state.profiles(["pending"]) }); await settle();
+  const ready = c.getSnapshot(); assert.equal(ready.kind, "available");
+  if (ready.kind === "available") { assert.deepEqual(ready.events.map(event => event.id), ["new"]); assert.deepEqual(new Set(ready.eligibleEventIds), new Set(["new", "public"])); }
+  assert.equal(original.closed, false); assert.equal(h.requests.length, registrations);
+  c.setFocusedEvent("new"); assert.equal(original.closed, true);
+  c.dispose(); assert.ok(h.requests.every(request => request.closed));
+});
+
+
+test("favoritesResolvingDuringNextCandidateRefreshCannotCommitTheStoppedIntermediatePool", async () => {
+  const { h, c, original, favorite } = await heldFavoriteRefresh([event("intermediate")]);
+  const intermediate = h.requests.filter(request => request.method === "signals").at(-1)!;
+  h.state.holdEvents = true; c.refresh(); await settle();
+  favorite.send({ items: h.state.profiles(["pending"]) }); await settle();
+  const waiting = c.getSnapshot(); assert.equal(waiting.kind, "available");
+  if (waiting.kind === "available") assert.deepEqual(waiting.events.map(event => event.id), ["public"]);
+  assert.equal(intermediate.closed, true); assert.equal(original.closed, false);
+  assert.ok(h.peak() <= 3); c.dispose(); assert.ok(h.requests.every(request => request.closed));
 });

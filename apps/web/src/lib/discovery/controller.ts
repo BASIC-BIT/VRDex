@@ -23,6 +23,7 @@ export type DiscoverySnapshot =
   | { kind: "loading" }
   | { kind: "error"; error: unknown }
   | { kind: "available"; events: DiscoveryEventCandidate[]; clubs: DiscoveryProfileSignal[]; eventSignals: DiscoveryEventSignal[]; favoriteProfiles: DiscoveryProfileSignal[]; eligibleEventIds: readonly string[]; eligibleClubIds: readonly string[]; coverage: DiscoveryCoverage; refreshing: boolean };
+type CandidatePool = { generation: Generation; events: DiscoveryEventCandidate[]; clubs: DiscoveryProfileSignal[]; eventSignals: DiscoveryEventSignal[]; coverage: DiscoveryCoverage };
 type Generation = { stopped: boolean; stops: Set<() => void> };
 const unique = <T extends { id: string }>(items: T[]) => [...new Map(items.map(item => [item.id, item])).values()];
 const batches = <T>(items: readonly T[], size: number): T[][] => Array.from({ length: Math.ceil(items.length / size) }, (_, i) => items.slice(i * size, (i + 1) * size));
@@ -37,14 +38,17 @@ export function createDiscoveryController({ transport, concurrency }: { transpor
   let favoritePending = false;
   let favorites: Generation | undefined;
   let retainedFavorites: Generation | undefined;
-  let candidatePool: { events: DiscoveryEventCandidate[]; clubs: DiscoveryProfileSignal[]; eventSignals: DiscoveryEventSignal[]; coverage: DiscoveryCoverage } | undefined;
+  let candidatePool: CandidatePool | undefined;
+  // Ranking readiness never transfers ownership of the displayed public data.
+  let committedPool: CandidatePool | undefined;
+  let focusedEventId: string | null = null;
+  let pinnedEvent: { event: DiscoveryEventCandidate; pool: CandidatePool } | undefined;
   let focusedClubId: string | null = null;
   let pinnedClub: { profile: DiscoveryProfileSignal; source: Generation; owner: Generation } | undefined;
   let favoriteOwner: Generation | undefined;
   let favoriteSources = new Map<string, Generation>();
   let candidatePending = false;
   let current: Generation | undefined;
-  let retained: Generation | undefined;
   let disposed = false;
   const listeners = new Set<() => void>();
   const emit = (value: DiscoverySnapshot) => { snapshot = value; listeners.forEach(listener => listener()); };
@@ -54,9 +58,43 @@ export function createDiscoveryController({ transport, concurrency }: { transpor
     generation.stops.forEach(cancel => cancel());
     generation.stops.clear();
   };
+  function stopUnusedCandidate(generation: Generation | undefined) {
+    if (generation !== current && generation !== committedPool?.generation && generation !== pinnedEvent?.pool.generation) stop(generation);
+  }
+  function releaseEventPin() {
+    const previous = pinnedEvent;
+    pinnedEvent = undefined;
+    stopUnusedCandidate(previous?.pool.generation);
+  }
+  function eligibleEvents(events: readonly DiscoveryEventCandidate[]) {
+    return [...new Set([...events.map(event => event.id), ...(pinnedEvent ? [pinnedEvent.event.id] : [])])];
+  }
+  function publishEligibility() {
+    if (snapshot.kind !== "available" || !recommendationPool) return;
+    emit({ ...snapshot, ...selectDiscovery(recommendationPool), eventSignals: [...recommendationPool.eventSignals],
+      eligibleEventIds: eligibleEvents(recommendationPool.events),
+      eligibleClubIds: [...new Set([...recommendationPool.clubs.map(club => club.id), ...(pinnedClub ? [pinnedClub.profile.id] : [])])] });
+  }
+  // Only an explicit signal rejection is authoritative; a bounded sample's
+  // omission cannot revoke the still-watched displayed or focused event.
+  function reconcileEligibility(requested: string[], signals: DiscoveryEventSignal[]) {
+    const accepted = new Set(signals.map(signal => signal.eventId));
+    const rejected = new Set(requested.filter(id => !accepted.has(id)));
+    if (!rejected.size) return;
+    if (focusedEventId && rejected.has(focusedEventId)) { focusedEventId = null; releaseEventPin(); }
+    if (committedPool) {
+      committedPool.events = committedPool.events.filter(event => !rejected.has(event.id));
+      committedPool.eventSignals = committedPool.eventSignals.filter(signal => !rejected.has(signal.eventId));
+    }
+    if (recommendationPool) {
+      recommendationPool = { ...recommendationPool, events: recommendationPool.events.filter(event => !rejected.has(event.id)), eventSignals: recommendationPool.eventSignals.filter(signal => !rejected.has(signal.eventId)) };
+      publishEligibility();
+    }
+  }
   function invalidate() {
     if (disposed) return;
-    stop(current); stop(retained); retained = undefined;
+    stop(current); stop(committedPool?.generation); stop(pinnedEvent?.pool.generation);
+    committedPool = undefined; pinnedEvent = undefined; focusedEventId = null;
     stop(favorites); stop(retainedFavorites); retainedFavorites = undefined;
     stop(pinnedClub?.source); pinnedClub = undefined; focusedClubId = null; favoriteSources.clear(); favoriteOwner = undefined;
     recommendationPool = undefined; candidatePool = undefined;
@@ -66,7 +104,8 @@ export function createDiscoveryController({ transport, concurrency }: { transpor
   }
   function fail(generation: Generation, error: unknown) {
     if (generation.stopped || disposed) return;
-    stop(current); stop(retained); retained = undefined;
+    stop(current); stop(committedPool?.generation); stop(pinnedEvent?.pool.generation);
+    committedPool = undefined; pinnedEvent = undefined; focusedEventId = null;
     stop(favorites); stop(retainedFavorites); retainedFavorites = undefined;
     stop(pinnedClub?.source); pinnedClub = undefined; focusedClubId = null; favoriteSources.clear(); favoriteOwner = undefined;
     recommendationPool = undefined; candidatePool = undefined;
@@ -138,7 +177,10 @@ export function createDiscoveryController({ transport, concurrency }: { transpor
     const candidates = unique(events);
     const eventSignals: DiscoveryEventSignal[] = [];
     await parallel(batches(candidates.map(item => item.id), 4).map(eventIds => async () => {
-      const result = await read(generation, transport.eventSignals({ eventIds })); eventSignals.push(...result.items);
+      const result = await read(generation, transport.eventSignals({ eventIds }));
+      if (generation.stopped || disposed) return;
+      reconcileEligibility(eventIds, result.items);
+      eventSignals.push(...result.items);
     }));
     if (generation.stopped || disposed) return;
     const eligibleIds = new Set(eventSignals.map(item => item.eventId));
@@ -147,17 +189,26 @@ export function createDiscoveryController({ transport, concurrency }: { transpor
     coverage.candidateCount = candidates.length;
     coverage.signals = eventSignals.map(({ eventId, coverage }) => ({ eventId, coverage }));
     candidatePending = false;
-    candidatePool = { events: eligible, eventSignals, clubs: unique(clubs), coverage };
-    stop(retained); retained = undefined;
+    candidatePool = { generation, events: eligible, eventSignals, clubs: unique(clubs), coverage };
     commitRanks();
   }
   function commitRanks() {
     if (!context || !candidatePool || favoritePending || !favoriteProfiles || disposed) return;
     const { events, clubs, eventSignals, coverage } = candidatePool;
+    const previous = committedPool;
+    if (focusedEventId && !events.some(event => event.id === focusedEventId) && !pinnedEvent) {
+      const event = previous?.events.find(event => event.id === focusedEventId);
+      // One already-live generation supplies both public metadata and signals.
+      // It is excluded from new rankings and cannot accumulate across refreshes.
+      if (event && previous) pinnedEvent = { event, pool: previous };
+    }
+    committedPool = candidatePool;
+    if (pinnedEvent && events.some(event => event.id === pinnedEvent?.event.id)) releaseEventPin();
     recommendationPool = { events, eventSignals, clubs: unique([...clubs, ...favoriteProfiles.filter(item => item.profileType === "community")]), favoriteProfiles, favoriteProfileIds, rotationKey: context.rotationKey };
     emit({ kind: "available", ...selectDiscovery(recommendationPool), eventSignals, favoriteProfiles,
-      eligibleEventIds: events.map(item => item.id), eligibleClubIds: [...new Set([...recommendationPool.clubs.map(item => item.id), ...(pinnedClub ? [pinnedClub.profile.id] : [])])],
+      eligibleEventIds: eligibleEvents(events), eligibleClubIds: [...new Set([...recommendationPool.clubs.map(item => item.id), ...(pinnedClub ? [pinnedClub.profile.id] : [])])],
       coverage: { ...coverage, favoriteCount: favoriteProfileIds.length }, refreshing: candidatePending });
+    stopUnusedCandidate(previous?.generation);
   }
   function refreshFavorites() {
     if (disposed || !context) return;
@@ -190,12 +241,14 @@ export function createDiscoveryController({ transport, concurrency }: { transpor
   function refresh() {
     if (disposed || !context) return;
     if (snapshot.kind === "error") { invalidate(); return; }
-    if (snapshot.kind === "available" && !candidatePending) {
-      stop(retained); retained = current;
-      emit({ ...snapshot, refreshing: true });
-    } else stop(current);
+    const previous = current;
     const generation: Generation = { stopped: false, stops: new Set() };
     current = generation; candidatePending = true;
+    // An uncommitted completed pool may be superseded while favorites wait.
+    // Fall back to the still-watched committed pool until the new one is ready.
+    candidatePool = committedPool;
+    stopUnusedCandidate(previous);
+    if (snapshot.kind === "available") emit({ ...snapshot, refreshing: true });
     void run(generation, context).catch(error => fail(generation, error));
   }
   return {
@@ -227,8 +280,13 @@ export function createDiscoveryController({ transport, concurrency }: { transpor
         // A pending favorite refresh still owns its normal retained watch.
         if (pinnedClub.owner.stopped) stop(pinnedClub.source);
         pinnedClub = undefined;
-        commitRanks();
+        publishEligibility();
       }
+    },
+    setFocusedEvent(eventId: string | null) {
+      if (disposed) return;
+      focusedEventId = eventId;
+      if (pinnedEvent && pinnedEvent.event.id !== eventId) { releaseEventPin(); publishEligibility(); }
     },
     getSnapshot: () => snapshot,
     /** Refill expired cards from inspected public candidates without new reads. */
@@ -236,13 +294,16 @@ export function createDiscoveryController({ transport, concurrency }: { transpor
       if (snapshot.kind !== "available" || !recommendationPool || !context) return snapshot;
       const localDate = formatZonedDateTimeInput(now, context.timeZone).slice(0, 10);
       const events = recommendationPool.events.filter(event => event.schedule.kind === "date_only" ? event.schedule.eventDate >= localDate : event.schedule.startAt >= now);
-      return { ...snapshot, ...selectDiscovery({ ...recommendationPool, events }), eligibleEventIds: events.map(event => event.id) };
+      if (pinnedEvent && !(pinnedEvent.event.schedule.kind === "date_only" ? pinnedEvent.event.schedule.eventDate >= localDate : pinnedEvent.event.schedule.startAt >= now)) {
+        focusedEventId = null; releaseEventPin();
+      }
+      return { ...snapshot, ...selectDiscovery({ ...recommendationPool, events }), eligibleEventIds: eligibleEvents(events) };
     },
     subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
     retry: invalidate,
     refresh,
     dispose() {
-      disposed = true; stop(current); stop(retained); stop(favorites); stop(retainedFavorites); stop(pinnedClub?.source); pinnedClub = undefined; favoriteSources.clear(); favoriteOwner = undefined; listeners.clear();
+      disposed = true; stop(current); stop(committedPool?.generation); stop(pinnedEvent?.pool.generation); committedPool = undefined; pinnedEvent = undefined; stop(favorites); stop(retainedFavorites); stop(pinnedClub?.source); pinnedClub = undefined; favoriteSources.clear(); favoriteOwner = undefined; listeners.clear();
       recommendationPool = undefined;
       snapshot = { kind: "loading" };
     },

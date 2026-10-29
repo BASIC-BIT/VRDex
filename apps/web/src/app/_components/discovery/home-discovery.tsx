@@ -31,6 +31,7 @@ export type HomeDiscoveryViewProps = Pick<
     sectionRef?: Ref<HTMLElement>;
     favoriteLineup?: FavoriteLineupSnapshot;
     liveFavoriteLineup?: boolean;
+    onFocusedEventChange?(eventId: string | null): void;
     onFocusedClubChange?(profileId: string | null): void;
   };
 
@@ -117,10 +118,17 @@ function AvailableDiscovery({
   snapshot,
   liveFavoriteLineup,
   onFocusedClubChange,
+  onFocusedEventChange,
   ...props
 }: HomeDiscoveryViewProps & { snapshot: Available }) {
   const [focused, setFocused] = useState<FocusedCard | null>(null);
-  useEffect(() => () => onFocusedClubChange?.(null), [onFocusedClubChange]);
+  useEffect(
+    () => () => {
+      onFocusedClubChange?.(null);
+      onFocusedEventChange?.(null);
+    },
+    [onFocusedClubChange, onFocusedEventChange],
+  );
   const events = retainFocused(
     snapshot.events,
     focused?.kind === "event" ? focused : null,
@@ -134,6 +142,7 @@ function AvailableDiscovery({
   const onBlur: FocusEventHandler<HTMLDivElement> = (event) => {
     if (!event.currentTarget.contains(event.relatedTarget)) {
       setFocused(null);
+      onFocusedEventChange?.(null);
       onFocusedClubChange?.(null);
     }
   };
@@ -149,6 +158,7 @@ function AvailableDiscovery({
           events={events}
           onFocus={(item, index) => {
             setFocused({ kind: "event", item, index });
+            onFocusedEventChange?.(item.id);
             onFocusedClubChange?.(null);
           }}
           onBlur={onBlur}
@@ -174,6 +184,7 @@ function AvailableDiscovery({
                 key={club.id}
                 onFocusCapture={() => {
                   setFocused({ kind: "club", item: club, index });
+                  onFocusedEventChange?.(null);
                   onFocusedClubChange?.(club.id);
                 }}
                 onBlurCapture={onBlur}
@@ -291,6 +302,7 @@ export function HomeDiscovery() {
       sectionRef={discovery.sectionRef}
       retry={discovery.retry}
       liveFavoriteLineup
+      onFocusedEventChange={discovery.setFocusedEvent}
       onFocusedClubChange={discovery.setFocusedClub}
       timeZone={browse.timeZone ?? "UTC"}
       hour12={browse.hour12 ?? false}
