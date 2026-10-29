@@ -539,6 +539,13 @@ it("enrollment discovers a sole resolved public group link without a separate pr
   assert.equal(await t.run(ctx => readPublicGroupId(ctx.db, created.profileId)), null, "a second group invalidates the inference before reconciliation");
   await t.mutation(reconcileEnrollment, { profileId: created.profileId, affectedGroupIds: [] });
   assert.equal((await t.run(ctx => ctx.db.query("vrchatGroupObservationPolicies").first()))?.queuedAdmission, undefined);
+  await t.run(async ctx => applyApiProfileUpdate(ctx, {
+    profile: (await ctx.db.get(created.profileId))!, subject: "community_submitter", contributorUserId: userId,
+    input: { outboundLinks: [{ type: "vrchat_profile", url }] }, now: 201,
+  }));
+  await t.mutation(reconcileEnrollment, { profileId: created.profileId, affectedGroupIds: [] });
+  assert.equal(await t.run(ctx => readPublicGroupId(ctx.db, created.profileId)), policies[0]?.vrchatGroupId,
+    "reconciliation cleanup must not prevent a restored sole link from qualifying");
 });
 
 it("implicit group selection respects hidden links, explicit clears and explicit same-link promotion", async () => {
@@ -553,6 +560,11 @@ it("implicit group selection respects hidden links, explicit clears and explicit
   }, { issuer: "test", subject: String(userId), tokenIdentifier: String(userId) }, userId));
   const read = async () => (await t.run(ctx => ctx.db.get(created.profileId)))!;
   const initial = await read();
+  const cleared = await t.run(ctx => createCommunityProfileRecord(ctx, {
+    profileType: "community", displayName: "Explicit none", primaryGroupUrl: null, outboundLinks: [{ type: "vrchat_profile", url }],
+  }, { issuer: "test", subject: String(userId), tokenIdentifier: String(userId) }, userId));
+  assert.equal(primaryGroupSelection((await t.run(ctx => ctx.db.get(cleared.profileId)))!), undefined,
+    "an explicit None during submission must survive sanitization");
   assert.equal(primaryGroupSelection({ ...initial, fieldVisibility: { outboundLinks: "private" } }), undefined);
   await t.run(async ctx => applyApiProfileUpdate(ctx, { profile: (await ctx.db.get(created.profileId))!,
     subject: "community_submitter", contributorUserId: userId, input: { primaryGroupUrl: url }, now: 200 }));

@@ -408,6 +408,7 @@ export function ProfileFields({
     rows.map((link, index) => ({ id: index, link, url: link.url })),
   );
   const [primaryGroupUrl, setPrimaryGroupUrl] = useState(defaults.primaryGroupUrl ?? "");
+  const [primaryGroupChanged, setPrimaryGroupChanged] = useState(false);
   const groupUrls = [...new Set(linkRows.map(row => row.url).filter(url => parseProfileLinkDestination(url)?.kind === "vrchat_group"))];
   const filledStreamFields = showStreamFields
     ? (streamValues.vrcdn.trim() === "" ? 0 : 1) + (streamValues.twitch.trim() === "" ? 0 : 1)
@@ -538,7 +539,7 @@ export function ProfileFields({
             {profileType === "community" ? (
               <Field>
                 Primary group
-                <Select name="primaryGroupUrl" value={groupUrls.includes(primaryGroupUrl) ? primaryGroupUrl : ""} onChange={event => setPrimaryGroupUrl(event.target.value)}>
+                <Select name={primaryGroupChanged ? "primaryGroupUrl" : undefined} value={groupUrls.includes(primaryGroupUrl) ? primaryGroupUrl : !primaryGroupChanged && !defaults.primaryGroupSelectionDisabled && !defaults.primaryGroupUrl && groupUrls.length === 1 ? groupUrls[0] : ""} onChange={event => { setPrimaryGroupChanged(true); setPrimaryGroupUrl(event.target.value); }}>
                   <option value="">None</option>
                   {groupUrls.map(url => <option key={url} value={url}>{url}</option>)}
                 </Select>

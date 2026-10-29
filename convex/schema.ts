@@ -2974,6 +2974,7 @@ export default defineSchema({
   // community may hold several Discord guilds and VRChat groups (one marked
   // `primary`), and one guild may back several community profiles.
   profileExternalLinks: defineTable({
+    removedByReconciliation: v.optional(v.boolean()),
     provenance: v.optional(v.union(v.literal("directory_reference"), v.literal("control_association"))),
     profileId: v.id("profiles"),
     assetType: externalAssetType,

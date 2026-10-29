@@ -455,7 +455,7 @@ export async function removeProfileLink(
     const destination = reference ? await db.query("profileLinkDestinations").withIndex("by_key", q => q.eq("key", reference.key)).unique() : null;
     if (profile && (destination?.entityId === assetExternalId || link.linkRole === "primary")) await db.patch(profile._id, {primaryGroupReference: undefined, primaryGroupSelectionDisabled: true, updatedAt: now});
   }
-  await db.patch(link._id, { state: "removed", removedAt: now, updatedAt: now });
+  await db.patch(link._id, { state: "removed", removedByReconciliation: undefined, removedAt: now, updatedAt: now });
 
   // Keep exactly one primary when the removed link held that role.
   if (link.linkRole === "primary") {

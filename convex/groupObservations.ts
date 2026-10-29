@@ -550,7 +550,7 @@ export const reconcileProfile = internalMutation({
     const controlPrimary = directoryLinks.some(link => link.linkRole === "primary" && link.provenance !== "directory_reference");
     const removedPrimary = profile && (!profile.primaryGroupReference || profile.primaryGroupReference.inferred)
       ? await ctx.db.query("profileExternalLinks").withIndex("by_profileId_assetType_state", q => q.eq("profileId", args.profileId).eq("assetType", "vrchat_group").eq("state", "removed"))
-        .filter(q => q.eq(q.field("linkRole"), "primary")).first() : null;
+        .filter(q => q.and(q.eq(q.field("linkRole"), "primary"), q.neq(q.field("removedByReconciliation"), true))).first() : null;
     const reference = profile && !controlPrimary && !removedPrimary ? primaryGroupSelection(profile) : undefined;
     if (profile && (profile.primaryGroupReference?.inferred || reference?.inferred)) {
       if (JSON.stringify(profile.primaryGroupReference) !== JSON.stringify(reference))
@@ -561,7 +561,7 @@ export const reconcileProfile = internalMutation({
     for (const link of directoryLinks) {
       if (link.provenance === "directory_reference" && (!resolvedGroup || link.assetExternalId !== resolvedGroup)) {
         affected.push(link.assetExternalId);
-        await ctx.db.patch(link._id, { state: "removed", removedAt: now, updatedAt: now });
+        await ctx.db.patch(link._id, { state: "removed", removedByReconciliation: true, removedAt: now, updatedAt: now });
       }
     }
     if (profile?.profileType === "community" && reference && resolvedGroup && !directoryLinks.some(link => link.assetExternalId === resolvedGroup && link.linkRole === "primary")) {
