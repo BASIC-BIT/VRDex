@@ -33,8 +33,8 @@ const ids = await t.run(async ctx => {
 });
 const scratch = await mkdtemp(join(tmpdir(),'mobile-media-acceptance-'));
 const objects = new Map(), snapshots = new Map(), activity = new Map(), children = new Set(), responses = new Set();
-const metrics = {sourceConnections:0, manifests:0, objectRequests:0, segmentBytes:0, demandWrites:0, publications:0, staleRejected:0, lastManifests:[], lastObjects:[]};
-let stall = false, admissionDelay = 0, registry, timer, origin, stopped = false;
+const metrics = {sourceConnections:0, manifests:0, objectRequests:0, segmentBytes:0, demandWrites:0, publications:0, staleRejected:0, lastManifests:[], lastObjects:[], perturbations:[], partialWindows:[]};
+let stall = false, admissionDelay = 0, registry, timer, origin, stopped = false, sourceGop = 50, reorderNext = false;
 const demand = createDemand({clock:Date.now,store:{async checkHealth(){},async updateMax({streamKey,at}){metrics.demandWrites++;activity.set(streamKey,Math.max(activity.get(streamKey)??0,at));},async read(key){return activity.get(key)??null;}}});
 const rpc = async (method,name,args,signal) => { signal.throwIfAborted(); if(stall) return new Promise((_r,reject)=>signal.addEventListener('abort',()=>reject(Error('control stalled')),{once:true})); return call(method,'mediaRelayWorker',name,{...args,credential:'local-worker'}); };
 const control = createConvexControl(rpc,binding);
@@ -46,7 +46,7 @@ const server = createServer(async(req,res)=>{
     const url = new URL(req.url, 'http://local');
     if(url.pathname==='/source'){
       metrics.sourceConnections++;responses.add(res);
-      const child=spawn('ffmpeg',['-hide_banner','-loglevel','error','-nostdin','-re','-f','lavfi','-i','testsrc2=size=320x180:rate=25','-f','lavfi','-i','sine=frequency=440:sample_rate=48000','-t','650','-c:v','libx264','-preset','ultrafast','-threads','1','-b:v','300k','-g','50','-bf','0','-c:a','aac','-b:a','96k','-frag_duration','200000','-movflags','frag_keyframe+empty_moov+default_base_moof','-f','mp4','pipe:1'],{stdio:['ignore','pipe','ignore']});
+      const child=spawn('ffmpeg',['-hide_banner','-loglevel','error','-nostdin','-re','-f','lavfi','-i','testsrc2=size=320x180:rate=25','-f','lavfi','-i','sine=frequency=440:sample_rate=48000','-t','650','-c:v','libx264','-preset','ultrafast','-threads','1','-b:v','300k','-g',String(sourceGop),'-keyint_min',String(sourceGop),'-sc_threshold','0','-bf','0','-c:a','aac','-b:a','96k','-frag_duration','200000','-movflags','frag_keyframe+empty_moov+default_base_moof','-f','mp4','pipe:1'],{stdio:['ignore','pipe','ignore']});
       children.add(child);res.writeHead(200,{"content-type":"video/mp4"});child.stdout.pipe(res);res.once('close',()=>{responses.delete(res);void stopChild(child);});return;
     }
     if(url.pathname.startsWith('/p/')) {metrics.manifests++;const reply=await manifest(new Request(`https://relay.acceptance.invalid${url.pathname}`));const body=await reply.text();metrics.lastManifests.push({at:Date.now(),rendition:url.pathname.includes("/audio/")?"audio":"video",status:reply.status,body});metrics.lastManifests=metrics.lastManifests.slice(-8);res.writeHead(reply.status,Object.fromEntries(reply.headers));res.end(body);return;}
@@ -60,6 +60,8 @@ const server = createServer(async(req,res)=>{
       if(args.action==='revoke-event') await t.run(ctx=>ctx.db.patch(ids.eventId,{mediaLinks:[]}));
       else if(args.action==='metadata') await t.run(ctx=>ctx.db.patch(ids.profileId,{displayName:'DJ Lumen',updatedAt:Date.now()}));
       else if(args.action==='restart-source') for(const response of responses) response.destroy();
+      else if(args.action==='late-keyframe') {if(responses.size) throw Error('Set keyframe fixture before acquisition');sourceGop=250;metrics.perturbations.push({kind:'late-keyframe',at:Date.now(),gopFrames:sourceGop,fps:25});}
+      else if(args.action==='reorder-output') {reorderNext=true;for(const response of responses) response.destroy();}
       else if(args.action==='delay') admissionDelay=args.ms;
       else if(args.action==='stall') stall=args.value;
       else if(args.action==='restart-worker'){await registry.stop();await startRegistry();}
@@ -72,7 +74,27 @@ const server = createServer(async(req,res)=>{
 });
 async function startRegistry(){
   const directory=await mkdtemp(join(scratch,'worker-'));
-  const packager=createPackager({createRelay:()=>createSourceRelay({inputFormat:'vrcdn_fmp4',resolveAddresses:async()=>[{address:'93.184.216.34',family:4}],requestSource:(_url,_options,callback)=>request(`${origin}/source`,callback)})});
+  const realPackager=createPackager({createRelay:()=>createSourceRelay({inputFormat:'vrcdn_fmp4',resolveAddresses:async()=>[{address:'93.184.216.34',family:4}],requestSource:(_url,_options,callback)=>request(`${origin}/source`,callback)})});
+  const packager=options=>{
+    let held;
+    return realPackager({...options,onSnapshot:async(snapshot,signal)=>{
+      if(sourceGop!==50) {
+        metrics.partialWindows.push({at:Date.now(),rendition:snapshot.rendition,target:snapshot.targetDurationSeconds,duration:snapshot.segments.reduce((n,s)=>n+s.durationSeconds,0),first:snapshot.sequence,last:snapshot.segments.at(-1).sequence});
+        metrics.partialWindows=metrics.partialWindows.slice(-40);
+      }
+      if(reorderNext && snapshot.rendition==='video') {
+        if(!held){held=structuredClone(snapshot);return;}
+        if(snapshot.segments.at(-1).sequence===held.segments.at(-1).sequence)return;
+        reorderNext=false;
+        await options.onSnapshot(snapshot,signal);
+        const event={kind:'reordered-output',at:Date.now(),newer:snapshot.segments.at(-1).sequence,older:held.segments.at(-1).sequence,attempt:held.segments[0].objectKey.split('/')[0]};
+        metrics.perturbations.push(event);
+        try {await options.onSnapshot(held,signal);event.accepted=true;} catch(error){event.rejection=String(error);throw error;}
+        return;
+      }
+      await options.onSnapshot(snapshot,signal);
+    }});
+  };
   registry=createRelayRegistry({control,storage,binding,directory,demand,packager});registry.reconcile();
 }
 async function cleanup(){if(stopped)return;stopped=true;clearInterval(timer);await registry?.stop();for(const response of responses)response.destroy();await Promise.all([...children].map(stopChild));server.closeAllConnections();await new Promise(r=>server.close(r));await rm(scratch,{recursive:true,force:true});console.log(JSON.stringify({cleanup:true,childrenAlive:[...children].filter(c=>c.exitCode===null&&c.signalCode===null).length}));}

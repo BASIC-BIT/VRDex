@@ -191,3 +191,63 @@ test("explicit MSE fallback decodes both renditions and retains audio through so
   await expect(page.getByRole("button",{name:"Audio only",exact:true}).filter({visible:true})).toHaveAttribute("aria-pressed","true");
   await page.getByRole("button",{name:"Close event playback",exact:true}).filter({visible:true}).click();
 });
+
+test("reordered real packager output is rejected and a current discontinuity decodes", async ({ page }, info) => {
+  test.setTimeout(90000);
+  await page.goto("/playwright/mobile-hls-playback");
+  await page.getByRole("button", {name:"Play DJ Aurora",exact:true}).click();
+  const media=page.locator("[data-event-playback-mount] video").first();
+  await expect.poll(()=>media.evaluate(n=>(n as HTMLMediaElement).currentTime),{timeout:30000}).toBeGreaterThan(1);
+  const before=await api("state"), grant=before.grants[0].grantId;
+  await api("action",{action:"reorder-output"});
+  await expect.poll(async()=>(await api("state")).metrics.perturbations.length,{timeout:15000}).toBe(1);
+  const injected=(await api("state")).metrics.perturbations[0];
+  expect(injected.newer).toBeGreaterThan(injected.older);
+  expect(injected.rejection).toContain("Snapshot out of order");
+  expect(injected.accepted).toBeUndefined();
+  // These are distinct completed windows delivered in reverse order, not replay of a committed snapshot.
+  expect((await api("playback",{name:"getPlayback",grantId:grant})).kind).toBe("preparing");
+  expect((await fetch(`${origin}/p/${grant}/video/index.m3u8`)).status).toBe(503);
+  await expect.poll(async()=>{
+    const state=await api("state"), snapshot=state.sources[0].snapshots?.video;
+    return state.sources[0].state==='ready' && snapshot?.segments.some((s:{discontinuity:boolean})=>s.discontinuity) &&
+      snapshot.segments.every((s:{objectKey:string})=>!s.objectKey.includes(injected.attempt)) &&
+      state.metrics.lastObjects.some((key:string)=>key===snapshot.segments.at(-1).objectKey);
+  },{timeout:35000}).toBe(true);
+  const recoveredTime=await media.evaluate(n=>(n as HTMLMediaElement).currentTime);
+  await expect.poll(()=>media.evaluate(n=>(n as HTMLMediaElement).currentTime),{timeout:10000}).toBeGreaterThan(recoveredTime+1);
+  const state=await api("state");
+  await info.attach("reordered-output-proof",{body:JSON.stringify({injected,epoch:state.sources[0].epoch,snapshot:state.sources[0].snapshots.video,decodedAfterRecovery:await media.evaluate(n=>(n as HTMLMediaElement).currentTime)}),contentType:"application/json"});
+});
+
+test("late keyframes keep partial windows unplayable and terminate within recovery budget", async ({ page }, info) => {
+  test.setTimeout(60000);
+  await api("action",{action:"late-keyframe"});
+  await page.goto("/playwright/mobile-hls-playback");
+  await page.getByRole("button",{name:"Play DJ Aurora",exact:true}).click();
+  await expect.poll(async()=>(await api("state")).grants.length).toBe(1);
+  const grant=(await api("state")).grants[0].grantId;
+  const observations=[];
+  let state;
+  const deadline=Date.now()+35000;
+  do {
+    state=await api("state");
+    const admission=await api("playback",{name:"getPlayback",grantId:grant});
+    const gateway=await fetch(`${origin}/p/${grant}/video/index.m3u8`);
+    observations.push({at:Date.now(),state:state.sources[0]?.state,admission:admission.kind,gateway:gateway.status,progressAt:state.sources[0]?.progressAt});
+    expect(admission.kind).not.toBe("ready");expect(gateway.status).not.toBe(200);
+    expect(state.sources[0]?.state).not.toBe("ready");
+    if(state.sources[0]?.state==='unavailable')break;
+    await new Promise(r=>setTimeout(r,500));
+  } while(Date.now()<deadline);
+  expect(state.sources[0].state).toBe("unavailable");
+  const elapsed=Date.now()-state.sources[0].recoveryStartedAt;
+  expect(elapsed).toBeLessThan(33000);
+  const partial=state.metrics.partialWindows.filter((s:{rendition:string})=>s.rendition==='video');
+  expect(partial.length).toBeGreaterThanOrEqual(2);
+  expect(partial.at(-1).at-partial[0].at).toBeGreaterThan(5000);
+  expect(partial.every((s:{duration:number;target:number})=>s.duration<3*s.target)).toBe(true);
+  expect(observations.every(s=>(s.progressAt??0)===0)).toBe(true);
+  await expect.poll(async()=>(await api("state")).connections).toBe(0);
+  await info.attach("late-keyframe-proof",{body:JSON.stringify({elapsed,observations,partial,perturbations:state.metrics.perturbations,connections:(await api("state")).connections}),contentType:"application/json"});
+});

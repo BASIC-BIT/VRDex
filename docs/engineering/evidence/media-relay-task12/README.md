@@ -84,3 +84,35 @@ images were regenerated.
 canonical logo traced and copied, anonymous neutral PNG200, derived PNG200
 (12703bytes,512px), two authorization reads and one object read, then404 after
 privacy eligibility changes. No repository docs fallback was available.
+
+## Reordered output and late keyframes
+
+`output-order-keyframes.json` records the focused review correction. The harness
+holds an actual completed, uncommitted video window, delivers the later window
+first through production registry/publication, then releases the older window.
+Publication rejects `Snapshot out of order`; admission stays preparing and the
+gateway returns503 until a fresh attempt provides a qualifying discontinuity.
+The actual native browser then fetches that attempt and advances decoded time.
+This is distinct from replaying a snapshot already committed in normal order.
+
+The late-keyframe fixture encodes the synthetic input with a fixed ten-second
+GOP; relay packaging remains copy-only. Actual video windows of approximately
+10,20 and30seconds have target duration11, so none qualifies for the33second
+playable threshold. While real audio publication continues, sampled admission
+and gateway responses never become playable and the progress marker never
+advances. The source terminates within the original30second recovery budget
+(with a bounded polling tolerance) and releases its upstream connection.
+
+Run only these focused cases with `MOBILE_MEDIA_ACCEPTANCE=true` and the same
+isolated fixture server environment:
+
+```sh
+pnpm --filter web exec playwright test mobile-hls-playback.spec.ts \
+  --project=desktop-chromium --workers=1 --grep 'reordered real|late keyframes'
+```
+
+The reorder case passed42.1s. The first late-keyframe run reached the correct
+terminal state but exposed a test assumption: registry health stores initial
+progress as0, not always absent. The corrected unchanged-zero assertion passed
+in33.6s. No production runtime changed; prior long-run, image and artwork evidence
+remains applicable. All physical-device and hosted release gates remain open.
