@@ -86,6 +86,21 @@ shutdown. None of these deployment steps was executed by the local checkpoint.
 See [source controls](../backend/event-intake-sources.md) and
 [verification evidence](../testing/event-intake-checkpoint.md).
 
+## Event connectors
+
+Connector OAuth tokens are stored encrypted with AES-256-GCM in the
+`v1:iv:tag:ciphertext` format, keyed by `VRDEX_CONNECTOR_TOKEN_KEY` (secret).
+
+Scope: the Convex deployment environment only; never set it on the web app.
+Owner: the deployment operator (BASIC). Value: 32 random bytes, base64 encoded,
+generated with `openssl rand -base64 32` and set with
+`npx convex env set VRDEX_CONNECTOR_TOKEN_KEY`. The value lives only in the
+Convex environment, never in git or Terraform state.
+
+Rotation: replacing the value makes every stored connector token unreadable, so
+each OAuth connector must be reconnected from the Integrations page. The `v1:`
+prefix leaves room for a dual-key rotation later.
+
 ## Locked Decision
 
 VRDex keeps four Convex execution targets separate:

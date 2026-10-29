@@ -39,6 +39,7 @@ import type * as _collectionCoverage from "../_collectionCoverage.js";
 import type * as _communityAuthority from "../_communityAuthority.js";
 import type * as _communityTelemetry from "../_communityTelemetry.js";
 import type * as _communityTelemetryPublic from "../_communityTelemetryPublic.js";
+import type * as _connectorCrypto from "../_connectorCrypto.js";
 import type * as _contributionAuth from "../_contributionAuth.js";
 import type * as _contributionCapacity from "../_contributionCapacity.js";
 import type * as _contributionPolicy from "../_contributionPolicy.js";
@@ -262,6 +263,7 @@ declare const fullApi: ApiFromModules<{
   _communityAuthority: typeof _communityAuthority;
   _communityTelemetry: typeof _communityTelemetry;
   _communityTelemetryPublic: typeof _communityTelemetryPublic;
+  _connectorCrypto: typeof _connectorCrypto;
   _contributionAuth: typeof _contributionAuth;
   _contributionCapacity: typeof _contributionCapacity;
   _contributionPolicy: typeof _contributionPolicy;
