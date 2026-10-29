@@ -12,7 +12,7 @@ import { admissionMatches } from "./_groupAdmission";
 export type CollectionSubject = NonNullable<Doc<"communityVrchatIntegrations">["collectionScope"]>;
 
 /** A sole public group link needs no separate primary-selection step. */
-export function primaryGroupSelection(profile: Pick<Doc<"profiles">, "profileType" | "fieldVisibility" | "outboundLinks" | "primaryGroupReference" | "primaryGroupSelectionDisabled">) {
+export function primaryGroupSelection(profile: Pick<Doc<"profiles">, "profileType" | "fieldVisibility" | "outboundLinks" | "primaryGroupReference" | "primaryGroupSelectionDisabled" | "inferredGroupContributorUserId">) {
   const selected = profile.primaryGroupReference;
   if (selected && !selected.inferred) return selected;
   if (profile.profileType !== "community" || profile.primaryGroupSelectionDisabled) return undefined;
@@ -23,7 +23,7 @@ export function primaryGroupSelection(profile: Pick<Doc<"profiles">, "profileTyp
   }
   if (groups.size !== 1) return undefined;
   const [key, url] = groups.entries().next().value!;
-  return { key, url, inferred: true, contributorUserId: selected?.contributorUserId };
+  return { key, url, inferred: true, contributorUserId: selected?.contributorUserId ?? profile.inferredGroupContributorUserId };
 }
 
 export function automaticAdmissionEnabled(fleet: Doc<"collectorFleetSettings"> | null, groupId: string) {

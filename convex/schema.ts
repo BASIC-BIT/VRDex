@@ -660,6 +660,7 @@ const fieldVisibility = v.object({
 const sharedProfileFields = {
   primaryGroupReference: v.optional(v.object({ url: v.string(), key: v.string(), contributorUserId: v.optional(v.id("users")), inferred: v.optional(v.boolean()) })),
   primaryGroupSelectionDisabled: v.optional(v.boolean()),
+  inferredGroupContributorUserId: v.optional(v.id("users")),
   slug: v.string(),
   displayName: v.string(),
   sortName: v.string(),

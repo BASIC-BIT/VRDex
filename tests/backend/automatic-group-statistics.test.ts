@@ -560,6 +560,12 @@ it("implicit group selection respects hidden links, explicit clears and explicit
   }, { issuer: "test", subject: String(userId), tokenIdentifier: String(userId) }, userId));
   const read = async () => (await t.run(ctx => ctx.db.get(created.profileId)))!;
   const initial = await read();
+  await t.run(ctx => ctx.db.patch(created.profileId, { fieldVisibility: {outboundLinks: "private"} }));
+  await t.mutation(reconcileEnrollment, { profileId: created.profileId, affectedGroupIds: [] });
+  await t.run(ctx => ctx.db.patch(created.profileId, { fieldVisibility: undefined }));
+  await t.mutation(reconcileEnrollment, { profileId: created.profileId, affectedGroupIds: [] });
+  assert.equal((await read()).primaryGroupReference?.contributorUserId, userId,
+    "temporary privacy changes retain contributor quota attribution before resolution");
   const cleared = await t.run(ctx => createCommunityProfileRecord(ctx, {
     profileType: "community", displayName: "Explicit none", primaryGroupUrl: null, outboundLinks: [{ type: "vrchat_profile", url }],
   }, { issuer: "test", subject: String(userId), tokenIdentifier: String(userId) }, userId));

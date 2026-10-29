@@ -48,6 +48,8 @@ The resulting `profileExternalLinks.provenance = "directory_reference"` associat
 
 New immutable groups consume at most five contributor candidates per rolling 24 hours. Legacy references without contributor provenance use a separate global backfill allowance of 50. Duplicate references and repeat saves consume no additional candidate. The internal `overrideCandidateLimit` requires an audit reason and only releases an already attributed quota-blocked candidate.
 
+Inferred selections retain their contributor attribution through temporary privacy or ambiguity changes. Reconciliation distinguishes its own directory cleanup from an authenticated removal, so restoring a sole public link can qualify again without bypassing the original contributor quota.
+
 An automatic allocation starts with unknown visibility and join policy. The subsequent worker eligibility gate must confirm public/free-join before joining. `recordAdmissionRequired` retires a pre-join request/invite/private/invalid target, releases unused capacity, and prevents allocation loops. This queue does not itself contact VRChat.
 
 Member metadata remains available without an aggregate slot under the shared publication policy. The daily sampler skips a healthy active aggregate assignment only while its successful observation is within six minutes, then can resume standalone metadata sampling. `group_member_authorize` rechecks the claim and shared policy immediately before the provider read, and completion rechecks policy again. A group stop or managed privacy applies across duplicate references.

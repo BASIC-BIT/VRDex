@@ -552,6 +552,9 @@ export const reconcileProfile = internalMutation({
       ? await ctx.db.query("profileExternalLinks").withIndex("by_profileId_assetType_state", q => q.eq("profileId", args.profileId).eq("assetType", "vrchat_group").eq("state", "removed"))
         .filter(q => q.and(q.eq(q.field("linkRole"), "primary"), q.neq(q.field("removedByReconciliation"), true))).first() : null;
     const reference = profile && !controlPrimary && !removedPrimary ? primaryGroupSelection(profile) : undefined;
+    if (profile?.primaryGroupReference?.inferred && profile.primaryGroupReference.contributorUserId !== undefined &&
+      profile.inferredGroupContributorUserId !== profile.primaryGroupReference.contributorUserId)
+      await ctx.db.patch(profile._id, { inferredGroupContributorUserId: profile.primaryGroupReference.contributorUserId });
     if (profile && (profile.primaryGroupReference?.inferred || reference?.inferred)) {
       if (JSON.stringify(profile.primaryGroupReference) !== JSON.stringify(reference))
         await ctx.db.patch(profile._id, { primaryGroupReference: reference });
