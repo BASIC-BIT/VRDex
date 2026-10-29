@@ -1,6 +1,6 @@
 import type { Scheduler } from "convex/server";
 import { internal } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader, DatabaseWriter } from "./_generated/server";
 import { connectorsEnabled, type SyncJobKind } from "./_eventConnectors";
 
@@ -24,13 +24,15 @@ export async function enqueueSyncJob(db: DatabaseWriter, scheduler: Scheduler, j
   return jobId;
 }
 
+export const eventIsPublic = (event: Doc<"events"> | null) => event?.publicationState === "published" && event.moderationRemovedAt === undefined;
+
 /** The single hook every event write path calls. Cancel is an upsert; unpublish, retraction, and moderation removal are deletes. */
 export async function enqueueEventSync(db: DatabaseWriter, scheduler: Scheduler, eventId: Id<"events">, change: "upsert" | "delete"): Promise<void> {
   if (!connectorsEnabled()) return;
   const event = await db.get(eventId);
   const communityProfileId = event?.communityProfileId;
   if (!communityProfileId) return;
-  const upsert = change === "upsert" && event.publicationState === "published" && event.moderationRemovedAt === undefined;
+  const upsert = change === "upsert" && eventIsPublic(event);
   const connectors = (await db.query("eventConnectors").withIndex("by_communityProfileId", q => q.eq("communityProfileId", communityProfileId)).take(50))
     .filter(connector => connector.state === "active" && (connector.direction === "export" || connector.direction === "bidirectional"));
   if (upsert) {

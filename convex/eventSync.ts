@@ -3,7 +3,7 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalAction, internalMutation, type DatabaseReader, type MutationCtx } from "./_generated/server";
 import { carriedFieldsHash, connectorsEnabled, pendingLinkDraft, userHasCommunityPermission } from "./_eventConnectors";
-import { cancelPendingSchedule, enqueueSyncJob } from "./_eventSync";
+import { cancelPendingSchedule, enqueueSyncJob, eventIsPublic } from "./_eventSync";
 import { enqueueProductAnalytics } from "./_productAnalytics";
 import { correctionFields } from "./eventCorrections";
 import { syncKindHandlers } from "./eventSyncKinds/index";
@@ -24,6 +24,24 @@ type Connector = Doc<"eventConnectors">;
 const linkFor = async (db: DatabaseReader, connectorId: Id<"eventConnectors">, eventId: Id<"events">) =>
   (await db.query("eventSyncLinks").withIndex("by_eventId", q => q.eq("eventId", eventId)).take(100)).find(link => link.connectorId === connectorId) ?? null;
 
+// Other jobs for the same connector and event; connector-level jobs have none.
+const siblings = async (db: DatabaseReader, job: Job, state: "pending" | "running") => {
+  const eventId = job.eventId;
+  if (!eventId) return [];
+  const rows = await db.query("eventSyncJobs").withIndex("by_connectorId_eventId_state", q => q.eq("connectorId", job.connectorId).eq("eventId", eventId).eq("state", state)).take(10);
+  return rows.filter(row => row._id !== job._id);
+};
+
+// Jobs for one connector and event run one at a time; when one finishes, the waiting one runs now instead of waiting out the lease.
+async function wakePendingSibling(ctx: MutationCtx, job: Job) {
+  const now = Date.now();
+  for (const sibling of await siblings(ctx.db, job, "pending")) {
+    await cancelPendingSchedule(ctx.db, ctx.scheduler, sibling.scheduledFunctionId);
+    const scheduledFunctionId = await ctx.scheduler.runAt(now, internal.eventSync.runJob, { jobId: sibling._id });
+    await ctx.db.patch(sibling._id, { dueAt: now, scheduledFunctionId, updatedAt: now });
+  }
+}
+
 // Each job emits exactly one event_sync_job: on completion, final failure, or skip. Retries emit nothing.
 async function recordJob(ctx: MutationCtx, job: Job, connector: Connector, outcome: "done" | "skipped" | "failed", durationMs: number, reason?: string) {
   await enqueueProductAnalytics(ctx.db, { event: "event_sync_job", distinctId: String(connector.authorityUserId), properties: {
@@ -42,15 +60,14 @@ async function failAttempt(ctx: MutationCtx, job: Job, error: string, durationMs
   const now = Date.now();
   await cancelPendingSchedule(ctx.db, ctx.scheduler, job.scheduledFunctionId);
   const connector = await ctx.db.get(job.connectorId);
-  const eventId = job.eventId;
-  if (eventId) {
-    const pending = await ctx.db.query("eventSyncJobs").withIndex("by_connectorId_eventId_state", q => q.eq("connectorId", job.connectorId).eq("eventId", eventId).eq("state", "pending")).take(2);
-    if (pending.some(row => row._id !== job._id)) return void await skipJob(ctx, job, connector, "superseded");
+  if ((await siblings(ctx.db, job, "pending")).length || (await siblings(ctx.db, job, "running")).length) {
+    await skipJob(ctx, job, connector, "superseded");
+    return await wakePendingSibling(ctx, job);
   }
   if (job.attempts >= MAX_ATTEMPTS) {
     await ctx.db.patch(job._id, { state: "failed", lastError: error, leaseExpiresAt: undefined, updatedAt: now });
     if (connector) {
-      await ctx.db.patch(connector._id, { lastError: error });
+      await ctx.db.patch(connector._id, { lastError: error, updatedAt: now });
       await recordJob(ctx, job, connector, "failed", durationMs, error);
     }
     return;
@@ -87,16 +104,25 @@ export const claimJob = internalMutation({
       await ctx.db.patch(connector._id, { state: "paused", lastError: "authority_lost", updatedAt: now });
       return await skipJob(ctx, job, connector, "authority_lost");
     }
+    // Serialise per connector and event: wait for an in-flight sibling without spending an attempt.
+    const busy = (await siblings(ctx.db, job, "running")).find(row => (row.leaseExpiresAt ?? 0) > now);
+    if (busy) {
+      const dueAt = busy.leaseExpiresAt!;
+      await cancelPendingSchedule(ctx.db, ctx.scheduler, job.scheduledFunctionId);
+      const scheduledFunctionId = await ctx.scheduler.runAt(dueAt, internal.eventSync.runJob, { jobId });
+      await ctx.db.patch(jobId, { state: "pending", dueAt, leaseExpiresAt: undefined, scheduledFunctionId, updatedAt: now });
+      return null;
+    }
     let kind = job.kind;
     let event: Doc<"events"> | null = null;
     let link: Doc<"eventSyncLinks"> | null = null;
     if (job.eventId && (kind === "export_upsert" || kind === "export_delete")) {
       event = await ctx.db.get(job.eventId);
       link = await linkFor(ctx.db, connector._id, job.eventId);
-      if (kind === "export_upsert" && !(event?.publicationState === "published" && event.moderationRemovedAt === undefined)) {
+      if (kind === "export_upsert" && !eventIsPublic(event)) {
         if (!link) return await skipJob(ctx, job, connector, "event_not_public");
         kind = "export_delete";
-      }
+      } else if (kind === "export_delete" && eventIsPublic(event)) return await skipJob(ctx, job, connector, "event_public");
       if (kind === "export_upsert" && await pendingLinkDraft(ctx.db, link, now)) return await skipJob(ctx, job, connector, "pending_draft");
       if (kind === "export_delete" && link?.state !== "linked") return await skipJob(ctx, job, connector, "no_link");
     }
@@ -120,11 +146,14 @@ export const completeJob = internalMutation({
       // Only the runner writes vrdex_retracted, so a re-export after a retraction relinks; other link states belong to the kinds.
       if (link) await ctx.db.patch(link._id, link.state === "vrdex_retracted" ? { ...exported, state: "linked" as const } : exported);
       else await ctx.db.insert("eventSyncLinks", { connectorId: job.connectorId, eventId: job.eventId, ...exported, state: "linked", createdAt: now });
+      // The event went private while this export was in flight; enqueueEventSync saw no link then, so retract the copy now.
+      if (!eventIsPublic(await ctx.db.get(job.eventId))) await enqueueSyncJob(ctx.db, ctx.scheduler, { connectorId: job.connectorId, eventId: job.eventId, kind: "export_delete" });
     }
     if (job.kind === "export_delete" && link) await ctx.db.patch(link._id, { state: "vrdex_retracted", updatedAt: now });
+    await wakePendingSibling(ctx, job);
     const connector = await ctx.db.get(job.connectorId);
     if (!connector) return;
-    await ctx.db.patch(connector._id, { lastSyncedAt: now, lastError: undefined });
+    await ctx.db.patch(connector._id, { lastSyncedAt: now, lastError: undefined, updatedAt: now });
     await recordJob(ctx, job, connector, "done", args.durationMs);
   },
 });
