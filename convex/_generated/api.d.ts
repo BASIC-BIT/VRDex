@@ -92,6 +92,7 @@ import type * as _mediaSubmissionCleanup from "../_mediaSubmissionCleanup.js";
 import type * as _oauth from "../_oauth.js";
 import type * as _oauthConsentTransactions from "../_oauthConsentTransactions.js";
 import type * as _previewPersistence from "../_previewPersistence.js";
+import type * as _productAnalytics from "../_productAnalytics.js";
 import type * as _profileAppearance from "../_profileAppearance.js";
 import type * as _profileAssets from "../_profileAssets.js";
 import type * as _profileClaimCreation from "../_profileClaimCreation.js";
@@ -194,6 +195,8 @@ import type * as mediaKitPublicationMigration from "../mediaKitPublicationMigrat
 import type * as migrations from "../migrations.js";
 import type * as oauthApps from "../oauthApps.js";
 import type * as oauthConsentTransactions from "../oauthConsentTransactions.js";
+import type * as productAnalytics from "../productAnalytics.js";
+import type * as productAnalyticsDelivery from "../productAnalyticsDelivery.js";
 import type * as profileArchival from "../profileArchival.js";
 import type * as profileAssets from "../profileAssets.js";
 import type * as profileClaims from "../profileClaims.js";
@@ -311,6 +314,7 @@ declare const fullApi: ApiFromModules<{
   _oauth: typeof _oauth;
   _oauthConsentTransactions: typeof _oauthConsentTransactions;
   _previewPersistence: typeof _previewPersistence;
+  _productAnalytics: typeof _productAnalytics;
   _profileAppearance: typeof _profileAppearance;
   _profileAssets: typeof _profileAssets;
   _profileClaimCreation: typeof _profileClaimCreation;
@@ -413,6 +417,8 @@ declare const fullApi: ApiFromModules<{
   migrations: typeof migrations;
   oauthApps: typeof oauthApps;
   oauthConsentTransactions: typeof oauthConsentTransactions;
+  productAnalytics: typeof productAnalytics;
+  productAnalyticsDelivery: typeof productAnalyticsDelivery;
   profileArchival: typeof profileArchival;
   profileAssets: typeof profileAssets;
   profileClaims: typeof profileClaims;
