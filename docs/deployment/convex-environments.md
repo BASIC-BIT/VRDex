@@ -92,7 +92,9 @@ See [source controls](../backend/event-intake-sources.md) and
 Scope: the Convex deployment environment only. Default: unset, which means off.
 Owner: BASIC. It gates the Integrations page, connector creation,
 `enqueueEventSync`, and sync job execution. Turning it off leaves pending jobs in
-place; each closes as `connectors_disabled` when its run claims it.
+place; each closes as `connectors_disabled` when its run claims it. Keep it off
+until a kind plan registers a sync handler: with no handler every export job
+fails and the connector failure alarm fires.
 
 Connector OAuth tokens are stored encrypted with AES-256-GCM in the
 `v1:iv:tag:ciphertext` format, keyed by `VRDEX_CONNECTOR_TOKEN_KEY` (secret).
@@ -119,10 +121,11 @@ Each alert key sends at most one email per six hours while it stays failing,
 and one `Resolved` email when it recovers. A failure after a recovery alerts
 again at once. Current alarms:
 
-- `connector-failures:` plus the connector ID: a connector's fifth consecutive
-  finally failed sync job, including jobs failed by recovery as
-  `lease_expired` or `stalled`. Retries, skips, and `superseded` closes do not
-  count. The next completed job for that connector resolves it.
+- `connector-failures:` plus the connector ID: a connector's fifth and every
+  later consecutive finally failed sync job, including jobs failed by recovery
+  as `lease_expired` or `stalled`, so a long streak re-alerts every six hours.
+  Retries, skips, and `superseded` closes do not count. The next completed job
+  for that connector, or removing the connector, resolves it.
 - `product-analytics-delivery`: a product analytics outbox row stops retrying
   after five failed deliveries to PostHog. The email names the row ID, event
   name, attempt count, and creation time only. The next delivered row resolves

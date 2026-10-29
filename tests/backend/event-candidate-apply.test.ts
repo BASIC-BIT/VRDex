@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { beforeEach, it } from "node:test";
 import { applyEventCandidate } from "../../convex/_eventCandidateApply";
 import { carriedFieldsHash } from "../../convex/_eventConnectors";
-import { candidatePatch } from "../../apps/web/src/lib/event-intake-source";
+import { correctionFields } from "../../convex/eventCorrections";
 import type { EventIntakeCandidate } from "../../packages/api-contracts/src/event-intake";
 import type { Doc, Id } from "../../convex/_generated/dataModel";
 import { connectorFixture } from "./_eventConnectorFixture";
@@ -61,12 +61,36 @@ it("autopublish publishes a community listing, links it, and replays on retry", 
 it("echo guard: an inbound copy of VRDex's own export changes nothing", async () => {
   const f = await setup();
   const { eventId } = await f.createEvent();
-  const echoed = candidate({ ...night, title: "Night Flight (exported)" }, ["event.title"]);
-  await f.linkTo(eventId, { lastExportedHash: carriedFieldsHash("google_calendar", { ...candidatePatch(echoed).tentative, communitySlug: "club", timeTba: false }) });
+  // The hash the runner stores after exporting this event.
+  const exported = await f.t.run(async ctx => carriedFieldsHash("google_calendar", await correctionFields(ctx.db, (await ctx.db.get(eventId))!)));
+  await f.linkTo(eventId, { lastExportedHash: exported });
   const before = (await f.get(eventId))!;
-  const result = await f.apply({ candidate: echoed, externalId: "g-1", externalUpdatedAt: before.updatedAt + 60_000 });
+  const result = await f.apply({ candidate: candidate(night, ["event.title", "event.start"]), externalId: "g-1", externalUpdatedAt: before.updatedAt + 60_000 });
   assert.equal(result.outcome, "skipped_echo");
   assert.deepEqual(await f.get(eventId), before);
+});
+
+it("refuses an actor other than the stored connector's authority", async () => {
+  const f = await setup();
+  const call = (mutate: (doc: Doc<"eventConnectors">) => { connector: Doc<"eventConnectors">; actorUserId: Id<"users"> }) => f.t.run(async ctx => {
+    const doc = (await ctx.db.get(f.connectorId))!;
+    return applyEventCandidate(ctx, { ...mutate(doc), idempotencyKey: "k", candidate: candidate(night, ["event.title"]), externalId: "g-1" });
+  });
+  await assert.rejects(call(doc => ({ connector: doc, actorUserId: f.users.outsider })), /CONNECTOR_FORBIDDEN/);
+  // A stale Doc claiming the outsider as authority does not help: the stored row decides.
+  await assert.rejects(call(doc => ({ connector: { ...doc, authorityUserId: f.users.outsider }, actorUserId: f.users.outsider })), /CONNECTOR_FORBIDDEN/);
+  await f.t.run(ctx => ctx.db.patch(f.connectorId, { state: "paused" }));
+  await assert.rejects(call(doc => ({ connector: { ...doc, state: "active" }, actorUserId: doc.authorityUserId })), /CONNECTOR_FORBIDDEN/);
+  assert.equal((await f.t.run(ctx => ctx.db.query("eventIntakeDrafts").collect())).length, 0);
+});
+
+it("a retry with the same key and no external ID replays the publish", async () => {
+  const f = await setup();
+  const first = await f.apply({ candidate: candidate(night, ["event.title", "event.start"]), idempotencyKey: "job-7" });
+  assert.equal(first.outcome, "published");
+  const retry = await f.apply({ candidate: candidate(night, ["event.title", "event.start"]), idempotencyKey: "job-7" });
+  assert.deepEqual([retry.outcome, retry.eventId], ["published", first.eventId]);
+  assert.equal((await f.t.run(ctx => ctx.db.query("eventIntakeDrafts").collect())).length, 1);
 });
 
 it("carried-fields rule: a kind that does not carry venue never touches it", async () => {
@@ -158,6 +182,24 @@ it("publishing a given working draft carries its poster through to the event art
   assert.equal(result.draftId, draftId);
   assert.equal((await f.get(result.eventId!))!.posterImageUrl, `/api/v0/events/${result.eventId}/artwork/${artworkId}`);
   assert.equal((await f.t.run(ctx => ctx.db.get(artworkId)))!.state, "published");
+});
+
+it("with date-only publishing off, a date-only candidate is held and a cleared start leaves the event alone", async () => {
+  const f = await setup();
+  const { eventId } = await f.createEvent();
+  await f.linkTo(eventId);
+  delete process.env.EVENT_DATE_ONLY_ENABLED;
+  try {
+    const fresh = await f.apply({ candidate: candidate({ title: "All Day", eventDate: "2027-05-01" }, ["event.title", "event.eventDate"]), externalId: "g-2" });
+    assert.equal(fresh.outcome, "draft");
+    assert.equal((await f.t.run(ctx => ctx.db.query("events").collect())).length, 1);
+    const before = (await f.get(eventId))!;
+    const cleared = await f.apply({ candidate: candidate({ ...night, start: null }, ["event.start"]), externalId: "g-1", externalUpdatedAt: before.updatedAt + 60_000, idempotencyKey: "key-2" });
+    assert.equal(cleared.outcome, "draft");
+    assert.deepEqual(await f.get(eventId), before);
+  } finally {
+    process.env.EVENT_DATE_ONLY_ENABLED = "true";
+  }
 });
 
 it("date-only candidate publishes as time TBA", async () => {

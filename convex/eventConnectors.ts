@@ -6,7 +6,8 @@ import {
   allowedDirections, connectorDirection, connectorKind, connectorMode, connectorState, connectorTarget, connectorsEnabled,
   DISCORD_ID, requireConnectorAuthority, type ConnectorDirection, type ConnectorKind,
 } from "./_eventConnectors";
-import { enqueueSyncJob } from "./_eventSync";
+import { enqueueSyncJob, failureAlertKey } from "./_eventSync";
+import { resolveOps } from "./_opsAlerts";
 
 type ConnectorTarget = Infer<typeof connectorTarget>;
 const TARGET_IDS = ["guildId", "channelId", "calendarId", "groupId"] as const;
@@ -22,8 +23,24 @@ function requireDirection(kind: ConnectorKind, direction: ConnectorDirection) {
   if (!allowedDirections(kind).includes(direction)) fail("CONNECTOR_DIRECTION_INVALID");
 }
 
-function requireTarget(target: ConnectorTarget) {
+type TargetId = (typeof TARGET_IDS)[number];
+// Each kind names its target with exactly these IDs: required first, then optional. Notion is reserved and never reaches this.
+const KIND_TARGET_IDS: Record<Exclude<ConnectorKind, "notion">, { required: TargetId[]; optional?: TargetId[] }> = {
+  discord_announcements: { required: ["guildId", "channelId"] },
+  discord_board: { required: ["guildId", "channelId"] },
+  discord_scheduled_events: { required: ["guildId"] },
+  google_calendar: { required: ["calendarId"] },
+  vrchat_calendar: { required: ["groupId"], optional: ["calendarId"] },
+};
+
+function requireTarget(kind: Exclude<ConnectorKind, "notion">, target: ConnectorTarget) {
+  const { required, optional = [] } = KIND_TARGET_IDS[kind];
+  for (const key of TARGET_IDS) {
+    const value = target[key];
+    if (value === undefined ? required.includes(key) : !required.includes(key) && !optional.includes(key)) fail("CONNECTOR_TARGET");
+  }
   for (const key of ["guildId", "channelId"] as const) if (target[key] !== undefined && !DISCORD_ID.test(target[key])) fail("CONNECTOR_TARGET");
+  for (const key of ["calendarId", "groupId"] as const) if ((target[key]?.length ?? 0) > 256) fail("CONNECTOR_TARGET");
   for (const key of TARGET_NAMES) if ((target[key]?.length ?? 0) > 100) fail("CONNECTOR_TARGET");
 }
 
@@ -61,10 +78,11 @@ export const create = mutation({
   handler: async (ctx, args) => {
     const { userId } = await requireActiveBrowserSessionSubject(ctx);
     requireEnabled();
+    if ((await ctx.db.get(args.communityProfileId))?.profileType !== "community") fail("CONNECTOR_FORBIDDEN");
     await requireConnectorAuthority(ctx, args.communityProfileId, userId);
-    if (args.kind === "notion") fail("CONNECTOR_KIND_RESERVED");
+    if (args.kind === "notion") return fail("CONNECTOR_KIND_RESERVED");
     requireDirection(args.kind, args.direction);
-    requireTarget(args.target);
+    requireTarget(args.kind, args.target);
     if (args.credentialId) {
       const credential = await ctx.db.get(args.credentialId);
       if (credential?.state !== "active" || credential.ownerUserId !== userId) fail("CONNECTOR_CREDENTIAL");
@@ -103,8 +121,9 @@ export const update = mutation({
     // The resumer becomes the authority, or the next claim would pause it again for the original staffer's lost role.
     if (resumed) Object.assign(patch, { state: "active", authorityUserId: userId, lastError: undefined });
     await ctx.db.patch(connector._id, patch);
-    const reenabled = connector.direction === "off" && args.direction !== undefined && args.direction !== "off";
-    if (resumed || (reenabled && connector.state === "active")) await reconcile(ctx, connector._id);
+    // Any change to a live direction reconciles: the new direction may export what the old one never did.
+    const redirected = args.direction !== undefined && args.direction !== "off" && args.direction !== connector.direction;
+    if (resumed || (redirected && connector.state === "active")) await reconcile(ctx, connector._id);
     return null;
   },
 });
@@ -113,5 +132,7 @@ export const remove = mutation({ args: { connectorId: v.id("eventConnectors") },
   const { connector } = await authorizedConnector(ctx, args.connectorId);
   // Links stay so a reconnect can match them; pending jobs close as connector_inactive when claimed.
   if (connector.state !== "removed") await ctx.db.patch(connector._id, { state: "removed", updatedAt: Date.now() });
+  // A removed connector cannot recover, so close any open failure alert for it.
+  await resolveOps(ctx, failureAlertKey(connector._id));
   return null;
 } });

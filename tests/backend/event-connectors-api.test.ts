@@ -36,6 +36,46 @@ it("validates kind, direction, Discord IDs, and uniqueness", async () => {
   await assert.rejects(create({ target: { calendarId: "club@example.com", calendarName: "Renamed" } }), /CONNECTOR_EXISTS/);
 });
 
+it("each kind takes exactly its own target IDs", async () => {
+  const f = await connectorFixture();
+  const create = (kind: string, direction: string, target: Record<string, string>) =>
+    f.as("integrator").mutation(api.eventConnectors.create, { communityProfileId: f.communityProfileId, kind, direction, mode: "hold", target } as never);
+  const guild = "123456789012345678";
+  const channel = "223456789012345678";
+  await assert.rejects(create("google_calendar", "export", {}), /CONNECTOR_TARGET/);
+  await assert.rejects(create("google_calendar", "export", { calendarId: "club@example.com", guildId: guild }), /CONNECTOR_TARGET/);
+  await assert.rejects(create("google_calendar", "export", { calendarId: "x".repeat(257) }), /CONNECTOR_TARGET/);
+  await assert.rejects(create("discord_board", "export", { guildId: guild }), /CONNECTOR_TARGET/);
+  await assert.rejects(create("discord_announcements", "import", { guildId: guild, channelId: channel, calendarId: "c" }), /CONNECTOR_TARGET/);
+  await assert.rejects(create("discord_scheduled_events", "export", { guildId: guild, channelId: channel }), /CONNECTOR_TARGET/);
+  await assert.rejects(create("vrchat_calendar", "export", { calendarId: "cal" }), /CONNECTOR_TARGET/);
+  await assert.rejects(create("vrchat_calendar", "export", { groupId: "g".repeat(257) }), /CONNECTOR_TARGET/);
+  await create("google_calendar", "export", { calendarId: "x".repeat(256) });
+  await create("discord_scheduled_events", "export", { guildId: guild, guildName: "Club" });
+  await create("vrchat_calendar", "export", { groupId: "grp_1" });
+  await create("vrchat_calendar", "export", { groupId: "grp_1", calendarId: "cal" });
+});
+
+it("refuses a profile that is not a community, even for a super admin", async () => {
+  const f = await connectorFixture();
+  const person = await f.t.run(ctx => ctx.db.insert("profiles", { slug: "someone", displayName: "Someone", sortName: "someone", profileType: "person", person: { roleTags: [] }, aliases: [], tags: [], claimState: "unclaimed", publicationState: "published", publicSurfacingState: "public", creationSource: "community", updatedAt: Date.now() }));
+  await assert.rejects(f.as("admin").mutation(api.eventConnectors.create, { communityProfileId: person, ...google }), /CONNECTOR_FORBIDDEN/);
+  await f.as("admin").mutation(api.eventConnectors.create, { communityProfileId: f.communityProfileId, ...google });
+});
+
+it("changing a live direction to another non-off direction reconciles", async () => {
+  const f = await connectorFixture();
+  const as = f.as("integrator");
+  const connectorId = await as.mutation(api.eventConnectors.create, { communityProfileId: f.communityProfileId, ...google, direction: "import" });
+  const reconciles = async () => (await f.t.run(ctx => ctx.db.query("eventSyncJobs").collect())).filter(row => row.kind === "reconcile").length;
+  assert.equal(await reconciles(), 1);
+  await as.mutation(api.eventConnectors.update, { connectorId, direction: "bidirectional" });
+  assert.equal(await reconciles(), 2);
+  await as.mutation(api.eventConnectors.update, { connectorId, direction: "bidirectional", mode: "autopublish" });
+  await as.mutation(api.eventConnectors.update, { connectorId, direction: "off" });
+  assert.equal(await reconciles(), 2);
+});
+
 it("state active resumes a paused connector under the caller and never clears needs_reauth", async () => {
   const f = await connectorFixture();
   const paused = await f.insertConnector({ state: "paused", lastError: "authority_lost", authorityUserId: f.users.owner });

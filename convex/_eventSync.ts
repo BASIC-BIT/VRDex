@@ -24,6 +24,9 @@ export async function enqueueSyncJob(db: DatabaseWriter, scheduler: Scheduler, j
   return jobId;
 }
 
+/** The ops alert key for a connector's failure streak. */
+export const failureAlertKey = (connectorId: Id<"eventConnectors">) => "connector-failures:" + connectorId;
+
 export const eventIsPublic = (event: Doc<"events"> | null) => event?.publicationState === "published" && event.moderationRemovedAt === undefined;
 
 /** The single hook every event write path calls. Cancel is an upsert; unpublish, retraction, and moderation removal are deletes. */

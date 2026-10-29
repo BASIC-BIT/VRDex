@@ -78,6 +78,16 @@ it("connector publish requires the draft's own active connector", async () => {
   assert.equal((await publish(owned, connectorId)).createdEvent, true);
 });
 
+it("connector publish refuses a held draft moved to another community", async () => {
+  const f = await connectorFixture();
+  const connectorId = await f.insertConnector();
+  await f.t.run(ctx => ctx.db.insert("profiles", { slug: "other-club", displayName: "Other", sortName: "other", profileType: "community", community: { categoryTags: [] }, aliases: [], tags: [], claimState: "unclaimed", publicationState: "published", publicSurfacingState: "public", creationSource: "community", updatedAt: Date.now() }));
+  const held = await f.t.run(ctx => saveIntakeDraft(ctx.db, f.users.integrator, { patch: fields("Held") }, Date.now(), { connectorId }));
+  const moved = await f.t.run(ctx => saveIntakeDraft(ctx.db, f.users.integrator, { draftId: held.draftId, expectedVersion: held.version, patch: { communitySlug: "other-club" } }));
+  await assert.rejects(f.t.run(ctx => publishIntakeDraft(ctx, f.users.integrator, { draftId: moved.draftId, expectedVersion: moved.version, idempotencyKey: "moved" }, Date.now(), "system", { connectorId })), /CONNECTOR_DRAFT_MISMATCH/);
+  assert.equal((await f.t.run(ctx => ctx.db.query("events").collect())).length, 0);
+});
+
 it("connector extraction skips the 20 per day reservation only for its own drafts", async () => {
   const f = await connectorFixture();
   const connectorId = await f.insertConnector();

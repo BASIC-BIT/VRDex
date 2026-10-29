@@ -3255,7 +3255,7 @@ export const updateCommunityEventForMcpOwner = internalMutation({
 const STAFF_SCHEDULE_KEYS = ["eventDate", "timeTba", "timezone", "start"] as const;
 
 // Both validation steps run before any write, so a caller may catch INVALID_EVENT_PATCH and continue its mutation.
-function validStaffPatch<T>(validate: () => T): T {
+export function validStaffPatch<T>(validate: () => T): T {
   try { return validate(); } catch (error) {
     throw new ConvexError({ code: "INVALID_EVENT_PATCH", message: error instanceof Error ? error.message : String(error) });
   }
@@ -3288,12 +3288,17 @@ export async function patchCommunityEventFieldsAsStaffRecord(
   if (touchesTimes || has("lineup")) {
     // Normalize the schedule subset only: unrelated legacy data (doors, unlabeled lineup) must not block the patch.
     const dateOnly = has("timeTba") ? patch.timeTba === true : current.timeTba === true;
-    const n = validStaffPatch(() => normalizeIntakePublication({
-      communitySlug: community.slug, title: patch.title ?? current.title, eventDate: current.eventDate,
-      timeTba: current.timeTba, timezone: current.timezone,
-      ...(dateOnly ? {} : { start: current.start, ...(touchesTimes ? { end: current.end, doors: current.doors } : {}) }),
-      ...Object.fromEntries([...STAFF_SCHEDULE_KEYS, "end", "doors", "lineup"].filter(key => has(key as keyof typeof parsed)).map(key => [key, patch[key as keyof typeof parsed]])),
-    }));
+    const n = validStaffPatch(() => {
+      const normalized = normalizeIntakePublication({
+        communitySlug: community.slug, title: patch.title ?? current.title, eventDate: current.eventDate,
+        timeTba: current.timeTba, timezone: current.timezone,
+        ...(dateOnly ? {} : { start: current.start, ...(touchesTimes ? { end: current.end, doors: current.doors } : {}) }),
+        ...Object.fromEntries([...STAFF_SCHEDULE_KEYS, "end", "doors", "lineup"].filter(key => has(key as keyof typeof parsed)).map(key => [key, patch[key as keyof typeof parsed]])),
+      });
+      // applyOwnerEventUpdate applies the same gate; checking it here first lets a caller catch it as INVALID_EVENT_PATCH.
+      if (normalized.schedule.scheduleKind === "date_only" && event.scheduleKind !== "date_only") requireDateOnlyEventsEnabled();
+      return normalized;
+    });
     if (touchesSchedule) {
       Object.assign(update, n.schedule.scheduleKind === "date_only"
         ? { scheduleKind: "date_only", eventDate: n.schedule.eventDate, timezone: null }

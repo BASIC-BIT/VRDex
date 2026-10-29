@@ -3,7 +3,7 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalAction, internalMutation, type DatabaseReader, type MutationCtx } from "./_generated/server";
 import { carriedFieldsHash, connectorsEnabled, pendingLinkDraft, userHasCommunityPermission } from "./_eventConnectors";
-import { cancelPendingSchedule, enqueueSyncJob, eventIsPublic } from "./_eventSync";
+import { cancelPendingSchedule, enqueueSyncJob, eventIsPublic, failureAlertKey } from "./_eventSync";
 import { notifyOps, resolveOps } from "./_opsAlerts";
 import { enqueueProductAnalytics } from "./_productAnalytics";
 import { correctionFields } from "./eventCorrections";
@@ -18,7 +18,6 @@ export const JOB_RETENTION_MS = 30 * 86_400_000;
 const DAY_MS = 86_400_000;
 const RECONCILE_STAGGER_MS = 2_000;
 const FAILURE_ALERT_THRESHOLD = 5;
-const failureAlertKey = (connectorId: Id<"eventConnectors">) => "connector-failures:" + connectorId;
 
 type Job = Doc<"eventSyncJobs">;
 type Connector = Doc<"eventConnectors">;
@@ -59,11 +58,13 @@ async function skipJob(ctx: MutationCtx, job: Job, connector: Connector | null, 
 }
 
 // failJob and recovery share this: superseded, final failure, or backoff retry.
-async function failAttempt(ctx: MutationCtx, job: Job, error: string, durationMs: number) {
+// `error` is the handler's message, or for recovery the code that stands in for one; analytics gets only codes.
+async function failAttempt(ctx: MutationCtx, job: Job, error: string, durationMs: number, source: "handler" | "lease_expired" | "stalled") {
   const now = Date.now();
   await cancelPendingSchedule(ctx.db, ctx.scheduler, job.scheduledFunctionId);
   const connector = await ctx.db.get(job.connectorId);
-  if ((await siblings(ctx.db, job, "pending")).length || (await siblings(ctx.db, job, "running")).length) {
+  // A running sibling holds an older snapshot than a stalled pending job, so only a pending sibling supersedes that one; claimJob serialises it behind the running one.
+  if ((await siblings(ctx.db, job, "pending")).length || (source !== "stalled" && (await siblings(ctx.db, job, "running")).length)) {
     await skipJob(ctx, job, connector, "superseded");
     return await wakePendingSibling(ctx, job);
   }
@@ -73,8 +74,9 @@ async function failAttempt(ctx: MutationCtx, job: Job, error: string, durationMs
       // Only final failures count; retries, skips, and superseded closes leave the count alone.
       const consecutiveFailures = (connector.consecutiveFailures ?? 0) + 1;
       await ctx.db.patch(connector._id, { lastError: error, consecutiveFailures, updatedAt: now });
-      await recordJob(ctx, job, connector, "failed", durationMs, error);
-      if (consecutiveFailures === FAILURE_ALERT_THRESHOLD) await notifyOps(ctx, {
+      await recordJob(ctx, job, connector, "failed", durationMs, source === "handler" ? "handler_error" : source);
+      // Every failure past the threshold asks again; the six-hour dedupe sets the re-alert cadence, so one lost email cannot silence a streak.
+      if (consecutiveFailures >= FAILURE_ALERT_THRESHOLD) await notifyOps(ctx, {
         key: failureAlertKey(connector._id), subject: "Event connector failing",
         body: `Connector ${connector._id} (${connector.kind}) for community profile ${connector.communityProfileId} has failed ${consecutiveFailures} jobs in a row. Last error: ${error}`,
       });
@@ -151,9 +153,12 @@ export const completeJob = internalMutation({
     await ctx.db.patch(job._id, { state: "done", leaseExpiresAt: undefined, lastError: undefined, updatedAt: now });
     const link = job.eventId ? await linkFor(ctx.db, job.connectorId, job.eventId) : null;
     if (job.eventId && job.kind === "export_upsert" && args.externalId) {
-      const exported = { externalId: args.externalId, lastExportedAt: now, lastExportedHash: args.exportedHash, updatedAt: now };
+      const externalId = args.externalId;
+      const exported = { externalId, lastExportedAt: now, lastExportedHash: args.exportedHash, updatedAt: now };
+      // The kind may match an external item an import already linked (say to a held draft); adopt that row so the external ID stays unique.
+      const row = link ?? await ctx.db.query("eventSyncLinks").withIndex("by_connectorId_externalId", q => q.eq("connectorId", job.connectorId).eq("externalId", externalId)).unique();
       // Only the runner writes vrdex_retracted, so a re-export after a retraction relinks; other link states belong to the kinds.
-      if (link) await ctx.db.patch(link._id, link.state === "vrdex_retracted" ? { ...exported, state: "linked" as const } : exported);
+      if (row) await ctx.db.patch(row._id, { ...exported, eventId: job.eventId, ...(row.state === "vrdex_retracted" ? { state: "linked" as const } : {}) });
       else await ctx.db.insert("eventSyncLinks", { connectorId: job.connectorId, eventId: job.eventId, ...exported, state: "linked", createdAt: now });
       // The event went private while this export was in flight; enqueueEventSync saw no link then, so retract the copy now.
       if (!eventIsPublic(await ctx.db.get(job.eventId))) await enqueueSyncJob(ctx.db, ctx.scheduler, { connectorId: job.connectorId, eventId: job.eventId, kind: "export_delete" });
@@ -172,7 +177,7 @@ export const failJob = internalMutation({
   args: { jobId: v.id("eventSyncJobs"), error: v.string(), durationMs: v.number() },
   handler: async (ctx, args) => {
     const job = await ctx.db.get(args.jobId);
-    if (job?.state === "running") await failAttempt(ctx, job, args.error, args.durationMs);
+    if (job?.state === "running") await failAttempt(ctx, job, args.error, args.durationMs, "handler");
   },
 });
 
@@ -248,13 +253,13 @@ export const recoverExpiredJobs = internalMutation({
       if ((job.leaseExpiresAt ?? 0) <= cutoff) expired.push(job);
       if (expired.length >= 100) break;
     }
-    for (const job of expired) await failAttempt(ctx, job, "lease_expired", 0);
+    for (const job of expired) await failAttempt(ctx, job, "lease_expired", 0, "lease_expired");
     // A pending job this far past due means its run threw before or inside claimJob; count it as a failed attempt.
     const stalled = await ctx.db.query("eventSyncJobs").withIndex("by_state_dueAt", q => q.eq("state", "pending").lte("dueAt", cutoff)).take(100);
     for (const job of stalled) {
       const attempts = job.attempts + 1;
       await ctx.db.patch(job._id, { attempts });
-      await failAttempt(ctx, { ...job, attempts }, "stalled", 0);
+      await failAttempt(ctx, { ...job, attempts }, "stalled", 0, "stalled");
     }
     const retainAfter = now - JOB_RETENTION_MS;
     for (const state of ["done", "failed"] as const) {

@@ -122,7 +122,8 @@ export async function publishIntakeDraft(ctx: Pick<MutationCtx, "db" | "schedule
     if (recentRequests.length >= 100) throw new ConvexError({ code: "REQUEST_QUOTA" });
   }
   const draft = await getActorIntakeDraft(db, actorUserId, args.draftId, now);
-  if (connectorId && (draft.connectorId !== connectorId || (await db.get(connectorId))?.state !== "active")) throw new Error("CONNECTOR_DRAFT_MISMATCH");
+  const connector = connectorId ? await db.get(connectorId) : null;
+  if (connectorId && (draft.connectorId !== connectorId || connector?.state !== "active")) throw new Error("CONNECTOR_DRAFT_MISMATCH");
   if (draft.version !== args.expectedVersion) throw new ConvexError({ code: "VERSION_CONFLICT" });
   if (draft.artworkIntentSourceId) throw new Error("ARTWORK_NOT_READY");
   if (draft.fields.posterSourceId && !draft.artworkAssetId) throw new Error("ARTWORK_NOT_READY");
@@ -131,6 +132,8 @@ export async function publishIntakeDraft(ctx: Pick<MutationCtx, "db" | "schedule
   if (!receipt) {
     const checked = await preflightEventContribution(db, actorUserId, sanitizeEventIntakePatch(draft.fields), now, undefined, { skipAccountQuota: Boolean(connectorId) });
     const { fields, schedule, community, fingerprint } = checked;
+    // A connector publishes only into its own community, whatever the held draft's community field was edited to.
+    if (connector && community._id !== connector.communityProfileId) throw new Error("CONNECTOR_DRAFT_MISMATCH");
     let event = checked.existing;
     if (!event) {
       createdEvent = true;

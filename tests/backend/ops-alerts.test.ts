@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { beforeEach, it } from "node:test";
 import { makeFunctionReference } from "convex/server";
-import { notifyOps } from "../../convex/_opsAlerts";
+import { api } from "../../convex/_generated/api";
+import { notifyOps, resolveOps } from "../../convex/_opsAlerts";
 import { opsAlertEmailInput } from "../../convex/opsAlertEmail";
 import { enqueueSyncJob } from "../../convex/_eventSync";
 import { connectorFixture } from "./_eventConnectorFixture";
@@ -14,6 +15,10 @@ const recover = makeFunctionReference<"mutation">("eventSync:recoverExpiredJobs"
 const reserve = makeFunctionReference<"mutation">("opsAlerts:reserve");
 const sends = (f: Awaited<ReturnType<typeof connectorFixture>>) => f.t.run(async ctx =>
   (await ctx.db.system.query("_scheduled_functions").collect()).filter(fn => fn.name.includes("opsAlertEmail")));
+// Ticking would run the queued sends, which need SES; the rows stay as canceled.
+const cancelScheduled = (f: Awaited<ReturnType<typeof connectorFixture>>) => f.t.run(async ctx => {
+  for (const fn of await ctx.db.system.query("_scheduled_functions").collect()) if (fn.state.kind === "pending") await ctx.scheduler.cancel(fn._id);
+});
 
 it("sends one email per key per six hours with the ops prefix", async t => {
   const f = await connectorFixture();
@@ -24,8 +29,7 @@ it("sends one email per key per six hours with the ops prefix", async t => {
   assert.equal((await sends(f)).length, 2);
   const [first] = await sends(f);
   assert.deepEqual(first!.args[0], { to: "basic@basicbit.net", subject: "[VRDex ops] Gateway stale", body: "No heartbeat" });
-  // Ticking would run the queued sends, which need SES; the rows stay as canceled.
-  await f.t.run(async ctx => { for (const fn of await ctx.db.system.query("_scheduled_functions").collect()) await ctx.scheduler.cancel(fn._id); });
+  await cancelScheduled(f);
   t.mock.timers.tick(6 * 3_600_000);
   await f.t.run(ctx => notifyOps(ctx, alert));
   assert.equal((await sends(f)).length, 3);
@@ -43,7 +47,7 @@ it("builds the SES send input", () => {
     { Source: "noreply@vrdex.example", Destination: { ToAddresses: ["ops@example.com"] }, Message: { Subject: { Data: "[VRDex ops] X", Charset: "UTF-8" }, Body: { Text: { Data: "Y", Charset: "UTF-8" } } } });
 });
 
-it("alerts on a connector's fifth consecutive failed job only", async () => {
+it("alerts from a connector's fifth consecutive failed job, then again only after six hours", async t => {
   const f = await connectorFixture();
   const connectorId = await f.insertConnector({ consecutiveFailures: 3 });
   const failJobToEnd = async () => {
@@ -57,6 +61,30 @@ it("alerts on a connector's fifth consecutive failed job only", async () => {
   await failJobToEnd();
   assert.equal((await f.t.run(ctx => ctx.db.get(connectorId)))!.consecutiveFailures, 5);
   assert.equal((await sends(f)).length, 1);
+  await failJobToEnd();
+  assert.equal((await sends(f)).length, 1);
+  await cancelScheduled(f);
+  t.mock.timers.tick(6 * 3_600_000);
+  await failJobToEnd();
+  assert.equal((await f.t.run(ctx => ctx.db.get(connectorId)))!.consecutiveFailures, 7);
+  assert.equal((await sends(f)).length, 2);
+});
+
+it("notify, resolve, notify in the same instant sends all three", async () => {
+  const f = await connectorFixture();
+  const alert = { key: "k1", subject: "Gateway stale", body: "No heartbeat" };
+  await f.t.run(ctx => notifyOps(ctx, alert));
+  await f.t.run(ctx => resolveOps(ctx, "k1"));
+  await f.t.run(ctx => notifyOps(ctx, alert));
+  assert.deepEqual((await sends(f)).map(fn => (fn.args[0] as { subject: string }).subject), ["[VRDex ops] Gateway stale", "[VRDex ops] Resolved: k1", "[VRDex ops] Gateway stale"]);
+});
+
+it("removing a connector resolves its failure alert", async () => {
+  const f = await connectorFixture();
+  const connectorId = await f.insertConnector({ consecutiveFailures: 5 });
+  await f.t.run(ctx => notifyOps(ctx, { key: `connector-failures:${connectorId}`, subject: "Event connector failing", body: "x" }));
+  await f.as("integrator").mutation(api.eventConnectors.remove, { connectorId });
+  assert.deepEqual((await sends(f)).map(fn => (fn.args[0] as { subject: string }).subject), ["[VRDex ops] Event connector failing", `[VRDex ops] Resolved: connector-failures:${connectorId}`]);
 });
 
 it("an expired lease's final failure counts toward the alarm", async t => {

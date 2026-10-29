@@ -3,17 +3,19 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { candidatePatch } from "../apps/web/src/lib/event-intake-source";
 import type { EventIntakeCandidate, EventIntakeFields, EventIntakePatch } from "../packages/api-contracts/src/event-intake";
-import { carriedFields, carriedFieldsHash, EventIntakeUpdatePatchSchema, pendingLinkDraft } from "./_eventConnectors";
-import { getActorIntakeDraft, publishIntakeDraft, saveIntakeDraft } from "./_eventIntake";
+import { carriedFields, carriedFieldsHash, connectorsEnabled, EventIntakeUpdatePatchSchema, pendingLinkDraft, requireConnectorAuthority } from "./_eventConnectors";
+import { normalizeIntakePublication } from "./_eventContributionPreflight";
+import { getActorIntakeDraft, publishIntakeDraft, sanitizeEventIntakePatch, saveIntakeDraft } from "./_eventIntake";
+import { requireDateOnlyEventsEnabled } from "./_eventSchedule";
 import { getEventBySlug } from "./_eventSlugs";
-import { patchCommunityEventFieldsAsStaffRecord } from "./events";
+import { patchCommunityEventFieldsAsStaffRecord, validStaffPatch } from "./events";
 import { enqueueProductAnalytics } from "./_productAnalytics";
 
 export type ApplyEventCandidateOutcome = "draft" | "published" | "updated" | "not_event" | "conflict" | "skipped_pending_draft" | "skipped_stale" | "skipped_echo";
 type ApplyResult = { outcome: ApplyEventCandidateOutcome; eventId?: Id<"events">; draftId?: Id<"eventIntakeDrafts"> };
 
 const UPDATE_KEYS = Object.keys(EventIntakeUpdatePatchSchema.shape) as Array<keyof EventIntakeFields>;
-const HELD_PUBLISH_CODES = new Set(["NEAR_DUPLICATE", "REPOST_BLOCKED", "TARGET_QUOTA"]);
+const HELD_PUBLISH_CODES = new Set(["INVALID_EVENT_PATCH", "NEAR_DUPLICATE", "REPOST_BLOCKED", "TARGET_QUOTA"]);
 const errorCode = (error: unknown) => error instanceof ConvexError && typeof error.data === "object" && error.data !== null ? (error.data as { code?: unknown }).code : undefined;
 
 // Evidence paths name candidate fields; map them to the intake field they set.
@@ -32,7 +34,12 @@ export async function applyEventCandidate(ctx: MutationCtx, args: {
   expectedUpdatedAt?: number;
 }): Promise<ApplyResult> {
   const { db } = ctx;
-  const { connector, candidate, actorUserId } = args;
+  const { candidate, actorUserId } = args;
+  // Callers pass a connector they loaded earlier; authorize against the stored row, as claimJob does.
+  if (!connectorsEnabled()) throw new ConvexError({ code: "CONNECTORS_DISABLED" });
+  const connector = await db.get(args.connector._id);
+  if (connector?.state !== "active" || connector.authorityUserId !== actorUserId) throw new ConvexError({ code: "CONNECTOR_FORBIDDEN" });
+  await requireConnectorAuthority(ctx, connector.communityProfileId, actorUserId);
   const now = Date.now();
   const finish = async (result: ApplyResult) => {
     await enqueueProductAnalytics(db, { event: "event_sync_apply", distinctId: String(actorUserId),
@@ -121,12 +128,17 @@ export async function applyEventCandidate(ctx: MutationCtx, args: {
   }
   const saved = await saveWorkingDraft({ ...fields, evidence: candidate.evidence });
   try {
+    // Rule 9 validates the merged draft before publish: normalization and the date-only gate throw plain errors a retry cannot fix.
+    const draft = (await db.get(saved.draftId))!;
+    validStaffPatch(() => {
+      if (normalizeIntakePublication(sanitizeEventIntakePatch(draft.fields)).schedule.scheduleKind === "date_only") requireDateOnlyEventsEnabled();
+    });
     // Publishing the working draft carries its selected artwork through as the event poster.
     const published = await publishIntakeDraft(ctx, actorUserId, { draftId: saved.draftId, expectedVersion: saved.version, idempotencyKey: args.idempotencyKey }, now, "system", { connectorId: connector._id });
     await upsertLink({ eventId: published.eventId, draftId: saved.draftId });
     return finish({ outcome: "published", eventId: published.eventId, draftId: saved.draftId });
   } catch (error) {
-    // These are thrown by the read-only preflight, before publish writes; the saved draft stays as a hold.
+    // These are thrown by the validation above or the read-only preflight, before publish writes; the saved draft stays as a hold.
     if (!HELD_PUBLISH_CODES.has(errorCode(error) as string)) throw error;
     await upsertLink({ draftId: saved.draftId });
     return finish({ outcome: "draft", draftId: saved.draftId });

@@ -70,7 +70,7 @@ it("backs off 1, 2, 4, 8 minutes and marks the job failed on the fifth failure",
   assert.equal(job.attempts, 5);
   assert.equal((await f.t.run(ctx => ctx.db.get(connectorId)))!.lastError, "boom final");
   const analytics = await f.t.run(ctx => ctx.db.query("productAnalyticsOutbox").collect());
-  assert.deepEqual(analytics.filter(row => row.event === "event_sync_job").map(row => row.properties.outcome), ["failed"]);
+  assert.deepEqual(analytics.filter(row => row.event === "event_sync_job").map(row => [row.properties.outcome, row.properties.reason]), [["failed", "handler_error"]]);
 });
 
 it("an unregistered kind fails with a clear error", async () => {
@@ -110,6 +110,27 @@ it("the runner writes the link after a kind's export, and retracts it after a de
   } finally {
     delete google.exportUpsert;
     delete google.exportDelete;
+  }
+});
+
+it("an export matched to an item an import already linked adopts that link instead of adding a second", async () => {
+  const f = await connectorFixture();
+  const { eventId } = await f.createEvent();
+  const connectorId = await f.insertConnector({ direction: "bidirectional" });
+  const heldLink = await f.t.run(async ctx => {
+    const draftId = await ctx.db.insert("eventIntakeDrafts", { actorUserId: f.users.integrator, connectorId, version: 1, fields: { title: "Held" }, provenance: [], createdAt: Date.now(), updatedAt: Date.now(), expiresAt: Date.now() + 86_400_000 });
+    return ctx.db.insert("eventSyncLinks", { connectorId, draftId, externalId: "g-1", state: "linked", createdAt: Date.now(), updatedAt: Date.now() });
+  });
+  const google = syncKindHandlers.google_calendar;
+  google.exportUpsert = async () => ({ externalId: "g-1" });
+  try {
+    const jobId = await f.t.run(ctx => enqueueSyncJob(ctx.db, ctx.scheduler, { connectorId, eventId, kind: "export_upsert" }));
+    await f.t.action(run, { jobId });
+    assert.equal((await f.t.run(ctx => ctx.db.get(jobId)))!.state, "done");
+    const byExternal = await f.t.run(ctx => ctx.db.query("eventSyncLinks").withIndex("by_connectorId_externalId", q => q.eq("connectorId", connectorId).eq("externalId", "g-1")).collect());
+    assert.deepEqual(byExternal.map(link => [link._id, link.eventId, link.lastExportedAt]), [[heldLink, eventId, Date.now()]]);
+  } finally {
+    delete google.exportUpsert;
   }
 });
 
@@ -177,6 +198,36 @@ it("failed run superseded by a newer pending job", async () => {
   await f.t.mutation(fail, { jobId, error: "boom", durationMs: 1 });
   assert.equal((await f.t.run(ctx => ctx.db.get(jobId)))!.lastError, "superseded");
   assert.equal((await jobs(f)).filter(row => row.eventId === eventId && row.state === "pending").length, 1);
+});
+
+it("a failed run is superseded by a running sibling that claimed after its lease expired", async t => {
+  const f = await connectorFixture();
+  const { eventId } = await f.createEvent();
+  const connectorId = await f.insertConnector({ direction: "export" });
+  // Due far ahead so the tick does not fire its scheduled run.
+  const older = await f.t.run(ctx => enqueueSyncJob(ctx.db, ctx.scheduler, { connectorId, eventId, kind: "export_upsert", dueAt: NOW + 86_400_000 }));
+  await f.t.mutation(claim, { jobId: older });
+  t.mock.timers.tick(600_001);
+  const newer = await f.t.run(ctx => enqueueSyncJob(ctx.db, ctx.scheduler, { connectorId, eventId, kind: "export_upsert" }));
+  assert.ok(await f.t.mutation(claim, { jobId: newer }));
+  await f.t.mutation(fail, { jobId: older, error: "boom", durationMs: 1 });
+  const job = (await f.t.run(ctx => ctx.db.get(older)))!;
+  assert.deepEqual([job.state, job.lastError], ["done", "superseded"]);
+  assert.equal((await f.t.run(ctx => ctx.db.get(newer)))!.state, "running");
+});
+
+it("a stalled pending job beside a running sibling retries instead of being superseded", async () => {
+  const f = await connectorFixture();
+  const { eventId } = await f.createEvent();
+  const connectorId = await f.insertConnector({ direction: "export" });
+  const running = await f.t.run(ctx => enqueueSyncJob(ctx.db, ctx.scheduler, { connectorId, eventId, kind: "export_upsert" }));
+  await f.t.mutation(claim, { jobId: running });
+  const stalled = await f.t.run(ctx => enqueueSyncJob(ctx.db, ctx.scheduler, { connectorId, eventId, kind: "export_upsert", dueAt: Date.now() - 300_000 }));
+  assert.notEqual(stalled, running);
+  await f.t.mutation(recover, {});
+  const job = (await f.t.run(ctx => ctx.db.get(stalled)))!;
+  assert.deepEqual([job.state, job.attempts, job.lastError], ["pending", 1, "stalled"]);
+  assert.equal((await f.t.run(ctx => ctx.db.get(running)))!.state, "running");
 });
 
 it("a handler returning AwaitingClubOperation keeps the job running without spending an attempt", async () => {
