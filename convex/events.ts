@@ -93,6 +93,7 @@ import { userOwnsProfile } from "./_profileOwnership";
 import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 import { reindexEventSearchDocument } from "./_searchDocuments";
 import { ensureShortLinkForTarget } from "./_shortLinks";
+import { enqueueEventSync } from "./_eventSync";
 import { getVrcdnOutputAccount, listPublicVrcdnOutputAccounts } from "./_vrcdnOutputAccounts";
 import { getWorldBySlug, validateWorldSlug } from "./_worldSlugs";
 
@@ -990,16 +991,16 @@ async function requireApiOwnedPublishedCommunity(
 }
 
 async function createCommunityEventForApiOwnerRecord(
-  db: DatabaseWriter,
+  ctx: MutationCtx,
   args: EventDraftInput & {
     ownerUserId: Id<"users">;
     actorSurface?: "api" | "mcp";
   },
 ) {
   const input = sanitizeEventDraftInput(args);
-  const community = await requireApiOwnedPublishedCommunity(db, input.communitySlug, args.ownerUserId);
-  const world = await getPublishedWorldBySlug(db, input.worldSlug);
-  const result = await insertCommunityEventRecord(db, {
+  const community = await requireApiOwnedPublishedCommunity(ctx.db, input.communitySlug, args.ownerUserId);
+  const world = await getPublishedWorldBySlug(ctx.db, input.worldSlug);
+  const result = await insertCommunityEventRecord(ctx, {
     input,
     community,
     world,
@@ -1168,7 +1169,7 @@ export const listCommunityManagedEventsForApiOwner = internalQuery({
 });
 
 async function insertCommunityEventRecord(
-  db: DatabaseWriter,
+  ctx: MutationCtx,
   options: {
     input: SanitizedEventDraftInput & Pick<SanitizedEventOwnerDraftInput, "lineup" | "venueLabel">;
     community: Doc<"profiles">;
@@ -1178,6 +1179,7 @@ async function insertCommunityEventRecord(
     actorSurface?: Doc<"eventAuditEvents">["actorSurface"];
   },
 ) {
+  const { db } = ctx;
   const { community, input, submitter, world } = options;
   const now = Date.now();
   const publicationState = options.publicationState ?? "published";
@@ -1242,6 +1244,7 @@ async function insertCommunityEventRecord(
     const roleLabels = input.lineup?.flatMap(row => row.roleLabel ? [row.roleLabel] : []) ?? participantLinks.map((participant) => participant.roleLabel);
     await reindexEventSearchDocument(db, event, { community, world, roleLabels }, now);
   }
+  await enqueueEventSync(db, ctx.scheduler, eventId, "upsert");
 
   return {
     eventId,
@@ -1436,6 +1439,7 @@ async function updateCommunityEventRecord(
     { community, world: indexedWorld, roleLabels },
     now,
   );
+  await enqueueEventSync(db, ctx.scheduler, event._id, "upsert");
 
   return {
     eventId: event._id,
@@ -2836,7 +2840,7 @@ export const createCommunityEvent = mutation({
     );
     const world = await getPublishedWorldBySlug(ctx.db, input.worldSlug);
 
-    return await insertCommunityEventRecord(ctx.db, {
+    return await insertCommunityEventRecord(ctx, {
       input,
       community,
       world,
@@ -3045,7 +3049,7 @@ export const createCommunityEventForApiOwner = internalMutation({
   },
   handler: async (ctx, args) => {
     const { community, result } = await createCommunityEventForApiOwnerRecord(
-      ctx.db,
+      ctx,
       args,
     );
     await recordApiWriteAuditEvent(ctx.db, {
@@ -3092,7 +3096,7 @@ export const createCommunityEventForMcpOwner = internalMutation({
 
     try {
       ({ community, result } = await createCommunityEventForApiOwnerRecord(
-        ctx.db,
+        ctx,
         { ...args, actorSurface: "mcp" },
       ));
     } catch {
@@ -3550,6 +3554,7 @@ export const setCommunityEventPublished = mutation({
       changedFields: ["publicationState"],
       now,
     });
+    await enqueueEventSync(ctx.db, ctx.scheduler, event._id, "upsert");
 
     return {
       eventId: event._id,
@@ -3635,6 +3640,7 @@ export const setCommunityEventCancelled = mutation({
       ...(reason === undefined ? {} : { reason }),
       now,
     });
+    await enqueueEventSync(ctx.db, ctx.scheduler, event._id, "upsert");
 
     return { eventId: event._id, eventStatus, changed: true as const };
   },

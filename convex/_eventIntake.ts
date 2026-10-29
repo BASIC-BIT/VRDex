@@ -1,6 +1,6 @@
 import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import type { DatabaseReader, DatabaseWriter } from "./_generated/server";
+import type { DatabaseReader, DatabaseWriter, MutationCtx } from "./_generated/server";
 import { EventIntakePatchSchema, PublishEventIntakeSchema, type EventIntakePatch } from "../packages/api-contracts/src/event-intake";
 import { preflightEventContribution } from "./_eventContributionPreflight";
 import { requireDateOnlyEventsEnabled } from "./_eventSchedule";
@@ -9,6 +9,7 @@ import { reindexEventSearchDocument } from "./_searchDocuments";
 import { ensureShortLinkForTarget } from "./_shortLinks";
 import { eventPathForRecord, eventPathForSlugs } from "./_eventPaths";
 import { eventParticipantRoleLabels, linkedPublishedEventWorld, recordEventAuditEvent, replaceEventWorldLink } from "./events";
+import { enqueueEventSync } from "./_eventSync";
 
 export const EVENT_INTAKE_DRAFT_LIMIT = 20;
 export const EVENT_INTAKE_DRAFT_TTL_MS = 30 * 86_400_000;
@@ -104,7 +105,8 @@ export async function replayIntakePublication(db: DatabaseReader, actorUserId: I
 
 export { classifyEventIntakeForPublication } from "../apps/web/src/lib/server/event-intake-spam";
 
-export async function publishIntakeDraft(db: DatabaseWriter, actorUserId: Id<"users">, args: PublishIntakeArgs, now = Date.now(), actorSurface: "browser" | "api" | "mcp" = "api"): Promise<PublishIntakeResult & { createdEvent: boolean }> {
+export async function publishIntakeDraft(ctx: Pick<MutationCtx, "db" | "scheduler">, actorUserId: Id<"users">, args: PublishIntakeArgs, now = Date.now(), actorSurface: "browser" | "api" | "mcp" = "api"): Promise<PublishIntakeResult & { createdEvent: boolean }> {
+  const { db } = ctx;
   const prior = await replayIntakePublication(db, actorUserId, args);
   if (prior) return { ...prior, createdEvent: false };
   const recentRequests = await db.query("eventIntakePublishRequests").withIndex("by_actor_createdAt", q => q.eq("actorUserId", actorUserId).gte("createdAt", now - 86_400_000)).take(100);
@@ -175,5 +177,6 @@ export async function publishIntakeDraft(db: DatabaseWriter, actorUserId: Id<"us
     await db.patch(draft._id, { publishedReceiptId: receipt._id });
   }
   await db.insert("eventIntakePublishRequests", { actorUserId, draftId: draft._id, draftVersion: draft.version, idempotencyKey: args.idempotencyKey, receiptId: receipt._id, createdAt: now });
+  await enqueueEventSync(db, ctx.scheduler, receipt.eventId, "upsert");
   return { ...await receiptResult(db, receipt), createdEvent };
 }
