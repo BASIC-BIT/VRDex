@@ -10,6 +10,12 @@ import { ensureShortLinkForTarget } from "./_shortLinks";
 import { eventPathForRecord, eventPathForSlugs } from "./_eventPaths";
 import { eventParticipantRoleLabels, linkedPublishedEventWorld, recordEventAuditEvent, replaceEventWorldLink } from "./events";
 import { enqueueEventSync } from "./_eventSync";
+import { userAuthSubject } from "./_eventConnectors";
+
+const submitterFor = async (db: DatabaseReader, userId: Id<"users">) => {
+  const submitter = await userAuthSubject(db, userId);
+  return submitter ? { submitter } : {};
+};
 
 export const EVENT_INTAKE_DRAFT_LIMIT = 20;
 export const EVENT_INTAKE_DRAFT_TTL_MS = 30 * 86_400_000;
@@ -47,7 +53,7 @@ export async function getActorIntakeDraft(db: DatabaseReader, actorUserId: Id<"u
   const artworkSourceId = artwork?.draftId === draft._id && artwork.actorUserId === actorUserId && ["ready", "published"].includes(artwork.state) ? artwork.sourceId : undefined;
   return { ...draft, artworkSourceId, fields: sanitizeEventIntakePatch(draft.fields) };
 }
-export async function saveIntakeDraft(db: DatabaseWriter, actorUserId: Id<"users">, args: { draftId?: Id<"eventIntakeDrafts">; expectedVersion?: number; patch: unknown }, now = Date.now()) {
+export async function saveIntakeDraft(db: DatabaseWriter, actorUserId: Id<"users">, args: { draftId?: Id<"eventIntakeDrafts">; expectedVersion?: number; patch: unknown }, now = Date.now(), options: { connectorDriven?: boolean; connectorId?: Id<"eventConnectors"> } = {}) {
   if (!await db.get(actorUserId)) throw new Error("A signed-in user is required.");
   const patch = sanitizeEventIntakePatch(args.patch);
   const draft = args.draftId ? await getActorIntakeDraft(db, actorUserId, args.draftId, now) : undefined;
@@ -68,14 +74,16 @@ export async function saveIntakeDraft(db: DatabaseWriter, actorUserId: Id<"users
     ...(sourceChanged ? { tentative: null, questions: null, evidence: null } : {}) }) as EventIntakePatch;
   if (!draft && !hasMeaningfulInput(fields)) throw new Error("A draft needs at least one meaningful field.");
   if (JSON.stringify(fields).length > 48_000) throw new Error("Draft exceeds storage limit.");
-  if (!draft) {
-    const active = await db.query("eventIntakeDrafts").withIndex("by_actor_expiresAt", q => q.eq("actorUserId", actorUserId).gt("expiresAt", now)).take(EVENT_INTAKE_DRAFT_LIMIT);
+  if (!draft && !options.connectorDriven && !options.connectorId) {
+    const active = await db.query("eventIntakeDrafts").withIndex("by_actor_expiresAt", q => q.eq("actorUserId", actorUserId).gt("expiresAt", now))
+      .filter(q => q.eq(q.field("connectorId"), undefined)).take(EVENT_INTAKE_DRAFT_LIMIT);
     if (active.length >= EVENT_INTAKE_DRAFT_LIMIT) throw new ConvexError({ code: "DRAFT_QUOTA" });
   }
   const version = (draft?.version ?? 0) + 1;
   const provenance = [ ...(draft?.provenance ?? []).filter(item => !Object.prototype.hasOwnProperty.call(patch, item.field)),
     ...Object.keys(patch).filter(field => Object.prototype.hasOwnProperty.call(fields, field)).map(field => ({ field, kind: field === "tentative" ? "tentative" as const : "contributor" as const, version })) ];
   const values = { fields, provenance, version, updatedAt: now, expiresAt: now + EVENT_INTAKE_DRAFT_TTL_MS,
+    ...(options.connectorId ? { connectorId: options.connectorId } : {}),
     ...((posterChanged && patch.posterSourceId !== draft?.artworkSourceId) || patch.posterSourceId === null ? { artworkAssetId: undefined } : {}),
     ...(posterChanged || patch.posterSourceId === null ? { artworkIntentSourceId: undefined } : {}) };
   if (draft) {
@@ -105,20 +113,25 @@ export async function replayIntakePublication(db: DatabaseReader, actorUserId: I
 
 export { classifyEventIntakeForPublication } from "../apps/web/src/lib/server/event-intake-spam";
 
-export async function publishIntakeDraft(ctx: Pick<MutationCtx, "db" | "scheduler">, actorUserId: Id<"users">, args: PublishIntakeArgs, now = Date.now(), actorSurface: "browser" | "api" | "mcp" = "api"): Promise<PublishIntakeResult & { createdEvent: boolean }> {
+export async function publishIntakeDraft(ctx: Pick<MutationCtx, "db" | "scheduler">, actorUserId: Id<"users">, args: PublishIntakeArgs, now = Date.now(), actorSurface: "browser" | "api" | "mcp" | "system" = "api", options: { connectorId?: Id<"eventConnectors"> } = {}): Promise<PublishIntakeResult & { createdEvent: boolean }> {
   const { db } = ctx;
+  const { connectorId } = options;
   const prior = await replayIntakePublication(db, actorUserId, args);
   if (prior) return { ...prior, createdEvent: false };
-  const recentRequests = await db.query("eventIntakePublishRequests").withIndex("by_actor_createdAt", q => q.eq("actorUserId", actorUserId).gte("createdAt", now - 86_400_000)).take(100);
-  if (recentRequests.length >= 100) throw new ConvexError({ code: "REQUEST_QUOTA" });
+  if (!connectorId) {
+    const recentRequests = await db.query("eventIntakePublishRequests").withIndex("by_actor_createdAt", q => q.eq("actorUserId", actorUserId).gte("createdAt", now - 86_400_000))
+      .filter(q => q.eq(q.field("connectorId"), undefined)).take(100);
+    if (recentRequests.length >= 100) throw new ConvexError({ code: "REQUEST_QUOTA" });
+  }
   const draft = await getActorIntakeDraft(db, actorUserId, args.draftId, now);
+  if (connectorId && draft.connectorId !== connectorId) throw new Error("CONNECTOR_DRAFT_MISMATCH");
   if (draft.version !== args.expectedVersion) throw new ConvexError({ code: "VERSION_CONFLICT" });
   if (draft.artworkIntentSourceId) throw new Error("ARTWORK_NOT_READY");
   if (draft.fields.posterSourceId && !draft.artworkAssetId) throw new Error("ARTWORK_NOT_READY");
   let receipt = draft.publishedReceiptId ? await db.get(draft.publishedReceiptId) : null;
   let createdEvent = false;
   if (!receipt) {
-    const checked = await preflightEventContribution(db, actorUserId, sanitizeEventIntakePatch(draft.fields), now);
+    const checked = await preflightEventContribution(db, actorUserId, sanitizeEventIntakePatch(draft.fields), now, undefined, { skipAccountQuota: Boolean(connectorId) });
     const { fields, schedule, community, fingerprint } = checked;
     let event = checked.existing;
     if (!event) {
@@ -130,7 +143,10 @@ export async function publishIntakeDraft(ctx: Pick<MutationCtx, "db" | "schedule
         communityProfileId: community._id, communityName: community.displayName,
         ...(fields.summary ? { summary: fields.summary } : {}), ...(fields.venueLabel ? { venueLabel: fields.venueLabel } : {}),
         ...(fields.sourceUrl ? { sourceUrl: fields.sourceUrl } : {}),
-        sourceType: "contributor", sourceLabel: "Community-submitted", contributorUserId: actorUserId,
+        // A connector publishes the community's own listing, not a contribution by its authority user.
+        ...(connectorId
+          ? { sourceType: "community" as const, sourceLabel: "Community-submitted event", ...await submitterFor(db, actorUserId) }
+          : { sourceType: "contributor" as const, sourceLabel: "Community-submitted", contributorUserId: actorUserId }),
         contributionVersion: 1, contributionFingerprint: fingerprint, eventStatus: "scheduled", publicationState: "published",
         publishedAt: now, createdAt: now, updatedAt: now,
       });
@@ -157,7 +173,7 @@ export async function publishIntakeDraft(ctx: Pick<MutationCtx, "db" | "schedule
     receipt = await db.query("eventContributionReceipts").withIndex("by_eventId", q => q.eq("eventId", event!._id)).unique();
     if (!receipt) {
       const receiptId = await db.insert("eventContributionReceipts", { actorUserId, draftId: draft._id, draftVersion: draft.version, eventId: event._id,
-        eventPath: eventPathForSlugs(community.slug, event.slug), communityProfileId: community._id, fingerprint, createdAt: now });
+        eventPath: eventPathForSlugs(community.slug, event.slug), communityProfileId: community._id, fingerprint, createdAt: now, ...(connectorId ? { connectorId } : {}) });
       receipt = (await db.get(receiptId))!;
     }
     if (createdEvent) {
@@ -165,8 +181,8 @@ export async function publishIntakeDraft(ctx: Pick<MutationCtx, "db" | "schedule
       const eventDate = event.eventDate ? Date.parse(`${event.eventDate}T23:59:59.999Z`) : event.startAt!;
       for (const source of sources) if (source.state === "ready") await db.patch(source._id, { eventId: event._id, expiresAt: source.holdReportId ? Number.MAX_SAFE_INTEGER : Math.min(source.uploadedAt + 180 * 86_400_000, eventDate + 30 * 86_400_000, now + 86_400_000) });
     }
-    // An explicit selection belongs to this contributor's newly created event only.
-    if (draft.artworkAssetId && event.contributorUserId === actorUserId && receipt.draftId === draft._id) {
+    // An explicit selection belongs to this contributor's (or connector's) newly created event only.
+    if (draft.artworkAssetId && receipt.draftId === draft._id && (connectorId ? createdEvent : event.contributorUserId === actorUserId)) {
       const artwork = await db.get(draft.artworkAssetId);
       if (!artwork || artwork.actorUserId !== actorUserId || artwork.draftId !== draft._id || artwork.state !== "ready" || (draft.fields.posterSourceId !== undefined && draft.fields.posterSourceId !== artwork.sourceId)) throw new Error("ARTWORK_NOT_READY");
       await db.patch(artwork._id, { state: "published", eventId: event._id, expiresAt: now + 86_400_000 });
@@ -176,7 +192,7 @@ export async function publishIntakeDraft(ctx: Pick<MutationCtx, "db" | "schedule
     }
     await db.patch(draft._id, { publishedReceiptId: receipt._id });
   }
-  await db.insert("eventIntakePublishRequests", { actorUserId, draftId: draft._id, draftVersion: draft.version, idempotencyKey: args.idempotencyKey, receiptId: receipt._id, createdAt: now });
+  await db.insert("eventIntakePublishRequests", { actorUserId, draftId: draft._id, draftVersion: draft.version, idempotencyKey: args.idempotencyKey, receiptId: receipt._id, createdAt: now, ...(connectorId ? { connectorId } : {}) });
   await enqueueEventSync(db, ctx.scheduler, receipt.eventId, "upsert");
   return { ...await receiptResult(db, receipt), createdEvent };
 }

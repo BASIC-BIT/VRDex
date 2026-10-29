@@ -1177,12 +1177,15 @@ export default defineSchema({
     actorUserId: v.id("users"), draftId: v.id("eventIntakeDrafts"), draftVersion: v.number(),
     eventId: v.id("events"), eventPath: v.string(), communityProfileId: v.id("profiles"),
     fingerprint: v.string(), createdAt: v.number(),
+    // Set on connector-driven publishes, which skip and do not count toward the actor's own caps.
+    connectorId: v.optional(v.id("eventConnectors")),
   }).index("by_actor_createdAt", ["actorUserId", "createdAt"])
     .index("by_community_createdAt", ["communityProfileId", "createdAt"])
     .index("by_eventId", ["eventId"]),
   eventIntakePublishRequests: defineTable({
     actorUserId: v.id("users"), idempotencyKey: v.string(), draftId: v.id("eventIntakeDrafts"),
     draftVersion: v.number(), receiptId: v.id("eventContributionReceipts"), createdAt: v.number(),
+    connectorId: v.optional(v.id("eventConnectors")),
   }).index("by_actor_key", ["actorUserId", "idempotencyKey"])
     .index("by_actor_createdAt", ["actorUserId", "createdAt"]),
   eventConnectors: defineTable({

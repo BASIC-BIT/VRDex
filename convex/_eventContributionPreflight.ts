@@ -56,7 +56,7 @@ export function normalizeIntakePublication(raw: EventIntakePatch) {
 }
 
 /** All reads here run again inside the canonical publication transaction. */
-export async function preflightEventContribution(db: DatabaseReader, actorUserId: Id<"users">, raw: EventIntakePatch, now: number, correctingEventId?: Id<"events">) {
+export async function preflightEventContribution(db: DatabaseReader, actorUserId: Id<"users">, raw: EventIntakePatch, now: number, correctingEventId?: Id<"events">, options: { skipAccountQuota?: boolean } = {}) {
   if (await db.get(actorUserId) === null) throw new Error("A signed-in user is required.");
   const normalized = normalizeIntakePublication(raw);
   const { fields } = normalized;
@@ -94,8 +94,12 @@ export async function preflightEventContribution(db: DatabaseReader, actorUserId
   // Corrections do not consume new-publication capacity, but retain target and duplicate checks.
   if (correctingEventId) return { ...normalized, community, world: world ?? undefined, fingerprint, existing: undefined };
   const since = now - 86_400_000;
-  const actorRecent = await db.query("eventContributionReceipts").withIndex("by_actor_createdAt", q => q.eq("actorUserId", actorUserId).gte("createdAt", since)).take(INTAKE_ACCOUNT_DAILY_LIMIT);
-  if (actorRecent.length >= INTAKE_ACCOUNT_DAILY_LIMIT) throw new ConvexError({ code: "ACCOUNT_QUOTA" });
+  if (!options.skipAccountQuota) {
+    // Connector-driven receipts count toward the community cap only, never the authority's own.
+    const actorRecent = await db.query("eventContributionReceipts").withIndex("by_actor_createdAt", q => q.eq("actorUserId", actorUserId).gte("createdAt", since))
+      .filter(q => q.eq(q.field("connectorId"), undefined)).take(INTAKE_ACCOUNT_DAILY_LIMIT);
+    if (actorRecent.length >= INTAKE_ACCOUNT_DAILY_LIMIT) throw new ConvexError({ code: "ACCOUNT_QUOTA" });
+  }
   const targetRecent = await db.query("eventContributionReceipts").withIndex("by_community_createdAt", q => q.eq("communityProfileId", community._id).gte("createdAt", since)).take(INTAKE_TARGET_DAILY_LIMIT);
   if (targetRecent.length >= INTAKE_TARGET_DAILY_LIMIT) throw new ConvexError({ code: "TARGET_QUOTA" });
   return { ...normalized, community, world: world ?? undefined, fingerprint, existing: undefined };
