@@ -200,6 +200,7 @@ export const test = base.extend<{
               const cleanup = await request.delete("/api/e2e/home-timeline", {
                 headers,
                 data: { runId },
+                maxRetries: 1,
               });
               await expect(cleanup).toBeOK();
               const counts: unknown = await cleanup.json();
