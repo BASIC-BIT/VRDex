@@ -359,7 +359,7 @@
 }
 .nightHeader {
   display: flex;
-  height: 22px;
+  height: 24px;
   align-items: center;
   background: color-mix(in srgb, #9270be 12%, var(--surface-elevated));
 }
@@ -372,6 +372,7 @@
   height: 100%;
   padding: 0 5px;
   text-align: left;
+  overflow: hidden;
 }
 .nightOpen strong,
 .nightSet span {
@@ -415,14 +416,14 @@
 }
 .nightTrack {
   position: relative;
-  height: 22px;
+  height: 20px;
 }
 .nightSet {
   display: flex;
   position: absolute;
   align-items: center;
   gap: 4px;
-  height: 22px;
+  height: 20px;
   padding: 0 5px;
   border-top: 1px solid color-mix(in srgb, #9474bd 40%, transparent);
   border-right: 1px solid color-mix(in srgb, #9474bd 40%, transparent);
@@ -430,20 +431,20 @@
   text-align: left;
 }
 .nightHeader .nightInterest {
-  min-height: 20px;
-  height: 20px;
-  min-width: 20px;
+  min-height: 24px;
+  height: 24px;
+  min-width: 24px;
+  width: 24px;
+  align-self: flex-start;
   padding: 1px;
   background: transparent;
+}
+.nightHeader[data-action-only="true"] .nightOpen {
+  padding: 0;
 }
 .nightInterest svg {
   width: 16px;
   height: 16px;
-}
-@container (max-width: 72px) {
-  .nightHeader .nightInterest {
-    display: none;
-  }
 }
 .savedList {
   display: flex;
@@ -637,6 +638,7 @@
 .set:hover,
 .set:focus-within {
   background: color-mix(in srgb, var(--accent) 14%, var(--surface-elevated));
+  z-index: 2;
 }
 .event .set .setAction {
   position: absolute;
@@ -644,6 +646,9 @@
   pointer-events: none;
   opacity: 0;
   background: transparent;
+  width: 24px;
+  height: 24px;
+  padding: 1px;
 }
 .set > .setAction:last-child {
   right: 0;
@@ -661,6 +666,32 @@
   width: calc(100% - 48px);
   flex: none;
   padding-right: 8px;
+}
+.event .set[data-short="true"] .setAction {
+  top: -24px;
+  right: auto;
+  left: var(--set-actions-left);
+}
+.set[data-short="true"]:is(:hover, :focus-within)::before {
+  content: "";
+  position: absolute;
+  top: -24px;
+  left: var(--set-actions-left);
+  width: var(--set-actions-width);
+  height: 24px;
+  border: 1px solid var(--border-strong);
+  border-bottom: 0;
+  border-radius: 3px 3px 0 0;
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface-elevated));
+  pointer-events: none;
+}
+.event .set[data-short="true"] .setAction:nth-child(3) {
+  left: calc(var(--set-actions-left) + 24px);
+}
+.set[data-short="true"]:hover .setOpen,
+.set[data-short="true"]:focus-within .setOpen {
+  width: 100%;
+  padding: 5px 4px;
 }
 .set .setAction:hover,
 .set .setAction:focus-visible {

@@ -9,7 +9,7 @@ import type {
 } from "../../../../../../convex/_eventTimelineTypes";
 import { packPlan } from "@/lib/timeline/packing";
 import { inRange, referenceKey } from "@/lib/timeline/window-cache";
-import { scheduleGeometry, timeToX } from "@/lib/timeline/geometry";
+import { scheduleGeometry } from "@/lib/timeline/geometry";
 import { Button } from "@/components/ui/button";
 import { scheduleLabel } from "./timeline-agenda";
 import type { TimelineActions } from "./timeline-event-bar";
@@ -58,16 +58,37 @@ export function TimelineNight({
     );
   });
   const lanes = nightLayout(visible);
+  // Reserve the shared 24px removal target. Measure after
+  // the viewed-range/My night inset, rather than using authored duration alone.
+  const headers = new Map(
+    visible.flatMap((item) => {
+      if (item.kind !== "available") return [];
+      const schedule = item.slot?.schedule ?? item.event.schedule;
+      if (schedule.kind !== "timed") return [];
+      const key = referenceKey(item.reference);
+      const lane = lanes.find((entry) => entry.key === key);
+      const width = ((schedule.endAt - schedule.startAt) / 3_600_000) * 100;
+      const inset = Math.min(
+        Math.max(0, width - 1),
+        Math.max(
+          0,
+          ((range.startAt - schedule.startAt) / 3_600_000) * 100 +
+            (lane?.lane === 0 ? 92 : 0),
+        ),
+      );
+      return [
+        [
+          key,
+          { inset, width: width - inset, compactAction: width - inset >= 24 },
+        ] as const,
+      ];
+    }),
+  );
   const fallback = fallbackOnly
     ? saved.filter((item) => {
         if (!visible.includes(item)) return true;
         if (item.kind !== "available") return true;
-        const schedule = item.slot?.schedule ?? item.event.schedule;
-        // Narrow authored intervals keep their true width and a full-size removal path.
-        return (
-          schedule.kind === "timed" &&
-          ((schedule.endAt - schedule.startAt) / 3_600_000) * 100 < 72
-        );
+        return !headers.get(referenceKey(item.reference))?.compactAction;
       })
     : saved;
   if (origin !== undefined && lanes.length === 0) return null;
@@ -122,12 +143,7 @@ export function TimelineNight({
             const partial =
               !item.slot &&
               (!loaded || slotCoverage[item.event.id] !== "complete");
-            const inset = Math.max(
-              0,
-              timeToX({ instant: range.startAt, origin, pixelsPerHour: 100 }) +
-                (lane.lane === 0 ? 92 : 0) -
-                geometry.x,
-            );
+            const header = headers.get(lane.key);
             const select = () =>
               actions.onSelect({
                 eventId: item.event.id,
@@ -150,11 +166,9 @@ export function TimelineNight({
               >
                 <div
                   className={styles.nightHeader}
+                  data-action-only={header && header.width < 40}
                   style={{
-                    marginLeft: Math.min(
-                      inset,
-                      Math.max(0, geometry.width - 1),
-                    ),
+                    marginLeft: header?.inset,
                   }}
                 >
                   <button
@@ -208,25 +222,27 @@ export function TimelineNight({
                       <span className={styles.partial}>Partial lineup</span>
                     )}
                   </button>
-                  <InterestButton
-                    label={
-                      item.slot
-                        ? `${item.slot.displayLabel} at ${item.event.title}`
-                        : item.event.title
-                    }
-                    state={planSaveState(actions.plan, item.reference)}
-                    size="compact"
-                    className={styles.nightInterest}
-                    onToggle={() => {
-                      // Removing a focused bar must leave keyboard navigation in the chart.
-                      document
-                        .querySelector<HTMLElement>(
-                          '[aria-label="Timeline chart"]',
-                        )
-                        ?.focus({ preventScroll: true });
-                      actions.onSave(item.reference);
-                    }}
-                  />
+                  {header?.compactAction && (
+                    <InterestButton
+                      label={
+                        item.slot
+                          ? `${item.slot.displayLabel} at ${item.event.title}`
+                          : item.event.title
+                      }
+                      state={planSaveState(actions.plan, item.reference)}
+                      size="compact"
+                      className={styles.nightInterest}
+                      onToggle={() => {
+                        // Removing a focused bar must leave keyboard navigation in the chart.
+                        document
+                          .querySelector<HTMLElement>(
+                            '[aria-label="Timeline chart"]',
+                          )
+                          ?.focus({ preventScroll: true });
+                        actions.onSave(item.reference);
+                      }}
+                    />
+                  )}
                 </div>
                 <div className={styles.nightTrack}>
                   {slots.map((slot) => {

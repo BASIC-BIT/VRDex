@@ -628,3 +628,289 @@ test.describe("compact personal planning @flow @fixture", () => {
     });
   });
 });
+
+test.describe("authored short-set interactions @flow @fixture", () => {
+  test.use({ timelineScenario: "short-sets" });
+  test.beforeEach(async ({ page }) => {
+    await page.clock.setFixedTime(TIMELINE_NOW);
+    await page.emulateMedia({ colorScheme: "dark" });
+  });
+
+  for (const clipped of [false, true]) {
+    test(
+      clipped
+        ? "half-hour visible remainder keeps contextual removal"
+        : "half-hour interest keeps its compact control without a fallback row",
+      async ({ page, timelineFixture }, info) => {
+        await page.addInitScript(
+          ({ eventId, slotId }) =>
+            localStorage.setItem(
+              "vrdex.timeline.preferences.v1",
+              JSON.stringify({
+                version: 1,
+                plan: [{ kind: "set", eventId, slotId }],
+                favoriteProfileIds: [],
+              }),
+            ),
+          {
+            eventId: timelineFixture.eventIds[3],
+            slotId: timelineFixture.slotIds[6],
+          },
+        );
+        await page.goto(
+          `/?at=${TIMELINE_NOW + (clipped ? 50 * 60_000 : -60 * 60_000)}`,
+        );
+        await expect(page.getByLabel("Schedule data state")).toHaveAttribute(
+          "data-state",
+          "ready",
+        );
+        const night = page.getByTestId("night-lanes");
+        const bar = night.locator("[data-night-reference]");
+        await expect(bar).toHaveCount(1);
+        expect((await bar.boundingBox())?.width).toBe(50);
+        expect((await bar.boundingBox())?.height).toBe(44);
+        await expect(
+          page.getByRole("heading", { name: "My night", exact: true }),
+        ).toHaveCount(1);
+        const contextualRemove = page.getByRole("button", {
+          name: "Remove Aurora from My night",
+          exact: true,
+        });
+        const compactRemove = night.getByRole("button", {
+          name: "Remove interest: Aurora at ORBIT: Interstellar Bassline Orchestra",
+          exact: true,
+          includeHidden: true,
+        });
+        if (clipped) {
+          await expect(contextualRemove).toBeVisible();
+          await expect(compactRemove).toBeHidden();
+        } else {
+          await expect(contextualRemove).toHaveCount(0);
+          await expect(compactRemove).toBeVisible();
+          const bounds = await compactRemove.boundingBox();
+          expect(bounds?.width).toBeGreaterThanOrEqual(24);
+          expect(bounds?.height).toBeGreaterThanOrEqual(24);
+          await info.attach("compact-removal-geometry.json", {
+            body: JSON.stringify(bounds),
+            contentType: "application/json",
+          });
+          expect(
+            await compactRemove.evaluate((el) => {
+              const b = el.getBoundingClientRect();
+              return [
+                [b.width / 2, b.height / 2],
+                [1, b.height / 2],
+                [b.width - 1, b.height / 2],
+                [b.width / 2, 1],
+                [b.width / 2, b.height - 1],
+              ].every(
+                ([x, y]) =>
+                  document
+                    .elementFromPoint(b.x + x, b.y + y)
+                    ?.closest("button") === el,
+              );
+            }),
+          ).toBe(true);
+        }
+        await page.screenshot({
+          path: info.outputPath(
+            clipped ? "half-hour-clipped.png" : "half-hour-compact.png",
+          ),
+          fullPage: true,
+        });
+        await (clipped ? contextualRemove : compactRemove).click();
+        await expect(page.getByTestId("night-lanes")).toHaveCount(0);
+        expect(
+          await page.evaluate(
+            () =>
+              JSON.parse(
+                localStorage.getItem("vrdex.timeline.preferences.v1") ?? "null",
+              ).plan,
+          ),
+        ).toEqual([]);
+      },
+    );
+  }
+
+  for (const [label, minutes, slotIndex] of [
+    ["Aurora", 30, 6],
+    ["Neon Harbor", 15, 7],
+  ] as const) {
+    test(`${minutes}-minute public cells keep independent pointer and keyboard targets`, async ({
+      page,
+      timelineFixture,
+      isMobile,
+    }, info) => {
+      await page.goto(`/?at=${TIMELINE_NOW - 60 * 60_000}`);
+      await expect(page.getByLabel("Schedule data state")).toHaveAttribute(
+        "data-state",
+        "ready",
+      );
+      const event = page.getByTestId(`event-${timelineFixture.eventIds[3]}`);
+      const open = event.getByRole("button", {
+        name: `Open ${label} at ORBIT: Interstellar Bassline Orchestra`,
+        exact: true,
+      });
+      const cell = open.locator("..");
+      expect((await cell.boundingBox())?.width).toBe((minutes / 60) * 100);
+      const panel = page.getByRole("region", {
+        name: "Event details",
+        exact: true,
+      });
+      const reference = {
+        kind: "set",
+        eventId: timelineFixture.eventIds[3],
+        slotId: timelineFixture.slotIds[slotIndex],
+      };
+      if (isMobile) {
+        await open.tap({ position: { x: 6, y: 8 } });
+        await expect(panel.locator('[data-selected="true"]')).toHaveAttribute(
+          "data-slot-id",
+          reference.slotId,
+        );
+        const selected = panel.locator('[data-selected="true"]');
+        await selected
+          .getByRole("button", { name: "Favorite Aurora", exact: true })
+          .tap();
+        expect(
+          await page.evaluate(
+            () =>
+              JSON.parse(
+                localStorage.getItem("vrdex.timeline.preferences.v1") ?? "null",
+              ).plan,
+          ),
+        ).toEqual([]);
+        await selected
+          .getByRole("button", {
+            name: `Add ${label} to My night`,
+            exact: true,
+          })
+          .tap();
+        await page.screenshot({
+          path: info.outputPath(`short-${minutes}-touch-panel.png`),
+        });
+        await panel.getByRole("button", { name: "Close", exact: true }).tap();
+      } else {
+        await open.hover({ position: { x: 6, y: 8 } });
+        const favorite = cell.getByRole("button", {
+          name: /^(Favorite|Remove favorite): Aurora$/,
+        });
+        const interest = cell.getByRole("button", { name: /^Interested:/ });
+        await expect(favorite).toBeVisible();
+        await expect(interest).toBeVisible();
+        const targets = [open, favorite, interest];
+        const boxes = await Promise.all(
+          targets.map((target) => target.boundingBox()),
+        );
+        for (let i = 0; i < targets.length; i++) {
+          const bounds = boxes[i];
+          if (!bounds) throw Error("Missing short-cell target");
+          expect(bounds.width).toBeGreaterThanOrEqual(24);
+          expect(bounds.height).toBeGreaterThanOrEqual(24);
+          expect(
+            await targets[i].evaluate((el) => {
+              const b = el.getBoundingClientRect();
+              return (
+                document
+                  .elementFromPoint(b.x + b.width / 2, b.y + b.height / 2)
+                  ?.closest("button") === el
+              );
+            }),
+          ).toBe(true);
+          for (const other of boxes.slice(i + 1)) {
+            if (!other) throw Error("Missing short-cell sibling");
+            const overlap =
+              Math.max(
+                0,
+                Math.min(bounds.x + bounds.width, other.x + other.width) -
+                  Math.max(bounds.x, other.x),
+              ) *
+              Math.max(
+                0,
+                Math.min(bounds.y + bounds.height, other.y + other.height) -
+                  Math.max(bounds.y, other.y),
+              );
+            expect(overlap).toBe(0);
+          }
+        }
+        await info.attach(`short-${minutes}-target-geometry.json`, {
+          body: JSON.stringify(boxes),
+          contentType: "application/json",
+        });
+        // Moving up from the label must keep the attached toolbar reachable.
+        for (const target of targets) {
+          await target.hover();
+          await expect(favorite).toBeVisible();
+          await expect(interest).toBeVisible();
+        }
+        await event.screenshot({
+          path: info.outputPath(`short-${minutes}-attached-targets.png`),
+        });
+        await open.click({ position: { x: 6, y: 8 } });
+        await expect(panel.locator('[data-selected="true"]')).toHaveAttribute(
+          "data-slot-id",
+          reference.slotId,
+        );
+        expect(
+          await page.evaluate(() =>
+            JSON.parse(
+              localStorage.getItem("vrdex.timeline.preferences.v1") ?? "null",
+            ),
+          ),
+        ).toEqual(null);
+        await panel.getByRole("button", { name: "Close", exact: true }).click();
+        await open.focus();
+        await page.keyboard.press("Tab");
+        await expect(favorite).toBeFocused();
+        await page.keyboard.press("Tab");
+        await expect(interest).toBeFocused();
+        await favorite.click();
+        await favorite.focus();
+        await page.keyboard.press("Enter");
+        await expect(favorite).toHaveAttribute("aria-pressed", "false");
+        await page.keyboard.press("Enter");
+        await expect(favorite).toHaveAttribute("aria-pressed", "true");
+        expect(
+          await page.evaluate(
+            () =>
+              JSON.parse(
+                localStorage.getItem("vrdex.timeline.preferences.v1") ?? "null",
+              ).plan,
+          ),
+        ).toEqual([]);
+        await interest.click();
+        await expect(panel).toHaveCount(0);
+        await page.screenshot({
+          path: info.outputPath(`short-${minutes}-hover-actions.png`),
+          fullPage: true,
+        });
+      }
+      expect(
+        await page.evaluate(
+          () =>
+            JSON.parse(
+              localStorage.getItem("vrdex.timeline.preferences.v1") ?? "null",
+            ).plan,
+        ),
+      ).toEqual([reference]);
+      expect(
+        await page.evaluate(
+          () =>
+            JSON.parse(
+              localStorage.getItem("vrdex.timeline.preferences.v1") ?? "null",
+            ).favoriteProfileIds,
+        ),
+      ).toEqual([timelineFixture.profileIds[1]]);
+      const personal = page
+        .getByTestId("night-lanes")
+        .locator("[data-night-reference]");
+      expect((await personal.boundingBox())?.width).toBe((minutes / 60) * 100);
+      await expect(
+        page.getByRole("button", {
+          name: `Remove ${label} from My night`,
+          exact: true,
+        }),
+      ).toHaveCount(0);
+    });
+  }
+});

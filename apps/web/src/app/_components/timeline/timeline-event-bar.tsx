@@ -123,11 +123,25 @@ export function TimelineEventBar({
             slotId: slot.id,
           };
           const setState = planSaveState(actions.plan, ref);
+          // Below 80px the label and two 24px controls cannot share a row.
+          // Attach the actions above it, clamped inside the event header.
+          const short = g.width < 80;
+          const actionsLeft = Math.max(
+            -g.x,
+            Math.min(0, geometry.width - 4 - g.x - 48),
+          );
+          const setStyle = {
+            left: g.x,
+            width: g.width,
+            "--set-actions-left": `${actionsLeft}px`,
+            "--set-actions-width": slot.performer ? "48px" : "24px",
+          };
           return (
             <div
               className={styles.set}
               key={slot.id}
-              style={{ left: g.x, width: g.width }}
+              style={setStyle}
+              data-short={short}
               data-favorite={
                 slot.performer &&
                 actions.favoriteProfileIds.includes(slot.performer.id)

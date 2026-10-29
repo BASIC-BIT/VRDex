@@ -40,6 +40,7 @@ export const create = mutation({
         v.literal("discovery-dense"),
         v.literal("discovery-sparse"),
         v.literal("timeline-visual"),
+        v.literal("short-sets"),
       ),
     ),
   },
@@ -385,8 +386,24 @@ export const create = mutation({
                   : j > 1 && j < 80
                     ? undefined
                     : profiles[1],
-              startAt: startAt + (j > 1 ? j * 60000 : j * h),
-              endAt: startAt + (j > 1 ? (j + 1) * 60000 : (j + 1) * h),
+              startAt:
+                startAt +
+                (args.scenario === "short-sets" && i === 3
+                  ? j === 0
+                    ? h
+                    : 1.5 * h
+                  : j > 1
+                    ? j * 60000
+                    : j * h),
+              endAt:
+                startAt +
+                (args.scenario === "short-sets" && i === 3
+                  ? j === 0
+                    ? 1.5 * h
+                    : 1.75 * h
+                  : j > 1
+                    ? (j + 1) * 60000
+                    : (j + 1) * h),
               displayLabel:
                 j === 80
                   ? "Later-page guest"

@@ -177,7 +177,10 @@ ownership. The optional
 `detail` scenario authors 81 timed slots on one event, two untimed entries and
 one hidden person for continuation/privacy checks. It cleans exactly eight
 events, three profiles, 87 slots and two lineup entries. Default and prefetch
-runs still clean eight events, two profiles and eight slots. The `discovery`
+runs still clean eight events, two profiles and eight slots. The `short-sets`
+scenario keeps those same ownership and cleanup counts, changing only ORBIT's
+two sets to authored 30-minute and 15-minute intervals for hit-target and
+compact-planning checks. The `discovery`
 scenario authors two events seven and forty days away, four public profiles
 (two clubs and two DJs) with exact public genre assignments, and two confirmed
 slots. It cleans exactly two events, four profiles and two slots.

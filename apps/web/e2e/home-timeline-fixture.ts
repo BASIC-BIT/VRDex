@@ -17,7 +17,8 @@ export const test = base.extend<{
     | "discovery"
     | "discovery-dense"
     | "discovery-sparse"
-    | "timeline-visual";
+    | "timeline-visual"
+    | "short-sets";
   timelineStartAt: number;
 }>({
   timelineScenario: ["default", { option: true }],
@@ -168,6 +169,7 @@ export const test = base.extend<{
                       startAt: timelineStartAt,
                       ...(timelineScenario === "detail" ||
                       timelineScenario === "timeline-visual" ||
+                      timelineScenario === "short-sets" ||
                       timelineScenario.startsWith("discovery")
                         ? { scenario: timelineScenario }
                         : {}),
