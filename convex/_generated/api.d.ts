@@ -175,6 +175,7 @@ import type * as e2e from "../e2e.js";
 import type * as e2eClubStaff from "../e2eClubStaff.js";
 import type * as e2eHomeTimeline from "../e2eHomeTimeline.js";
 import type * as e2eMedia from "../e2eMedia.js";
+import type * as eventConnectors from "../eventConnectors.js";
 import type * as eventCorrections from "../eventCorrections.js";
 import type * as eventIntake from "../eventIntake.js";
 import type * as eventIntakeSources from "../eventIntakeSources.js";
@@ -404,6 +405,7 @@ declare const fullApi: ApiFromModules<{
   e2eClubStaff: typeof e2eClubStaff;
   e2eHomeTimeline: typeof e2eHomeTimeline;
   e2eMedia: typeof e2eMedia;
+  eventConnectors: typeof eventConnectors;
   eventCorrections: typeof eventCorrections;
   eventIntake: typeof eventIntake;
   eventIntakeSources: typeof eventIntakeSources;
