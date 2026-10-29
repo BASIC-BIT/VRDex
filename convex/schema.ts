@@ -11,6 +11,7 @@ import { providerReadParams, providerReadPage } from "./_clubProviderReads";
 import { integrationFeature, storedAuthority } from "./_clubConnection";
 import {clubOperationPayload,operationSchedule,operationState} from "./_clubOperations";
 import { contributionTables } from "./_contributionTables";
+import { connectorDirection, connectorKind, connectorMode, connectorState, connectorTarget, credentialProvider, syncJobKind, syncJobState, syncLinkState } from "./_eventConnectors";
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
@@ -1167,6 +1168,7 @@ export default defineSchema({
     fields: v.any(),
     provenance: v.array(v.object({ field: v.string(), kind: v.union(v.literal("contributor"), v.literal("tentative")), version: v.number() })),
     publishedReceiptId: v.optional(v.id("eventContributionReceipts")),
+    connectorId: v.optional(v.id("eventConnectors")),
     createdAt: v.number(), updatedAt: v.number(), expiresAt: v.number(),
   }).index("by_actor_updatedAt", ["actorUserId", "updatedAt"])
     .index("by_actor_expiresAt", ["actorUserId", "expiresAt"])
@@ -1183,6 +1185,30 @@ export default defineSchema({
     draftVersion: v.number(), receiptId: v.id("eventContributionReceipts"), createdAt: v.number(),
   }).index("by_actor_key", ["actorUserId", "idempotencyKey"])
     .index("by_actor_createdAt", ["actorUserId", "createdAt"]),
+  eventConnectors: defineTable({
+    communityProfileId: v.id("profiles"), kind: connectorKind, direction: connectorDirection, mode: connectorMode,
+    authorityUserId: v.id("users"), credentialId: v.optional(v.id("connectorCredentials")), target: connectorTarget,
+    quietWindowSeconds: v.optional(v.number()), state: connectorState, lastSyncedAt: v.optional(v.number()), lastError: v.optional(v.string()),
+    consecutiveFailures: v.optional(v.number()), createdAt: v.number(), updatedAt: v.number(),
+  }).index("by_communityProfileId", ["communityProfileId"])
+    .index("by_kind_target_channelId", ["kind", "target.channelId"]),
+  connectorCredentials: defineTable({
+    provider: credentialProvider, ownerUserId: v.id("users"), encryptedAccessToken: v.string(), encryptedRefreshToken: v.string(),
+    accessTokenExpiresAt: v.number(), scopes: v.array(v.string()), externalAccountId: v.string(),
+    state: v.union(v.literal("active"), v.literal("revoked")), createdAt: v.number(), updatedAt: v.number(),
+  }),
+  eventSyncLinks: defineTable({
+    connectorId: v.id("eventConnectors"), eventId: v.optional(v.id("events")), draftId: v.optional(v.id("eventIntakeDrafts")),
+    externalId: v.string(), externalSeriesId: v.optional(v.string()), lastExportedAt: v.optional(v.number()), lastExportedHash: v.optional(v.string()),
+    lastImportedAt: v.optional(v.number()), externalUpdatedAt: v.optional(v.number()), state: syncLinkState, createdAt: v.number(), updatedAt: v.number(),
+  }).index("by_connectorId_externalId", ["connectorId", "externalId"])
+    .index("by_eventId", ["eventId"]),
+  eventSyncJobs: defineTable({
+    connectorId: v.id("eventConnectors"), eventId: v.optional(v.id("events")), kind: syncJobKind, payload: v.any(),
+    dueAt: v.number(), attempts: v.number(), leaseExpiresAt: v.optional(v.number()), state: syncJobState, lastError: v.optional(v.string()),
+    scheduledFunctionId: v.optional(v.id("_scheduled_functions")), createdAt: v.number(), updatedAt: v.number(),
+  }).index("by_connectorId_eventId_state", ["connectorId", "eventId", "state"])
+    .index("by_state_dueAt", ["state", "dueAt"]),
   eventReports: defineTable({
     eventId: v.id("events"), communityProfileId: v.optional(v.id("profiles")),
     actorUserId: v.optional(v.id("users")), reason: v.string(),
