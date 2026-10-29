@@ -314,7 +314,6 @@ test.describe("Home discovery @flow @fixture", () => {
   test("a native Schedule add rejection stays in view and a discovery removal clears it", async ({
     page,
     timelineFixture,
-    isMobile,
   }, info) => {
     await page.evaluate(({ eventIds, profileIds }) => {
       localStorage.setItem(
@@ -343,15 +342,12 @@ test.describe("Home discovery @flow @fixture", () => {
     await expect(
       bar.getByRole("button", { name: "Open Aurora at ORBIT", exact: true }),
     ).toBeVisible();
-    // Touch uses the existing Agenda actions; chart Add controls are hover-only.
-    if (isMobile)
-      await page.getByRole("button", { name: "Agenda", exact: true }).click();
     const schedule = page.getByRole("region", {
       name: "Schedule",
       exact: true,
     });
     const add = schedule.getByRole("button", {
-      name: isMobile ? "Add ORBIT to My night" : "Interested: ORBIT",
+      name: "Interested: ORBIT",
       exact: true,
     });
     await add.click();
@@ -377,7 +373,7 @@ test.describe("Home discovery @flow @fixture", () => {
     await expect(
       schedule
         .getByRole("button", {
-          name: isMobile ? "Remove ORBIT from My night" : "Remove interest: ORBIT",
+          name: "Remove interest: ORBIT",
           exact: true,
         })
         .last(),
@@ -389,14 +385,14 @@ test.describe("Home discovery @flow @fixture", () => {
     timelineFixture,
   }) => {
     await page.goto(
-      `/?at=${TIMELINE_NOW + 7 * 86400000 - 3600000}&scheduleView=agenda`,
+      `/?at=${TIMELINE_NOW + 7 * 86400000 - 3600000}`,
     );
     const schedule = page.getByRole("region", {
       name: "Schedule",
       exact: true,
     });
     const openSchedule = async () => {
-      const trigger = schedule.getByRole("button", {
+      const trigger = schedule.getByTestId(`event-${timelineFixture.eventIds[0]}`).getByRole("button", {
         name: "Open ORBIT",
         exact: true,
       });
@@ -638,10 +634,10 @@ test.describe("Home discovery @flow @fixture", () => {
     });
     await search.fill("Aurora");
     await expect(search).toHaveValue("Aurora");
-    await page.getByRole("button", { name: "Agenda", exact: true }).click();
+    await page.getByRole("button", { name: "Later", exact: true }).click();
     await expect(
-      page.getByRole("button", { name: "Agenda", exact: true }),
-    ).toHaveAttribute("aria-pressed", "true");
+      page.getByRole("button", { name: "Now", exact: true }),
+    ).toBeVisible();
     await discover.scrollIntoViewIfNeeded();
     await page.screenshot({
       path: info.outputPath("failed-public-refresh.png"),
@@ -742,9 +738,9 @@ test.describe("dense Home discovery @flow @fixture", () => {
     await expect(
       page.getByRole("combobox", { name: "Search VRDex", exact: true }),
     ).toHaveValue("Aurora");
-    await page.getByRole("button", { name: "Agenda", exact: true }).click();
+    await page.getByRole("button", { name: "Later", exact: true }).click();
     await expect(
-      page.getByRole("button", { name: "Timeline", exact: true }),
+      page.getByRole("region", { name: "Timeline chart", exact: true }),
     ).toBeVisible();
     await discover.scrollIntoViewIfNeeded();
     await page.screenshot({
@@ -943,11 +939,13 @@ test.describe("dense Home discovery @flow @fixture", () => {
     await input.fill("Aurora");
     await expect(input).toHaveValue("Aurora");
     const searchMs = performance.now() - searchStart;
+    // Close search suggestions before using the consolidated toolbar beneath them.
+    await input.press("Escape");
     const toolbarStart = performance.now();
-    await page.getByRole("button", { name: "Agenda", exact: true }).click();
+    await page.getByRole("button", { name: "Later", exact: true }).click();
     await expect(
-      page.getByRole("button", { name: "Agenda", exact: true }),
-    ).toHaveAttribute("aria-pressed", "true");
+      page.getByRole("button", { name: "Now", exact: true }),
+    ).toBeVisible();
     const toolbarMs = performance.now() - toolbarStart;
     const panelStart = performance.now();
     await discover

@@ -137,7 +137,7 @@ test.describe("Home schedule images @visual @snapshot @fixture", () => {
   test("overlapping My night uses purple lanes on the shared axis", async ({
     page,
   }) => {
-    await page.goto("/?scheduleView=agenda");
+    await page.goto("/");
     await expect(page.getByLabel("Schedule data state")).toHaveAttribute(
       "data-state",
       "ready",
@@ -148,15 +148,15 @@ test.describe("Home schedule images @visual @snapshot @fixture", () => {
       "Low Tide",
     ]) {
       await page
-        .getByRole("button", { name: `Add ${title} to My night`, exact: true })
+        .getByRole("button", { name: `Interested: ${title}`, exact: true })
         .click();
     }
     await expect(
       page
         .getByRole("region", { name: "My night", exact: true })
-        .getByText("Overlap", { exact: true }),
+        .getByLabel("Overlap", { exact: true }),
     ).toHaveCount(2);
-    await page.getByRole("button", { name: "Timeline", exact: true }).click();
+
     await capture(page, "night");
   });
   test("empty range is settled", async ({ page }) => {
@@ -230,7 +230,7 @@ test.describe("Home schedule images @visual @snapshot @fixture", () => {
     test("later-page selected set remains visible in dense detail", async ({
       page,
     }) => {
-      await page.goto("/?scheduleView=agenda");
+      await page.goto("/");
       await expect(page.getByLabel("Schedule data state")).toHaveAttribute(
         "data-state",
         "ready",

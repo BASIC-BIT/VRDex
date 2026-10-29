@@ -11,7 +11,7 @@ import { packPlan } from "@/lib/timeline/packing";
 import { inRange, referenceKey } from "@/lib/timeline/window-cache";
 import { scheduleGeometry } from "@/lib/timeline/geometry";
 import { Button } from "@/components/ui/button";
-import { scheduleLabel } from "./timeline-agenda";
+import { scheduleLabel } from "@/lib/timeline/schedule-label";
 import type { TimelineActions } from "./timeline-event-bar";
 import styles from "./timeline.module.css";
 export function nightLayout(saved: SavedResolution[]) {
@@ -32,7 +32,6 @@ export function TimelineNight({
   onNext,
   records = [],
   slotCoverage = {},
-  fallbackOnly = false,
   now,
   ...actions
 }: Pick<
@@ -45,7 +44,6 @@ export function TimelineNight({
   onNext: () => void;
   records?: TimelineEvent[];
   slotCoverage?: Record<string, "partial" | "complete">;
-  fallbackOnly?: boolean;
   now: number;
 }) {
   const visible = saved.filter((item) => {
@@ -84,18 +82,22 @@ export function TimelineNight({
       ];
     }),
   );
-  const fallback = fallbackOnly
-    ? saved.filter((item) => {
-        if (!visible.includes(item)) return true;
-        if (item.kind !== "available") return true;
-        return !headers.get(referenceKey(item.reference))?.compactAction;
-      })
-    : saved;
+  const fallback = saved.filter((item) => {
+    // Visible public date/start markers already provide open and removal actions.
+    if (
+      item.kind === "available" && item.status !== "cancelled" && !item.slot &&
+      item.event.schedule.kind !== "timed" && inRange(item.event, range) &&
+      records.some((record) => record.id === item.event.id)
+    ) return false;
+    if (!visible.includes(item)) return true;
+    if (item.kind !== "available") return true;
+    return !headers.get(referenceKey(item.reference))?.compactAction;
+  });
   if (origin !== undefined && lanes.length === 0) return null;
   if (origin === undefined && fallback.length === 0) return null;
   return (
     <section className={styles.night} aria-label="My night">
-      {origin === undefined && !(fallbackOnly && lanes.length > 0) && (
+      {origin === undefined && lanes.length === 0 && (
         <div className={styles.nightHeading}>
           <h3>
             <BookmarkCheck size={15} />

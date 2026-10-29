@@ -9,7 +9,7 @@ import { localDayBands, timeToX } from "@/lib/timeline/geometry";
 import type { EventLane } from "@/lib/timeline/packing";
 import { HOUR, inRange } from "@/lib/timeline/window-cache";
 import { TimelineEventBar, type TimelineActions } from "./timeline-event-bar";
-import { TimelineAgenda } from "./timeline-agenda";
+import { TimelineDateMarkers } from "./timeline-date-markers";
 import { TimelineNight, nightLayout } from "./timeline-night";
 import styles from "./timeline.module.css";
 export function TimelineChart({
@@ -59,7 +59,7 @@ export function TimelineChart({
   const nightHeight = nightLanes.length
     ? (Math.max(...nightLanes.map((l) => l.lane)) + 1) * 50
     : 0;
-  const height = Math.max(1, ...lanes.map((l) => l.lane + 1)) * 94;
+  const height = Math.max(4, ...lanes.map((l) => l.lane + 1)) * 94;
   useLayoutEffect(() => {
     const el = scroller.current;
     if (!el) return;
@@ -96,11 +96,7 @@ export function TimelineChart({
     hour: "numeric",
     minute: "2-digit",
   });
-  const unknown = records.filter(
-    (e) => e.schedule.kind !== "timed" && inRange(e, range),
-  );
   return (
-    <>
       <div
         ref={scroller}
         className={styles.scroller}
@@ -191,7 +187,7 @@ export function TimelineChart({
               {...actions}
             />
           )}
-          <div className={styles.lanes} style={{ height }}>
+          <div data-testid="public-timeline-lanes" className={styles.lanes} style={{ height }}>
             {lanes.map((lane) => {
               const event = records.find((e) => e.id === lane.eventId);
               return event ? (
@@ -206,43 +202,13 @@ export function TimelineChart({
               ) : null;
             })}
           </div>
-          {records.some((e) => e.schedule.kind === "open_end") && (
-            <div className={styles.markers}>
-              {records
-                .filter((e) => e.schedule.kind === "open_end")
-                .map((event) =>
-                  event.schedule.kind === "open_end" ? (
-                    <button
-                      className={styles.marker}
-                      key={event.id}
-                      style={{
-                        left: timeToX({
-                          instant: event.schedule.startAt,
-                          origin,
-                          pixelsPerHour: 100,
-                        }),
-                      }}
-                      aria-label={`Open ${event.title}, Time TBA`}
-                      onClick={() =>
-                        actions.onSelect({
-                          eventId: event.id,
-                          slug: event.slug,
-                        })
-                      }
-                    >
-                      {event.title} · Time TBA
-                    </button>
-                  ) : null,
-                )}
-            </div>
-          )}
+          <TimelineDateMarkers records={records} range={range} origin={origin} {...actions} />
           {now >= origin && now < canvasRange.endAt && (
             <div
               className={styles.now}
               aria-label="Current time"
               style={{
                 left: timeToX({ instant: now, origin, pixelsPerHour: 100 }),
-                height: height + nightHeight + 34,
               }}
             >
               <span>
@@ -256,14 +222,5 @@ export function TimelineChart({
           )}
         </div>
       </div>
-      {unknown.length > 0 && (
-        <TimelineAgenda
-          records={unknown}
-          timeZone={range.timeZone}
-          slotCoverage={slotCoverage}
-          {...actions}
-        />
-      )}
-    </>
   );
 }

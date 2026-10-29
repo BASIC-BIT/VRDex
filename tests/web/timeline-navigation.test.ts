@@ -7,7 +7,7 @@ describe("timeline navigation", () => {
   it("rounds internally computed subpixel anchors before URL validation", () => {
     for (const [anchor, expected] of [[1792972828792.9688, 1792972828793], [1792972828792.25, 1792972828792], [-1.75, -2]]) {
       const href = timelineNavigationHref({ pathname: "/", searchParams: new URLSearchParams(), state: {
-        anchor, timeZone: "UTC", view: "timeline", favoritesOnly: false,
+        anchor, timeZone: "UTC", favoritesOnly: false,
       } });
       assert.equal(readTimelineNavigation(new URL(href, "https://vrdex.test").searchParams).anchor, expected);
     }
@@ -16,7 +16,7 @@ describe("timeline navigation", () => {
   it("does not serialize unsafe internal anchors as valid navigation", () => {
     for (const anchor of [NaN, Infinity, -Infinity, Date.UTC(10000, 0, 1), Date.parse("0001-01-01T00:00:00Z")]) {
       const href = timelineNavigationHref({ pathname: "/", searchParams: new URLSearchParams(), state: {
-        anchor, timeZone: "UTC", view: "timeline", favoritesOnly: false,
+        anchor, timeZone: "UTC", favoritesOnly: false,
       } });
       assert.equal(new URL(href, "https://vrdex.test").searchParams.get("at"), null);
     }
@@ -24,13 +24,13 @@ describe("timeline navigation", () => {
 
   it("defaults to timeline without guessing an anchor or viewer timezone", () => {
     assert.deepEqual(readTimelineNavigation(new URLSearchParams()), {
-      anchor: null, timeZone: null, view: "timeline", favoritesOnly: false,
+      anchor: null, timeZone: null, favoritesOnly: false,
     });
   });
 
-  it("reads explicit epoch milliseconds, IANA timezone, agenda and favorites", () => {
+  it("reads explicit epoch milliseconds, IANA timezone and favorites while ignoring the legacy view", () => {
     assert.deepEqual(readTimelineNavigation(new URLSearchParams("at=1793509200000&tz=America%2FNew_York&scheduleView=agenda&favorites=1")), {
-      anchor: 1793509200000, timeZone: "America/New_York", view: "agenda", favoritesOnly: true,
+      anchor: 1793509200000, timeZone: "America/New_York", favoritesOnly: true,
     });
     assert.equal(readTimelineNavigation(new URLSearchParams("at=0&tz=America%2FIndiana%2FIndianapolis")).anchor, 0);
   });
@@ -40,25 +40,25 @@ describe("timeline navigation", () => {
       assert.equal(readTimelineNavigation(new URLSearchParams({ at })).anchor, null);
     }
     assert.deepEqual(readTimelineNavigation(new URLSearchParams("tz=MadeUp%2FZone&scheduleView=nope&favorites=true")), {
-      anchor: null, timeZone: null, view: "timeline", favoritesOnly: false,
+      anchor: null, timeZone: null, favoritesOnly: false,
     });
   });
 
-  it("preserves search and duplicate unrelated keys through anchor and view changes", () => {
-    const searchParams = new URLSearchParams("q=DJ+Aurora&tag=a&tag=b&view=dj&at=1&tz=UTC");
+  it("preserves search and duplicate unrelated keys through anchor changes", () => {
+    const searchParams = new URLSearchParams("q=DJ+Aurora&tag=a&tag=b&view=dj&at=1&tz=UTC&scheduleView=agenda");
     const href = timelineNavigationHref({ pathname: "/", searchParams, state: {
-      anchor: 1793509200000, timeZone: "America/New_York", view: "agenda", favoritesOnly: true,
+      anchor: 1793509200000, timeZone: "America/New_York", favoritesOnly: true,
     } });
-    assert.equal(href, "/?q=DJ+Aurora&tag=a&tag=b&view=dj&at=1793509200000&tz=America%2FNew_York&scheduleView=agenda&favorites=1");
+    assert.equal(href, "/?q=DJ+Aurora&tag=a&tag=b&view=dj&at=1793509200000&tz=America%2FNew_York&favorites=1");
     assert.equal(searchParams.get("at"), "1");
   });
 
   it("clears optional timeline keys without resetting unrelated navigation history", () => {
     assert.equal(timelineNavigationHref({ pathname: "/", searchParams: new URLSearchParams("q=test&view=dj&at=1&tz=UTC&scheduleView=agenda&favorites=1"), state: {
-      anchor: null, timeZone: null, view: "timeline", favoritesOnly: false,
+      anchor: null, timeZone: null, favoritesOnly: false,
     } }), "/?q=test&view=dj");
     assert.equal(timelineNavigationHref({ pathname: "/", searchParams: new URLSearchParams(), state: {
-      anchor: null, timeZone: null, view: "timeline", favoritesOnly: false,
+      anchor: null, timeZone: null, favoritesOnly: false,
     } }), "/");
   });
 

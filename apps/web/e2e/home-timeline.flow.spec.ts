@@ -1,10 +1,22 @@
-import { expect } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import {
   test,
   TIMELINE_NOW,
   changeTimelineFixture,
 } from "./home-timeline-fixture";
 import { waitForPublicSearchHydration } from "./public-search-fixture";
+async function saveInInspector(page: Page, title: string, performer?: string) {
+  await page.locator("[data-home-schedule]").getByRole("button", { name: `Open ${title}`, exact: true }).first().click();
+  const panel = page.getByRole("region", { name: "Event details", exact: true });
+  await panel.getByRole("button", { name: `Interested: ${performer ?? title}`, exact: true }).click();
+  await panel.getByRole("button", { name: "Close", exact: true }).click();
+}
+async function toggleAuroraFavorite(page: Page, selected: boolean) {
+  await page.locator("[data-home-schedule]").getByRole("button", { name: "Open ORBIT: Interstellar Bassline Orchestra", exact: true }).first().click();
+  const panel = page.getByRole("region", { name: "Event details", exact: true });
+  await panel.getByRole("button", { name: `${selected ? "Remove favorite" : "Favorite"}: Aurora`, exact: true }).first().click();
+  await panel.getByRole("button", { name: "Close", exact: true }).click();
+}
 test.describe("continuous schedule @flow @fixture", () => {
   test.beforeEach(async ({ page, timelineFixture }) => {
     void timelineFixture;
@@ -20,6 +32,100 @@ test.describe("continuous schedule @flow @fixture", () => {
       { timeout: 20000 },
     );
   });
+  test("dateOnlyRecordsRemainDiscoverableWithoutAgenda", async ({ page, timelineFixture }) => {
+    await page.goto(`/?at=${TIMELINE_NOW - 3600000}&tz=America%2FNew_York&scheduleView=agenda&tag=a&tag=b`);
+    await expect(page.getByLabel("Schedule data state")).toHaveAttribute("data-state", "ready");
+    await expect(page.getByRole("button", { name: "Agenda", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Timeline", exact: true })).toHaveCount(0);
+    await expect(page.getByLabel("Schedule agenda", { exact: true })).toHaveCount(0);
+    const marker = page.getByTestId(`date-marker-${timelineFixture.eventIds[7]}`);
+    await expect(marker).toHaveAttribute("data-calendar-date", "2026-10-26");
+    await expect(marker).toContainText("Time TBA");
+    await marker.getByRole("button", { name: "Open Day Gathering, Time TBA", exact: true }).click();
+    const panel = page.getByRole("region", { name: "Event details", exact: true });
+    await expect(panel.getByRole("heading", { name: "Day Gathering", exact: true })).toBeVisible();
+    await panel.getByRole("button", { name: "Close", exact: true }).click();
+    await page.getByRole("button", { name: "Later", exact: true }).click();
+    const query = new URL(page.url()).searchParams;
+    expect(query.has("scheduleView")).toBe(false);
+    expect(query.get("tz")).toBe("America/New_York");
+    expect(query.getAll("tag")).toEqual(["a", "b"]);
+  });
+  test("openEndDoesNotInventDuration", async ({ page, timelineFixture }) => {
+    const marker = page.getByTestId(`date-marker-${timelineFixture.eventIds[6]}`);
+    await expect(marker).toBeVisible();
+    await expect(marker).toHaveAttribute("data-start-at", String(TIMELINE_NOW + 1800000));
+    await expect(page.getByTestId(`event-${timelineFixture.eventIds[6]}`)).toHaveCount(0);
+    await marker.getByRole("button", { name: /Open Night Without End/ }).click();
+    await expect(page.getByRole("region", { name: "Event details", exact: true })).toBeVisible();
+  });
+  test("savedUntimedReferencesRemainRemovable", async ({ page, timelineFixture }) => {
+    for (const index of [6, 7]) {
+      const marker = page.getByTestId(`date-marker-${timelineFixture.eventIds[index]}`);
+      await marker.getByRole("button", { name: /^Interested:/ }).click();
+      await expect(marker.getByRole("button", { name: /^Remove interest:/ })).toBeVisible();
+    }
+    await expect(page.getByRole("heading", { name: "My night", exact: true })).toHaveCount(0);
+    await page.getByLabel("Schedule date", { exact: true }).fill("2026-11-05");
+    const fallback = page.getByRole("region", { name: "My night", exact: true });
+    for (const title of ["Night Without End", "Day Gathering"]) {
+      await fallback.getByRole("button", { name: `Remove ${title} from My night`, exact: true }).click();
+    }
+    await expect(fallback).toHaveCount(0);
+    expect(await page.evaluate(() => JSON.parse(localStorage.getItem("vrdex.timeline.preferences.v1") ?? "null").plan)).toEqual([]);
+  });
+  test("quietRangeNavigatesToKnownLaterEvent", async ({ page }) => {
+    const width = await page.getByRole("region", { name: "Timeline chart", exact: true }).evaluate((el) => el.clientWidth);
+    const quietAnchor = Date.UTC(2026, 9, 26) - (4 + width / 100) * 3600000;
+    await page.goto(`/?at=${quietAnchor}&tz=UTC&tag=a&tag=b`);
+    await expect(page.getByLabel("Schedule data state")).toHaveAttribute("data-state", "ready");
+    await page.getByRole("button", { name: "Next event", exact: true }).click();
+    expect(new URL(page.url()).searchParams.get("at")).toBe(String(Date.UTC(2026, 9, 26)));
+    expect(new URL(page.url()).searchParams.getAll("tag")).toEqual(["a", "b"]);
+    await expect(page.getByLabel("Schedule date", { exact: true })).toHaveValue("2026-10-26");
+    await page.getByLabel("Schedule date", { exact: true }).fill("2036-11-05");
+    await expect(page.getByLabel("Schedule data state")).toHaveAttribute("data-state", "ready");
+    await expect(page.getByRole("button", { name: "Next event", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Now", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Earlier", exact: true })).toBeVisible();
+  });
+  test("quietRangePreservesFavoritesWhenNavigatingKnownStart", async ({ page }) => {
+    await page.locator("[data-home-schedule]").getByRole("button", { name: "Open ORBIT: Interstellar Bassline Orchestra", exact: true }).click();
+    const panel = page.getByRole("region", { name: "Event details", exact: true });
+    await panel.getByRole("button", { name: "Favorite: Aurora", exact: true }).first().click();
+    await panel.getByRole("button", { name: "Close", exact: true }).click();
+    const width = await page.getByRole("region", { name: "Timeline chart", exact: true }).evaluate((el) => el.clientWidth);
+    const quietAnchor = Date.UTC(2026, 9, 26) - (4 + width / 100) * 3600000;
+    await page.goto(`/?at=${quietAnchor}&tz=America%2FNew_York&favorites=1&tag=keep`);
+    await expect(page.getByLabel("Schedule data state")).toHaveAttribute("data-state", "ready");
+    await page.getByRole("button", { name: "Next event", exact: true }).click();
+    const params = new URL(page.url()).searchParams;
+    expect(params.get("at")).toBe(String(TIMELINE_NOW - 9000000));
+    expect(params.get("favorites")).toBe("1");
+    expect(params.get("tz")).toBe("America/New_York");
+    expect(params.get("tag")).toBe("keep");
+  });
+  test("defaultHomeGeometry", async ({ page, isMobile }, info) => {
+    const sizes = isMobile ? [page.viewportSize()!] : [{ width: 1280, height: 800 }, { width: 1440, height: 900 }];
+    for (const size of sizes) {
+      await page.setViewportSize(size);
+      await page.evaluate(() => window.scrollTo(0, 0));
+      const metrics = await page.evaluate(() => {
+        const rect = (selector: string) => document.querySelector(selector)?.getBoundingClientRect().toJSON();
+        return { search: rect('input[aria-label="Search VRDex"]'), schedule: rect('[data-home-schedule]'), lanes: rect('[data-testid="public-timeline-lanes"]'), chart: rect('[aria-label="Timeline chart"]'), discover: rect('[aria-labelledby="discover-heading"]'), artwork: rect('[data-testid="discovery-event-card"] a'), bars: [...document.querySelectorAll('[data-testid^="event-"]')].map((el) => ({ id: el.getAttribute("data-testid"), top: (el as HTMLElement).style.top })), markers: document.querySelectorAll('[data-testid^="date-marker-"]').length };
+      });
+      await info.attach(`default-${size.width}.json`, { body: JSON.stringify({ size, ...metrics }), contentType: "application/json" });
+      await page.screenshot({ path: info.outputPath(`default-${size.width}.png`), fullPage: true });
+    }
+  });
+  test("fourPublicRowsRemainAtQuietStartup", async ({ page }, info) => {
+    await page.getByLabel("Schedule date", { exact: true }).fill("2026-11-05");
+    const lanes = page.getByTestId("public-timeline-lanes");
+    await expect(lanes).toHaveCount(1);
+    expect((await lanes.boundingBox())?.height).toBeGreaterThanOrEqual(376);
+    await info.attach("quiet-lanes.json", { body: JSON.stringify(await lanes.boundingBox()), contentType: "application/json" });
+    await page.screenshot({ path: info.outputPath("quiet-four-rows.png"), fullPage: true });
+  });
   test("favorites synchronize across tabs and saves survive reload without public snapshots", async ({
     page,
     timelineFixture,
@@ -27,30 +133,30 @@ test.describe("continuous schedule @flow @fixture", () => {
     await expect(
       page.getByRole("heading", { name: "My night", exact: true }),
     ).toHaveCount(0);
-    await page.getByRole("button", { name: "Agenda", exact: true }).click();
+
     const other = await page.context().newPage();
     try {
       await other.clock.setFixedTime(TIMELINE_NOW);
-      await other.goto("/?scheduleView=agenda");
+      await other.goto("/");
       await expect(other.getByLabel("Schedule data state")).toHaveAttribute(
         "data-state",
         "ready",
       );
       await page
-        .getByRole("button", { name: "Favorite Prism Collective", exact: true })
+        .getByRole("button", { name: "Favorite: Prism Collective", exact: true })
         .first()
         .click();
       await expect(
         other
           .getByRole("button", {
-            name: "Unfavorite Prism Collective",
+            name: "Remove favorite: Prism Collective",
             exact: true,
           })
           .first(),
       ).toBeVisible();
       await other
         .getByRole("button", {
-          name: "Unfavorite Prism Collective",
+          name: "Remove favorite: Prism Collective",
           exact: true,
         })
         .first()
@@ -58,15 +164,12 @@ test.describe("continuous schedule @flow @fixture", () => {
       await expect(
         page
           .getByRole("button", {
-            name: "Favorite Prism Collective",
+            name: "Favorite: Prism Collective",
             exact: true,
           })
           .first(),
       ).toBeVisible();
-      await page
-        .getByRole("button", { name: "Favorite Aurora", exact: true })
-        .first()
-        .click();
+      await toggleAuroraFavorite(page, false);
       await page
         .getByRole("button", { name: "Favorites only", exact: true })
         .click();
@@ -88,12 +191,9 @@ test.describe("continuous schedule @flow @fixture", () => {
       await page
         .getByRole("button", { name: "Favorites only", exact: true })
         .click();
+      await toggleAuroraFavorite(page, true);
       await page
-        .getByRole("button", { name: "Unfavorite Aurora", exact: true })
-        .first()
-        .click();
-      await page
-        .getByRole("button", { name: "Add Low Tide to My night", exact: true })
+        .getByRole("button", { name: "Interested: Low Tide", exact: true })
         .click();
       await page.reload();
       await expect(
@@ -138,9 +238,9 @@ test.describe("continuous schedule @flow @fixture", () => {
       "data-state",
       "ready",
     );
-    await page.getByRole("button", { name: "Agenda", exact: true }).click();
+
     await page
-      .getByRole("button", { name: "Add Low Tide to My night", exact: true })
+      .getByRole("button", { name: "Interested: Low Tide", exact: true })
       .click();
     await expect(page.getByText("Not saved", { exact: true })).toBeVisible();
     await expect(
@@ -149,7 +249,7 @@ test.describe("continuous schedule @flow @fixture", () => {
     await page
       .getByRole("region", { name: "My night", exact: true })
       .getByRole("button", {
-        name: "Remove Low Tide from My night",
+        name: "Remove interest: Low Tide",
         exact: true,
       })
       .click();
@@ -162,27 +262,11 @@ test.describe("continuous schedule @flow @fixture", () => {
     request,
     timelineFixture,
   }) => {
-    await page.getByRole("button", { name: "Agenda", exact: true }).click();
-    const orbit = page.locator("article").filter({
-      has: page.getByRole("button", {
-        name: "Open ORBIT: Interstellar Bassline Orchestra",
-        exact: true,
-      }),
-    });
-    const glass = page.locator("article").filter({
-      has: page.getByRole("button", {
-        name: "Open Glasshouse Sessions",
-        exact: true,
-      }),
-    });
-    await orbit
-      .getByRole("button", { name: "Add Aurora to My night", exact: true })
-      .click();
-    await glass
-      .getByRole("button", { name: "Add Neon Harbor to My night", exact: true })
-      .click();
+
+    await saveInInspector(page, "ORBIT: Interstellar Bassline Orchestra", "Aurora");
+    await saveInInspector(page, "Glasshouse Sessions", "Neon Harbor");
     const night = page.getByRole("region", { name: "My night", exact: true });
-    await expect(night.getByText("Overlap", { exact: true })).toHaveCount(2);
+    await expect(page.getByTestId("night-lanes").getByLabel("Overlap", { exact: true })).toHaveCount(2);
     await changeTimelineFixture(request, timelineFixture, 3, "recreate-slot");
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
     await expect(night.getByText("Unavailable", { exact: true })).toBeVisible();
@@ -193,18 +277,9 @@ test.describe("continuous schedule @flow @fixture", () => {
         exact: true,
       })
       .click();
-    await orbit
-      .getByRole("button", { name: "Add Aurora to My night", exact: true })
-      .click();
-    await orbit
-      .getByRole("button", { name: "Add Neon Harbor to My night", exact: true })
-      .click();
-    await orbit
-      .getByRole("button", {
-        name: "Add ORBIT: Interstellar Bassline Orchestra to My night",
-        exact: true,
-      })
-      .click();
+    await saveInInspector(page, "ORBIT: Interstellar Bassline Orchestra", "Aurora");
+    await saveInInspector(page, "ORBIT: Interstellar Bassline Orchestra", "Neon Harbor");
+    await saveInInspector(page, "ORBIT: Interstellar Bassline Orchestra");
     const plan = await page.evaluate(
       () =>
         JSON.parse(
@@ -594,7 +669,7 @@ test.describe("continuous schedule @flow @fixture", () => {
       .click();
     await expect(page).toHaveURL(new RegExp(href + "$"));
   });
-  test("real bars, shared Agenda, saves, favorites and usable public search", async ({
+  test("real bars, timeline markers, saves, favorites and usable public search", async ({
     page,
     timelineFixture,
   }, info) => {
@@ -603,7 +678,7 @@ test.describe("continuous schedule @flow @fixture", () => {
     await expect(
       page.getByText("Day Gathering", { exact: true }),
     ).toBeVisible();
-    await page.getByRole("button", { name: "Agenda", exact: true }).click();
+
     await expect(
       page.getByRole("button", {
         name: "Open ORBIT: Interstellar Bassline Orchestra",
@@ -612,23 +687,23 @@ test.describe("continuous schedule @flow @fixture", () => {
     ).toBeVisible();
     await page
       .getByRole("button", {
-        name: "Add ORBIT: Interstellar Bassline Orchestra to My night",
+        name: "Interested: ORBIT: Interstellar Bassline Orchestra",
         exact: true,
       })
       .click();
     await expect(
       page.getByRole("heading", { name: "My night", exact: true }),
     ).toBeVisible();
-    await page.getByRole("button", { name: "Timeline", exact: true }).click();
+
     await expect(page.getByTestId("night-lanes")).toBeVisible();
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.screenshot({
       path: info.outputPath("schedule-saved.png"),
       fullPage: true,
     });
-    await page.getByRole("button", { name: "Agenda", exact: true }).click();
+
     await page
-      .getByRole("button", { name: "Favorite Prism Collective", exact: true })
+      .getByRole("button", { name: "Favorite: Prism Collective", exact: true })
       .first()
       .click();
     await page
@@ -671,10 +746,10 @@ test.describe("continuous schedule @flow @fixture", () => {
     await expect(page.getByLabel("Schedule date", { exact: true })).toHaveValue(
       "2026-10-26",
     );
-    const agenda = page.getByRole("button", { name: "Agenda", exact: true });
-    await agenda.focus();
+    const nowControl = page.getByRole("button", { name: "Now", exact: true });
+    await nowControl.focus();
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-    await expect(agenda).toBeFocused();
+    await expect(nowControl).toBeFocused();
     const ongoing = page
       .getByTestId(`event-${timelineFixture.eventIds[0]}`)
       .getByRole("button", { name: "Open Soft Focus", exact: true });
@@ -717,10 +792,10 @@ test.describe("continuous schedule @flow @fixture", () => {
       await open.press("Enter");
       await expect(open).toHaveAttribute("aria-pressed", "true");
     } else {
-      await page.getByRole("button", { name: "Agenda", exact: true }).tap();
+
       await page
         .getByRole("button", {
-          name: "Add ORBIT: Interstellar Bassline Orchestra to My night",
+          name: "Interested: ORBIT: Interstellar Bassline Orchestra",
           exact: true,
         })
         .tap();
@@ -734,21 +809,21 @@ test.describe("continuous schedule @flow @fixture", () => {
     request,
     timelineFixture,
   }, info) => {
-    await page.getByRole("button", { name: "Agenda", exact: true }).click();
+
     for (const title of [
       "ORBIT: Interstellar Bassline Orchestra",
       "Low Tide",
       "Day Gathering",
     ])
       await page
-        .getByRole("button", { name: `Add ${title} to My night`, exact: true })
+        .getByRole("button", { name: `Interested: ${title}`, exact: true })
         .click();
     const night = page.getByRole("region", { name: "My night", exact: true });
-    await expect(night.getByText("Overlap", { exact: true })).toHaveCount(2);
+    await expect(page.getByTestId("night-lanes").getByLabel("Overlap", { exact: true })).toHaveCount(2);
     await expect(
-      night.getByText("2026-10-26 · Time TBA", { exact: true }),
+      page.getByTestId(`date-marker-${timelineFixture.eventIds[7]}`).getByText("Time TBA", { exact: true }),
     ).toBeVisible();
-    await page.getByRole("button", { name: "Timeline", exact: true }).click();
+
     await page.getByLabel("Schedule date", { exact: true }).fill("2026-11-02");
     await expect(
       page.getByRole("button", { name: "Next saved", exact: true }),
@@ -825,80 +900,27 @@ test.describe("continuous schedule @flow @fixture", () => {
       page.getByLabel("Timeline chart", { exact: true }),
     ).toBeVisible();
   });
-  test("included sets cannot remove their whole-event save", async ({
-    page,
-    timelineFixture,
-    isMobile,
-  }, info) => {
+  test("included sets cannot remove their whole-event save", async ({ page, timelineFixture, isMobile }, info) => {
     const title = "ORBIT: Interstellar Bassline Orchestra";
-    await page.getByRole("button", { name: "Agenda", exact: true }).click();
-    const article = page.locator("article").filter({
-      has: page.getByRole("button", { name: `Open ${title}`, exact: true }),
-    });
-    await article
-      .getByRole("button", { name: `Add ${title} to My night`, exact: true })
-      .click();
-    const included = article.getByRole("button", {
-      name: `Aurora: Included in ${title}`,
-      exact: true,
-    });
-    await expect(included).toBeDisabled();
-    await expect(included).toHaveText("Included");
-    // Dispatching click also checks the React callback guard, beyond native disabled behavior.
-    await included.dispatchEvent("click");
-    await expect(
-      page.getByRole("heading", { name: "My night", exact: true }),
-    ).toBeVisible();
-    expect(
-      await page.evaluate(
-        () =>
-          JSON.parse(
-            localStorage.getItem("vrdex.timeline.preferences.v1") ?? "null",
-          ).plan,
-      ),
-    ).toEqual([{ kind: "event", eventId: timelineFixture.eventIds[3] }]);
-    await page.getByRole("button", { name: "Timeline", exact: true }).click();
+    await saveInInspector(page, title);
     const bar = page.getByTestId(`event-${timelineFixture.eventIds[3]}`);
-    const chartIncluded = bar.getByRole("button", {
-      name: `Included with event: Aurora at ${title}`,
-      exact: true,
-      includeHidden: true,
-    });
+    const chartIncluded = bar.getByRole("button", { name: `Included with event: Aurora at ${title}`, exact: true, includeHidden: true });
     await expect(chartIncluded).toBeDisabled();
     await expect(chartIncluded).toHaveAttribute("title", "Included with event");
-    if (!isMobile) {
-      await chartIncluded.dispatchEvent("click");
-    }
-    await page.getByRole("button", { name: "Agenda", exact: true }).click();
+    await chartIncluded.dispatchEvent("click");
+    await bar.getByRole("button", { name: `Open ${title}`, exact: true }).click();
+    const panel = page.getByRole("region", { name: "Event details", exact: true });
+    const included = panel.getByRole("button", { name: "Included with event: Aurora", exact: true });
     await expect(included).toBeDisabled();
-    await page.evaluate(() => window.scrollTo(0, 0));
-    await page.screenshot({
-      path: info.outputPath("schedule-included.png"),
-      fullPage: true,
-    });
-    const remove = article.getByRole("button", {
-      name: `Remove ${title} from My night`,
-      exact: true,
-    });
-    if (isMobile) await remove.tap();
-    else await remove.click();
-    await expect(
-      page.getByRole("heading", { name: "My night", exact: true }),
-    ).toHaveCount(0);
-    expect(
-      await page.evaluate(
-        () =>
-          JSON.parse(
-            localStorage.getItem("vrdex.timeline.preferences.v1") ?? "null",
-          ).plan,
-      ),
-    ).toEqual([]);
-    await expect(
-      article.getByRole("button", {
-        name: "Add Aurora to My night",
-        exact: true,
-      }),
-    ).toBeEnabled();
+    await included.dispatchEvent("click");
+    expect(await page.evaluate(() => JSON.parse(localStorage.getItem("vrdex.timeline.preferences.v1") ?? "null").plan)).toEqual([{ kind: "event", eventId: timelineFixture.eventIds[3] }]);
+    await page.screenshot({ path: info.outputPath("schedule-included.png"), fullPage: true });
+    const remove = panel.getByRole("button", { name: `Remove interest: ${title}`, exact: true });
+    if (isMobile) await remove.tap(); else await remove.click();
+    await expect(panel.getByRole("button", { name: "Interested: Aurora", exact: true })).toBeEnabled();
+    expect(await page.evaluate(() => JSON.parse(localStorage.getItem("vrdex.timeline.preferences.v1") ?? "null").plan)).toEqual([]);
+    await panel.getByRole("button", { name: "Close", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "My night", exact: true })).toHaveCount(0);
   });
   test("detail replacement, hostless navigation and vanished-invoker focus", async ({
     page,
@@ -908,7 +930,7 @@ test.describe("continuous schedule @flow @fixture", () => {
       name: "Event details",
       exact: true,
     });
-    await page.getByRole("button", { name: "Agenda", exact: true }).click();
+
     await page
       .getByRole("button", {
         name: "Open ORBIT: Interstellar Bassline Orchestra",
@@ -1045,7 +1067,7 @@ test.describe("continuous schedule @flow @fixture", () => {
         "data-state",
         "ready",
       );
-      await page.getByRole("button", { name: "Agenda", exact: true }).click();
+
       await page
         .getByRole("button", {
           name: "Open Later-page guest at ORBIT: Interstellar Bassline Orchestra",
@@ -1087,7 +1109,7 @@ test.describe("continuous schedule @flow @fixture", () => {
       request,
       timelineFixture,
     }, info) => {
-      await page.getByRole("button", { name: "Agenda", exact: true }).click();
+
       const later = page.getByRole("button", {
         name: "Open Later-page guest at ORBIT: Interstellar Bassline Orchestra",
         exact: true,
