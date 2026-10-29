@@ -12,6 +12,7 @@ export type LineupObservedSource = {
   readonly grantId?: string;
   readonly metadata?: DjMetadata;
   play(): Promise<boolean>; pause(): void; release(): void;
+  retire?(): void;
   setMuted(value: boolean): void; setVolume(value: number): void;
   ready(): boolean; sample(at: number, paused: boolean): AudioObservationSample;
   setMode?(mode: PlaybackMode): Promise<boolean>;
@@ -22,6 +23,7 @@ export type LineupObservedSource = {
 export type NativeLineupOptions = {
   create(slot: LineupSlot, prepared: boolean, isCurrent: () => boolean, continuationGrantId?: string): Promise<LineupObservedSource>;
   onCurrent(source: LineupObservedSource, slot: LineupSlot): void;
+  onCurrentReleased?(): void;
 };
 type Connection = { slot: LineupSlot; source: LineupObservedSource; evidence: ReturnType<typeof clearPlaybackEvidence>; startupDeadline: number; progressed: boolean };
 // Cold MSE/audio initialization can exceed the established-source failure window.
@@ -42,6 +44,7 @@ export class EventLineupSession {
   private context?: AudioContext;
   private viewer?: GainNode;
   private current?: Connection;
+  private continuation?: LineupObservedSource;
   private next?: Connection;
   private currentGeneration = 0;
   private nextGeneration = 0;
@@ -82,8 +85,15 @@ export class EventLineupSession {
     this.nextAttempt = 0;
     this.nextRetryAt = released ? performance.now() + backoff[0] : 0;
   }
-  private releaseCurrent() {
-    this.currentGeneration++; this.currentPending = false; this.current?.source.release(); this.current = undefined;
+  private releaseContinuation() {
+    this.continuation?.release(); this.continuation = undefined;
+  }
+  private releaseCurrent(retainProof = false) {
+    const source = this.current?.source;
+    this.currentGeneration++; this.currentPending = false;
+    if (!retainProof) source?.release();
+    this.current = undefined;
+    if (source) this.native?.onCurrentReleased?.();
     this.currentAttempt = 0; this.currentRetryAt = 0;
   }
   private scheduleSlot() {
@@ -98,7 +108,7 @@ export class EventLineupSession {
       const match = reconcileSlot(this.selected, event.slots);
       if (!match) {
         this.playRequest++;
-        this.releaseCurrent(); this.selected = undefined;
+        this.releaseCurrent(); this.releaseContinuation(); this.selected = undefined;
         this.state.current = undefined; this.state.connected = false; this.state.unavailable = true;
         // A revoked source needs explicit viewer action, never an automatic substitute.
         this.state.paused = true;
@@ -118,7 +128,14 @@ export class EventLineupSession {
       this.current.slot = slot; this.selected = slot; this.state.current = slot.key; this.resetEvidence();
       return;
     }
-    this.releaseCurrent(); this.selected = slot;
+    const previous = this.current?.source;
+    const retainProof = !!(this.native && slot?.stream && previous?.grantId);
+    if (retainProof && previous) {
+      this.releaseContinuation();
+      previous.setMuted(true); previous.pause(); previous.media.hidden = true;
+      previous.retire?.(); this.continuation = previous;
+    } else if (!slot?.stream) this.releaseContinuation();
+    this.releaseCurrent(retainProof); this.selected = slot;
     this.state.current = slot?.key; this.state.connected = false; this.state.unavailable = !slot?.stream;
   }
   async play() {
@@ -173,7 +190,7 @@ export class EventLineupSession {
   pause() {
     this.playRequest++;
     if (this.currentPending && !this.current) { this.currentGeneration++; this.currentPending = false; }
-    this.state.paused = true; this.current?.source.pause(); this.releaseNext(); this.resetEvidence(); this.emit();
+    this.state.paused = true; this.current?.source.pause(); this.releaseContinuation(); this.releaseNext(); this.resetEvidence(); this.emit();
   }
   manual(key: string) {
     this.playRequest++;
@@ -273,11 +290,12 @@ export class EventLineupSession {
     if (prepared) this.nextPending = true; else this.currentPending = true;
     const token = prepared ? ++this.nextGeneration : ++this.currentGeneration;
     const context = this.context;
+    const continuation = !prepared ? this.continuation : undefined;
     const request = this.playRequest;
     try {
       const isCurrent = () => !this.disposed && token === (prepared ? this.nextGeneration : this.currentGeneration);
       let source: LineupObservedSource;
-      if (this.native) source = await this.native.create(slot, prepared, isCurrent, this.current?.source.grantId);
+      if (this.native) source = await this.native.create(slot, prepared, isCurrent, this.current?.source.grantId ?? continuation?.grantId);
       else {
         if (!context || !this.viewer) throw Error("Playback context unavailable");
         const legacy: ObservedVrcdnSource = await this.createSource(context, this.viewer, slot.stream.questUrl, isCurrent);
@@ -302,6 +320,7 @@ export class EventLineupSession {
       if (token !== (prepared ? this.nextGeneration : this.currentGeneration)) return;
       if (!prepared) this.state.unavailable = true;
     } finally {
+      if (!prepared && token === this.currentGeneration && continuation === this.continuation) this.releaseContinuation();
       if (token === (prepared ? this.nextGeneration : this.currentGeneration)) {
         const at = performance.now();
         if (prepared) { this.nextPending = false; this.nextRetryAt = at + backoff[Math.min(this.nextAttempt++, 3)]; }
@@ -378,7 +397,7 @@ export class EventLineupSession {
   }
   dispose() {
     this.disposed = true; clearInterval(this.timer); document.removeEventListener("visibilitychange", this.resetEvidence);
-    this.releaseNext(); this.releaseCurrent(); this.context?.removeEventListener("statechange", this.resetEvidence);
+    this.releaseNext(); this.releaseCurrent(); this.releaseContinuation(); this.context?.removeEventListener("statechange", this.resetEvidence);
     void this.context?.close().catch(() => {});
   }
 }

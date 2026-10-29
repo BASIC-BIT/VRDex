@@ -27,7 +27,7 @@ export function createNativeLineupAdapter({ request, mount, notify, mode: initia
     async create(slot, prepared, isCurrent, continuationGrantId) {
       if (!slot.stream) throw Error("Unavailable source");
       let id: string | undefined;
-      let released = false, sourceIntent = 0;
+      let released = false, sourceIntent = 0, identityGeneration = 0, rebinding = false, retired = false;
       let releasedId: string | undefined;
       const cleanup = () => {
         released = true; releases.delete(cleanup);
@@ -63,12 +63,14 @@ export function createNativeLineupAdapter({ request, mount, notify, mode: initia
           get metadata() { return admission.metadata; },
           pause() { sourceIntent++; observed.pause(); },
           async setMode(next) { sourceIntent++; return observed.setMode(next); },
+          retire() { retired = true; identityGeneration++; sourceIntent++; observed.release(); },
           release() { sourceIntent++; observed.release(); cleanup(); },
           async recover(explicit) {
-            if (released || disposed || !id) return false;
+            if (released || disposed || retired || !id || rebinding) return false;
+            const generation = identityGeneration;
             const token = ++sourceIntent;
             let result = AdmissionSchema.parse(await (explicit ? client.restart(id) : client.get(id)));
-            if (released || disposed || token !== sourceIntent) return false;
+            if (released || disposed || token !== sourceIntent || generation !== identityGeneration) return false;
             if (explicit && result.kind === "unavailable" && result.reason === "expired") {
               // Actual expiry requires ordinary new admission, including the calendar window.
               release(id); id = undefined;
@@ -76,12 +78,13 @@ export function createNativeLineupAdapter({ request, mount, notify, mode: initia
             }
             const deadline = Date.now() + 30_000;
             while (true) {
-              if (result.kind === "ready" || result.kind === "preparing") id = result.kind === "ready" ? result.grant.id : result.grantId;
-              if (released || disposed) { if (id) release(id); return false; }
-              if (token !== sourceIntent) return false;
+              const returnedId = result.kind === "ready" ? result.grant.id : result.kind === "preparing" ? result.grantId : undefined;
+              if (released || disposed) { if (returnedId) release(returnedId); return false; }
+              if (token !== sourceIntent || generation !== identityGeneration) { if (returnedId && returnedId !== id) release(returnedId); return false; }
+              if (returnedId) id = returnedId;
               if (!explicit || result.kind !== "preparing" || Date.now() >= deadline) break;
               await wait(result.retryAfterMs);
-              if (released || disposed || token !== sourceIntent) return false;
+              if (released || disposed || token !== sourceIntent || generation !== identityGeneration) return false;
               result = AdmissionSchema.parse(await client.get(result.grantId));
             }
             if (result.kind !== "ready") {
@@ -92,15 +95,19 @@ export function createNativeLineupAdapter({ request, mount, notify, mode: initia
             return observed.recoverMedia(result);
           },
           async rebind(target: LineupSlot) {
-            if (!client.rebind || !id || released || admission.grant.context.kind !== "event") return false;
-            const result = PlaybackRebindSchema.parse(await client.rebind(id, target.key, admission.grant.context.selectedSourceId, admission.grant.contextRevision));
-            if (released || disposed || result.kind !== "rebound") return false;
-            admission = { ...admission, grant: result.grant, metadata: result.metadata }; observed.updateGrant(admission); return true;
+            if (!client.rebind || !id || released || retired || admission.grant.context.kind !== "event") return false;
+            rebinding = true; identityGeneration++; sourceIntent++;
+            try {
+              const result = PlaybackRebindSchema.parse(await client.rebind(id, target.key, admission.grant.context.selectedSourceId, admission.grant.contextRevision));
+              if (released || disposed || retired || result.kind !== "rebound") return false;
+              admission = { ...admission, grant: result.grant, metadata: result.metadata }; observed.updateGrant(admission); return true;
+            } finally { identityGeneration++; rebinding = false; }
           },
           async refresh() {
-            if (!id || released) return;
-            const result = AdmissionSchema.parse(await client.refresh(id));
-            if (disposed || released) return;
+            if (!id || released || retired || rebinding) return;
+            const generation = identityGeneration, grantId = id;
+            const result = AdmissionSchema.parse(await client.refresh(grantId));
+            if (disposed || released || generation !== identityGeneration || id !== grantId) return;
             if (result.kind === "ready") { admission = result; observed.updateGrant(result); if (session.media === observed.media) notify({ metadata: result.metadata }); }
             else if (result.kind === "unavailable") { observed.pause(); notify({ status: "unavailable" }); }
           },
@@ -109,6 +116,7 @@ export function createNativeLineupAdapter({ request, mount, notify, mode: initia
       } catch (error) { cleanup(); throw error; }
     },
     onCurrent(source) { notify({ metadata: source.metadata, unavailableReason: undefined }); },
+    onCurrentReleased() { notify({ metadata: undefined }); },
   });
   void session.setMode(initialMode);
   return {

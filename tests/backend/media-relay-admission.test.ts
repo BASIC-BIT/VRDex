@@ -1229,3 +1229,64 @@ it("continuation preserves ordinary rolling admission and source-capacity quotas
   assert.equal(AdmissionSchema.parse(await h.openNext()).kind, "capacityLimited");
   assert.equal((await h.t.run(ctx => ctx.db.query("mediaRelayGrants").collect())).length, 1);
 });
+
+it("native manual postwindow selection presents an unreleased real continuation grant before old proof release", async () => {
+  const { createNativeLineupAdapter } = await import("../../apps/web/src/lib/native-lineup-adapter");
+  const { mock } = await import("node:test");
+  const h = await sequenceFixture();
+  process.env.MEDIA_RELAY_PLAYBACK_ORIGIN = "https://media.example";
+  await h.t.mutation(release, { grantId: h.first.grantId });
+  await h.t.run(async ctx => {
+    const alpha = await ctx.db.query("mediaRelaySources").withIndex("by_streamKey", q => q.eq("streamKey", "vrcdn/Alpha/1")).unique();
+    await ctx.db.patch(alpha!._id, { state: "ready" });
+    await ctx.db.insert("mediaRelaySources", { streamKey: "vrcdn/Beta/1", streamId: "Beta", inputFormat: "vrcdn_fmp4", packagingVersion: 1, state: "ready", createdAt: Date.now(), updatedAt: Date.now() });
+  });
+  class Media extends EventTarget {
+    paused = true; muted = false; hidden = false; volume = 1; src = ""; currentTime = 1; readyState = 3; ended = false;
+    canPlayType() { return "probably"; }
+    async play() { this.paused = false; }
+    pause() { this.paused = true; }
+    removeAttribute() { this.src = ""; }
+    load() {} remove() {}
+  }
+  const before = globalThis.document;
+  const nodes: Media[] = [], grantIds: string[] = [];
+  const releasing: Promise<unknown>[] = [];
+  let finish!: () => void, entered!: () => void, admitted!: () => void;
+  const pending = new Promise<void>(resolve => { finish = resolve; });
+  const targetEntered = new Promise<void>(resolve => { entered = resolve; });
+  const targetAdmitted = new Promise<void>(resolve => { admitted = resolve; });
+  let proof: string | undefined;
+  let adapter: ReturnType<typeof createNativeLineupAdapter> | undefined;
+  try {
+    Object.defineProperty(globalThis, "document", { configurable: true, value: { visibilityState: "visible", addEventListener() {}, removeEventListener() {}, createElement() { const node = new Media(); nodes.push(node); return node; } } });
+    mock.method(globalThis, "setInterval", () => 1); mock.method(globalThis, "clearInterval", () => {});
+    const now = Date.now();
+    const stream = (streamId: string) => ({ streamId, pcUrl: `vrcdn:${streamId}`, questUrl: `vrcdn:${streamId}` });
+    adapter = createNativeLineupAdapter({ request: { kind: "performer_sequence", eventId: h.eventId, eventSlug: "show", href: "/events/show", title: "Show", startAt: now - 1000, endAt: now + 60000,
+      event: { title: "Show", startAt: now - 1000, endAt: now + 60000, slots: [{ key: h.slots.a, startAt: now - 1000, endAt: now + 3600000, stream: stream("Alpha") }, { key: h.slots.b, startAt: now + 3600000, stream: stream("Beta") }] } }, mount: { append() {} } as unknown as HTMLElement, mode: "audio", notify() {}, client: {
+      async open(context, streamId, preferredMode, continuationGrantId) {
+        const target = context.kind === "event" && context.selectedSourceId === h.slots.b;
+        if (target) { proof = continuationGrantId; entered(); await pending; }
+        const result = AdmissionSchema.parse(await h.t.mutation(open, { context, streamId, preferredMode, ...(continuationGrantId ? { continuationGrantId } : {}) }));
+        if (result.kind === "ready") grantIds.push(result.grant.id);
+        if (target) admitted(); return result;
+      }, get: grantId => h.t.query(get, { grantId }), refresh: grantId => h.t.mutation(makeFunctionReference<"mutation">("mediaRelayPlayback:refreshPlayback"), { grantId }), restart: grantId => h.t.mutation(makeFunctionReference<"mutation">("mediaRelayPlayback:restartPlayback"), { grantId }),
+      release(grantId) { const result = h.t.mutation(release, { grantId }); releasing.push(result); return result; },
+    } });
+    await adapter.play();
+    for (let n = 0; n < 20 && !adapter.media; n++) await new Promise<void>(resolve => setImmediate(resolve));
+    assert.ok(adapter.media); assert.equal(grantIds.length, 1);
+    await h.end(); adapter.manual!(h.slots.b); await targetEntered;
+    assert.equal(proof, grantIds[0]); assert.equal(nodes[1].paused, true);
+    assert.equal((await h.t.query(resolve, { grantId: proof, now: Date.now() })).kind, "valid");
+    finish(); await targetAdmitted;
+    for (let n = 0; n < 20 && (!adapter.media || adapter.media.paused); n++) await new Promise<void>(resolve => setImmediate(resolve));
+    assert.equal(grantIds.length, 2, "real backend admitted the target after calendar end"); assert.notEqual(grantIds[0], grantIds[1]); assert.equal(adapter.media?.paused, false);
+    await Promise.all(releasing);
+    assert.equal((await h.t.query(resolve, { grantId: grantIds[0], now: Date.now() })).kind, "denied");
+    assert.equal((await h.t.query(resolve, { grantId: grantIds[1], now: Date.now() })).kind, "valid");
+    adapter.dispose(); await Promise.all(releasing);
+    assert.equal((await h.t.query(resolve, { grantId: grantIds[1], now: Date.now() })).kind, "denied");
+  } finally { finish?.(); adapter?.dispose(); await Promise.all(releasing); mock.restoreAll(); Object.defineProperty(globalThis, "document", { configurable: true, value: before }); }
+});

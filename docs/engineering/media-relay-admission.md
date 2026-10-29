@@ -77,6 +77,21 @@ existing same-stream lineup behavior. Client rebinding is serialized and fenced
 against current ownership, viewer intent and Close. A denied rebind pauses and
 exposes the existing explicit retry policy; it never claims the new identity.
 Metadata-only edits use ordinary refresh and do not need a rebind.
+Refresh and recovery responses carry the client admission identity generation.
+Starting and completing a rebind invalidate older responses, including replies
+whose server work finished before the rebind but whose delivery was delayed.
+Refresh/recovery do not start while a rebind is in flight. A stale response cannot
+restore the previous context, overwrite the current native title or supply the
+expected context for a later CAS.
+
+An explicit manual change to a different stream retires the old native transport
+and clears installed-current metadata immediately. Its valid grant remains held
+as silent continuation proof until target admission finishes. A superseding
+manual choice transfers that held proof to the newest admission; cancellation,
+Pause, Close or target revocation release it. Cancelled target admissions release
+any late capability they return. Target installation publishes only its own
+admitted metadata and releases the old proof. The backend still reauthorizes the
+unreleased proof and target independently; retirement never extends authority.
 
 The native lineup uses the existing foreground coordinator and boundary/failure
 policy. Prepared playback is element-muted and owns no public current metadata.
