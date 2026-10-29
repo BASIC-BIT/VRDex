@@ -102,6 +102,27 @@ Repeated IDs are deduplicated before checking batch limits. Current field
 visibility is enforced on every public response, including after suppression or
 visibility changes.
 
+`favoriteLineup({ eventIds, favoriteProfileIds })` resolves complete favorite-person
+membership for at most two selected discovery cards. Raw limits are two event IDs
+and 25 favorite IDs, checked before deduplication. Invalid/unavailable events and
+private, suppressed or non-person profiles are omitted. It returns only each
+event ID and matched people's `id`, `slug` and `displayName`, without genres,
+artwork or association metadata. Membership uses exact indexed `.first()` reads
+for confirmed slots, authored lineup entries and confirmed participants of every
+public-detail role. Date-only events skip slots, matching the detail roster.
+People appearing in multiple sources are returned once; there is no roster-prefix
+or name limit.
+
+The separate favorite-lineup controller accepts at most 500 favorites, splits
+them into twenty batches of 25 and allows three outstanding logical first values.
+Completed reads remain subscribed, so this does not cap live subscriptions or
+wire concurrency. It publishes a summary only when all current batches finish.
+Context changes, changed live membership/privacy results and errors clear the
+previous summary; cancelled generations cannot publish or launch more batches.
+An event absent from any current batch is omitted. Empty favorites or selected
+cards require no membership reads. This path neither selects recommendations nor
+changes candidate refresh, sampling or expiry budgets.
+
 Community signals include optional compact `imageUrl`, `logoImageUrl` and
 `bannerImageUrl`. The shared compact-artwork projection reads only the first active
 profile-image, primary-logo and banner placements plus the compact-display
@@ -122,6 +143,13 @@ Worst-case row bounds per request (before shared profile/asset caching):
   destination checks), 120 total.
 - Favorite signals: 50 profile reads plus the same optional community artwork
   bound, 500 total; person signals require no artwork hydration.
+- Favorite lineup membership: two events, at most two distinct hosts and 25
+  cached profile reads, plus at most 150 exact association lookups (three per
+  event/person pair), each returning at most one row: 179 document reads/returned
+  rows maximum per batch. Date-only pairs use two association lookups. A full
+  500-favorite refresh is at most 20 requests, 3,000 association lookups and 3,580
+  document reads/returned rows before live revalidation. Empty index probes still
+  cost lookups; these bounds are separate from candidate sampling above.
 
 The browser handles lazy loading, request concurrency, stable sampling/ranking and
 stale-response rejection. Public eligibility reads remain reactive and must not

@@ -1336,6 +1336,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_eventId", ["eventId"])
+    .index("by_eventId_personProfileId_confirmationState", ["eventId", "personProfileId", "confirmationState"])
     .index("by_person_confirmation_publication_status_start", [
       "personProfileId",
       "confirmationState",
@@ -1364,7 +1365,9 @@ export default defineSchema({
     sourceUrl: v.optional(v.string()),
     notes: v.optional(v.string()),
     updatedAt: v.number(),
-  }).index("by_eventId_position", ["eventId", "position"]),
+  })
+    .index("by_eventId_position", ["eventId", "position"])
+    .index("by_eventId_personProfileId", ["eventId", "personProfileId"]),
   eventSlots: defineTable({
     broadcastInput: v.optional(broadcastInputValidator),
     clientKey: v.optional(v.string()),
@@ -1389,6 +1392,7 @@ export default defineSchema({
   })
     .index("by_eventId", ["eventId"])
     .index("by_eventId_startAt", ["eventId", "startAt"])
+    .index("by_eventId_personProfileId_reviewState", ["eventId", "personProfileId", "reviewState"])
     .index("by_eventId_reviewState_startAt", ["eventId", "reviewState", "startAt"])
     .index("by_personProfileId_reviewState_startAt", [
       "personProfileId",
