@@ -129,4 +129,6 @@ crons.interval("reconcile primary group observations", { hours: 6 }, makeFunctio
 crons.interval("reconcile orphan group observations", { hours: 6 }, makeFunctionReference<"mutation">("groupObservations:reconcileRegistryPage"), {});
 crons.interval("admit queued group observations", { minutes: 1 }, makeFunctionReference<"mutation">("groupObservations:admitQueued"), {});
 
+crons.interval("recover event sync jobs", { minutes: 5 }, internal.eventSync.recoverExpiredJobs, {});
+
 export default crons;

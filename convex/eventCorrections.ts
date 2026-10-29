@@ -31,7 +31,7 @@ async function ownEvent(db: DatabaseReader, actorUserId: Id<"users">, eventId: I
 }
 
 /** Reconstruct from canonical data, not the expiring private source draft. */
-async function correctionFields(db: DatabaseReader, event: Doc<"events">): Promise<EventIntakePatch> {
+export async function correctionFields(db: DatabaseReader, event: Doc<"events">): Promise<EventIntakePatch> {
   const community = event.communityProfileId ? await db.get(event.communityProfileId) : null;
   const date = event.eventDate ?? eventDateForInstant(event.startAt!, event.timezone);
   const timezone = event.timezone ?? "UTC";

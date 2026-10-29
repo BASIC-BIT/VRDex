@@ -88,6 +88,12 @@ See [source controls](../backend/event-intake-sources.md) and
 
 ## Event connectors
 
+`VRDEX_EVENT_CONNECTORS_ENABLED` turns event connectors on when set to `true`.
+Scope: the Convex deployment environment only. Default: unset, which means off.
+Owner: BASIC. It gates the Integrations page, connector creation,
+`enqueueEventSync`, and sync job execution. Turning it off leaves pending jobs in
+place; each closes as `connectors_disabled` when its run claims it.
+
 Connector OAuth tokens are stored encrypted with AES-256-GCM in the
 `v1:iv:tag:ciphertext` format, keyed by `VRDEX_CONNECTOR_TOKEN_KEY` (secret).
 

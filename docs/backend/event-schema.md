@@ -317,6 +317,27 @@ Reviewed Google Calendar imports use staging tables rather than canonical event 
 
 Google Calendar import preserves selected event provenance and maps only reviewable event facts. It can stage cancellation tombstones without event start times so later update flows can review deletions without aborting a batch. It does not import attendees, reminders, hidden calendar metadata, private notes, or arbitrary personal calendars by default. Imported candidates remain `draft_private` until an explicit later review/publication flow accepts the batch, candidate, and public fields.
 
+## Connectors
+
+Connectors sync a community's events with an external surface (Discord, Google Calendar, VRChat). Everything is gated by `VRDEX_EVENT_CONNECTORS_ENABLED`; see [Convex environments](../deployment/convex-environments.md#event-connectors).
+
+Tables, with validators in `convex/_eventConnectors.ts`:
+
+- `eventConnectors`: one connector per community, kind, and target, with direction, mode, the authority user whose `manage_integrations` permission every job re-checks, state, `lastSyncedAt`, and `lastError`. Indexes `by_communityProfileId` and `by_kind_target_channelId`.
+- `connectorCredentials`: encrypted OAuth tokens for Google and Notion connectors.
+- `eventSyncLinks`: one row per connector per external copy, keyed to an event or to a held draft. Indexes `by_connectorId_externalId` (unique by convention) and `by_eventId`.
+- `eventSyncJobs`: the job queue. Indexes `by_connectorId_eventId_state` and `by_state_dueAt`.
+
+The link is both the dedupe key and the echo guard. After a successful export the runner stores `externalId`, `lastExportedAt`, and `lastExportedHash`, the carried-field hash of what it sent; an inbound change with the same hash is the export coming back and is ignored. Deleting an export sets the link `vrdex_retracted`; kinds set `external_deleted` themselves on import. A link keyed to a held draft that is still pending blocks exports for that event.
+
+`enqueueEventSync` in `convex/_eventSync.ts` is the single hook every event write path calls. A public event queues `export_upsert` on each active export or bidirectional connector; an unpublished or removed event queues `export_delete` only where a `linked` link exists. Each connector keeps at most one pending job per event: a newer change replaces the pending row in place and cancels its scheduled run. Connector-level jobs (`reconcile`, `import_poll`, `board_refresh`) never replace each other.
+
+`internal.eventSync.runJob` claims a job with a 10 minute lease, re-checks the flag, connector state, and authority (a lost `manage_integrations` pauses the connector as `authority_lost`), dispatches to the kind module, and completes or fails it. A failure retries after 1, 2, 4, then 8 minutes; the fifth failure marks the job `failed` and records the error on the connector. A failing event job that a newer pending job already replaces closes as `superseded`. A `reconcile` on an exporting connector also queues `export_upsert`, two seconds apart, for each unlinked public event from one day back to 90 days ahead. A kind can return `AwaitingClubOperation` to hold its job `running` for 30 minutes without spending an attempt.
+
+The `recover event sync jobs` cron runs every five minutes. It fails running jobs whose lease expired more than five minutes ago (`lease_expired`) and pending jobs more than five minutes past due whose run never claimed them (`stalled`), each as a failed attempt, and deletes `done` and `failed` jobs after 30 days.
+
+Kinds register their `SyncKindHandler` in `convex/eventSyncKinds/index.ts`; the types live in `convex/eventSyncKinds/types.ts`.
+
 ## Event Operations Panel
 
 The private operator command roster is separate from the public event page. It reads canonical event, slot, participant, world, and media-control records, then presents an event-running view for authorized staff.
