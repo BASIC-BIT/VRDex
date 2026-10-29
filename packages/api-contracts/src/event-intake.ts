@@ -91,8 +91,9 @@ export const EventIntakeCandidateSchema = z.strictObject({
   })).max(80),
   evidence: EventIntakeEvidenceSchema,
   questions: z.array(z.strictObject({ fieldPath: text(120), reason: text(500), alternatives: z.array(text(200)).max(10) })).max(100),
-  // z.union (anyOf), not discriminatedUnion (oneOf), and no default: OpenAI strict mode requires it.
-  decision: z.union([z.strictObject({ kind: z.literal("new") }), z.strictObject({ kind: z.literal("update"), slug: text(64).min(1) }), z.strictObject({ kind: z.literal("not_event"), reason: text(200).min(1) })]),
+  // OpenAI strict mode: z.union (anyOf, not oneOf), single-value enums (not const), no default, no minLength;
+  // only keywords the production candidate schema already sends.
+  decision: z.union([z.strictObject({ kind: z.enum(["new"]) }), z.strictObject({ kind: z.enum(["update"]), slug: text(64) }), z.strictObject({ kind: z.enum(["not_event"]), reason: text(200) })]),
 });
 export type EventIntakeCandidate = z.infer<typeof EventIntakeCandidateSchema>;
 export type EventIntakeDecision = EventIntakeCandidate["decision"];

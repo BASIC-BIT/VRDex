@@ -3632,7 +3632,9 @@
                           "properties": {
                             "kind": {
                               "type": "string",
-                              "const": "new"
+                              "enum": [
+                                "new"
+                              ]
                             }
                           },
                           "required": [
@@ -3645,11 +3647,12 @@
                           "properties": {
                             "kind": {
                               "type": "string",
-                              "const": "update"
+                              "enum": [
+                                "update"
+                              ]
                             },
                             "slug": {
                               "type": "string",
-                              "minLength": 1,
                               "maxLength": 64
                             }
                           },
@@ -3664,11 +3667,12 @@
                           "properties": {
                             "kind": {
                               "type": "string",
-                              "const": "not_event"
+                              "enum": [
+                                "not_event"
+                              ]
                             },
                             "reason": {
                               "type": "string",
-                              "minLength": 1,
                               "maxLength": 200
                             }
                           },

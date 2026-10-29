@@ -60,6 +60,8 @@ it("requires a decision and offers it to the model as a strict anyOf", () => {
   assert.equal(json.properties.decision.anyOf.length, 3);
   assert.ok(!JSON.stringify(json).includes("oneOf"));
   assert.ok(!JSON.stringify(json).includes("\"default\""));
+  assert.ok(!JSON.stringify(json).includes("\"const\""));
+  assert.ok(!JSON.stringify(json).includes("\"minLength\""));
 });
 it("resolves normal times, DST gaps and repeated hours without silently choosing", () => {
   assert.deepEqual(resolveEventLocalTime("2027-03-14", { time: "02:30" }, "America/New_York"), []);
