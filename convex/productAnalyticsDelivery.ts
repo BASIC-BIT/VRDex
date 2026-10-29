@@ -28,10 +28,10 @@ export const deliverPending = internalAction({
           event: row.event,
           timestamp: new Date(row.createdAt).toISOString(),
           properties: {
+            ...row.properties,
             distinct_id: row.distinctId,
             $insert_id: row._id,
             $process_person_profile: false,
-            ...row.properties,
           },
         }),
         signal: AbortSignal.timeout(10_000),
