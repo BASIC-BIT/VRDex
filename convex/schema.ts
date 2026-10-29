@@ -2845,6 +2845,8 @@ export default defineSchema({
   // ponytail: no retention sweep or dead-letter recovery yet (tens of rows a
   // day); add both, modelled on claimAnalytics.sweepDeliveredEvents and
   // recoverUndeliveredDeliveries, when the table passes a few thousand rows.
+  // One row per ops alert key: dedupes [VRDex ops] emails and marks recovery.
+  opsAlerts: defineTable({ key: v.string(), lastSentAt: v.number(), resolvedAt: v.optional(v.number()) }).index("by_key", ["key"]),
   productAnalyticsOutbox: defineTable({
     event: v.string(),
     distinctId: v.string(),

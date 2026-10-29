@@ -23,6 +23,8 @@ export async function connectorFixture(options: { flag?: boolean } = {}) {
     "../../convex/eventSync.ts": () => import("../../convex/eventSync"),
     "../../convex/communityTelemetry.ts": () => import("../../convex/communityTelemetry"),
     "../../convex/search.ts": () => import("../../convex/search"),
+    "../../convex/opsAlerts.ts": () => import("../../convex/opsAlerts"),
+    "../../convex/opsAlertEmail.ts": () => import("../../convex/opsAlertEmail"),
   } });
   const ids = await t.run(async ctx => {
     const now = Date.now();

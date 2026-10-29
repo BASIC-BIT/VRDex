@@ -4,6 +4,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { internalAction, internalMutation, type DatabaseReader, type MutationCtx } from "./_generated/server";
 import { carriedFieldsHash, connectorsEnabled, pendingLinkDraft, userHasCommunityPermission } from "./_eventConnectors";
 import { cancelPendingSchedule, enqueueSyncJob, eventIsPublic } from "./_eventSync";
+import { notifyOps, resolveOps } from "./_opsAlerts";
 import { enqueueProductAnalytics } from "./_productAnalytics";
 import { correctionFields } from "./eventCorrections";
 import { syncKindHandlers } from "./eventSyncKinds/index";
@@ -16,6 +17,8 @@ export const RECOVERY_GRACE_MS = 300_000;
 export const JOB_RETENTION_MS = 30 * 86_400_000;
 const DAY_MS = 86_400_000;
 const RECONCILE_STAGGER_MS = 2_000;
+const FAILURE_ALERT_THRESHOLD = 5;
+const failureAlertKey = (connectorId: Id<"eventConnectors">) => "connector-failures:" + connectorId;
 
 type Job = Doc<"eventSyncJobs">;
 type Connector = Doc<"eventConnectors">;
@@ -67,8 +70,14 @@ async function failAttempt(ctx: MutationCtx, job: Job, error: string, durationMs
   if (job.attempts >= MAX_ATTEMPTS) {
     await ctx.db.patch(job._id, { state: "failed", lastError: error, leaseExpiresAt: undefined, updatedAt: now });
     if (connector) {
-      await ctx.db.patch(connector._id, { lastError: error, updatedAt: now });
+      // Only final failures count; retries, skips, and superseded closes leave the count alone.
+      const consecutiveFailures = (connector.consecutiveFailures ?? 0) + 1;
+      await ctx.db.patch(connector._id, { lastError: error, consecutiveFailures, updatedAt: now });
       await recordJob(ctx, job, connector, "failed", durationMs, error);
+      if (consecutiveFailures === FAILURE_ALERT_THRESHOLD) await notifyOps(ctx, {
+        key: failureAlertKey(connector._id), subject: "Event connector failing",
+        body: `Connector ${connector._id} (${connector.kind}) for community profile ${connector.communityProfileId} has failed ${consecutiveFailures} jobs in a row. Last error: ${error}`,
+      });
     }
     return;
   }
@@ -151,9 +160,10 @@ export const completeJob = internalMutation({
     }
     if (job.kind === "export_delete" && link) await ctx.db.patch(link._id, { state: "vrdex_retracted", updatedAt: now });
     await wakePendingSibling(ctx, job);
+    await resolveOps(ctx, failureAlertKey(job.connectorId));
     const connector = await ctx.db.get(job.connectorId);
     if (!connector) return;
-    await ctx.db.patch(connector._id, { lastSyncedAt: now, lastError: undefined, updatedAt: now });
+    await ctx.db.patch(connector._id, { lastSyncedAt: now, lastError: undefined, consecutiveFailures: 0, updatedAt: now });
     await recordJob(ctx, job, connector, "done", args.durationMs);
   },
 });

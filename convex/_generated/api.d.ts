@@ -96,6 +96,7 @@ import type * as _mediaReview from "../_mediaReview.js";
 import type * as _mediaSubmissionCleanup from "../_mediaSubmissionCleanup.js";
 import type * as _oauth from "../_oauth.js";
 import type * as _oauthConsentTransactions from "../_oauthConsentTransactions.js";
+import type * as _opsAlerts from "../_opsAlerts.js";
 import type * as _previewPersistence from "../_previewPersistence.js";
 import type * as _productAnalytics from "../_productAnalytics.js";
 import type * as _profileAppearance from "../_profileAppearance.js";
@@ -204,6 +205,8 @@ import type * as mediaKitPublicationMigration from "../mediaKitPublicationMigrat
 import type * as migrations from "../migrations.js";
 import type * as oauthApps from "../oauthApps.js";
 import type * as oauthConsentTransactions from "../oauthConsentTransactions.js";
+import type * as opsAlertEmail from "../opsAlertEmail.js";
+import type * as opsAlerts from "../opsAlerts.js";
 import type * as productAnalytics from "../productAnalytics.js";
 import type * as productAnalyticsDelivery from "../productAnalyticsDelivery.js";
 import type * as profileArchival from "../profileArchival.js";
@@ -327,6 +330,7 @@ declare const fullApi: ApiFromModules<{
   _mediaSubmissionCleanup: typeof _mediaSubmissionCleanup;
   _oauth: typeof _oauth;
   _oauthConsentTransactions: typeof _oauthConsentTransactions;
+  _opsAlerts: typeof _opsAlerts;
   _previewPersistence: typeof _previewPersistence;
   _productAnalytics: typeof _productAnalytics;
   _profileAppearance: typeof _profileAppearance;
@@ -435,6 +439,8 @@ declare const fullApi: ApiFromModules<{
   migrations: typeof migrations;
   oauthApps: typeof oauthApps;
   oauthConsentTransactions: typeof oauthConsentTransactions;
+  opsAlertEmail: typeof opsAlertEmail;
+  opsAlerts: typeof opsAlerts;
   productAnalytics: typeof productAnalytics;
   productAnalyticsDelivery: typeof productAnalyticsDelivery;
   profileArchival: typeof profileArchival;
