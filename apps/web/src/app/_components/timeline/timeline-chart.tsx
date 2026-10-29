@@ -56,7 +56,7 @@ export function TimelineChart({
   const nightHeight = nightLanes.length
     ? (Math.max(...nightLanes.map((l) => l.lane)) + 1) * 42
     : 0;
-  const height = Math.max(1, ...lanes.map((l) => l.lane + 1)) * 94;
+  const height = Math.max(4, ...lanes.map((l) => l.lane + 1)) * 94;
   useLayoutEffect(() => {
     const el = scroller.current;
     if (!el) return;

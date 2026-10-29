@@ -74,6 +74,9 @@ locale hour format. These are displays, not new settings in this slice.
 
 ## Event bars and row assignment
 
+Keep at least four event rows of chart height (376px), including on quiet or
+empty dates. Grow beyond that when occupied lanes require more space.
+
 Each event has a header with community logo, event name and subdued community
 name. A smaller lower track contains authored performer intervals. Use existing
 identity fallbacks when a logo is missing. Logos use contain sizing in a square
