@@ -57,6 +57,7 @@ export type ProfileFieldsDefaults = {
   categoryTags?: string[];
   links?: ProfileLinkInput[];
   primaryGroupUrl?: string | null;
+  primaryGroupSelectionDisabled?: boolean;
 };
 
 /**

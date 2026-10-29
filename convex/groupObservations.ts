@@ -11,10 +11,11 @@ import { internalMutation, mutation, query } from "./_generated/server";
 import type { DatabaseReader, MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { canReadProfile } from "./_profilePermissions";
-import { automaticAdmissionEnabled, readCollectionSubject, readPublicGroupId } from "./_groupObservationPolicy";
+import { automaticAdmissionEnabled, primaryGroupSelection, readCollectionSubject, readPublicGroupId } from "./_groupObservationPolicy";
 import { CURRENT_FRESHNESS_MS } from "./_communityTelemetry";
 import { admissionMatches, statisticsAdmissionViewValidator, type StatisticsAdmissionView } from "./_groupAdmission";
 import { syncDestinationQueue } from "./_profileLinkDestinationCache";
+import { ADMISSION_MONITORING_FRESHNESS_MS, admissionDiagnosticsValidator, emptyAdmissionDiagnostics } from "./_groupObservationMonitoring";
 
 const DAY = 86_400_000;
 
@@ -319,7 +320,7 @@ export async function scheduleGroupReconciliation(ctx: MutationCtx, profileId: I
   const links = await ctx.db.query("profileExternalLinks").withIndex("by_profileId_assetType_state", q => q.eq("profileId", profileId).eq("assetType", "vrchat_group").eq("state", "active")).take(101);
   const groups = [...new Set([...affectedGroupIds, ...links.map(link => link.assetExternalId)])];
   const profile = await ctx.db.get(profileId);
-  if (!groups.length && !profile?.primaryGroupReference) return;
+  if (!groups.length && (!profile || !primaryGroupSelection(profile))) return;
   for (const group of groups) {
     const policy = await ctx.db.query("vrchatGroupObservationPolicies").withIndex("by_vrchatGroupId", q => q.eq("vrchatGroupId", group)).unique();
     if (policy) await ctx.db.patch(policy._id, { referenceRevision: (policy.referenceRevision ?? 0) + 1 });
@@ -340,9 +341,23 @@ async function eligibleReference(db: DatabaseReader, group: string, profileId: I
 }
 
 export async function statisticsAdmissionDiagnostics(db: DatabaseReader, now: number) {
-  // The global admission ceiling is 50. This index excludes unassigned historical rows.
-  const rows = await db.query("communityVrchatIntegrations").withIndex("by_collectionScope_kind_account", q => q.eq("collectionScope.kind", "automatic").gt("assignedCollectorAccountId", undefined)).take(50);
-  const result = { pending: 0, active: 0, paused: 0, ended: 0, cleanup_pending: 0, cancelled: 0, externalWaiting: 0, processingBacklog: 0, oldestProcessingAgeMs: 0 };
+  const rows = await db.query("communityVrchatIntegrations").withIndex("by_collectionScope_kind_account", q => q.eq("collectionScope.kind", "automatic").gt("assignedCollectorAccountId", undefined)).take(51);
+  if (rows.length > 50) {
+    const fleet = await db.query("collectorFleetSettings").withIndex("by_key", q => q.eq("key", "global")).unique();
+    if (freshMonitoring(fleet, now)) return fleet!.admissionMonitoring!.diagnostics;
+    return { ...emptyAdmissionDiagnostics(), monitoringIncomplete: true };
+  }
+  return diagnosticsForRows(db, rows, now);
+}
+
+function freshMonitoring(fleet: Doc<"collectorFleetSettings"> | null, now: number) {
+  const snapshot = fleet?.admissionMonitoring;
+  return !!snapshot && snapshot.configUpdatedAt === fleet?.updatedAt && snapshot.observedAt <= now &&
+    now - snapshot.observedAt <= ADMISSION_MONITORING_FRESHNESS_MS;
+}
+
+async function diagnosticsForRows(db: DatabaseReader, rows: Doc<"communityVrchatIntegrations">[], now: number) {
+  const result = emptyAdmissionDiagnostics();
   for (const row of rows) {
     const grant = row.statisticsAdmission;
     if (!grant) continue;
@@ -376,8 +391,13 @@ export async function hasAutomaticEnrollmentBacklog(db: DatabaseReader, now: num
   if (active.length >= limit) return false;
   const candidates = scope.kind === "pilot"
     ? [await db.query("vrchatGroupObservationPolicies").withIndex("by_vrchatGroupId", q => q.eq("vrchatGroupId", scope.vrchatGroupId)).unique()]
-    // shortcut: inspect the first 50 queue entries per heartbeat; add paged monitoring before expanding beyond this coverage.
-    : await db.query("vrchatGroupObservationPolicies").withIndex("by_queue_priority_dueAt", q => q.eq("queuedAdmission.priority", "automatic")).take(50);
+    : await db.query("vrchatGroupObservationPolicies").withIndex("by_queue_priority_dueAt", q => q.eq("queuedAdmission.priority", "automatic")).take(51);
+  if (candidates.length > 50)
+    return freshMonitoring(fleet, now) ? fleet.admissionMonitoring!.automaticBacklog : true;
+  return candidatesHaveBacklog(db, candidates, now);
+}
+
+async function candidatesHaveBacklog(db: DatabaseReader, candidates: (Doc<"vrchatGroupObservationPolicies"> | null)[], now: number) {
   for (const policy of candidates) {
     const queue = policy?.queuedAdmission;
     if (!policy || !queue || queue.priority !== "automatic" || policy.decision.kind !== "enabled" || policy.admissionRequired ||
@@ -393,6 +413,57 @@ export async function hasAutomaticEnrollmentBacklog(db: DatabaseReader, now: num
   }
   return false;
 }
+
+/** One pagination query per transaction; stale summaries never report healthy. */
+export const refreshAdmissionMonitoring = internalMutation({
+  args: {
+    scan: v.optional(v.object({
+      startedAt: v.number(), configUpdatedAt: v.number(), phase: v.union(v.literal("queue"), v.literal("integrations")),
+      cursor: v.union(v.string(), v.null()), automaticBacklog: v.boolean(), diagnostics: admissionDiagnosticsValidator,
+    })),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const fleet = await ctx.db.query("collectorFleetSettings").withIndex("by_key", q => q.eq("key", "global")).unique();
+    if (!fleet) return null;
+    const now = Date.now();
+    const scan = args.scan ?? { startedAt: now, configUpdatedAt: fleet.updatedAt, phase: "queue" as const,
+      cursor: null, automaticBacklog: false, diagnostics: emptyAdmissionDiagnostics() };
+    if (args.scan && (fleet.admissionMonitoringStartedAt !== scan.startedAt || fleet.updatedAt !== scan.configUpdatedAt)) return null;
+    if (!args.scan) {
+      if (fleet.admissionMonitoringStartedAt !== undefined &&
+        fleet.admissionMonitoringStartedAt > (fleet.admissionMonitoring?.observedAt ?? 0) &&
+        now - fleet.admissionMonitoringStartedAt < ADMISSION_MONITORING_FRESHNESS_MS) return null;
+      await ctx.db.patch(fleet._id, { admissionMonitoringStartedAt: scan.startedAt });
+    }
+    const continueScan = (next: typeof scan) => ctx.scheduler.runAfter(0,
+      makeFunctionReference<"mutation">("groupObservations:refreshAdmissionMonitoring"), { scan: next });
+    if (scan.phase === "queue") {
+      const page = await ctx.db.query("vrchatGroupObservationPolicies")
+        .withIndex("by_queue_priority_dueAt", q => q.eq("queuedAdmission.priority", "automatic"))
+        .paginate({ cursor: scan.cursor, numItems: 50 });
+      const scope = fleet.automaticEnrollmentScope;
+      const inScope = scope?.kind === "pilot" ? page.page.filter(row => row.vrchatGroupId === scope.vrchatGroupId) : page.page;
+      const automaticBacklog = scan.automaticBacklog || await candidatesHaveBacklog(ctx.db, inScope, scan.startedAt);
+      await continueScan({ ...scan, automaticBacklog, phase: page.isDone ? "integrations" : "queue", cursor: page.isDone ? null : page.continueCursor });
+      return null;
+    }
+    const page = await ctx.db.query("communityVrchatIntegrations")
+      .withIndex("by_collectionScope_kind_account", q => q.eq("collectionScope.kind", "automatic").gt("assignedCollectorAccountId", undefined))
+      .paginate({ cursor: scan.cursor, numItems: 50 });
+    const partial = await diagnosticsForRows(ctx.db, page.page, scan.startedAt);
+    const diagnostics = { ...scan.diagnostics };
+    for (const key of Object.keys(diagnostics) as (keyof typeof diagnostics)[])
+      diagnostics[key] = key === "oldestProcessingAgeMs" ? Math.max(diagnostics[key], partial[key]) : diagnostics[key] + partial[key];
+    if (!page.isDone) {
+      await continueScan({ ...scan, diagnostics, cursor: page.continueCursor });
+    } else {
+      await ctx.db.patch(fleet._id, { admissionMonitoring: { observedAt: scan.startedAt,
+        configUpdatedAt: scan.configUpdatedAt, automaticBacklog: scan.automaticBacklog, diagnostics } });
+    }
+    return null;
+  },
+});
 
 // A full page cannot establish absence; continue in a separate bounded mutation.
 async function references(db: DatabaseReader, group: string, hint?: Id<"profiles">) {
@@ -476,13 +547,24 @@ export const reconcileProfile = internalMutation({
     const profile = await ctx.db.get(args.profileId);
     const affected = [...args.affectedGroupIds];
     const directoryLinks = await ctx.db.query("profileExternalLinks").withIndex("by_profileId_assetType_state", q => q.eq("profileId", args.profileId).eq("assetType", "vrchat_group").eq("state", "active")).take(101);
-    const reference = profile?.primaryGroupReference;
+    const controlPrimary = directoryLinks.some(link => link.linkRole === "primary" && link.provenance !== "directory_reference");
+    const removedPrimary = profile && (!profile.primaryGroupReference || profile.primaryGroupReference.inferred)
+      ? await ctx.db.query("profileExternalLinks").withIndex("by_profileId_assetType_state", q => q.eq("profileId", args.profileId).eq("assetType", "vrchat_group").eq("state", "removed"))
+        .filter(q => q.and(q.eq(q.field("linkRole"), "primary"), q.neq(q.field("removedByReconciliation"), true))).first() : null;
+    const reference = profile && !controlPrimary && !removedPrimary ? primaryGroupSelection(profile) : undefined;
+    if (profile?.primaryGroupReference?.inferred && profile.primaryGroupReference.contributorUserId !== undefined &&
+      profile.inferredGroupContributorUserId !== profile.primaryGroupReference.contributorUserId)
+      await ctx.db.patch(profile._id, { inferredGroupContributorUserId: profile.primaryGroupReference.contributorUserId });
+    if (profile && (profile.primaryGroupReference?.inferred || reference?.inferred)) {
+      if (JSON.stringify(profile.primaryGroupReference) !== JSON.stringify(reference))
+        await ctx.db.patch(profile._id, { primaryGroupReference: reference });
+    }
     const destination = reference ? await ctx.db.query("profileLinkDestinations").withIndex("by_key", q => q.eq("key", reference.key)).unique() : null;
     const resolvedGroup = destination?.status === "resolved" && destination.kind === "vrchat_group" ? destination.entityId : undefined;
     for (const link of directoryLinks) {
       if (link.provenance === "directory_reference" && (!resolvedGroup || link.assetExternalId !== resolvedGroup)) {
         affected.push(link.assetExternalId);
-        await ctx.db.patch(link._id, { state: "removed", removedAt: now, updatedAt: now });
+        await ctx.db.patch(link._id, { state: "removed", removedByReconciliation: true, removedAt: now, updatedAt: now });
       }
     }
     if (profile?.profileType === "community" && reference && resolvedGroup && !directoryLinks.some(link => link.assetExternalId === resolvedGroup && link.linkRole === "primary")) {

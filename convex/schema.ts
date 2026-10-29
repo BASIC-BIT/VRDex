@@ -1,4 +1,5 @@
 import { statisticsAdmissionValidator } from "./_groupAdmission";
+import { admissionDiagnosticsValidator } from "./_groupObservationMonitoring";
 import { destinationGroupMetadataValidator } from "./_profileLinkDestination";
 import { collectionScopeValidator, groupObservationDecisionValidator } from "./_communityTelemetry";
 import { resourceSnapshotValidator, computeRuntimeValidator } from "./_eventBroadcastResources";
@@ -657,7 +658,9 @@ const fieldVisibility = v.object({
 });
 
 const sharedProfileFields = {
-  primaryGroupReference: v.optional(v.object({ url: v.string(), key: v.string(), contributorUserId: v.id("users") })),
+  primaryGroupReference: v.optional(v.object({ url: v.string(), key: v.string(), contributorUserId: v.optional(v.id("users")), inferred: v.optional(v.boolean()) })),
+  primaryGroupSelectionDisabled: v.optional(v.boolean()),
+  inferredGroupContributorUserId: v.optional(v.id("users")),
   slug: v.string(),
   displayName: v.string(),
   sortName: v.string(),
@@ -1783,6 +1786,11 @@ export default defineSchema({
     key: v.string(), admittedAt: v.array(v.number()),
   }).index("by_key", ["key"]),
   collectorFleetSettings: defineTable({
+    admissionMonitoringStartedAt: v.optional(v.number()),
+    admissionMonitoring: v.optional(v.object({
+      observedAt: v.number(), configUpdatedAt: v.number(), automaticBacklog: v.boolean(),
+      diagnostics: admissionDiagnosticsValidator,
+    })),
     automaticEnrollmentEnabled: v.optional(v.boolean()),
     automaticEnrollmentLimit: v.optional(v.number()),
     automaticEnrollmentScope: v.optional(v.union(v.object({ kind: v.literal("pilot"), vrchatGroupId: v.string() }), v.object({ kind: v.literal("all_eligible") }))),
@@ -2980,6 +2988,7 @@ export default defineSchema({
   // community may hold several Discord guilds and VRChat groups (one marked
   // `primary`), and one guild may back several community profiles.
   profileExternalLinks: defineTable({
+    removedByReconciliation: v.optional(v.boolean()),
     provenance: v.optional(v.union(v.literal("directory_reference"), v.literal("control_association"))),
     profileId: v.id("profiles"),
     assetType: externalAssetType,

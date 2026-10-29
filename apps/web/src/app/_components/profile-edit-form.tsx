@@ -234,6 +234,7 @@ function ConnectedProfileEditForm({
             categoryTags: profile.community?.categoryTags ?? [],
             links: profile.outboundLinks,
             primaryGroupUrl: profile.primaryGroupUrl,
+            primaryGroupSelectionDisabled: profile.primaryGroupSelectionDisabled,
           }}
           editableFields={profile.editableFields}
           profileType={profile.profileType}
