@@ -28,6 +28,8 @@ export type EventIntakeRunResult = { reason: string; decision?: EventIntakeDecis
 export type EventIntakeRunHandle = { generation(turn: EventIntakeGeneration): void; end(result: EventIntakeRunResult): Promise<void> };
 export type EventIntakeSink = { start(meta: EventIntakeRunMeta): EventIntakeRunHandle };
 export { composeSinks, createLangfuseSink, createPostHogSink } from "./sinks";
+// One cap for every sink: a stalled sink end must not hold the extraction response.
+const SINK_END_TIMEOUT_MS = 5_000;
 // USD per million tokens, standard tier. Source: OpenAI's 2026-07-31 Luna price cut as reported at
 // https://propakistani.pk/2026/08/01/openai-cuts-gpt-5-6-luna-price-by-80-soon-after-launch/ (checked 2026-10-29;
 // https://developers.openai.com/api/docs/pricing returned 403 to automated fetch that day).
@@ -194,7 +196,13 @@ export async function extractEventIntake(input: EventIntakeAgentInput, deps: Eve
     reason = ["provider_failure", "incomplete_response", "refusal", "tool_budget", "invalid_tool", "invalid_poster"].includes(code) ? code : "invalid_response";
     return fallback(reason);
   } finally {
-    try { await handle?.end({ reason, ...(reason === "success" ? { decision } : {}), turns, toolCalls, durationMs: Date.now() - started, inputTokens, outputTokens, costUsd: estimateCostUsd(model, inputTokens, outputTokens) }); }
-    catch { /* sinks never affect a run */ }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        handle?.end({ reason, ...(reason === "success" ? { decision } : {}), turns, toolCalls, durationMs: Date.now() - started, inputTokens, outputTokens, costUsd: estimateCostUsd(model, inputTokens, outputTokens) }),
+        new Promise<void>(resolve => { timer = setTimeout(resolve, SINK_END_TIMEOUT_MS); }),
+      ]);
+    } catch { /* sinks never affect a run */ }
+    finally { clearTimeout(timer); }
   }
 }

@@ -342,3 +342,8 @@ it("web host enqueues event_intake_run with its trigger and skips Langfuse witho
     globalThis.fetch = originalFetch;
   }
 });
+it("returns the candidate when a sink end never settles", async () => {
+  const stalled = { start: () => ({ generation() {}, end: () => new Promise<void>(() => {}) }) };
+  const result = await extractEventIntake({ draftId: "draft", sourceText: "Night" }, { ...base, sink: stalled, fetchImplementation: async () => response({ ...blank(), event: { ...blank().event, title: "Night" } }) });
+  assert.equal(result.event.title, "Night");
+});

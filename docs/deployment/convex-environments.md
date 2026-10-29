@@ -41,7 +41,8 @@ Scope: the Convex deployment (set with `convex env set`) and the web app
 a new key pair in the Langfuse project settings, set it on both, then revoke the
 old pair. Missing keys disable tracing and never fail an extraction.
 
-Each extraction run also records an `event_intake_run` event. It reaches PostHog
+Each extraction run that reaches the model (extraction enabled and
+`OPENAI_API_KEY` set) also records an `event_intake_run` event. It reaches PostHog
 through `productAnalyticsOutbox` with the existing `POSTHOG_PROJECT_API_KEY`;
 no new PostHog variable is needed.
 
