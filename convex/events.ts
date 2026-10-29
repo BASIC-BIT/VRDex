@@ -3254,6 +3254,13 @@ export const updateCommunityEventForMcpOwner = internalMutation({
 
 const STAFF_SCHEDULE_KEYS = ["eventDate", "timeTba", "timezone", "start"] as const;
 
+// Both validation steps run before any write, so a caller may catch INVALID_EVENT_PATCH and continue its mutation.
+function validStaffPatch<T>(validate: () => T): T {
+  try { return validate(); } catch (error) {
+    throw new ConvexError({ code: "INVALID_EVENT_PATCH", message: error instanceof Error ? error.message : String(error) });
+  }
+}
+
 // Field-level: only the patch keys that differ from the canonical record reach the owner update path.
 export async function patchCommunityEventFieldsAsStaffRecord(
   ctx: MutationCtx,
@@ -3267,7 +3274,7 @@ export async function patchCommunityEventFieldsAsStaffRecord(
     throw new ConvexError({ code: "EVENT_STAFF_REQUIRED" });
   }
   if (args.expectedUpdatedAt !== event.updatedAt) throw new ConvexError({ code: "VERSION_CONFLICT" });
-  const parsed = EventIntakeUpdatePatchSchema.parse(args.patch);
+  const parsed = validStaffPatch(() => EventIntakeUpdatePatchSchema.parse(args.patch));
   const current = await correctionFields(db, event);
   const same = (key: keyof typeof parsed) =>
     JSON.stringify(canonicalIntakeValue(key === "timeTba" ? parsed.timeTba ?? false : parsed[key])) === JSON.stringify(canonicalIntakeValue(current[key]));
@@ -3281,12 +3288,12 @@ export async function patchCommunityEventFieldsAsStaffRecord(
   if (touchesTimes || has("lineup")) {
     // Normalize the schedule subset only: unrelated legacy data (doors, unlabeled lineup) must not block the patch.
     const dateOnly = has("timeTba") ? patch.timeTba === true : current.timeTba === true;
-    const n = normalizeIntakePublication({
+    const n = validStaffPatch(() => normalizeIntakePublication({
       communitySlug: community.slug, title: patch.title ?? current.title, eventDate: current.eventDate,
       timeTba: current.timeTba, timezone: current.timezone,
       ...(dateOnly ? {} : { start: current.start, ...(touchesTimes ? { end: current.end, doors: current.doors } : {}) }),
       ...Object.fromEntries([...STAFF_SCHEDULE_KEYS, "end", "doors", "lineup"].filter(key => has(key as keyof typeof parsed)).map(key => [key, patch[key as keyof typeof parsed]])),
-    });
+    }));
     if (touchesSchedule) {
       Object.assign(update, n.schedule.scheduleKind === "date_only"
         ? { scheduleKind: "date_only", eventDate: n.schedule.eventDate, timezone: null }
