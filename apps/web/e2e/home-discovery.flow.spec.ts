@@ -681,6 +681,43 @@ test.describe("dense Home discovery @flow @fixture", () => {
       contentType: "application/json",
     });
   });
+  test("minute expiry refills inspected alternatives without discovery reads or closing the inspector", async ({
+    page,
+    timelineFixture,
+  }, info) => {
+    // Existing owned fixture: ORBIT starts seven days after the fixture anchor.
+    const beforeStart = TIMELINE_NOW - 30 * 60000 + 7 * 86400000 - 30000;
+    await page.clock.install({ time: beforeStart });
+    await page.emulateMedia({ colorScheme: "dark" });
+    await initializeDiscovery(page, timelineFixture);
+    const queries = observeDiscoveryQueries(page);
+    await page.goto("/");
+    const discover = await usableDiscovery(page);
+    const orbit = discover.getByRole("link", { name: "Open ORBIT", exact: true });
+    await expect(orbit).toBeVisible();
+    await expect(discover.getByRole("link", { name: "Open Distant Horizons", exact: true })).toBeVisible();
+    await orbit.click();
+    const panel = page.getByRole("region", { name: "Event details", exact: true });
+    await expect(panel.getByRole("heading", { name: "ORBIT", exact: true })).toBeVisible();
+    const before = queries.result();
+    expect(before.pending).toBe(0);
+    await page.clock.fastForward(60000);
+    await expect(orbit).toHaveCount(0);
+    await expect(discover.getByTestId("discovery-event-card")).toHaveCount(2);
+    // Fallback may prefer another public host over Low Tide's shared host.
+    await expect(discover.getByRole("link", { name: "Open Distant Horizons", exact: true })).toBeVisible();
+    await expect(discover.getByText("No events", { exact: true })).toHaveCount(0);
+    await expect(panel.getByRole("heading", { name: "ORBIT", exact: true })).toBeVisible();
+    const after = queries.result();
+    expect(after.totalAdditions).toBe(before.totalAdditions);
+    await panel.getByRole("button", { name: "Close", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Discover", exact: true })).toBeFocused();
+    await info.attach("discovery-expiry-metrics.json", {
+      body: JSON.stringify({ project: info.project.name, before, after }, null, 2),
+      contentType: "application/json",
+    });
+  });
+
   test("favoriting a public discovery performer reranks cards while preserving inspector and fallback focus", async ({
     page,
     timelineFixture,

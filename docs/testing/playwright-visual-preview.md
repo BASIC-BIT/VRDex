@@ -473,7 +473,10 @@ saves and favorites, whole-event Included semantics, native modified event
 links, club profile navigation, keyboard/touch actions, Back/reload persistence,
 fractional-offset time, focus after a ranked invoker disappears, and live
 publication/host suppression. A failed public refresh removes obsolete cards;
-Retry can restore only currently eligible public data. Failure injection changes
+Retry can restore only currently eligible public data. A controlled minute tick
+expires a selected event, refills from already-inspected candidates without new
+discovery registrations, and preserves the selected inspector and fallback focus.
+Failure injection changes
 transport success into an error, never fabricates successful query results.
 The preference initializer runs once per fresh storage key and preserves later
 actions across navigation. The existing timeline regression files retain pending

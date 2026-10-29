@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
-import { createDiscoveryController, createDiscoverySessionSeed, discoverySnapshotAt, type DiscoveryTransport, type DiscoveryQuery } from "../../apps/web/src/lib/discovery/controller";
+import { createDiscoveryController, createDiscoverySessionSeed, type DiscoveryTransport, type DiscoveryQuery } from "../../apps/web/src/lib/discovery/controller";
 import type { DiscoveryEventCandidate, DiscoveryEventRequest, DiscoveryEventSignal, DiscoveryProfileSignal } from "../../convex/_homeDiscoveryTypes";
 const now = Date.parse("2026-10-28T12:00:00Z");
 const context = { now, timeZone: "UTC", favoriteProfileIds: [] as string[], rotationKey: "session/day" };
@@ -21,7 +21,7 @@ function harness(synchronous = false) {
     if (synchronous) deliver(); else queueMicrotask(deliver);
     return () => { finish(); request.closed = true; };
   } });
-  const state = { events: (args: DiscoveryEventRequest) => ({ items: [] as DiscoveryEventCandidate[], cursor: null as string | null, complete: true }), profiles: (ids: string[]) => ids.map(id => ({ id, slug: id, displayName: id, profileType: "community", genres: [] } satisfies DiscoveryProfileSignal)), signals: (ids: string[]) => ids.map(signal) };
+  const state = { events: (args: DiscoveryEventRequest) => ({ items: [] as DiscoveryEventCandidate[], cursor: null as string | null, complete: true }), profiles: (ids: string[]): DiscoveryProfileSignal[] => ids.map(id => ({ id, slug: id, displayName: id, profileType: "community", genres: [] } satisfies DiscoveryProfileSignal)), signals: (ids: string[]) => ids.map(signal) };
   const transport: DiscoveryTransport = {
     listEvents: args => query("events", args, () => state.events(args)),
     listClubs: args => query("clubs", args, () => ({ items: [], cursor: null, complete: true })),
@@ -107,10 +107,10 @@ test("sessionRotationSurvivesRemountAndBlockedStorage", () => {
 });
 test("actualNowExpiresTimedStartsAndKeepsAuthoredDatesInViewerZone", async () => {
   const h = harness(); h.state.events = () => ({ items: [{ ...event("timed"), schedule: { kind: "open_end", startAt: now + 1000 } }, { ...event("date"), schedule: { kind: "date_only", eventDate: "2026-10-28" } }], cursor: null, complete: true });
-  const c = createDiscoveryController({ transport: h.transport, concurrency: 3 }); c.setContext(context); await settle();
-  const s = c.getSnapshot(); const expired = discoverySnapshotAt(s, now + 60000, "Asia/Kathmandu");
+  const c = createDiscoveryController({ transport: h.transport, concurrency: 3 }); c.setContext({ ...context, timeZone: "Asia/Kathmandu" }); await settle();
+  const expired = c.getSnapshotAt(now + 60000);
   assert.equal(expired.kind, "available"); if (expired.kind === "available") assert.deepEqual(expired.events.map(x => x.id), ["date"]);
-  const tomorrow = discoverySnapshotAt(s, Date.parse("2026-10-28T18:15:00Z"), "Asia/Kathmandu");
+  const tomorrow = c.getSnapshotAt(Date.parse("2026-10-28T18:15:00Z"));
   if (tomorrow.kind === "available") assert.equal(tomorrow.events.length, 0); c.dispose();
 });
 test("retainedWatcherInvalidatesCardsDuringPendingRefresh", async () => {
@@ -169,4 +169,71 @@ test("synchronousSubscriptionFailureCleansUpItsLateRegisteredStop", async () => 
     return () => { stopped++; };
   } }) }, concurrency: 3 });
   c.setContext(context); await settle(); assert.equal(c.getSnapshot().kind, "error"); assert.equal(stopped, 1); c.dispose();
+});
+
+function expiryHarness() {
+  const h = harness();
+  const familiar = (id: string, startAt: number): DiscoveryEventCandidate => ({ ...event(id), host: { id: "fav-host", slug: "fav-host", displayName: "Favorite club" }, schedule: { kind: "open_end", startAt } });
+  const soon = [familiar("familiar-soon", now + 1000), { ...event("new-soon"), schedule: { kind: "open_end", startAt: now + 90000 } } satisfies DiscoveryEventCandidate];
+  const later = [familiar("familiar-later", now + 8 * 86400000), { ...event("new-later"), schedule: { kind: "date_only", eventDate: "2026-11-06" } } satisfies DiscoveryEventCandidate];
+  const dj: DiscoveryProfileSignal = { id: "dj", slug: "dj", displayName: "Favorite DJ", profileType: "person", genres: [{ slug: "house", displayName: "House" }] };
+  h.state.events = args => ({ items: args.kind === "timed" && args.band === 0 ? soon : args.kind === "timed" && args.band === 1 ? [later[0]] : args.kind === "date_only" && args.band === 1 ? [later[1]] : [], cursor: null, complete: true });
+  h.state.profiles = () => [dj];
+  h.state.signals = ids => ids.map(id => ({ ...signal(id), performers: id === "familiar-soon" ? [dj] : id === "new-soon" ? [{ ...dj, id: "new-dj", slug: "new-dj" }] : [] }));
+  const c = createDiscoveryController({ transport: h.transport, concurrency: 3 });
+  c.setContext({ ...context, favoriteProfileIds: ["fav-host", "dj"] });
+  return { h, c };
+}
+
+test("minuteExpiryRefillsOneThenBothWinnersFromTheInspectedPoolWithoutRequests", async () => {
+  const { h, c } = expiryHarness(); await settle();
+  const initial = c.getSnapshot(); assert.equal(initial.kind, "available");
+  if (initial.kind === "available") { assert.deepEqual(initial.events.map(x => x.id), ["familiar-soon", "new-soon"]); assert.equal(initial.coverage.candidateCount, 4); assert.ok(initial.coverage.events.every(x => x.complete)); }
+  const requests = h.requests.length;
+  const one = c.getSnapshotAt(now + 60000);
+  assert.equal(one.kind, "available"); if (one.kind === "available") assert.deepEqual(one.events.map(x => x.id), ["familiar-later", "new-soon"]);
+  const both = c.getSnapshotAt(now + 120000);
+  assert.equal(both.kind, "available"); if (both.kind === "available") { assert.deepEqual(both.events.map(x => x.id), ["familiar-later", "new-later"]); assert.equal(both.coverage, initial.kind === "available" ? initial.coverage : undefined); }
+  assert.equal(h.requests.length, requests); c.dispose();
+});
+
+test("pendingRefreshUsesTheRetainedPoolUntilAReactiveChangeOrErrorInvalidatesIt", async () => {
+  const { h, c } = expiryHarness(); await settle();
+  const old = h.requests.find(x => x.method === "signals");
+  c.refresh();
+  const during = c.getSnapshotAt(now + 120000);
+  assert.equal(during.kind, "available"); if (during.kind === "available") { assert.equal(during.refreshing, true); assert.deepEqual(during.events.map(x => x.id), ["familiar-later", "new-later"]); }
+  h.state.signals = () => []; old?.send({ items: [] });
+  assert.equal(c.getSnapshotAt(now + 120000).kind, "loading"); await settle();
+  const removed = c.getSnapshotAt(now + 120000);
+  assert.equal(removed.kind, "available"); if (removed.kind === "available") assert.deepEqual(removed.events, []);
+  old?.send({ items: [signal("familiar-later"), signal("new-later")] }); await settle();
+  assert.deepEqual(c.getSnapshotAt(now + 120000), removed);
+  c.refresh(); h.requests.find(x => !x.closed)?.fail(); await settle();
+  assert.equal(c.getSnapshotAt(now + 120000).kind, "error"); c.dispose();
+});
+
+test("contextReplacementAndDisposalCannotProjectTheObsoletePool", async () => {
+  const { h, c } = expiryHarness(); await settle();
+  const old = h.requests.find(x => x.method === "signals");
+  h.state.events = () => ({ items: [], cursor: null, complete: true });
+  c.setContext({ ...context, timeZone: "Asia/Kathmandu" });
+  assert.equal(c.getSnapshotAt(now + 120000).kind, "loading");
+  old?.send({ items: [signal("familiar-later")] }); await settle();
+  const current = c.getSnapshotAt(now + 120000);
+  assert.equal(current.kind, "available"); if (current.kind === "available") assert.equal(current.events.length, 0);
+  c.dispose(); old?.send({ items: [signal("familiar-later")] });
+  assert.equal(c.getSnapshotAt(now + 120000).kind, "loading");
+});
+
+test("expiryRetainsCompleteOrPartialCoverageForTheRealEmptyState", async () => {
+  for (const partial of [false, true]) {
+    const h = harness();
+    const expired = (id: string): DiscoveryEventCandidate => ({ ...event(id), schedule: { kind: "timed", startAt: now + 1000, endAt: now + 60000 } });
+    h.state.events = () => ({ items: partial ? [expired("a"), expired("b"), event("uninspected")] : [expired("a")], cursor: null, complete: true });
+    const c = createDiscoveryController({ transport: h.transport, concurrency: 3 }); c.setContext(context); await settle();
+    const snapshot = c.getSnapshotAt(now + 60000);
+    assert.equal(snapshot.kind, "available"); if (snapshot.kind === "available") { assert.equal(snapshot.events.length, 0); assert.equal(snapshot.coverage.events.every(x => x.complete), !partial); }
+    c.dispose();
+  }
 });

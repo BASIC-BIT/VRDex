@@ -30,6 +30,8 @@ const batches = <T>(items: readonly T[], size: number): T[][] => Array.from({ le
 export function createDiscoveryController({ transport, concurrency }: { transport: DiscoveryTransport; concurrency: 3 }) {
   let context: DiscoveryContext | undefined;
   let snapshot: DiscoverySnapshot = { kind: "loading" };
+  // Only the current watched public pool may supply minute-level replacements.
+  let recommendationPool: Parameters<typeof selectDiscovery>[0] | undefined;
   let current: Generation | undefined;
   let retained: Generation | undefined;
   let disposed = false;
@@ -44,12 +46,14 @@ export function createDiscoveryController({ transport, concurrency }: { transpor
   function invalidate() {
     if (disposed) return;
     stop(current); stop(retained); retained = undefined;
+    recommendationPool = undefined;
     emit({ kind: "loading" });
     refresh();
   }
   function fail(generation: Generation, error: unknown) {
     if (generation.stopped || disposed) return;
     stop(current); stop(retained); retained = undefined;
+    recommendationPool = undefined;
     emit({ kind: "error", error });
   }
   function read<T>(generation: Generation, query: DiscoveryQuery<T>): Promise<T> {
@@ -119,7 +123,8 @@ export function createDiscoveryController({ transport, concurrency }: { transpor
     const eligible = candidates.filter(item => eligibleIds.has(item.id) && (item.schedule.kind === "date_only" ? item.schedule.eventDate >= localDate : item.schedule.startAt >= input.now));
     coverage.candidateCount = candidates.length; coverage.favoriteCount = input.favoriteProfileIds.length;
     coverage.signals = eventSignals.map(({ eventId, coverage }) => ({ eventId, coverage }));
-    const selection = selectDiscovery({ events: eligible, eventSignals, clubs: unique([...clubs, ...favoriteProfiles.filter(item => item.profileType === "community")]), favoriteProfiles, favoriteProfileIds: input.favoriteProfileIds, rotationKey: input.rotationKey });
+    recommendationPool = { events: eligible, eventSignals, clubs: unique([...clubs, ...favoriteProfiles.filter(item => item.profileType === "community")]), favoriteProfiles, favoriteProfileIds: input.favoriteProfileIds, rotationKey: input.rotationKey };
+    const selection = selectDiscovery(recommendationPool);
     stop(retained); retained = undefined;
     emit({ kind: "available", ...selection, eventSignals, favoriteProfiles, coverage, refreshing: false });
   }
@@ -145,10 +150,21 @@ export function createDiscoveryController({ transport, concurrency }: { transpor
       if (sameContext) refresh(); else invalidate();
     },
     getSnapshot: () => snapshot,
+    /** Refill expired cards from inspected public candidates without new reads. */
+    getSnapshotAt(now: number): DiscoverySnapshot {
+      if (snapshot.kind !== "available" || !recommendationPool || !context) return snapshot;
+      const localDate = formatZonedDateTimeInput(now, context.timeZone).slice(0, 10);
+      const events = recommendationPool.events.filter(event => event.schedule.kind === "date_only" ? event.schedule.eventDate >= localDate : event.schedule.startAt >= now);
+      return { ...snapshot, ...selectDiscovery({ ...recommendationPool, events }) };
+    },
     subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
     retry: invalidate,
     refresh,
-    dispose() { disposed = true; stop(current); stop(retained); listeners.clear(); },
+    dispose() {
+      disposed = true; stop(current); stop(retained); listeners.clear();
+      recommendationPool = undefined;
+      snapshot = { kind: "loading" };
+    },
   };
 }
 
@@ -166,11 +182,4 @@ export function createDiscoverySessionSeed({ storage, createSeed }: {
     try { storage()?.setItem(key, memorySeed); } catch { /* Keep the in-memory session seed. */ }
     return memorySeed;
   };
-}
-
-/** Minute-level eligibility without a new backend sampling context. */
-export function discoverySnapshotAt(snapshot: DiscoverySnapshot, now: number, timeZone: string): DiscoverySnapshot {
-  if (snapshot.kind !== "available") return snapshot;
-  const localDate = formatZonedDateTimeInput(now, timeZone).slice(0, 10);
-  return { ...snapshot, events: snapshot.events.filter(event => event.schedule.kind === "date_only" ? event.schedule.eventDate >= localDate : event.schedule.startAt >= now) };
 }

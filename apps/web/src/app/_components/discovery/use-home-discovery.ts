@@ -2,7 +2,7 @@
 import { useConvex } from "convex/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@convex-generated-api";
-import { createDiscoveryController, createDiscoverySessionSeed, discoverySnapshotAt, type DiscoveryQuery, type DiscoverySnapshot, type DiscoveryTransport } from "@/lib/discovery/controller";
+import { createDiscoveryController, createDiscoverySessionSeed, type DiscoveryQuery, type DiscoverySnapshot, type DiscoveryTransport } from "@/lib/discovery/controller";
 import { discoveryRotationKey } from "@/lib/discovery/rotation";
 import { formatZonedDateTimeInput } from "@/lib/calendar/zoned-date-time";
 import { useHomeBrowse } from "../home-browse-provider";
@@ -30,7 +30,7 @@ export function useHomeDiscovery() {
   const contextKey = JSON.stringify([timeZone, favoritesKey]);
   const [section, setSection] = useState<HTMLElement | null>(null);
   const [active, setActive] = useState(false);
-  const [state, setState] = useState<{ key: string; snapshot: DiscoverySnapshot; now: number }>({ key: "", snapshot: loading, now: 0 });
+  const [state, setState] = useState<{ key: string; snapshot: DiscoverySnapshot }>({ key: "", snapshot: loading });
   const controller = useRef<ReturnType<typeof createDiscoveryController> | null>(null);
   const sectionRef = useCallback((node: HTMLElement | null) => setSection(node), []);
   useEffect(() => {
@@ -61,7 +61,7 @@ export function useHomeDiscovery() {
     const seed = sessionSeed();
     const favoriteProfileIds: string[] = JSON.parse(favoritesKey);
     const update = () => {
-      if (alive) setState({ key: contextKey, snapshot: current.getSnapshot(), now: Date.now() });
+      if (alive) setState({ key: contextKey, snapshot: current.getSnapshotAt(Date.now()) });
     };
     const refresh = () => {
       const now = Date.now();
@@ -86,7 +86,6 @@ export function useHomeDiscovery() {
     };
   }, [active, client, timeZone, favoritesKey, contextKey]);
   const snapshot = state.key === contextKey ? state.snapshot : loading;
-  const currentSnapshot = timeZone ? discoverySnapshotAt(snapshot, state.now, timeZone) : loading;
   const retry = useCallback(() => controller.current?.retry(), []);
-  return { ...currentSnapshot, sectionRef, retry };
+  return { ...snapshot, sectionRef, retry };
 }

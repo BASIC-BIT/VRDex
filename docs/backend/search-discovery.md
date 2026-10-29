@@ -91,9 +91,13 @@ alter coverage, avoiding disclosure of their existence. Partial coverage with no
 favorite match supplies no negative familiarity evidence.
 
 `profileSignals({ profileIds })` accepts at most 50 unique IDs per request. The
-browser can resolve its existing maximum 500 favorite IDs in batches, with three
-requests in flight at most, sharing that concurrency limit with candidate
-continuations. Invalid, missing, suppressed and private identities are omitted.
+browser can resolve its existing maximum 500 favorite IDs in batches, with at
+most three outstanding logical first-value reads, sharing that scheduler with
+candidate continuations. Cached first values can complete synchronously while
+warm wire revalidation remains pending; this is not a strict wire or backend
+concurrency limit. See the [Home discovery measurements](../testing/playwright-visual-preview.md#home-discovery-evidence)
+for the separately measured warm revalidation burst. Invalid, missing, suppressed
+and private identities are omitted.
 Repeated IDs are deduplicated before checking batch limits. Current field
 visibility is enforced on every public response, including after suppression or
 visibility changes.
