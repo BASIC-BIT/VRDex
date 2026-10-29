@@ -17,7 +17,7 @@ It does not read credentials or fabricate a worker allocation.
 
 `createRelayRegistry({control, storage, binding, directory, demand, clock?,
 limits?, metrics?, packager?, readCounters?})` returns `{reconcile(), drain(),
-stop()}`. Reconcile schedules bounded work and returns synchronously. An
+stop(), diagnostics()}`. Diagnostics returns active job and pending publication counts without I/O. Reconcile schedules bounded work and returns synchronously. An
 independent 250 ms interval also checks output, idle demand and lease deadlines.
 No external promise sits in that authority-check path.
 
@@ -191,3 +191,5 @@ release checks remain unmeasured; local fixtures are not production approval.
 
 Current-player identity, OS controls and authorized image derivatives are covered
 in [Now Playing metadata and artwork](now-playing-metadata.md).
+
+Operator disable/drain, bounded local capacity evidence and remaining release gates are documented in [relay verification](./media-relay-verification.md).

@@ -1,3 +1,4 @@
+import { relayEnabled } from "./_mediaRelayOperations";
 import { v } from "convex/values";
 import {
   mutation,
@@ -97,7 +98,7 @@ export async function resolveRelayGrant(
   now: number,
 ) {
   const denied = { kind: "denied", reason: "unavailable" } as const;
-  if (!admissionConfig().enabled || !Number.isFinite(now)) return denied;
+  if (!admissionConfig().enabled || !(await relayEnabled(db)) || !Number.isFinite(now)) return denied;
   const row = await db
     .query("mediaRelayGrants")
     .withIndex("by_grantId", (q) => q.eq("grantId", grantId))
@@ -186,6 +187,7 @@ export const openPlayback = mutation({
   },
   handler: async (ctx, args): Promise<Admission> => {
     const config = admissionConfig();
+    config.enabled = config.enabled && (await relayEnabled(ctx.db));
     if (!config.enabled) return { kind: "unavailable", reason: "disabled" };
     const context = PublicContextSchema.safeParse(args.context);
     const streamId = StreamIdSchema.safeParse(args.streamId);
@@ -303,6 +305,7 @@ export const restartPlayback = mutation({
   handler: async (ctx, args): Promise<Admission> => {
     const now = Date.now();
     const config = admissionConfig();
+    config.enabled = config.enabled && (await relayEnabled(ctx.db));
     const resolved = await resolveRelayGrant(ctx.db, args.grantId, now);
     if (resolved.kind === "denied") {
       const row = await ctx.db

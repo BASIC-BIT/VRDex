@@ -68,6 +68,7 @@ export function createPublisher({
     audio: { pending: 0, tail: Promise.resolve(), last: -1 },
   };
   return {
+    pendingCount: () => lanes.video.pending + lanes.audio.pending,
     isIdle: () => lanes.video.pending === 0 && lanes.audio.pending === 0,
     publishSnapshot(args: PublishOptions): Promise<void> {
       const lane = lanes[args.snapshot.rendition];

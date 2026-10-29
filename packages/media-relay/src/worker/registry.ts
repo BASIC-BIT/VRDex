@@ -606,6 +606,13 @@ export function createRelayRegistry(options: RegistryOptions) {
   const timer = setInterval(reconcile, RELAY_POLICY.localWatchdogIntervalMs);
   return {
     reconcile,
+    diagnostics: () => ({
+      activeJobs: jobs.size,
+      pendingPublications: [...jobs.values()].reduce(
+        (n, job) => n + job.publisher.pendingCount(),
+        0,
+      ),
+    }),
     drain() {
       draining = true;
     },

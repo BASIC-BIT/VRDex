@@ -236,3 +236,7 @@ prunes entries outside sixty seconds on the next successful restart, and is
 bounded by the configured maximum of 10,000 admissions. Both new admission and
 restart check recent issued grants plus this history transactionally. Concurrent
 retries of an already-queued source do not consume another restart or grant slot.
+
+## Persisted operator gate
+
+The environment flag alone no longer enables relay work. Deployment-admin internal operations must also authorize the persisted gate, with complete server-side hosted release evidence. Empty operator state is disabled. See [verification and release controls](../engineering/media-relay-verification.md) for measured local evidence, the unapproved cost proposal, independent emergency stop, staging bootstrap and open disk/traffic gates.

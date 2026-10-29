@@ -1,8 +1,10 @@
 locals {
-  worker_scratch_mount = { sourceVolume = "scratch", containerPath = "/var/lib/media-relay", readOnly = false }
-  count                = var.enabled ? 1 : 0
-  workers              = var.enabled && var.release != null ? { for index, w in var.release.workers : tostring(index) => w } : {}
-  release              = var.release
+  worker_scratch_mount  = { sourceVolume = "scratch", containerPath = "/var/lib/media-relay", readOnly = false }
+  count                 = var.enabled ? 1 : 0
+  workers               = var.enabled && var.release != null ? { for index, w in var.release.workers : tostring(index) => w } : {}
+  release               = var.release
+  worker_configurations = { for slot, binding in local.workers : slot => merge(local.common, { credentialRef = var.release.worker_secret_arn, binding = binding }) }
+  gateway_configuration = var.enabled ? merge(local.common, { credentialRef = var.release.gateway_secret_arn }) : null
   common = var.enabled ? {
     version            = 1, enabled = true, region = var.region, controlUrl = var.release.control_url,
     bucket             = aws_s3_bucket.media[0].id, demandTable = aws_dynamodb_table.demand[0].name,
@@ -175,7 +177,7 @@ resource "aws_ecs_task_definition" "worker" {
   container_definitions = jsonencode([{ name = "relay", image = var.release.image, essential = true, readonlyRootFilesystem = true, stopTimeout = 30,
     linuxParameters  = { initProcessEnabled = true },
     mountPoints      = [local.worker_scratch_mount],
-    environment      = [{ name = "MEDIA_RELAY_CONFIG", value = jsonencode(merge(local.common, { credentialRef = var.release.worker_secret_arn, binding = each.value })) }],
+    environment      = [{ name = "MEDIA_RELAY_CONFIG", value = jsonencode(local.worker_configurations[each.key]) }],
     logConfiguration = { logDriver = "awslogs", options = { "awslogs-group" = aws_cloudwatch_log_group.worker[0].name, "awslogs-region" = var.region, "awslogs-stream-prefix" = "slot-${each.key}" } }
   }])
   volume { name = "scratch" }
@@ -223,7 +225,7 @@ resource "aws_lambda_function" "gateway" {
   timeout                        = 5
   memory_size                    = 256
   reserved_concurrent_executions = var.release.gateway_concurrency
-  environment { variables = { MEDIA_RELAY_CONFIG = jsonencode(merge(local.common, { credentialRef = var.release.gateway_secret_arn })) } }
+  environment { variables = { MEDIA_RELAY_CONFIG = jsonencode(local.gateway_configuration) } }
 }
 resource "aws_apigatewayv2_api" "gateway" {
   count         = local.count

@@ -177,3 +177,25 @@ test("stalled snapshot commit blocks later writes even after timeout", async () 
   );
   gate.resolve();
 });
+test("diagnostics retain timed-out physical queue slots until settlement", async () => {
+  const blocked = deferred();
+  const storage = memoryStorage();
+  storage.putSegment = () => blocked.promise;
+  const publisher = createPublisher({
+    storage,
+    commitSnapshot: storage.commitSnapshot,
+    isCurrent: () => true,
+    limits: { maxPending: 2, operationTimeoutMs: 10 },
+  });
+  const first = publisher.publishSnapshot({
+    lease,
+    snapshot: snapshot(),
+    segments: { directory: "/tmp" },
+    signal: new AbortController().signal,
+  });
+  await assert.rejects(first, /timed out/);
+  assert.equal(publisher.pendingCount(), 1);
+  blocked.resolve();
+  await new Promise((r) => setImmediate(r));
+  assert.equal(publisher.pendingCount(), 0);
+});

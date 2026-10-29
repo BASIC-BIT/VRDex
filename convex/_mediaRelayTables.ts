@@ -15,6 +15,13 @@ export const relayContextValidator = v.union(
   }),
 );
 export const mediaRelayTables = {
+  mediaRelayOperations: defineTable({
+    key: v.literal("global"),
+    enabled: v.boolean(),
+    drainingWorkers: v.array(v.string()),
+    evidenceId: v.optional(v.string()),
+    updatedAt: v.number(),
+  }).index("by_key", ["key"]),
   // One bounded rolling minute of successful explicit restarts; no grant identity changes.
   mediaRelayRestartRate: defineTable({
     key: v.literal("global"),

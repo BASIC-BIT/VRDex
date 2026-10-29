@@ -1,3 +1,4 @@
+import { relayEnabled } from "./_mediaRelayOperations";
 import { resolveRelayGrant } from "./mediaRelayPlayback";
 import { GatewayAuthorizationSchema } from "../packages/media-relay/src/contracts";
 import { v } from "convex/values";
@@ -183,8 +184,7 @@ export const listSources = mutation({
   },
   handler: async (ctx, args) => {
     const binding = await authority(ctx, args.credential, args);
-    if (process.env.MEDIA_RELAY_ENABLED !== "true")
-      throw Error("Relay disabled");
+    if (!(await relayEnabled(ctx.db))) throw Error("Relay disabled");
     const now = Date.now();
     const own = await ctx.db
       .query("mediaRelaySources")
@@ -257,8 +257,7 @@ export const commitSnapshot = mutation({
   args: { ...ownership, snapshot: v.any(), objectKey: v.string() },
   handler: async (ctx, args) => {
     await authority(ctx, args.credential, args);
-    if (process.env.MEDIA_RELAY_ENABLED !== "true")
-      throw Error("Relay disabled");
+    if (!(await relayEnabled(ctx.db))) throw Error("Relay disabled");
     const now = Date.now(),
       row = await owned(ctx, args, now);
     const snapshot = PublishedSnapshotSchema.parse(args.snapshot);

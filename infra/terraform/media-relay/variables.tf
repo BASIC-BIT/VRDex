@@ -57,12 +57,12 @@ variable "release" {
       length(var.release.gateway_sha256) == 44 && length(var.release.gateway_zip) > 0 &&
       length(var.release.signing_public_key) > 100 &&
       length(var.release.subnet_ids) > 0 && length(var.release.security_group_ids) > 0 &&
-      length(var.release.origins) > 0 && alltrue([for origin in var.release.origins : can(regex("^https://[a-zA-Z0-9.-]+$", origin))]) &&
+      length(var.release.origins) > 0 && length(var.release.origins) <= 20 && alltrue([for origin in var.release.origins : can(regex("^https://[a-zA-Z0-9.-]+$", origin))]) &&
       alltrue([for n in [var.release.global_source_cap, var.release.max_grants, var.release.admission_per_minute, var.release.gateway_concurrency, var.release.request_rate, var.release.request_burst, var.release.traffic_gib_per_month, var.release.warm_min, var.release.warm_max] : n > 0 && floor(n) == n]) &&
       var.release.admission_per_minute <= 10000 && var.release.max_grants <= 10000 && var.release.global_source_cap <= 1000 && var.release.gateway_concurrency <= 1000 &&
       var.release.warm_min == var.release.warm_max && var.release.warm_max == length(var.release.workers) &&
       length(distinct([for w in var.release.workers : w.workerId])) == length(var.release.workers) &&
-      alltrue([for w in var.release.workers : can(regex("^[A-Za-z0-9_-]{1,128}$", w.workerId)) && w.workerEpoch > 0 && floor(w.workerEpoch) == w.workerEpoch && w.maxSources > 0 && w.maxSources <= 1000 && floor(w.maxSources) == w.maxSources && contains([256, 512, 1024, 2048, 4096], w.allocation.cpuUnits) && contains(lookup({ "256" = [512, 1024, 2048], "512" = [1024, 2048, 3072, 4096], "1024" = [2048, 3072, 4096, 5120, 6144, 7168, 8192], "2048" = range(4096, 16385, 1024), "4096" = range(8192, 30721, 1024) }, tostring(w.allocation.cpuUnits), []), w.allocation.memoryMiB) && length(w.allocation.evidenceId) >= 8]) &&
+      alltrue([for w in var.release.workers : can(regex("^[A-Za-z0-9_-]{1,128}$", w.workerId)) && w.workerEpoch > 0 && floor(w.workerEpoch) == w.workerEpoch && w.maxSources > 0 && w.maxSources <= 1000 && floor(w.maxSources) == w.maxSources && contains([256, 512, 1024, 2048, 4096], w.allocation.cpuUnits) && contains(lookup({ "256" = [512, 1024, 2048], "512" = [1024, 2048, 3072, 4096], "1024" = [2048, 3072, 4096, 5120, 6144, 7168, 8192], "2048" = range(4096, 16385, 1024), "4096" = range(8192, 30721, 1024) }, tostring(w.allocation.cpuUnits), []), w.allocation.memoryMiB) && can(regex("^[-a-zA-Z0-9_.:]{8,128}$", w.allocation.evidenceId))]) &&
       sum([for w in var.release.workers : w.maxSources]) > var.release.global_source_cap,
     false)
     error_message = "Enabled relay requires a complete measured release, unique fixed worker slots, equal warm bounds, spare capacity and finite positive limits."

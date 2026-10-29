@@ -1,3 +1,4 @@
+import { relayEnabled, relayOperationState } from "./_mediaRelayOperations";
 import {
   WorkerBindingsSchema,
   type WorkerBinding,
@@ -85,7 +86,13 @@ export async function authority(
     .unique();
   if (!worker || worker.workerEpoch !== identity.workerEpoch)
     throw Error("Worker registration required");
-  return binding;
+  const operations = await relayOperationState(ctx.db);
+  return {
+    ...binding,
+    draining:
+      binding.draining ||
+      (operations?.drainingWorkers.includes(binding.workerId) ?? false),
+  };
 }
 export async function source(ctx: MutationCtx, streamKey: string) {
   StreamKeySchema.parse(streamKey);
@@ -137,10 +144,7 @@ export async function capacity(
   now: number,
   renewing: boolean,
 ) {
-  if (
-    process.env.MEDIA_RELAY_ENABLED !== "true" ||
-    (binding.draining && !renewing)
-  )
+  if (!(await relayEnabled(ctx.db)) || (binding.draining && !renewing))
     throw Error("Relay worker draining or disabled");
   const rows = await ctx.db
     .query("mediaRelaySources")

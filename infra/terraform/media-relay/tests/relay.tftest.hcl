@@ -79,6 +79,15 @@ CONFIG
 }
 
 run "enabled_private_scoped" {
+  override_resource {
+    target = aws_cloudfront_distribution.media[0]
+    values = { domain_name = "media.invalid" }
+  }
+  override_resource {
+    target = aws_cloudfront_public_key.media[0]
+    values = { id = "TESTKEY" }
+  }
+
   assert {
     condition     = local.worker_scratch_mount.containerPath == "/var/lib/media-relay" && !local.worker_scratch_mount.readOnly
     error_message = "Non-root workers require the initialized image scratch volume, with read-only root retained."
@@ -137,6 +146,22 @@ run "zero_capacity" {
   variables {
     enabled = true
     release = merge(var.release, { global_source_cap = 0 })
+  }
+  expect_failures = [var.release]
+}
+run "too_many_origins" {
+  command = plan
+  variables {
+    enabled = true
+    release = merge(var.release, { origins = [for n in range(21) : "https://app${n}.invalid"] })
+  }
+  expect_failures = [var.release]
+}
+run "invalid_evidence_identity" {
+  command = plan
+  variables {
+    enabled = true
+    release = merge(var.release, { workers = [for w in var.release.workers : merge(w, { allocation = merge(w.allocation, { evidenceId = "invalid evidence spaces" }) })] })
   }
   expect_failures = [var.release]
 }

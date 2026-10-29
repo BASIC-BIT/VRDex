@@ -30,6 +30,7 @@ async function fixture(enabled = true) {
   process.env.MEDIA_RELAY_MAX_GRANTS = "100";
   process.env.MEDIA_RELAY_ADMISSIONS_PER_MINUTE = "100";
   const t = convexTest({ schema, modules });
+  await t.run(ctx => ctx.db.insert("mediaRelayOperations", {key:"global", enabled:true, drainingWorkers:[], updatedAt:Date.now()}));
   const ids = await t.run(async (ctx) => {
     const profileId = await ctx.db.insert("profiles", {
       slug: "dj",
@@ -1292,4 +1293,12 @@ it("native manual postwindow selection presents an unreleased real continuation 
     adapter.dispose(); await Promise.all(releasing);
     assert.equal((await h.t.query(resolve, { grantId: grantIds[1], now: Date.now() })).kind, "denied");
   } finally { finish?.(); adapter?.dispose(); await Promise.all(releasing); mock.restoreAll(); Object.defineProperty(globalThis, "document", { configurable: true, value: before }); }
+});
+it('persisted operator disable denies new Play and existing gateway grants while environment stays enabled',async()=>{
+ const h=await fixture();await h.play();
+ const grant=await h.t.run(ctx=>ctx.db.query('mediaRelayGrants').first());assert.ok(grant);
+ await h.t.run(async ctx=>{const state=await ctx.db.query('mediaRelayOperations').first();assert.ok(state);await ctx.db.patch(state._id,{enabled:false});});
+ assert.equal(AdmissionSchema.parse(await h.play()).kind,'unavailable');
+ const result=await h.t.query(resolve,{grantId:grant.grantId,now:Date.now()});
+ assert.equal(result.kind,'denied');
 });

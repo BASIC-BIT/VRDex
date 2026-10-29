@@ -22,3 +22,9 @@ output "control_release" {
     MEDIA_RELAY_WORKERS               = "[]"
   }
 }
+
+# Structured review output is the exact producer used by ECS/Lambda jsonencode.
+# It contains secret references only, never credential values.
+output "runtime_config_review" {
+  value = { workers = local.worker_configurations, gateway = local.gateway_configuration }
+}

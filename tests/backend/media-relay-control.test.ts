@@ -44,6 +44,7 @@ async function fixture() {
     })),
   );
   const t = convexTest({ schema, modules });
+  await t.run(ctx => ctx.db.insert("mediaRelayOperations", {key:"global", enabled:true, drainingWorkers:[], updatedAt:Date.now()}));
   await t.run(async (ctx) => {
     for (const streamId of ["Alpha", "Bravo", "Charlie"])
       await ctx.db.insert("mediaRelaySources", {
