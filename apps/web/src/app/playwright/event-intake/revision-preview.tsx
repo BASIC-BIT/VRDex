@@ -173,7 +173,7 @@ function revisionFixture(correction: boolean, sourceMode?: string, staff = false
         if (sourceMode === "extraction-delay") await new Promise<void>(resolve => window.addEventListener("release-extraction", () => resolve(), { once: true }));
         sessionStorage.setItem("fixture-extraction", JSON.stringify(args));
         if (sourceMode === "stale") refresh({ venueLabel: "Changed elsewhere" });
-        return Response.json({ event: { title: sourceMode === "poster" ? null : "Afterglow Night", communitySlug: null, eventDate: null, start: null, end: null, startDate: null, endDate: null, timezone: null, venueLabel: null, summary: null, sourceUrl: null }, lineup: [], evidence: [{ fieldPath: "event.title", origin: "text", excerpt: "Afterglow Night", assessment: "explicit" }], questions: [{ fieldPath: sourceMode === "poster" ? "source" : "timezone", reason: sourceMode === "poster" ? "disabled" : "Which time zone?", alternatives: [] }] });
+        return Response.json({ event: { title: sourceMode === "poster" ? null : "Afterglow Night", communitySlug: null, eventDate: null, start: null, end: null, startDate: null, endDate: null, timezone: null, venueLabel: null, summary: null, sourceUrl: null }, lineup: [], evidence: [{ fieldPath: "event.title", origin: "text", excerpt: "Afterglow Night", assessment: "explicit" }], questions: [{ fieldPath: sourceMode === "poster" ? "source" : "timezone", reason: sourceMode === "poster" ? "disabled" : "Which time zone?", alternatives: [] }], decision: { kind: "new" } });
       default: throw new Error("Unexpected fixture operation");
     }
   };
