@@ -583,18 +583,21 @@ it("implicit group selection respects hidden links, explicit clears and explicit
     subject: "community_submitter", contributorUserId: userId, input: { primaryGroupUrl: null }, now: 202 }));
   assert.equal((await read()).primaryGroupSelectionDisabled, true, "clearing before reconciliation must persist too");
 });
-it("private group-link edits retain contributor quota when visibility is restored", async () => {
+for (const previousSelection of ["none", "explicit"] as const) {
+it(`private group-link edits retain contributor quota when visibility is restored (${previousSelection})`, async () => {
   const { t, userId } = await enrollmentFixture();
   const { createCommunityProfileRecord } = await import("../../convex/profiles");
   const { applyApiProfileUpdate } = await import("../../convex/_profileUpdates");
   const { queueProfileLinkDestinations } = await import("../../convex/_profileLinkDestinationCache");
   const url = "https://vrc.group/PRIV.1234";
+  const contributorUserId = await t.run(ctx => ctx.db.insert("users", { clerkUserId: "new-group-contributor" }));
   const created = await t.run(ctx => createCommunityProfileRecord(ctx, {
     profileType: "community", displayName: "Private contribution",
+    ...(previousSelection === "explicit" ? { primaryGroupUrl: "https://vrc.group/OLD.1234", outboundLinks: [{ type: "vrchat_profile" as const, url: "https://vrc.group/OLD.1234" }] } : {}),
   }, { issuer: "test", subject: String(userId), tokenIdentifier: String(userId) }, userId));
   await t.run(ctx => ctx.db.patch(created.profileId, { claimState: "claimed_unverified", inferredGroupContributorUserId: undefined, fieldVisibility: { outboundLinks: "private" } }));
   await t.run(async ctx => applyApiProfileUpdate(ctx, {
-    profile: (await ctx.db.get(created.profileId))!, subject: "claimed_owner", contributorUserId: userId,
+    profile: (await ctx.db.get(created.profileId))!, subject: "claimed_owner", contributorUserId,
     input: { outboundLinks: [{ type: "vrchat_profile", url }] }, now: 200,
   }));
   await t.run(async ctx => {
@@ -605,10 +608,11 @@ it("private group-link edits retain contributor quota when visibility is restore
   });
   await t.mutation(reconcileEnrollment, { profileId: created.profileId, affectedGroupIds: [], now: 202 });
   const policy = await t.run(ctx => ctx.db.query("vrchatGroupObservationPolicies").first());
-  assert.equal(policy?.candidateContributorId, userId);
-  const quota = await t.run(ctx => ctx.db.query("groupObservationCandidateLimits").withIndex("by_key", q => q.eq("key", `user:${userId}`)).unique());
+  assert.equal(policy?.candidateContributorId, contributorUserId);
+  const quota = await t.run(ctx => ctx.db.query("groupObservationCandidateLimits").withIndex("by_key", q => q.eq("key", `user:${contributorUserId}`)).unique());
   assert.equal(quota?.admittedAt.length, 1);
 });
+}
 
 async function enrollmentFixture(options: { enabled?: boolean; capacity?: number } = {}) {
   const t = convexTest({ schema, modules: enrollmentModules });

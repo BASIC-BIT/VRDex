@@ -786,6 +786,8 @@ export async function applyApiProfileUpdate(
   );
   if (options.input.primaryGroupUrl !== undefined || options.input.outboundLinks !== undefined) {
     requireEditableFields(options.profile, ["outboundLinks"], options.subject ?? "claimed_owner");
+    if (options.profile.profileType === "community" && options.input.outboundLinks !== undefined && options.contributorUserId)
+      sanitized.patch.inferredGroupContributorUserId = options.contributorUserId;
     const links = (sanitized.patch.outboundLinks ?? options.profile.outboundLinks ?? []) as NonNullable<Doc<"profiles">["outboundLinks"]>;
     const previous = options.profile.primaryGroupReference;
     if (options.input.primaryGroupUrl !== undefined) {
@@ -805,7 +807,6 @@ export async function applyApiProfileUpdate(
   }
   if (options.input.outboundLinks !== undefined && options.input.primaryGroupUrl === undefined &&
     (!options.profile.primaryGroupReference || options.profile.primaryGroupReference.inferred)) {
-    if (options.contributorUserId) sanitized.patch.inferredGroupContributorUserId = options.contributorUserId;
     const selection = primaryGroupSelection({ ...options.profile, ...sanitized.patch });
     sanitized.patch.primaryGroupReference = selection
       ? { ...selection, contributorUserId: options.contributorUserId ?? selection.contributorUserId } : undefined;
