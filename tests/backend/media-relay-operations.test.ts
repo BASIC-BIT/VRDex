@@ -232,7 +232,7 @@ test("release evidence cannot turn sampled disk, alerts, or local measurements i
       false,
     );
 });
-test("enable cannot count configured or persisted drained slots as recovery capacity", async () => {
+function configureReviewedRelease() {
   process.env.MEDIA_RELAY_ENABLED = "true";
   process.env.MEDIA_RELAY_MAX_SOURCES = "2";
   process.env.CONVEX_CLOUD_URL = "https://selected.convex.cloud";
@@ -262,6 +262,9 @@ test("enable cannot count configured or persisted drained slots as recovery capa
     ownerApprovalReference: "review-ticket-123",
     monthlyBudgetUsd: 200,
   });
+}
+test("enable cannot count configured or persisted drained slots as recovery capacity", async () => {
+  configureReviewedRelease();
   for (const persisted of [true, false]) {
     process.env.MEDIA_RELAY_WORKERS = JSON.stringify(
       ["slot-0", "slot-1"].map((workerId) => ({
@@ -295,4 +298,60 @@ test("enable cannot count configured or persisted drained slots as recovery capa
       false,
     );
   }
+});
+
+function reviewedBinding(workerId: string, workerEpoch = 1) {
+  return {
+    workerId,
+    workerEpoch,
+    allocation: {
+      cpuUnits: 1024,
+      memoryMiB: 2048,
+      evidenceId: "reviewed-proof",
+    },
+    maxSources: 2,
+    draining: false,
+  };
+}
+test("duplicate worker IDs cannot enable or supply recovery capacity, including different epochs", async () => {
+  configureReviewedRelease();
+  for (const secondEpoch of [1, 2]) {
+    process.env.MEDIA_RELAY_WORKERS = JSON.stringify([
+      reviewedBinding("slot-0"),
+      reviewedBinding("slot-0", secondEpoch),
+    ]);
+    const t = convexTest({ schema, modules });
+    await t.run((ctx) =>
+      ctx.db.insert("mediaRelayOperations", {
+        key: "global",
+        enabled: false,
+        drainingWorkers: [],
+        updatedAt: Date.now(),
+      }),
+    );
+    await assert.rejects(
+      t.mutation(ref("setRelayEnabled"), { enabled: true }),
+      /unique|duplicate/i,
+    );
+    assert.equal(
+      (await t.run((ctx) => ctx.db.query("mediaRelayOperations").first()))
+        ?.enabled,
+      false,
+    );
+  }
+});
+test("unique reviewed worker slots enable only the in-memory operator fixture", async () => {
+  configureReviewedRelease();
+  process.env.MEDIA_RELAY_WORKERS = JSON.stringify([
+    reviewedBinding("slot-0"),
+    reviewedBinding("slot-1"),
+  ]);
+  const t = convexTest({ schema, modules });
+  await t.mutation(ref("setRelayEnabled"), { enabled: true });
+  const rows = await t.run((ctx) =>
+    ctx.db.query("mediaRelayOperations").collect(),
+  );
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]?.enabled, true);
+  assert.equal(rows[0]?.evidenceId, "reviewed-proof");
 });

@@ -107,8 +107,10 @@ upstream/audience bytes, startup/reconnect, actual remote-operation evidence,
 clean cleanup, zero timestamp warnings and explicit owner acceptance of PAYG
 exposure plus a budget/approval reference. Global capacity must survive loss of
 the largest available slot; configured or persisted drained slots contribute no
-recovery capacity. Billing alerts do not satisfy a traffic decision. The current
-local proof cannot populate an acceptable release record.
+recovery capacity. Worker IDs must be unique across the complete installed binding
+list, including across epochs; duplicate entries cannot represent independent
+capacity or authenticate a worker. Billing alerts do not satisfy a traffic
+decision. The current local proof cannot populate an acceptable release record.
 
 The deployment operator owns this nonsecret JSON setting and the persisted state.
 Recreation/rotation means review fresh evidence, set it through the selected
