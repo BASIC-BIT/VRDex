@@ -8,7 +8,7 @@ import {
   type RenditionSnapshot,
   type StreamKey,
 } from "../contracts";
-import { isSnapshotFresh, RELAY_POLICY } from "../policy";
+import { isSnapshotFresh, hasPlayableWindow, RELAY_POLICY } from "../policy";
 import { renderPlaylist } from "./playlist";
 import type { SignSegment } from "./signing";
 export type ManifestOptions = {
@@ -118,7 +118,7 @@ export function createManifestHandler(
         pointer.epoch === auth.epoch &&
         auth.leaseExpiresAt !== null &&
         auth.leaseExpiresAt > options.clock() &&
-        isSnapshotFresh(pointer, options.clock());
+        isSnapshotFresh(pointer, options.clock()) && hasPlayableWindow(pointer);
       if (!fresh() || !pointer) return unavailable();
       const snapshot = PublishedSnapshotSchema.parse(
         await options.readSnapshot({

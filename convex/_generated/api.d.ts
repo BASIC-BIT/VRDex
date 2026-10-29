@@ -87,6 +87,7 @@ import type * as _mediaCleanupUrl from "../_mediaCleanupUrl.js";
 import type * as _mediaContributionCommands from "../_mediaContributionCommands.js";
 import type * as _mediaRelayAuthorization from "../_mediaRelayAuthorization.js";
 import type * as _mediaRelayControl from "../_mediaRelayControl.js";
+import type * as _mediaRelayOperations from "../_mediaRelayOperations.js";
 import type * as _mediaRelayTables from "../_mediaRelayTables.js";
 import type * as _mediaReview from "../_mediaReview.js";
 import type * as _mediaSubmissionCleanup from "../_mediaSubmissionCleanup.js";
@@ -191,6 +192,7 @@ import type * as localEventBroadcastRehearsal from "../localEventBroadcastRehear
 import type * as localFixtures from "../localFixtures.js";
 import type * as mcpToolEvents from "../mcpToolEvents.js";
 import type * as mediaKitPublicationMigration from "../mediaKitPublicationMigration.js";
+import type * as mediaRelayOperations from "../mediaRelayOperations.js";
 import type * as mediaRelayPlayback from "../mediaRelayPlayback.js";
 import type * as mediaRelayWorker from "../mediaRelayWorker.js";
 import type * as migrations from "../migrations.js";
@@ -308,6 +310,7 @@ declare const fullApi: ApiFromModules<{
   _mediaContributionCommands: typeof _mediaContributionCommands;
   _mediaRelayAuthorization: typeof _mediaRelayAuthorization;
   _mediaRelayControl: typeof _mediaRelayControl;
+  _mediaRelayOperations: typeof _mediaRelayOperations;
   _mediaRelayTables: typeof _mediaRelayTables;
   _mediaReview: typeof _mediaReview;
   _mediaSubmissionCleanup: typeof _mediaSubmissionCleanup;
@@ -412,6 +415,7 @@ declare const fullApi: ApiFromModules<{
   localFixtures: typeof localFixtures;
   mcpToolEvents: typeof mcpToolEvents;
   mediaKitPublicationMigration: typeof mediaKitPublicationMigration;
+  mediaRelayOperations: typeof mediaRelayOperations;
   mediaRelayPlayback: typeof mediaRelayPlayback;
   mediaRelayWorker: typeof mediaRelayWorker;
   migrations: typeof migrations;

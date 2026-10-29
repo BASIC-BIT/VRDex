@@ -50,7 +50,7 @@ export function parseProofArgs(argv: string[]): ProofOptions {
     target,
     sources: bound("sources", 2, 1, 8),
     bitrate: bound("bitrate", 3000000, 64000, 8000000),
-    duration: bound("duration", 20, 12, 120),
+    duration: bound("duration", 30, 12, 120),
     deadline: bound("deadline", 45, 1, 180),
     keyframe: bound("keyframe", 2, 2, 120),
     output: resolve(values.output ?? "/tmp/vrdex-media-relay-proof"),
@@ -94,26 +94,39 @@ export async function runProof(options: ProofOptions) {
   child.stderr.on("data", (chunk: Buffer) => {
     errors = (errors + chunk.toString()).slice(-4096);
   });
-  await new Promise<void>((resolve, reject) => {
-    const timeout = setTimeout(
-      () => {
-        try {
-          process.kill(-child.pid!, "SIGKILL");
-        } catch {}
-        reject(Error("Proof cleanup deadline exceeded"));
-      },
-      (checked.deadline + 8) * 1000,
-    );
-    child.once("error", (error) => {
-      clearTimeout(timeout);
-      reject(error);
+  const signalGroup = (signal: NodeJS.Signals) => {
+    if (child.pid) { try { process.kill(-child.pid, signal); } catch {} }
+  };
+  let interrupted = false;
+  let escalation: ReturnType<typeof setTimeout> | undefined;
+  const interrupt = () => {
+    if (interrupted) return;
+    interrupted = true;
+    signalGroup("SIGTERM");
+    escalation = setTimeout(() => signalGroup("SIGKILL"), 5000);
+  };
+  process.on("SIGINT", interrupt);
+  process.on("SIGTERM", interrupt);
+  try {
+    await new Promise<void>((resolve, reject) => {
+      let expired = false;
+      const timeout = setTimeout(() => {
+        expired = true;
+        signalGroup("SIGKILL");
+      }, (checked.deadline + 8) * 1000);
+      child.once("error", (error) => { clearTimeout(timeout); reject(error); });
+      child.once("close", (code) => {
+        clearTimeout(timeout);
+        if (expired) reject(Error("Proof cleanup deadline exceeded"));
+        else if (code !== 0) reject(Error(`Local proof process failed: ${errors}`));
+        else resolve();
+      });
     });
-    child.once("close", (code) => {
-      clearTimeout(timeout);
-      if (code !== 0) reject(Error(`Local proof process failed: ${errors}`));
-      else resolve();
-    });
-  });
+  } finally {
+    if (escalation) clearTimeout(escalation);
+    process.removeListener("SIGINT", interrupt);
+    process.removeListener("SIGTERM", interrupt);
+  }
   return JSON.parse(
     await readFile(join(checked.output, "evidence.json"), "utf8"),
   ) as Awaited<ReturnType<typeof runLocalProof>>;

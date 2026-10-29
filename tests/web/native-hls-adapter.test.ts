@@ -228,7 +228,10 @@ test("desktop MSE attaches HLS only when native capability is absent and destroy
   const sources: string[] = [];
   let destroyed = 0,
     starts = 0;
+  const configs: Array<{playlistLoadPolicy:{default:{errorRetry:{maxNumRetry:number;retryDelayMs:number}}}}> = [];
   class Hls {
+    static DefaultConfig = {playlistLoadPolicy:{default:{}}};
+    constructor(config: typeof configs[number]) { configs.push(config); }
     static Events = { ERROR: "error" };
     static isSupported() {
       return true;
@@ -260,6 +263,8 @@ test("desktop MSE attaches HLS only when native capability is absent and destroy
     await adapter.setMode!("audio");
     assert.deepEqual(sources, [grant.videoPlaylist, grant.audioPlaylist]);
     assert.equal(starts, 2);
+    const retry = configs[0].playlistLoadPolicy.default.errorRetry;
+    assert.equal(retry.maxNumRetry * retry.retryDelayMs, 30000);
     assert.equal(destroyed, 1);
     adapter.dispose();
     assert.equal(destroyed, 2);

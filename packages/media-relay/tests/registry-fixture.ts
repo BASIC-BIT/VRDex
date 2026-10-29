@@ -129,6 +129,7 @@ export function output(
   now: number,
   sequence = 0,
   rendition: "video" | "audio" = "video",
+  segmentCount = 1,
 ) {
   return attempt.onSnapshot(
     {
@@ -139,15 +140,13 @@ export function output(
       sequence,
       discontinuitySequence: 0,
       generatedAt: now,
-      segments: [
-        {
-          sequence,
-          objectKey: `attempt-1-test/${rendition}-${sequence}.ts`,
+      segments: Array.from({length: segmentCount}, (_, offset) => ({
+          sequence: sequence + offset,
+          objectKey: `attempt-1-test/${rendition}-${sequence + offset}.ts`,
           durationSeconds: 2,
           programDateTime: now,
-          discontinuity: sequence > 0,
-        },
-      ],
+          discontinuity: sequence > 0 && offset === 0,
+        })),
     },
     attempt.signal,
   );

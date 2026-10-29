@@ -9,7 +9,7 @@ approved. The default deployment and persisted operator gate are off.
 Activate the repository toolchain, then run:
 
 ```bash
-node --import tsx scripts/media-relay-proof.ts --target local --sources 2 --bitrate 3000000 --duration 20 --deadline 40 --output /tmp/relay-proof
+node --import tsx scripts/media-relay-proof.ts --target local --sources 2 --bitrate 3000000 --duration 30 --deadline 45 --output /tmp/relay-proof
 ```
 
 Omitting target selects local synthetic input. Unknown, duplicate, missing-value
@@ -265,12 +265,63 @@ substitutions fail. Terraform and runtime both reject 21 origins and invalid
 allocation evidence IDs. The checked-in plan fixture records those actual
 producer values, not a separate hand-built deployment schema.
 
-Task 12 must regenerate the Convex API through the canonical local workflow and
-verify public HTTP invisibility. Against that isolated local backend, POST
+Canonical local generation and public HTTP invisibility are exercised by the
+[complete-flow acceptance record](./evidence/media-relay-task12/README.md).
+To reproduce against an isolated local backend, POST
 `/api/mutation` with `{ "path": "mediaRelayOperations:setRelayEnabled",
 "args": { "enabled": false }, "format": "json" }`, first anonymously and then
-with synthetic worker/gateway bearer identities; repeat for `drainWorker`.
+with synthetic worker/gateway service credential arguments (the relay RPC
+credential channel); repeat for `drainWorker`.
 Require an error response identifying absence of a public callable function and
 no state mutation; record the backend's actual HTTP status/error code. Then verify
 an explicitly selected local deployment-admin CLI can disable. `convex-test`
 internal calls and metadata assertions do not establish this transport behavior.
+
+## Complete-flow acceptance and evidence provenance
+
+The [Task 12 evidence](./evidence/media-relay-task12/README.md) binds the composed
+handlers, real media pipeline, browser observations and final packaged artifacts.
+Task 11's archived capacity captures predate the three-target-duration readiness
+policy. Their partial disk and transfer observations remain historical local
+measurements; their cold/warm timings are not current playable-startup timings.
+The proof now measures readiness only after both qualifying rendition windows;
+the normal local run uses thirty seconds to allow cold startup and recovery.
+
+## Remaining release actions
+
+The local proof does not authorize deployment or enablement. Complete these
+independent steps in order; each has a reviewable target and evidence record:
+
+1. Owner chooses the [cost and deployment proposal](#owner-reviewable-cost-proposal)
+   and explicitly resolves PAYG exposure versus enforceable delivery accounting
+   or a separately approved flat-plan lifecycle. Forecasts and delayed alerts are
+   not hard traffic or dollar limits.
+2. Review a staging-only benchmark allocation with exact account, region, image
+   digest, worker slots, source caps, storage quota, deadline and cleanup plan.
+   Prove physical scratch/buffer limits, pressure behavior, remote operations,
+   measured source capacity and one-slot recovery margin before public admission.
+3. Run the physical-device matrix below using the selected staged targets and
+   reviewed grants. Archive observed results before deciding on small-cap rollout.
+4. Review enable evidence and rollback together. Keep independent persisted and
+   environment kill switches, worker drain, stop-before-start image rollback and
+   bounded CDN capability expiry. Eventual eligibility covers all VRCDN streams;
+   it does not add owner opt-in or background lineup following.
+
+### Physical-device run sheet
+
+For each actual iPhone Safari and Android Chrome device, record model, OS/browser
+build, network, start/end timestamps, source and worker epochs, grant expiry and
+cleanup. Capture audible observations separately from screenshots and counters.
+
+- [ ] Thirty-minute screen lock in Video and Audio only, with audible progress.
+- [ ] PiP, video/audio toggles, hardware volume and headphones; lock-screen
+      play/pause must control the retained current owner.
+- [ ] Wi-Fi/cellular changes, source reconnect and worker takeover; metadata
+      follows the current DJ and original profile images remain unchanged.
+- [ ] Grant expiry, copied grants, event-only revocation and closed client cleanup.
+- [ ] Healthy overtime, late next source, pause/mute, manual selection and blocked
+      promotion preserve the existing foreground following and gesture policy.
+- [ ] Final source/worker stop and resource inventory agree with the cleanup plan.
+
+These boxes remain unchecked. Chromium viewport screenshots, MSE playback and
+separate HTTP demand polling cannot complete physical-device acceptance.

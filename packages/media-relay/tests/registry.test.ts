@@ -168,8 +168,8 @@ test("idle source stops after native demand grace despite continuing fresh media
     const a = h.attempts[0];
     assert(a);
     for (let n = 0; n < 36; n++) {
-      await output(a, h.now(), n);
-      await output(a, h.now(), n, "audio");
+      await output(a, h.now(), n, "video", 3);
+      await output(a, h.now(), n, "audio", 3);
       await h.tick(5000);
     }
     assert(a.signal.aborted);

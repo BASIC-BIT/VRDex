@@ -195,3 +195,34 @@ must synchronously disable publication, then start asynchronous cleanup. Stop is
 latched: a delayed response cannot revive a fenced watchdog. A replacement epoch
 needs a new watchdog. The timer cannot protect against a blocked JavaScript event
 loop; media output integration must respect the synchronous fence before cleanup.
+
+## Composed acceptance
+
+The [local acceptance harness](./evidence/media-relay-task12/README.md) joins real
+admission and worker handlers to the registry, packager, gateway and decoded
+browser media. Its enabled state exists only in isolated in-memory fixtures.
+Actual local Convex HTTP separately checks public invisibility of operator
+mutations; neither fixture bridge calls nor internal test metadata prove that
+transport boundary. Physical phone and hosted release gates remain open.
+
+## Native playable readiness
+
+Partial snapshots may publish for continuity, but ready admission requires both
+fresh renditions from the same source epoch and packager attempt. Each window
+must contain at least three actual target durations. Gateway delivery checks the
+same window threshold and current server lease; a premature ready observation
+cannot expose a short playlist. With the measured three-second target this moves
+cold native startup to approximately ten seconds, within the existing thirty-second
+budget. It avoids the observed Chromium native demux failure on a one-segment
+live playlist without changing native-first transport selection.
+
+Only qualifying playable output advances registry progress and resets the
+recovery budget. Fresh partial fragments cannot retain an unplayable source
+indefinitely. Restart and takeover retain continuity and require a fresh qualifying
+window; already-buffered client media may continue while manifests recover.
+
+The desktop MSE fallback retries temporary playlist errors once per second for
+up to 30 retries, matching the relay recovery budget. This permits a newly
+playable recovery window to arrive after transient 503 responses. Normal Hls
+4xx rejection and fatal-error handling remain in effect; native playback keeps
+the browser's own request behavior.

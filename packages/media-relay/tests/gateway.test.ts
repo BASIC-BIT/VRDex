@@ -23,15 +23,13 @@ function snapshot(epoch = 1, sequence = 0) {
     sequence,
     discontinuitySequence: epoch - 1,
     generatedAt: 100000,
-    segments: [
-      {
-        sequence,
-        objectKey: `vrcdn/Alpha/1/epochs/${epoch}/attempt-1-abc/video-${sequence}.ts`,
+    segments: Array.from({length: 3}, (_, offset) => ({
+        sequence: sequence + offset,
+        objectKey: `vrcdn/Alpha/1/epochs/${epoch}/attempt-1-abc/video-${sequence + offset}.ts`,
         durationSeconds: 2,
         programDateTime: 100000,
-        discontinuity: epoch > 1,
-      },
-    ],
+        discontinuity: epoch > 1 && offset === 0,
+      })),
   });
 }
 function fixture() {
@@ -156,7 +154,7 @@ test("rejects paths and stale, foreign or decreasing snapshots; stable route fol
   h.setNow(110000);
   assert.equal((await h.request()).status, 503);
   h.setNow(100000);
-  let next = snapshot(2, 2);
+  let next = snapshot(2, 3);
   h.setSnapshot(next);
   h.setAuth({
     kind: "active",
@@ -354,4 +352,14 @@ test("response never serves authorization older than two seconds even before the
     ).status,
     503,
   );
+});
+
+test("premature ready does not expose a window below three target durations", async () => {
+  const h = fixture();
+  const partial = snapshot();
+  partial.segments = partial.segments.slice(0, 1);
+  h.setSnapshot(partial);
+  h.setAuth({kind:"active",grant,state:"ready",epoch:1,leaseExpiresAt:130000,snapshot:partial});
+  assert.equal((await h.request()).status, 503);
+  assert.equal(h.demands, 1, "admitted native requests still retain startup demand");
 });

@@ -617,6 +617,23 @@ jobs:
           VRDEX_E2E_CONVEX_SECRET: local-convex-e2e-secret
         run: pnpm --filter web exec playwright test --grep @flow --project=desktop-chromium --workers=1
 
+      - name: Install synthetic media tools
+        run: |
+          sudo apt-get update && sudo apt-get install -y ffmpeg
+          pnpm --filter web exec playwright install --with-deps firefox
+
+      - name: Run isolated composed media acceptance
+        env:
+          MOBILE_MEDIA_ACCEPTANCE: "true"
+          EVENT_PLAYBACK_PROOF: "true"
+          NATIVE_HLS_PLAYBACK_PROOF: "true"
+          CLERK_SECRET_KEY: ""
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ""
+          PLAYWRIGHT_OUTPUT_DIR: playwright-artifacts/mobile-media/results
+          PLAYWRIGHT_HTML_REPORT_DIR: playwright-artifacts/mobile-media/report
+          PLAYWRIGHT_JSON_REPORT_FILE: playwright-artifacts/mobile-media/results.json
+        run: pnpm --filter web exec playwright test mobile-hls-playback.spec.ts event-lineup-live.spec.ts --project=desktop-chromium --workers=1
+
       - name: Write data-flow summary
         if: always()
         env:

@@ -8,6 +8,7 @@ import {
   continuityAfter,
   snapshotObjectKey,
   isSnapshotFresh,
+  areRenditionsPlayable,
   SourceDescriptorSchema,
   SourceStateSchema,
   SourceTerminalReasonSchema,
@@ -298,17 +299,16 @@ export const commitSnapshot = mutation({
     const audio = snapshots.audio
       ? PublishedSnapshotSchema.parse(snapshots.audio)
       : undefined;
+    const playable = areRenditionsPlayable({video, audio}, now, args.epoch);
     const progressAt =
-      video && audio
+      playable && video && audio
         ? Math.min(video.generatedAt, audio.generatedAt)
         : row.progressAt;
     await ctx.db.patch(row._id, {
       snapshots,
       ...(progressAt === undefined ? {} : { progressAt }),
       updatedAt: now,
-      ...(video?.epoch === args.epoch && audio?.epoch === args.epoch
-        ? { state: "ready" as const }
-        : {}),
+      ...(playable ? { state: "ready" as const } : { state: "recovering" as const }),
     });
     return null;
   },
@@ -351,7 +351,7 @@ export const readGateway = query({
     return GatewayAuthorizationSchema.parse({
       kind: "active",
       grant: resolved.grant,
-      state: row.state,
+      state: row.state === "ready" && !areRenditionsPlayable(row.snapshots ?? {}, Date.now(), row.epoch) ? "recovering" : row.state,
       epoch: row.epoch ?? null,
       leaseExpiresAt: row.leaseExpiresAt ?? null,
       snapshot:

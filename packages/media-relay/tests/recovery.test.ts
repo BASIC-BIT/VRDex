@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { areRenditionsPlayable } from "../src/policy";
 import { harness, output } from "./registry-fixture";
 test("thirty seconds without fresh output becomes terminal despite native demand; terminal does not restart", async () => {
   const h = harness();
@@ -8,8 +9,8 @@ test("thirty seconds without fresh output becomes terminal despite native demand
     await h.tick(1000);
     const a = h.attempts[0];
     assert(a);
-    await output(a, h.now());
-    await output(a, h.now(), 0, "audio");
+    await output(a, h.now(), 0, "video", 3);
+    await output(a, h.now(), 0, "audio", 3);
     await h.tick(10000);
     assert(h.observations.at(-1)?.jobs.some((j) => j.state === "recovering"));
     await h.tick(10000);
@@ -30,8 +31,8 @@ test("fresh output keeps a healthy source alive beyond thirty seconds", async ()
     const a = h.attempts[0];
     assert(a);
     for (let n = 0; n < 8; n++) {
-      await output(a, h.now(), n);
-      await output(a, h.now(), n, "audio");
+      await output(a, h.now(), n, "video", 3);
+      await output(a, h.now(), n, "audio", 3);
       await h.tick(5000);
     }
     assert(!a.signal.aborted);
@@ -140,9 +141,10 @@ test(
     });
     const latest = () =>
       snapshots.filter((s) => s.rendition === "video").at(-1);
+    const playable = () => areRenditionsPlayable({video:latest(),audio:snapshots.filter(s=>s.rendition==="audio").at(-1)}, Date.now(), 1);
     try {
       registry.reconcile();
-      await until(() => snapshots.some((s) => s.rendition === "audio"));
+      await until(playable);
       const first = latest();
       assert(first);
       f.disconnect();
@@ -151,6 +153,7 @@ test(
           Boolean(latest()?.segments.some((s) => s.discontinuity)) &&
           f.counts().acquisitions >= 2,
       );
+      await until(playable);
       const second = latest();
       assert(second);
       assert(second.sequence > (first.segments.at(-1)?.sequence ?? -1));
@@ -163,6 +166,7 @@ test(
           latest()?.segments[0]?.objectKey.split("/").at(-2) !==
           second.segments[0]?.objectKey.split("/").at(-2),
       );
+      await until(playable);
       process.kill(await f.childPid(), "SIGKILL");
       const before = latest();
       assert(before);
@@ -189,3 +193,18 @@ test(
     }
   },
 );
+
+test("fresh partial windows cannot reset the thirty-second playable recovery deadline", async () => {
+  const h = harness();
+  try {
+    await h.tick(); await h.tick(1000);
+    const attempt = h.attempts[0]; assert(attempt);
+    for (let n=0;n<6;n++) {
+      await output(attempt,h.now(),n,"video");
+      await output(attempt,h.now(),n,"audio");
+      await h.tick(5000);
+    }
+    assert(attempt.signal.aborted);
+    assert(h.observations.at(-1)?.jobs.some(j=>j.state==="unavailable"));
+  } finally { await h.registry.stop(); }
+});

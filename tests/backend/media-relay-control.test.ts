@@ -361,7 +361,7 @@ it("publication is transactional with ownership and monotonic output, and takeov
   });
   assert.equal(session.continuity.video.nextSequence, 5);
   assert.equal(session.continuity.video.discontinuitySequence, 3);
-  assert.equal(session.progressAt, 100000);
+  assert.equal(session.progressAt, undefined, "partial publication retains continuity without declaring playable progress");
   assert.equal(session.recoveryStartedAt, 100000);
 });
 it("service discovery is bounded, rejects browser credentials and omits terminal/unowned active sources", async () => {

@@ -187,9 +187,10 @@ only the generated `/tmp/vrdex-relay-package` directory if no longer needed.
 before enabling it. No relay RPC runs on page mount. A viewer's Play opens a
 profile or event capability, polling the returned grant only during startup.
 Both renditions use that same grant. All eligible VRCDN sources use this transport
-when released; there is no owner opt-in. Task 9 must complete native performer
-sequence integration before release; the interim enabled sequence path blocks
-rather than loading legacy Web Audio.
+when released; there is no owner opt-in. Native performer-sequence integration
+retains the existing foreground following policy and current metadata authority.
+Physical-device, hosted containment, capacity and traffic-budget acceptance remain
+independent release gates.
 
 The single root `EventPlaybackOwner` retains profile/event playback across routes.
 The default mode is video. Audio preference uses `vrdex.playback-mode` in local
@@ -203,8 +204,9 @@ does not request PiP. Physical-phone behavior remains a release gate.
 Rollback to the disabled client retains the saved preference. Audio selection is
 blocked without loading full video; the viewer can deliberately select Video and
 Play to use legacy foreground playback. Legacy playback has no background support
-guarantee. Utility controls use existing approved labels; final visual verification
-belongs with the integrated native lineup/player acceptance.
+guarantee. Utility controls use existing approved labels. See the
+[composed acceptance evidence](../engineering/evidence/media-relay-task12/README.md)
+and [release proposal](../engineering/media-relay-verification.md).
 
 `mediaRelayPlayback:refreshPlayback({grantId})` only renews an existing, unexpired,
 unreleased, still-authorized capability. Server time governs expiry. The mutation

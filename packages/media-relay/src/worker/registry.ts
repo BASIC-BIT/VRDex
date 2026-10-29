@@ -20,7 +20,7 @@ import {
   type RenditionSnapshot,
   type RelayContinuity,
 } from "../contracts";
-import { RELAY_POLICY, isSnapshotFresh } from "../policy";
+import { RELAY_POLICY, isSnapshotFresh, areRenditionsPlayable } from "../policy";
 import { WorkerBindingSchema, type WorkerBinding } from "./deployment";
 import { createLeaseWatchdog } from "./lease";
 import { startPackager, type PackagerOptions } from "./packager";
@@ -327,7 +327,7 @@ export function createRelayRegistry(options: RegistryOptions) {
               throw Error("Stale output");
             attempt.snapshots[snapshot.rendition] = snapshot;
             const { video, audio } = attempt.snapshots;
-            if (video && audio) {
+            if (video && audio && areRenditionsPlayable(attempt.snapshots, clock.wall(), lease.epoch)) {
               job.progressAt = Math.min(video.generatedAt, audio.generatedAt);
               job.progressMono =
                 clock.monotonic() - Math.max(0, clock.wall() - job.progressAt);

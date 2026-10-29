@@ -15,6 +15,7 @@ import {
   StreamIdSchema,
   streamKeyFor,
   RELAY_POLICY,
+  areRenditionsPlayable,
   type Admission,
   type PlaybackRebind,
 } from "../packages/media-relay/src";
@@ -153,7 +154,9 @@ async function playback(
     };
   // Delivery origin is server configuration, never caller-controlled.
   const origin = process.env.MEDIA_RELAY_PLAYBACK_ORIGIN;
-  if (source.state !== "ready" || !origin)
+  if (source.state !== "ready" || !origin ||
+      (source.leaseExpiresAt ?? 0) <= now ||
+      !areRenditionsPlayable(source.snapshots ?? {}, now, source.epoch))
     return { kind: "preparing", grantId, retryAfterMs: 1000 };
   let base: URL;
   try {

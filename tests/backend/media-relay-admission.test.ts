@@ -24,6 +24,11 @@ const release = makeFunctionReference<"mutation">(
 const resolve = makeFunctionReference<"query">(
   "mediaRelayPlayback:resolveGrant",
 );
+function readySource(streamKey: string, epoch = 1) {
+  const now = Date.now();
+  const snapshot = (rendition: "video" | "audio") => ({streamKey,epoch,rendition,targetDurationSeconds:2,sequence:0,discontinuitySequence:0,generatedAt:now,segments:[0,1,2].map(sequence=>({sequence,objectKey:`${streamKey}/epochs/${epoch}/attempt-1-fixture/${rendition}-${sequence}.ts`,durationSeconds:2,programDateTime:now+sequence*2000,discontinuity:false}))});
+  return {state:"ready" as const,epoch,leaseExpiresAt:now+30000,snapshots:{video:snapshot("video"),audio:snapshot("audio")}};
+}
 async function fixture(enabled = true) {
   process.env.MEDIA_RELAY_ENABLED = String(enabled);
   process.env.MEDIA_RELAY_MAX_SOURCES = "2";
@@ -295,7 +300,7 @@ it("ready returns both capability URLs and release never stops another context",
   await h.t.run(async (ctx) => {
     const row = await ctx.db.query("mediaRelaySources").first();
     assert.ok(row);
-    await ctx.db.patch(row._id, { state: "ready" });
+    await ctx.db.patch(row._id, readySource(row.streamKey));
   });
   const ready = AdmissionSchema.parse(
     await h.t.query(get, { grantId: profile.grantId }),
@@ -774,7 +779,7 @@ it("refresh keeps stable rendition URLs and accepts metadata-only edits", async 
   await h.t.run(async (ctx) => {
     const source = await ctx.db.query("mediaRelaySources").first();
     assert.ok(source);
-    await ctx.db.patch(source._id, { state: "ready" });
+    await ctx.db.patch(source._id, readySource(source.streamKey));
   });
   const before = AdmissionSchema.parse(
     await h.t.query(get, { grantId: admitted.grantId }),
@@ -845,7 +850,7 @@ it("owner retry retains a valid post-window grant through native failure and ter
           await h.t.run(async (ctx) => {
             const source = await ctx.db.query("mediaRelaySources").first();
             assert.ok(source);
-            await ctx.db.patch(source._id, { state: "ready" });
+            await ctx.db.patch(source._id, readySource(source.streamKey));
           });
           return result;
         },
@@ -854,7 +859,7 @@ it("owner retry retains a valid post-window grant through native failure and ter
             const source = await ctx.db.query("mediaRelaySources").first();
             assert.ok(source);
             if (source.state === "queued")
-              await ctx.db.patch(source._id, { state: "ready" });
+              await ctx.db.patch(source._id, readySource(source.streamKey));
           });
           return h.t.query(get, { grantId });
         },
@@ -1190,7 +1195,7 @@ for (const invalid of ["expired", "released", "revoked", "profile", "other-event
 });
 it("same-stream postwindow identity rebind retains capability, source and URL with CAS", async () => {
   const h = await sequenceFixture(); process.env.MEDIA_RELAY_PLAYBACK_ORIGIN = "https://media.example";
-  await h.t.run(async ctx => { const source = await ctx.db.query("mediaRelaySources").withIndex("by_streamKey", q => q.eq("streamKey", "vrcdn/Alpha/1")).unique(); await ctx.db.patch(source!._id, { state: "ready" }); });
+  await h.t.run(async ctx => { const source = await ctx.db.query("mediaRelaySources").withIndex("by_streamKey", q => q.eq("streamKey", "vrcdn/Alpha/1")).unique(); await ctx.db.patch(source!._id, readySource(source!.streamKey)); });
   const before = AdmissionSchema.parse(await h.t.query(get, { grantId: h.first.grantId })); assert.equal(before.kind, "ready"); if (before.kind !== "ready") return;
   await h.end();
   const args = { grantId: before.grant.id, selectedSourceId: h.slots.same, expectedSelectedSourceId: h.slots.a, expectedContextRevision: before.grant.contextRevision };
@@ -1242,8 +1247,8 @@ it("native manual postwindow selection presents an unreleased real continuation 
   await h.t.mutation(release, { grantId: h.first.grantId });
   await h.t.run(async ctx => {
     const alpha = await ctx.db.query("mediaRelaySources").withIndex("by_streamKey", q => q.eq("streamKey", "vrcdn/Alpha/1")).unique();
-    await ctx.db.patch(alpha!._id, { state: "ready" });
-    await ctx.db.insert("mediaRelaySources", { streamKey: "vrcdn/Beta/1", streamId: "Beta", inputFormat: "vrcdn_fmp4", packagingVersion: 1, state: "ready", createdAt: Date.now(), updatedAt: Date.now() });
+    await ctx.db.patch(alpha!._id, readySource(alpha!.streamKey));
+    await ctx.db.insert("mediaRelaySources", { streamKey: "vrcdn/Beta/1", streamId: "Beta", inputFormat: "vrcdn_fmp4", packagingVersion: 1, ...readySource("vrcdn/Beta/1"), createdAt: Date.now(), updatedAt: Date.now() });
   });
   class Media extends EventTarget {
     paused = true; muted = false; hidden = false; volume = 1; src = ""; currentTime = 1; readyState = 3; ended = false;
@@ -1301,4 +1306,30 @@ it('persisted operator disable denies new Play and existing gateway grants while
  assert.equal(AdmissionSchema.parse(await h.play()).kind,'unavailable');
  const result=await h.t.query(resolve,{grantId:grant.grantId,now:Date.now()});
  assert.equal(result.kind,'denied');
+});
+
+it("premature ready, undersized sibling, expired lease and old epoch cannot expose playable admission", async () => {
+  const h = await fixture();
+  process.env.MEDIA_RELAY_PLAYBACK_ORIGIN = "https://relay.example";
+  process.env.MEDIA_RELAY_GATEWAY_TOKEN = "gateway-only-token";
+  process.env.MEDIA_RELAY_WORKER_TOKEN = "worker-only-token";
+  const grantId = preparing(await h.play()).grantId;
+  const gateway = makeFunctionReference<"query">("mediaRelayWorker:readGateway");
+  const valid = readySource("vrcdn/Alpha/1");
+  const variants = [
+    {state:"ready" as const},
+    {...valid,snapshots:{...valid.snapshots,audio:{...valid.snapshots.audio,segments:valid.snapshots.audio.segments.slice(0,2)}}},
+    {...valid,epoch:2},
+    {...valid,snapshots:{...valid.snapshots,audio:{...valid.snapshots.audio,epoch:2}}},
+    {...valid,snapshots:{...valid.snapshots,audio:{...valid.snapshots.audio,generatedAt:Date.now()-10000}}},
+    {...valid,leaseExpiresAt:Date.now()-1},
+  ];
+  for (const patch of variants) {
+    await h.t.run(async ctx=>{const row=await ctx.db.query("mediaRelaySources").first();assert(row);await ctx.db.patch(row._id,patch);});
+    assert.equal((await h.t.query(get,{grantId})).kind,"preparing");
+    const auth=await h.t.query(gateway,{credential:"gateway-only-token",grantId,rendition:"video"});
+    assert(auth.state!=="ready" || auth.snapshot===null);
+  }
+  await h.t.run(async ctx=>{const row=await ctx.db.query("mediaRelaySources").first();assert(row);await ctx.db.patch(row._id,readySource(row.streamKey));});
+  assert.equal((await h.t.query(get,{grantId})).kind,"ready");
 });

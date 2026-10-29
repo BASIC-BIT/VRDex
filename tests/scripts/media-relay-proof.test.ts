@@ -49,9 +49,9 @@ test(
           "--sources",
           "2",
           "--duration",
-          "16",
-          "--deadline",
           "30",
+          "--deadline",
+          "40",
           "--output",
           output,
         ]),
@@ -147,3 +147,61 @@ test(
     }
   },
 );
+
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+import { mkdir, readdir, writeFile } from "node:fs/promises";
+import { setTimeout as delay } from "node:timers/promises";
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  test(`actual proof CLI forwards ${signal} and reaps detached proof`, { timeout: 15000 }, async () => {
+    const root = await mkdtemp(join(tmpdir(), "relay-interrupt-test-"));
+    const child = spawn(process.execPath, ["--import", "tsx", "scripts/media-relay-proof.ts", "--duration", "60", "--deadline", "70", "--output", join(root, "out")], { env: { ...process.env, TMPDIR: root }, stdio: "ignore" });
+    const closed = once(child, "close");
+    try {
+      for (let i = 0; i < 100 && !(await readdir(root)).some(n => n.startsWith("relay-proof-work-")); i++) await delay(50);
+      await delay(500);
+      child.kill(signal);
+      await Promise.race([closed, delay(8000).then(() => { throw Error("CLI failed to reap within bound"); })]);
+      assert.deepEqual((await readdir(root)).filter(n => n.startsWith("relay-proof-work-")), []);
+      const evidence = JSON.parse(await readFile(join(root, "out/evidence.json"), "utf8"));
+      assert.ok(evidence.failures.includes("operator interrupted"));
+      assert.equal(evidence.cleanup.childrenAlive, 0);
+    } finally {
+      child.kill("SIGKILL");
+      // On RED, terminate only this test's detached descendant via its unique output argument.
+      const { execFileSync } = await import("node:child_process");
+      const rows = execFileSync("ps", ["-eo", "pid,args"], { encoding: "utf8" }).split("\n");
+      for (const row of rows) if (row.includes("verification/main.ts") && row.includes(root)) {
+        const pid = Number(row.trim().split(/\s/)[0]);
+        try { process.kill(-pid, "SIGTERM"); } catch {}
+      }
+      await delay(500);
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+}
+test("post-scratch output setup failure cleans owned scratch", async () => {
+  const root = await mkdtemp(join(tmpdir(), "relay-setup-test-"));
+  await mkdir(join(root, "tmp"));
+  await writeFile(join(root, "file"), "not a directory");
+  const child = spawn(process.execPath, ["--import", "tsx", "scripts/media-relay-proof.ts", "--output", join(root, "file/out")], { env: { ...process.env, TMPDIR: join(root, "tmp") }, stdio: "ignore" });
+  try {
+    const [code] = await once(child, "close");
+    assert.equal(code, 1);
+    assert.deepEqual((await readdir(join(root, "tmp"))).filter(n => n.startsWith("relay-proof-work-")), []);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("post-scratch getconf failure cleans owned scratch", async () => {
+  const { chmod } = await import("node:fs/promises");
+  const root = await mkdtemp(join(tmpdir(), "relay-getconf-test-"));
+  await mkdir(join(root, "bin"));
+  await writeFile(join(root, "bin/getconf"), "#!/bin/sh\nexit 7\n");
+  await chmod(join(root, "bin/getconf"), 0o755);
+  const child = spawn(process.execPath, ["--import", "tsx", "scripts/media-relay-proof.ts", "--output", join(root, "out")], { env: { ...process.env, TMPDIR: root, PATH: `${join(root, "bin")}:${process.env.PATH}` }, stdio: "ignore" });
+  try {
+    const [code] = await once(child, "close");
+    assert.equal(code, 1);
+    assert.deepEqual((await readdir(root)).filter(n => n.startsWith("relay-proof-work-")), []);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

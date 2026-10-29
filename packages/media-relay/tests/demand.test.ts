@@ -214,8 +214,8 @@ test("real demand adapter outage keeps existing jobs only through bounded idle g
       },
     ]);
     for (let i = 0; i < 36; i++) {
-      await output(attempt, h.now(), i);
-      await output(attempt, h.now(), i, "audio");
+      await output(attempt, h.now(), i, "video", 3);
+      await output(attempt, h.now(), i, "audio", 3);
       await h.tick(5000);
       if (i < 35) assert.equal(attempt.signal.aborted, false);
     }

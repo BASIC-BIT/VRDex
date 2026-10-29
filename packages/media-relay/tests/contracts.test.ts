@@ -190,6 +190,7 @@ test("shared policy pins approved runtime budgets", () => {
     leaseRenewIntervalMs: 10000,
     localWatchdogIntervalMs: 250,
     rollingWindowSegments: 8,
+    playableWindowTargetMultiplier: 3,
   });
 });
 

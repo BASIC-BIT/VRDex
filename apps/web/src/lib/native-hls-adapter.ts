@@ -1,5 +1,5 @@
 import { mediaVolumeSettable } from "./media-element-controls";
-import type { Admission, PlaybackMode } from "@vrdex/media-relay";
+import { RELAY_POLICY, type Admission, type PlaybackMode } from "@vrdex/media-relay";
 import type Hls from "hls.js";
 import type { AdapterNotify } from "./event-playback-owner";
 export type ReadyPlayback = Extract<Admission, { kind: "ready" }>;
@@ -98,7 +98,22 @@ export function createNativeHlsAdapter({
       : loadHls().then(({ default: Hls }) => {
           if (disposed || ready.get(node) !== pending) return;
           if (!Hls.isSupported()) throw Error("Unsupported HLS");
-          const player = new Hls({ autoStartLoad: false });
+          const player = new Hls({
+            autoStartLoad: false,
+            playlistLoadPolicy: {
+              default: {
+                ...Hls.DefaultConfig.playlistLoadPolicy.default,
+                // A recovering relay returns 503 until both windows are playable.
+                // Keep the fallback retry horizon aligned with server recovery.
+                errorRetry: {
+                  maxNumRetry: RELAY_POLICY.sourceRecoveryBudgetMs / 1000,
+                  retryDelayMs: 1000,
+                  maxRetryDelayMs: 1000,
+                  backoff: "linear",
+                },
+              },
+            },
+          });
           players.set(node, player);
           player.on(Hls.Events.ERROR, (_event, data) => {
             if (
