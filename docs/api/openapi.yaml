@@ -541,6 +541,7 @@ paths:
                                   - poster
                                   - lookup
                                   - calculation
+                                  - connector
                               excerpt:
                                 anyOf:
                                   - type: string
@@ -1163,6 +1164,7 @@ paths:
                                     - poster
                                     - lookup
                                     - calculation
+                                    - connector
                                 excerpt:
                                   anyOf:
                                     - type: string
@@ -1748,6 +1750,7 @@ paths:
                                   - poster
                                   - lookup
                                   - calculation
+                                  - connector
                               excerpt:
                                 anyOf:
                                   - type: string
@@ -1978,6 +1981,7 @@ paths:
                             - poster
                             - lookup
                             - calculation
+                            - connector
                         excerpt:
                           anyOf:
                             - type: string
@@ -2018,11 +2022,48 @@ paths:
                         - reason
                         - alternatives
                       additionalProperties: false
+                  decision:
+                    anyOf:
+                      - type: object
+                        properties:
+                          kind:
+                            type: string
+                            const: new
+                        required:
+                          - kind
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          kind:
+                            type: string
+                            const: update
+                          slug:
+                            type: string
+                            minLength: 1
+                            maxLength: 64
+                        required:
+                          - kind
+                          - slug
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          kind:
+                            type: string
+                            const: not_event
+                          reason:
+                            type: string
+                            minLength: 1
+                            maxLength: 200
+                        required:
+                          - kind
+                          - reason
+                        additionalProperties: false
                 required:
                   - event
                   - lineup
                   - evidence
                   - questions
+                  - decision
                 additionalProperties: false
         "400": *a1
         "401":

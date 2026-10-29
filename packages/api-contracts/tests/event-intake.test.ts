@@ -39,7 +39,7 @@ it("accepts a singular poster and rejects removed plural contracts", () => {
   assert.equal(ExtractEventIntakeSchema.safeParse({ draftId: "draft", posterAssetIds: ["a"] }).success, false);
 });
 it("bounds private candidate evidence and identifies poster and date provenance", () => {
-  const candidate = { event: { title: null, communitySlug: null, eventDate: null, start: null, end: null, startDate: null, endDate: null, timezone: null, venueLabel: null, summary: null, sourceUrl: null }, lineup: [], evidence: [{ fieldPath: "event.title", origin: "poster", excerpt: "Night", assessment: "explicit" }], questions: [] };
+  const candidate = { event: { title: null, communitySlug: null, eventDate: null, start: null, end: null, startDate: null, endDate: null, timezone: null, venueLabel: null, summary: null, sourceUrl: null }, lineup: [], evidence: [{ fieldPath: "event.title", origin: "poster", excerpt: "Night", assessment: "explicit" }], questions: [], decision: { kind: "new" } };
   assert.equal(EventIntakeCandidateSchema.safeParse(candidate).success, true);
   assert.equal(EventIntakeCandidateSchema.safeParse({ ...candidate, event: { ...candidate.event, startDate: undefined } }).success, false);
   assert.equal(EventIntakeCandidateSchema.safeParse({ ...candidate, evidence: Array(41).fill(candidate.evidence[0]) }).success, false);
@@ -47,6 +47,19 @@ it("bounds private candidate evidence and identifies poster and date provenance"
   const json = EventIntakeCandidateJsonSchema as unknown as { properties: { event: { required: string[] }; evidence: { items: { required: string[] } } } };
   assert.ok(json.properties.event.required.includes("startDate"));
   assert.ok(!json.properties.evidence.items.required.includes("posterIndex"));
+});
+it("requires a decision and offers it to the model as a strict anyOf", () => {
+  const candidate = { event: { title: null, communitySlug: null, eventDate: null, start: null, end: null, startDate: null, endDate: null, timezone: null, venueLabel: null, summary: null, sourceUrl: null }, lineup: [], evidence: [{ fieldPath: "event.title", origin: "connector", excerpt: "Night", assessment: "explicit" }], questions: [], decision: { kind: "new" } };
+  assert.equal(EventIntakeCandidateSchema.safeParse(candidate).success, true);
+  for (const decision of [{ kind: "update", slug: "friday-night" }, { kind: "not_event", reason: "chatter" }])
+    assert.equal(EventIntakeCandidateSchema.safeParse({ ...candidate, decision }).success, true);
+  for (const decision of [undefined, { kind: "update" }, { kind: "new", slug: "x" }, { kind: "maybe" }])
+    assert.equal(EventIntakeCandidateSchema.safeParse({ ...candidate, decision }).success, false);
+  const json = EventIntakeCandidateJsonSchema as unknown as { required: string[]; properties: { decision: { anyOf: unknown[] } } };
+  assert.ok(json.required.includes("decision"));
+  assert.equal(json.properties.decision.anyOf.length, 3);
+  assert.ok(!JSON.stringify(json).includes("oneOf"));
+  assert.ok(!JSON.stringify(json).includes("\"default\""));
 });
 it("resolves normal times, DST gaps and repeated hours without silently choosing", () => {
   assert.deepEqual(resolveEventLocalTime("2027-03-14", { time: "02:30" }, "America/New_York"), []);

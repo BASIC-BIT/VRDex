@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { validatePosterBytes } from "../../apps/web/src/lib/server/event-poster-storage";
 import { extractEventIntake } from "../../packages/event-intake-agent/src/index";
 import { classifyEventIntakeForPublication } from "../../apps/web/src/lib/server/event-intake-spam";
-const blank = () => ({ event: { title: null, communitySlug: null, eventDate: null, start: null, end: null, startDate: null, endDate: null, timezone: null, venueLabel: null, summary: null, sourceUrl: null }, lineup: [], evidence: [], questions: [] });
+const blank = () => ({ event: { title: null, communitySlug: null, eventDate: null, start: null, end: null, startDate: null, endDate: null, timezone: null, venueLabel: null, summary: null, sourceUrl: null }, lineup: [], evidence: [], questions: [], decision: { kind: "new" as const } });
 const response = (value: unknown) => new Response(JSON.stringify({ status: "completed", output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify(value) }] }] }));
 const base = { authorize: async () => ({ actorUserId: "actor", version: 1 }), search_people: async () => [], search_communities: async () => [], apiKey: "test", enabled: true, model: "fixture", fetchImplementation: async () => response(blank()) };
 it("validates decoded PNG/JPEG/WebP, size, MIME, digest and decoding", async () => {
@@ -232,4 +232,10 @@ it("renews stale artwork selection and recovers a key written after cleanup", as
  await handlers.selectPosterArtwork({...args,expectedVersion:2});
  const latest=await t.run(ctx=>ctx.db.get(draftId));
  assert.notEqual(latest?.artworkAssetId,reserved.artworkAssetId,"an expired prior selection must permit a fresh independent key");
+});
+it("defaults decision to new without run context, even when the model answers update", async () => {
+  const result = await extractEventIntake({ draftId: "draft", sourceText: "Night" }, { ...base, fetchImplementation: async () => response({ ...blank(), decision: { kind: "update", slug: "friday-night" } }) });
+  assert.deepEqual(result.decision, { kind: "new" });
+  const unavailable = await extractEventIntake({ draftId: "draft", sourceText: "Night" }, { ...base, apiKey: "" });
+  assert.deepEqual(unavailable.decision, { kind: "new" });
 });

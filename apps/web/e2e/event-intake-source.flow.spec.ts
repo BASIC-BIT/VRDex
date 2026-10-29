@@ -507,7 +507,7 @@ test("partial combined input saves its base date and date-only extraction stays 
   await page.evaluate(() => {
     const original = window.fetch;
     window.fetch = async (input, init) => {
-      if (String(input) === "/api/event-intake" && JSON.parse(String(init?.body)).operation === "extract") return Response.json({ event: { title: null, communitySlug: null, eventDate: "2026-10-11", start: null, end: null, startDate: null, endDate: null, timezone: null, venueLabel: null, summary: null, sourceUrl: null }, lineup: [], evidence: [], questions: [] });
+      if (String(input) === "/api/event-intake" && JSON.parse(String(init?.body)).operation === "extract") return Response.json({ event: { title: null, communitySlug: null, eventDate: "2026-10-11", start: null, end: null, startDate: null, endDate: null, timezone: null, venueLabel: null, summary: null, sourceUrl: null }, lineup: [], evidence: [], questions: [], decision: { kind: "new" } });
       return original(input, init);
     };
   });
@@ -618,7 +618,7 @@ const extractTimingProposal = async (page: Page, eventDate: string | null = "202
       if (String(input) === "/api/event-intake" && JSON.parse(String(init?.body)).operation === "extract") return Response.json({
         event: { title: null, communitySlug: null, eventDate, start: "23:00", end: "02:00", startDate: eventDate, endDate: eventDate ? "2026-10-12" : null, timezone: "UTC", venueLabel: null, summary: null, sourceUrl: null },
         lineup: [{ performerLabel: "Proposed guest", personSlug: null, roleLabel: null, start: "00:30", end: "01:30", startDate: eventDate ? "2026-10-12" : null, endDate: eventDate ? "2026-10-12" : null }],
-        evidence: [], questions: [],
+        evidence: [], questions: [], decision: { kind: "new" },
       });
       return original(input, init);
     };

@@ -19,13 +19,14 @@ const tools = [
   { type: "function", name: "resolve_local_time", description: "Return every valid UTC instant for an IANA local time. Zero is nonexistent; multiple means ambiguous.", strict: true, parameters: object({ date: string, time: string, zone: string }) },
 ];
 function fallback(reason: string): EventIntakeCandidate {
-  return { event: { title: null, communitySlug: null, eventDate: null, start: null, end: null, startDate: null, endDate: null, timezone: null, venueLabel: null, summary: null, sourceUrl: null }, lineup: [], evidence: [], questions: [{ fieldPath: "source", reason, alternatives: [] }] };
+  return { event: { title: null, communitySlug: null, eventDate: null, start: null, end: null, startDate: null, endDate: null, timezone: null, venueLabel: null, summary: null, sourceUrl: null }, lineup: [], evidence: [], questions: [{ fieldPath: "source", reason, alternatives: [] }], decision: { kind: "new" } };
 }
 export function resolveIntakeLocalTime(date: string, time: string, zone: string) {
   if (zone !== "UTC" && !zone.includes("/")) throw new Error("timezone_choice_required");
   return resolveEventLocalTime(date, { time }, zone).map(value => new Date(value).toISOString());
 }
-function revalidate(candidate: EventIntakeCandidate, people: Set<string>, communities: Set<string>) {
+function revalidate(candidate: EventIntakeCandidate, people: Set<string>, communities: Set<string>, hasContext: boolean) {
+  if (!hasContext) candidate.decision = { kind: "new" };
   for (const row of [candidate.event, ...candidate.lineup]) {
     for (const key of Object.keys(row) as Array<keyof typeof row>) if (row[key] === "") row[key] = null;
   }
@@ -129,7 +130,7 @@ export async function extractEventIntake(input: EventIntakeAgentInput, deps: Eve
       const parts = data.output.flatMap((item: { content?: { type: string; text?: string }[] }) => item.content ?? []);
       const text = parts.filter((part: { type: string }) => part.type === "output_text").map((part: { text: string }) => part.text).join("");
       const candidate = EventIntakeCandidateSchema.parse(JSON.parse(text));
-      return revalidate(candidate, people, communities);
+      return revalidate(candidate, people, communities, Boolean((input as { context?: unknown }).context));
     }
     throw new Error("tool_budget");
   } catch (error) {
