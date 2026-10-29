@@ -820,6 +820,7 @@ export async function appendCommunityProfileLinks(
   profile: Doc<"profiles">,
   additions: unknown,
   now: number,
+  contributorUserId: Id<"users">,
 ) {
   const links = sanitizeProfileLinks(additions, "community_submitted");
   requireEditableFields(profile, ["outboundLinks"], "community_submitter");
@@ -839,7 +840,7 @@ export async function appendCommunityProfileLinks(
     {
       changedFields:
         merged.length === (profile.outboundLinks ?? []).length ? [] : ["outboundLinks"],
-      patch: { outboundLinks: merged },
+      patch: { outboundLinks: merged, ...(profile.profileType === "community" ? { inferredGroupContributorUserId: contributorUserId } : {}) },
     },
   );
 }

@@ -614,6 +614,24 @@ it(`private group-link edits retain contributor quota when visibility is restore
 });
 }
 
+it("batch-added group links use the actual contributor quota", async () => {
+  const { t, userId } = await enrollmentFixture();
+  const { createCommunityProfileRecord, applyContributionLinks } = await import("../../convex/profiles");
+  const contributorUserId = await t.run(ctx => ctx.db.insert("users", { clerkUserId: "batch-group-contributor" }));
+  const created = await t.run(ctx => createCommunityProfileRecord(ctx, {
+    profileType: "community", displayName: "Batch contribution",
+  }, { issuer: "test", subject: String(userId), tokenIdentifier: String(userId) }, userId));
+  await t.run(async ctx => {
+    const profile = (await ctx.db.get(created.profileId))!;
+    await applyContributionLinks(ctx, profile, contributorUserId, profile.updatedAt, [{ type: "vrchat_profile", url: "https://vrc.group/BATS.1234" }]);
+    const destination = (await ctx.db.query("profileLinkDestinations").withIndex("by_key", q => q.eq("key", "vrchat_group:BATS.1234")).unique())!;
+    await ctx.db.patch(destination._id, { status: "resolved", entityId: "batch-contribution" });
+  });
+  await t.mutation(reconcileEnrollment, { profileId: created.profileId, affectedGroupIds: [], now: 202 });
+  const quota = await t.run(ctx => ctx.db.query("groupObservationCandidateLimits").withIndex("by_key", q => q.eq("key", `user:${contributorUserId}`)).unique());
+  assert.equal(quota?.admittedAt.length, 1);
+});
+
 async function enrollmentFixture(options: { enabled?: boolean; capacity?: number } = {}) {
   const t = convexTest({ schema, modules: enrollmentModules });
   const ids = await t.run(async ctx => {

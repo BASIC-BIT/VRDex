@@ -1483,6 +1483,7 @@ export async function applyContributionLinks(
     profile,
     additions,
     Date.now(),
+    actor,
   );
   if (applied.changedFields.length)
     await ctx.db.insert("profileAuditEvents", {
