@@ -49,6 +49,13 @@ crons.interval(
   {},
 );
 
+crons.interval(
+  "deliver product analytics outbox",
+  { minutes: 5 },
+  internal.productAnalyticsDelivery.deliverPending,
+  {},
+);
+
 // Fast retries dead-letter after five attempts so one bad destination cannot
 // monopolize delivery. This bounded hourly sweep makes temporary provider
 // outages recover automatically without turning claim writes into a dependency.

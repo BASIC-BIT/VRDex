@@ -366,6 +366,11 @@ initial CI attempt and retry, visually inspected, and adopted as baselines.
 See [deployment sequence](../deployment/convex-environments.md#event-intake-staged-release-checks)
 and [source controls](../backend/event-intake-sources.md).
 
+These gates describe the agent as of this 2026-09-28 checkpoint. For the current
+extraction budget (six turns, five read-only tool calls) and cost (computed from
+the model price table, null only for unpriced models), see
+[source controls](../backend/event-intake-sources.md#extraction-and-classification).
+
 - Schema/index backfill and both schedule switch states pass locally. No deployed
   migration, index-readiness check or switch change was performed.
 - Website actor/session binding, user-scoped `events:contribute`, rejection of

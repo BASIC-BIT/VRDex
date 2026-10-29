@@ -19,7 +19,7 @@ export function createEventIntakeCommands(deps: { actorUserId: Id<"users">; admi
   const admin = deps.admin ?? convexAdminHttpClient();
   const actor = { actorUserId: deps.actorUserId };
   const posters = createEventPosterHandlers({ authority: async () => actor, admin });
-  const extract = createEventIntakeExtractor({ authority: async () => actor, admin, readPoster: id => posters.readPoster(id as Id<"eventPosterSources">) });
+  const extract = createEventIntakeExtractor({ authority: async () => actor, admin, readPoster: id => posters.readPoster(id as Id<"eventPosterSources">), trigger: deps.actorSurface === "mcp" ? "mcp" : "web" });
   const draftId = (value: string) => value as Id<"eventIntakeDrafts">;
   const posterAssetId = (value: string) => value as Id<"eventPosterSources">;
   const eventId = async (slug: string) => {
