@@ -1,3 +1,4 @@
+export const NEUTRAL_NOW_PLAYING_ARTWORK = "/brand/now-playing/neutral-wordmark-v1-512.png";
 // Change whenever the canonical logo or rendering recipe changes.
 export const NOW_PLAYING_BRAND_VERSION = "wordmark-v1-512";
 export function nowPlayingArtworkUrl(input: { profileId: string; assetId: string; revision: string; brandVersion: string }): string {

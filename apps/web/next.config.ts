@@ -20,6 +20,10 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
+        source: "/brand/now-playing/neutral-wordmark-v1-512.png",
+        headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
+      },
+      {
         source: "/api/v0/:path*",
         headers: [...apiV0CorsHeaders],
       },

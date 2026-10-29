@@ -7,7 +7,7 @@ awaiting admission and scheduled successors do not supply identity. Healthy
 overtime retains the current DJ. The raw authoritative display name supplies the
 exact title `<DJ display name> - VRDex`; request titles are already formatted and
 must not be formatted again. An authorized event stream without a DJ association
-uses its event title and no DJ artwork. Absent installed metadata clears the OS
+uses its event title and canonical neutral VRDex artwork. Absent installed metadata clears the OS
 metadata. Metadata refresh changes no connection or grant.
 
 The existing provider is the only Media Session owner. Play, Pause and Stop
@@ -16,6 +16,18 @@ passes through the retained owner's existing admission, calendar and foreground
 ownership fences. Stop closes playback and clears metadata and handlers. Close,
 revocation and installed-source release clear metadata independently of a pending
 selected target. Video and Audio only retain the same current identity.
+
+## Neutral artwork
+
+Admitted playback without eligible DJ artwork uses the revisioned static PNG
+`/brand/now-playing/neutral-wordmark-v1-512.png`. It contains only the approved
+canonical wordmark centered on a neutral background, with no profile image or
+DJ association. Missing installed metadata still clears Now Playing entirely.
+The file is committed under `apps/web/public/brand/now-playing` and uses public
+immutable caching. A new design requires a new revisioned filename. Standard
+Next/Vercel public-file delivery supplies this PNG without a runtime logo read,
+Sharp rendering or profile permission query. Standalone packaging must copy the
+app's public directory; Task12 must fetch the PNG from that packaged server.
 
 ## Authorized image delivery
 
@@ -68,3 +80,7 @@ Physical iPhone Safari must independently verify cold artwork fetching, screen
 lock and Dynamic Island presentation, native Resume/Pause/Stop and identity
 transitions. Desktop HTTP, Chromium and viewport checks do not establish those
 results. iOS controls the layout; this feature does not create a Live Activity.
+
+Tests do not require review scratch directories. Optional derivative evidence
+export uses `NOW_PLAYING_EVIDENCE_DIR` and creates that destination recursively.
+Without that environment variable the tests write no derivative evidence files.

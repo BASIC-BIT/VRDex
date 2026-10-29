@@ -6,7 +6,8 @@ test("authorized immutable derivative uses original bytes without changing them 
   execFileSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", `
   import assert from "node:assert/strict";
   import sharp from "sharp";
-  import { writeFile } from "node:fs/promises";
+  import { mkdir, writeFile } from "node:fs/promises";
+  import { join } from "node:path";
   import { createNowPlayingArtworkService, NOW_PLAYING_BRAND_VERSION } from "./apps/web/src/lib/server/now-playing-artwork.ts";
   const original = await sharp({ create: { width: 512, height: 512, channels: 4, background: "#546478" } }).png().toBuffer();
   const before = Buffer.from(original);
@@ -17,7 +18,10 @@ test("authorized immutable derivative uses original bytes without changing them 
   assert.ok(first); assert.deepEqual(original, before);
   assert.equal((await sharp(first.body).metadata()).width, 512);
   assert.notDeepEqual(first.body, original);
-  await writeFile(".superpowers/sdd/mobile-vrcdn-playback/task-10-evidence/artwork.png", first.body);
+  if (process.env.NOW_PLAYING_EVIDENCE_DIR) {
+    await mkdir(process.env.NOW_PLAYING_EVIDENCE_DIR, { recursive: true });
+    await writeFile(join(process.env.NOW_PLAYING_EVIDENCE_DIR, "artwork.png"), first.body);
+  }
   assert.deepEqual(await service.get(input), first); assert.equal(reads, 1);
   allowed = false; assert.equal(await service.get(input), null);
   allowed = true; revision = "2"; assert.equal(await service.get(input), null);
@@ -46,4 +50,22 @@ test("bounded artwork renderer rejects unsupported and oversized inputs before d
 
 test("actual public artwork GET permits anonymous cold fetch and denies cached hidden, unselected and stale revisions", () => {
   execFileSync(process.execPath, ["--import", "tsx", "tests/fixtures/now-playing-artwork-route.mjs"], { cwd: process.cwd(), stdio: "pipe" });
+});
+
+
+test("canonical neutral artwork is a revisioned PNG shipped independently of DJ assets", () => {
+  execFileSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", `
+    import assert from "node:assert/strict";
+    import sharp from "sharp";
+    import { readFile } from "node:fs/promises";
+    const bytes = await readFile("apps/web/public/brand/now-playing/neutral-wordmark-v1-512.png");
+    const metadata = await sharp(bytes).metadata();
+    assert.equal(metadata.format, "png");
+    assert.equal(metadata.width, 512);
+    assert.equal(metadata.height, 512);
+    assert.ok(bytes.length < 1024 * 1024);
+    const expected = await sharp({ create: { width: 512, height: 512, channels: 4, background: "#26313b" } })
+      .composite([{ input: await sharp("docs/brand/wordmark/vrdex-wordmark.png").resize({ width: 320 }).png().toBuffer(), gravity: "centre" }]).png().toBuffer();
+    assert.deepEqual(bytes, expected);
+  `], { cwd: process.cwd(), stdio: "pipe" });
 });

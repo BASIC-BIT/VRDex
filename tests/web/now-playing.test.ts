@@ -43,7 +43,7 @@ test("installed current owns artwork during overtime and preparation", () => {
     lineup: { current: "a", started: true, following: true, paused: false, muted: false, volume: 1, connected: true, unavailable: false }, metadata: { displayName: "DJ A", artworkAssetId: "asset", artworkRevision: "1" } };
   assert.match(playbackArtwork(state)!, /profiles\/dj-a\//);
   assert.equal(nowPlayingIdentity(state)?.displayName, "DJ A");
-  assert.equal(nowPlayingIdentity({ ...state, metadata: { displayName: "Show", artworkAssetId: null, artworkRevision: null } })?.artwork, undefined);
+  assert.deepEqual(nowPlayingIdentity({ ...state, metadata: { displayName: "Show", artworkAssetId: null, artworkRevision: null } }), { displayName: "Show", artwork: "/brand/now-playing/neutral-wordmark-v1-512.png" });
 });
 
 
@@ -59,11 +59,13 @@ test("retained owner publishes refresh without reconnect and Close clears native
     update({ metadata: { displayName: "DJ", artworkAssetId: null, artworkRevision: null } });
     return { play: async () => { plays++; return true; }, pause() {}, setVolume() {}, setMuted() {}, update() {}, dispose() {} };
   });
+  Object.defineProperty(globalThis, "location", { configurable: true, value: { origin: "https://vrdex.test" } });
   const stop = retainNowPlaying(owner);
   await owner.play({ kind: "vrcdn", profileId: "p", profileSlug: "dj", title: "DJ - VRDex", href: "/dj", sourceId: "AA", src: "url", transport: "mpegts" });
   assert.equal(session.metadata?.title, "DJ - VRDex");
   notify!({ metadata: { displayName: "DJ refreshed", artworkAssetId: null, artworkRevision: null } });
   assert.equal(session.metadata?.title, "DJ refreshed - VRDex");
+  assert.deepEqual(session.metadata?.artwork, [{ src: "https://vrdex.test/brand/now-playing/neutral-wordmark-v1-512.png", sizes: "512x512", type: "image/png" }]);
   assert.equal(plays, 1);
   owner.close();
   assert.equal(session.metadata, null);
