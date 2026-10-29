@@ -69,6 +69,7 @@ export function observeDiscoveryQueries(page: Page) {
   const seenArguments = new Set<string>();
   let repeatedArgumentsAdditions = 0,
     journalAdditions = 0;
+  const favoriteLineupBounds = { maxEvents: 0, maxFavorites: 0, emptyRequests: 0 };
   let firstAddedAt: number | undefined;
   let maximumActive = 0,
     maximumPending = 0;
@@ -95,6 +96,14 @@ export function observeDiscoveryQueries(page: Page) {
           typeof item.udfPath === "string" &&
           item.udfPath.startsWith("homeDiscovery:")
         ) {
+          if (item.udfPath === "homeDiscovery:favoriteLineup" && Array.isArray(item.args) && record(item.args[0])) {
+            const args = item.args[0];
+            if (Array.isArray(args.eventIds) && Array.isArray(args.favoriteProfileIds)) {
+              favoriteLineupBounds.maxEvents = Math.max(favoriteLineupBounds.maxEvents, args.eventIds.length);
+              favoriteLineupBounds.maxFavorites = Math.max(favoriteLineupBounds.maxFavorites, args.favoriteProfileIds.length);
+              if (!args.eventIds.length || !args.favoriteProfileIds.length) favoriteLineupBounds.emptyRequests++;
+            }
+          }
           const identity = JSON.stringify([item.udfPath, item.args]);
           if (seenArguments.has(identity)) repeatedArgumentsAdditions++;
           else seenArguments.add(identity);
@@ -129,6 +138,7 @@ export function observeDiscoveryQueries(page: Page) {
   return {
     result: () => ({
       counts: { ...counts },
+      favoriteLineupBounds: { ...favoriteLineupBounds },
       totalAdditions: Object.values(counts).reduce((a, b) => a + b, 0),
       active: active.size,
       pending: pending.size,

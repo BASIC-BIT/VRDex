@@ -1,6 +1,6 @@
 "use client";
 
-import { Star } from "lucide-react";
+import { FavoriteButton } from "@/components/ui/favorite-button";
 import { publicSearchGenreLabel } from "@/lib/public-search-genres";
 import { EntityImage } from "@/components/ui/entity-image";
 import type { DiscoverySnapshot } from "@/lib/discovery/controller";
@@ -35,7 +35,8 @@ export function DiscoveryClubCard({
               alt=""
               src={club.bannerImageUrl}
               className={styles.clubBackdrop}
-              sizes="(max-width: 760px) 45vw, 23vw"
+              fallback={<></>}
+              sizes="(max-width: 760px) 78vw, 23vw"
             />
           )}
           <EntityImage
@@ -43,32 +44,43 @@ export function DiscoveryClubCard({
             alt=""
             src={club.logoImageUrl ?? club.imageUrl}
             className={styles.clubLogo}
+            fallback={
+              <span
+                className={styles.clubTypography}
+                style={{
+                  fontSize: `clamp(1rem, ${Math.min(12, 70 / Math.sqrt(club.displayName.length))}cqi, 2.7rem)`,
+                }}
+              >
+                {club.displayName}
+              </span>
+            }
             imageClassName={styles.contained}
-            sizes="(max-width: 760px) 30vw, 15vw"
+            sizes="(max-width: 760px) 78vw, 23vw"
           />
         </span>
-        <h4 className={styles.name}>{club.displayName}</h4>
       </a>
-      <div className={styles.clubFooter}>
-        {club.genres.length > 0 && (
-          <ul
-            className={styles.genres}
-            aria-label={`${club.displayName} genres`}
-          >
-            {club.genres.slice(0, 3).map((genre) => (
-              <li key={genre.slug}>{publicSearchGenreLabel(genre)}</li>
-            ))}
-          </ul>
-        )}
-        <button
-          type="button"
-          className={styles.favorite}
-          aria-label={`${favorite ? "Unfavorite" : "Favorite"} ${club.displayName}`}
-          aria-pressed={favorite}
-          onClick={() => onFavorite(club.id)}
-        >
-          <Star size={17} aria-hidden="true" />
-        </button>
+      <div className={styles.clubMetadata}>
+        <div className={styles.clubName}>
+          <h4 className={styles.name}>{club.displayName}</h4>
+          <FavoriteButton
+            label={club.displayName}
+            pressed={favorite}
+            onToggle={() => onFavorite(club.id)}
+            className={styles.favorite}
+          />
+        </div>
+        <div className={styles.clubFooter}>
+          {club.genres.length > 0 && (
+            <ul
+              className={styles.genres}
+              aria-label={`${club.displayName} genres`}
+            >
+              {club.genres.slice(0, 3).map((genre) => (
+                <li key={genre.slug}>{publicSearchGenreLabel(genre)}</li>
+              ))}
+            </ul>
+          )}
+        </div>
       </div>
     </article>
   );

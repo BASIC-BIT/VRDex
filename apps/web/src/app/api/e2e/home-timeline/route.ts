@@ -74,6 +74,7 @@ async function handle(
     body.scenario !== "discovery" &&
     body.scenario !== "discovery-dense" &&
     body.scenario !== "discovery-sparse" &&
+    body.scenario !== "discovery-clubs" &&
     body.scenario !== "short-sets" &&
     body.scenario !== "timeline-visual"
   )
@@ -92,6 +93,7 @@ async function handle(
         body.scenario === "discovery" ||
         body.scenario === "discovery-dense" ||
         body.scenario === "discovery-sparse" ||
+        body.scenario === "discovery-clubs" ||
         body.scenario === "timeline-visual" ||
         body.scenario === "short-sets")
         ? { scenario: body.scenario }

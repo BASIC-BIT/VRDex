@@ -189,6 +189,11 @@ slots. It cleans exactly two events, four profiles and two slots.
 240 near-term events sit on day five, alongside day-seven/day-forty examples,
 a day-120 match, a repeated host and private/suppressed variants. Its extra
 public club has no event; custom public genre labels retain exact slug identity.
+The `discovery-clubs` scenario places the original favorite host between 28 extra
+public clubs, outside both 12-club samples. It owns exactly two events, 32 profiles
+and two slots; the same lease, ownership checks and cleanup verification apply.
+This exercises retaining one existing favorite-profile watch while its club
+control has focus, releasing it on blur and still removing revoked public data.
 The `timeline-visual` scenario adds two score-separated future recommendations
 to the original eight Schedule events. It owns ten events, five profiles and ten
 slots. Only its new DJ/club IDs are favorites, preserving original Schedule

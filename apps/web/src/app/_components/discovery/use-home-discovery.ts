@@ -27,7 +27,7 @@ export function useHomeDiscovery() {
   const { preferences } = useTimelinePreferences();
   const favoritesKey = JSON.stringify(preferences.favoriteProfileIds);
   const timeZone = browse.timeZone;
-  const contextKey = JSON.stringify([timeZone, favoritesKey]);
+  const contextKey = JSON.stringify([timeZone]);
   const [section, setSection] = useState<HTMLElement | null>(null);
   const [active, setActive] = useState(false);
   const [state, setState] = useState<{ key: string; snapshot: DiscoverySnapshot }>({ key: "", snapshot: loading });
@@ -59,14 +59,13 @@ export function useHomeDiscovery() {
     let alive = true;
     let sampledDate = "";
     const seed = sessionSeed();
-    const favoriteProfileIds: string[] = JSON.parse(favoritesKey);
     const update = () => {
       if (alive) setState({ key: contextKey, snapshot: current.getSnapshotAt(Date.now()) });
     };
     const refresh = () => {
       const now = Date.now();
       sampledDate = formatZonedDateTimeInput(now, timeZone).slice(0, 10);
-      current.setContext({ now, timeZone, favoriteProfileIds, rotationKey: discoveryRotationKey({ seed, localDate: sampledDate }) });
+      current.setContext({ now, timeZone, rotationKey: discoveryRotationKey({ seed, localDate: sampledDate }) });
     };
     const unsubscribe = current.subscribe(update);
     refresh();
@@ -84,8 +83,12 @@ export function useHomeDiscovery() {
       window.clearInterval(minute); window.clearInterval(timer);
       document.removeEventListener("visibilitychange", visibility);
     };
-  }, [active, client, timeZone, favoritesKey, contextKey]);
+  }, [active, client, timeZone, contextKey]);
+  useEffect(() => {
+    controller.current?.setFavorites(JSON.parse(favoritesKey) as string[]);
+  }, [active, client, timeZone, favoritesKey]);
   const snapshot = state.key === contextKey ? state.snapshot : loading;
   const retry = useCallback(() => controller.current?.retry(), []);
-  return { ...snapshot, sectionRef, retry };
+  const setFocusedClub = useCallback((profileId: string | null) => controller.current?.setFocusedClub(profileId), []);
+  return { ...snapshot, sectionRef, retry, setFocusedClub };
 }

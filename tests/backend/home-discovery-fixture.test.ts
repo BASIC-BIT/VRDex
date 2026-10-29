@@ -317,10 +317,10 @@ it("dense public-handler collection records bounded query and returned-row costs
         else if (snapshot.kind === "error") reject(snapshot.error);
       }),
     );
+    controller.setFavorites(fixture.profileIds.slice(0, 2));
     controller.setContext({
       now: args.startAt,
       timeZone: "UTC",
-      favoriteProfileIds: fixture.profileIds.slice(0, 2),
       rotationKey: "cost-proof",
     });
     await ready;
@@ -442,4 +442,35 @@ it("timeline visual scenario preserves Schedule geometry and uses score-separate
   } finally {
     process.env = before;
   }
+});
+
+it("outside-sample club fixture preserves gates, candidate exclusion and exact owned cleanup", async () => {
+  const before = { ...process.env };
+  try {
+    local();
+    const t = convexTest({ schema, modules });
+    const input = { ...args, scenario: "discovery-clubs" as const };
+    await assert.rejects(t.mutation(api.e2eHomeTimeline.create, { ...input, secret: "wrong" }));
+    const fixture = await t.mutation(api.e2eHomeTimeline.create, input);
+    assert.equal(fixture.eventIds.length, 2); assert.equal(fixture.profileIds.length, 32); assert.equal(fixture.slotIds.length, 2);
+    const club = fixture.profileIds[0];
+    for (const direction of ["asc", "desc"] as const) {
+      const candidates = await t.query(api.homeDiscovery.listClubs, { direction });
+      assert.equal(candidates.items.length, 12);
+      assert.ok(!candidates.items.some(item => item.id === club));
+    }
+    assert.equal((await t.query(api.homeDiscovery.profileSignals, { profileIds: [club] })).items[0]?.id, club);
+    await assert.rejects(t.mutation(api.e2eHomeTimeline.cleanup, { secret: "wrong", runId: args.runId }));
+    const extra = fixture.profileIds.at(-1)!;
+    const original = await t.run(ctx => ctx.db.get(extra));
+    await t.run(ctx => ctx.db.patch(extra, { sourceAttribution: undefined }));
+    await assert.rejects(t.mutation(api.e2eHomeTimeline.cleanup, { secret: args.secret, runId: args.runId }), /ownership mismatch/);
+    assert.ok(await t.run(ctx => ctx.db.get(fixture.eventIds[0])));
+    await t.run(ctx => ctx.db.patch(extra, { sourceAttribution: original?.sourceAttribution }));
+    await t.mutation(api.e2eHomeTimeline.changeState, { secret: args.secret, runId: args.runId, eventIndex: 0, state: "suppress-host" });
+    assert.deepEqual((await t.query(api.homeDiscovery.profileSignals, { profileIds: [club] })).items, []);
+    assert.deepEqual(await t.mutation(api.e2eHomeTimeline.cleanup, { secret: args.secret, runId: args.runId }), { events: 2, profiles: 32, slots: 2 });
+    for (const id of [...fixture.eventIds, ...fixture.profileIds, ...fixture.slotIds]) assert.equal(await t.run(ctx => ctx.db.get(id)), null);
+    assert.deepEqual(await t.mutation(api.e2eHomeTimeline.cleanup, { secret: args.secret, runId: args.runId }), { events: 0, profiles: 0, slots: 0 });
+  } finally { process.env = before; }
 });

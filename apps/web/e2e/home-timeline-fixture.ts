@@ -17,6 +17,7 @@ export const test = base.extend<{
     | "discovery"
     | "discovery-dense"
     | "discovery-sparse"
+    | "discovery-clubs"
     | "timeline-visual"
     | "short-sets";
   timelineStartAt: number;
@@ -215,19 +216,22 @@ export const test = base.extend<{
                       ? 246
                       : timelineScenario === "discovery-sparse"
                         ? 1
-                        : timelineScenario === "discovery"
+                        : timelineScenario === "discovery" ||
+                            timelineScenario === "discovery-clubs"
                           ? 2
                           : 8,
                 profiles:
                   timelineScenario === "timeline-visual"
                     ? 5
-                    : timelineScenario === "discovery-dense"
-                      ? 8
-                      : timelineScenario.startsWith("discovery")
-                        ? 4
-                        : timelineScenario === "detail"
-                          ? 3
-                          : 2,
+                    : timelineScenario === "discovery-clubs"
+                      ? 32
+                      : timelineScenario === "discovery-dense"
+                        ? 8
+                        : timelineScenario.startsWith("discovery")
+                          ? 4
+                          : timelineScenario === "detail"
+                            ? 3
+                            : 2,
                 slots:
                   timelineScenario === "timeline-visual"
                     ? 10
@@ -235,7 +239,8 @@ export const test = base.extend<{
                       ? 5
                       : timelineScenario === "discovery-sparse"
                         ? 1
-                        : timelineScenario === "discovery"
+                        : timelineScenario === "discovery" ||
+                            timelineScenario === "discovery-clubs"
                           ? 2
                           : timelineScenario === "detail"
                             ? 87

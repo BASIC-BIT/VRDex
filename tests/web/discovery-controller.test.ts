@@ -5,7 +5,7 @@ import path from "node:path";
 import { createDiscoveryController, createDiscoverySessionSeed, type DiscoveryTransport, type DiscoveryQuery } from "../../apps/web/src/lib/discovery/controller";
 import type { DiscoveryEventCandidate, DiscoveryEventRequest, DiscoveryEventSignal, DiscoveryProfileSignal } from "../../convex/_homeDiscoveryTypes";
 const now = Date.parse("2026-10-28T12:00:00Z");
-const context = { now, timeZone: "UTC", favoriteProfileIds: [] as string[], rotationKey: "session/day" };
+const context = { now, timeZone: "UTC", rotationKey: "session/day" };
 const event = (id: string): DiscoveryEventCandidate => ({ id, slug: id, href: `/events/${id}`, title: id, host: { id: `host-${id}`, slug: id, displayName: id }, schedule: { kind: "open_end", startAt: now + 86400000 } });
 const signal = (eventId: string): DiscoveryEventSignal => ({ eventId, performers: [], manualLabels: [], coverage: "complete" });
 function harness(synchronous = false) {
@@ -51,7 +51,7 @@ test("boundsContinuationsAndConcurrency", async () => {
 test("rejectsOldContextResponses", async () => {
   const h = harness(); const c = createDiscoveryController({ transport: h.transport, concurrency: 3 });
   c.setContext(context); const old = h.requests[0];
-  c.setContext({ ...context, timeZone: "Asia/Kathmandu", favoriteProfileIds: ["new"] }); await settle();
+  c.setFavorites(["new"]); c.setContext({ ...context, timeZone: "Asia/Kathmandu" }); await settle();
   old?.send({ items: [event("obsolete")], cursor: null, complete: true }); await settle();
   const s = c.getSnapshot(); assert.equal(s.kind, "available"); if (s.kind === "available") assert.equal(s.events.length, 0);
   c.dispose(); const disposed = c.getSnapshot(); old?.send({ items: [event("obsolete")], cursor: null, complete: true }); await settle(); assert.equal(c.getSnapshot(), disposed);
@@ -63,7 +63,7 @@ test("keepsFailureDistinctFromEmpty", async () => {
 });
 test("resolvesAllFavoriteBatches", async () => {
   const h = harness(); const c = createDiscoveryController({ transport: h.transport, concurrency: 3 });
-  c.setContext({ ...context, favoriteProfileIds: Array.from({ length: 500 }, (_, i) => `favorite-${i}`) }); await settle();
+  c.setFavorites(Array.from({ length: 500 }, (_, i) => `favorite-${i}`)); c.setContext(context); await settle();
   const batches = h.requests.filter(x => x.method === "profiles").map(x => (x.args as { profileIds: string[] }).profileIds);
   assert.equal(batches.length, 10); assert.ok(batches.every(x => x.length === 50)); assert.equal(new Set(batches.flat()).size, 500);
   const s = c.getSnapshot(); assert.equal(s.kind, "available"); if (s.kind === "available") { assert.equal(s.favoriteProfiles.length, 500); assert.equal(s.clubs.length, 2); } c.dispose();
@@ -92,7 +92,7 @@ test("marksCallerTruncatedCompletePagesPartial", async () => {
 });
 test("replacesFavoritePublicSignalsIncludingRemovals", async () => {
   const h = harness(); const c = createDiscoveryController({ transport: h.transport, concurrency: 3 });
-  c.setContext({ ...context, favoriteProfileIds: ["club"] }); await settle();
+  c.setFavorites(["club"]); c.setContext(context); await settle();
   h.state.profiles = () => []; h.requests.find(x => x.method === "profiles")?.send({ items: [] }); await settle();
   const s = c.getSnapshot(); assert.equal(s.kind, "available"); if (s.kind === "available") { assert.deepEqual(s.favoriteProfiles, []); assert.deepEqual(s.clubs, []); } c.dispose();
 });
@@ -181,11 +181,11 @@ function expiryHarness() {
   h.state.profiles = () => [dj];
   h.state.signals = ids => ids.map(id => ({ ...signal(id), performers: id === "familiar-soon" ? [dj] : id === "new-soon" ? [{ ...dj, id: "new-dj", slug: "new-dj" }] : [] }));
   const c = createDiscoveryController({ transport: h.transport, concurrency: 3 });
-  c.setContext({ ...context, favoriteProfileIds: ["fav-host", "dj"] });
+  c.setFavorites(["fav-host", "dj"]); c.setContext(context);
   return { h, c };
 }
 
-test("minuteExpiryRefillsOneThenBothWinnersFromTheInspectedPoolWithoutRequests", async () => {
+test("expiryStillRefillsWithoutNewReads", async () => {
   const { h, c } = expiryHarness(); await settle();
   const initial = c.getSnapshot(); assert.equal(initial.kind, "available");
   if (initial.kind === "available") { assert.deepEqual(initial.events.map(x => x.id), ["familiar-soon", "new-soon"]); assert.equal(initial.coverage.candidateCount, 4); assert.ok(initial.coverage.events.every(x => x.complete)); }
@@ -236,4 +236,122 @@ test("expiryRetainsCompleteOrPartialCoverageForTheRealEmptyState", async () => {
     assert.equal(snapshot.kind, "available"); if (snapshot.kind === "available") { assert.equal(snapshot.events.length, 0); assert.equal(snapshot.coverage.events.every(x => x.complete), !partial); }
     c.dispose();
   }
+});
+
+
+test("favoriteChangeKeepsCandidatesAndCards", async () => {
+  const h = harness(); h.state.events = () => ({ items: [event("public")], cursor: null, complete: true });
+  const c = createDiscoveryController({ transport: h.transport, concurrency: 3 });
+  c.setContext(context); await settle();
+  const before = h.requests.filter(r => r.method !== "profiles").length;
+  c.setFavorites(["new-favorite"]);
+  const pending = c.getSnapshot(); assert.equal(pending.kind, "available");
+  if (pending.kind === "available") assert.equal(pending.events[0]?.id, "public");
+  await settle();
+  assert.equal(h.requests.filter(r => r.method !== "profiles").length, before);
+  const ready = c.getSnapshot(); assert.equal(ready.kind, "available");
+  if (ready.kind === "available") { assert.deepEqual(ready.eligibleEventIds, ["public"]); assert.deepEqual(ready.favoriteProfiles.map(p => p.id), ["new-favorite"]); }
+  c.dispose();
+});
+test("rapidFavoritesIgnoreStaleReplies", async () => {
+  const h = harness(); const c = createDiscoveryController({ transport: h.transport, concurrency: 3 });
+  c.setContext(context); await settle();
+  c.setFavorites(["old"]); const old = h.requests.find(r => r.method === "profiles");
+  c.setFavorites(["new"]); await settle();
+  old?.send({ items: h.state.profiles(["old"]) }); old?.fail(); await settle();
+  const ready = c.getSnapshot(); assert.equal(ready.kind, "available");
+  if (ready.kind === "available") assert.deepEqual(ready.favoriteProfiles.map(p => p.id), ["new"]);
+  c.setFavorites([]); await settle();
+  const empty = c.getSnapshot(); if (empty.kind === "available") assert.deepEqual(empty.favoriteProfiles, []);
+  c.dispose();
+});
+test("revocationClearsRetainedContent", async () => {
+  const h = harness(); h.state.events = () => ({ items: [event("public")], cursor: null, complete: true });
+  const c = createDiscoveryController({ transport: h.transport, concurrency: 3 });
+  c.setContext(context); await settle(); c.setFavorites(["club"]);
+  h.state.signals = () => []; h.requests.find(r => r.method === "signals")?.send({ items: [] });
+  assert.equal(c.getSnapshot().kind, "loading"); await settle();
+  const ready = c.getSnapshot(); if (ready.kind === "available") { assert.deepEqual(ready.events, []); assert.deepEqual(ready.eligibleEventIds, []); }
+  c.dispose();
+});
+
+test("favoriteAndTimerRefreshRetainTheWatchedPoolUntilCommit", async () => {
+  const h = harness(); h.state.events = () => ({ items: [event("public")], cursor: null, complete: true });
+  const c = createDiscoveryController({ transport: h.transport, concurrency: 3 });
+  c.setContext(context); await settle();
+  assert.equal(h.requests.filter(r => r.method === "profiles").length, 0);
+  const watched = h.requests.find(r => r.method === "signals");
+  c.setFavorites(["club"]); c.refresh();
+  assert.equal(watched?.closed, false);
+  h.state.signals = () => []; watched?.send({ items: [] });
+  assert.equal(c.getSnapshot().kind, "loading"); await settle();
+  const snapshot = c.getSnapshot(); assert.equal(snapshot.kind, "available");
+  if (snapshot.kind === "available") assert.deepEqual(snapshot.events, []);
+  assert.ok(h.peak() <= 3); c.dispose();
+});
+test("timerRefreshCanRecoverAnErroredFavoriteGeneration", async () => {
+  const h = harness(); const c = createDiscoveryController({ transport: h.transport, concurrency: 3 });
+  c.setContext(context); await settle(); c.setFavorites(["club"]);
+  h.requests.find(r => r.method === "profiles")?.fail(); await settle();
+  assert.equal(c.getSnapshot().kind, "error");
+  c.refresh(); await settle();
+  const snapshot = c.getSnapshot(); assert.equal(snapshot.kind, "available");
+  if (snapshot.kind === "available") assert.deepEqual(snapshot.favoriteProfiles.map(p => p.id), ["club"]);
+  c.dispose();
+});
+
+test("outsideSampleFocusedClubPinsOnlyOneExistingBatchUntilBlur", async () => {
+  const h = harness(); const c = createDiscoveryController({ transport: h.transport, concurrency: 3 });
+  c.setFavorites(Array.from({ length: 100 }, (_, i) => `club-${i}`)); c.setContext(context); await settle();
+  const initial = c.getSnapshot(); assert.equal(initial.kind, "available");
+  if (initial.kind !== "available") return;
+  const focused = initial.clubs[0]!.id;
+  c.setFocusedClub(focused); const before = h.requests.length;
+  c.setFavorites([]); await settle();
+  const ranked = c.getSnapshot(); assert.equal(ranked.kind, "available");
+  if (ranked.kind === "available") { assert.deepEqual(ranked.clubs, []); assert.deepEqual(ranked.eligibleClubIds, [focused]); }
+  assert.equal(h.requests.length, before);
+  assert.equal(h.requests.filter(r => r.method === "profiles" && !r.closed).length, 1);
+  c.setFavorites(["new"]); await settle();
+  assert.equal(h.requests.filter(r => r.method === "profiles" && !r.closed).length, 2);
+  c.setFocusedClub(null);
+  assert.equal(h.requests.filter(r => r.method === "profiles" && !r.closed).length, 1);
+  const blurred = c.getSnapshot(); if (blurred.kind === "available") assert.deepEqual(blurred.eligibleClubIds, ["new"]);
+  c.dispose(); assert.ok(h.requests.every(r => r.closed));
+});
+test("pinnedOutsideSampleClubStillClearsOnPublicRevocationOrError", async () => {
+  for (const failure of [false, true]) {
+    const h = harness(); const c = createDiscoveryController({ transport: h.transport, concurrency: 3 });
+    c.setFavorites(["club"]); c.setContext(context); await settle();
+    const watch = h.requests.find(r => r.method === "profiles");
+    c.setFocusedClub("club"); c.setFavorites([]); await settle();
+    assert.equal(watch?.closed, false);
+    if (failure) watch?.fail(); else watch?.send({ items: [] });
+    assert.equal(c.getSnapshot().kind, failure ? "error" : "loading");
+    assert.equal(watch?.closed, true); await settle();
+    const snapshot = c.getSnapshot(); if (snapshot.kind === "available") assert.deepEqual(snapshot.eligibleClubIds, []);
+    c.dispose();
+  }
+});
+test("pinnedClubIsReleasedForContextChangesAndDisposal", async () => {
+  for (const dispose of [false, true]) {
+    const h = harness(); const c = createDiscoveryController({ transport: h.transport, concurrency: 3 });
+    c.setFavorites(["club"]); c.setContext(context); await settle();
+    const watch = h.requests.find(r => r.method === "profiles");
+    c.setFocusedClub("club"); c.setFavorites([]); await settle();
+    if (dispose) c.dispose(); else c.setContext({ ...context, timeZone: "Asia/Kathmandu" });
+    assert.equal(watch?.closed, true); await settle();
+    watch?.send({ items: h.state.profiles(["club"]) }); await settle();
+    const snapshot = c.getSnapshot(); if (snapshot.kind === "available") assert.deepEqual(snapshot.eligibleClubIds, []);
+    c.dispose();
+  }
+});
+
+test("blurDuringPendingFavoritesKeepsTheNormalRetainedSourceUntilReady", async () => {
+  const h = harness(); const c = createDiscoveryController({ transport: h.transport, concurrency: 3 });
+  c.setFavorites(["club"]); c.setContext(context); await settle();
+  const watch = h.requests.find(r => r.method === "profiles");
+  c.setFocusedClub("club"); c.setFavorites(["next"]); c.setFocusedClub(null);
+  assert.equal(watch?.closed, false);
+  await settle(); assert.equal(watch?.closed, true); c.dispose();
 });

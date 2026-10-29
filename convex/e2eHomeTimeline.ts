@@ -39,6 +39,7 @@ export const create = mutation({
         v.literal("discovery"),
         v.literal("discovery-dense"),
         v.literal("discovery-sparse"),
+        v.literal("discovery-clubs"),
         v.literal("timeline-visual"),
         v.literal("short-sets"),
       ),
@@ -62,6 +63,36 @@ export const create = mutation({
         throw Error("Fixture run already exists");
     if (args.scenario?.startsWith("discovery")) {
       const profileIds: Id<"profiles">[] = [];
+      const paddingProfileIds: Id<"profiles">[] = [];
+      const addPaddingClub = async (index: number) =>
+        paddingProfileIds.push(
+          await ctx.db.insert("profiles", {
+            slug: `${args.runId}-pad${index}`,
+            displayName: `Fixture Club ${index}`,
+            sortName: `fixture club ${index}`,
+            profileType: "community",
+            community: { categoryTags: [] },
+            genres: [],
+            aliases: [],
+            tags: [],
+            claimState: "unclaimed",
+            creationSource: "community",
+            publicationState: "published",
+            publicSurfacingState: "public",
+            updatedAt: Date.now(),
+            sourceAttribution: {
+              submittedAt: Date.now(),
+              submitter: {
+                tokenIdentifier: `e2e:${args.runId}`,
+                issuer: "vrdex:e2e",
+                subject: args.runId,
+              },
+            },
+          }),
+        );
+      // Put the original favorite host strictly between both 12-club samples.
+      if (args.scenario === "discovery-clubs")
+        for (let i = 0; i < 14; i++) await addPaddingClub(i);
       const kinds = ["community", "person", "community2", "person2"];
       for (const [index, kind] of kinds.entries()) {
         const community = kind.startsWith("community");
@@ -115,6 +146,10 @@ export const create = mutation({
             },
           }),
         );
+      }
+      if (args.scenario === "discovery-clubs") {
+        for (let i = 14; i < 28; i++) await addPaddingClub(i);
+        profileIds.push(...paddingProfileIds);
       }
       const eventIds: Id<"events">[] = [],
         slotIds: Id<"eventSlots">[] = [];
@@ -573,6 +608,7 @@ export const cleanup = mutation({
       "community3",
       "hidden-community",
       "person3",
+      ...Array.from({ length: 28 }, (_, i) => `pad${i}`),
     ]) {
       const p = await ctx.db
         .query("profiles")
