@@ -38,13 +38,15 @@ test.describe("Home discovery images @visual @snapshot @fixture", () => {
         // Cold recommendations include the ordinary local public pool. Keep
         // actual integration evidence without fixing an arbitrary ranking.
         await expect(discover.locator('[data-favorite="true"]')).toHaveCount(0);
-        await page.screenshot({
-          path: info.outputPath("home-discovery-cold-start.png"),
-          fullPage: true,
-          animations: "disabled",
-          caret: "hide",
-          scale: "css",
-        });
+        if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") {
+          await page.screenshot({
+            path: info.outputPath("home-discovery-cold-start.png"),
+            fullPage: true,
+            animations: "disabled",
+            caret: "hide",
+            scale: "css",
+          });
+        }
       } else
         await expect(page).toHaveScreenshot("home-discovery-mixed.png", {
           fullPage: true,
