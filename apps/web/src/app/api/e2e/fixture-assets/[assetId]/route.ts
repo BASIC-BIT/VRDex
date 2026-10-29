@@ -22,6 +22,10 @@ type FixtureAsset = {
 };
 
 const fixtureAssets: Record<string, FixtureAsset> = {
+  "fixture-low-tide-discovery-poster": {
+    title: "LOW TIDE", subtitle: "Nori / Liquid DnB", initials: "LT",
+    width: 900, height: 1200, from: "#102630", to: "#164655", accent: "#79d9ed",
+  },
   "fixture-orbit-timeline-poster": {
     title: "ORBIT", subtitle: "Aurora / Neon Harbor", initials: "O",
     width: 900, height: 1200, from: "#16111f", to: "#453023", accent: "#e6b879",

@@ -21,20 +21,12 @@ const eventBase = { slug: "night", title: "Night", sortTitle: "night", startAt, 
 const personBase = { slug: "dj", displayName: "DJ", sortName: "dj", profileType: "person", person: { roleTags: [] }, aliases: [], tags: [], claimState: "unclaimed", creationSource: "self", publicationState: "published", publicSurfacingState: "public", updatedAt: 1 } satisfies Omit<Doc<"profiles">, "_id" | "_creationTime">;
 const slotBase = { position: 0, startAt, endAt: startAt + hour, displayLabel: "Authored Guest", roleLabel: "DJ", sourceType: "community", sourceLabel: "Fixture", confidence: 1, reviewState: "confirmed", updatedAt: 1 } satisfies Omit<Doc<"eventSlots">, "_id" | "_creationTime" | "eventId">;
 function setup() { return convexTest({ schema, modules }); }
-async function all(t: ReturnType<typeof setup>, selectedRange = range, limit = 8, loadRosters = true) {
+async function all(t: ReturnType<typeof setup>, selectedRange = range, limit = 8) {
   const items: TimelineEvent[] = [];
   let cursor: string | undefined;
   for (let page = 0; page < 100; page++) {
     const result = await t.query(list, { range: selectedRange, limit, ...(cursor === undefined ? {} : { cursor }) });
     assert.ok(result.items.length <= limit);
-    if (loadRosters) for (const event of result.items) {
-      while (event.rosterCursor !== null) {
-        const page = await t.query(roster, { eventId: event.id, range: selectedRange, cursor: event.rosterCursor });
-        event.slots.push(...page.items);
-        event.performers.push(...page.performers);
-        event.rosterCursor = page.cursor;
-      }
-    }
     items.push(...result.items);
     assert.equal(result.complete, result.cursor === null);
     if (result.complete) { assert.equal(new Set(items.map(item => item.id)).size, items.length); return items; }
@@ -43,21 +35,6 @@ async function all(t: ReturnType<typeof setup>, selectedRange = range, limit = 8
   }
   assert.fail("Timeline did not finish");
 }
-
-it("defers roster pagination to a separate client request", async () => {
-  const t = setup();
-  const slotId = await t.run(async ({ db }) => {
-    const eventId = await db.insert("events", eventBase);
-    return db.insert("eventSlots", { ...slotBase, eventId });
-  });
-  const page = await t.query(list, { range });
-  const event = page.items[0]!;
-  assert.deepEqual(event.slots, []);
-  assert.deepEqual(event.performers, []);
-  assert.ok(event.rosterCursor);
-  const rosterPage = await t.query(roster, { eventId: event.id, range, cursor: event.rosterCursor });
-  assert.deepEqual(rosterPage.items.map(slot => slot.id), [slotId]);
-});
 
 it("continuesPastHiddenHosts", async () => {
   const t = setup();
@@ -130,16 +107,19 @@ it("continuesAfterEightySlots", async () => {
     await db.insert("eventParticipants", { eventId, personProfileId: performerId, eventPublicationState: "published", eventStatus: "scheduled", confirmationState: "confirmed", roleLabel: "DJ", sourceType: "community", sourceLabel: "Fixture", updatedAt: 1 });
     return { eventId, slots, performerId };
   });
-  const event = (await all(t, range, 8, false))[0];
+  const event = (await all(t))[0];
   assert.ok(event);
-  assert.equal(event.slots.length, 0);
+  assert.deepEqual(event.slots, []);
   assert.deepEqual(event.performers, []);
-  const slots = [...event.slots];
-  const performers = [...event.performers];
-  let cursor = event.rosterCursor;
+  assert.ok(event.rosterCursor);
+  const initial = await t.query(roster, { eventId: ids.eventId, range, cursor: event.rosterCursor });
+  assert.equal(initial.items.length, 79); // The prior unknown-end row also consumes one candidate.
+  assert.deepEqual(initial.performers, []);
+  const slots = [...initial.items];
+  const performers = [...initial.performers];
+  let cursor = initial.cursor;
   for (let page = 0; cursor !== null && page < 10; page++) {
     const result = await t.query(roster, { eventId: ids.eventId, range, cursor });
-    if (page === 0) assert.equal(result.items.length, 79); // The prior unknown-end row consumes one candidate.
     assert.ok(result.items.length <= 80);
     assert.equal(result.complete, result.cursor === null);
     slots.push(...result.items); performers.push(...result.performers); cursor = result.cursor;
@@ -161,11 +141,14 @@ it("keeps safe manual slot labels while withholding hidden linked identities and
     return { eventId, hidden, slotId, worldId };
   });
   const items = await all(t);
-  assert.equal(items[0]?.slots[0]?.displayLabel, "Authored Guest");
-  assert.equal(items[0]?.slots[0]?.performer, undefined);
+  const event = items[0]; assert.ok(event?.rosterCursor);
+  assert.deepEqual(event.slots, []);
+  const initial = await t.query(roster, { eventId: ids.eventId, range, cursor: event.rosterCursor });
+  assert.equal(initial.items[0]?.displayLabel, "Authored Guest");
+  assert.equal(initial.items[0]?.performer, undefined);
   const saved = await t.query(resolve, { references: [{ kind: "set", eventId: ids.eventId, slotId: ids.slotId }] });
   assert.equal(saved[0]?.kind, "available");
-  for (const secret of [ids.hidden, ids.worldId, "private-dj", "SECRET PERSON", "private-world", "SECRET WORLD", "https://secret.invalid/person.png"]) assert.ok(!JSON.stringify({ items, saved }).includes(secret));
+  for (const secret of [ids.hidden, ids.worldId, "private-dj", "SECRET PERSON", "private-world", "SECRET WORLD", "https://secret.invalid/person.png"]) assert.ok(!JSON.stringify({ items, initial, saved }).includes(secret));
 });
 
 it("resolvesSavedOutsideRange", async () => {
@@ -223,7 +206,15 @@ it("validates bounds, limits, IDs and cursor scope", async () => {
   assert.ok(first.cursor);
   await assert.rejects(t.query(list, { range: { ...range, timeZone: "Europe/London" }, cursor: first.cursor }));
   const event = first.items[0]; assert.ok(event?.rosterCursor);
+  assert.deepEqual(event.slots, []);
+  assert.deepEqual(event.performers, []);
+  const initial = await t.query(roster, { eventId: event.id, range, cursor: event.rosterCursor });
+  assert.equal(initial.items.length, 1);
+  assert.equal(initial.complete, false);
   await assert.rejects(t.query(roster, { eventId: ids.other, range, cursor: event.rosterCursor }));
+  await assert.rejects(t.query(roster, { eventId: event.id, range: { ...range, endAt: range.endAt + 1 }, cursor: event.rosterCursor }));
+  await assert.rejects(t.query(roster, { eventId: event.id, range: { ...range, timeZone: "Europe/London" }, cursor: event.rosterCursor }));
+  await assert.rejects(t.query(roster, { eventId: event.id, range, detail: true, cursor: event.rosterCursor }));
   await assert.rejects(t.query(roster, { eventId: "invalid", range }));
   await assert.rejects(t.query(resolve, { references: Array.from({ length: 51 }, () => ({ kind: "event", eventId: ids.eventId })) }));
 });
@@ -245,17 +236,19 @@ it("preserves canonical host identity and revokes existing roster and saved refe
   const event = (await all(t))[0]; assert.ok(event);
   assert.equal(event.href, "/club/events/night");
   assert.deepEqual(event.host, { id: ids.hostId, slug: "club", displayName: "Club", imageUrl: "https://example.com/club.png" });
-  assert.deepEqual(event.performers, [{ id: ids.personId, slug: "dj", displayName: "DJ" }]);
-  const pending = (await all(t, range, 8, false))[0]!.rosterCursor;
+  assert.deepEqual(event.performers, []);
+  assert.ok(event.rosterCursor);
+  const initial = await t.query(roster, { eventId: ids.eventId, range, cursor: event.rosterCursor });
+  assert.deepEqual(initial.performers, [{ id: ids.personId, slug: "dj", displayName: "DJ" }]);
   await t.run(({ db }) => db.patch(ids.hostId, { publicSurfacingState: "suppressed" }));
   assert.deepEqual(await all(t), []);
-  assert.ok(pending);
-  assert.deepEqual(await t.query(roster, { eventId: ids.eventId, range, cursor: pending }), { items: [], performers: [], cursor: null, complete: true });
+  assert.ok(event.rosterCursor);
+  assert.deepEqual(await t.query(roster, { eventId: ids.eventId, range, cursor: event.rosterCursor }), { items: [], performers: [], cursor: null, complete: true });
   const reference = { kind: "set", eventId: ids.eventId, slotId: ids.slotId } as const;
   assert.deepEqual(await t.query(resolve, { references: [reference] }), [{ reference, kind: "unavailable" }]);
 });
 
-it("bounds multiple initial rosters and retains only overlapping authored slot times", async () => {
+it("bounds event identities and separately reads only overlapping authored slot times", async () => {
   const t = setup();
   const ids = await t.run(async ({ db }) => {
     const events = [];
@@ -274,7 +267,14 @@ it("bounds multiple initial rosters and retains only overlapping authored slot t
   assert.equal((await t.query(list, { range })).items.length, 8);
   const items = await all(t);
   assert.deepEqual(items.map(event => event.id), ids.events);
-  for (let i = 0; i < items.length; i++) assert.deepEqual(items[i]?.slots.map(slot => slot.id).sort(), ids.slots[i]?.sort());
+  for (const [i, event] of items.entries()) {
+    assert.deepEqual(event.slots, []);
+    assert.deepEqual(event.performers, []);
+    assert.ok(event.rosterCursor);
+    const initial = await t.query(roster, { eventId: event.id, range, cursor: event.rosterCursor });
+    assert.deepEqual(initial.items.map(slot => slot.id).sort(), ids.slots[i]?.sort());
+    assert.equal(initial.complete, false);
+  }
 });
 
 it("continues past ineligible participant pages and deduplicates public identities per page", async () => {

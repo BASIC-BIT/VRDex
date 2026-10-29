@@ -113,21 +113,26 @@ Locked decision:
   `/lookup` and the legacy DJ view retain bulk lookup and authorized private
   seed access. Public Home and standard search never use private lookup data.
 - Preserve the event-oriented discovery surface at `/discovery`, reachable from
-  Home navigation. Timeline, discovery composition and favorites remain later
-  slices; Home contains no placeholder modules.
+  Home navigation. Home keeps search above Schedule and the approved two-event,
+  two-club Discover composition, without placeholder modules.
+- Schedule handles tonight's planning through one event inspector, browser-local
+  favorites and My night. Discover mixes familiar public DJ/club connections
+  with public genre matches across future dates. Date proximity does not set
+  recommendation order; clubs need no upcoming event.
+- Public genre identities match exact assignment slugs. Owner display labels
+  remain readable presentation, never a separate matching taxonomy.
+- Keep preferences local and public data current. Revocation removes obsolete
+  recommendations, including after a failed refresh; no favorite history or
+  public recommendation snapshots are persisted on the server.
 
 Current recommendation:
 
-- The long-term discovery surface should include a timeline-style view of
-  events happening today.
-- The valuable unit is "what is happening when," not a loose list of event
-  cards.
-- The first implementation may use event cards or a list if that is the
-  shippable slice, but the target should be a time-oriented schedule surface.
-- The timeline surface does not need to consume the whole homepage. It can be a
-  primary module with a route to a focused full-page schedule.
-- The final public name should probably not be `timeline` if that collides with
-  other product meanings.
+- Keep Schedule's time navigation independent of Discover. Distant events can
+  be useful recommendations without competing with tonight's timeline.
+- The initial familiar/discovery blend is a recommendation heuristic. Sparse
+  signals fall back to available public variety without claiming learned taste.
+- Continue to measure bounded public reads and discovery latency with dense
+  local fixtures before considering larger projections or services.
 - Direct search should remain prominent for exact lookup.
 - Home should lead with utility and data, not explanatory product copy.
 

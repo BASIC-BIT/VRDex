@@ -31,7 +31,7 @@ const nextConfig: NextConfig = {
     ];
   },
   outputFileTracingRoot: workspaceRoot,
-  transpilePackages: ["@vrdex/api-contracts"],
+  transpilePackages: ["@vrdex/api-contracts", "@vrdex/event-intake-agent"],
   skipTrailingSlashRedirect: true,
   turbopack: {
     root: workspaceRoot,

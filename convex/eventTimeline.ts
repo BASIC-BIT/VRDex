@@ -11,7 +11,7 @@ const referenceValidator = v.union(
 );
 const eventPhases: readonly EventPhase[] = ["starts", "ongoing", "dates"];
 const rosterPhases: readonly RosterPhase[] = ["slots", "lineup", "participants"];
-// Event and roster pages must be separate requests, including nested queries.
+// Native pagination is shared with nested queries. Read rosters in separate client calls.
 
 export const listPublic = query({
   args: { range: rangeValidator, cursor: v.optional(v.string()), limit: v.optional(v.number()) },
@@ -35,8 +35,12 @@ export const listPublic = query({
         : schedule.kind === "date_only" || (state.phase === "ongoing" && schedule.startAt >= args.range.startAt)) continue;
       const identity = await timelineEventIdentity(ctx.db, event);
       if (identity === null) continue;
-      items.push({ ...identity, slots: [], performers: [], rosterCursor:
-        encodeTimelineCursor(`roster:${event._id}`, args.range, { phase: "slots", databaseCursor: null }) });
+      items.push({
+        ...identity,
+        slots: [],
+        performers: [],
+        rosterCursor: encodeTimelineCursor(`roster:${event._id}`, args.range, { phase: "slots", databaseCursor: null }),
+      });
     }
     const next = state.phase === "starts" ? "ongoing" : state.phase === "ongoing" ? "dates" : null;
     const cursor = page.isDone

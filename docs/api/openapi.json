@@ -932,7 +932,8 @@
                                     "text",
                                     "poster",
                                     "lookup",
-                                    "calculation"
+                                    "calculation",
+                                    "connector"
                                   ]
                                 },
                                 "excerpt": {
@@ -2002,7 +2003,8 @@
                                       "text",
                                       "poster",
                                       "lookup",
-                                      "calculation"
+                                      "calculation",
+                                      "connector"
                                     ]
                                   },
                                   "excerpt": {
@@ -3053,7 +3055,8 @@
                                     "text",
                                     "poster",
                                     "lookup",
-                                    "calculation"
+                                    "calculation",
+                                    "connector"
                                   ]
                                 },
                                 "excerpt": {
@@ -3558,7 +3561,8 @@
                               "text",
                               "poster",
                               "lookup",
-                              "calculation"
+                              "calculation",
+                              "connector"
                             ]
                           },
                           "excerpt": {
@@ -3620,13 +3624,73 @@
                         ],
                         "additionalProperties": false
                       }
+                    },
+                    "decision": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "new"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "kind"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "update"
+                              ]
+                            },
+                            "slug": {
+                              "type": "string",
+                              "maxLength": 64
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "slug"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "not_event"
+                              ]
+                            },
+                            "reason": {
+                              "type": "string",
+                              "maxLength": 200
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "reason"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
                     }
                   },
                   "required": [
                     "event",
                     "lineup",
                     "evidence",
-                    "questions"
+                    "questions",
+                    "decision"
                   ],
                   "additionalProperties": false
                 }

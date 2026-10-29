@@ -2818,6 +2818,19 @@ export default defineSchema({
     .index("by_state_deliveredAt", ["state", "deliveredAt"])
     .index("by_state_nextAttemptAt", ["state", "nextAttemptAt"])
     .index("by_state_leaseUntil", ["state", "leaseUntil"]),
+  // ponytail: no retention sweep or dead-letter recovery yet (tens of rows a
+  // day); add both, modelled on claimAnalytics.sweepDeliveredEvents and
+  // recoverUndeliveredDeliveries, when the table passes a few thousand rows.
+  productAnalyticsOutbox: defineTable({
+    event: v.string(),
+    distinctId: v.string(),
+    properties: v.any(),
+    createdAt: v.number(),
+    attemptCount: v.number(),
+    nextAttemptAt: v.number(),
+    leaseExpiresAt: v.optional(v.number()),
+    deliveredAt: v.optional(v.number()),
+  }).index("by_deliveredAt_nextAttemptAt", ["deliveredAt", "nextAttemptAt"]),
   // A user proved they control an external asset. This is deliberately not a
   // claim: proving you administer a Discord guild says nothing about which
   // VRDex profile that guild represents. Profile ownership is granted only

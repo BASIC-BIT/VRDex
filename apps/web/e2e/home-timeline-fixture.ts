@@ -10,27 +10,126 @@ export type TimelineFixture = {
 };
 export const test = base.extend<{
   timelineFixture: TimelineFixture;
-  timelineScenario: "default" | "prefetch" | "detail";
+  timelineScenario:
+    | "default"
+    | "prefetch"
+    | "detail"
+    | "discovery"
+    | "discovery-dense"
+    | "discovery-sparse"
+    | "timeline-visual";
   timelineStartAt: number;
 }>({
   timelineScenario: ["default", { option: true }],
   timelineStartAt: [TIMELINE_NOW - 30 * 60000, { option: true }],
-  page: async ({ page, timelineFixture, request }, provide) => {
+  page: async ({ page, timelineFixture, request }, provide, info) => {
+    const diagnostics: { kind: string; message: string }[] = [];
+    const capture = (kind: string, message: string) => {
+      if (diagnostics.length < 50)
+        diagnostics.push({ kind, message: message.slice(0, 2000) });
+    };
+    page.on("pageerror", (error) =>
+      capture("pageerror", error.stack ?? error.message),
+    );
+    page.on("console", (message) => {
+      if (message.type() === "error") capture("console", message.text());
+    });
+    page.on("requestfailed", (request) => {
+      const url = new URL(request.url());
+      capture(
+        "requestfailed",
+        `${url.origin}${url.pathname}: ${request.failure()?.errorText ?? "unknown"}`,
+      );
+    });
+    const runtimeDiagnostics =
+      process.env.VRDEX_E2E_BOOT_DIAGNOSTICS === "true"
+        ? await page.context().newCDPSession(page)
+        : null;
+    if (runtimeDiagnostics) {
+      await runtimeDiagnostics.send("Runtime.enable");
+      runtimeDiagnostics.on(
+        "Runtime.exceptionThrown",
+        ({ exceptionDetails: d }) => {
+          capture(
+            "exception-location",
+            JSON.stringify({
+              text: d.text,
+              url: d.url,
+              scriptId: d.scriptId,
+              line: d.lineNumber,
+              column: d.columnNumber,
+              description: d.exception?.description,
+            }),
+          );
+          const scriptId = d.scriptId;
+          if (scriptId)
+            void (async () => {
+              // Enable the debugger after a fault, preserving normal bootstrap timing.
+              await runtimeDiagnostics.send("Debugger.enable");
+              const { scriptSource } = await runtimeDiagnostics.send(
+                "Debugger.getScriptSource",
+                { scriptId },
+              );
+              const lines = scriptSource.split("\n");
+              const line = lines[d.lineNumber] ?? lines[0] ?? "";
+              capture(
+                "exception-source",
+                JSON.stringify({
+                  bytes: scriptSource.length,
+                  lines: lines.length,
+                  excerpt: line.slice(
+                    Math.max(0, d.columnNumber - 500),
+                    d.columnNumber + 500,
+                  ),
+                }),
+              );
+            })().catch((error) => capture("diagnostic-error", String(error)));
+        },
+      );
+    }
     // Only the run-owned image URL is bridged to original local artwork.
     // Public event/profile query responses always come from the real backend.
+    const artwork = await request.get(
+      "/api/e2e/fixture-assets/fixture-prism-timeline-logo",
+    );
+    await expect(artwork).toBeOK();
+    const artworkBody = await artwork.body();
     await page
       .context()
       .route(
         `https://timeline-artwork.invalid/${timelineFixture.runId}/prism.svg`,
         async (route) => {
-          const artwork = await request.get(
-            "/api/e2e/fixture-assets/fixture-prism-timeline-logo",
-          );
-          await expect(artwork).toBeOK();
-          await route.fulfill({ response: artwork });
+          await route.fulfill({
+            body: artworkBody,
+            contentType: "image/svg+xml",
+          });
         },
       );
-    await provide(page);
+    try {
+      await provide(page);
+    } finally {
+      if (info.status !== info.expectedStatus) {
+        const documentState = await page
+          .evaluate(() => ({
+            readyState: document.readyState,
+            visibility: document.visibilityState,
+            hasFocus: document.hasFocus(),
+            scheduleState:
+              document
+                .querySelector('[aria-label="Schedule data state"]')
+                ?.getAttribute("data-state") ?? null,
+            scripts: [...document.scripts].map((script) =>
+              script.src ? new URL(script.src).pathname : "inline",
+            ),
+          }))
+          .catch(() => null);
+        await info.attach("home-browser-diagnostics.json", {
+          body: JSON.stringify({ diagnostics, documentState }, null, 2),
+          contentType: "application/json",
+        });
+      }
+      await runtimeDiagnostics?.detach().catch(() => {});
+    }
   },
   timelineFixture: [
     async (
@@ -47,7 +146,8 @@ export const test = base.extend<{
         "x-vrdex-e2e-token":
           process.env.VRDEX_E2E_BROWSER_TOKEN ?? "local-playwright-token",
       };
-      const runId = `playwright-timeline-${randomUUID()}`;
+      // Keep every derived profile slug inside the canonical 64-character limit.
+      const runId = `playwright-timeline-${randomUUID().replaceAll("-", "").slice(0, 24)}`;
       await withTimelineFixtureLease(
         process.env.PLAYWRIGHT_CONVEX_URL ??
           process.env.CONVEX_URL ??
@@ -66,8 +166,10 @@ export const test = base.extend<{
                   : {
                       runId,
                       startAt: timelineStartAt,
-                      ...(timelineScenario === "detail"
-                        ? { scenario: "detail" }
+                      ...(timelineScenario === "detail" ||
+                      timelineScenario === "timeline-visual" ||
+                      timelineScenario.startsWith("discovery")
+                        ? { scenario: timelineScenario }
                         : {}),
                     },
             });
@@ -104,9 +206,38 @@ export const test = base.extend<{
               // A disconnected POST can commit after DELETE reads zero. Only
               // exact owned cleanup proves the attempted create is cleared.
               expect(counts).toEqual({
-                events: 8,
-                profiles: timelineScenario === "detail" ? 3 : 2,
-                slots: timelineScenario === "detail" ? 87 : 8,
+                events:
+                  timelineScenario === "timeline-visual"
+                    ? 10
+                    : timelineScenario === "discovery-dense"
+                      ? 246
+                      : timelineScenario === "discovery-sparse"
+                        ? 1
+                        : timelineScenario === "discovery"
+                          ? 2
+                          : 8,
+                profiles:
+                  timelineScenario === "timeline-visual"
+                    ? 5
+                    : timelineScenario === "discovery-dense"
+                      ? 8
+                      : timelineScenario.startsWith("discovery")
+                        ? 4
+                        : timelineScenario === "detail"
+                          ? 3
+                          : 2,
+                slots:
+                  timelineScenario === "timeline-visual"
+                    ? 10
+                    : timelineScenario === "discovery-dense"
+                      ? 5
+                      : timelineScenario === "discovery-sparse"
+                        ? 1
+                        : timelineScenario === "discovery"
+                          ? 2
+                          : timelineScenario === "detail"
+                            ? 87
+                            : 8,
                 ...(timelineScenario === "detail" ? { lineupEntries: 2 } : {}),
               });
             } catch (error) {
@@ -126,7 +257,7 @@ export async function changeTimelineFixture(
   request: import("@playwright/test").APIRequestContext,
   fixture: TimelineFixture,
   eventIndex: number,
-  state: "cancelled" | "hidden" | "recreate-slot",
+  state: "cancelled" | "hidden" | "recreate-slot" | "suppress-host",
 ) {
   const result = await request.patch("/api/e2e/home-timeline", {
     headers: {
