@@ -33,6 +33,18 @@ locals {
     TWITCH_CLIENT_SECRET = var.twitch_client_secret
   } : {}
 
+  manage_langfuse = nonsensitive(var.langfuse_public_key != null && var.langfuse_secret_key != null)
+  langfuse_keys = local.manage_langfuse ? setunion(
+    toset(["LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY"]),
+    var.langfuse_base_url != null ? toset(["LANGFUSE_BASE_URL"]) : toset([]),
+  ) : toset([])
+
+  langfuse_values = local.manage_langfuse ? {
+    LANGFUSE_PUBLIC_KEY = var.langfuse_public_key
+    LANGFUSE_SECRET_KEY = var.langfuse_secret_key
+    LANGFUSE_BASE_URL   = var.langfuse_base_url
+  } : {}
+
   # Each environment gets its own Clerk instance's pair, so these are managed as
   # two independent groups rather than one value set across targets.
   manage_clerk_production = nonsensitive(
@@ -177,6 +189,42 @@ resource "vercel_project_environment_variable" "twitch_staging_custom" {
   custom_environment_ids = [each.value.custom_environment_id]
   sensitive              = true
   comment                = "Server-only Twitch app credentials for cached public profile live status."
+}
+
+resource "vercel_project_environment_variable" "langfuse_standard" {
+  for_each = {
+    for pair in setproduct(local.langfuse_keys, keys(local.standard_twitch_targets)) : "${pair[0]}_${pair[1]}" => {
+      key    = pair[0]
+      target = local.standard_twitch_targets[pair[1]]
+      value  = local.langfuse_values[pair[0]]
+    }
+  }
+
+  project_id = data.vercel_project.web.id
+  team_id    = var.vercel_team_id
+  key        = each.value.key
+  value      = each.value.value
+  target     = each.value.target
+  sensitive  = true
+  comment    = "Server-only Langfuse keys for event intake tracing."
+}
+
+resource "vercel_project_environment_variable" "langfuse_staging_custom" {
+  for_each = {
+    for pair in setproduct(local.langfuse_keys, var.staging_custom_environment_ids) : "${pair[0]}_${pair[1]}" => {
+      key                   = pair[0]
+      custom_environment_id = pair[1]
+      value                 = local.langfuse_values[pair[0]]
+    }
+  }
+
+  project_id             = data.vercel_project.web.id
+  team_id                = var.vercel_team_id
+  key                    = each.value.key
+  value                  = each.value.value
+  custom_environment_ids = [each.value.custom_environment_id]
+  sensitive              = true
+  comment                = "Server-only Langfuse keys for event intake tracing."
 }
 
 resource "vercel_project_environment_variable" "clerk_production" {

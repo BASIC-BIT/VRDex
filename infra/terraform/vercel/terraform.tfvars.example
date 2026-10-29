@@ -20,6 +20,12 @@ temporal_input_hash_key = "REPLACE_WITH_A_BASE64_ENCODED_32_BYTE_SECRET"
 twitch_client_id     = null
 twitch_client_secret = null
 
+# Optional. Create a key pair in the Langfuse project settings and set both keys
+# to enable event intake tracing. Leave the base URL null for Langfuse Cloud.
+langfuse_public_key = null
+langfuse_secret_key = null
+langfuse_base_url   = null
+
 # Optional. Clerk instances are per-environment: production takes the live pair,
 # preview and staging take the development instance's test pair. Leave null to
 # leave whatever is already set in the Vercel dashboard untouched.

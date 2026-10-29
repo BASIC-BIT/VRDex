@@ -29,6 +29,22 @@ and secret recreation are documented in
 [event intake sources](../backend/event-intake-sources.md). Self-hosters can
 save, edit, and publish manually without model credentials or poster storage.
 
+Event intake tracing uses three Langfuse variables:
+
+- `LANGFUSE_PUBLIC_KEY`
+- `LANGFUSE_SECRET_KEY` (secret)
+- `LANGFUSE_BASE_URL` (optional, defaults to Langfuse Cloud)
+
+Scope: the Convex deployment (set with `convex env set`) and the web app
+(Vercel Terraform variables `langfuse_public_key`, `langfuse_secret_key`, and
+`langfuse_base_url` in `infra/terraform/vercel`). Owner: BASIC. Rotation: create
+a new key pair in the Langfuse project settings, set it on both, then revoke the
+old pair. Missing keys disable tracing and never fail an extraction.
+
+Each extraction run also records an `event_intake_run` event. It reaches PostHog
+through `productAnalyticsOutbox` with the existing `POSTHOG_PROJECT_API_KEY`;
+no new PostHog variable is needed.
+
 No hosted write, deployment, migration, model call, or production storage test
 is implied by the local adapter tests.
 
@@ -54,10 +70,11 @@ is implied by the local adapter tests.
 5. Keep `VRDEX_EVENT_INTAKE_AI_ENABLED=false` and `VRDEX_EVENT_SPAM_MODE=off` until
    a consented provider evaluation has measured quality, false matches/blocks,
    latency, tokens and cost. Set blocking threshold/baseline only after review.
-   Extraction has four turns, three read-only tool calls, 6,000 output tokens per
+   Extraction has six turns, five read-only tool calls, 6,000 output tokens per
    turn and a 20-second timeout per provider request. Classification caps output
    at 300 tokens. The shared actor allowance is 20 model attempts per rolling day.
-   These caps bound calls; `costUsd: null` means cost has not been measured.
+   These caps bound calls. Cost comes from the agent's model price table and is
+   `null` only for unpriced models.
 
 For incident response, disable extraction and/or set spam mode off independently;
 manual publication remains available under deterministic preflight. Do not turn

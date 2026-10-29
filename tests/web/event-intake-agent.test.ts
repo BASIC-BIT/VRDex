@@ -322,3 +322,23 @@ it("reports null cost for an unpriced model, omits decision on failure, and surv
   const result = await extractEventIntake({ draftId: "draft", sourceText: "Night" }, { ...base, sink: broken, fetchImplementation: async () => response({ ...blank(), event: { ...blank().event, title: "Night" } }) });
   assert.equal(result.event.title, "Night");
 });
+it("web host enqueues event_intake_run with its trigger and skips Langfuse without keys", async () => {
+  const { getFunctionName } = await import("convex/server");
+  const { createEventIntakeExtractor } = await import("../../apps/web/src/lib/server/event-intake-agent");
+  const keys = ["OPENAI_API_KEY", "VRDEX_EVENT_INTAKE_AI_ENABLED", "LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY"] as const;
+  const saved = keys.map(key => process.env[key]); const originalFetch = globalThis.fetch; const urls: string[] = []; const calls: [string, any][] = [];
+  Object.assign(process.env, { OPENAI_API_KEY: "test", VRDEX_EVENT_INTAKE_AI_ENABLED: "true" });
+  delete process.env.LANGFUSE_PUBLIC_KEY; delete process.env.LANGFUSE_SECRET_KEY;
+  globalThis.fetch = (async (url: string) => { urls.push(String(url)); return response(blank()); }) as typeof fetch;
+  try {
+    const admin = { query: async () => [], mutation: async (ref: any, args: any) => { calls.push([getFunctionName(ref), args]); return getFunctionName(ref) === "eventIntakeSources:authorizeExtraction" ? { actorUserId: "actor", version: 1 } : null; } };
+    const extract = createEventIntakeExtractor({ authority: async () => ({ actorUserId: "actor" as never }), admin: admin as never, readPoster: async () => "", trigger: "mcp" });
+    await extract({ draftId: "draft", sourceText: "Night" });
+    const enqueued = calls.find(([name]) => name === "productAnalytics:enqueue")?.[1];
+    assert.equal(enqueued.event, "event_intake_run"); assert.equal(enqueued.distinctId, "event_intake:draft"); assert.equal(enqueued.properties.trigger, "mcp");
+    assert.deepEqual(urls, ["https://api.openai.com/v1/responses"]);
+  } finally {
+    keys.forEach((key, i) => { if (saved[i] === undefined) delete process.env[key]; else process.env[key] = saved[i]; });
+    globalThis.fetch = originalFetch;
+  }
+});
