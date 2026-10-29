@@ -12,9 +12,10 @@
 
 ## Execution status
 
-Tasks 1–4 and the native Schedule pagination repair are implemented and
-independently task-reviewed. Task 5b adds actual desktop/mobile integration,
-privacy, navigation, focus, density and visual evidence on the approved base.
+Tasks 1–5 and the native Schedule pagination repair are implemented and
+independently task-reviewed. Whole-branch review and the scoped final fixes are
+approved. Task 5b supplies actual desktop/mobile integration, privacy, navigation,
+focus, density and visual evidence on the approved base.
 
 Real isolated Node suites passed 959 web cases and 2,280 backend cases, with no
 failures or skips. The requested seven-file browser command ran 162 cases with
@@ -32,8 +33,9 @@ Turbopack TLS failure fetching IBM Plex Mono and Space Grotesk from Google
 Fonts. The existing webpack fallback built successfully and supplied the
 production artifact for the actual local Home smokes. An intermittent dev
 bootstrap parse error observed during visual checks remains disclosed; it did
-not recur in the later selected gate or built-app smoke, and its source was not
-identified or claimed fixed.
+not recur in the initial final gate or built-app smoke. A later fix-verification
+reload also stalled before hydration; its bounded diagnostic retry passed. The
+underlying startup cause was not identified or claimed fixed.
 
 Dense native discovery produced usable cards in about 0.29–0.32 seconds cold and
 1.09–1.17 seconds with 240 events loading in Schedule. Favorite reranking took
@@ -44,9 +46,16 @@ reached partial after 22.9 seconds on desktop and was still loading after the
 See the [testing guide](../../testing/playwright-visual-preview.md#home-discovery-evidence)
 for fixture ownership, capture scope and metric definitions.
 
-Task 5b self-review and implementation are complete. Independent task and
-whole-branch review, PR publication and selected CI remain controller-owned.
-BASIC performs the merge. The original task steps remain below for traceability.
+Final review found that minute expiry could discard selected cards without
+refilling from already-inspected future candidates. The controller now reranks
+its private current public pool locally, with no extra discovery requests. The
+scoped fix passed 60 unit cases and all 34 affected browser cases with latest
+passing evidence across the raw 31/34 run and 4/4 targeted recheck. Both types,
+affected lint, Markdown and the updated webpack build passed. Scoped review
+confirmed both the expiry fix and corrected concurrency documentation.
+
+PR publication and selected CI remain controller-owned. BASIC performs the
+merge. The task steps remain below for traceability.
 
 ## Global constraints
 
@@ -101,11 +110,11 @@ Backend modules own eligibility and bounded public joins. `apps/web/src/lib/disc
 - `homeDiscovery.eventSignals({ eventIds: string[] }) -> { items: DiscoveryEventSignal[] }`, maximum four IDs, with unavailable IDs omitted.
 - `homeDiscovery.profileSignals({ profileIds: string[] }) -> { items: DiscoveryProfileSignal[] }`, maximum 50 IDs, unavailable IDs omitted. Deduplicate and validate lengths at the boundary.
 
-- [ ] **Step 1:** Write failing Convex tests named `samplesDistantBandsBeyondDenseNearTermEvents`, `continuesPastHiddenHostsWithinBudget`, `scopesCursorToBandZoneDirectionAndKind`, `includesClubsWithoutEvents`, `projectsOnlyCurrentPublicGenreAssignments`, `boundsRosterReadsAndReportsPartial`, and `rejectsOversizedSignalBatches`. Assert a day-120 record is retrieved despite 60 earlier events, unpublished/suppressed/private metadata never appears, a missing-end future event qualifies without an invented end, date-only today survives local-midnight/DST cases, disabled date-only behavior follows the existing flag, and truncated associations never claim a complete roster.
-- [ ] **Step 2:** Run `node --conditions=import --import tsx --test tests/backend/home-discovery.test.ts`; confirm failures are missing endpoints/behavior rather than environment failures.
-- [ ] **Step 3:** Implement the declared types/queries and scoped cursor helpers. Use `canReadProfile`, `getPublishedCommunity`, existing safe public image/media projections and `visibleProfileList(..., "genres", ..., "discovery")`. Extract a shared surface-aware public genre helper only if needed; preserve existing callers. Only scheduled, published, currently public events with supported canonical links qualify. No full media-kit/roster hydration per generic candidate; resolve only required public assets/signals. Cache repeated profile reads within a request.
-- [ ] **Step 4:** Run the focused test plus `tests/backend/event-timeline.test.ts` and `tests/backend/search-discovery.test.ts`; expect zero failures. Run `pnpm check:backend:generated` and `pnpm typecheck:backend`. Record request/read bounds for maximum-size fixtures.
-- [ ] **Step 5:** Commit the bounded query deliverable and its backend documentation as `feat: add public discovery recommendation candidates`.
+- [x] **Step 1:** Write failing Convex tests named `samplesDistantBandsBeyondDenseNearTermEvents`, `continuesPastHiddenHostsWithinBudget`, `scopesCursorToBandZoneDirectionAndKind`, `includesClubsWithoutEvents`, `projectsOnlyCurrentPublicGenreAssignments`, `boundsRosterReadsAndReportsPartial`, and `rejectsOversizedSignalBatches`. Assert a day-120 record is retrieved despite 60 earlier events, unpublished/suppressed/private metadata never appears, a missing-end future event qualifies without an invented end, date-only today survives local-midnight/DST cases, disabled date-only behavior follows the existing flag, and truncated associations never claim a complete roster.
+- [x] **Step 2:** Run `node --conditions=import --import tsx --test tests/backend/home-discovery.test.ts`; confirm failures are missing endpoints/behavior rather than environment failures.
+- [x] **Step 3:** Implement the declared types/queries and scoped cursor helpers. Use `canReadProfile`, `getPublishedCommunity`, existing safe public image/media projections and `visibleProfileList(..., "genres", ..., "discovery")`. Extract a shared surface-aware public genre helper only if needed; preserve existing callers. Only scheduled, published, currently public events with supported canonical links qualify. No full media-kit/roster hydration per generic candidate; resolve only required public assets/signals. Cache repeated profile reads within a request.
+- [x] **Step 4:** Run the focused test plus `tests/backend/event-timeline.test.ts` and `tests/backend/search-discovery.test.ts`; expect zero failures. Run `pnpm check:backend:generated` and `pnpm typecheck:backend`. Record request/read bounds for maximum-size fixtures.
+- [x] **Step 5:** Commit the bounded query deliverable and its backend documentation as `feat: add public discovery recommendation candidates`.
 
 ## Task 2: Pure mixed recommendation selector
 
@@ -113,11 +122,11 @@ Backend modules own eligibility and bounded public joins. `apps/web/src/lib/disc
 
 **Interfaces:** `selectDiscovery({ events, eventSignals, clubs, favoriteProfiles, favoriteProfileIds, rotationKey }) -> { events: DiscoveryEventCandidate[]; clubs: DiscoveryProfileSignal[] }`, with readonly array inputs and at most two outputs per group. `discoveryRotationKey({ seed, localDate }) -> string`; seed generation/storage stays outside the pure selector. Export `discoveryEventGenres(signal)` as attributed public performer genres for card presentation, never as event-authored genre metadata.
 
-- [ ] **Step 1:** Write failing cases `blendsFamiliarAndUnfamiliar`, `usesExactPublicGenreIdentity`, `reachesPastNextWeekWithoutTimePenalty`, `prefersDifferentHosts`, `fillsSparseCategoriesWithoutDuplicates`, `coldStartHasStableVariety`, and `doesNotInferCommunityGenresFromLineups`. Assert a favorite DJ can earn the familiar slot, a new DJ sharing an exact public genre can earn discovery, matching display labels with different slugs do not match, a later genre match outranks a nearer nonmatch, and poster presence/shape does not change semantic scores. Pin deterministic expected IDs for a known rotation seed/date; changing seed/date must change an equal-score fixture's selected IDs.
-- [ ] **Step 2:** Run `node --import tsx --test tests/web/discovery-recommendations.test.ts` and verify the expected missing-selector failure.
-- [ ] **Step 3:** Implement the ranking/defaults above, deduplicating exact IDs/slugs before scoring. Favorite IDs alone cannot reveal a hidden name/genre; only current public signals can contribute that metadata. Partial roster evidence can establish a positive connection but cannot establish absence or reduce a score. Add no learned model, event counts or interaction history.
-- [ ] **Step 4:** Rerun focused tests; expect zero failures. Verify inputs are not mutated and results stay bounded at two per entity type.
-- [ ] **Step 5:** Commit as `feat: blend familiar and new discovery recommendations`.
+- [x] **Step 1:** Write failing cases `blendsFamiliarAndUnfamiliar`, `usesExactPublicGenreIdentity`, `reachesPastNextWeekWithoutTimePenalty`, `prefersDifferentHosts`, `fillsSparseCategoriesWithoutDuplicates`, `coldStartHasStableVariety`, and `doesNotInferCommunityGenresFromLineups`. Assert a favorite DJ can earn the familiar slot, a new DJ sharing an exact public genre can earn discovery, matching display labels with different slugs do not match, a later genre match outranks a nearer nonmatch, and poster presence/shape does not change semantic scores. Pin deterministic expected IDs for a known rotation seed/date; changing seed/date must change an equal-score fixture's selected IDs.
+- [x] **Step 2:** Run `node --import tsx --test tests/web/discovery-recommendations.test.ts` and verify the expected missing-selector failure.
+- [x] **Step 3:** Implement the ranking/defaults above, deduplicating exact IDs/slugs before scoring. Favorite IDs alone cannot reveal a hidden name/genre; only current public signals can contribute that metadata. Partial roster evidence can establish a positive connection but cannot establish absence or reduce a score. Add no learned model, event counts or interaction history.
+- [x] **Step 4:** Rerun focused tests; expect zero failures. Verify inputs are not mutated and results stay bounded at two per entity type.
+- [x] **Step 5:** Commit as `feat: blend familiar and new discovery recommendations`.
 
 ## Task 3: Shared Home inspector and discovery lifecycle
 
@@ -125,12 +134,12 @@ Backend modules own eligibility and bounded public joins. `apps/web/src/lib/disc
 
 **Interfaces:** `HomeBrowseProvider` owns runtime timezone, `selection: TimelineSelection | null`, invoker and one `EventDetailPanel`. `useHomeBrowse()` returns `selection`, `timeZone`, `hour12`, `selectEvent(selection, invoker)`, `closeEvent()`, and `setDisplayTimeZone(zone)`. Keep the existing standalone HomeSchedule behavior through a local provider wrapper; its existing optional `onSelectionChange` callback still fires. `createDiscoveryController({ transport, concurrency: 3 })` returns `setContext({ now, timeZone, favoriteProfileIds, rotationKey })`, `getSnapshot`, `subscribe`, `retry`, `refresh`, and `dispose`. Its snapshot is a discriminated loading/available/error union, with available cards plus explicit candidate/signal coverage. Transport methods match Task 1's query signatures.
 
-- [ ] **Step 1:** Write controller tests `samplesAllBandsBeforeFinalSelection`, `boundsContinuationsAndConcurrency`, `rejectsOldContextResponses`, `keepsFailureDistinctFromEmpty`, `resolvesAllFavoriteBatches`, and `revalidatesSuppressedCardsOnRefresh`. Assert three pages maximum per stream, at most three requests in flight, at most 32 deduplicated generic event candidates, all up-to-500 favorite IDs processed in 50-ID batches, and favorite community signals merged into the club pool. An old response cannot republish cards after timezone/favorites change or disposal.
-- [ ] **Step 2:** Run `node --import tsx --test tests/web/discovery-controller.test.ts`; verify the intended missing-controller failures.
-- [ ] **Step 3:** Implement bounded collection and the Task 2 selector. Subscribe to current candidate/signal query results so publication, hidden host and field-visibility edits invalidate cards. Keep subscription count bounded to current requests; dispose obsolete watchers. Omission from a successful eventSignals recheck removes that candidate, not just its genre data. Favorite signal responses replace prior signal sets, including removals. Refresh every five minutes and on visibility return with a fixed now bucket; apply actual-now eligibility locally every minute so an elapsed start cannot remain an upcoming card until the next sample refresh. Day/zone changes regenerate sampling context; favorite changes rerank and re-resolve public signals. Existing content clears on context invalidation/error; never retain stale public cards through a failed refresh. Stable rotation seed uses sessionStorage with an in-memory fallback. The hook starts collection near the viewport and exposes retry; no-JS keeps a real Browse link.
-- [ ] **Step 4:** Extract only panel-selection/runtime ownership into the shared Home provider. Reuse the existing preference singleton and plan/favorite reducers. Schedule remains owner of pan/filter/history; synchronize its display timezone with the provider without resetting its viewed instant. Flush pending timeline navigation before relevant navigation/timezone actions. Inspector opening creates no new history entries, does not scroll the page and never pans the chart. Close restores connected invoker focus or the relevant section heading; invalidation uses the same close path.
-- [ ] **Step 5:** Run controller tests plus `tests/web/discovery-recommendations.test.ts`, `pnpm typecheck:web` and the existing timeline regression suites identified by `rg --files tests/web | rg timeline`. Expect zero regressions. Browser-level cross-section replacement/focus evidence belongs to Task 5.
-- [ ] **Step 6:** Commit as `refactor: share Home event inspection and discovery state`.
+- [x] **Step 1:** Write controller tests `samplesAllBandsBeforeFinalSelection`, `boundsContinuationsAndConcurrency`, `rejectsOldContextResponses`, `keepsFailureDistinctFromEmpty`, `resolvesAllFavoriteBatches`, and `revalidatesSuppressedCardsOnRefresh`. Assert three pages maximum per stream, at most three requests in flight, at most 32 deduplicated generic event candidates, all up-to-500 favorite IDs processed in 50-ID batches, and favorite community signals merged into the club pool. An old response cannot republish cards after timezone/favorites change or disposal.
+- [x] **Step 2:** Run `node --import tsx --test tests/web/discovery-controller.test.ts`; verify the intended missing-controller failures.
+- [x] **Step 3:** Implement bounded collection and the Task 2 selector. Subscribe to current candidate/signal query results so publication, hidden host and field-visibility edits invalidate cards. Keep subscription count bounded to current requests; dispose obsolete watchers. Omission from a successful eventSignals recheck removes that candidate, not just its genre data. Favorite signal responses replace prior signal sets, including removals. Refresh every five minutes and on visibility return with a fixed now bucket; apply actual-now eligibility locally every minute so an elapsed start cannot remain an upcoming card until the next sample refresh. Day/zone changes regenerate sampling context; favorite changes rerank and re-resolve public signals. Existing content clears on context invalidation/error; never retain stale public cards through a failed refresh. Stable rotation seed uses sessionStorage with an in-memory fallback. The hook starts collection near the viewport and exposes retry; no-JS keeps a real Browse link.
+- [x] **Step 4:** Extract only panel-selection/runtime ownership into the shared Home provider. Reuse the existing preference singleton and plan/favorite reducers. Schedule remains owner of pan/filter/history; synchronize its display timezone with the provider without resetting its viewed instant. Flush pending timeline navigation before relevant navigation/timezone actions. Inspector opening creates no new history entries, does not scroll the page and never pans the chart. Close restores connected invoker focus or the relevant section heading; invalidation uses the same close path.
+- [x] **Step 5:** Run controller tests plus `tests/web/discovery-recommendations.test.ts`, `pnpm typecheck:web` and the existing timeline regression suites identified by `rg --files tests/web | rg timeline`. Expect zero regressions. Browser-level cross-section replacement/focus evidence belongs to Task 5.
+- [x] **Step 6:** Commit as `refactor: share Home event inspection and discovery state`.
 
 ## Task 4: Poster-led event and club cards on Home
 
@@ -138,12 +147,12 @@ Backend modules own eligibility and bounded public joins. `apps/web/src/lib/disc
 
 **Interfaces:** `HomeDiscovery()` consumes the Task 3 hook/provider and existing preference store. `DiscoveryEventCard({ event, signal, preferences, onSelect, onSave })` and `DiscoveryClubCard({ club, preferences, onFavorite })` consume Task 1 entities and existing action types; derive prop types instead of duplicating public contracts. Story compositions supply static public view props without live backend requests or storage.
 
-- [ ] **Step 1:** Add focused failing Playwright assertions in `apps/web/e2e/home-discovery.flow.spec.ts` for two-and-two composition, canonical event/club hrefs, separate save/favorite controls, favorite performer emphasis and genre provenance. A date weeks away must render normally. No next-event requirement or invented count appears on club cards. Missing public genres produce no fabricated labels.
-- [ ] **Step 2:** Run that focused flow with local authorized fixtures on desktop; verify expected missing-card failures before implementing rendering.
-- [ ] **Step 3:** Mount `HomeBrowseProvider` around Schedule and `HomeDiscovery` below it. Build poster-led cards using existing safe media primitives and shared tokens, matching the approved study's group balance. Show up to three linked public performer names, favorite performers first then authored order, and up to three attributed genre labels under the utility label `Lineup genres`. Clubs show only their own public genres, artwork/logo and name. Keep titles/date readable but visually subordinate to art and musical identity. Real canonical links enhance only ordinary activation to the shared panel. Club links use `/<slug>` directly. Show quick-add on hover/focus and a usable touch action; retain existing favorite/save capacity feedback.
-- [ ] **Step 4:** Implement loading, available/partial, error/retry and verified-empty states. Exact utility labels are Discover, Events, Clubs, Browse, Loading, Unavailable, Retry, No events, No clubs and Lineup genres. Use existing approved action strings and explicit accessibility names. No other prose is included in plan approval. Partial zero-card groups show Browse without definitive empty claims. Keep actual sparse cards without filler. Add Storybook examples for mixed, cold-start, sparse, empty, partial, failed and missing-artwork states.
-- [ ] **Step 5:** Run the focused flow, `pnpm lint:web`, `pnpm typecheck:web` and `pnpm build:storybook`; expect zero failures. Update the direction doc to distinguish current discovery recommendations from Schedule's planning job, with no stale seven-day or chronological-ranking instructions.
-- [ ] **Step 6:** Commit as `feat: add visual recommendations to Home discovery`.
+- [x] **Step 1:** Add focused failing Playwright assertions in `apps/web/e2e/home-discovery.flow.spec.ts` for two-and-two composition, canonical event/club hrefs, separate save/favorite controls, favorite performer emphasis and genre provenance. A date weeks away must render normally. No next-event requirement or invented count appears on club cards. Missing public genres produce no fabricated labels.
+- [x] **Step 2:** Run that focused flow with local authorized fixtures on desktop; verify expected missing-card failures before implementing rendering.
+- [x] **Step 3:** Mount `HomeBrowseProvider` around Schedule and `HomeDiscovery` below it. Build poster-led cards using existing safe media primitives and shared tokens, matching the approved study's group balance. Show up to three linked public performer names, favorite performers first then authored order, and up to three attributed genre labels under the utility label `Lineup genres`. Clubs show only their own public genres, artwork/logo and name. Keep titles/date readable but visually subordinate to art and musical identity. Real canonical links enhance only ordinary activation to the shared panel. Club links use `/<slug>` directly. Show quick-add on hover/focus and a usable touch action; retain existing favorite/save capacity feedback.
+- [x] **Step 4:** Implement loading, available/partial, error/retry and verified-empty states. Exact utility labels are Discover, Events, Clubs, Browse, Loading, Unavailable, Retry, No events, No clubs and Lineup genres. Use existing approved action strings and explicit accessibility names. No other prose is included in plan approval. Partial zero-card groups show Browse without definitive empty claims. Keep actual sparse cards without filler. Add Storybook examples for mixed, cold-start, sparse, empty, partial, failed and missing-artwork states.
+- [x] **Step 5:** Run the focused flow, `pnpm lint:web`, `pnpm typecheck:web` and `pnpm build:storybook`; expect zero failures. Update the direction doc to distinguish current discovery recommendations from Schedule's planning job, with no stale seven-day or chronological-ranking instructions.
+- [x] **Step 6:** Commit as `feat: add visual recommendations to Home discovery`.
 
 ## Task 5: Real integration, visual review and delivery
 
@@ -160,9 +169,9 @@ Backend modules own eligibility and bounded public joins. `apps/web/src/lib/disc
 
 ## Execution setup and handoff
 
-- [ ] Read AGENTS.md, the approved spec and this plan. Inspect current main and other active work before changing source. Do not replay the completed organizer, search or timeline implementation plans.
-- [ ] Follow `superpowers:using-git-worktrees` and the managed-environment guidance before execution; preserve the existing clean branch/worktree. Activate `/workspace/vrdex-env.sh` in every shell and use the checked-in cloud startup/local lane.
-- [ ] Run focused baseline timeline/search tests and record environment failures separately from code failures. Do not materialize hosted bindings to make local tests pass.
+- [x] Read AGENTS.md, the approved spec and this plan. Inspect current main and other active work before changing source. Do not replay the completed organizer, search or timeline implementation plans.
+- [x] Follow `superpowers:using-git-worktrees` and the managed-environment guidance before execution; preserve the existing clean branch/worktree. Activate `/workspace/vrdex-env.sh` in every shell and use the checked-in cloud startup/local lane.
+- [x] Run focused baseline timeline/search tests and record environment failures separately from code failures. Do not materialize hosted bindings to make local tests pass.
 
 Recommended execution remains subagent-driven, consistent with BASIC's prior
 request. Tasks 1 and 2 can be independently developed only after both workers
