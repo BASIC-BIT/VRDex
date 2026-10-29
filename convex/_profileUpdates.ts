@@ -805,6 +805,7 @@ export async function applyApiProfileUpdate(
   }
   if (options.input.outboundLinks !== undefined && options.input.primaryGroupUrl === undefined &&
     (!options.profile.primaryGroupReference || options.profile.primaryGroupReference.inferred)) {
+    if (options.contributorUserId) sanitized.patch.inferredGroupContributorUserId = options.contributorUserId;
     const selection = primaryGroupSelection({ ...options.profile, ...sanitized.patch });
     sanitized.patch.primaryGroupReference = selection
       ? { ...selection, contributorUserId: options.contributorUserId ?? selection.contributorUserId } : undefined;

@@ -767,6 +767,7 @@ export async function createCommunityProfileRecord(
       ...sharedFields,
       profileType: "community",
       primaryGroupReference: selection ? { ...selection, contributorUserId } : undefined,
+      inferredGroupContributorUserId: contributorUserId,
       primaryGroupSelectionDisabled: args.primaryGroupUrl === null,
       community: input.community,
     });

@@ -512,7 +512,7 @@ it("enrollment discovers a sole resolved public group link without a separate pr
   const initial = await t.run(ctx => ctx.db.get(created.profileId));
   assert.equal(initial?.primaryGroupReference?.contributorUserId, userId, "new implicit selections retain the contributor quota");
   // Reproduce an existing directory profile created before implicit selection.
-  await t.run(ctx => ctx.db.patch(created.profileId, { primaryGroupReference: undefined }));
+  await t.run(ctx => ctx.db.patch(created.profileId, { primaryGroupReference: undefined, inferredGroupContributorUserId: undefined }));
   await t.run(async ctx => {
     const destination = await ctx.db.query("profileLinkDestinations").withIndex("by_key", q => q.eq("key", "vrchat_group:ONLY.1234")).unique();
     assert.ok(destination);
@@ -583,6 +583,33 @@ it("implicit group selection respects hidden links, explicit clears and explicit
     subject: "community_submitter", contributorUserId: userId, input: { primaryGroupUrl: null }, now: 202 }));
   assert.equal((await read()).primaryGroupSelectionDisabled, true, "clearing before reconciliation must persist too");
 });
+it("private group-link edits retain contributor quota when visibility is restored", async () => {
+  const { t, userId } = await enrollmentFixture();
+  const { createCommunityProfileRecord } = await import("../../convex/profiles");
+  const { applyApiProfileUpdate } = await import("../../convex/_profileUpdates");
+  const { queueProfileLinkDestinations } = await import("../../convex/_profileLinkDestinationCache");
+  const url = "https://vrc.group/PRIV.1234";
+  const created = await t.run(ctx => createCommunityProfileRecord(ctx, {
+    profileType: "community", displayName: "Private contribution",
+  }, { issuer: "test", subject: String(userId), tokenIdentifier: String(userId) }, userId));
+  await t.run(ctx => ctx.db.patch(created.profileId, { claimState: "claimed_unverified", inferredGroupContributorUserId: undefined, fieldVisibility: { outboundLinks: "private" } }));
+  await t.run(async ctx => applyApiProfileUpdate(ctx, {
+    profile: (await ctx.db.get(created.profileId))!, subject: "claimed_owner", contributorUserId: userId,
+    input: { outboundLinks: [{ type: "vrchat_profile", url }] }, now: 200,
+  }));
+  await t.run(async ctx => {
+    await ctx.db.patch(created.profileId, { fieldVisibility: undefined });
+    await queueProfileLinkDestinations(ctx, (await ctx.db.get(created.profileId))!, 201);
+    const destination = (await ctx.db.query("profileLinkDestinations").withIndex("by_key", q => q.eq("key", "vrchat_group:PRIV.1234")).unique())!;
+    await ctx.db.patch(destination._id, { status: "resolved", entityId: "private-contribution" });
+  });
+  await t.mutation(reconcileEnrollment, { profileId: created.profileId, affectedGroupIds: [], now: 202 });
+  const policy = await t.run(ctx => ctx.db.query("vrchatGroupObservationPolicies").first());
+  assert.equal(policy?.candidateContributorId, userId);
+  const quota = await t.run(ctx => ctx.db.query("groupObservationCandidateLimits").withIndex("by_key", q => q.eq("key", `user:${userId}`)).unique());
+  assert.equal(quota?.admittedAt.length, 1);
+});
+
 async function enrollmentFixture(options: { enabled?: boolean; capacity?: number } = {}) {
   const t = convexTest({ schema, modules: enrollmentModules });
   const ids = await t.run(async ctx => {
