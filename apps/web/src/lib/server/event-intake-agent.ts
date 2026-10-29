@@ -21,7 +21,6 @@ export function createEventIntakeExtractor(deps: {
       readPoster: deps.readPoster,
       search_people: (query, limit) => lookup(query, limit, "person"),
       search_communities: (query, limit) => lookup(query, limit, "community"),
-      record: metric => console.info("event-intake-extraction", metric),
     });
   };
 }

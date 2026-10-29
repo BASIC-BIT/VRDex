@@ -3,7 +3,7 @@ import { it } from "node:test";
 import sharp from "sharp";
 import { createHash } from "node:crypto";
 import { validatePosterBytes } from "../../apps/web/src/lib/server/event-poster-storage";
-import { extractEventIntake } from "../../packages/event-intake-agent/src/index";
+import { EVENT_INTAKE_MODEL_PRICES, extractEventIntake } from "../../packages/event-intake-agent/src/index";
 import { classifyEventIntakeForPublication } from "../../apps/web/src/lib/server/event-intake-spam";
 const blank = () => ({ event: { title: null, communitySlug: null, eventDate: null, start: null, end: null, startDate: null, endDate: null, timezone: null, venueLabel: null, summary: null, sourceUrl: null }, lineup: [], evidence: [], questions: [], decision: { kind: "new" as const } });
 const response = (value: unknown) => new Response(JSON.stringify({ status: "completed", output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify(value) }] }] }));
@@ -296,4 +296,29 @@ it("tells the agent which events these messages already produced", async () => {
   assert.equal(content[0]!.text, "Night");
   assert.match(content[1]!.text!, /123456789012345678/);
   assert.match(content[1]!.text!, /friday-night/);
+});
+const usage = (body: unknown) => { const value = JSON.parse(JSON.stringify(body)); value.usage = { input_tokens: 1000, output_tokens: 200 }; return new Response(JSON.stringify(value)); };
+const capture = () => { const log = { metas: [] as unknown[], generations: [] as any[], ends: [] as any[] };
+  return { log, sink: { start(meta: unknown) { log.metas.push(meta); return { generation(g: unknown) { log.generations.push(g); }, async end(r: unknown) { log.ends.push(r); } }; } } }; };
+it("reports one generation per model turn and ends once with cost", async () => {
+  const { log, sink } = capture(); let turn = 0;
+  const final = { status: "completed", output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify(blank()) }] }] };
+  const call = { status: "completed", output: [{ type: "function_call", name: "search_people", call_id: "a", arguments: JSON.stringify({ query: "DJ", limit: 1 }) }] };
+  await extractEventIntake({ draftId: "draft", sourceText: "Night", posterAssetId: "poster" }, { ...base, model: "gpt-5.6-luna", sink, readPoster: async () => "data:image/png;base64,AAAA", fetchImplementation: async () => usage(++turn === 1 ? call : final) });
+  assert.deepEqual(log.metas, [{ trigger: "web", actorUserId: "actor", draftId: "draft" }]);
+  assert.deepEqual(log.generations.map(g => [g.turn, g.model, g.inputTokens, g.outputTokens]), [[1, "gpt-5.6-luna", 1000, 200], [2, "gpt-5.6-luna", 1000, 200]]);
+  assert.ok(log.generations.every(g => typeof g.latencyMs === "number"));
+  assert.ok(!JSON.stringify(log.generations).includes("base64,"));
+  assert.equal(log.ends.length, 1);
+  const price = EVENT_INTAKE_MODEL_PRICES["gpt-5.6-luna"]!;
+  assert.deepEqual({ ...log.ends[0], durationMs: 0 }, { reason: "success", decision: { kind: "new" }, turns: 2, toolCalls: 1, durationMs: 0, inputTokens: 2000, outputTokens: 400, costUsd: (2000 * price.inputPerMillion + 400 * price.outputPerMillion) / 1_000_000 });
+});
+it("reports null cost for an unpriced model, omits decision on failure, and survives a broken sink", async () => {
+  const { log, sink } = capture();
+  await extractEventIntake({ draftId: "draft", sourceText: "Night", context: { trigger: "discord", connectorId: "connector", communitySlug: "club", mode: "hold" } }, { ...base, sink, fetchImplementation: async () => usage({ status: "failed", output: [] }) });
+  assert.deepEqual(log.metas[0], { trigger: "discord", actorUserId: "actor", draftId: "draft", connectorId: "connector", communitySlug: "club", mode: "hold" });
+  assert.equal(log.ends[0].costUsd, null); assert.equal(log.ends[0].reason, "incomplete_response"); assert.equal("decision" in log.ends[0], false);
+  const broken = { start: () => ({ generation() { throw new Error("down"); }, async end() { throw new Error("down"); } }) };
+  const result = await extractEventIntake({ draftId: "draft", sourceText: "Night" }, { ...base, sink: broken, fetchImplementation: async () => response({ ...blank(), event: { ...blank().event, title: "Night" } }) });
+  assert.equal(result.event.title, "Night");
 });
