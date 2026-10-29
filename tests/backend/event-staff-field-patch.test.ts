@@ -81,6 +81,16 @@ it("an equal patch changes nothing and enqueues nothing", async () => {
   assert.equal((await f.t.run(ctx => ctx.db.query("eventSyncJobs").collect())).length, 0);
 });
 
+it("a null timeTba on a timed event is equal and changes nothing", async () => {
+  const f = await setup();
+  await f.insertConnector({ direction: "export" });
+  const before = await f.event();
+  const result = await f.t.mutation(patchRef, { actorUserId: f.users.integrator, slug: f.created.slug, expectedUpdatedAt: before.updatedAt, patch: { timeTba: null } });
+  assert.deepEqual(result, { eventId: f.created.eventId, updatedAt: before.updatedAt, changed: false });
+  assert.equal((await f.event()).updatedAt, before.updatedAt);
+  assert.equal((await f.t.run(ctx => ctx.db.query("eventSyncJobs").collect())).length, 0);
+});
+
 it("a real change enqueues the export", async () => {
   const f = await setup();
   await f.insertConnector({ direction: "export" });

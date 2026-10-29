@@ -3270,7 +3270,7 @@ export async function patchCommunityEventFieldsAsStaffRecord(
   const parsed = EventIntakeUpdatePatchSchema.parse(args.patch);
   const current = await correctionFields(db, event);
   const same = (key: keyof typeof parsed) =>
-    JSON.stringify(canonicalIntakeValue(parsed[key])) === JSON.stringify(canonicalIntakeValue(current[key]));
+    JSON.stringify(canonicalIntakeValue(key === "timeTba" ? parsed.timeTba ?? false : parsed[key])) === JSON.stringify(canonicalIntakeValue(current[key]));
   const patch = Object.fromEntries(Object.entries(parsed).filter(([key]) => !same(key as keyof typeof parsed))) as typeof parsed;
   const has = (key: keyof typeof parsed) => Object.prototype.hasOwnProperty.call(patch, key);
   if (Object.keys(patch).length === 0) return { eventId: event._id, updatedAt: event.updatedAt, changed: false };
@@ -3280,7 +3280,7 @@ export async function patchCommunityEventFieldsAsStaffRecord(
   const update: EventDraftUpdateInput = {};
   if (touchesTimes || has("lineup")) {
     // Normalize the schedule subset only: unrelated legacy data (doors, unlabeled lineup) must not block the patch.
-    const dateOnly = (patch.timeTba ?? current.timeTba) === true;
+    const dateOnly = has("timeTba") ? patch.timeTba === true : current.timeTba === true;
     const n = normalizeIntakePublication({
       communitySlug: community.slug, title: patch.title ?? current.title, eventDate: current.eventDate,
       timeTba: current.timeTba, timezone: current.timezone,
