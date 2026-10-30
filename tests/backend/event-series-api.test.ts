@@ -107,7 +107,7 @@ it("MCP create with repeat returns the series ID and replays it", async (test) =
   assert.equal((await t.run((ctx) => ctx.db.query("eventSeries").collect())).length, 1);
 });
 
-it("MCP create reports the real repeat error instead of a generic denial", async (test) => {
+it("MCP create denies a bad repeat with its own message", async (test) => {
   const { t, owner } = await setup(test);
   await assert.rejects(
     t.mutation(internal.events.createCommunityEventForMcpOwner, {
@@ -118,7 +118,10 @@ it("MCP create reports the real repeat error instead of a generic denial", async
       timezone: "America/New_York",
       repeat: { frequency: "weekly", weekday: 4 },
     }),
-    /Repeat weekday must match/,
+    (error: unknown) => {
+      assert.deepEqual((error as { data?: unknown }).data, { code: "MCP_WRITE_DENIED", message: "Repeat weekday must match the event's start day." });
+      return true;
+    },
   );
   assert.equal(await eventCount(t), 0);
 });

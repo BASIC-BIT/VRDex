@@ -3135,8 +3135,14 @@ export const createCommunityEventForMcpOwner = internalMutation({
       return await withCurrentEventWritePaths(ctx.db, existing.result as McpEventWriteResult);
     }
 
-    // Outside the try below, so a bad repeat reports its own error rather than MCP_WRITE_DENIED.
-    if (args.repeat !== undefined) requireRepeatableDraft(args, args.repeat);
+    // Before the create, so a bad repeat is a definite denial that names its own error.
+    if (args.repeat !== undefined) {
+      try {
+        requireRepeatableDraft(args, args.repeat);
+      } catch (error) {
+        throw new ConvexError({ code: "MCP_WRITE_DENIED", message: error instanceof Error ? error.message : String(error) });
+      }
+    }
     let community: Doc<"profiles">;
     let result: McpEventWriteResult;
 
