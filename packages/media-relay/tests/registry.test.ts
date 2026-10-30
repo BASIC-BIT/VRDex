@@ -2,6 +2,192 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { parseSourceDescriptor } from "../src/contracts";
 import { source, harness, output, flush } from "./registry-fixture";
+test("scratch exhaustion before an attempt starts drains admission", async () => {
+  let starts = 0;
+  let otherSignal: AbortSignal | undefined;
+  const bravo = parseSourceDescriptor({ ...source, streamId: "Bravo", streamKey: "vrcdn/Bravo/1" });
+  const h = harness({
+    packager: async (options) => {
+      starts++;
+      if (options.source.streamKey === source.streamKey)
+        throw Object.assign(new Error("scratch full"), {
+          failure: { kind: "pressure", message: "scratch full" },
+        });
+      otherSignal = options.signal;
+      return { async stop() {} };
+    },
+  });
+  try {
+    h.setSources([
+      { source, admissionRevision: 0, state: "queued" },
+      { source: bravo, admissionRevision: 0, state: "queued" },
+    ]);
+    await h.tick();
+    await h.tick(1000);
+    await h.tick(5000);
+    assert.equal(starts, 2);
+    assert(otherSignal?.aborted);
+    assert(h.observations.at(-1)?.jobs.some((job) => job.state === "unavailable"));
+  } finally {
+    await h.registry.stop();
+  }
+});
+test("scratch pressure fences every active job and prevents new admission", async () => {
+  const h = harness();
+  const bravo = parseSourceDescriptor({ ...source, streamId: "Bravo", streamKey: "vrcdn/Bravo/1" });
+  try {
+    h.setSources([
+      { source, admissionRevision: 0, state: "queued" },
+      { source: bravo, admissionRevision: 0, state: "queued" },
+    ]);
+    await h.tick();
+    await h.tick(1000);
+    assert.equal(h.attempts.length, 2);
+    h.attempts[0]?.onFailure({ kind: "pressure", message: "scratch full" });
+    await h.tick(1000);
+    assert(h.attempts.every((attempt) => attempt.signal.aborted));
+    assert.equal(h.stopped.length, 2);
+    await h.tick(5000);
+    assert.equal(h.attempts.length, 2);
+  } finally {
+    await h.registry.stop();
+  }
+});
+test("pressure fences siblings and drains admission while physical cleanup is pending", async () => {
+  const bravo = parseSourceDescriptor({ ...source, streamId: "Bravo", streamKey: "vrcdn/Bravo/1" });
+  const charlie = parseSourceDescriptor({ ...source, streamId: "Charlie", streamKey: "vrcdn/Charlie/1" });
+  const events: string[] = [];
+  const h = harness({
+    binding: {
+      workerId: "one", workerEpoch: 1,
+      allocation: { cpuUnits: 1024, memoryMiB: 2048, evidenceId: "test-proof-1" },
+      maxSources: 3, draining: false,
+    },
+    packager: async (options) => {
+      h.attempts.push(options);
+      return { stop: () => new Promise<void>(() => {}) };
+    },
+    metrics: (event) => events.push(event.kind),
+    limits: { cleanupTimeoutMs: 20 },
+  });
+  try {
+    h.setSources([
+      { source, admissionRevision: 0, state: "queued" },
+      { source: bravo, admissionRevision: 0, state: "queued" },
+    ]);
+    await h.tick();
+    await h.tick(1000);
+    assert.equal(h.attempts.length, 2);
+    h.attempts[0]?.onFailure({ kind: "pressure", message: "scratch full" });
+    assert(h.attempts.every((attempt) => attempt.signal.aborted));
+    h.setSources([
+      { source, admissionRevision: 0, state: "queued" },
+      { source: bravo, admissionRevision: 0, state: "queued" },
+      { source: charlie, admissionRevision: 0, state: "queued" },
+    ]);
+    await h.tick(1000);
+    assert.equal(h.attempts.length, 2);
+    assert(events.includes("scratch_pressure"));
+  } finally {
+    await h.registry.stop();
+  }
+});
+test("quota failure during an already-aborted cleanup drains sibling jobs", async () => {
+  const bravo = parseSourceDescriptor({ ...source, streamId: "Bravo", streamKey: "vrcdn/Bravo/1" });
+  const charlie = parseSourceDescriptor({ ...source, streamId: "Charlie", streamKey: "vrcdn/Charlie/1" });
+  const events: string[] = [];
+  const h = harness({
+    binding: {
+      workerId: "one", workerEpoch: 1,
+      allocation: { cpuUnits: 1024, memoryMiB: 2048, evidenceId: "test-proof-1" },
+      maxSources: 3, draining: false,
+    },
+    packager: async (options) => {
+      h.attempts.push(options);
+      return { async stop() {
+        if (options.source.streamKey === source.streamKey)
+          throw Object.assign(Error("quota exceeded"), { code: "EDQUOT" });
+      } };
+    },
+    metrics: (event) => events.push(event.kind),
+  });
+  try {
+    h.setSources([
+      { source, admissionRevision: 0, state: "queued" },
+      { source: bravo, admissionRevision: 0, state: "queued" },
+    ]);
+    await h.tick();
+    await h.tick(1000);
+    assert.equal(h.attempts.length, 2);
+    h.setSources([
+      { source, admissionRevision: 0, state: "draining" },
+      { source: bravo, admissionRevision: 0, state: "queued" },
+      { source: charlie, admissionRevision: 0, state: "queued" },
+    ]);
+    await h.tick(1000);
+    assert(h.attempts[0]?.signal.aborted);
+    assert(h.attempts[1]?.signal.aborted);
+    assert.equal(h.attempts.length, 2);
+    assert(events.includes("scratch_pressure"));
+  } finally {
+    await h.registry.stop();
+  }
+});
+test("typed scratch pressure from pending setup after abort still drains siblings", async () => {
+  const bravo = parseSourceDescriptor({ ...source, streamId: "Bravo", streamKey: "vrcdn/Bravo/1" });
+  const charlie = parseSourceDescriptor({ ...source, streamId: "Charlie", streamKey: "vrcdn/Charlie/1" });
+  let releaseSetup: (() => void) | undefined;
+  const pendingSetup = new Promise<void>((resolve) => { releaseSetup = resolve; });
+  const events: string[] = [];
+  const h = harness({
+    binding: {
+      workerId: "one", workerEpoch: 1,
+      allocation: { cpuUnits: 1024, memoryMiB: 2048, evidenceId: "test-proof-1" },
+      maxSources: 3, draining: false,
+    },
+    packager: async (options) => {
+      h.attempts.push(options);
+      if (options.source.streamKey === source.streamKey) {
+        await pendingSetup;
+        throw Object.assign(Error("scratch full during setup"), {
+          failure: { kind: "pressure", message: "scratch full during setup" },
+        });
+      }
+      return { async stop() {} };
+    },
+    metrics: (event) => events.push(event.kind),
+  });
+  try {
+    h.setSources([
+      { source, admissionRevision: 0, state: "queued" },
+      { source: bravo, admissionRevision: 0, state: "queued" },
+    ]);
+    await h.tick();
+    await h.tick(1000);
+    assert.equal(h.attempts.length, 2);
+    h.setSources([
+      { source, admissionRevision: 0, state: "draining" },
+      { source: bravo, admissionRevision: 0, state: "queued" },
+    ]);
+    await h.tick(1000);
+    assert(h.attempts[0]?.signal.aborted);
+    releaseSetup?.();
+    await flush();
+    assert(h.attempts[1]?.signal.aborted);
+    h.setSources([
+      { source, admissionRevision: 0, state: "draining" },
+      { source: bravo, admissionRevision: 0, state: "queued" },
+      { source: charlie, admissionRevision: 0, state: "queued" },
+    ]);
+    await h.tick(1000);
+    assert.equal(h.attempts.length, 2);
+    assert.equal(h.registry.diagnostics().activeJobs, 2);
+    assert.equal(events.filter((kind) => kind === "scratch_pressure").length, 1);
+  } finally {
+    releaseSetup?.();
+    await h.registry.stop();
+  }
+});
 test("duplicate admitted grants share one job; drain retains valid work but denies new sources", async () => {
   const h = harness();
   try {

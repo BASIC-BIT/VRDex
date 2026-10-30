@@ -21,6 +21,7 @@ export async function fixture(
   codec = "libx264",
   broken: "partial" | "timestamps" | "playlist" | null = null,
   captureChild = false,
+  metadataComment?: string,
 ) {
   const directory = await mkdtemp(join(tmpdir(), "vrdex-packager-"));
   const input = join(directory, "input.mp4");
@@ -50,6 +51,7 @@ export async function fixture(
       "aac",
       "-movflags",
       "frag_keyframe+empty_moov+default_base_moof",
+      ...(metadataComment ? ["-metadata", `comment=${metadataComment}`] : []),
       input,
     ],
     { timeout: 15000 },

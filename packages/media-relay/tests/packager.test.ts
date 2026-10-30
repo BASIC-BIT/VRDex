@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { readFile, stat, readdir } from "node:fs/promises";
+import { readFile, stat, readdir, writeFile, mkdir, mkdtemp, rm, chmod } from "node:fs/promises";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
 import { type RenditionSnapshot } from "../src/contracts";
 import {
@@ -13,6 +14,100 @@ import {
 } from "../src/worker/packager";
 import { source, fixture, until } from "./packager-fixture";
 const run = promisify(execFile);
+test("source metadata naming a full disk does not drain a healthy packager", { timeout: 20000 }, async () => {
+  const f = await fixture("libx264", null, false, "No space left on device");
+  const snapshots: RenditionSnapshot[] = [];
+  const failures: PackagerFailure[] = [];
+  let handle: Awaited<ReturnType<typeof f.start>> | undefined;
+  try {
+    handle = await f.start({
+      source, epoch: 1, directory: f.directory,
+      signal: new AbortController().signal,
+      onSnapshot(snapshot) { snapshots.push(snapshot); },
+      onFailure(failure) { failures.push(failure); },
+    });
+    await until(() => snapshots.some((snapshot) => snapshot.rendition === "video") || failures.length > 0);
+    assert.deepEqual(failures, []);
+    assert(snapshots.some((snapshot) => snapshot.rendition === "video"));
+  } finally {
+    await handle?.stop();
+    await f.close();
+  }
+});
+test("scratch pressure reports failure while physical cleanup remains pending", { timeout: 15000 }, async () => {
+  const directory = await mkdtemp(join(tmpdir(), "relay-pressure-cleanup-"));
+  const wrapper = join(directory, "ffmpeg-sleeper");
+  await writeFile(wrapper, "#!/bin/sh\nexec sleep 30\n");
+  await chmod(wrapper, 0o700);
+  let releaseDispose: (() => void) | undefined;
+  const pendingDispose = new Promise<void>((resolve) => { releaseDispose = resolve; });
+  const failures: PackagerFailure[] = [];
+  const start = createPackager({
+    ffmpegPath: wrapper,
+    createRelay: async () => ({
+      createInput: () => ({
+        transportReady: Promise.resolve({ url: "http://127.0.0.1:1" }),
+        dispose: () => pendingDispose,
+      }),
+      stop() {},
+    }) as never,
+  });
+  let handle: Awaited<ReturnType<typeof start>> | undefined;
+  try {
+    handle = await start({
+      source, epoch: 1, directory, signal: new AbortController().signal,
+      scratchLimitBytes: 512 * 1024,
+      onSnapshot() { assert.fail("no media should publish"); },
+      onFailure(failure) { failures.push(failure); },
+    });
+    const attempt = (await readdir(directory)).find((name) => name.startsWith("attempt-"));
+    assert(attempt);
+    await writeFile(join(directory, attempt, "unfinished.ts.tmp"), Buffer.alloc(1024 * 1024));
+    await until(() => failures.length === 1);
+    assert.equal(failures[0]?.kind, "pressure");
+  } finally {
+    releaseDispose?.();
+    await handle?.stop();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+test(
+  "scratch pressure from an unfinished segment fences publication and reaps acquisition",
+  { timeout: 20000 },
+  async () => {
+    const f = await fixture();
+    const failures: PackagerFailure[] = [];
+    let published = 0;
+    let handle: Awaited<ReturnType<typeof f.start>> | undefined;
+    try {
+      handle = await f.start({
+        source,
+        epoch: 1,
+        directory: f.directory,
+        signal: new AbortController().signal,
+        scratchLimitBytes: 4 * 1024 * 1024,
+        scratchRoot: f.directory,
+        onSnapshot: () => { published++; return new Promise<void>(() => {}); },
+        onFailure: (failure) => { failures.push(failure); },
+      });
+      await until(() => published === 1);
+      assert.equal(f.counts().active, 1);
+      const attempt = (await readdir(f.directory)).find((name) => name.startsWith("attempt-"));
+      assert(attempt);
+      const otherAttempt = join(f.directory, "other-source", "attempt-2-incomplete");
+      await mkdir(otherAttempt, { recursive: true });
+      await writeFile(join(otherAttempt, "video-999.ts.tmp"), Buffer.alloc(8 * 1024 * 1024));
+      await until(() => failures.length === 1);
+      assert.equal(failures[0]?.kind, "pressure");
+      assert.equal(published, 1);
+      assert.equal(f.counts().active, 0);
+      assert.deepEqual((await readdir(f.directory)).sort(), ["input.mp4", "other-source"]);
+    } finally {
+      await handle?.stop();
+      await f.close();
+    }
+  },
+);
 async function probe(path: string) {
   const { stdout } = await run(
     "ffprobe",

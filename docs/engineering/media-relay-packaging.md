@@ -57,13 +57,17 @@ marker. `programDateTime` and `generatedAt` use Unix milliseconds. Snapshots ret
 up to eight segments; audio and video advance independently according to actual
 packet/keyframe boundaries.
 
-Stop is idempotent and fences callbacks immediately, terminates only this FFmpeg
-child (TERM, KILL after one second), reaps any active bounded local probe, disposes
-the source connection, and removes the attempt directory. Abort is a deliberate
-stop and emits no failure. Failed attempts emit `onFailure` once after cleanup,
-with `{kind, message}`. Kinds are `unsupported`, `source`, `packaging`, and
-`timestamp`; messages contain no upstream URL or raw stderr. Process diagnostics
-are bounded to 16 KiB for classification.
+Stop is idempotent and fences callbacks immediately. It terminates only this
+FFmpeg child (TERM, KILL after one second), waits for active bounded local probes,
+disposes the source connection, and removes the attempt directory. Failed or
+pending cleanup retains the registry's attempt quarantine. Abort is a deliberate
+stop and normally emits no failure. Failed attempts emit `onFailure` once after
+cleanup with `{kind, message}`, except `pressure`: it reports immediately after
+local fencing so the registry can drain admission and fence sibling jobs while
+physical cleanup continues. Storage pressure discovered during aborted setup or
+cleanup also drains the worker. Kinds are `unsupported`, `source`, `packaging`,
+`timestamp`, and `pressure`; messages contain no upstream URL or raw stderr.
+Process diagnostics are bounded to 16 KiB for classification.
 
 ## Local evidence
 

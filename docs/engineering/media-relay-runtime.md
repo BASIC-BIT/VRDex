@@ -36,6 +36,18 @@ attempt. Each attempt receives a fixed copy of continuity; the registry reserves
 subsequent sequences even when an upload/commit is uncertain. Persisted
 continuity survives takeover and an explicit new Play admission.
 
+The packager's independent scratch watchdog samples the shared worker root at
+100 ms intervals, including concurrent attempt directories and unfinished files.
+It trips at 256 MiB of counted files or at 256 MiB or less of available scratch
+filesystem blocks reported by `statfs`. Both are sampled pressure trips, not
+physical quotas. On pressure or
+`ENOSPC`, `EDQUOT` or `EFBIG`, the registry promptly fences all jobs, emits
+`scratch_pressure` and drains new admission for the remainder of that worker
+process. Physical cleanup runs afterward; failed or hung cleanup stays
+quarantined and holds the lease until expiry. Active attempts share one
+sequential scan per worker process. The hosted physical scratch bound remains a release gate; see
+[verification](media-relay-verification.md).
+
 Defaults:
 
 | Boundary                     | Behavior                                                                                           |

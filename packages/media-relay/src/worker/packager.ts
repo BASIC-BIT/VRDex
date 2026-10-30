@@ -1,5 +1,6 @@
 import { spawn, execFile, type ChildProcess } from "node:child_process";
-import { mkdtemp, mkdir, readFile, readdir, rm, stat } from "node:fs/promises";
+import type { Dirent } from "node:fs";
+import { mkdtemp, mkdir, readFile, readdir, rm, stat, statfs } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { z } from "zod";
 import {
@@ -19,7 +20,7 @@ import {
 import { RELAY_POLICY } from "../policy";
 
 export type PackagerFailure = {
-  kind: "unsupported" | "source" | "packaging" | "timestamp";
+  kind: "unsupported" | "source" | "packaging" | "timestamp" | "pressure";
   message: string;
 };
 /** Count discontinuities before the first new segment; do NOT include its restart marker. */
@@ -32,6 +33,10 @@ export type PackagerOptions = {
   epoch: number;
   directory: string;
   signal: AbortSignal;
+  /** Soft pressure threshold; the filesystem needs a separate physical bound. */
+  scratchLimitBytes?: number;
+  /** Shared worker root, including all source attempts; defaults to this attempt for local callers. */
+  scratchRoot?: string;
   continuity?: PackagerContinuity;
   /** Honour signal and fence durable publication against the owning lease. */
   onSnapshot(
@@ -53,6 +58,99 @@ class PackagingError extends Error {
 }
 const failWith = (kind: PackagerFailure["kind"], message: string) =>
   new PackagingError({ kind, message });
+export const isStoragePressure = (error: unknown) =>
+  error instanceof Error && "code" in error &&
+  (error.code === "ENOSPC" || error.code === "EDQUOT" || error.code === "EFBIG");
+const DEFAULT_SCRATCH_PRESSURE_BYTES = 256 * 1024 * 1024;
+const MIN_FREE_SCRATCH_BYTES = 256 * 1024 * 1024;
+
+/** Include unfinished segments and .tmp files; any unreadable entry fails closed. */
+async function scratchBytes(
+  directory: string,
+  budget = { remaining: 2048 },
+  depth = 0,
+): Promise<number> {
+  if (depth > 4) throw Error("Scratch traversal too deep");
+  let bytes = 0;
+  let entries: Dirent[];
+  try {
+    entries = await readdir(directory, { withFileTypes: true });
+  } catch (error) {
+    if (depth > 0 && error instanceof Error && "code" in error && error.code === "ENOENT")
+      return 0;
+    throw error;
+  }
+  for (const entry of entries) {
+    if (--budget.remaining < 0) throw Error("Scratch traversal too large");
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) bytes += await scratchBytes(path, budget, depth + 1);
+    else if (entry.isFile()) {
+      try {
+        const file = await stat(path);
+        bytes += Math.max(file.size, file.blocks * 512);
+      } catch (error) {
+        if (!(error instanceof Error && "code" in error && error.code === "ENOENT"))
+          throw error;
+      }
+    } else throw Error("Unexpected scratch entry");
+  }
+  return bytes;
+}
+type PressureSubscriber = { limitBytes: number; fail(message: string): void };
+const scratchMonitors = new Map<string, {
+  subscribers: Set<PressureSubscriber>;
+  timer?: ReturnType<typeof setTimeout>;
+  scanning: boolean;
+}>();
+/** One sequential shared-root scan per worker process, irrespective of active attempts. */
+function watchScratch(root: string, subscriber: PressureSubscriber): () => void {
+  let monitor = scratchMonitors.get(root);
+  if (!monitor) {
+    monitor = { subscribers: new Set(), scanning: false };
+    scratchMonitors.set(root, monitor);
+    const current = monitor;
+    const check = async () => {
+      if (current.subscribers.size === 0) return;
+      current.scanning = true;
+      try {
+        const bytes = await scratchBytes(root);
+        let reason: string | undefined;
+        if (bytes >= Math.min(...[...current.subscribers].map((s) => s.limitBytes)))
+          reason = "Scratch pressure threshold reached";
+        else {
+          const filesystem = await statfs(root);
+          const freeBytes = filesystem.bavail * filesystem.bsize;
+          if (!Number.isFinite(freeBytes) || freeBytes < 0 || filesystem.bsize <= 0)
+            throw Error("Invalid scratch filesystem capacity");
+          if (freeBytes <= MIN_FREE_SCRATCH_BYTES)
+            reason = "Scratch filesystem free space low";
+        }
+        if (reason)
+          for (const item of [...current.subscribers])
+            item.fail(reason);
+      } catch {
+        for (const item of [...current.subscribers])
+          item.fail("Cannot measure scratch pressure");
+      } finally {
+        current.scanning = false;
+        if (current.subscribers.size > 0)
+          current.timer = setTimeout(() => void check(), 100);
+        else if (scratchMonitors.get(root) === current)
+          scratchMonitors.delete(root);
+      }
+    };
+    queueMicrotask(() => void check());
+  }
+  monitor.subscribers.add(subscriber);
+  return () => {
+    monitor.subscribers.delete(subscriber);
+    if (monitor.subscribers.size === 0) {
+      clearTimeout(monitor.timer);
+      if (!monitor.scanning && scratchMonitors.get(root) === monitor)
+        scratchMonitors.delete(root);
+    }
+  };
+}
 
 /** TERM first, then KILL only this child. Always reap before releasing the acquisition. */
 async function terminate(
@@ -137,11 +235,18 @@ export function createPackager({
     };
     if (!PackagerContinuitySchema.safeParse(continuity).success)
       throw Error("Invalid packager continuity");
+    const scratchLimitBytes = options.scratchLimitBytes ?? DEFAULT_SCRATCH_PRESSURE_BYTES;
+    if (!Number.isSafeInteger(scratchLimitBytes) || scratchLimitBytes <= 0)
+      throw Error("Invalid scratch pressure threshold");
     if (options.signal.aborted) throw options.signal.reason ?? Error("Aborted");
-    await mkdir(options.directory, { recursive: true });
-    const directory = await mkdtemp(
-      join(options.directory, `attempt-${options.epoch}-`),
-    );
+    let directory: string;
+    try {
+      await mkdir(options.directory, { recursive: true });
+      directory = await mkdtemp(join(options.directory, `attempt-${options.epoch}-`));
+    } catch (error) {
+      if (isStoragePressure(error)) throw failWith("pressure", "Scratch filesystem exhausted");
+      throw error;
+    }
     const prefix = basename(directory);
     const abort = new AbortController();
     let relay: SourceRelay | undefined,
@@ -155,12 +260,14 @@ export function createPackager({
     let diagnostics = "",
       codecsChecked = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let unwatchScratch: (() => void) | undefined;
     const lastSequence = { video: -1, audio: -1 },
       targetDuration = { video: 1, audio: 1 };
     const stop = () => {
       if (stopPromise) return stopPromise;
       stopped = true;
       clearTimeout(timer);
+      unwatchScratch?.();
       options.signal.removeEventListener("abort", onAbort);
       stopPromise = Promise.resolve().then(async () => {
         await terminate(child, exited);
@@ -179,14 +286,30 @@ export function createPackager({
     const fail = (failure: PackagerFailure) => {
       if (stopped || failureSent) return;
       failureSent = true;
+      const cleanup = stop();
+      if (failure.kind === "pressure") {
+        // Fence the whole worker now; a hung physical cleanup must retain its
+        // quarantine without postponing sibling cancellation or admission drain.
+        try {
+          void Promise.resolve(options.onFailure(failure)).catch(() => {});
+        } catch {
+          /* Consumer callbacks cannot kill the shared worker. */
+        }
+        void cleanup.catch(() => {});
+        return;
+      }
       // Deliver failure on either teardown outcome. Handling this detached chain
       // must not convert stopPromise into successful physical cleanup.
-      void stop().then(
+      void cleanup.then(
         () => options.onFailure(failure),
         () => options.onFailure(failure),
       ).catch(() => { /* A consumer callback cannot kill the shared worker. */ });
     };
     options.signal.addEventListener("abort", onAbort, { once: true });
+    unwatchScratch = watchScratch(options.scratchRoot ?? directory, {
+      limitBytes: scratchLimitBytes,
+      fail: (message) => fail({ kind: "pressure", message }),
+    });
     const probe = (path: string): Promise<z.infer<typeof probeSchema>> =>
       new Promise((resolve, reject) => {
         let result: z.infer<typeof probeSchema> | PackagingError = failWith(
@@ -341,7 +464,9 @@ export function createPackager({
       scanTask = scan().catch((error) => {
         if (!stopped)
           fail(
-            error instanceof PackagingError
+            isStoragePressure(error)
+              ? { kind: "pressure", message: "Scratch filesystem exhausted" }
+              : error instanceof PackagingError
               ? error.failure
               : { kind: "packaging", message: "Media publication failed" },
           );
@@ -454,8 +579,10 @@ export function createPackager({
           fail({ kind: "source", message: "Source acquisition ended" });
       });
       tick();
-    } catch {
-      fail({ kind: "source", message: "Cannot acquire source" });
+    } catch (error) {
+      fail(isStoragePressure(error)
+        ? { kind: "pressure", message: "Scratch filesystem exhausted" }
+        : { kind: "source", message: "Cannot acquire source" });
     }
     return { stop };
   };

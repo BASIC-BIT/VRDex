@@ -23,7 +23,7 @@ import {
 import { RELAY_POLICY, isSnapshotFresh, areRenditionsPlayable } from "../policy";
 import { WorkerBindingSchema, type WorkerBinding } from "./deployment";
 import { createLeaseWatchdog } from "./lease";
-import { startPackager, type PackagerOptions } from "./packager";
+import { startPackager, isStoragePressure, type PackagerOptions } from "./packager";
 import {
   createPublisher,
   type RelayStorage,
@@ -91,7 +91,7 @@ export type RegistryOptions = {
     cleanupTimeoutMs?: number;
   };
   metrics?: (event: {
-    kind: "failure" | "terminal" | "cleanup_timeout";
+    kind: "failure" | "terminal" | "cleanup_timeout" | "scratch_pressure";
     streamKey?: StreamKey;
   }) => void;
   packager?: (options: PackagerOptions) => Promise<{ stop(): Promise<void> }>;
@@ -129,6 +129,13 @@ type Job = {
   observe: ReturnType<typeof slot>;
   initialize: ReturnType<typeof slot>;
 };
+function isTypedPressure(error: unknown): boolean {
+  return Boolean(
+    error && typeof error === "object" && "failure" in error &&
+    error.failure && typeof error.failure === "object" &&
+    "kind" in error.failure && error.failure.kind === "pressure",
+  );
+}
 /** A cancelled operation keeps its physical slot occupied. No accumulating detached retries. */
 function slot(root: AbortSignal, timeoutMs: number) {
   let busy = false;
@@ -220,9 +227,10 @@ export function createRelayRegistry(options: RegistryOptions) {
     healthyAt = -Infinity,
     nextPoll = 0,
     nextRetire = 0,
+    pressureReported = false,
     stopPromise: Promise<void> | undefined;
   const metric = (
-    kind: "failure" | "terminal" | "cleanup_timeout",
+    kind: "failure" | "terminal" | "cleanup_timeout" | "scratch_pressure",
     streamKey?: StreamKey,
   ) => {
     try {
@@ -242,9 +250,10 @@ export function createRelayRegistry(options: RegistryOptions) {
           () => {
             if (job.attempt === attempt) job.attempt = undefined;
           },
-          () => {
+          (error: unknown) => {
             terminal(job, "unavailable");
             metric("cleanup_timeout", job.source.streamKey);
+            if (isStoragePressure(error) || isTypedPressure(error)) pressure();
           },
         );
     return attempt.cleanup;
@@ -262,6 +271,14 @@ export function createRelayRegistry(options: RegistryOptions) {
     job.watchdog.stop();
     void cleanup(job);
     metric("terminal", job.source.streamKey);
+  }
+  function pressure() {
+    if (!pressureReported) {
+      pressureReported = true;
+      metric("scratch_pressure");
+    }
+    draining = true;
+    for (const active of jobs.values()) terminal(active, "unavailable");
   }
   function recover(job: Job) {
     if (job.state === "unavailable" || job.state === "stopped") return;
@@ -294,6 +311,7 @@ export function createRelayRegistry(options: RegistryOptions) {
           source: job.source,
           epoch: lease.epoch,
           directory: join(directory, job.source.streamId),
+          scratchRoot: directory,
           signal: abort.signal,
           ...(job.continuity
             ? { continuity: structuredClone(job.continuity) }
@@ -337,7 +355,9 @@ export function createRelayRegistry(options: RegistryOptions) {
           },
           onFailure(failure) {
             if (job.attempt !== attempt || abort.signal.aborted) return;
-            if (failure.kind === "unsupported")
+            if (failure.kind === "pressure") {
+              pressure();
+            } else if (failure.kind === "unsupported")
               terminal(job, "unavailable", "unsupported");
             else recover(job);
           },
@@ -345,8 +365,10 @@ export function createRelayRegistry(options: RegistryOptions) {
       ),
     };
     job.attempt = attempt;
-    void attempt.handle.catch(() => {
-      if (job.attempt === attempt && !abort.signal.aborted) recover(job);
+    void attempt.handle.catch((error: unknown) => {
+      if (job.attempt !== attempt || abort.signal.aborted) return;
+      if (isTypedPressure(error)) pressure();
+      else recover(job);
     });
   }
   function admit(source: SourceDescriptor, admissionRevision: number) {

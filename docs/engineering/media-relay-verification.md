@@ -60,14 +60,34 @@ node --import tsx scripts/media-relay-proof.ts --target local --sources 2 --bitr
 This measures input and resource use while completed video is withheld. Depending on FFmpeg buffering and sample timing, bytes may be held in memory and partial disk samples may be zero; a zero sample is not proof of a bound. The completed-object
 32 MiB upload limit does not constrain `.tmp` growth. A 12-second run with a
 60-second keyframe interval proves neither a 30-second bound nor arbitrary input
-containment. Current `partialDiskBoundVerified` is always false. Smallest next
-control proposal: a dedicated bounded scratch volume/physical quota, plus a
-separate nonblocking pressure watchdog that fences acquisition and reaps the
-child before admission resumes. A sampled threshold alone permits overshoot and
-must not be called a physical quota. Verify quota behavior for every supported
-ECS storage mode, lack of keyframes, sustained maximum bitrate and stalled
-uploads before release. Memory, inbound byte/rate containment and shared-worker
-recovery margin also need isolated measurement.
+containment. Current `partialDiskBoundVerified` is always false. The worker now
+samples its shared scratch root independently of playlist scanning every 100 ms.
+The 256 MiB pressure threshold counts the larger of logical file length and
+allocated blocks across up to 2048 entries, including unfinished `.tmp` files,
+playlists, completed segments and concurrent attempts. A separate `statfs` sample
+trips when the scratch filesystem reports 256 MiB or less in available blocks.
+A threshold hit, scan
+error, traversal overflow or filesystem `ENOSPC`, `EDQUOT` or `EFBIG` promptly
+fences all active jobs, drains new admission and begins child teardown. The
+`scratch_pressure` metric records this without media diagnostics. A stalled
+cleanup remains quarantined and retains its lease until expiry; physical reaping
+is confirmed only when cleanup succeeds. A stalled publication callback cannot
+hold up this watchdog. Source metadata echoed in FFmpeg stderr cannot trigger
+worker-wide pressure. Active attempts in one worker process share a single
+sequential root scan, so the scan does not multiply with source count. Its
+2048-entry traversal ceiling is an operational limit requiring scale evidence.
+
+These are sampled pressure trips, not physical quotas: writes can exceed a
+threshold between samples, and task image layers, filesystem metadata and other
+task writes are outside the file accounting. `statfs` free blocks may reflect
+the backing filesystem rather than an isolated attempt limit. The anonymous ECS scratch volume uses
+Fargate task ephemeral storage. That task-level physical capacity includes image
+and other task storage and offers no isolated per-attempt quota. No supported
+nonprivileged per-volume hard quota was established offline. Hosted release
+remains blocked until an enforceable physical containment design is selected and
+verified for the actual ECS storage mode, absent keyframes, sustained maximum
+bitrate and stalled uploads. Memory, inbound byte/rate containment and
+shared-worker recovery margin and monitor cost also need isolated measurement.
 
 `--target hosted` currently rejects before any I/O. No hosted resources have been
 selected or authorized. Local evidence is deliberately ineligible for enablement.
@@ -208,6 +228,10 @@ Current signed, cached CloudFront URLs can be replayed without gateway accountin
 Admission, source/object-size limits, Lambda concurrency and API throttles do not
 provide a global CDN byte cap. Billing alarms/Budgets are delayed and are never a
 hard dollar stop. No total-relay traffic/dollar ceiling is implemented.
+
+The [candidate per-delivery reservation design](media-relay-traffic-ceiling.md)
+has offline tests but is not connected to CloudFront. It would bound reserved
+segment payloads, not total AWS charges.
 
 The approved hard-ceiling requirement remains binding. The following historical
 options are proposals only; neither is an accepted enable path:
