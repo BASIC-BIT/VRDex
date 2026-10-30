@@ -626,10 +626,12 @@ compiler startup. The fixed test clock carries its monotonic time across
 navigations, so the harness records and subtracts each document's origin and
 checks times against its observed window. Image inventory distinguishes loaded,
 pending, failed and absent images. A card without an image can be a legitimate
-fallback. Raw layout shifts include recent-input flags; CLS excludes those
-recent-input shifts. One observation per phase is local evidence, not a latency
-SLA. Subscription registration counts describe protocol work separately from
-logical scheduler limits.
+fallback. Raw layout shifts include recent-input flags. CLS excludes those
+recent-input shifts and takes the maximum session sum. A session continues only
+when the next eligible shift is less than one second after the previous eligible
+shift and less than five seconds after the session start. One observation per
+phase is local evidence, not a latency SLA. Subscription registration counts
+describe protocol work separately from logical scheduler limits.
 
 ### October 29 combined verification
 
@@ -650,6 +652,12 @@ Ordinary feature CLS was zero; dense schedule readiness was about 19–24 second
 on both revisions, with pending offscreen/lazy artwork and legitimate fallback
 cards. One feature slow desktop dense observation had CLS 0.131625. This is not
 proof of faster cold loading or zero movement for arbitrary content.
+
+The profiler's session-window calculation was corrected after these measurements.
+The frozen execution source/hash and raw artifacts remain the historical method,
+which summed all eligible shifts. A read-only recomputation with the corrected
+helper matched all 24 recorded phase values exactly; each phase had at most one
+eligible shift. No browser measurement was repeated for this correction.
 
 Across all four matched fixture/device cases, a favorite action registered
 16 event-candidate, two club-candidate and two event-signal subscriptions on the

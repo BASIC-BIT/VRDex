@@ -1,4 +1,5 @@
 import { expect } from "@playwright/test";
+import { calculateSessionCls, type LayoutShift } from "./home-polish-cls";
 import { test, TIMELINE_NOW, initializeDiscovery, observeDiscoveryQueries } from "./home-discovery-fixture";
 
 type HomeMeasurement = {
@@ -8,8 +9,7 @@ type HomeMeasurement = {
   discoveryReadyMs: number | null;
   firstArtworkMs: number | null;
   firstDecodedArtworkMs: number | null;
-  cls: number;
-  layoutShifts: { at: number; value: number; recentInput: boolean }[];
+  layoutShifts: LayoutShift[];
 };
 declare global {
   interface Window { homePolishMeasurement?: HomeMeasurement }
@@ -33,7 +33,6 @@ for (const scenario of ["timeline-visual", "discovery-dense"] as const) {
           discoveryReadyMs: null,
           firstArtworkMs: null,
           firstDecodedArtworkMs: null,
-          cls: 0,
           layoutShifts: [],
         };
         window.homePolishMeasurement = state;
@@ -41,7 +40,6 @@ for (const scenario of ["timeline-visual", "discovery-dense"] as const) {
           for (const entry of list.getEntries()) {
             if (!("value" in entry) || typeof entry.value !== "number" || !("hadRecentInput" in entry)) continue;
             state.layoutShifts.push({ at: entry.startTime, value: entry.value, recentInput: Boolean(entry.hadRecentInput) });
-            if (!entry.hadRecentInput) state.cls += entry.value;
           }
         }).observe({ type: "layout-shift", buffered: true });
         const decoded = new WeakSet<HTMLImageElement>();
@@ -141,7 +139,7 @@ for (const scenario of ["timeline-visual", "discovery-dense"] as const) {
           expect(value).toBeGreaterThanOrEqual(0);
           expect(value).toBeLessThanOrEqual(measurement.observedMs);
         }
-        measurements.push({ phase, finished, transportHoldMs: phase === "bounded-slow" ? 1500 : 0, ...measurement, queries: queries.result() });
+        measurements.push({ phase, finished, transportHoldMs: phase === "bounded-slow" ? 1500 : 0, ...measurement, cls: calculateSessionCls(measurement.layoutShifts), queries: queries.result() });
         await page.screenshot({ path: info.outputPath(`${scenario}-${phase}.png`), fullPage: true });
       }
       const beforeFavorite = queries.result();
