@@ -50,13 +50,13 @@ Tradeoff:
 
 ### Inbound Google Calendar Import
 
-Use Google Calendar import when organizers already maintain selected public or operator-owned calendars and VRDex needs those events as reviewed event candidates.
+Use Google Calendar import when organizers already maintain a Google calendar and VRDex needs those events as intake candidates.
 
 Benefits:
 
 - avoids retyping existing event plans
-- can preserve external event IDs, update timestamps, and source provenance
-- fits the broader reviewed-import model instead of treating imported data as owner-confirmed truth
+- preserves external event IDs and update timestamps on the sync link
+- uses the same intake candidate path as other connector imports instead of treating imported data as owner-confirmed truth
 
 Tradeoff:
 
@@ -112,38 +112,17 @@ location text derived from visible world or host data.
 
 Current recommendation: keep the public export surface static and public-data-only. The shared ICS serializer now supports both a single safe event export and a selected public event feed, but product UI for feed subscriptions should wait until follow, favorites, or community calendar selection exists.
 
-Do not add Google OAuth, account calendars, token storage, or personalized subscription UI until the reviewed-import and follow/favorites models are ready.
+## Google Calendar Connector
 
-## Implemented Import Foundation
+Google Calendar sync is the `google_calendar` connector kind; see [Connectors](../backend/event-schema.md#connectors) for the tables, runner, and the carried fields. A community connects a calendar through Google OAuth and picks import, export, or both.
 
-Locked decision: Google Calendar import begins as reviewed staging only, not a public event publisher.
+Inbound import rules:
 
-The first backend foundation adds Convex staging tables for:
-
-- `eventImportBatches`
-- `eventImportCandidates`
-- `eventImportCandidateFields`
-
-The Google Calendar normalizer maps selected public/operator-owned calendar event fields into private review candidates. It preserves calendar/event IDs, batch or sync job identifiers, source update timestamps, source URLs, title, description, available start/end time, timezone, location, public HTTPS links, recurrence hints, and cancellation state.
-
-Imported candidates default to `draft_private` and `unreviewed`. The helper can write staging documents, including cancellation tombstones without event start times, and evaluate publication blockers, but it does not create canonical `events` rows, run background sync jobs, resolve conflicts, or expose an import UI.
-
-## Inbound Import Rules
-
-Google Calendar import should create reviewable event candidates, not silently published canonical events.
-
-Imported candidates should preserve:
-
-- source calendar and event IDs
-- import batch or sync job
-- event updated timestamp
-- mapped title, description, start/end time, timezone, location, and links
-- recurrence and cancellation hints when present
-- field-level source/provenance and review state
-
-Do not import attendees, reminders, private notes, hidden calendar metadata, or arbitrary personal calendars by default.
-
-Imported candidate publication requires a later explicit review flow. Before publication, the batch must be approved, the candidate must be accepted and queued for review-pending publication, public fields must be reviewed, cancelled events must stay blocked, and private source fields must not be promoted as public event facts.
+- Imports enter as intake candidates, not silently published canonical events.
+- Only title, start, end, summary, and location carry. Poster, world, and lineup never move.
+- Past items and recurring instances more than 60 days ahead are not imported.
+- A Google cancellation flags the sync link `external_deleted`; it never cancels the VRDex event.
+- Attendees, reminders, private notes, and hidden calendar metadata are never imported.
 
 ## Self-Hosting Notes
 

@@ -303,19 +303,18 @@ Private manager notes, source internals, participant/session associations, media
 
 ## Calendar Import And Export
 
-First `#138` slice: public calendar export is a safe serialization layer, and inbound Google Calendar import is a private staging layer.
+Public calendar export is a safe serialization layer. Google Calendar sync is a connector.
 
 The shared ICS serializer supports a single public event export and selected public event feeds. Calendar output is derived from the public event projection and includes event title, UTC start/end timestamps, public summary, canonical VRDex URL, and public host/world location text. It must not include private operator notes, moderation fields, unreviewed imports, hidden profile/world data, or media-control internals.
 
 Published cancelled events remain reachable by direct URL and export `STATUS:CANCELLED`; ordinary discovery and profile event lists exclude them. A cancelled event never promotes a watch surface.
 
-Reviewed Google Calendar imports use staging tables rather than canonical event writes:
+Google Calendar is a `google_calendar` connector on the [connector tables](#connectors):
 
-- `eventImportBatches` records the provider, source calendar, external batch or sync job, received timestamp, reviewer state, and importer.
-- `eventImportCandidates` records the imported event identity, available timestamps, title, location, description, recurrence hints, cancellation state, review state, publication state, and any later matched canonical event.
-- `eventImportCandidateFields` records field-level values, source labels, optional source URLs, confidence, visibility, and review state.
-
-Google Calendar import preserves selected event provenance and maps only reviewable event facts. It can stage cancellation tombstones without event start times so later update flows can review deletions without aborting a batch. It does not import attendees, reminders, hidden calendar metadata, private notes, or arbitrary personal calendars by default. Imported candidates remain `draft_private` until an explicit later review/publication flow accepts the batch, candidate, and public fields.
+- It carries title, start, end, summary, and venue label (as the Google `location`). Poster, world, and lineup never move.
+- Imports enter as intake candidates, like every other connector import.
+- Exports end the Google description with the VRDex event URL.
+- An inbound Google cancellation flags the link `external_deleted`; it never cancels the VRDex event.
 
 ## Connectors
 
