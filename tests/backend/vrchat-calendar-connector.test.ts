@@ -3,12 +3,17 @@ import { beforeEach, describe, it } from "node:test";
 import { convexTest, type TestConvex } from "convex-test";
 import schemaModule from "../../convex/schema";
 import type { Doc, Id } from "../../convex/_generated/dataModel";
+import { internal } from "../../convex/_generated/api";
+import type { VrchatCalendarItem } from "../../convex/_clubOperations";
+import { candidateFromConnectorFields } from "../../convex/_eventCandidateApply";
+import { candidatePatch } from "../../apps/web/src/lib/event-intake-source";
+import { EventIntakeCandidateSchema } from "../../packages/api-contracts/src/event-intake";
 import { carriedFieldsHash } from "../../convex/_eventConnectors";
 import { correctionFields } from "../../convex/eventCorrections";
 import { exportPayloadFromEvent, fieldsFromVrchatEvent, truncateTitle } from "../../convex/eventSyncKinds/vrchatCalendar";
 import type { VrchatJobPayload } from "../../convex/vrchatCalendarConnector";
 import {
-  CAL_1, EVENT_URL, NOW, SITE, eventDoc, modules, operations, rerunJob, runSyncJob, seedEvent, seedVrchatConnector, setupEnv, vrchatItem, workerSettle,
+  CAL_1, EVENT_URL, GROUP_ID, NOW, SITE, calId, eventDoc, modules, operations, rerunJob, runSyncJob, seedEvent, seedVrchatConnector, setupEnv, vrchatItem, workerSettle,
 } from "./_vrchatCalendarFixture";
 
 const schema = (schemaModule as unknown as { default?: typeof schemaModule }).default ?? schemaModule;
@@ -93,6 +98,26 @@ describe("vrchat calendar mapping", () => {
     const foreign = fieldsFromVrchatEvent(vrchatItem({ description: "Doors at 8.\n\nBring friends." }), "UTC", SITE, null);
     assert.equal(foreign.summary, "Doors at 8.\n\nBring friends.");
     assert.equal(fieldsFromVrchatEvent(vrchatItem({ description: "y".repeat(300) }), "UTC", SITE, null).summary!.length, 240);
+  });
+});
+
+describe("candidateFromConnectorFields", () => {
+  it("gives every carried field explicit connector evidence that candidatePatch reads back as the same fields", () => {
+    const fields = fieldsFromVrchatEvent(vrchatItem({ endsAt: "2026-11-08T06:00:00.000Z" }), "America/New_York", SITE, null);
+    const candidate = candidateFromConnectorFields("vrchat_calendar", fields, { kind: "new" });
+    EventIntakeCandidateSchema.parse(candidate);
+    assert.deepEqual(candidate.event, {
+      title: "Bass Temple", communitySlug: null, eventDate: "2026-11-07", start: "20:00", end: "01:00", startDate: "2026-11-07", endDate: "2026-11-08",
+      timezone: "America/New_York", venueLabel: null, summary: "Weekly bass night.", sourceUrl: null,
+    });
+    assert.deepEqual([candidate.lineup, candidate.questions, candidate.decision], [[], [], { kind: "new" }]);
+    assert.deepEqual(candidate.evidence.map((row) => row.fieldPath), ["event.title", "event.eventDate", "event.start", "event.end", "event.timezone", "event.summary"]);
+    assert.ok(candidate.evidence.every((row) => row.origin === "connector" && row.assessment === "explicit" && row.excerpt === null));
+    const { timeTba: _timeTba, ...rest } = fields;
+    assert.deepEqual(candidatePatch(candidate).tentative, { ...rest, start: { time: "20:00", dayOffset: 0 } });
+    assert.equal(carriedFieldsHash("vrchat_calendar", { ...candidatePatch(candidate).tentative, timeTba: false }), carriedFieldsHash("vrchat_calendar", fields));
+    // A field given as null is still explicit, so an update clears it.
+    assert.deepEqual(candidateFromConnectorFields("vrchat_calendar", { end: null }, { kind: "new" }).evidence.map((row) => row.fieldPath), ["event.end"]);
   });
 });
 
@@ -317,5 +342,155 @@ describe("vrchat calendar export", () => {
     const job = await runSyncJob(t, { connectorId: connectorId!, kind: "export_upsert", eventId: timed });
     assert.deepEqual([job.state, job.lastError], ["pending", "CONNECTOR_KIND_DISABLED"]);
     assert.equal((await operations(t)).length, 0);
+  });
+});
+
+describe("vrchat calendar import", () => {
+  beforeEach(setupEnv);
+  const long = "Bass Temple presents an extremely long night of low frequencies and friends";
+  const importItem = (t: TestConvex<typeof schema>, connectorId: Id<"eventConnectors">, item: VrchatCalendarItem) =>
+    runSyncJob(t, { connectorId, kind: "import_item", payload: { item } });
+  const importIds = async (t: TestConvex<typeof schema>) =>
+    (await t.run((ctx) => ctx.db.query("eventSyncJobs").collect())).filter((j) => j.kind === "import_item").map((j) => (j.payload as { item: VrchatCalendarItem }).item.id).sort();
+  const at = (date: string) => ({ eventDate: date, startAt: Date.parse(`${date}T23:00:00.000Z`), endAt: Date.parse(`${date}T23:30:00.000Z`) });
+
+  it("poll diff: new and changed items import, unchanged items do not, missing linked items flag", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, communityProfileId } = await seedVrchatConnector(t, { direction: "import", mode: "hold" });
+    const ins = (eventId: Id<"events">, externalId: string, externalUpdatedAt?: number) => t.run((ctx) => ctx.db.insert("eventSyncLinks",
+      { connectorId: connectorId!, eventId, externalId, externalUpdatedAt, lastExportedAt: NOW - 3_600_000, state: "linked", createdAt: NOW - 3_600_000, updatedAt: NOW }));
+    const changed = await ins(await seedEvent(t, communityProfileId, { slug: "changed", title: "Changed Night", ...at("2026-11-10") }), calId(2), Date.parse("2026-11-01T00:00:00.000Z"));
+    await ins(await seedEvent(t, communityProfileId, { slug: "same", title: "Same Night", ...at("2026-11-11") }), calId(3), Date.parse("2026-11-02T11:00:00.000Z"));
+    const gone = await ins(await seedEvent(t, communityProfileId, { slug: "gone", title: "Gone Night", ...at("2026-11-12") }), calId(4));
+    // A none: link records that no VRChat entry exists, so it is never flagged deleted.
+    const noneEvent = await seedEvent(t, communityProfileId, { slug: "none", title: "None Night", ...at("2026-11-13") });
+    const none = await ins(noneEvent, "none:" + noneEvent);
+    let job = await runSyncJob(t, { connectorId: connectorId!, kind: "import_poll" });
+    assert.deepEqual((await operations(t))[0].payload, { kind: "list_calendar_events", from: "2026-11-02T00:00:00.000Z", to: "2027-01-31T00:00:00.000Z" });
+    await workerSettle(t, { status: "succeeded", result: { calendarEventsTruncated: false, calendarEvents: [
+      vrchatItem({ id: CAL_1, title: "Fresh Night" }), vrchatItem({ id: calId(2), title: "Changed Night Late" }), vrchatItem({ id: calId(3), title: "Same Night" }),
+    ] } });
+    job = await rerunJob(t, job._id);
+    assert.equal(job.state, "done");
+    assert.deepEqual(await importIds(t), [CAL_1, calId(2)]);
+    assert.equal((await t.run((ctx) => ctx.db.get(gone)))!.state, "external_deleted");
+    assert.equal((await t.run((ctx) => ctx.db.get(changed)))!.state, "linked");
+    assert.equal((await t.run((ctx) => ctx.db.get(none)))!.state, "linked");
+    assert.equal((await t.run((ctx) => ctx.db.get(connectorId!)))!.lastSyncedAt, NOW);
+  });
+
+  it("a link exported after the list was read is not flagged, and a truncated list flags nothing", async () => {
+    for (const [lastExportedAt, truncated] of [[NOW + 1_000, false], [NOW - 3_600_000, true]] as const) {
+      const t = convexTest({ schema, modules });
+      const { connectorId, communityProfileId } = await seedVrchatConnector(t, { direction: "bidirectional" });
+      const eventId = await seedEvent(t, communityProfileId, at("2026-11-12"));
+      const linkId = await t.run((ctx) => ctx.db.insert("eventSyncLinks", { connectorId: connectorId!, eventId, externalId: calId(4), lastExportedAt, state: "linked", createdAt: NOW - 3_600_000, updatedAt: NOW }));
+      const job = await runSyncJob(t, { connectorId: connectorId!, kind: "import_poll" });
+      await workerSettle(t, { status: "succeeded", result: { calendarEvents: [], calendarEventsTruncated: truncated } });
+      assert.equal((await rerunJob(t, job._id)).state, "done");
+      assert.equal((await t.run((ctx) => ctx.db.get(linkId)))!.state, "linked");
+    }
+  });
+
+  it("ignores its own export coming back", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, communityProfileId } = await seedVrchatConnector(t, { direction: "bidirectional" });
+    const eventId = await seedEvent(t, communityProfileId, { title: long, endAt: undefined });
+    const event = (await t.run((ctx) => ctx.db.get(eventId)))!;
+    const lastExportedHash = carriedFieldsHash("vrchat_calendar", await t.run((ctx) => correctionFields(ctx.db, event)));
+    const linkId = await t.run((ctx) => ctx.db.insert("eventSyncLinks", { connectorId: connectorId!, eventId, externalId: CAL_1, state: "linked",
+      lastExportedHash, createdAt: NOW, updatedAt: NOW }));
+    // The strict item validator has no accessType, so only the fields VRChat hands back are carried over.
+    const { title, description, startsAt, endsAt } = exportPayloadFromEvent(event, { eventUrl: EVENT_URL, worldNames: [] });
+    const item = vrchatItem({ title, description, startsAt, endsAt, updatedAt: "2026-11-02T11:59:59.000Z" });
+    assert.equal(await t.mutation(internal.vrchatCalendarConnector.applyImport, { connectorId: connectorId!, item }), "skipped_echo");
+    assert.equal((await t.run((ctx) => ctx.db.get(eventId)))!.updatedAt, event.updatedAt);
+    assert.equal((await t.run((ctx) => ctx.db.get(linkId)))!.externalUpdatedAt, Date.parse("2026-11-02T11:59:59.000Z"));
+  });
+
+  it("a VRChat time change keeps the full VRDex title", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, communityProfileId } = await seedVrchatConnector(t, { direction: "bidirectional" });
+    const eventId = await seedEvent(t, communityProfileId, { title: long });
+    await t.run((ctx) => ctx.db.insert("eventSyncLinks", { connectorId: connectorId!, eventId, externalId: CAL_1, state: "linked", createdAt: NOW, updatedAt: NOW }));
+    await importItem(t, connectorId!, vrchatItem({ title: truncateTitle(long), startsAt: "2026-11-08T02:00:00.000Z", endsAt: "2026-11-08T05:00:00.000Z", updatedAt: "2026-11-02T11:59:59.000Z" }));
+    const event = (await t.run((ctx) => ctx.db.get(eventId)))!;
+    assert.deepEqual([event.title, event.startAt], [long, Date.parse("2026-11-08T02:00:00.000Z")]);
+  });
+
+  it("bidirectional: the newer side wins by VRChat updatedAt", async () => {
+    for (const [eventUpdatedAt, itemUpdatedAt, title] of [[NOW - 60_000, "2026-11-02T11:59:59.000Z", "Bass Temple Late"], [NOW, "2026-11-02T11:00:00.000Z", "Bass Temple"]] as const) {
+      const t = convexTest({ schema, modules });
+      const { connectorId, communityProfileId } = await seedVrchatConnector(t, { direction: "bidirectional" });
+      const eventId = await seedEvent(t, communityProfileId, { updatedAt: eventUpdatedAt });
+      await t.run((ctx) => ctx.db.insert("eventSyncLinks", { connectorId: connectorId!, eventId, externalId: CAL_1, state: "linked", createdAt: NOW, updatedAt: NOW }));
+      await importItem(t, connectorId!, vrchatItem({ title: "Bass Temple Late", updatedAt: itemUpdatedAt }));
+      assert.equal((await t.run((ctx) => ctx.db.get(eventId)))!.title, title);
+    }
+  });
+
+  it("skips past items", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId } = await seedVrchatConnector(t, { direction: "import", mode: "hold" });
+    const past = vrchatItem({ startsAt: "2026-10-30T23:00:00.000Z", endsAt: "2026-10-31T02:00:00.000Z" });
+    assert.equal((await importItem(t, connectorId!, past)).state, "done");
+    assert.equal(await t.mutation(internal.vrchatCalendarConnector.applyImport, { connectorId: connectorId!, item: past }), "skipped");
+    assert.equal((await t.run((ctx) => ctx.db.query("eventSyncLinks").collect())).length, 0);
+  });
+
+  it("skips items whose times do not parse without failing the job", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId } = await seedVrchatConnector(t, { direction: "import", mode: "hold" });
+    for (const bad of [{ startsAt: "soon" }, { updatedAt: "lately" }]) {
+      assert.equal(await t.mutation(internal.vrchatCalendarConnector.applyImport, { connectorId: connectorId!, item: vrchatItem(bad) }), "skipped");
+    }
+    const job = await runSyncJob(t, { connectorId: connectorId!, kind: "import_poll" });
+    await workerSettle(t, { status: "succeeded", result: { calendarEvents: [vrchatItem({ startsAt: "soon" }), vrchatItem({ id: calId(2), updatedAt: "lately" })] } });
+    assert.equal((await rerunJob(t, job._id)).state, "done");
+    assert.deepEqual(await importIds(t), []);
+  });
+
+  it("reconcile links by date and title without creating", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, communityProfileId } = await seedVrchatConnector(t, { direction: "bidirectional" });
+    const eventId = await seedEvent(t, communityProfileId);
+    const job = await runSyncJob(t, { connectorId: connectorId!, kind: "reconcile" });
+    await workerSettle(t, { status: "succeeded", result: { calendarEvents: [
+      vrchatItem({ title: "BASS TEMPLE" }), vrchatItem({ id: calId(2), title: "Other Night", startsAt: "2026-11-09T01:00:00.000Z", endsAt: "2026-11-09T04:00:00.000Z" }),
+    ] } });
+    await rerunJob(t, job._id);
+    const links = await t.run((ctx) => ctx.db.query("eventSyncLinks").collect());
+    assert.deepEqual(links.map((l) => [l.externalId, l.eventId]), [[CAL_1, eventId]]);
+    assert.equal((await t.run((ctx) => ctx.db.query("events").collect())).length, 1);
+    assert.deepEqual(await importIds(t), [calId(2)]);
+  });
+
+  it("reconcile does not match an event already linked to another entry", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, communityProfileId } = await seedVrchatConnector(t, { direction: "bidirectional" });
+    const eventId = await seedEvent(t, communityProfileId);
+    await t.run((ctx) => ctx.db.insert("eventSyncLinks", { connectorId: connectorId!, eventId, externalId: calId(5), state: "linked", createdAt: NOW, updatedAt: NOW }));
+    const job = await runSyncJob(t, { connectorId: connectorId!, kind: "reconcile" });
+    await workerSettle(t, { status: "succeeded", result: { calendarEvents: [vrchatItem({ id: calId(5) }), vrchatItem()] } });
+    await rerunJob(t, job._id);
+    const links = await t.run((ctx) => ctx.db.query("eventSyncLinks").collect());
+    assert.deepEqual(links.map((l) => l.externalId), [calId(5)]);
+    assert.deepEqual(await importIds(t), [CAL_1]);
+  });
+
+  it("enqueuePolls skips export-only connectors and connectors already polling", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, communityProfileId, authorityUserId } = await seedVrchatConnector(t, { direction: "import" });
+    await t.run((ctx) => ctx.db.insert("eventConnectors", { communityProfileId, kind: "vrchat_calendar", direction: "export", mode: "autopublish",
+      authorityUserId, target: { groupId: GROUP_ID }, state: "active", createdAt: NOW, updatedAt: NOW }));
+    await t.mutation(internal.vrchatCalendarConnector.enqueuePolls, {});
+    await t.mutation(internal.vrchatCalendarConnector.enqueuePolls, {});
+    const polls = (await t.run((ctx) => ctx.db.query("eventSyncJobs").collect())).filter((j) => j.kind === "import_poll");
+    assert.deepEqual(polls.map((j) => j.connectorId), [connectorId]);
+    // With the flag off nothing is enqueued, even once the earlier poll finished.
+    process.env.VRDEX_CONNECTOR_VRCHAT_CALENDAR_ENABLED = "false";
+    await t.run((ctx) => ctx.db.patch(polls[0]._id, { state: "done" }));
+    await t.mutation(internal.vrchatCalendarConnector.enqueuePolls, {});
+    assert.equal((await t.run((ctx) => ctx.db.query("eventSyncJobs").collect())).filter((j) => j.kind === "import_poll").length, 1);
   });
 });

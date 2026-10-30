@@ -150,6 +150,25 @@ it("reconcile enqueues exports for unlinked upcoming events even without a kind 
   void past; void far;
 });
 
+it("a reconcile re-claimed after a club-operation wait does not enqueue its exports again", async () => {
+  const f = await connectorFixture();
+  await f.createEvent({ title: "Upcoming" });
+  const connectorId = await f.insertConnector({ direction: "export" });
+  const google = syncKindHandlers.google_calendar;
+  google.reconcile = async () => AwaitingClubOperation;
+  try {
+    const jobId = await f.t.run(ctx => enqueueSyncJob(ctx.db, ctx.scheduler, { connectorId, kind: "reconcile" }));
+    await f.t.action(run, { jobId });
+    // The export ran while the reconcile waited; the wake-up re-claims the running reconcile.
+    await f.t.run(async ctx => { for (const row of await ctx.db.query("eventSyncJobs").collect()) if (row.kind === "export_upsert") await ctx.db.patch(row._id, { state: "done" }); });
+    await f.t.run(ctx => ctx.db.patch(jobId, { leaseExpiresAt: Date.now() }));
+    await f.t.action(run, { jobId });
+    assert.equal((await jobs(f)).filter(row => row.kind === "export_upsert").length, 1);
+  } finally {
+    delete google.reconcile;
+  }
+});
+
 it("pauses the connector when its authority lost manage_integrations", async () => {
   const f = await connectorFixture();
   const connectorId = await f.insertConnector();

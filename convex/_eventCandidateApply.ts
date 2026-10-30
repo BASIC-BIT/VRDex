@@ -2,8 +2,8 @@ import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { candidatePatch } from "../apps/web/src/lib/event-intake-source";
-import type { EventIntakeCandidate, EventIntakeFields, EventIntakePatch } from "../packages/api-contracts/src/event-intake";
-import { carriedFields, carriedFieldsHash, connectorsEnabled, EventIntakeUpdatePatchSchema, pendingLinkDraft, requireConnectorAuthority } from "./_eventConnectors";
+import type { EventIntakeCandidate, EventIntakeDecision, EventIntakeFields, EventIntakeLocalTime, EventIntakePatch } from "../packages/api-contracts/src/event-intake";
+import { carriedFields, carriedFieldsHash, connectorsEnabled, type ConnectorKind, EventIntakeUpdatePatchSchema, pendingLinkDraft, requireConnectorAuthority } from "./_eventConnectors";
 import { normalizeIntakePublication } from "./_eventContributionPreflight";
 import { getActorIntakeDraft, publishIntakeDraft, sanitizeEventIntakePatch, saveIntakeDraft } from "./_eventIntake";
 import { requireDateOnlyEventsEnabled } from "./_eventSchedule";
@@ -25,6 +25,29 @@ function evidenceKey(fieldPath: string): string {
   if (fieldPath.startsWith("lineup.")) return "lineup";
   return fieldPath.startsWith("event.") ? fieldPath.slice("event.".length) : fieldPath;
 }
+
+// --- candidateFromConnectorFields (plan 08 contract; plan 09 lands it first, whichever PR lands second drops its copy) ---
+// Only fields a candidate can carry get evidence: evidence with no value would make an update clear that field.
+const CANDIDATE_FIELD_KEYS = ["title", "communitySlug", "eventDate", "start", "end", "timezone", "venueLabel", "summary", "sourceUrl"] as const;
+
+/** A structured connector item as a candidate: every given field is explicit connector evidence. candidatePatch rebuilds each time's day offset from its date. */
+export function candidateFromConnectorFields(_kind: ConnectorKind, fields: Partial<EventIntakeFields>, decision: EventIntakeDecision): EventIntakeCandidate {
+  const day = (local: EventIntakeLocalTime | null | undefined) => local && fields.eventDate
+    ? new Date(Date.parse(fields.eventDate + "T00:00:00.000Z") + (local.dayOffset ?? 0) * 86_400_000).toISOString().slice(0, 10) : null;
+  return {
+    event: {
+      title: fields.title ?? null, communitySlug: fields.communitySlug ?? null, eventDate: fields.eventDate ?? null,
+      start: fields.start?.time ?? null, end: fields.end?.time ?? null, startDate: day(fields.start), endDate: day(fields.end),
+      timezone: fields.timezone ?? null, venueLabel: fields.venueLabel ?? null, summary: fields.summary ?? null, sourceUrl: fields.sourceUrl ?? null,
+    },
+    lineup: [],
+    evidence: CANDIDATE_FIELD_KEYS.filter(key => fields[key] !== undefined)
+      .map(key => ({ fieldPath: "event." + key, origin: "connector" as const, excerpt: null, assessment: "explicit" as const })),
+    questions: [],
+    decision,
+  };
+}
+// --- end candidateFromConnectorFields ---
 
 /** The single entry point through which an inbound connector item becomes a held draft, an update, or a published event. */
 export async function applyEventCandidate(ctx: MutationCtx, args: {

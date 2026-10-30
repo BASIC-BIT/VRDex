@@ -1,5 +1,6 @@
 import { internal } from "../_generated/api";
 import type { Doc } from "../_generated/dataModel";
+import type { ActionCtx } from "../_generated/server";
 import type { VrchatCalendarItem } from "../_clubOperations";
 import { eventDateForInstant, eventLocalTime } from "../_eventSchedule";
 import type { EventIntakeFields } from "../../packages/api-contracts/src/event-intake";
@@ -83,4 +84,20 @@ export const vrchatCalendarHandler: SyncKindHandler = {
     if (result.kind === "await") return AwaitingClubOperation;
     if (result.kind === "failed") throw new Error(result.code);
   },
+  reconcile: (ctx, _connector, job) => listCalendar(ctx, job, "reconcile"),
+  importPoll: (ctx, _connector, job) => listCalendar(ctx, job, "poll"),
+  async importItem(ctx, connector, payload) {
+    requireVrchatCalendarEnabled();
+    // The payload is the item advanceList wrote, already checked by the list result's validator.
+    const item = (payload as { item?: VrchatCalendarItem } | null)?.item;
+    if (!item) throw new Error("vrchat_job_invalid");
+    await ctx.runMutation(internal.vrchatCalendarConnector.applyImport, { connectorId: connector._id, item });
+  },
 };
+
+async function listCalendar(ctx: ActionCtx, job: Doc<"eventSyncJobs">, purpose: "poll" | "reconcile") {
+  requireVrchatCalendarEnabled();
+  const result = await ctx.runMutation(internal.vrchatCalendarConnector.advanceList, { jobId: job._id, purpose });
+  if (result.kind === "await") return AwaitingClubOperation;
+  if (result.kind === "failed") throw new Error(result.code);
+}

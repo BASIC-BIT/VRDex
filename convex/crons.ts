@@ -132,4 +132,7 @@ crons.interval("admit queued group observations", { minutes: 1 }, makeFunctionRe
 
 crons.interval("recover event sync jobs", { minutes: 5 }, internal.eventSync.recoverExpiredJobs, {});
 
+// VRChat group calendar (plan 09): only enqueues runner jobs; the runner owns retries and the failure alarm.
+crons.interval("poll VRChat calendars", { minutes: 30 }, internal.vrchatCalendarConnector.enqueuePolls, {});
+
 export default crons;

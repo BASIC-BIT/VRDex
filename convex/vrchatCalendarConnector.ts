@@ -1,13 +1,15 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
-import type { OperationPayload, VrchatCalendarItem } from "./_clubOperations";
+import { calendarEventItem, type OperationPayload, type VrchatCalendarItem } from "./_clubOperations";
+import { applyEventCandidate, candidateFromConnectorFields } from "./_eventCandidateApply";
+import { enqueueSyncJob } from "./_eventSync";
 import { eventPathForRecord } from "./_eventPaths";
 import { getPublicEventBySlug } from "./_eventPublic";
 import { eventDateForInstant } from "./_eventSchedule";
 import { toPublicEventShareCard } from "./_eventShareCard";
 import { enqueueConnectorOperation } from "./clubOperations";
-import { exportPayloadFromEvent, truncateTitle } from "./eventSyncKinds/vrchatCalendar";
+import { exportPayloadFromEvent, fieldsFromVrchatEvent, truncateTitle, vrchatCalendarEnabled } from "./eventSyncKinds/vrchatCalendar";
 
 // The VRChat calendar kind's state machine. Each advance runs one step: it enqueues a club operation and
 // returns `await`, or settles the job. The operation's terminal callback re-runs the job to take the next step.
@@ -78,10 +80,15 @@ async function retry(ctx: MutationCtx, job: Job, payload: VrchatJobPayload, code
 
 const gone = (operation: Doc<"clubOperations">) => operation.state === "succeeded" || (operation.state === "rejected" && operation.code === "visibility");
 
-async function exportWrite(ctx: MutationCtx, event: Doc<"events">, link: Link | null) {
-  const community = event.communityProfileId ? await ctx.db.get(event.communityProfileId) : null;
+function siteUrlOrThrow() {
   const siteUrl = (process.env.SITE_URL ?? "").replace(/\/+$/, "");
   if (!siteUrl) throw new Error("site_url_missing");
+  return siteUrl;
+}
+
+async function exportWrite(ctx: MutationCtx, event: Doc<"events">, link: Link | null) {
+  const community = event.communityProfileId ? await ctx.db.get(event.communityProfileId) : null;
+  const siteUrl = siteUrlOrThrow();
   const artwork = community ? toPublicEventShareCard(event, community)?.artworkImageUrl : undefined;
   const write = exportPayloadFromEvent(event, {
     eventUrl: siteUrl + await eventPathForRecord(ctx.db, event),
@@ -180,5 +187,136 @@ export const advanceDelete = internalMutation({
     const existing = entryId(link);
     if (!existing) return done(link.externalId);
     return await enqueue(ctx, job, connector, { kind: "delete_calendar_event", calendarEventId: existing }, { step: "write" });
+  },
+});
+
+// --- Import, poll, and reconcile ---
+
+const POLL_DAYS = 90;
+const importing = (connector: Connector) => connector.direction === "import" || connector.direction === "bidirectional";
+// External input must not fail the job: an item whose times do not parse is skipped.
+const readable = (item: VrchatCalendarItem) => Number.isFinite(Date.parse(item.startsAt)) && Number.isFinite(Date.parse(item.updatedAt));
+const linkByExternalId = (ctx: MutationCtx, connectorId: Id<"eventConnectors">, externalId: string) =>
+  ctx.db.query("eventSyncLinks").withIndex("by_connectorId_externalId", q => q.eq("connectorId", connectorId).eq("externalId", externalId)).unique();
+
+// A community event on the item's local date whose title matches, in full or as VRChat's truncated copy.
+// An event this connector already links to another entry never matches.
+async function matchEvent(ctx: MutationCtx, connector: Connector, item: VrchatCalendarItem) {
+  const eventDate = eventDateForInstant(Date.parse(item.startsAt), connector.target.timezone ?? "UTC");
+  const title = item.title.trim().toLowerCase();
+  const events = await ctx.db.query("events").withIndex("by_communityProfileId_eventDate", q => q.eq("communityProfileId", connector.communityProfileId).eq("eventDate", eventDate)).take(50);
+  for (const event of events) {
+    if (event.title.trim().toLowerCase() !== title && truncateTitle(event.title).trim().toLowerCase() !== title) continue;
+    if (!await linkFor(ctx, connector._id, event._id)) return event;
+  }
+  return null;
+}
+
+async function insertLink(ctx: MutationCtx, connectorId: Id<"eventConnectors">, eventId: Id<"events">, externalId: string) {
+  const now = Date.now();
+  return (await ctx.db.get(await ctx.db.insert("eventSyncLinks", { connectorId, eventId, externalId, state: "linked", createdAt: now, updatedAt: now })))!;
+}
+
+export const advanceList = internalMutation({
+  args: { jobId: v.id("eventSyncJobs"), purpose: v.union(v.literal("poll"), v.literal("reconcile")) },
+  returns: advanceResult,
+  handler: async (ctx, { jobId, purpose }): Promise<Advance> => {
+    const loaded = await load(ctx, jobId);
+    if (!loaded) return failed("vrchat_job_invalid");
+    const { job, connector, payload } = loaded;
+    const current = await inFlight(ctx, job, connector, payload);
+    if (current && "kind" in current) return current;
+    if (!current) {
+      const from = Date.parse(new Date().toISOString().slice(0, 10) + "T00:00:00.000Z");
+      return await enqueue(ctx, job, connector, {
+        kind: "list_calendar_events", from: new Date(from).toISOString(), to: new Date(from + POLL_DAYS * DAY_MS).toISOString(),
+      }, { step: "match" });
+    }
+    const operation = current;
+    if (operation.state !== "succeeded" || operation.payload.kind !== "list_calendar_events") return await retry(ctx, job, payload, operation.code ?? operation.state);
+    const { from, to } = operation.payload;
+    const items = (operation.result?.calendarEvents ?? []).filter(readable);
+    const importItem = (item: VrchatCalendarItem) => enqueueSyncJob(ctx.db, ctx.scheduler, { connectorId: connector._id, kind: "import_item", payload: { item } });
+    for (const item of items) {
+      const link = await linkByExternalId(ctx, connector._id, item.id);
+      if (purpose === "reconcile") {
+        if (link) continue;
+        const match = await matchEvent(ctx, connector, item);
+        if (match) await insertLink(ctx, connector._id, match._id, item.id);
+        else if (importing(connector)) await importItem(item);
+      } else if (!link || (link.state === "linked" && (link.externalUpdatedAt === undefined || link.externalUpdatedAt < Date.parse(item.updatedAt)))) {
+        await importItem(item);
+      }
+    }
+    // A truncated list cannot prove an entry is gone, and a link exported after the list was read is newer than it.
+    if (purpose === "poll" && operation.result?.calendarEventsTruncated !== true) {
+      const listed = new Set(items.map(item => item.id));
+      const readAt = operation.submittedAt ?? 0;
+      const [start, end] = [Date.parse(from), Date.parse(to)];
+      const events = await ctx.db.query("events").withIndex("by_communityProfileId_sortAt", q => q.eq("communityProfileId", connector.communityProfileId).gte("sortAt", start).lt("sortAt", end)).take(500);
+      for (const event of events) {
+        if (event.startAt === undefined || event.startAt < start || event.startAt >= end) continue;
+        const link = await linkFor(ctx, connector._id, event._id);
+        const externalId = entryId(link);
+        if (!link || !externalId || listed.has(externalId) || (link.lastExportedAt ?? link.createdAt) >= readAt) continue;
+        await ctx.db.patch(link._id, { state: "external_deleted", updatedAt: Date.now() });
+      }
+    }
+    await ctx.db.patch(connector._id, { lastSyncedAt: Date.now(), updatedAt: Date.now() });
+    return done("");
+  },
+});
+
+export const applyImport = internalMutation({
+  args: { connectorId: v.id("eventConnectors"), item: calendarEventItem },
+  returns: v.string(),
+  handler: async (ctx, { connectorId, item }): Promise<string> => {
+    const connector = await ctx.db.get(connectorId);
+    if (connector?.state !== "active" || !importing(connector) || !readable(item)) return "skipped";
+    const updatedMs = Date.parse(item.updatedAt);
+    let link = await linkByExternalId(ctx, connectorId, item.id);
+    if (link?.externalUpdatedAt !== undefined && link.externalUpdatedAt >= updatedMs) return "unchanged";
+    let event = link?.eventId ? await ctx.db.get(link.eventId) : null;
+    const zone = event?.timezone ?? connector.target.timezone ?? "UTC";
+    if (eventDateForInstant(Date.parse(item.startsAt), zone) < eventDateForInstant(Date.now(), zone)) return "skipped";
+    if (!link) {
+      event = await matchEvent(ctx, connector, item);
+      if (event) link = await insertLink(ctx, connectorId, event._id, item.id);
+    }
+    // Reading through the event keeps its full title when VRChat holds the truncated one, and lets the echo hash match.
+    const fields = fieldsFromVrchatEvent(item, zone, siteUrlOrThrow(), event);
+    const { outcome } = await applyEventCandidate(ctx, {
+      connector, candidate: candidateFromConnectorFields("vrchat_calendar", fields, event ? { kind: "update", slug: event.slug ?? "" } : { kind: "new" }),
+      actorUserId: connector.authorityUserId, link: link ?? undefined, externalId: item.id, externalUpdatedAt: updatedMs,
+      expectedUpdatedAt: event?.updatedAt, idempotencyKey: `vrchat_calendar:${connectorId}:${item.id}:${updatedMs}`,
+    });
+    // Every outcome records the item as seen, so an echo or a stale item is not re-enqueued by the next poll.
+    const seen = await linkByExternalId(ctx, connectorId, item.id);
+    if (seen) await ctx.db.patch(seen._id, { lastImportedAt: Date.now(), externalUpdatedAt: updatedMs, updatedAt: Date.now() });
+    return outcome;
+  },
+});
+
+// A poll already queued or running for a connector covers the next one. Connector-level jobs are few, so the scan stays small.
+async function pollInFlight(ctx: MutationCtx, connectorId: Id<"eventConnectors">) {
+  for (const state of ["pending", "running"] as const) {
+    for await (const job of ctx.db.query("eventSyncJobs").withIndex("by_connectorId_eventId_state", q => q.eq("connectorId", connectorId).eq("eventId", undefined).eq("state", state))) {
+      if (job.kind === "import_poll") return true;
+    }
+  }
+  return false;
+}
+
+export const enqueuePolls = internalMutation({
+  args: {},
+  returns: v.null(),
+  handler: async (ctx) => {
+    if (!vrchatCalendarEnabled()) return null;
+    // ponytail: one mutation walks every VRChat connector; page it if connectors reach the thousands.
+    for await (const connector of ctx.db.query("eventConnectors").withIndex("by_kind_target_channelId", q => q.eq("kind", "vrchat_calendar"))) {
+      if (connector.state !== "active" || !importing(connector) || await pollInFlight(ctx, connector._id)) continue;
+      await enqueueSyncJob(ctx.db, ctx.scheduler, { connectorId: connector._id, kind: "import_poll" });
+    }
+    return null;
   },
 });

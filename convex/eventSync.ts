@@ -137,7 +137,8 @@ export const claimJob = internalMutation({
       if (kind === "export_upsert" && await pendingLinkDraft(ctx.db, link, now)) return await skipJob(ctx, job, connector, "pending_draft");
       if (kind === "export_delete" && link?.state !== "linked") return await skipJob(ctx, job, connector, "no_link");
     }
-    if (kind === "reconcile" && (connector.direction === "export" || connector.direction === "bidirectional")) await enqueueUnlinkedExports(ctx, connector, now);
+    // Only the first claim: a re-claim after a club-operation wait would queue a second export per event.
+    if (kind === "reconcile" && job.state === "pending" && (connector.direction === "export" || connector.direction === "bidirectional")) await enqueueUnlinkedExports(ctx, connector, now);
     const fields = kind === "export_upsert" && event ? await correctionFields(ctx.db, event) : null;
     await ctx.db.patch(jobId, { state: "running", attempts: job.attempts + 1, leaseExpiresAt: now + LEASE_MS, kind, updatedAt: now });
     return { job: (await ctx.db.get(jobId))!, connector, event, link, fields };
