@@ -15,6 +15,7 @@ import { replaceEventLineup } from "./_eventLineup";
 import { contributorStaffLock } from "./_eventContributorLock";
 import { syncClubEventOperations } from "./_clubOperationEvents";
 import { reindexEventSearchDocument } from "./_searchDocuments";
+import { enqueueEventSync } from "./_eventSync";
 import { canReadProfile } from "./_profilePermissions";
 import { getEventBySlug } from "./_eventSlugs";
 import { canUpdateEvent, eventParticipantRoleLabels, linkedPublishedEventWorld, managedCommunitiesForBrowser, reconcileEventMediaScheduleChange, recordEventAuditEvent, replaceEventWorldLink, retireConfirmedEventInstanceAssociations, settleEventMediaForCancellation, syncPreservedEventAssociations } from "./events";
@@ -31,7 +32,7 @@ async function ownEvent(db: DatabaseReader, actorUserId: Id<"users">, eventId: I
 }
 
 /** Reconstruct from canonical data, not the expiring private source draft. */
-async function correctionFields(db: DatabaseReader, event: Doc<"events">): Promise<EventIntakePatch> {
+export async function correctionFields(db: DatabaseReader, event: Doc<"events">): Promise<EventIntakePatch> {
   const community = event.communityProfileId ? await db.get(event.communityProfileId) : null;
   const date = event.eventDate ?? eventDateForInstant(event.startAt!, event.timezone);
   const timezone = event.timezone ?? "UTC";
@@ -125,6 +126,7 @@ export async function updateActorContribution(ctx: MutationCtx, actorUserId: Id<
   if (patch.worldSlug !== undefined) await replaceEventWorldLink(db, updated, checked.world, now, { confirmationState: "unconfirmed" });
   await refreshProjections(db, updated, now, checked.lineup.flatMap(entry => entry.roleLabel ? [entry.roleLabel] : []));
   await recordEventAuditEvent(db, { eventId: event._id, actorUserId, actor, actorSurface: actor ? "browser" : actorSurface, action: "updated", changedFields: Object.keys(patch), now });
+  await enqueueEventSync(db, ctx.scheduler, event._id, "upsert");
   return { eventId: event._id, updatedAt: now, contributionVersion: updated.contributionVersion };
 }
 
@@ -138,6 +140,7 @@ export async function retractActorContribution(ctx: MutationCtx, actorUserId: Id
   await settleEventMediaForCancellation(db, event, actor, now);
   await refreshProjections(db, (await db.get(eventId))!, now);
   await recordEventAuditEvent(db, { eventId, actorUserId, actor, actorSurface: actor ? "browser" : actorSurface, action: "retracted", changedFields: ["publicationState"], now });
+  await enqueueEventSync(db, ctx.scheduler, eventId, "delete");
   return { eventId, changed: true };
 }
 
@@ -221,6 +224,7 @@ export const removeContributedEvent = mutation({ args: { eventId: v.id("events")
   await ctx.db.insert("eventContributionSuppressions", { fingerprint, eventId: event._id, createdAt: now, expiresAt: now + REMOVED_EVENT_SUPPRESSION_MS });
   await refreshProjections(ctx.db, (await ctx.db.get(event._id))!, now);
   await recordEventAuditEvent(ctx.db, { eventId: event._id, actor: subject, actorSurface: "browser", action: "suppressed", changedFields: ["publicationState", "moderationRemovedAt"], reason, now });
+  await enqueueEventSync(ctx.db, ctx.scheduler, event._id, "delete");
   return { eventId: event._id, changed: true };
 } });
 
