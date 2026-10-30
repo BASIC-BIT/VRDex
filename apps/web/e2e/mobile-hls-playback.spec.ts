@@ -60,6 +60,7 @@ test("composed grants, decoded media, native controls, retained navigation and s
   test.setTimeout(120000);
   await page.goto("/playwright/mobile-hls-playback");
   await expect(page.getByRole("button", { name: "Play DJ Aurora", exact: true })).toBeVisible();
+  expect((await api("setup")).request.transport).toBe("mpegts");
   expect((await api("state")).metrics.sourceConnections).toBe(0);
   await page.getByRole("button", { name: "Play DJ Aurora", exact: true }).click();
   const media = page.locator("[data-event-playback-mount] video").first();

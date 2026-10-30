@@ -53,7 +53,7 @@ const server = createServer(async(req,res)=>{
     if(url.pathname.startsWith('/objects/')) {const bytes=objects.get(decodeURIComponent(url.pathname.slice(9)));metrics.objectRequests++;metrics.lastObjects.push(decodeURIComponent(url.pathname.slice(9)));metrics.lastObjects=metrics.lastObjects.slice(-12);if(!bytes){res.writeHead(404).end();return;}metrics.segmentBytes+=bytes.length;res.writeHead(200,{'content-type':'video/mp2t','cache-control':'public, max-age=31536000, immutable'}).end(bytes);return;}
     const chunks=[];for await(const chunk of req) chunks.push(chunk);const args=chunks.length?JSON.parse(Buffer.concat(chunks)):{};
     let value;
-    if(url.pathname==='/setup') value={...ids,request:{kind:'vrcdn',profileId:ids.profileId,profileSlug:'acceptance-dj',href:'#profile',title:'DJ Aurora',sourceId:'Alpha',src:'vrcdn:Alpha',transport:'video'}};
+    if(url.pathname==='/setup') value={...ids,request:{kind:'vrcdn',profileId:ids.profileId,profileSlug:'acceptance-dj',href:'#profile',title:'DJ Aurora',sourceId:'Alpha',src:'vrcdn:Alpha',transport:'mpegts'}};
     else if(url.pathname==='/playback') {const {name,...input}=args;if(name==='openPlayback'&&admissionDelay) await new Promise(r=>setTimeout(r,admissionDelay));value=await call(name==='getPlayback'?'query':'mutation','mediaRelayPlayback',name,input);}
     else if(url.pathname==='/state') value=await t.run(async ctx=>({metrics,sources:await ctx.db.query('mediaRelaySources').collect(),grants:await ctx.db.query('mediaRelayGrants').collect(),connections:responses.size,active:registry.diagnostics()}));
     else if(url.pathname==='/action') {

@@ -1,3 +1,4 @@
+import { lineupEvidencePage, attachLineupEvidence } from "./helpers/lineup-browser-evidence";
 import { chromium, firefox, expect, test, type Browser } from "@playwright/test";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
@@ -13,7 +14,7 @@ for (const engine of [chromium, firefox]) {
   const control=(id:string,state:string)=>fetch(`${transport.url}/control?id=${id}&state=${state}`,{method:"POST"});
   try {
    browser=await engine.launch();
-   const page=await browser.newPage();page.setDefaultTimeout(10000);
+   const page=await lineupEvidencePage(browser);page.setDefaultTimeout(10000);
    const messages:string[]=[]; const pageErrors:string[]=[];
    page.on("console",message=>{if (["error","warning"].includes(message.type())) messages.push(message.text());
     if (/Fast Refresh|reload/i.test(message.text())) diagnostics.push({type:"dev-navigation",at:performance.now(),message:message.text()});
@@ -203,7 +204,7 @@ for (const engine of [chromium, firefox]) {
    expect((await stats()).denied,JSON.stringify(await stats())).toBe(0);
    await info.attach(`runtime-${engine.name()}.json`,{body:JSON.stringify({browser:browser.version(),stats:await stats(),messages,pageErrors}),contentType:"application/json"});
    expect(pageErrors).toEqual([]);
-  } finally {try{await info.attach(`diagnostics-${engine.name()}.json`,{body:JSON.stringify(diagnostics,null,2),contentType:"application/json"});}finally{try{await browser?.close();}finally{await transport.close();}}}
+  } finally {try{await info.attach(`diagnostics-${engine.name()}.json`,{body:JSON.stringify(diagnostics,null,2),contentType:"application/json"});}finally{try{try { await attachLineupEvidence(browser, info); } finally { await browser?.close(); }}finally{await transport.close();}}}
  });
 }
 
@@ -222,7 +223,7 @@ for (const engine of [chromium, firefox]) {
   const messages:string[]=[];
   const evidence:Record<string,unknown>={messages};
   try {
-   browser=await engine.launch();const page=await browser.newPage();page.setDefaultTimeout(10000);
+   browser=await engine.launch();const page=await lineupEvidencePage(browser);page.setDefaultTimeout(10000);
    page.on("console",message=>{if(["error","warning"].includes(message.type()))messages.push(message.text());});
    page.on("pageerror",error=>messages.push("PAGEERROR: "+error.message));
    page.on("requestfailed",request=>messages.push("REQUEST: "+request.url()+" "+request.failure()?.errorText));
@@ -277,7 +278,7 @@ for (const engine of [chromium, firefox]) {
    await page.getByRole("button",{name:"Unmount",exact:true}).click();await expect.poll(async()=>(await stats()).active).toBe(0);
    evidence.stats=await stats();expect((await stats()).denied).toBe(0);
    expect(messages.filter(message=>message.startsWith("PAGEERROR:"))).toEqual([]);
-  }finally{try{await info.attach(`recovery-background-${engine.name()}.json`,{body:JSON.stringify(evidence,null,2),contentType:"application/json"});await browser?.close();}finally{await transport.close();}}
+  }finally{try{await info.attach(`recovery-background-${engine.name()}.json`,{body:JSON.stringify(evidence,null,2),contentType:"application/json"});try { await attachLineupEvidence(browser, info); } finally { await browser?.close(); }}finally{await transport.close();}}
  });
 }
 
@@ -290,7 +291,7 @@ for (const engine of [chromium, firefox]) {
   let browser: Browser | undefined;
   try {
    browser = await engine.launch();
-   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+   const page = await lineupEvidencePage(browser);
    const errors: string[] = [];
    page.on("pageerror", error => errors.push(error.message));
    await page.addInitScript(() => {
@@ -370,7 +371,10 @@ for (const engine of [chromium, firefox]) {
    await expect.poll(async () => (await (await fetch(`${transport.url}/stats`)).json()).active).toBe(0);
    expect(errors).toEqual([]);
    await info.attach("transport-stats", { body: JSON.stringify(await (await fetch(`${transport.url}/stats`)).json()), contentType: "application/json" });
-  } finally { await browser?.close(); await transport.close(); }
+  } finally {
+   try { await attachLineupEvidence(browser, info); }
+   finally { try { await browser?.close(); } finally { await transport.close(); } }
+  }
  });
 }
 
