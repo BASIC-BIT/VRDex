@@ -284,13 +284,14 @@ test("artwork fetch keeps only bounded https PNG responses", async () => {
   await assert.rejects(fetchArtwork("https://vrdex.test/a.png", { fetcher: respond("https://vrdex.test/a.png", png, "image/jpeg") }));
   await assert.rejects(fetchArtwork("https://vrdex.test/a.png", { fetcher: respond("https://vrdex.test/a.png", new Uint8Array(5)), maxBytes: 4 }));
 });
-test("a refused artwork upload drops the image; a denied one stops the event write", async () => {
-  for (const [category, writes] of [["provider_error", 2], ["operation_denied", 1]]) {
-    const { adapter, calls } = fixture({ handler: async (path) => { if (path === "/file/image") throw new VrchatProviderError("x", { status: 403, category }); return path.startsWith("/calendar/") ? { id: cal } : undefined; } });
+test("a refused, denied or malformed artwork upload rejects the operation without the event write", async () => {
+  const refuse = (category) => async () => { throw new VrchatProviderError("x", { status: 403, category }); };
+  for (const [upload, code] of [[refuse("provider_error"), "provider_error"], [refuse("operation_denied"), "operation_denied"], [async () => ({}), "schema_drift"], [async () => ({ id: "file_nope" }), "schema_drift"]]) {
+    const { adapter, calls } = fixture({ handler: async (path) => path === "/file/image" ? upload() : path.startsWith("/calendar/") ? { id: cal } : undefined });
     adapter.fetchImage = async () => ({ bytes: new Uint8Array([137, 80, 78, 71]), contentType: "image/png" });
     const out = await adapter.execute({ kind: "create_calendar_event", ...event, imageUrl: "https://vrdex.test/poster.png" });
-    assert.equal(out.status, writes === 2 ? "succeeded" : "rejected");
-    assert.equal(calls.filter((c) => c.method).length, writes);
-    if (writes === 2) assert.equal("imageId" in calls.at(-1).body, false);
+    assert.equal(out.status, "rejected");
+    assert.equal(out.code, code);
+    assert.deepEqual(calls.filter((c) => c.method).map((c) => c.path), ["/file/image"]);
   }
 });

@@ -312,13 +312,10 @@ export class ClubProvider {
         const form = new FormData();
         form.set("file", new Blob([artwork], { type: "image/png" }), "artwork.png");
         form.set("tag", "gallery");
-        try {
-          plan.body.imageId = id(object(await this.request("/file/image", { method: "POST", form })).id, "file");
-        } catch (error) {
-          // A refused or malformed upload drops the artwork, not the event.
-          // Authorization, budget and transport failures still stop the write.
-          if (!(error instanceof VrchatProviderError) || !["provider_error", "schema_drift", "invalid_input"].includes(error.category)) throw error;
-        }
+        // A refused or malformed upload rejects the operation; the event write is not sent.
+        const file = object(await this.request("/file/image", { method: "POST", form }));
+        if (!matches(file.id, "file")) fail("schema_drift");
+        plan.body.imageId = file.id;
       }
       submitted = true;
       const result = await this.request(plan.path, { method: plan.method, allowEmptyResponse: plan.allowEmptyResponse, ...(plan.body === undefined ? {} : { body: plan.body }) });

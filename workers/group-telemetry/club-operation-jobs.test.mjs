@@ -366,3 +366,28 @@ test("calendar list authorizes before its first calendar read and completes with
   assert.deepEqual(sends.filter((s) => s.op === "budget").map((s) => s.body.requestCount), [1, 2]);
   assert.deepEqual(Object.keys(sends.at(-1).body.result).sort(), ["calendarEvents", "calendarEventsTruncated"]);
 });
+test("an event write held back after the artwork upload stays a definite unsent rejection", async () => {
+  const { args, order, sends } = setup({ payload: { kind: "create_calendar_event", ...event, imageUrl: "https://vrdex.test/poster.png" } });
+  const request = args.provider.request;
+  args.provider.request = async (path, options) => {
+    const value = await request(path, options);
+    if (path === "/file/image") await args.pause(60000);
+    return value;
+  };
+  assert.deepEqual(await executeClubOperation(args), { processed: true, status: "rejected", code: "submission_not_attempted" });
+  assert.equal(order.filter((x) => x === "provider-write").length, 1);
+  assert.equal(sends.at(-1).op, "club_operation_complete");
+  assert.equal(sends.at(-1).body.status, "rejected");
+  assert.equal(sends.at(-1).body.code, "submission_not_attempted");
+});
+test("a refused artwork upload completes rejected with its own code and no event write", async () => {
+  const { args, order, sends } = setup({ payload: { kind: "create_calendar_event", ...event, imageUrl: "https://vrdex.test/poster.png" } });
+  const request = args.provider.request;
+  args.provider.request = async (path, options) => {
+    if (path === "/file/image") { order.push("provider-write"); throw new VrchatProviderError("x", { status: 403, category: "provider_error" }); }
+    return request(path, options);
+  };
+  assert.equal((await executeClubOperation(args)).status, "rejected");
+  assert.equal(order.filter((x) => x === "provider-write").length, 1);
+  assert.deepEqual([sends.at(-1).op, sends.at(-1).body.status, sends.at(-1).body.code], ["club_operation_complete", "rejected", "provider_error"]);
+});

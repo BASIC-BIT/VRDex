@@ -26,7 +26,9 @@ export async function executeClubOperation({ assignment, provider, control, expe
   // This wrapper runs only after all budget/deadline guards, immediately before
   // transport. Authorization alone does not mean a provider write was attempted.
   const transport = { request(path, options) {
-    if (isProviderAttempt(path, options)) transportAttempted = true;
+    // The artwork upload is not the operation's own call: an event write that
+    // never left the worker after it must stay a definite rejection.
+    if (isProviderAttempt(path, options) && path !== "/file/image") transportAttempted = true;
     return provider.request(path, options);
   } };
   const client = budgetedClubProvider({ provider: transport, control, assignment, accountBudget, integrationBudget, pause, shouldStop, clock, deadline: executionDeadline,
@@ -66,7 +68,8 @@ export async function executeClubOperation({ assignment, provider, control, expe
     await control.send("club_operation_reject", { ...claim, code: outcome.code ?? "preflight_failed" });
     return { processed: true, status: "rejected", code: outcome.code, ...failure };
   }
-  if (!transportAttempted) {
+  // A definite rejection (such as a refused artwork upload) keeps its own code.
+  if (!transportAttempted && outcome.status !== "rejected") {
     outcome = { status: "rejected", code: "submission_not_attempted" };
   }
   const result = {};
