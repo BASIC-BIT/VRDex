@@ -1218,6 +1218,36 @@ export default defineSchema({
     scheduledFunctionId: v.optional(v.id("_scheduled_functions")), createdAt: v.number(), updatedAt: v.number(),
   }).index("by_connectorId_eventId_state", ["connectorId", "eventId", "state"])
     .index("by_state_dueAt", ["state", "dueAt"]),
+  discordIntakeMessages: defineTable({
+    connectorId: v.id("eventConnectors"), messageId: v.string(), guildId: v.string(), channelId: v.string(),
+    authorId: v.string(), authorDisplayName: v.string(),
+    // Set at record time only when exactly one VRDex user has verified this Discord ID.
+    authorUserId: v.optional(v.id("users")),
+    content: v.string(), attachments: v.array(v.object({ url: v.string(), contentType: v.string(), byteLength: v.number() })),
+    createdAt: v.number(), editedAt: v.optional(v.number()), deletedAt: v.optional(v.number()), updatedAt: v.number(),
+  }).index("by_connectorId_messageId", ["connectorId", "messageId"])
+    .index("by_connectorId_authorId_createdAt", ["connectorId", "authorId", "createdAt"]),
+  discordIntakeRuns: defineTable({
+    connectorId: v.id("eventConnectors"), authorId: v.string(), triggerMessageIds: v.array(v.string()),
+    scheduledFunctionId: v.optional(v.id("_scheduled_functions")),
+    state: v.union(v.literal("pending"), v.literal("running"), v.literal("done"), v.literal("failed")),
+    decision: v.optional(v.union(
+      v.object({ kind: v.literal("new") }),
+      v.object({ kind: v.literal("update"), slug: v.string() }),
+      v.object({ kind: v.literal("not_event"), reason: v.string() }),
+    )),
+    reason: v.optional(v.string()), draftId: v.optional(v.id("eventIntakeDrafts")), eventId: v.optional(v.id("events")),
+    startedAt: v.optional(v.number()), finishedAt: v.optional(v.number()), createdAt: v.number(),
+  }).index("by_connectorId_authorId_state", ["connectorId", "authorId", "state"])
+    .index("by_connectorId_startedAt", ["connectorId", "startedAt"]),
+  discordIntakeSources: defineTable({
+    connectorId: v.id("eventConnectors"), messageId: v.string(), eventId: v.optional(v.id("events")),
+    draftId: v.optional(v.id("eventIntakeDrafts")), runId: v.id("discordIntakeRuns"), createdAt: v.number(),
+  }).index("by_connectorId_messageId", ["connectorId", "messageId"])
+    .index("by_eventId", ["eventId"]),
+  discordGatewayHeartbeats: defineTable({ instanceId: v.string(), at: v.number(), receivedAt: v.number() })
+    .index("by_instanceId", ["instanceId"])
+    .index("by_receivedAt", ["receivedAt"]),
   eventReports: defineTable({
     eventId: v.id("events"), communityProfileId: v.optional(v.id("profiles")),
     actorUserId: v.optional(v.id("users")), reason: v.string(),
@@ -3017,7 +3047,8 @@ export default defineSchema({
     // could plausibly take.
     issuedAt: v.number(),
     updatedAt: v.number(),
-  }).index("by_userId_discordUserId", ["userId", "discordUserId"]),
+  }).index("by_userId_discordUserId", ["userId", "discordUserId"])
+    .index("by_discordUserId", ["discordUserId"]),
   // Many-to-many association between a profile and an external asset. One
   // community may hold several Discord guilds and VRChat groups (one marked
   // `primary`), and one guild may back several community profiles.
