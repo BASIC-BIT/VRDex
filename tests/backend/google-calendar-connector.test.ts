@@ -546,6 +546,32 @@ describe("google calendar import", () => {
     assert.deepEqual(jobs.map((j) => (j.payload as { item: GoogleCalendarEvent }).item.id), ["g2"]);
   });
 
+  it("reconcile fails on a missing SITE_URL instead of reading it as an unreadable item", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId } = await seedGoogleConnector(t, { direction: "import" });
+    delete process.env.SITE_URL;
+    const fake = fakeFetch(() => Response.json({ items: [googleItem()], timeZone: "America/New_York" }));
+    const job = await runSyncJob(t, { connectorId, kind: "reconcile" });
+    fake.restore();
+    assert.notEqual(job.state, "done");
+    assert.match(job.lastError ?? "", /SITE_URL_MISSING/);
+  });
+
+  it("reconcile never links a private or confidential item to a public event", async () => {
+    for (const visibility of ["private", "confidential"] as const) {
+      const t = convexTest({ schema, modules });
+      const { connectorId, communityProfileId } = await seedGoogleConnector(t, { direction: "bidirectional" });
+      await seedEvent(t, communityProfileId);
+      const fake = fakeFetch(({ url }) => url.pathname.endsWith("/watch")
+        ? Response.json({ resourceId: "res-1", expiration: String(NOW + 604_800_000) })
+        : Response.json({ items: [googleItem({ visibility })], timeZone: "America/New_York" }));
+      await runSyncJob(t, { connectorId, kind: "reconcile" });
+      fake.restore();
+      assert.equal((await t.run((ctx) => ctx.db.query("eventSyncLinks").collect())).length, 0);
+      assert.equal((await t.run((ctx) => ctx.db.query("eventSyncJobs").collect())).filter((j) => j.kind === "import_item").length, 0);
+    }
+  });
+
   it("reconcile queues only what the import window allows", async () => {
     const t = convexTest({ schema, modules });
     const { connectorId } = await seedGoogleConnector(t, { direction: "import" });

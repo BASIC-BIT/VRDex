@@ -11,7 +11,7 @@ import { connectorsEnabled, requireConnectorAuthority } from "./_eventConnectors
 import { enqueueSyncJob, eventIsPublic } from "./_eventSync";
 import { credentialConnectors, ensureWatch, googleCalendarEnabled, googleReauthKey, googleTarget, listCalendars as fetchCalendars, reportStaleWatches, revokeCredentialIfUnused, withGoogleToken, type GoogleCalendarEvent } from "./_googleCalendar";
 import { notifyOps, resolveOps } from "./_opsAlerts";
-import { fieldsFromGoogleEvent, outsideImportWindow } from "./eventSyncKinds/googleCalendar";
+import { fieldsFromGoogleEvent, isPrivateItem, outsideImportWindow } from "./eventSyncKinds/googleCalendar";
 
 export const readCredential = internalQuery({
   args: { credentialId: v.id("connectorCredentials") },
@@ -161,13 +161,17 @@ export const reconcileItems = internalMutation({
     const connector = await db.get(args.connectorId);
     if (connector?.state !== "active") return;
     const importing = connector.direction === "import" || connector.direction === "bidirectional";
+    // Outside the loop's catch: a missing SITE_URL fails the job, it does not make every item unreadable.
+    const site = siteUrl();
     for (const item of args.items as GoogleCalendarEvent[]) {
-      if (item.status === "cancelled" || await linkByExternalId(db, connector._id, item.id)) continue;
+      // A private item stays out of matching too: a link would let a bidirectional export patch it.
+      if (item.status === "cancelled" || isPrivateItem(item) || await linkByExternalId(db, connector._id, item.id)) continue;
       let fields: EventIntakeFields;
       try {
-        fields = fieldsFromGoogleEvent(item, args.calendarTimeZone, siteUrl());
+        fields = fieldsFromGoogleEvent(item, args.calendarTimeZone, site);
       } catch {
-        // It can never import, so a job from every daily sweep would only burn attempts. The poll that lists it queues it once, which is where it alarms.
+        // It can never import, so a job from every daily sweep would only burn attempts. The poll that lists it queues it once;
+        // there it retries on its own job, and its final failure shows in lastError until the next successful job.
         continue;
       }
       const match = await matchEvent(db, connector, fields);

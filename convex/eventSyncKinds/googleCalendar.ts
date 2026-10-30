@@ -112,10 +112,12 @@ export function fieldsFromGoogleEvent(item: GoogleCalendarEvent, calendarTimeZon
   return { ...fields, eventDate, timeTba: false, timezone, start: localTime(startAt, eventDate, timezone), end };
 }
 
+export const isPrivateItem = (item: GoogleCalendarEvent) => item.visibility === "private" || item.visibility === "confidential";
+
 // Private and confidential items, past items, recurring instances more than 60 days out, and spans past the intake's day range never import; "today" is in the item's zone.
 // Callers handle a cancelled item first, so the flag on a linked copy still lands.
 export function outsideImportWindow(item: GoogleCalendarEvent, fields: EventIntakeFields, calendarTimeZone: string): boolean {
-  if (item.visibility === "private" || item.visibility === "confidential") return true;
+  if (isPrivateItem(item)) return true;
   if (!fields.eventDate) return true;
   const today = eventDateForInstant(Date.now(), fields.timezone ?? calendarTimeZone);
   if (fields.eventDate < today || (item.recurringEventId && fields.eventDate > addDays(today, 60))) return true;
@@ -168,7 +170,7 @@ export const googleCalendarHandler: SyncKindHandler = {
         if (item.status !== "cancelled" && outsideImportWindow(item, fieldsFromGoogleEvent(item, list.timeZone, ""), list.timeZone)) continue;
         await ctx.runMutation(internal.googleCalendarConnector.applyImport, args);
       } catch {
-        // One bad item retries and alarms on its own job; the calendar's sync token still moves.
+        // One bad item retries on its own job, and its final failure shows in lastError until the next successful job; the calendar's sync token still moves.
         await ctx.runMutation(internal.googleCalendarConnector.enqueueImportItem, args);
       }
     }
