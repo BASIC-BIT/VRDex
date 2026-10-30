@@ -11,6 +11,7 @@ import { Notice } from "@/components/ui/notice";
 import { cn } from "@/lib/cn";
 import { GoogleCalendarConnect } from "./club-google-calendar";
 import { ClubAccessNotice, useClubWorkspace } from "./club-workspace";
+import { DiscordBoardConnect } from "./discord-board-connect";
 import {
   connectedCalendarIds,
   connectorTargetName,
@@ -122,17 +123,18 @@ function ConnectorRow({
 export function ClubIntegrationsView({
   communitySlug,
   connectors,
-  connect,
   onUpdate,
   onRemove,
   now,
+  connect,
 }: {
   communitySlug: string;
   connectors: readonly Connector[];
-  connect?: ReactNode;
   onUpdate: (connectorId: ConnectorId, patch: ConnectorPatch) => Promise<unknown>;
   onRemove: (connectorId: ConnectorId) => Promise<unknown>;
   now: number;
+  /** Connect controls; the page passes its Convex-backed ones. */
+  connect?: ReactNode;
 }) {
   const [failed, setFailed] = useState(false);
   const run = (action: () => Promise<unknown>) => {
@@ -186,10 +188,15 @@ function ConnectedIntegrations({ communityProfileId, communitySlug }: { communit
     <ClubIntegrationsView
       communitySlug={communitySlug}
       connectors={result.connectors}
-      connect={<GoogleCalendarConnect connectedCalendarIds={connectedCalendarIds(result.connectors)} />}
       now={now}
       onUpdate={(connectorId, patch) => update({ connectorId, ...patch })}
       onRemove={(connectorId) => remove({ connectorId })}
+      connect={
+        <>
+          <GoogleCalendarConnect connectedCalendarIds={connectedCalendarIds(result.connectors)} />
+          <DiscordBoardConnect communityProfileId={communityProfileId} />
+        </>
+      }
     />
   );
 }

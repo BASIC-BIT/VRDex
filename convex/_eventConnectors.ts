@@ -44,6 +44,10 @@ export function connectorsEnabled(): boolean {
   return process.env.VRDEX_EVENT_CONNECTORS_ENABLED === "true";
 }
 
+export function boardEnabled(): boolean {
+  return process.env.VRDEX_CONNECTOR_DISCORD_BOARD_ENABLED === "true";
+}
+
 export const DISCORD_ID = /^\d{17,20}$/;
 
 export async function userAuthSubject(db: DatabaseReader, userId: Id<"users">): Promise<AuthSubject | null> {

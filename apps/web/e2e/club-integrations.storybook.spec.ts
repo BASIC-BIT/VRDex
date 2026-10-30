@@ -1,10 +1,10 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 test("integrations list connectors with direction, mode, and state controls @storybook-visual", async ({ page }) => {
   await page.goto("/iframe.html?id=clubs-integrations--connectors&viewMode=story");
   await expect(page.getByRole("heading", { name: "Integrations", level: 1 })).toBeVisible();
   for (const label of ["Google Calendar", "Event board", "Discord events", "Discord", "VRChat calendar"])
-    await expect(page.getByText(label, { exact: true })).toBeVisible();
+    await expect(page.getByRole("list").getByText(label, { exact: true })).toBeVisible();
   await expect(page.getByText("Notion", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Synced 5 minutes ago", { exact: true })).toBeVisible();
   await expect(page.getByText("Needs reconnecting", { exact: true })).toBeVisible();
@@ -32,16 +32,29 @@ test("an empty integrations page shows only its heading @storybook-visual", asyn
   await expect(page.getByRole("list")).toHaveCount(0);
 });
 
-const capture = async (page: import("@playwright/test").Page, name: string) => {
-  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") await page.screenshot({ path: `../../.cache/artifacts/club-integrations-${name}-${test.info().project.name}.png`, fullPage: true });
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+const capture = async (page: Page, name: string) => {
+  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") await page.screenshot({ path: `../../.cache/artifacts/${name}.png`, fullPage: true });
 };
+// Each board state also has to fit the narrowest phone the account pages support.
+async function captureBoard(page: Page, state: string) {
+  const fits = () => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
+  await capture(page, `club-integrations-board-${state}-${test.info().project.name}`);
+  expect(await fits()).toBe(true);
+  await page.setViewportSize({ width: 375, height: 812 });
+  await capture(page, `club-integrations-board-${state}-${test.info().project.name}-375`);
+  expect(await fits()).toBe(true);
+}
+
+async function captureGoogle(page: Page, name: string) {
+  await capture(page, `club-integrations-${name}-${test.info().project.name}`);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+}
 
 test("Google Calendar connect is a link to the OAuth start route @storybook-visual", async ({ page }) => {
   await page.goto("/iframe.html?id=clubs-integrations--google-connect&viewMode=story");
   await expect(page.getByRole("link", { name: "Connect Google Calendar" })).toHaveAttribute("href", "/api/connectors/google/start?community=afterhours");
   await expect(page.getByRole("alert")).toHaveCount(0);
-  await capture(page, "google-connect");
+  await captureGoogle(page, "google-connect");
 });
 
 test("the Google calendar picker lists the primary calendar first and saves the choice @storybook-visual", async ({ page }) => {
@@ -53,7 +66,7 @@ test("the Google calendar picker lists the primary calendar first and saves the 
   await expect(direction.locator("option")).toHaveText(["Import", "Export", "Both", "Off"]);
   await expect(direction).toHaveValue("import");
   await expect(page.getByRole("link", { name: "Connect Google Calendar" })).toHaveCount(0);
-  await capture(page, "google-picker");
+  await captureGoogle(page, "google-picker");
 
   await calendar.selectOption("afterhours@group.calendar.google.com");
   await direction.selectOption("bidirectional");
@@ -71,14 +84,14 @@ test("a Google row that needs reconnecting links back through OAuth @storybook-v
   await expect(page.getByRole("button", { name: "Disconnect" })).toBeVisible();
   await expect(page.getByText("Needs reconnecting", { exact: true })).toBeVisible();
   await expect(page.getByText("GOOGLE_REAUTH_REQUIRED")).toHaveCount(0);
-  await capture(page, "google-reconnect");
+  await captureGoogle(page, "google-reconnect");
 });
 
 test("a failed Google connect shows the error notice @storybook-visual", async ({ page }) => {
   await page.goto("/iframe.html?id=clubs-integrations--google-connect-failed&viewMode=story");
   await expect(page.getByRole("alert")).toHaveText("Google Calendar did not connect. Try again.");
   await expect(page.getByRole("link", { name: "Connect Google Calendar" })).toBeVisible();
-  await capture(page, "google-failed");
+  await captureGoogle(page, "google-failed");
 });
 
 test("an empty calendar list shows the error notice and Connect, not a blank select @storybook-visual", async ({ page }) => {
@@ -86,14 +99,14 @@ test("an empty calendar list shows the error notice and Connect, not a blank sel
   await expect(page.getByRole("alert")).toHaveText("Google Calendar did not connect. Try again.");
   await expect(page.getByRole("link", { name: "Connect Google Calendar" })).toBeVisible();
   await expect(page.getByRole("combobox")).toHaveCount(0);
-  await capture(page, "google-no-calendars");
+  await captureGoogle(page, "google-no-calendars");
 });
 
 test("a failed connect still shows its notice when Connect is switched off @storybook-visual", async ({ page }) => {
   await page.goto("/iframe.html?id=clubs-integrations--google-disabled-failed&viewMode=story");
   await expect(page.getByRole("alert")).toHaveText("Google Calendar did not connect. Try again.");
   await expect(page.getByRole("link", { name: "Connect Google Calendar" })).toHaveCount(0);
-  await capture(page, "google-disabled-failed");
+  await captureGoogle(page, "google-disabled-failed");
 });
 
 test("Save is disabled while the request runs and a failure can be retried @storybook-visual", async ({ page }) => {
@@ -103,4 +116,37 @@ test("Save is disabled while the request runs and a failure can be retried @stor
   await expect(save).toBeDisabled();
   await expect(page.getByRole("alert")).toHaveText("Try again.");
   await expect(save).toBeEnabled();
+});
+
+test("the event board connect button starts closed @storybook-visual", async ({ page }) => {
+  await page.goto("/iframe.html?id=clubs-integrations--board-closed&viewMode=story");
+  const toggle = page.getByRole("button", { name: "Event board" });
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByRole("combobox", { name: "Server" })).toHaveCount(0);
+  await captureBoard(page, "closed");
+  await toggle.click();
+  await expect(page.getByRole("combobox", { name: "Server" })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Channel" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Connect", exact: true })).toBeDisabled();
+});
+
+test("the event board form connects a chosen channel and closes @storybook-visual", async ({ page }) => {
+  await page.goto("/iframe.html?id=clubs-integrations--board-open&viewMode=story");
+  const server = page.getByRole("combobox", { name: "Server" });
+  const channel = page.getByRole("combobox", { name: "Channel" });
+  const connect = page.getByRole("button", { name: "Connect", exact: true });
+  await expect(server).toHaveValue("123456789012345678");
+  await expect(channel.locator("option:not([hidden])")).toHaveText(["announcements", "upcoming-events"]);
+  await expect(connect).toBeDisabled();
+  await channel.selectOption({ label: "announcements" });
+  await expect(connect).toBeEnabled();
+  await captureBoard(page, "open");
+  await server.selectOption({ label: "Afterhours Staff" });
+  await expect(channel).toHaveValue("");
+  await expect(connect).toBeDisabled();
+  await channel.selectOption({ label: "staff-board" });
+  await connect.click();
+  await expect(server).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Event board" })).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByRole("list").getByText("staff-board", { exact: true })).toBeVisible();
 });

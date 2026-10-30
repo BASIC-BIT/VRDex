@@ -3,10 +3,11 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, query, type MutationCtx } from "./_generated/server";
 import { requireActiveBrowserSessionSubject } from "./_browserSessionAuthority";
 import {
-  allowedDirections, connectorDirection, connectorKind, connectorMode, connectorState, connectorTarget, connectorsEnabled,
+  allowedDirections, boardEnabled, connectorDirection, connectorKind, connectorMode, connectorState, connectorTarget, connectorsEnabled,
   DISCORD_ID, requireConnectorAuthority, type ConnectorDirection, type ConnectorKind,
 } from "./_eventConnectors";
 import { enqueueSyncJob, failureAlertKey } from "./_eventSync";
+import { MINIMUM_COMMUNITY_CONTROL_LEVEL, requireControlProof } from "./_externalControl";
 import { googleCalendarEnabled, revokeCredentialIfUnused } from "./_googleCalendar";
 import { resolveOps } from "./_opsAlerts";
 
@@ -86,8 +87,11 @@ export const create = mutation({
     await requireConnectorAuthority(ctx, args.communityProfileId, userId);
     if (args.kind === "notion") return fail("CONNECTOR_KIND_RESERVED");
     if (args.kind === "google_calendar" && !googleCalendarEnabled()) fail("CONNECTOR_KIND_DISABLED");
+    if (args.kind === "discord_board" && !boardEnabled()) fail("CONNECTOR_KIND_DISABLED");
     requireDirection(args.kind, args.direction);
     requireTarget(args.kind, args.target);
+    // The bot posts the board as VRDex, so the staffer must prove the guild it posts into.
+    if (args.kind === "discord_board") await requireControlProof(ctx.db, userId, "discord_guild", args.target.guildId!, MINIMUM_COMMUNITY_CONTROL_LEVEL);
     const credential = args.credentialId ? await ctx.db.get(args.credentialId) : null;
     if (args.credentialId && (credential?.state !== "active" || credential.ownerUserId !== userId)) fail("CONNECTOR_CREDENTIAL");
     if (args.kind === "google_calendar" && credential?.provider !== "google") fail("CONNECTOR_CREDENTIAL");
