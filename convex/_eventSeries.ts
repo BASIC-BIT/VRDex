@@ -3,7 +3,13 @@ import type { AuthSubject } from "./_communityAuthority";
 import { sanitizeEventDraftInput, type EventOwnerDraftInput } from "./_eventInputs";
 import { eventOutputIsAuthorized } from "./_eventOutputSetup";
 import { eventDateForInstant } from "./_eventSchedule";
-import { SERIES_OWNED_EVENT_FIELDS, type SeriesOwnedEventField, type SeriesRule } from "./_eventSeriesModel";
+import {
+  SERIES_HORIZON_DAYS,
+  SERIES_OWNED_EVENT_FIELDS,
+  type SeriesOwnedEventField,
+  type SeriesRepeat,
+  type SeriesRule,
+} from "./_eventSeriesModel";
 import { enqueueEventSync } from "./_eventSync";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader, DatabaseWriter, MutationCtx } from "./_generated/server";
@@ -340,4 +346,82 @@ export async function materializeSeries(
     if (template && event) await copyProgram(db, template, event, now);
   }
   return result;
+}
+
+function localTime(instant: number, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-GB", { timeZone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(instant);
+}
+
+/**
+ * Turns a published timed event into the first occurrence of a new series, then materialises the rest.
+ * The event is linked even when it is already past (the one exception to "past nights are never changed");
+ * materialisation still starts from today, so nothing earlier is backfilled.
+ */
+export async function createSeriesFromEvent(
+  ctx: MutationCtx,
+  event: Doc<"events">,
+  repeat: SeriesRepeat,
+  authorityUserId: Id<"users">,
+  now: number,
+): Promise<{ seriesId: Id<"eventSeries">; created: number }> {
+  const { startAt, timezone, communityProfileId } = event;
+  if (
+    event.publicationState !== "published" ||
+    event.scheduleKind === "date_only" ||
+    startAt === undefined ||
+    !timezone ||
+    communityProfileId === undefined ||
+    event.seriesId !== undefined
+  ) {
+    throw new Error("Only a published timed event can repeat.");
+  }
+
+  const startsOn = event.eventDate ?? eventDateForInstant(startAt, timezone);
+  const day = Number(startsOn.slice(8, 10));
+  const ordinal = repeat.frequency === "monthly_weekday" ? repeat.ordinal ?? (day >= 29 ? -1 : (Math.ceil(day / 7) as 1 | 2 | 3 | 4)) : repeat.ordinal;
+  const rule: SeriesRule = {
+    frequency: repeat.frequency,
+    weekday: repeat.weekday ?? weekdayOf(toDay(startsOn)),
+    ordinal,
+    startTime: localTime(startAt, timezone),
+    endTime: event.endAt === undefined ? undefined : localTime(event.endAt, timezone),
+    doorsTime: event.doorsOpenAt === undefined ? undefined : localTime(event.doorsOpenAt, timezone),
+  };
+  const bounds = { startsOn, endsOn: repeat.endsOn, count: repeat.count };
+  validateSeriesRule(rule, bounds);
+  // A supplied weekday or ordinal must make the event itself the first occurrence.
+  if (occurrenceDates({ rule, ...bounds }, startsOn, startsOn)[0] !== startsOn) {
+    throw new Error("Repeat weekday must match the event's start day.");
+  }
+
+  // Copied from the stored (already sanitised) event so adoption and override checks see no spurious differences.
+  const world = await linkedPublishedEventWorld(ctx.db, event._id);
+  const seriesId = await ctx.db.insert("eventSeries", {
+    summary: event.summary,
+    venueLabel: event.venueLabel,
+    worldSlug: world?.slug,
+    mediaLinks: event.mediaLinks,
+    watchMode: event.watchMode,
+    watchSurfaceEnabled: event.watchSurfaceEnabled,
+    bannerImageUrl: event.bannerImageUrl,
+    thumbnailImageUrl: event.thumbnailImageUrl,
+    sourceUrl: event.sourceUrl,
+    endsOn: repeat.endsOn,
+    count: repeat.count,
+    communityProfileId,
+    title: event.title,
+    timezone,
+    rule,
+    startsOn,
+    horizonDays: SERIES_HORIZON_DAYS,
+    authorityUserId,
+    state: "active",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await ctx.db.patch(event._id, { seriesId, occurrenceDate: startsOn, overrides: [], updatedAt: now });
+  // Patched directly, so no record helper enqueued it; materialised nights enqueue inside insertCommunityEventRecord.
+  await enqueueEventSync(ctx.db, ctx.scheduler, event._id, "upsert");
+  const { created } = await materializeSeries(ctx, seriesId, now);
+  return { seriesId, created: created.length };
 }

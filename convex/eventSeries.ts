@@ -1,11 +1,14 @@
 import { v } from "convex/values";
 
-import { materializeSeries } from "./_eventSeries";
-import { recurringEventsEnabled } from "./_eventSeriesModel";
+import { requireClubPermission, resolveClubActor } from "./_clubAccess";
+import { createSeriesFromEvent, materializeSeries } from "./_eventSeries";
+import { recurringEventsEnabled, requireRecurringEventsEnabled, seriesRepeatValidator } from "./_eventSeriesModel";
+import { getEventBySlug, validateEventSlug } from "./_eventSlugs";
+import { requireUser } from "./_identity";
 import { notifyOps, resolveOps } from "./_opsAlerts";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { internalAction, internalMutation, internalQuery, query } from "./_generated/server";
+import { internalAction, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 
 type MaterializeResult = { created: Id<"events">[]; adopted: Id<"events">[]; skipped: string[] };
 
@@ -61,4 +64,19 @@ export const materializeAll = createMaterializeAll({ notify: notifyOps, resolve:
 export const isEnabled = query({
   args: {},
   handler: async (): Promise<boolean> => recurringEventsEnabled(),
+});
+
+export const create = mutation({
+  args: { eventSlug: v.string(), repeat: seriesRepeatValidator },
+  handler: async (ctx, { eventSlug, repeat }): Promise<{ seriesId: Id<"eventSeries">; created: number }> => {
+    requireRecurringEventsEnabled();
+    const validation = validateEventSlug(eventSlug);
+    if (!validation.ok) throw new Error("Current event code is invalid.");
+    const event = await getEventBySlug(ctx.db, validation.slug);
+    if (event === null) throw new Error("Event was not found.");
+    // An event without a community has no club to manage it.
+    if (event.communityProfileId === undefined) throw new Error("You do not have access to this action.");
+    requireClubPermission(await resolveClubActor(ctx, event.communityProfileId), "manage_events");
+    return createSeriesFromEvent(ctx, event, repeat, (await requireUser(ctx)).userId, Date.now());
+  },
 });
