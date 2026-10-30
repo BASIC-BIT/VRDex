@@ -587,7 +587,7 @@ it("takes explicit evidence only from new posts, so an older post cannot overwri
   await seedPost(t, connectorId, M1, "Night at Ari, venue Room A, 21:00");
   await record(t, "create", message(M2, { content: "Start   moved\nto 22:00" }));
   const { runId, draftId, claim } = await startRun(t);
-  assert.equal(claim.kind === "run" && claim.sourceText.startsWith(`New or changed posts:\n[message ${M2}]`), true);
+  assert.equal(claim.kind === "run" && claim.modelText.startsWith(`New or changed posts:\n[message ${M2}]`), true);
   const startBefore = (await t.run(ctx => ctx.db.get(eventId)))!.startAt!;
   const base = candidate({ kind: "update", slug: "night-at-ari" });
   const result = await t.mutation(internal.discordIntake.finishRun, { runId, draftId, candidate: { ...base, event: { ...base.event, title: "Renamed", venueLabel: "Room A" }, evidence: [
@@ -695,6 +695,31 @@ it("leaves a field alone when explicit evidence names a null value, except time 
   assert.equal(event.scheduleKind, "date_only");
 });
 
+for (const [name, event, evidence, dateMoves] of [
+  ["a date with no start", { start: null, startDate: dateIn(8), eventDate: dateIn(8) }, [
+    { fieldPath: "event.eventDate", origin: "text", excerpt: "moved to saturday", assessment: "explicit" },
+    { fieldPath: "event.startDate", origin: "text", excerpt: "moved to saturday", assessment: "explicit" },
+  ], true],
+  ["a start the candidate drops", { start: "9pm", startDate: null, timezone: null }, [
+    { fieldPath: "event.start", origin: "text", excerpt: "moved to saturday", assessment: "explicit" },
+  ], false],
+] as const) {
+  it(`keeps the event timed when explicit evidence names ${name}`, async () => {
+    const { t, connectorId, communityProfileId } = await seedDiscordIntake({ mode: "autopublish" });
+    const eventId = await seedEvent(t, communityProfileId, { slug: "night-at-ari" });
+    await linkEvent(t, connectorId, eventId, M1);
+    await record(t, "update", message(M1, { createdAt: Date.now() - 10_000, content: "moved to saturday", editedAt: Date.now() }));
+    const { runId, draftId } = await startRun(t);
+    const before = (await t.run(ctx => ctx.db.get(eventId)))!;
+    const base = candidate({ kind: "update", slug: "night-at-ari" });
+    const result = await t.mutation(internal.discordIntake.finishRun, { runId, draftId, candidate: { ...base, event: { ...base.event, ...event }, evidence } });
+    assert.equal(result.outcome, "updated");
+    const after = (await t.run(ctx => ctx.db.get(eventId)))!;
+    assert.equal(after.scheduleKind, "timed");
+    assert.equal(after.startAt, dateMoves ? before.startAt! + 86_400_000 : before.startAt);
+  });
+}
+
 it("keeps the lineup out of an update that never read the event", async () => {
   const lineupAfter = async (decision: (slug: string) => unknown, expectedUpdatedAt: boolean) => {
     const { t, connectorId, communityProfileId } = await seedDiscordIntake({ mode: "autopublish" });
@@ -735,6 +760,19 @@ it("holds a candidate whose update slug did not resolve", async () => {
   const result = await t.mutation(internal.discordIntake.finishRun, { runId, draftId, candidate: { ...candidate({ kind: "new" }), questions: [{ fieldPath: "decision.slug", reason: "unresolved_event", alternatives: ["night-at-ari"] }] } });
   assert.deepEqual({ outcome: result.outcome, draftId: result.draftId }, { outcome: "draft", draftId });
   assert.equal((await t.run(ctx => ctx.db.query("events").collect())).length, 0);
+});
+
+it("labels posts for the model only and saves plain chronological text on the draft", async () => {
+  const { t, connectorId } = await seedDiscordIntake();
+  await seedPost(t, connectorId, M1, "Friday 9pm");
+  await record(t, "create", message(M2, { content: "flyer" }));
+  const requests: Requests = { bridge: [], model: [] };
+  const runId = (await pendingRun(t))._id;
+  await withModel(routedFetch(t, requests), () => t.action(internal.discordIntakeRun.runPending, { runId }));
+  const sent = requests.model[0].input[0].content.find(part => part.type === "input_text") as { text: string };
+  assert.ok(sent.text.startsWith(`New or changed posts:\n[message ${M2}]`) && sent.text.includes("Earlier posts, for context only:"));
+  const { fields } = await getDraft(t, (await getRun(t, runId)).draftId!);
+  assert.match(fields.sourceText, /^Ari \([^)]+\): Friday 9pm\n\nAri \([^)]+\): flyer$/);
 });
 
 it("alarms when no poster stores, continues text-only, and resolves when one stores again", async test => {

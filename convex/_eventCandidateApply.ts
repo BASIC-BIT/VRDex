@@ -19,7 +19,7 @@ const HELD_PUBLISH_CODES = new Set(["INVALID_EVENT_PATCH", "NEAR_DUPLICATE", "RE
 const errorCode = (error: unknown) => error instanceof ConvexError && typeof error.data === "object" && error.data !== null ? (error.data as { code?: unknown }).code : undefined;
 
 // Evidence paths name candidate fields; map them to the intake field they set.
-function evidenceKey(fieldPath: string): string {
+export function evidenceKey(fieldPath: string): string {
   if (fieldPath === "event.startDate") return "start";
   if (fieldPath === "event.endDate") return "end";
   if (fieldPath.startsWith("lineup.")) return "lineup";

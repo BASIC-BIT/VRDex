@@ -6,7 +6,7 @@ import { action, internalAction, internalMutation, internalQuery, query, type Da
 import { getAccountFeatureAccess } from "./_accountFeatures";
 import { requireActiveBrowserSessionSubject } from "./_browserSessionAuthority";
 import {
-  buildSourceText, clampQuietWindowSeconds, connectDiscordAnnouncements, discordAttachmentValidator, discordBotInviteUrl, discordCommandReplies, discordIntakeEnabled,
+  buildDraftSourceText, buildSourceText, clampQuietWindowSeconds, connectDiscordAnnouncements, discordAttachmentValidator, discordBotInviteUrl, discordCommandReplies, discordIntakeEnabled,
   DISCORD_SNOWFLAKE, discordMessagePayloadValidator, findRunLink, isConnectableChannelType, isDiscordCdnUrl, liveChannelConnectors, pickPosterAttachments, quietWindowMs,
   readableTextChannels, resolveDiscordUserId, sanitizeRunEvidence, type DiscordChannel,
 } from "./_discordIntake";
@@ -150,7 +150,7 @@ export const claimRun = internalMutation({
   returns: v.union(
     v.object({ kind: v.literal("skip"), reason: skipReason }),
     v.object({
-      kind: v.literal("run"), authorityUserId: v.id("users"), mode: connectorMode, sourceText: v.string(), sourceUrl: v.string(),
+      kind: v.literal("run"), authorityUserId: v.id("users"), mode: connectorMode, sourceText: v.string(), modelText: v.string(), sourceUrl: v.string(),
       posters: v.array(discordAttachmentValidator),
       context: v.object({
         trigger: v.literal("discord"), communitySlug: v.string(), connectorId: v.id("eventConnectors"), mode: connectorMode,
@@ -237,7 +237,7 @@ export const claimRun = internalMutation({
     await ctx.db.patch(runId, { state: "running", startedAt: now });
     return {
       kind: "run" as const, authorityUserId: connector.authorityUserId, mode: connector.mode,
-      sourceText: buildSourceText(messages, run.triggerMessageIds), sourceUrl: messageUrl(newest), posters: pickPosterAttachments(triggers, unusedContext),
+      sourceText: buildDraftSourceText(messages), modelText: buildSourceText(messages, run.triggerMessageIds), sourceUrl: messageUrl(newest), posters: pickPosterAttachments(triggers, unusedContext),
       context: { trigger: "discord" as const, communitySlug: community.slug, connectorId: connector._id, mode: connector.mode, priorEvents },
       ...(run.draftId ? { draftId: run.draftId } : {}),
     };

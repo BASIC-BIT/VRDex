@@ -1,6 +1,8 @@
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader, MutationCtx, QueryCtx } from "./_generated/server";
+import { candidatePatch } from "../apps/web/src/lib/event-intake-source";
+import { evidenceKey } from "./_eventCandidateApply";
 import { connectorsEnabled, DISCORD_ID, requireConnectorAuthority } from "./_eventConnectors";
 import { DISCORD_BOT_PERMISSIONS } from "./_discordRest";
 import { getActiveProfileLinks, linkProfileToAsset } from "./_externalControl";
@@ -133,15 +135,23 @@ const SOURCE_TEXT_MAX = 12_000;
 const POSTER_TYPES: readonly string[] = EventPosterDeclarationSchema.shape.contentType.options;
 const live = (messages: Doc<"discordIntakeMessages">[]) => messages.filter(message => message.deletedAt === undefined);
 
+/** The draft's staff-visible source text: live messages oldest first; over the limit the oldest drop first, then the rest truncates. */
+export function buildDraftSourceText(messages: Doc<"discordIntakeMessages">[]): string {
+  const parts = live(messages).sort((a, b) => a.createdAt - b.createdAt).map(postLine);
+  while (parts.length > 1 && parts.join("\n\n").length > SOURCE_TEXT_MAX) parts.shift();
+  return parts.join("\n\n").slice(0, SOURCE_TEXT_MAX);
+}
+
+const postLine = (message: Doc<"discordIntakeMessages">) => `${message.authorDisplayName} (${new Date(message.createdAt).toISOString()}): ${message.content}`;
+
 /**
- * Two labelled sections of live messages, oldest first: the run's new or changed posts with their IDs, then earlier posts for
+ * The model's source text: two labelled sections of live messages, oldest first: the run's new or changed posts with their IDs, then earlier posts for
  * context only. Over the limit the context drops oldest first, then the oldest new posts, then the rest truncates.
  */
 export function buildSourceText(messages: Doc<"discordIntakeMessages">[], triggerMessageIds: string[]): string {
-  const line = (message: Doc<"discordIntakeMessages">) => `${message.authorDisplayName} (${new Date(message.createdAt).toISOString()}): ${message.content}`;
   const rows = live(messages).sort((a, b) => a.createdAt - b.createdAt);
-  const triggers = rows.filter(row => triggerMessageIds.includes(row.messageId)).map(row => `[message ${row.messageId}] ${line(row)}`);
-  const context = rows.filter(row => !triggerMessageIds.includes(row.messageId)).map(line);
+  const triggers = rows.filter(row => triggerMessageIds.includes(row.messageId)).map(row => `[message ${row.messageId}] ${postLine(row)}`);
+  const context = rows.filter(row => !triggerMessageIds.includes(row.messageId)).map(postLine);
   const render = () => [
     ...(triggers.length ? [["New or changed posts:", ...triggers].join("\n")] : []),
     ...(context.length ? [["Earlier posts, for context only:", ...context].join("\n")] : []),
@@ -163,7 +173,7 @@ const squash = (text: string) => text.toLowerCase().replace(/\s+/g, "");
 
 /**
  * Downgrades explicit evidence a run must not act on: text whose excerpt is not in a live trigger post (a new post is the only
- * authority over a field), a field the candidate leaves empty (a patch would clear it), and any lineup entry when `guardLineup`
+ * authority over a field), a field apply would write as empty (a patch would clear it), and any lineup entry when `guardLineup`
  * says the run never read the current lineup (a partial lineup would replace the whole one). An excerpt the model paraphrased
  * fails safe: the field stays out of the patch.
  */
@@ -173,10 +183,11 @@ export function sanitizeRunEvidence(candidate: EventIntakeCandidate, triggers: D
     const needle = squash(excerpt ?? "");
     return origin !== "text" || (needle !== "" && posts.some(post => post.includes(needle)));
   };
-  // Time TBA has no candidate field: its value is derived from the empty start.
+  // Judged on what apply would write, which is not always the evidence path's own value. Time TBA is derived, so it always has one.
+  const written: Record<string, unknown> = candidatePatch(candidate).tentative ?? {};
   const hasValue = (fieldPath: string) => {
-    const value = fieldPath.split(".").reduce<unknown>((parent, key) => (parent as Record<string, unknown> | null | undefined)?.[key], candidate);
-    return fieldPath.endsWith("timeTba") || (value !== null && value !== undefined && !(Array.isArray(value) && value.length === 0));
+    const key = evidenceKey(fieldPath), value = written[key];
+    return key === "timeTba" || (value !== null && value !== undefined && !(Array.isArray(value) && value.length === 0));
   };
   return { ...candidate, evidence: candidate.evidence.map(entry =>
     entry.assessment === "explicit" && (!stated(entry) || !hasValue(entry.fieldPath) || (guardLineup && /^lineup(\.|$)/.test(entry.fieldPath)))
